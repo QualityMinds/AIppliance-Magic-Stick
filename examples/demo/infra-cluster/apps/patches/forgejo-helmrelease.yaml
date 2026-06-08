@@ -1,0 +1,12 @@
+- op: replace
+  path: /spec/values/ingress/hosts/0/host
+  value: forgejo.example.local
+- op: replace
+  path: /spec/values/ingress/tls/0/hosts/0
+  value: forgejo.example.local
+- op: replace
+  path: /spec/values/gitea/config/server/DOMAIN
+  value: forgejo.example.local
+- op: replace
+  path: /spec/values/gitea/config/server/ROOT_URL
+  value: https://forgejo.example.local/

@@ -1,0 +1,6 @@
+[Unit]
+Description=Run ansible-pull for AI appliance host
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -lc '. {{ repo_metadata_env_file }} && REPO_URL="https://${GIT_HOST:-github.com}/${GIT_OWNER}/${GIT_REPO}.git" && ANSIBLE_INVENTORY_PATH="${ANSIBLE_INVENTORY_PATH:-infra-host/inventory/localhost.yml}" && ANSIBLE_PLAYBOOK_PATH="${ANSIBLE_PLAYBOOK_PATH:-infra-host/playbooks/local.yml}" && exec /usr/bin/ansible-pull -U "$REPO_URL" -C "$GIT_BRANCH" -i "$ANSIBLE_INVENTORY_PATH" -e "monorepo_url=$REPO_URL" -e "flux_github_owner=$GIT_OWNER" -e "flux_github_repo=$GIT_REPO" -e "flux_github_branch=$GIT_BRANCH" -e "flux_cluster_path=$FLUX_CLUSTER_PATH" -e "flux_github_token=$FLUX_GITHUB_TOKEN" "$ANSIBLE_PLAYBOOK_PATH"'

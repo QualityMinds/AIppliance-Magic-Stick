@@ -1,0 +1,49 @@
+#cloud-config
+autoinstall:
+  version: 1
+
+  interactive-sections:
+    - storage
+    - identity
+    - ssh
+    - keyboard
+    - locale
+
+  packages:
+    - git
+    - ansible
+    - curl
+    - ca-certificates
+
+  user-data:
+    manage_etc_hosts: true
+
+    write_files:
+      - path: /etc/default/ai-appliance-repo
+        owner: root:root
+        permissions: "0644"
+        content: |
+          # Zentrale (nicht-sensitive) Git-Metadaten fuer Bootstrap, ansible-pull und Flux.
+          GIT_HOST=github.com
+          GIT_OWNER=REPLACE_WITH_GIT_OWNER
+          GIT_REPO=REPLACE_WITH_GIT_REPO
+          GIT_BRANCH=REPLACE_WITH_GIT_BRANCH
+          FLUX_CLUSTER_PATH=deployments/CHANGEME_DEPLOYMENT/infra-cluster/flux-bootstrap
+          ANSIBLE_INVENTORY_PATH=deployments/CHANGEME_DEPLOYMENT/infra-host/inventory/localhost.yml
+          ANSIBLE_PLAYBOOK_PATH=infra-host/playbooks/local.yml
+          FLUX_GITHUB_TOKEN=REPLACE_WITH_FLUX_GITHUB_TOKEN
+
+    runcmd:
+      - >
+        /bin/bash -lc '. /etc/default/ai-appliance-repo &&
+        REPO_URL="https://${GIT_HOST:-github.com}/${GIT_OWNER}/${GIT_REPO}.git" &&
+        ANSIBLE_INVENTORY_PATH="${ANSIBLE_INVENTORY_PATH:-infra-host/inventory/localhost.yml}" &&
+        ANSIBLE_PLAYBOOK_PATH="${ANSIBLE_PLAYBOOK_PATH:-infra-host/playbooks/local.yml}" &&
+        ansible-pull -U "$REPO_URL" -C "$GIT_BRANCH" -i "$ANSIBLE_INVENTORY_PATH"
+        -e "monorepo_url=$REPO_URL"
+        -e "flux_github_owner=$GIT_OWNER"
+        -e "flux_github_repo=$GIT_REPO"
+        -e "flux_github_branch=$GIT_BRANCH"
+        -e "flux_cluster_path=$FLUX_CLUSTER_PATH"
+        -e "flux_github_token=$FLUX_GITHUB_TOKEN"
+        "$ANSIBLE_PLAYBOOK_PATH"'

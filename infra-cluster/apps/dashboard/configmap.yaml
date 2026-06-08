@@ -1,0 +1,655 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-appliance-dashboard-renderer
+  namespace: dashboard
+data:
+  render.sh: |
+    #!/bin/sh
+    set -eu
+
+    html_escape() {
+      printf '%s' "$1" \
+        | sed -e 's/&/\&amp;/g' \
+              -e 's/</\&lt;/g' \
+              -e 's/>/\&gt;/g' \
+              -e 's/"/\&quot;/g' \
+              -e "s/'/\&#39;/g"
+    }
+
+    normalize_whitespace() {
+      printf '%s' "$1" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'
+    }
+
+    title_case() {
+      printf '%s' "$1" | awk '{ for (i = 1; i <= NF; i++) { $i = toupper(substr($i,1,1)) tolower(substr($i,2)) } print }'
+    }
+
+    prettify_name() {
+      raw="$(printf '%s' "$1" | tr '._-' '   ')"
+      title_case "$(normalize_whitespace "$raw")"
+    }
+
+    classify_category() {
+      category="$(normalize_whitespace "$1")"
+      lower="$(printf '%s' "$category" | tr '[:upper:]' '[:lower:]')"
+      case "$lower" in
+        ai|ml|llm)
+          printf '1\tAI'
+          ;;
+        observability|monitoring|metrics)
+          printf '2\tObservability'
+          ;;
+        infrastructure|platform|ops)
+          printf '3\tInfrastructure'
+          ;;
+        other|misc)
+          printf '90\tOther'
+          ;;
+        "")
+          printf '90\tOther'
+          ;;
+        *)
+          printf '50\t%s' "$(title_case "$category")"
+          ;;
+      esac
+    }
+
+    category_from_host() {
+      host_lower="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+      case "$host_lower" in
+        litellm.*|anythingllm.*|openwebui.*|ollama.*)
+          printf 'AI'
+          ;;
+        grafana.*|prometheus.*|alertmanager.*|loki.*)
+          printf 'Observability'
+          ;;
+        argocd.*|flux.*)
+          printf 'Infrastructure'
+          ;;
+        *)
+          printf 'Other'
+          ;;
+      esac
+    }
+
+    icon_from_host() {
+      host_lower="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+      case "$host_lower" in
+        anythingllm.*)
+          printf '💬'
+          ;;
+        litellm.*)
+          printf '🧠'
+          ;;
+        grafana.*)
+          printf '📊'
+          ;;
+        prometheus.*)
+          printf '📈'
+          ;;
+        alertmanager.*)
+          printf '🚨'
+          ;;
+        *)
+          printf ''
+          ;;
+      esac
+    }
+
+    title_from_host() {
+      host="$1"
+      namespace="$2"
+      ingress="$3"
+      host_prefix="${host%%.*}"
+      host_lower="$(printf '%s' "$host_prefix" | tr '[:upper:]' '[:lower:]')"
+      case "$host_lower" in
+        litellm)
+          printf 'LiteLLM'
+          ;;
+        anythingllm)
+          printf 'AnythingLLM'
+          ;;
+        grafana)
+          printf 'Grafana'
+          ;;
+        prometheus)
+          printf 'Prometheus'
+          ;;
+        alertmanager)
+          printf 'Alertmanager'
+          ;;
+        *)
+          if [ -n "$host_prefix" ] && [ "$host_prefix" != "<none>" ]; then
+            prettify_name "$host_prefix"
+          elif [ -n "$ingress" ]; then
+            prettify_name "$ingress"
+          else
+            prettify_name "$namespace"
+          fi
+          ;;
+      esac
+    }
+
+    description_from_host() {
+      host_lower="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+      namespace="$2"
+      case "$host_lower" in
+        litellm.*)
+          printf 'OpenAI-compatible gateway for model routing and API access.'
+          ;;
+        anythingllm.*)
+          printf 'Chat and agent workspace for retrieval-augmented AI workflows.'
+          ;;
+        grafana.*)
+          printf 'Dashboards and visualizations for platform telemetry.'
+          ;;
+        prometheus.*)
+          printf 'Metrics explorer and rule evaluation for the cluster.'
+          ;;
+        alertmanager.*)
+          printf 'Alert routing, grouping, and silencing management.'
+          ;;
+        *)
+          printf 'Auto-discovered ingress endpoint in namespace "%s".' "$namespace"
+          ;;
+      esac
+    }
+
+    slugify() {
+      printf '%s' "$1" \
+        | tr '[:upper:]' '[:lower:]' \
+        | sed -e 's/[^a-z0-9]/-/g' -e 's/-\{2,\}/-/g' -e 's/^-//' -e 's/-$//'
+    }
+
+    normalize_order() {
+      value="$(normalize_whitespace "$1")"
+      if printf '%s' "$value" | grep -Eq '^-?[0-9]+$'; then
+        printf '%s' "$value"
+      else
+        printf '1000'
+      fi
+    }
+
+    while true; do
+      tmp="$(mktemp /html/index.XXXXXX)"
+      entries_raw="$(mktemp /tmp/dashboard-entries.XXXXXX)"
+      entries_sorted="$(mktemp /tmp/dashboard-sorted.XXXXXX)"
+      sections_tmp="$(mktemp /tmp/dashboard-sections.XXXXXX)"
+      links_tmp="$(mktemp /tmp/dashboard-links.XXXXXX)"
+
+      rendered_at="$(date -u '+%Y-%m-%d %H:%M:%SZ')"
+
+      kubectl get ingresses.networking.k8s.io -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"|"}{.metadata.name}{"|"}{.metadata.annotations.dashboard\.ai-appliance\.io/title}{"|"}{.metadata.annotations.dashboard\.ai-appliance\.io/description}{"|"}{.metadata.annotations.dashboard\.ai-appliance\.io/icon}{"|"}{.metadata.annotations.dashboard\.ai-appliance\.io/category}{"|"}{.metadata.annotations.dashboard\.ai-appliance\.io/order}{"|"}{range .spec.rules[*]}{.host}{","}{end}{"\n"}{end}' \
+        | while IFS='|' read -r namespace ingress ann_title ann_description ann_icon ann_category ann_order hosts; do
+            [ -z "${hosts:-}" ] && continue
+            for host in $(printf '%s' "$hosts" | tr ',' ' '); do
+              [ -z "$host" ] && continue
+              [ "$host" = "<none>" ] && continue
+              [ "$host" = "dashboard.example.local" ] && continue
+
+              title="$(normalize_whitespace "$ann_title")"
+              [ -n "$title" ] || title="$(title_from_host "$host" "$namespace" "$ingress")"
+
+              description="$(normalize_whitespace "$ann_description")"
+              [ -n "$description" ] || description="$(description_from_host "$host" "$namespace")"
+
+              icon="$(normalize_whitespace "$ann_icon")"
+              [ -n "$icon" ] || icon="$(icon_from_host "$host")"
+
+              category="$(normalize_whitespace "$ann_category")"
+              [ -n "$category" ] || category="$(category_from_host "$host")"
+
+              rank_and_label="$(classify_category "$category")"
+              category_rank="$(printf '%s' "$rank_and_label" | cut -f1)"
+              category_label="$(printf '%s' "$rank_and_label" | cut -f2-)"
+              category_slug="$(slugify "$category_label")"
+
+              order="$(normalize_order "$ann_order")"
+
+              printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+                "$category_rank" "$category_label" "$order" "$title" "$host" "$description" "$namespace" "$ingress" "$icon" "$category_slug" >> "$entries_raw"
+            done
+          done
+
+      LC_ALL=C sort -t "$(printf '\t')" -k1,1n -k2,2f -k3,3n -k4,4f -k5,5f "$entries_raw" > "$entries_sorted"
+
+      cat <<'HTML' > "$tmp"
+    <!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>AI Appliance Dashboard</title>
+      <style>
+        :root {
+          color-scheme: dark;
+          --bg: #050910;
+          --panel: rgba(17, 24, 39, 0.82);
+          --panel-strong: rgba(10, 16, 30, 0.95);
+          --text: #e2e8f0;
+          --muted: #9fb0c8;
+          --line: rgba(148, 163, 184, 0.2);
+          --accent: #7dd3fc;
+          --accent-strong: #22d3ee;
+          --good: #86efac;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+          margin: 0;
+          font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+          background: radial-gradient(circle at top, #0f1a31, #050910 60%);
+          color: var(--text);
+          min-height: 100vh;
+        }
+
+        .page {
+          width: min(1120px, 100% - 2.5rem);
+          margin: 2rem auto 3rem;
+          display: grid;
+          gap: 1.5rem;
+        }
+
+        .hero {
+          background: linear-gradient(130deg, rgba(34, 211, 238, 0.18), rgba(15, 23, 42, 0.92));
+          border: 1px solid rgba(125, 211, 252, 0.25);
+          border-radius: 24px;
+          padding: clamp(1.3rem, 2vw, 2rem);
+          box-shadow: 0 18px 50px rgba(2, 8, 23, 0.45);
+        }
+
+        .eyebrow {
+          margin: 0;
+          text-transform: uppercase;
+          letter-spacing: 0.09em;
+          font-size: 0.75rem;
+          color: var(--accent);
+          font-weight: 700;
+        }
+
+        h1 {
+          margin: 0.35rem 0 0;
+          font-size: clamp(1.8rem, 3.6vw, 2.6rem);
+          line-height: 1.2;
+        }
+
+        .subtitle {
+          margin: 0.8rem 0 0;
+          color: var(--muted);
+          max-width: 62ch;
+        }
+
+        .helper {
+          margin: 0.65rem 0 0;
+          color: var(--muted);
+          font-size: 0.9rem;
+        }
+
+        .hero-meta {
+          margin-top: 1rem;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.65rem;
+          color: #dbeafe;
+          font-size: 0.88rem;
+        }
+
+        .chip {
+          border: 1px solid var(--line);
+          border-radius: 999px;
+          padding: 0.35rem 0.7rem;
+          background: rgba(15, 23, 42, 0.45);
+        }
+
+        .controls {
+          margin-top: 1rem;
+          display: grid;
+          gap: 0.9rem;
+        }
+
+        .search {
+          width: 100%;
+          border: 1px solid var(--line);
+          border-radius: 12px;
+          background: rgba(15, 23, 42, 0.75);
+          color: var(--text);
+          font-size: 0.96rem;
+          padding: 0.72rem 0.88rem;
+          transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .search:focus {
+          outline: none;
+          border-color: rgba(34, 211, 238, 0.75);
+          box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.18);
+        }
+
+        .quick-links {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.5rem;
+        }
+
+        .quick-links a {
+          display: inline-block;
+          border-radius: 999px;
+          text-decoration: none;
+          padding: 0.36rem 0.7rem;
+          border: 1px solid var(--line);
+          color: #dbeafe;
+          background: rgba(15, 23, 42, 0.6);
+          transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+        }
+
+        .quick-links a:hover {
+          transform: translateY(-1px);
+          border-color: rgba(34, 211, 238, 0.9);
+          background: rgba(15, 23, 42, 0.95);
+        }
+
+        .category {
+          background: var(--panel);
+          border: 1px solid var(--line);
+          border-radius: 18px;
+          padding: 1.1rem;
+          backdrop-filter: blur(6px);
+        }
+
+        .category-head {
+          display: flex;
+          align-items: baseline;
+          justify-content: space-between;
+          gap: 0.75rem;
+          margin-bottom: 0.95rem;
+        }
+
+        .category h2 {
+          margin: 0;
+          font-size: 1.1rem;
+        }
+
+        .count {
+          color: var(--muted);
+          font-size: 0.84rem;
+        }
+
+        .cards {
+          display: grid;
+          gap: 0.85rem;
+          grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        }
+
+        .app-card {
+          display: grid;
+          gap: 0.7rem;
+          padding: 1rem;
+          border-radius: 14px;
+          border: 1px solid rgba(100, 116, 139, 0.28);
+          background: var(--panel-strong);
+          transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .app-card:hover {
+          transform: translateY(-3px);
+          border-color: rgba(34, 211, 238, 0.82);
+          box-shadow: 0 16px 32px rgba(0, 0, 0, 0.35);
+        }
+
+        .title-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.65rem;
+        }
+
+        .app-title {
+          margin: 0;
+          font-size: 1.03rem;
+          line-height: 1.3;
+        }
+
+        .icon {
+          font-size: 1.3rem;
+        }
+
+        .description {
+          margin: 0;
+          color: var(--muted);
+          font-size: 0.9rem;
+          min-height: 2.2rem;
+        }
+
+        .app-url {
+          color: var(--accent);
+          text-decoration: none;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+          font-size: 0.82rem;
+          overflow-wrap: anywhere;
+        }
+
+        .app-url:hover {
+          color: var(--accent-strong);
+          text-decoration: underline;
+        }
+
+        .meta {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.45rem;
+        }
+
+        .badge {
+          border-radius: 999px;
+          border: 1px solid rgba(125, 211, 252, 0.3);
+          background: rgba(30, 41, 59, 0.85);
+          color: #cbd5e1;
+          font-size: 0.75rem;
+          padding: 0.2rem 0.55rem;
+          white-space: nowrap;
+        }
+
+        .badge.category {
+          border-color: rgba(34, 211, 238, 0.45);
+          color: #99f6e4;
+        }
+
+        .badge.namespace {
+          color: var(--good);
+        }
+
+        .empty,
+        .search-empty {
+          border: 1px dashed rgba(148, 163, 184, 0.35);
+          border-radius: 14px;
+          padding: 1rem;
+          color: var(--muted);
+          text-align: center;
+          background: rgba(15, 23, 42, 0.5);
+        }
+
+        footer {
+          color: var(--muted);
+          text-align: center;
+          font-size: 0.82rem;
+        }
+
+        @media (max-width: 680px) {
+          .page {
+            width: min(1120px, 100% - 1.1rem);
+            margin-top: 1rem;
+          }
+
+          .hero {
+            border-radius: 18px;
+          }
+
+          .category {
+            border-radius: 14px;
+            padding: 0.9rem;
+          }
+        }
+      </style>
+    </head>
+    <body>
+      <main class="page">
+        <header class="hero">
+          <p class="eyebrow">AI Appliance Platform</p>
+          <h1>AI Appliance Dashboard</h1>
+          <p class="subtitle">Discover platform applications from Kubernetes Ingress resources in one polished landing page.</p>
+          <p class="helper">Entries are auto-discovered from ingresses and can be curated with <code>dashboard.ai-appliance.io/*</code> annotations.</p>
+          <div class="hero-meta">
+            <span class="chip">Last updated: <strong>
+    HTML
+      printf '%s' "$(html_escape "$rendered_at")" >> "$tmp"
+      cat <<'HTML' >> "$tmp"
+            </strong></span>
+            <span class="chip">Refresh cadence: every 30s</span>
+          </div>
+          <div class="controls">
+            <input id="search" class="search" type="search" placeholder="Search applications, namespace, ingress, or URL" aria-label="Search applications" />
+            <nav class="quick-links" aria-label="Jump to category">
+    HTML
+
+      if [ -s "$entries_sorted" ]; then
+        current_category=''
+        current_slug=''
+        current_count=0
+
+        while IFS="$(printf '\t')" read -r category_rank category_label order title host description namespace ingress icon category_slug; do
+          [ -n "$host" ] || continue
+
+          if [ "$category_label" != "$current_category" ]; then
+            if [ -n "$current_category" ]; then
+              printf '          </div>\n        </section>\n' >> "$sections_tmp"
+            fi
+            current_category="$category_label"
+            current_slug="$category_slug"
+            current_count=0
+
+            printf '              <a href="#category-%s">%s</a>\n' \
+              "$(html_escape "$current_slug")" "$(html_escape "$current_category")" >> "$links_tmp"
+
+            printf '        <section class="category" id="category-%s">\n          <div class="category-head">\n            <h2>%s</h2>\n            <span class="count">\n' \
+              "$(html_escape "$current_slug")" "$(html_escape "$current_category")" >> "$sections_tmp"
+            printf 'Apps discovered in this section</span>\n          </div>\n          <div class="cards">\n' >> "$sections_tmp"
+          fi
+
+          current_count=$((current_count + 1))
+
+          search_data="$(printf '%s %s %s %s %s %s' "$title" "$host" "$description" "$namespace" "$ingress" "$category_label" | tr '[:upper:]' '[:lower:]')"
+          url="http://$host/"
+          escaped_icon="$(html_escape "$icon")"
+
+          printf '            <article class="app-card" data-search="%s">\n' "$(html_escape "$search_data")" >> "$sections_tmp"
+          printf '              <div class="title-row">\n                <h3 class="app-title">%s</h3>\n' "$(html_escape "$title")" >> "$sections_tmp"
+          if [ -n "$icon" ]; then
+            printf '                <span class="icon" aria-hidden="true">%s</span>\n' "$escaped_icon" >> "$sections_tmp"
+          fi
+          printf '              </div>\n' >> "$sections_tmp"
+          printf '              <p class="description">%s</p>\n' "$(html_escape "$description")" >> "$sections_tmp"
+          printf '              <a class="app-url" data-host="%s" href="%s">%s</a>\n' "$(html_escape "$host")" "$(html_escape "$url")" "$(html_escape "$url")" >> "$sections_tmp"
+          printf '              <div class="meta">\n' >> "$sections_tmp"
+          printf '                <span class="badge category">%s</span>\n' "$(html_escape "$category_label")" >> "$sections_tmp"
+          printf '                <span class="badge namespace">namespace: %s</span>\n' "$(html_escape "$namespace")" >> "$sections_tmp"
+          printf '                <span class="badge">ingress: %s</span>\n' "$(html_escape "$ingress")" >> "$sections_tmp"
+          printf '              </div>\n' >> "$sections_tmp"
+          printf '            </article>\n' >> "$sections_tmp"
+        done < "$entries_sorted"
+
+        if [ -n "$current_category" ]; then
+          printf '          </div>\n        </section>\n' >> "$sections_tmp"
+        fi
+
+        cat "$links_tmp" >> "$tmp"
+      else
+        printf '              <a href="#applications">Applications</a>\n' >> "$tmp"
+      fi
+
+      cat <<'HTML' >> "$tmp"
+            </nav>
+          </div>
+        </header>
+
+        <section id="applications">
+          <div id="search-empty" class="search-empty" hidden>No applications match your search.</div>
+    HTML
+
+      if [ -s "$entries_sorted" ]; then
+        cat "$sections_tmp" >> "$tmp"
+      else
+        cat <<'HTML' >> "$tmp"
+          <div class="empty">
+            <strong>No applications discovered yet.</strong><br />
+            Add an Ingress resource and it will appear here automatically.
+          </div>
+    HTML
+      fi
+
+      cat <<'HTML' >> "$tmp"
+        </section>
+
+        <footer>
+          Generated by the dashboard renderer using cluster ingress discovery.
+        </footer>
+      </main>
+      <script>
+        (() => {
+          const searchInput = document.getElementById('search');
+          const cards = Array.from(document.querySelectorAll('.app-card'));
+          const sections = Array.from(document.querySelectorAll('.category'));
+          const searchEmpty = document.getElementById('search-empty');
+
+          if (!searchInput || cards.length === 0) {
+            return;
+          }
+
+          const applyFilter = () => {
+            const query = searchInput.value.trim().toLowerCase();
+            let visibleCards = 0;
+
+            cards.forEach((card) => {
+              const haystack = card.dataset.search || '';
+              const matches = query === '' || haystack.includes(query);
+              card.style.display = matches ? '' : 'none';
+              if (matches) {
+                visibleCards += 1;
+              }
+            });
+
+            sections.forEach((section) => {
+              const hasVisible = Array.from(section.querySelectorAll('.app-card')).some((card) => card.style.display !== 'none');
+              section.style.display = hasVisible ? '' : 'none';
+            });
+
+            if (searchEmpty) {
+              searchEmpty.hidden = visibleCards !== 0;
+            }
+          };
+
+          searchInput.addEventListener('input', applyFilter);
+        })();
+
+        (() => {
+          const port = window.location.port;
+          const proto = window.location.protocol;
+          const isDefault = !port
+            || (proto === 'http:' && port === '80')
+            || (proto === 'https:' && port === '443');
+          if (isDefault) { return; }
+          document.querySelectorAll('a.app-url[data-host]').forEach((a) => {
+            const url = proto + '//' + a.dataset.host + ':' + port + '/';
+            a.href = url;
+            a.textContent = url;
+          });
+        })();
+      </script>
+    </body>
+    </html>
+    HTML
+
+      mv "$tmp" /html/index.html
+      rm -f "$entries_raw" "$entries_sorted" "$sections_tmp" "$links_tmp"
+      sleep 30
+    done

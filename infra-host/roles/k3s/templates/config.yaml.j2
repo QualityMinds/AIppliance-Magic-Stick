@@ -1,0 +1,10 @@
+write-kubeconfig-mode: "0644"
+node-name: "{{ node_name }}"
+
+disable:
+  - traefik
+
+kubelet-arg:
+  - "eviction-hard=memory.available<128Mi"
+  - "system-reserved=memory=128Mi,cpu=250m"
+  - "kube-reserved=memory=128Mi,cpu=250m"

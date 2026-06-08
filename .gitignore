@@ -1,0 +1,29 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Ansible
+*.retry
+infra-host/inventory/host_vars/*.vault.yml
+
+# Secrets / local overrides
+*.env
+.env.*
+*.secret
+secrets/
+vault/
+
+# Temporary files
+tmp/
+*.tmp
+*.bak
+
+# Kubernetes local tooling
+kubeconfig
+kubeconfig.yaml

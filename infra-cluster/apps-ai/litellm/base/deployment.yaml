@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litellm
+  namespace: ai
+  annotations:
+    configmap.reloader.stakater.com/reload: litellm-config
+  labels:
+    app: litellm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: litellm
+  template:
+    metadata:
+      labels:
+        app: litellm
+    spec:
+      initContainers:
+        - name: assemble-config
+          image: busybox:1.36
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - cat /litellm-fragments/*.yaml > /litellm-generated/config.yaml
+          volumeMounts:
+            - name: litellm-config
+              mountPath: /litellm-fragments
+              readOnly: true
+            - name: litellm-generated-config
+              mountPath: /litellm-generated
+      containers:
+        - name: litellm
+          image: ghcr.io/berriai/litellm:v1.84.0
+          command:
+            - litellm
+          args:
+            - --host
+            - 0.0.0.0
+            - --port
+            - "4000"
+            - --config
+            - /app/config.yaml
+          ports:
+            - name: http
+              containerPort: 4000
+              protocol: TCP
+          env:
+            - name: LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-masterkey-secret
+                  key: LITELLM_MASTER_KEY
+            - name: AZURE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-azure-secret
+                  key: AZURE_API_KEY
+                  optional: true
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-postgresql-secret
+                  key: POSTGRES_DB
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-postgresql-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-postgresql-secret
+                  key: POSTGRES_PASSWORD
+            - name: DATABASE_URL
+              value: postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@litellm-postgresql.ai.svc.cluster.local:5432/$(POSTGRES_DB)
+          resources:
+            requests:
+              cpu: 200m
+              memory: 1024Mi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+          volumeMounts:
+            - name: litellm-generated-config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+              readOnly: true
+      volumes:
+        - name: litellm-config
+          configMap:
+            name: litellm-config
+        - name: litellm-generated-config
+          emptyDir: {}

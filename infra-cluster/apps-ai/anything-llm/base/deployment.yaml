@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: anything-llm
+  namespace: ai
+  annotations:
+    configmap.reloader.stakater.com/reload: anything-llm-config
+    secret.reloader.stakater.com/reload: qdrant-auth-secret,litellm-masterkey-secret
+  labels:
+    app: anything-llm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: anything-llm
+  template:
+    metadata:
+      labels:
+        app: anything-llm
+    spec:
+      containers:
+        - name: anything-llm
+          image: mintplexlabs/anythingllm:1.12.1
+          ports:
+            - name: http
+              containerPort: 3001
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: anything-llm-config
+            - secretRef:
+                name: qdrant-auth-secret
+          env:
+            - name: LITE_LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-masterkey-secret
+                  key: LITELLM_MASTER_KEY
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            capabilities:
+              add:
+                - SYS_ADMIN
+          volumeMounts:
+            - name: anything-llm-storage
+              mountPath: /app/server/storage
+      volumes:
+        - name: anything-llm-storage
+          persistentVolumeClaim:
+            claimName: anything-llm-storage

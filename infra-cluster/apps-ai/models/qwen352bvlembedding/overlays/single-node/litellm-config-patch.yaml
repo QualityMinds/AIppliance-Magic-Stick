@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-config
+  namespace: ai
+data:
+  30-qwen352bvlembedding.yaml: |
+    - model_name: qwen352bvlembedding
+      litellm_params:
+        model: openai/qwen352bvlembedding
+        api_base: http://qwen352bvlembedding.ai.svc.cluster.local:8000/v1
+        api_key: "none"

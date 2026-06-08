@@ -1,0 +1,55 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../../../infra-cluster/flux-bootstrap
+patches:
+  - target:
+      group: kustomize.toolkit.fluxcd.io
+      version: v1
+      kind: Kustomization
+      name: infrastructure-basis
+      namespace: flux-system
+    patch: |-
+      - op: replace
+        path: /spec/path
+        value: ./examples/demo/infra-cluster/infrastructure-basis
+  - target:
+      group: kustomize.toolkit.fluxcd.io
+      version: v1
+      kind: Kustomization
+      name: infrastructure-ai
+      namespace: flux-system
+    patch: |-
+      - op: replace
+        path: /spec/path
+        value: ./examples/demo/infra-cluster/infrastructure-ai
+  - target:
+      group: kustomize.toolkit.fluxcd.io
+      version: v1
+      kind: Kustomization
+      name: infrastructure-observability
+      namespace: flux-system
+    patch: |-
+      - op: replace
+        path: /spec/path
+        value: ./examples/demo/infra-cluster/infrastructure-observability
+  - target:
+      group: kustomize.toolkit.fluxcd.io
+      version: v1
+      kind: Kustomization
+      name: apps
+      namespace: flux-system
+    patch: |-
+      - op: replace
+        path: /spec/path
+        value: ./examples/demo/infra-cluster/apps
+  - target:
+      group: kustomize.toolkit.fluxcd.io
+      version: v1
+      kind: Kustomization
+      name: apps-ai
+      namespace: flux-system
+    patch: |-
+      - op: replace
+        path: /spec/path
+        value: ./examples/demo/infra-cluster/apps-ai

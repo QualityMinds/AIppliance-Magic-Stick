@@ -1,0 +1,26 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../../../infra-cluster/apps-ai
+patches:
+  - target:
+      group: networking.k8s.io
+      version: v1
+      kind: Ingress
+      name: anything-llm
+      namespace: ai
+    path: patches/anything-llm-ingress.yaml
+  - target:
+      group: helm.toolkit.fluxcd.io
+      version: v2
+      kind: HelmRelease
+      name: kubeopencode
+      namespace: flux-system
+    path: patches/kubeopencode-helmrelease.yaml
+  - target:
+      group: networking.k8s.io
+      version: v1
+      kind: Ingress
+      name: litellm
+      namespace: ai
+    path: patches/litellm-ingress.yaml

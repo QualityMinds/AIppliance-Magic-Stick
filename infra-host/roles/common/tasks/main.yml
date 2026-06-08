@@ -1,0 +1,52 @@
+---
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install base packages
+  ansible.builtin.apt:
+    name:
+      - curl
+      - git
+      - ca-certificates
+      - htop
+      - jq
+      - unzip
+      - nvme-cli
+      - mc
+      - sqlite3
+    state: present
+
+- name: Set timezone to UTC
+  community.general.timezone:
+    name: UTC
+
+- name: Install unattended-upgrades package
+  ansible.builtin.apt:
+    name: unattended-upgrades
+    state: present
+
+- name: Enable unattended-upgrades (security updates only, not enforced)
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "0";
+    owner: root
+    group: root
+    mode: "0644"
+
+# NOPASSWD:ALL is intentionally broad for the MVP so that ansible-pull (run
+# by the user or the ansible-pull-timer service) can use 'become: true'
+# without a password prompt.  This mirrors the sudo rule that cloud-init
+# creates for the 'ai' user during first-boot (see installer/user-data).
+# Restrict to specific commands in a production hardening step.
+- name: Grant ansible user passwordless sudo
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/ansible-nopasswd
+    content: "{{ ansible_facts['user_id'] }} ALL=(ALL) NOPASSWD:ALL\n"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s

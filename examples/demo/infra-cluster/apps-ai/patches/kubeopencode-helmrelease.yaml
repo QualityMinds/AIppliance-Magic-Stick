@@ -1,0 +1,3 @@
+- op: replace
+  path: /spec/values/server/ingress/hosts/0/host
+  value: kubeopencode.example.local
