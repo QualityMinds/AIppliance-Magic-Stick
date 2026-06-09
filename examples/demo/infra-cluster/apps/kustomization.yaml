@@ -10,10 +10,3 @@ patches:
       name: ai-appliance-dashboard
       namespace: dashboard
     path: patches/dashboard-ingress.yaml
-  - target:
-      group: helm.toolkit.fluxcd.io
-      version: v2
-      kind: HelmRelease
-      name: forgejo
-      namespace: flux-system
-    path: patches/forgejo-helmrelease.yaml

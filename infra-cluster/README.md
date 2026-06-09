@@ -12,7 +12,7 @@ This directory must not contain real deployment domains, Flux repository values,
 | `infrastructure-basis` | Namespaces, ingress-nginx, cert-manager, secret generator, reloader, kdns |
 | `infrastructure-ai` | NVIDIA GPU Operator and GPU time slicing |
 | `infrastructure-observability` | Prometheus stack, Loki, Promtail, OpenTelemetry, Grafana dashboards |
-| `apps` | Dashboard and Forgejo bases |
+| `apps` | Dashboard base |
 | `apps-ai` | LiteLLM, AnythingLLM, Qdrant, KubeOpenCode, and reusable model bases |
 
 ## Deployment Overlays

@@ -1,8 +1,0 @@
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-resources:
-  - helmrepository.yaml
-  - helmrelease.yaml
-  - secret-admin.yaml
-  - secret-security.yaml
-  - secret-postgresql.yaml
