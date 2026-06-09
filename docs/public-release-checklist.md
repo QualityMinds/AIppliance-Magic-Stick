@@ -25,6 +25,8 @@ Expected findings should be placeholders, generated-secret annotations, Kubernet
 kubectl kustomize infra-cluster/flux-bootstrap
 kubectl kustomize infra-cluster/apps
 kubectl kustomize infra-cluster/apps-ai
+kubectl kustomize infra-cluster/apps-ai-kubeopencode
+kubectl kustomize infra-cluster/apps-ai-agent-templates
 kubectl kustomize examples/demo/infra-cluster/flux-bootstrap
 ```
 

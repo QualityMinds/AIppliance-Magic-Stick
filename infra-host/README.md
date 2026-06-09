@@ -22,24 +22,23 @@ ANSIBLE_ROLES_PATH=infra-host/roles \
 | `FLUX_CLUSTER_PATH` | `flux_cluster_path` |
 | `ANSIBLE_INVENTORY_PATH` | `ansible_inventory_path` |
 | `ANSIBLE_PLAYBOOK_PATH` | `ansible_playbook_path` |
+| `MAGICSTICK_PUBLIC_REPO` | public template Git URL used by the converge runner |
+| `MAGICSTICK_PUBLIC_REF` | public template tag or commit used by the converge runner |
+| `MAGICSTICK_PUBLIC_CHECKOUT` | public template checkout path |
+| `AI_APPLIANCE_PRIVATE_CHECKOUT` | private deployment checkout path |
 | `FLUX_GITHUB_TOKEN` | `flux_github_token` |
 
-## ansible-pull
+## Converge Runner
 
-A deployment should call the public playbook with its own inventory:
+The `ansible-pull-timer` role installs `/usr/local/sbin/ai-appliance-converge`. The runner:
+
+- updates the pinned public template checkout
+- updates the private deployment checkout
+- runs the public playbook with the private inventory
+- uses `FLUX_GITHUB_TOKEN` through a temporary `GIT_ASKPASS` helper when a token is present
 
 ```bash
-ansible-pull \
-  -U "$REPO_URL" \
-  -C "$GIT_BRANCH" \
-  -i "deployments/<name>/infra-host/inventory/localhost.yml" \
-  -e "monorepo_url=$REPO_URL" \
-  -e "flux_github_owner=$GIT_OWNER" \
-  -e "flux_github_repo=$GIT_REPO" \
-  -e "flux_github_branch=$GIT_BRANCH" \
-  -e "flux_cluster_path=$FLUX_CLUSTER_PATH" \
-  -e "flux_github_token=$FLUX_GITHUB_TOKEN" \
-  infra-host/playbooks/local.yml
+/usr/local/sbin/ai-appliance-converge
 ```
 
 `FLUX_GITHUB_TOKEN` is a secret. Provide it at runtime or through an approved secret management mechanism. Do not commit it.

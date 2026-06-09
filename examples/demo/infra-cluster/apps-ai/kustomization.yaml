@@ -11,13 +11,6 @@ patches:
       namespace: ai
     path: patches/anything-llm-ingress.yaml
   - target:
-      group: helm.toolkit.fluxcd.io
-      version: v2
-      kind: HelmRelease
-      name: kubeopencode
-      namespace: flux-system
-    path: patches/kubeopencode-helmrelease.yaml
-  - target:
       group: networking.k8s.io
       version: v1
       kind: Ingress

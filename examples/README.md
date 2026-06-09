@@ -8,5 +8,6 @@ Safe example overlays for users creating new deployments.
 kubectl kustomize examples/demo/infra-cluster/flux-bootstrap
 kubectl kustomize examples/demo/infra-cluster/apps
 kubectl kustomize examples/demo/infra-cluster/apps-ai
+kubectl kustomize examples/demo/infra-cluster/apps-ai-kubeopencode
 kubectl kustomize examples/demo/infra-cluster/infrastructure-observability
 ```

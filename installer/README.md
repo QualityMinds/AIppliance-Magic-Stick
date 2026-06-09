@@ -9,7 +9,7 @@ These files intentionally contain placeholders only. Copy them into a deployment
 | File | Purpose |
 |---|---|
 | `meta-data` | Example cloud-init instance metadata |
-| `user-data` | Autoinstall config and first `ansible-pull` command |
+| `user-data` | Autoinstall config and first converge runner command |
 
 ## Required Deployment Values
 
@@ -19,7 +19,11 @@ Set these in a deployment-specific copy such as `deployments/<name>/installer/us
 |---|---|
 | `REPLACE_WITH_GIT_OWNER` | GitHub owner or organization, for example `example-org` |
 | `REPLACE_WITH_GIT_REPO` | Repository name |
-| `REPLACE_WITH_GIT_BRANCH` | Branch for `ansible-pull` and Flux |
+| `REPLACE_WITH_GIT_BRANCH` | Private deployment branch for host converge and Flux |
+| `MAGICSTICK_PUBLIC_REPO` | Public template repository to fetch at bootstrap |
+| `MAGICSTICK_PUBLIC_REF` | Pinned public template tag or commit |
+| `MAGICSTICK_PUBLIC_CHECKOUT` | Local checkout path for public template code |
+| `AI_APPLIANCE_PRIVATE_CHECKOUT` | Local checkout path for private deployment code |
 | `deployments/CHANGEME_DEPLOYMENT/infra-cluster/flux-bootstrap` | Replace with the real deployment Flux path |
 | `deployments/CHANGEME_DEPLOYMENT/infra-host/inventory/localhost.yml` | Replace with the real deployment inventory |
 | `REPLACE_WITH_FLUX_GITHUB_TOKEN` | Runtime-only token value; do not commit a real token |

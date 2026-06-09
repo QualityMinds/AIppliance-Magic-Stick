@@ -1,5 +1,13 @@
 ---
-- name: Install ansible-pull systemd service unit
+- name: Install AI appliance converge runner
+  ansible.builtin.copy:
+    src: ai-appliance-converge
+    dest: "{{ ai_appliance_converge_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install converge systemd service unit
   ansible.builtin.template:
     src: ansible-pull.service.j2
     dest: /etc/systemd/system/ansible-pull.service
@@ -8,7 +16,7 @@
     mode: "0644"
   notify: Reload systemd
 
-- name: Install ansible-pull systemd timer unit
+- name: Install converge systemd timer unit
   ansible.builtin.template:
     src: ansible-pull.timer.j2
     dest: /etc/systemd/system/ansible-pull.timer
@@ -20,7 +28,7 @@
 - name: Flush handlers to reload systemd before enabling timer
   ansible.builtin.meta: flush_handlers
 
-- name: Ensure ansible-pull timer is enabled and started
+- name: Ensure converge timer is enabled and started
   ansible.builtin.systemd:
     name: ansible-pull.timer
     enabled: true

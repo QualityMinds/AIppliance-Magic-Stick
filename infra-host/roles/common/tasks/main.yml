@@ -37,8 +37,8 @@
     group: root
     mode: "0644"
 
-# NOPASSWD:ALL is intentionally broad for the MVP so that ansible-pull (run
-# by the user or the ansible-pull-timer service) can use 'become: true'
+# NOPASSWD:ALL is intentionally broad for the MVP so that the converge runner
+# can use 'become: true'
 # without a password prompt.  This mirrors the sudo rule that cloud-init
 # creates for the 'ai' user during first-boot (see installer/user-data).
 # Restrict to specific commands in a production hardening step.

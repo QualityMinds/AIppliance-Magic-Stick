@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../../../infra-cluster/apps-ai-kubeopencode
+patches:
+  - target:
+      group: helm.toolkit.fluxcd.io
+      version: v2
+      kind: HelmRelease
+      name: kubeopencode
+      namespace: flux-system
+    path: patches/kubeopencode-helmrelease.yaml
