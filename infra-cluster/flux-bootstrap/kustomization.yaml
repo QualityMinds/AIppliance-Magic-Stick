@@ -6,4 +6,5 @@ resources:
   - infrastructure-observability.yaml
   - apps.yaml
   - apps-ai.yaml
+  - apps-ai-kubeopencode.yaml
   - apps-ai-agent-templates.yaml
