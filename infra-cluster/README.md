@@ -14,6 +14,7 @@ This directory must not contain real deployment domains, Flux repository values,
 | `infrastructure-observability` | Prometheus stack, Loki, Promtail, OpenTelemetry, Grafana dashboards |
 | `apps` | Dashboard base |
 | `apps-ai` | LiteLLM, AnythingLLM, Qdrant, KubeOpenCode, and reusable model bases |
+| `apps-ai-agent-templates` | KubeOpenCode AgentTemplate resources applied after KubeOpenCode CRDs exist |
 
 ## Deployment Overlays
 
@@ -35,6 +36,7 @@ Concrete deployments should live in private repositories. A private repo can inc
 kubectl kustomize infra-cluster/flux-bootstrap
 kubectl kustomize infra-cluster/apps
 kubectl kustomize infra-cluster/apps-ai
+kubectl kustomize infra-cluster/apps-ai-agent-templates
 kubectl kustomize examples/demo/infra-cluster/flux-bootstrap
 ```
 
