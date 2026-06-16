@@ -28,20 +28,32 @@ autoinstall:
           GIT_OWNER=REPLACE_WITH_GIT_OWNER
           GIT_REPO=REPLACE_WITH_GIT_REPO
           GIT_BRANCH=REPLACE_WITH_GIT_BRANCH
+          FLUX_BOOTSTRAP_MODE=github
           MAGICSTICK_PUBLIC_REPO=https://github.com/QualityMinds/AIppliance-Magic-Stick.git
           MAGICSTICK_PUBLIC_REF=main
+          MAGICSTICK_PUBLIC_REF_KIND=branch
           MAGICSTICK_PUBLIC_CHECKOUT=/opt/ai-appliance/magicstick
           AI_APPLIANCE_PRIVATE_CHECKOUT=/opt/ai-appliance/deployment
           FLUX_CLUSTER_PATH=deployments/CHANGEME_DEPLOYMENT/infra-cluster/flux-bootstrap
+          FLUX_PUBLIC_SYNC_PATH=infra-cluster/profiles/single-node/flux-bootstrap
           ANSIBLE_INVENTORY_PATH=infra-host/inventory/localhost.yml
           ANSIBLE_PLAYBOOK_PATH=infra-host/playbooks/local.yml
+          AI_APPLIANCE_DOMAIN=example.local
+          AI_APPLIANCE_DASHBOARD_HOST=dashboard.example.local
+          AI_APPLIANCE_DASHBOARD_MDNS_NAME=ai-appliance
+          AI_APPLIANCE_ANYTHING_LLM_STORAGE=1Gi
+          AI_APPLIANCE_QDRANT_STORAGE=1Gi
+          AI_APPLIANCE_LITELLM_POSTGRES_STORAGE=1Gi
+          AI_APPLIANCE_LOKI_STORAGE=1Gi
+          AI_APPLIANCE_ALERTMANAGER_STORAGE=1Gi
+          AI_APPLIANCE_PROMETHEUS_STORAGE=1Gi
           FLUX_GITHUB_TOKEN=REPLACE_WITH_FLUX_GITHUB_TOKEN
 
     runcmd:
       - >
         /bin/bash -lc '. /etc/default/ai-appliance-repo &&
         MAGICSTICK_PUBLIC_REPO="${MAGICSTICK_PUBLIC_REPO:-https://github.com/QualityMinds/AIppliance-Magic-Stick.git}" &&
-        MAGICSTICK_PUBLIC_REF="${MAGICSTICK_PUBLIC_REF:-v0.1.7}" &&
+        MAGICSTICK_PUBLIC_REF="${MAGICSTICK_PUBLIC_REF:-main}" &&
         MAGICSTICK_PUBLIC_CHECKOUT="${MAGICSTICK_PUBLIC_CHECKOUT:-/opt/ai-appliance/magicstick}" &&
         mkdir -p "$(dirname "$MAGICSTICK_PUBLIC_CHECKOUT")" &&
         if [ -d "$MAGICSTICK_PUBLIC_CHECKOUT/.git" ]; then

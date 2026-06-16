@@ -1,0 +1,66 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../../flux-bootstrap
+patches:
+  - target:
+      group: kustomize.toolkit.fluxcd.io
+      version: v1
+      kind: Kustomization
+      name: apps
+      namespace: flux-system
+    patch: |-
+      - op: add
+        path: /spec/postBuild/substituteFrom
+        value:
+          - kind: ConfigMap
+            name: ai-appliance-settings
+  - target:
+      group: kustomize.toolkit.fluxcd.io
+      version: v1
+      kind: Kustomization
+      name: apps-ai
+      namespace: flux-system
+    patch: |-
+      - op: replace
+        path: /spec/path
+        value: ./infra-cluster/profiles/single-node/apps-ai
+      - op: add
+        path: /spec/postBuild/substituteFrom
+        value:
+          - kind: ConfigMap
+            name: ai-appliance-settings
+  - target:
+      group: kustomize.toolkit.fluxcd.io
+      version: v1
+      kind: Kustomization
+      name: apps-ai-kubeopencode
+      namespace: flux-system
+    patch: |-
+      - op: add
+        path: /spec/postBuild/substituteFrom
+        value:
+          - kind: ConfigMap
+            name: ai-appliance-settings
+  - target:
+      group: kustomize.toolkit.fluxcd.io
+      version: v1
+      kind: Kustomization
+      name: apps-ai-agent-templates
+      namespace: flux-system
+    patch: |-
+      - op: replace
+        path: /spec/path
+        value: ./infra-cluster/profiles/single-node/apps-ai-agent-templates
+  - target:
+      group: kustomize.toolkit.fluxcd.io
+      version: v1
+      kind: Kustomization
+      name: infrastructure-observability
+      namespace: flux-system
+    patch: |-
+      - op: add
+        path: /spec/postBuild/substituteFrom
+        value:
+          - kind: ConfigMap
+            name: ai-appliance-settings

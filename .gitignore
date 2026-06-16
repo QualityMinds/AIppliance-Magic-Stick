@@ -19,6 +19,11 @@ infra-host/inventory/host_vars/*.vault.yml
 secrets/
 vault/
 
+# Generated installer media
+.installer-cache/
+.installer-work/
+dist/
+
 # Temporary files
 tmp/
 *.tmp

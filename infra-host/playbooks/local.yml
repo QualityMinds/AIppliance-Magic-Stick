@@ -78,9 +78,21 @@
         flux_github_repo: "{{ flux_github_repo | default(repo_metadata_env_map.get('GIT_REPO', ''), true) }}"
         flux_github_branch: "{{ flux_github_branch | default(repo_metadata_env_map.get('GIT_BRANCH', ''), true) }}"
         flux_cluster_path: "{{ flux_cluster_path | default(repo_metadata_env_map.get('FLUX_CLUSTER_PATH', ''), true) }}"
+        flux_bootstrap_mode: "{{ flux_bootstrap_mode | default(repo_metadata_env_map.get('FLUX_BOOTSTRAP_MODE', 'github'), true) }}"
+        flux_public_sync_path: "{{ flux_public_sync_path | default(repo_metadata_env_map.get('FLUX_PUBLIC_SYNC_PATH', 'infra-cluster/profiles/single-node/flux-bootstrap'), true) }}"
         magicstick_public_repo: "{{ magicstick_public_repo | default(repo_metadata_env_map.get('MAGICSTICK_PUBLIC_REPO', 'https://github.com/QualityMinds/AIppliance-Magic-Stick.git'), true) }}"
         magicstick_public_ref: "{{ magicstick_public_ref | default(repo_metadata_env_map.get('MAGICSTICK_PUBLIC_REF', ''), true) }}"
+        magicstick_public_ref_kind: "{{ magicstick_public_ref_kind | default(repo_metadata_env_map.get('MAGICSTICK_PUBLIC_REF_KIND', 'branch'), true) }}"
         ai_appliance_private_checkout: "{{ ai_appliance_private_checkout | default(repo_metadata_env_map.get('AI_APPLIANCE_PRIVATE_CHECKOUT', '/opt/ai-appliance/deployment'), true) }}"
+        ai_appliance_domain: "{{ ai_appliance_domain | default(repo_metadata_env_map.get('AI_APPLIANCE_DOMAIN', 'example.local'), true) }}"
+        ai_appliance_dashboard_host: "{{ ai_appliance_dashboard_host | default(repo_metadata_env_map.get('AI_APPLIANCE_DASHBOARD_HOST', 'dashboard.example.local'), true) }}"
+        ai_appliance_dashboard_mdns_name: "{{ ai_appliance_dashboard_mdns_name | default(repo_metadata_env_map.get('AI_APPLIANCE_DASHBOARD_MDNS_NAME', 'ai-appliance'), true) }}"
+        ai_appliance_anything_llm_storage: "{{ ai_appliance_anything_llm_storage | default(repo_metadata_env_map.get('AI_APPLIANCE_ANYTHING_LLM_STORAGE', '1Gi'), true) }}"
+        ai_appliance_qdrant_storage: "{{ ai_appliance_qdrant_storage | default(repo_metadata_env_map.get('AI_APPLIANCE_QDRANT_STORAGE', '1Gi'), true) }}"
+        ai_appliance_litellm_postgres_storage: "{{ ai_appliance_litellm_postgres_storage | default(repo_metadata_env_map.get('AI_APPLIANCE_LITELLM_POSTGRES_STORAGE', '1Gi'), true) }}"
+        ai_appliance_loki_storage: "{{ ai_appliance_loki_storage | default(repo_metadata_env_map.get('AI_APPLIANCE_LOKI_STORAGE', '1Gi'), true) }}"
+        ai_appliance_alertmanager_storage: "{{ ai_appliance_alertmanager_storage | default(repo_metadata_env_map.get('AI_APPLIANCE_ALERTMANAGER_STORAGE', '1Gi'), true) }}"
+        ai_appliance_prometheus_storage: "{{ ai_appliance_prometheus_storage | default(repo_metadata_env_map.get('AI_APPLIANCE_PROMETHEUS_STORAGE', '1Gi'), true) }}"
         ansible_inventory_path: "{{ ansible_inventory_path | default(repo_metadata_env_map.get('ANSIBLE_INVENTORY_PATH', 'infra-host/inventory/localhost.yml'), true) }}"
         ansible_playbook_path: "{{ ansible_playbook_path | default(repo_metadata_env_map.get('ANSIBLE_PLAYBOOK_PATH', 'infra-host/playbooks/local.yml'), true) }}"
         flux_github_token: "{{ flux_github_token | default(repo_metadata_env_map.get('FLUX_GITHUB_TOKEN', ''), true) }}"
@@ -92,10 +104,35 @@
           {{
             monorepo_url
             if (monorepo_url is defined and monorepo_url | trim | length > 0)
-            else ('https://' ~ (git_host | default('github.com')) ~ '/' ~ flux_github_owner ~ '/' ~ flux_github_repo ~ '.git')
+            else (
+              'https://' ~ (git_host | default('github.com')) ~ '/' ~ flux_github_owner ~ '/' ~ flux_github_repo ~ '.git'
+              if (
+                flux_github_owner is defined
+                and flux_github_owner | trim | length > 0
+                and flux_github_repo is defined
+                and flux_github_repo | trim | length > 0
+              )
+              else ''
+            )
           }}
 
-    - name: Validate required repository metadata variables
+    - name: Validate common repository metadata variables
+      ansible.builtin.assert:
+        that:
+          - flux_bootstrap_mode | default('github') in ['github', 'readonly-public']
+          - magicstick_public_repo is defined and magicstick_public_repo | trim | length > 0
+          - magicstick_public_ref is defined and magicstick_public_ref | trim | length > 0
+          - magicstick_public_ref_kind | default('branch') in ['branch', 'tag', 'semver', 'commit']
+          - ansible_inventory_path is defined and ansible_inventory_path | trim | length > 0
+          - ansible_playbook_path is defined and ansible_playbook_path | trim | length > 0
+        fail_msg: >-
+          Missing common repository metadata. Provide FLUX_BOOTSTRAP_MODE,
+          MAGICSTICK_PUBLIC_REPO, MAGICSTICK_PUBLIC_REF,
+          MAGICSTICK_PUBLIC_REF_KIND, ANSIBLE_INVENTORY_PATH and
+          ANSIBLE_PLAYBOOK_PATH in {{ repo_metadata_env_file }} (cloud-init), or
+          pass equivalent vars via ansible-pull -e.
+
+    - name: Validate GitHub bootstrap metadata variables
       ansible.builtin.assert:
         that:
           - monorepo_url is defined and monorepo_url | trim | length > 0
@@ -103,18 +140,33 @@
           - flux_github_repo is defined and flux_github_repo | trim | length > 0
           - flux_github_branch is defined and flux_github_branch | trim | length > 0
           - flux_cluster_path is defined and flux_cluster_path | trim | length > 0
-          - magicstick_public_repo is defined and magicstick_public_repo | trim | length > 0
-          - magicstick_public_ref is defined and magicstick_public_ref | trim | length > 0
           - ai_appliance_private_checkout is defined and ai_appliance_private_checkout | trim | length > 0
-          - ansible_inventory_path is defined and ansible_inventory_path | trim | length > 0
-          - ansible_playbook_path is defined and ansible_playbook_path | trim | length > 0
         fail_msg: >-
-          Missing repository metadata. Provide GIT_HOST, GIT_OWNER,
-          GIT_REPO, GIT_BRANCH, MAGICSTICK_PUBLIC_REPO,
-          MAGICSTICK_PUBLIC_REF, AI_APPLIANCE_PRIVATE_CHECKOUT,
-          FLUX_CLUSTER_PATH, ANSIBLE_INVENTORY_PATH and ANSIBLE_PLAYBOOK_PATH in
+          Missing GitHub bootstrap metadata. Provide GIT_HOST, GIT_OWNER,
+          GIT_REPO, GIT_BRANCH, AI_APPLIANCE_PRIVATE_CHECKOUT and
+          FLUX_CLUSTER_PATH in {{ repo_metadata_env_file }} (cloud-init), or
+          pass equivalent vars via ansible-pull -e.
+      when: flux_bootstrap_mode | default('github') == 'github'
+
+    - name: Validate public read-only bootstrap metadata variables
+      ansible.builtin.assert:
+        that:
+          - flux_public_sync_path is defined and flux_public_sync_path | trim | length > 0
+          - ai_appliance_domain is defined and ai_appliance_domain | trim | length > 0
+          - ai_appliance_dashboard_host is defined and ai_appliance_dashboard_host | trim | length > 0
+          - ai_appliance_dashboard_mdns_name is defined and ai_appliance_dashboard_mdns_name | trim | length > 0
+          - ai_appliance_anything_llm_storage is defined and ai_appliance_anything_llm_storage | trim | length > 0
+          - ai_appliance_qdrant_storage is defined and ai_appliance_qdrant_storage | trim | length > 0
+          - ai_appliance_litellm_postgres_storage is defined and ai_appliance_litellm_postgres_storage | trim | length > 0
+          - ai_appliance_loki_storage is defined and ai_appliance_loki_storage | trim | length > 0
+          - ai_appliance_alertmanager_storage is defined and ai_appliance_alertmanager_storage | trim | length > 0
+          - ai_appliance_prometheus_storage is defined and ai_appliance_prometheus_storage | trim | length > 0
+        fail_msg: >-
+          Missing public read-only bootstrap metadata. Provide
+          FLUX_PUBLIC_SYNC_PATH and AI_APPLIANCE_* runtime settings in
           {{ repo_metadata_env_file }} (cloud-init), or pass equivalent vars via
           ansible-pull -e.
+      when: flux_bootstrap_mode | default('github') == 'readonly-public'
 
   roles:
     - common

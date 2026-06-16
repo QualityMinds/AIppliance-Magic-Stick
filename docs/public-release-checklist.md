@@ -27,6 +27,9 @@ kubectl kustomize infra-cluster/apps
 kubectl kustomize infra-cluster/apps-ai
 kubectl kustomize infra-cluster/apps-ai-kubeopencode
 kubectl kustomize infra-cluster/apps-ai-agent-templates
+kubectl kustomize infra-cluster/profiles/single-node/flux-bootstrap
+kubectl kustomize infra-cluster/profiles/single-node/apps-ai
+kubectl kustomize infra-cluster/profiles/single-node/apps-ai-agent-templates
 kubectl kustomize examples/demo/infra-cluster/flux-bootstrap
 ```
 

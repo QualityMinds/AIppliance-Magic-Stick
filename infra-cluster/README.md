@@ -16,15 +16,18 @@ This directory must not contain real deployment domains, Flux repository values,
 | `apps-ai` | LiteLLM, AnythingLLM, Qdrant, and reusable model bases |
 | `apps-ai-kubeopencode` | KubeOpenCode Helm release, separated so CRDs can become ready before custom resources |
 | `apps-ai-agent-templates` | KubeOpenCode AgentTemplate resources applied after KubeOpenCode CRDs exist |
+| `profiles/single-node` | Public read-only profile with default model and agent selections |
 
 ## Deployment Overlays
 
-Concrete deployments should live in private repositories. A private repo can include this repository into `vendor/magicstick` with Flux `GitRepository.spec.include`, then import bases from `vendor/magicstick/infra-cluster/*` and patch:
+Concrete deployments can either use a public profile directly or live in
+private repositories. A private repo can include this repository into
+`vendor/magicstick` with Flux `GitRepository.spec.include`, then import bases
+from `vendor/magicstick/infra-cluster/*` and patch:
 
-- ingress hosts and domains
+- domain and storage settings through Flux `postBuild` variables
 - TLS issuer names
 - admin emails
-- storage sizes
 - selected model resources
 - LiteLLM model config fragments
 - AnythingLLM embedding model preference
@@ -39,7 +42,13 @@ kubectl kustomize infra-cluster/apps
 kubectl kustomize infra-cluster/apps-ai
 kubectl kustomize infra-cluster/apps-ai-kubeopencode
 kubectl kustomize infra-cluster/apps-ai-agent-templates
+kubectl kustomize infra-cluster/profiles/single-node/flux-bootstrap
+kubectl kustomize infra-cluster/profiles/single-node/apps-ai
+kubectl kustomize infra-cluster/profiles/single-node/apps-ai-agent-templates
 kubectl kustomize examples/demo/infra-cluster/flux-bootstrap
 ```
 
 The public `apps-ai` base is intentionally model-neutral. It includes reusable model bases under `apps-ai/models`, but does not select them. A deployment overlay selects concrete models.
+The public `profiles/single-node` profile selects `qwen3635b` and
+`qwen352bvlembedding` and configures LiteLLM, AnythingLLM, and KubeOpenCode
+defaults for a single-node appliance.

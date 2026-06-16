@@ -11,6 +11,7 @@ This repository intentionally contains only generic template code, safe example 
 ├── installer/                  # reusable cloud-init/autoinstall template
 ├── infra-host/                 # reusable Ansible playbooks and roles
 ├── infra-cluster/              # reusable Kubernetes and Flux bases
+├── infra-cluster/profiles/      # public deployment profiles
 ├── examples/demo/              # safe example overlay using example.local hosts
 ├── docs/
 │   └── public-release-checklist.md
@@ -34,6 +35,12 @@ Safe demo overlay:
 kubectl kustomize examples/demo/infra-cluster/flux-bootstrap
 ```
 
+Public single-node profile:
+
+```bash
+kubectl kustomize infra-cluster/profiles/single-node/flux-bootstrap
+```
+
 Private deployments should include this repository into their source artifact, for example:
 
 ```yaml
@@ -50,16 +57,24 @@ Deployment overlays can then import bases from `vendor/magicstick/infra-cluster/
 
 The installer writes `/etc/default/ai-appliance-repo`. The reusable Ansible playbook reads:
 
+- `FLUX_BOOTSTRAP_MODE`
 - `GIT_HOST`
 - `GIT_OWNER`
 - `GIT_REPO`
 - `GIT_BRANCH`
 - `FLUX_CLUSTER_PATH`
+- `FLUX_PUBLIC_SYNC_PATH`
 - `ANSIBLE_INVENTORY_PATH`
 - `ANSIBLE_PLAYBOOK_PATH`
+- `MAGICSTICK_PUBLIC_REPO`
+- `MAGICSTICK_PUBLIC_REF`
+- `MAGICSTICK_PUBLIC_REF_KIND`
+- `AI_APPLIANCE_*`
 - `FLUX_GITHUB_TOKEN`
 
 Secrets such as Flux tokens must be supplied at install/runtime and must not be committed.
+In `readonly-public` mode Flux reads only this public repository and does not
+need a Git token.
 
 ## Validation
 
@@ -72,6 +87,9 @@ kubectl kustomize infra-cluster/apps
 kubectl kustomize infra-cluster/apps-ai
 kubectl kustomize infra-cluster/apps-ai-kubeopencode
 kubectl kustomize infra-cluster/apps-ai-agent-templates
+kubectl kustomize infra-cluster/profiles/single-node/flux-bootstrap
+kubectl kustomize infra-cluster/profiles/single-node/apps-ai
+kubectl kustomize infra-cluster/profiles/single-node/apps-ai-agent-templates
 kubectl kustomize examples/demo/infra-cluster/flux-bootstrap
 ```
 
