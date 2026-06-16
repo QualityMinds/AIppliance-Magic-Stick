@@ -35,7 +35,7 @@ spec:
               --reasoning-parser qwen3 
               --enable-auto-tool-choice 
               --tool-call-parser qwen3_coder 
-              --gpu-memory-utilization "$(awk "BEGIN { printf \"%.2f\", ${GPU_MEMORY_CONSUMPTION} / $(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -n1) }")"
+              --gpu-memory-utilization "$(awk "BEGIN { printf \"%.2f\", $GPU_MEMORY_CONSUMPTION / $(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -n1) }")"
           ports:
             - name: http
               containerPort: 8000

@@ -10,4 +10,4 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 1Gi
+      storage: "${AI_APPLIANCE_ANYTHING_LLM_STORAGE:=1Gi}"

@@ -7,11 +7,11 @@ metadata:
     app: ai-appliance-dashboard
   annotations:
     lab42.io/mdns.enabled: "true"
-    lab42.io/mdns.name: "ai-appliance"
+    lab42.io/mdns.name: "${AI_APPLIANCE_DASHBOARD_MDNS_NAME:=ai-appliance}"
 spec:
   ingressClassName: nginx
   rules:
-    - host: dashboard.example.local
+    - host: "${AI_APPLIANCE_DASHBOARD_HOST:=dashboard.example.local}"
       http:
         paths:
           - path: /

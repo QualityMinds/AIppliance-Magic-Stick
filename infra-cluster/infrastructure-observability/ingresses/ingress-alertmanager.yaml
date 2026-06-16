@@ -11,7 +11,7 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-    - host: alertmanager.example.local
+    - host: "alertmanager.${AI_APPLIANCE_DOMAIN:=example.local}"
       http:
         paths:
           - path: /

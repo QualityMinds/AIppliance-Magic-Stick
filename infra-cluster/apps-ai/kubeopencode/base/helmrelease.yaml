@@ -28,7 +28,7 @@ spec:
           lab42.io/mdns.enabled: "true"
           lab42.io/mdns.name: "kubeopencode"
         hosts:
-          - host: kubeopencode.example.local
+          - host: "kubeopencode.${AI_APPLIANCE_DOMAIN:=example.local}"
             paths:
               - path: /
                 pathType: Prefix

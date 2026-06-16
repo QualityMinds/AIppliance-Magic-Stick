@@ -37,7 +37,7 @@ spec:
               --quantization compressed-tensors 
               --limit-mm-per-prompt '{"image":1}' 
               --max-model-len 4096 
-              --gpu-memory-utilization "$(awk "BEGIN { printf \"%.2f\", ${GPU_MEMORY_CONSUMPTION} / $(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -n1) }")"
+              --gpu-memory-utilization "$(awk "BEGIN { printf \"%.2f\", $GPU_MEMORY_CONSUMPTION / $(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -n1) }")"
           ports:
             - name: http
               containerPort: 8000

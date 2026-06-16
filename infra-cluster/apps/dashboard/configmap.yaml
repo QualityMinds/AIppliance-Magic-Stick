@@ -101,7 +101,7 @@ data:
       host="$1"
       namespace="$2"
       ingress="$3"
-      host_prefix="${host%%.*}"
+      host_prefix="$(printf '%s' "$host" | cut -d . -f 1)"
       host_lower="$(printf '%s' "$host_prefix" | tr '[:upper:]' '[:lower:]')"
       case "$host_lower" in
         litellm)
@@ -182,11 +182,11 @@ data:
 
       kubectl get ingresses.networking.k8s.io -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"|"}{.metadata.name}{"|"}{.metadata.annotations.dashboard\.ai-appliance\.io/title}{"|"}{.metadata.annotations.dashboard\.ai-appliance\.io/description}{"|"}{.metadata.annotations.dashboard\.ai-appliance\.io/icon}{"|"}{.metadata.annotations.dashboard\.ai-appliance\.io/category}{"|"}{.metadata.annotations.dashboard\.ai-appliance\.io/order}{"|"}{range .spec.rules[*]}{.host}{","}{end}{"\n"}{end}' \
         | while IFS='|' read -r namespace ingress ann_title ann_description ann_icon ann_category ann_order hosts; do
-            [ -z "${hosts:-}" ] && continue
+            [ -z "$hosts" ] && continue
             for host in $(printf '%s' "$hosts" | tr ',' ' '); do
               [ -z "$host" ] && continue
               [ "$host" = "<none>" ] && continue
-              [ "$host" = "dashboard.example.local" ] && continue
+              [ "$host" = "${AI_APPLIANCE_DASHBOARD_HOST:=dashboard.example.local}" ] && continue
 
               title="$(normalize_whitespace "$ann_title")"
               [ -n "$title" ] || title="$(title_from_host "$host" "$namespace" "$ingress")"

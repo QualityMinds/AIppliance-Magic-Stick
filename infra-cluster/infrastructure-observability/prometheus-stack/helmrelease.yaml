@@ -27,7 +27,7 @@ spec:
                 - ReadWriteOnce
               resources:
                 requests:
-                  storage: 1Gi
+                  storage: "${AI_APPLIANCE_ALERTMANAGER_STORAGE:=1Gi}"
     grafana:
       enabled: true
       adminUser: admin
@@ -53,7 +53,7 @@ spec:
                 - ReadWriteOnce
               resources:
                 requests:
-                  storage: 1Gi
+                  storage: "${AI_APPLIANCE_PROMETHEUS_STORAGE:=1Gi}"
         serviceMonitorSelectorNilUsesHelmValues: false
         podMonitorSelectorNilUsesHelmValues: false
         ruleSelectorNilUsesHelmValues: false

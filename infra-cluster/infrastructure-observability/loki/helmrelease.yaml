@@ -24,7 +24,7 @@ spec:
         enabled: true
         accessModes:
           - ReadWriteOnce
-        size: 1Gi
+        size: "${AI_APPLIANCE_LOKI_STORAGE:=1Gi}"
     loki:
       auth_enabled: false
       commonConfig:

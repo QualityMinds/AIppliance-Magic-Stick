@@ -28,7 +28,7 @@ spec:
               GPU_MEMORY_CONSUMPTION=15000
 
               exec vllm serve cyankiwi/Qwen3.5-9B-AWQ-4bit 
-              --gpu-memory-utilization "$(awk "BEGIN { printf \"%.2f\", ${GPU_MEMORY_CONSUMPTION} / $(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -n1) }")"
+              --gpu-memory-utilization "$(awk "BEGIN { printf \"%.2f\", $GPU_MEMORY_CONSUMPTION / $(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -n1) }")"
               --served-model-name qwen359b 
               --host 0.0.0.0 
               --port 8000 

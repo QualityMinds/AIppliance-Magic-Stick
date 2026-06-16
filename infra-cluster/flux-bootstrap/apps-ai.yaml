@@ -8,6 +8,9 @@ spec:
     - name: infrastructure-ai
   interval: 10m0s
   path: ./infra-cluster/apps-ai
+  postBuild:
+    substitute:
+      var_substitution_enabled: "true"
   prune: true
   sourceRef:
     kind: GitRepository
