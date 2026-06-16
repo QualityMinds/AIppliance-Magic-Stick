@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: anything-llm-config
+  namespace: ai
+  labels:
+    app: anything-llm
+data:
+  STORAGE_DIR: /app/server/storage
+  LLM_PROVIDER: litellm
+  LITE_LLM_BASE_PATH: http://litellm.ai.svc.cluster.local:4000
+  EMBEDDING_ENGINE: native
+  EMBEDDING_MODEL_PREF: Xenova/all-MiniLM-L6-v2
+  VECTOR_DB: qdrant
+  QDRANT_ENDPOINT: http://qdrant.ai.svc.cluster.local:6333
+  WHISPER_PROVIDER: local
+  TTS_PROVIDER: native

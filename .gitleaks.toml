@@ -1,0 +1,17 @@
+title = "magicstick gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allow documented placeholders and generated Flux CRD text"
+regexes = [
+  '''CHANGEME[A-Z0-9_/-]*''',
+  '''REPLACE_WITH_[A-Z0-9_]+''',
+  '''example\.(com|local)''',
+  '''api_key: "none"''',
+  '''secret-generator\.v1\.mittwald\.de/autogenerate''',
+]
+paths = [
+  '''infra-cluster/flux-bootstrap/flux-system/gotk-components\.yaml''',
+]

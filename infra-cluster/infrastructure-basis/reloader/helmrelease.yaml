@@ -1,0 +1,18 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: reloader
+  namespace: flux-system
+spec:
+  interval: 10m0s
+  targetNamespace: flux-system
+  chart:
+    spec:
+      chart: reloader
+      sourceRef:
+        kind: HelmRepository
+        name: stakater
+        namespace: flux-system
+  values:
+    reloader:
+      watchGlobally: true

@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qwen3635b
+  namespace: ai
+  labels:
+    app: qwen3635b
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: qwen3635b
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: qwen3635b
+    spec:
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:latest
+          command:
+            - /bin/sh
+            - '-c'
+          args:
+            - >
+              GPU_MEMORY_CONSUMPTION=32768
+
+              exec vllm serve cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit 
+              --served-model-name qwen3635b 
+              --host 0.0.0.0 
+              --port 8000 
+              --tensor-parallel-size 1 
+              --reasoning-parser qwen3 
+              --enable-auto-tool-choice 
+              --tool-call-parser qwen3_coder 
+              --gpu-memory-utilization "$(awk "BEGIN { printf \"%.2f\", ${GPU_MEMORY_CONSUMPTION} / $(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -n1) }")"
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            failureThreshold: 90
+            periodSeconds: 20
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          volumeMounts:
+            - name: cache
+              mountPath: /root/.cache
+          resources:
+            requests:
+              nvidia.com/gpu: "1"
+            limits:
+              nvidia.com/gpu: "1"
+      volumes:
+        - name: cache
+          hostPath:
+            path: /root/.cache
+            type: DirectoryOrCreate

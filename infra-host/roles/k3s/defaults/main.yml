@@ -1,0 +1,5 @@
+---
+# Default k3s node name. Uses the system hostname so each machine registers
+# itself under its own name in the single-node cluster.
+# Override by setting node_name in host_vars or group_vars.
+node_name: "{{ ansible_facts['hostname'] }}"

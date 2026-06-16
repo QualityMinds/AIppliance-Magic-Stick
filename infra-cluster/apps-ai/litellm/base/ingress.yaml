@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: litellm
+  namespace: ai
+  labels:
+    app: litellm
+  annotations:
+    lab42.io/mdns.enabled: "true"
+    lab42.io/mdns.name: "litellm"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: litellm.example.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: litellm
+                port:
+                  number: 4000

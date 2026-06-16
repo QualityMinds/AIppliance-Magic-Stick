@@ -1,0 +1,29 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kdns
+  namespace: flux-system
+spec:
+  interval: 10m0s
+  targetNamespace: kdns
+  chart:
+    spec:
+      chart: kdns
+      sourceRef:
+        kind: HelmRepository
+        name: lab42-charts
+        namespace: flux-system
+  install:
+    createNamespace: false
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: Deployment
+              name: kdns-kdns
+            patch: |
+              - op: replace
+                path: /spec/template/spec/containers/0/env/0
+                value:
+                  name: KUBERNETES_SERVICE_HOST
+                  value: kubernetes.default.svc

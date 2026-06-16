@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ai-appliance-dashboard
+  namespace: dashboard
+  labels:
+    app: ai-appliance-dashboard
+  annotations:
+    lab42.io/mdns.enabled: "true"
+    lab42.io/mdns.name: "ai-appliance"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: dashboard.example.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ai-appliance-dashboard
+                port:
+                  number: 80

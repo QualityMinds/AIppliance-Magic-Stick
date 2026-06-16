@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-appliance-dashboard
+  namespace: dashboard
+  labels:
+    app: ai-appliance-dashboard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-appliance-dashboard
+  template:
+    metadata:
+      labels:
+        app: ai-appliance-dashboard
+    spec:
+      serviceAccountName: ai-appliance-dashboard
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+      containers:
+        - name: nginx
+          image: nginx:1.27.5-alpine
+          ports:
+            - containerPort: 80
+              name: http
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: html
+              mountPath: /usr/share/nginx/html
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+            - name: nginx-run
+              mountPath: /var/run
+        - name: renderer
+          image: bitnami/kubectl:latest
+          command: ["/bin/sh", "/scripts/render.sh"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: html
+              mountPath: /html
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+            - name: renderer-tmp
+              mountPath: /tmp
+      volumes:
+        - name: html
+          emptyDir: {}
+        - name: scripts
+          configMap:
+            name: ai-appliance-dashboard-renderer
+            defaultMode: 0755
+        - name: nginx-cache
+          emptyDir: {}
+        - name: nginx-run
+          emptyDir: {}
+        - name: renderer-tmp
+          emptyDir: {}

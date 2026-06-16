@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_METADATA_ENV_FILE="${REPO_METADATA_ENV_FILE:-/etc/default/ai-appliance-repo}"
+
+if [[ ! -f "$REPO_METADATA_ENV_FILE" ]]; then
+  echo "Missing repository metadata file: $REPO_METADATA_ENV_FILE" >&2
+  exit 1
+fi
+
+# shellcheck disable=SC1090
+set -a
+source "$REPO_METADATA_ENV_FILE"
+set +a
+
+GIT_HOST="${GIT_HOST:-github.com}"
+GIT_BRANCH="${GIT_BRANCH:-main}"
+MAGICSTICK_PUBLIC_REPO="${MAGICSTICK_PUBLIC_REPO:-https://github.com/QualityMinds/AIppliance-Magic-Stick.git}"
+MAGICSTICK_PUBLIC_REF="${MAGICSTICK_PUBLIC_REF:-v0.1.5}"
+MAGICSTICK_PUBLIC_CHECKOUT="${MAGICSTICK_PUBLIC_CHECKOUT:-/opt/ai-appliance/magicstick}"
+AI_APPLIANCE_PRIVATE_CHECKOUT="${AI_APPLIANCE_PRIVATE_CHECKOUT:-/opt/ai-appliance/deployment}"
+ANSIBLE_INVENTORY_PATH="${ANSIBLE_INVENTORY_PATH:-deployments/CHANGEME_DEPLOYMENT/infra-host/inventory/localhost.yml}"
+ANSIBLE_PLAYBOOK_PATH="${ANSIBLE_PLAYBOOK_PATH:-infra-host/playbooks/local.yml}"
+FLUX_CLUSTER_PATH="${FLUX_CLUSTER_PATH:-deployments/CHANGEME_DEPLOYMENT/infra-cluster/flux-bootstrap}"
+
+require_var() {
+  local name="$1"
+  local value="${!name:-}"
+
+  if [[ -z "$value" || "$value" == CHANGEME* || "$value" == REPLACE_WITH* ]]; then
+    echo "Missing required metadata variable: $name" >&2
+    exit 1
+  fi
+}
+
+require_var GIT_OWNER
+require_var GIT_REPO
+require_var GIT_BRANCH
+require_var FLUX_CLUSTER_PATH
+
+PRIVATE_REPO_URL="https://${GIT_HOST}/${GIT_OWNER}/${GIT_REPO}.git"
+ASKPASS_FILE=""
+
+cleanup() {
+  if [[ -n "$ASKPASS_FILE" && -f "$ASKPASS_FILE" ]]; then
+    rm -f "$ASKPASS_FILE"
+  fi
+}
+trap cleanup EXIT
+
+token_is_runtime_value() {
+  local token="${FLUX_GITHUB_TOKEN:-}"
+  [[ -n "$token" && "$token" != CHANGEME* && "$token" != REPLACE_WITH* && "$token" != "<github-pat>" ]]
+}
+
+if token_is_runtime_value; then
+  ASKPASS_FILE="$(mktemp)"
+  chmod 0700 "$ASKPASS_FILE"
+  cat >"$ASKPASS_FILE" <<'EOF'
+#!/usr/bin/env bash
+case "$1" in
+  *Username*) printf '%s\n' "x-access-token" ;;
+  *Password*) printf '%s\n' "${FLUX_GITHUB_TOKEN}" ;;
+  *) printf '%s\n' "${FLUX_GITHUB_TOKEN}" ;;
+esac
+EOF
+  export GIT_ASKPASS="$ASKPASS_FILE"
+  export GIT_TERMINAL_PROMPT=0
+fi
+
+sync_repo() {
+  local repo_url="$1"
+  local ref="$2"
+  local checkout_dir="$3"
+
+  mkdir -p "$(dirname "$checkout_dir")"
+
+  if [[ -d "$checkout_dir/.git" ]]; then
+    git -C "$checkout_dir" remote set-url origin "$repo_url"
+  else
+    rm -rf "$checkout_dir"
+    git clone --no-checkout "$repo_url" "$checkout_dir"
+  fi
+
+  git -C "$checkout_dir" fetch --tags --prune origin
+
+  if git -C "$checkout_dir" show-ref --verify --quiet "refs/remotes/origin/${ref}"; then
+    git -C "$checkout_dir" checkout --force -B "$ref" "origin/${ref}"
+  else
+    git -C "$checkout_dir" checkout --force --detach "$ref"
+  fi
+}
+
+resolve_checkout_path() {
+  local base="$1"
+  local path="$2"
+
+  case "$path" in
+    /*) printf '%s\n' "$path" ;;
+    *) printf '%s/%s\n' "$base" "$path" ;;
+  esac
+}
+
+sync_repo "$MAGICSTICK_PUBLIC_REPO" "$MAGICSTICK_PUBLIC_REF" "$MAGICSTICK_PUBLIC_CHECKOUT"
+sync_repo "$PRIVATE_REPO_URL" "$GIT_BRANCH" "$AI_APPLIANCE_PRIVATE_CHECKOUT"
+
+INVENTORY_PATH="$(resolve_checkout_path "$AI_APPLIANCE_PRIVATE_CHECKOUT" "$ANSIBLE_INVENTORY_PATH")"
+PLAYBOOK_PATH="$(resolve_checkout_path "$MAGICSTICK_PUBLIC_CHECKOUT" "$ANSIBLE_PLAYBOOK_PATH")"
+PUBLIC_ROLES_PATH="$MAGICSTICK_PUBLIC_CHECKOUT/infra-host/roles"
+
+export ANSIBLE_ROLES_PATH="${PUBLIC_ROLES_PATH}${ANSIBLE_ROLES_PATH:+:${ANSIBLE_ROLES_PATH}}"
+
+exec ansible-playbook \
+  -i "$INVENTORY_PATH" \
+  -e "monorepo_url=$PRIVATE_REPO_URL" \
+  -e "flux_github_owner=$GIT_OWNER" \
+  -e "flux_github_repo=$GIT_REPO" \
+  -e "flux_github_branch=$GIT_BRANCH" \
+  -e "flux_cluster_path=$FLUX_CLUSTER_PATH" \
+  -e "flux_github_token=${FLUX_GITHUB_TOKEN:-}" \
+  -e "repo_metadata_env_file=$REPO_METADATA_ENV_FILE" \
+  "$PLAYBOOK_PATH"

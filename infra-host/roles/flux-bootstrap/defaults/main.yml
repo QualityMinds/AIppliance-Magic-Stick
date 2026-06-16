@@ -1,0 +1,6 @@
+---
+flux_kubectl_binary: /usr/local/bin/k3s
+flux_kubectl_subcommand: kubectl
+flux_kubeconfig_path: /etc/rancher/k3s/k3s.yaml
+flux_k8s_ready_delay_seconds: 5
+flux_k8s_ready_retries: 24

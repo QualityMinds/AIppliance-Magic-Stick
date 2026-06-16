@@ -1,0 +1,121 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kube-prometheus-stack
+  namespace: flux-system
+spec:
+  interval: 10m0s
+  targetNamespace: observability
+  chart:
+    spec:
+      chart: kube-prometheus-stack
+      version: "69.8.2"
+      sourceRef:
+        kind: HelmRepository
+        name: prometheus-community
+        namespace: flux-system
+  install:
+    createNamespace: false
+  values:
+    alertmanager:
+      enabled: true
+      alertmanagerSpec:
+        storage:
+          volumeClaimTemplate:
+            spec:
+              accessModes:
+                - ReadWriteOnce
+              resources:
+                requests:
+                  storage: 1Gi
+    grafana:
+      enabled: true
+      adminUser: admin
+      service:
+        type: ClusterIP
+      sidecar:
+        dashboards:
+          enabled: true
+          label: grafana_dashboard
+          labelValue: "1"
+          searchNamespace: ALL
+    kube-state-metrics:
+      enabled: true
+    nodeExporter:
+      enabled: true
+    prometheus:
+      prometheusSpec:
+        retention: 7d
+        storageSpec:
+          volumeClaimTemplate:
+            spec:
+              accessModes:
+                - ReadWriteOnce
+              resources:
+                requests:
+                  storage: 1Gi
+        serviceMonitorSelectorNilUsesHelmValues: false
+        podMonitorSelectorNilUsesHelmValues: false
+        ruleSelectorNilUsesHelmValues: false
+        probeSelectorNilUsesHelmValues: false
+    additionalPrometheusRulesMap:
+      ai-appliance-observability:
+        groups:
+          - name: ai-appliance-observability
+            rules:
+              - alert: NodeNotReady
+                expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+                for: 10m
+                labels:
+                  severity: critical
+                annotations:
+                  summary: Node ist nicht bereit
+                  description: Mindestens ein Node meldet seit 10 Minuten nicht Ready.
+              - alert: PodCrashLoopBackOff
+                expr: max_over_time(kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff"}[10m]) >= 1
+                for: 5m
+                labels:
+                  severity: warning
+                annotations:
+                  summary: Pod im CrashLoopBackOff
+                  description: Mindestens ein Container ist im Status CrashLoopBackOff.
+              - alert: PVCFillingUp
+                expr: kubelet_volume_stats_available_bytes / kubelet_volume_stats_capacity_bytes < 0.15
+                for: 15m
+                labels:
+                  severity: warning
+                annotations:
+                  summary: PVC fast voll
+                  description: Verbleibender Speicher liegt seit 15 Minuten unter 15 Prozent.
+              - alert: FluxSyncFailures
+                expr: max_over_time(gotk_reconcile_condition{type="Ready",status="False"}[10m]) > 0
+                for: 10m
+                labels:
+                  severity: warning
+                annotations:
+                  summary: Flux Sync fehlgeschlagen
+                  description: Mindestens eine Flux-Reconciliation ist im Fehlerzustand.
+              - alert: KServeControllerNotReady
+                expr: kube_deployment_status_replicas_available{namespace="kserve",deployment="kserve-controller-manager"} < 1
+                for: 10m
+                labels:
+                  severity: critical
+                annotations:
+                  summary: KServe Controller nicht bereit
+                  description: Der KServe Controller ist nicht verfügbar.
+              - alert: GPUExporterMissing
+                expr: sum(kube_node_status_allocatable{resource="nvidia_com_gpu"}) > 0 and absent(DCGM_FI_DEV_GPU_UTIL)
+                for: 15m
+                labels:
+                  severity: warning
+                annotations:
+                  summary: GPU Metriken fehlen
+                  description: GPU-Ressourcen sind vorhanden, aber keine DCGM-Metriken werden erfasst.
+              - alert: QdrantUnavailable
+                expr: kube_deployment_status_replicas_available{namespace="ai",deployment="qdrant"} < 1
+                for: 10m
+                labels:
+                  severity: critical
+                annotations:
+                  summary: Qdrant nicht verfügbar
+                  description: Die Qdrant Deployment-Replikas sind nicht verfügbar.

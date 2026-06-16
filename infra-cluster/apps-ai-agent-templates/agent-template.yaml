@@ -1,0 +1,28 @@
+apiVersion: kubeopencode.io/v1alpha1
+kind: AgentTemplate
+metadata:
+  name: litellm-default
+  namespace: ai
+spec:
+  serviceAccountName: default
+  workspaceDir: /workspace
+  config:
+    provider:
+      litellm:
+        npm: "@ai-sdk/openai-compatible"
+        name: "LiteLLM"
+        options:
+          baseURL: "http://litellm.ai.svc.cluster.local:4000/v1"
+          apiKey: "{env:LITELLM_MASTER_KEY}"
+        models:
+          CHANGEME_MODEL:
+            name: "Example model"
+    model: "litellm/CHANGEME_MODEL"
+    small_model: "litellm/CHANGEME_MODEL"
+    autoupdate: false
+  credentials:
+    - name: litellm-api-key
+      secretRef:
+        name: litellm-masterkey-secret
+        key: LITELLM_MASTER_KEY
+      env: LITELLM_MASTER_KEY

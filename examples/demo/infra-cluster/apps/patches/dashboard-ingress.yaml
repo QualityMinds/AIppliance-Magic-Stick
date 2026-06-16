@@ -1,0 +1,6 @@
+- op: replace
+  path: /metadata/annotations/lab42.io~1mdns.name
+  value: demo-ai-appliance
+- op: replace
+  path: /spec/rules/0/host
+  value: dashboard.example.local

@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-config
+  namespace: ai
+  labels:
+    app: litellm
+data:
+  00-base.yaml: |
+    model_list:

@@ -1,0 +1,82 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-applications
+  namespace: observability
+  labels:
+    grafana_dashboard: "1"
+data:
+  applications.json: |
+    {
+      "annotations": {"list": []},
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 0,
+      "id": null,
+      "links": [],
+      "panels": [
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+          "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0},
+          "id": 1,
+          "targets": [
+            {"expr": "kube_deployment_status_replicas_available{namespace=\"ai\",deployment=\"litellm\"}", "refId": "A"}
+          ],
+          "title": "LiteLLM verfügbar",
+          "type": "stat"
+        },
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+          "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0},
+          "id": 2,
+          "targets": [
+            {"expr": "kube_deployment_status_replicas_available{namespace=\"ai\",deployment=\"anything-llm\"}", "refId": "A"}
+          ],
+          "title": "AnythingLLM verfügbar",
+          "type": "stat"
+        },
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+          "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0},
+          "id": 3,
+          "targets": [
+            {"expr": "sum(kube_pod_container_status_restarts_total{namespace=\"ai\",pod=~\"litellm-.*|anything-llm-.*\"})", "refId": "A"}
+          ],
+          "title": "Restarts LiteLLM/AnythingLLM",
+          "type": "stat"
+        },
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {"defaults": {"unit": "cores"}, "overrides": []},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+          "id": 4,
+          "targets": [
+            {"expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"ai\",pod=~\"litellm-.*|anything-llm-.*\"}[5m])) by (pod)", "legendFormat": "{{pod}}", "refId": "A"}
+          ],
+          "title": "CPU Nutzung LiteLLM/AnythingLLM",
+          "type": "timeseries"
+        },
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+          "id": 5,
+          "targets": [
+            {"expr": "sum(container_memory_working_set_bytes{namespace=\"ai\",pod=~\"litellm-.*|anything-llm-.*\"}) by (pod)", "legendFormat": "{{pod}}", "refId": "A"}
+          ],
+          "title": "RAM Nutzung LiteLLM/AnythingLLM",
+          "type": "timeseries"
+        }
+      ],
+      "refresh": "30s",
+      "schemaVersion": 39,
+      "style": "dark",
+      "tags": ["applications", "litellm", "anythingllm"],
+      "templating": {"list": []},
+      "time": {"from": "now-6h", "to": "now"},
+      "title": "AI Appliance - Applications",
+      "version": 1
+    }

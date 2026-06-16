@@ -1,0 +1,29 @@
+---
+- name: Create /etc/rancher/k3s directory
+  ansible.builtin.file:
+    path: /etc/rancher/k3s
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Deploy K3s config
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: /etc/rancher/k3s/config.yaml
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart k3s
+  
+- name: Install K3s (skip if already installed)
+  ansible.builtin.shell: |
+    curl -sfL https://get.k3s.io | sh -
+  args:
+    creates: /usr/local/bin/k3s
+
+- name: Ensure k3s service is enabled and running
+  ansible.builtin.systemd:
+    name: k3s
+    enabled: true
+    state: started
