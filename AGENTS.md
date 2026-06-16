@@ -14,7 +14,7 @@ Review guidelines for this repository.
 - Public Kubernetes manifests should be reusable bases.
 - Deployment-specific changes should stay in private overlays.
 - Private deployment overlays should import these bases from `vendor/magicstick`, which Flux provides through `GitRepository.spec.include`.
-- `infra-cluster/apps-ai/kustomization.yaml` should remain model-neutral; deployment overlays select model resources and patch LiteLLM, AnythingLLM, and KubeOpenCode.
+- `magic-cluster/apps-ai/kustomization.yaml` should remain model-neutral; deployment overlays select model resources and patch LiteLLM, AnythingLLM, and KubeOpenCode.
 - Verify public examples with `kubectl kustomize`.
 
 ## Secret Review

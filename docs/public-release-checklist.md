@@ -22,14 +22,14 @@ Expected findings should be placeholders, generated-secret annotations, Kubernet
 ## Build Checks
 
 ```bash
-kubectl kustomize infra-cluster/flux-bootstrap
-kubectl kustomize infra-cluster/apps
-kubectl kustomize infra-cluster/apps-ai
-kubectl kustomize infra-cluster/apps-ai-kubeopencode
-kubectl kustomize infra-cluster/apps-ai-agent-templates
-kubectl kustomize infra-cluster/profiles/single-node/flux-bootstrap
-kubectl kustomize infra-cluster/profiles/single-node/apps-ai
-kubectl kustomize infra-cluster/profiles/single-node/apps-ai-agent-templates
+kubectl kustomize magic-cluster/flux-bootstrap
+kubectl kustomize magic-cluster/apps
+kubectl kustomize magic-cluster/apps-ai
+kubectl kustomize magic-cluster/apps-ai-kubeopencode
+kubectl kustomize magic-cluster/apps-ai-agent-templates
+kubectl kustomize magic-cluster/profiles/single-node/flux-bootstrap
+kubectl kustomize magic-cluster/profiles/single-node/apps-ai
+kubectl kustomize magic-cluster/profiles/single-node/apps-ai-agent-templates
 kubectl kustomize examples/demo/infra-cluster/flux-bootstrap
 ```
 

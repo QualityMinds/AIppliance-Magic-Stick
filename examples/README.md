@@ -2,7 +2,7 @@
 
 Safe example overlays for users creating new deployments.
 
-`demo/` imports the reusable bases from `infra-cluster` and patches them with `example.local` hosts. It is intended for build validation and as a copyable pattern, not for production use.
+`demo/` imports the reusable bases from `magic-cluster` and patches them with `example.local` hosts. It is intended for build validation and as a copyable pattern, not for production use.
 
 ```bash
 kubectl kustomize examples/demo/infra-cluster/flux-bootstrap

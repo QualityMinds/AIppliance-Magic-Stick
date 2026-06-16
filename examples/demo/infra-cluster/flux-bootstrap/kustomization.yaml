@@ -1,7 +1,7 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - ../../../../infra-cluster/flux-bootstrap
+  - ../../../../magic-cluster/flux-bootstrap
 patches:
   - target:
       group: kustomize.toolkit.fluxcd.io

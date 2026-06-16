@@ -8,10 +8,10 @@ This repository intentionally contains only generic template code, safe example 
 
 ```text
 .
-├── installer/                  # reusable cloud-init/autoinstall template
-├── infra-host/                 # reusable Ansible playbooks and roles
-├── infra-cluster/              # reusable Kubernetes and Flux bases
-├── infra-cluster/profiles/      # public deployment profiles
+├── magic-installer/                  # reusable cloud-init/autoinstall template
+├── magic-host/                 # reusable Ansible playbooks and roles
+├── magic-cluster/              # reusable Kubernetes and Flux bases
+├── magic-cluster/profiles/      # public deployment profiles
 ├── examples/demo/              # safe example overlay using example.local hosts
 ├── docs/
 │   └── public-release-checklist.md
@@ -26,7 +26,7 @@ Use `example.local`, `example.com`, `CHANGEME`, or documented variables for all 
 Public template:
 
 ```bash
-kubectl kustomize infra-cluster/flux-bootstrap
+kubectl kustomize magic-cluster/flux-bootstrap
 ```
 
 Safe demo overlay:
@@ -38,7 +38,7 @@ kubectl kustomize examples/demo/infra-cluster/flux-bootstrap
 Public single-node profile:
 
 ```bash
-kubectl kustomize infra-cluster/profiles/single-node/flux-bootstrap
+kubectl kustomize magic-cluster/profiles/single-node/flux-bootstrap
 ```
 
 Private deployments should include this repository into their source artifact, for example:
@@ -51,7 +51,7 @@ include:
     toPath: vendor/magicstick
 ```
 
-Deployment overlays can then import bases from `vendor/magicstick/infra-cluster/...`.
+Deployment overlays can then import bases from `vendor/magicstick/magic-cluster/...`.
 
 ## Host Bootstrap
 
@@ -79,17 +79,17 @@ need a Git token.
 ## Validation
 
 ```bash
-ANSIBLE_ROLES_PATH=infra-host/roles \
-  ansible-playbook --syntax-check infra-host/playbooks/local.yml
+ANSIBLE_ROLES_PATH=magic-host/roles \
+  ansible-playbook --syntax-check magic-host/playbooks/local.yml
 
-kubectl kustomize infra-cluster/flux-bootstrap
-kubectl kustomize infra-cluster/apps
-kubectl kustomize infra-cluster/apps-ai
-kubectl kustomize infra-cluster/apps-ai-kubeopencode
-kubectl kustomize infra-cluster/apps-ai-agent-templates
-kubectl kustomize infra-cluster/profiles/single-node/flux-bootstrap
-kubectl kustomize infra-cluster/profiles/single-node/apps-ai
-kubectl kustomize infra-cluster/profiles/single-node/apps-ai-agent-templates
+kubectl kustomize magic-cluster/flux-bootstrap
+kubectl kustomize magic-cluster/apps
+kubectl kustomize magic-cluster/apps-ai
+kubectl kustomize magic-cluster/apps-ai-kubeopencode
+kubectl kustomize magic-cluster/apps-ai-agent-templates
+kubectl kustomize magic-cluster/profiles/single-node/flux-bootstrap
+kubectl kustomize magic-cluster/profiles/single-node/apps-ai
+kubectl kustomize magic-cluster/profiles/single-node/apps-ai-agent-templates
 kubectl kustomize examples/demo/infra-cluster/flux-bootstrap
 ```
 
