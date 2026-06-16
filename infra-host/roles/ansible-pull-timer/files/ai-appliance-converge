@@ -16,10 +16,10 @@ set +a
 GIT_HOST="${GIT_HOST:-github.com}"
 GIT_BRANCH="${GIT_BRANCH:-main}"
 MAGICSTICK_PUBLIC_REPO="${MAGICSTICK_PUBLIC_REPO:-https://github.com/QualityMinds/AIppliance-Magic-Stick.git}"
-MAGICSTICK_PUBLIC_REF="${MAGICSTICK_PUBLIC_REF:-v0.1.5}"
+MAGICSTICK_PUBLIC_REF="${MAGICSTICK_PUBLIC_REF:-v0.1.6}"
 MAGICSTICK_PUBLIC_CHECKOUT="${MAGICSTICK_PUBLIC_CHECKOUT:-/opt/ai-appliance/magicstick}"
 AI_APPLIANCE_PRIVATE_CHECKOUT="${AI_APPLIANCE_PRIVATE_CHECKOUT:-/opt/ai-appliance/deployment}"
-ANSIBLE_INVENTORY_PATH="${ANSIBLE_INVENTORY_PATH:-deployments/CHANGEME_DEPLOYMENT/infra-host/inventory/localhost.yml}"
+ANSIBLE_INVENTORY_PATH="${ANSIBLE_INVENTORY_PATH:-infra-host/inventory/localhost.yml}"
 ANSIBLE_PLAYBOOK_PATH="${ANSIBLE_PLAYBOOK_PATH:-infra-host/playbooks/local.yml}"
 FLUX_CLUSTER_PATH="${FLUX_CLUSTER_PATH:-deployments/CHANGEME_DEPLOYMENT/infra-cluster/flux-bootstrap}"
 
@@ -101,10 +101,51 @@ resolve_checkout_path() {
   esac
 }
 
+resolve_inventory_path() {
+  local path="$1"
+  local candidate=""
+  local inventory_file=""
+
+  case "$path" in
+    /*)
+      if [[ -e "$path" ]]; then
+        printf '%s\n' "$path"
+        return
+      fi
+      ;;
+    *)
+      candidate="$(resolve_checkout_path "$AI_APPLIANCE_PRIVATE_CHECKOUT" "$path")"
+      if [[ -e "$candidate" ]]; then
+        printf '%s\n' "$candidate"
+        return
+      fi
+
+      candidate="$(resolve_checkout_path "$MAGICSTICK_PUBLIC_CHECKOUT" "$path")"
+      if [[ -e "$candidate" ]]; then
+        printf '%s\n' "$candidate"
+        return
+      fi
+
+      if [[ "$path" == deployments/*/infra-host/inventory/* ]]; then
+        inventory_file="${path#*infra-host/inventory/}"
+        candidate="$MAGICSTICK_PUBLIC_CHECKOUT/infra-host/inventory/$inventory_file"
+        if [[ -e "$candidate" ]]; then
+          printf '%s\n' "$candidate"
+          return
+        fi
+      fi
+      ;;
+  esac
+
+  echo "Missing Ansible inventory path: $path" >&2
+  echo "Checked private checkout, public checkout, and legacy public inventory fallback." >&2
+  exit 1
+}
+
 sync_repo "$MAGICSTICK_PUBLIC_REPO" "$MAGICSTICK_PUBLIC_REF" "$MAGICSTICK_PUBLIC_CHECKOUT"
 sync_repo "$PRIVATE_REPO_URL" "$GIT_BRANCH" "$AI_APPLIANCE_PRIVATE_CHECKOUT"
 
-INVENTORY_PATH="$(resolve_checkout_path "$AI_APPLIANCE_PRIVATE_CHECKOUT" "$ANSIBLE_INVENTORY_PATH")"
+INVENTORY_PATH="$(resolve_inventory_path "$ANSIBLE_INVENTORY_PATH")"
 PLAYBOOK_PATH="$(resolve_checkout_path "$MAGICSTICK_PUBLIC_CHECKOUT" "$ANSIBLE_PLAYBOOK_PATH")"
 PUBLIC_ROLES_PATH="$MAGICSTICK_PUBLIC_CHECKOUT/infra-host/roles"
 

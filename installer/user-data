@@ -29,11 +29,11 @@ autoinstall:
           GIT_REPO=REPLACE_WITH_GIT_REPO
           GIT_BRANCH=REPLACE_WITH_GIT_BRANCH
           MAGICSTICK_PUBLIC_REPO=https://github.com/QualityMinds/AIppliance-Magic-Stick.git
-          MAGICSTICK_PUBLIC_REF=v0.1.5
+          MAGICSTICK_PUBLIC_REF=v0.1.6
           MAGICSTICK_PUBLIC_CHECKOUT=/opt/ai-appliance/magicstick
           AI_APPLIANCE_PRIVATE_CHECKOUT=/opt/ai-appliance/deployment
           FLUX_CLUSTER_PATH=deployments/CHANGEME_DEPLOYMENT/infra-cluster/flux-bootstrap
-          ANSIBLE_INVENTORY_PATH=deployments/CHANGEME_DEPLOYMENT/infra-host/inventory/localhost.yml
+          ANSIBLE_INVENTORY_PATH=infra-host/inventory/localhost.yml
           ANSIBLE_PLAYBOOK_PATH=infra-host/playbooks/local.yml
           FLUX_GITHUB_TOKEN=REPLACE_WITH_FLUX_GITHUB_TOKEN
 
@@ -41,7 +41,7 @@ autoinstall:
       - >
         /bin/bash -lc '. /etc/default/ai-appliance-repo &&
         MAGICSTICK_PUBLIC_REPO="${MAGICSTICK_PUBLIC_REPO:-https://github.com/QualityMinds/AIppliance-Magic-Stick.git}" &&
-        MAGICSTICK_PUBLIC_REF="${MAGICSTICK_PUBLIC_REF:-v0.1.5}" &&
+        MAGICSTICK_PUBLIC_REF="${MAGICSTICK_PUBLIC_REF:-v0.1.6}" &&
         MAGICSTICK_PUBLIC_CHECKOUT="${MAGICSTICK_PUBLIC_CHECKOUT:-/opt/ai-appliance/magicstick}" &&
         mkdir -p "$(dirname "$MAGICSTICK_PUBLIC_CHECKOUT")" &&
         if [ -d "$MAGICSTICK_PUBLIC_CHECKOUT/.git" ]; then

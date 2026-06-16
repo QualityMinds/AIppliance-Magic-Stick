@@ -2,7 +2,7 @@
 
 Reusable Ansible host automation for the AI Appliance.
 
-The playbook is intentionally generic. Deployment-specific inventory and bootstrap values belong under `deployments/<name>/infra-host`.
+The playbook is intentionally generic. By default, deployments use the reusable local inventory in this repository and provide deployment-specific bootstrap values through `/etc/default/ai-appliance-repo`.
 
 ## Entry Point
 
@@ -34,7 +34,7 @@ The `ansible-pull-timer` role installs `/usr/local/sbin/ai-appliance-converge`. 
 
 - updates the pinned public template checkout
 - updates the private deployment checkout
-- runs the public playbook with the private inventory
+- runs the public playbook with the configured inventory, defaulting to the public local inventory
 - uses `FLUX_GITHUB_TOKEN` through a temporary `GIT_ASKPASS` helper when a token is present
 
 ```bash
