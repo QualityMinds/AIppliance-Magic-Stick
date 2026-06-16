@@ -21,7 +21,7 @@ autoinstall:
     write_files:
       - path: /etc/default/ai-appliance-repo
         owner: root:root
-        permissions: "0644"
+        permissions: "0600"
         content: |
           # Zentrale (nicht-sensitive) Git-Metadaten fuer Bootstrap, Host-Converge und Flux.
           GIT_HOST=github.com
