@@ -21,7 +21,7 @@ autoinstall:
     write_files:
       - path: /etc/default/ai-appliance-repo
         owner: root:root
-        permissions: "0644"
+        permissions: "0600"
         content: |
           # Zentrale (nicht-sensitive) Git-Metadaten fuer Bootstrap, Host-Converge und Flux.
           GIT_HOST=github.com
@@ -29,7 +29,7 @@ autoinstall:
           GIT_REPO=REPLACE_WITH_GIT_REPO
           GIT_BRANCH=REPLACE_WITH_GIT_BRANCH
           MAGICSTICK_PUBLIC_REPO=https://github.com/QualityMinds/AIppliance-Magic-Stick.git
-          MAGICSTICK_PUBLIC_REF=v0.1.7
+          MAGICSTICK_PUBLIC_REF=main
           MAGICSTICK_PUBLIC_CHECKOUT=/opt/ai-appliance/magicstick
           AI_APPLIANCE_PRIVATE_CHECKOUT=/opt/ai-appliance/deployment
           FLUX_CLUSTER_PATH=deployments/CHANGEME_DEPLOYMENT/infra-cluster/flux-bootstrap
