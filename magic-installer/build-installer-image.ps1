@@ -14,7 +14,7 @@ param(
   [string]$FluxClusterPath,
   [ValidateSet("github", "readonly-public")]
   [string]$FluxBootstrapMode = "readonly-public",
-  [string]$FluxPublicSyncPath = "magic-cluster/profiles/single-node/flux-bootstrap",
+  [string]$FluxPublicSyncPath = "magic-cluster/flux/entrypoints/single-node",
   [string]$PublicRepo = "https://github.com/QualityMinds/AIppliance-Magic-Stick.git",
   [string]$PublicRef = "main",
   [ValidateSet("branch", "tag", "semver", "commit")]

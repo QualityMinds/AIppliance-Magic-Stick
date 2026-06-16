@@ -1,7 +1,7 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - ../../../../magic-cluster/apps-ai
+  - ../../../../magic-cluster/apps/ai
 patches:
   - target:
       group: networking.k8s.io

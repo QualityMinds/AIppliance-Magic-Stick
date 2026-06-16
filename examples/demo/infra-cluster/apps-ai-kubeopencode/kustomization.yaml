@@ -1,7 +1,7 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - ../../../../magic-cluster/apps-ai-kubeopencode
+  - ../../../../magic-cluster/apps/ai/kubeopencode
 patches:
   - target:
       group: helm.toolkit.fluxcd.io

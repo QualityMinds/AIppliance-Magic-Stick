@@ -1,11 +1,13 @@
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
-  name: infrastructure-basis
+  name: infrastructure-ai
   namespace: flux-system
 spec:
+  dependsOn:
+    - name: infrastructure-basis
   interval: 10m0s
-  path: ./magic-cluster/infrastructure-basis
+  path: ./magic-cluster/platform/gpu
   prune: true
   sourceRef:
     kind: GitRepository

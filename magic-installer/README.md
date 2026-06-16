@@ -24,7 +24,7 @@ Magic-Stick repository. Private GitHub deployment values are only required when
 | `MAGICSTICK_PUBLIC_REF` | Public template branch, tag, semver, or commit |
 | `MAGICSTICK_PUBLIC_REF_KIND` | Ref kind for Flux, usually `branch` |
 | `MAGICSTICK_PUBLIC_CHECKOUT` | Local checkout path for public template code |
-| `FLUX_PUBLIC_SYNC_PATH` | Public profile path for `readonly-public`, e.g. `magic-cluster/profiles/single-node/flux-bootstrap` |
+| `FLUX_PUBLIC_SYNC_PATH` | Public profile path for `readonly-public`, e.g. `magic-cluster/flux/entrypoints/single-node` |
 | `magic-host/inventory/localhost.yml` | Reusable local host inventory from the public template |
 | `AI_APPLIANCE_*` | Domain, dashboard, mDNS, and storage settings for public read-only bootstrap |
 | `GIT_OWNER`, `GIT_REPO`, `GIT_BRANCH` | Required only for `github` bootstrap mode |
@@ -47,7 +47,7 @@ magic-installer/build-installer-image.sh \
 
 This default uses `--flux-bootstrap-mode readonly-public`, the public
 `QualityMinds/AIppliance-Magic-Stick` repository, and
-`magic-cluster/profiles/single-node/flux-bootstrap`.
+`magic-cluster/flux/entrypoints/single-node`.
 
 For private GitHub bootstrap, opt in explicitly:
 

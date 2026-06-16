@@ -79,7 +79,7 @@
         flux_github_branch: "{{ flux_github_branch | default(repo_metadata_env_map.get('GIT_BRANCH', ''), true) }}"
         flux_cluster_path: "{{ flux_cluster_path | default(repo_metadata_env_map.get('FLUX_CLUSTER_PATH', ''), true) }}"
         flux_bootstrap_mode: "{{ flux_bootstrap_mode | default(repo_metadata_env_map.get('FLUX_BOOTSTRAP_MODE', 'readonly-public'), true) }}"
-        flux_public_sync_path: "{{ flux_public_sync_path | default(repo_metadata_env_map.get('FLUX_PUBLIC_SYNC_PATH', 'magic-cluster/profiles/single-node/flux-bootstrap'), true) }}"
+        flux_public_sync_path: "{{ flux_public_sync_path | default(repo_metadata_env_map.get('FLUX_PUBLIC_SYNC_PATH', 'magic-cluster/flux/entrypoints/single-node'), true) }}"
         magicstick_public_repo: "{{ magicstick_public_repo | default(repo_metadata_env_map.get('MAGICSTICK_PUBLIC_REPO', 'https://github.com/QualityMinds/AIppliance-Magic-Stick.git'), true) }}"
         magicstick_public_ref: "{{ magicstick_public_ref | default(repo_metadata_env_map.get('MAGICSTICK_PUBLIC_REF', ''), true) }}"
         magicstick_public_ref_kind: "{{ magicstick_public_ref_kind | default(repo_metadata_env_map.get('MAGICSTICK_PUBLIC_REF_KIND', 'branch'), true) }}"

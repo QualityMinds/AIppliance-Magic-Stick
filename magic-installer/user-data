@@ -35,7 +35,7 @@ autoinstall:
           MAGICSTICK_PUBLIC_CHECKOUT=/opt/ai-appliance/magicstick
           AI_APPLIANCE_PRIVATE_CHECKOUT=/opt/ai-appliance/deployment
           FLUX_CLUSTER_PATH=deployments/CHANGEME_DEPLOYMENT/infra-cluster/flux-bootstrap
-          FLUX_PUBLIC_SYNC_PATH=magic-cluster/profiles/single-node/flux-bootstrap
+          FLUX_PUBLIC_SYNC_PATH=magic-cluster/flux/entrypoints/single-node
           ANSIBLE_INVENTORY_PATH=magic-host/inventory/localhost.yml
           ANSIBLE_PLAYBOOK_PATH=magic-host/playbooks/local.yml
           AI_APPLIANCE_DOMAIN=example.local

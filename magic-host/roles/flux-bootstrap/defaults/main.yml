@@ -7,7 +7,7 @@ flux_k8s_ready_retries: 24
 flux_bootstrap_mode: readonly-public
 flux_bootstrap_seed_path: "{{ flux_cluster_path }}/bootstrap-seed"
 flux_custom_sync_manifest_path: "{{ ai_appliance_private_checkout }}/{{ flux_cluster_path }}/flux-system/magicstick-sync.yaml"
-flux_public_sync_path: magic-cluster/profiles/single-node/flux-bootstrap
+flux_public_sync_path: magic-cluster/flux/entrypoints/single-node
 flux_public_sync_manifest_path: /tmp/ai-appliance-flux-public-sync.yaml
 flux_settings_configmap_manifest_path: /tmp/ai-appliance-settings.yaml
 flux_settings_configmap_name: ai-appliance-settings

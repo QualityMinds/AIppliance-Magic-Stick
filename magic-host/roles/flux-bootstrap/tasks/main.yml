@@ -51,7 +51,7 @@
   ansible.builtin.set_fact:
     flux_bootstrap_mode: "{{ flux_bootstrap_mode | default('readonly-public', true) }}"
     magicstick_public_ref_kind: "{{ magicstick_public_ref_kind | default('branch', true) }}"
-    flux_public_sync_path: "{{ flux_public_sync_path | default('magic-cluster/profiles/single-node/flux-bootstrap', true) }}"
+    flux_public_sync_path: "{{ flux_public_sync_path | default('magic-cluster/flux/entrypoints/single-node', true) }}"
 
 - name: Validate supported Flux bootstrap mode
   ansible.builtin.assert:

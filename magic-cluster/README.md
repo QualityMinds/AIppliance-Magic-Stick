@@ -4,26 +4,28 @@ Reusable Kubernetes and Flux bases for the AI Appliance.
 
 This directory must not contain real deployment domains, Flux repository values, private addresses, personal data, or committed secrets.
 
-## Bases
+## Layout
 
 | Path | Purpose |
 |---|---|
-| `flux-bootstrap` | Generic Flux Kustomization objects pointing at `magic-cluster/*` |
-| `infrastructure-basis` | Namespaces, ingress-nginx, cert-manager, secret generator, reloader, kdns |
-| `infrastructure-ai` | NVIDIA GPU Operator and GPU time slicing |
-| `infrastructure-observability` | Prometheus stack, Loki, Promtail, OpenTelemetry, Grafana dashboards |
-| `apps` | Dashboard base |
-| `apps-ai` | LiteLLM, AnythingLLM, Qdrant, and reusable model bases |
-| `apps-ai-kubeopencode` | KubeOpenCode Helm release, separated so CRDs can become ready before custom resources |
-| `apps-ai-agent-templates` | KubeOpenCode AgentTemplate resources applied after KubeOpenCode CRDs exist |
-| `profiles/single-node` | Public read-only profile with default model and agent selections |
+| `flux/graph/base` | Stable Flux Kustomization graph and dependency waves |
+| `flux/entrypoints/base` | Neutral public Flux entrypoint |
+| `flux/entrypoints/single-node` | Public read-only single-node Flux entrypoint |
+| `platform/basis` | Namespaces, ingress-nginx, cert-manager, secret generator, reloader, kdns |
+| `platform/gpu` | NVIDIA GPU Operator and GPU time slicing |
+| `platform/observability` | Prometheus stack, Loki, Promtail, OpenTelemetry, Grafana dashboards |
+| `apps/dashboard` | Dashboard app |
+| `apps/ai` | LiteLLM, AnythingLLM, Qdrant, and reusable model bases |
+| `apps/ai/kubeopencode` | KubeOpenCode Helm release, separated so CRDs can become ready before custom resources |
+| `apps/ai/agent-templates` | KubeOpenCode AgentTemplate resources applied after KubeOpenCode CRDs exist |
 
 ## Deployment Overlays
 
 Concrete deployments can either use a public profile directly or live in
 private repositories. A private repo can include this repository into
 `vendor/magicstick` with Flux `GitRepository.spec.include`, then import bases
-from `vendor/magicstick/magic-cluster/*` and patch:
+from `vendor/magicstick/magic-cluster/platform/*` or
+`vendor/magicstick/magic-cluster/apps/*` and patch:
 
 - domain and storage settings through Flux `postBuild` variables
 - TLS issuer names
@@ -37,18 +39,20 @@ from `vendor/magicstick/magic-cluster/*` and patch:
 ## Builds
 
 ```bash
-kubectl kustomize magic-cluster/flux-bootstrap
-kubectl kustomize magic-cluster/apps
-kubectl kustomize magic-cluster/apps-ai
-kubectl kustomize magic-cluster/apps-ai-kubeopencode
-kubectl kustomize magic-cluster/apps-ai-agent-templates
-kubectl kustomize magic-cluster/profiles/single-node/flux-bootstrap
-kubectl kustomize magic-cluster/profiles/single-node/apps-ai
-kubectl kustomize magic-cluster/profiles/single-node/apps-ai-agent-templates
+kubectl kustomize magic-cluster/flux/entrypoints/base
+kubectl kustomize magic-cluster/apps/dashboard
+kubectl kustomize magic-cluster/apps/ai
+kubectl kustomize magic-cluster/apps/ai/kubeopencode
+kubectl kustomize magic-cluster/apps/ai/agent-templates
+kubectl kustomize magic-cluster/flux/entrypoints/single-node
+kubectl kustomize magic-cluster/apps/overlays/single-node/ai
+kubectl kustomize magic-cluster/apps/overlays/single-node/ai-agent-templates
 kubectl kustomize examples/demo/infra-cluster/flux-bootstrap
 ```
 
-The public `apps-ai` base is intentionally model-neutral. It includes reusable model bases under `apps-ai/models`, but does not select them. A deployment overlay selects concrete models.
-The public `profiles/single-node` profile selects `qwen3635b` and
-`qwen352bvlembedding` and configures LiteLLM, AnythingLLM, and KubeOpenCode
+The public `apps/ai` base is intentionally model-neutral. It includes reusable
+model bases under `apps/ai/models`, but does not select them. The
+`apps/ai/overlays/single-node` overlay selects `qwen3635b` and
+`qwen352bvlembedding` and configures LiteLLM and AnythingLLM defaults. The
+`apps/ai/agent-templates/overlays/single-node` overlay sets KubeOpenCode
 defaults for a single-node appliance.

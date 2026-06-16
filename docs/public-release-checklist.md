@@ -22,14 +22,14 @@ Expected findings should be placeholders, generated-secret annotations, Kubernet
 ## Build Checks
 
 ```bash
-kubectl kustomize magic-cluster/flux-bootstrap
-kubectl kustomize magic-cluster/apps
-kubectl kustomize magic-cluster/apps-ai
-kubectl kustomize magic-cluster/apps-ai-kubeopencode
-kubectl kustomize magic-cluster/apps-ai-agent-templates
-kubectl kustomize magic-cluster/profiles/single-node/flux-bootstrap
-kubectl kustomize magic-cluster/profiles/single-node/apps-ai
-kubectl kustomize magic-cluster/profiles/single-node/apps-ai-agent-templates
+kubectl kustomize magic-cluster/flux/entrypoints/base
+kubectl kustomize magic-cluster/apps/dashboard
+kubectl kustomize magic-cluster/apps/ai
+kubectl kustomize magic-cluster/apps/ai/kubeopencode
+kubectl kustomize magic-cluster/apps/ai/agent-templates
+kubectl kustomize magic-cluster/flux/entrypoints/single-node
+kubectl kustomize magic-cluster/apps/overlays/single-node/ai
+kubectl kustomize magic-cluster/apps/overlays/single-node/ai-agent-templates
 kubectl kustomize examples/demo/infra-cluster/flux-bootstrap
 ```
 
@@ -44,7 +44,7 @@ Do not commit generated Kubernetes Secrets, Flux bootstrap token secrets, privat
 ## Review Questions
 
 - Does every public hostname use `example.local`, `example.com`, or a documented placeholder?
-- Are real domains, admin emails, storage sizes, selected model choices, and Flux paths absent from this repository?
+- Are real domains, admin emails, storage sizes, and private Flux paths absent from this repository?
 - Are safe defaults clearly documented for private deployments to patch?
 - Do example overlays still build after public base changes?
 - Are new secrets generated at runtime instead of stored in Git?

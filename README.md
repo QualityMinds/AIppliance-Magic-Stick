@@ -10,8 +10,7 @@ This repository intentionally contains only generic template code, safe example 
 .
 ├── magic-installer/                  # reusable cloud-init/autoinstall template
 ├── magic-host/                 # reusable Ansible playbooks and roles
-├── magic-cluster/              # reusable Kubernetes and Flux bases
-├── magic-cluster/profiles/      # public deployment profiles
+├── magic-cluster/              # reusable Kubernetes, app, platform and Flux bases
 ├── examples/demo/              # safe example overlay using example.local hosts
 ├── docs/
 │   └── public-release-checklist.md
@@ -26,7 +25,7 @@ Use `example.local`, `example.com`, `CHANGEME`, or documented variables for all 
 Public template:
 
 ```bash
-kubectl kustomize magic-cluster/flux-bootstrap
+kubectl kustomize magic-cluster/flux/entrypoints/base
 ```
 
 Safe demo overlay:
@@ -38,7 +37,7 @@ kubectl kustomize examples/demo/infra-cluster/flux-bootstrap
 Public single-node profile:
 
 ```bash
-kubectl kustomize magic-cluster/profiles/single-node/flux-bootstrap
+kubectl kustomize magic-cluster/flux/entrypoints/single-node
 ```
 
 Private deployments should include this repository into their source artifact, for example:
@@ -51,7 +50,7 @@ include:
     toPath: vendor/magicstick
 ```
 
-Deployment overlays can then import bases from `vendor/magicstick/magic-cluster/...`.
+Deployment overlays can then import bases from `vendor/magicstick/magic-cluster/platform/...` and `vendor/magicstick/magic-cluster/apps/...`.
 
 ## Host Bootstrap
 
@@ -82,14 +81,14 @@ need a Git token.
 ANSIBLE_ROLES_PATH=magic-host/roles \
   ansible-playbook --syntax-check magic-host/playbooks/local.yml
 
-kubectl kustomize magic-cluster/flux-bootstrap
-kubectl kustomize magic-cluster/apps
-kubectl kustomize magic-cluster/apps-ai
-kubectl kustomize magic-cluster/apps-ai-kubeopencode
-kubectl kustomize magic-cluster/apps-ai-agent-templates
-kubectl kustomize magic-cluster/profiles/single-node/flux-bootstrap
-kubectl kustomize magic-cluster/profiles/single-node/apps-ai
-kubectl kustomize magic-cluster/profiles/single-node/apps-ai-agent-templates
+kubectl kustomize magic-cluster/flux/entrypoints/base
+kubectl kustomize magic-cluster/apps/dashboard
+kubectl kustomize magic-cluster/apps/ai
+kubectl kustomize magic-cluster/apps/ai/kubeopencode
+kubectl kustomize magic-cluster/apps/ai/agent-templates
+kubectl kustomize magic-cluster/flux/entrypoints/single-node
+kubectl kustomize magic-cluster/apps/overlays/single-node/ai
+kubectl kustomize magic-cluster/apps/overlays/single-node/ai-agent-templates
 kubectl kustomize examples/demo/infra-cluster/flux-bootstrap
 ```
 

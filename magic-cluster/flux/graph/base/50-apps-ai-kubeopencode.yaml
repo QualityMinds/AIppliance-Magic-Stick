@@ -7,10 +7,14 @@ spec:
   dependsOn:
     - name: infrastructure-ai
   interval: 10m0s
-  path: ./magic-cluster/apps-ai-kubeopencode
+  path: ./magic-cluster/apps/ai/kubeopencode
   postBuild:
     substitute:
       var_substitution_enabled: "true"
+    substituteFrom:
+      - kind: ConfigMap
+        name: ai-appliance-settings
+        optional: true
   prune: true
   sourceRef:
     kind: GitRepository

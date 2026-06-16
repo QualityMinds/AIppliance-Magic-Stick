@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../base
+patches:
+  - target:
+      group: kustomize.toolkit.fluxcd.io
+      version: v1
+      kind: Kustomization
+      name: apps-ai
+      namespace: flux-system
+    patch: |-
+      - op: replace
+        path: /spec/path
+        value: ./magic-cluster/apps/overlays/single-node/ai
+  - target:
+      group: kustomize.toolkit.fluxcd.io
+      version: v1
+      kind: Kustomization
+      name: apps-ai-agent-templates
+      namespace: flux-system
+    patch: |-
+      - op: replace
+        path: /spec/path
+        value: ./magic-cluster/apps/overlays/single-node/ai-agent-templates

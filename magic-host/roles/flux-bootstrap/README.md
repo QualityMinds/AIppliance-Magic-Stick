@@ -18,7 +18,7 @@ This Ansible role installs the Flux CLI and performs the cluster bootstrap.
 | `magicstick_public_repo` | Yes | Public template Git URL, loaded from `MAGICSTICK_PUBLIC_REPO` |
 | `magicstick_public_ref` | Yes | Public template ref, loaded from `MAGICSTICK_PUBLIC_REF` |
 | `magicstick_public_ref_kind` | No | `branch`, `tag`, `semver`, or `commit`; default: `branch` |
-| `flux_public_sync_path` | `readonly-public` | Public profile path, default: `magic-cluster/profiles/single-node/flux-bootstrap` |
+| `flux_public_sync_path` | `readonly-public` | Public profile path, default: `magic-cluster/flux/entrypoints/single-node` |
 | `flux_cluster_path` | `github` | Path in the private deployment repository, e.g. `deployments/CHANGEME_DEPLOYMENT/infra-cluster/flux-bootstrap` |
 | `flux_github_owner` | `github` | GitHub owner (organization or user) |
 | `flux_github_repo` | `github` | Repository name (without owner prefix) |
