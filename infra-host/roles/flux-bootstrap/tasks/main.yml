@@ -54,24 +54,33 @@
       - flux_github_repo is defined and flux_github_repo | length > 0
       - flux_github_branch is defined and flux_github_branch | length > 0
       - flux_cluster_path is defined and flux_cluster_path | length > 0
+      - flux_bootstrap_seed_path is defined and flux_bootstrap_seed_path | length > 0
+      - flux_bootstrap_seed_path != flux_cluster_path
+      - magicstick_public_repo is defined and magicstick_public_repo | length > 0
+      - magicstick_public_ref is defined and magicstick_public_ref | length > 0
+      - ai_appliance_private_checkout is defined and ai_appliance_private_checkout | length > 0
       - flux_github_token is defined
       - flux_github_token | trim | length > 0
       - flux_github_token | trim is not match('^\\*+$')
       - flux_github_token | trim is not match('(?i)^(replaceme|changeme|replace_with_.*|changeme_.*|your_token_here|<github-pat>)$')
     fail_msg: >
       Flux bootstrap requires valid GitHub variables. Set flux_github_owner,
-      flux_github_repo, flux_github_branch, flux_cluster_path and
+      flux_github_repo, flux_github_branch, flux_cluster_path,
+      flux_bootstrap_seed_path, magicstick_public_repo, magicstick_public_ref,
+      ai_appliance_private_checkout and
       flux_github_token (for example via Ansible Vault).
 
-- name: Run Flux bootstrap (only when Git provider variables are set)
+- name: Run Flux bootstrap against CLI seed path
   ansible.builtin.command:
-    cmd: >
-      flux bootstrap github
-      --owner={{ flux_github_owner }}
-      --repository={{ flux_github_repo }}
-      --branch={{ flux_github_branch }}
-      --path={{ flux_cluster_path }}
-      --token-auth
+    argv:
+      - flux
+      - bootstrap
+      - github
+      - "--owner={{ flux_github_owner }}"
+      - "--repository={{ flux_github_repo }}"
+      - "--branch={{ flux_github_branch }}"
+      - "--path={{ flux_bootstrap_seed_path }}"
+      - --token-auth
   environment:
     KUBECONFIG: "{{ flux_kubeconfig_path }}"
     GITHUB_TOKEN: "{{ flux_github_token }}"
@@ -92,3 +101,73 @@
       stderr={{ flux_bootstrap_stderr_redacted }};
       stdout={{ flux_bootstrap_stdout_redacted }}
   when: flux_bootstrap_result.rc != 0
+
+- name: Check AI Appliance Flux sync manifest
+  ansible.builtin.stat:
+    path: "{{ flux_custom_sync_manifest_path }}"
+  register: flux_custom_sync_manifest_stat
+
+- name: Fail when AI Appliance Flux sync manifest is missing
+  ansible.builtin.fail:
+    msg: >-
+      AI Appliance Flux sync manifest not found at
+      {{ flux_custom_sync_manifest_path }}. It must be committed in the private
+      deployment checkout and define the magicstick-public source include.
+  when: not flux_custom_sync_manifest_stat.stat.exists
+
+- name: Apply AI Appliance Flux sync configuration
+  ansible.builtin.command:
+    argv:
+      - "{{ flux_kubectl_binary }}"
+      - "{{ flux_kubectl_subcommand }}"
+      - --kubeconfig
+      - "{{ flux_kubeconfig_path }}"
+      - apply
+      - -f
+      - "{{ flux_custom_sync_manifest_path }}"
+  register: flux_custom_sync_apply
+  changed_when: >
+    ('created' in flux_custom_sync_apply.stdout)
+    or ('configured' in flux_custom_sync_apply.stdout)
+
+- name: Reconcile public magicstick source
+  ansible.builtin.command:
+    argv:
+      - flux
+      - reconcile
+      - source
+      - git
+      - magicstick-public
+      - --namespace=flux-system
+      - "--timeout={{ flux_reconcile_timeout }}"
+  environment:
+    KUBECONFIG: "{{ flux_kubeconfig_path }}"
+  changed_when: true
+
+- name: Reconcile private Flux source with public include
+  ansible.builtin.command:
+    argv:
+      - flux
+      - reconcile
+      - source
+      - git
+      - flux-system
+      - --namespace=flux-system
+      - "--timeout={{ flux_reconcile_timeout }}"
+  environment:
+    KUBECONFIG: "{{ flux_kubeconfig_path }}"
+  changed_when: true
+
+- name: Reconcile primary Flux kustomization
+  ansible.builtin.command:
+    argv:
+      - flux
+      - reconcile
+      - kustomization
+      - flux-system
+      - --namespace=flux-system
+      - --with-source
+      - "--timeout={{ flux_reconcile_timeout }}"
+  environment:
+    KUBECONFIG: "{{ flux_kubeconfig_path }}"
+  changed_when: true

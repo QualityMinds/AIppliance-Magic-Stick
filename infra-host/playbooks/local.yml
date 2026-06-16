@@ -78,6 +78,9 @@
         flux_github_repo: "{{ flux_github_repo | default(repo_metadata_env_map.get('GIT_REPO', ''), true) }}"
         flux_github_branch: "{{ flux_github_branch | default(repo_metadata_env_map.get('GIT_BRANCH', ''), true) }}"
         flux_cluster_path: "{{ flux_cluster_path | default(repo_metadata_env_map.get('FLUX_CLUSTER_PATH', ''), true) }}"
+        magicstick_public_repo: "{{ magicstick_public_repo | default(repo_metadata_env_map.get('MAGICSTICK_PUBLIC_REPO', 'https://github.com/QualityMinds/AIppliance-Magic-Stick.git'), true) }}"
+        magicstick_public_ref: "{{ magicstick_public_ref | default(repo_metadata_env_map.get('MAGICSTICK_PUBLIC_REF', ''), true) }}"
+        ai_appliance_private_checkout: "{{ ai_appliance_private_checkout | default(repo_metadata_env_map.get('AI_APPLIANCE_PRIVATE_CHECKOUT', '/opt/ai-appliance/deployment'), true) }}"
         ansible_inventory_path: "{{ ansible_inventory_path | default(repo_metadata_env_map.get('ANSIBLE_INVENTORY_PATH', 'infra-host/inventory/localhost.yml'), true) }}"
         ansible_playbook_path: "{{ ansible_playbook_path | default(repo_metadata_env_map.get('ANSIBLE_PLAYBOOK_PATH', 'infra-host/playbooks/local.yml'), true) }}"
         flux_github_token: "{{ flux_github_token | default(repo_metadata_env_map.get('FLUX_GITHUB_TOKEN', ''), true) }}"
@@ -100,12 +103,16 @@
           - flux_github_repo is defined and flux_github_repo | trim | length > 0
           - flux_github_branch is defined and flux_github_branch | trim | length > 0
           - flux_cluster_path is defined and flux_cluster_path | trim | length > 0
+          - magicstick_public_repo is defined and magicstick_public_repo | trim | length > 0
+          - magicstick_public_ref is defined and magicstick_public_ref | trim | length > 0
+          - ai_appliance_private_checkout is defined and ai_appliance_private_checkout | trim | length > 0
           - ansible_inventory_path is defined and ansible_inventory_path | trim | length > 0
           - ansible_playbook_path is defined and ansible_playbook_path | trim | length > 0
         fail_msg: >-
           Missing repository metadata. Provide GIT_HOST, GIT_OWNER,
-          GIT_REPO, GIT_BRANCH, FLUX_CLUSTER_PATH, ANSIBLE_INVENTORY_PATH and
-          ANSIBLE_PLAYBOOK_PATH in
+          GIT_REPO, GIT_BRANCH, MAGICSTICK_PUBLIC_REPO,
+          MAGICSTICK_PUBLIC_REF, AI_APPLIANCE_PRIVATE_CHECKOUT,
+          FLUX_CLUSTER_PATH, ANSIBLE_INVENTORY_PATH and ANSIBLE_PLAYBOOK_PATH in
           {{ repo_metadata_env_file }} (cloud-init), or pass equivalent vars via
           ansible-pull -e.
 

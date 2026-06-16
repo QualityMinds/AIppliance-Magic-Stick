@@ -4,3 +4,6 @@ flux_kubectl_subcommand: kubectl
 flux_kubeconfig_path: /etc/rancher/k3s/k3s.yaml
 flux_k8s_ready_delay_seconds: 5
 flux_k8s_ready_retries: 24
+flux_bootstrap_seed_path: "{{ flux_cluster_path }}/bootstrap-seed"
+flux_custom_sync_manifest_path: "{{ ai_appliance_private_checkout }}/{{ flux_cluster_path }}/flux-system/magicstick-sync.yaml"
+flux_reconcile_timeout: 5m0s
