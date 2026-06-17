@@ -15,6 +15,7 @@ spec:
     CUDA_MPS_PINNED_DEVICE_MEM_LIMIT: "0=15G"
     CUDA_MPS_ACTIVE_THREAD_PERCENTAGE: "50"
   args:
+    - --gpu-memory-utilization=0.25
     - --runner=pooling
     - --convert=embed
     - --trust-remote-code
