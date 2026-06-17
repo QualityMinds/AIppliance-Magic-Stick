@@ -12,6 +12,7 @@ This directory must not contain real deployment domains, Flux repository values,
 | `flux/entrypoints/base` | Neutral public Flux entrypoint |
 | `flux/entrypoints/single-node` | Public read-only single-node Flux entrypoint |
 | `platform/basis` | Namespaces, ingress-nginx, cert-manager, secret generator, reloader, kdns |
+| `platform/ai` | AI infrastructure wave with NVIDIA GPU support and KubeAI model-serving operator |
 | `platform/gpu` | NVIDIA GPU Operator and GPU time slicing |
 | `platform/observability` | Prometheus stack, Loki, Promtail, OpenTelemetry, Grafana dashboards |
 | `apps/dashboard` | Dashboard app |
@@ -41,6 +42,7 @@ from `vendor/magicstick/magic-cluster/platform/*` or
 ```bash
 kubectl kustomize magic-cluster/flux/entrypoints/base
 kubectl kustomize magic-cluster/apps/dashboard
+kubectl kustomize magic-cluster/platform/ai
 kubectl kustomize magic-cluster/apps/ai
 kubectl kustomize magic-cluster/apps/ai/kubeopencode
 kubectl kustomize magic-cluster/apps/ai/agent-templates
@@ -51,7 +53,8 @@ kubectl kustomize examples/demo/infra-cluster/flux-bootstrap
 ```
 
 The public `apps/ai` base is intentionally model-neutral. It includes reusable
-model bases under `apps/ai/models`, but does not select them. The
+model bases under `apps/ai/models`, but does not select them. KubeAI is applied
+as part of `infrastructure-ai` before those Model resources. The
 `profiles/single-node/apps/ai` overlay selects `qwen3635b` and
 `qwen352bvlembedding` and configures LiteLLM and AnythingLLM defaults. The
 `profiles/single-node/apps/ai-agent-templates` overlay sets KubeOpenCode

@@ -1,0 +1,21 @@
+apiVersion: kubeai.org/v1
+kind: Model
+metadata:
+  name: qwen352bvlembedding
+spec:
+  features:
+    - TextEmbedding
+  url: hf://LifetimeMistake/Qwen3-VL-Embedding-2B-AWQ-4bit
+  engine: VLLM
+  resourceProfile: magicstick-nvidia-gpu:1
+  minReplicas: 1
+  maxReplicas: 1
+  args:
+    - --gpu-memory-utilization=0.15
+    - --runner=pooling
+    - --convert=embed
+    - --trust-remote-code
+    - --quantization=compressed-tensors
+    - --limit-mm-per-prompt
+    - '{"image":1}'
+    - --max-model-len=4096
