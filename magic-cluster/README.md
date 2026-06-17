@@ -12,8 +12,8 @@ This directory must not contain real deployment domains, Flux repository values,
 | `flux/entrypoints/base` | Neutral public Flux entrypoint |
 | `flux/entrypoints/single-node` | Public read-only single-node Flux entrypoint |
 | `platform/basis` | Namespaces, ingress-nginx, cert-manager, secret generator, reloader, kdns |
-| `platform/ai` | AI infrastructure wave with NVIDIA GPU support and KubeAI model-serving operator |
-| `platform/ai/paperclip-operator` | Optional Paperclip CRD operator base for `paperclip.inc/v1alpha1` instances |
+| `platform/ai` | AI infrastructure wave with NVIDIA GPU support, KubeAI, and the Paperclip CRD operator |
+| `platform/ai/paperclip-operator` | Paperclip CRD operator base for `paperclip.inc/v1alpha1` instances |
 | `platform/gpu` | NVIDIA GPU Operator and CUDA MPS GPU sharing |
 | `platform/observability` | Prometheus stack, Loki, Promtail, OpenTelemetry, Grafana dashboards |
 | `apps/dashboard` | Dashboard app |
@@ -36,7 +36,7 @@ from `vendor/magicstick/magic-cluster/platform/*` or
 - selected model resources
 - LiteLLM model config fragments
 - AnythingLLM embedding model preference
-- Paperclip operator and instance opt-in paths, public URL, image tag, and storage sizes
+- Paperclip instance opt-in paths, public URL, image tag, and storage sizes
 - KubeOpenCode default model
 - Flux Kustomization paths
 
@@ -65,8 +65,8 @@ as part of `infrastructure-ai` before those Model resources. The
 `profiles/single-node/apps/ai-agent-templates` overlay sets KubeOpenCode
 defaults for a single-node appliance.
 
-The Paperclip operator bases are reusable but not selected by the default
-public entrypoints. Deployments that want Paperclip should first reconcile
-`platform/ai/paperclip-operator` so the `instances.paperclip.inc` CRD exists,
-then reconcile `apps/ai/paperclip`. The upstream operator chart requires
-Kubernetes 1.28 or newer.
+The Paperclip operator is selected by the default `platform/ai` base so the
+`instances.paperclip.inc` CRD is available with the AI infrastructure wave. The
+Paperclip `Instance` base remains opt-in; deployments that want a Paperclip app
+should reconcile `apps/ai/paperclip` after the operator is ready. The upstream
+operator chart requires Kubernetes 1.28 or newer.

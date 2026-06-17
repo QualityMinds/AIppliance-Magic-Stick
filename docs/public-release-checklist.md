@@ -49,6 +49,6 @@ Do not commit generated Kubernetes Secrets, Flux bootstrap token secrets, privat
 - Does every public hostname use `example.local`, `example.com`, or a documented placeholder?
 - Are real domains, admin emails, storage sizes, and private Flux paths absent from this repository?
 - Are safe defaults clearly documented for private deployments to patch?
-- Are optional app/operator bases still opt-in unless intentionally selected by an entrypoint?
+- Are optional app bases still opt-in unless intentionally selected by an entrypoint?
 - Do example overlays still build after public base changes?
 - Are new secrets generated at runtime instead of stored in Git?
