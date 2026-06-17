@@ -2,6 +2,7 @@ apiVersion: kubeai.org/v1
 kind: Model
 metadata:
   name: qwen3635b
+  namespace: ai
 spec:
   features:
     - TextGeneration
