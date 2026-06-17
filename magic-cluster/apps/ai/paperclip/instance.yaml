@@ -1,0 +1,64 @@
+apiVersion: paperclip.inc/v1alpha1
+kind: Instance
+metadata:
+  name: paperclip
+  namespace: ai
+  labels:
+    app: paperclip
+spec:
+  image:
+    repository: ghcr.io/paperclipai/paperclip
+    tag: sha-e59eb10
+  deployment:
+    mode: authenticated
+    exposure: public
+    publicURL: "http://paperclip.${AI_APPLIANCE_DOMAIN:=example.local}"
+    allowedHostnames:
+      - "paperclip.${AI_APPLIANCE_DOMAIN:=example.local}"
+  database:
+    mode: managed
+    managed:
+      storageSize: "${AI_APPLIANCE_PAPERCLIP_POSTGRES_STORAGE:=10Gi}"
+  auth:
+    secretRef:
+      name: paperclip-auth
+      key: BETTER_AUTH_SECRET
+  storage:
+    persistence:
+      enabled: true
+      size: "${AI_APPLIANCE_PAPERCLIP_STORAGE:=5Gi}"
+  security:
+    networkPolicy:
+      enabled: true
+    rbac:
+      create: true
+  networking:
+    service:
+      type: ClusterIP
+      port: 3100
+    ingress:
+      enabled: true
+      ingressClassName: nginx
+      hosts:
+        - "paperclip.${AI_APPLIANCE_DOMAIN:=example.local}"
+      annotations:
+        dashboard.ai-appliance.io/title: "Paperclip"
+        dashboard.ai-appliance.io/description: "AI agent company control plane managed by the Paperclip operator."
+        dashboard.ai-appliance.io/icon: "PC"
+        dashboard.ai-appliance.io/category: "AI"
+        dashboard.ai-appliance.io/order: "40"
+        lab42.io/mdns.enabled: "true"
+        lab42.io/mdns.name: "paperclip"
+        nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+        nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+        nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+  observability:
+    logging:
+      level: info
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi

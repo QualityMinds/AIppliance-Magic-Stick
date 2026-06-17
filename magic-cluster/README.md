@@ -13,10 +13,12 @@ This directory must not contain real deployment domains, Flux repository values,
 | `flux/entrypoints/single-node` | Public read-only single-node Flux entrypoint |
 | `platform/basis` | Namespaces, ingress-nginx, cert-manager, secret generator, reloader, kdns |
 | `platform/ai` | AI infrastructure wave with NVIDIA GPU support and KubeAI model-serving operator |
+| `platform/ai/paperclip-operator` | Optional Paperclip CRD operator base for `paperclip.inc/v1alpha1` instances |
 | `platform/gpu` | NVIDIA GPU Operator and CUDA MPS GPU sharing |
 | `platform/observability` | Prometheus stack, Loki, Promtail, OpenTelemetry, Grafana dashboards |
 | `apps/dashboard` | Dashboard app |
 | `apps/ai` | LiteLLM, AnythingLLM, Qdrant, and reusable model bases |
+| `apps/ai/paperclip` | Optional Paperclip `Instance` CR base using the Paperclip operator |
 | `apps/ai/kubeopencode` | KubeOpenCode Helm release, separated so CRDs can become ready before custom resources |
 | `apps/ai/agent-templates` | KubeOpenCode AgentTemplate resources applied after KubeOpenCode CRDs exist |
 
@@ -34,6 +36,7 @@ from `vendor/magicstick/magic-cluster/platform/*` or
 - selected model resources
 - LiteLLM model config fragments
 - AnythingLLM embedding model preference
+- Paperclip operator and instance opt-in paths, public URL, image tag, and storage sizes
 - KubeOpenCode default model
 - Flux Kustomization paths
 
@@ -43,7 +46,9 @@ from `vendor/magicstick/magic-cluster/platform/*` or
 kubectl kustomize magic-cluster/flux/entrypoints/base
 kubectl kustomize magic-cluster/apps/dashboard
 kubectl kustomize magic-cluster/platform/ai
+kubectl kustomize magic-cluster/platform/ai/paperclip-operator
 kubectl kustomize magic-cluster/apps/ai
+kubectl kustomize magic-cluster/apps/ai/paperclip
 kubectl kustomize magic-cluster/apps/ai/kubeopencode
 kubectl kustomize magic-cluster/apps/ai/agent-templates
 kubectl kustomize magic-cluster/flux/entrypoints/single-node
@@ -59,3 +64,9 @@ as part of `infrastructure-ai` before those Model resources. The
 `qwen352bvlembedding` and configures LiteLLM and AnythingLLM defaults. The
 `profiles/single-node/apps/ai-agent-templates` overlay sets KubeOpenCode
 defaults for a single-node appliance.
+
+The Paperclip operator bases are reusable but not selected by the default
+public entrypoints. Deployments that want Paperclip should first reconcile
+`platform/ai/paperclip-operator` so the `instances.paperclip.inc` CRD exists,
+then reconcile `apps/ai/paperclip`. The upstream operator chart requires
+Kubernetes 1.28 or newer.
