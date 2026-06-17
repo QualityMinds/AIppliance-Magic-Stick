@@ -19,7 +19,7 @@ spec:
       priorityClassName: system-node-critical
       nodeSelector:
         nvidia.com/gpu.deploy.device-plugin: "true"
-        nvidia.com/mps.capable: "true"
+        nvidia.com/gpu.present: "true"
       tolerations:
         - key: nvidia.com/gpu
           operator: Exists
