@@ -5,7 +5,3 @@ resources:
 components:
   - ../../../../apps/ai/models/qwen359b/component
   - ../../../../apps/ai/models/qwen352bvlembedding/component
-patches:
-#  - path: patches/qwen369b-litellm-config.yaml
-#  - path: patches/qwen352bvlembedding-litellm-config.yaml
-  - path: patches/qwen352bvlembedding-anything-llm-config.yaml

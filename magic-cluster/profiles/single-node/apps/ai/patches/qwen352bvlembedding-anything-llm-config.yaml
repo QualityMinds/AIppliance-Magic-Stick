@@ -1,8 +1,0 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: anything-llm-config
-  namespace: ai
-data:
-  EMBEDDING_ENGINE: litellm
-  EMBEDDING_MODEL_PREF: qwen352bvlembedding

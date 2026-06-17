@@ -8,5 +8,11 @@ configMapGenerator:
     behavior: merge
     files:
       - 30-qwen352bvlembedding.yaml=litellm-fragment.yaml
+  - name: anything-llm-config
+    namespace: ai
+    behavior: merge
+    literals:
+      - EMBEDDING_ENGINE=litellm
+      - EMBEDDING_MODEL_PREF=qwen352bvlembedding
 generatorOptions:
   disableNameSuffixHash: true
