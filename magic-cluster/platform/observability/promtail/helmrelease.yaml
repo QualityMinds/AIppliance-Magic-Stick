@@ -33,17 +33,6 @@ spec:
                 target_label: systemd_unit
               - source_labels: ['__journal_hostname']
                 target_label: nodename
-    initContainers:
-      - name: increase-inotify-limits
-        image: busybox:1.36
-        command:
-          - sh
-          - -c
-          - |
-            sysctl -w fs.inotify.max_user_instances=512
-            sysctl -w fs.inotify.max_user_watches=524288
-        securityContext:
-          privileged: true
     extraVolumes:
       - name: varlogjournal
         hostPath:

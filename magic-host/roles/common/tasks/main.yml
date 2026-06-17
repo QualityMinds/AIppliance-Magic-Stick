@@ -37,6 +37,25 @@
     group: root
     mode: "0644"
 
+- name: Persist host file watcher limits for Kubernetes workloads
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/90-ai-appliance-inotify.conf
+    content: |
+      fs.inotify.max_user_instances = 1024
+      fs.inotify.max_user_watches = 1048576
+      fs.inotify.max_queued_events = 32768
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Apply host file watcher limits for the current boot
+  ansible.builtin.command:
+    argv:
+      - /sbin/sysctl
+      - --load
+      - /etc/sysctl.d/90-ai-appliance-inotify.conf
+  changed_when: false
+
 # NOPASSWD:ALL is intentionally broad for the MVP so that the converge runner
 # can use 'become: true'
 # without a password prompt.  This mirrors the sudo rule that cloud-init
