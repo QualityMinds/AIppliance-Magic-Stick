@@ -12,6 +12,8 @@ spec:
   selector:
     matchLabels:
       app: litellm
+  strategy:
+    type: Recreate
   template:
     metadata:
       labels:

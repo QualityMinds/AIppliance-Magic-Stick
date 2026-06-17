@@ -13,6 +13,8 @@ spec:
   selector:
     matchLabels:
       app: anything-llm
+  strategy:
+    type: Recreate
   template:
     metadata:
       labels:

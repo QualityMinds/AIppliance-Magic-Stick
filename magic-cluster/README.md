@@ -45,14 +45,14 @@ kubectl kustomize magic-cluster/apps/ai
 kubectl kustomize magic-cluster/apps/ai/kubeopencode
 kubectl kustomize magic-cluster/apps/ai/agent-templates
 kubectl kustomize magic-cluster/flux/entrypoints/single-node
-kubectl kustomize magic-cluster/apps/overlays/single-node/ai
-kubectl kustomize magic-cluster/apps/overlays/single-node/ai-agent-templates
+kubectl kustomize magic-cluster/profiles/single-node/apps/ai
+kubectl kustomize magic-cluster/profiles/single-node/apps/ai-agent-templates
 kubectl kustomize examples/demo/infra-cluster/flux-bootstrap
 ```
 
 The public `apps/ai` base is intentionally model-neutral. It includes reusable
 model bases under `apps/ai/models`, but does not select them. The
-`apps/ai/overlays/single-node` overlay selects `qwen3635b` and
+`profiles/single-node/apps/ai` overlay selects `qwen3635b` and
 `qwen352bvlembedding` and configures LiteLLM and AnythingLLM defaults. The
-`apps/ai/agent-templates/overlays/single-node` overlay sets KubeOpenCode
+`profiles/single-node/apps/ai-agent-templates` overlay sets KubeOpenCode
 defaults for a single-node appliance.

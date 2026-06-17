@@ -87,8 +87,8 @@ kubectl kustomize magic-cluster/apps/ai
 kubectl kustomize magic-cluster/apps/ai/kubeopencode
 kubectl kustomize magic-cluster/apps/ai/agent-templates
 kubectl kustomize magic-cluster/flux/entrypoints/single-node
-kubectl kustomize magic-cluster/apps/overlays/single-node/ai
-kubectl kustomize magic-cluster/apps/overlays/single-node/ai-agent-templates
+kubectl kustomize magic-cluster/profiles/single-node/apps/ai
+kubectl kustomize magic-cluster/profiles/single-node/apps/ai-agent-templates
 kubectl kustomize examples/demo/infra-cluster/flux-bootstrap
 ```
 
