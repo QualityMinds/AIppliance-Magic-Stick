@@ -12,10 +12,9 @@ spec:
   minReplicas: 1
   maxReplicas: 1
   env:
-    CUDA_MPS_PINNED_DEVICE_MEM_LIMIT: "0=15G"
-    CUDA_MPS_ACTIVE_THREAD_PERCENTAGE: "50"
+    MAGICSTICK_VLLM_VRAM_LIMIT: "6Gi"
+    MAGICSTICK_VLLM_ACTIVE_THREAD_PERCENTAGE: "50"
   args:
-    - --gpu-memory-utilization=0.25
     - --runner=pooling
     - --convert=embed
     - --trust-remote-code

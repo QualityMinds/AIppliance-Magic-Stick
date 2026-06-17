@@ -22,5 +22,5 @@ spec:
         value: /run/k3s/containerd/containerd.sock
     devicePlugin:
       config:
-        name: mps-config
+        name: time-slicing-config
         default: any

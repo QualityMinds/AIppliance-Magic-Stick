@@ -4,4 +4,6 @@ resources:
   - namespace.yaml
   - helmrepository.yaml
   - helmrelease.yaml
-  - mps-config.yaml
+  - time-slicing-config.yaml
+  - magicstick-mps-config.yaml
+  - magicstick-mps-control-daemon.yaml

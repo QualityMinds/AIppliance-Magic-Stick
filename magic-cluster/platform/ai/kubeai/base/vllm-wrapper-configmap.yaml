@@ -1,0 +1,151 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: magicstick-vllm-wrapper
+  namespace: ai
+data:
+  wrapper.py: |-
+    import os
+    import re
+    import subprocess
+    import sys
+
+
+    PREFIX = "[magicstick-vllm-wrapper]"
+
+
+    def log(message):
+        print(f"{PREFIX} {message}", flush=True)
+
+
+    def die(message):
+        print(f"{PREFIX} ERROR: {message}", file=sys.stderr, flush=True)
+        sys.exit(2)
+
+
+    def parse_mib(name, default=None):
+        raw = os.environ.get(name)
+        if raw is None or raw.strip() == "":
+            return default
+        value = raw.strip()
+        number_only = re.fullmatch(r"(\d+(?:\.\d+)?)", value)
+        if number_only:
+            return int(float(number_only.group(1)))
+
+        match = re.fullmatch(r"(\d+(?:\.\d+)?)\s*([A-Za-z]+)", value)
+        if not match:
+            die(f"{name} must be a memory value like 15Gi, 6144Mi, or 15360")
+
+        amount = float(match.group(1))
+        unit = match.group(2).lower()
+        factors = {
+            "m": 1,
+            "mb": 1,
+            "mi": 1,
+            "mib": 1,
+            "g": 1024,
+            "gb": 1024,
+            "gi": 1024,
+            "gib": 1024,
+        }
+        if unit not in factors:
+            die(f"{name} uses unsupported unit {match.group(2)!r}; use Mi or Gi")
+        return int(amount * factors[unit])
+
+
+    def gpu_total_mib(device):
+        command = [
+            "nvidia-smi",
+            "-i",
+            device,
+            "--query-gpu=memory.total",
+            "--format=csv,noheader,nounits",
+        ]
+        try:
+            result = subprocess.run(
+                command,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except FileNotFoundError:
+            die("nvidia-smi is not available in the vLLM container")
+        except subprocess.CalledProcessError as exc:
+            die(f"nvidia-smi failed: {exc.stderr.strip() or exc.stdout.strip()}")
+        except subprocess.TimeoutExpired:
+            die("nvidia-smi timed out")
+
+        first_line = result.stdout.strip().splitlines()[0].strip()
+        try:
+            return int(first_line)
+        except ValueError:
+            die(f"could not parse GPU memory from nvidia-smi output: {first_line!r}")
+
+
+    def strip_gpu_memory_utilization(args):
+        filtered = []
+        skip_next = False
+        for arg in args:
+            if skip_next:
+                skip_next = False
+                continue
+            if arg in ("--gpu-memory-utilization", "--gpu_memory_utilization"):
+                skip_next = True
+                continue
+            if arg.startswith("--gpu-memory-utilization=") or arg.startswith("--gpu_memory_utilization="):
+                continue
+            filtered.append(arg)
+        return filtered
+
+
+    def main():
+        device = os.environ.get("MAGICSTICK_MPS_DEVICE", "0").strip() or "0"
+        budget_mib = parse_mib("MAGICSTICK_VLLM_VRAM_LIMIT")
+        if budget_mib is None:
+            die("MAGICSTICK_VLLM_VRAM_LIMIT is required for MagicStick GPU vLLM models")
+        headroom_mib = parse_mib("MAGICSTICK_VLLM_VRAM_HEADROOM_MIB", 1024)
+        if headroom_mib < 0:
+            die("MAGICSTICK_VLLM_VRAM_HEADROOM_MIB must not be negative")
+
+        total_mib = gpu_total_mib(device)
+        if budget_mib > total_mib:
+            die(
+                "MAGICSTICK_VLLM_VRAM_LIMIT "
+                f"{budget_mib}Mi is larger than physical GPU memory {total_mib}Mi"
+            )
+
+        usable_mib = budget_mib - headroom_mib
+        if usable_mib <= 0:
+            die(
+                "MAGICSTICK_VLLM_VRAM_LIMIT must be larger than "
+                "MAGICSTICK_VLLM_VRAM_HEADROOM_MIB"
+            )
+
+        raw_utilization = usable_mib / total_mib
+        utilization = min(0.98, max(0.05, raw_utilization))
+
+        os.environ["CUDA_MPS_PIPE_DIRECTORY"] = "/mps/nvidia.com/gpu/pipe"
+        os.environ["CUDA_MPS_PINNED_DEVICE_MEM_LIMIT"] = f"{device}={budget_mib}M"
+        active_threads = os.environ.get("MAGICSTICK_VLLM_ACTIVE_THREAD_PERCENTAGE", "").strip()
+        if active_threads:
+            os.environ["CUDA_MPS_ACTIVE_THREAD_PERCENTAGE"] = active_threads
+
+        args = strip_gpu_memory_utilization(sys.argv[1:])
+        args.append(f"--gpu-memory-utilization={utilization:.4f}")
+        command = ["python3", "-m", "vllm.entrypoints.openai.api_server", *args]
+
+        log(
+            "physical_gpu_mib="
+            f"{total_mib} budget_mib={budget_mib} headroom_mib={headroom_mib} "
+            f"gpu_memory_utilization={utilization:.4f} "
+            f"cuda_mps_pinned_device_mem_limit={os.environ['CUDA_MPS_PINNED_DEVICE_MEM_LIMIT']}"
+        )
+        if active_threads:
+            log(f"cuda_mps_active_thread_percentage={active_threads}")
+        log("exec python3 -m vllm.entrypoints.openai.api_server")
+        os.execvp(command[0], command)
+
+
+    if __name__ == "__main__":
+        main()

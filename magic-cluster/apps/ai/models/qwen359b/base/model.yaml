@@ -12,11 +12,11 @@ spec:
   minReplicas: 1
   maxReplicas: 1
   env:
-    CUDA_MPS_PINNED_DEVICE_MEM_LIMIT: "0=15G"
-    CUDA_MPS_ACTIVE_THREAD_PERCENTAGE: "50"
+    MAGICSTICK_VLLM_VRAM_LIMIT: "15Gi"
+    MAGICSTICK_VLLM_ACTIVE_THREAD_PERCENTAGE: "50"
   args:
-    - --gpu-memory-utilization=0.45
     - --tensor-parallel-size=1
+    - --max-model-len=8192
     - --reasoning-parser=qwen3
     - --enable-auto-tool-choice
     - --tool-call-parser=qwen3_coder

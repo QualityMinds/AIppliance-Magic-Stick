@@ -1,16 +1,17 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: mps-config
+  name: magicstick-mps-config
   namespace: gpu-operator
 data:
-  any: |-
+  config.yaml: |-
     version: v1
     flags:
       migStrategy: none
     sharing:
       mps:
         renameByDefault: false
+        failRequestsGreaterThanOne: true
         resources:
           - name: nvidia.com/gpu
-            replicas: 2
+            replicas: 1

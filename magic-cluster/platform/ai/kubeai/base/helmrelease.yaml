@@ -45,6 +45,18 @@ spec:
             effect: NoSchedule
     modelServerPods:
       jsonPatches:
+        - op: replace
+          path: /spec/volumes/0
+          value:
+            name: dshm
+            hostPath:
+              path: /run/nvidia/mps/shm
+              type: DirectoryOrCreate
+        - op: replace
+          path: /spec/containers/0/command
+          value:
+            - python3
+            - /opt/magicstick/vllm-wrapper/wrapper.py
         - op: add
           path: /spec/volumes/-
           value:
@@ -53,7 +65,31 @@ spec:
               path: /root/.cache
               type: DirectoryOrCreate
         - op: add
+          path: /spec/volumes/-
+          value:
+            name: magicstick-vllm-wrapper
+            configMap:
+              name: magicstick-vllm-wrapper
+        - op: add
+          path: /spec/volumes/-
+          value:
+            name: mps-root
+            hostPath:
+              path: /run/nvidia/mps
+              type: DirectoryOrCreate
+        - op: add
           path: /spec/containers/0/volumeMounts/-
           value:
             name: model-cache
             mountPath: /root/.cache
+        - op: add
+          path: /spec/containers/0/volumeMounts/-
+          value:
+            name: magicstick-vllm-wrapper
+            mountPath: /opt/magicstick/vllm-wrapper
+            readOnly: true
+        - op: add
+          path: /spec/containers/0/volumeMounts/-
+          value:
+            name: mps-root
+            mountPath: /mps
