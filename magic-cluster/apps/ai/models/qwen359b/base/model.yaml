@@ -17,6 +17,7 @@ spec:
   args:
     - --tensor-parallel-size=1
     - --max-model-len=8192
+    - --max-num-seqs=128
     - --reasoning-parser=qwen3
     - --enable-auto-tool-choice
     - --tool-call-parser=qwen3_coder
