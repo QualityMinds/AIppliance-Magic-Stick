@@ -8,5 +8,5 @@ data:
     - model_name: qwen352bvlembedding
       litellm_params:
         model: openai/qwen352bvlembedding
-        api_base: http://qwen352bvlembedding.ai.svc.cluster.local:8000/v1
+        api_base: http://kubeai.ai.svc.cluster.local/openai/v1
         api_key: "none"

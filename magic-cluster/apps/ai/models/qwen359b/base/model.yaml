@@ -1,0 +1,19 @@
+apiVersion: kubeai.org/v1
+kind: Model
+metadata:
+  name: qwen359b
+spec:
+  features:
+    - TextGeneration
+  url: hf://cyankiwi/Qwen3.5-9B-AWQ-4bit
+  engine: VLLM
+  resourceProfile: magicstick-nvidia-gpu:1
+  minReplicas: 1
+  maxReplicas: 1
+  args:
+    - --gpu-memory-utilization=0.40
+    - --tensor-parallel-size=1
+    - --reasoning-parser=qwen3
+    - --enable-auto-tool-choice
+    - --tool-call-parser=qwen3_coder
+    - --profiler

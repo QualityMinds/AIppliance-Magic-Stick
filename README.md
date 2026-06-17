@@ -83,6 +83,7 @@ ANSIBLE_ROLES_PATH=magic-host/roles \
 
 kubectl kustomize magic-cluster/flux/entrypoints/base
 kubectl kustomize magic-cluster/apps/dashboard
+kubectl kustomize magic-cluster/platform/ai
 kubectl kustomize magic-cluster/apps/ai
 kubectl kustomize magic-cluster/apps/ai/kubeopencode
 kubectl kustomize magic-cluster/apps/ai/agent-templates
