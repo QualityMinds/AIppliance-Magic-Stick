@@ -12,7 +12,7 @@ spec:
   minReplicas: 1
   maxReplicas: 1
   args:
-    - --gpu-memory-utilization=0.15
+    - --gpu-memory-utilization=0.25
     - --runner=pooling
     - --convert=embed
     - --trust-remote-code
