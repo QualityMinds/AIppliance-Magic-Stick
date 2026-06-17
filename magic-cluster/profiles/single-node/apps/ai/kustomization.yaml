@@ -3,7 +3,7 @@ kind: Kustomization
 resources:
   - ../../../../apps/ai
   - ../../../../apps/ai/models/qwen359b/base
-#  - ../../../../apps/ai/models/qwen352bvlembedding/base
+  - ../../../../apps/ai/models/qwen352bvlembedding/base
 patches:
 #  - path: patches/qwen369b-litellm-config.yaml
 #  - path: patches/qwen352bvlembedding-litellm-config.yaml
