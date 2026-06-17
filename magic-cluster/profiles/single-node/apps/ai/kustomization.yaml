@@ -5,6 +5,6 @@ resources:
 #  - ../../../../apps/ai/models/qwen369b/base
 #  - ../../../../apps/ai/models/qwen352bvlembedding/base
 patches:
-  - path: patches/qwen369b-litellm-config.yaml
+#  - path: patches/qwen369b-litellm-config.yaml
 #  - path: patches/qwen352bvlembedding-litellm-config.yaml
 #  - path: patches/qwen352bvlembedding-anything-llm-config.yaml
