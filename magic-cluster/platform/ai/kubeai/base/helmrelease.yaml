@@ -25,6 +25,10 @@ spec:
       type: ClusterIP
     ingress:
       enabled: false
+    modelServers:
+      VLLM:
+        images:
+          magicstick-vllm: vllm/vllm-openai:v0.23.0
     resourceProfiles:
       magicstick-nvidia-gpu:
         imageName: magicstick-vllm
