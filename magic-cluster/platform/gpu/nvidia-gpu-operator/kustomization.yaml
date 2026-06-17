@@ -4,4 +4,4 @@ resources:
   - namespace.yaml
   - helmrepository.yaml
   - helmrelease.yaml
-  - time-slicing-config.yaml
+  - mps-config.yaml

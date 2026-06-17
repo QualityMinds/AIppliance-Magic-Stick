@@ -13,7 +13,7 @@ This directory must not contain real deployment domains, Flux repository values,
 | `flux/entrypoints/single-node` | Public read-only single-node Flux entrypoint |
 | `platform/basis` | Namespaces, ingress-nginx, cert-manager, secret generator, reloader, kdns |
 | `platform/ai` | AI infrastructure wave with NVIDIA GPU support and KubeAI model-serving operator |
-| `platform/gpu` | NVIDIA GPU Operator and GPU time slicing |
+| `platform/gpu` | NVIDIA GPU Operator and CUDA MPS GPU sharing |
 | `platform/observability` | Prometheus stack, Loki, Promtail, OpenTelemetry, Grafana dashboards |
 | `apps/dashboard` | Dashboard app |
 | `apps/ai` | LiteLLM, AnythingLLM, Qdrant, and reusable model bases |

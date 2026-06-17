@@ -11,8 +11,10 @@ spec:
   resourceProfile: magicstick-nvidia-gpu:1
   minReplicas: 1
   maxReplicas: 1
+  env:
+    CUDA_MPS_PINNED_DEVICE_MEM_LIMIT: "0=15G"
+    CUDA_MPS_ACTIVE_THREAD_PERCENTAGE: "50"
   args:
-    - --gpu-memory-utilization=0.40
     - --tensor-parallel-size=1
     - --reasoning-parser=qwen3
     - --enable-auto-tool-choice
