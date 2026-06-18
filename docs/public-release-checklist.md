@@ -63,6 +63,7 @@ Do not commit generated Kubernetes Secrets, Flux bootstrap token secrets, privat
   `example.com`, `CHANGEME`, or documented variables?
 - Do module catalog paths point only to reusable public bases?
 - Do example overlays still build after public base changes?
+- Does the dashboard patch `Appliance` only, without direct workload install permissions?
 - Are new secrets generated at runtime instead of stored in Git?
 - Are new public interfaces documented in `docs/configuration.md`,
   `docs/gitops-overlays.md`, `docs/operations.md`, or another focused page?

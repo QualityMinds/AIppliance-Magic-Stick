@@ -1,0 +1,276 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-appliance-dashboard-api
+  namespace: dashboard
+  labels:
+    app: ai-appliance-dashboard
+    app.kubernetes.io/component: api
+data:
+  server.py: |
+    #!/usr/bin/env python3
+    import json
+    import os
+    import re
+    import ssl
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    APPLIANCE_NAMESPACE = os.environ.get("APPLIANCE_NAMESPACE", "ai-system")
+    APPLIANCE_NAME = os.environ.get("APPLIANCE_NAME", "local")
+    MODULE_CATALOG_NAMESPACE = os.environ.get("MODULE_CATALOG_NAMESPACE", "ai-system")
+    MODULE_CATALOG_NAME = os.environ.get("MODULE_CATALOG_NAME", "magicstick-module-catalog")
+    KUBE_API = os.environ.get("KUBERNETES_SERVICE_URL", "https://kubernetes.default.svc").rstrip("/")
+    SA_TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+    SA_CA_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+    DNS_LABEL = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
+
+    MODULE_KEYS = {
+        "basis": "basis",
+        "dashboard": "dashboard",
+        "litellm": "litellm",
+        "model-catalog": "modelCatalog",
+        "modelCatalog": "modelCatalog",
+        "anything-llm": "anythingLlm",
+        "anythingllm": "anythingLlm",
+        "anythingLlm": "anythingLlm",
+        "kubeai": "kubeai",
+        "openclaw-operator": "openclawOperator",
+        "openclawOperator": "openclawOperator",
+        "hermes-operator": "hermesOperator",
+        "hermesOperator": "hermesOperator",
+        "paperclip-operator": "paperclipOperator",
+        "paperclipOperator": "paperclipOperator",
+        "kubeopencode": "kubeopencode",
+        "observability": "observability",
+        "gpu": "gpu",
+    }
+
+    INSTANCE_TYPES = {"openclaw", "hermes", "paperclip", "kubeopencode"}
+
+    SSL_CONTEXT = ssl.create_default_context(cafile=SA_CA_PATH)
+
+
+    def token():
+        with open(SA_TOKEN_PATH, "r", encoding="utf-8") as token_file:
+            return token_file.read().strip()
+
+
+    def request_json(method, path, body=None, content_type="application/json"):
+        data = None
+        headers = {
+            "Accept": "application/json",
+            "Authorization": "Bearer " + token(),
+        }
+        if body is not None:
+            data = json.dumps(body).encode("utf-8")
+            headers["Content-Type"] = content_type
+        request = urllib.request.Request(KUBE_API + path, data=data, headers=headers, method=method)
+        with urllib.request.urlopen(request, timeout=20, context=SSL_CONTEXT) as response:
+            payload = response.read().decode("utf-8")
+            return json.loads(payload) if payload else {}
+
+
+    def appliance_path():
+        return f"/apis/appliance.magicstick.dev/v1alpha1/namespaces/{APPLIANCE_NAMESPACE}/appliances/{APPLIANCE_NAME}"
+
+
+    def appliance():
+        return request_json("GET", appliance_path())
+
+
+    def patch_appliance(patch):
+        return request_json("PATCH", appliance_path(), patch, "application/merge-patch+json")
+
+
+    def list_resource(path):
+        try:
+            return request_json("GET", path).get("items", [])
+        except urllib.error.HTTPError as error:
+            if error.code == 404:
+                return []
+            raise
+
+
+    def canonical_module(name):
+        key = MODULE_KEYS.get(name)
+        if not key:
+            raise ValueError("unknown module: " + name)
+        return key
+
+
+    def read_body(handler):
+        length = int(handler.headers.get("Content-Length", "0") or "0")
+        if length == 0:
+            return {}
+        raw = handler.rfile.read(length).decode("utf-8")
+        return json.loads(raw) if raw.strip() else {}
+
+
+    def require_name(payload):
+        name = str(payload.get("name", "")).strip()
+        if not name or not DNS_LABEL.match(name):
+            raise ValueError("name must be a DNS-1123 label")
+        return name
+
+
+    def status_payload():
+        current = appliance()
+        flux = list_resource("/apis/kustomize.toolkit.fluxcd.io/v1/namespaces/flux-system/kustomizations")
+        pods = list_resource("/api/v1/pods")
+        services = list_resource("/api/v1/services")
+        ingresses = list_resource("/apis/networking.k8s.io/v1/ingresses")
+        return {
+            "appliance": {
+                "metadata": current.get("metadata", {}),
+                "spec": current.get("spec", {}),
+                "status": current.get("status", {}),
+            },
+            "fluxKustomizations": summarize_objects(flux),
+            "pods": summarize_objects(pods),
+            "services": summarize_objects(services),
+            "ingresses": summarize_ingresses(ingresses),
+        }
+
+
+    def summarize_objects(items):
+        return [
+            {
+                "namespace": (item.get("metadata") or {}).get("namespace", ""),
+                "name": (item.get("metadata") or {}).get("name", ""),
+                "phase": (item.get("status") or {}).get("phase", ""),
+                "conditions": (item.get("status") or {}).get("conditions", []),
+            }
+            for item in items
+        ]
+
+
+    def summarize_ingresses(items):
+        summarized = []
+        for item in items:
+            metadata = item.get("metadata") or {}
+            hosts = []
+            for rule in (item.get("spec") or {}).get("rules", []):
+                host = rule.get("host")
+                if host:
+                    hosts.append(host)
+            summarized.append({
+                "namespace": metadata.get("namespace", ""),
+                "name": metadata.get("name", ""),
+                "hosts": hosts,
+            })
+        return summarized
+
+
+    class Handler(BaseHTTPRequestHandler):
+        server_version = "MagicStickDashboardAPI/0.1"
+
+        def log_message(self, format, *args):
+            print("%s - %s" % (self.address_string(), format % args), flush=True)
+
+        def send_json(self, payload, status=200):
+            data = json.dumps(payload, indent=2, sort_keys=True).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def send_error_json(self, status, message):
+            self.send_json({"error": message}, status)
+
+        def route(self):
+            parsed = urllib.parse.urlparse(self.path)
+            return parsed.path.rstrip("/") or "/"
+
+        def do_GET(self):
+            try:
+                path = self.route()
+                if path == "/healthz":
+                    self.send_json({"ok": True})
+                elif path == "/api/appliance":
+                    self.send_json(appliance())
+                elif path == "/api/modules":
+                    catalog = request_json("GET", f"/api/v1/namespaces/{MODULE_CATALOG_NAMESPACE}/configmaps/{MODULE_CATALOG_NAME}")
+                    self.send_json({
+                        "catalog": catalog.get("data", {}).get("modules.yaml", ""),
+                        "modules": (appliance().get("spec") or {}).get("modules", {}),
+                        "status": (appliance().get("status") or {}).get("modules", {}),
+                    })
+                elif path == "/api/instances":
+                    current = appliance()
+                    self.send_json({
+                        "instances": (current.get("spec") or {}).get("instances", {}),
+                        "status": (current.get("status") or {}).get("instances", {}),
+                    })
+                elif path == "/api/status":
+                    self.send_json(status_payload())
+                elif path == "/api/events":
+                    core_events = list_resource("/api/v1/events")
+                    new_events = list_resource("/apis/events.k8s.io/v1/events")
+                    self.send_json({"events": summarize_objects(core_events + new_events)})
+                else:
+                    self.send_error_json(404, "not found")
+            except urllib.error.HTTPError as error:
+                self.send_error_json(error.code, error.read().decode("utf-8", errors="replace"))
+            except Exception as error:
+                self.send_error_json(500, str(error))
+
+        def do_PATCH(self):
+            try:
+                if self.route() != "/api/appliance":
+                    self.send_error_json(404, "not found")
+                    return
+                self.send_json(patch_appliance(read_body(self)))
+            except urllib.error.HTTPError as error:
+                self.send_error_json(error.code, error.read().decode("utf-8", errors="replace"))
+            except Exception as error:
+                self.send_error_json(400, str(error))
+
+        def do_POST(self):
+            try:
+                path = self.route()
+                parts = path.strip("/").split("/")
+                if len(parts) == 4 and parts[0] == "api" and parts[1] == "modules":
+                    module_key = canonical_module(parts[2])
+                    enabled = parts[3] == "enable"
+                    if parts[3] not in {"enable", "disable"}:
+                        self.send_error_json(404, "not found")
+                        return
+                    self.send_json(patch_appliance({"spec": {"modules": {module_key: {"enabled": enabled}}}}))
+                    return
+
+                if len(parts) == 3 and parts[:2] == ["api", "instances"] and parts[2] in INSTANCE_TYPES:
+                    instance_type = parts[2]
+                    payload = read_body(self)
+                    name = require_name(payload)
+                    payload.setdefault("enabled", True)
+                    payload.setdefault("namespace", "ai")
+                    current = appliance()
+                    instances = ((current.get("spec") or {}).get("instances") or {}).get(instance_type, [])
+                    updated = []
+                    replaced = False
+                    for item in instances:
+                        if item.get("name") == name:
+                            updated.append(payload)
+                            replaced = True
+                        else:
+                            updated.append(item)
+                    if not replaced:
+                        updated.append(payload)
+                    self.send_json(patch_appliance({"spec": {"instances": {instance_type: updated}}}))
+                    return
+
+                self.send_error_json(404, "not found")
+            except urllib.error.HTTPError as error:
+                self.send_error_json(error.code, error.read().decode("utf-8", errors="replace"))
+            except Exception as error:
+                self.send_error_json(400, str(error))
+
+
+    if __name__ == "__main__":
+        port = int(os.environ.get("PORT", "8080"))
+        ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()

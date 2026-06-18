@@ -17,6 +17,7 @@ This repository intentionally contains only generic template code, safe example 
 │   ├── architecture.md
 │   ├── appliance-crd.md
 │   ├── configuration.md
+│   ├── dashboard.md
 │   ├── development.md
 │   ├── getting-started.md
 │   ├── gitops-overlays.md
@@ -40,6 +41,7 @@ Start with [docs/README.md](docs/README.md) for the full documentation index.
 | First checkout and installer flow | [docs/getting-started.md](docs/getting-started.md) |
 | Repository and cluster architecture | [docs/architecture.md](docs/architecture.md) |
 | Appliance CRD | [docs/appliance-crd.md](docs/appliance-crd.md) |
+| Dashboard UI/API | [docs/dashboard.md](docs/dashboard.md) |
 | Module catalog | [docs/modules.md](docs/modules.md) |
 | Operator orchestration | [docs/operator-orchestration.md](docs/operator-orchestration.md) |
 | Runtime variables and secrets | [docs/configuration.md](docs/configuration.md) |
@@ -125,7 +127,12 @@ meta-operator: it enables modules with Flux and creates custom resources for
 specialized operators, while OpenClaw, Hermes, Paperclip, and KubeOpenCode
 remain responsible for their own workloads.
 
+The dashboard is the UI and API client for this model. It reads the Appliance,
+module catalog, Flux, Pod, Service, Ingress, and Event status, and patches only
+the Appliance CR when users enable modules or request instances.
+
 See [docs/appliance-crd.md](docs/appliance-crd.md),
+[docs/dashboard.md](docs/dashboard.md),
 [docs/modules.md](docs/modules.md), and
 [docs/operator-orchestration.md](docs/operator-orchestration.md).
 

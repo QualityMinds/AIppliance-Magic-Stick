@@ -12,6 +12,7 @@ configuration.
 | [getting-started.md](getting-started.md) | First local checkout, render checks, demo overlay, and installer image workflow. |
 | [architecture.md](architecture.md) | Repository layers, bootstrap flow, Flux graph, and cluster component overview. |
 | [appliance-crd.md](appliance-crd.md) | `Appliance` API, spec, status, and public examples. |
+| [dashboard.md](dashboard.md) | Dashboard UI/API contract for managing the `Appliance` CR. |
 | [modules.md](modules.md) | Magic Stick module catalog and generated Flux Kustomization contract. |
 | [operator-orchestration.md](operator-orchestration.md) | Meta-operator responsibilities and specialized operator handoff. |
 | [configuration.md](configuration.md) | Bootstrap variables, `AI_APPLIANCE_*` settings, Flux post-build substitution, and secret handling. |

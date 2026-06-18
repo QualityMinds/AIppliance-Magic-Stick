@@ -6,6 +6,8 @@ resources:
   - clusterrole.yaml
   - clusterrolebinding.yaml
   - configmap.yaml
+  - dashboard-api.yaml
+  - nginx-config.yaml
   - deployment.yaml
   - service.yaml
   - ingress.yaml

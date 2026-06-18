@@ -103,6 +103,13 @@ Use two layers:
 This keeps CRD availability in the infrastructure wave and app lifecycle in the
 app wave.
 
+## Updating The Dashboard
+
+The dashboard may read Kubernetes status and patch `Appliance` resources. It
+must not directly create workloads, Flux Kustomizations, specialized operator
+CRs, Secrets, or deployment-specific values. Keep dashboard examples limited to
+`example.local`, `example.com`, `CHANGEME`, or documented variables.
+
 ## Release Validation
 
 Run the public release checklist before tagging a public version:
@@ -111,6 +118,7 @@ Run the public release checklist before tagging a public version:
 kubectl kustomize magic-cluster/flux/entrypoints/base
 kubectl kustomize magic-cluster/flux/entrypoints/single-node
 kubectl kustomize magic-cluster/platform/magicstick-operator
+kubectl kustomize magic-cluster/apps/dashboard
 kubectl kustomize examples/demo/infra-cluster/flux-bootstrap
 gitleaks detect --source . --config .gitleaks.toml --no-git
 ```

@@ -54,6 +54,10 @@ reports that in status. For example, an OpenClaw instance requires:
 - `litellm`
 - `model-catalog`
 
+The dashboard uses this API as its only write surface. UI actions patch
+`spec.modules` or `spec.instances`; the Magic Stick Operator, Flux, and the
+specialized operators perform the actual reconciliation.
+
 ## Status
 
 The controller status contract is:

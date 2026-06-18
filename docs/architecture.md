@@ -77,6 +77,11 @@ Flux `Kustomization` resources and creates instance resources only after the
 required specialized operator CRDs exist. OpenClaw, Hermes, Paperclip, and
 KubeOpenCode continue to own their workload-specific reconciliation.
 
+The dashboard is the user-facing client for this model. It runs in the cluster,
+reads the Appliance, module catalog, Flux, Pod, Service, Ingress, and Event
+status, and sends Kubernetes patches to the Appliance CR. It does not install
+modules or create workload resources directly.
+
 ## Platform Components
 
 | Area | Components |
@@ -91,7 +96,7 @@ KubeOpenCode continue to own their workload-specific reconciliation.
 
 | App | Path | Notes |
 |---|---|---|
-| Dashboard | `magic-cluster/apps/dashboard` | Cluster landing page and app discovery surface. |
+| Dashboard | `magic-cluster/apps/dashboard` | Cluster landing page, app discovery surface, and Appliance CR UI/API client. |
 | LiteLLM | `magic-cluster/apps/ai/litellm/base` | In-cluster OpenAI-compatible API and model routing. |
 | Model catalog | `magic-cluster/apps/ai/model-catalog` | Syncs KubeAI and external models into LiteLLM and publishes generated catalog fragments. |
 | AnythingLLM | `magic-cluster/apps/ai/anything-llm/base` | Uses LiteLLM and the generated embedding default. |

@@ -3,11 +3,15 @@
 The Magic Stick Operator is a meta-operator. It orchestrates platform modules
 and instance resources; it does not replace specialized operators.
 
+The dashboard is also not an operator. It reads status and patches the
+`Appliance` CR only.
+
 ## Responsibilities
 
 | Component | Responsibility |
 |---|---|
 | Magic Stick Operator | Watches `Appliance`, enables modules with Flux, waits for CRDs, creates specialized CRs, and reports aggregate status. |
+| Magic Stick Dashboard | Reads `Appliance`, module catalog, Flux, Pod, Service, Ingress, and Event status; patches `Appliance` only. |
 | OpenClaw Operator | Owns lifecycle of `OpenClawInstance` resources. |
 | Hermes Operator | Owns lifecycle of `HermesInstance` resources. |
 | Paperclip Operator | Owns lifecycle of Paperclip `Instance` resources. |

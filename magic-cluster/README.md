@@ -23,7 +23,7 @@ runtime checks.
 | `platform/ai/paperclip-operator` | Paperclip CRD operator base for `paperclip.inc/v1alpha1` instances |
 | `platform/gpu` | NVIDIA GPU Operator and CUDA MPS GPU sharing |
 | `platform/observability` | Prometheus stack, Loki, Promtail, OpenTelemetry, Grafana dashboards |
-| `apps/dashboard` | Dashboard app |
+| `apps/dashboard` | Dashboard app, ingress discovery surface, and Appliance CR UI/API client |
 | `apps/ai` | LiteLLM, AI model catalog, AnythingLLM, Qdrant, and reusable model bases |
 | `apps/ai/model-catalog` | Controller that syncs KubeAI `Model` CRs and optional external models into LiteLLM and publishes the generated `ai-model-catalog` ConfigMap |
 | `apps/ai/openclaw` | Optional OpenClaw `OpenClawInstance` CR base using the OpenClaw operator |

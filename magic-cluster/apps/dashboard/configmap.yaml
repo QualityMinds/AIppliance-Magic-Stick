@@ -309,6 +309,160 @@ data:
           gap: 0.9rem;
         }
 
+        .control-panel {
+          background: rgba(8, 13, 24, 0.9);
+          border: 1px solid rgba(125, 211, 252, 0.22);
+          border-radius: 18px;
+          padding: 1rem;
+          display: grid;
+          gap: 1rem;
+        }
+
+        .panel-heading {
+          display: flex;
+          align-items: baseline;
+          justify-content: space-between;
+          gap: 1rem;
+          flex-wrap: wrap;
+        }
+
+        .panel-heading h2 {
+          margin: 0;
+          font-size: 1.2rem;
+        }
+
+        .tabs {
+          display: flex;
+          gap: 0.45rem;
+          flex-wrap: wrap;
+        }
+
+        .tab-button,
+        .control-button {
+          border: 1px solid rgba(125, 211, 252, 0.3);
+          border-radius: 10px;
+          background: rgba(15, 23, 42, 0.9);
+          color: var(--text);
+          cursor: pointer;
+          font: inherit;
+          padding: 0.45rem 0.7rem;
+        }
+
+        .tab-button[aria-selected="true"],
+        .control-button.primary {
+          background: rgba(14, 116, 144, 0.65);
+          border-color: rgba(125, 211, 252, 0.85);
+        }
+
+        .control-button.danger {
+          border-color: rgba(248, 113, 113, 0.45);
+          color: #fecaca;
+        }
+
+        .dashboard-grid {
+          display: grid;
+          gap: 0.85rem;
+          grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+        }
+
+        .dashboard-card {
+          border: 1px solid rgba(100, 116, 139, 0.3);
+          border-radius: 12px;
+          background: rgba(15, 23, 42, 0.78);
+          padding: 0.9rem;
+          display: grid;
+          gap: 0.65rem;
+        }
+
+        .dashboard-card h3 {
+          margin: 0;
+          font-size: 1rem;
+        }
+
+        .dashboard-card p {
+          margin: 0;
+          color: var(--muted);
+          font-size: 0.88rem;
+        }
+
+        .tab-panel[hidden] {
+          display: none;
+        }
+
+        .module-list,
+        .mini-list {
+          display: grid;
+          gap: 0.55rem;
+        }
+
+        .module-item,
+        .mini-item {
+          border: 1px solid rgba(148, 163, 184, 0.22);
+          border-radius: 10px;
+          padding: 0.65rem;
+          display: grid;
+          gap: 0.5rem;
+          background: rgba(2, 6, 23, 0.38);
+        }
+
+        .module-row,
+        .action-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.65rem;
+          flex-wrap: wrap;
+        }
+
+        .status-pill {
+          border-radius: 999px;
+          border: 1px solid rgba(148, 163, 184, 0.32);
+          padding: 0.2rem 0.55rem;
+          color: #cbd5e1;
+          font-size: 0.75rem;
+          white-space: nowrap;
+        }
+
+        .status-pill.ready,
+        .status-pill.enabled {
+          border-color: rgba(134, 239, 172, 0.45);
+          color: #bbf7d0;
+        }
+
+        .status-pill.waiting,
+        .status-pill.disabled {
+          border-color: rgba(251, 191, 36, 0.42);
+          color: #fde68a;
+        }
+
+        .form-grid {
+          display: grid;
+          gap: 0.65rem;
+          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        }
+
+        .field {
+          display: grid;
+          gap: 0.28rem;
+          color: var(--muted);
+          font-size: 0.8rem;
+        }
+
+        .field input {
+          border: 1px solid var(--line);
+          border-radius: 10px;
+          background: rgba(15, 23, 42, 0.82);
+          color: var(--text);
+          font: inherit;
+          padding: 0.55rem 0.65rem;
+        }
+
+        .api-output {
+          min-height: 1.3rem;
+          color: var(--muted);
+          font-size: 0.84rem;
+        }
+
         .search {
           width: 100%;
           border: 1px solid var(--line);
@@ -572,6 +726,89 @@ data:
           </div>
         </header>
 
+        <section class="control-panel" aria-label="Appliance management">
+          <div class="panel-heading">
+            <h2>Appliance Control</h2>
+            <span id="api-state" class="status-pill waiting">Connecting</span>
+          </div>
+          <nav class="tabs" aria-label="Dashboard pages">
+            <button class="tab-button" type="button" aria-selected="true" data-tab="overview">Overview</button>
+            <button class="tab-button" type="button" aria-selected="false" data-tab="modules">Modules</button>
+            <button class="tab-button" type="button" aria-selected="false" data-tab="instances">Instances</button>
+            <button class="tab-button" type="button" aria-selected="false" data-tab="models">Models</button>
+            <button class="tab-button" type="button" aria-selected="false" data-tab="system">System Status</button>
+          </nav>
+
+          <section id="tab-overview" class="tab-panel">
+            <div class="dashboard-grid">
+              <article class="dashboard-card">
+                <h3>Appliance</h3>
+                <p id="appliance-summary">Loading</p>
+                <div id="appliance-conditions" class="mini-list"></div>
+              </article>
+              <article class="dashboard-card">
+                <h3>Modules</h3>
+                <p id="module-summary">Loading</p>
+              </article>
+              <article class="dashboard-card">
+                <h3>Instances</h3>
+                <p id="instance-summary">Loading</p>
+              </article>
+            </div>
+          </section>
+
+          <section id="tab-modules" class="tab-panel" hidden>
+            <div id="module-list" class="module-list"></div>
+            <p id="module-output" class="api-output"></p>
+          </section>
+
+          <section id="tab-instances" class="tab-panel" hidden>
+            <div class="dashboard-grid">
+              <form class="dashboard-card instance-form" data-instance-type="openclaw">
+                <h3>OpenClaw</h3>
+                <div class="form-grid">
+                  <label class="field">Name<input name="name" value="default" /></label>
+                  <label class="field">Model<input name="model" value="CHANGEME_MODEL" /></label>
+                  <label class="field">Host<input name="host" value="openclaw.example.local" /></label>
+                  <label class="field">Storage<input name="storage" value="20Gi" /></label>
+                </div>
+                <button class="control-button primary" type="submit">Create OpenClaw</button>
+              </form>
+              <form class="dashboard-card instance-form" data-instance-type="kubeopencode">
+                <h3>KubeOpenCode</h3>
+                <div class="form-grid">
+                  <label class="field">Name<input name="name" value="default" /></label>
+                  <label class="field">Model<input name="model" value="CHANGEME_MODEL" /></label>
+                  <label class="field">Host<input name="host" value="kubeopencode.example.local" /></label>
+                  <label class="field">Template<input name="template" value="default-coder" /></label>
+                </div>
+                <button class="control-button primary" type="submit">Create KubeOpenCode</button>
+              </form>
+            </div>
+            <div id="instance-list" class="mini-list"></div>
+            <p id="instance-output" class="api-output"></p>
+          </section>
+
+          <section id="tab-models" class="tab-panel" hidden>
+            <div class="dashboard-card">
+              <h3>Model Catalog</h3>
+              <p id="model-summary">Waiting for Appliance and model-catalog status.</p>
+              <div class="action-row">
+                <button class="control-button primary" type="button" data-module-enable="litellm">Enable LiteLLM</button>
+                <button class="control-button primary" type="button" data-module-enable="model-catalog">Enable Model Catalog</button>
+              </div>
+            </div>
+          </section>
+
+          <section id="tab-system" class="tab-panel" hidden>
+            <div class="dashboard-grid">
+              <article class="dashboard-card"><h3>Flux</h3><div id="flux-list" class="mini-list"></div></article>
+              <article class="dashboard-card"><h3>Pods</h3><p id="pod-summary">Loading</p></article>
+              <article class="dashboard-card"><h3>Ingresses</h3><div id="ingress-list" class="mini-list"></div></article>
+            </div>
+          </section>
+        </section>
+
         <section id="applications">
           <div id="search-empty" class="search-empty" hidden>No applications match your search.</div>
     HTML
@@ -595,6 +832,213 @@ data:
         </footer>
       </main>
       <script>
+        (() => {
+          const moduleNames = [
+            ['litellm', 'LiteLLM'],
+            ['model-catalog', 'Model Catalog'],
+            ['openclaw-operator', 'OpenClaw Operator'],
+            ['hermes-operator', 'Hermes Operator'],
+            ['paperclip-operator', 'Paperclip Operator'],
+            ['kubeopencode', 'KubeOpenCode'],
+            ['observability', 'Observability'],
+            ['gpu', 'GPU']
+          ];
+          const moduleKey = {
+            'model-catalog': 'modelCatalog',
+            'openclaw-operator': 'openclawOperator',
+            'hermes-operator': 'hermesOperator',
+            'paperclip-operator': 'paperclipOperator'
+          };
+
+          const $ = (id) => document.getElementById(id);
+          const apiState = $('api-state');
+
+          const setApiState = (text, ok = false) => {
+            if (!apiState) { return; }
+            apiState.textContent = text;
+            apiState.className = ok ? 'status-pill ready' : 'status-pill waiting';
+          };
+
+          const request = async (path, options = {}) => {
+            const response = await fetch(path, {
+              headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+              ...options
+            });
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) {
+              throw new Error(payload.error || response.statusText);
+            }
+            return payload;
+          };
+
+          const moduleSpec = (appliance, name) => {
+            const modules = (((appliance || {}).spec || {}).modules || {});
+            return modules[moduleKey[name] || name] || {};
+          };
+
+          const renderConditions = (conditions) => {
+            const target = $('appliance-conditions');
+            if (!target) { return; }
+            target.innerHTML = '';
+            (conditions || []).slice(0, 5).forEach((condition) => {
+              const item = document.createElement('div');
+              item.className = 'mini-item';
+              item.textContent = `${condition.type || 'Condition'}: ${condition.status || 'Unknown'} ${condition.reason || ''}`;
+              target.appendChild(item);
+            });
+          };
+
+          const renderModules = (appliance) => {
+            const list = $('module-list');
+            if (!list) { return; }
+            list.innerHTML = '';
+            moduleNames.forEach(([name, title]) => {
+              const spec = moduleSpec(appliance, name);
+              const enabled = spec.enabled === true;
+              const item = document.createElement('div');
+              item.className = 'module-item';
+              item.innerHTML = `
+                <div class="module-row">
+                  <strong>${title}</strong>
+                  <span class="status-pill ${enabled ? 'enabled' : 'disabled'}">${enabled ? 'Enabled' : 'Disabled'}</span>
+                </div>
+                <div class="action-row">
+                  <button class="control-button primary" type="button" data-module-enable="${name}">Enable</button>
+                  <button class="control-button danger" type="button" data-module-disable="${name}">Disable</button>
+                </div>`;
+              list.appendChild(item);
+            });
+          };
+
+          const renderInstances = (appliance) => {
+            const list = $('instance-list');
+            if (!list) { return; }
+            list.innerHTML = '';
+            const instances = (((appliance || {}).spec || {}).instances || {});
+            Object.keys(instances).forEach((type) => {
+              (instances[type] || []).forEach((instance) => {
+                const item = document.createElement('div');
+                item.className = 'mini-item';
+                item.textContent = `${type}/${instance.name || 'unnamed'} in ${instance.namespace || 'ai'}`;
+                list.appendChild(item);
+              });
+            });
+            if (!list.childElementCount) {
+              const item = document.createElement('div');
+              item.className = 'mini-item';
+              item.textContent = 'No instances requested.';
+              list.appendChild(item);
+            }
+          };
+
+          const renderStatus = (status) => {
+            const fluxList = $('flux-list');
+            if (fluxList) {
+              fluxList.innerHTML = '';
+              (status.fluxKustomizations || []).slice(0, 8).forEach((item) => {
+                const ready = (item.conditions || []).find((condition) => condition.type === 'Ready');
+                const node = document.createElement('div');
+                node.className = 'mini-item';
+                node.textContent = `${item.name}: ${(ready || {}).status || item.phase || 'Unknown'}`;
+                fluxList.appendChild(node);
+              });
+            }
+            const podSummary = $('pod-summary');
+            if (podSummary) {
+              const pods = status.pods || [];
+              const running = pods.filter((pod) => pod.phase === 'Running').length;
+              podSummary.textContent = `${running}/${pods.length} pods running`;
+            }
+            const ingressList = $('ingress-list');
+            if (ingressList) {
+              ingressList.innerHTML = '';
+              (status.ingresses || []).slice(0, 8).forEach((ingress) => {
+                const node = document.createElement('div');
+                node.className = 'mini-item';
+                node.textContent = `${ingress.namespace}/${ingress.name}: ${(ingress.hosts || []).join(', ') || 'no host'}`;
+                ingressList.appendChild(node);
+              });
+            }
+          };
+
+          const refresh = async () => {
+            try {
+              const appliance = await request('/api/appliance');
+              const status = await request('/api/status');
+              const phase = ((appliance.status || {}).phase || 'Pending');
+              $('appliance-summary').textContent = `${appliance.metadata.namespace}/${appliance.metadata.name} is ${phase}`;
+              const modules = ((appliance.spec || {}).modules || {});
+              const enabledModules = Object.values(modules).filter((item) => item && item.enabled === true).length;
+              $('module-summary').textContent = `${enabledModules} modules enabled`;
+              const instances = ((appliance.spec || {}).instances || {});
+              const instanceCount = Object.values(instances).reduce((count, items) => count + (Array.isArray(items) ? items.length : 0), 0);
+              $('instance-summary').textContent = `${instanceCount} instances requested`;
+              $('model-summary').textContent = `${moduleSpec(appliance, 'model-catalog').enabled ? 'Model catalog requested' : 'Model catalog not enabled'}`;
+              renderConditions((appliance.status || {}).conditions || []);
+              renderModules(appliance);
+              renderInstances(appliance);
+              renderStatus(status);
+              setApiState('Connected', true);
+            } catch (error) {
+              setApiState(error.message || 'API unavailable', false);
+            }
+          };
+
+          document.querySelectorAll('.tab-button').forEach((button) => {
+            button.addEventListener('click', () => {
+              document.querySelectorAll('.tab-button').forEach((item) => item.setAttribute('aria-selected', item === button ? 'true' : 'false'));
+              document.querySelectorAll('.tab-panel').forEach((panel) => { panel.hidden = panel.id !== `tab-${button.dataset.tab}`; });
+            });
+          });
+
+          document.addEventListener('click', async (event) => {
+            const enable = event.target.closest('[data-module-enable]');
+            const disable = event.target.closest('[data-module-disable]');
+            const action = enable ? 'enable' : (disable ? 'disable' : null);
+            const name = enable ? enable.dataset.moduleEnable : (disable ? disable.dataset.moduleDisable : null);
+            if (!action || !name) { return; }
+            try {
+              await request(`/api/modules/${name}/${action}`, { method: 'POST', body: '{}' });
+              $('module-output').textContent = `${name} ${action} requested through Appliance patch.`;
+              await refresh();
+            } catch (error) {
+              $('module-output').textContent = error.message;
+            }
+          });
+
+          document.querySelectorAll('.instance-form').forEach((form) => {
+            form.addEventListener('submit', async (event) => {
+              event.preventDefault();
+              const data = new FormData(form);
+              const type = form.dataset.instanceType;
+              const payload = {
+                name: data.get('name') || 'default',
+                enabled: true,
+                namespace: 'ai',
+                model: data.get('model') || 'CHANGEME_MODEL'
+              };
+              if (type === 'openclaw') {
+                payload.storage = { size: data.get('storage') || '20Gi' };
+                payload.ingress = { enabled: true, host: data.get('host') || 'openclaw.example.local' };
+              }
+              if (type === 'kubeopencode') {
+                payload.server = { enabled: true, ingress: { enabled: true, host: data.get('host') || 'kubeopencode.example.local' } };
+                payload.agentTemplates = [{ name: data.get('template') || 'default-coder', description: 'Default coding agent template' }];
+              }
+              try {
+                await request(`/api/instances/${type}`, { method: 'POST', body: JSON.stringify(payload) });
+                $('instance-output').textContent = `${type}/${payload.name} requested through Appliance patch.`;
+                await refresh();
+              } catch (error) {
+                $('instance-output').textContent = error.message;
+              }
+            });
+          });
+
+          refresh();
+          setInterval(refresh, 30000);
+        })();
+
         (() => {
           const searchInput = document.getElementById('search');
           const cards = Array.from(document.querySelectorAll('.app-card'));
