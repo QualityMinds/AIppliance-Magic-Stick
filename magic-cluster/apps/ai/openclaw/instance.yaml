@@ -1,0 +1,37 @@
+apiVersion: openclaw.rocks/v1alpha1
+kind: OpenClawInstance
+metadata:
+  name: openclaw
+  namespace: ai
+  labels:
+    app: openclaw
+spec:
+  envFrom:
+    - secretRef:
+        name: openclaw-api-keys
+  storage:
+    persistence:
+      enabled: true
+      size: "${AI_APPLIANCE_OPENCLAW_STORAGE:=10Gi}"
+  networking:
+    service:
+      type: ClusterIP
+    ingress:
+      enabled: true
+      className: nginx
+      annotations:
+        dashboard.ai-appliance.io/title: "OpenClaw"
+        dashboard.ai-appliance.io/description: "Self-hosted OpenClaw AI agent managed by the OpenClaw operator."
+        dashboard.ai-appliance.io/icon: "OC"
+        dashboard.ai-appliance.io/category: "AI"
+        dashboard.ai-appliance.io/order: "45"
+        lab42.io/mdns.enabled: "true"
+        lab42.io/mdns.name: "openclaw"
+        nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+        nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+        nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+      hosts:
+        - host: "openclaw.${AI_APPLIANCE_DOMAIN:=example.local}"
+          paths:
+            - path: /
+              pathType: Prefix

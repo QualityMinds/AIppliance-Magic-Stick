@@ -76,7 +76,8 @@ In `readonly-public` mode Flux reads only this public repository and does not
 need a Git token.
 
 Current app storage placeholders include `AI_APPLIANCE_HERMES_STORAGE` for the
-Hermes agent PVC.
+Hermes agent PVC and `AI_APPLIANCE_OPENCLAW_STORAGE` for the optional OpenClaw
+agent PVC.
 
 ## Validation
 
@@ -88,9 +89,11 @@ kubectl kustomize magic-cluster/flux/entrypoints/base
 kubectl kustomize magic-cluster/apps/dashboard
 kubectl kustomize magic-cluster/platform/ai
 kubectl kustomize magic-cluster/platform/ai/hermes-operator
+kubectl kustomize magic-cluster/platform/ai/openclaw-operator
 kubectl kustomize magic-cluster/platform/ai/paperclip-operator
 kubectl kustomize magic-cluster/apps/ai
 kubectl kustomize magic-cluster/apps/ai/hermes
+kubectl kustomize magic-cluster/apps/ai/openclaw
 kubectl kustomize magic-cluster/apps/ai/paperclip
 kubectl kustomize magic-cluster/apps/ai/kubeopencode
 kubectl kustomize magic-cluster/apps/ai/agent-templates

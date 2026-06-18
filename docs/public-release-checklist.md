@@ -26,9 +26,11 @@ kubectl kustomize magic-cluster/flux/entrypoints/base
 kubectl kustomize magic-cluster/apps/dashboard
 kubectl kustomize magic-cluster/platform/ai
 kubectl kustomize magic-cluster/platform/ai/hermes-operator
+kubectl kustomize magic-cluster/platform/ai/openclaw-operator
 kubectl kustomize magic-cluster/platform/ai/paperclip-operator
 kubectl kustomize magic-cluster/apps/ai
 kubectl kustomize magic-cluster/apps/ai/hermes
+kubectl kustomize magic-cluster/apps/ai/openclaw
 kubectl kustomize magic-cluster/apps/ai/paperclip
 kubectl kustomize magic-cluster/apps/ai/kubeopencode
 kubectl kustomize magic-cluster/apps/ai/agent-templates
@@ -50,7 +52,7 @@ Do not commit generated Kubernetes Secrets, Flux bootstrap token secrets, privat
 
 - Does every public hostname use `example.local`, `example.com`, or a documented placeholder?
 - Are real domains, admin emails, storage sizes, and private Flux paths absent from this repository?
-- Are app-specific placeholders such as `AI_APPLIANCE_HERMES_STORAGE` documented and safe by default?
+- Are app-specific placeholders such as `AI_APPLIANCE_HERMES_STORAGE` and `AI_APPLIANCE_OPENCLAW_STORAGE` documented and safe by default?
 - Are safe defaults clearly documented for private deployments to patch?
 - Are optional app bases still opt-in unless intentionally selected by an entrypoint?
 - Do example overlays still build after public base changes?

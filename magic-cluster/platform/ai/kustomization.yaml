@@ -4,4 +4,5 @@ resources:
   - ../gpu
   - hermes-operator
   - kubeai
+  - openclaw-operator
   - paperclip-operator
