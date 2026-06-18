@@ -12,7 +12,7 @@ spec:
   minReplicas: 1
   maxReplicas: 1
   env:
-    MAGICSTICK_VLLM_VRAM_LIMIT: "4Gi"
+    MAGICSTICK_VLLM_VRAM_LIMIT: "5Gi"
     MAGICSTICK_VLLM_ACTIVE_THREAD_PERCENTAGE: "50"
   args:
     - --runner=pooling
