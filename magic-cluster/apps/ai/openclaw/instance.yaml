@@ -6,13 +6,35 @@ metadata:
   labels:
     app: openclaw
 spec:
-  envFrom:
-    - secretRef:
-        name: openclaw-api-keys
+  config:
+    raw:
+      agents:
+        defaults:
+          model:
+            primary: "openai/${AI_APPLIANCE_OPENCLAW_MODEL:=qwen3635b}"
+  env:
+    - name: OPENAI_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: litellm-masterkey-secret
+          key: LITELLM_MASTER_KEY
+    - name: OPENAI_BASE_URL
+      value: "http://litellm.ai.svc.cluster.local:4000/v1"
   storage:
     persistence:
       enabled: true
       size: "${AI_APPLIANCE_OPENCLAW_STORAGE:=10Gi}"
+  security:
+    networkPolicy:
+      enabled: true
+      additionalEgress:
+        - to:
+            - podSelector:
+                matchLabels:
+                  app: litellm
+          ports:
+            - protocol: TCP
+              port: 4000
   networking:
     service:
       type: ClusterIP
