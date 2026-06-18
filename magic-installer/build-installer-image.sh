@@ -11,7 +11,7 @@ usage() {
   cat <<'USAGE'
 Usage:
   magic-installer/build-installer-image.sh \
-    --hostname ai-box-01 \
+    --hostname example-host-01 \
     --output dist/magicstick-installer.img
 
 Options:

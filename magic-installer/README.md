@@ -4,6 +4,10 @@ Reusable Ubuntu autoinstall and cloud-init files for the AI Appliance template.
 
 These files intentionally contain placeholders only. Copy them into a deployment directory before creating installation media.
 
+See [../docs/getting-started.md](../docs/getting-started.md) for the
+end-to-end installer workflow and [../docs/configuration.md](../docs/configuration.md)
+for the variables written into `/etc/default/ai-appliance-repo`.
+
 ## Files
 
 | File | Purpose |
@@ -41,7 +45,7 @@ the root of the `CIDATA` partition.
 
 ```bash
 magic-installer/build-installer-image.sh \
-  --hostname ai-box-01 \
+  --hostname example-host-01 \
   --output dist/magicstick-installer.img
 ```
 
@@ -54,12 +58,12 @@ For private GitHub bootstrap, opt in explicitly:
 ```bash
 magic-installer/build-installer-image.sh \
   --flux-bootstrap-mode github \
-  --deployment-name QM-Worker1 \
-  --hostname ai-box-01 \
-  --git-owner QualityMinds-Vibecoding \
-  --git-repo QM-Worker1 \
+  --deployment-name example-deployment \
+  --hostname example-host-01 \
+  --git-owner example-org \
+  --git-repo example-deployment \
   --git-branch main \
-  --flux-cluster-path deployments/QM-Worker1/infra-cluster/flux-bootstrap \
+  --flux-cluster-path deployments/example-deployment/infra-cluster/flux-bootstrap \
   --output dist/magicstick-installer-private.img
 ```
 
@@ -78,7 +82,7 @@ On Windows, use the PowerShell wrappers:
 
 ```powershell
 .\magic-installer\build-installer-image.ps1 `
-  -Hostname ai-box-01 `
+  -Hostname example-host-01 `
   -Output dist\magicstick-installer.img
 
 .\magic-installer\write-usb.ps1 -ListDevices

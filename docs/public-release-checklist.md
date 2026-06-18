@@ -7,6 +7,7 @@ Run this before publishing this repository or creating a release tag for private
 - This repository contains only reusable template files and safe examples.
 - Real deployment values live in private deployment repositories.
 - New deployments use private overlays and patches instead of editing public bases directly.
+- Public documentation links from `README.md` and `docs/README.md` stay current.
 
 ## Value Scan
 
@@ -59,3 +60,5 @@ Do not commit generated Kubernetes Secrets, Flux bootstrap token secrets, privat
 - Are optional app bases still opt-in unless intentionally selected by an entrypoint?
 - Do example overlays still build after public base changes?
 - Are new secrets generated at runtime instead of stored in Git?
+- Are new public interfaces documented in `docs/configuration.md`,
+  `docs/gitops-overlays.md`, `docs/operations.md`, or another focused page?

@@ -13,12 +13,34 @@ This repository intentionally contains only generic template code, safe example 
 ├── magic-cluster/              # reusable Kubernetes, app, platform and Flux bases
 ├── examples/demo/              # safe example overlay using example.local hosts
 ├── docs/
+│   ├── README.md
+│   ├── architecture.md
+│   ├── configuration.md
+│   ├── development.md
+│   ├── getting-started.md
+│   ├── gitops-overlays.md
+│   ├── model-catalog.md
+│   ├── operations.md
 │   └── public-release-checklist.md
 ├── AGENTS.md
 └── .gitleaks.toml
 ```
 
 Use `example.local`, `example.com`, `CHANGEME`, or documented variables for all template values.
+
+## Documentation
+
+Start with [docs/README.md](docs/README.md) for the full documentation index.
+
+| Topic | Document |
+|---|---|
+| First checkout and installer flow | [docs/getting-started.md](docs/getting-started.md) |
+| Repository and cluster architecture | [docs/architecture.md](docs/architecture.md) |
+| Runtime variables and secrets | [docs/configuration.md](docs/configuration.md) |
+| Private GitOps overlays | [docs/gitops-overlays.md](docs/gitops-overlays.md) |
+| Cluster operations | [docs/operations.md](docs/operations.md) |
+| AI model catalog | [docs/model-catalog.md](docs/model-catalog.md) |
+| Development and release checks | [docs/development.md](docs/development.md) |
 
 ## GitOps Entry Points
 
@@ -82,6 +104,10 @@ name, `AI_APPLIANCE_OPENCLAW_STORAGE` for the optional OpenClaw agent PVC, and
 generated AI model catalog also honors `AI_APPLIANCE_DEFAULT_CHAT_MODEL` and
 `AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL` for private deployments that need to
 override the public defaults.
+
+See [docs/model-catalog.md](docs/model-catalog.md) for the model catalog
+contract, external model schema, generated ConfigMap keys, and operational
+checks.
 
 ## Validation
 

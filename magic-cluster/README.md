@@ -4,6 +4,11 @@ Reusable Kubernetes and Flux bases for the AI Appliance.
 
 This directory must not contain real deployment domains, Flux repository values, private addresses, personal data, or committed secrets.
 
+See [../docs/architecture.md](../docs/architecture.md) for the cluster layer
+overview, [../docs/gitops-overlays.md](../docs/gitops-overlays.md) for private
+overlay patterns, and [../docs/operations.md](../docs/operations.md) for
+runtime checks.
+
 ## Layout
 
 | Path | Purpose |
@@ -72,10 +77,13 @@ KubeAI models with overlays or add external LiteLLM-backed models through the
 optional `ai-external-models` ConfigMap. The `ai-model-catalog-controller`
 syncs selected KubeAI `Model` CRs and enabled external model entries into
 LiteLLM, then publishes the generated `ai-model-catalog` ConfigMap for
-downstream consumers. When KubeOpenCode AgentTemplates are installed, the
-controller also updates `AgentTemplate/litellm-default` from the chat catalog
-so newly created KubeOpenCode agents use the same LiteLLM-backed model list.
-The `profiles/single-node/apps/ai-agent-templates` overlay can still set
+downstream consumers. See
+[../docs/model-catalog.md](../docs/model-catalog.md) for the full contract,
+external model schema, generated ConfigMap keys, and troubleshooting commands.
+When KubeOpenCode AgentTemplates are installed, the controller also updates
+`AgentTemplate/litellm-default` from the chat catalog so newly created
+KubeOpenCode agents use the same LiteLLM-backed model list. The
+`profiles/single-node/apps/ai-agent-templates` overlay can still set
 deployment-specific KubeOpenCode defaults for a single-node appliance.
 
 The Paperclip operator is selected by the default `platform/ai` base so the

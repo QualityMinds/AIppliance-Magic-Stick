@@ -4,6 +4,10 @@ Reusable Ansible host automation for the AI Appliance.
 
 The playbook is intentionally generic. By default, deployments use the reusable local inventory in this repository and provide deployment-specific bootstrap values through `/etc/default/ai-appliance-repo`.
 
+See [../docs/architecture.md](../docs/architecture.md) for the bootstrap flow,
+[../docs/configuration.md](../docs/configuration.md) for host metadata, and
+[../docs/operations.md](../docs/operations.md) for runtime checks.
+
 ## Entry Point
 
 ```bash
