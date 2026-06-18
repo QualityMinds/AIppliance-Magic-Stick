@@ -80,12 +80,14 @@ The OpenClaw operator is selected by the default `platform/ai` base so the
 `openclaw.rocks/v1alpha1` CRDs are available with the AI infrastructure wave.
 The OpenClaw `OpenClawInstance` base remains opt-in; deployments that want an
 OpenClaw app should reconcile `apps/ai/openclaw` after the operator is ready
-and the LiteLLM app is available. The base uses the in-cluster LiteLLM service
-and `litellm-masterkey-secret`. At pod startup it reads LiteLLM's
-OpenAI-compatible `/models` endpoint, writes that model list into the OpenClaw
-OpenAI provider config backed by LiteLLM's `/v1` API, and uses
-`AI_APPLIANCE_OPENCLAW_MODEL` as the preferred primary model when LiteLLM
-advertises it; otherwise it falls back to the first advertised model.
+and the LiteLLM app is available. The Hermes and OpenClaw app bases use the
+in-cluster LiteLLM service and `litellm-masterkey-secret`. At pod startup they
+read LiteLLM's OpenAI-compatible `/models` endpoint and write that model list
+into their OpenAI-compatible provider config backed by LiteLLM's `/v1` API.
+Hermes uses `AI_APPLIANCE_HERMES_MODEL` as the preferred default model and
+OpenClaw uses `AI_APPLIANCE_OPENCLAW_MODEL` as the preferred primary model when
+LiteLLM advertises it; otherwise each app falls back to the first advertised
+model.
 The example disables OpenClaw's HSTS and force-HTTPS ingress toggles so it does
 not rely on NGINX `configuration-snippet` annotations, which are commonly
 blocked by cluster admission policy.
