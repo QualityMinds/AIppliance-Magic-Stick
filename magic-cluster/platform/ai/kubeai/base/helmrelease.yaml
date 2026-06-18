@@ -34,7 +34,7 @@ spec:
         imageName: magicstick-vllm
         requests:
           cpu: "6"
-          memory: 24Gi
+          memory: 6Gi
           nvidia.com/gpu: "1"
         limits:
           nvidia.com/gpu: "1"
