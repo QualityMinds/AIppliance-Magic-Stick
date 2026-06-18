@@ -1,0 +1,42 @@
+apiVersion: appliance.magicstick.dev/v1alpha1
+kind: Appliance
+metadata:
+  name: local
+  namespace: ai-system
+  labels:
+    app.kubernetes.io/name: magicstick-operator
+    appliance.magicstick.dev/profile: minimal
+spec:
+  profile: minimal
+  source:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  modules:
+    basis:
+      enabled: true
+    dashboard:
+      enabled: true
+    litellm:
+      enabled: false
+    modelCatalog:
+      enabled: false
+    anythingLlm:
+      enabled: false
+    openclawOperator:
+      enabled: false
+    hermesOperator:
+      enabled: false
+    paperclipOperator:
+      enabled: false
+    kubeopencode:
+      enabled: false
+    observability:
+      enabled: false
+    gpu:
+      enabled: false
+  instances:
+    openclaw: []
+    hermes: []
+    paperclip: []
+    kubeopencode: []

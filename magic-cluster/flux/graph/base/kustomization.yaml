@@ -3,6 +3,7 @@ kind: Kustomization
 resources:
   - 00-infrastructure-basis.yaml
   - 10-infrastructure-ai.yaml
+  - 15-magicstick-operator.yaml
   - 20-infrastructure-observability.yaml
   - 30-apps.yaml
   - 40-apps-ai.yaml

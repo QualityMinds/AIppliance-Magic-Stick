@@ -45,6 +45,7 @@ Render key cluster bases:
 
 ```bash
 kubectl kustomize magic-cluster/platform/basis
+kubectl kustomize magic-cluster/platform/magicstick-operator
 kubectl kustomize magic-cluster/platform/ai
 kubectl kustomize magic-cluster/platform/observability
 kubectl kustomize magic-cluster/apps/dashboard
@@ -131,7 +132,23 @@ From another machine with a kubeconfig:
 ```bash
 kubectl -n flux-system get gitrepositories,kustomizations
 kubectl get namespaces
+kubectl -n ai-system get appliances
 kubectl -n ai get pods
 ```
 
 Continue with [operations.md](operations.md) for runtime checks.
+
+## Select Optional Capabilities
+
+The installer brings up the base appliance. Optional modules and app instances
+are selected after installation through `Appliance` resources.
+
+Inspect the default resource:
+
+```bash
+kubectl -n ai-system get appliance local -o yaml
+```
+
+Public-safe examples are available under
+`magic-cluster/platform/magicstick-operator/examples/`. Private deployments
+should copy the shape into private overlays and replace placeholders there.

@@ -27,6 +27,7 @@ Installer image
   -> K3s
   -> Flux
   -> Flux graph under magic-cluster/flux/graph/base
+  -> Magic Stick Operator CRD, module catalog, and default Appliance
   -> platform and app Kustomize bases
 ```
 
@@ -49,6 +50,7 @@ The base graph is defined under `magic-cluster/flux/graph/base`.
 |---|---|---|---|
 | 00 | `infrastructure-basis` | `magic-cluster/platform/basis` | none |
 | 10 | `infrastructure-ai` | `magic-cluster/platform/ai` | `infrastructure-basis` |
+| 15 | `magicstick-operator` | `magic-cluster/platform/magicstick-operator` | `infrastructure-basis` |
 | 20 | `infrastructure-observability` | `magic-cluster/platform/observability` | `infrastructure-ai` |
 | 30 | `apps` | `magic-cluster/apps/dashboard` | `infrastructure-basis` |
 | 40 | `apps-ai` | `magic-cluster/apps/ai` | `infrastructure-ai` |
@@ -58,11 +60,29 @@ The base graph is defined under `magic-cluster/flux/graph/base`.
 The `single-node` entrypoint patches `apps-ai` and `apps-ai-agent-templates` to
 use profile-specific paths under `magic-cluster/profiles/single-node`.
 
+## Appliance Model
+
+The `Appliance` CRD is the declarative interface for selecting optional
+modules and requesting concrete instances. The base install includes:
+
+- K3s and Flux from host automation
+- base platform components
+- `Appliance` CRD
+- `ConfigMap/magicstick-module-catalog`
+- disabled `magicstick-operator` controller skeleton
+- default `Appliance/local`
+
+The Magic Stick Operator is a meta-operator. It enables modules by generating
+Flux `Kustomization` resources and creates instance resources only after the
+required specialized operator CRDs exist. OpenClaw, Hermes, Paperclip, and
+KubeOpenCode continue to own their workload-specific reconciliation.
+
 ## Platform Components
 
 | Area | Components |
 |---|---|
 | Basis | Namespaces, ingress-nginx, cert-manager, generated secrets, reloader, and kdns. |
+| Appliance control plane | Appliance CRD, module catalog, operator RBAC, controller skeleton, and examples. |
 | AI infrastructure | NVIDIA GPU support, KubeAI, Hermes operator, OpenClaw operator, and Paperclip operator. |
 | GPU | NVIDIA GPU Operator, time slicing, and Magic Stick MPS control support. |
 | Observability | kube-prometheus-stack, Loki, Promtail, OpenTelemetry Collector, Grafana dashboards, and public ingresses. |

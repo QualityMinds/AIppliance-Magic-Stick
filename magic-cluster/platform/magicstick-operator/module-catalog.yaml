@@ -1,0 +1,247 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: magicstick-module-catalog
+  namespace: ai-system
+  labels:
+    app.kubernetes.io/name: magicstick-operator
+    app.kubernetes.io/component: module-catalog
+data:
+  modules.yaml: |
+    apiVersion: appliance.magicstick.dev/v1alpha1
+    kind: ModuleCatalog
+    metadata:
+      name: public
+    modules:
+      basis:
+        name: basis
+        title: Basis Platform
+        category: platform
+        description: Namespaces, ingress, cert-manager, generated secrets, reloader, and local DNS.
+        path: magic-cluster/platform/basis
+        kustomizationName: platform-basis
+        requires: []
+        provides:
+          - namespaces
+          - ingress
+          - certificates
+          - generated-secrets
+        requiredCrds: []
+        default: true
+        uninstallPolicy: keep-data
+      dashboard:
+        name: dashboard
+        title: Dashboard
+        category: app
+        description: Public-safe appliance landing page and app discovery surface.
+        path: magic-cluster/apps/dashboard
+        kustomizationName: app-dashboard
+        requires:
+          - basis
+        provides:
+          - dashboard
+        requiredCrds: []
+        default: true
+        uninstallPolicy: remove
+        postBuildSubstitution: true
+      litellm:
+        name: litellm
+        title: LiteLLM
+        category: ai
+        description: In-cluster OpenAI-compatible API and model routing.
+        path: magic-cluster/apps/ai/litellm/base
+        kustomizationName: app-litellm
+        requires:
+          - basis
+        provides:
+          - openai-compatible-api
+        requiredCrds: []
+        default: false
+        uninstallPolicy: keep-data
+        postBuildSubstitution: true
+      model-catalog:
+        name: model-catalog
+        title: Model Catalog
+        category: ai
+        description: Synchronizes KubeAI and external models into LiteLLM and publishes app catalog fragments.
+        path: magic-cluster/apps/ai/model-catalog
+        kustomizationName: app-model-catalog
+        requires:
+          - litellm
+        provides:
+          - model-catalog
+        requiredCrds: []
+        default: false
+        uninstallPolicy: keep-data
+        postBuildSubstitution: true
+      anything-llm:
+        name: anything-llm
+        title: AnythingLLM
+        category: ai
+        description: AnythingLLM app base using LiteLLM and the generated embedding default.
+        path: magic-cluster/apps/ai/anything-llm/base
+        kustomizationName: app-anything-llm
+        requires:
+          - litellm
+          - model-catalog
+        provides:
+          - anything-llm
+        requiredCrds: []
+        default: false
+        uninstallPolicy: keep-data
+        postBuildSubstitution: true
+      gpu:
+        name: gpu
+        title: NVIDIA GPU Platform
+        category: platform
+        description: NVIDIA GPU Operator, time slicing, and Magic Stick MPS control support.
+        path: magic-cluster/platform/gpu
+        kustomizationName: platform-gpu
+        requires:
+          - basis
+        provides:
+          - gpu
+        requiredCrds:
+          - clusterpolicies.nvidia.com
+        default: false
+        uninstallPolicy: keep-data
+      kubeai:
+        name: kubeai
+        title: KubeAI
+        category: ai-platform
+        description: KubeAI model serving platform used by the model catalog when local model serving is enabled.
+        path: magic-cluster/platform/ai/kubeai
+        kustomizationName: platform-kubeai
+        requires:
+          - basis
+          - gpu
+        provides:
+          - kubeai-models
+        requiredCrds:
+          - models.kubeai.org
+        default: false
+        uninstallPolicy: keep-data
+      openclaw-operator:
+        name: openclaw-operator
+        title: OpenClaw Operator
+        category: ai-operator
+        description: Specialized operator that manages OpenClawInstance resources.
+        path: magic-cluster/platform/ai/openclaw-operator
+        kustomizationName: operator-openclaw
+        requires:
+          - basis
+        provides:
+          - openclaw
+        requiredCrds:
+          - openclawinstances.openclaw.rocks
+        default: false
+        uninstallPolicy: keep-data
+      hermes-operator:
+        name: hermes-operator
+        title: Hermes Operator
+        category: ai-operator
+        description: Specialized operator that manages HermesInstance resources.
+        path: magic-cluster/platform/ai/hermes-operator
+        kustomizationName: operator-hermes
+        requires:
+          - basis
+        provides:
+          - hermes
+        requiredCrds:
+          - hermesinstances.hermes.agent
+        default: false
+        uninstallPolicy: keep-data
+      paperclip-operator:
+        name: paperclip-operator
+        title: Paperclip Operator
+        category: ai-operator
+        description: Specialized operator that manages Paperclip Instance resources.
+        path: magic-cluster/platform/ai/paperclip-operator
+        kustomizationName: operator-paperclip
+        requires:
+          - basis
+        provides:
+          - paperclip
+        requiredCrds:
+          - instances.paperclip.inc
+        default: false
+        uninstallPolicy: keep-data
+      kubeopencode:
+        name: kubeopencode
+        title: KubeOpenCode
+        category: ai
+        description: KubeOpenCode controller, server, and coding-agent custom resources.
+        path: magic-cluster/apps/ai/kubeopencode
+        kustomizationName: app-kubeopencode
+        requires:
+          - litellm
+          - model-catalog
+        provides:
+          - kubeopencode
+        requiredCrds:
+          - agenttemplates.kubeopencode.io
+          - agents.kubeopencode.io
+          - tasks.kubeopencode.io
+          - crontasks.kubeopencode.io
+          - registries.kubeopencode.io
+          - kubeopencodeconfigs.kubeopencode.io
+        default: false
+        uninstallPolicy: keep-data
+        postBuildSubstitution: true
+      observability:
+        name: observability
+        title: Observability
+        category: platform
+        description: Prometheus stack, Loki, Promtail, OpenTelemetry Collector, dashboards, and ingresses.
+        path: magic-cluster/platform/observability
+        kustomizationName: platform-observability
+        requires:
+          - basis
+        provides:
+          - metrics
+          - logs
+          - traces
+          - dashboards
+        requiredCrds:
+          - prometheuses.monitoring.coreos.com
+          - servicemonitors.monitoring.coreos.com
+        default: false
+        uninstallPolicy: keep-data
+        postBuildSubstitution: true
+    instanceMappings:
+      openclaw:
+        requiredModules:
+          - openclaw-operator
+          - litellm
+          - model-catalog
+        requiredCrds:
+          - openclawinstances.openclaw.rocks
+        apiVersion: openclaw.rocks/v1alpha1
+        kind: OpenClawInstance
+      hermes:
+        requiredModules:
+          - hermes-operator
+          - litellm
+          - model-catalog
+        requiredCrds:
+          - hermesinstances.hermes.agent
+        apiVersion: hermes.agent/v1
+        kind: HermesInstance
+      paperclip:
+        requiredModules:
+          - paperclip-operator
+          - litellm
+          - model-catalog
+        requiredCrds:
+          - instances.paperclip.inc
+        apiVersion: paperclip.inc/v1alpha1
+        kind: Instance
+      kubeopencode:
+        requiredModules:
+          - kubeopencode
+          - litellm
+          - model-catalog
+        requiredCrds:
+          - agenttemplates.kubeopencode.io
+        apiVersion: kubeopencode.io/v1alpha1
+        primaryKind: AgentTemplate

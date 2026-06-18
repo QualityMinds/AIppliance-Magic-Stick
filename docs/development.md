@@ -17,6 +17,7 @@ Render the areas you touch. For broad cluster changes, run:
 kubectl kustomize magic-cluster/flux/entrypoints/base
 kubectl kustomize magic-cluster/flux/entrypoints/single-node
 kubectl kustomize magic-cluster/platform/basis
+kubectl kustomize magic-cluster/platform/magicstick-operator
 kubectl kustomize magic-cluster/platform/ai
 kubectl kustomize magic-cluster/platform/observability
 kubectl kustomize magic-cluster/apps/dashboard
@@ -62,6 +63,16 @@ magic-installer/write-usb.sh --help
 6. Update [architecture.md](architecture.md), [configuration.md](configuration.md),
    or [gitops-overlays.md](gitops-overlays.md) when the public contract changes.
 
+## Adding A Module
+
+1. Add or reuse a public-safe Kustomize base.
+2. Add a catalog entry in
+   `magic-cluster/platform/magicstick-operator/module-catalog.yaml`.
+3. Choose a stable generated Flux `kustomizationName`.
+4. Document required CRDs and dependencies.
+5. Add or update `Appliance` examples when the module is user-selectable.
+6. Render `magic-cluster/platform/magicstick-operator` and any touched base.
+
 ## Adding An App Variable
 
 1. Use a documented `AI_APPLIANCE_*` name.
@@ -99,6 +110,7 @@ Run the public release checklist before tagging a public version:
 ```bash
 kubectl kustomize magic-cluster/flux/entrypoints/base
 kubectl kustomize magic-cluster/flux/entrypoints/single-node
+kubectl kustomize magic-cluster/platform/magicstick-operator
 kubectl kustomize examples/demo/infra-cluster/flux-bootstrap
 gitleaks detect --source . --config .gitleaks.toml --no-git
 ```

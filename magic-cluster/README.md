@@ -17,6 +17,7 @@ runtime checks.
 | `flux/entrypoints/base` | Neutral public Flux entrypoint |
 | `flux/entrypoints/single-node` | Public read-only single-node Flux entrypoint |
 | `platform/basis` | Namespaces, ingress-nginx, cert-manager, secret generator, reloader, kdns |
+| `platform/magicstick-operator` | Appliance CRD, module catalog, operator RBAC, disabled controller skeleton, and public examples |
 | `platform/ai` | AI infrastructure wave with NVIDIA GPU support, KubeAI, Hermes, OpenClaw, and Paperclip operators |
 | `platform/ai/openclaw-operator` | OpenClaw CRD operator base for `openclaw.rocks/v1alpha1` instances |
 | `platform/ai/paperclip-operator` | Paperclip CRD operator base for `paperclip.inc/v1alpha1` instances |
@@ -47,6 +48,7 @@ from `vendor/magicstick/magic-cluster/platform/*` or
 - OpenClaw instance opt-in paths, public URL, preferred LiteLLM model name, image tag, and storage sizes
 - Paperclip instance opt-in paths, public URL, trusted origins, admin identity, image tag, and storage sizes
 - KubeOpenCode default model
+- Appliance module and instance selections
 - Flux Kustomization paths
 
 ## Builds
@@ -54,6 +56,7 @@ from `vendor/magicstick/magic-cluster/platform/*` or
 ```bash
 kubectl kustomize magic-cluster/flux/entrypoints/base
 kubectl kustomize magic-cluster/apps/dashboard
+kubectl kustomize magic-cluster/platform/magicstick-operator
 kubectl kustomize magic-cluster/platform/ai
 kubectl kustomize magic-cluster/platform/ai/openclaw-operator
 kubectl kustomize magic-cluster/platform/ai/paperclip-operator

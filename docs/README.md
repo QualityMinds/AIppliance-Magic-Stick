@@ -11,6 +11,9 @@ configuration.
 |---|---|
 | [getting-started.md](getting-started.md) | First local checkout, render checks, demo overlay, and installer image workflow. |
 | [architecture.md](architecture.md) | Repository layers, bootstrap flow, Flux graph, and cluster component overview. |
+| [appliance-crd.md](appliance-crd.md) | `Appliance` API, spec, status, and public examples. |
+| [modules.md](modules.md) | Magic Stick module catalog and generated Flux Kustomization contract. |
+| [operator-orchestration.md](operator-orchestration.md) | Meta-operator responsibilities and specialized operator handoff. |
 | [configuration.md](configuration.md) | Bootstrap variables, `AI_APPLIANCE_*` settings, Flux post-build substitution, and secret handling. |
 | [gitops-overlays.md](gitops-overlays.md) | Public bases, private overlays, Flux `GitRepository.spec.include`, profiles, and patching patterns. |
 | [operations.md](operations.md) | Day-2 checks for Flux, K3s, apps, models, storage, GPU, logs, and common failures. |
@@ -36,6 +39,7 @@ Run the main Kubernetes render checks:
 
 ```bash
 kubectl kustomize magic-cluster/platform/ai
+kubectl kustomize magic-cluster/platform/magicstick-operator
 kubectl kustomize magic-cluster/apps/ai
 kubectl kustomize examples/demo/infra-cluster/flux-bootstrap
 ```
