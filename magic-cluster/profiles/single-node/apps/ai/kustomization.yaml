@@ -3,5 +3,5 @@ kind: Kustomization
 resources:
   - ../../../../apps/ai
 components:
-  - ../../../../apps/ai/models/qwen359b/component
-  - ../../../../apps/ai/models/qwen352bvlembedding/component
+#  - ../../../../apps/ai/models/qwen359b/component
+#  - ../../../../apps/ai/models/qwen352bvlembedding/component
