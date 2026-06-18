@@ -78,6 +78,8 @@ spec:
                   key: POSTGRES_PASSWORD
             - name: DATABASE_URL
               value: postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@litellm-postgresql.ai.svc.cluster.local:5432/$(POSTGRES_DB)
+            - name: STORE_MODEL_IN_DB
+              value: "True"
           resources:
             requests:
               cpu: 200m
