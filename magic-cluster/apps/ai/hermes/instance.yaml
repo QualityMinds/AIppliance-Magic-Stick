@@ -6,6 +6,9 @@ metadata:
   labels:
     app: hermes
 spec:
+  # The official Hermes dashboard image uses s6-overlay and must run its
+  # entrypoint as PID 1.
+  shareProcessNamespace: false
   image:
     repository: ghcr.io/paperclipinc/hermes-agent
     tag: "v2026.5.29.2"
