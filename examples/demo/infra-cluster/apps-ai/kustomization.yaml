@@ -17,3 +17,10 @@ patches:
       name: litellm
       namespace: ai
     path: patches/litellm-ingress.yaml
+  - target:
+      group: hermes.agent
+      version: v1
+      kind: HermesInstance
+      name: hermes
+      namespace: ai
+    path: patches/hermes-instance.yaml

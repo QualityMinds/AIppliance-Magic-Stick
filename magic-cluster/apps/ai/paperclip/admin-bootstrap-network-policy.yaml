@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: paperclip-admin-bootstrap-db
+  namespace: ai
+  labels:
+    app: paperclip
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: database
+      app.kubernetes.io/instance: paperclip
+      app.kubernetes.io/name: paperclip
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: paperclip
+              app.kubernetes.io/component: admin-bootstrap
+      ports:
+        - port: 5432
+          protocol: TCP

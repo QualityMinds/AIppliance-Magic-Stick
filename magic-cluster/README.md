@@ -36,7 +36,7 @@ from `vendor/magicstick/magic-cluster/platform/*` or
 - selected model resources
 - LiteLLM model config fragments
 - AnythingLLM embedding model preference
-- Paperclip instance opt-in paths, public URL, image tag, and storage sizes
+- Paperclip instance opt-in paths, public URL, admin identity, image tag, and storage sizes
 - KubeOpenCode default model
 - Flux Kustomization paths
 
@@ -70,3 +70,9 @@ The Paperclip operator is selected by the default `platform/ai` base so the
 Paperclip `Instance` base remains opt-in; deployments that want a Paperclip app
 should reconcile `apps/ai/paperclip` after the operator is ready. The upstream
 operator chart requires Kubernetes 1.28 or newer.
+
+The Paperclip app base creates a one-time bootstrap job so first admin setup is
+handled in-cluster instead of requiring a manual shell command. By default it
+uses `admin@example.com` and a generated `paperclip-admin` Secret key named
+`password`; private deployments can patch
+`AI_APPLIANCE_PAPERCLIP_ADMIN_EMAIL` and `AI_APPLIANCE_PAPERCLIP_ADMIN_NAME`.

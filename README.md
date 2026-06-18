@@ -75,6 +75,9 @@ Secrets such as Flux tokens must be supplied at install/runtime and must not be 
 In `readonly-public` mode Flux reads only this public repository and does not
 need a Git token.
 
+Current app storage placeholders include `AI_APPLIANCE_HERMES_STORAGE` for the
+Hermes agent PVC.
+
 ## Validation
 
 ```bash
@@ -84,8 +87,10 @@ ANSIBLE_ROLES_PATH=magic-host/roles \
 kubectl kustomize magic-cluster/flux/entrypoints/base
 kubectl kustomize magic-cluster/apps/dashboard
 kubectl kustomize magic-cluster/platform/ai
+kubectl kustomize magic-cluster/platform/ai/hermes-operator
 kubectl kustomize magic-cluster/platform/ai/paperclip-operator
 kubectl kustomize magic-cluster/apps/ai
+kubectl kustomize magic-cluster/apps/ai/hermes
 kubectl kustomize magic-cluster/apps/ai/paperclip
 kubectl kustomize magic-cluster/apps/ai/kubeopencode
 kubectl kustomize magic-cluster/apps/ai/agent-templates

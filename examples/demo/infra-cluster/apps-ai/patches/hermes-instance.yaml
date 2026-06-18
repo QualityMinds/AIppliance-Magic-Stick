@@ -1,0 +1,3 @@
+- op: replace
+  path: /spec/networking/ingress/host
+  value: hermes.example.local

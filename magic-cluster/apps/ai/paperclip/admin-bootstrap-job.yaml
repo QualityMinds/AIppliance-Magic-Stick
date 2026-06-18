@@ -1,0 +1,231 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: paperclip-admin-bootstrap
+  namespace: ai
+  labels:
+    app: paperclip
+spec:
+  backoffLimit: 6
+  activeDeadlineSeconds: 900
+  template:
+    metadata:
+      labels:
+        app: paperclip
+        app.kubernetes.io/component: admin-bootstrap
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: bootstrap
+          image: ghcr.io/paperclipai/paperclip:sha-e59eb10
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - |
+              set -eu
+
+              CONFIG="/paperclip/instances/default/config.json"
+              TMP_CONFIG="/tmp/paperclip-bootstrap-config.json"
+              SVC_URL="http://paperclip.ai.svc.cluster.local:3100"
+              PUBLIC_URL="http://paperclip.${AI_APPLIANCE_DOMAIN:=example.local}"
+              PUBLIC_HOST="$(PUBLIC_URL="$PUBLIC_URL" node -e 'const u = new URL(process.env.PUBLIC_URL); console.log(u.host);')"
+              PUBLIC_PROTO="$(PUBLIC_URL="$PUBLIC_URL" node -e 'const u = new URL(process.env.PUBLIC_URL); console.log(u.protocol.replace(/:$/, ""));')"
+              ADMIN_EMAIL="${AI_APPLIANCE_PAPERCLIP_ADMIN_EMAIL:=admin@example.com}"
+              ADMIN_NAME="${AI_APPLIANCE_PAPERCLIP_ADMIN_NAME:=Admin}"
+              export ADMIN_EMAIL ADMIN_NAME
+              COOKIE_JAR="$(mktemp /tmp/paperclip-bootstrap-cookies.XXXXXX)"
+
+              cleanup() {
+                rm -f "$COOKIE_JAR" /tmp/signup-body.json /tmp/signin-body.json /tmp/accept.json /tmp/signup.json /tmp/signin.json
+              }
+              trap cleanup EXIT
+
+              print_response() {
+                RESPONSE_FILE="$1" ADMIN_EMAIL="$ADMIN_EMAIL" node <<'NODE'
+              const fs = require("fs");
+              const file = process.env.RESPONSE_FILE;
+              const adminEmail = process.env.ADMIN_EMAIL || "";
+              if (!file || !fs.existsSync(file)) process.exit(0);
+              let text = fs.readFileSync(file, "utf8");
+              if (adminEmail) text = text.split(adminEmail).join("[ADMIN_EMAIL]");
+              process.stdout.write(text.slice(0, 1000) + "\n");
+              NODE
+              }
+
+              echo "Waiting for Paperclip config..."
+              for i in $(seq 1 120); do
+                if [ -f "$CONFIG" ]; then
+                  break
+                fi
+                sleep 2
+              done
+              if [ ! -f "$CONFIG" ]; then
+                echo "Timed out waiting for $CONFIG"
+                exit 1
+              fi
+
+              CONFIG_PATH="$CONFIG" TMP_CONFIG_PATH="$TMP_CONFIG" PUBLIC_URL="$PUBLIC_URL" node <<'NODE'
+              const fs = require("fs");
+              const configPath = process.env.CONFIG_PATH;
+              const tmpConfigPath = process.env.TMP_CONFIG_PATH;
+              const publicUrl = process.env.PUBLIC_URL;
+              const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+              config.server = {
+                ...(config.server || {}),
+                deploymentMode: "authenticated",
+                exposure: "public",
+                bind: "custom",
+                customBindHost: "0.0.0.0",
+                host: "0.0.0.0",
+                port: 3100,
+              };
+              const host = new URL(publicUrl).hostname.toLowerCase();
+              const allowed = new Set([...(config.server.allowedHostnames || []), host]);
+              config.server.allowedHostnames = Array.from(allowed);
+              config.auth = {
+                ...(config.auth || {}),
+                baseUrlMode: "explicit",
+                publicBaseUrl: publicUrl,
+              };
+              const serialized = JSON.stringify(config, null, 2) + "\n";
+              fs.writeFileSync(configPath, serialized, { mode: 0o600 });
+              fs.writeFileSync(tmpConfigPath, serialized, { mode: 0o600 });
+              NODE
+
+              echo "Waiting for Paperclip service..."
+              for i in $(seq 1 120); do
+                HTTP_CODE="$(curl -s -o /dev/null -w '%{http_code}' "$SVC_URL/" || true)"
+                if [ "$HTTP_CODE" != "000" ] && [ -n "$HTTP_CODE" ]; then
+                  echo "Server is reachable (HTTP $HTTP_CODE)."
+                  break
+                fi
+                sleep 5
+              done
+
+              node <<'NODE'
+              const fs = require("fs");
+              const adminPassword = process.env.ADMIN_PASSWORD;
+              fs.writeFileSync(
+                "/tmp/signup-body.json",
+                JSON.stringify({
+                  name: process.env.ADMIN_NAME,
+                  email: process.env.ADMIN_EMAIL,
+                  ["password"]: adminPassword,
+                }),
+                { mode: 0o600 },
+              );
+              fs.writeFileSync(
+                "/tmp/signin-body.json",
+                JSON.stringify({
+                  email: process.env.ADMIN_EMAIL,
+                  ["password"]: adminPassword,
+                }),
+                { mode: 0o600 },
+              );
+              NODE
+
+              echo "Creating or signing in admin account..."
+              SIGNUP_STATUS="$(curl -sS -o /tmp/signup.json -w '%{http_code}' \
+                -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
+                -H "Content-Type: application/json" \
+                -H "Origin: $PUBLIC_URL" \
+                -H "Host: $PUBLIC_HOST" \
+                -H "X-Forwarded-Host: $PUBLIC_HOST" \
+                -H "X-Forwarded-Proto: $PUBLIC_PROTO" \
+                -X POST "$SVC_URL/api/auth/sign-up/email" \
+                --data-binary @/tmp/signup-body.json)" || true
+
+              if echo "$SIGNUP_STATUS" | grep -q '^2'; then
+                echo "Admin account created."
+              else
+                echo "Sign-up returned HTTP $SIGNUP_STATUS."
+                SIGNIN_STATUS="$(curl -sS -o /tmp/signin.json -w '%{http_code}' \
+                  -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
+                  -H "Content-Type: application/json" \
+                  -H "Origin: $PUBLIC_URL" \
+                  -H "Host: $PUBLIC_HOST" \
+                  -H "X-Forwarded-Host: $PUBLIC_HOST" \
+                  -H "X-Forwarded-Proto: $PUBLIC_PROTO" \
+                  -X POST "$SVC_URL/api/auth/sign-in/email" \
+                  --data-binary @/tmp/signin-body.json)" || true
+                if echo "$SIGNIN_STATUS" | grep -q '^2'; then
+                  echo "Signed in as existing admin account."
+                else
+                  echo "Sign-in returned HTTP $SIGNIN_STATUS."
+                  echo "Sign-up response:"
+                  print_response /tmp/signup.json
+                  echo "Sign-in response:"
+                  print_response /tmp/signin.json
+                  echo "Could not sign up or sign in admin account."
+                  exit 1
+                fi
+              fi
+
+              HEALTH="$(curl -sS \
+                -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
+                -H "Origin: $PUBLIC_URL" \
+                -H "Host: $PUBLIC_HOST" \
+                -H "X-Forwarded-Host: $PUBLIC_HOST" \
+                -H "X-Forwarded-Proto: $PUBLIC_PROTO" \
+                "$SVC_URL/api/health" 2>/dev/null || true)"
+              if echo "$HEALTH" | grep -q '"bootstrapStatus":"ready"'; then
+                echo "Instance is already bootstrapped."
+                exit 0
+              fi
+
+              echo "Generating bootstrap invite..."
+              BOOTSTRAP_OUTPUT="$(pnpm paperclipai auth bootstrap-ceo --config "$TMP_CONFIG" --base-url "$PUBLIC_URL" 2>&1)" || true
+              INVITE_TOKEN="$(echo "$BOOTSTRAP_OUTPUT" | grep -o 'pcp_bootstrap_[a-f0-9]*' | head -1)"
+              if [ -z "$INVITE_TOKEN" ]; then
+                echo "$BOOTSTRAP_OUTPUT"
+                echo "Could not extract bootstrap invite token."
+                exit 1
+              fi
+
+              echo "Accepting bootstrap invite..."
+              ACCEPT_STATUS="$(curl -sS -o /tmp/accept.json -w '%{http_code}' \
+                -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
+                -H "Content-Type: application/json" \
+                -H "Origin: $PUBLIC_URL" \
+                -H "Host: $PUBLIC_HOST" \
+                -H "X-Forwarded-Host: $PUBLIC_HOST" \
+                -H "X-Forwarded-Proto: $PUBLIC_PROTO" \
+                -X POST "$SVC_URL/api/invites/$INVITE_TOKEN/accept" \
+                -d '{"requestType":"human"}')" || true
+
+              if echo "$ACCEPT_STATUS" | grep -q '^2'; then
+                echo "Admin bootstrap finished successfully."
+              else
+                echo "Invite acceptance returned HTTP $ACCEPT_STATUS."
+                exit 1
+              fi
+          env:
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: paperclip-admin
+                  key: password
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: paperclip-db-credentials
+                  key: password
+            - name: DATABASE_URL
+              value: "postgresql://paperclip:$(DB_PASSWORD)@paperclip-db.ai.svc.cluster.local:5432/paperclip"
+          volumeMounts:
+            - name: paperclip-data
+              mountPath: /paperclip
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+      volumes:
+        - name: paperclip-data
+          persistentVolumeClaim:
+            claimName: paperclip-data
