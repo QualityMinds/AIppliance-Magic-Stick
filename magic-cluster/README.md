@@ -38,8 +38,8 @@ from `vendor/magicstick/magic-cluster/platform/*` or
 - selected model resources
 - LiteLLM model config fragments
 - AnythingLLM embedding model preference
-- OpenClaw instance opt-in paths, public URL, API key Secret name, image tag, and storage sizes
-- Paperclip instance opt-in paths, public URL, admin identity, image tag, and storage sizes
+- OpenClaw instance opt-in paths, public URL, preferred LiteLLM model name, image tag, and storage sizes
+- Paperclip instance opt-in paths, public URL, trusted origins, admin identity, image tag, and storage sizes
 - KubeOpenCode default model
 - Flux Kustomization paths
 
@@ -80,10 +80,18 @@ The OpenClaw operator is selected by the default `platform/ai` base so the
 `openclaw.rocks/v1alpha1` CRDs are available with the AI infrastructure wave.
 The OpenClaw `OpenClawInstance` base remains opt-in; deployments that want an
 OpenClaw app should reconcile `apps/ai/openclaw` after the operator is ready
-and provide an `openclaw-api-keys` Secret in the `ai` namespace.
+and the LiteLLM app is available. The base uses the in-cluster LiteLLM service
+and `litellm-masterkey-secret`. At pod startup it reads LiteLLM's
+OpenAI-compatible `/models` endpoint, writes that model list into the OpenClaw
+provider config, and uses `AI_APPLIANCE_OPENCLAW_MODEL` as the preferred primary
+model when LiteLLM advertises it; otherwise it falls back to the first advertised
+model.
 
 The Paperclip app base creates a one-time bootstrap job so first admin setup is
 handled in-cluster instead of requiring a manual shell command. By default it
 uses `admin@example.com` and a generated `paperclip-admin` Secret key named
 `password`; private deployments can patch
 `AI_APPLIANCE_PAPERCLIP_ADMIN_EMAIL` and `AI_APPLIANCE_PAPERCLIP_ADMIN_NAME`.
+For local browser access or port forwards, the base also trusts common
+`localhost` and `127.0.0.1` origins; deployments can override or extend this via
+`AI_APPLIANCE_PAPERCLIP_TRUSTED_ORIGINS`.

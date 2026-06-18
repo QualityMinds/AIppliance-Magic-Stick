@@ -7,11 +7,7 @@ metadata:
     app: openclaw
 spec:
   config:
-    raw:
-      agents:
-        defaults:
-          model:
-            primary: "${AI_APPLIANCE_OPENCLAW_MODEL:=qwen3635b}"
+    mergeMode: merge
   env:
     - name: OPENAI_API_KEY
       valueFrom:
@@ -20,6 +16,139 @@ spec:
           key: LITELLM_MASTER_KEY
     - name: OPENAI_BASE_URL
       value: "http://litellm.ai.svc.cluster.local:4000/v1"
+  initContainers:
+    - name: openclaw-litellm-models
+      image: node:22-alpine
+      imagePullPolicy: IfNotPresent
+      command:
+        - /bin/sh
+        - -c
+      args:
+        - |
+          set -eu
+          node <<'NODE'
+          const fs = require("fs");
+          const configPath = "/data/openclaw.json";
+          const baseUrl = process.env.OPENAI_BASE_URL.replace(/\/+$/, "");
+          const modelsUrl = process.env.LITELLM_MODELS_URL || `${baseUrl}/models`;
+          const apiKey = process.env.OPENAI_API_KEY || "";
+          const preferredModel = process.env.OPENCLAW_DEFAULT_MODEL || "";
+          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+          async function fetchModels() {
+            let lastError = "no response";
+            for (let attempt = 1; attempt <= 60; attempt += 1) {
+              try {
+                const response = await fetch(modelsUrl, {
+                  headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+                });
+                if (response.ok) {
+                  return response.json();
+                }
+                lastError = `${response.status} ${response.statusText}`;
+              } catch (error) {
+                lastError = error.message;
+              }
+              console.log(`Waiting for LiteLLM models (${attempt}/60): ${lastError}`);
+              await sleep(5000);
+            }
+            throw new Error(`${modelsUrl} did not become ready: ${lastError}`);
+          }
+
+          function normalizeModels(payload) {
+            const rawModels = Array.isArray(payload)
+              ? payload
+              : Array.isArray(payload.data)
+                ? payload.data
+                : Array.isArray(payload.models)
+                  ? payload.models
+                  : [];
+
+            return rawModels
+              .map((model) => {
+                if (typeof model === "string") {
+                  return { id: model, name: model };
+                }
+                const id = model.id || model.name || model.model_name;
+                if (!id) {
+                  return null;
+                }
+                const normalized = {
+                  id,
+                  name: model.name || id,
+                };
+                const contextWindow = model.contextWindow || model.context_window;
+                if (contextWindow) {
+                  normalized.contextWindow = contextWindow;
+                }
+                return normalized;
+              })
+              .filter(Boolean);
+          }
+
+          async function main() {
+            const payload = await fetchModels();
+            const models = normalizeModels(payload);
+            if (models.length === 0) {
+              throw new Error("LiteLLM /models returned no usable models");
+            }
+
+            const ids = new Set(models.map((model) => model.id));
+            const selectedModel = preferredModel && ids.has(preferredModel)
+              ? preferredModel
+              : models[0].id;
+
+            const config = fs.existsSync(configPath)
+              ? JSON.parse(fs.readFileSync(configPath, "utf8"))
+              : {};
+
+            config.models = {
+              ...(config.models || {}),
+              providers: {
+                ...((config.models || {}).providers || {}),
+                litellm: {
+                  baseUrl,
+                  apiKey: "${OPENAI_API_KEY}",
+                  api: "openai-completions",
+                  models,
+                },
+              },
+            };
+            config.agents = {
+              ...(config.agents || {}),
+              defaults: {
+                ...((config.agents || {}).defaults || {}),
+                model: {
+                  ...(((config.agents || {}).defaults || {}).model || {}),
+                  primary: `litellm/${selectedModel}`,
+                },
+              },
+            };
+
+            fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+            console.log(`Configured OpenClaw LiteLLM provider with ${models.length} models; primary=litellm/${selectedModel}`);
+          }
+
+          main().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+      env:
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: litellm-masterkey-secret
+              key: LITELLM_MASTER_KEY
+        - name: OPENAI_BASE_URL
+          value: "http://litellm.ai.svc.cluster.local:4000/v1"
+        - name: LITELLM_MODELS_URL
+          value: "http://litellm.ai.svc.cluster.local:4000/models"
+        - name: OPENCLAW_DEFAULT_MODEL
+          value: "${AI_APPLIANCE_OPENCLAW_MODEL:=qwen3635b}"
+      volumeMounts:
+        - name: data
+          mountPath: /data
   storage:
     persistence:
       enabled: true

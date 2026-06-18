@@ -75,9 +75,9 @@ Secrets such as Flux tokens must be supplied at install/runtime and must not be 
 In `readonly-public` mode Flux reads only this public repository and does not
 need a Git token.
 
-Current app storage placeholders include `AI_APPLIANCE_HERMES_STORAGE` for the
-Hermes agent PVC and `AI_APPLIANCE_OPENCLAW_STORAGE` for the optional OpenClaw
-agent PVC.
+Current app placeholders include `AI_APPLIANCE_HERMES_STORAGE` for the Hermes
+agent PVC, `AI_APPLIANCE_OPENCLAW_STORAGE` for the optional OpenClaw agent PVC,
+and `AI_APPLIANCE_OPENCLAW_MODEL` for OpenClaw's preferred LiteLLM model name.
 
 ## Validation
 
