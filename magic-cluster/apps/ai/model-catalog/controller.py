@@ -29,9 +29,9 @@ CATALOG_HASH_ANNOTATION = "ai-appliance.io/catalog-hash"
 LITELLM_MASTER_KEY = os.environ.get("LITELLM_MASTER_KEY", "")
 DEFAULT_CONSUMER_SELECTORS = (
     {"app": "anything-llm"},
-    {"app.kubernetes.io/instance": "hermes"},
-    {"app.kubernetes.io/instance": "openclaw"},
-    {"app.kubernetes.io/instance": "paperclip"},
+    {"app.kubernetes.io/instance": "hermes", "app.kubernetes.io/name": "hermes-agent"},
+    {"app.kubernetes.io/instance": "openclaw", "app.kubernetes.io/name": "openclaw"},
+    {"app.kubernetes.io/instance": "paperclip", "app.kubernetes.io/component": "server"},
 )
 
 KUBE_API = os.environ.get("KUBERNETES_SERVICE_URL", "https://kubernetes.default.svc")
@@ -40,7 +40,11 @@ SA_CA_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 
 
 def log(message):
-    print(datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z " + message, flush=True)
+    print(utc_now() + " " + message, flush=True)
+
+
+def utc_now():
+    return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def json_dumps(value):
@@ -513,7 +517,7 @@ def write_catalog(data, catalog_hash):
     annotations = metadata.get("annotations") or {}
     labels["app"] = "ai-model-catalog"
     annotations[CATALOG_HASH_ANNOTATION] = catalog_hash
-    annotations["ai-appliance.io/last-sync"] = datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    annotations["ai-appliance.io/last-sync"] = utc_now()
     obj = {
         "apiVersion": "v1",
         "kind": "ConfigMap",
