@@ -83,9 +83,9 @@ OpenClaw app should reconcile `apps/ai/openclaw` after the operator is ready
 and the LiteLLM app is available. The base uses the in-cluster LiteLLM service
 and `litellm-masterkey-secret`. At pod startup it reads LiteLLM's
 OpenAI-compatible `/models` endpoint, writes that model list into the OpenClaw
-provider config, and uses `AI_APPLIANCE_OPENCLAW_MODEL` as the preferred primary
-model when LiteLLM advertises it; otherwise it falls back to the first advertised
-model.
+OpenAI provider config backed by LiteLLM's `/v1` API, and uses
+`AI_APPLIANCE_OPENCLAW_MODEL` as the preferred primary model when LiteLLM
+advertises it; otherwise it falls back to the first advertised model.
 
 The Paperclip app base creates a one-time bootstrap job so first admin setup is
 handled in-cluster instead of requiring a manual shell command. By default it

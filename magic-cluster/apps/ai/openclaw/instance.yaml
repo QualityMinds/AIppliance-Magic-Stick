@@ -64,15 +64,21 @@ spec:
                   ? payload.models
                   : [];
 
+            function normalizeModelId(value) {
+              return value.replace(/^(openai|litellm)\//, "");
+            }
+
             return rawModels
               .map((model) => {
                 if (typeof model === "string") {
-                  return { id: model, name: model };
+                  const id = normalizeModelId(model);
+                  return { id, name: id };
                 }
-                const id = model.id || model.name || model.model_name;
-                if (!id) {
+                const rawId = model.id || model.name || model.model_name;
+                if (!rawId) {
                   return null;
                 }
+                const id = normalizeModelId(rawId);
                 const normalized = {
                   id,
                   name: model.name || id,
@@ -86,6 +92,10 @@ spec:
               .filter(Boolean);
           }
 
+          function normalizePreferredModel(value) {
+            return value.replace(/^(openai|litellm)\//, "");
+          }
+
           async function main() {
             const payload = await fetchModels();
             const models = normalizeModels(payload);
@@ -94,8 +104,9 @@ spec:
             }
 
             const ids = new Set(models.map((model) => model.id));
-            const selectedModel = preferredModel && ids.has(preferredModel)
-              ? preferredModel
+            const normalizedPreferredModel = normalizePreferredModel(preferredModel);
+            const selectedModel = normalizedPreferredModel && ids.has(normalizedPreferredModel)
+              ? normalizedPreferredModel
               : models[0].id;
 
             const config = fs.existsSync(configPath)
@@ -106,6 +117,12 @@ spec:
               ...(config.models || {}),
               providers: {
                 ...((config.models || {}).providers || {}),
+                openai: {
+                  baseUrl,
+                  apiKey: "${OPENAI_API_KEY}",
+                  api: "openai-completions",
+                  models,
+                },
                 litellm: {
                   baseUrl,
                   apiKey: "${OPENAI_API_KEY}",
@@ -120,13 +137,13 @@ spec:
                 ...((config.agents || {}).defaults || {}),
                 model: {
                   ...(((config.agents || {}).defaults || {}).model || {}),
-                  primary: `litellm/${selectedModel}`,
+                  primary: `openai/${selectedModel}`,
                 },
               },
             };
 
             fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
-            console.log(`Configured OpenClaw LiteLLM provider with ${models.length} models; primary=litellm/${selectedModel}`);
+            console.log(`Configured OpenClaw LiteLLM-backed OpenAI provider with ${models.length} models; primary=openai/${selectedModel}`);
           }
 
           main().catch((error) => {
