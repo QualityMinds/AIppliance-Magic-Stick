@@ -25,9 +25,67 @@ spec:
       enabled: true
   runtime:
     uv:
-      # The published operator-built agent image already contains /opt/venv and
-      # does not ship /opt/venv-template, so skip the operator's uv sync init.
+      # The operator-managed GHCR image does not ship /opt/venv-template, so the
+      # built-in init-uv container fails before the workload can start.
       enabled: false
+  extraVolumes:
+    - name: hermes-runtime-wrapper
+      configMap:
+        name: hermes-runtime-wrapper
+        defaultMode: 0555
+  extraVolumeMounts:
+    - name: hermes-runtime-wrapper
+      mountPath: /usr/local/bin/hermes-entrypoint
+      subPath: hermes-entrypoint
+      readOnly: true
+  sidecars:
+    - name: hermes-dashboard
+      image: nousresearch/hermes-agent:v2026.5.29.2
+      imagePullPolicy: IfNotPresent
+      args:
+        - dashboard
+        - --host
+        - 0.0.0.0
+        - --port
+        - "8443"
+        - --no-open
+        - --insecure
+      env:
+        - name: HERMES_HOME
+          value: /home/hermes/.hermes
+        - name: HERMES_UID
+          value: "1000"
+        - name: HERMES_GID
+          value: "1000"
+        - name: HOME
+          value: /home/hermes
+        - name: XDG_CACHE_HOME
+          value: /tmp/.cache
+      ports:
+        - name: dashboard
+          containerPort: 8443
+          protocol: TCP
+      resources:
+        requests:
+          cpu: 250m
+          memory: 512Mi
+        limits:
+          cpu: "1"
+          memory: 2Gi
+      securityContext:
+        runAsNonRoot: false
+        runAsUser: 0
+        runAsGroup: 0
+        readOnlyRootFilesystem: false
+      volumeMounts:
+        - name: data
+          mountPath: /home/hermes/.hermes
+        - name: config
+          mountPath: /home/hermes/.hermes/config.yaml
+          subPath: config.yaml
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
   networking:
     service:
       type: ClusterIP
