@@ -11,7 +11,7 @@ spec:
       agents:
         defaults:
           model:
-            primary: "openai/${AI_APPLIANCE_OPENCLAW_MODEL:=qwen3635b}"
+            primary: "${AI_APPLIANCE_OPENCLAW_MODEL:=qwen3635b}"
   env:
     - name: OPENAI_API_KEY
       valueFrom:
