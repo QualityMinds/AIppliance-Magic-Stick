@@ -29,6 +29,9 @@ spec:
       VLLM:
         images:
           magicstick-vllm: vllm/vllm-openai:v0.23.0
+    modelRollouts:
+      # Avoid starting an extra GPU model pod during model updates.
+      surge: 0
     resourceProfiles:
       magicstick-nvidia-gpu:
         imageName: magicstick-vllm

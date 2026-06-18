@@ -23,10 +23,10 @@ data:
         sys.exit(2)
 
 
-    def parse_mib(name, default=None):
+    def parse_mib(name):
         raw = os.environ.get(name)
         if raw is None or raw.strip() == "":
-            return default
+            return None
         value = raw.strip()
         number_only = re.fullmatch(r"(\d+(?:\.\d+)?)", value)
         if number_only:
@@ -104,9 +104,6 @@ data:
         budget_mib = parse_mib("MAGICSTICK_VLLM_VRAM_LIMIT")
         if budget_mib is None:
             die("MAGICSTICK_VLLM_VRAM_LIMIT is required for MagicStick GPU vLLM models")
-        headroom_mib = parse_mib("MAGICSTICK_VLLM_VRAM_HEADROOM_MIB", 1024)
-        if headroom_mib < 0:
-            die("MAGICSTICK_VLLM_VRAM_HEADROOM_MIB must not be negative")
 
         total_mib = gpu_total_mib(device)
         if budget_mib > total_mib:
@@ -115,14 +112,7 @@ data:
                 f"{budget_mib}Mi is larger than physical GPU memory {total_mib}Mi"
             )
 
-        usable_mib = budget_mib - headroom_mib
-        if usable_mib <= 0:
-            die(
-                "MAGICSTICK_VLLM_VRAM_LIMIT must be larger than "
-                "MAGICSTICK_VLLM_VRAM_HEADROOM_MIB"
-            )
-
-        raw_utilization = usable_mib / total_mib
+        raw_utilization = budget_mib / total_mib
         utilization = min(0.98, max(0.05, raw_utilization))
 
         os.environ["CUDA_MPS_PIPE_DIRECTORY"] = "/mps/nvidia.com/gpu/pipe"
@@ -137,7 +127,7 @@ data:
 
         log(
             "physical_gpu_mib="
-            f"{total_mib} budget_mib={budget_mib} headroom_mib={headroom_mib} "
+            f"{total_mib} budget_mib={budget_mib} "
             f"gpu_memory_utilization={utilization:.4f} "
             f"cuda_mps_pinned_device_mem_limit={os.environ['CUDA_MPS_PINNED_DEVICE_MEM_LIMIT']}"
         )
