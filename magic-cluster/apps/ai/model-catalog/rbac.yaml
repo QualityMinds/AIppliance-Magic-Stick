@@ -1,0 +1,65 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ai-model-catalog-controller
+  namespace: ai
+  labels:
+    app: ai-model-catalog-controller
+rules:
+  - apiGroups:
+      - kubeai.org
+    resources:
+      - models
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+      - delete
+  - apiGroups:
+      - kubeopencode.io
+    resources:
+      - agenttemplates
+    verbs:
+      - get
+      - list
+      - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ai-model-catalog-controller
+  namespace: ai
+  labels:
+    app: ai-model-catalog-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ai-model-catalog-controller
+subjects:
+  - kind: ServiceAccount
+    name: ai-model-catalog-controller
+    namespace: ai

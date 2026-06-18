@@ -78,7 +78,10 @@ need a Git token.
 Current app placeholders include `AI_APPLIANCE_HERMES_STORAGE` for the Hermes
 agent PVC, `AI_APPLIANCE_HERMES_MODEL` for Hermes' preferred LiteLLM model
 name, `AI_APPLIANCE_OPENCLAW_STORAGE` for the optional OpenClaw agent PVC, and
-`AI_APPLIANCE_OPENCLAW_MODEL` for OpenClaw's preferred LiteLLM model name.
+`AI_APPLIANCE_OPENCLAW_MODEL` for OpenClaw's preferred LiteLLM model name. The
+generated AI model catalog also honors `AI_APPLIANCE_DEFAULT_CHAT_MODEL` and
+`AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL` for private deployments that need to
+override the public defaults.
 
 ## Validation
 
@@ -92,6 +95,7 @@ kubectl kustomize magic-cluster/platform/ai
 kubectl kustomize magic-cluster/platform/ai/hermes-operator
 kubectl kustomize magic-cluster/platform/ai/openclaw-operator
 kubectl kustomize magic-cluster/platform/ai/paperclip-operator
+kubectl kustomize magic-cluster/apps/ai/model-catalog
 kubectl kustomize magic-cluster/apps/ai
 kubectl kustomize magic-cluster/apps/ai/hermes
 kubectl kustomize magic-cluster/apps/ai/openclaw

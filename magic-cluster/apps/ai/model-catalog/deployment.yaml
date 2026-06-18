@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-model-catalog-controller
+  namespace: ai
+  labels:
+    app: ai-model-catalog-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-model-catalog-controller
+  template:
+    metadata:
+      labels:
+        app: ai-model-catalog-controller
+    spec:
+      serviceAccountName: ai-model-catalog-controller
+      containers:
+        - name: controller
+          image: python:3.13-alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - /app/controller.py
+          env:
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            - name: NAMESPACE
+              value: ai
+            - name: LITELLM_BASE_URL
+              value: http://litellm.ai.svc.cluster.local:4000
+            - name: LITELLM_API_BASE
+              value: http://litellm.ai.svc.cluster.local:4000/v1
+            - name: KUBEAI_API_BASE
+              value: http://kubeai.ai.svc.cluster.local/openai/v1
+            - name: CATALOG_CONFIGMAP
+              value: ai-model-catalog
+            - name: EXTERNAL_MODELS_CONFIGMAP
+              value: ai-external-models
+            - name: CATALOG_POLL_SECONDS
+              value: "30"
+            - name: CATALOG_WATCH_SECONDS
+              value: "15"
+            - name: CONSUMER_RESTART_ENABLED
+              value: "true"
+            - name: AGENT_TEMPLATE_SYNC_ENABLED
+              value: "true"
+            - name: AGENT_TEMPLATE_NAMES
+              value: litellm-default
+            - name: AI_APPLIANCE_DEFAULT_CHAT_MODEL
+              value: "${AI_APPLIANCE_DEFAULT_CHAT_MODEL:=qwen3635b}"
+            - name: AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL
+              value: "${AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL:=qwen352bvlembedding}"
+            - name: LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-masterkey-secret
+                  key: LITELLM_MASTER_KEY
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+          volumeMounts:
+            - name: controller
+              mountPath: /app/controller.py
+              subPath: controller.py
+              readOnly: true
+      volumes:
+        - name: controller
+          configMap:
+            name: ai-model-catalog-controller

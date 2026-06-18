@@ -49,78 +49,26 @@ spec:
       args:
         - |
           set -eu
+          for attempt in $(seq 1 120); do
+            if [ -f /catalog/defaults.env ] && grep -q '^AI_APPLIANCE_MODEL_CATALOG_READY=true$' /catalog/defaults.env; then
+              break
+            fi
+            echo "Waiting for ai-model-catalog ($attempt/120)"
+            sleep 5
+          done
+          grep -q '^AI_APPLIANCE_MODEL_CATALOG_READY=true$' /catalog/defaults.env
           /opt/hermes/.venv/bin/python3 <<'PY'
           import os
-          import time
-          import urllib.error
-          import urllib.request
           from pathlib import Path
 
           import yaml
 
           config_path = Path("/home/hermes/.hermes/config.yaml")
-          base_url = os.environ["OPENAI_BASE_URL"].rstrip("/")
-          models_url = os.environ.get("LITELLM_MODELS_URL", "").strip() or base_url.rstrip("/") + "/models"
-          api_key = os.environ.get("OPENAI_API_KEY", "")
+          catalog_path = Path(os.environ.get("AI_MODEL_CATALOG_HERMES_PATH", "/catalog/hermes.yaml"))
           preferred_model = os.environ.get("HERMES_DEFAULT_MODEL", "").strip()
-
-          def fetch_models():
-              last_error = "no response"
-              headers = {"Authorization": "Bearer " + api_key} if api_key else {}
-              for attempt in range(1, 61):
-                  try:
-                      req = urllib.request.Request(models_url, headers=headers)
-                      with urllib.request.urlopen(req, timeout=10) as response:
-                          return yaml.safe_load(response.read().decode("utf-8"))
-                  except Exception as exc:
-                      last_error = str(exc)
-                      print(f"Waiting for LiteLLM models ({attempt}/60): {last_error}", flush=True)
-                      time.sleep(5)
-              raise RuntimeError(f"{models_url} did not become ready: {last_error}")
-
-          def raw_models(payload):
-              if isinstance(payload, list):
-                  return payload
-              if isinstance(payload, dict):
-                  for key in ("data", "models"):
-                      value = payload.get(key)
-                      if isinstance(value, list):
-                          return value
-              return []
-
-          def normalize_model(model):
-              if isinstance(model, str):
-                  model_id = model.strip()
-                  return {"id": model_id, "name": model_id} if model_id else None
-              if not isinstance(model, dict):
-                  return None
-              raw_id = model.get("id") or model.get("name") or model.get("model_name")
-              if not raw_id:
-                  return None
-              model_id = str(raw_id).strip()
-              if not model_id:
-                  return None
-              normalized = {
-                  "id": model_id,
-                  "name": str(model.get("name") or model_id),
-              }
-              for key in ("context_length", "contextWindow", "context_window", "max_context_length", "max_input_tokens"):
-                  value = model.get(key)
-                  if isinstance(value, int) and value > 0:
-                      normalized["context_length"] = value
-                      break
-              return normalized
 
           def strip_provider_prefix(value):
               return value.removeprefix("openai/").removeprefix("litellm/")
-
-          def select_model(models):
-              if preferred_model:
-                  preferred = strip_provider_prefix(preferred_model)
-                  for model in models:
-                      if model["id"] == preferred_model or strip_provider_prefix(model["id"]) == preferred:
-                          return model["id"]
-              return models[0]["id"]
 
           def deep_merge(base, overlay):
               result = dict(base)
@@ -131,18 +79,24 @@ spec:
                       result[key] = value
               return result
 
-          payload = fetch_models()
-          models = [m for m in (normalize_model(item) for item in raw_models(payload)) if m]
+          overlay = yaml.safe_load(catalog_path.read_text()) or {}
+          provider = (overlay.get("providers") or {}).get("litellm") or {}
+          models = provider.get("models") or {}
           if not models:
-              raise RuntimeError("LiteLLM /models returned no usable models")
+              raise RuntimeError("ai-model-catalog has no Hermes chat models")
 
-          selected_model = select_model(models)
-          model_catalog = {}
-          for model in models:
-              entry = {"name": model["name"]}
-              if "context_length" in model:
-                  entry["context_length"] = model["context_length"]
-              model_catalog[model["id"]] = entry
+          selected_model = ((overlay.get("model") or {}).get("default") or "").strip()
+          if preferred_model:
+              preferred = strip_provider_prefix(preferred_model)
+              for model_id in models:
+                  if model_id == preferred_model or strip_provider_prefix(model_id) == preferred:
+                      selected_model = model_id
+                      break
+          if not selected_model:
+              selected_model = next(iter(models))
+
+          overlay.setdefault("model", {})["default"] = selected_model
+          overlay.setdefault("providers", {}).setdefault("litellm", {})["default_model"] = selected_model
 
           existing = {}
           if config_path.exists():
@@ -150,29 +104,9 @@ spec:
               if isinstance(loaded, dict):
                   existing = loaded
 
-          overlay = {
-              "model": {
-                  "default": selected_model,
-                  "provider": "litellm",
-                  "base_url": base_url,
-                  "api_mode": "chat_completions",
-              },
-              "providers": {
-                  "litellm": {
-                      "name": "LiteLLM",
-                      "base_url": base_url,
-                      "key_env": "OPENAI_API_KEY",
-                      "api_mode": "chat_completions",
-                      "default_model": selected_model,
-                      "discover_models": True,
-                      "models": model_catalog,
-                  },
-              },
-          }
-
           config_path.parent.mkdir(parents=True, exist_ok=True)
           config_path.write_text(yaml.safe_dump(deep_merge(existing, overlay), sort_keys=False))
-          print(f"Configured Hermes LiteLLM provider with {len(models)} models; default={selected_model}", flush=True)
+          print(f"Configured Hermes from ai-model-catalog with {len(models)} models; default={selected_model}", flush=True)
           PY
       env:
         - name: OPENAI_API_KEY
@@ -182,8 +116,8 @@ spec:
               key: LITELLM_MASTER_KEY
         - name: OPENAI_BASE_URL
           value: "http://litellm.ai.svc.cluster.local:4000/v1"
-        - name: LITELLM_MODELS_URL
-          value: "http://litellm.ai.svc.cluster.local:4000/models"
+        - name: AI_MODEL_CATALOG_HERMES_PATH
+          value: /catalog/hermes.yaml
         - name: HERMES_DEFAULT_MODEL
           value: "${AI_APPLIANCE_HERMES_MODEL:=qwen3635b}"
         - name: HOME
@@ -197,6 +131,9 @@ spec:
           mountPath: /home/hermes/.hermes
         - name: tmp
           mountPath: /tmp
+        - name: ai-model-catalog
+          mountPath: /catalog
+          readOnly: true
       securityContext:
         allowPrivilegeEscalation: false
         capabilities:
@@ -211,6 +148,9 @@ spec:
       configMap:
         name: hermes-runtime-wrapper
         defaultMode: 0555
+    - name: ai-model-catalog
+      configMap:
+        name: ai-model-catalog
   extraVolumeMounts:
     - name: hermes-runtime-wrapper
       mountPath: /usr/local/bin/hermes-entrypoint

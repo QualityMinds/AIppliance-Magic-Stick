@@ -1,8 +1,9 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
+  - litellm/base
+  - model-catalog
   - anything-llm/base
   - hermes
-  - litellm/base
   - paperclip
   - openclaw

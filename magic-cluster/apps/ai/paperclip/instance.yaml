@@ -6,6 +6,8 @@ metadata:
   labels:
     app: paperclip
 spec:
+  podAnnotations:
+    ai-appliance.io/model-catalog-consumer: "true"
   image:
     repository: ghcr.io/paperclipai/paperclip
     tag: sha-e59eb10
@@ -30,6 +32,25 @@ spec:
       value: "http://paperclip.${AI_APPLIANCE_DOMAIN:=example.local}"
     - name: BETTER_AUTH_TRUSTED_ORIGINS
       value: "${AI_APPLIANCE_PAPERCLIP_TRUSTED_ORIGINS:=http://localhost,http://localhost:3000,http://localhost:3100,http://localhost:5173,http://localhost:8000,http://localhost:8001,http://localhost:8080,http://127.0.0.1,http://127.0.0.1:3000,http://127.0.0.1:3100,http://127.0.0.1:5173,http://127.0.0.1:8000,http://127.0.0.1:8001,http://127.0.0.1:8080}"
+    - name: OPENAI_BASE_URL
+      value: "http://litellm.ai.svc.cluster.local:4000/v1"
+    - name: OPENAI_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: litellm-masterkey-secret
+          key: LITELLM_MASTER_KEY
+    - name: LITELLM_BASE_URL
+      value: "http://litellm.ai.svc.cluster.local:4000/v1"
+    - name: LITELLM_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: litellm-masterkey-secret
+          key: LITELLM_MASTER_KEY
+    - name: AI_APPLIANCE_DEFAULT_MODEL
+      valueFrom:
+        configMapKeyRef:
+          name: ai-model-catalog
+          key: AI_APPLIANCE_DEFAULT_CHAT_MODEL
   initContainers:
     - name: paperclip-auth-config
       image: ghcr.io/paperclipai/paperclip:sha-e59eb10
@@ -88,6 +109,14 @@ spec:
   security:
     networkPolicy:
       enabled: true
+      extraEgress:
+        - to:
+            - podSelector:
+                matchLabels:
+                  app: litellm
+          ports:
+            - protocol: TCP
+              port: 4000
     rbac:
       create: true
   networking:

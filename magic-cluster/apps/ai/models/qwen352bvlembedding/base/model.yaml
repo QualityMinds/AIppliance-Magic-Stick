@@ -3,6 +3,8 @@ kind: Model
 metadata:
   name: qwen352bvlembedding
   namespace: ai
+  annotations:
+    ai-appliance.io/context-window: "4096"
 spec:
   features:
     - TextEmbedding

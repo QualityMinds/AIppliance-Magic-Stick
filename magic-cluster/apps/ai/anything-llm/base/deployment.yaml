@@ -17,9 +17,33 @@ spec:
     type: Recreate
   template:
     metadata:
+      annotations:
+        ai-appliance.io/model-catalog-consumer: "true"
       labels:
         app: anything-llm
     spec:
+      initContainers:
+        - name: wait-model-catalog
+          image: busybox:1.36
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - |
+              set -eu
+              for attempt in $(seq 1 120); do
+                if [ -f /catalog/defaults.env ] && grep -q '^AI_APPLIANCE_MODEL_CATALOG_READY=true$' /catalog/defaults.env; then
+                  exit 0
+                fi
+                echo "Waiting for ai-model-catalog ($attempt/120)"
+                sleep 5
+              done
+              echo "ai-model-catalog did not become ready" >&2
+              exit 1
+          volumeMounts:
+            - name: ai-model-catalog
+              mountPath: /catalog
+              readOnly: true
       containers:
         - name: anything-llm
           image: mintplexlabs/anythingllm:1.12.1
@@ -38,6 +62,11 @@ spec:
                 secretKeyRef:
                   name: litellm-masterkey-secret
                   key: LITELLM_MASTER_KEY
+            - name: EMBEDDING_MODEL_PREF
+              valueFrom:
+                configMapKeyRef:
+                  name: ai-model-catalog
+                  key: AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL
           resources:
             requests:
               cpu: 200m
@@ -53,6 +82,9 @@ spec:
             - name: anything-llm-storage
               mountPath: /app/server/storage
       volumes:
+        - name: ai-model-catalog
+          configMap:
+            name: ai-model-catalog
         - name: anything-llm-storage
           persistentVolumeClaim:
             claimName: anything-llm-storage

@@ -3,6 +3,8 @@ kind: Model
 metadata:
   name: qwen3635b
   namespace: ai
+  annotations:
+    ai-appliance.io/context-window: "8192"
 spec:
   features:
     - TextGeneration

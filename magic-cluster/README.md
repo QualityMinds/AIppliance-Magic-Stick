@@ -18,7 +18,8 @@ This directory must not contain real deployment domains, Flux repository values,
 | `platform/gpu` | NVIDIA GPU Operator and CUDA MPS GPU sharing |
 | `platform/observability` | Prometheus stack, Loki, Promtail, OpenTelemetry, Grafana dashboards |
 | `apps/dashboard` | Dashboard app |
-| `apps/ai` | LiteLLM, AnythingLLM, Qdrant, and reusable model bases |
+| `apps/ai` | LiteLLM, AI model catalog, AnythingLLM, Qdrant, and reusable model bases |
+| `apps/ai/model-catalog` | Controller that syncs KubeAI `Model` CRs and optional external models into LiteLLM and publishes the generated `ai-model-catalog` ConfigMap |
 | `apps/ai/openclaw` | Optional OpenClaw `OpenClawInstance` CR base using the OpenClaw operator |
 | `apps/ai/paperclip` | Optional Paperclip `Instance` CR base using the Paperclip operator |
 | `apps/ai/kubeopencode` | KubeOpenCode Helm release, separated so CRDs can become ready before custom resources |
@@ -36,8 +37,8 @@ from `vendor/magicstick/magic-cluster/platform/*` or
 - TLS issuer names
 - admin emails
 - selected model resources
-- LiteLLM model config fragments
-- AnythingLLM embedding model preference
+- optional external models in `ai-external-models`
+- AI model catalog defaults for chat and embedding models
 - OpenClaw instance opt-in paths, public URL, preferred LiteLLM model name, image tag, and storage sizes
 - Paperclip instance opt-in paths, public URL, trusted origins, admin identity, image tag, and storage sizes
 - KubeOpenCode default model
@@ -51,7 +52,9 @@ kubectl kustomize magic-cluster/apps/dashboard
 kubectl kustomize magic-cluster/platform/ai
 kubectl kustomize magic-cluster/platform/ai/openclaw-operator
 kubectl kustomize magic-cluster/platform/ai/paperclip-operator
+kubectl kustomize magic-cluster/apps/ai/model-catalog
 kubectl kustomize magic-cluster/apps/ai
+kubectl kustomize magic-cluster/apps/ai/hermes
 kubectl kustomize magic-cluster/apps/ai/openclaw
 kubectl kustomize magic-cluster/apps/ai/paperclip
 kubectl kustomize magic-cluster/apps/ai/kubeopencode
@@ -64,11 +67,16 @@ kubectl kustomize examples/demo/infra-cluster/flux-bootstrap
 
 The public `apps/ai` base is intentionally model-neutral. It includes reusable
 model bases under `apps/ai/models`, but does not select them. KubeAI is applied
-as part of `infrastructure-ai` before those Model resources. The
-`profiles/single-node/apps/ai` overlay selects `qwen3635b` and
-`qwen352bvlembedding` and configures LiteLLM and AnythingLLM defaults. The
-`profiles/single-node/apps/ai-agent-templates` overlay sets KubeOpenCode
-defaults for a single-node appliance.
+as part of `infrastructure-ai` before those Model resources. Deployments select
+KubeAI models with overlays or add external LiteLLM-backed models through the
+optional `ai-external-models` ConfigMap. The `ai-model-catalog-controller`
+syncs selected KubeAI `Model` CRs and enabled external model entries into
+LiteLLM, then publishes the generated `ai-model-catalog` ConfigMap for
+downstream consumers. When KubeOpenCode AgentTemplates are installed, the
+controller also updates `AgentTemplate/litellm-default` from the chat catalog
+so newly created KubeOpenCode agents use the same LiteLLM-backed model list.
+The `profiles/single-node/apps/ai-agent-templates` overlay can still set
+deployment-specific KubeOpenCode defaults for a single-node appliance.
 
 The Paperclip operator is selected by the default `platform/ai` base so the
 `instances.paperclip.inc` CRD is available with the AI infrastructure wave. The
@@ -80,14 +88,15 @@ The OpenClaw operator is selected by the default `platform/ai` base so the
 `openclaw.rocks/v1alpha1` CRDs are available with the AI infrastructure wave.
 The OpenClaw `OpenClawInstance` base remains opt-in; deployments that want an
 OpenClaw app should reconcile `apps/ai/openclaw` after the operator is ready
-and the LiteLLM app is available. The Hermes and OpenClaw app bases use the
-in-cluster LiteLLM service and `litellm-masterkey-secret`. At pod startup they
-read LiteLLM's OpenAI-compatible `/models` endpoint and write that model list
-into their OpenAI-compatible provider config backed by LiteLLM's `/v1` API.
-Hermes uses `AI_APPLIANCE_HERMES_MODEL` as the preferred default model and
-OpenClaw uses `AI_APPLIANCE_OPENCLAW_MODEL` as the preferred primary model when
-LiteLLM advertises it; otherwise each app falls back to the first advertised
-model.
+and the LiteLLM app is available. Hermes, OpenClaw, Paperclip, and AnythingLLM
+use the in-cluster LiteLLM service and `litellm-masterkey-secret`; none of
+those app bases use KubeAI or LiteLLM `/models` as their startup source of
+truth. Instead they wait for `ai-model-catalog`, read the generated
+app-specific fragments, and use LiteLLM's `/v1` API for inference. Hermes uses
+`AI_APPLIANCE_HERMES_MODEL` as the preferred default model and OpenClaw uses
+`AI_APPLIANCE_OPENCLAW_MODEL` as the preferred primary model when the catalog
+contains it; otherwise each app falls back to the catalog default or first
+catalog chat model.
 The example disables OpenClaw's HSTS and force-HTTPS ingress toggles so it does
 not rely on NGINX `configuration-snippet` annotations, which are commonly
 blocked by cluster admission policy.

@@ -6,6 +6,8 @@ metadata:
   labels:
     app: openclaw
 spec:
+  podAnnotations:
+    ai-appliance.io/model-catalog-consumer: "true"
   config:
     mergeMode: merge
   env:
@@ -26,130 +28,83 @@ spec:
       args:
         - |
           set -eu
+          for attempt in $(seq 1 120); do
+            if [ -f /catalog/defaults.env ] && grep -q '^AI_APPLIANCE_MODEL_CATALOG_READY=true$' /catalog/defaults.env; then
+              break
+            fi
+            echo "Waiting for ai-model-catalog ($attempt/120)"
+            sleep 5
+          done
+          grep -q '^AI_APPLIANCE_MODEL_CATALOG_READY=true$' /catalog/defaults.env
           node <<'NODE'
           const fs = require("fs");
           const configPath = "/data/openclaw.json";
-          const baseUrl = process.env.OPENAI_BASE_URL.replace(/\/+$/, "");
-          const modelsUrl = process.env.LITELLM_MODELS_URL || (baseUrl + "/models");
-          const apiKey = process.env.OPENAI_API_KEY || "";
+          const catalogPath = process.env.AI_MODEL_CATALOG_OPENCLAW_PATH || "/catalog/openclaw.json";
           const preferredModel = process.env.OPENCLAW_DEFAULT_MODEL || "";
-          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-          async function fetchModels() {
-            let lastError = "no response";
-            for (let attempt = 1; attempt <= 60; attempt += 1) {
-              try {
-                const response = await fetch(modelsUrl, {
-                  headers: apiKey ? { Authorization: "Bearer " + apiKey } : {},
-                });
-                if (response.ok) {
-                  return response.json();
-                }
-                lastError = response.status + " " + response.statusText;
-              } catch (error) {
-                lastError = error.message;
-              }
-              console.log("Waiting for LiteLLM models (" + attempt + "/60): " + lastError);
-              await sleep(5000);
-            }
-            throw new Error(modelsUrl + " did not become ready: " + lastError);
-          }
-
-          function normalizeModels(payload) {
-            const rawModels = Array.isArray(payload)
-              ? payload
-              : Array.isArray(payload.data)
-                ? payload.data
-                : Array.isArray(payload.models)
-                  ? payload.models
-                  : [];
-
-            function normalizeModelId(value) {
-              return value.replace(/^(openai|litellm)\//, "");
-            }
-
-            return rawModels
-              .map((model) => {
-                if (typeof model === "string") {
-                  const id = normalizeModelId(model);
-                  return { id, name: id };
-                }
-                const rawId = model.id || model.name || model.model_name;
-                if (!rawId) {
-                  return null;
-                }
-                const id = normalizeModelId(rawId);
-                const normalized = {
-                  id,
-                  name: model.name || id,
-                };
-                const contextWindow = model.contextWindow || model.context_window;
-                if (contextWindow) {
-                  normalized.contextWindow = contextWindow;
-                }
-                return normalized;
-              })
-              .filter(Boolean);
-          }
 
           function normalizePreferredModel(value) {
             return value.replace(/^(openai|litellm)\//, "");
           }
 
-          async function main() {
-            const payload = await fetchModels();
-            const models = normalizeModels(payload);
-            if (models.length === 0) {
-              throw new Error("LiteLLM /models returned no usable models");
+          function deepMerge(base, overlay) {
+            const result = { ...base };
+            for (const [key, value] of Object.entries(overlay)) {
+              if (
+                value &&
+                typeof value === "object" &&
+                !Array.isArray(value) &&
+                result[key] &&
+                typeof result[key] === "object" &&
+                !Array.isArray(result[key])
+              ) {
+                result[key] = deepMerge(result[key], value);
+              } else {
+                result[key] = value;
+              }
             }
-
-            const ids = new Set(models.map((model) => model.id));
-            const normalizedPreferredModel = normalizePreferredModel(preferredModel);
-            const selectedModel = normalizedPreferredModel && ids.has(normalizedPreferredModel)
-              ? normalizedPreferredModel
-              : models[0].id;
-
-            const config = fs.existsSync(configPath)
-              ? JSON.parse(fs.readFileSync(configPath, "utf8"))
-              : {};
-
-            config.models = {
-              ...(config.models || {}),
-              providers: {
-                ...((config.models || {}).providers || {}),
-                openai: {
-                  baseUrl,
-                  apiKey: "$" + "{OPENAI_API_KEY}",
-                  api: "openai-completions",
-                  models,
-                },
-                litellm: {
-                  baseUrl,
-                  apiKey: "$" + "{OPENAI_API_KEY}",
-                  api: "openai-completions",
-                  models,
-                },
-              },
-            };
-            config.agents = {
-              ...(config.agents || {}),
-              defaults: {
-                ...((config.agents || {}).defaults || {}),
-                model: {
-                  ...(((config.agents || {}).defaults || {}).model || {}),
-                  primary: "openai/" + selectedModel,
-                },
-              },
-            };
-
-            fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
-            console.log("Configured OpenClaw LiteLLM-backed OpenAI provider with " + models.length + " models; primary=openai/" + selectedModel);
+            return result;
           }
 
-          main().catch((error) => {
-            console.error(error);
-            process.exit(1);
-          });
+          const overlay = JSON.parse(fs.readFileSync(catalogPath, "utf8"));
+          const provider = (((overlay.models || {}).providers || {}).litellm || {});
+          provider.baseUrl = process.env.OPENAI_BASE_URL.replace(/\/+$/, "");
+          provider.apiKey = "$" + "{OPENAI_API_KEY}";
+          const models = Array.isArray(provider.models) ? provider.models : [];
+          if (models.length === 0) {
+            throw new Error("ai-model-catalog has no OpenClaw chat models");
+          }
+
+          const ids = new Set(models.map((model) => model.id));
+          const normalizedPreferredModel = normalizePreferredModel(preferredModel);
+          const selectedModel = normalizedPreferredModel && ids.has(normalizedPreferredModel)
+            ? normalizedPreferredModel
+            : normalizePreferredModel(((((overlay.agents || {}).defaults || {}).model || {}).primary || "")) || models[0].id;
+
+          overlay.models = {
+            ...(overlay.models || {}),
+            providers: {
+              ...((overlay.models || {}).providers || {}),
+              litellm: provider,
+            },
+          };
+          overlay.agents = {
+            ...(overlay.agents || {}),
+            defaults: {
+              ...((overlay.agents || {}).defaults || {}),
+              model: {
+                ...(((overlay.agents || {}).defaults || {}).model || {}),
+                primary: "litellm/" + selectedModel,
+              },
+            },
+          };
+
+          const existing = fs.existsSync(configPath)
+            ? JSON.parse(fs.readFileSync(configPath, "utf8"))
+            : {};
+          const config = deepMerge(existing, overlay);
+
+          fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+          console.log("Configured OpenClaw from ai-model-catalog with " + models.length + " models; primary=litellm/" + selectedModel);
           NODE
       env:
         - name: OPENAI_API_KEY
@@ -159,13 +114,20 @@ spec:
               key: LITELLM_MASTER_KEY
         - name: OPENAI_BASE_URL
           value: "http://litellm.ai.svc.cluster.local:4000/v1"
-        - name: LITELLM_MODELS_URL
-          value: "http://litellm.ai.svc.cluster.local:4000/models"
+        - name: AI_MODEL_CATALOG_OPENCLAW_PATH
+          value: /catalog/openclaw.json
         - name: OPENCLAW_DEFAULT_MODEL
           value: "${AI_APPLIANCE_OPENCLAW_MODEL:=qwen3635b}"
       volumeMounts:
         - name: data
           mountPath: /data
+        - name: ai-model-catalog
+          mountPath: /catalog
+          readOnly: true
+  extraVolumes:
+    - name: ai-model-catalog
+      configMap:
+        name: ai-model-catalog
   storage:
     persistence:
       enabled: true

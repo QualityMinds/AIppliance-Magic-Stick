@@ -28,6 +28,7 @@ kubectl kustomize magic-cluster/platform/ai
 kubectl kustomize magic-cluster/platform/ai/hermes-operator
 kubectl kustomize magic-cluster/platform/ai/openclaw-operator
 kubectl kustomize magic-cluster/platform/ai/paperclip-operator
+kubectl kustomize magic-cluster/apps/ai/model-catalog
 kubectl kustomize magic-cluster/apps/ai
 kubectl kustomize magic-cluster/apps/ai/hermes
 kubectl kustomize magic-cluster/apps/ai/openclaw
@@ -52,7 +53,8 @@ Do not commit generated Kubernetes Secrets, Flux bootstrap token secrets, privat
 
 - Does every public hostname use `example.local`, `example.com`, or a documented placeholder?
 - Are real domains, admin emails, storage sizes, and private Flux paths absent from this repository?
-- Are app-specific placeholders such as `AI_APPLIANCE_HERMES_STORAGE`, `AI_APPLIANCE_HERMES_MODEL`, `AI_APPLIANCE_OPENCLAW_STORAGE`, and `AI_APPLIANCE_OPENCLAW_MODEL` documented and safe by default?
+- Are app-specific placeholders such as `AI_APPLIANCE_HERMES_STORAGE`, `AI_APPLIANCE_HERMES_MODEL`, `AI_APPLIANCE_OPENCLAW_STORAGE`, `AI_APPLIANCE_OPENCLAW_MODEL`, `AI_APPLIANCE_DEFAULT_CHAT_MODEL`, and `AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL` documented and safe by default?
+- Does the public `ai-external-models` ConfigMap contain only an empty example schema and no provider secrets?
 - Are safe defaults clearly documented for private deployments to patch?
 - Are optional app bases still opt-in unless intentionally selected by an entrypoint?
 - Do example overlays still build after public base changes?

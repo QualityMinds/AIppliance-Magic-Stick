@@ -1,0 +1,79 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-model-catalog
+  namespace: ai
+  labels:
+    app: ai-model-catalog
+  annotations:
+    kustomize.toolkit.fluxcd.io/ssa: IfNotPresent
+    ai-appliance.io/catalog-hash: bootstrap
+data:
+  AI_APPLIANCE_MODEL_CATALOG_READY: "false"
+  AI_APPLIANCE_MODEL_CATALOG_HASH: bootstrap
+  AI_APPLIANCE_DEFAULT_CHAT_MODEL: ""
+  AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL: ""
+  defaults.env: |
+    AI_APPLIANCE_MODEL_CATALOG_READY=false
+    AI_APPLIANCE_MODEL_CATALOG_HASH=bootstrap
+    AI_APPLIANCE_DEFAULT_CHAT_MODEL=
+    AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL=
+    AI_APPLIANCE_MODEL_COUNT=0
+    AI_APPLIANCE_CHAT_MODEL_COUNT=0
+    AI_APPLIANCE_EMBEDDING_MODEL_COUNT=0
+  catalog.json: |
+    {
+      "hash": "bootstrap",
+      "models": [],
+      "defaultChatModel": "",
+      "defaultEmbeddingModel": ""
+    }
+  chat-models.json: |
+    {
+      "models": [],
+      "defaultModel": ""
+    }
+  embedding-models.json: |
+    {
+      "models": [],
+      "defaultModel": ""
+    }
+  openclaw.json: |
+    {
+      "models": {
+        "providers": {
+          "litellm": {
+            "baseUrl": "http://litellm.ai.svc.cluster.local:4000/v1",
+            "api": "openai-completions",
+            "models": []
+          }
+        }
+      },
+      "agents": {
+        "defaults": {
+          "model": {
+            "primary": ""
+          }
+        }
+      }
+    }
+  hermes.yaml: |
+    {
+      "model": {
+        "default": "",
+        "provider": "litellm",
+        "base_url": "http://litellm.ai.svc.cluster.local:4000/v1",
+        "api_mode": "chat_completions"
+      },
+      "providers": {
+        "litellm": {
+          "name": "LiteLLM",
+          "base_url": "http://litellm.ai.svc.cluster.local:4000/v1",
+          "key_env": "OPENAI_API_KEY",
+          "api_mode": "chat_completions",
+          "default_model": "",
+          "discover_models": false,
+          "models": {}
+        }
+      }
+    }
