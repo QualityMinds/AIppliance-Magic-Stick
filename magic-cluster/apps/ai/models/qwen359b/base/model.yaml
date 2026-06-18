@@ -1,7 +1,7 @@
 apiVersion: kubeai.org/v1
 kind: Model
 metadata:
-  name: openai/qwen359b
+  name: qwen359b
   namespace: ai
 spec:
   features:
