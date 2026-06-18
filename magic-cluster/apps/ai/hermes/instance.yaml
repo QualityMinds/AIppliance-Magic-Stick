@@ -23,6 +23,11 @@ spec:
   security:
     networkPolicy:
       enabled: true
+  runtime:
+    uv:
+      # The published operator-built agent image already contains /opt/venv and
+      # does not ship /opt/venv-template, so skip the operator's uv sync init.
+      enabled: false
   networking:
     service:
       type: ClusterIP
