@@ -1,7 +1,8 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: paperclip-admin-bootstrap
+  # Kubernetes Jobs cannot patch spec.template; bump this revision when the pod template changes.
+  name: paperclip-admin-bootstrap-v2
   namespace: ai
   labels:
     app: paperclip
