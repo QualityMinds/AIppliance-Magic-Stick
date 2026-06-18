@@ -11,5 +11,3 @@ configMapGenerator:
     namespace: ai
     files:
       - controller.py
-generatorOptions:
-  disableNameSuffixHash: true
