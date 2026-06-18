@@ -106,6 +106,6 @@ handled in-cluster instead of requiring a manual shell command. By default it
 uses `admin@example.com` and a generated `paperclip-admin` Secret key named
 `password`; private deployments can patch
 `AI_APPLIANCE_PAPERCLIP_ADMIN_EMAIL` and `AI_APPLIANCE_PAPERCLIP_ADMIN_NAME`.
-For local browser access or port forwards, the base also trusts common
-`localhost` and `127.0.0.1` origins; deployments can override or extend this via
-`AI_APPLIANCE_PAPERCLIP_TRUSTED_ORIGINS`.
+The base sets `AI_APPLIANCE_PAPERCLIP_TRUSTED_ORIGINS` to `*` by default so
+Paperclip accepts browser sign-in from any origin, including local port
+forwards.
