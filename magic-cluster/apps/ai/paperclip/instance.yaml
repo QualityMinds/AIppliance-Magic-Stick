@@ -28,6 +28,8 @@ spec:
       value: explicit
     - name: PAPERCLIP_AUTH_PUBLIC_BASE_URL
       value: "http://paperclip.${AI_APPLIANCE_DOMAIN:=example.local}"
+    - name: BETTER_AUTH_TRUSTED_ORIGINS
+      value: "${AI_APPLIANCE_PAPERCLIP_TRUSTED_ORIGINS:=http://localhost,http://localhost:3000,http://localhost:3100,http://localhost:5173,http://localhost:8000,http://localhost:8001,http://localhost:8080,http://127.0.0.1,http://127.0.0.1:3000,http://127.0.0.1:3100,http://127.0.0.1:5173,http://127.0.0.1:8000,http://127.0.0.1:8001,http://127.0.0.1:8080}"
   initContainers:
     - name: paperclip-auth-config
       image: ghcr.io/paperclipai/paperclip:sha-e59eb10
