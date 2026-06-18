@@ -31,7 +31,7 @@ spec:
     - name: PAPERCLIP_AUTH_PUBLIC_BASE_URL
       value: "http://paperclip.${AI_APPLIANCE_DOMAIN:=example.local}"
     - name: BETTER_AUTH_TRUSTED_ORIGINS
-      value: "${AI_APPLIANCE_PAPERCLIP_TRUSTED_ORIGINS:=*}"
+      value: "*"
     - name: OPENAI_BASE_URL
       value: "http://litellm.ai.svc.cluster.local:4000/v1"
     - name: OPENAI_API_KEY
