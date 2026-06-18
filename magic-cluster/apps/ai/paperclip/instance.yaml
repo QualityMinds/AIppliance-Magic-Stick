@@ -23,6 +23,11 @@ spec:
     secretRef:
       name: paperclip-auth
       key: BETTER_AUTH_SECRET
+  env:
+    - name: PAPERCLIP_AUTH_BASE_URL_MODE
+      value: explicit
+    - name: PAPERCLIP_AUTH_PUBLIC_BASE_URL
+      value: "http://paperclip.${AI_APPLIANCE_DOMAIN:=example.local}"
   storage:
     persistence:
       enabled: true
