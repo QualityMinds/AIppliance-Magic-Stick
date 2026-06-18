@@ -86,6 +86,9 @@ OpenAI-compatible `/models` endpoint, writes that model list into the OpenClaw
 OpenAI provider config backed by LiteLLM's `/v1` API, and uses
 `AI_APPLIANCE_OPENCLAW_MODEL` as the preferred primary model when LiteLLM
 advertises it; otherwise it falls back to the first advertised model.
+The example disables OpenClaw's HSTS and force-HTTPS ingress toggles so it does
+not rely on NGINX `configuration-snippet` annotations, which are commonly
+blocked by cluster admission policy.
 
 The Paperclip app base creates a one-time bootstrap job so first admin setup is
 handled in-cluster instead of requiring a manual shell command. By default it

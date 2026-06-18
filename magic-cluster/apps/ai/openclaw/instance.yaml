@@ -30,7 +30,7 @@ spec:
           const fs = require("fs");
           const configPath = "/data/openclaw.json";
           const baseUrl = process.env.OPENAI_BASE_URL.replace(/\/+$/, "");
-          const modelsUrl = process.env.LITELLM_MODELS_URL || `${baseUrl}/models`;
+          const modelsUrl = process.env.LITELLM_MODELS_URL || (baseUrl + "/models");
           const apiKey = process.env.OPENAI_API_KEY || "";
           const preferredModel = process.env.OPENCLAW_DEFAULT_MODEL || "";
           const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -40,19 +40,19 @@ spec:
             for (let attempt = 1; attempt <= 60; attempt += 1) {
               try {
                 const response = await fetch(modelsUrl, {
-                  headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+                  headers: apiKey ? { Authorization: "Bearer " + apiKey } : {},
                 });
                 if (response.ok) {
                   return response.json();
                 }
-                lastError = `${response.status} ${response.statusText}`;
+                lastError = response.status + " " + response.statusText;
               } catch (error) {
                 lastError = error.message;
               }
-              console.log(`Waiting for LiteLLM models (${attempt}/60): ${lastError}`);
+              console.log("Waiting for LiteLLM models (" + attempt + "/60): " + lastError);
               await sleep(5000);
             }
-            throw new Error(`${modelsUrl} did not become ready: ${lastError}`);
+            throw new Error(modelsUrl + " did not become ready: " + lastError);
           }
 
           function normalizeModels(payload) {
@@ -119,13 +119,13 @@ spec:
                 ...((config.models || {}).providers || {}),
                 openai: {
                   baseUrl,
-                  apiKey: "${OPENAI_API_KEY}",
+                  apiKey: "$" + "{OPENAI_API_KEY}",
                   api: "openai-completions",
                   models,
                 },
                 litellm: {
                   baseUrl,
-                  apiKey: "${OPENAI_API_KEY}",
+                  apiKey: "$" + "{OPENAI_API_KEY}",
                   api: "openai-completions",
                   models,
                 },
@@ -137,13 +137,13 @@ spec:
                 ...((config.agents || {}).defaults || {}),
                 model: {
                   ...(((config.agents || {}).defaults || {}).model || {}),
-                  primary: `openai/${selectedModel}`,
+                  primary: "openai/" + selectedModel,
                 },
               },
             };
 
-            fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
-            console.log(`Configured OpenClaw LiteLLM-backed OpenAI provider with ${models.length} models; primary=openai/${selectedModel}`);
+            fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+            console.log("Configured OpenClaw LiteLLM-backed OpenAI provider with " + models.length + " models; primary=openai/" + selectedModel);
           }
 
           main().catch((error) => {
@@ -187,6 +187,9 @@ spec:
     ingress:
       enabled: true
       className: nginx
+      security:
+        enableHSTS: false
+        forceHTTPS: false
       annotations:
         dashboard.ai-appliance.io/title: "OpenClaw"
         dashboard.ai-appliance.io/description: "Self-hosted OpenClaw AI agent managed by the OpenClaw operator."
