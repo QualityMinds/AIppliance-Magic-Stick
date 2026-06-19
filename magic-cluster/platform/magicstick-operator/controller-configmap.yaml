@@ -330,6 +330,28 @@ data:
         return True
 
 
+    def missing_module_dependencies(module_spec, catalog):
+        missing = []
+        for dependency in module_spec.get("requires") or []:
+            dep = canonical_module(dependency)
+            if dep in STATIC_DEPENDENCIES:
+                if not module_ready(dep, catalog):
+                    missing.append(dep)
+                continue
+            activation = get_module_activation(dep)
+            if not activation:
+                missing.append(dep)
+                continue
+            metadata = activation.get("metadata") or {}
+            spec = activation.get("spec") or {}
+            if metadata.get("deletionTimestamp") or spec.get("enabled", True) is False:
+                missing.append(dep)
+                continue
+            if not module_ready(dep, catalog):
+                missing.append(dep)
+        return missing
+
+
     def reconcile_module(module, activation, catalog, source):
         module_spec = (catalog.get("modules") or {}).get(module)
         generation = int((activation.get("metadata") or {}).get("generation") or 0)
@@ -365,6 +387,14 @@ data:
             dep = canonical_module(dependency)
             if dep not in ("basis", "dashboard"):
                 ensure_module_activation(dep, auto=True)
+
+        missing_dependencies = missing_module_dependencies(module_spec, catalog)
+        if missing_dependencies:
+            delete_module_kustomization(module, module_spec, catalog, source)
+            phase = "WaitingForModules"
+            message = "Waiting for required modules: " + ", ".join(missing_dependencies)
+            patch_module_status(activation, phase, module_spec["kustomizationName"], "WaitingForModules", message, generation)
+            return phase, {"phase": phase, "kustomization": module_spec["kustomizationName"], "message": message}
 
         apply_resource(generated_kustomization(module, module_spec, catalog, enabled, source))
         kustomization = get_resource("kustomize.toolkit.fluxcd.io", "v1", "kustomizations", FLUX_NAMESPACE, module_spec["kustomizationName"])

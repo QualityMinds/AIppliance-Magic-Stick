@@ -25,7 +25,8 @@ The dashboard is also not an operator. It reads status and creates or patches
 - Normalize user-facing module keys to canonical catalog names.
 - Add explicitly enabled runtime modules to the desired set.
 - Add required modules for every enabled instance.
-- Create or update generated Flux `Kustomization` resources.
+- Create or update generated Flux `Kustomization` resources only after required
+  module dependencies are requested and ready.
 - Delete generated Flux Kustomizations for disabled runtime modules so Flux can
   prune module resources.
 - Delete stale generated Flux Kustomizations that no longer have a matching
@@ -71,6 +72,11 @@ does not override the disabled module. The instance remains in
 `WaitingForModules` until the module is enabled again. If a required CRD is not
 present, the controller records `WaitingForCRD` and skips instance creation
 until the next reconcile.
+
+If an enabled module requires another runtime module that is disabled or not
+ready, the module remains in `WaitingForModules`; the operator removes any stale
+generated Flux Kustomization for that module to avoid Flux `dependsOn` errors
+for missing dependencies.
 
 The controller should set `Ready=True` only when every desired generated Flux
 Kustomization is ready and every enabled instance is ready or accepted by its

@@ -43,9 +43,12 @@ Each catalog entry contains:
 | `kubeopencode` | `app-kubeopencode` | `magic-cluster/apps/ai/kubeopencode` | no |
 | `observability` | `platform-observability` | `magic-cluster/platform/observability` | no |
 
-`model-catalog` depends on `litellm` because the existing controller syncs
-model data into LiteLLM. OpenClaw, Hermes, Paperclip, and KubeOpenCode
-instances also depend on `litellm` and `model-catalog`.
+`model-catalog` depends on `litellm` because the current controller syncs model
+data into LiteLLM, reads the LiteLLM model list, and publishes app catalog
+fragments from that LiteLLM-backed view. If LiteLLM is disabled or missing,
+`model-catalog` waits in `WaitingForModules` instead of installing a generated
+Flux Kustomization with a missing dependency. OpenClaw, Hermes, Paperclip, and
+KubeOpenCode instances also depend on `litellm` and `model-catalog`.
 
 ## Generated Flux Kustomization
 
