@@ -375,6 +375,10 @@ data:
                     "ingress": {
                         "enabled": True,
                         "className": "nginx",
+                        "security": {
+                            "enableHSTS": False,
+                            "forceHTTPS": False,
+                        },
                         "annotations": {
                             "dashboard.ai-appliance.io/title": "OpenClaw",
                             "dashboard.ai-appliance.io/description": "Self-hosted OpenClaw AI agent managed by the OpenClaw operator.",
@@ -574,8 +578,23 @@ data:
             "name": resource["metadata"]["name"],
             "namespace": resource["metadata"]["namespace"],
         }
-        patch_instance_status(instance, "Ready", target, "Applied", "Target resource has been applied.", url=url, generation=generation)
-        return "Ready", target
+        group, version = resource["apiVersion"].split("/", 1)
+        target_resource = get_resource(group, version, PLURALS[(group, resource["kind"])], target["namespace"], target["name"])
+        ready = ready_condition(target_resource or {})
+        if ready.get("status") == "False":
+            phase = "Degraded"
+            reason = ready.get("reason") or "TargetNotReady"
+            message = ready.get("message") or "Target resource is not ready."
+        elif ready.get("status") == "True" or resource["kind"] == "AgentTemplate":
+            phase = "Ready"
+            reason = ready.get("reason") or "Applied"
+            message = ready.get("message") or "Target resource has been applied."
+        else:
+            phase = "Reconciling"
+            reason = "WaitingForTarget"
+            message = "Target resource has been applied and is reconciling."
+        patch_instance_status(instance, phase, target, reason, message, url=url, generation=generation)
+        return phase, target
 
 
     def patch_appliance_status(module_statuses, instance_statuses):
