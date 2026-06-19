@@ -52,9 +52,8 @@ spec:
           path: /spec/volumes/0
           value:
             name: dshm
-            hostPath:
-              path: /run/nvidia/mps/shm
-              type: DirectoryOrCreate
+            emptyDir:
+              medium: Memory
         - op: replace
           path: /spec/containers/0/command
           value:
@@ -74,13 +73,6 @@ spec:
             configMap:
               name: magicstick-vllm-wrapper
         - op: add
-          path: /spec/volumes/-
-          value:
-            name: mps-root
-            hostPath:
-              path: /run/nvidia/mps
-              type: DirectoryOrCreate
-        - op: add
           path: /spec/containers/0/volumeMounts/-
           value:
             name: model-cache
@@ -91,8 +83,3 @@ spec:
             name: magicstick-vllm-wrapper
             mountPath: /opt/magicstick/vllm-wrapper
             readOnly: true
-        - op: add
-          path: /spec/containers/0/volumeMounts/-
-          value:
-            name: mps-root
-            mountPath: /mps

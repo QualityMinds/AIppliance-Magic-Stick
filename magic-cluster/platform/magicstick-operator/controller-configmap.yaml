@@ -648,10 +648,14 @@ data:
             annotations["ai-appliance.io/context-window"] = str(context_window)
         env = dict(local.get("env") or {})
         env["MAGICSTICK_VLLM_VRAM_LIMIT"] = local.get("vram") or str(vram_mi)
-        if local.get("activeThreadPercentage"):
-            env["MAGICSTICK_VLLM_ACTIVE_THREAD_PERCENTAGE"] = str(local.get("activeThreadPercentage"))
-        elif "MAGICSTICK_VLLM_ACTIVE_THREAD_PERCENTAGE" not in env:
-            env["MAGICSTICK_VLLM_ACTIVE_THREAD_PERCENTAGE"] = "100"
+        for legacy_key in (
+            "MAGICSTICK_VLLM_ACTIVE_THREAD_PERCENTAGE",
+            "MAGICSTICK_MPS_DEVICE",
+            "CUDA_MPS_ACTIVE_THREAD_PERCENTAGE",
+            "CUDA_MPS_PINNED_DEVICE_MEM_LIMIT",
+            "CUDA_MPS_PIPE_DIRECTORY",
+        ):
+            env.pop(legacy_key, None)
         return {
             "apiVersion": "kubeai.org/v1",
             "kind": "Model",

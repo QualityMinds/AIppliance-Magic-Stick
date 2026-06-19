@@ -86,7 +86,7 @@ does not install modules or create workload resources directly.
 | Basis | Namespaces, ingress-nginx, cert-manager, generated secrets, reloader, and kdns. |
 | Appliance control plane | Appliance CRDs, module catalog, operator RBAC, live controller, and examples. |
 | AI infrastructure | NVIDIA GPU support, KubeAI, Hermes operator, OpenClaw operator, and Paperclip operator. |
-| GPU | NVIDIA GPU Operator, time slicing, and Magic Stick MPS control support. |
+| GPU | NVIDIA GPU Operator and time-slicing GPU sharing. |
 | Observability | kube-prometheus-stack, Loki, Promtail, OpenTelemetry Collector, Grafana dashboards, and public ingresses. |
 
 ## Application Components

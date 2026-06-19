@@ -100,7 +100,7 @@ data:
 
 
     def main():
-        device = os.environ.get("MAGICSTICK_MPS_DEVICE", "0").strip() or "0"
+        device = os.environ.get("MAGICSTICK_GPU_DEVICE", "0").strip() or "0"
         budget_mib = parse_mib("MAGICSTICK_VLLM_VRAM_LIMIT")
         if budget_mib is None:
             die("MAGICSTICK_VLLM_VRAM_LIMIT is required for MagicStick GPU vLLM models")
@@ -115,12 +115,6 @@ data:
         raw_utilization = budget_mib / total_mib
         utilization = min(0.98, max(0.05, raw_utilization))
 
-        os.environ["CUDA_MPS_PIPE_DIRECTORY"] = "/mps/nvidia.com/gpu/pipe"
-        os.environ["CUDA_MPS_PINNED_DEVICE_MEM_LIMIT"] = f"{device}={budget_mib}M"
-        active_threads = os.environ.get("MAGICSTICK_VLLM_ACTIVE_THREAD_PERCENTAGE", "").strip()
-        if active_threads:
-            os.environ["CUDA_MPS_ACTIVE_THREAD_PERCENTAGE"] = active_threads
-
         args = strip_gpu_memory_utilization(sys.argv[1:])
         args.append(f"--gpu-memory-utilization={utilization:.4f}")
         command = ["python3", "-m", "vllm.entrypoints.openai.api_server", *args]
@@ -128,11 +122,8 @@ data:
         log(
             "physical_gpu_mib="
             f"{total_mib} budget_mib={budget_mib} "
-            f"gpu_memory_utilization={utilization:.4f} "
-            f"cuda_mps_pinned_device_mem_limit={os.environ['CUDA_MPS_PINNED_DEVICE_MEM_LIMIT']}"
+            f"gpu_memory_utilization={utilization:.4f}"
         )
-        if active_threads:
-            log(f"cuda_mps_active_thread_percentage={active_threads}")
         log("exec python3 -m vllm.entrypoints.openai.api_server")
         os.execvp(command[0], command)
 

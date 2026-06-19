@@ -94,7 +94,7 @@ data:
         name: gpu
         title: NVIDIA GPU Platform
         category: platform
-        description: NVIDIA GPU Operator, time slicing, and Magic Stick MPS control support.
+        description: NVIDIA GPU Operator with time-slicing GPU sharing.
         path: magic-cluster/platform/gpu
         kustomizationName: platform-gpu
         requires:

@@ -15,7 +15,6 @@ spec:
   maxReplicas: 1
   env:
     MAGICSTICK_VLLM_VRAM_LIMIT: "15Gi"
-    MAGICSTICK_VLLM_ACTIVE_THREAD_PERCENTAGE: "50"
   args:
     - --tensor-parallel-size=1
     - --max-model-len=8192

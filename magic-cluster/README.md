@@ -21,7 +21,7 @@ runtime checks.
 | `platform/ai` | AI infrastructure wave with NVIDIA GPU support, KubeAI, Hermes, OpenClaw, and Paperclip operators |
 | `platform/ai/openclaw-operator` | OpenClaw CRD operator base for `openclaw.rocks/v1alpha1` instances |
 | `platform/ai/paperclip-operator` | Paperclip CRD operator base for `paperclip.inc/v1alpha1` instances |
-| `platform/gpu` | NVIDIA GPU Operator and CUDA MPS GPU sharing |
+| `platform/gpu` | NVIDIA GPU Operator with time-slicing GPU sharing |
 | `platform/observability` | Prometheus stack, Loki, Promtail, OpenTelemetry, Grafana dashboards |
 | `apps/dashboard` | Dashboard app, ingress discovery surface, and Appliance CR UI/API client |
 | `apps/ai` | LiteLLM, AI model catalog, AnythingLLM, Qdrant, and reusable model bases |

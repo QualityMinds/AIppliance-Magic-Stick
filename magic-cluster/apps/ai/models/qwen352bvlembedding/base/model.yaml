@@ -15,7 +15,6 @@ spec:
   maxReplicas: 1
   env:
     MAGICSTICK_VLLM_VRAM_LIMIT: "5Gi"
-    MAGICSTICK_VLLM_ACTIVE_THREAD_PERCENTAGE: "100"
   args:
     - --runner=pooling
     - --convert=embed

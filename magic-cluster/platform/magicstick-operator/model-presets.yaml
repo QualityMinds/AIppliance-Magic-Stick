@@ -20,7 +20,6 @@ data:
           "vram": "15Gi",
           "vramMi": 15360,
           "contextWindow": 8192,
-          "activeThreadPercentage": "50",
           "args": [
             "--tensor-parallel-size=1",
             "--max-model-len=8192",
@@ -40,7 +39,6 @@ data:
           "vram": "16Gi",
           "vramMi": 16384,
           "contextWindow": 8192,
-          "activeThreadPercentage": "100",
           "args": [
             "--tensor-parallel-size=1",
             "--reasoning-parser=qwen3",
@@ -58,7 +56,6 @@ data:
           "vram": "5Gi",
           "vramMi": 5120,
           "contextWindow": 4096,
-          "activeThreadPercentage": "100",
           "args": [
             "--runner=pooling",
             "--convert=embed",
