@@ -883,7 +883,7 @@ data:
             (conditions || []).slice(0, 5).forEach((condition) => {
               const item = document.createElement('div');
               item.className = 'mini-item';
-              item.textContent = `${condition.type || 'Condition'}: ${condition.status || 'Unknown'} ${condition.reason || ''}`;
+              item.textContent = (condition.type || 'Condition') + ': ' + (condition.status || 'Unknown') + ' ' + (condition.reason || '');
               target.appendChild(item);
             });
           };
@@ -897,15 +897,15 @@ data:
               const enabled = spec.enabled === true;
               const item = document.createElement('div');
               item.className = 'module-item';
-              item.innerHTML = `
-                <div class="module-row">
-                  <strong>${title}</strong>
-                  <span class="status-pill ${enabled ? 'enabled' : 'disabled'}">${enabled ? 'Enabled' : 'Disabled'}</span>
-                </div>
-                <div class="action-row">
-                  <button class="control-button primary" type="button" data-module-enable="${name}">Enable</button>
-                  <button class="control-button danger" type="button" data-module-disable="${name}">Disable</button>
-                </div>`;
+              item.innerHTML =
+                '<div class="module-row">' +
+                  '<strong>' + title + '</strong>' +
+                  '<span class="status-pill ' + (enabled ? 'enabled' : 'disabled') + '">' + (enabled ? 'Enabled' : 'Disabled') + '</span>' +
+                '</div>' +
+                '<div class="action-row">' +
+                  '<button class="control-button primary" type="button" data-module-enable="' + name + '">Enable</button>' +
+                  '<button class="control-button danger" type="button" data-module-disable="' + name + '">Disable</button>' +
+                '</div>';
               list.appendChild(item);
             });
           };
@@ -919,7 +919,7 @@ data:
               (instances[type] || []).forEach((instance) => {
                 const item = document.createElement('div');
                 item.className = 'mini-item';
-                item.textContent = `${type}/${instance.name || 'unnamed'} in ${instance.namespace || 'ai'}`;
+                item.textContent = type + '/' + (instance.name || 'unnamed') + ' in ' + (instance.namespace || 'ai');
                 list.appendChild(item);
               });
             });
@@ -939,7 +939,7 @@ data:
                 const ready = (item.conditions || []).find((condition) => condition.type === 'Ready');
                 const node = document.createElement('div');
                 node.className = 'mini-item';
-                node.textContent = `${item.name}: ${(ready || {}).status || item.phase || 'Unknown'}`;
+                node.textContent = item.name + ': ' + ((ready || {}).status || item.phase || 'Unknown');
                 fluxList.appendChild(node);
               });
             }
@@ -947,7 +947,7 @@ data:
             if (podSummary) {
               const pods = status.pods || [];
               const running = pods.filter((pod) => pod.phase === 'Running').length;
-              podSummary.textContent = `${running}/${pods.length} pods running`;
+              podSummary.textContent = running + '/' + pods.length + ' pods running';
             }
             const ingressList = $('ingress-list');
             if (ingressList) {
@@ -955,7 +955,7 @@ data:
               (status.ingresses || []).slice(0, 8).forEach((ingress) => {
                 const node = document.createElement('div');
                 node.className = 'mini-item';
-                node.textContent = `${ingress.namespace}/${ingress.name}: ${(ingress.hosts || []).join(', ') || 'no host'}`;
+                node.textContent = ingress.namespace + '/' + ingress.name + ': ' + ((ingress.hosts || []).join(', ') || 'no host');
                 ingressList.appendChild(node);
               });
             }
@@ -966,14 +966,14 @@ data:
               const appliance = await request('/api/appliance');
               const status = await request('/api/status');
               const phase = ((appliance.status || {}).phase || 'Pending');
-              $('appliance-summary').textContent = `${appliance.metadata.namespace}/${appliance.metadata.name} is ${phase}`;
+              $('appliance-summary').textContent = appliance.metadata.namespace + '/' + appliance.metadata.name + ' is ' + phase;
               const modules = ((appliance.spec || {}).modules || {});
               const enabledModules = Object.values(modules).filter((item) => item && item.enabled === true).length;
-              $('module-summary').textContent = `${enabledModules} modules enabled`;
+              $('module-summary').textContent = enabledModules + ' modules enabled';
               const instances = ((appliance.spec || {}).instances || {});
               const instanceCount = Object.values(instances).reduce((count, items) => count + (Array.isArray(items) ? items.length : 0), 0);
-              $('instance-summary').textContent = `${instanceCount} instances requested`;
-              $('model-summary').textContent = `${moduleSpec(appliance, 'model-catalog').enabled ? 'Model catalog requested' : 'Model catalog not enabled'}`;
+              $('instance-summary').textContent = instanceCount + ' instances requested';
+              $('model-summary').textContent = moduleSpec(appliance, 'model-catalog').enabled ? 'Model catalog requested' : 'Model catalog not enabled';
               renderConditions((appliance.status || {}).conditions || []);
               renderModules(appliance);
               renderInstances(appliance);
@@ -987,7 +987,7 @@ data:
           document.querySelectorAll('.tab-button').forEach((button) => {
             button.addEventListener('click', () => {
               document.querySelectorAll('.tab-button').forEach((item) => item.setAttribute('aria-selected', item === button ? 'true' : 'false'));
-              document.querySelectorAll('.tab-panel').forEach((panel) => { panel.hidden = panel.id !== `tab-${button.dataset.tab}`; });
+              document.querySelectorAll('.tab-panel').forEach((panel) => { panel.hidden = panel.id !== ('tab-' + button.dataset.tab); });
             });
           });
 
@@ -998,8 +998,8 @@ data:
             const name = enable ? enable.dataset.moduleEnable : (disable ? disable.dataset.moduleDisable : null);
             if (!action || !name) { return; }
             try {
-              await request(`/api/modules/${name}/${action}`, { method: 'POST', body: '{}' });
-              $('module-output').textContent = `${name} ${action} requested through Appliance patch.`;
+              await request('/api/modules/' + name + '/' + action, { method: 'POST', body: '{}' });
+              $('module-output').textContent = name + ' ' + action + ' requested through Appliance patch.';
               await refresh();
             } catch (error) {
               $('module-output').textContent = error.message;
@@ -1026,8 +1026,8 @@ data:
                 payload.agentTemplates = [{ name: data.get('template') || 'default-coder', description: 'Default coding agent template' }];
               }
               try {
-                await request(`/api/instances/${type}`, { method: 'POST', body: JSON.stringify(payload) });
-                $('instance-output').textContent = `${type}/${payload.name} requested through Appliance patch.`;
+                await request('/api/instances/' + type, { method: 'POST', body: JSON.stringify(payload) });
+                $('instance-output').textContent = type + '/' + payload.name + ' requested through Appliance patch.';
                 await refresh();
               } catch (error) {
                 $('instance-output').textContent = error.message;
