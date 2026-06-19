@@ -16,6 +16,8 @@ spec:
         namespace: flux-system
   install:
     createNamespace: true
+  upgrade:
+    force: true
   values:
     image:
       # The 0.1.17 chart defaults to image tag "0.1.17", but upstream publishes

@@ -92,6 +92,12 @@ Stick Operator keeps a finalizer on the CR, removes the generated Flux
 object uses `prune: true` and `deletionPolicy: Delete`, so Flux can remove
 resources that were installed by that module.
 
+Operator module namespaces are annotated with
+`kustomize.toolkit.fluxcd.io/prune: disabled`. Disabling an operator module
+removes its Helm release and workloads, but keeps the namespace available so a
+later re-enable does not leave Helm release storage pointing at a deleted
+namespace.
+
 The catalog field `uninstallPolicy` is retained as public metadata for future
 data-retention choices. The live MVP treats disabled runtime modules as
 `remove`.
