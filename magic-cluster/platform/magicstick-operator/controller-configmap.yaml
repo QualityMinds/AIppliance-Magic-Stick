@@ -98,6 +98,15 @@ data:
         return request_json("PATCH", path, body, content_type)
 
 
+    def delete_json(path):
+        try:
+            return request_json("DELETE", path)
+        except urllib.error.HTTPError as error:
+            if error.code == 404:
+                return None
+            raise
+
+
     def apply_resource(resource):
         api_version = resource["apiVersion"]
         kind = resource["kind"]
@@ -123,6 +132,10 @@ data:
             if error.code == 404:
                 return None
             raise
+
+
+    def delete_resource(group, version, plural, namespace, name):
+        return delete_json(f"/apis/{group}/{version}/namespaces/{namespace}/{plural}/{name}")
 
 
     def get_core_resource(version, plural, namespace, name):
@@ -234,6 +247,7 @@ data:
                 depends_on.append({"name": dep_name})
         spec = {
             "interval": "10m0s",
+            "deletionPolicy": "Delete",
             "path": "./" + module_spec["path"].lstrip("./"),
             "prune": True,
             "sourceRef": {
@@ -279,6 +293,21 @@ data:
             return "Degraded", {"phase": "Degraded", "message": f"Unknown module '{module}'"}
 
         enabled = ((activation.get("spec") or {}).get("enabled", True) is not False)
+        if not enabled:
+            kustomization = get_resource("kustomize.toolkit.fluxcd.io", "v1", "kustomizations", FLUX_NAMESPACE, module_spec["kustomizationName"])
+            if kustomization:
+                if not (kustomization.get("metadata") or {}).get("deletionTimestamp"):
+                    apply_resource(generated_kustomization(module, module_spec, catalog, True, source))
+                    delete_resource("kustomize.toolkit.fluxcd.io", "v1", "kustomizations", FLUX_NAMESPACE, module_spec["kustomizationName"])
+                phase = "Removing"
+                message = "ModuleActivation is disabled; generated Kustomization is being deleted so Flux can prune resources."
+                patch_module_status(activation, phase, module_spec["kustomizationName"], "Removing", message, generation)
+                return phase, {"phase": phase, "kustomization": module_spec["kustomizationName"], "message": message}
+            phase = "Disabled"
+            message = "ModuleActivation is disabled; generated Kustomization has been removed."
+            patch_module_status(activation, phase, "", "Disabled", message, generation)
+            return phase, {"phase": phase, "kustomization": "", "message": message}
+
         for dependency in module_spec.get("requires") or []:
             dep = canonical_module(dependency)
             if dep not in ("basis", "dashboard"):
@@ -286,11 +315,6 @@ data:
 
         apply_resource(generated_kustomization(module, module_spec, catalog, enabled, source))
         kustomization = get_resource("kustomize.toolkit.fluxcd.io", "v1", "kustomizations", FLUX_NAMESPACE, module_spec["kustomizationName"])
-        if not enabled:
-            phase = "Suspended"
-            message = "ModuleActivation is disabled; generated Kustomization is suspended."
-            patch_module_status(activation, phase, module_spec["kustomizationName"], "Suspended", message)
-            return phase, {"phase": phase, "kustomization": module_spec["kustomizationName"], "message": message}
 
         ready = ready_condition(kustomization or {})
         if ready.get("status") == "True":
@@ -317,7 +341,7 @@ data:
             "phase": phase,
             "kustomization": kustomization,
             "message": message,
-            "conditions": [condition("True" if phase in ("Ready", "Suspended") else "False", reason, message, generation)],
+            "conditions": [condition("True" if phase in ("Ready", "Suspended", "Disabled") else "False", reason, message, generation)],
         }})
 
 
@@ -602,7 +626,7 @@ data:
         if not current:
             return
         degraded = any(item.get("phase") == "Degraded" for item in module_statuses.values())
-        waiting = any(item.get("phase") not in ("Ready", "Suspended") for item in module_statuses.values())
+        waiting = any(item.get("phase") not in ("Ready", "Suspended", "Disabled") for item in module_statuses.values())
         waiting = waiting or any(item.get("phase") not in ("Ready", "Suspended") for group in instance_statuses.values() for item in group.values())
         phase = "Degraded" if degraded else ("Reconciling" if waiting else "Ready")
         message = "Runtime CRs reconciled through ModuleActivation and AppInstance resources."
@@ -625,9 +649,13 @@ data:
 
         for instance in instances:
             mapping = (catalog.get("instanceMappings") or {}).get((instance.get("spec") or {}).get("type")) or {}
+            if ((instance.get("spec") or {}).get("enabled", True) is False):
+                continue
             for module in mapping.get("requiredModules") or []:
                 ensure_module_activation(module, auto=True)
         for activation in list(activations.values()):
+            if ((activation.get("spec") or {}).get("enabled", True) is False):
+                continue
             module = canonical_module((activation.get("spec") or {}).get("module") or (activation.get("metadata") or {}).get("name"))
             module_spec = (catalog.get("modules") or {}).get(module) or {}
             for dependency in module_spec.get("requires") or []:

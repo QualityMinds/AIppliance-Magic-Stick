@@ -86,6 +86,11 @@ postBuild:
 
 ## Uninstall Policy
 
-`keep-data` suspends the generated Flux Kustomization and leaves existing
-resources in place. `remove` deletes the generated Flux Kustomization and lets
-Flux prune resources.
+Dashboard/module disable requests remove the generated Flux `Kustomization`
+instead of suspending it. The generated object uses `prune: true` and
+`deletionPolicy: Delete`, so Flux can remove resources that were installed by
+that module.
+
+The catalog field `uninstallPolicy` is retained as public metadata for future
+data-retention choices. The live MVP treats disabled runtime modules as
+`remove`.

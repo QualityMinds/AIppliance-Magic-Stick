@@ -26,8 +26,8 @@ The dashboard is also not an operator. It reads status and creates or patches
 - Add explicitly enabled runtime modules to the desired set.
 - Add required modules for every enabled instance.
 - Create or update generated Flux `Kustomization` resources.
-- Suspend or delete generated Kustomizations for disabled modules according to
-  `uninstallPolicy`.
+- Delete generated Flux Kustomizations for disabled runtime modules so Flux can
+  prune module resources.
 - Wait for required CRDs.
 - Create or patch specialized instance resources.
 - Update module, instance, and condition status.

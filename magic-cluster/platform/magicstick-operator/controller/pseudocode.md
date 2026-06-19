@@ -27,7 +27,7 @@ for each reconcile loop:
       postBuild = ai-appliance-settings when module.postBuildSubstitution
 
   for each disabled ModuleActivation:
-    patch generated Flux Kustomization spec.suspend = true
+    delete generated Flux Kustomization so Flux can prune module resources
 
   for each enabled AppInstance:
     wait until every mapping.requiredCrds entry exists

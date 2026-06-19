@@ -35,10 +35,10 @@ module catalog fields:
 - `spec.dependsOn` from module `requires`
 - `spec.postBuild.substituteFrom` for modules with `postBuildSubstitution`
 
-Disabled modules use the module `uninstallPolicy`:
-
-- `keep-data`: suspend the generated Flux Kustomization and keep resources.
-- `remove`: delete the generated Flux Kustomization and let Flux prune.
+Disabled runtime modules delete the generated Flux `Kustomization` instead of
+suspending it. Generated Kustomizations use `spec.prune = true` and
+`spec.deletionPolicy = Delete`, so Flux can prune module resources during
+deletion.
 
 ## Instance Orchestration
 
