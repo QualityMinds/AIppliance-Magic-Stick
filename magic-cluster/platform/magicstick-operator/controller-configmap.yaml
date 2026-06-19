@@ -225,9 +225,22 @@ data:
         return list_items(f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/appinstances")
 
 
+    def get_module_activation(module):
+        return get_resource(APPLIANCE_GROUP, APPLIANCE_VERSION, "moduleactivations", APPLIANCE_NAMESPACE, canonical_module(module))
+
+
     def ensure_module_activation(module, auto=False):
+        module = canonical_module(module)
         if module in ("basis", "dashboard"):
             return
+        existing = get_module_activation(module)
+        if auto and existing:
+            metadata = existing.get("metadata") or {}
+            spec = existing.get("spec") or {}
+            if metadata.get("deletionTimestamp") or spec.get("enabled", True) is False:
+                return
+            if spec.get("enabled", True) is not False:
+                return
         activation = {
             "apiVersion": f"{APPLIANCE_GROUP}/{APPLIANCE_VERSION}",
             "kind": "ModuleActivation",

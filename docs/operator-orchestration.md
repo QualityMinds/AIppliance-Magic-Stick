@@ -3,16 +3,15 @@
 The Magic Stick Operator is a meta-operator. It orchestrates platform modules
 and instance resources; it does not replace specialized operators.
 
-The dashboard is also not an operator. It reads status, creates or patches
-`ModuleActivation` and `AppInstance` resources, and deletes
-`ModuleActivation` resources for module disable requests.
+The dashboard is also not an operator. It reads status and creates or patches
+`ModuleActivation` and `AppInstance` resources only.
 
 ## Responsibilities
 
 | Component | Responsibility |
 |---|---|
-| Magic Stick Operator | Watches `ModuleActivation` and `AppInstance`, enables modules with Flux, cleans generated Flux Kustomizations with finalizers, waits for CRDs, creates specialized CRs, and reports aggregate `Appliance.status`. |
-| Magic Stick Dashboard | Reads `Appliance`, module catalog, Flux, Pod, Service, Ingress, and Event status; creates, patches, or deletes runtime CRs only. |
+| Magic Stick Operator | Watches `ModuleActivation` and `AppInstance`, enables modules with Flux, cleans generated Flux Kustomizations for disabled modules, waits for CRDs, creates specialized CRs, and reports aggregate `Appliance.status`. |
+| Magic Stick Dashboard | Reads `Appliance`, module catalog, Flux, Pod, Service, Ingress, and Event status; creates or patches runtime CRs only. |
 | OpenClaw Operator | Owns lifecycle of `OpenClawInstance` resources. |
 | Hermes Operator | Owns lifecycle of `HermesInstance` resources. |
 | Paperclip Operator | Owns lifecycle of Paperclip `Instance` resources. |
@@ -27,8 +26,8 @@ The dashboard is also not an operator. It reads status, creates or patches
 - Add explicitly enabled runtime modules to the desired set.
 - Add required modules for every enabled instance.
 - Create or update generated Flux `Kustomization` resources.
-- Delete generated Flux Kustomizations for deleted or disabled runtime modules
-  so Flux can prune module resources.
+- Delete generated Flux Kustomizations for disabled runtime modules so Flux can
+  prune module resources.
 - Delete stale generated Flux Kustomizations that no longer have a matching
   `ModuleActivation`.
 - Wait for required CRDs.
@@ -68,9 +67,10 @@ For v1alpha1, examples use these defaults:
 ## Failure And Status Behavior
 
 If an instance requires a module that is disabled, the MVP contract
-auto-enables the module and records `DependencyAutoEnabled`. If a required CRD
-is not present, the controller records `WaitingForCRD` and skips instance
-creation until the next reconcile.
+does not override the disabled module. The instance remains in
+`WaitingForModules` until the module is enabled again. If a required CRD is not
+present, the controller records `WaitingForCRD` and skips instance creation
+until the next reconcile.
 
 The controller should set `Ready=True` only when every desired generated Flux
 Kustomization is ready and every enabled instance is ready or accepted by its

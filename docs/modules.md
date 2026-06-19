@@ -86,17 +86,21 @@ postBuild:
 
 ## Uninstall Policy
 
-Dashboard/module disable requests delete the `ModuleActivation`. The Magic
-Stick Operator keeps a finalizer on the CR, removes the generated Flux
-`Kustomization`, and then lets Kubernetes complete deletion. The generated
-object uses `prune: true` and `deletionPolicy: Delete`, so Flux can remove
-resources that were installed by that module.
+Dashboard/module disable requests keep the `ModuleActivation` as an explicit
+disabled runtime intent with `spec.enabled: false`. The Magic Stick Operator
+removes the generated Flux `Kustomization`. The generated object uses
+`prune: true` and `deletionPolicy: Delete`, so Flux can remove resources that
+were installed by that module.
 
 Operator module namespaces are annotated with
 `kustomize.toolkit.fluxcd.io/prune: disabled`. Disabling an operator module
 removes its Helm release and workloads, but keeps the namespace available so a
 later re-enable does not leave Helm release storage pointing at a deleted
 namespace.
+
+Enabled app instances do not override a disabled module intent. If an instance
+requires a disabled module, the instance waits in `WaitingForModules` until the
+module is enabled again.
 
 The catalog field `uninstallPolicy` is retained as public metadata for future
 data-retention choices. The live MVP treats disabled runtime modules as
