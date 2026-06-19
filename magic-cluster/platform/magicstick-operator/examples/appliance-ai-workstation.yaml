@@ -14,38 +14,51 @@ spec:
       enabled: true
     dashboard:
       enabled: true
-    litellm:
+---
+apiVersion: appliance.magicstick.dev/v1alpha1
+kind: ModuleActivation
+metadata:
+  name: litellm
+  namespace: ai-system
+spec:
+  module: litellm
+  enabled: true
+---
+apiVersion: appliance.magicstick.dev/v1alpha1
+kind: ModuleActivation
+metadata:
+  name: model-catalog
+  namespace: ai-system
+spec:
+  module: model-catalog
+  enabled: true
+---
+apiVersion: appliance.magicstick.dev/v1alpha1
+kind: ModuleActivation
+metadata:
+  name: anything-llm
+  namespace: ai-system
+spec:
+  module: anything-llm
+  enabled: true
+---
+apiVersion: appliance.magicstick.dev/v1alpha1
+kind: AppInstance
+metadata:
+  name: kubeopencode-default
+  namespace: ai-system
+spec:
+  type: kubeopencode
+  enabled: true
+  targetNamespace: ai
+  parameters:
+    name: default
+    model: CHANGEME_MODEL
+    server:
       enabled: true
-    modelCatalog:
-      enabled: true
-    anythingLlm:
-      enabled: true
-    kubeopencode:
-      enabled: true
-    openclawOperator:
-      enabled: false
-    hermesOperator:
-      enabled: false
-    paperclipOperator:
-      enabled: false
-    observability:
-      enabled: false
-    gpu:
-      enabled: false
-  instances:
-    openclaw: []
-    hermes: []
-    paperclip: []
-    kubeopencode:
-      - name: default
+      ingress:
         enabled: true
-        namespace: ai
-        model: CHANGEME_MODEL
-        server:
-          enabled: true
-          ingress:
-            enabled: true
-            host: kubeopencode.example.local
-        agentTemplates:
-          - name: default-coder
-            description: Default coding agent template
+        host: kubeopencode.example.local
+    agentTemplates:
+      - name: default-coder
+        description: Default coding agent template

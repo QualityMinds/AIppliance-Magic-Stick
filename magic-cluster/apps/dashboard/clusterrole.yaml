@@ -5,7 +5,10 @@ metadata:
 rules:
   - apiGroups: ["appliance.magicstick.dev"]
     resources: ["appliances"]
-    verbs: ["get", "list", "watch", "patch", "update"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["appliance.magicstick.dev"]
+    resources: ["moduleactivations", "appinstances"]
+    verbs: ["get", "list", "watch", "create", "patch", "update"]
   - apiGroups: ["kustomize.toolkit.fluxcd.io"]
     resources: ["kustomizations"]
     verbs: ["get", "list", "watch"]

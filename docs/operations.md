@@ -48,8 +48,9 @@ kubectl -n flux-system get helmreleases
 Inspect a failing reconciliation:
 
 ```bash
-kubectl -n flux-system describe kustomization apps-ai
-kubectl -n flux-system describe helmrelease kubeai
+kubectl -n flux-system describe kustomization flux-system
+kubectl -n flux-system describe kustomization magicstick-operator
+kubectl -n ai-system get moduleactivations,appinstances
 ```
 
 Trigger reconciliation after pushing a fix:
@@ -57,7 +58,7 @@ Trigger reconciliation after pushing a fix:
 ```bash
 flux -n flux-system reconcile source git flux-system
 flux -n flux-system reconcile kustomization flux-system --with-source
-flux -n flux-system reconcile kustomization apps-ai --with-source
+flux -n flux-system reconcile kustomization magicstick-operator --with-source
 ```
 
 If the Flux CLI is not available locally, annotate the resource:
@@ -65,7 +66,7 @@ If the Flux CLI is not available locally, annotate the resource:
 ```bash
 kubectl -n flux-system annotate gitrepository flux-system \
   reconcile.fluxcd.io/requestedAt="$(date +%s)" --overwrite
-kubectl -n flux-system annotate kustomization apps-ai \
+kubectl -n flux-system annotate kustomization magicstick-operator \
   reconcile.fluxcd.io/requestedAt="$(date +%s)" --overwrite
 ```
 

@@ -1,0 +1,654 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: magicstick-operator-controller
+  namespace: ai-system
+  labels:
+    app.kubernetes.io/name: magicstick-operator
+    app.kubernetes.io/component: controller
+data:
+  controller.py: |
+    #!/usr/bin/env python3
+    import json
+    import os
+    import ssl
+    import time
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+    from datetime import datetime, timezone
+
+    APPLIANCE_GROUP = "appliance.magicstick.dev"
+    APPLIANCE_VERSION = "v1alpha1"
+    APPLIANCE_NAMESPACE = os.environ.get("APPLIANCE_NAMESPACE", "ai-system")
+    APPLIANCE_NAME = os.environ.get("APPLIANCE_NAME", "local")
+    CATALOG_NAMESPACE = os.environ.get("MODULE_CATALOG_NAMESPACE", "ai-system")
+    CATALOG_NAME = os.environ.get("MODULE_CATALOG_NAME", "magicstick-module-catalog")
+    FLUX_NAMESPACE = os.environ.get("FLUX_NAMESPACE", "flux-system")
+    REQUEUE_SECONDS = int(os.environ.get("REQUEUE_SECONDS", "20"))
+    KUBE_API = os.environ.get("KUBERNETES_SERVICE_URL", "https://kubernetes.default.svc").rstrip("/")
+    SA_TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+    SA_CA_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+    FIELD_MANAGER = "magicstick-operator"
+
+    PLURALS = {
+        ("appliance.magicstick.dev", "ModuleActivation"): "moduleactivations",
+        ("appliance.magicstick.dev", "AppInstance"): "appinstances",
+        ("kustomize.toolkit.fluxcd.io", "Kustomization"): "kustomizations",
+        ("openclaw.rocks", "OpenClawInstance"): "openclawinstances",
+        ("hermes.agent", "HermesInstance"): "hermesinstances",
+        ("paperclip.inc", "Instance"): "instances",
+        ("kubeopencode.io", "AgentTemplate"): "agenttemplates",
+    }
+
+    STATIC_DEPENDENCIES = {
+        "basis": "infrastructure-basis",
+        "dashboard": "apps",
+    }
+
+    MODULE_ALIASES = {
+        "modelCatalog": "model-catalog",
+        "anythingLlm": "anything-llm",
+        "openclawOperator": "openclaw-operator",
+        "hermesOperator": "hermes-operator",
+        "paperclipOperator": "paperclip-operator",
+    }
+
+    SSL_CONTEXT = ssl.create_default_context(cafile=SA_CA_PATH)
+
+
+    def now():
+        return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+    def token():
+        with open(SA_TOKEN_PATH, "r", encoding="utf-8") as token_file:
+            return token_file.read().strip()
+
+
+    def request_json(method, path, body=None, content_type="application/json"):
+        data = None
+        headers = {
+            "Accept": "application/json",
+            "Authorization": "Bearer " + token(),
+        }
+        if body is not None:
+            data = json.dumps(body).encode("utf-8")
+            headers["Content-Type"] = content_type
+        request = urllib.request.Request(KUBE_API + path, data=data, headers=headers, method=method)
+        with urllib.request.urlopen(request, timeout=30, context=SSL_CONTEXT) as response:
+            payload = response.read().decode("utf-8")
+            return json.loads(payload) if payload else {}
+
+
+    def get_json(path):
+        return request_json("GET", path)
+
+
+    def list_items(path):
+        try:
+            return get_json(path).get("items", [])
+        except urllib.error.HTTPError as error:
+            if error.code == 404:
+                return []
+            raise
+
+
+    def patch_json(path, body, content_type="application/merge-patch+json"):
+        return request_json("PATCH", path, body, content_type)
+
+
+    def apply_resource(resource):
+        api_version = resource["apiVersion"]
+        kind = resource["kind"]
+        metadata = resource.setdefault("metadata", {})
+        namespace = metadata.get("namespace")
+        name = metadata["name"]
+        if "/" in api_version:
+            group, version = api_version.split("/", 1)
+            plural = PLURALS[(group, kind)]
+            path = f"/apis/{group}/{version}/namespaces/{namespace}/{plural}/{name}"
+        else:
+            plural = kind.lower() + "s"
+            path = f"/api/{api_version}/namespaces/{namespace}/{plural}/{name}"
+        query = urllib.parse.urlencode({"fieldManager": FIELD_MANAGER, "force": "true"})
+        return patch_json(path + "?" + query, resource, "application/apply-patch+yaml")
+
+
+    def get_resource(group, version, plural, namespace, name):
+        path = f"/apis/{group}/{version}/namespaces/{namespace}/{plural}/{name}"
+        try:
+            return get_json(path)
+        except urllib.error.HTTPError as error:
+            if error.code == 404:
+                return None
+            raise
+
+
+    def get_core_resource(version, plural, namespace, name):
+        path = f"/api/{version}/namespaces/{namespace}/{plural}/{name}"
+        try:
+            return get_json(path)
+        except urllib.error.HTTPError as error:
+            if error.code == 404:
+                return None
+            raise
+
+
+    def crd_exists(name):
+        try:
+            get_json(f"/apis/apiextensions.k8s.io/v1/customresourcedefinitions/{name}")
+            return True
+        except urllib.error.HTTPError as error:
+            if error.code == 404:
+                return False
+            raise
+
+
+    def ready_condition(resource):
+        for condition in (resource.get("status") or {}).get("conditions", []):
+            if condition.get("type") == "Ready":
+                return condition
+        return {}
+
+
+    def condition(status, reason, message, generation=0):
+        return {
+            "type": "Ready",
+            "status": status,
+            "observedGeneration": generation,
+            "lastTransitionTime": now(),
+            "reason": reason,
+            "message": message,
+        }
+
+
+    def load_catalog():
+        configmap = get_json(f"/api/v1/namespaces/{CATALOG_NAMESPACE}/configmaps/{CATALOG_NAME}")
+        raw = (configmap.get("data") or {}).get("modules.json", "{}")
+        return json.loads(raw)
+
+
+    def canonical_module(name):
+        return MODULE_ALIASES.get(name, name)
+
+
+    def appliance():
+        return get_resource(APPLIANCE_GROUP, APPLIANCE_VERSION, "appliances", APPLIANCE_NAMESPACE, APPLIANCE_NAME)
+
+
+    def module_activations():
+        items = list_items(f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/moduleactivations")
+        by_module = {}
+        for item in items:
+            module = canonical_module(((item.get("spec") or {}).get("module") or (item.get("metadata") or {}).get("name") or "").strip())
+            if module:
+                by_module[module] = item
+        return by_module
+
+
+    def app_instances():
+        return list_items(f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/appinstances")
+
+
+    def ensure_module_activation(module, auto=False):
+        if module in ("basis", "dashboard"):
+            return
+        activation = {
+            "apiVersion": f"{APPLIANCE_GROUP}/{APPLIANCE_VERSION}",
+            "kind": "ModuleActivation",
+            "metadata": {
+                "name": module,
+                "namespace": APPLIANCE_NAMESPACE,
+                "labels": {
+                    "app.kubernetes.io/managed-by": "magicstick-operator",
+                    "appliance.magicstick.dev/module": module,
+                },
+            },
+            "spec": {
+                "module": module,
+                "enabled": True,
+                "applianceRef": {
+                    "name": APPLIANCE_NAME,
+                    "namespace": APPLIANCE_NAMESPACE,
+                },
+            },
+        }
+        if auto:
+            activation["metadata"].setdefault("annotations", {})["appliance.magicstick.dev/auto-enabled"] = "true"
+        apply_resource(activation)
+
+
+    def dependency_name(module, catalog):
+        module = canonical_module(module)
+        if module in STATIC_DEPENDENCIES:
+            return STATIC_DEPENDENCIES[module]
+        return ((catalog.get("modules") or {}).get(module) or {}).get("kustomizationName")
+
+
+    def generated_kustomization(module, module_spec, catalog, enabled, source):
+        depends_on = []
+        for dependency in module_spec.get("requires") or []:
+            dep_name = dependency_name(dependency, catalog)
+            if dep_name:
+                depends_on.append({"name": dep_name})
+        spec = {
+            "interval": "10m0s",
+            "path": "./" + module_spec["path"].lstrip("./"),
+            "prune": True,
+            "sourceRef": {
+                "kind": (source.get("kind") or "GitRepository"),
+                "name": (source.get("name") or "flux-system"),
+            },
+            "suspend": not enabled,
+            "wait": True,
+        }
+        if depends_on:
+            spec["dependsOn"] = depends_on
+        if module_spec.get("postBuildSubstitution"):
+            spec["postBuild"] = {
+                "substitute": {"var_substitution_enabled": "true"},
+                "substituteFrom": [{"kind": "ConfigMap", "name": "ai-appliance-settings", "optional": True}],
+            }
+        health_checks = [
+            {"apiVersion": "apiextensions.k8s.io/v1", "kind": "CustomResourceDefinition", "name": crd}
+            for crd in module_spec.get("requiredCrds") or []
+        ]
+        if health_checks:
+            spec["healthChecks"] = health_checks
+        return {
+            "apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+            "kind": "Kustomization",
+            "metadata": {
+                "name": module_spec["kustomizationName"],
+                "namespace": FLUX_NAMESPACE,
+                "labels": {
+                    "app.kubernetes.io/managed-by": "magicstick-operator",
+                    "appliance.magicstick.dev/module": module,
+                },
+            },
+            "spec": spec,
+        }
+
+
+    def reconcile_module(module, activation, catalog, source):
+        module_spec = (catalog.get("modules") or {}).get(module)
+        generation = int((activation.get("metadata") or {}).get("generation") or 0)
+        if not module_spec:
+            patch_module_status(activation, "Degraded", "", "UnknownModule", f"Unknown module '{module}'")
+            return "Degraded", {"phase": "Degraded", "message": f"Unknown module '{module}'"}
+
+        enabled = ((activation.get("spec") or {}).get("enabled", True) is not False)
+        for dependency in module_spec.get("requires") or []:
+            dep = canonical_module(dependency)
+            if dep not in ("basis", "dashboard"):
+                ensure_module_activation(dep, auto=True)
+
+        apply_resource(generated_kustomization(module, module_spec, catalog, enabled, source))
+        kustomization = get_resource("kustomize.toolkit.fluxcd.io", "v1", "kustomizations", FLUX_NAMESPACE, module_spec["kustomizationName"])
+        if not enabled:
+            phase = "Suspended"
+            message = "ModuleActivation is disabled; generated Kustomization is suspended."
+            patch_module_status(activation, phase, module_spec["kustomizationName"], "Suspended", message)
+            return phase, {"phase": phase, "kustomization": module_spec["kustomizationName"], "message": message}
+
+        ready = ready_condition(kustomization or {})
+        if ready.get("status") == "True":
+            phase = "Ready"
+            reason = "KustomizationReady"
+            message = ready.get("message") or "Module Kustomization is ready."
+        elif ready.get("status") == "False":
+            phase = "Degraded"
+            reason = ready.get("reason") or "KustomizationNotReady"
+            message = ready.get("message") or "Module Kustomization is not ready."
+        else:
+            phase = "Reconciling"
+            reason = "WaitingForKustomization"
+            message = "Waiting for generated module Kustomization to become ready."
+        patch_module_status(activation, phase, module_spec["kustomizationName"], reason, message, generation)
+        return phase, {"phase": phase, "kustomization": module_spec["kustomizationName"], "message": message}
+
+
+    def patch_module_status(activation, phase, kustomization, reason, message, generation=0):
+        metadata = activation.get("metadata") or {}
+        path = f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{metadata.get('namespace')}/moduleactivations/{metadata.get('name')}/status"
+        patch_json(path, {"status": {
+            "observedGeneration": generation,
+            "phase": phase,
+            "kustomization": kustomization,
+            "message": message,
+            "conditions": [condition("True" if phase in ("Ready", "Suspended") else "False", reason, message, generation)],
+        }})
+
+
+    def patch_instance_status(instance, phase, target, reason, message, url="", generation=0):
+        metadata = instance.get("metadata") or {}
+        path = f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{metadata.get('namespace')}/appinstances/{metadata.get('name')}/status"
+        patch_json(path, {"status": {
+            "observedGeneration": generation,
+            "phase": phase,
+            "kind": target.get("kind", ""),
+            "name": target.get("name", ""),
+            "namespace": target.get("namespace", ""),
+            "url": url,
+            "message": message,
+            "conditions": [condition("True" if phase in ("Ready", "Suspended") else "False", reason, message, generation)],
+        }})
+
+
+    def module_ready(module, catalog):
+        if module in STATIC_DEPENDENCIES:
+            name = STATIC_DEPENDENCIES[module]
+        else:
+            module_spec = (catalog.get("modules") or {}).get(module) or {}
+            name = module_spec.get("kustomizationName")
+        if not name:
+            return False
+        kustomization = get_resource("kustomize.toolkit.fluxcd.io", "v1", "kustomizations", FLUX_NAMESPACE, name)
+        return ready_condition(kustomization or {}).get("status") == "True"
+
+
+    def build_openclaw(instance):
+        metadata = instance.get("metadata") or {}
+        spec = instance.get("spec") or {}
+        params = spec.get("parameters") or {}
+        name = metadata.get("name")
+        namespace = spec.get("targetNamespace") or "ai"
+        host = ((params.get("ingress") or {}).get("host") or params.get("host") or "openclaw.example.local")
+        model = params.get("model") or "CHANGEME_MODEL"
+        storage = ((params.get("storage") or {}).get("size") or params.get("storageSize") or "10Gi")
+        return {
+            "apiVersion": "openclaw.rocks/v1alpha1",
+            "kind": "OpenClawInstance",
+            "metadata": {"name": name, "namespace": namespace, "labels": {"app": "openclaw"}},
+            "spec": {
+                "podAnnotations": {"ai-appliance.io/model-catalog-consumer": "true"},
+                "config": {"mergeMode": "merge"},
+                "env": [
+                    {"name": "OPENAI_BASE_URL", "value": "http://litellm.ai.svc.cluster.local:4000/v1"},
+                    {"name": "OPENCLAW_DEFAULT_MODEL", "value": model},
+                    {"name": "OPENAI_API_KEY", "valueFrom": {"secretKeyRef": {"name": "litellm-masterkey-secret", "key": "LITELLM_MASTER_KEY"}}},
+                ],
+                "storage": {"persistence": {"enabled": True, "size": storage}},
+                "networking": {
+                    "service": {"type": "ClusterIP"},
+                    "ingress": {
+                        "enabled": True,
+                        "className": "nginx",
+                        "annotations": {
+                            "dashboard.ai-appliance.io/title": "OpenClaw",
+                            "dashboard.ai-appliance.io/description": "Self-hosted OpenClaw AI agent managed by the OpenClaw operator.",
+                            "dashboard.ai-appliance.io/icon": "OC",
+                            "dashboard.ai-appliance.io/category": "AI",
+                            "dashboard.ai-appliance.io/order": "45",
+                            "lab42.io/mdns.enabled": "true",
+                            "lab42.io/mdns.name": "openclaw",
+                        },
+                        "hosts": [{"host": host, "paths": [{"path": "/", "pathType": "Prefix"}]}],
+                    },
+                },
+            },
+        }, "http://" + host + "/"
+
+
+    def build_hermes(instance):
+        metadata = instance.get("metadata") or {}
+        spec = instance.get("spec") or {}
+        params = spec.get("parameters") or {}
+        name = metadata.get("name")
+        namespace = spec.get("targetNamespace") or "ai"
+        host = ((params.get("ingress") or {}).get("host") or params.get("host") or "hermes.example.local")
+        model = params.get("model") or "CHANGEME_MODEL"
+        storage = ((params.get("storage") or {}).get("size") or params.get("storageSize") or "10Gi")
+        apply_resource({
+            "apiVersion": "v1",
+            "kind": "ConfigMap",
+            "metadata": {"name": "hermes-runtime-wrapper", "namespace": namespace},
+            "data": {"hermes-entrypoint": "#!/bin/sh\nset -eu\nexec sleep infinity\n"},
+        })
+        return {
+            "apiVersion": "hermes.agent/v1",
+            "kind": "HermesInstance",
+            "metadata": {"name": name, "namespace": namespace, "labels": {"app": "hermes"}},
+            "spec": {
+                "shareProcessNamespace": False,
+                "image": {"repository": "ghcr.io/paperclipinc/hermes-agent", "tag": "v2026.5.29.2"},
+                "storage": {"persistence": {"enabled": True, "size": storage}},
+                "runtime": {"uv": {"enabled": False}},
+                "env": [
+                    {"name": "OPENAI_BASE_URL", "value": "http://litellm.ai.svc.cluster.local:4000/v1"},
+                    {"name": "HERMES_DEFAULT_MODEL", "value": model},
+                    {"name": "OPENAI_API_KEY", "valueFrom": {"secretKeyRef": {"name": "litellm-masterkey-secret", "key": "LITELLM_MASTER_KEY"}}},
+                ],
+                "extraVolumes": [{"name": "hermes-runtime-wrapper", "configMap": {"name": "hermes-runtime-wrapper", "defaultMode": 365}}],
+                "extraVolumeMounts": [{"name": "hermes-runtime-wrapper", "mountPath": "/usr/local/bin/hermes-entrypoint", "subPath": "hermes-entrypoint", "readOnly": True}],
+                "networking": {
+                    "service": {"type": "ClusterIP"},
+                    "ingress": {
+                        "enabled": True,
+                        "className": "nginx",
+                        "host": host,
+                        "annotations": {
+                            "dashboard.ai-appliance.io/title": "Hermes",
+                            "dashboard.ai-appliance.io/description": "Self-improving AI agent managed by the Hermes operator.",
+                            "dashboard.ai-appliance.io/icon": "HE",
+                            "dashboard.ai-appliance.io/category": "AI",
+                            "dashboard.ai-appliance.io/order": "45",
+                            "lab42.io/mdns.enabled": "true",
+                            "lab42.io/mdns.name": "hermes",
+                        },
+                    },
+                },
+            },
+        }, "http://" + host + "/"
+
+
+    def build_paperclip(instance):
+        metadata = instance.get("metadata") or {}
+        spec = instance.get("spec") or {}
+        params = spec.get("parameters") or {}
+        name = metadata.get("name")
+        namespace = spec.get("targetNamespace") or "ai"
+        host = ((params.get("ingress") or {}).get("host") or params.get("host") or "paperclip.example.local")
+        storage = ((params.get("storage") or {}).get("size") or params.get("storageSize") or "5Gi")
+        return {
+            "apiVersion": "paperclip.inc/v1alpha1",
+            "kind": "Instance",
+            "metadata": {"name": name, "namespace": namespace, "labels": {"app": "paperclip"}},
+            "spec": {
+                "podAnnotations": {"ai-appliance.io/model-catalog-consumer": "true"},
+                "image": {"repository": "ghcr.io/paperclipai/paperclip", "tag": "sha-e59eb10"},
+                "deployment": {
+                    "mode": "authenticated",
+                    "exposure": "public",
+                    "publicURL": "http://" + host,
+                    "allowedHostnames": [host],
+                },
+                "database": {"mode": "managed", "managed": {"storageSize": "10Gi"}},
+                "auth": {"secretRef": {"name": "paperclip-auth", "key": "BETTER_AUTH_SECRET"}},
+                "storage": {"persistence": {"enabled": True, "size": storage}},
+                "networking": {
+                    "service": {"type": "ClusterIP", "port": 3100},
+                    "ingress": {
+                        "enabled": True,
+                        "ingressClassName": "nginx",
+                        "hosts": [host],
+                        "annotations": {
+                            "dashboard.ai-appliance.io/title": "Paperclip",
+                            "dashboard.ai-appliance.io/description": "AI agent company control plane managed by the Paperclip operator.",
+                            "dashboard.ai-appliance.io/icon": "PC",
+                            "dashboard.ai-appliance.io/category": "AI",
+                            "dashboard.ai-appliance.io/order": "40",
+                            "lab42.io/mdns.enabled": "true",
+                            "lab42.io/mdns.name": "paperclip",
+                        },
+                    },
+                },
+            },
+        }, "http://" + host + "/"
+
+
+    def build_kubeopencode(instance):
+        metadata = instance.get("metadata") or {}
+        spec = instance.get("spec") or {}
+        params = spec.get("parameters") or {}
+        namespace = spec.get("targetNamespace") or "ai"
+        templates = params.get("agentTemplates") or []
+        template_name = params.get("template") or (templates[0].get("name") if templates else metadata.get("name"))
+        model = params.get("model") or "CHANGEME_MODEL"
+        return {
+            "apiVersion": "kubeopencode.io/v1alpha1",
+            "kind": "AgentTemplate",
+            "metadata": {"name": template_name, "namespace": namespace},
+            "spec": {
+                "serviceAccountName": "default",
+                "workspaceDir": "/workspace",
+                "config": {
+                    "provider": {
+                        "litellm": {
+                            "npm": "@ai-sdk/openai-compatible",
+                            "name": "LiteLLM",
+                            "options": {
+                                "baseURL": "http://litellm.ai.svc.cluster.local:4000/v1",
+                                "apiKey": "{env:LITELLM_MASTER_KEY}",
+                            },
+                            "models": {model: {"name": "Example model"}},
+                        }
+                    },
+                    "model": "litellm/" + model,
+                    "small_model": "litellm/" + model,
+                    "autoupdate": False,
+                },
+                "credentials": [{
+                    "name": "litellm-api-key",
+                    "secretRef": {"name": "litellm-masterkey-secret", "key": "LITELLM_MASTER_KEY"},
+                    "env": "LITELLM_MASTER_KEY",
+                }],
+            },
+        }, ""
+
+
+    INSTANCE_BUILDERS = {
+        "openclaw": build_openclaw,
+        "hermes": build_hermes,
+        "paperclip": build_paperclip,
+        "kubeopencode": build_kubeopencode,
+    }
+
+
+    def reconcile_instance(instance, catalog):
+        metadata = instance.get("metadata") or {}
+        spec = instance.get("spec") or {}
+        generation = int(metadata.get("generation") or 0)
+        instance_type = spec.get("type")
+        enabled = spec.get("enabled", True) is not False
+        mapping = (catalog.get("instanceMappings") or {}).get(instance_type)
+        if not mapping or instance_type not in INSTANCE_BUILDERS:
+            patch_instance_status(instance, "Degraded", {}, "UnknownInstanceType", f"Unknown instance type '{instance_type}'", generation=generation)
+            return "Degraded", {}
+        if not enabled:
+            target = {"kind": mapping.get("kind") or mapping.get("primaryKind") or "", "name": metadata.get("name"), "namespace": spec.get("targetNamespace") or "ai"}
+            patch_instance_status(instance, "Suspended", target, "Suspended", "AppInstance is disabled.", generation=generation)
+            return "Suspended", target
+
+        required_modules = mapping.get("requiredModules") or []
+        for module in required_modules:
+            ensure_module_activation(module, auto=True)
+        missing_modules = [module for module in required_modules if not module_ready(module, catalog)]
+        target = {"kind": mapping.get("kind") or mapping.get("primaryKind") or "", "name": metadata.get("name"), "namespace": spec.get("targetNamespace") or "ai"}
+        if missing_modules:
+            message = "Waiting for required modules: " + ", ".join(missing_modules)
+            patch_instance_status(instance, "WaitingForModules", target, "WaitingForModules", message, generation=generation)
+            return "WaitingForModules", target
+
+        missing_crds = [crd for crd in (mapping.get("requiredCrds") or []) if not crd_exists(crd)]
+        if missing_crds:
+            message = "Waiting for required CRDs: " + ", ".join(missing_crds)
+            patch_instance_status(instance, "WaitingForCRDs", target, "WaitingForCRDs", message, generation=generation)
+            return "WaitingForCRDs", target
+
+        resource, url = INSTANCE_BUILDERS[instance_type](instance)
+        apply_resource(resource)
+        target = {
+            "kind": resource["kind"],
+            "name": resource["metadata"]["name"],
+            "namespace": resource["metadata"]["namespace"],
+        }
+        patch_instance_status(instance, "Ready", target, "Applied", "Target resource has been applied.", url=url, generation=generation)
+        return "Ready", target
+
+
+    def patch_appliance_status(module_statuses, instance_statuses):
+        current = appliance()
+        if not current:
+            return
+        degraded = any(item.get("phase") == "Degraded" for item in module_statuses.values())
+        waiting = any(item.get("phase") not in ("Ready", "Suspended") for item in module_statuses.values())
+        waiting = waiting or any(item.get("phase") not in ("Ready", "Suspended") for group in instance_statuses.values() for item in group.values())
+        phase = "Degraded" if degraded else ("Reconciling" if waiting else "Ready")
+        message = "Runtime CRs reconciled through ModuleActivation and AppInstance resources."
+        path = f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/appliances/{APPLIANCE_NAME}/status"
+        patch_json(path, {"status": {
+            "observedGeneration": int((current.get("metadata") or {}).get("generation") or 0),
+            "phase": phase,
+            "modules": module_statuses,
+            "instances": instance_statuses,
+            "conditions": [condition("True" if phase == "Ready" else "False", phase, message)],
+        }})
+
+
+    def reconcile_once():
+        catalog = load_catalog()
+        current = appliance() or {}
+        source = ((current.get("spec") or {}).get("source") or {"kind": "GitRepository", "name": "flux-system", "namespace": FLUX_NAMESPACE})
+        activations = module_activations()
+        instances = app_instances()
+
+        for instance in instances:
+            mapping = (catalog.get("instanceMappings") or {}).get((instance.get("spec") or {}).get("type")) or {}
+            for module in mapping.get("requiredModules") or []:
+                ensure_module_activation(module, auto=True)
+        for activation in list(activations.values()):
+            module = canonical_module((activation.get("spec") or {}).get("module") or (activation.get("metadata") or {}).get("name"))
+            module_spec = (catalog.get("modules") or {}).get(module) or {}
+            for dependency in module_spec.get("requires") or []:
+                dep = canonical_module(dependency)
+                if dep not in ("basis", "dashboard"):
+                    ensure_module_activation(dep, auto=True)
+
+        activations = module_activations()
+        module_statuses = {}
+        for module, activation in sorted(activations.items()):
+            phase, status = reconcile_module(module, activation, catalog, source)
+            module_statuses[module] = status
+
+        instance_statuses = {}
+        for instance in instances:
+            instance_type = (instance.get("spec") or {}).get("type") or "unknown"
+            name = (instance.get("metadata") or {}).get("name")
+            phase, target = reconcile_instance(instance, catalog)
+            instance_statuses.setdefault(instance_type, {})[name] = {
+                "phase": phase,
+                "namespace": target.get("namespace", ""),
+                "kind": target.get("kind", ""),
+                "name": target.get("name", ""),
+                "url": ((instance.get("status") or {}).get("url") or ""),
+                "message": ((instance.get("status") or {}).get("message") or ""),
+            }
+
+        patch_appliance_status(module_statuses, instance_statuses)
+        print(f"reconciled modules={len(module_statuses)} instances={len(instances)}", flush=True)
+
+
+    def main():
+        print("magicstick-operator live controller starting", flush=True)
+        while True:
+            try:
+                reconcile_once()
+            except Exception as error:
+                print("reconcile failed: " + repr(error), flush=True)
+            time.sleep(REQUEUE_SECONDS)
+
+
+    if __name__ == "__main__":
+        main()

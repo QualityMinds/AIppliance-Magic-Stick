@@ -19,6 +19,12 @@ rules:
       - appliances
       - appliances/status
       - appliances/finalizers
+      - moduleactivations
+      - moduleactivations/status
+      - moduleactivations/finalizers
+      - appinstances
+      - appinstances/status
+      - appinstances/finalizers
     verbs:
       - get
       - list

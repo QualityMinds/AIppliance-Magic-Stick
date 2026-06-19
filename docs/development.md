@@ -105,10 +105,11 @@ app wave.
 
 ## Updating The Dashboard
 
-The dashboard may read Kubernetes status and patch `Appliance` resources. It
-must not directly create workloads, Flux Kustomizations, specialized operator
-CRs, Secrets, or deployment-specific values. Keep dashboard examples limited to
-`example.local`, `example.com`, `CHANGEME`, or documented variables.
+The dashboard may read Kubernetes status and create or patch
+`ModuleActivation` and `AppInstance` resources. It must not directly create
+workloads, Flux Kustomizations, specialized operator CRs, Secrets, or
+deployment-specific values. Keep dashboard examples limited to `example.local`,
+`example.com`, `CHANGEME`, or documented variables.
 
 ## Release Validation
 

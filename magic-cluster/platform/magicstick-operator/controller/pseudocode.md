@@ -1,18 +1,19 @@
 # Magic Stick Operator Pseudocode
 
 ```text
-for each Appliance:
+for each reconcile loop:
+  read Appliance/local for source and aggregate status target
   load module catalog from ai-system/magicstick-module-catalog
-  normalize spec.modules keys to canonical module names
-  desiredModules = enabled modules + catalog defaults
+  list ModuleActivation resources
+  list AppInstance resources
+  desiredModules = enabled ModuleActivation resources
 
-  for each enabled spec.instances entry:
-    mapping = catalog.instanceMappings[type]
+  for each enabled AppInstance:
+    mapping = catalog.instanceMappings[spec.type]
     if mapping is missing:
       record InstanceUnsupported condition
       continue
-    add mapping.requiredModules to desiredModules
-    mark auto-enabled modules in status
+    create missing ModuleActivation resources for mapping.requiredModules
 
   for each desired module in dependency order:
     ensure required dependency modules are also desired
@@ -25,13 +26,10 @@ for each Appliance:
       dependsOn = module.requires.kustomizationName values
       postBuild = ai-appliance-settings when module.postBuildSubstitution
 
-  for each previously generated module that is no longer desired:
-    if module.uninstallPolicy == "keep-data":
-      patch Flux Kustomization spec.suspend = true
-    else:
-      delete Flux Kustomization
+  for each disabled ModuleActivation:
+    patch generated Flux Kustomization spec.suspend = true
 
-  for each enabled instance:
+  for each enabled AppInstance:
     wait until every mapping.requiredCrds entry exists
     if any required CRD is missing:
       record WaitingForCRD status for the instance
@@ -43,17 +41,15 @@ for each Appliance:
       paperclip -> paperclip.inc/v1alpha1 Instance
       kubeopencode -> kubeopencode.io/v1alpha1 AgentTemplate and related resources
 
-    create or patch the resource in instance.namespace
-    set ownerReference to the Appliance when namespace matches
+    create or patch the resource in spec.targetNamespace
     set appliance.magicstick.dev labels
 
-  update status.observedGeneration
-  update status.modules from Flux Kustomization readiness
-  update status.instances from specialized resource readiness where available
-  set Ready condition true only when modules and enabled instances are ready
+  update ModuleActivation status from Flux Kustomization readiness
+  update AppInstance status from generated specialized resource state
+  update Appliance/local status as an aggregate read model
 ```
 
-The MVP deliberately stops at this contract. A future implementation should
-use a controller framework, typed clients for the `Appliance` API, and dynamic
-clients for specialized resources that may not exist until their operators
-install CRDs.
+The MVP is implemented as a dependency-free Python controller in a ConfigMap.
+A future implementation should use a controller framework, typed clients for
+the `Appliance` API, and dynamic clients for specialized resources that may not
+exist until their operators install CRDs.

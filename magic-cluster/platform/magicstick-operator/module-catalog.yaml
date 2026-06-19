@@ -245,3 +245,146 @@ data:
           - agenttemplates.kubeopencode.io
         apiVersion: kubeopencode.io/v1alpha1
         primaryKind: AgentTemplate
+  modules.json: |
+    {
+      "modules": {
+        "basis": {
+          "path": "magic-cluster/platform/basis",
+          "kustomizationName": "platform-basis",
+          "requires": [],
+          "requiredCrds": [],
+          "default": true,
+          "uninstallPolicy": "keep-data"
+        },
+        "dashboard": {
+          "path": "magic-cluster/apps/dashboard",
+          "kustomizationName": "app-dashboard",
+          "requires": ["basis"],
+          "requiredCrds": [],
+          "default": true,
+          "uninstallPolicy": "remove",
+          "postBuildSubstitution": true
+        },
+        "litellm": {
+          "path": "magic-cluster/apps/ai/litellm/base",
+          "kustomizationName": "app-litellm",
+          "requires": ["basis"],
+          "requiredCrds": [],
+          "default": false,
+          "uninstallPolicy": "keep-data",
+          "postBuildSubstitution": true
+        },
+        "model-catalog": {
+          "path": "magic-cluster/apps/ai/model-catalog",
+          "kustomizationName": "app-model-catalog",
+          "requires": ["litellm"],
+          "requiredCrds": [],
+          "default": false,
+          "uninstallPolicy": "keep-data",
+          "postBuildSubstitution": true
+        },
+        "anything-llm": {
+          "path": "magic-cluster/apps/ai/anything-llm/base",
+          "kustomizationName": "app-anything-llm",
+          "requires": ["litellm", "model-catalog"],
+          "requiredCrds": [],
+          "default": false,
+          "uninstallPolicy": "keep-data",
+          "postBuildSubstitution": true
+        },
+        "gpu": {
+          "path": "magic-cluster/platform/gpu",
+          "kustomizationName": "platform-gpu",
+          "requires": ["basis"],
+          "requiredCrds": ["clusterpolicies.nvidia.com"],
+          "default": false,
+          "uninstallPolicy": "keep-data"
+        },
+        "kubeai": {
+          "path": "magic-cluster/platform/ai/kubeai",
+          "kustomizationName": "platform-kubeai",
+          "requires": ["basis", "gpu"],
+          "requiredCrds": ["models.kubeai.org"],
+          "default": false,
+          "uninstallPolicy": "keep-data"
+        },
+        "openclaw-operator": {
+          "path": "magic-cluster/platform/ai/openclaw-operator",
+          "kustomizationName": "operator-openclaw",
+          "requires": ["basis"],
+          "requiredCrds": ["openclawinstances.openclaw.rocks"],
+          "default": false,
+          "uninstallPolicy": "keep-data"
+        },
+        "hermes-operator": {
+          "path": "magic-cluster/platform/ai/hermes-operator",
+          "kustomizationName": "operator-hermes",
+          "requires": ["basis"],
+          "requiredCrds": ["hermesinstances.hermes.agent"],
+          "default": false,
+          "uninstallPolicy": "keep-data"
+        },
+        "paperclip-operator": {
+          "path": "magic-cluster/platform/ai/paperclip-operator",
+          "kustomizationName": "operator-paperclip",
+          "requires": ["basis"],
+          "requiredCrds": ["instances.paperclip.inc"],
+          "default": false,
+          "uninstallPolicy": "keep-data"
+        },
+        "kubeopencode": {
+          "path": "magic-cluster/apps/ai/kubeopencode",
+          "kustomizationName": "app-kubeopencode",
+          "requires": ["litellm", "model-catalog"],
+          "requiredCrds": [
+            "agenttemplates.kubeopencode.io",
+            "agents.kubeopencode.io",
+            "tasks.kubeopencode.io",
+            "crontasks.kubeopencode.io",
+            "registries.kubeopencode.io",
+            "kubeopencodeconfigs.kubeopencode.io"
+          ],
+          "default": false,
+          "uninstallPolicy": "keep-data",
+          "postBuildSubstitution": true
+        },
+        "observability": {
+          "path": "magic-cluster/platform/observability",
+          "kustomizationName": "platform-observability",
+          "requires": ["basis"],
+          "requiredCrds": [
+            "prometheuses.monitoring.coreos.com",
+            "servicemonitors.monitoring.coreos.com"
+          ],
+          "default": false,
+          "uninstallPolicy": "keep-data",
+          "postBuildSubstitution": true
+        }
+      },
+      "instanceMappings": {
+        "openclaw": {
+          "requiredModules": ["openclaw-operator", "litellm", "model-catalog"],
+          "requiredCrds": ["openclawinstances.openclaw.rocks"],
+          "apiVersion": "openclaw.rocks/v1alpha1",
+          "kind": "OpenClawInstance"
+        },
+        "hermes": {
+          "requiredModules": ["hermes-operator", "litellm", "model-catalog"],
+          "requiredCrds": ["hermesinstances.hermes.agent"],
+          "apiVersion": "hermes.agent/v1",
+          "kind": "HermesInstance"
+        },
+        "paperclip": {
+          "requiredModules": ["paperclip-operator", "litellm", "model-catalog"],
+          "requiredCrds": ["instances.paperclip.inc"],
+          "apiVersion": "paperclip.inc/v1alpha1",
+          "kind": "Instance"
+        },
+        "kubeopencode": {
+          "requiredModules": ["kubeopencode", "litellm", "model-catalog"],
+          "requiredCrds": ["agenttemplates.kubeopencode.io"],
+          "apiVersion": "kubeopencode.io/v1alpha1",
+          "primaryKind": "AgentTemplate"
+        }
+      }
+    }

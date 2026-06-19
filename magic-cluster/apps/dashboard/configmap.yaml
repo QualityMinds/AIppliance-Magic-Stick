@@ -843,13 +843,6 @@ data:
             ['observability', 'Observability'],
             ['gpu', 'GPU']
           ];
-          const moduleKey = {
-            'model-catalog': 'modelCatalog',
-            'openclaw-operator': 'openclawOperator',
-            'hermes-operator': 'hermesOperator',
-            'paperclip-operator': 'paperclipOperator'
-          };
-
           const $ = (id) => document.getElementById(id);
           const apiState = $('api-state');
 
@@ -871,9 +864,9 @@ data:
             return payload;
           };
 
-          const moduleSpec = (appliance, name) => {
-            const modules = (((appliance || {}).spec || {}).modules || {});
-            return modules[moduleKey[name] || name] || {};
+          const moduleSpec = (modulePayload, name) => {
+            const modules = ((modulePayload || {}).modules || {});
+            return modules[name] || {};
           };
 
           const renderConditions = (conditions) => {
@@ -888,13 +881,14 @@ data:
             });
           };
 
-          const renderModules = (appliance) => {
+          const renderModules = (modulePayload) => {
             const list = $('module-list');
             if (!list) { return; }
             list.innerHTML = '';
             moduleNames.forEach(([name, title]) => {
-              const spec = moduleSpec(appliance, name);
+              const spec = moduleSpec(modulePayload, name);
               const enabled = spec.enabled === true;
+              const phase = (((spec.status || {}).phase) || (enabled ? 'Requested' : 'Disabled'));
               const item = document.createElement('div');
               item.className = 'module-item';
               item.innerHTML =
@@ -902,6 +896,7 @@ data:
                   '<strong>' + title + '</strong>' +
                   '<span class="status-pill ' + (enabled ? 'enabled' : 'disabled') + '">' + (enabled ? 'Enabled' : 'Disabled') + '</span>' +
                 '</div>' +
+                '<div class="mini-item">' + phase + '</div>' +
                 '<div class="action-row">' +
                   '<button class="control-button primary" type="button" data-module-enable="' + name + '">Enable</button>' +
                   '<button class="control-button danger" type="button" data-module-disable="' + name + '">Disable</button>' +
@@ -910,16 +905,19 @@ data:
             });
           };
 
-          const renderInstances = (appliance) => {
+          const renderInstances = (instancePayload) => {
             const list = $('instance-list');
             if (!list) { return; }
             list.innerHTML = '';
-            const instances = (((appliance || {}).spec || {}).instances || {});
+            const instances = ((instancePayload || {}).instances || {});
             Object.keys(instances).forEach((type) => {
               (instances[type] || []).forEach((instance) => {
+                const metadata = instance.metadata || {};
+                const spec = instance.spec || {};
+                const status = instance.status || {};
                 const item = document.createElement('div');
                 item.className = 'mini-item';
-                item.textContent = type + '/' + (instance.name || 'unnamed') + ' in ' + (instance.namespace || 'ai');
+                item.textContent = type + '/' + (metadata.name || 'unnamed') + ' in ' + (spec.targetNamespace || 'ai') + ' - ' + (status.phase || 'Requested');
                 list.appendChild(item);
               });
             });
@@ -964,19 +962,21 @@ data:
           const refresh = async () => {
             try {
               const appliance = await request('/api/appliance');
+              const modulePayload = await request('/api/modules');
+              const instancePayload = await request('/api/instances');
               const status = await request('/api/status');
               const phase = ((appliance.status || {}).phase || 'Pending');
               $('appliance-summary').textContent = appliance.metadata.namespace + '/' + appliance.metadata.name + ' is ' + phase;
-              const modules = ((appliance.spec || {}).modules || {});
+              const modules = ((modulePayload || {}).modules || {});
               const enabledModules = Object.values(modules).filter((item) => item && item.enabled === true).length;
               $('module-summary').textContent = enabledModules + ' modules enabled';
-              const instances = ((appliance.spec || {}).instances || {});
+              const instances = ((instancePayload || {}).instances || {});
               const instanceCount = Object.values(instances).reduce((count, items) => count + (Array.isArray(items) ? items.length : 0), 0);
               $('instance-summary').textContent = instanceCount + ' instances requested';
-              $('model-summary').textContent = moduleSpec(appliance, 'model-catalog').enabled ? 'Model catalog requested' : 'Model catalog not enabled';
+              $('model-summary').textContent = moduleSpec(modulePayload, 'model-catalog').enabled ? 'Model catalog requested' : 'Model catalog not enabled';
               renderConditions((appliance.status || {}).conditions || []);
-              renderModules(appliance);
-              renderInstances(appliance);
+              renderModules(modulePayload);
+              renderInstances(instancePayload);
               renderStatus(status);
               setApiState('Connected', true);
             } catch (error) {
@@ -999,7 +999,7 @@ data:
             if (!action || !name) { return; }
             try {
               await request('/api/modules/' + name + '/' + action, { method: 'POST', body: '{}' });
-              $('module-output').textContent = name + ' ' + action + ' requested through Appliance patch.';
+              $('module-output').textContent = name + ' ' + action + ' requested through ModuleActivation.';
               await refresh();
             } catch (error) {
               $('module-output').textContent = error.message;
@@ -1027,7 +1027,7 @@ data:
               }
               try {
                 await request('/api/instances/' + type, { method: 'POST', body: JSON.stringify(payload) });
-                $('instance-output').textContent = type + '/' + payload.name + ' requested through Appliance patch.';
+                $('instance-output').textContent = type + '/' + payload.name + ' requested through AppInstance.';
                 await refresh();
               } catch (error) {
                 $('instance-output').textContent = error.message;

@@ -7,7 +7,7 @@ metadata:
     app.kubernetes.io/name: magicstick-operator
     app.kubernetes.io/component: controller
 spec:
-  replicas: 0
+  replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: magicstick-operator
@@ -21,14 +21,26 @@ spec:
       serviceAccountName: magicstick-operator
       containers:
         - name: controller
-          image: ghcr.io/example/magicstick-operator:CHANGEME
+          image: python:3.13-alpine
           imagePullPolicy: IfNotPresent
-          args:
-            - --module-catalog-namespace=ai-system
-            - --module-catalog-name=magicstick-module-catalog
+          command:
+            - python
+            - /app/controller.py
           env:
-            - name: MAGICSTICK_OPERATOR_MODE
-              value: mvp-contract-only
+            - name: APPLIANCE_NAMESPACE
+              value: ai-system
+            - name: APPLIANCE_NAME
+              value: local
+            - name: MODULE_CATALOG_NAMESPACE
+              value: ai-system
+            - name: MODULE_CATALOG_NAME
+              value: magicstick-module-catalog
+            - name: FLUX_NAMESPACE
+              value: flux-system
+            - name: REQUEUE_SECONDS
+              value: "20"
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
           resources:
             requests:
               cpu: 25m
@@ -45,3 +57,17 @@ spec:
             runAsNonRoot: true
             runAsUser: 65532
             runAsGroup: 65532
+          volumeMounts:
+            - name: controller
+              mountPath: /app/controller.py
+              subPath: controller.py
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: controller
+          configMap:
+            name: magicstick-operator-controller
+            defaultMode: 0555
+        - name: tmp
+          emptyDir: {}

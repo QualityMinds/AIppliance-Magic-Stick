@@ -119,17 +119,18 @@ checks.
 
 ## Appliance Modules
 
-The base installation now includes the `Appliance` CRD, a public-safe module
-catalog, a default `Appliance/local` resource, and a disabled
-`magicstick-operator` controller skeleton. Optional capabilities are selected
-declaratively through `Appliance` resources. The Magic Stick Operator is a
+The base installation now includes the `Appliance` CRD, `ModuleActivation` and
+`AppInstance` CRDs, a public-safe module catalog, a default `Appliance/local`
+resource, and a live `magicstick-operator` controller. Optional capabilities
+are selected declaratively through runtime CRs. The Magic Stick Operator is a
 meta-operator: it enables modules with Flux and creates custom resources for
 specialized operators, while OpenClaw, Hermes, Paperclip, and KubeOpenCode
 remain responsible for their own workloads.
 
 The dashboard is the UI and API client for this model. It reads the Appliance,
-module catalog, Flux, Pod, Service, Ingress, and Event status, and patches only
-the Appliance CR when users enable modules or request instances.
+module catalog, Flux, Pod, Service, Ingress, and Event status, and creates or
+patches only `ModuleActivation` and `AppInstance` CRs when users enable modules
+or request instances. `Appliance/local.spec` remains Git-owned.
 
 See [docs/appliance-crd.md](docs/appliance-crd.md),
 [docs/dashboard.md](docs/dashboard.md),

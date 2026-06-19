@@ -2,10 +2,5 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - 00-infrastructure-basis.yaml
-  - 10-infrastructure-ai.yaml
   - 15-magicstick-operator.yaml
-  - 20-infrastructure-observability.yaml
   - 30-apps.yaml
-  - 40-apps-ai.yaml
-  - 50-apps-ai-kubeopencode.yaml
-  - 60-apps-ai-agent-templates.yaml

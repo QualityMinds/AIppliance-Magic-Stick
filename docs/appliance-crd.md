@@ -1,11 +1,12 @@
 # Appliance CRD
 
-The `Appliance` custom resource is the public declarative interface for
-selecting Magic Stick modules and requesting concrete app or agent instances.
+The `Appliance` custom resource is the Git-owned aggregate status surface for
+the local Magic Stick installation. Runtime module and instance requests are
+represented as separate `ModuleActivation` and `AppInstance` CRs so Flux does
+not overwrite dashboard actions.
 
 The MVP installs the CRD and a default `Appliance/local` resource. The
-controller Deployment is present with `replicas: 0` until a production
-reconcile loop is implemented.
+controller Deployment runs in-cluster and reconciles runtime CRs.
 
 ## API
 
@@ -32,8 +33,8 @@ The CRD is namespaced, with plural `appliances` and short names `msapp` and
 |---|---|
 | `spec.profile` | Public profile hint: `minimal`, `ai-workstation`, or `full`. |
 | `spec.source` | Flux `GitRepository` source used by generated module Kustomizations. |
-| `spec.modules` | Capability switches. Known user-facing keys include `modelCatalog`, `openclawOperator`, `hermesOperator`, and `paperclipOperator`. |
-| `spec.instances` | Concrete resources for specialized operators, such as OpenClaw, Hermes, Paperclip, and KubeOpenCode. |
+| `spec.modules` | Git-owned static defaults only. Runtime module changes use `ModuleActivation`. |
+| `spec.instances` | Deprecated for runtime use. Runtime instance changes use `AppInstance`. |
 
 The default public install uses `spec.source.name: flux-system` because
 readonly-public mode creates that Git source. Private deployment repositories
@@ -43,9 +44,10 @@ that include this public repo can use `magicstick-public`.
 
 Modules are capabilities. Instances are concrete uses of those capabilities.
 
-For example, enabling `openclawOperator` installs the OpenClaw operator module.
-Requesting `spec.instances.openclaw[]` asks the Magic Stick Operator to create
-an `OpenClawInstance` after required modules and CRDs are available.
+For example, creating `ModuleActivation/openclaw-operator` installs the
+OpenClaw operator module. Creating an `AppInstance` with `spec.type: openclaw`
+asks the Magic Stick Operator to create an `OpenClawInstance` after required
+modules and CRDs are available.
 
 The MVP contract auto-enables modules required by an enabled instance and
 reports that in status. For example, an OpenClaw instance requires:
@@ -54,9 +56,40 @@ reports that in status. For example, an OpenClaw instance requires:
 - `litellm`
 - `model-catalog`
 
-The dashboard uses this API as its only write surface. UI actions patch
-`spec.modules` or `spec.instances`; the Magic Stick Operator, Flux, and the
-specialized operators perform the actual reconciliation.
+The dashboard uses `ModuleActivation` and `AppInstance` as its only write
+surface. The Magic Stick Operator, Flux, and the specialized operators perform
+the actual reconciliation.
+
+## Runtime CRs
+
+```yaml
+apiVersion: appliance.magicstick.dev/v1alpha1
+kind: ModuleActivation
+metadata:
+  name: litellm
+  namespace: ai-system
+spec:
+  module: litellm
+  enabled: true
+```
+
+```yaml
+apiVersion: appliance.magicstick.dev/v1alpha1
+kind: AppInstance
+metadata:
+  name: openclaw-default
+  namespace: ai-system
+spec:
+  type: openclaw
+  enabled: true
+  targetNamespace: ai
+  parameters:
+    name: default
+    model: CHANGEME_MODEL
+    ingress:
+      enabled: true
+      host: openclaw.example.local
+```
 
 ## Status
 

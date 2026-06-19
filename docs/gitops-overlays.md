@@ -61,8 +61,9 @@ Keep public bases generic and safe.
 
 ## Flux Path Patching
 
-The demo overlay patches Flux Kustomization paths from public bases to example
-overlay paths. Private deployments can use the same pattern:
+The static public graph now keeps optional apps out of the base reconciliation.
+Private deployments that still define their own Flux Kustomizations can patch
+paths from public bases to deployment overlays:
 
 ```yaml
 patches:
@@ -70,12 +71,12 @@ patches:
       group: kustomize.toolkit.fluxcd.io
       version: v1
       kind: Kustomization
-      name: apps-ai
+      name: custom-ai-apps
       namespace: flux-system
     patch: |-
       - op: replace
         path: /spec/path
-        value: ./deployments/example/infra-cluster/apps-ai
+        value: ./deployments/example/infra-cluster/custom-ai-apps
 ```
 
 ## Model Selection
@@ -100,22 +101,19 @@ External LiteLLM-backed models should be added through
 
 ## Profile Pattern
 
-Profiles are public compositions that are still safe by default. The
-single-node profile currently:
-
-- replaces the `apps-ai` Flux path with `magic-cluster/profiles/single-node/apps/ai`
-- replaces the `apps-ai-agent-templates` path with
-  `magic-cluster/profiles/single-node/apps/ai-agent-templates`
-- keeps model components commented so public defaults remain lightweight
+Profiles are public compositions that are still safe by default. Optional
+modules and app instances should be requested with `ModuleActivation` and
+`AppInstance` resources instead of making the base graph install them for every
+cluster.
 
 Private deployments can either reuse a profile and patch it, or define their
 own path set.
 
 ## Optional Apps And Operators
 
-AI infrastructure installs the operators and CRDs for KubeAI, Hermes,
-OpenClaw, and Paperclip. App instances are regular app-layer resources and can
-be patched or split into deployment-specific Kustomizations.
+`ModuleActivation` installs optional operators and app modules such as KubeAI,
+Hermes, OpenClaw, Paperclip, LiteLLM, and KubeOpenCode. App instances are
+regular runtime CRs and should be represented as `AppInstance` resources.
 
 When adding a new operator-backed app:
 

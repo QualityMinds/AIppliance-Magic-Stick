@@ -49,27 +49,24 @@ The base graph is defined under `magic-cluster/flux/graph/base`.
 | Wave | Flux Kustomization | Path | Depends on |
 |---|---|---|---|
 | 00 | `infrastructure-basis` | `magic-cluster/platform/basis` | none |
-| 10 | `infrastructure-ai` | `magic-cluster/platform/ai` | `infrastructure-basis` |
 | 15 | `magicstick-operator` | `magic-cluster/platform/magicstick-operator` | `infrastructure-basis` |
-| 20 | `infrastructure-observability` | `magic-cluster/platform/observability` | `infrastructure-ai` |
 | 30 | `apps` | `magic-cluster/apps/dashboard` | `infrastructure-basis` |
-| 40 | `apps-ai` | `magic-cluster/apps/ai` | `infrastructure-ai` |
-| 50 | `apps-ai-kubeopencode` | `magic-cluster/apps/ai/kubeopencode` | `infrastructure-ai` |
-| 60 | `apps-ai-agent-templates` | `magic-cluster/apps/ai/agent-templates` | `apps-ai-kubeopencode` |
 
-The `single-node` entrypoint patches `apps-ai` and `apps-ai-agent-templates` to
-use profile-specific paths under `magic-cluster/profiles/single-node`.
+Optional AI, Observability, GPU, and instance resources are no longer applied by
+the static graph. The Magic Stick Operator creates generated Flux
+`Kustomization` resources from `ModuleActivation` and `AppInstance` CRs.
 
 ## Appliance Model
 
-The `Appliance` CRD is the declarative interface for selecting optional
-modules and requesting concrete instances. The base install includes:
+The `Appliance` CRD is the Git-owned aggregate status surface. Runtime
+selection happens through `ModuleActivation` and `AppInstance` CRs. The base
+install includes:
 
 - K3s and Flux from host automation
 - base platform components
-- `Appliance` CRD
+- `Appliance`, `ModuleActivation`, and `AppInstance` CRDs
 - `ConfigMap/magicstick-module-catalog`
-- disabled `magicstick-operator` controller skeleton
+- live `magicstick-operator` controller
 - default `Appliance/local`
 
 The Magic Stick Operator is a meta-operator. It enables modules by generating
@@ -79,15 +76,15 @@ KubeOpenCode continue to own their workload-specific reconciliation.
 
 The dashboard is the user-facing client for this model. It runs in the cluster,
 reads the Appliance, module catalog, Flux, Pod, Service, Ingress, and Event
-status, and sends Kubernetes patches to the Appliance CR. It does not install
-modules or create workload resources directly.
+status, and creates or patches `ModuleActivation` and `AppInstance` CRs. It
+does not install modules or create workload resources directly.
 
 ## Platform Components
 
 | Area | Components |
 |---|---|
 | Basis | Namespaces, ingress-nginx, cert-manager, generated secrets, reloader, and kdns. |
-| Appliance control plane | Appliance CRD, module catalog, operator RBAC, controller skeleton, and examples. |
+| Appliance control plane | Appliance CRDs, module catalog, operator RBAC, live controller, and examples. |
 | AI infrastructure | NVIDIA GPU support, KubeAI, Hermes operator, OpenClaw operator, and Paperclip operator. |
 | GPU | NVIDIA GPU Operator, time slicing, and Magic Stick MPS control support. |
 | Observability | kube-prometheus-stack, Loki, Promtail, OpenTelemetry Collector, Grafana dashboards, and public ingresses. |
