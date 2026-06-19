@@ -816,9 +816,9 @@ data:
                   <label class="field">Name<input name="name" value="qwen352bvlembedding" /></label>
                   <label class="field">Preset<select name="preset" id="local-model-preset"><option value="qwen352bvlembedding">qwen352bvlembedding</option><option value="qwen3635b">qwen3635b</option><option value="qwen359b">qwen359b</option><option value="custom">Custom</option></select></label>
                   <label class="field">Type<select name="modelType"><option value="chat">chat</option><option value="embedding">embedding</option></select></label>
-                  <label class="field">VRAM<input name="vram" value="5Gi" /></label>
+                  <label class="field">VRAM Limit<input name="vram" value="5Gi" /></label>
                   <label class="field">HF URL<input name="url" placeholder="hf://example/model" /></label>
-                  <label class="field">Context<input name="contextWindow" value="4096" /></label>
+                  <label class="field">Context Size<input name="contextWindow" value="4096" /></label>
                 </div>
                 <button class="control-button primary" type="submit">Add Local Model</button>
               </form>
@@ -889,6 +889,9 @@ data:
           ];
           const $ = (id) => document.getElementById(id);
           const apiState = $('api-state');
+          let latestModelPayload = {};
+          let renderedPresetSignature = '';
+          let localPresetLastApplied = '';
 
           const setApiState = (text, ok = false) => {
             if (!apiState) { return; }
@@ -979,6 +982,68 @@ data:
               return (number / 1024).toFixed(number >= 10240 ? 0 : 1) + ' GiB';
             }
             return number + ' MiB';
+          };
+
+          const orderedPresetKeys = (presets) => {
+            const preferred = ['qwen352bvlembedding', 'qwen3635b', 'qwen359b'];
+            const keys = Object.keys(presets || {});
+            return [
+              ...preferred.filter((key) => keys.includes(key)),
+              ...keys.filter((key) => !preferred.includes(key)).sort()
+            ];
+          };
+
+          const renderLocalPresetOptions = (modelPayload) => {
+            const select = $('local-model-preset');
+            if (!select) { return; }
+            const presets = (modelPayload || {}).presets || {};
+            const keys = orderedPresetKeys(presets);
+            const signature = keys.join('|');
+            if (!keys.length || signature === renderedPresetSignature) { return; }
+            const selected = select.value || 'qwen352bvlembedding';
+            select.innerHTML = '';
+            keys.forEach((key) => {
+              const option = document.createElement('option');
+              option.value = key;
+              option.textContent = key;
+              select.appendChild(option);
+            });
+            const custom = document.createElement('option');
+            custom.value = 'custom';
+            custom.textContent = 'Custom';
+            select.appendChild(custom);
+            select.value = keys.includes(selected) || selected === 'custom' ? selected : keys[0];
+            renderedPresetSignature = signature;
+          };
+
+          const setFormValue = (form, name, value) => {
+            if (!form || value === undefined || value === null || value === '') { return; }
+            const field = form.elements[name];
+            if (field) {
+              field.value = String(value);
+            }
+          };
+
+          const applyLocalPresetFields = (presetName, options = {}) => {
+            const form = $('local-model-form');
+            if (!form || !presetName || presetName === 'custom') { return; }
+            const preset = ((latestModelPayload || {}).presets || {})[presetName];
+            if (!preset) { return; }
+            const marker = [
+              presetName,
+              preset.vram || '',
+              preset.vramMi || '',
+              preset.contextWindow || '',
+              preset.url || '',
+              preset.type || preset.modelType || ''
+            ].join('|');
+            if (!options.force && localPresetLastApplied === marker) { return; }
+            setFormValue(form, 'name', presetName);
+            setFormValue(form, 'modelType', preset.type || preset.modelType);
+            setFormValue(form, 'vram', preset.vram || (preset.vramMi ? preset.vramMi + 'Mi' : ''));
+            setFormValue(form, 'url', preset.url);
+            setFormValue(form, 'contextWindow', preset.contextWindow);
+            localPresetLastApplied = marker;
           };
 
           const renderModelStack = (modelPayload) => {
@@ -1135,6 +1200,12 @@ data:
               const instancePayload = await request('/api/instances');
               const modelPayload = await request('/api/models');
               const status = await request('/api/status');
+              latestModelPayload = modelPayload || {};
+              renderLocalPresetOptions(latestModelPayload);
+              if (!localPresetLastApplied) {
+                const presetSelect = $('local-model-preset');
+                applyLocalPresetFields(presetSelect ? presetSelect.value : '', { force: true });
+              }
               const phase = ((appliance.status || {}).phase || 'Pending');
               $('appliance-summary').textContent = appliance.metadata.namespace + '/' + appliance.metadata.name + ' is ' + phase;
               const modules = ((modulePayload || {}).modules || {});
@@ -1198,6 +1269,12 @@ data:
 
           const localModelForm = $('local-model-form');
           if (localModelForm) {
+            const localPresetSelect = $('local-model-preset');
+            if (localPresetSelect) {
+              localPresetSelect.addEventListener('change', () => {
+                applyLocalPresetFields(localPresetSelect.value, { force: true });
+              });
+            }
             localModelForm.addEventListener('submit', async (event) => {
               event.preventDefault();
               const data = new FormData(localModelForm);
