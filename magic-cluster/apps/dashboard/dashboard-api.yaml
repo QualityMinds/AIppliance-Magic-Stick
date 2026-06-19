@@ -101,6 +101,15 @@ data:
             raise
 
 
+    def delete_resource(path):
+        try:
+            return request_json("DELETE", path)
+        except urllib.error.HTTPError as error:
+            if error.code == 404:
+                return {"status": "NotFound"}
+            raise
+
+
     def create_or_patch(collection_path, item_path, resource, patch):
         if get_resource(item_path):
             return request_json("PATCH", item_path, patch, "application/merge-patch+json")
@@ -355,11 +364,14 @@ data:
                     if parts[3] not in {"enable", "disable"}:
                         self.send_error_json(404, "not found")
                         return
-                    enabled = parts[3] == "enable"
-                    resource = module_activation_payload(module, enabled)
+                    resource = module_activation_payload(module, True)
                     name = resource["metadata"]["name"]
                     collection = f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/moduleactivations"
                     item = collection + "/" + name
+                    if parts[3] == "disable":
+                        result = delete_resource(item)
+                        self.send_json({"module": module, "enabled": False, "deleted": True, "resource": result})
+                        return
                     self.send_json(create_or_patch(collection, item, resource, {"spec": resource["spec"], "metadata": {"labels": resource["metadata"]["labels"]}}))
                     return
 

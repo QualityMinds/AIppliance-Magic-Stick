@@ -128,9 +128,10 @@ specialized operators, while OpenClaw, Hermes, Paperclip, and KubeOpenCode
 remain responsible for their own workloads.
 
 The dashboard is the UI and API client for this model. It reads the Appliance,
-module catalog, Flux, Pod, Service, Ingress, and Event status, and creates or
+module catalog, Flux, Pod, Service, Ingress, and Event status, creates or
 patches only `ModuleActivation` and `AppInstance` CRs when users enable modules
-or request instances. `Appliance/local.spec` remains Git-owned.
+or request instances, and deletes `ModuleActivation` CRs when users disable
+modules. `Appliance/local.spec` remains Git-owned.
 
 See [docs/appliance-crd.md](docs/appliance-crd.md),
 [docs/dashboard.md](docs/dashboard.md),

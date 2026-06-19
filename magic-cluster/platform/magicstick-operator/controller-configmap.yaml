@@ -30,6 +30,7 @@ data:
     SA_TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
     SA_CA_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
     FIELD_MANAGER = "magicstick-operator"
+    MODULE_FINALIZER = "appliance.magicstick.dev/module-cleanup"
 
     PLURALS = {
         ("appliance.magicstick.dev", "ModuleActivation"): "moduleactivations",
@@ -200,6 +201,26 @@ data:
         return by_module
 
 
+    def module_activation_path(activation):
+        metadata = activation.get("metadata") or {}
+        return f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{metadata.get('namespace')}/moduleactivations/{metadata.get('name')}"
+
+
+    def ensure_module_finalizer(activation):
+        metadata = activation.get("metadata") or {}
+        finalizers = list(metadata.get("finalizers") or [])
+        if MODULE_FINALIZER in finalizers or metadata.get("deletionTimestamp"):
+            return
+        finalizers.append(MODULE_FINALIZER)
+        patch_json(module_activation_path(activation), {"metadata": {"finalizers": finalizers}})
+
+
+    def remove_module_finalizer(activation):
+        metadata = activation.get("metadata") or {}
+        finalizers = [item for item in (metadata.get("finalizers") or []) if item != MODULE_FINALIZER]
+        patch_json(module_activation_path(activation), {"metadata": {"finalizers": finalizers}})
+
+
     def app_instances():
         return list_items(f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/appinstances")
 
@@ -255,7 +276,7 @@ data:
                 "name": (source.get("name") or "flux-system"),
             },
             "suspend": not enabled,
-            "wait": True,
+            "wait": False,
         }
         if depends_on:
             spec["dependsOn"] = depends_on
@@ -285,6 +306,17 @@ data:
         }
 
 
+    def delete_module_kustomization(module, module_spec, catalog, source):
+        name = module_spec["kustomizationName"]
+        kustomization = get_resource("kustomize.toolkit.fluxcd.io", "v1", "kustomizations", FLUX_NAMESPACE, name)
+        if not kustomization:
+            return False
+        if not (kustomization.get("metadata") or {}).get("deletionTimestamp"):
+            apply_resource(generated_kustomization(module, module_spec, catalog, True, source))
+            delete_resource("kustomize.toolkit.fluxcd.io", "v1", "kustomizations", FLUX_NAMESPACE, name)
+        return True
+
+
     def reconcile_module(module, activation, catalog, source):
         module_spec = (catalog.get("modules") or {}).get(module)
         generation = int((activation.get("metadata") or {}).get("generation") or 0)
@@ -292,13 +324,21 @@ data:
             patch_module_status(activation, "Degraded", "", "UnknownModule", f"Unknown module '{module}'")
             return "Degraded", {"phase": "Degraded", "message": f"Unknown module '{module}'"}
 
+        if (activation.get("metadata") or {}).get("deletionTimestamp"):
+            if delete_module_kustomization(module, module_spec, catalog, source):
+                phase = "Removing"
+                message = "ModuleActivation is being deleted; generated Kustomization is being removed so Flux can prune resources."
+                patch_module_status(activation, phase, module_spec["kustomizationName"], "Removing", message, generation)
+                return phase, {"phase": phase, "kustomization": module_spec["kustomizationName"], "message": message}
+            remove_module_finalizer(activation)
+            phase = "Disabled"
+            message = "ModuleActivation is deleted; generated Kustomization has been removed."
+            return phase, {"phase": phase, "kustomization": "", "message": message}
+
+        ensure_module_finalizer(activation)
         enabled = ((activation.get("spec") or {}).get("enabled", True) is not False)
         if not enabled:
-            kustomization = get_resource("kustomize.toolkit.fluxcd.io", "v1", "kustomizations", FLUX_NAMESPACE, module_spec["kustomizationName"])
-            if kustomization:
-                if not (kustomization.get("metadata") or {}).get("deletionTimestamp"):
-                    apply_resource(generated_kustomization(module, module_spec, catalog, True, source))
-                    delete_resource("kustomize.toolkit.fluxcd.io", "v1", "kustomizations", FLUX_NAMESPACE, module_spec["kustomizationName"])
+            if delete_module_kustomization(module, module_spec, catalog, source):
                 phase = "Removing"
                 message = "ModuleActivation is disabled; generated Kustomization is being deleted so Flux can prune resources."
                 patch_module_status(activation, phase, module_spec["kustomizationName"], "Removing", message, generation)
@@ -331,6 +371,19 @@ data:
             message = "Waiting for generated module Kustomization to become ready."
         patch_module_status(activation, phase, module_spec["kustomizationName"], reason, message, generation)
         return phase, {"phase": phase, "kustomization": module_spec["kustomizationName"], "message": message}
+
+
+    def cleanup_stale_module_kustomizations(catalog, activations, source):
+        modules = catalog.get("modules") or {}
+        items = list_items(f"/apis/kustomize.toolkit.fluxcd.io/v1/namespaces/{FLUX_NAMESPACE}/kustomizations")
+        for item in items:
+            labels = (item.get("metadata") or {}).get("labels") or {}
+            if labels.get("app.kubernetes.io/managed-by") != "magicstick-operator":
+                continue
+            module = canonical_module(labels.get("appliance.magicstick.dev/module", ""))
+            if not module or module in activations or module not in modules:
+                continue
+            delete_module_kustomization(module, modules[module], catalog, source)
 
 
     def patch_module_status(activation, phase, kustomization, reason, message, generation=0):
@@ -664,6 +717,7 @@ data:
                     ensure_module_activation(dep, auto=True)
 
         activations = module_activations()
+        cleanup_stale_module_kustomizations(catalog, activations, source)
         module_statuses = {}
         for module, activation in sorted(activations.items()):
             phase, status = reconcile_module(module, activation, catalog, source)

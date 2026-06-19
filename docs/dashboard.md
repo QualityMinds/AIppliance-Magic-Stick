@@ -20,8 +20,8 @@ The dashboard may:
 
 - read the default `Appliance/local` resource
 - read `ConfigMap/magicstick-module-catalog`
-- create or patch `ModuleActivation` CRs when a user enables or disables a
-  module
+- create or patch `ModuleActivation` CRs when a user enables a module
+- delete `ModuleActivation` CRs when a user disables a module
 - create or patch `AppInstance` CRs when a user requests an app or agent
   instance
 - read status from `Appliance.status`, Flux Kustomizations, Pods, Services,
@@ -36,7 +36,7 @@ controllers.
 | Page | Purpose |
 |---|---|
 | Overview | Shows `Appliance.status.phase`, enabled module count, requested instance count, and current conditions. |
-| Modules | Enables or disables modules by creating or patching `ModuleActivation` CRs. |
+| Modules | Enables modules by creating or patching `ModuleActivation` CRs, and disables modules by deleting those CRs. |
 | Instances | Creates example OpenClaw and KubeOpenCode requests by creating or patching `AppInstance` CRs. |
 | Models | Shows model-catalog state and offers LiteLLM/model-catalog enable actions. |
 | System Status | Shows Flux Kustomization readiness, Pod phase summary, and ingress hosts. |
@@ -54,7 +54,7 @@ The dashboard Deployment runs an API sidecar from
 | `PATCH` | `/api/appliance` | Returns `405`; `Appliance/local.spec` is Git-owned. |
 | `GET` | `/api/modules` | Returns module catalog plus current `ModuleActivation` spec/status. |
 | `POST` | `/api/modules/{name}/enable` | Creates or patches `ModuleActivation/<name>` with `spec.enabled: true`. |
-| `POST` | `/api/modules/{name}/disable` | Creates or patches `ModuleActivation/<name>` with `spec.enabled: false`. |
+| `POST` | `/api/modules/{name}/disable` | Deletes `ModuleActivation/<name>`; the Magic Stick Operator finalizer removes the generated Flux `Kustomization`. |
 | `GET` | `/api/instances` | Returns `AppInstance` resources and status. |
 | `POST` | `/api/instances/openclaw` | Adds or replaces an OpenClaw `AppInstance`. |
 | `POST` | `/api/instances/hermes` | Adds or replaces a Hermes `AppInstance`. |

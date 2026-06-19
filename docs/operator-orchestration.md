@@ -3,15 +3,16 @@
 The Magic Stick Operator is a meta-operator. It orchestrates platform modules
 and instance resources; it does not replace specialized operators.
 
-The dashboard is also not an operator. It reads status and creates or patches
-`ModuleActivation` and `AppInstance` resources only.
+The dashboard is also not an operator. It reads status, creates or patches
+`ModuleActivation` and `AppInstance` resources, and deletes
+`ModuleActivation` resources for module disable requests.
 
 ## Responsibilities
 
 | Component | Responsibility |
 |---|---|
-| Magic Stick Operator | Watches `ModuleActivation` and `AppInstance`, enables modules with Flux, waits for CRDs, creates specialized CRs, and reports aggregate `Appliance.status`. |
-| Magic Stick Dashboard | Reads `Appliance`, module catalog, Flux, Pod, Service, Ingress, and Event status; creates or patches runtime CRs only. |
+| Magic Stick Operator | Watches `ModuleActivation` and `AppInstance`, enables modules with Flux, cleans generated Flux Kustomizations with finalizers, waits for CRDs, creates specialized CRs, and reports aggregate `Appliance.status`. |
+| Magic Stick Dashboard | Reads `Appliance`, module catalog, Flux, Pod, Service, Ingress, and Event status; creates, patches, or deletes runtime CRs only. |
 | OpenClaw Operator | Owns lifecycle of `OpenClawInstance` resources. |
 | Hermes Operator | Owns lifecycle of `HermesInstance` resources. |
 | Paperclip Operator | Owns lifecycle of Paperclip `Instance` resources. |
@@ -26,8 +27,10 @@ The dashboard is also not an operator. It reads status and creates or patches
 - Add explicitly enabled runtime modules to the desired set.
 - Add required modules for every enabled instance.
 - Create or update generated Flux `Kustomization` resources.
-- Delete generated Flux Kustomizations for disabled runtime modules so Flux can
-  prune module resources.
+- Delete generated Flux Kustomizations for deleted or disabled runtime modules
+  so Flux can prune module resources.
+- Delete stale generated Flux Kustomizations that no longer have a matching
+  `ModuleActivation`.
 - Wait for required CRDs.
 - Create or patch specialized instance resources.
 - Update module, instance, and condition status.
@@ -57,6 +60,9 @@ For v1alpha1, examples use these defaults:
 - generated Flux namespace is always `flux-system`
 - generated Flux interval is `10m0s`
 - generated Flux prune is `true`
+- generated Flux deletion policy is `Delete`
+- generated Flux wait is `false`; module readiness uses explicit health checks
+  such as required CRDs
 - generated Flux source comes from `Appliance.spec.source`
 
 ## Failure And Status Behavior
