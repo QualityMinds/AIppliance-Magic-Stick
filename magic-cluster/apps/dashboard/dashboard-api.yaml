@@ -449,7 +449,7 @@ data:
                 continue
             status_vram = positive_int((activation.get("status") or {}).get("vramRequiredMi"))
             local = spec.get("local") or {}
-            planned += status_vram or positive_int(local.get("vramMi")) or parse_mib(local.get("vram")) or 0
+            planned += status_vram or parse_mib(local.get("vram")) or positive_int(local.get("vramMi")) or 0
         try:
             metrics = request_text("GET", f"/api/v1/namespaces/{DCGM_NAMESPACE}/services/{DCGM_SERVICE}:{DCGM_PORT}/proxy/metrics")
             gpus = parse_dcgm_metrics(metrics)

@@ -597,7 +597,25 @@ data:
 
 
     def local_model_vram_mi(local):
-        return positive_int(local.get("vramMi")) or parse_mib(local.get("vram")) or 0
+        return parse_mib(local.get("vram")) or positive_int(local.get("vramMi")) or 0
+
+
+    def model_args_with_context(args, context_window):
+        normalized = []
+        skip_next = False
+        for arg in [str(item) for item in (args or [])]:
+            if skip_next:
+                skip_next = False
+                continue
+            if arg == "--max-model-len":
+                skip_next = True
+                continue
+            if arg.startswith("--max-model-len="):
+                continue
+            normalized.append(arg)
+        if context_window:
+            normalized.append(f"--max-model-len={context_window}")
+        return normalized
 
 
     def non_negative_int(value, default):
@@ -654,7 +672,7 @@ data:
                 "minReplicas": non_negative_int(local.get("minReplicas"), 1),
                 "maxReplicas": non_negative_int(local.get("maxReplicas"), 1),
                 "env": env,
-                "args": [str(arg) for arg in (local.get("args") or [])],
+                "args": model_args_with_context(local.get("args") or [], context_window),
             },
         }, vram_mi
 

@@ -66,6 +66,11 @@ Context window is read from `metadata.annotations["ai-appliance.io/context-windo
 first. If that annotation is absent, the controller looks for `--max-model-len`
 or `--max-model-len=<value>` in `spec.args`.
 
+For Dashboard-created local `ModelActivation` resources, the Magic Stick
+Operator treats `spec.local.contextWindow` as the desired vLLM context size and
+writes it into the generated KubeAI `Model.spec.args` as
+`--max-model-len=<contextWindow>`.
+
 ## External Models
 
 External models are configured through `ConfigMap/ai-external-models` in the

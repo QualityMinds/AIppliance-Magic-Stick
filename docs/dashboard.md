@@ -150,7 +150,8 @@ Content-Type: application/json
   "targetNamespace": "ai",
   "local": {
     "preset": "qwen352bvlembedding",
-    "vram": "5Gi"
+    "vram": "5Gi",
+    "contextWindow": 4096
   }
 }
 ```
