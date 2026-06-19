@@ -14,6 +14,8 @@ spec:
     metadata:
       labels:
         app: ai-appliance-dashboard
+      annotations:
+        appliance.magicstick.dev/dashboard-config-revision: runtime-crs-v1
     spec:
       serviceAccountName: ai-appliance-dashboard
       securityContext:
