@@ -34,10 +34,51 @@ spec:
           volumeMounts:
             - name: html
               mountPath: /usr/share/nginx/html
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: default.conf
+              readOnly: true
             - name: nginx-cache
               mountPath: /var/cache/nginx
             - name: nginx-run
               mountPath: /var/run
+        - name: api
+          image: python:3.13-alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - /app/server.py
+          ports:
+            - containerPort: 8080
+              name: api
+          env:
+            - name: PORT
+              value: "8080"
+            - name: APPLIANCE_NAMESPACE
+              value: ai-system
+            - name: APPLIANCE_NAME
+              value: local
+            - name: MODULE_CATALOG_NAMESPACE
+              value: ai-system
+            - name: MODULE_CATALOG_NAME
+              value: magicstick-module-catalog
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+          volumeMounts:
+            - name: api
+              mountPath: /app/server.py
+              subPath: server.py
+              readOnly: true
+            - name: api-tmp
+              mountPath: /tmp
         - name: renderer
           image: bitnami/kubectl:latest
           command: ["/bin/sh", "/scripts/render.sh"]
@@ -57,10 +98,19 @@ spec:
       volumes:
         - name: html
           emptyDir: {}
+        - name: api
+          configMap:
+            name: ai-appliance-dashboard-api
+            defaultMode: 0555
+        - name: nginx-config
+          configMap:
+            name: ai-appliance-dashboard-nginx
         - name: scripts
           configMap:
             name: ai-appliance-dashboard-renderer
             defaultMode: 0755
+        - name: api-tmp
+          emptyDir: {}
         - name: nginx-cache
           emptyDir: {}
         - name: nginx-run

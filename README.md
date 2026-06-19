@@ -15,11 +15,15 @@ This repository intentionally contains only generic template code, safe example 
 ├── docs/
 │   ├── README.md
 │   ├── architecture.md
+│   ├── appliance-crd.md
 │   ├── configuration.md
+│   ├── dashboard.md
 │   ├── development.md
 │   ├── getting-started.md
 │   ├── gitops-overlays.md
+│   ├── modules.md
 │   ├── model-catalog.md
+│   ├── operator-orchestration.md
 │   ├── operations.md
 │   └── public-release-checklist.md
 ├── AGENTS.md
@@ -36,6 +40,10 @@ Start with [docs/README.md](docs/README.md) for the full documentation index.
 |---|---|
 | First checkout and installer flow | [docs/getting-started.md](docs/getting-started.md) |
 | Repository and cluster architecture | [docs/architecture.md](docs/architecture.md) |
+| Appliance CRD | [docs/appliance-crd.md](docs/appliance-crd.md) |
+| Dashboard UI/API | [docs/dashboard.md](docs/dashboard.md) |
+| Module catalog | [docs/modules.md](docs/modules.md) |
+| Operator orchestration | [docs/operator-orchestration.md](docs/operator-orchestration.md) |
 | Runtime variables and secrets | [docs/configuration.md](docs/configuration.md) |
 | Private GitOps overlays | [docs/gitops-overlays.md](docs/gitops-overlays.md) |
 | Cluster operations | [docs/operations.md](docs/operations.md) |
@@ -109,6 +117,25 @@ See [docs/model-catalog.md](docs/model-catalog.md) for the model catalog
 contract, external model schema, generated ConfigMap keys, and operational
 checks.
 
+## Appliance Modules
+
+The base installation now includes the `Appliance` CRD, a public-safe module
+catalog, a default `Appliance/local` resource, and a disabled
+`magicstick-operator` controller skeleton. Optional capabilities are selected
+declaratively through `Appliance` resources. The Magic Stick Operator is a
+meta-operator: it enables modules with Flux and creates custom resources for
+specialized operators, while OpenClaw, Hermes, Paperclip, and KubeOpenCode
+remain responsible for their own workloads.
+
+The dashboard is the UI and API client for this model. It reads the Appliance,
+module catalog, Flux, Pod, Service, Ingress, and Event status, and patches only
+the Appliance CR when users enable modules or request instances.
+
+See [docs/appliance-crd.md](docs/appliance-crd.md),
+[docs/dashboard.md](docs/dashboard.md),
+[docs/modules.md](docs/modules.md), and
+[docs/operator-orchestration.md](docs/operator-orchestration.md).
+
 ## Validation
 
 ```bash
@@ -117,6 +144,7 @@ ANSIBLE_ROLES_PATH=magic-host/roles \
 
 kubectl kustomize magic-cluster/flux/entrypoints/base
 kubectl kustomize magic-cluster/apps/dashboard
+kubectl kustomize magic-cluster/platform/magicstick-operator
 kubectl kustomize magic-cluster/platform/ai
 kubectl kustomize magic-cluster/platform/ai/hermes-operator
 kubectl kustomize magic-cluster/platform/ai/openclaw-operator

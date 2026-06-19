@@ -25,6 +25,7 @@ Expected findings should be placeholders, generated-secret annotations, Kubernet
 ```bash
 kubectl kustomize magic-cluster/flux/entrypoints/base
 kubectl kustomize magic-cluster/apps/dashboard
+kubectl kustomize magic-cluster/platform/magicstick-operator
 kubectl kustomize magic-cluster/platform/ai
 kubectl kustomize magic-cluster/platform/ai/hermes-operator
 kubectl kustomize magic-cluster/platform/ai/openclaw-operator
@@ -58,7 +59,11 @@ Do not commit generated Kubernetes Secrets, Flux bootstrap token secrets, privat
 - Does the public `ai-external-models` ConfigMap contain only an empty example schema and no provider secrets?
 - Are safe defaults clearly documented for private deployments to patch?
 - Are optional app bases still opt-in unless intentionally selected by an entrypoint?
+- Are Appliance examples public-safe and limited to `example.local`,
+  `example.com`, `CHANGEME`, or documented variables?
+- Do module catalog paths point only to reusable public bases?
 - Do example overlays still build after public base changes?
+- Does the dashboard patch `Appliance` only, without direct workload install permissions?
 - Are new secrets generated at runtime instead of stored in Git?
 - Are new public interfaces documented in `docs/configuration.md`,
   `docs/gitops-overlays.md`, `docs/operations.md`, or another focused page?

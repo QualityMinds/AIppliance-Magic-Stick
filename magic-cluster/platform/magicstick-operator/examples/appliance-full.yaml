@@ -1,0 +1,77 @@
+apiVersion: appliance.magicstick.dev/v1alpha1
+kind: Appliance
+metadata:
+  name: local
+  namespace: ai-system
+spec:
+  profile: full
+  source:
+    kind: GitRepository
+    name: magicstick-public
+    namespace: flux-system
+  modules:
+    basis:
+      enabled: true
+    dashboard:
+      enabled: true
+    litellm:
+      enabled: true
+    modelCatalog:
+      enabled: true
+    anythingLlm:
+      enabled: true
+    openclawOperator:
+      enabled: true
+    hermesOperator:
+      enabled: true
+    paperclipOperator:
+      enabled: true
+    kubeopencode:
+      enabled: true
+    observability:
+      enabled: true
+    gpu:
+      enabled: false
+  instances:
+    openclaw:
+      - name: default
+        enabled: true
+        namespace: ai
+        model: CHANGEME_MODEL
+        storage:
+          size: 20Gi
+        ingress:
+          enabled: true
+          host: openclaw.example.local
+    hermes:
+      - name: team-agent
+        enabled: true
+        namespace: ai
+        model: CHANGEME_MODEL
+        storage:
+          size: 10Gi
+        ingress:
+          enabled: true
+          host: hermes.example.local
+    paperclip:
+      - name: default
+        enabled: true
+        namespace: ai
+        storage:
+          size: 10Gi
+        ingress:
+          enabled: true
+          host: paperclip.example.local
+    kubeopencode:
+      - name: default
+        enabled: true
+        namespace: ai
+        model: CHANGEME_MODEL
+        server:
+          enabled: true
+          ingress:
+            enabled: true
+            host: kubeopencode.example.local
+        agentTemplates:
+          - name: default-coder
+            description: Default coding agent template

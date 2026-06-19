@@ -1,0 +1,310 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: appliances.appliance.magicstick.dev
+  labels:
+    app.kubernetes.io/name: magicstick-operator
+    app.kubernetes.io/component: crd
+spec:
+  group: appliance.magicstick.dev
+  names:
+    kind: Appliance
+    listKind: ApplianceList
+    plural: appliances
+    singular: appliance
+    shortNames:
+      - msapp
+      - appliance
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Profile
+          type: string
+          jsonPath: .spec.profile
+        - name: Source
+          type: string
+          jsonPath: .spec.source.name
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: Appliance selects Magic Stick modules and operator-backed instances.
+          required:
+            - spec
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required:
+                - source
+              properties:
+                profile:
+                  type: string
+                  default: minimal
+                  enum:
+                    - minimal
+                    - ai-workstation
+                    - full
+                  description: Public profile hint used for defaults and UI grouping.
+                source:
+                  type: object
+                  required:
+                    - kind
+                    - name
+                  properties:
+                    kind:
+                      type: string
+                      enum:
+                        - GitRepository
+                    name:
+                      type: string
+                      minLength: 1
+                    namespace:
+                      type: string
+                      default: flux-system
+                      minLength: 1
+                modules:
+                  type: object
+                  description: Module switches keyed by user-facing or canonical module names.
+                  additionalProperties:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                        default: false
+                      uninstallPolicy:
+                        type: string
+                        enum:
+                          - keep-data
+                          - remove
+                instances:
+                  type: object
+                  description: Concrete resources managed by specialized operators.
+                  properties:
+                    openclaw:
+                      type: array
+                      items:
+                        type: object
+                        required:
+                          - name
+                        properties:
+                          name:
+                            type: string
+                            pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                          enabled:
+                            type: boolean
+                            default: true
+                          namespace:
+                            type: string
+                            default: ai
+                          model:
+                            type: string
+                          storage:
+                            type: object
+                            properties:
+                              size:
+                                type: string
+                          ingress:
+                            type: object
+                            properties:
+                              enabled:
+                                type: boolean
+                                default: false
+                              host:
+                                type: string
+                    hermes:
+                      type: array
+                      items:
+                        type: object
+                        required:
+                          - name
+                        properties:
+                          name:
+                            type: string
+                            pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                          enabled:
+                            type: boolean
+                            default: true
+                          namespace:
+                            type: string
+                            default: ai
+                          model:
+                            type: string
+                          storage:
+                            type: object
+                            properties:
+                              size:
+                                type: string
+                          ingress:
+                            type: object
+                            properties:
+                              enabled:
+                                type: boolean
+                                default: false
+                              host:
+                                type: string
+                    paperclip:
+                      type: array
+                      items:
+                        type: object
+                        required:
+                          - name
+                        properties:
+                          name:
+                            type: string
+                            pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                          enabled:
+                            type: boolean
+                            default: true
+                          namespace:
+                            type: string
+                            default: ai
+                          storage:
+                            type: object
+                            properties:
+                              size:
+                                type: string
+                          ingress:
+                            type: object
+                            properties:
+                              enabled:
+                                type: boolean
+                                default: false
+                              host:
+                                type: string
+                    kubeopencode:
+                      type: array
+                      items:
+                        type: object
+                        required:
+                          - name
+                        properties:
+                          name:
+                            type: string
+                            pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                          enabled:
+                            type: boolean
+                            default: true
+                          namespace:
+                            type: string
+                            default: ai
+                          model:
+                            type: string
+                          server:
+                            type: object
+                            properties:
+                              enabled:
+                                type: boolean
+                                default: true
+                              ingress:
+                                type: object
+                                properties:
+                                  enabled:
+                                    type: boolean
+                                    default: false
+                                  host:
+                                    type: string
+                          agentTemplates:
+                            type: array
+                            items:
+                              type: object
+                              required:
+                                - name
+                              properties:
+                                name:
+                                  type: string
+                                  pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                                description:
+                                  type: string
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum:
+                    - Pending
+                    - Reconciling
+                    - Ready
+                    - Degraded
+                    - Suspended
+                observedGeneration:
+                  type: integer
+                  format: int64
+                  minimum: 0
+                modules:
+                  type: object
+                  additionalProperties:
+                    type: object
+                    properties:
+                      phase:
+                        type: string
+                      kustomization:
+                        type: string
+                      autoEnabled:
+                        type: boolean
+                      message:
+                        type: string
+                instances:
+                  type: object
+                  additionalProperties:
+                    type: object
+                    additionalProperties:
+                      type: object
+                      properties:
+                        phase:
+                          type: string
+                        namespace:
+                          type: string
+                        kind:
+                          type: string
+                        name:
+                          type: string
+                        url:
+                          type: string
+                        message:
+                          type: string
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                      - lastTransitionTime
+                      - reason
+                      - message
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum:
+                          - "True"
+                          - "False"
+                          - Unknown
+                      observedGeneration:
+                        type: integer
+                        format: int64
+                        minimum: 0
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string
