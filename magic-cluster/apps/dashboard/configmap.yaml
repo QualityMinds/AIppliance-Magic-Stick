@@ -448,13 +448,20 @@ data:
           font-size: 0.8rem;
         }
 
-        .field input {
+        .field input,
+        .field select,
+        .field textarea {
           border: 1px solid var(--line);
           border-radius: 10px;
           background: rgba(15, 23, 42, 0.82);
           color: var(--text);
           font: inherit;
           padding: 0.55rem 0.65rem;
+        }
+
+        .field textarea {
+          min-height: 5.5rem;
+          resize: vertical;
         }
 
         .api-output {
@@ -790,14 +797,49 @@ data:
           </section>
 
           <section id="tab-models" class="tab-panel" hidden>
-            <div class="dashboard-card">
-              <h3>Model Catalog</h3>
-              <p id="model-summary">Waiting for Appliance and model-catalog status.</p>
-              <div class="action-row">
-                <button class="control-button primary" type="button" data-module-enable="litellm">Enable LiteLLM</button>
-                <button class="control-button primary" type="button" data-module-enable="model-catalog">Enable Model Catalog</button>
-              </div>
+            <div class="dashboard-grid">
+              <article class="dashboard-card">
+                <h3>Model Catalog</h3>
+                <p id="model-summary">Waiting for model status.</p>
+                <div id="model-stack" class="mini-list"></div>
+              </article>
+              <article class="dashboard-card">
+                <h3>VRAM</h3>
+                <p id="vram-summary">Waiting for GPU metrics.</p>
+                <div id="vram-list" class="mini-list"></div>
+              </article>
             </div>
+            <div class="dashboard-grid">
+              <form class="dashboard-card" id="local-model-form">
+                <h3>Add Local Model</h3>
+                <div class="form-grid">
+                  <label class="field">Name<input name="name" value="qwen352bvlembedding" /></label>
+                  <label class="field">Preset<select name="preset" id="local-model-preset"><option value="qwen352bvlembedding">qwen352bvlembedding</option><option value="qwen3635b">qwen3635b</option><option value="qwen359b">qwen359b</option><option value="custom">Custom</option></select></label>
+                  <label class="field">Type<select name="modelType"><option value="chat">chat</option><option value="embedding">embedding</option></select></label>
+                  <label class="field">VRAM<input name="vram" value="5Gi" /></label>
+                  <label class="field">HF URL<input name="url" placeholder="hf://example/model" /></label>
+                  <label class="field">Context<input name="contextWindow" value="4096" /></label>
+                </div>
+                <button class="control-button primary" type="submit">Add Local Model</button>
+              </form>
+              <form class="dashboard-card" id="external-model-form">
+                <h3>Add External Model</h3>
+                <div class="form-grid">
+                  <label class="field">Name<input name="name" value="example-openai-gpt-4o-mini" /></label>
+                  <label class="field">Provider Model<input name="model" value="openai/gpt-4o-mini" /></label>
+                  <label class="field">API Base<input name="apiBase" value="https://api.openai.com/v1" /></label>
+                  <label class="field">Type<select name="modelType"><option value="chat">chat</option><option value="embedding">embedding</option></select></label>
+                  <label class="field">Context<input name="contextWindow" value="128000" /></label>
+                  <label class="field">API Key<input name="apiKey" type="password" placeholder="CHANGEME" /></label>
+                </div>
+                <button class="control-button primary" type="submit">Add External Model</button>
+              </form>
+            </div>
+            <div class="dashboard-card">
+              <h3>Models</h3>
+              <div id="model-list" class="mini-list"></div>
+            </div>
+            <p id="model-output" class="api-output"></p>
           </section>
 
           <section id="tab-system" class="tab-panel" hidden>
@@ -836,6 +878,8 @@ data:
           const moduleNames = [
             ['litellm', 'LiteLLM'],
             ['model-catalog', 'Model Catalog'],
+            ['kubeai', 'KubeAI'],
+            ['anything-llm', 'AnythingLLM'],
             ['openclaw-operator', 'OpenClaw Operator'],
             ['hermes-operator', 'Hermes Operator'],
             ['paperclip-operator', 'Paperclip Operator'],
@@ -929,6 +973,131 @@ data:
             }
           };
 
+          const formatMi = (value) => {
+            const number = Number(value || 0);
+            if (number >= 1024) {
+              return (number / 1024).toFixed(number >= 10240 ? 0 : 1) + ' GiB';
+            }
+            return number + ' MiB';
+          };
+
+          const renderModelStack = (modelPayload) => {
+            const target = $('model-stack');
+            if (!target) { return; }
+            target.innerHTML = '';
+            const modules = (modelPayload || {}).modules || {};
+            [['gpu', 'GPU'], ['kubeai', 'KubeAI'], ['litellm', 'LiteLLM'], ['model-catalog', 'Model Catalog'], ['anything-llm', 'AnythingLLM']].forEach(([name, title]) => {
+              const spec = modules[name] || {};
+              const enabled = spec.enabled === true;
+              const status = (spec.status || {}).phase || (enabled ? 'Requested' : 'Disabled');
+              const item = document.createElement('div');
+              item.className = 'mini-item';
+              const row = document.createElement('div');
+              row.className = 'module-row';
+              const label = document.createElement('strong');
+              label.textContent = title;
+              const pill = document.createElement('span');
+              pill.className = 'status-pill ' + (enabled ? 'enabled' : 'disabled');
+              pill.textContent = status;
+              row.append(label, pill);
+              const actions = document.createElement('div');
+              actions.className = 'action-row';
+              const enable = document.createElement('button');
+              enable.className = 'control-button primary';
+              enable.type = 'button';
+              enable.dataset.moduleEnable = name;
+              enable.textContent = 'Enable';
+              const disable = document.createElement('button');
+              disable.className = 'control-button danger';
+              disable.type = 'button';
+              disable.dataset.moduleDisable = name;
+              disable.textContent = 'Disable';
+              actions.append(enable, disable);
+              item.append(row, actions);
+              if (name === 'anything-llm' && (modelPayload.anythingLlm || {}).url) {
+                const link = document.createElement('a');
+                link.href = modelPayload.anythingLlm.url;
+                link.textContent = modelPayload.anythingLlm.url;
+                item.appendChild(link);
+              }
+              target.appendChild(item);
+            });
+          };
+
+          const renderVram = (modelPayload) => {
+            const summary = $('vram-summary');
+            const list = $('vram-list');
+            if (!summary || !list) { return; }
+            const vram = (modelPayload || {}).vram || {};
+            list.innerHTML = '';
+            if (!vram.available) {
+              summary.textContent = 'Live GPU metrics unavailable. Planned VRAM: ' + formatMi(vram.plannedMi || 0);
+              const item = document.createElement('div');
+              item.className = 'mini-item';
+              item.textContent = vram.error || 'DCGM metrics are not available.';
+              list.appendChild(item);
+              return;
+            }
+            summary.textContent = 'Free ' + formatMi(vram.freeMi) + ' of ' + formatMi(vram.totalMi) + '; planned ' + formatMi(vram.plannedMi);
+            (vram.gpus || []).forEach((gpu) => {
+              const item = document.createElement('div');
+              item.className = 'mini-item';
+              item.textContent = (gpu.modelName || gpu.device || gpu.id || 'GPU') + ': ' + formatMi(gpu.freeMi) + ' free, ' + formatMi(gpu.usedMi) + ' used';
+              list.appendChild(item);
+            });
+          };
+
+          const renderModels = (modelPayload) => {
+            const list = $('model-list');
+            if (!list) { return; }
+            list.innerHTML = '';
+            const catalogModels = new Map(((modelPayload || {}).models || []).map((model) => [model.id, model]));
+            const activations = (modelPayload || {}).activations || [];
+            activations.forEach((activation) => {
+              const metadata = activation.metadata || {};
+              const spec = activation.spec || {};
+              const status = activation.status || {};
+              const catalog = catalogModels.get(metadata.name) || {};
+              const item = document.createElement('div');
+              item.className = 'mini-item';
+              const row = document.createElement('div');
+              row.className = 'module-row';
+              const title = document.createElement('strong');
+              title.textContent = metadata.name || 'unnamed';
+              const pill = document.createElement('span');
+              pill.className = 'status-pill ' + (status.phase === 'Ready' ? 'ready' : 'waiting');
+              pill.textContent = status.phase || 'Requested';
+              row.append(title, pill);
+              const details = document.createElement('div');
+              details.textContent = (spec.type || 'model') + ' - ' + (catalog.type || (spec.external || {}).modelType || (spec.local || {}).modelType || 'chat') + ' - ' + (status.modelRef || catalog.modelRef || 'pending') + (status.vramRequiredMi ? ' - ' + formatMi(status.vramRequiredMi) : '');
+              const actions = document.createElement('div');
+              actions.className = 'action-row';
+              const remove = document.createElement('button');
+              remove.className = 'control-button danger';
+              remove.type = 'button';
+              remove.dataset.modelDelete = metadata.name;
+              remove.textContent = 'Remove';
+              actions.appendChild(remove);
+              item.append(row, details, actions);
+              list.appendChild(item);
+            });
+            ((modelPayload || {}).models || []).forEach((model) => {
+              if (activations.some((activation) => (activation.metadata || {}).name === model.id)) {
+                return;
+              }
+              const item = document.createElement('div');
+              item.className = 'mini-item';
+              item.textContent = model.id + ' - ' + (model.type || 'model') + ' - ' + (model.modelRef || 'catalog');
+              list.appendChild(item);
+            });
+            if (!list.childElementCount) {
+              const item = document.createElement('div');
+              item.className = 'mini-item';
+              item.textContent = 'No models registered yet.';
+              list.appendChild(item);
+            }
+          };
+
           const renderStatus = (status) => {
             const fluxList = $('flux-list');
             if (fluxList) {
@@ -964,6 +1133,7 @@ data:
               const appliance = await request('/api/appliance');
               const modulePayload = await request('/api/modules');
               const instancePayload = await request('/api/instances');
+              const modelPayload = await request('/api/models');
               const status = await request('/api/status');
               const phase = ((appliance.status || {}).phase || 'Pending');
               $('appliance-summary').textContent = appliance.metadata.namespace + '/' + appliance.metadata.name + ' is ' + phase;
@@ -973,10 +1143,14 @@ data:
               const instances = ((instancePayload || {}).instances || {});
               const instanceCount = Object.values(instances).reduce((count, items) => count + (Array.isArray(items) ? items.length : 0), 0);
               $('instance-summary').textContent = instanceCount + ' instances requested';
-              $('model-summary').textContent = moduleSpec(modulePayload, 'model-catalog').enabled ? 'Model catalog requested' : 'Model catalog not enabled';
+              const catalogReady = moduleSpec(modulePayload, 'model-catalog').enabled ? 'Model catalog requested' : 'Model catalog not enabled';
+              $('model-summary').textContent = catalogReady + '; ' + (((modelPayload || {}).models || []).length) + ' models in catalog';
               renderConditions((appliance.status || {}).conditions || []);
               renderModules(modulePayload);
               renderInstances(instancePayload);
+              renderModelStack(modelPayload);
+              renderVram(modelPayload);
+              renderModels(modelPayload);
               renderStatus(status);
               setApiState('Connected', true);
             } catch (error) {
@@ -999,12 +1173,94 @@ data:
             if (!action || !name) { return; }
             try {
               await request('/api/modules/' + name + '/' + action, { method: 'POST', body: '{}' });
-              $('module-output').textContent = name + ' ' + action + ' requested through ModuleActivation.';
+              const message = name + ' ' + action + ' requested through ModuleActivation.';
+              if ($('module-output')) { $('module-output').textContent = message; }
+              if ($('model-output')) { $('model-output').textContent = message; }
               await refresh();
             } catch (error) {
-              $('module-output').textContent = error.message;
+              if ($('module-output')) { $('module-output').textContent = error.message; }
+              if ($('model-output')) { $('model-output').textContent = error.message; }
             }
           });
+
+          document.addEventListener('click', async (event) => {
+            const remove = event.target.closest('[data-model-delete]');
+            if (!remove) { return; }
+            const name = remove.dataset.modelDelete;
+            try {
+              await request('/api/models/' + encodeURIComponent(name), { method: 'DELETE' });
+              $('model-output').textContent = name + ' remove requested.';
+              await refresh();
+            } catch (error) {
+              $('model-output').textContent = error.message;
+            }
+          });
+
+          const localModelForm = $('local-model-form');
+          if (localModelForm) {
+            localModelForm.addEventListener('submit', async (event) => {
+              event.preventDefault();
+              const data = new FormData(localModelForm);
+              const preset = data.get('preset') || 'custom';
+              const payload = {
+                name: data.get('name') || preset,
+                enabled: true,
+                targetNamespace: 'ai',
+                local: {
+                  modelType: data.get('modelType') || 'chat',
+                  vram: data.get('vram') || '5Gi'
+                }
+              };
+              if (preset !== 'custom') {
+                payload.local.preset = preset;
+              }
+              if ((data.get('url') || '').trim()) {
+                payload.local.url = data.get('url').trim();
+              }
+              if ((data.get('contextWindow') || '').trim()) {
+                payload.local.contextWindow = Number(data.get('contextWindow'));
+              }
+              try {
+                await request('/api/models/local', { method: 'POST', body: JSON.stringify(payload) });
+                $('model-output').textContent = payload.name + ' local model requested.';
+                await refresh();
+              } catch (error) {
+                $('model-output').textContent = error.message;
+              }
+            });
+          }
+
+          const externalModelForm = $('external-model-form');
+          if (externalModelForm) {
+            externalModelForm.addEventListener('submit', async (event) => {
+              event.preventDefault();
+              const data = new FormData(externalModelForm);
+              const payload = {
+                name: data.get('name') || 'example-external-model',
+                enabled: true,
+                targetNamespace: 'ai',
+                external: {
+                  model: data.get('model') || 'openai/gpt-4o-mini',
+                  apiBase: data.get('apiBase') || 'https://api.openai.com/v1',
+                  modelType: data.get('modelType') || 'chat'
+                }
+              };
+              if ((data.get('contextWindow') || '').trim()) {
+                payload.external.contextWindow = Number(data.get('contextWindow'));
+              }
+              if ((data.get('apiKey') || '').trim()) {
+                payload.apiKey = data.get('apiKey').trim();
+              }
+              try {
+                await request('/api/models/external', { method: 'POST', body: JSON.stringify(payload) });
+                $('model-output').textContent = payload.name + ' external model requested.';
+                externalModelForm.reset();
+                await refresh();
+              } catch (error) {
+                $('model-output').textContent = error.message;
+              }
+            });
+          }
 
           document.querySelectorAll('.instance-form').forEach((form) => {
             form.addEventListener('submit', async (event) => {

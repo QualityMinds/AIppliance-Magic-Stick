@@ -12,6 +12,7 @@ import urllib.parse
 import urllib.request
 
 NAMESPACE = os.environ.get("NAMESPACE", "ai")
+APPLIANCE_NAMESPACE = os.environ.get("APPLIANCE_NAMESPACE", "ai-system")
 LITELLM_BASE_URL = os.environ.get("LITELLM_BASE_URL", "http://litellm.ai.svc.cluster.local:4000").rstrip("/")
 LITELLM_API_BASE = os.environ.get("LITELLM_API_BASE", LITELLM_BASE_URL + "/v1").rstrip("/")
 KUBEAI_API_BASE = os.environ.get("KUBEAI_API_BASE", "http://kubeai.ai.svc.cluster.local/openai/v1").rstrip("/")
@@ -212,7 +213,12 @@ def context_from_model(model):
 
 def list_kubeai_models():
     path = f"/apis/kubeai.org/v1/namespaces/{NAMESPACE}/models"
-    return k8s_request("GET", path).get("items") or []
+    try:
+        return k8s_request("GET", path).get("items") or []
+    except RuntimeError as error:
+        if " returned 404:" in str(error):
+            return []
+        raise
 
 
 def get_configmap(name):
@@ -247,6 +253,29 @@ def read_external_models():
     parsed = json.loads(raw)
     models = parsed.get("models") if isinstance(parsed, dict) else parsed
     return models if isinstance(models, list) else []
+
+
+def read_model_activations():
+    path = f"/apis/appliance.magicstick.dev/v1alpha1/namespaces/{APPLIANCE_NAMESPACE}/modelactivations"
+    try:
+        return k8s_request("GET", path).get("items") or []
+    except RuntimeError as error:
+        if " returned 404:" in str(error):
+            return []
+        raise
+
+
+def external_activation_item(activation):
+    metadata = activation.get("metadata") or {}
+    spec = activation.get("spec") or {}
+    external = spec.get("external") or {}
+    item = dict(external)
+    item["name"] = metadata.get("name")
+    if external.get("modelType") and "type" not in item:
+        item["type"] = external.get("modelType")
+    if external.get("contextWindow") and "contextWindow" not in item:
+        item["contextWindow"] = external.get("contextWindow")
+    return item
 
 
 def kubeai_deployment(model):
@@ -325,6 +354,15 @@ def desired_deployments():
         name = str(item.get("name") or "").strip()
         if name:
             deployments.append(external_deployment(item))
+    for activation in read_model_activations():
+        if (activation.get("metadata") or {}).get("deletionTimestamp"):
+            continue
+        spec = activation.get("spec") or {}
+        if spec.get("type") != "external" or spec.get("enabled", True) is False:
+            continue
+        name = ((activation.get("metadata") or {}).get("name") or "").strip()
+        if name:
+            deployments.append(external_deployment(external_activation_item(activation)))
     return {deployment["model_name"]: deployment for deployment in deployments}
 
 
@@ -630,10 +668,15 @@ def reconcile_once():
 def wait_for_catalog_source_change():
     if k8s_watch(f"/apis/kubeai.org/v1/namespaces/{NAMESPACE}/models", "KubeAI models"):
         return
-    k8s_watch(
+    if k8s_watch(
         f"/api/v1/namespaces/{NAMESPACE}/configmaps",
         "external model configmap",
         {"fieldSelector": "metadata.name=" + EXTERNAL_MODELS_CONFIGMAP},
+    ):
+        return
+    k8s_watch(
+        f"/apis/appliance.magicstick.dev/v1alpha1/namespaces/{APPLIANCE_NAMESPACE}/modelactivations",
+        "ModelActivation resources",
     )
 
 

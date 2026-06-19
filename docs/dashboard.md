@@ -2,14 +2,14 @@
 
 The Magic Stick Dashboard is the user interface for the Appliance control
 plane. It is a client of the Kubernetes API, the `Appliance` status surface,
-and the runtime `ModuleActivation` and `AppInstance` CRs. It does not directly
-install workloads.
+and the runtime `ModuleActivation`, `AppInstance`, and `ModelActivation` CRs.
+It does not directly install workloads.
 
 ```text
 Dashboard UI
   -> Dashboard Backend API
   -> Kubernetes API
-  -> ModuleActivation and AppInstance CRs
+  -> ModuleActivation, AppInstance, and ModelActivation CRs
   -> Magic Stick Operator
   -> Flux Kustomizations and specialized operator CRs
 ```
@@ -24,6 +24,9 @@ The dashboard may:
   module
 - create or patch `AppInstance` CRs when a user requests an app or agent
   instance
+- create or delete `ModelActivation` CRs when a user adds or removes a local
+  KubeAI model or external LiteLLM-backed provider model
+- create Dashboard-managed provider API key Secrets in namespace `ai`
 - read status from `Appliance.status`, Flux Kustomizations, Pods, Services,
   Ingresses, ConfigMaps, and Events
 
@@ -38,7 +41,7 @@ controllers.
 | Overview | Shows `Appliance.status.phase`, enabled module count, requested instance count, and current conditions. |
 | Modules | Enables or disables modules by creating or patching `ModuleActivation` CRs. |
 | Instances | Creates example OpenClaw and KubeOpenCode requests by creating or patching `AppInstance` CRs. |
-| Models | Shows model-catalog state and offers LiteLLM/model-catalog enable actions. |
+| Models | Adds/removes local and external models, shows VRAM, and controls the model stack including AnythingLLM. |
 | System Status | Shows Flux Kustomization readiness, Pod phase summary, and ingress hosts. |
 
 The existing ingress discovery dashboard remains available on the same page.
@@ -60,6 +63,10 @@ The dashboard Deployment runs an API sidecar from
 | `POST` | `/api/instances/hermes` | Adds or replaces a Hermes `AppInstance`. |
 | `POST` | `/api/instances/paperclip` | Adds or replaces a Paperclip `AppInstance`. |
 | `POST` | `/api/instances/kubeopencode` | Adds or replaces a KubeOpenCode `AppInstance`. |
+| `GET` | `/api/models` | Returns model catalog entries, `ModelActivation` resources, model presets, AnythingLLM status, and VRAM summary. |
+| `POST` | `/api/models/local` | Adds or replaces a local KubeAI-backed `ModelActivation`. |
+| `POST` | `/api/models/external` | Adds or replaces an external LiteLLM provider `ModelActivation`; UI-entered API keys are stored as Secrets. |
+| `DELETE` | `/api/models/{name}` | Deletes the `ModelActivation` and a Dashboard-created provider Secret when present. |
 | `GET` | `/api/status` | Returns Appliance, Flux, Pod, Service, and Ingress status summaries. |
 | `GET` | `/api/events` | Returns core and `events.k8s.io` event summaries. |
 
@@ -131,6 +138,46 @@ Content-Type: application/json
 }
 ```
 
+Add a local preset model:
+
+```http
+POST /api/models/local
+Content-Type: application/json
+
+{
+  "name": "qwen352bvlembedding",
+  "enabled": true,
+  "targetNamespace": "ai",
+  "local": {
+    "preset": "qwen352bvlembedding",
+    "vram": "5Gi"
+  }
+}
+```
+
+Add an external provider model:
+
+```http
+POST /api/models/external
+Content-Type: application/json
+
+{
+  "name": "example-openai-gpt-4o-mini",
+  "enabled": true,
+  "targetNamespace": "ai",
+  "external": {
+    "model": "openai/gpt-4o-mini",
+    "apiBase": "https://api.openai.com/v1",
+    "modelType": "chat",
+    "contextWindow": 128000,
+    "apiKeySecretRef": {
+      "name": "external-openai-api-key",
+      "key": "api-key"
+    }
+  }
+}
+```
+
 ## RBAC
 
 The dashboard ServiceAccount is `dashboard/ai-appliance-dashboard`. Its
@@ -139,6 +186,11 @@ ClusterRole is intentionally limited:
 - `get`, `list`, `watch`, `create`, `patch`, `update` on
   `moduleactivations.appliance.magicstick.dev` and
   `appinstances.appliance.magicstick.dev`
+- `get`, `list`, `watch`, `create`, `patch`, `update`, `delete` on
+  `modelactivations.appliance.magicstick.dev`
+- namespaced `get`, `create`, `patch`, `update`, `delete` on Secrets in
+  namespace `ai` for Dashboard-created provider credentials
+- `get` on the DCGM exporter service proxy for live VRAM metrics
 - `get`, `list`, `watch` on `appliances.appliance.magicstick.dev`
 - `get`, `list`, `watch` on Flux Kustomizations
 - `get`, `list`, `watch` on Pods, Services, Ingresses, ConfigMaps, and Events
@@ -153,7 +205,11 @@ The dashboard displays:
 - `Appliance.status.phase`
 - `Appliance.status.modules`
 - `Appliance.status.instances`
+- `Appliance.status.models`
 - `Appliance.status.conditions`
+- model-catalog `catalog.json`
+- `ModelActivation.status`
+- DCGM framebuffer memory metrics when available
 - Flux Kustomization `Ready` conditions
 - Pod phase summaries
 - service and ingress discovery data

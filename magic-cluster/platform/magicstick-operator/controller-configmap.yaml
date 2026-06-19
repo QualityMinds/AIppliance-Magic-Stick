@@ -24,6 +24,8 @@ data:
     APPLIANCE_NAME = os.environ.get("APPLIANCE_NAME", "local")
     CATALOG_NAMESPACE = os.environ.get("MODULE_CATALOG_NAMESPACE", "ai-system")
     CATALOG_NAME = os.environ.get("MODULE_CATALOG_NAME", "magicstick-module-catalog")
+    MODEL_PRESETS_NAMESPACE = os.environ.get("MODEL_PRESETS_NAMESPACE", "ai-system")
+    MODEL_PRESETS_NAME = os.environ.get("MODEL_PRESETS_NAME", "magicstick-model-presets")
     FLUX_NAMESPACE = os.environ.get("FLUX_NAMESPACE", "flux-system")
     REQUEUE_SECONDS = int(os.environ.get("REQUEUE_SECONDS", "20"))
     KUBE_API = os.environ.get("KUBERNETES_SERVICE_URL", "https://kubernetes.default.svc").rstrip("/")
@@ -31,11 +33,14 @@ data:
     SA_CA_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
     FIELD_MANAGER = "magicstick-operator"
     MODULE_FINALIZER = "appliance.magicstick.dev/module-cleanup"
+    MODEL_FINALIZER = "appliance.magicstick.dev/model-cleanup"
 
     PLURALS = {
         ("appliance.magicstick.dev", "ModuleActivation"): "moduleactivations",
         ("appliance.magicstick.dev", "AppInstance"): "appinstances",
+        ("appliance.magicstick.dev", "ModelActivation"): "modelactivations",
         ("kustomize.toolkit.fluxcd.io", "Kustomization"): "kustomizations",
+        ("kubeai.org", "Model"): "models",
         ("openclaw.rocks", "OpenClawInstance"): "openclawinstances",
         ("hermes.agent", "HermesInstance"): "hermesinstances",
         ("paperclip.inc", "Instance"): "instances",
@@ -54,6 +59,9 @@ data:
         "hermesOperator": "hermes-operator",
         "paperclipOperator": "paperclip-operator",
     }
+
+    LOCAL_MODEL_MODULES = ["gpu", "kubeai", "litellm", "model-catalog"]
+    EXTERNAL_MODEL_MODULES = ["litellm", "model-catalog"]
 
     SSL_CONTEXT = ssl.create_default_context(cafile=SA_CA_PATH)
 
@@ -183,6 +191,66 @@ data:
         return json.loads(raw)
 
 
+    def load_model_presets():
+        try:
+            configmap = get_json(f"/api/v1/namespaces/{MODEL_PRESETS_NAMESPACE}/configmaps/{MODEL_PRESETS_NAME}")
+        except urllib.error.HTTPError as error:
+            if error.code == 404:
+                return {}
+            raise
+        raw = (configmap.get("data") or {}).get("presets.json", "{\"presets\":{}}")
+        return json.loads(raw).get("presets") or {}
+
+
+    def positive_int(value):
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, int) and value > 0:
+            return value
+        if isinstance(value, str) and value.strip().isdigit():
+            parsed = int(value.strip())
+            return parsed if parsed > 0 else None
+        return None
+
+
+    def parse_mib(value):
+        if value is None or value == "":
+            return None
+        if isinstance(value, int):
+            return value if value > 0 else None
+        raw = str(value).strip()
+        parsed = positive_int(raw)
+        if parsed:
+            return parsed
+        number = ""
+        unit = ""
+        for char in raw:
+            if char.isdigit() or char == ".":
+                number += char
+            else:
+                unit += char
+        if not number:
+            return None
+        unit = unit.strip().lower()
+        factors = {"m": 1, "mb": 1, "mi": 1, "mib": 1, "g": 1024, "gb": 1024, "gi": 1024, "gib": 1024}
+        if unit not in factors:
+            return None
+        return int(float(number) * factors[unit])
+
+
+    def model_catalog_models(namespace):
+        configmap = get_core_resource("v1", "configmaps", namespace, "ai-model-catalog")
+        raw = ((configmap or {}).get("data") or {}).get("catalog.json", "{}")
+        try:
+            return (json.loads(raw).get("models") or [])
+        except Exception:
+            return []
+
+
+    def catalog_contains_model(namespace, model_name):
+        return any(model.get("id") == model_name or model.get("name") == model_name for model in model_catalog_models(namespace))
+
+
     def canonical_module(name):
         return MODULE_ALIASES.get(name, name)
 
@@ -223,6 +291,30 @@ data:
 
     def app_instances():
         return list_items(f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/appinstances")
+
+
+    def model_activations():
+        return list_items(f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/modelactivations")
+
+
+    def model_activation_path(activation):
+        metadata = activation.get("metadata") or {}
+        return f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{metadata.get('namespace')}/modelactivations/{metadata.get('name')}"
+
+
+    def ensure_model_finalizer(activation):
+        metadata = activation.get("metadata") or {}
+        finalizers = list(metadata.get("finalizers") or [])
+        if MODEL_FINALIZER in finalizers or metadata.get("deletionTimestamp"):
+            return
+        finalizers.append(MODEL_FINALIZER)
+        patch_json(model_activation_path(activation), {"metadata": {"finalizers": finalizers}})
+
+
+    def remove_model_finalizer(activation):
+        metadata = activation.get("metadata") or {}
+        finalizers = [item for item in (metadata.get("finalizers") or []) if item != MODEL_FINALIZER]
+        patch_json(model_activation_path(activation), {"metadata": {"finalizers": finalizers}})
 
 
     def get_module_activation(module):
@@ -456,6 +548,20 @@ data:
         }})
 
 
+    def patch_model_status(activation, phase, reason, message, model_ref="", catalog_id="", vram_mi=0, generation=0):
+        metadata = activation.get("metadata") or {}
+        path = f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{metadata.get('namespace')}/modelactivations/{metadata.get('name')}/status"
+        patch_json(path, {"status": {
+            "observedGeneration": generation,
+            "phase": phase,
+            "modelRef": model_ref,
+            "catalogId": catalog_id,
+            "vramRequiredMi": int(vram_mi or 0),
+            "message": message,
+            "conditions": [condition("True" if phase in ("Ready", "Disabled") else "False", reason, message, generation)],
+        }})
+
+
     def module_ready(module, catalog):
         if module in STATIC_DEPENDENCIES:
             name = STATIC_DEPENDENCIES[module]
@@ -466,6 +572,167 @@ data:
             return False
         kustomization = get_resource("kustomize.toolkit.fluxcd.io", "v1", "kustomizations", FLUX_NAMESPACE, name)
         return ready_condition(kustomization or {}).get("status") == "True"
+
+
+    def model_required_modules(model_type):
+        return LOCAL_MODEL_MODULES if model_type == "local" else EXTERNAL_MODEL_MODULES
+
+
+    def merged_local_model(activation, presets):
+        metadata = activation.get("metadata") or {}
+        spec = activation.get("spec") or {}
+        local = dict(spec.get("local") or {})
+        preset_name = local.get("preset") or metadata.get("name")
+        preset = dict(presets.get(preset_name) or {})
+        merged = dict(preset)
+        merged.update(local)
+        if not merged.get("features"):
+            model_type = merged.get("modelType") or merged.get("type") or "chat"
+            merged["features"] = ["TextEmbedding"] if model_type == "embedding" else ["TextGeneration"]
+        if not merged.get("engine"):
+            merged["engine"] = "VLLM"
+        if not merged.get("resourceProfile"):
+            merged["resourceProfile"] = "magicstick-nvidia-gpu:1"
+        return merged
+
+
+    def local_model_vram_mi(local):
+        return positive_int(local.get("vramMi")) or parse_mib(local.get("vram")) or 0
+
+
+    def non_negative_int(value, default):
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return default
+        if isinstance(value, int) and value >= 0:
+            return value
+        if isinstance(value, str) and value.strip().isdigit():
+            return int(value.strip())
+        return default
+
+
+    def kubeai_model_resource(activation, presets):
+        metadata = activation.get("metadata") or {}
+        spec = activation.get("spec") or {}
+        name = metadata.get("name")
+        namespace = spec.get("targetNamespace") or "ai"
+        local = merged_local_model(activation, presets)
+        url = (local.get("url") or "").strip()
+        vram_mi = local_model_vram_mi(local)
+        if not url:
+            raise ValueError("local.url is required for local ModelActivation")
+        if not vram_mi:
+            raise ValueError("local.vram or local.vramMi is required for local ModelActivation")
+        annotations = {}
+        context_window = positive_int(local.get("contextWindow") or local.get("context_window"))
+        if context_window:
+            annotations["ai-appliance.io/context-window"] = str(context_window)
+        env = dict(local.get("env") or {})
+        env["MAGICSTICK_VLLM_VRAM_LIMIT"] = local.get("vram") or str(vram_mi)
+        if local.get("activeThreadPercentage"):
+            env["MAGICSTICK_VLLM_ACTIVE_THREAD_PERCENTAGE"] = str(local.get("activeThreadPercentage"))
+        elif "MAGICSTICK_VLLM_ACTIVE_THREAD_PERCENTAGE" not in env:
+            env["MAGICSTICK_VLLM_ACTIVE_THREAD_PERCENTAGE"] = "100"
+        return {
+            "apiVersion": "kubeai.org/v1",
+            "kind": "Model",
+            "metadata": {
+                "name": name,
+                "namespace": namespace,
+                "labels": {
+                    "app.kubernetes.io/managed-by": "magicstick-operator",
+                    "appliance.magicstick.dev/modelactivation": name,
+                },
+                "annotations": annotations,
+            },
+            "spec": {
+                "features": local.get("features") or ["TextGeneration"],
+                "url": url,
+                "engine": local.get("engine") or "VLLM",
+                "resourceProfile": local.get("resourceProfile") or "magicstick-nvidia-gpu:1",
+                "minReplicas": non_negative_int(local.get("minReplicas"), 1),
+                "maxReplicas": non_negative_int(local.get("maxReplicas"), 1),
+                "env": env,
+                "args": [str(arg) for arg in (local.get("args") or [])],
+            },
+        }, vram_mi
+
+
+    def delete_kubeai_model(name, namespace):
+        return delete_resource("kubeai.org", "v1", "models", namespace, name)
+
+
+    def reconcile_model_activation(activation, catalog, presets):
+        metadata = activation.get("metadata") or {}
+        spec = activation.get("spec") or {}
+        generation = int(metadata.get("generation") or 0)
+        name = metadata.get("name")
+        model_type = spec.get("type") or "local"
+        namespace = spec.get("targetNamespace") or "ai"
+        model_ref = ("kubeai/" + name) if model_type == "local" else ("litellm/" + name)
+
+        if metadata.get("deletionTimestamp"):
+            if model_type == "local":
+                if get_resource("kubeai.org", "v1", "models", namespace, name):
+                    delete_kubeai_model(name, namespace)
+                    patch_model_status(activation, "Removing", "Removing", "ModelActivation is being deleted; KubeAI Model is being removed.", model_ref, name, generation=generation)
+                    return "Removing", {"phase": "Removing", "modelRef": model_ref, "message": "KubeAI Model is being removed."}
+            remove_model_finalizer(activation)
+            return "Disabled", {"phase": "Disabled", "modelRef": model_ref, "message": "ModelActivation deleted."}
+
+        ensure_model_finalizer(activation)
+        enabled = spec.get("enabled", True) is not False
+        vram_mi = 0
+        if model_type == "local":
+            try:
+                vram_mi = kubeai_model_resource(activation, presets)[1]
+            except ValueError:
+                vram_mi = 0
+        if not enabled:
+            if model_type == "local" and get_resource("kubeai.org", "v1", "models", namespace, name):
+                delete_kubeai_model(name, namespace)
+                patch_model_status(activation, "Removing", "Removing", "ModelActivation is disabled; KubeAI Model is being removed.", model_ref, name, vram_mi, generation)
+                return "Removing", {"phase": "Removing", "modelRef": model_ref, "vramRequiredMi": vram_mi, "message": "KubeAI Model is being removed."}
+            message = "ModelActivation is disabled."
+            patch_model_status(activation, "Disabled", "Disabled", message, model_ref, name, vram_mi, generation)
+            return "Disabled", {"phase": "Disabled", "modelRef": model_ref, "vramRequiredMi": vram_mi, "message": message}
+
+        if model_type not in ("local", "external"):
+            message = "Unsupported model type: " + str(model_type)
+            patch_model_status(activation, "Degraded", "UnsupportedType", message, model_ref, name, generation=generation)
+            return "Degraded", {"phase": "Degraded", "modelRef": model_ref, "message": message}
+
+        required_modules = model_required_modules(model_type)
+        for module in required_modules:
+            ensure_module_activation(module, auto=True)
+        missing_modules = [module for module in required_modules if not module_ready(module, catalog)]
+        if missing_modules:
+            message = "Waiting for required modules: " + ", ".join(missing_modules)
+            patch_model_status(activation, "WaitingForModules", "WaitingForModules", message, model_ref, name, vram_mi, generation)
+            return "WaitingForModules", {"phase": "WaitingForModules", "modelRef": model_ref, "vramRequiredMi": vram_mi, "message": message}
+
+        if model_type == "local":
+            if not crd_exists("models.kubeai.org"):
+                message = "Waiting for required CRDs: models.kubeai.org"
+                patch_model_status(activation, "WaitingForCRDs", "WaitingForCRDs", message, model_ref, name, vram_mi, generation)
+                return "WaitingForCRDs", {"phase": "WaitingForCRDs", "modelRef": model_ref, "vramRequiredMi": vram_mi, "message": message}
+            try:
+                resource, vram_mi = kubeai_model_resource(activation, presets)
+            except ValueError as error:
+                message = str(error)
+                patch_model_status(activation, "Degraded", "InvalidModelSpec", message, model_ref, name, generation=generation)
+                return "Degraded", {"phase": "Degraded", "modelRef": model_ref, "message": message}
+            apply_resource(resource)
+
+        if catalog_contains_model(namespace, name):
+            message = "Model is available in the generated model catalog."
+            patch_model_status(activation, "Ready", "CatalogReady", message, model_ref, name, vram_mi, generation)
+            return "Ready", {"phase": "Ready", "modelRef": model_ref, "catalogId": name, "vramRequiredMi": vram_mi, "message": message}
+
+        message = "Waiting for model-catalog to publish the model."
+        patch_model_status(activation, "Reconciling", "WaitingForCatalog", message, model_ref, name, vram_mi, generation)
+        return "Reconciling", {"phase": "Reconciling", "modelRef": model_ref, "catalogId": name, "vramRequiredMi": vram_mi, "message": message}
 
 
     def build_openclaw(instance):
@@ -717,37 +984,50 @@ data:
         return phase, target
 
 
-    def patch_appliance_status(module_statuses, instance_statuses):
+    def patch_appliance_status(module_statuses, instance_statuses, model_statuses):
         current = appliance()
         if not current:
             return
         degraded = any(item.get("phase") == "Degraded" for item in module_statuses.values())
         waiting = any(item.get("phase") not in ("Ready", "Suspended", "Disabled") for item in module_statuses.values())
         waiting = waiting or any(item.get("phase") not in ("Ready", "Suspended") for group in instance_statuses.values() for item in group.values())
+        degraded = degraded or any(item.get("phase") == "Degraded" for item in model_statuses.values())
+        waiting = waiting or any(item.get("phase") not in ("Ready", "Disabled") for item in model_statuses.values())
         phase = "Degraded" if degraded else ("Reconciling" if waiting else "Ready")
-        message = "Runtime CRs reconciled through ModuleActivation and AppInstance resources."
+        message = "Runtime CRs reconciled through ModuleActivation, AppInstance, and ModelActivation resources."
         path = f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/appliances/{APPLIANCE_NAME}/status"
         patch_json(path, {"status": {
             "observedGeneration": int((current.get("metadata") or {}).get("generation") or 0),
             "phase": phase,
             "modules": module_statuses,
             "instances": instance_statuses,
+            "models": model_statuses,
             "conditions": [condition("True" if phase == "Ready" else "False", phase, message)],
         }})
 
 
     def reconcile_once():
         catalog = load_catalog()
+        presets = load_model_presets()
         current = appliance() or {}
         source = ((current.get("spec") or {}).get("source") or {"kind": "GitRepository", "name": "flux-system", "namespace": FLUX_NAMESPACE})
         activations = module_activations()
         instances = app_instances()
+        models = model_activations()
 
         for instance in instances:
             mapping = (catalog.get("instanceMappings") or {}).get((instance.get("spec") or {}).get("type")) or {}
             if ((instance.get("spec") or {}).get("enabled", True) is False):
                 continue
             for module in mapping.get("requiredModules") or []:
+                ensure_module_activation(module, auto=True)
+        for model in models:
+            spec = model.get("spec") or {}
+            if spec.get("enabled", True) is False:
+                continue
+            if (model.get("metadata") or {}).get("deletionTimestamp"):
+                continue
+            for module in model_required_modules(spec.get("type") or "local"):
                 ensure_module_activation(module, auto=True)
         for activation in list(activations.values()):
             if ((activation.get("spec") or {}).get("enabled", True) is False):
@@ -780,8 +1060,14 @@ data:
                 "message": ((instance.get("status") or {}).get("message") or ""),
             }
 
-        patch_appliance_status(module_statuses, instance_statuses)
-        print(f"reconciled modules={len(module_statuses)} instances={len(instances)}", flush=True)
+        model_statuses = {}
+        for model in models:
+            name = (model.get("metadata") or {}).get("name")
+            phase, status = reconcile_model_activation(model, catalog, presets)
+            model_statuses[name] = status
+
+        patch_appliance_status(module_statuses, instance_statuses, model_statuses)
+        print(f"reconciled modules={len(module_statuses)} instances={len(instances)} models={len(models)}", flush=True)
 
 
     def main():

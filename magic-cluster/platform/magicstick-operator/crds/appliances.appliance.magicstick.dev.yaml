@@ -278,6 +278,21 @@ spec:
                           type: string
                         message:
                           type: string
+                models:
+                  type: object
+                  additionalProperties:
+                    type: object
+                    properties:
+                      phase:
+                        type: string
+                      modelRef:
+                        type: string
+                      catalogId:
+                        type: string
+                      vramRequiredMi:
+                        type: integer
+                      message:
+                        type: string
                 conditions:
                   type: array
                   items:

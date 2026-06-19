@@ -63,3 +63,36 @@ subjects:
   - kind: ServiceAccount
     name: ai-model-catalog-controller
     namespace: ai
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ai-model-catalog-controller-modelactivations
+  namespace: ai-system
+  labels:
+    app: ai-model-catalog-controller
+rules:
+  - apiGroups:
+      - appliance.magicstick.dev
+    resources:
+      - modelactivations
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ai-model-catalog-controller-modelactivations
+  namespace: ai-system
+  labels:
+    app: ai-model-catalog-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ai-model-catalog-controller-modelactivations
+subjects:
+  - kind: ServiceAccount
+    name: ai-model-catalog-controller
+    namespace: ai

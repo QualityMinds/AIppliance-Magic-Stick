@@ -9,6 +9,8 @@ ConfigMap for apps that need a stable source of model metadata.
 
 - Watch KubeAI `Model` resources in the `ai` namespace.
 - Read optional external model definitions from `ConfigMap/ai-external-models`.
+- Read external runtime model requests from `ModelActivation` resources in
+  namespace `ai-system`.
 - Create, update, and remove AI Appliance managed models in LiteLLM.
 - Publish generated catalog files in `ConfigMap/ai-model-catalog`.
 - Update KubeOpenCode `AgentTemplate` resources when available.
@@ -29,17 +31,18 @@ public `magic-cluster/apps/ai` base.
 
 ## Reconciliation Flow
 
-1. The controller lists KubeAI `Model` resources.
+1. The controller lists KubeAI `Model` resources when the KubeAI CRD exists.
 2. It reads `ai-external-models.data["models.json"]` when present.
-3. It builds the desired LiteLLM model set and marks those models with
+3. It reads enabled external `ModelActivation` resources when present.
+4. It builds the desired LiteLLM model set and marks those models with
    `ai_appliance_managed=true`.
-4. It calls LiteLLM `/model/new` or `/model/update` for desired models.
-5. It deletes stale LiteLLM models only when they were previously marked as AI
+5. It calls LiteLLM `/model/new` or `/model/update` for desired models.
+6. It deletes stale LiteLLM models only when they were previously marked as AI
    Appliance managed.
-6. It writes generated catalog data to `ConfigMap/ai-model-catalog`.
-7. It updates configured KubeOpenCode AgentTemplates with the generated chat
+7. It writes generated catalog data to `ConfigMap/ai-model-catalog`.
+8. It updates configured KubeOpenCode AgentTemplates with the generated chat
    model list.
-8. If the catalog hash changed, it deletes known consumer pods so their owning
+9. If the catalog hash changed, it deletes known consumer pods so their owning
    controllers recreate them with the new catalog.
 
 ## KubeAI Models
@@ -68,6 +71,10 @@ or `--max-model-len=<value>` in `spec.args`.
 External models are configured through `ConfigMap/ai-external-models` in the
 `ai` namespace. The `models.json` value can be either an object with a `models`
 array or a raw array.
+
+Runtime external models can also be configured through
+`ModelActivation` resources in `ai-system`. This is the Dashboard write path
+and avoids patching the Flux-owned `ai-external-models` ConfigMap.
 
 Use `apiKeySecretRef` for real provider credentials. Do not commit direct
 `apiKey` values to this public repository.
@@ -108,6 +115,28 @@ data:
         }
       ]
     }
+```
+
+Dashboard-created external model:
+
+```yaml
+apiVersion: appliance.magicstick.dev/v1alpha1
+kind: ModelActivation
+metadata:
+  name: example-openai-gpt-4o-mini
+  namespace: ai-system
+spec:
+  type: external
+  enabled: true
+  targetNamespace: ai
+  external:
+    model: openai/gpt-4o-mini
+    apiBase: https://api.openai.com/v1
+    modelType: chat
+    contextWindow: 128000
+    apiKeySecretRef:
+      name: external-openai-api-key
+      key: api-key
 ```
 
 Supported external model fields:

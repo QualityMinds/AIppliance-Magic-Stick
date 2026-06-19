@@ -1,0 +1,205 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: modelactivations.appliance.magicstick.dev
+  labels:
+    app.kubernetes.io/name: magicstick-operator
+    app.kubernetes.io/component: crd
+spec:
+  group: appliance.magicstick.dev
+  names:
+    kind: ModelActivation
+    listKind: ModelActivationList
+    plural: modelactivations
+    singular: modelactivation
+    shortNames:
+      - msmodel
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Type
+          type: string
+          jsonPath: .spec.type
+        - name: Enabled
+          type: boolean
+          jsonPath: .spec.enabled
+        - name: Target
+          type: string
+          jsonPath: .spec.targetNamespace
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Model
+          type: string
+          jsonPath: .status.modelRef
+        - name: VRAM
+          type: integer
+          jsonPath: .status.vramRequiredMi
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: ModelActivation requests one local or external model through the Magic Stick runtime controllers.
+          required:
+            - spec
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required:
+                - type
+              properties:
+                enabled:
+                  type: boolean
+                  default: true
+                type:
+                  type: string
+                  enum:
+                    - local
+                    - external
+                targetNamespace:
+                  type: string
+                  default: ai
+                applianceRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                      default: local
+                    namespace:
+                      type: string
+                      default: ai-system
+                local:
+                  type: object
+                  description: Local KubeAI/vLLM model settings.
+                  x-kubernetes-preserve-unknown-fields: true
+                  properties:
+                    preset:
+                      type: string
+                    url:
+                      type: string
+                    modelType:
+                      type: string
+                    features:
+                      type: array
+                      items:
+                        type: string
+                    engine:
+                      type: string
+                      default: VLLM
+                    resourceProfile:
+                      type: string
+                      default: magicstick-nvidia-gpu:1
+                    vram:
+                      type: string
+                    vramMi:
+                      type: integer
+                      minimum: 1
+                    contextWindow:
+                      type: integer
+                      minimum: 1
+                    args:
+                      type: array
+                      items:
+                        type: string
+                    minReplicas:
+                      type: integer
+                      minimum: 0
+                    maxReplicas:
+                      type: integer
+                      minimum: 0
+                    env:
+                      type: object
+                      additionalProperties:
+                        type: string
+                external:
+                  type: object
+                  description: External LiteLLM provider model settings.
+                  x-kubernetes-preserve-unknown-fields: true
+                  properties:
+                    model:
+                      type: string
+                    apiBase:
+                      type: string
+                    modelType:
+                      type: string
+                    apiKeySecretRef:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        key:
+                          type: string
+                    apiVersion:
+                      type: string
+                    customLlmProvider:
+                      type: string
+                    tpm:
+                      type: integer
+                      minimum: 1
+                    rpm:
+                      type: integer
+                      minimum: 1
+                    contextWindow:
+                      type: integer
+                      minimum: 1
+            status:
+              type: object
+              properties:
+                observedGeneration:
+                  type: integer
+                  format: int64
+                  minimum: 0
+                phase:
+                  type: string
+                modelRef:
+                  type: string
+                catalogId:
+                  type: string
+                vramRequiredMi:
+                  type: integer
+                  minimum: 0
+                message:
+                  type: string
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                      - lastTransitionTime
+                      - reason
+                      - message
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum:
+                          - "True"
+                          - "False"
+                          - Unknown
+                      observedGeneration:
+                        type: integer
+                        format: int64
+                        minimum: 0
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string

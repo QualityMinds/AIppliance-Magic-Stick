@@ -9,6 +9,7 @@ metadata:
 data:
   server.py: |
     #!/usr/bin/env python3
+    import base64
     import json
     import os
     import re
@@ -24,6 +25,13 @@ data:
     APPLIANCE_NAME = os.environ.get("APPLIANCE_NAME", "local")
     MODULE_CATALOG_NAMESPACE = os.environ.get("MODULE_CATALOG_NAMESPACE", "ai-system")
     MODULE_CATALOG_NAME = os.environ.get("MODULE_CATALOG_NAME", "magicstick-module-catalog")
+    MODEL_PRESETS_NAMESPACE = os.environ.get("MODEL_PRESETS_NAMESPACE", "ai-system")
+    MODEL_PRESETS_NAME = os.environ.get("MODEL_PRESETS_NAME", "magicstick-model-presets")
+    MODEL_TARGET_NAMESPACE = os.environ.get("MODEL_TARGET_NAMESPACE", "ai")
+    MODEL_CATALOG_NAME = os.environ.get("MODEL_CATALOG_NAME", "ai-model-catalog")
+    DCGM_NAMESPACE = os.environ.get("DCGM_NAMESPACE", "gpu-operator")
+    DCGM_SERVICE = os.environ.get("DCGM_SERVICE", "nvidia-dcgm-exporter")
+    DCGM_PORT = os.environ.get("DCGM_PORT", "9400")
     KUBE_API = os.environ.get("KUBERNETES_SERVICE_URL", "https://kubernetes.default.svc").rstrip("/")
     SA_TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
     SA_CA_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
@@ -52,6 +60,7 @@ data:
 
     STATIC_MODULES = {"basis", "dashboard"}
     INSTANCE_TYPES = {"openclaw", "hermes", "paperclip", "kubeopencode"}
+    MODEL_SECRET_PREFIX = "ai-model-provider-"
     SSL_CONTEXT = ssl.create_default_context(cafile=SA_CA_PATH)
 
 
@@ -73,6 +82,28 @@ data:
         with urllib.request.urlopen(request, timeout=20, context=SSL_CONTEXT) as response:
             payload = response.read().decode("utf-8")
             return json.loads(payload) if payload else {}
+
+
+    def request_text(method, path):
+        request = urllib.request.Request(
+            KUBE_API + path,
+            headers={
+                "Accept": "text/plain",
+                "Authorization": "Bearer " + token(),
+            },
+            method=method,
+        )
+        with urllib.request.urlopen(request, timeout=20, context=SSL_CONTEXT) as response:
+            return response.read().decode("utf-8", errors="replace")
+
+
+    def delete_json(path):
+        try:
+            return request_json("DELETE", path)
+        except urllib.error.HTTPError as error:
+            if error.code == 404:
+                return {}
+            raise
 
 
     def appliance_path():
@@ -141,6 +172,29 @@ data:
         return list_resource(f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/appinstances")
 
 
+    def model_activations():
+        return list_resource(f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/modelactivations")
+
+
+    def model_activation(name):
+        return get_resource(f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/modelactivations/{name}")
+
+
+    def model_presets():
+        configmap = get_resource(f"/api/v1/namespaces/{MODEL_PRESETS_NAMESPACE}/configmaps/{MODEL_PRESETS_NAME}") or {}
+        raw = (configmap.get("data") or {}).get("presets.json", "{\"presets\":{}}")
+        return json.loads(raw).get("presets") or {}
+
+
+    def generated_model_catalog():
+        configmap = get_resource(f"/api/v1/namespaces/{MODEL_TARGET_NAMESPACE}/configmaps/{MODEL_CATALOG_NAME}") or {}
+        raw = (configmap.get("data") or {}).get("catalog.json", "{\"models\":[]}")
+        try:
+            return json.loads(raw)
+        except Exception:
+            return {"models": []}
+
+
     def module_activation_payload(module, enabled):
         name = module
         return {
@@ -201,6 +255,110 @@ data:
         }
 
 
+    def positive_int(value):
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, int) and value > 0:
+            return value
+        if isinstance(value, str) and value.strip().isdigit():
+            parsed = int(value.strip())
+            return parsed if parsed > 0 else None
+        return None
+
+
+    def parse_mib(value):
+        if value is None or value == "":
+            return None
+        if isinstance(value, int):
+            return value if value > 0 else None
+        raw = str(value).strip()
+        parsed = positive_int(raw)
+        if parsed:
+            return parsed
+        match = re.fullmatch(r"(\d+(?:\.\d+)?)\s*([A-Za-z]+)", raw)
+        if not match:
+            return None
+        factors = {"m": 1, "mb": 1, "mi": 1, "mib": 1, "g": 1024, "gb": 1024, "gi": 1024, "gib": 1024}
+        unit = match.group(2).lower()
+        if unit not in factors:
+            return None
+        return int(float(match.group(1)) * factors[unit])
+
+
+    def provider_secret_name(model_name):
+        return MODEL_SECRET_PREFIX + model_name
+
+
+    def create_provider_secret(model_name, api_key):
+        if not api_key:
+            return None
+        secret_name = provider_secret_name(model_name)
+        secret = {
+            "apiVersion": "v1",
+            "kind": "Secret",
+            "metadata": {
+                "name": secret_name,
+                "namespace": MODEL_TARGET_NAMESPACE,
+                "labels": {
+                    "app.kubernetes.io/managed-by": "ai-appliance-dashboard",
+                    "appliance.magicstick.dev/modelactivation": model_name,
+                },
+            },
+            "type": "Opaque",
+            "data": {
+                "api-key": base64.b64encode(str(api_key).encode("utf-8")).decode("ascii"),
+            },
+        }
+        collection = f"/api/v1/namespaces/{MODEL_TARGET_NAMESPACE}/secrets"
+        item = collection + "/" + secret_name
+        create_or_patch(collection, item, secret, {"metadata": secret["metadata"], "type": "Opaque", "data": secret["data"]})
+        return {"name": secret_name, "key": "api-key"}
+
+
+    def model_activation_payload(model_type, payload):
+        name = require_name(payload)
+        target_namespace = str(payload.get("namespace") or payload.get("targetNamespace") or MODEL_TARGET_NAMESPACE)
+        spec = {
+            "type": model_type,
+            "enabled": payload.get("enabled", True) is not False,
+            "targetNamespace": target_namespace,
+            "applianceRef": {
+                "name": APPLIANCE_NAME,
+                "namespace": APPLIANCE_NAMESPACE,
+            },
+        }
+        labels = {
+            "app.kubernetes.io/managed-by": "ai-appliance-dashboard",
+            "appliance.magicstick.dev/model-type": model_type,
+        }
+        if model_type == "local":
+            local = dict(payload.get("local") or {})
+            for key in ("preset", "url", "modelType", "features", "engine", "resourceProfile", "vram", "vramMi", "contextWindow", "args", "minReplicas", "maxReplicas", "env"):
+                if key in payload and key not in local:
+                    local[key] = payload[key]
+            spec["local"] = local
+        else:
+            external = dict(payload.get("external") or {})
+            for key in ("model", "apiBase", "modelType", "apiVersion", "customLlmProvider", "tpm", "rpm", "contextWindow"):
+                if key in payload and key not in external:
+                    external[key] = payload[key]
+            if payload.get("apiKey"):
+                external["apiKeySecretRef"] = create_provider_secret(name, payload.get("apiKey"))
+            elif payload.get("apiKeySecretRef"):
+                external["apiKeySecretRef"] = payload.get("apiKeySecretRef")
+            spec["external"] = external
+        return {
+            "apiVersion": f"{APPLIANCE_GROUP}/{APPLIANCE_VERSION}",
+            "kind": "ModelActivation",
+            "metadata": {
+                "name": name,
+                "namespace": APPLIANCE_NAMESPACE,
+                "labels": labels,
+            },
+            "spec": spec,
+        }
+
+
     def summarized_modules():
         configmap = catalog_configmap()
         catalog_json = json.loads(configmap.get("data", {}).get("modules.json", "{\"modules\":{}}"))
@@ -239,6 +397,121 @@ data:
                 "status": instance.get("status") or {},
             })
         return {"instances": grouped, "items": app_instances()}
+
+
+    def dcgm_labels(raw):
+        labels = {}
+        for part in raw.split(","):
+            if "=" not in part:
+                continue
+            key, value = part.split("=", 1)
+            labels[key.strip()] = value.strip().strip('"')
+        return labels
+
+
+    def parse_dcgm_metrics(text):
+        gpus = {}
+        for line in text.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            match = re.match(r"^(DCGM_FI_DEV_FB_FREE|DCGM_FI_DEV_FB_USED)\{([^}]*)\}\s+([0-9.]+)", line)
+            if not match:
+                continue
+            metric, raw_labels, raw_value = match.groups()
+            labels = dcgm_labels(raw_labels)
+            key = labels.get("UUID") or labels.get("gpu") or labels.get("device") or "gpu"
+            gpu = gpus.setdefault(key, {
+                "id": labels.get("gpu") or key,
+                "uuid": labels.get("UUID") or "",
+                "device": labels.get("device") or "",
+                "modelName": labels.get("modelName") or "",
+                "hostname": labels.get("Hostname") or "",
+                "freeMi": 0,
+                "usedMi": 0,
+                "totalMi": 0,
+            })
+            value = int(float(raw_value))
+            if metric == "DCGM_FI_DEV_FB_FREE":
+                gpu["freeMi"] = value
+            if metric == "DCGM_FI_DEV_FB_USED":
+                gpu["usedMi"] = value
+        for gpu in gpus.values():
+            gpu["totalMi"] = int(gpu.get("freeMi", 0)) + int(gpu.get("usedMi", 0))
+        return sorted(gpus.values(), key=lambda item: str(item.get("id", "")))
+
+
+    def vram_summary(activations):
+        planned = 0
+        for activation in activations:
+            spec = activation.get("spec") or {}
+            if spec.get("type") != "local" or spec.get("enabled", True) is False:
+                continue
+            status_vram = positive_int((activation.get("status") or {}).get("vramRequiredMi"))
+            local = spec.get("local") or {}
+            planned += status_vram or positive_int(local.get("vramMi")) or parse_mib(local.get("vram")) or 0
+        try:
+            metrics = request_text("GET", f"/api/v1/namespaces/{DCGM_NAMESPACE}/services/{DCGM_SERVICE}:{DCGM_PORT}/proxy/metrics")
+            gpus = parse_dcgm_metrics(metrics)
+            free = sum(int(gpu.get("freeMi") or 0) for gpu in gpus)
+            used = sum(int(gpu.get("usedMi") or 0) for gpu in gpus)
+            total = sum(int(gpu.get("totalMi") or 0) for gpu in gpus)
+            return {
+                "available": True,
+                "gpus": gpus,
+                "freeMi": free,
+                "usedMi": used,
+                "totalMi": total,
+                "plannedMi": planned,
+                "plannedRemainingMi": max(0, free - planned),
+            }
+        except Exception as error:
+            return {
+                "available": False,
+                "error": str(error),
+                "gpus": [],
+                "freeMi": 0,
+                "usedMi": 0,
+                "totalMi": 0,
+                "plannedMi": planned,
+                "plannedRemainingMi": 0,
+            }
+
+
+    def module_state(modules_payload, name):
+        return ((modules_payload or {}).get("modules") or {}).get(name) or {}
+
+
+    def first_ingress_url(namespace, name):
+        ingress = get_resource(f"/apis/networking.k8s.io/v1/namespaces/{namespace}/ingresses/{name}")
+        if not ingress:
+            return ""
+        for rule in (ingress.get("spec") or {}).get("rules") or []:
+            host = rule.get("host")
+            if host:
+                return "http://" + host + "/"
+        return ""
+
+
+    def summarized_models():
+        activations = model_activations()
+        modules_payload = summarized_modules()
+        stack_names = ["gpu", "kubeai", "litellm", "model-catalog", "anything-llm"]
+        stack = {
+            name: module_state(modules_payload, name)
+            for name in stack_names
+        }
+        anything = dict(stack.get("anything-llm") or {})
+        anything["url"] = first_ingress_url(MODEL_TARGET_NAMESPACE, "anything-llm")
+        return {
+            "catalog": generated_model_catalog(),
+            "models": (generated_model_catalog().get("models") or []),
+            "activations": activations,
+            "presets": model_presets(),
+            "modules": stack,
+            "anythingLlm": anything,
+            "vram": vram_summary(activations),
+        }
 
 
     def status_payload():
@@ -324,6 +597,8 @@ data:
                     self.send_json(summarized_modules())
                 elif path == "/api/instances":
                     self.send_json(summarized_instances())
+                elif path == "/api/models":
+                    self.send_json(summarized_models())
                 elif path == "/api/status":
                     self.send_json(status_payload())
                 elif path == "/api/events":
@@ -372,6 +647,44 @@ data:
                     self.send_json(create_or_patch(collection, item, resource, {"spec": resource["spec"], "metadata": {"labels": resource["metadata"]["labels"]}}))
                     return
 
+                if len(parts) == 3 and parts[:2] == ["api", "models"] and parts[2] in {"local", "external"}:
+                    model_type = parts[2]
+                    resource = model_activation_payload(model_type, read_body(self))
+                    name = resource["metadata"]["name"]
+                    collection = f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/modelactivations"
+                    item = collection + "/" + name
+                    self.send_json(create_or_patch(collection, item, resource, {"spec": resource["spec"], "metadata": {"labels": resource["metadata"]["labels"]}}))
+                    return
+
+                self.send_error_json(404, "not found")
+            except urllib.error.HTTPError as error:
+                self.send_error_json(error.code, error.read().decode("utf-8", errors="replace"))
+            except Exception as error:
+                self.send_error_json(400, str(error))
+
+        def do_DELETE(self):
+            try:
+                path = self.route()
+                parts = path.strip("/").split("/")
+                if len(parts) == 3 and parts[:2] == ["api", "models"]:
+                    name = parts[2]
+                    if not DNS_LABEL.match(name):
+                        self.send_error_json(400, "name must be a DNS-1123 label")
+                        return
+                    activation = model_activation(name)
+                    if activation:
+                        spec = activation.get("spec") or {}
+                        external = spec.get("external") or {}
+                        ref = external.get("apiKeySecretRef") or {}
+                        secret_name = ref.get("name") or ""
+                        if secret_name.startswith(MODEL_SECRET_PREFIX):
+                            secret = get_resource(f"/api/v1/namespaces/{MODEL_TARGET_NAMESPACE}/secrets/{secret_name}")
+                            labels = ((secret or {}).get("metadata") or {}).get("labels") or {}
+                            if labels.get("app.kubernetes.io/managed-by") == "ai-appliance-dashboard" and labels.get("appliance.magicstick.dev/modelactivation") == name:
+                                delete_json(f"/api/v1/namespaces/{MODEL_TARGET_NAMESPACE}/secrets/{secret_name}")
+                    delete_json(f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/modelactivations/{name}")
+                    self.send_json({"deleted": name})
+                    return
                 self.send_error_json(404, "not found")
             except urllib.error.HTTPError as error:
                 self.send_error_json(error.code, error.read().decode("utf-8", errors="replace"))

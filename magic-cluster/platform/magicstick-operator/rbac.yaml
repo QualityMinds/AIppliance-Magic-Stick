@@ -25,6 +25,9 @@ rules:
       - appinstances
       - appinstances/status
       - appinstances/finalizers
+      - modelactivations
+      - modelactivations/status
+      - modelactivations/finalizers
     verbs:
       - get
       - list
@@ -32,6 +35,18 @@ rules:
       - create
       - update
       - patch
+  - apiGroups:
+      - kubeai.org
+    resources:
+      - models
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
   - apiGroups:
       - kustomize.toolkit.fluxcd.io
     resources:

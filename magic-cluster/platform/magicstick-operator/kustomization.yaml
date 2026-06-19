@@ -5,8 +5,10 @@ resources:
   - crds/appliances.appliance.magicstick.dev.yaml
   - crds/moduleactivations.appliance.magicstick.dev.yaml
   - crds/appinstances.appliance.magicstick.dev.yaml
+  - crds/modelactivations.appliance.magicstick.dev.yaml
   - rbac.yaml
   - module-catalog.yaml
+  - model-presets.yaml
   - controller-configmap.yaml
   - deployment.yaml
   - default-appliance.yaml

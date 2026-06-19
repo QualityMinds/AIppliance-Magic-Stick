@@ -1,9 +1,9 @@
 # Appliance CRD
 
 The `Appliance` custom resource is the Git-owned aggregate status surface for
-the local Magic Stick installation. Runtime module and instance requests are
-represented as separate `ModuleActivation` and `AppInstance` CRs so Flux does
-not overwrite dashboard actions.
+the local Magic Stick installation. Runtime module, instance, and model
+requests are represented as separate `ModuleActivation`, `AppInstance`, and
+`ModelActivation` CRs so Flux does not overwrite dashboard actions.
 
 The MVP installs the CRD and a default `Appliance/local` resource. The
 controller Deployment runs in-cluster and reconciles runtime CRs.
@@ -56,9 +56,10 @@ reports that in status. For example, an OpenClaw instance requires:
 - `litellm`
 - `model-catalog`
 
-The dashboard uses `ModuleActivation` and `AppInstance` as its only write
-surface. The Magic Stick Operator, Flux, and the specialized operators perform
-the actual reconciliation.
+The dashboard uses `ModuleActivation`, `AppInstance`, and `ModelActivation` as
+its only workload intent write surface. The Magic Stick Operator, Flux, the
+model-catalog controller, and the specialized operators perform the actual
+reconciliation.
 
 ## Runtime CRs
 
@@ -91,6 +92,40 @@ spec:
       host: openclaw.example.local
 ```
 
+```yaml
+apiVersion: appliance.magicstick.dev/v1alpha1
+kind: ModelActivation
+metadata:
+  name: qwen352bvlembedding
+  namespace: ai-system
+spec:
+  type: local
+  enabled: true
+  targetNamespace: ai
+  local:
+    preset: qwen352bvlembedding
+    vram: 5Gi
+```
+
+```yaml
+apiVersion: appliance.magicstick.dev/v1alpha1
+kind: ModelActivation
+metadata:
+  name: example-openai-gpt-4o-mini
+  namespace: ai-system
+spec:
+  type: external
+  enabled: true
+  targetNamespace: ai
+  external:
+    model: openai/gpt-4o-mini
+    apiBase: https://api.openai.com/v1
+    modelType: chat
+    apiKeySecretRef:
+      name: external-openai-api-key
+      key: api-key
+```
+
 ## Status
 
 The controller status contract is:
@@ -116,6 +151,13 @@ status:
         name: default
         url: https://openclaw.example.local
         message: OpenClaw instance is ready
+  models:
+    qwen352bvlembedding:
+      phase: Ready
+      modelRef: kubeai/qwen352bvlembedding
+      catalogId: qwen352bvlembedding
+      vramRequiredMi: 5120
+      message: Model is available in the generated model catalog.
   conditions:
     - type: Ready
       status: "False"
