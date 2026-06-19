@@ -101,7 +101,11 @@ def path_with_query(path, query):
 
 def k8s_watch(path, description, query=None):
     list_query = query or {}
-    listed = k8s_request("GET", path_with_query(path, list_query) if list_query else path)
+    try:
+        listed = k8s_request("GET", path_with_query(path, list_query) if list_query else path)
+    except RuntimeError as error:
+        log("watch unavailable for " + description + ": " + str(error))
+        return False
     resource_version = ((listed.get("metadata") or {}).get("resourceVersion") or "").strip()
     watch_query = dict(list_query)
     watch_query.update({
