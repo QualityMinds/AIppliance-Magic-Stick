@@ -23,7 +23,6 @@ rules:
     verbs: ["get", "list", "watch"]
   - apiGroups: [""]
     resources: ["services/proxy"]
-    resourceNames: ["nvidia-dcgm-exporter"]
     verbs: ["get"]
   - apiGroups: ["networking.k8s.io"]
     resources: ["ingresses"]
