@@ -32,6 +32,11 @@ The dashboard is also not an operator. It reads status and creates or patches
 - Create or patch specialized instance resources.
 - Update module, instance, and condition status.
 
+The static Flux `magicstick-operator` Kustomization must not wait on
+`Appliance/local.status`: that status is a runtime dashboard read model and may
+be `Reconciling` or `Degraded` while optional modules are being installed,
+removed, or repaired.
+
 ## Instance Mapping
 
 | AppInstance type | Required module | Required CRD | Generated kind |
