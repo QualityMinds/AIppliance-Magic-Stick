@@ -166,6 +166,7 @@ deploy,pods` if a command does not match the running resource name.
 | HelmRelease is not ready | `kubectl -n flux-system describe helmrelease <name>` and inspect chart values. |
 | Ingress host does not resolve | Check `AI_APPLIANCE_DOMAIN`, kdns/mDNS behavior, local DNS, and ingress-nginx service. |
 | App waits for model catalog | Check `ai-model-catalog-controller` logs and `AI_APPLIANCE_MODEL_CATALOG_READY`. |
+| LiteLLM Prisma reports `P1000` authentication failed | The PostgreSQL PVC may be older than `litellm-postgresql-secret`. Keep generated DB credentials prune-disabled and rotate the DB user password to match the current Secret. |
 | Paperclip login origin fails | Confirm `BETTER_AUTH_TRUSTED_ORIGINS` on the Paperclip `Instance` and restart the app pod after changes. |
 | Generated Secret missing | Check the secret generator HelmRelease and Secret annotations. |
 | GPU model never starts | Check GPU Operator, allocatable GPU resources, KubeAI model status, and vLLM logs. |
