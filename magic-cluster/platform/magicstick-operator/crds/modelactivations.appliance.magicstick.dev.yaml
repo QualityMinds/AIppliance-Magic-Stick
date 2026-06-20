@@ -110,6 +110,9 @@ spec:
                     contextWindow:
                       type: integer
                       minimum: 1
+                    maxNumSeqs:
+                      type: integer
+                      minimum: 1
                     args:
                       type: array
                       items:

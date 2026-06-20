@@ -20,6 +20,7 @@ data:
           "vram": "15Gi",
           "vramMi": 15360,
           "contextWindow": 8192,
+          "maxNumSeqs": 128,
           "args": [
             "--tensor-parallel-size=1",
             "--max-model-len=8192",
@@ -39,6 +40,7 @@ data:
           "vram": "16Gi",
           "vramMi": 16384,
           "contextWindow": 8192,
+          "maxNumSeqs": 32,
           "args": [
             "--tensor-parallel-size=1",
             "--max-num-seqs=32",

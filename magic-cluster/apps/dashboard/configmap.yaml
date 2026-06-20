@@ -819,6 +819,7 @@ data:
                   <label class="field">VRAM Limit<input name="vram" value="5Gi" /></label>
                   <label class="field">HF URL<input name="url" placeholder="hf://example/model" /></label>
                   <label class="field">Context Size<input name="contextWindow" value="4096" /></label>
+                  <label class="field">Max Num Seqs<input name="maxNumSeqs" placeholder="32" /></label>
                 </div>
                 <button class="control-button primary" type="submit">Add Local Model</button>
               </form>
@@ -1017,11 +1018,29 @@ data:
           };
 
           const setFormValue = (form, name, value) => {
-            if (!form || value === undefined || value === null || value === '') { return; }
+            if (!form) { return; }
             const field = form.elements[name];
             if (field) {
-              field.value = String(value);
+              field.value = value === undefined || value === null ? '' : String(value);
             }
+          };
+
+          const presetArgValue = (preset, flag) => {
+            const args = (preset || {}).args || [];
+            for (let index = 0; index < args.length; index += 1) {
+              const arg = String(args[index]);
+              if (arg === flag && args[index + 1] !== undefined) {
+                return String(args[index + 1]);
+              }
+              if (arg.startsWith(flag + '=')) {
+                return arg.slice(flag.length + 1);
+              }
+            }
+            return '';
+          };
+
+          const presetMaxNumSeqs = (preset) => {
+            return preset.maxNumSeqs || preset.max_num_seqs || presetArgValue(preset, '--max-num-seqs') || presetArgValue(preset, '--max_num_seqs');
           };
 
           const applyLocalPresetFields = (presetName, options = {}) => {
@@ -1034,6 +1053,7 @@ data:
               preset.vram || '',
               preset.vramMi || '',
               preset.contextWindow || '',
+              presetMaxNumSeqs(preset) || '',
               preset.url || '',
               preset.type || preset.modelType || ''
             ].join('|');
@@ -1043,6 +1063,7 @@ data:
             setFormValue(form, 'vram', preset.vram || (preset.vramMi ? preset.vramMi + 'Mi' : ''));
             setFormValue(form, 'url', preset.url);
             setFormValue(form, 'contextWindow', preset.contextWindow);
+            setFormValue(form, 'maxNumSeqs', presetMaxNumSeqs(preset));
             localPresetLastApplied = marker;
           };
 
@@ -1296,6 +1317,9 @@ data:
               }
               if ((data.get('contextWindow') || '').trim()) {
                 payload.local.contextWindow = Number(data.get('contextWindow'));
+              }
+              if ((data.get('maxNumSeqs') || '').trim()) {
+                payload.local.maxNumSeqs = Number(data.get('maxNumSeqs'));
               }
               try {
                 await request('/api/models/local', { method: 'POST', body: JSON.stringify(payload) });

@@ -70,6 +70,8 @@ For Dashboard-created local `ModelActivation` resources, the Magic Stick
 Operator treats `spec.local.contextWindow` as the desired vLLM context size and
 writes it into the generated KubeAI `Model.spec.args` as
 `--max-model-len=<contextWindow>`.
+`spec.local.maxNumSeqs` is handled the same way for vLLM sequence concurrency
+and is written as `--max-num-seqs=<maxNumSeqs>`.
 
 ## External Models
 

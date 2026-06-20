@@ -333,7 +333,7 @@ data:
         }
         if model_type == "local":
             local = dict(payload.get("local") or {})
-            for key in ("preset", "url", "modelType", "features", "engine", "resourceProfile", "vram", "vramMi", "contextWindow", "args", "minReplicas", "maxReplicas", "env"):
+            for key in ("preset", "url", "modelType", "features", "engine", "resourceProfile", "vram", "vramMi", "contextWindow", "maxNumSeqs", "args", "minReplicas", "maxReplicas", "env"):
                 if key in payload and key not in local:
                     local[key] = payload[key]
             spec["local"] = local

@@ -145,13 +145,14 @@ POST /api/models/local
 Content-Type: application/json
 
 {
-  "name": "qwen352bvlembedding",
+  "name": "qwen359b",
   "enabled": true,
   "targetNamespace": "ai",
   "local": {
-    "preset": "qwen352bvlembedding",
-    "vram": "5Gi",
-    "contextWindow": 4096
+    "preset": "qwen359b",
+    "vram": "16Gi",
+    "contextWindow": 8192,
+    "maxNumSeqs": 32
   }
 }
 ```

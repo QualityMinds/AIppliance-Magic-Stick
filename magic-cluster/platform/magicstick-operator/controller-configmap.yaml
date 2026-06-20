@@ -600,21 +600,28 @@ data:
         return parse_mib(local.get("vram")) or positive_int(local.get("vramMi")) or 0
 
 
-    def model_args_with_context(args, context_window):
+    def model_args_with_runtime_limits(args, context_window, max_num_seqs):
         normalized = []
         skip_next = False
         for arg in [str(item) for item in (args or [])]:
             if skip_next:
                 skip_next = False
                 continue
-            if arg == "--max-model-len":
+            if arg in ("--max-model-len", "--max_model_len", "--max-num-seqs", "--max_num_seqs"):
                 skip_next = True
                 continue
-            if arg.startswith("--max-model-len="):
+            if (
+                arg.startswith("--max-model-len=")
+                or arg.startswith("--max_model_len=")
+                or arg.startswith("--max-num-seqs=")
+                or arg.startswith("--max_num_seqs=")
+            ):
                 continue
             normalized.append(arg)
         if context_window:
             normalized.append(f"--max-model-len={context_window}")
+        if max_num_seqs:
+            normalized.append(f"--max-num-seqs={max_num_seqs}")
         return normalized
 
 
@@ -644,6 +651,7 @@ data:
             raise ValueError("local.vram or local.vramMi is required for local ModelActivation")
         annotations = {}
         context_window = positive_int(local.get("contextWindow") or local.get("context_window"))
+        max_num_seqs = positive_int(local.get("maxNumSeqs") or local.get("max_num_seqs"))
         if context_window:
             annotations["ai-appliance.io/context-window"] = str(context_window)
         env = dict(local.get("env") or {})
@@ -676,7 +684,7 @@ data:
                 "minReplicas": non_negative_int(local.get("minReplicas"), 1),
                 "maxReplicas": non_negative_int(local.get("maxReplicas"), 1),
                 "env": env,
-                "args": model_args_with_context(local.get("args") or [], context_window),
+                "args": model_args_with_runtime_limits(local.get("args") or [], context_window, max_num_seqs),
             },
         }, vram_mi
 
