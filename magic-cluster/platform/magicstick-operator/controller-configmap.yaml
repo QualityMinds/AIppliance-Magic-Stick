@@ -912,6 +912,15 @@ data:
                 }],
                 "extraVolumes": [{"name": "ai-model-catalog", "configMap": {"name": "ai-model-catalog"}}],
                 "storage": {"persistence": {"enabled": True, "size": storage}},
+                "security": {
+                    "networkPolicy": {
+                        "enabled": True,
+                        "additionalEgress": [{
+                            "to": [{"podSelector": {"matchLabels": {"app": "litellm"}}}],
+                            "ports": [{"protocol": "TCP", "port": 4000}],
+                        }],
+                    },
+                },
                 "networking": {
                     "service": {"type": "ClusterIP"},
                     "ingress": {
