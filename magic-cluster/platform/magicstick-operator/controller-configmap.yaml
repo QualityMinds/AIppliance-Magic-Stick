@@ -12,6 +12,7 @@ data:
     import json
     import os
     import ssl
+    import textwrap
     import time
     import urllib.error
     import urllib.parse
@@ -774,6 +775,112 @@ data:
         host = ((params.get("ingress") or {}).get("host") or params.get("host") or "openclaw.example.local")
         model = params.get("model") or "CHANGEME_MODEL"
         storage = ((params.get("storage") or {}).get("size") or params.get("storageSize") or "10Gi")
+        catalog_init_script = textwrap.dedent("""\
+            set -eu
+            for attempt in $(seq 1 120); do
+              if [ -f /catalog/defaults.env ] && grep -q '^AI_APPLIANCE_MODEL_CATALOG_READY=true$' /catalog/defaults.env; then
+                break
+              fi
+              echo "Waiting for ai-model-catalog ($attempt/120)"
+              sleep 5
+            done
+            grep -q '^AI_APPLIANCE_MODEL_CATALOG_READY=true$' /catalog/defaults.env
+            node <<'NODE'
+            const fs = require("fs");
+            const configPath = "/data/openclaw.json";
+            const catalogPath = process.env.AI_MODEL_CATALOG_OPENCLAW_PATH || "/catalog/openclaw.json";
+            const preferredModel = process.env.OPENCLAW_DEFAULT_MODEL || "";
+
+            function normalizeModel(value) {
+              return String(value || "").replace(/^(openai|litellm|openrouter)\//, "");
+            }
+
+            function deepMerge(base, overlay) {
+              const result = { ...base };
+              for (const [key, value] of Object.entries(overlay)) {
+                if (
+                  value &&
+                  typeof value === "object" &&
+                  !Array.isArray(value) &&
+                  result[key] &&
+                  typeof result[key] === "object" &&
+                  !Array.isArray(result[key])
+                ) {
+                  result[key] = deepMerge(result[key], value);
+                } else {
+                  result[key] = value;
+                }
+              }
+              return result;
+            }
+
+            function deletePath(object, path) {
+              const parts = path.split(".");
+              let current = object;
+              for (let index = 0; index < parts.length - 1; index += 1) {
+                if (!current || typeof current !== "object") {
+                  return;
+                }
+                current = current[parts[index]];
+              }
+              if (current && typeof current === "object") {
+                delete current[parts[parts.length - 1]];
+              }
+            }
+
+            const overlay = JSON.parse(fs.readFileSync(catalogPath, "utf8"));
+            const provider = (((overlay.models || {}).providers || {}).litellm || {});
+            provider.baseUrl = process.env.OPENAI_BASE_URL.replace(/\/+$/, "");
+            provider.apiKey = "$" + "{OPENAI_API_KEY}";
+            const models = Array.isArray(provider.models) ? provider.models : [];
+            if (models.length === 0) {
+              throw new Error("ai-model-catalog has no OpenClaw chat models");
+            }
+
+            const ids = new Set(models.map((item) => item.id));
+            const normalizedPreferredModel = normalizeModel(preferredModel);
+            const catalogDefault = normalizeModel(((((overlay.agents || {}).defaults || {}).model || {}).primary || ""));
+            const selectedModel = normalizedPreferredModel && ids.has(normalizedPreferredModel)
+              ? normalizedPreferredModel
+              : catalogDefault && ids.has(catalogDefault)
+                ? catalogDefault
+                : models[0].id;
+
+            overlay.models = {
+              ...(overlay.models || {}),
+              providers: {
+                ...((overlay.models || {}).providers || {}),
+                litellm: provider,
+              },
+            };
+            overlay.agents = {
+              ...(overlay.agents || {}),
+              defaults: {
+                ...((overlay.agents || {}).defaults || {}),
+                model: {
+                  ...(((overlay.agents || {}).defaults || {}).model || {}),
+                  primary: "litellm/" + selectedModel,
+                },
+              },
+            };
+
+            const existing = fs.existsSync(configPath)
+              ? JSON.parse(fs.readFileSync(configPath, "utf8"))
+              : {};
+            for (const path of [
+              "models.providers.openai",
+              "models.providers.openrouter",
+              "providers.openai",
+              "providers.openrouter",
+            ]) {
+              deletePath(existing, path);
+            }
+            const config = deepMerge(existing, overlay);
+
+            fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\\n");
+            console.log("Configured OpenClaw from ai-model-catalog with " + models.length + " models; primary=litellm/" + selectedModel);
+            NODE
+        """)
         return {
             "apiVersion": "openclaw.rocks/v1alpha1",
             "kind": "OpenClawInstance",
@@ -786,6 +893,24 @@ data:
                     {"name": "OPENCLAW_DEFAULT_MODEL", "value": model},
                     {"name": "OPENAI_API_KEY", "valueFrom": {"secretKeyRef": {"name": "litellm-masterkey-secret", "key": "LITELLM_MASTER_KEY"}}},
                 ],
+                "initContainers": [{
+                    "name": "openclaw-litellm-models",
+                    "image": "node:22-alpine",
+                    "imagePullPolicy": "IfNotPresent",
+                    "command": ["/bin/sh", "-c"],
+                    "args": [catalog_init_script],
+                    "env": [
+                        {"name": "OPENAI_BASE_URL", "value": "http://litellm.ai.svc.cluster.local:4000/v1"},
+                        {"name": "OPENCLAW_DEFAULT_MODEL", "value": model},
+                        {"name": "AI_MODEL_CATALOG_OPENCLAW_PATH", "value": "/catalog/openclaw.json"},
+                        {"name": "OPENAI_API_KEY", "valueFrom": {"secretKeyRef": {"name": "litellm-masterkey-secret", "key": "LITELLM_MASTER_KEY"}}},
+                    ],
+                    "volumeMounts": [
+                        {"name": "data", "mountPath": "/data"},
+                        {"name": "ai-model-catalog", "mountPath": "/catalog", "readOnly": True},
+                    ],
+                }],
+                "extraVolumes": [{"name": "ai-model-catalog", "configMap": {"name": "ai-model-catalog"}}],
                 "storage": {"persistence": {"enabled": True, "size": storage}},
                 "networking": {
                     "service": {"type": "ClusterIP"},
