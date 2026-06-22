@@ -167,6 +167,7 @@ spec:
         - --port
         - "8443"
         - --no-open
+        - --tui
         - --insecure
       env:
         - name: HERMES_HOME
