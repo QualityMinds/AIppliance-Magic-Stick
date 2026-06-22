@@ -830,7 +830,7 @@ data:
 
             const overlay = JSON.parse(fs.readFileSync(catalogPath, "utf8"));
             const provider = (((overlay.models || {}).providers || {}).litellm || {});
-            provider.baseUrl = process.env.OPENAI_BASE_URL.replace(/\/+$/, "");
+            provider.baseUrl = process.env.OPENAI_BASE_URL.replace(/\\/+$/, "");
             provider.apiKey = "$" + "{OPENAI_API_KEY}";
             const models = Array.isArray(provider.models) ? provider.models : [];
             if (models.length === 0) {
