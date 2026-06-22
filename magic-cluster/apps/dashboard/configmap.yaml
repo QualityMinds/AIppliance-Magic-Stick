@@ -781,6 +781,16 @@ data:
                 </div>
                 <button class="control-button primary" type="submit">Create OpenClaw</button>
               </form>
+              <form class="dashboard-card instance-form" data-instance-type="hermes">
+                <h3>Hermes</h3>
+                <div class="form-grid">
+                  <label class="field">Name<input name="name" value="default" /></label>
+                  <label class="field">Model<input name="model" value="qwen3635b" /></label>
+                  <label class="field">Host<input name="host" value="hermes.example.local" /></label>
+                  <label class="field">Storage<input name="storage" value="10Gi" /></label>
+                </div>
+                <button class="control-button primary" type="submit">Create Hermes</button>
+              </form>
               <form class="dashboard-card instance-form" data-instance-type="kubeopencode">
                 <h3>KubeOpenCode</h3>
                 <div class="form-grid">
@@ -1377,6 +1387,11 @@ data:
               if (type === 'openclaw') {
                 payload.storage = { size: data.get('storage') || '20Gi' };
                 payload.ingress = { enabled: true, host: data.get('host') || 'openclaw.example.local' };
+              }
+              if (type === 'hermes') {
+                payload.model = data.get('model') || 'qwen3635b';
+                payload.storage = { size: data.get('storage') || '10Gi' };
+                payload.ingress = { enabled: true, host: data.get('host') || 'hermes.example.local' };
               }
               if (type === 'kubeopencode') {
                 payload.server = { enabled: true, ingress: { enabled: true, host: data.get('host') || 'kubeopencode.example.local' } };

@@ -40,7 +40,7 @@ controllers.
 |---|---|
 | Overview | Shows `Appliance.status.phase`, enabled module count, requested instance count, and current conditions. |
 | Modules | Enables or disables modules by creating or patching `ModuleActivation` CRs. |
-| Instances | Creates example OpenClaw and KubeOpenCode requests by creating or patching `AppInstance` CRs. |
+| Instances | Creates example OpenClaw, Hermes, and KubeOpenCode requests by creating or patching `AppInstance` CRs. |
 | Models | Adds/removes local and external models, shows VRAM, and controls the model stack including AnythingLLM. |
 | System Status | Shows Flux Kustomization readiness, Pod phase summary, and ingress hosts. |
 
@@ -104,6 +104,32 @@ Content-Type: application/json
   }
 }
 ```
+
+Create Hermes:
+
+```http
+POST /api/instances/hermes
+Content-Type: application/json
+
+{
+  "name": "default",
+  "enabled": true,
+  "namespace": "ai",
+  "model": "qwen3635b",
+  "storage": {
+    "size": "10Gi"
+  },
+  "ingress": {
+    "enabled": true,
+    "host": "hermes.example.local"
+  }
+}
+```
+
+Additional Hermes instances can be requested by choosing a different `name`
+and `ingress.host`. The Magic Stick Operator renders each request as an
+operator-managed `HermesInstance` and configures it from the LiteLLM-backed
+model catalog.
 
 Enable KubeOpenCode:
 
@@ -223,5 +249,5 @@ leaves workload reconciliation to the Operator and Flux.
 ## Public-Safe Values
 
 Examples use only `example.local`, `example.com`, `CHANGEME`, and documented
-variables. Real domains, model names, private repository paths, credentials,
-kubeconfigs, and customer values belong in private overlays.
+variables or public model preset identifiers. Real domains, private repository
+paths, credentials, kubeconfigs, and customer values belong in private overlays.
