@@ -792,7 +792,7 @@ data:
             const preferredModel = process.env.OPENCLAW_DEFAULT_MODEL || "";
 
             function normalizeModel(value) {
-              return String(value || "").replace(/^(openai|litellm|openrouter)\//, "");
+              return String(value || "").replace(/^(openai|litellm|openrouter)\\//, "");
             }
 
             function deepMerge(base, overlay) {
