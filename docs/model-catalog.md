@@ -241,7 +241,7 @@ Current consumers include:
   LiteLLM API for inference.
 - Dashboard-created KubeOpenCode `AppInstance` resources are rendered by the
   Magic Stick Operator into `AgentTemplate` resources using all generated chat
-  models and the selected catalog default.
+  models and into `Agent` resources that reference those templates.
 - KubeOpenCode `AgentTemplate/litellm-default` is patched with generated
   LiteLLM chat models when the static template CRD and resource are present.
 

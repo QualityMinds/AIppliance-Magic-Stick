@@ -45,6 +45,7 @@ data:
         ("openclaw.rocks", "OpenClawInstance"): "openclawinstances",
         ("hermes.agent", "HermesInstance"): "hermesinstances",
         ("paperclip.inc", "Instance"): "instances",
+        ("kubeopencode.io", "Agent"): "agents",
         ("kubeopencode.io", "AgentTemplate"): "agenttemplates",
     }
 
@@ -169,8 +170,13 @@ data:
 
 
     def ready_condition(resource):
+        if (resource.get("status") or {}).get("ready") is True:
+            return {"status": "True", "reason": "Ready", "message": "Target resource is ready."}
         for condition in (resource.get("status") or {}).get("conditions", []):
             if condition.get("type") == "Ready":
+                return condition
+        for condition in (resource.get("status") or {}).get("conditions", []):
+            if condition.get("type") in ("ServerReady", "ServerHealthy"):
                 return condition
         return {}
 
@@ -1223,6 +1229,10 @@ data:
         host = server_ingress.get("host") or ((params.get("ingress") or {}).get("host")) or params.get("host") or "kubeopencode.example.local"
         templates = params.get("agentTemplates") or []
         template_name = params.get("template") or (templates[0].get("name") if templates else metadata.get("name"))
+        agent_name = params.get("agent") or params.get("agentName") or params.get("name") or metadata.get("name")
+        if str(agent_name or "").startswith("kubeopencode-"):
+            agent_name = str(agent_name)[len("kubeopencode-"):]
+        agent_name = agent_name or metadata.get("name")
         model, chat_models = select_catalog_chat_model(namespace, params.get("model") or "")
         template_models = {
             model_item.get("id") or model_item.get("name"): {"name": model_item.get("name") or model_item.get("id")}
@@ -1230,7 +1240,7 @@ data:
         }
         if not template_models:
             template_models = {model: {"name": model if model != "CHANGEME_MODEL" else "Example model"}}
-        return {
+        template = {
             "apiVersion": "kubeopencode.io/v1alpha1",
             "kind": "AgentTemplate",
             "metadata": {"name": template_name, "namespace": namespace},
@@ -1259,7 +1269,23 @@ data:
                     "env": "LITELLM_MASTER_KEY",
                 }],
             },
-        }, "http://" + host + "/"
+        }
+        agent = {
+            "apiVersion": "kubeopencode.io/v1alpha1",
+            "kind": "Agent",
+            "metadata": {
+                "name": agent_name,
+                "namespace": namespace,
+                "labels": {"appliance.magicstick.dev/appinstance": metadata.get("name", "")},
+            },
+            "spec": {
+                "templateRef": {"name": template_name},
+                "profile": params.get("profile") or "AI Appliance coding agent managed by Magic Stick.",
+                "maxConcurrentTasks": positive_int(params.get("maxConcurrentTasks")) or 1,
+                "suspend": False,
+            },
+        }
+        return [template, agent], "http://" + host + "/"
 
 
     INSTANCE_BUILDERS = {
@@ -1301,8 +1327,11 @@ data:
             patch_instance_status(instance, "WaitingForCRDs", target, "WaitingForCRDs", message, generation=generation)
             return "WaitingForCRDs", target
 
-        resource, url = INSTANCE_BUILDERS[instance_type](instance)
-        apply_resource(resource)
+        built_resources, url = INSTANCE_BUILDERS[instance_type](instance)
+        resources = built_resources if isinstance(built_resources, list) else [built_resources]
+        for item in resources:
+            apply_resource(item)
+        resource = resources[-1]
         target = {
             "kind": resource["kind"],
             "name": resource["metadata"]["name"],

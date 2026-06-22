@@ -243,8 +243,9 @@ data:
           - model-catalog
         requiredCrds:
           - agenttemplates.kubeopencode.io
+          - agents.kubeopencode.io
         apiVersion: kubeopencode.io/v1alpha1
-        primaryKind: AgentTemplate
+        primaryKind: Agent
   modules.json: |
     {
       "modules": {
@@ -382,9 +383,9 @@ data:
         },
         "kubeopencode": {
           "requiredModules": ["kubeopencode", "litellm", "model-catalog"],
-          "requiredCrds": ["agenttemplates.kubeopencode.io"],
+          "requiredCrds": ["agenttemplates.kubeopencode.io", "agents.kubeopencode.io"],
           "apiVersion": "kubeopencode.io/v1alpha1",
-          "primaryKind": "AgentTemplate"
+          "primaryKind": "Agent"
         }
       }
     }
