@@ -1027,6 +1027,26 @@ data:
             renderedPresetSignature = signature;
           };
 
+          const catalogDefaultChatModel = (modelPayload) => {
+            const catalog = (modelPayload || {}).catalog || {};
+            if (catalog.defaultChatModel) {
+              return catalog.defaultChatModel;
+            }
+            const chatModel = ((modelPayload || {}).models || []).find((model) => model.type === 'chat');
+            return chatModel ? (chatModel.id || chatModel.name || '') : '';
+          };
+
+          const applyKubeOpenCodeModelDefault = (modelPayload) => {
+            const form = document.querySelector('.instance-form[data-instance-type="kubeopencode"]');
+            const field = form ? form.elements.model : null;
+            const model = catalogDefaultChatModel(modelPayload);
+            if (!field || !model) { return; }
+            const current = String(field.value || '').trim();
+            if (!current || current === 'CHANGEME_MODEL') {
+              field.value = model;
+            }
+          };
+
           const setFormValue = (form, name, value) => {
             if (!form) { return; }
             const field = form.elements[name];
@@ -1233,6 +1253,7 @@ data:
               const status = await request('/api/status');
               latestModelPayload = modelPayload || {};
               renderLocalPresetOptions(latestModelPayload);
+              applyKubeOpenCodeModelDefault(latestModelPayload);
               if (!localPresetLastApplied) {
                 const presetSelect = $('local-model-preset');
                 applyLocalPresetFields(presetSelect ? presetSelect.value : '', { force: true });

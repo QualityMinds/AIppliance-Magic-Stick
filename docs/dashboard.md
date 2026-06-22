@@ -164,6 +164,13 @@ Content-Type: application/json
 }
 ```
 
+For KubeOpenCode, the Dashboard still creates only an
+`AppInstance/kubeopencode-*`. The Magic Stick Operator renders that request
+into an `AgentTemplate`. The requested `model` is treated as a preference: if it
+is not present in `ConfigMap/ai-model-catalog`, the generated template falls
+back to `catalog.defaultChatModel`, then to the first catalog chat model. Real
+agent and task Pods are created later by KubeOpenCode when a task is started.
+
 Add a local preset model:
 
 ```http

@@ -252,6 +252,41 @@ data:
         return any(model.get("id") == model_name or model.get("name") == model_name for model in model_catalog_models(namespace))
 
 
+    def strip_model_provider_prefix(value):
+        raw = str(value or "").strip()
+        for prefix in ("litellm/", "openai/"):
+            if raw.startswith(prefix):
+                return raw[len(prefix):]
+        return raw
+
+
+    def model_catalog_chat_models(namespace):
+        configmap = get_core_resource("v1", "configmaps", namespace, "ai-model-catalog")
+        raw = ((configmap or {}).get("data") or {}).get("chat-models.json", "{}")
+        try:
+            catalog = json.loads(raw)
+        except Exception:
+            return [], ""
+        models = [model for model in (catalog.get("models") or []) if model.get("id") or model.get("name")]
+        return models, (catalog.get("defaultModel") or "").strip()
+
+
+    def select_catalog_chat_model(namespace, requested_model):
+        models, default_model = model_catalog_chat_models(namespace)
+        model_ids = [model.get("id") or model.get("name") for model in models]
+        normalized_requested = strip_model_provider_prefix(requested_model)
+        selected = ""
+        if normalized_requested in model_ids:
+            selected = normalized_requested
+        elif default_model in model_ids:
+            selected = default_model
+        elif model_ids:
+            selected = model_ids[0]
+        else:
+            selected = normalized_requested or "CHANGEME_MODEL"
+        return selected, models
+
+
     def canonical_module(name):
         return MODULE_ALIASES.get(name, name)
 
@@ -1183,9 +1218,18 @@ data:
         spec = instance.get("spec") or {}
         params = spec.get("parameters") or {}
         namespace = spec.get("targetNamespace") or "ai"
+        server = params.get("server") or {}
+        server_ingress = server.get("ingress") or {}
+        host = server_ingress.get("host") or ((params.get("ingress") or {}).get("host")) or params.get("host") or "kubeopencode.example.local"
         templates = params.get("agentTemplates") or []
         template_name = params.get("template") or (templates[0].get("name") if templates else metadata.get("name"))
-        model = params.get("model") or "CHANGEME_MODEL"
+        model, chat_models = select_catalog_chat_model(namespace, params.get("model") or "")
+        template_models = {
+            model_item.get("id") or model_item.get("name"): {"name": model_item.get("name") or model_item.get("id")}
+            for model_item in chat_models
+        }
+        if not template_models:
+            template_models = {model: {"name": model if model != "CHANGEME_MODEL" else "Example model"}}
         return {
             "apiVersion": "kubeopencode.io/v1alpha1",
             "kind": "AgentTemplate",
@@ -1202,7 +1246,7 @@ data:
                                 "baseURL": "http://litellm.ai.svc.cluster.local:4000/v1",
                                 "apiKey": "{env:LITELLM_MASTER_KEY}",
                             },
-                            "models": {model: {"name": "Example model"}},
+                            "models": template_models,
                         }
                     },
                     "model": "litellm/" + model,
@@ -1215,7 +1259,7 @@ data:
                     "env": "LITELLM_MASTER_KEY",
                 }],
             },
-        }, ""
+        }, "http://" + host + "/"
 
 
     INSTANCE_BUILDERS = {

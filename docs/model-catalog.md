@@ -239,8 +239,11 @@ Current consumers include:
   `AI_APPLIANCE_OPENCLAW_MODEL` as a preferred model if present in the catalog.
 - Paperclip reads `AI_APPLIANCE_DEFAULT_CHAT_MODEL` and uses the in-cluster
   LiteLLM API for inference.
+- Dashboard-created KubeOpenCode `AppInstance` resources are rendered by the
+  Magic Stick Operator into `AgentTemplate` resources using all generated chat
+  models and the selected catalog default.
 - KubeOpenCode `AgentTemplate/litellm-default` is patched with generated
-  LiteLLM chat models when the CRD and resource are present.
+  LiteLLM chat models when the static template CRD and resource are present.
 
 Consumers that should be restarted after catalog changes can add either a label
 or annotation:
