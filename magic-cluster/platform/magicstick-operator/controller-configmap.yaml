@@ -1182,6 +1182,9 @@ data:
         namespace = spec.get("targetNamespace") or "ai"
         host = ((params.get("ingress") or {}).get("host") or params.get("host") or "paperclip.example.local")
         storage = ((params.get("storage") or {}).get("size") or params.get("storageSize") or "5Gi")
+        database = params.get("database") or {}
+        managed_database = database.get("managed") or {}
+        postgres_storage = managed_database.get("storageSize") or params.get("postgresStorage") or params.get("postgresStorageSize") or "10Gi"
         return {
             "apiVersion": "paperclip.inc/v1alpha1",
             "kind": "Instance",
@@ -1195,7 +1198,7 @@ data:
                     "publicURL": "http://" + host,
                     "allowedHostnames": [host],
                 },
-                "database": {"mode": "managed", "managed": {"storageSize": "10Gi"}},
+                "database": {"mode": "managed", "managed": {"storageSize": postgres_storage}},
                 "auth": {"secretRef": {"name": "paperclip-auth", "key": "BETTER_AUTH_SECRET"}},
                 "storage": {"persistence": {"enabled": True, "size": storage}},
                 "networking": {

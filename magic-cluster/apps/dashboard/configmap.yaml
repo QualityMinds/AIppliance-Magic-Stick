@@ -791,6 +791,16 @@ data:
                 </div>
                 <button class="control-button primary" type="submit">Create Hermes</button>
               </form>
+              <form class="dashboard-card instance-form" data-instance-type="paperclip">
+                <h3>Paperclip</h3>
+                <div class="form-grid">
+                  <label class="field">Name<input name="name" value="default" /></label>
+                  <label class="field">Host<input name="host" value="paperclip.example.local" /></label>
+                  <label class="field">Storage<input name="storage" value="5Gi" /></label>
+                  <label class="field">Postgres<input name="postgresStorage" value="10Gi" /></label>
+                </div>
+                <button class="control-button primary" type="submit">Create Paperclip</button>
+              </form>
               <form class="dashboard-card instance-form" data-instance-type="kubeopencode">
                 <h3>KubeOpenCode</h3>
                 <div class="form-grid">
@@ -1413,6 +1423,12 @@ data:
                 payload.model = data.get('model') || 'qwen3635b';
                 payload.storage = { size: data.get('storage') || '10Gi' };
                 payload.ingress = { enabled: true, host: data.get('host') || 'hermes.example.local' };
+              }
+              if (type === 'paperclip') {
+                delete payload.model;
+                payload.storage = { size: data.get('storage') || '5Gi' };
+                payload.database = { managed: { storageSize: data.get('postgresStorage') || '10Gi' } };
+                payload.ingress = { enabled: true, host: data.get('host') || 'paperclip.example.local' };
               }
               if (type === 'kubeopencode') {
                 payload.server = { enabled: true, ingress: { enabled: true, host: data.get('host') || 'kubeopencode.example.local' } };

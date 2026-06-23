@@ -40,7 +40,7 @@ controllers.
 |---|---|
 | Overview | Shows `Appliance.status.phase`, enabled module count, requested instance count, and current conditions. |
 | Modules | Enables or disables modules by creating or patching `ModuleActivation` CRs. |
-| Instances | Creates example OpenClaw, Hermes, and KubeOpenCode requests by creating or patching `AppInstance` CRs. |
+| Instances | Creates example OpenClaw, Hermes, Paperclip, and KubeOpenCode requests by creating or patching `AppInstance` CRs. |
 | Models | Adds/removes local and external models, shows VRAM, and controls the model stack including AnythingLLM. |
 | System Status | Shows Flux Kustomization readiness, Pod phase summary, and ingress hosts. |
 
@@ -130,6 +130,31 @@ Additional Hermes instances can be requested by choosing a different `name`
 and `ingress.host`. The Magic Stick Operator renders each request as an
 operator-managed `HermesInstance` and configures it from the LiteLLM-backed
 model catalog.
+
+Create Paperclip:
+
+```http
+POST /api/instances/paperclip
+Content-Type: application/json
+
+{
+  "name": "default",
+  "enabled": true,
+  "namespace": "ai",
+  "storage": {
+    "size": "5Gi"
+  },
+  "database": {
+    "managed": {
+      "storageSize": "10Gi"
+    }
+  },
+  "ingress": {
+    "enabled": true,
+    "host": "paperclip.example.local"
+  }
+}
+```
 
 Enable KubeOpenCode:
 
