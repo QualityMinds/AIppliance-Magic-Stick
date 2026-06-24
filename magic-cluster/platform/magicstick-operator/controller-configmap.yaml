@@ -1223,10 +1223,10 @@ data:
               baseUrlMode: "explicit",
               publicBaseUrl: publicUrl,
             };
-            fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", { mode: 0o600 });
+            fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + String.fromCharCode(10), { mode: 0o600 });
             NODE
         """).replace("__PUBLIC_URL__", public_url)
-        job_suffix = hashlib.sha256(((name or "paperclip") + "|" + public_url).encode("utf-8")).hexdigest()[:8]
+        job_suffix = hashlib.sha256(((name or "paperclip") + "|auth-v2|" + public_url).encode("utf-8")).hexdigest()[:8]
         job_base = (name or "paperclip")[:42].rstrip("-") or "paperclip"
         auth_config_job = {
             "apiVersion": "batch/v1",
