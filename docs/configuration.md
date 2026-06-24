@@ -50,24 +50,20 @@ Private deployments can supply the same values through their own
 `ConfigMap/ai-appliance-settings`, Flux `postBuild` variables, or Kustomize
 patches.
 
-## AI App Settings
+## Model Catalog Settings
 
 | Setting | Default | Purpose |
 |---|---|---|
 | `AI_APPLIANCE_DEFAULT_CHAT_MODEL` | `qwen3635b` | Preferred default chat model for the generated model catalog. |
 | `AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL` | `qwen352bvlembedding` | Preferred default embedding model for the generated model catalog. |
-| `AI_APPLIANCE_HERMES_MODEL` | `qwen3635b` | Preferred Hermes default model if present in the catalog. |
-| `AI_APPLIANCE_HERMES_STORAGE` | `10Gi` | Hermes data PVC. |
-| `AI_APPLIANCE_OPENCLAW_MODEL` | `qwen3635b` | Preferred OpenClaw primary model if present in the catalog. |
-| `AI_APPLIANCE_OPENCLAW_STORAGE` | `10Gi` | OpenClaw data PVC. |
-| `AI_APPLIANCE_PAPERCLIP_STORAGE` | `5Gi` | Paperclip app data PVC. |
-| `AI_APPLIANCE_PAPERCLIP_POSTGRES_STORAGE` | `10Gi` | Operator-managed Paperclip PostgreSQL PVC. |
-| `AI_APPLIANCE_PAPERCLIP_ADMIN_EMAIL` | `admin@example.com` | Email used by the in-cluster Paperclip admin bootstrap job. |
-| `AI_APPLIANCE_PAPERCLIP_ADMIN_NAME` | `Admin` | Display name used by the in-cluster Paperclip admin bootstrap job. |
 
 Generated model catalog values such as `AI_APPLIANCE_MODEL_CATALOG_READY`,
 `AI_APPLIANCE_MODEL_CATALOG_HASH`, and model counts are outputs, not user
 inputs. See [model-catalog.md](model-catalog.md).
+
+App-specific host, storage, and preferred model values are runtime
+`AppInstance` parameters. Local and external model selections are runtime
+`ModelActivation` resources.
 
 ## Installer Build Variables
 

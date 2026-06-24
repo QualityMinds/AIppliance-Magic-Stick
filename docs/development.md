@@ -18,10 +18,17 @@ kubectl kustomize magic-cluster/flux/entrypoints/base
 kubectl kustomize magic-cluster/flux/entrypoints/single-node
 kubectl kustomize magic-cluster/platform/basis
 kubectl kustomize magic-cluster/platform/magicstick-operator
-kubectl kustomize magic-cluster/platform/ai
+kubectl kustomize magic-cluster/platform/gpu
+kubectl kustomize magic-cluster/platform/ai/kubeai
+kubectl kustomize magic-cluster/platform/ai/hermes-operator
+kubectl kustomize magic-cluster/platform/ai/openclaw-operator
+kubectl kustomize magic-cluster/platform/ai/paperclip-operator
 kubectl kustomize magic-cluster/platform/observability
 kubectl kustomize magic-cluster/apps/dashboard
-kubectl kustomize magic-cluster/apps/ai
+kubectl kustomize magic-cluster/apps/ai/litellm/base
+kubectl kustomize magic-cluster/apps/ai/model-catalog
+kubectl kustomize magic-cluster/apps/ai/anything-llm/base
+kubectl kustomize magic-cluster/apps/ai/kubeopencode
 kubectl kustomize examples/demo/infra-cluster/flux-bootstrap
 ```
 
@@ -43,8 +50,8 @@ magic-installer/write-usb.sh --help
 
 - Keep real deployment values out of the public repository.
 - Use `example.local`, `example.com`, `CHANGEME`, or documented variables.
-- Put real domains, storage sizes, model selections, and secret integrations in
-  private overlays.
+- Put real domains, storage sizes, model selections, runtime CR seeds, and
+  secret integrations in private overlays.
 - Public Kubernetes manifests should be reusable bases, not one-off deployment
   manifests.
 - Public Secret manifests may only use generated-secret annotations,
@@ -98,17 +105,17 @@ Use two layers:
 
 - `magic-cluster/platform/ai/<name>-operator` for the operator, HelmRepository,
   HelmRelease, namespace, CRDs, and operator RBAC patches.
-- `magic-cluster/apps/ai/<name>` for reusable app instances or CRs.
+- a Magic Stick Operator `AppInstance` builder for concrete runtime instances.
 
-This keeps CRD availability in the infrastructure wave and app lifecycle in the
-app wave.
+This keeps CRD availability in a module base and app lifecycle in runtime CRs.
 
 ## Updating The Dashboard
 
 The dashboard may read Kubernetes status and create or patch
-`ModuleActivation` and `AppInstance` resources. It must not directly create
-workloads, Flux Kustomizations, specialized operator CRs, Secrets, or
-deployment-specific values. Keep dashboard examples limited to `example.local`,
+`ModuleActivation`, `ModelActivation`, and `AppInstance` resources. It must not
+directly create workloads, Flux Kustomizations, or specialized operator CRs.
+Provider Secrets created from user-entered model credentials must stay scoped to
+that dashboard workflow. Keep dashboard examples limited to `example.local`,
 `example.com`, `CHANGEME`, or documented variables.
 
 ## Release Validation

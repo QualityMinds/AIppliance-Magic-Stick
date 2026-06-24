@@ -379,7 +379,7 @@ data:
                 "status": activation.get("status") or {},
             }
         return {
-            "catalog": configmap.get("data", {}).get("modules.yaml", ""),
+            "catalog": json.dumps(catalog_json, indent=2, sort_keys=True),
             "catalogJson": catalog_json,
             "modules": modules,
             "activations": module_activations(),

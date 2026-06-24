@@ -4,13 +4,13 @@ The Magic Stick Operator is a meta-operator. It orchestrates platform modules
 and instance resources; it does not replace specialized operators.
 
 The dashboard is also not an operator. It reads status and creates or patches
-`ModuleActivation` and `AppInstance` resources only.
+`ModuleActivation`, `ModelActivation`, and `AppInstance` resources only.
 
 ## Responsibilities
 
 | Component | Responsibility |
 |---|---|
-| Magic Stick Operator | Watches `ModuleActivation` and `AppInstance`, enables modules with Flux, cleans generated Flux Kustomizations for disabled modules, waits for CRDs, creates specialized CRs, and reports aggregate `Appliance.status`. |
+| Magic Stick Operator | Watches `ModuleActivation`, `ModelActivation`, and `AppInstance`, enables modules with Flux, cleans generated Flux Kustomizations for disabled modules, waits for CRDs, creates model and specialized app CRs, and reports aggregate `Appliance.status`. |
 | Magic Stick Dashboard | Reads `Appliance`, module catalog, Flux, Pod, Service, Ingress, and Event status; creates or patches runtime CRs only. |
 | OpenClaw Operator | Owns lifecycle of `OpenClawInstance` resources. |
 | Hermes Operator | Owns lifecycle of `HermesInstance` resources. |
@@ -20,11 +20,13 @@ The dashboard is also not an operator. It reads status and creates or patches
 ## Reconcile Flow
 
 - Read the Git-owned `Appliance/local` source configuration.
-- Watch or poll `ModuleActivation` and `AppInstance` resources.
+- Watch or poll `ModuleActivation`, `ModelActivation`, and `AppInstance`
+  resources.
 - Load `ConfigMap/magicstick-module-catalog`.
 - Normalize user-facing module keys to canonical catalog names.
 - Add explicitly enabled runtime modules to the desired set.
 - Add required modules for every enabled instance.
+- Add required model-serving modules for every enabled model.
 - Create or update generated Flux `Kustomization` resources only after required
   module dependencies are requested and ready.
 - Delete generated Flux Kustomizations for disabled runtime modules so Flux can
@@ -32,7 +34,7 @@ The dashboard is also not an operator. It reads status and creates or patches
 - Delete stale generated Flux Kustomizations that no longer have a matching
   `ModuleActivation`.
 - Wait for required CRDs.
-- Create or patch specialized instance resources.
+- Create or patch KubeAI model resources and specialized instance resources.
 - Update module, instance, and condition status.
 
 The static Flux `magicstick-operator` Kustomization must not wait on

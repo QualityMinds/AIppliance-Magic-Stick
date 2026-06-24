@@ -24,22 +24,20 @@ Expected findings should be placeholders, generated-secret annotations, Kubernet
 
 ```bash
 kubectl kustomize magic-cluster/flux/entrypoints/base
+kubectl kustomize magic-cluster/flux/entrypoints/single-node
 kubectl kustomize magic-cluster/apps/dashboard
 kubectl kustomize magic-cluster/platform/magicstick-operator
-kubectl kustomize magic-cluster/platform/ai
+kubectl kustomize magic-cluster/platform/basis
+kubectl kustomize magic-cluster/platform/gpu
+kubectl kustomize magic-cluster/platform/ai/kubeai
 kubectl kustomize magic-cluster/platform/ai/hermes-operator
 kubectl kustomize magic-cluster/platform/ai/openclaw-operator
 kubectl kustomize magic-cluster/platform/ai/paperclip-operator
+kubectl kustomize magic-cluster/platform/observability
+kubectl kustomize magic-cluster/apps/ai/litellm/base
 kubectl kustomize magic-cluster/apps/ai/model-catalog
-kubectl kustomize magic-cluster/apps/ai
-kubectl kustomize magic-cluster/apps/ai/hermes
-kubectl kustomize magic-cluster/apps/ai/openclaw
-kubectl kustomize magic-cluster/apps/ai/paperclip
+kubectl kustomize magic-cluster/apps/ai/anything-llm/base
 kubectl kustomize magic-cluster/apps/ai/kubeopencode
-kubectl kustomize magic-cluster/apps/ai/agent-templates
-kubectl kustomize magic-cluster/flux/entrypoints/single-node
-kubectl kustomize magic-cluster/profiles/single-node/apps/ai
-kubectl kustomize magic-cluster/profiles/single-node/apps/ai-agent-templates
 kubectl kustomize examples/demo/infra-cluster/flux-bootstrap
 ```
 
@@ -55,15 +53,18 @@ Do not commit generated Kubernetes Secrets, Flux bootstrap token secrets, privat
 
 - Does every public hostname use `example.local`, `example.com`, or a documented placeholder?
 - Are real domains, admin emails, storage sizes, and private Flux paths absent from this repository?
-- Are app-specific placeholders such as `AI_APPLIANCE_HERMES_STORAGE`, `AI_APPLIANCE_HERMES_MODEL`, `AI_APPLIANCE_OPENCLAW_STORAGE`, `AI_APPLIANCE_OPENCLAW_MODEL`, `AI_APPLIANCE_DEFAULT_CHAT_MODEL`, and `AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL` documented and safe by default?
+- Are catalog placeholders such as `AI_APPLIANCE_DEFAULT_CHAT_MODEL` and
+  `AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL` documented and safe by default?
 - Does the public `ai-external-models` ConfigMap contain only an empty example schema and no provider secrets?
 - Are safe defaults clearly documented for private deployments to patch?
-- Are optional app bases still opt-in unless intentionally selected by an entrypoint?
+- Are optional modules, models, and app instances represented as runtime CRs
+  instead of static public descriptors?
 - Are Appliance examples public-safe and limited to `example.local`,
   `example.com`, `CHANGEME`, or documented variables?
 - Do module catalog paths point only to reusable public bases?
 - Do example overlays still build after public base changes?
-- Does the dashboard write only `ModuleActivation` and `AppInstance` CRs, without direct workload install permissions?
+- Does the dashboard write only `ModuleActivation`, `ModelActivation`, and
+  `AppInstance` CRs, without direct workload install permissions?
 - Are new secrets generated at runtime instead of stored in Git?
 - Are new public interfaces documented in `docs/configuration.md`,
   `docs/gitops-overlays.md`, `docs/operations.md`, or another focused page?

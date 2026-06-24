@@ -234,9 +234,9 @@ Current consumers include:
   `AI_APPLIANCE_MODEL_CATALOG_READY=true` and reads the default embedding model
   from the ConfigMap.
 - Hermes waits for readiness, reads `hermes.yaml`, and applies
-  `AI_APPLIANCE_HERMES_MODEL` as a preferred model if present in the catalog.
+  the `AppInstance` preferred model if present in the catalog.
 - OpenClaw waits for readiness, reads `openclaw.json`, and applies
-  `AI_APPLIANCE_OPENCLAW_MODEL` as a preferred model if present in the catalog.
+  the `AppInstance` preferred model if present in the catalog.
 - Paperclip reads `AI_APPLIANCE_DEFAULT_CHAT_MODEL` and uses the in-cluster
   LiteLLM API for inference.
 - Dashboard-created KubeOpenCode `AppInstance` resources are rendered by the
@@ -268,7 +268,7 @@ Private deployments commonly patch:
 - `AI_APPLIANCE_DEFAULT_CHAT_MODEL`
 - `AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL`
 - `ConfigMap/ai-external-models`
-- selected KubeAI model bases under `magic-cluster/apps/ai/models`
+- local and external `ModelActivation` resources
 
 The public repository must keep `ai-external-models` empty and must not commit
 real API keys. Store provider keys in Kubernetes Secrets created by a private

@@ -46,10 +46,10 @@ Render key cluster bases:
 ```bash
 kubectl kustomize magic-cluster/platform/basis
 kubectl kustomize magic-cluster/platform/magicstick-operator
-kubectl kustomize magic-cluster/platform/ai
+kubectl kustomize magic-cluster/platform/ai/kubeai
 kubectl kustomize magic-cluster/platform/observability
 kubectl kustomize magic-cluster/apps/dashboard
-kubectl kustomize magic-cluster/apps/ai
+kubectl kustomize magic-cluster/apps/ai/model-catalog
 ```
 
 If Ansible is installed, run:
