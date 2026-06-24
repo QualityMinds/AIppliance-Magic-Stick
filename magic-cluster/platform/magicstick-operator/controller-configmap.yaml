@@ -9,6 +9,7 @@ metadata:
 data:
   controller.py: |
     #!/usr/bin/env python3
+    import hashlib
     import json
     import os
     import ssl
@@ -41,6 +42,7 @@ data:
         ("appliance.magicstick.dev", "AppInstance"): "appinstances",
         ("appliance.magicstick.dev", "ModelActivation"): "modelactivations",
         ("kustomize.toolkit.fluxcd.io", "Kustomization"): "kustomizations",
+        ("batch", "Job"): "jobs",
         ("kubeai.org", "Model"): "models",
         ("openclaw.rocks", "OpenClawInstance"): "openclawinstances",
         ("hermes.agent", "HermesInstance"): "hermesinstances",
@@ -1181,11 +1183,113 @@ data:
         name = metadata.get("name")
         namespace = spec.get("targetNamespace") or "ai"
         host = ((params.get("ingress") or {}).get("host") or params.get("host") or "paperclip.example.local")
+        public_url = "http://" + host
         storage = ((params.get("storage") or {}).get("size") or params.get("storageSize") or "5Gi")
         database = params.get("database") or {}
         managed_database = database.get("managed") or {}
         postgres_storage = managed_database.get("storageSize") or params.get("postgresStorage") or params.get("postgresStorageSize") or "10Gi"
-        return {
+        auth_secret_name = params.get("authSecretName") or "paperclip-auth"
+        auth_config_patch = textwrap.dedent("""\
+            set -eu
+            CONFIG="/paperclip/instances/default/config.json"
+            PUBLIC_URL="__PUBLIC_URL__"
+            for attempt in $(seq 1 120); do
+              if [ -f "$CONFIG" ]; then
+                break
+              fi
+              echo "Waiting for Paperclip config ($attempt/120)"
+              sleep 5
+            done
+            test -f "$CONFIG"
+            CONFIG_PATH="$CONFIG" PUBLIC_URL="$PUBLIC_URL" node <<'NODE'
+            const fs = require("fs");
+            const configPath = process.env.CONFIG_PATH;
+            const publicUrl = process.env.PUBLIC_URL;
+            const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+            config.server = {
+              ...(config.server || {}),
+              deploymentMode: "authenticated",
+              exposure: "public",
+              bind: "custom",
+              customBindHost: "0.0.0.0",
+              host: "0.0.0.0",
+              port: 3100,
+            };
+            const publicHost = new URL(publicUrl).hostname.toLowerCase();
+            const allowed = new Set([...(config.server.allowedHostnames || []), publicHost, "localhost", "127.0.0.1"]);
+            config.server.allowedHostnames = Array.from(allowed);
+            config.auth = {
+              ...(config.auth || {}),
+              baseUrlMode: "explicit",
+              publicBaseUrl: publicUrl,
+            };
+            fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", { mode: 0o600 });
+            NODE
+        """).replace("__PUBLIC_URL__", public_url)
+        job_suffix = hashlib.sha256(((name or "paperclip") + "|" + public_url).encode("utf-8")).hexdigest()[:8]
+        job_base = (name or "paperclip")[:42].rstrip("-") or "paperclip"
+        auth_config_job = {
+            "apiVersion": "batch/v1",
+            "kind": "Job",
+            "metadata": {
+                "name": job_base + "-auth-" + job_suffix,
+                "namespace": namespace,
+                "labels": {
+                    "app": "paperclip",
+                    "app.kubernetes.io/name": "paperclip-auth-config",
+                    "appliance.magicstick.dev/appinstance": metadata.get("name", ""),
+                },
+            },
+            "spec": {
+                "backoffLimit": 4,
+                "template": {
+                    "metadata": {
+                        "labels": {
+                            "app.kubernetes.io/name": "paperclip-auth-config",
+                            "appliance.magicstick.dev/appinstance": metadata.get("name", ""),
+                        },
+                    },
+                    "spec": {
+                        "restartPolicy": "OnFailure",
+                        "containers": [{
+                            "name": "auth-config",
+                            "image": "ghcr.io/paperclipai/paperclip:sha-e59eb10",
+                            "imagePullPolicy": "IfNotPresent",
+                            "command": ["/bin/sh", "-c"],
+                            "args": [auth_config_patch],
+                            "volumeMounts": [{"name": "paperclip-data", "mountPath": "/paperclip"}],
+                            "securityContext": {
+                                "allowPrivilegeEscalation": False,
+                                "capabilities": {"drop": ["ALL"]},
+                                "runAsNonRoot": True,
+                                "runAsUser": 1000,
+                                "runAsGroup": 1000,
+                            },
+                        }],
+                        "volumes": [{
+                            "name": "paperclip-data",
+                            "persistentVolumeClaim": {"claimName": (name or "paperclip") + "-data"},
+                        }],
+                    },
+                },
+            },
+        }
+        auth_secret = {
+            "apiVersion": "v1",
+            "kind": "Secret",
+            "metadata": {
+                "name": auth_secret_name,
+                "namespace": namespace,
+                "labels": {"app": "paperclip", "appliance.magicstick.dev/appinstance": metadata.get("name", "")},
+                "annotations": {
+                    "secret-generator.v1.mittwald.de/autogenerate": "BETTER_AUTH_SECRET",
+                    "secret-generator.v1.mittwald.de/encoding": "hex",
+                },
+            },
+            "type": "Opaque",
+            "data": {},
+        }
+        instance_resource = {
             "apiVersion": "paperclip.inc/v1alpha1",
             "kind": "Instance",
             "metadata": {"name": name, "namespace": namespace, "labels": {"app": "paperclip"}},
@@ -1195,11 +1299,16 @@ data:
                 "deployment": {
                     "mode": "authenticated",
                     "exposure": "public",
-                    "publicURL": "http://" + host,
-                    "allowedHostnames": [host],
+                    "publicURL": public_url,
+                    "allowedHostnames": [host, "localhost", "127.0.0.1"],
                 },
                 "database": {"mode": "managed", "managed": {"storageSize": postgres_storage}},
-                "auth": {"secretRef": {"name": "paperclip-auth", "key": "BETTER_AUTH_SECRET"}},
+                "auth": {"secretRef": {"name": auth_secret_name, "key": "BETTER_AUTH_SECRET"}},
+                "env": [
+                    {"name": "PAPERCLIP_AUTH_BASE_URL_MODE", "value": "explicit"},
+                    {"name": "PAPERCLIP_AUTH_PUBLIC_BASE_URL", "value": public_url},
+                    {"name": "BETTER_AUTH_TRUSTED_ORIGINS", "value": "*"},
+                ],
                 "storage": {"persistence": {"enabled": True, "size": storage}},
                 "networking": {
                     "service": {"type": "ClusterIP", "port": 3100},
@@ -1219,7 +1328,8 @@ data:
                     },
                 },
             },
-        }, "http://" + host + "/"
+        }
+        return [auth_secret, auth_config_job, instance_resource], "http://" + host + "/"
 
 
     def build_kubeopencode(instance):

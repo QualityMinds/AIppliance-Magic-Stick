@@ -80,7 +80,9 @@ include:
     toPath: vendor/magicstick
 ```
 
-Deployment overlays can then import bases from `vendor/magicstick/magic-cluster/platform/...` and `vendor/magicstick/magic-cluster/apps/...`.
+Deployment overlays can then import individual module bases from
+`vendor/magicstick/magic-cluster/platform/...` and
+`vendor/magicstick/magic-cluster/apps/...`.
 
 ## Host Bootstrap
 
@@ -105,13 +107,10 @@ Secrets such as Flux tokens must be supplied at install/runtime and must not be 
 In `readonly-public` mode Flux reads only this public repository and does not
 need a Git token.
 
-Current app placeholders include `AI_APPLIANCE_HERMES_STORAGE` for the Hermes
-agent PVC, `AI_APPLIANCE_HERMES_MODEL` for Hermes' preferred LiteLLM model
-name, `AI_APPLIANCE_OPENCLAW_STORAGE` for the optional OpenClaw agent PVC, and
-`AI_APPLIANCE_OPENCLAW_MODEL` for OpenClaw's preferred LiteLLM model name. The
-generated AI model catalog also honors `AI_APPLIANCE_DEFAULT_CHAT_MODEL` and
+The generated AI model catalog honors `AI_APPLIANCE_DEFAULT_CHAT_MODEL` and
 `AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL` for private deployments that need to
-override the public defaults.
+override the public defaults. App-specific storage, host, and preferred model
+values are runtime `AppInstance` parameters.
 
 See [docs/model-catalog.md](docs/model-catalog.md) for the model catalog
 contract, external model schema, generated ConfigMap keys, and operational
@@ -129,9 +128,9 @@ remain responsible for their own workloads.
 
 The dashboard is the UI and API client for this model. It reads the Appliance,
 module catalog, Flux, Pod, Service, Ingress, and Event status, and creates or
-patches only `ModuleActivation` and `AppInstance` CRs when users enable modules,
-disable modules, or request instances. `Appliance/local.spec` remains
-Git-owned.
+patches only `ModuleActivation`, `ModelActivation`, and `AppInstance` CRs when
+users enable modules, add models, or request instances. `Appliance/local.spec`
+remains Git-owned.
 
 See [docs/appliance-crd.md](docs/appliance-crd.md),
 [docs/dashboard.md](docs/dashboard.md),
@@ -145,22 +144,20 @@ ANSIBLE_ROLES_PATH=magic-host/roles \
   ansible-playbook --syntax-check magic-host/playbooks/local.yml
 
 kubectl kustomize magic-cluster/flux/entrypoints/base
+kubectl kustomize magic-cluster/flux/entrypoints/single-node
 kubectl kustomize magic-cluster/apps/dashboard
 kubectl kustomize magic-cluster/platform/magicstick-operator
-kubectl kustomize magic-cluster/platform/ai
+kubectl kustomize magic-cluster/platform/basis
+kubectl kustomize magic-cluster/platform/gpu
+kubectl kustomize magic-cluster/platform/ai/kubeai
 kubectl kustomize magic-cluster/platform/ai/hermes-operator
 kubectl kustomize magic-cluster/platform/ai/openclaw-operator
 kubectl kustomize magic-cluster/platform/ai/paperclip-operator
+kubectl kustomize magic-cluster/platform/observability
+kubectl kustomize magic-cluster/apps/ai/litellm/base
 kubectl kustomize magic-cluster/apps/ai/model-catalog
-kubectl kustomize magic-cluster/apps/ai
-kubectl kustomize magic-cluster/apps/ai/hermes
-kubectl kustomize magic-cluster/apps/ai/openclaw
-kubectl kustomize magic-cluster/apps/ai/paperclip
+kubectl kustomize magic-cluster/apps/ai/anything-llm/base
 kubectl kustomize magic-cluster/apps/ai/kubeopencode
-kubectl kustomize magic-cluster/apps/ai/agent-templates
-kubectl kustomize magic-cluster/flux/entrypoints/single-node
-kubectl kustomize magic-cluster/profiles/single-node/apps/ai
-kubectl kustomize magic-cluster/profiles/single-node/apps/ai-agent-templates
 kubectl kustomize examples/demo/infra-cluster/flux-bootstrap
 ```
 

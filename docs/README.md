@@ -39,9 +39,9 @@ kubectl kustomize magic-cluster/flux/entrypoints/single-node
 Run the main Kubernetes render checks:
 
 ```bash
-kubectl kustomize magic-cluster/platform/ai
 kubectl kustomize magic-cluster/platform/magicstick-operator
-kubectl kustomize magic-cluster/apps/ai
+kubectl kustomize magic-cluster/platform/ai/kubeai
+kubectl kustomize magic-cluster/apps/ai/model-catalog
 kubectl kustomize examples/demo/infra-cluster/flux-bootstrap
 ```
 

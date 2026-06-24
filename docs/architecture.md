@@ -54,17 +54,18 @@ The base graph is defined under `magic-cluster/flux/graph/base`.
 
 Optional AI, Observability, GPU, and instance resources are no longer applied by
 the static graph. The Magic Stick Operator creates generated Flux
-`Kustomization` resources from `ModuleActivation` and `AppInstance` CRs.
+`Kustomization` resources from runtime CRs and creates model or app resources
+from `ModelActivation` and `AppInstance` CRs.
 
 ## Appliance Model
 
 The `Appliance` CRD is the Git-owned aggregate status surface. Runtime
-selection happens through `ModuleActivation` and `AppInstance` CRs. The base
-install includes:
+selection happens through `ModuleActivation`, `ModelActivation`, and
+`AppInstance` CRs. The base install includes:
 
 - K3s and Flux from host automation
 - base platform components
-- `Appliance`, `ModuleActivation`, and `AppInstance` CRDs
+- `Appliance`, `ModuleActivation`, `ModelActivation`, and `AppInstance` CRDs
 - `ConfigMap/magicstick-module-catalog`
 - live `magicstick-operator` controller
 - default `Appliance/local`
@@ -76,8 +77,9 @@ KubeOpenCode continue to own their workload-specific reconciliation.
 
 The dashboard is the user-facing client for this model. It runs in the cluster,
 reads the Appliance, module catalog, Flux, Pod, Service, Ingress, and Event
-status, and creates or patches `ModuleActivation` and `AppInstance` CRs. It
-does not install modules or create workload resources directly.
+status, and creates or patches `ModuleActivation`, `ModelActivation`, and
+`AppInstance` CRs. It does not install modules or create workload resources
+directly.
 
 ## Platform Components
 
@@ -85,7 +87,7 @@ does not install modules or create workload resources directly.
 |---|---|
 | Basis | Namespaces, ingress-nginx, cert-manager, generated secrets, reloader, and kdns. |
 | Appliance control plane | Appliance CRDs, module catalog, operator RBAC, live controller, and examples. |
-| AI infrastructure | NVIDIA GPU support, KubeAI, Hermes operator, OpenClaw operator, and Paperclip operator. |
+| AI modules | NVIDIA GPU support, KubeAI, Hermes operator, OpenClaw operator, and Paperclip operator. |
 | GPU | NVIDIA GPU Operator and time-slicing GPU sharing. |
 | Observability | kube-prometheus-stack, Loki, Promtail, OpenTelemetry Collector, Grafana dashboards, and public ingresses. |
 
@@ -97,11 +99,8 @@ does not install modules or create workload resources directly.
 | LiteLLM | `magic-cluster/apps/ai/litellm/base` | In-cluster OpenAI-compatible API and model routing. |
 | Model catalog | `magic-cluster/apps/ai/model-catalog` | Syncs KubeAI and external models into LiteLLM and publishes generated catalog fragments. |
 | AnythingLLM | `magic-cluster/apps/ai/anything-llm/base` | Uses LiteLLM and the generated embedding default. |
-| Hermes | `magic-cluster/apps/ai/hermes` | Hermes `HermesInstance` CR using the Hermes operator and model catalog. |
-| OpenClaw | `magic-cluster/apps/ai/openclaw` | OpenClaw `OpenClawInstance` CR using the OpenClaw operator and model catalog. |
-| Paperclip | `magic-cluster/apps/ai/paperclip` | Paperclip `Instance` CR using the Paperclip operator, managed PostgreSQL, and in-cluster admin bootstrap. |
-| KubeOpenCode | `magic-cluster/apps/ai/kubeopencode` | Helm-managed KubeOpenCode controller and server. |
-| Agent templates | `magic-cluster/apps/ai/agent-templates` | KubeOpenCode AgentTemplate resources applied after CRDs exist. |
+| Runtime app instances | `AppInstance` CRs | Hermes, OpenClaw, Paperclip, and KubeOpenCode instances created by the Magic Stick Operator. |
+| KubeOpenCode | `magic-cluster/apps/ai/kubeopencode` | Helm-managed KubeOpenCode controller and server module. |
 
 ## Value Boundary
 
