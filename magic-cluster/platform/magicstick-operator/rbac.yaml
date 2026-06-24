@@ -134,6 +134,18 @@ rules:
       - configmaps
       - events
       - namespaces
+      - secrets
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+  - apiGroups:
+      - batch
+    resources:
+      - jobs
     verbs:
       - get
       - list
