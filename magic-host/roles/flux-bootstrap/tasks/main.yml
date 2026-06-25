@@ -199,16 +199,10 @@
           - ai_appliance_domain is defined and ai_appliance_domain | length > 0
           - ai_appliance_dashboard_host is defined and ai_appliance_dashboard_host | length > 0
           - ai_appliance_dashboard_mdns_name is defined and ai_appliance_dashboard_mdns_name | length > 0
-          - ai_appliance_anything_llm_storage is defined and ai_appliance_anything_llm_storage | length > 0
-          - ai_appliance_qdrant_storage is defined and ai_appliance_qdrant_storage | length > 0
-          - ai_appliance_litellm_postgres_storage is defined and ai_appliance_litellm_postgres_storage | length > 0
-          - ai_appliance_loki_storage is defined and ai_appliance_loki_storage | length > 0
-          - ai_appliance_alertmanager_storage is defined and ai_appliance_alertmanager_storage | length > 0
-          - ai_appliance_prometheus_storage is defined and ai_appliance_prometheus_storage | length > 0
         fail_msg: >
           Public read-only Flux bootstrap requires magicstick_public_repo,
-          magicstick_public_ref, flux_public_sync_path and AI_APPLIANCE runtime
-          settings.
+          magicstick_public_ref, flux_public_sync_path and appliance-wide
+          AI_APPLIANCE runtime settings.
 
     - name: Install or upgrade Flux controllers
       ansible.builtin.command:
@@ -236,12 +230,6 @@
             AI_APPLIANCE_DOMAIN: {{ ai_appliance_domain | to_json }}
             AI_APPLIANCE_DASHBOARD_HOST: {{ ai_appliance_dashboard_host | to_json }}
             AI_APPLIANCE_DASHBOARD_MDNS_NAME: {{ ai_appliance_dashboard_mdns_name | to_json }}
-            AI_APPLIANCE_ANYTHING_LLM_STORAGE: {{ ai_appliance_anything_llm_storage | to_json }}
-            AI_APPLIANCE_QDRANT_STORAGE: {{ ai_appliance_qdrant_storage | to_json }}
-            AI_APPLIANCE_LITELLM_POSTGRES_STORAGE: {{ ai_appliance_litellm_postgres_storage | to_json }}
-            AI_APPLIANCE_LOKI_STORAGE: {{ ai_appliance_loki_storage | to_json }}
-            AI_APPLIANCE_ALERTMANAGER_STORAGE: {{ ai_appliance_alertmanager_storage | to_json }}
-            AI_APPLIANCE_PROMETHEUS_STORAGE: {{ ai_appliance_prometheus_storage | to_json }}
 
     - name: Apply AI Appliance settings ConfigMap
       ansible.builtin.command:

@@ -95,6 +95,9 @@ removes the generated Flux `Kustomization`. The generated object uses
 `prune: true` and `deletionPolicy: Delete`, so Flux can remove resources that
 were installed by that module.
 
+Module storage overrides live in `ModuleActivation.spec.parameters`. If no
+parameter is set, the module manifests keep their own storage defaults.
+
 Operator module namespaces are annotated with
 `kustomize.toolkit.fluxcd.io/prune: disabled`. Disabling an operator module
 removes its Helm release and workloads, but keeps the namespace available so a

@@ -19,7 +19,7 @@ This Ansible role installs the Flux CLI and performs the cluster bootstrap.
 | `magicstick_public_ref` | Yes | Public template ref, loaded from `MAGICSTICK_PUBLIC_REF` |
 | `magicstick_public_ref_kind` | No | `branch`, `tag`, `semver`, or `commit`; default: `branch` |
 | `flux_public_sync_path` | `readonly-public` | Public profile path, default: `magic-cluster/flux/entrypoints/single-node` |
-| `flux_cluster_path` | `github` | Path in the private deployment repository, e.g. `deployments/CHANGEME_DEPLOYMENT/infra-cluster/flux-bootstrap` |
+| `flux_cluster_path` | `github` | Path in the private deployment repository, e.g. `deployments/<deployment>/infra-cluster/flux-bootstrap` |
 | `flux_github_owner` | `github` | GitHub owner (organization or user) |
 | `flux_github_repo` | `github` | Repository name (without owner prefix) |
 | `flux_github_branch` | `github` | Target branch for the bootstrap |
@@ -27,7 +27,7 @@ This Ansible role installs the Flux CLI and performs the cluster bootstrap.
 | `flux_github_token` | `github` | GitHub Personal Access Token (PAT) with repo write access for `flux bootstrap github` |
 | `flux_bootstrap_seed_path` | No | CLI-owned bootstrap path for `github` mode |
 | `flux_custom_sync_manifest_path` | No | AI Appliance sync manifest path in the private checkout for `github` mode |
-| `ai_appliance_*` | `readonly-public` | Runtime domain and storage settings rendered into `ConfigMap/ai-appliance-settings` |
+| `ai_appliance_domain`, `ai_appliance_dashboard_host`, `ai_appliance_dashboard_mdns_name` | `readonly-public` | Appliance-wide settings rendered into `ConfigMap/ai-appliance-settings` |
 | `flux_reconcile_timeout` | No | Timeout for follow-up Flux reconciles (default: `5m0s`) |
 | `flux_kubectl_binary` | No | Binary for the API readiness check (default: `/usr/local/bin/k3s`) |
 | `flux_kubectl_subcommand` | No | Subcommand for the API readiness check (default: `kubectl`) |
@@ -88,5 +88,6 @@ sudo k3s kubectl --kubeconfig "$KUBECONFIG" -n flux-system create configmap ai-a
   --dry-run=client -o yaml | sudo k3s kubectl --kubeconfig "$KUBECONFIG" apply -f-
 ```
 
-The role performs the full read-only flow automatically, including all
-`AI_APPLIANCE_*` settings and Flux reconciles.
+The role performs the full read-only flow automatically, including the
+appliance-wide settings ConfigMap and Flux reconciles. Module storage overrides
+are handled by `ModuleActivation.spec.parameters`, not this bootstrap role.

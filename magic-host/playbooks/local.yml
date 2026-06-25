@@ -87,12 +87,6 @@
         ai_appliance_domain: "{{ ai_appliance_domain | default(repo_metadata_env_map.get('AI_APPLIANCE_DOMAIN', 'example.local'), true) }}"
         ai_appliance_dashboard_host: "{{ ai_appliance_dashboard_host | default(repo_metadata_env_map.get('AI_APPLIANCE_DASHBOARD_HOST', 'dashboard.example.local'), true) }}"
         ai_appliance_dashboard_mdns_name: "{{ ai_appliance_dashboard_mdns_name | default(repo_metadata_env_map.get('AI_APPLIANCE_DASHBOARD_MDNS_NAME', 'ai-appliance'), true) }}"
-        ai_appliance_anything_llm_storage: "{{ ai_appliance_anything_llm_storage | default(repo_metadata_env_map.get('AI_APPLIANCE_ANYTHING_LLM_STORAGE', '1Gi'), true) }}"
-        ai_appliance_qdrant_storage: "{{ ai_appliance_qdrant_storage | default(repo_metadata_env_map.get('AI_APPLIANCE_QDRANT_STORAGE', '1Gi'), true) }}"
-        ai_appliance_litellm_postgres_storage: "{{ ai_appliance_litellm_postgres_storage | default(repo_metadata_env_map.get('AI_APPLIANCE_LITELLM_POSTGRES_STORAGE', '1Gi'), true) }}"
-        ai_appliance_loki_storage: "{{ ai_appliance_loki_storage | default(repo_metadata_env_map.get('AI_APPLIANCE_LOKI_STORAGE', '1Gi'), true) }}"
-        ai_appliance_alertmanager_storage: "{{ ai_appliance_alertmanager_storage | default(repo_metadata_env_map.get('AI_APPLIANCE_ALERTMANAGER_STORAGE', '1Gi'), true) }}"
-        ai_appliance_prometheus_storage: "{{ ai_appliance_prometheus_storage | default(repo_metadata_env_map.get('AI_APPLIANCE_PROMETHEUS_STORAGE', '1Gi'), true) }}"
         ansible_inventory_path: "{{ ansible_inventory_path | default(repo_metadata_env_map.get('ANSIBLE_INVENTORY_PATH', 'magic-host/inventory/localhost.yml'), true) }}"
         ansible_playbook_path: "{{ ansible_playbook_path | default(repo_metadata_env_map.get('ANSIBLE_PLAYBOOK_PATH', 'magic-host/playbooks/local.yml'), true) }}"
         flux_github_token: "{{ flux_github_token | default(repo_metadata_env_map.get('FLUX_GITHUB_TOKEN', ''), true) }}"
@@ -128,9 +122,10 @@
         fail_msg: >-
           Missing common repository metadata. Provide FLUX_BOOTSTRAP_MODE,
           MAGICSTICK_PUBLIC_REPO, MAGICSTICK_PUBLIC_REF,
-          MAGICSTICK_PUBLIC_REF_KIND, ANSIBLE_INVENTORY_PATH and
-          ANSIBLE_PLAYBOOK_PATH in {{ repo_metadata_env_file }} (cloud-init), or
-          pass equivalent vars via ansible-pull -e.
+          MAGICSTICK_PUBLIC_REF_KIND and FLUX_PUBLIC_SYNC_PATH in
+          {{ repo_metadata_env_file }} (cloud-init), or pass equivalent vars via
+          ansible-pull -e. Inventory and playbook paths use public template
+          defaults unless explicitly overridden.
 
     - name: Validate GitHub bootstrap metadata variables
       ansible.builtin.assert:
@@ -142,10 +137,10 @@
           - flux_cluster_path is defined and flux_cluster_path | trim | length > 0
           - ai_appliance_private_checkout is defined and ai_appliance_private_checkout | trim | length > 0
         fail_msg: >-
-          Missing GitHub bootstrap metadata. Provide GIT_HOST, GIT_OWNER,
-          GIT_REPO, GIT_BRANCH, AI_APPLIANCE_PRIVATE_CHECKOUT and
-          FLUX_CLUSTER_PATH in {{ repo_metadata_env_file }} (cloud-init), or
-          pass equivalent vars via ansible-pull -e.
+          Missing GitHub bootstrap metadata. Provide GIT_OWNER, GIT_REPO,
+          GIT_BRANCH, FLUX_CLUSTER_PATH and any non-default private checkout in
+          {{ repo_metadata_env_file }} (cloud-init), or pass equivalent vars via
+          ansible-pull -e. GIT_HOST defaults to github.com.
       when: flux_bootstrap_mode | default('readonly-public') == 'github'
 
     - name: Validate public read-only bootstrap metadata variables
@@ -155,15 +150,10 @@
           - ai_appliance_domain is defined and ai_appliance_domain | trim | length > 0
           - ai_appliance_dashboard_host is defined and ai_appliance_dashboard_host | trim | length > 0
           - ai_appliance_dashboard_mdns_name is defined and ai_appliance_dashboard_mdns_name | trim | length > 0
-          - ai_appliance_anything_llm_storage is defined and ai_appliance_anything_llm_storage | trim | length > 0
-          - ai_appliance_qdrant_storage is defined and ai_appliance_qdrant_storage | trim | length > 0
-          - ai_appliance_litellm_postgres_storage is defined and ai_appliance_litellm_postgres_storage | trim | length > 0
-          - ai_appliance_loki_storage is defined and ai_appliance_loki_storage | trim | length > 0
-          - ai_appliance_alertmanager_storage is defined and ai_appliance_alertmanager_storage | trim | length > 0
-          - ai_appliance_prometheus_storage is defined and ai_appliance_prometheus_storage | trim | length > 0
         fail_msg: >-
           Missing public read-only bootstrap metadata. Provide
-          FLUX_PUBLIC_SYNC_PATH and AI_APPLIANCE_* runtime settings in
+          FLUX_PUBLIC_SYNC_PATH, AI_APPLIANCE_DOMAIN,
+          AI_APPLIANCE_DASHBOARD_HOST and AI_APPLIANCE_DASHBOARD_MDNS_NAME in
           {{ repo_metadata_env_file }} (cloud-init), or pass equivalent vars via
           ansible-pull -e.
       when: flux_bootstrap_mode | default('readonly-public') == 'readonly-public'

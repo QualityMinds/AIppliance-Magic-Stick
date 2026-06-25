@@ -27,13 +27,7 @@ param(
   [string]$UbuntuIsoSha256 = "e907d92eeec9df64163a7e454cbc8d7755e8ddc7ed42f99dbc80c40f1a138433",
   [string]$Domain = "example.local",
   [string]$DashboardHost = "dashboard.example.local",
-  [string]$DashboardMdnsName = "ai-appliance",
-  [string]$AnythingLlmStorage = "1Gi",
-  [string]$QdrantStorage = "1Gi",
-  [string]$LitellmPostgresStorage = "1Gi",
-  [string]$LokiStorage = "1Gi",
-  [string]$AlertmanagerStorage = "1Gi",
-  [string]$PrometheusStorage = "1Gi"
+  [string]$DashboardMdnsName = "ai-appliance"
 )
 
 $ErrorActionPreference = "Stop"
@@ -83,7 +77,7 @@ if ($FluxBootstrapMode -eq "github") {
     throw "Flux GitHub token is required for github bootstrap mode"
   }
 } else {
-  $token = if ($env:FLUX_GITHUB_TOKEN) { $env:FLUX_GITHUB_TOKEN } else { "<github-pat>" }
+  $token = ""
 }
 
 if (-not $ContainerRuntime) {
@@ -129,12 +123,6 @@ $env:MAGICSTICK_UBUNTU_ISO_SHA256 = $UbuntuIsoSha256
 $env:MAGICSTICK_AI_APPLIANCE_DOMAIN = $Domain
 $env:MAGICSTICK_AI_APPLIANCE_DASHBOARD_HOST = $DashboardHost
 $env:MAGICSTICK_AI_APPLIANCE_DASHBOARD_MDNS_NAME = $DashboardMdnsName
-$env:MAGICSTICK_AI_APPLIANCE_ANYTHING_LLM_STORAGE = $AnythingLlmStorage
-$env:MAGICSTICK_AI_APPLIANCE_QDRANT_STORAGE = $QdrantStorage
-$env:MAGICSTICK_AI_APPLIANCE_LITELLM_POSTGRES_STORAGE = $LitellmPostgresStorage
-$env:MAGICSTICK_AI_APPLIANCE_LOKI_STORAGE = $LokiStorage
-$env:MAGICSTICK_AI_APPLIANCE_ALERTMANAGER_STORAGE = $AlertmanagerStorage
-$env:MAGICSTICK_AI_APPLIANCE_PROMETHEUS_STORAGE = $PrometheusStorage
 
 & $ContainerRuntime run --rm `
   --env MAGICSTICK_DEPLOYMENT_NAME `
@@ -154,12 +142,6 @@ $env:MAGICSTICK_AI_APPLIANCE_PROMETHEUS_STORAGE = $PrometheusStorage
   --env MAGICSTICK_AI_APPLIANCE_DOMAIN `
   --env MAGICSTICK_AI_APPLIANCE_DASHBOARD_HOST `
   --env MAGICSTICK_AI_APPLIANCE_DASHBOARD_MDNS_NAME `
-  --env MAGICSTICK_AI_APPLIANCE_ANYTHING_LLM_STORAGE `
-  --env MAGICSTICK_AI_APPLIANCE_QDRANT_STORAGE `
-  --env MAGICSTICK_AI_APPLIANCE_LITELLM_POSTGRES_STORAGE `
-  --env MAGICSTICK_AI_APPLIANCE_LOKI_STORAGE `
-  --env MAGICSTICK_AI_APPLIANCE_ALERTMANAGER_STORAGE `
-  --env MAGICSTICK_AI_APPLIANCE_PROMETHEUS_STORAGE `
   --volume "${repoRoot}:/workspace:ro" `
   --volume "${outputDir}:/output" `
   --volume "${cacheDir}:/cache" `

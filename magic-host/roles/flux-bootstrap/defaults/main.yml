@@ -15,10 +15,4 @@ magicstick_public_ref_kind: branch
 ai_appliance_domain: example.local
 ai_appliance_dashboard_host: dashboard.example.local
 ai_appliance_dashboard_mdns_name: ai-appliance
-ai_appliance_anything_llm_storage: 1Gi
-ai_appliance_qdrant_storage: 1Gi
-ai_appliance_litellm_postgres_storage: 1Gi
-ai_appliance_loki_storage: 1Gi
-ai_appliance_alertmanager_storage: 1Gi
-ai_appliance_prometheus_storage: 1Gi
 flux_reconcile_timeout: 5m0s

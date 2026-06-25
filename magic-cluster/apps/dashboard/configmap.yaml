@@ -414,6 +414,16 @@ data:
           flex-wrap: wrap;
         }
 
+        .module-advanced summary {
+          color: var(--muted);
+          cursor: pointer;
+          font-size: 0.82rem;
+        }
+
+        .module-advanced .form-grid {
+          margin-top: 0.55rem;
+        }
+
         .status-pill {
           border-radius: 999px;
           border: 1px solid rgba(148, 163, 184, 0.32);
@@ -908,6 +918,20 @@ data:
             ['observability', 'Observability'],
             ['gpu', 'GPU']
           ];
+          const moduleAdvancedFields = {
+            'litellm': [
+              { name: 'postgresStorage', label: 'Postgres Storage', placeholder: '1Gi' }
+            ],
+            'anything-llm': [
+              { name: 'storage', label: 'Storage', placeholder: '1Gi' },
+              { name: 'qdrantStorage', label: 'Qdrant Storage', placeholder: '1Gi' }
+            ],
+            'observability': [
+              { name: 'lokiStorage', label: 'Loki Storage', placeholder: '1Gi' },
+              { name: 'alertmanagerStorage', label: 'Alertmanager Storage', placeholder: '1Gi' },
+              { name: 'prometheusStorage', label: 'Prometheus Storage', placeholder: '1Gi' }
+            ]
+          };
           const $ = (id) => document.getElementById(id);
           const apiState = $('api-state');
           let latestModelPayload = {};
@@ -937,6 +961,53 @@ data:
             return modules[name] || {};
           };
 
+          const parameterDisplayValue = (value) => {
+            if (!value) { return ''; }
+            if (typeof value === 'object') {
+              return value.size || value.storageSize || '';
+            }
+            return String(value);
+          };
+
+          const renderModuleAdvanced = (item, name, spec) => {
+            const fields = moduleAdvancedFields[name] || [];
+            if (!fields.length) { return; }
+            const parameters = (spec || {}).parameters || {};
+            const details = document.createElement('details');
+            details.className = 'module-advanced';
+            details.open = fields.some((field) => parameterDisplayValue(parameters[field.name]) !== '');
+            const summary = document.createElement('summary');
+            summary.textContent = 'Advanced';
+            const grid = document.createElement('div');
+            grid.className = 'form-grid';
+            fields.forEach((field) => {
+              const label = document.createElement('label');
+              label.className = 'field';
+              label.textContent = field.label;
+              const input = document.createElement('input');
+              input.name = field.name;
+              input.placeholder = field.placeholder;
+              input.value = parameterDisplayValue(parameters[field.name]);
+              input.dataset.moduleParameter = field.name;
+              label.appendChild(input);
+              grid.appendChild(label);
+            });
+            details.append(summary, grid);
+            item.appendChild(details);
+          };
+
+          const moduleParametersFromItem = (item) => {
+            const parameters = {};
+            if (!item) { return parameters; }
+            item.querySelectorAll('[data-module-parameter]').forEach((input) => {
+              const value = String(input.value || '').trim();
+              if (value) {
+                parameters[input.dataset.moduleParameter] = value;
+              }
+            });
+            return parameters;
+          };
+
           const renderConditions = (conditions) => {
             const target = $('appliance-conditions');
             if (!target) { return; }
@@ -959,16 +1030,33 @@ data:
               const phase = (((spec.status || {}).phase) || (enabled ? 'Requested' : 'Disabled'));
               const item = document.createElement('div');
               item.className = 'module-item';
-              item.innerHTML =
-                '<div class="module-row">' +
-                  '<strong>' + title + '</strong>' +
-                  '<span class="status-pill ' + (enabled ? 'enabled' : 'disabled') + '">' + (enabled ? 'Enabled' : 'Disabled') + '</span>' +
-                '</div>' +
-                '<div class="mini-item">' + phase + '</div>' +
-                '<div class="action-row">' +
-                  '<button class="control-button primary" type="button" data-module-enable="' + name + '">Enable</button>' +
-                  '<button class="control-button danger" type="button" data-module-disable="' + name + '">Disable</button>' +
-                '</div>';
+              const row = document.createElement('div');
+              row.className = 'module-row';
+              const label = document.createElement('strong');
+              label.textContent = title;
+              const pill = document.createElement('span');
+              pill.className = 'status-pill ' + (enabled ? 'enabled' : 'disabled');
+              pill.textContent = enabled ? 'Enabled' : 'Disabled';
+              row.append(label, pill);
+              const phaseItem = document.createElement('div');
+              phaseItem.className = 'mini-item';
+              phaseItem.textContent = phase;
+              const actions = document.createElement('div');
+              actions.className = 'action-row';
+              const enable = document.createElement('button');
+              enable.className = 'control-button primary';
+              enable.type = 'button';
+              enable.dataset.moduleEnable = name;
+              enable.textContent = 'Enable';
+              const disable = document.createElement('button');
+              disable.className = 'control-button danger';
+              disable.type = 'button';
+              disable.dataset.moduleDisable = name;
+              disable.textContent = 'Disable';
+              actions.append(enable, disable);
+              item.append(row, phaseItem);
+              renderModuleAdvanced(item, name, spec);
+              item.appendChild(actions);
               list.appendChild(item);
             });
           };
@@ -1305,7 +1393,13 @@ data:
             const name = enable ? enable.dataset.moduleEnable : (disable ? disable.dataset.moduleDisable : null);
             if (!action || !name) { return; }
             try {
-              await request('/api/modules/' + name + '/' + action, { method: 'POST', body: '{}' });
+              const item = (enable || disable).closest('.module-item, .mini-item');
+              const hasAdvancedFields = item && item.querySelector('[data-module-parameter]');
+              const body = {};
+              if (enable && hasAdvancedFields) {
+                body.parameters = moduleParametersFromItem(item);
+              }
+              await request('/api/modules/' + name + '/' + action, { method: 'POST', body: JSON.stringify(body) });
               const message = name + ' ' + action + ' requested through ModuleActivation.';
               if ($('module-output')) { $('module-output').textContent = message; }
               if ($('model-output')) { $('model-output').textContent = message; }

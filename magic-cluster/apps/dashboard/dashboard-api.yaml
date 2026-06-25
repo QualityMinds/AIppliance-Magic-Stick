@@ -195,8 +195,19 @@ data:
             return {"models": []}
 
 
-    def module_activation_payload(module, enabled):
+    def module_activation_payload(module, enabled, payload=None):
         name = module
+        payload = payload or {}
+        spec = {
+            "module": module,
+            "enabled": enabled,
+            "applianceRef": {
+                "name": APPLIANCE_NAME,
+                "namespace": APPLIANCE_NAMESPACE,
+            },
+        }
+        if "parameters" in payload:
+            spec["parameters"] = dict(payload.get("parameters") or {})
         return {
             "apiVersion": f"{APPLIANCE_GROUP}/{APPLIANCE_VERSION}",
             "kind": "ModuleActivation",
@@ -208,14 +219,7 @@ data:
                     "appliance.magicstick.dev/module": module,
                 },
             },
-            "spec": {
-                "module": module,
-                "enabled": enabled,
-                "applianceRef": {
-                    "name": APPLIANCE_NAME,
-                    "namespace": APPLIANCE_NAMESPACE,
-                },
-            },
+            "spec": spec,
         }
 
 
@@ -376,6 +380,7 @@ data:
                 "enabled": spec.get("enabled", True) is not False,
                 "source": "moduleactivation",
                 "activation": (activation.get("metadata") or {}).get("name"),
+                "parameters": spec.get("parameters") or {},
                 "status": activation.get("status") or {},
             }
         return {
@@ -631,7 +636,8 @@ data:
                         self.send_error_json(404, "not found")
                         return
                     enabled = parts[3] == "enable"
-                    resource = module_activation_payload(module, enabled)
+                    payload = read_body(self)
+                    resource = module_activation_payload(module, enabled, payload)
                     name = resource["metadata"]["name"]
                     collection = f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/moduleactivations"
                     item = collection + "/" + name
