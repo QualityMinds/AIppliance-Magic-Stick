@@ -15,7 +15,7 @@ configuration.
 | [dashboard.md](dashboard.md) | Dashboard UI/API contract for managing the `Appliance` CR. |
 | [modules.md](modules.md) | Magic Stick module catalog and generated Flux Kustomization contract. |
 | [operator-orchestration.md](operator-orchestration.md) | Meta-operator responsibilities and specialized operator handoff. |
-| [configuration.md](configuration.md) | Bootstrap variables, `AI_APPLIANCE_*` settings, Flux post-build substitution, and secret handling. |
+| [configuration.md](configuration.md) | Bootstrap variables, appliance-wide settings, module parameters, Flux post-build substitution, and secret handling. |
 | [gitops-overlays.md](gitops-overlays.md) | Public bases, private overlays, Flux `GitRepository.spec.include`, profiles, and patching patterns. |
 | [operations.md](operations.md) | Day-2 checks for Flux, K3s, apps, models, storage, GPU, logs, and common failures. |
 | [model-catalog.md](model-catalog.md) | AI model catalog contract, external model schema, generated ConfigMap keys, and troubleshooting. |

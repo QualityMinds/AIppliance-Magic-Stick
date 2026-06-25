@@ -71,6 +71,10 @@ spec:
                     namespace:
                       type: string
                       default: ai-system
+                parameters:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                  description: Public-safe module parameters such as storage sizes.
             status:
               type: object
               properties:

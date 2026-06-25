@@ -86,21 +86,27 @@ Deployment overlays can then import individual module bases from
 
 ## Host Bootstrap
 
-The installer writes `/etc/default/ai-appliance-repo`. The reusable Ansible playbook reads:
+The installer writes `/etc/default/ai-appliance-repo`. In the default
+`readonly-public` mode, that file only needs the public Flux source and runtime
+settings:
 
 - `FLUX_BOOTSTRAP_MODE`
-- `GIT_HOST`
+- `FLUX_PUBLIC_SYNC_PATH`
+- `MAGICSTICK_PUBLIC_REPO`
+- `MAGICSTICK_PUBLIC_REF`
+- `MAGICSTICK_PUBLIC_REF_KIND`
+- `AI_APPLIANCE_DOMAIN`
+- `AI_APPLIANCE_DASHBOARD_HOST`
+- `AI_APPLIANCE_DASHBOARD_MDNS_NAME`
+
+The host converge runner supplies defaults for the public checkout, inventory
+and playbook paths. Private GitHub bootstrap is opt-in and additionally uses:
+
 - `GIT_OWNER`
 - `GIT_REPO`
 - `GIT_BRANCH`
 - `FLUX_CLUSTER_PATH`
-- `FLUX_PUBLIC_SYNC_PATH`
-- `ANSIBLE_INVENTORY_PATH`
-- `ANSIBLE_PLAYBOOK_PATH`
-- `MAGICSTICK_PUBLIC_REPO`
-- `MAGICSTICK_PUBLIC_REF`
-- `MAGICSTICK_PUBLIC_REF_KIND`
-- `AI_APPLIANCE_*`
+- `AI_APPLIANCE_PRIVATE_CHECKOUT`
 - `FLUX_GITHUB_TOKEN`
 
 Secrets such as Flux tokens must be supplied at install/runtime and must not be committed.
@@ -110,7 +116,8 @@ need a Git token.
 The generated AI model catalog honors `AI_APPLIANCE_DEFAULT_CHAT_MODEL` and
 `AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL` for private deployments that need to
 override the public defaults. App-specific storage, host, and preferred model
-values are runtime `AppInstance` parameters.
+values are runtime `AppInstance` parameters; module storage values are runtime
+`ModuleActivation.spec.parameters`.
 
 See [docs/model-catalog.md](docs/model-catalog.md) for the model catalog
 contract, external model schema, generated ConfigMap keys, and operational

@@ -72,6 +72,8 @@ metadata:
 spec:
   module: litellm
   enabled: true
+  parameters:
+    postgresStorage: 5Gi
 ```
 
 ```yaml

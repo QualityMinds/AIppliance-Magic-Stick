@@ -15,11 +15,13 @@ for the variables written into `/etc/default/ai-appliance-repo`.
 | `meta-data` | Example cloud-init instance metadata |
 | `user-data` | Autoinstall config and first converge runner command |
 
-## Required Deployment Values
+## Deployment Values
 
 The default installer uses `readonly-public` mode and reads only the public
 Magic-Stick repository. Private GitHub deployment values are only required when
 `FLUX_BOOTSTRAP_MODE=github`.
+
+Default `readonly-public` metadata:
 
 | Variable | Description |
 |---|---|
@@ -27,13 +29,28 @@ Magic-Stick repository. Private GitHub deployment values are only required when
 | `MAGICSTICK_PUBLIC_REPO` | Public template repository to fetch at bootstrap |
 | `MAGICSTICK_PUBLIC_REF` | Public template branch, tag, semver, or commit |
 | `MAGICSTICK_PUBLIC_REF_KIND` | Ref kind for Flux, usually `branch` |
-| `MAGICSTICK_PUBLIC_CHECKOUT` | Local checkout path for public template code |
 | `FLUX_PUBLIC_SYNC_PATH` | Public profile path for `readonly-public`, e.g. `magic-cluster/flux/entrypoints/single-node` |
-| `magic-host/inventory/localhost.yml` | Reusable local host inventory from the public template |
-| `AI_APPLIANCE_*` | Domain, dashboard, mDNS, and storage settings for public read-only bootstrap |
+| `AI_APPLIANCE_DOMAIN`, `AI_APPLIANCE_DASHBOARD_HOST`, `AI_APPLIANCE_DASHBOARD_MDNS_NAME` | Appliance-wide runtime settings for public read-only bootstrap |
+
+Module storage is configured later through Dashboard advanced options or
+`ModuleActivation.spec.parameters`, not through installer media.
+
+Optional advanced overrides:
+
+| Variable | Description |
+|---|---|
+| `MAGICSTICK_PUBLIC_CHECKOUT` | Local checkout path for public template code; defaults to `/opt/ai-appliance/magicstick` |
+| `ANSIBLE_INVENTORY_PATH` | Inventory path for the converge runner; defaults to `magic-host/inventory/localhost.yml` |
+| `ANSIBLE_PLAYBOOK_PATH` | Playbook path for the converge runner; defaults to `magic-host/playbooks/local.yml` |
+
+Private GitHub bootstrap metadata:
+
+| Variable | Description |
+|---|---|
+| `GIT_HOST` | Git host for private bootstrap; defaults to `github.com` |
 | `GIT_OWNER`, `GIT_REPO`, `GIT_BRANCH` | Required only for `github` bootstrap mode |
 | `FLUX_CLUSTER_PATH` | Required only for `github` bootstrap mode |
-| `AI_APPLIANCE_PRIVATE_CHECKOUT` | Required only for `github` bootstrap mode |
+| `AI_APPLIANCE_PRIVATE_CHECKOUT` | Private checkout path; defaults to `/opt/ai-appliance/deployment` |
 | `FLUX_GITHUB_TOKEN` | Required only for `github` bootstrap mode; do not commit a real token |
 
 ## Creating Installation Media

@@ -8,7 +8,7 @@ post-build variables and private overlays.
 The installer writes `/etc/default/ai-appliance-repo`. The Ansible playbook
 reads that file and maps environment-style keys into Ansible variables.
 
-Common keys:
+Default `readonly-public` metadata:
 
 | Key | Purpose |
 |---|---|
@@ -16,10 +16,20 @@ Common keys:
 | `MAGICSTICK_PUBLIC_REPO` | Public Magic Stick repository URL. |
 | `MAGICSTICK_PUBLIC_REF` | Public ref used by the converge runner and Flux source. |
 | `MAGICSTICK_PUBLIC_REF_KIND` | `branch`, `tag`, `semver`, or `commit`. |
-| `MAGICSTICK_PUBLIC_CHECKOUT` | Local checkout path for the public template. |
 | `FLUX_PUBLIC_SYNC_PATH` | Public profile path used by `readonly-public` mode. |
-| `ANSIBLE_INVENTORY_PATH` | Inventory path passed to the converge runner. |
-| `ANSIBLE_PLAYBOOK_PATH` | Playbook path passed to the converge runner. |
+
+Optional advanced overrides:
+
+| Key | Purpose |
+|---|---|
+| `MAGICSTICK_PUBLIC_CHECKOUT` | Local checkout path for the public template. Defaults to `/opt/ai-appliance/magicstick`. |
+| `ANSIBLE_INVENTORY_PATH` | Inventory path passed to the converge runner. Defaults to `magic-host/inventory/localhost.yml`. |
+| `ANSIBLE_PLAYBOOK_PATH` | Playbook path passed to the converge runner. Defaults to `magic-host/playbooks/local.yml`. |
+
+Private GitHub bootstrap keys:
+
+| Key | Purpose |
+|---|---|
 | `GIT_HOST` | Git host for private bootstrap mode. Defaults to `github.com`. |
 | `GIT_OWNER` | Private deployment repository owner for `github` mode. |
 | `GIT_REPO` | Private deployment repository name for `github` mode. |
@@ -30,25 +40,30 @@ Common keys:
 
 ## Runtime Settings
 
-In `readonly-public` mode, Ansible renders `ConfigMap/ai-appliance-settings` in
-namespace `flux-system`. Flux Kustomizations use it through
-`postBuild.substituteFrom`.
+In `readonly-public` mode, Ansible renders appliance-wide settings into
+`ConfigMap/ai-appliance-settings` in namespace `flux-system`. Flux
+Kustomizations use it through `postBuild.substituteFrom`.
 
 | Setting | Default | Used by |
 |---|---|---|
 | `AI_APPLIANCE_DOMAIN` | `example.local` | App and observability hostnames. |
 | `AI_APPLIANCE_DASHBOARD_HOST` | `dashboard.example.local` | Dashboard ingress hostname. |
 | `AI_APPLIANCE_DASHBOARD_MDNS_NAME` | `ai-appliance` | Dashboard mDNS annotation. |
-| `AI_APPLIANCE_ANYTHING_LLM_STORAGE` | `1Gi` | AnythingLLM PVC. |
-| `AI_APPLIANCE_QDRANT_STORAGE` | `1Gi` | Qdrant PVC. |
-| `AI_APPLIANCE_LITELLM_POSTGRES_STORAGE` | `1Gi` | LiteLLM PostgreSQL PVC. |
-| `AI_APPLIANCE_LOKI_STORAGE` | `1Gi` | Loki PVC. |
-| `AI_APPLIANCE_ALERTMANAGER_STORAGE` | `1Gi` | Alertmanager PVC. |
-| `AI_APPLIANCE_PROMETHEUS_STORAGE` | `1Gi` | Prometheus PVC. |
 
-Private deployments can supply the same values through their own
-`ConfigMap/ai-appliance-settings`, Flux `postBuild` variables, or Kustomize
-patches.
+## Module Advanced Parameters
+
+Module storage is configured at runtime through Dashboard advanced options or
+directly through `ModuleActivation.spec.parameters`. If a parameter is omitted,
+the module manifest default such as `${AI_APPLIANCE_LOKI_STORAGE:=1Gi}` is used.
+
+| Module | Parameter | Flux substitution |
+|---|---|---|
+| `litellm` | `postgresStorage` | `AI_APPLIANCE_LITELLM_POSTGRES_STORAGE` |
+| `anything-llm` | `storage` | `AI_APPLIANCE_ANYTHING_LLM_STORAGE` |
+| `anything-llm` | `qdrantStorage` | `AI_APPLIANCE_QDRANT_STORAGE` |
+| `observability` | `lokiStorage` | `AI_APPLIANCE_LOKI_STORAGE` |
+| `observability` | `alertmanagerStorage` | `AI_APPLIANCE_ALERTMANAGER_STORAGE` |
+| `observability` | `prometheusStorage` | `AI_APPLIANCE_PROMETHEUS_STORAGE` |
 
 ## Model Catalog Settings
 
@@ -62,8 +77,9 @@ Generated model catalog values such as `AI_APPLIANCE_MODEL_CATALOG_READY`,
 inputs. See [model-catalog.md](model-catalog.md).
 
 App-specific host, storage, and preferred model values are runtime
-`AppInstance` parameters. Local and external model selections are runtime
-`ModelActivation` resources.
+`AppInstance` parameters. Module storage values are runtime `ModuleActivation`
+parameters. Local and external model selections are runtime `ModelActivation`
+resources.
 
 ## Installer Build Variables
 

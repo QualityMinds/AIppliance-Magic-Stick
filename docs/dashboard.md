@@ -56,7 +56,7 @@ The dashboard Deployment runs an API sidecar from
 | `GET` | `/api/appliance` | Returns `Appliance/local`. |
 | `PATCH` | `/api/appliance` | Returns `405`; `Appliance/local.spec` is Git-owned. |
 | `GET` | `/api/modules` | Returns module catalog plus current `ModuleActivation` spec/status. |
-| `POST` | `/api/modules/{name}/enable` | Creates or patches `ModuleActivation/<name>` with `spec.enabled: true`. |
+| `POST` | `/api/modules/{name}/enable` | Creates or patches `ModuleActivation/<name>` with `spec.enabled: true`; optional `parameters` are stored on the `ModuleActivation`. |
 | `POST` | `/api/modules/{name}/disable` | Creates or patches `ModuleActivation/<name>` with `spec.enabled: false`; the Magic Stick Operator removes the generated Flux `Kustomization`. |
 | `GET` | `/api/instances` | Returns `AppInstance` resources and status. |
 | `POST` | `/api/instances/openclaw` | Adds or replaces an OpenClaw `AppInstance`. |
@@ -76,6 +76,13 @@ Enable LiteLLM:
 
 ```http
 POST /api/modules/litellm/enable
+Content-Type: application/json
+
+{
+  "parameters": {
+    "postgresStorage": "5Gi"
+  }
+}
 ```
 
 Enable OpenClaw Operator:

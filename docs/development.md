@@ -88,6 +88,9 @@ magic-installer/write-usb.sh --help
 4. Add the variable to [configuration.md](configuration.md).
 5. Add release-review coverage to [public-release-checklist.md](public-release-checklist.md).
 
+For module storage values, prefer `ModuleActivation.spec.parameters` plus an
+operator-managed Flux substitution over installer or USB metadata.
+
 ## Adding A Secret
 
 Prefer one of these patterns:

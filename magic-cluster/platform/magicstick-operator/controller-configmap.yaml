@@ -36,6 +36,20 @@ data:
     FIELD_MANAGER = "magicstick-operator"
     MODULE_FINALIZER = "appliance.magicstick.dev/module-cleanup"
     MODEL_FINALIZER = "appliance.magicstick.dev/model-cleanup"
+    MODULE_PARAMETER_SUBSTITUTIONS = {
+        "litellm": {
+            "postgresStorage": "AI_APPLIANCE_LITELLM_POSTGRES_STORAGE",
+        },
+        "anything-llm": {
+            "storage": "AI_APPLIANCE_ANYTHING_LLM_STORAGE",
+            "qdrantStorage": "AI_APPLIANCE_QDRANT_STORAGE",
+        },
+        "observability": {
+            "lokiStorage": "AI_APPLIANCE_LOKI_STORAGE",
+            "alertmanagerStorage": "AI_APPLIANCE_ALERTMANAGER_STORAGE",
+            "prometheusStorage": "AI_APPLIANCE_PROMETHEUS_STORAGE",
+        },
+    }
 
     PLURALS = {
         ("appliance.magicstick.dev", "ModuleActivation"): "moduleactivations",
@@ -409,7 +423,23 @@ data:
         return ((catalog.get("modules") or {}).get(module) or {}).get("kustomizationName")
 
 
-    def generated_kustomization(module, module_spec, catalog, enabled, source):
+    def parameter_value(parameters, key):
+        value = (parameters or {}).get(key)
+        if isinstance(value, dict):
+            value = value.get("size") or value.get("storageSize")
+        return str(value or "").strip()
+
+
+    def module_parameter_substitutions(module, parameters):
+        substitutions = {}
+        for parameter_name, env_name in (MODULE_PARAMETER_SUBSTITUTIONS.get(module) or {}).items():
+            value = parameter_value(parameters, parameter_name)
+            if value:
+                substitutions[env_name] = value
+        return substitutions
+
+
+    def generated_kustomization(module, module_spec, catalog, enabled, source, parameters=None):
         depends_on = []
         for dependency in module_spec.get("requires") or []:
             dep_name = dependency_name(dependency, catalog)
@@ -429,10 +459,17 @@ data:
         }
         if depends_on:
             spec["dependsOn"] = depends_on
+        substitutions = module_parameter_substitutions(module, parameters)
         if module_spec.get("postBuildSubstitution"):
+            substitute = {"var_substitution_enabled": "true"}
+            substitute.update(substitutions)
             spec["postBuild"] = {
-                "substitute": {"var_substitution_enabled": "true"},
+                "substitute": substitute,
                 "substituteFrom": [{"kind": "ConfigMap", "name": "ai-appliance-settings", "optional": True}],
+            }
+        elif substitutions:
+            spec["postBuild"] = {
+                "substitute": substitutions,
             }
         health_checks = [
             {"apiVersion": "apiextensions.k8s.io/v1", "kind": "CustomResourceDefinition", "name": crd}
@@ -532,7 +569,8 @@ data:
             patch_module_status(activation, phase, module_spec["kustomizationName"], "WaitingForModules", message, generation)
             return phase, {"phase": phase, "kustomization": module_spec["kustomizationName"], "message": message}
 
-        apply_resource(generated_kustomization(module, module_spec, catalog, enabled, source))
+        parameters = (activation.get("spec") or {}).get("parameters") or {}
+        apply_resource(generated_kustomization(module, module_spec, catalog, enabled, source, parameters))
         kustomization = get_resource("kustomize.toolkit.fluxcd.io", "v1", "kustomizations", FLUX_NAMESPACE, module_spec["kustomizationName"])
 
         ready = ready_condition(kustomization or {})

@@ -23,31 +23,17 @@ autoinstall:
         owner: root:root
         permissions: "0600"
         content: |
-          # Zentrale (nicht-sensitive) Git-Metadaten fuer Bootstrap, Host-Converge und Flux.
-          GIT_HOST=github.com
-          GIT_OWNER=example-org
-          GIT_REPO=example-deployment
-          GIT_BRANCH=main
+          # Flux bootstrap metadata.
           FLUX_BOOTSTRAP_MODE=readonly-public
           MAGICSTICK_PUBLIC_REPO=https://github.com/QualityMinds/AIppliance-Magic-Stick.git
           MAGICSTICK_PUBLIC_REF=main
           MAGICSTICK_PUBLIC_REF_KIND=branch
-          MAGICSTICK_PUBLIC_CHECKOUT=/opt/ai-appliance/magicstick
-          AI_APPLIANCE_PRIVATE_CHECKOUT=/opt/ai-appliance/deployment
-          FLUX_CLUSTER_PATH=deployments/CHANGEME_DEPLOYMENT/infra-cluster/flux-bootstrap
           FLUX_PUBLIC_SYNC_PATH=magic-cluster/flux/entrypoints/single-node
-          ANSIBLE_INVENTORY_PATH=magic-host/inventory/localhost.yml
-          ANSIBLE_PLAYBOOK_PATH=magic-host/playbooks/local.yml
+
+          # Appliance-wide runtime settings rendered into ConfigMap/ai-appliance-settings.
           AI_APPLIANCE_DOMAIN=example.local
           AI_APPLIANCE_DASHBOARD_HOST=dashboard.example.local
           AI_APPLIANCE_DASHBOARD_MDNS_NAME=ai-appliance
-          AI_APPLIANCE_ANYTHING_LLM_STORAGE=1Gi
-          AI_APPLIANCE_QDRANT_STORAGE=1Gi
-          AI_APPLIANCE_LITELLM_POSTGRES_STORAGE=1Gi
-          AI_APPLIANCE_LOKI_STORAGE=1Gi
-          AI_APPLIANCE_ALERTMANAGER_STORAGE=1Gi
-          AI_APPLIANCE_PROMETHEUS_STORAGE=1Gi
-          FLUX_GITHUB_TOKEN=REPLACE_ME
 
     runcmd:
       - >
