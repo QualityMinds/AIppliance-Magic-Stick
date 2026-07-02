@@ -1285,7 +1285,7 @@ data:
             NODE
         """).replace("__PUBLIC_URL__", public_url)
         job_suffix = hashlib.sha256(((name or "paperclip") + "|auth-v2|" + public_url).encode("utf-8")).hexdigest()[:8]
-        admin_job_suffix = hashlib.sha256(((name or "paperclip") + "|admin-v1|" + public_url).encode("utf-8")).hexdigest()[:8]
+        admin_job_suffix = hashlib.sha256(((name or "paperclip") + "|admin-v2|" + public_url).encode("utf-8")).hexdigest()[:8]
         job_base = (name or "paperclip")[:42].rstrip("-") or "paperclip"
         service_url = "http://" + (name or "paperclip") + "." + namespace + ".svc.cluster.local:3100"
         db_service_url = "postgresql://paperclip:$(DB_PASSWORD)@" + (name or "paperclip") + "-db." + namespace + ".svc.cluster.local:5432/paperclip"
@@ -1358,13 +1358,26 @@ data:
               sleep 5
             done
 
+            node <<'NODE'
+            const fs = require("fs");
+            fs.writeFileSync("/tmp/signup-payload.json", JSON.stringify({
+              name: process.env.ADMIN_NAME,
+              email: process.env.ADMIN_EMAIL,
+              password: process.env.ADMIN_PASSWORD,
+            }));
+            fs.writeFileSync("/tmp/signin-payload.json", JSON.stringify({
+              email: process.env.ADMIN_EMAIL,
+              password: process.env.ADMIN_PASSWORD,
+            }));
+            NODE
+
             echo "Creating or signing in admin account..."
             signup_status="$(curl -sS -o /tmp/signup.json -w '%{http_code}' \
               -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
               -H "Content-Type: application/json" \
               -H "Origin: $PUBLIC_URL" \
               -X POST "$SVC_URL/api/auth/sign-up/email" \
-              -d "{\"name\":\"$ADMIN_NAME\",\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\"}")" || true
+              --data-binary @/tmp/signup-payload.json)" || true
 
             if echo "$signup_status" | grep -q '^2'; then
               echo "Admin account created."
@@ -1375,7 +1388,7 @@ data:
                 -H "Content-Type: application/json" \
                 -H "Origin: $PUBLIC_URL" \
                 -X POST "$SVC_URL/api/auth/sign-in/email" \
-                -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\"}")" || true
+                --data-binary @/tmp/signin-payload.json)" || true
               if echo "$signin_status" | grep -q '^2'; then
                 echo "Signed in as existing admin."
               else
