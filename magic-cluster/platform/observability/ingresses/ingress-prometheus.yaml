@@ -8,6 +8,7 @@ metadata:
   annotations:
     lab42.io/mdns.enabled: "true"
     lab42.io/mdns.name: "prometheus"
+    lab42.io/mdns.host: "prometheus"
 spec:
   ingressClassName: nginx
   rules:

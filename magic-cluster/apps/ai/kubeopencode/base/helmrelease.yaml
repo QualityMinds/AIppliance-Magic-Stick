@@ -27,6 +27,7 @@ spec:
         annotations:
           lab42.io/mdns.enabled: "true"
           lab42.io/mdns.name: "kubeopencode"
+          lab42.io/mdns.host: "kubeopencode"
         hosts:
           - host: "kubeopencode.${AI_APPLIANCE_DOMAIN:=example.local}"
             paths:

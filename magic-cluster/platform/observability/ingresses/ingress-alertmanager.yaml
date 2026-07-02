@@ -8,6 +8,7 @@ metadata:
   annotations:
     lab42.io/mdns.enabled: "true"
     lab42.io/mdns.name: "alertmanager"
+    lab42.io/mdns.host: "alertmanager"
 spec:
   ingressClassName: nginx
   rules:

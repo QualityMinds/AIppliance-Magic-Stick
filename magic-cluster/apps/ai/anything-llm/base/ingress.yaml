@@ -8,6 +8,7 @@ metadata:
   annotations:
     lab42.io/mdns.enabled: "true"
     lab42.io/mdns.name: "anythingllm"
+    lab42.io/mdns.host: "anythingllm"
     nginx.ingress.kubernetes.io/proxy-body-size: "100m"
 spec:
   ingressClassName: nginx

@@ -8,6 +8,7 @@ metadata:
   annotations:
     lab42.io/mdns.enabled: "true"
     lab42.io/mdns.name: "litellm"
+    lab42.io/mdns.host: "litellm"
 spec:
   ingressClassName: nginx
   rules:

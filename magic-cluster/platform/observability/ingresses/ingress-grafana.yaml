@@ -8,6 +8,7 @@ metadata:
   annotations:
     lab42.io/mdns.enabled: "true"
     lab42.io/mdns.name: "grafana"
+    lab42.io/mdns.host: "grafana"
 spec:
   ingressClassName: nginx
   rules:
