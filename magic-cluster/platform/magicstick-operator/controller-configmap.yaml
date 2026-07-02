@@ -1301,7 +1301,7 @@ data:
             NODE
         """).replace("__PUBLIC_URL__", public_url).replace("__LOCAL_HOST__", local_host)
         job_suffix = hashlib.sha256(((name or "paperclip") + "|auth-v3|" + public_url + "|" + local_host).encode("utf-8")).hexdigest()[:8]
-        admin_job_suffix = hashlib.sha256(((name or "paperclip") + "|admin-v2|" + public_url).encode("utf-8")).hexdigest()[:8]
+        admin_job_suffix = hashlib.sha256(((name or "paperclip") + "|admin-v3|" + public_url).encode("utf-8")).hexdigest()[:8]
         job_base = (name or "paperclip")[:42].rstrip("-") or "paperclip"
         service_url = "http://" + (name or "paperclip") + "." + namespace + ".svc.cluster.local:3100"
         db_service_url = "postgresql://paperclip:$(DB_PASSWORD)@" + (name or "paperclip") + "-db." + namespace + ".svc.cluster.local:5432/paperclip"
@@ -1413,37 +1413,43 @@ data:
               fi
             fi
 
-            health="$(curl -sS -c "$COOKIE_JAR" -b "$COOKIE_JAR" "$SVC_URL/api/health/details" 2>/dev/null || true)"
-            if echo "$health" | grep -q '"bootstrapStatus":"ready"'; then
-              echo "Instance already bootstrapped."
-              exit 0
-            fi
-
-            echo "Generating bootstrap invite..."
-            bootstrap_output="$(pnpm paperclipai auth bootstrap-ceo --base-url "$SVC_URL" 2>&1)" || true
-            echo "$bootstrap_output"
-
-            invite_token="$(echo "$bootstrap_output" | grep -o 'pcp_bootstrap_[a-f0-9]*' | head -1)"
-            if [ -z "$invite_token" ]; then
-              echo "Could not extract invite token."
-              exit 1
-            fi
-
-            echo "Accepting bootstrap invite..."
-            accept_status="$(curl -sS -o /tmp/accept.json -w '%{http_code}' \
-              -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
-              -H "Content-Type: application/json" \
-              -H "Origin: $PUBLIC_URL" \
-              -X POST "$SVC_URL/api/invites/$invite_token/accept" \
-              -d '{"requestType":"human"}')" || true
-
-            if echo "$accept_status" | grep -q '^2'; then
-              echo "Admin bootstrap finished successfully."
-            else
-              echo "Invite acceptance returned HTTP $accept_status: $(cat /tmp/accept.json 2>/dev/null)"
-              exit 1
-            fi
+            echo "Admin account is ready."
         """).replace("__PUBLIC_URL__", public_url).replace("__SERVICE_URL__", service_url)
+        admin_role_script = textwrap.dedent("""\
+            set -eu
+
+            case "$ADMIN_EMAIL" in
+              *"'"*)
+                echo "Admin email contains unsupported quote character."
+                exit 1
+                ;;
+            esac
+
+            echo "Waiting for PostgreSQL..."
+            for attempt in $(seq 1 120); do
+              if psql -v ON_ERROR_STOP=1 -c "select 1" >/dev/null 2>&1; then
+                break
+              fi
+              echo "Waiting for PostgreSQL ($attempt/120)"
+              sleep 5
+            done
+
+            echo "Granting Paperclip instance_admin role..."
+            psql -v ON_ERROR_STOP=1 <<SQL
+            INSERT INTO instance_user_roles (user_id, role)
+            SELECT id, 'instance_admin'
+            FROM "user"
+            WHERE email = '$ADMIN_EMAIL'
+            ON CONFLICT (user_id, role) DO UPDATE SET updated_at = now();
+            SQL
+
+            count="$(psql -tA -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM instance_user_roles r JOIN \\"user\\" u ON u.id = r.user_id WHERE u.email = '$ADMIN_EMAIL' AND r.role = 'instance_admin';")"
+            if [ "$count" = "0" ]; then
+              echo "Admin role was not granted."
+              exit 1
+            fi
+            echo "Admin bootstrap finished successfully."
+        """)
         admin_bootstrap_job = None
         if admin_enabled:
             admin_bootstrap_job = {
@@ -1469,8 +1475,8 @@ data:
                         },
                         "spec": {
                             "restartPolicy": "OnFailure",
-                            "containers": [{
-                                "name": "admin-bootstrap",
+                            "initContainers": [{
+                                "name": "admin-account",
                                 "image": "ghcr.io/paperclipai/paperclip:sha-e59eb10",
                                 "imagePullPolicy": "IfNotPresent",
                                 "command": ["/bin/sh", "-c"],
@@ -1496,7 +1502,6 @@ data:
                                     {"name": "ADMIN_NAME", "value": admin_name},
                                     {"name": "ADMIN_PASSWORD", "valueFrom": {"secretKeyRef": {"name": admin_secret_name, "key": admin_secret_key}}},
                                 ],
-                                "volumeMounts": [{"name": "paperclip-data", "mountPath": "/paperclip"}],
                                 "securityContext": {
                                     "allowPrivilegeEscalation": False,
                                     "capabilities": {"drop": ["ALL"]},
@@ -1505,9 +1510,26 @@ data:
                                     "runAsGroup": 1000,
                                 },
                             }],
-                            "volumes": [{
-                                "name": "paperclip-data",
-                                "persistentVolumeClaim": {"claimName": (name or "paperclip") + "-data"},
+                            "containers": [{
+                                "name": "admin-role",
+                                "image": "postgres:17-alpine",
+                                "imagePullPolicy": "IfNotPresent",
+                                "command": ["/bin/sh", "-c"],
+                                "args": [admin_role_script],
+                                "env": [
+                                    {"name": "ADMIN_EMAIL", "value": admin_email},
+                                    {"name": "PGHOST", "value": (name or "paperclip") + "-db." + namespace + ".svc.cluster.local"},
+                                    {"name": "PGDATABASE", "value": "paperclip"},
+                                    {"name": "PGUSER", "value": "paperclip"},
+                                    {"name": "PGPASSWORD", "valueFrom": {"secretKeyRef": {"name": (name or "paperclip") + "-db-credentials", "key": "password"}}},
+                                ],
+                                "securityContext": {
+                                    "allowPrivilegeEscalation": False,
+                                    "capabilities": {"drop": ["ALL"]},
+                                    "runAsNonRoot": True,
+                                    "runAsUser": 1000,
+                                    "runAsGroup": 1000,
+                                },
                             }],
                         },
                     },
