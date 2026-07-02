@@ -1236,7 +1236,8 @@ data:
         name = metadata.get("name")
         namespace = spec.get("targetNamespace") or "ai"
         host = ((params.get("ingress") or {}).get("host") or params.get("host") or "paperclip.example.local")
-        local_host = local_http_host("paperclip")
+        local_host = local_http_host(params.get("localHost") or params.get("localHostname") or name or "paperclip")
+        local_name = local_host[:-6] if local_host.endswith(".local") else local_host
         public_url = "http://" + host
         storage = ((params.get("storage") or {}).get("size") or params.get("storageSize") or "5Gi")
         database = params.get("database") or {}
@@ -1605,8 +1606,8 @@ data:
                             "dashboard.ai-appliance.io/category": "AI",
                             "dashboard.ai-appliance.io/order": "40",
                             "lab42.io/mdns.enabled": "true",
-                            "lab42.io/mdns.name": "paperclip",
-                            "lab42.io/mdns.host": "paperclip",
+                            "lab42.io/mdns.name": local_name,
+                            "lab42.io/mdns.host": local_name,
                         },
                     },
                 },
