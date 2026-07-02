@@ -1227,6 +1227,24 @@ data:
         managed_database = database.get("managed") or {}
         postgres_storage = managed_database.get("storageSize") or params.get("postgresStorage") or params.get("postgresStorageSize") or "10Gi"
         auth_secret_name = params.get("authSecretName") or "paperclip-auth"
+        admin = params.get("admin") or {}
+        admin_enabled = admin.get("enabled", True) is not False
+        admin_email = admin.get("email") or params.get("adminEmail") or "admin@example.com"
+        admin_name = admin.get("name") or params.get("adminName") or "Admin"
+        admin_password_ref = admin.get("passwordSecretRef") or {}
+        admin_secret_base = (name or "paperclip")[:56].rstrip("-") or "paperclip"
+        admin_secret_name = (
+            admin_password_ref.get("name")
+            or admin.get("passwordSecretName")
+            or params.get("adminPasswordSecretName")
+            or admin_secret_base + "-admin"
+        )
+        admin_secret_key = (
+            admin_password_ref.get("key")
+            or admin.get("passwordSecretKey")
+            or params.get("adminPasswordSecretKey")
+            or "PAPERCLIP_ADMIN_PASSWORD"
+        )
         auth_config_patch = textwrap.dedent("""\
             set -eu
             CONFIG="/paperclip/instances/default/config.json"
@@ -1327,6 +1345,30 @@ data:
             "type": "Opaque",
             "data": {},
         }
+        admin_secret = None
+        if admin_enabled and not admin_password_ref.get("name"):
+            admin_secret = {
+                "apiVersion": "v1",
+                "kind": "Secret",
+                "metadata": {
+                    "name": admin_secret_name,
+                    "namespace": namespace,
+                    "labels": {"app": "paperclip", "appliance.magicstick.dev/appinstance": metadata.get("name", "")},
+                    "annotations": {
+                        "secret-generator.v1.mittwald.de/autogenerate": admin_secret_key,
+                        "secret-generator.v1.mittwald.de/encoding": "hex",
+                    },
+                },
+                "type": "Opaque",
+                "data": {},
+            }
+        auth_spec = {"secretRef": {"name": auth_secret_name, "key": "BETTER_AUTH_SECRET"}}
+        if admin_enabled:
+            auth_spec["adminUser"] = {
+                "email": admin_email,
+                "name": admin_name,
+                "passwordSecretRef": {"name": admin_secret_name, "key": admin_secret_key},
+            }
         instance_resource = {
             "apiVersion": "paperclip.inc/v1alpha1",
             "kind": "Instance",
@@ -1341,7 +1383,7 @@ data:
                     "allowedHostnames": [host, "localhost", "127.0.0.1"],
                 },
                 "database": {"mode": "managed", "managed": {"storageSize": postgres_storage}},
-                "auth": {"secretRef": {"name": auth_secret_name, "key": "BETTER_AUTH_SECRET"}},
+                "auth": auth_spec,
                 "env": [
                     {"name": "PAPERCLIP_AUTH_BASE_URL_MODE", "value": "explicit"},
                     {"name": "PAPERCLIP_AUTH_PUBLIC_BASE_URL", "value": public_url},
@@ -1367,7 +1409,11 @@ data:
                 },
             },
         }
-        return [auth_secret, auth_config_job, instance_resource], "http://" + host + "/"
+        resources = [auth_secret]
+        if admin_secret:
+            resources.append(admin_secret)
+        resources.extend([auth_config_job, instance_resource])
+        return resources, "http://" + host + "/"
 
 
     def build_kubeopencode(instance):
