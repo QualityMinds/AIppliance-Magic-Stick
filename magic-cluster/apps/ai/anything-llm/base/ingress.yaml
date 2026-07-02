@@ -23,3 +23,13 @@ spec:
                 name: anything-llm
                 port:
                   number: 3001
+    - host: anythingllm.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: anything-llm
+                port:
+                  number: 3001

@@ -309,6 +309,13 @@ data:
         return selected, models
 
 
+    def local_http_host(name):
+        raw = str(name or "").strip().strip(".")
+        if not raw:
+            return ""
+        return raw if raw.endswith(".local") else raw + ".local"
+
+
     def canonical_module(name):
         return MODULE_ALIASES.get(name, name)
 
@@ -962,7 +969,7 @@ data:
             console.log("Configured OpenClaw from ai-model-catalog with " + models.length + " models; primary=litellm/" + selectedModel);
             NODE
         """)
-        return {
+        openclaw_instance = {
             "apiVersion": "openclaw.rocks/v1alpha1",
             "kind": "OpenClawInstance",
             "metadata": {"name": name, "namespace": namespace, "labels": {"app": "openclaw"}},
@@ -1021,11 +1028,15 @@ data:
                             "lab42.io/mdns.name": "openclaw",
                             "lab42.io/mdns.host": "openclaw",
                         },
-                        "hosts": [{"host": host, "paths": [{"path": "/", "pathType": "Prefix"}]}],
+                        "hosts": [
+                            {"host": host, "paths": [{"path": "/", "pathType": "Prefix"}]},
+                            {"host": local_http_host("openclaw"), "paths": [{"path": "/", "pathType": "Prefix"}]},
+                        ],
                     },
                 },
             },
-        }, "http://" + host + "/"
+        }
+        return openclaw_instance, "http://" + host + "/"
 
 
     def build_hermes(instance):
@@ -1035,6 +1046,7 @@ data:
         name = metadata.get("name")
         namespace = spec.get("targetNamespace") or "ai"
         host = ((params.get("ingress") or {}).get("host") or params.get("host") or "hermes.example.local")
+        ingress_host = local_http_host("hermes") if host == "hermes.example.local" else host
         model = params.get("model") or "qwen3635b"
         storage = ((params.get("storage") or {}).get("size") or params.get("storageSize") or "10Gi")
         catalog_init_script = textwrap.dedent("""\
@@ -1105,7 +1117,7 @@ data:
             "metadata": {"name": "hermes-runtime-wrapper", "namespace": namespace},
             "data": {"hermes-entrypoint": "#!/bin/sh\nset -eu\nexec sleep infinity\n"},
         })
-        return {
+        hermes_instance = {
             "apiVersion": "hermes.agent/v1",
             "kind": "HermesInstance",
             "metadata": {"name": name, "namespace": namespace, "labels": {"app": "hermes"}},
@@ -1195,7 +1207,7 @@ data:
                     "ingress": {
                         "enabled": True,
                         "className": "nginx",
-                        "host": host,
+                        "host": ingress_host,
                         "annotations": {
                             "dashboard.ai-appliance.io/title": "Hermes",
                             "dashboard.ai-appliance.io/description": "Self-improving AI agent managed by the Hermes operator.",
@@ -1213,7 +1225,8 @@ data:
                 },
                 "observability": {"logging": {"level": "info"}},
             },
-        }, "http://" + host + "/"
+        }
+        return hermes_instance, "http://" + ingress_host + "/"
 
 
     def build_paperclip(instance):
@@ -1223,6 +1236,7 @@ data:
         name = metadata.get("name")
         namespace = spec.get("targetNamespace") or "ai"
         host = ((params.get("ingress") or {}).get("host") or params.get("host") or "paperclip.example.local")
+        local_host = local_http_host("paperclip")
         public_url = "http://" + host
         storage = ((params.get("storage") or {}).get("size") or params.get("storageSize") or "5Gi")
         database = params.get("database") or {}
@@ -1251,6 +1265,7 @@ data:
             set -eu
             CONFIG="/paperclip/instances/default/config.json"
             PUBLIC_URL="__PUBLIC_URL__"
+            LOCAL_HOST="__LOCAL_HOST__"
             for attempt in $(seq 1 120); do
               if [ -f "$CONFIG" ]; then
                 break
@@ -1259,10 +1274,11 @@ data:
               sleep 5
             done
             test -f "$CONFIG"
-            CONFIG_PATH="$CONFIG" PUBLIC_URL="$PUBLIC_URL" node <<'NODE'
+            CONFIG_PATH="$CONFIG" PUBLIC_URL="$PUBLIC_URL" LOCAL_HOST="$LOCAL_HOST" node <<'NODE'
             const fs = require("fs");
             const configPath = process.env.CONFIG_PATH;
             const publicUrl = process.env.PUBLIC_URL;
+            const localHost = process.env.LOCAL_HOST;
             const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
             config.server = {
               ...(config.server || {}),
@@ -1274,7 +1290,7 @@ data:
               port: 3100,
             };
             const publicHost = new URL(publicUrl).hostname.toLowerCase();
-            const allowed = new Set([...(config.server.allowedHostnames || []), publicHost, "localhost", "127.0.0.1"]);
+            const allowed = new Set([...(config.server.allowedHostnames || []), publicHost, localHost, "localhost", "127.0.0.1"].filter(Boolean));
             config.server.allowedHostnames = Array.from(allowed);
             config.auth = {
               ...(config.auth || {}),
@@ -1283,8 +1299,8 @@ data:
             };
             fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + String.fromCharCode(10), { mode: 0o600 });
             NODE
-        """).replace("__PUBLIC_URL__", public_url)
-        job_suffix = hashlib.sha256(((name or "paperclip") + "|auth-v2|" + public_url).encode("utf-8")).hexdigest()[:8]
+        """).replace("__PUBLIC_URL__", public_url).replace("__LOCAL_HOST__", local_host)
+        job_suffix = hashlib.sha256(((name or "paperclip") + "|auth-v3|" + public_url + "|" + local_host).encode("utf-8")).hexdigest()[:8]
         admin_job_suffix = hashlib.sha256(((name or "paperclip") + "|admin-v2|" + public_url).encode("utf-8")).hexdigest()[:8]
         job_base = (name or "paperclip")[:42].rstrip("-") or "paperclip"
         service_url = "http://" + (name or "paperclip") + "." + namespace + ".svc.cluster.local:3100"
@@ -1541,7 +1557,7 @@ data:
                     "mode": "authenticated",
                     "exposure": "public",
                     "publicURL": public_url,
-                    "allowedHostnames": [host, "localhost", "127.0.0.1"],
+                    "allowedHostnames": [host, local_host, "localhost", "127.0.0.1"],
                 },
                 "database": {"mode": "managed", "managed": {"storageSize": postgres_storage}},
                 "auth": auth_spec,
@@ -1556,7 +1572,7 @@ data:
                     "ingress": {
                         "enabled": True,
                         "ingressClassName": "nginx",
-                        "hosts": [host],
+                        "hosts": [host, local_host],
                         "annotations": {
                             "dashboard.ai-appliance.io/title": "Paperclip",
                             "dashboard.ai-appliance.io/description": "AI agent company control plane managed by the Paperclip operator.",

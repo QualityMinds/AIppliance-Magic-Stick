@@ -22,3 +22,13 @@ spec:
                 name: observability-kube-prometheus-stack-alertmanager
                 port:
                   number: 9093
+    - host: alertmanager.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: observability-kube-prometheus-stack-alertmanager
+                port:
+                  number: 9093

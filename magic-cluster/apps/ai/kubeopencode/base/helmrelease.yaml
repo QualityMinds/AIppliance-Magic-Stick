@@ -33,3 +33,7 @@ spec:
             paths:
               - path: /
                 pathType: Prefix
+          - host: kubeopencode.local
+            paths:
+              - path: /
+                pathType: Prefix

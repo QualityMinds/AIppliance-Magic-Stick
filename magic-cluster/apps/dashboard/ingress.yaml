@@ -22,3 +22,13 @@ spec:
                 name: ai-appliance-dashboard
                 port:
                   number: 80
+    - host: "${AI_APPLIANCE_DASHBOARD_MDNS_NAME:=ai-appliance}.local"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ai-appliance-dashboard
+                port:
+                  number: 80
