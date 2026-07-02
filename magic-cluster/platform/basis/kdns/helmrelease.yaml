@@ -30,3 +30,7 @@ spec:
               - op: replace
                 path: /spec/template/spec/containers/0/resources/limits/memory
                 value: 512Mi
+              - op: add
+                path: /spec/strategy
+                value:
+                  type: Recreate
