@@ -7,12 +7,12 @@ metadata:
     app: grafana
   annotations:
     lab42.io/mdns.enabled: "true"
-    lab42.io/mdns.name: "grafana"
-    lab42.io/mdns.host: "grafana"
+    lab42.io/mdns.name: "grafana.${AI_APPLIANCE_MDNS_NAME:=magicstick}"
+    lab42.io/mdns.host: "grafana.${AI_APPLIANCE_MDNS_NAME:=magicstick}"
 spec:
   ingressClassName: nginx
   rules:
-    - host: "grafana.${AI_APPLIANCE_DOMAIN:=example.local}"
+    - host: "grafana.${AI_APPLIANCE_DOMAIN:=magicstick.example.com}"
       http:
         paths:
           - path: /
@@ -22,7 +22,7 @@ spec:
                 name: observability-kube-prometheus-stack-grafana
                 port:
                   number: 80
-    - host: grafana.local
+    - host: "grafana.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
       http:
         paths:
           - path: /

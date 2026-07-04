@@ -84,9 +84,12 @@
         magicstick_public_ref: "{{ magicstick_public_ref | default(repo_metadata_env_map.get('MAGICSTICK_PUBLIC_REF', ''), true) }}"
         magicstick_public_ref_kind: "{{ magicstick_public_ref_kind | default(repo_metadata_env_map.get('MAGICSTICK_PUBLIC_REF_KIND', 'branch'), true) }}"
         ai_appliance_private_checkout: "{{ ai_appliance_private_checkout | default(repo_metadata_env_map.get('AI_APPLIANCE_PRIVATE_CHECKOUT', '/opt/ai-appliance/deployment'), true) }}"
-        ai_appliance_domain: "{{ ai_appliance_domain | default(repo_metadata_env_map.get('AI_APPLIANCE_DOMAIN', 'example.local'), true) }}"
-        ai_appliance_dashboard_host: "{{ ai_appliance_dashboard_host | default(repo_metadata_env_map.get('AI_APPLIANCE_DASHBOARD_HOST', 'dashboard.example.local'), true) }}"
-        ai_appliance_dashboard_mdns_name: "{{ ai_appliance_dashboard_mdns_name | default(repo_metadata_env_map.get('AI_APPLIANCE_DASHBOARD_MDNS_NAME', 'ai-appliance'), true) }}"
+        ai_appliance_domain: "{{ ai_appliance_domain | default(repo_metadata_env_map.get('AI_APPLIANCE_DOMAIN', 'magicstick.example.com'), true) }}"
+        ai_appliance_dashboard_host: "{{ ai_appliance_dashboard_host | default(repo_metadata_env_map.get('AI_APPLIANCE_DASHBOARD_HOST', repo_metadata_env_map.get('AI_APPLIANCE_DOMAIN', 'magicstick.example.com')), true) }}"
+        ai_appliance_mdns_domain: "{{ ai_appliance_mdns_domain | default(repo_metadata_env_map.get('AI_APPLIANCE_MDNS_DOMAIN', (repo_metadata_env_map.get('AI_APPLIANCE_DASHBOARD_MDNS_NAME', repo_metadata_env_map.get('AI_APPLIANCE_MDNS_NAME', 'magicstick')) ~ '.local')), true) }}"
+        ai_appliance_mdns_name: "{{ ai_appliance_mdns_name | default(repo_metadata_env_map.get('AI_APPLIANCE_MDNS_NAME', repo_metadata_env_map.get('AI_APPLIANCE_DASHBOARD_MDNS_NAME', 'magicstick')), true) }}"
+        ai_appliance_dashboard_mdns_name: "{{ ai_appliance_dashboard_mdns_name | default(repo_metadata_env_map.get('AI_APPLIANCE_DASHBOARD_MDNS_NAME', repo_metadata_env_map.get('AI_APPLIANCE_MDNS_NAME', 'magicstick')), true) }}"
+        ai_appliance_settings_extra: "{{ ai_appliance_settings_extra | default(repo_metadata_env_map | dict2items | selectattr('key', 'match', '^AI_APPLIANCE_') | list | items2dict, true) }}"
         ansible_inventory_path: "{{ ansible_inventory_path | default(repo_metadata_env_map.get('ANSIBLE_INVENTORY_PATH', 'magic-host/inventory/localhost.yml'), true) }}"
         ansible_playbook_path: "{{ ansible_playbook_path | default(repo_metadata_env_map.get('ANSIBLE_PLAYBOOK_PATH', 'magic-host/playbooks/local.yml'), true) }}"
         flux_github_token: "{{ flux_github_token | default(repo_metadata_env_map.get('FLUX_GITHUB_TOKEN', ''), true) }}"
@@ -149,11 +152,14 @@
           - flux_public_sync_path is defined and flux_public_sync_path | trim | length > 0
           - ai_appliance_domain is defined and ai_appliance_domain | trim | length > 0
           - ai_appliance_dashboard_host is defined and ai_appliance_dashboard_host | trim | length > 0
+          - ai_appliance_mdns_domain is defined and ai_appliance_mdns_domain | trim | length > 0
+          - ai_appliance_mdns_name is defined and ai_appliance_mdns_name | trim | length > 0
           - ai_appliance_dashboard_mdns_name is defined and ai_appliance_dashboard_mdns_name | trim | length > 0
         fail_msg: >-
           Missing public read-only bootstrap metadata. Provide
           FLUX_PUBLIC_SYNC_PATH, AI_APPLIANCE_DOMAIN,
-          AI_APPLIANCE_DASHBOARD_HOST and AI_APPLIANCE_DASHBOARD_MDNS_NAME in
+          AI_APPLIANCE_DASHBOARD_HOST, AI_APPLIANCE_MDNS_DOMAIN and
+          AI_APPLIANCE_MDNS_NAME in
           {{ repo_metadata_env_file }} (cloud-init), or pass equivalent vars via
           ansible-pull -e.
       when: flux_bootstrap_mode | default('readonly-public') == 'readonly-public'

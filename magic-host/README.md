@@ -30,7 +30,9 @@ when `FLUX_BOOTSTRAP_MODE=github`.
 | `MAGICSTICK_PUBLIC_REF_KIND` | public template ref field, e.g. `branch` |
 | `AI_APPLIANCE_DOMAIN` | public read-only domain setting |
 | `AI_APPLIANCE_DASHBOARD_HOST` | dashboard ingress hostname |
-| `AI_APPLIANCE_DASHBOARD_MDNS_NAME` | dashboard mDNS name |
+| `AI_APPLIANCE_MDNS_DOMAIN` | local mDNS domain, e.g. `magicstick.local` |
+| `AI_APPLIANCE_MDNS_NAME` | local mDNS annotation suffix, e.g. `magicstick` |
+| `AI_APPLIANCE_DASHBOARD_MDNS_NAME` | legacy dashboard mDNS name |
 
 Optional overrides and private bootstrap values:
 

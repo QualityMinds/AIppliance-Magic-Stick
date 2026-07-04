@@ -1,0 +1,110 @@
+---
+- name: Read existing AI Appliance settings ConfigMap
+  ansible.builtin.command:
+    argv:
+      - "{{ flux_kubectl_binary }}"
+      - "{{ flux_kubectl_subcommand }}"
+      - --kubeconfig
+      - "{{ flux_kubeconfig_path }}"
+      - --namespace=flux-system
+      - get
+      - configmap
+      - "{{ flux_settings_configmap_name }}"
+      - -o
+      - json
+  register: flux_existing_settings_configmap
+  changed_when: false
+  failed_when: false
+
+- name: Prepare existing AI Appliance settings data
+  ansible.builtin.set_fact:
+    flux_existing_settings_data: >-
+      {{
+        ((flux_existing_settings_configmap.stdout | from_json).data | default({}))
+        if flux_existing_settings_configmap.rc == 0
+        else {}
+      }}
+
+- name: Prepare seeded AI Appliance settings data
+  ansible.builtin.set_fact:
+    flux_seed_mdns_domain: "{{ ai_appliance_mdns_domain | default('magicstick.local', true) }}"
+    flux_seed_mdns_name: "{{ ai_appliance_mdns_name | default((ai_appliance_mdns_domain | default('magicstick.local', true)) | regex_replace('\\.local$', ''), true) }}"
+    flux_seed_settings_data: >-
+      {{
+        (ai_appliance_settings_extra | default({}))
+        | combine({
+            'AI_APPLIANCE_DOMAIN': ai_appliance_domain | default('magicstick.example.com', true),
+            'AI_APPLIANCE_DASHBOARD_HOST': ai_appliance_dashboard_host | default(ai_appliance_domain | default('magicstick.example.com', true), true),
+            'AI_APPLIANCE_MDNS_DOMAIN': ai_appliance_mdns_domain | default('magicstick.local', true),
+            'AI_APPLIANCE_MDNS_NAME': ai_appliance_mdns_name | default((ai_appliance_mdns_domain | default('magicstick.local', true)) | regex_replace('\\.local$', ''), true),
+            'AI_APPLIANCE_DASHBOARD_MDNS_NAME': ai_appliance_dashboard_mdns_name | default(ai_appliance_mdns_name | default((ai_appliance_mdns_domain | default('magicstick.local', true)) | regex_replace('\\.local$', ''), true), true)
+          })
+      }}
+
+- name: Preserve existing AI Appliance domain settings
+  ansible.builtin.set_fact:
+    flux_existing_mdns_domain: "{{ flux_existing_settings_data.get('AI_APPLIANCE_MDNS_DOMAIN', '') }}"
+    flux_existing_mdns_name: "{{ flux_existing_settings_data.get('AI_APPLIANCE_MDNS_NAME', flux_existing_settings_data.get('AI_APPLIANCE_DASHBOARD_MDNS_NAME', '')) }}"
+
+- name: Derive AI Appliance mDNS domain settings
+  ansible.builtin.set_fact:
+    flux_settings_mdns_domain: >-
+      {{
+        flux_existing_mdns_domain
+        if (flux_existing_mdns_domain | length > 0)
+        else ((flux_existing_mdns_name ~ '.local') if (flux_existing_mdns_name | length > 0) else flux_seed_mdns_domain)
+      }}
+
+- name: Derive AI Appliance mDNS name settings
+  ansible.builtin.set_fact:
+    flux_settings_mdns_name: "{{ flux_existing_mdns_name if (flux_existing_mdns_name | length > 0) else (flux_settings_mdns_domain | regex_replace('\\.local$', '')) }}"
+
+- name: Build AI Appliance settings data
+  ansible.builtin.set_fact:
+    flux_settings_configmap_data: >-
+      {{
+        flux_seed_settings_data
+        | combine(flux_existing_settings_data)
+        | combine({
+            'AI_APPLIANCE_DOMAIN': flux_existing_settings_data.get('AI_APPLIANCE_DOMAIN', flux_seed_settings_data.get('AI_APPLIANCE_DOMAIN')),
+            'AI_APPLIANCE_DASHBOARD_HOST': flux_existing_settings_data.get('AI_APPLIANCE_DASHBOARD_HOST', flux_seed_settings_data.get('AI_APPLIANCE_DASHBOARD_HOST')),
+            'AI_APPLIANCE_MDNS_DOMAIN': flux_settings_mdns_domain,
+            'AI_APPLIANCE_MDNS_NAME': flux_settings_mdns_name,
+            'AI_APPLIANCE_DASHBOARD_MDNS_NAME': flux_settings_mdns_name
+          })
+      }}
+
+- name: Render AI Appliance settings ConfigMap
+  ansible.builtin.copy:
+    dest: "{{ flux_settings_configmap_manifest_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+    content: |
+      ---
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: {{ flux_settings_configmap_name }}
+        namespace: flux-system
+        labels:
+          reconcile.fluxcd.io/watch: Enabled
+      data:
+      {% for item in flux_settings_configmap_data | dict2items | sort(attribute='key') %}
+        {{ item.key }}: {{ item.value | to_json }}
+      {% endfor %}
+
+- name: Apply AI Appliance settings ConfigMap
+  ansible.builtin.command:
+    argv:
+      - "{{ flux_kubectl_binary }}"
+      - "{{ flux_kubectl_subcommand }}"
+      - --kubeconfig
+      - "{{ flux_kubeconfig_path }}"
+      - apply
+      - -f
+      - "{{ flux_settings_configmap_manifest_path }}"
+  register: flux_settings_configmap_apply
+  changed_when: >
+    ('created' in flux_settings_configmap_apply.stdout)
+    or ('configured' in flux_settings_configmap_apply.stdout)

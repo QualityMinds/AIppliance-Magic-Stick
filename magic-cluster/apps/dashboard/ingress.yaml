@@ -7,12 +7,17 @@ metadata:
     app: ai-appliance-dashboard
   annotations:
     lab42.io/mdns.enabled: "true"
-    lab42.io/mdns.name: "${AI_APPLIANCE_DASHBOARD_MDNS_NAME:=ai-appliance}"
-    lab42.io/mdns.host: "${AI_APPLIANCE_DASHBOARD_MDNS_NAME:=ai-appliance}"
+    lab42.io/mdns.name: "${AI_APPLIANCE_MDNS_NAME:=magicstick}"
+    lab42.io/mdns.host: "${AI_APPLIANCE_MDNS_NAME:=magicstick}"
 spec:
   ingressClassName: nginx
+  defaultBackend:
+    service:
+      name: ai-appliance-dashboard
+      port:
+        number: 80
   rules:
-    - host: "${AI_APPLIANCE_DASHBOARD_HOST:=dashboard.example.local}"
+    - host: "${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"
       http:
         paths:
           - path: /
@@ -22,7 +27,7 @@ spec:
                 name: ai-appliance-dashboard
                 port:
                   number: 80
-    - host: "${AI_APPLIANCE_DASHBOARD_MDNS_NAME:=ai-appliance}.local"
+    - host: "${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
       http:
         paths:
           - path: /

@@ -97,6 +97,8 @@ settings:
 - `MAGICSTICK_PUBLIC_REF_KIND`
 - `AI_APPLIANCE_DOMAIN`
 - `AI_APPLIANCE_DASHBOARD_HOST`
+- `AI_APPLIANCE_MDNS_DOMAIN`
+- `AI_APPLIANCE_MDNS_NAME`
 - `AI_APPLIANCE_DASHBOARD_MDNS_NAME`
 
 The host converge runner supplies defaults for the public checkout, inventory

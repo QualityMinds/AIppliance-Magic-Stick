@@ -83,17 +83,19 @@ Common public hostnames use `AI_APPLIANCE_DOMAIN`:
 
 | Service | Default public host pattern |
 |---|---|
-| Dashboard | `dashboard.example.local` |
-| AnythingLLM | `anythingllm.example.local` |
-| LiteLLM | `litellm.example.local` |
-| Hermes | `hermes.example.local` |
-| OpenClaw | `openclaw.example.local` |
-| Paperclip | `paperclip.example.local` |
-| Grafana | `grafana.example.local` |
-| Prometheus | `prometheus.example.local` |
-| Alertmanager | `alertmanager.example.local` |
+| Dashboard | `magicstick.example.com` |
+| AnythingLLM | `anythingllm.magicstick.example.com` |
+| LiteLLM | `litellm.magicstick.example.com` |
+| Hermes | `hermes.magicstick.example.com` |
+| OpenClaw | `openclaw.magicstick.example.com` |
+| Paperclip | `paperclip.magicstick.example.com` |
+| Grafana | `grafana.magicstick.example.com` |
+| Prometheus | `prometheus.magicstick.example.com` |
+| Alertmanager | `alertmanager.magicstick.example.com` |
 
-Actual private deployments should replace these through runtime settings or
+Local mDNS hostnames use `AI_APPLIANCE_MDNS_DOMAIN`, for example
+`magicstick.local` for the dashboard and `anythingllm.magicstick.local` for
+AnythingLLM. Actual private deployments should replace these through runtime settings or
 private overlays.
 
 ## Model Catalog

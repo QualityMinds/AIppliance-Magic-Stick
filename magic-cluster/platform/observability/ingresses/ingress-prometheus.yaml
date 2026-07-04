@@ -7,12 +7,12 @@ metadata:
     app: prometheus
   annotations:
     lab42.io/mdns.enabled: "true"
-    lab42.io/mdns.name: "prometheus"
-    lab42.io/mdns.host: "prometheus"
+    lab42.io/mdns.name: "prometheus.${AI_APPLIANCE_MDNS_NAME:=magicstick}"
+    lab42.io/mdns.host: "prometheus.${AI_APPLIANCE_MDNS_NAME:=magicstick}"
 spec:
   ingressClassName: nginx
   rules:
-    - host: "prometheus.${AI_APPLIANCE_DOMAIN:=example.local}"
+    - host: "prometheus.${AI_APPLIANCE_DOMAIN:=magicstick.example.com}"
       http:
         paths:
           - path: /
@@ -22,7 +22,7 @@ spec:
                 name: observability-kube-prometheus-stack-prometheus
                 port:
                   number: 9090
-    - host: prometheus.local
+    - host: "prometheus.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
       http:
         paths:
           - path: /

@@ -75,9 +75,9 @@ Useful public-mode options:
 ```bash
 magic-installer/build-installer-image.sh \
   --hostname example-host-01 \
-  --domain example.local \
-  --dashboard-host dashboard.example.local \
-  --dashboard-mdns-name ai-appliance \
+  --domain magicstick.example.com \
+  --dashboard-host magicstick.example.com \
+  --mdns-domain magicstick.local \
   --flux-public-sync-path magic-cluster/flux/entrypoints/single-node \
   --output dist/magicstick-installer.img
 ```

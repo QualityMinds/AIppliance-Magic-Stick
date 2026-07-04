@@ -30,7 +30,7 @@ Default `readonly-public` metadata:
 | `MAGICSTICK_PUBLIC_REF` | Public template branch, tag, semver, or commit |
 | `MAGICSTICK_PUBLIC_REF_KIND` | Ref kind for Flux, usually `branch` |
 | `FLUX_PUBLIC_SYNC_PATH` | Public profile path for `readonly-public`, e.g. `magic-cluster/flux/entrypoints/single-node` |
-| `AI_APPLIANCE_DOMAIN`, `AI_APPLIANCE_DASHBOARD_HOST`, `AI_APPLIANCE_DASHBOARD_MDNS_NAME` | Appliance-wide runtime settings for public read-only bootstrap |
+| `AI_APPLIANCE_DOMAIN`, `AI_APPLIANCE_DASHBOARD_HOST`, `AI_APPLIANCE_MDNS_DOMAIN`, `AI_APPLIANCE_MDNS_NAME`, `AI_APPLIANCE_DASHBOARD_MDNS_NAME` | Appliance-wide runtime settings for public read-only bootstrap |
 
 Module storage is configured later through Dashboard advanced options or
 `ModuleActivation.spec.parameters`, not through installer media.

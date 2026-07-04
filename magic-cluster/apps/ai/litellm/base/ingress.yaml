@@ -7,12 +7,12 @@ metadata:
     app: litellm
   annotations:
     lab42.io/mdns.enabled: "true"
-    lab42.io/mdns.name: "litellm"
-    lab42.io/mdns.host: "litellm"
+    lab42.io/mdns.name: "litellm.${AI_APPLIANCE_MDNS_NAME:=magicstick}"
+    lab42.io/mdns.host: "litellm.${AI_APPLIANCE_MDNS_NAME:=magicstick}"
 spec:
   ingressClassName: nginx
   rules:
-    - host: "litellm.${AI_APPLIANCE_DOMAIN:=example.local}"
+    - host: "litellm.${AI_APPLIANCE_DOMAIN:=magicstick.example.com}"
       http:
         paths:
           - path: /
@@ -22,7 +22,7 @@ spec:
                 name: litellm
                 port:
                   number: 4000
-    - host: litellm.local
+    - host: "litellm.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
       http:
         paths:
           - path: /

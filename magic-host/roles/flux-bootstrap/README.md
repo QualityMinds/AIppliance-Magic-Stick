@@ -27,7 +27,7 @@ This Ansible role installs the Flux CLI and performs the cluster bootstrap.
 | `flux_github_token` | `github` | GitHub Personal Access Token (PAT) with repo write access for `flux bootstrap github` |
 | `flux_bootstrap_seed_path` | No | CLI-owned bootstrap path for `github` mode |
 | `flux_custom_sync_manifest_path` | No | AI Appliance sync manifest path in the private checkout for `github` mode |
-| `ai_appliance_domain`, `ai_appliance_dashboard_host`, `ai_appliance_dashboard_mdns_name` | `readonly-public` | Appliance-wide settings rendered into `ConfigMap/ai-appliance-settings` |
+| `ai_appliance_domain`, `ai_appliance_dashboard_host`, `ai_appliance_mdns_domain`, `ai_appliance_mdns_name`, `ai_appliance_dashboard_mdns_name` | `readonly-public`/`github` | Appliance-wide settings seeded into cluster-local `ConfigMap/ai-appliance-settings` |
 | `flux_reconcile_timeout` | No | Timeout for follow-up Flux reconciles (default: `5m0s`) |
 | `flux_kubectl_binary` | No | Binary for the API readiness check (default: `/usr/local/bin/k3s`) |
 | `flux_kubectl_subcommand` | No | Subcommand for the API readiness check (default: `kubectl`) |
@@ -84,7 +84,10 @@ export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 flux install
 
 sudo k3s kubectl --kubeconfig "$KUBECONFIG" -n flux-system create configmap ai-appliance-settings \
-  --from-literal=AI_APPLIANCE_DOMAIN="${AI_APPLIANCE_DOMAIN:-example.local}" \
+  --from-literal=AI_APPLIANCE_DOMAIN="${AI_APPLIANCE_DOMAIN:-magicstick.example.com}" \
+  --from-literal=AI_APPLIANCE_DASHBOARD_HOST="${AI_APPLIANCE_DASHBOARD_HOST:-${AI_APPLIANCE_DOMAIN:-magicstick.example.com}}" \
+  --from-literal=AI_APPLIANCE_MDNS_DOMAIN="${AI_APPLIANCE_MDNS_DOMAIN:-magicstick.local}" \
+  --from-literal=AI_APPLIANCE_MDNS_NAME="${AI_APPLIANCE_MDNS_NAME:-magicstick}" \
   --dry-run=client -o yaml | sudo k3s kubectl --kubeconfig "$KUBECONFIG" apply -f-
 ```
 

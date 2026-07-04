@@ -25,9 +25,11 @@ param(
   [switch]$NoBuild,
   [string]$UbuntuIsoUrl = "https://releases.ubuntu.com/24.04.4/ubuntu-24.04.4-live-server-amd64.iso",
   [string]$UbuntuIsoSha256 = "e907d92eeec9df64163a7e454cbc8d7755e8ddc7ed42f99dbc80c40f1a138433",
-  [string]$Domain = "example.local",
-  [string]$DashboardHost = "dashboard.example.local",
-  [string]$DashboardMdnsName = "ai-appliance"
+  [string]$Domain = "magicstick.example.com",
+  [string]$DashboardHost = "",
+  [string]$MdnsDomain = "magicstick.local",
+  [string]$MdnsName = "",
+  [string]$DashboardMdnsName = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -62,6 +64,22 @@ $repoRoot = (Resolve-Path (Join-Path $scriptDir "..")).ProviderPath
 
 if (-not $FluxClusterPath) {
   $FluxClusterPath = "deployments/$DeploymentName/infra-cluster/flux-bootstrap"
+}
+
+if (-not $DashboardHost) {
+  $DashboardHost = $Domain
+}
+if (-not $MdnsName) {
+  if ($DashboardMdnsName) {
+    $MdnsName = $DashboardMdnsName
+  } elseif ($MdnsDomain.EndsWith(".local")) {
+    $MdnsName = $MdnsDomain.Substring(0, $MdnsDomain.Length - 6)
+  } else {
+    $MdnsName = $MdnsDomain
+  }
+}
+if (-not $DashboardMdnsName) {
+  $DashboardMdnsName = $MdnsName
 }
 
 if ($FluxBootstrapMode -eq "github") {
@@ -122,6 +140,8 @@ $env:MAGICSTICK_UBUNTU_ISO_URL = $UbuntuIsoUrl
 $env:MAGICSTICK_UBUNTU_ISO_SHA256 = $UbuntuIsoSha256
 $env:MAGICSTICK_AI_APPLIANCE_DOMAIN = $Domain
 $env:MAGICSTICK_AI_APPLIANCE_DASHBOARD_HOST = $DashboardHost
+$env:MAGICSTICK_AI_APPLIANCE_MDNS_DOMAIN = $MdnsDomain
+$env:MAGICSTICK_AI_APPLIANCE_MDNS_NAME = $MdnsName
 $env:MAGICSTICK_AI_APPLIANCE_DASHBOARD_MDNS_NAME = $DashboardMdnsName
 
 & $ContainerRuntime run --rm `
@@ -141,6 +161,8 @@ $env:MAGICSTICK_AI_APPLIANCE_DASHBOARD_MDNS_NAME = $DashboardMdnsName
   --env MAGICSTICK_UBUNTU_ISO_SHA256 `
   --env MAGICSTICK_AI_APPLIANCE_DOMAIN `
   --env MAGICSTICK_AI_APPLIANCE_DASHBOARD_HOST `
+  --env MAGICSTICK_AI_APPLIANCE_MDNS_DOMAIN `
+  --env MAGICSTICK_AI_APPLIANCE_MDNS_NAME `
   --env MAGICSTICK_AI_APPLIANCE_DASHBOARD_MDNS_NAME `
   --volume "${repoRoot}:/workspace:ro" `
   --volume "${outputDir}:/output" `

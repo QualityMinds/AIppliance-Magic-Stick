@@ -26,6 +26,11 @@ Options:
   --public-repo URL            Public Magic-Stick repository URL.
   --public-ref REF             Public Magic-Stick ref. Default: main.
   --public-ref-kind KIND       branch, tag, semver, or commit. Default: branch.
+  --domain HOSTNAME            Public appliance domain. Default: magicstick.example.com.
+  --dashboard-host HOSTNAME    Dashboard public host. Default: public domain.
+  --mdns-domain HOSTNAME       Local mDNS domain. Default: magicstick.local.
+  --mdns-name NAME             Local mDNS annotation suffix. Default: derived from --mdns-domain.
+  --dashboard-mdns-name NAME   Legacy dashboard mDNS name. Default: derived from --mdns-domain.
   --output PATH                Output image path. Default: dist/magicstick-installer.img.
   --container-runtime NAME     docker or podman. Auto-detected by default.
   --builder-image NAME         Container image tag for the local builder.
@@ -99,9 +104,11 @@ BUILDER_IMAGE="magicstick-installer-builder:local"
 NO_BUILD="false"
 UBUNTU_ISO_URL="$DEFAULT_UBUNTU_ISO_URL"
 UBUNTU_ISO_SHA256="$DEFAULT_UBUNTU_ISO_SHA256"
-AI_APPLIANCE_DOMAIN="example.local"
-AI_APPLIANCE_DASHBOARD_HOST="dashboard.example.local"
-AI_APPLIANCE_DASHBOARD_MDNS_NAME="ai-appliance"
+AI_APPLIANCE_DOMAIN="magicstick.example.com"
+AI_APPLIANCE_DASHBOARD_HOST=""
+AI_APPLIANCE_MDNS_DOMAIN="magicstick.local"
+AI_APPLIANCE_MDNS_NAME=""
+AI_APPLIANCE_DASHBOARD_MDNS_NAME=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -124,6 +131,8 @@ while [[ $# -gt 0 ]]; do
     --ubuntu-iso-sha256) UBUNTU_ISO_SHA256="${2:-}"; shift 2 ;;
     --domain) AI_APPLIANCE_DOMAIN="${2:-}"; shift 2 ;;
     --dashboard-host) AI_APPLIANCE_DASHBOARD_HOST="${2:-}"; shift 2 ;;
+    --mdns-domain) AI_APPLIANCE_MDNS_DOMAIN="${2:-}"; shift 2 ;;
+    --mdns-name) AI_APPLIANCE_MDNS_NAME="${2:-}"; shift 2 ;;
     --dashboard-mdns-name) AI_APPLIANCE_DASHBOARD_MDNS_NAME="${2:-}"; shift 2 ;;
     -h | --help) usage; exit 0 ;;
     *) die "Unknown argument: $1" ;;
@@ -131,6 +140,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 require_value "--hostname" "$HOSTNAME_VALUE"
+AI_APPLIANCE_DASHBOARD_HOST="${AI_APPLIANCE_DASHBOARD_HOST:-$AI_APPLIANCE_DOMAIN}"
+AI_APPLIANCE_MDNS_NAME="${AI_APPLIANCE_MDNS_NAME:-${AI_APPLIANCE_DASHBOARD_MDNS_NAME:-${AI_APPLIANCE_MDNS_DOMAIN%.local}}}"
+AI_APPLIANCE_DASHBOARD_MDNS_NAME="${AI_APPLIANCE_DASHBOARD_MDNS_NAME:-$AI_APPLIANCE_MDNS_NAME}"
 
 if [[ -z "$FLUX_CLUSTER_PATH" ]]; then
   FLUX_CLUSTER_PATH="deployments/${DEPLOYMENT_NAME}/infra-cluster/flux-bootstrap"
@@ -189,6 +201,8 @@ export MAGICSTICK_UBUNTU_ISO_URL="$UBUNTU_ISO_URL"
 export MAGICSTICK_UBUNTU_ISO_SHA256="$UBUNTU_ISO_SHA256"
 export MAGICSTICK_AI_APPLIANCE_DOMAIN="$AI_APPLIANCE_DOMAIN"
 export MAGICSTICK_AI_APPLIANCE_DASHBOARD_HOST="$AI_APPLIANCE_DASHBOARD_HOST"
+export MAGICSTICK_AI_APPLIANCE_MDNS_DOMAIN="$AI_APPLIANCE_MDNS_DOMAIN"
+export MAGICSTICK_AI_APPLIANCE_MDNS_NAME="$AI_APPLIANCE_MDNS_NAME"
 export MAGICSTICK_AI_APPLIANCE_DASHBOARD_MDNS_NAME="$AI_APPLIANCE_DASHBOARD_MDNS_NAME"
 
 run_args=(
@@ -210,6 +224,8 @@ run_args=(
   --env MAGICSTICK_UBUNTU_ISO_SHA256
   --env MAGICSTICK_AI_APPLIANCE_DOMAIN
   --env MAGICSTICK_AI_APPLIANCE_DASHBOARD_HOST
+  --env MAGICSTICK_AI_APPLIANCE_MDNS_DOMAIN
+  --env MAGICSTICK_AI_APPLIANCE_MDNS_NAME
   --env MAGICSTICK_AI_APPLIANCE_DASHBOARD_MDNS_NAME
   --volume "$REPO_ROOT:/workspace:ro"
   --volume "$OUTPUT_DIR:/output"

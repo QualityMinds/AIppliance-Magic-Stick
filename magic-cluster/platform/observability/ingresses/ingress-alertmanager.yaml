@@ -7,12 +7,12 @@ metadata:
     app: alertmanager
   annotations:
     lab42.io/mdns.enabled: "true"
-    lab42.io/mdns.name: "alertmanager"
-    lab42.io/mdns.host: "alertmanager"
+    lab42.io/mdns.name: "alertmanager.${AI_APPLIANCE_MDNS_NAME:=magicstick}"
+    lab42.io/mdns.host: "alertmanager.${AI_APPLIANCE_MDNS_NAME:=magicstick}"
 spec:
   ingressClassName: nginx
   rules:
-    - host: "alertmanager.${AI_APPLIANCE_DOMAIN:=example.local}"
+    - host: "alertmanager.${AI_APPLIANCE_DOMAIN:=magicstick.example.com}"
       http:
         paths:
           - path: /
@@ -22,7 +22,7 @@ spec:
                 name: observability-kube-prometheus-stack-alertmanager
                 port:
                   number: 9093
-    - host: alertmanager.local
+    - host: "alertmanager.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
       http:
         paths:
           - path: /

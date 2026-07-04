@@ -31,9 +31,11 @@ autoinstall:
           FLUX_PUBLIC_SYNC_PATH=magic-cluster/flux/entrypoints/single-node
 
           # Appliance-wide runtime settings rendered into ConfigMap/ai-appliance-settings.
-          AI_APPLIANCE_DOMAIN=example.local
-          AI_APPLIANCE_DASHBOARD_HOST=dashboard.example.local
-          AI_APPLIANCE_DASHBOARD_MDNS_NAME=ai-appliance
+          AI_APPLIANCE_DOMAIN=magicstick.example.com
+          AI_APPLIANCE_DASHBOARD_HOST=magicstick.example.com
+          AI_APPLIANCE_MDNS_DOMAIN=magicstick.local
+          AI_APPLIANCE_MDNS_NAME=magicstick
+          AI_APPLIANCE_DASHBOARD_MDNS_NAME=magicstick
 
     runcmd:
       - >

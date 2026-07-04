@@ -5,6 +5,7 @@ resources:
   - serviceaccount.yaml
   - clusterrole.yaml
   - clusterrolebinding.yaml
+  - settings-rbac.yaml
   - model-secrets-rbac.yaml
   - configmap.yaml
   - dashboard-api.yaml

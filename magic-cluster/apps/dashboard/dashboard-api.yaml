@@ -32,10 +32,15 @@ data:
     DCGM_NAMESPACE = os.environ.get("DCGM_NAMESPACE", "gpu-operator")
     DCGM_SERVICE = os.environ.get("DCGM_SERVICE", "nvidia-dcgm-exporter")
     DCGM_PORT = os.environ.get("DCGM_PORT", "9400")
+    SETTINGS_NAMESPACE = os.environ.get("SETTINGS_NAMESPACE", "flux-system")
+    SETTINGS_CONFIGMAP_NAME = os.environ.get("SETTINGS_CONFIGMAP_NAME", "ai-appliance-settings")
     KUBE_API = os.environ.get("KUBERNETES_SERVICE_URL", "https://kubernetes.default.svc").rstrip("/")
     SA_TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
     SA_CA_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
     DNS_LABEL = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
+    DEFAULT_PUBLIC_DOMAIN = "magicstick.example.com"
+    DEFAULT_MDNS_DOMAIN = "magicstick.local"
+    SETTINGS_WATCH_LABELS = {"reconcile.fluxcd.io/watch": "Enabled"}
 
     MODULE_KEYS = {
         "basis": "basis",
@@ -136,6 +141,107 @@ data:
         if get_resource(item_path):
             return request_json("PATCH", item_path, patch, "application/merge-patch+json")
         return request_json("POST", collection_path, resource)
+
+
+    def settings_path():
+        return f"/api/v1/namespaces/{SETTINGS_NAMESPACE}/configmaps/{SETTINGS_CONFIGMAP_NAME}"
+
+
+    def settings_configmap():
+        return get_resource(settings_path())
+
+
+    def normalize_hostname(value, field):
+        hostname = str(value or "").strip().lower().strip(".")
+        if not hostname:
+            raise ValueError(field + " is required")
+        if "://" in hostname or "/" in hostname or ":" in hostname:
+            raise ValueError(field + " must be a hostname without scheme, path, or port")
+        labels = hostname.split(".")
+        if len(labels) < 2 or any(not DNS_LABEL.match(label) for label in labels):
+            raise ValueError(field + " must be a valid DNS hostname")
+        return hostname
+
+
+    def mdns_name_from_domain(domain):
+        return domain[:-6] if domain.endswith(".local") else domain
+
+
+    def default_settings_data():
+        mdns_name = mdns_name_from_domain(DEFAULT_MDNS_DOMAIN)
+        return {
+            "AI_APPLIANCE_DOMAIN": DEFAULT_PUBLIC_DOMAIN,
+            "AI_APPLIANCE_DASHBOARD_HOST": DEFAULT_PUBLIC_DOMAIN,
+            "AI_APPLIANCE_MDNS_DOMAIN": DEFAULT_MDNS_DOMAIN,
+            "AI_APPLIANCE_MDNS_NAME": mdns_name,
+            "AI_APPLIANCE_DASHBOARD_MDNS_NAME": mdns_name,
+        }
+
+
+    def settings_response(configmap=None):
+        configmap = configmap if configmap is not None else settings_configmap()
+        raw_data = ((configmap or {}).get("data") or {})
+        data = default_settings_data()
+        data.update(raw_data)
+        raw_mdns_domain = raw_data.get("AI_APPLIANCE_MDNS_DOMAIN")
+        raw_mdns_name = raw_data.get("AI_APPLIANCE_MDNS_NAME") or raw_data.get("AI_APPLIANCE_DASHBOARD_MDNS_NAME")
+        if raw_mdns_domain:
+            data["AI_APPLIANCE_MDNS_DOMAIN"] = raw_mdns_domain
+        elif raw_mdns_name:
+            data["AI_APPLIANCE_MDNS_DOMAIN"] = raw_mdns_name + ".local"
+        elif not data.get("AI_APPLIANCE_MDNS_DOMAIN"):
+            data["AI_APPLIANCE_MDNS_DOMAIN"] = DEFAULT_MDNS_DOMAIN
+        if raw_mdns_name:
+            data["AI_APPLIANCE_MDNS_NAME"] = raw_mdns_name
+        else:
+            data["AI_APPLIANCE_MDNS_NAME"] = mdns_name_from_domain(data["AI_APPLIANCE_MDNS_DOMAIN"])
+        if not raw_data.get("AI_APPLIANCE_DASHBOARD_MDNS_NAME"):
+            data["AI_APPLIANCE_DASHBOARD_MDNS_NAME"] = data["AI_APPLIANCE_MDNS_NAME"]
+        if not raw_data.get("AI_APPLIANCE_DASHBOARD_HOST"):
+            data["AI_APPLIANCE_DASHBOARD_HOST"] = data["AI_APPLIANCE_DOMAIN"]
+        return {
+            "namespace": SETTINGS_NAMESPACE,
+            "name": SETTINGS_CONFIGMAP_NAME,
+            "exists": configmap is not None,
+            "data": data,
+            "publicDomain": data["AI_APPLIANCE_DOMAIN"],
+            "dashboardHost": data["AI_APPLIANCE_DASHBOARD_HOST"],
+            "mdnsDomain": data["AI_APPLIANCE_MDNS_DOMAIN"],
+            "mdnsName": data["AI_APPLIANCE_MDNS_NAME"],
+        }
+
+
+    def settings_patch(payload):
+        current = settings_configmap()
+        if not current:
+            raise LookupError(f"{SETTINGS_NAMESPACE}/{SETTINGS_CONFIGMAP_NAME} ConfigMap not found")
+        current_settings = settings_response(current)
+        public_domain = normalize_hostname(
+            payload.get("publicDomain") or payload.get("AI_APPLIANCE_DOMAIN") or current_settings.get("publicDomain") or DEFAULT_PUBLIC_DOMAIN,
+            "public domain",
+        )
+        mdns_domain = normalize_hostname(
+            payload.get("mdnsDomain") or payload.get("AI_APPLIANCE_MDNS_DOMAIN") or current_settings.get("mdnsDomain") or DEFAULT_MDNS_DOMAIN,
+            "mDNS domain",
+        )
+        if not mdns_domain.endswith(".local"):
+            raise ValueError("mDNS domain must end with .local")
+        dashboard_host = normalize_hostname(
+            payload.get("dashboardHost") or payload.get("AI_APPLIANCE_DASHBOARD_HOST") or current_settings.get("dashboardHost") or public_domain,
+            "dashboard host",
+        )
+        mdns_name = mdns_name_from_domain(mdns_domain)
+        patch = {
+            "metadata": {"labels": SETTINGS_WATCH_LABELS},
+            "data": {
+                "AI_APPLIANCE_DOMAIN": public_domain,
+                "AI_APPLIANCE_DASHBOARD_HOST": dashboard_host,
+                "AI_APPLIANCE_MDNS_DOMAIN": mdns_domain,
+                "AI_APPLIANCE_MDNS_NAME": mdns_name,
+                "AI_APPLIANCE_DASHBOARD_MDNS_NAME": mdns_name,
+            },
+        }
+        return settings_response(request_json("PATCH", settings_path(), patch, "application/merge-patch+json"))
 
 
     def canonical_module(name):
@@ -570,7 +676,7 @@ data:
 
 
     class Handler(BaseHTTPRequestHandler):
-        server_version = "MagicStickDashboardAPI/0.2"
+        server_version = "MagicStickDashboardAPI/0.3"
 
         def log_message(self, format, *args):
             print("%s - %s" % (self.address_string(), format % args), flush=True)
@@ -606,6 +712,8 @@ data:
                     self.send_json(summarized_models())
                 elif path == "/api/status":
                     self.send_json(status_payload())
+                elif path == "/api/settings":
+                    self.send_json(settings_response())
                 elif path == "/api/events":
                     core_events = list_resource("/api/v1/events")
                     new_events = list_resource("/apis/events.k8s.io/v1/events")
@@ -618,6 +726,16 @@ data:
                 self.send_error_json(500, str(error))
 
         def do_PATCH(self):
+            if self.route() == "/api/settings":
+                try:
+                    self.send_json(settings_patch(read_body(self)))
+                except LookupError as error:
+                    self.send_error_json(404, str(error))
+                except urllib.error.HTTPError as error:
+                    self.send_error_json(error.code, error.read().decode("utf-8", errors="replace"))
+                except Exception as error:
+                    self.send_error_json(400, str(error))
+                return
             if self.route() == "/api/appliance":
                 self.send_error_json(405, "Appliance spec is Git-owned; create ModuleActivation or AppInstance resources instead.")
                 return

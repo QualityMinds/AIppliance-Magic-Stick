@@ -12,7 +12,10 @@ flux_public_sync_manifest_path: /tmp/ai-appliance-flux-public-sync.yaml
 flux_settings_configmap_manifest_path: /tmp/ai-appliance-settings.yaml
 flux_settings_configmap_name: ai-appliance-settings
 magicstick_public_ref_kind: branch
-ai_appliance_domain: example.local
-ai_appliance_dashboard_host: dashboard.example.local
-ai_appliance_dashboard_mdns_name: ai-appliance
+ai_appliance_domain: magicstick.example.com
+ai_appliance_dashboard_host: magicstick.example.com
+ai_appliance_mdns_domain: magicstick.local
+ai_appliance_mdns_name: magicstick
+ai_appliance_dashboard_mdns_name: magicstick
+ai_appliance_settings_extra: {}
 flux_reconcile_timeout: 5m0s

@@ -179,6 +179,9 @@ data:
       links_tmp="$(mktemp /tmp/dashboard-links.XXXXXX)"
 
       rendered_at="$(date -u '+%Y-%m-%d %H:%M:%SZ')"
+      dashboard_public_host="${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"
+      dashboard_mdns_domain="${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
+      legacy_dashboard_mdns_host="${AI_APPLIANCE_DASHBOARD_MDNS_NAME:=magicstick}.local"
 
       kubectl get ingresses.networking.k8s.io -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"|"}{.metadata.name}{"|"}{.metadata.annotations.dashboard\.ai-appliance\.io/title}{"|"}{.metadata.annotations.dashboard\.ai-appliance\.io/description}{"|"}{.metadata.annotations.dashboard\.ai-appliance\.io/icon}{"|"}{.metadata.annotations.dashboard\.ai-appliance\.io/category}{"|"}{.metadata.annotations.dashboard\.ai-appliance\.io/order}{"|"}{range .spec.rules[*]}{.host}{","}{end}{"\n"}{end}' \
         | while IFS='|' read -r namespace ingress ann_title ann_description ann_icon ann_category ann_order hosts; do
@@ -186,7 +189,9 @@ data:
             for host in $(printf '%s' "$hosts" | tr ',' ' '); do
               [ -z "$host" ] && continue
               [ "$host" = "<none>" ] && continue
-              [ "$host" = "${AI_APPLIANCE_DASHBOARD_HOST:=dashboard.example.local}" ] && continue
+              [ "$host" = "$dashboard_public_host" ] && continue
+              [ "$host" = "$dashboard_mdns_domain" ] && continue
+              [ "$host" = "$legacy_dashboard_mdns_host" ] && continue
 
               title="$(normalize_whitespace "$ann_title")"
               [ -n "$title" ] || title="$(title_from_host "$host" "$namespace" "$ingress")"
@@ -206,9 +211,16 @@ data:
               category_slug="$(slugify "$category_label")"
 
               order="$(normalize_order "$ann_order")"
+              app_key="$(slugify "$namespace-$ingress-$title")"
+              host_kind="public"
+              case "$host" in
+                "$dashboard_mdns_domain"|*."$dashboard_mdns_domain"|*.local)
+                  host_kind="local"
+                  ;;
+              esac
 
-              printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-                "$category_rank" "$category_label" "$order" "$title" "$host" "$description" "$namespace" "$ingress" "$icon" "$category_slug" >> "$entries_raw"
+              printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+                "$category_rank" "$category_label" "$order" "$title" "$host" "$description" "$namespace" "$ingress" "$icon" "$category_slug" "$host_kind" "$app_key" >> "$entries_raw"
             done
           done
 
@@ -688,7 +700,7 @@ data:
         current_slug=''
         current_count=0
 
-        while IFS="$(printf '\t')" read -r category_rank category_label order title host description namespace ingress icon category_slug; do
+        while IFS="$(printf '\t')" read -r category_rank category_label order title host description namespace ingress icon category_slug host_kind app_key; do
           [ -n "$host" ] || continue
 
           if [ "$category_label" != "$current_category" ]; then
@@ -713,7 +725,7 @@ data:
           url="http://$host/"
           escaped_icon="$(html_escape "$icon")"
 
-          printf '            <article class="app-card" data-search="%s">\n' "$(html_escape "$search_data")" >> "$sections_tmp"
+          printf '            <article class="app-card" data-search="%s" data-app-key="%s" data-host-kind="%s">\n' "$(html_escape "$search_data")" "$(html_escape "$app_key")" "$(html_escape "$host_kind")" >> "$sections_tmp"
           printf '              <div class="title-row">\n                <h3 class="app-title">%s</h3>\n' "$(html_escape "$title")" >> "$sections_tmp"
           if [ -n "$icon" ]; then
             printf '                <span class="icon" aria-hidden="true">%s</span>\n' "$escaped_icon" >> "$sections_tmp"
@@ -753,6 +765,7 @@ data:
             <button class="tab-button" type="button" aria-selected="false" data-tab="modules">Modules</button>
             <button class="tab-button" type="button" aria-selected="false" data-tab="instances">Instances</button>
             <button class="tab-button" type="button" aria-selected="false" data-tab="models">Models</button>
+            <button class="tab-button" type="button" aria-selected="false" data-tab="settings">Settings</button>
             <button class="tab-button" type="button" aria-selected="false" data-tab="system">System Status</button>
           </nav>
 
@@ -786,7 +799,7 @@ data:
                 <div class="form-grid">
                   <label class="field">Name<input name="name" value="default" /></label>
                   <label class="field">Model<input name="model" value="CHANGEME_MODEL" /></label>
-                  <label class="field">Host<input name="host" value="openclaw.example.local" /></label>
+                  <label class="field">Host<input name="host" value="openclaw.magicstick.example.com" data-host-prefix="openclaw" /></label>
                   <label class="field">Storage<input name="storage" value="20Gi" /></label>
                 </div>
                 <button class="control-button primary" type="submit">Create OpenClaw</button>
@@ -796,7 +809,7 @@ data:
                 <div class="form-grid">
                   <label class="field">Name<input name="name" value="default" /></label>
                   <label class="field">Model<input name="model" value="qwen3635b" /></label>
-                  <label class="field">Host<input name="host" value="hermes.example.local" /></label>
+                  <label class="field">Host<input name="host" value="hermes.magicstick.example.com" data-host-prefix="hermes" /></label>
                   <label class="field">Storage<input name="storage" value="10Gi" /></label>
                 </div>
                 <button class="control-button primary" type="submit">Create Hermes</button>
@@ -806,7 +819,7 @@ data:
                 <div class="form-grid">
                   <label class="field">Name<input name="name" value="default" /></label>
                   <label class="field">Admin Email<input name="adminEmail" value="admin@example.com" /></label>
-                  <label class="field">Host<input name="host" value="paperclip.example.local" /></label>
+                  <label class="field">Host<input name="host" value="paperclip.magicstick.example.com" data-host-prefix="paperclip" /></label>
                   <label class="field">Storage<input name="storage" value="5Gi" /></label>
                   <label class="field">Postgres<input name="postgresStorage" value="10Gi" /></label>
                 </div>
@@ -817,7 +830,7 @@ data:
                 <div class="form-grid">
                   <label class="field">Name<input name="name" value="default" /></label>
                   <label class="field">Model<input name="model" value="CHANGEME_MODEL" /></label>
-                  <label class="field">Host<input name="host" value="kubeopencode.example.local" /></label>
+                  <label class="field">Host<input name="host" value="kubeopencode.magicstick.example.com" data-host-prefix="kubeopencode" /></label>
                   <label class="field">Template<input name="template" value="default-coder" /></label>
                 </div>
                 <button class="control-button primary" type="submit">Create KubeOpenCode</button>
@@ -872,6 +885,30 @@ data:
               <div id="model-list" class="mini-list"></div>
             </div>
             <p id="model-output" class="api-output"></p>
+          </section>
+
+          <section id="tab-settings" class="tab-panel" hidden>
+            <div class="dashboard-grid">
+              <form class="dashboard-card" id="settings-form">
+                <h3>Domains</h3>
+                <div class="form-grid">
+                  <label class="field">Public Domain<input name="publicDomain" value="magicstick.example.com" /></label>
+                  <label class="field">mDNS Domain<input name="mdnsDomain" value="magicstick.local" /></label>
+                  <label class="field">Dashboard Public Host<input name="dashboardHost" value="magicstick.example.com" /></label>
+                </div>
+                <button class="control-button primary" type="submit">Save Domains</button>
+              </form>
+              <article class="dashboard-card">
+                <h3>Addresses</h3>
+                <div class="mini-list">
+                  <div class="mini-item" id="settings-dashboard-public">Dashboard public: loading</div>
+                  <div class="mini-item" id="settings-dashboard-local">Dashboard local: loading</div>
+                  <div class="mini-item" id="settings-anythingllm-public">AnythingLLM public: loading</div>
+                  <div class="mini-item" id="settings-anythingllm-local">AnythingLLM local: loading</div>
+                </div>
+              </article>
+            </div>
+            <p id="settings-output" class="api-output"></p>
           </section>
 
           <section id="tab-system" class="tab-panel" hidden>
@@ -936,6 +973,12 @@ data:
           const $ = (id) => document.getElementById(id);
           const apiState = $('api-state');
           let latestModelPayload = {};
+          let latestSettings = {
+            publicDomain: 'magicstick.example.com',
+            dashboardHost: 'magicstick.example.com',
+            mdnsDomain: 'magicstick.local',
+            mdnsName: 'magicstick'
+          };
           let renderedPresetSignature = '';
           let localPresetLastApplied = '';
 
@@ -1154,6 +1197,56 @@ data:
             }
           };
 
+          const appHost = (prefix, domain) => {
+            const cleanPrefix = String(prefix || '').trim().replace(/\.$/, '');
+            const cleanDomain = String(domain || '').trim().replace(/^\./, '').replace(/\.$/, '');
+            return cleanPrefix && cleanDomain ? cleanPrefix + '.' + cleanDomain : cleanDomain;
+          };
+
+          const setText = (id, value) => {
+            const node = $(id);
+            if (node) {
+              node.textContent = value;
+            }
+          };
+
+          const renderSettings = (settings, options = {}) => {
+            latestSettings = {
+              publicDomain: settings.publicDomain || 'magicstick.example.com',
+              dashboardHost: settings.dashboardHost || settings.publicDomain || 'magicstick.example.com',
+              mdnsDomain: settings.mdnsDomain || 'magicstick.local',
+              mdnsName: settings.mdnsName || 'magicstick'
+            };
+            const form = $('settings-form');
+            if (form && (options.force || form.dataset.dirty !== 'true')) {
+              setFormValue(form, 'publicDomain', latestSettings.publicDomain);
+              setFormValue(form, 'mdnsDomain', latestSettings.mdnsDomain);
+              setFormValue(form, 'dashboardHost', latestSettings.dashboardHost);
+              form.dataset.dirty = 'false';
+            }
+            setText('settings-dashboard-public', 'Dashboard public: http://' + latestSettings.dashboardHost + '/');
+            setText('settings-dashboard-local', 'Dashboard local: http://' + latestSettings.mdnsDomain + '/');
+            setText('settings-anythingllm-public', 'AnythingLLM public: http://' + appHost('anythingllm', latestSettings.publicDomain) + '/');
+            setText('settings-anythingllm-local', 'AnythingLLM local: http://' + appHost('anythingllm', latestSettings.mdnsDomain) + '/');
+          };
+
+          const setInstanceHostDefaults = (settings) => {
+            const domain = (settings || latestSettings).publicDomain || 'magicstick.example.com';
+            document.querySelectorAll('input[data-host-prefix]').forEach((input) => {
+              const next = appHost(input.dataset.hostPrefix, domain);
+              const current = String(input.value || '').trim();
+              if (!input.dataset.hostDefault) {
+                input.dataset.hostDefault = current;
+              }
+              const previous = input.dataset.hostDefault || '';
+              const shouldUpdate = !current || current === previous || current.endsWith('.example.local') || current.endsWith('.magicstick.example.com');
+              if (shouldUpdate) {
+                input.value = next;
+                input.dataset.hostDefault = next;
+              }
+            });
+          };
+
           const presetArgValue = (preset, flag) => {
             const args = (preset || {}).args || [];
             for (let index = 0; index < args.length; index += 1) {
@@ -1345,11 +1438,14 @@ data:
 
           const refresh = async () => {
             try {
+              const settings = await request('/api/settings');
               const appliance = await request('/api/appliance');
               const modulePayload = await request('/api/modules');
               const instancePayload = await request('/api/instances');
               const modelPayload = await request('/api/models');
               const status = await request('/api/status');
+              renderSettings(settings);
+              setInstanceHostDefaults(settings);
               latestModelPayload = modelPayload || {};
               renderLocalPresetOptions(latestModelPayload);
               applyKubeOpenCodeModelDefault(latestModelPayload);
@@ -1512,22 +1608,22 @@ data:
               };
               if (type === 'openclaw') {
                 payload.storage = { size: data.get('storage') || '20Gi' };
-                payload.ingress = { enabled: true, host: data.get('host') || 'openclaw.example.local' };
+                payload.ingress = { enabled: true, host: data.get('host') || appHost('openclaw', latestSettings.publicDomain) };
               }
               if (type === 'hermes') {
                 payload.model = data.get('model') || 'qwen3635b';
                 payload.storage = { size: data.get('storage') || '10Gi' };
-                payload.ingress = { enabled: true, host: data.get('host') || 'hermes.example.local' };
+                payload.ingress = { enabled: true, host: data.get('host') || appHost('hermes', latestSettings.publicDomain) };
               }
               if (type === 'paperclip') {
                 delete payload.model;
                 payload.storage = { size: data.get('storage') || '5Gi' };
                 payload.database = { managed: { storageSize: data.get('postgresStorage') || '10Gi' } };
-                payload.ingress = { enabled: true, host: data.get('host') || 'paperclip.example.local' };
+                payload.ingress = { enabled: true, host: data.get('host') || appHost('paperclip', latestSettings.publicDomain) };
                 payload.admin = { email: data.get('adminEmail') || 'admin@example.com', name: 'Admin' };
               }
               if (type === 'kubeopencode') {
-                payload.server = { enabled: true, ingress: { enabled: true, host: data.get('host') || 'kubeopencode.example.local' } };
+                payload.server = { enabled: true, ingress: { enabled: true, host: data.get('host') || appHost('kubeopencode', latestSettings.publicDomain) } };
                 payload.agentTemplates = [{ name: data.get('template') || 'default-coder', description: 'Default coding agent template' }];
               }
               try {
@@ -1540,8 +1636,61 @@ data:
             });
           });
 
+          const settingsForm = $('settings-form');
+          if (settingsForm) {
+            settingsForm.addEventListener('input', () => {
+              settingsForm.dataset.dirty = 'true';
+            });
+            settingsForm.addEventListener('submit', async (event) => {
+              event.preventDefault();
+              const data = new FormData(settingsForm);
+              const payload = {
+                publicDomain: data.get('publicDomain'),
+                mdnsDomain: data.get('mdnsDomain'),
+                dashboardHost: data.get('dashboardHost')
+              };
+              try {
+                const settings = await request('/api/settings', { method: 'PATCH', body: JSON.stringify(payload) });
+                settingsForm.dataset.dirty = 'false';
+                renderSettings(settings, { force: true });
+                setInstanceHostDefaults(settings);
+                $('settings-output').textContent = 'Domain settings saved.';
+                await refresh();
+              } catch (error) {
+                $('settings-output').textContent = error.message;
+              }
+            });
+          }
+
           refresh();
           setInterval(refresh, 30000);
+        })();
+
+        (() => {
+          const cards = Array.from(document.querySelectorAll('.app-card[data-app-key]'));
+          if (!cards.length) { return; }
+          const currentHost = window.location.hostname.toLowerCase();
+          const isIp = /^(\d{1,3}\.){3}\d{1,3}$/.test(currentHost) || currentHost.includes(':');
+          const preferLocal = currentHost.endsWith('.local') || isIp || currentHost === 'localhost';
+          const groups = new Map();
+          cards.forEach((card) => {
+            const key = card.dataset.appKey || '';
+            if (!groups.has(key)) {
+              groups.set(key, []);
+            }
+            groups.get(key).push(card);
+          });
+          groups.forEach((items) => {
+            const local = items.find((card) => card.dataset.hostKind === 'local');
+            const publicCard = items.find((card) => card.dataset.hostKind === 'public');
+            const selected = (preferLocal && local) || publicCard || local || items[0];
+            items.forEach((card) => {
+              if (card !== selected) {
+                card.dataset.hostDuplicateHidden = 'true';
+                card.hidden = true;
+              }
+            });
+          });
         })();
 
         (() => {
@@ -1560,7 +1709,7 @@ data:
 
             cards.forEach((card) => {
               const haystack = card.dataset.search || '';
-              const matches = query === '' || haystack.includes(query);
+              const matches = card.dataset.hostDuplicateHidden !== 'true' && (query === '' || haystack.includes(query));
               card.style.display = matches ? '' : 'none';
               if (matches) {
                 visibleCards += 1;
