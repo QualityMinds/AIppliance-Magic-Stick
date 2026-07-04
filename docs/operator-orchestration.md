@@ -24,6 +24,8 @@ The dashboard is also not an operator. It reads status and creates or patches
   resources.
 - Load `ConfigMap/magicstick-module-catalog`.
 - Normalize user-facing module keys to canonical catalog names.
+- Seed missing `ModuleActivation` resources from enabled
+  `Appliance.spec.modules` entries.
 - Add explicitly enabled runtime modules to the desired set.
 - Add required modules for every enabled instance.
 - Add required model-serving modules for every enabled model.
@@ -57,6 +59,11 @@ All enabled AI app instances also require `litellm` and `model-catalog`.
 
 For v1alpha1, examples use these defaults:
 
+- the installed public appliance profile is `ai-workstation`
+- `Appliance.spec.modules` enables `basis`, `dashboard`, `gpu`, `kubeai`,
+  `litellm`, and `model-catalog`
+- missing default module activations are seeded once; existing
+  `ModuleActivation` resources, including disabled ones, take precedence
 - instance namespace defaults to `ai`
 - `enabled` defaults to `true` inside instance arrays
 - generated Flux namespace is always `flux-system`

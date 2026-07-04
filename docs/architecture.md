@@ -68,7 +68,12 @@ selection happens through `ModuleActivation`, `ModelActivation`, and
 - `Appliance`, `ModuleActivation`, `ModelActivation`, and `AppInstance` CRDs
 - `ConfigMap/magicstick-module-catalog`
 - live `magicstick-operator` controller
-- default `Appliance/local`
+- default `Appliance/local` with profile `ai-workstation`
+
+The default `ai-workstation` profile seeds the core AI module stack: `gpu`
+(NVIDIA GPU Operator), `kubeai`, `litellm`, and `model-catalog`. These defaults
+create missing `ModuleActivation` resources, but existing runtime activations
+remain authoritative so administrators can disable a default module explicitly.
 
 The Magic Stick Operator is a meta-operator. It enables modules by generating
 Flux `Kustomization` resources and creates instance resources only after the

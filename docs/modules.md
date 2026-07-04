@@ -22,26 +22,34 @@ Each catalog entry contains:
 | `requires` | Canonical module dependencies. |
 | `provides` | Capabilities exposed by the module. |
 | `requiredCrds` | CRDs that must exist before dependent instances are created. |
-| `default` | Whether the module is part of the default minimal appliance. |
+| `default` | Whether the module is part of the default AI-workstation appliance. |
 | `uninstallPolicy` | `keep-data` or `remove`. |
 | `postBuildSubstitution` | Whether to include `ai-appliance-settings` post-build substitution. |
 
 ## Public Modules
 
-| Module | Flux name | Path | Default |
+| Module | Flux name | Path | AI-workstation default |
 |---|---|---|---|
 | `basis` | `platform-basis` | `magic-cluster/platform/basis` | yes |
 | `dashboard` | `app-dashboard` | `magic-cluster/apps/dashboard` | yes |
-| `litellm` | `app-litellm` | `magic-cluster/apps/ai/litellm/base` | no |
-| `model-catalog` | `app-model-catalog` | `magic-cluster/apps/ai/model-catalog` | no |
+| `litellm` | `app-litellm` | `magic-cluster/apps/ai/litellm/base` | yes |
+| `model-catalog` | `app-model-catalog` | `magic-cluster/apps/ai/model-catalog` | yes |
 | `anything-llm` | `app-anything-llm` | `magic-cluster/apps/ai/anything-llm/base` | no |
-| `gpu` | `platform-gpu` | `magic-cluster/platform/gpu` | no |
-| `kubeai` | `platform-kubeai` | `magic-cluster/platform/ai/kubeai` | no |
+| `gpu` | `platform-gpu` | `magic-cluster/platform/gpu` | yes |
+| `kubeai` | `platform-kubeai` | `magic-cluster/platform/ai/kubeai` | yes |
 | `openclaw-operator` | `operator-openclaw` | `magic-cluster/platform/ai/openclaw-operator` | no |
 | `hermes-operator` | `operator-hermes` | `magic-cluster/platform/ai/hermes-operator` | no |
 | `paperclip-operator` | `operator-paperclip` | `magic-cluster/platform/ai/paperclip-operator` | no |
 | `kubeopencode` | `app-kubeopencode` | `magic-cluster/apps/ai/kubeopencode` | no |
 | `observability` | `platform-observability` | `magic-cluster/platform/observability` | no |
+
+The installed public default uses the `ai-workstation` profile. The `gpu`
+module is the NVIDIA GPU Operator module; it installs the cluster-side NVIDIA
+GPU stack used by KubeAI and local model serving.
+
+`Appliance.spec.modules` seeds missing `ModuleActivation` resources for default
+modules. Existing `ModuleActivation` resources remain authoritative, so setting
+`spec.enabled: false` on a seeded module keeps it disabled.
 
 `model-catalog` depends on `litellm` because the current controller syncs model
 data into LiteLLM, reads the LiteLLM model list, and publishes app catalog

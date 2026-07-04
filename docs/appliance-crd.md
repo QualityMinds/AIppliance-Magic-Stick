@@ -17,11 +17,24 @@ metadata:
   name: local
   namespace: ai-system
 spec:
-  profile: minimal
+  profile: ai-workstation
   source:
     kind: GitRepository
     name: flux-system
     namespace: flux-system
+  modules:
+    basis:
+      enabled: true
+    dashboard:
+      enabled: true
+    gpu:
+      enabled: true
+    kubeai:
+      enabled: true
+    litellm:
+      enabled: true
+    model-catalog:
+      enabled: true
 ```
 
 The CRD is namespaced, with plural `appliances` and short names `msapp` and
@@ -33,12 +46,17 @@ The CRD is namespaced, with plural `appliances` and short names `msapp` and
 |---|---|
 | `spec.profile` | Public profile hint: `minimal`, `ai-workstation`, or `full`. |
 | `spec.source` | Flux `GitRepository` source used by generated module Kustomizations. |
-| `spec.modules` | Git-owned static defaults only. Runtime module changes use `ModuleActivation`. |
+| `spec.modules` | Git-owned module defaults. The operator seeds missing `ModuleActivation` resources from enabled entries. |
 | `spec.instances` | Deprecated for runtime use. Runtime instance changes use `AppInstance`. |
 
-The default public install uses `spec.source.name: flux-system` because
-readonly-public mode creates that Git source. Private deployment repositories
-that include this public repo can use `magicstick-public`.
+The default public install uses profile `ai-workstation` and
+`spec.source.name: flux-system` because readonly-public mode creates that Git
+source. Private deployment repositories that include this public repo can use
+`magicstick-public`.
+
+Runtime `ModuleActivation` resources take precedence over `spec.modules`.
+Disabling a default module by setting `ModuleActivation.spec.enabled: false`
+keeps it disabled; the operator only seeds missing activations.
 
 ## Modules And Instances
 

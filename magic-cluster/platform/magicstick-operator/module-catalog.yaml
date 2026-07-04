@@ -32,7 +32,7 @@ data:
           "kustomizationName": "app-litellm",
           "requires": ["basis"],
           "requiredCrds": [],
-          "default": false,
+          "default": true,
           "uninstallPolicy": "keep-data",
           "postBuildSubstitution": true
         },
@@ -41,7 +41,7 @@ data:
           "kustomizationName": "app-model-catalog",
           "requires": ["litellm"],
           "requiredCrds": [],
-          "default": false,
+          "default": true,
           "uninstallPolicy": "keep-data",
           "postBuildSubstitution": true
         },
@@ -59,7 +59,7 @@ data:
           "kustomizationName": "platform-gpu",
           "requires": ["basis"],
           "requiredCrds": ["clusterpolicies.nvidia.com"],
-          "default": false,
+          "default": true,
           "uninstallPolicy": "keep-data"
         },
         "kubeai": {
@@ -67,7 +67,7 @@ data:
           "kustomizationName": "platform-kubeai",
           "requires": ["basis", "gpu"],
           "requiredCrds": ["models.kubeai.org"],
-          "default": false,
+          "default": true,
           "uninstallPolicy": "keep-data"
         },
         "openclaw-operator": {

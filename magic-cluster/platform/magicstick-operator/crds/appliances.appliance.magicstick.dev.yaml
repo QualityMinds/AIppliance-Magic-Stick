@@ -80,7 +80,7 @@ spec:
                       minLength: 1
                 modules:
                   type: object
-                  description: Module switches keyed by user-facing or canonical module names.
+                  description: Module defaults keyed by user-facing or canonical module names. Enabled entries seed missing ModuleActivation resources; existing ModuleActivation resources take precedence.
                   additionalProperties:
                     type: object
                     properties:

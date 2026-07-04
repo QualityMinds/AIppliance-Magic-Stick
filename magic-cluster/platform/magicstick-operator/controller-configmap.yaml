@@ -423,6 +423,18 @@ data:
         apply_resource(activation)
 
 
+    def seed_appliance_modules(current, catalog, activations):
+        catalog_modules = catalog.get("modules") or {}
+        for module, spec in ((current.get("spec") or {}).get("modules") or {}).items():
+            module = canonical_module(module)
+            if module in ("basis", "dashboard") or module not in catalog_modules:
+                continue
+            if module in activations:
+                continue
+            if (spec or {}).get("enabled") is True:
+                ensure_module_activation(module, auto=True)
+
+
     def dependency_name(module, catalog):
         module = canonical_module(module)
         if module in STATIC_DEPENDENCIES:
@@ -1789,6 +1801,9 @@ data:
         activations = module_activations()
         instances = app_instances()
         models = model_activations()
+
+        seed_appliance_modules(current, catalog, activations)
+        activations = module_activations()
 
         for instance in instances:
             mapping = (catalog.get("instanceMappings") or {}).get((instance.get("spec") or {}).get("type")) or {}

@@ -5,9 +5,9 @@ metadata:
   namespace: ai-system
   labels:
     app.kubernetes.io/name: magicstick-operator
-    appliance.magicstick.dev/profile: minimal
+    appliance.magicstick.dev/profile: ai-workstation
 spec:
-  profile: minimal
+  profile: ai-workstation
   source:
     kind: GitRepository
     name: flux-system
@@ -16,4 +16,12 @@ spec:
     basis:
       enabled: true
     dashboard:
+      enabled: true
+    gpu:
+      enabled: true
+    kubeai:
+      enabled: true
+    litellm:
+      enabled: true
+    model-catalog:
       enabled: true

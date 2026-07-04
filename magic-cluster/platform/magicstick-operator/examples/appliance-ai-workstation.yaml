@@ -14,24 +14,14 @@ spec:
       enabled: true
     dashboard:
       enabled: true
----
-apiVersion: appliance.magicstick.dev/v1alpha1
-kind: ModuleActivation
-metadata:
-  name: litellm
-  namespace: ai-system
-spec:
-  module: litellm
-  enabled: true
----
-apiVersion: appliance.magicstick.dev/v1alpha1
-kind: ModuleActivation
-metadata:
-  name: model-catalog
-  namespace: ai-system
-spec:
-  module: model-catalog
-  enabled: true
+    gpu:
+      enabled: true
+    kubeai:
+      enabled: true
+    litellm:
+      enabled: true
+    model-catalog:
+      enabled: true
 ---
 apiVersion: appliance.magicstick.dev/v1alpha1
 kind: ModuleActivation
