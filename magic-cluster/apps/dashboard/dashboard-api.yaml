@@ -902,6 +902,14 @@ data:
             try:
                 path = self.route()
                 parts = path.strip("/").split("/")
+                if len(parts) == 3 and parts[:2] == ["api", "instances"]:
+                    name = parts[2]
+                    if not DNS_LABEL.match(name):
+                        self.send_error_json(400, "name must be a DNS-1123 label")
+                        return
+                    delete_json(f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/appinstances/{name}")
+                    self.send_json({"deleted": name})
+                    return
                 if len(parts) == 3 and parts[:2] == ["api", "models"]:
                     name = parts[2]
                     if not DNS_LABEL.match(name):

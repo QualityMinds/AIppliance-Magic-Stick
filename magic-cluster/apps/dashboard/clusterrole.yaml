@@ -11,7 +11,7 @@ rules:
     verbs: ["get", "list", "watch", "create", "patch", "update"]
   - apiGroups: ["appliance.magicstick.dev"]
     resources: ["appinstances"]
-    verbs: ["get", "list", "watch", "create", "patch", "update"]
+    verbs: ["get", "list", "watch", "create", "patch", "update", "delete"]
   - apiGroups: ["appliance.magicstick.dev"]
     resources: ["modelactivations"]
     verbs: ["get", "list", "watch", "create", "patch", "update", "delete"]

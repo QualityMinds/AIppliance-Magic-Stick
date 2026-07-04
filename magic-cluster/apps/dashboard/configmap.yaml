@@ -371,6 +371,13 @@ data:
           color: #fecaca;
         }
 
+        .tab-button:disabled,
+        .control-button:disabled,
+        .field select:disabled {
+          cursor: not-allowed;
+          opacity: 0.55;
+        }
+
         .dashboard-grid {
           display: grid;
           gap: 0.85rem;
@@ -798,7 +805,7 @@ data:
                 <h3>OpenClaw</h3>
                 <div class="form-grid">
                   <label class="field">Name<input name="name" value="default" /></label>
-                  <label class="field">Model<input name="model" value="CHANGEME_MODEL" /></label>
+                  <label class="field">Model<select name="model" data-model-select="chat" data-model-fallback="CHANGEME_MODEL"><option value="">Loading models</option></select></label>
                   <label class="field">Host<input name="host" value="openclaw.magicstick.example.com" data-host-prefix="openclaw" /></label>
                   <label class="field">Storage<input name="storage" value="20Gi" /></label>
                 </div>
@@ -808,7 +815,7 @@ data:
                 <h3>Hermes</h3>
                 <div class="form-grid">
                   <label class="field">Name<input name="name" value="default" /></label>
-                  <label class="field">Model<input name="model" value="qwen3635b" /></label>
+                  <label class="field">Model<select name="model" data-model-select="chat" data-model-fallback="qwen3635b"><option value="">Loading models</option></select></label>
                   <label class="field">Host<input name="host" value="hermes.magicstick.example.com" data-host-prefix="hermes" /></label>
                   <label class="field">Storage<input name="storage" value="10Gi" /></label>
                 </div>
@@ -829,7 +836,7 @@ data:
                 <h3>KubeOpenCode</h3>
                 <div class="form-grid">
                   <label class="field">Name<input name="name" value="default" /></label>
-                  <label class="field">Model<input name="model" value="CHANGEME_MODEL" /></label>
+                  <label class="field">Model<select name="model" data-model-select="chat" data-model-fallback="CHANGEME_MODEL"><option value="">Loading models</option></select></label>
                   <label class="field">Host<input name="host" value="kubeopencode.magicstick.example.com" data-host-prefix="kubeopencode" /></label>
                   <label class="field">Template<input name="template" value="default-coder" /></label>
                 </div>
@@ -1132,7 +1139,28 @@ data:
                 const status = instance.status || {};
                 const item = document.createElement('div');
                 item.className = 'mini-item';
-                item.textContent = type + '/' + (metadata.name || 'unnamed') + ' in ' + (spec.targetNamespace || 'ai') + ' - ' + (status.phase || 'Requested');
+                const row = document.createElement('div');
+                row.className = 'module-row';
+                const title = document.createElement('strong');
+                title.textContent = type + '/' + (metadata.name || 'unnamed');
+                const pill = document.createElement('span');
+                pill.className = 'status-pill ' + (status.phase === 'Ready' ? 'ready' : 'waiting');
+                pill.textContent = status.phase || 'Requested';
+                row.append(title, pill);
+                const details = document.createElement('div');
+                details.textContent = 'namespace: ' + (spec.targetNamespace || 'ai') + (status.url ? ' - ' + status.url : '');
+                const actions = document.createElement('div');
+                actions.className = 'action-row';
+                const remove = document.createElement('button');
+                remove.className = 'control-button danger';
+                remove.type = 'button';
+                remove.dataset.instanceDelete = metadata.name || '';
+                remove.textContent = 'Remove';
+                if (!metadata.name) {
+                  remove.disabled = true;
+                }
+                actions.appendChild(remove);
+                item.append(row, details, actions);
                 list.appendChild(item);
               });
             });
@@ -1184,24 +1212,91 @@ data:
             renderedPresetSignature = signature;
           };
 
-          const catalogDefaultChatModel = (modelPayload) => {
-            const catalog = (modelPayload || {}).catalog || {};
-            if (catalog.defaultChatModel) {
-              return catalog.defaultChatModel;
-            }
-            const chatModel = ((modelPayload || {}).models || []).find((model) => model.type === 'chat');
-            return chatModel ? (chatModel.id || chatModel.name || '') : '';
+          const modelIdentifier = (model) => String(((model || {}).id || (model || {}).name || '')).trim();
+
+          const modelLabel = (model) => {
+            const id = modelIdentifier(model);
+            const name = String(((model || {}).name || '')).trim();
+            return name && name !== id ? name + ' (' + id + ')' : id;
           };
 
-          const applyKubeOpenCodeModelDefault = (modelPayload) => {
-            const form = document.querySelector('.instance-form[data-instance-type="kubeopencode"]');
-            const field = form ? form.elements.model : null;
-            const model = catalogDefaultChatModel(modelPayload);
-            if (!field || !model) { return; }
-            const current = String(field.value || '').trim();
-            if (!current || current === 'CHANGEME_MODEL') {
-              field.value = model;
+          const modelType = (model) => String(((model || {}).type || (model || {}).modelType || '')).trim().toLowerCase();
+
+          const deployedModels = (modelPayload, type = 'chat') => {
+            const seen = new Set();
+            return (((modelPayload || {}).models || []) || [])
+              .filter((model) => {
+                const id = modelIdentifier(model);
+                if (!id) { return false; }
+                if (type === 'chat') {
+                  return modelType(model) === 'chat';
+                }
+                return modelType(model) === type;
+              })
+              .filter((model) => {
+                const id = modelIdentifier(model);
+                if (seen.has(id)) { return false; }
+                seen.add(id);
+                return true;
+              })
+              .sort((left, right) => modelLabel(left).localeCompare(modelLabel(right)));
+          };
+
+          const catalogDefaultChatModel = (modelPayload) => {
+            const catalog = (modelPayload || {}).catalog || {};
+            const models = deployedModels(modelPayload, 'chat');
+            const available = new Set(models.map(modelIdentifier));
+            const wanted = String(catalog.defaultChatModel || '').trim();
+            if (wanted && available.has(wanted)) {
+              return wanted;
             }
+            return models.length ? modelIdentifier(models[0]) : '';
+          };
+
+          const renderInstanceModelOptions = (modelPayload) => {
+            const defaultChatModel = catalogDefaultChatModel(modelPayload);
+            document.querySelectorAll('select[data-model-select]').forEach((select) => {
+              const type = select.dataset.modelSelect || 'chat';
+              const models = deployedModels(modelPayload, type);
+              const previous = String(select.value || '').trim();
+              select.innerHTML = '';
+
+              if (!models.length) {
+                const option = document.createElement('option');
+                option.value = '';
+                option.textContent = type === 'chat' ? 'No deployed chat models' : 'No deployed models';
+                select.appendChild(option);
+                select.disabled = true;
+                select.dataset.modelsAvailable = 'false';
+                return;
+              }
+
+              const available = new Set();
+              models.forEach((model) => {
+                const id = modelIdentifier(model);
+                available.add(id);
+                const option = document.createElement('option');
+                option.value = id;
+                option.textContent = modelLabel(model);
+                select.appendChild(option);
+              });
+
+              const fallback = String(select.dataset.modelFallback || '').trim();
+              select.value = available.has(previous)
+                ? previous
+                : (available.has(defaultChatModel) ? defaultChatModel : (available.has(fallback) ? fallback : modelIdentifier(models[0])));
+              select.disabled = false;
+              select.dataset.modelsAvailable = 'true';
+            });
+
+            document.querySelectorAll('.instance-form').forEach((form) => {
+              const select = form.querySelector('select[data-model-select]');
+              const button = form.querySelector('button[type="submit"]');
+              if (!select || !button) { return; }
+              const disabled = select.dataset.modelsAvailable === 'false';
+              button.disabled = disabled;
+              button.title = disabled ? 'No deployed chat models available' : '';
+            });
           };
 
           const setFormValue = (form, name, value) => {
@@ -1463,7 +1558,7 @@ data:
               setInstanceHostDefaults(settings);
               latestModelPayload = modelPayload || {};
               renderLocalPresetOptions(latestModelPayload);
-              applyKubeOpenCodeModelDefault(latestModelPayload);
+              renderInstanceModelOptions(latestModelPayload);
               if (!localPresetLastApplied) {
                 const presetSelect = $('local-model-preset');
                 applyLocalPresetFields(presetSelect ? presetSelect.value : '', { force: true });
@@ -1532,6 +1627,20 @@ data:
               await refresh();
             } catch (error) {
               $('model-output').textContent = error.message;
+            }
+          });
+
+          document.addEventListener('click', async (event) => {
+            const remove = event.target.closest('[data-instance-delete]');
+            if (!remove) { return; }
+            const name = remove.dataset.instanceDelete;
+            if (!name) { return; }
+            try {
+              await request('/api/instances/' + encodeURIComponent(name), { method: 'DELETE' });
+              $('instance-output').textContent = name + ' remove requested.';
+              await refresh();
+            } catch (error) {
+              $('instance-output').textContent = error.message;
             }
           });
 
@@ -1615,18 +1724,23 @@ data:
               event.preventDefault();
               const data = new FormData(form);
               const type = form.dataset.instanceType;
+              const selectedModel = String(data.get('model') || '').trim();
+              if (form.querySelector('select[data-model-select]') && !selectedModel) {
+                $('instance-output').textContent = 'Select a deployed model before creating this instance.';
+                return;
+              }
               const payload = {
                 name: data.get('name') || 'default',
                 enabled: true,
                 namespace: 'ai',
-                model: data.get('model') || 'CHANGEME_MODEL'
+                model: selectedModel || 'CHANGEME_MODEL'
               };
               if (type === 'openclaw') {
                 payload.storage = { size: data.get('storage') || '20Gi' };
                 payload.ingress = { enabled: true, host: data.get('host') || appHost('openclaw', latestSettings.publicDomain) };
               }
               if (type === 'hermes') {
-                payload.model = data.get('model') || 'qwen3635b';
+                payload.model = selectedModel || 'qwen3635b';
                 payload.storage = { size: data.get('storage') || '10Gi' };
                 payload.ingress = { enabled: true, host: data.get('host') || appHost('hermes', latestSettings.publicDomain) };
               }

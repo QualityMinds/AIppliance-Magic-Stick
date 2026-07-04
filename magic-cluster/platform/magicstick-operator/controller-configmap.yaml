@@ -35,6 +35,7 @@ data:
     SA_CA_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
     FIELD_MANAGER = "magicstick-operator"
     MODULE_FINALIZER = "appliance.magicstick.dev/module-cleanup"
+    APPINSTANCE_FINALIZER = "appliance.magicstick.dev/appinstance-cleanup"
     MODEL_FINALIZER = "appliance.magicstick.dev/model-cleanup"
     MODULE_PARAMETER_SUBSTITUTIONS = {
         "litellm": {
@@ -358,6 +359,26 @@ data:
         return list_items(f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/appinstances")
 
 
+    def app_instance_path(instance):
+        metadata = instance.get("metadata") or {}
+        return f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{metadata.get('namespace')}/appinstances/{metadata.get('name')}"
+
+
+    def ensure_app_instance_finalizer(instance):
+        metadata = instance.get("metadata") or {}
+        finalizers = list(metadata.get("finalizers") or [])
+        if APPINSTANCE_FINALIZER in finalizers or metadata.get("deletionTimestamp"):
+            return
+        finalizers.append(APPINSTANCE_FINALIZER)
+        patch_json(app_instance_path(instance), {"metadata": {"finalizers": finalizers}})
+
+
+    def remove_app_instance_finalizer(instance):
+        metadata = instance.get("metadata") or {}
+        finalizers = [item for item in (metadata.get("finalizers") or []) if item != APPINSTANCE_FINALIZER]
+        patch_json(app_instance_path(instance), {"metadata": {"finalizers": finalizers}})
+
+
     def model_activations():
         return list_items(f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/modelactivations")
 
@@ -645,7 +666,7 @@ data:
             "namespace": target.get("namespace", ""),
             "url": url,
             "message": message,
-            "conditions": [condition("True" if phase in ("Ready", "Suspended") else "False", reason, message, generation)],
+            "conditions": [condition("True" if phase in ("Ready", "Suspended", "Disabled") else "False", reason, message, generation)],
         }})
 
 
@@ -1703,6 +1724,53 @@ data:
         return [template, agent], "http://" + host + "/"
 
 
+    def app_instance_target_resources(instance):
+        metadata = instance.get("metadata") or {}
+        spec = instance.get("spec") or {}
+        params = spec.get("parameters") or {}
+        instance_type = spec.get("type")
+        name = metadata.get("name")
+        namespace = spec.get("targetNamespace") or "ai"
+        if instance_type == "openclaw":
+            return [{"apiVersion": "openclaw.rocks/v1alpha1", "kind": "OpenClawInstance", "metadata": {"name": name, "namespace": namespace}}]
+        if instance_type == "hermes":
+            return [{"apiVersion": "hermes.agent/v1", "kind": "HermesInstance", "metadata": {"name": name, "namespace": namespace}}]
+        if instance_type == "paperclip":
+            return [{"apiVersion": "paperclip.inc/v1alpha1", "kind": "Instance", "metadata": {"name": name, "namespace": namespace}}]
+        if instance_type == "kubeopencode":
+            templates = params.get("agentTemplates") or []
+            template_name = params.get("template") or (templates[0].get("name") if templates else name)
+            agent_name = params.get("agent") or params.get("agentName") or params.get("name") or name
+            if str(agent_name or "").startswith("kubeopencode-"):
+                agent_name = str(agent_name)[len("kubeopencode-"):]
+            agent_name = agent_name or name
+            return [
+                {"apiVersion": "kubeopencode.io/v1alpha1", "kind": "Agent", "metadata": {"name": agent_name, "namespace": namespace}},
+                {"apiVersion": "kubeopencode.io/v1alpha1", "kind": "AgentTemplate", "metadata": {"name": template_name, "namespace": namespace}},
+            ]
+        return []
+
+
+    def delete_target_resource(resource):
+        api_version = resource["apiVersion"]
+        kind = resource["kind"]
+        metadata = resource.get("metadata") or {}
+        group, version = api_version.split("/", 1)
+        delete_resource(group, version, PLURALS[(group, kind)], metadata.get("namespace"), metadata.get("name"))
+
+
+    def cleanup_app_instance_targets(instance):
+        resources = app_instance_target_resources(instance)
+        for resource in resources:
+            delete_target_resource(resource)
+        if resources:
+            metadata = resources[0].get("metadata") or {}
+            return {"kind": resources[0].get("kind", ""), "name": metadata.get("name", ""), "namespace": metadata.get("namespace", "")}
+        spec = instance.get("spec") or {}
+        metadata = instance.get("metadata") or {}
+        return {"kind": "", "name": metadata.get("name", ""), "namespace": spec.get("targetNamespace") or "ai"}
+
+
     INSTANCE_BUILDERS = {
         "openclaw": build_openclaw,
         "hermes": build_hermes,
@@ -1719,8 +1787,17 @@ data:
         enabled = spec.get("enabled", True) is not False
         mapping = (catalog.get("instanceMappings") or {}).get(instance_type)
         if not mapping or instance_type not in INSTANCE_BUILDERS:
+            if metadata.get("deletionTimestamp"):
+                remove_app_instance_finalizer(instance)
+                return "Disabled", {"kind": "", "name": metadata.get("name", ""), "namespace": spec.get("targetNamespace") or "ai"}
             patch_instance_status(instance, "Degraded", {}, "UnknownInstanceType", f"Unknown instance type '{instance_type}'", generation=generation)
             return "Degraded", {}
+        if metadata.get("deletionTimestamp"):
+            target = cleanup_app_instance_targets(instance)
+            patch_instance_status(instance, "Removing", target, "Removing", "AppInstance is being deleted; generated target resources are being removed.", generation=generation)
+            remove_app_instance_finalizer(instance)
+            return "Disabled", target
+        ensure_app_instance_finalizer(instance)
         if not enabled:
             target = {"kind": mapping.get("kind") or mapping.get("primaryKind") or "", "name": metadata.get("name"), "namespace": spec.get("targetNamespace") or "ai"}
             patch_instance_status(instance, "Suspended", target, "Suspended", "AppInstance is disabled.", generation=generation)
@@ -1777,7 +1854,7 @@ data:
             return
         degraded = any(item.get("phase") == "Degraded" for item in module_statuses.values())
         waiting = any(item.get("phase") not in ("Ready", "Suspended", "Disabled") for item in module_statuses.values())
-        waiting = waiting or any(item.get("phase") not in ("Ready", "Suspended") for group in instance_statuses.values() for item in group.values())
+        waiting = waiting or any(item.get("phase") not in ("Ready", "Suspended", "Disabled") for group in instance_statuses.values() for item in group.values())
         degraded = degraded or any(item.get("phase") == "Degraded" for item in model_statuses.values())
         waiting = waiting or any(item.get("phase") not in ("Ready", "Disabled") for item in model_statuses.values())
         phase = "Degraded" if degraded else ("Reconciling" if waiting else "Ready")
