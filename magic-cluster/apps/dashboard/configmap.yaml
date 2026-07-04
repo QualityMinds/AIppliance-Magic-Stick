@@ -368,6 +368,9 @@ data:
 
           <section id="tab-instances" class="tab-panel" hidden>
             <div class="dashboard-grid">
+              <article class="dashboard-card" id="instance-form-empty" hidden>
+                <h3>No installed instance modules</h3>
+              </article>
               <form class="dashboard-card instance-form" data-instance-type="openclaw">
                 <h3>OpenClaw</h3>
                 <div class="form-grid">
@@ -416,11 +419,6 @@ data:
 
           <section id="tab-models" class="tab-panel" hidden>
             <div class="dashboard-grid">
-              <article class="dashboard-card">
-                <h3>Model Catalog</h3>
-                <p id="model-summary">Waiting for model status.</p>
-                <div id="model-stack" class="mini-list"></div>
-              </article>
               <article class="dashboard-card">
                 <h3>VRAM</h3>
                 <p id="vram-summary">Waiting for GPU metrics.</p>
@@ -503,6 +501,7 @@ data:
           const $ = (id) => document.getElementById(id);
           const apiState = $('api-state');
           let latestModelPayload = {};
+          let latestModulePayload = {};
           let latestSettings = {
             publicDomain: 'magicstick.example.com',
             dashboardHost: 'magicstick.example.com',
@@ -543,6 +542,52 @@ data:
           const moduleSpec = (modulePayload, name) => {
             const modules = ((modulePayload || {}).modules || {});
             return modules[name] || {};
+          };
+
+          const INSTANCE_REQUIRED_MODULES = {
+            openclaw: ['openclaw-operator', 'litellm', 'model-catalog'],
+            hermes: ['hermes-operator', 'litellm', 'model-catalog'],
+            paperclip: ['paperclip-operator', 'litellm', 'model-catalog'],
+            kubeopencode: ['kubeopencode', 'litellm', 'model-catalog']
+          };
+
+          const instanceMappings = (modulePayload) => (((modulePayload || {}).catalogJson || {}).instanceMappings || {});
+
+          const requiredModulesForInstance = (modulePayload, type) => {
+            const mapping = instanceMappings(modulePayload)[type] || {};
+            return Array.isArray(mapping.requiredModules) && mapping.requiredModules.length
+              ? mapping.requiredModules
+              : (INSTANCE_REQUIRED_MODULES[type] || []);
+          };
+
+          const moduleInstalled = (modulePayload, name) => {
+            const spec = moduleSpec(modulePayload, name);
+            const status = spec.status || {};
+            const phase = String(status.phase || '').toLowerCase();
+            const activationMode = spec.activationMode || ((spec.catalog || {}).activationMode);
+            if (spec.enabled !== true) { return false; }
+            if (activationMode === 'static' && !phase) { return true; }
+            return phase === 'ready';
+          };
+
+          const instanceTypeInstalled = (modulePayload, type) => {
+            const requiredModules = requiredModulesForInstance(modulePayload, type);
+            return requiredModules.length > 0 && requiredModules.every((name) => moduleInstalled(modulePayload, name));
+          };
+
+          const renderInstanceForms = (modulePayload) => {
+            let visibleCount = 0;
+            document.querySelectorAll('.instance-form[data-instance-type]').forEach((form) => {
+              const installed = instanceTypeInstalled(modulePayload, form.dataset.instanceType);
+              form.hidden = !installed;
+              if (installed) {
+                visibleCount += 1;
+              }
+            });
+            const empty = $('instance-form-empty');
+            if (empty) {
+              empty.hidden = visibleCount !== 0;
+            }
           };
 
           const moduleCatalogSpec = (modulePayload, name, spec = {}) => {
@@ -948,49 +993,6 @@ data:
             localPresetLastApplied = marker;
           };
 
-          const renderModelStack = (modelPayload) => {
-            const target = $('model-stack');
-            if (!target) { return; }
-            target.innerHTML = '';
-            const modules = (modelPayload || {}).modules || {};
-            [['gpu', 'GPU'], ['kubeai', 'KubeAI'], ['litellm', 'LiteLLM'], ['model-catalog', 'Model Catalog'], ['anything-llm', 'AnythingLLM']].forEach(([name, title]) => {
-              const spec = modules[name] || {};
-              const enabled = spec.enabled === true;
-              const status = (spec.status || {}).phase || (enabled ? 'Requested' : 'Disabled');
-              const item = document.createElement('div');
-              item.className = 'mini-item';
-              const row = document.createElement('div');
-              row.className = 'module-row';
-              const label = document.createElement('strong');
-              label.textContent = title;
-              const pill = document.createElement('span');
-              pill.className = 'status-pill ' + (enabled ? 'enabled' : 'disabled');
-              pill.textContent = status;
-              row.append(label, pill);
-              const actions = document.createElement('div');
-              actions.className = 'action-row';
-              const enable = document.createElement('button');
-              enable.className = 'control-button primary';
-              enable.type = 'button';
-              enable.dataset.moduleEnable = name;
-              enable.textContent = 'Enable';
-              const disable = document.createElement('button');
-              disable.className = 'control-button danger';
-              disable.type = 'button';
-              disable.dataset.moduleDisable = name;
-              disable.textContent = 'Disable';
-              actions.append(enable, disable);
-              item.append(row, actions);
-              if (name === 'anything-llm' && (modelPayload.anythingLlm || {}).url) {
-                const link = document.createElement('a');
-                link.href = modelPayload.anythingLlm.url;
-                link.textContent = modelPayload.anythingLlm.url;
-                item.appendChild(link);
-              }
-              target.appendChild(item);
-            });
-          };
-
           const renderVram = (modelPayload) => {
             const summary = $('vram-summary');
             const list = $('vram-list');
@@ -1105,8 +1107,10 @@ data:
               const status = await request('/api/status');
               renderSettings(settings);
               setInstanceHostDefaults(settings);
+              latestModulePayload = modulePayload || {};
               latestModelPayload = modelPayload || {};
               renderLocalPresetOptions(latestModelPayload);
+              renderInstanceForms(latestModulePayload);
               renderInstanceModelOptions(latestModelPayload);
               if (!localPresetLastApplied) {
                 const presetSelect = $('local-model-preset');
@@ -1120,12 +1124,9 @@ data:
               const instances = ((instancePayload || {}).instances || {});
               const instanceCount = Object.values(instances).reduce((count, items) => count + (Array.isArray(items) ? items.length : 0), 0);
               $('instance-summary').textContent = instanceCount + ' instances requested';
-              const catalogReady = moduleSpec(modulePayload, 'model-catalog').enabled ? 'Model catalog requested' : 'Model catalog not enabled';
-              $('model-summary').textContent = catalogReady + '; ' + (((modelPayload || {}).models || []).length) + ' models in catalog';
               renderConditions((appliance.status || {}).conditions || []);
               renderModules(modulePayload);
               renderInstances(instancePayload);
-              renderModelStack(modelPayload);
               renderVram(modelPayload);
               renderModels(modelPayload);
               renderStatus(status);
@@ -1273,6 +1274,10 @@ data:
               event.preventDefault();
               const data = new FormData(form);
               const type = form.dataset.instanceType;
+              if (!instanceTypeInstalled(latestModulePayload, type)) {
+                $('instance-output').textContent = 'Install the required modules before creating this instance.';
+                return;
+              }
               const selectedModel = String(data.get('model') || '').trim();
               if (form.querySelector('select[data-model-select]') && !selectedModel) {
                 $('instance-output').textContent = 'Select a deployed model before creating this instance.';
