@@ -35,6 +35,9 @@ module catalog fields:
 - `spec.dependsOn` from module `requires`
 - `spec.postBuild.substituteFrom` for modules with `postBuildSubstitution`
 
+Dashboard module controls also read optional catalog UI/API metadata:
+`displayName`, `aliases`, `activationMode`, `order`, and `parameters`.
+
 Disabled runtime modules delete the generated Flux `Kustomization` instead of
 suspending it. Generated Kustomizations use `spec.prune = true` and
 `spec.deletionPolicy = Delete`, so Flux can prune module resources during

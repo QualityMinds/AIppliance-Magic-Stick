@@ -11,6 +11,9 @@ data:
     {
       "modules": {
         "basis": {
+          "displayName": "Basis",
+          "activationMode": "static",
+          "order": 10,
           "path": "magic-cluster/platform/basis",
           "kustomizationName": "platform-basis",
           "requires": [],
@@ -19,6 +22,9 @@ data:
           "uninstallPolicy": "keep-data"
         },
         "dashboard": {
+          "displayName": "Dashboard",
+          "activationMode": "static",
+          "order": 20,
           "path": "magic-cluster/apps/dashboard",
           "kustomizationName": "app-dashboard",
           "requires": ["basis"],
@@ -28,15 +34,25 @@ data:
           "postBuildSubstitution": true
         },
         "litellm": {
+          "displayName": "LiteLLM",
+          "activationMode": "moduleactivation",
+          "order": 50,
           "path": "magic-cluster/apps/ai/litellm/base",
           "kustomizationName": "app-litellm",
           "requires": ["basis"],
           "requiredCrds": [],
           "default": true,
           "uninstallPolicy": "keep-data",
-          "postBuildSubstitution": true
+          "postBuildSubstitution": true,
+          "parameters": [
+            {"name": "postgresStorage", "label": "Postgres Storage", "placeholder": "1Gi"}
+          ]
         },
         "model-catalog": {
+          "displayName": "Model Catalog",
+          "aliases": ["modelCatalog"],
+          "activationMode": "moduleactivation",
+          "order": 60,
           "path": "magic-cluster/apps/ai/model-catalog",
           "kustomizationName": "app-model-catalog",
           "requires": ["litellm"],
@@ -46,15 +62,26 @@ data:
           "postBuildSubstitution": true
         },
         "anything-llm": {
+          "displayName": "AnythingLLM",
+          "aliases": ["anythingllm", "anythingLlm"],
+          "activationMode": "moduleactivation",
+          "order": 70,
           "path": "magic-cluster/apps/ai/anything-llm/base",
           "kustomizationName": "app-anything-llm",
           "requires": ["litellm", "model-catalog"],
           "requiredCrds": [],
           "default": false,
           "uninstallPolicy": "keep-data",
-          "postBuildSubstitution": true
+          "postBuildSubstitution": true,
+          "parameters": [
+            {"name": "storage", "label": "Storage", "placeholder": "1Gi"},
+            {"name": "qdrantStorage", "label": "Qdrant Storage", "placeholder": "1Gi"}
+          ]
         },
         "gpu": {
+          "displayName": "GPU",
+          "activationMode": "moduleactivation",
+          "order": 30,
           "path": "magic-cluster/platform/gpu",
           "kustomizationName": "platform-gpu",
           "requires": ["basis"],
@@ -63,6 +90,9 @@ data:
           "uninstallPolicy": "keep-data"
         },
         "kubeai": {
+          "displayName": "KubeAI",
+          "activationMode": "moduleactivation",
+          "order": 40,
           "path": "magic-cluster/platform/ai/kubeai",
           "kustomizationName": "platform-kubeai",
           "requires": ["basis", "gpu"],
@@ -71,6 +101,10 @@ data:
           "uninstallPolicy": "keep-data"
         },
         "openclaw-operator": {
+          "displayName": "OpenClaw Operator",
+          "aliases": ["openclawOperator"],
+          "activationMode": "moduleactivation",
+          "order": 80,
           "path": "magic-cluster/platform/ai/openclaw-operator",
           "kustomizationName": "operator-openclaw",
           "requires": ["basis"],
@@ -79,6 +113,10 @@ data:
           "uninstallPolicy": "keep-data"
         },
         "hermes-operator": {
+          "displayName": "Hermes Operator",
+          "aliases": ["hermesOperator"],
+          "activationMode": "moduleactivation",
+          "order": 90,
           "path": "magic-cluster/platform/ai/hermes-operator",
           "kustomizationName": "operator-hermes",
           "requires": ["basis"],
@@ -87,6 +125,10 @@ data:
           "uninstallPolicy": "keep-data"
         },
         "paperclip-operator": {
+          "displayName": "Paperclip Operator",
+          "aliases": ["paperclipOperator"],
+          "activationMode": "moduleactivation",
+          "order": 100,
           "path": "magic-cluster/platform/ai/paperclip-operator",
           "kustomizationName": "operator-paperclip",
           "requires": ["basis"],
@@ -95,6 +137,9 @@ data:
           "uninstallPolicy": "keep-data"
         },
         "kubeopencode": {
+          "displayName": "KubeOpenCode",
+          "activationMode": "moduleactivation",
+          "order": 110,
           "path": "magic-cluster/apps/ai/kubeopencode",
           "kustomizationName": "app-kubeopencode",
           "requires": ["litellm", "model-catalog"],
@@ -111,6 +156,9 @@ data:
           "postBuildSubstitution": true
         },
         "observability": {
+          "displayName": "Observability",
+          "activationMode": "moduleactivation",
+          "order": 120,
           "path": "magic-cluster/platform/observability",
           "kustomizationName": "platform-observability",
           "requires": ["basis"],
@@ -120,7 +168,12 @@ data:
           ],
           "default": false,
           "uninstallPolicy": "keep-data",
-          "postBuildSubstitution": true
+          "postBuildSubstitution": true,
+          "parameters": [
+            {"name": "lokiStorage", "label": "Loki Storage", "placeholder": "1Gi"},
+            {"name": "alertmanagerStorage", "label": "Alertmanager Storage", "placeholder": "1Gi"},
+            {"name": "prometheusStorage", "label": "Prometheus Storage", "placeholder": "1Gi"}
+          ]
         }
       },
       "instanceMappings": {

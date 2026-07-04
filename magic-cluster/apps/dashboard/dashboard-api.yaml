@@ -42,28 +42,6 @@ data:
     DEFAULT_MDNS_DOMAIN = "magicstick.local"
     SETTINGS_WATCH_LABELS = {"reconcile.fluxcd.io/watch": "Enabled"}
 
-    MODULE_KEYS = {
-        "basis": "basis",
-        "dashboard": "dashboard",
-        "litellm": "litellm",
-        "model-catalog": "model-catalog",
-        "modelCatalog": "model-catalog",
-        "anything-llm": "anything-llm",
-        "anythingllm": "anything-llm",
-        "anythingLlm": "anything-llm",
-        "kubeai": "kubeai",
-        "openclaw-operator": "openclaw-operator",
-        "openclawOperator": "openclaw-operator",
-        "hermes-operator": "hermes-operator",
-        "hermesOperator": "hermes-operator",
-        "paperclip-operator": "paperclip-operator",
-        "paperclipOperator": "paperclip-operator",
-        "kubeopencode": "kubeopencode",
-        "observability": "observability",
-        "gpu": "gpu",
-    }
-
-    STATIC_MODULES = {"basis", "dashboard"}
     INSTANCE_TYPES = {"openclaw", "hermes", "paperclip", "kubeopencode"}
     MODEL_SECRET_PREFIX = "ai-model-provider-"
     SSL_CONTEXT = ssl.create_default_context(cafile=SA_CA_PATH)
@@ -244,11 +222,100 @@ data:
         return settings_response(request_json("PATCH", settings_path(), patch, "application/merge-patch+json"))
 
 
-    def canonical_module(name):
-        key = MODULE_KEYS.get(name)
-        if not key:
-            raise ValueError("unknown module: " + name)
-        return key
+    def title_from_key(name):
+        words = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", str(name or "")).replace("-", " ").replace("_", " ").split()
+        return " ".join(word[:1].upper() + word[1:] for word in words) or "Module"
+
+
+    def normalize_aliases(value):
+        if isinstance(value, str):
+            raw_aliases = [value]
+        elif isinstance(value, list):
+            raw_aliases = value
+        else:
+            raw_aliases = []
+        aliases = []
+        for alias in raw_aliases:
+            alias = str(alias or "").strip()
+            if alias:
+                aliases.append(alias)
+        return aliases
+
+
+    def normalize_parameter_fields(value):
+        if not isinstance(value, list):
+            return []
+        fields = []
+        for field in value:
+            if not isinstance(field, dict):
+                continue
+            name = str(field.get("name") or "").strip()
+            if not name:
+                continue
+            normalized = dict(field)
+            normalized["name"] = name
+            normalized["label"] = str(field.get("label") or title_from_key(name))
+            normalized["placeholder"] = str(field.get("placeholder") or "")
+            normalized["type"] = str(field.get("type") or "text")
+            fields.append(normalized)
+        return fields
+
+
+    def module_activation_mode(module, spec):
+        mode = str((spec or {}).get("activationMode") or "moduleactivation").strip().lower()
+        return mode if mode in {"static", "moduleactivation"} else "moduleactivation"
+
+
+    def catalog_module_metadata(module, spec):
+        metadata = dict(spec or {})
+        metadata["displayName"] = str(metadata.get("displayName") or title_from_key(module))
+        metadata["aliases"] = normalize_aliases(metadata.get("aliases"))
+        metadata["activationMode"] = module_activation_mode(module, metadata)
+        metadata["parameters"] = normalize_parameter_fields(metadata.get("parameters"))
+        if "order" in metadata:
+            try:
+                metadata["order"] = int(metadata["order"])
+            except Exception:
+                metadata.pop("order", None)
+        return metadata
+
+
+    def parse_catalog(configmap):
+        raw = (configmap.get("data") or {}).get("modules.json", "{\"modules\":{}}")
+        catalog = json.loads(raw)
+        if not isinstance(catalog, dict):
+            catalog = {"modules": {}}
+        modules = {}
+        for module, spec in ((catalog.get("modules") or {}).items()):
+            module_name = str(module or "").strip()
+            if module_name:
+                modules[module_name] = catalog_module_metadata(module_name, spec if isinstance(spec, dict) else {})
+        catalog["modules"] = modules
+        return catalog
+
+
+    def catalog_json():
+        return parse_catalog(catalog_configmap())
+
+
+    def canonical_module(name, catalog=None):
+        module_name = urllib.parse.unquote(str(name or "")).strip()
+        modules = ((catalog or catalog_json()).get("modules") or {})
+        if module_name in modules:
+            return module_name
+        alias_map = {}
+        folded_alias_map = {}
+        for module, spec in modules.items():
+            folded_alias_map.setdefault(module.lower(), module)
+            for alias in spec.get("aliases") or []:
+                alias_map[alias] = module
+                folded_alias_map.setdefault(alias.lower(), module)
+        if module_name in alias_map:
+            return alias_map[module_name]
+        folded = folded_alias_map.get(module_name.lower())
+        if folded:
+            return folded
+        raise ValueError("unknown module: " + module_name)
 
 
     def read_body(handler):
@@ -470,28 +537,71 @@ data:
 
 
     def summarized_modules():
-        configmap = catalog_configmap()
-        catalog_json = json.loads(configmap.get("data", {}).get("modules.json", "{\"modules\":{}}"))
+        catalog = catalog_json()
+        catalog_modules = catalog.get("modules") or {}
         modules = {}
+        for module, catalog_spec in catalog_modules.items():
+            modules[module] = {
+                "enabled": False,
+                "source": "catalog",
+                "displayName": catalog_spec["displayName"],
+                "activationMode": catalog_spec["activationMode"],
+                "catalog": catalog_spec,
+                "parameters": {},
+                "status": {},
+            }
         current = appliance()
         for module, spec in ((current.get("spec") or {}).get("modules") or {}).items():
-            canonical = canonical_module(module)
-            modules[canonical] = {"enabled": spec.get("enabled") is True, "source": "appliance"}
-        for module in (catalog_json.get("modules") or {}):
-            modules.setdefault(module, {"enabled": False, "source": "catalog"})
+            try:
+                canonical = canonical_module(module, catalog)
+                catalog_spec = catalog_modules.get(canonical) or catalog_module_metadata(canonical, {})
+            except ValueError:
+                canonical = str(module or "").strip()
+                catalog_spec = catalog_module_metadata(canonical, {"activationMode": "static"})
+            if not canonical:
+                continue
+            modules.setdefault(canonical, {
+                "enabled": False,
+                "source": "catalog",
+                "displayName": catalog_spec["displayName"],
+                "activationMode": catalog_spec["activationMode"],
+                "catalog": catalog_spec,
+                "parameters": {},
+                "status": {},
+            })
+            modules[canonical].update({"enabled": spec.get("enabled") is True, "source": "appliance"})
         for activation in module_activations():
             spec = activation.get("spec") or {}
-            module = canonical_module(spec.get("module") or (activation.get("metadata") or {}).get("name"))
+            try:
+                module = canonical_module(spec.get("module") or (activation.get("metadata") or {}).get("name"), catalog)
+                catalog_spec = catalog_modules.get(module) or catalog_module_metadata(module, {})
+            except ValueError:
+                module = str(spec.get("module") or (activation.get("metadata") or {}).get("name") or "").strip()
+                catalog_spec = catalog_module_metadata(module, {"activationMode": "static"})
+            if not module:
+                continue
+            modules.setdefault(module, {
+                "enabled": False,
+                "source": "catalog",
+                "displayName": catalog_spec["displayName"],
+                "activationMode": catalog_spec["activationMode"],
+                "catalog": catalog_spec,
+                "parameters": {},
+                "status": {},
+            })
             modules[module] = {
                 "enabled": spec.get("enabled", True) is not False,
                 "source": "moduleactivation",
                 "activation": (activation.get("metadata") or {}).get("name"),
+                "displayName": catalog_spec["displayName"],
+                "activationMode": catalog_spec["activationMode"],
+                "catalog": catalog_spec,
                 "parameters": spec.get("parameters") or {},
                 "status": activation.get("status") or {},
             }
         return {
-            "catalog": json.dumps(catalog_json, indent=2, sort_keys=True),
-            "catalogJson": catalog_json,
+            "catalog": json.dumps(catalog, indent=2, sort_keys=True),
+            "catalogJson": catalog,
             "modules": modules,
             "activations": module_activations(),
         }
@@ -746,8 +856,10 @@ data:
                 path = self.route()
                 parts = path.strip("/").split("/")
                 if len(parts) == 4 and parts[0] == "api" and parts[1] == "modules":
-                    module = canonical_module(parts[2])
-                    if module in STATIC_MODULES:
+                    catalog = catalog_json()
+                    module = canonical_module(parts[2], catalog)
+                    catalog_spec = ((catalog.get("modules") or {}).get(module) or {})
+                    if catalog_spec.get("activationMode") != "moduleactivation":
                         self.send_error_json(400, "module is statically managed: " + module)
                         return
                     if parts[3] not in {"enable", "disable"}:

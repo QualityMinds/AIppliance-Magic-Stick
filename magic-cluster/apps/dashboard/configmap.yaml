@@ -944,32 +944,6 @@ data:
       </main>
       <script>
         (() => {
-          const moduleNames = [
-            ['litellm', 'LiteLLM'],
-            ['model-catalog', 'Model Catalog'],
-            ['kubeai', 'KubeAI'],
-            ['anything-llm', 'AnythingLLM'],
-            ['openclaw-operator', 'OpenClaw Operator'],
-            ['hermes-operator', 'Hermes Operator'],
-            ['paperclip-operator', 'Paperclip Operator'],
-            ['kubeopencode', 'KubeOpenCode'],
-            ['observability', 'Observability'],
-            ['gpu', 'GPU']
-          ];
-          const moduleAdvancedFields = {
-            'litellm': [
-              { name: 'postgresStorage', label: 'Postgres Storage', placeholder: '1Gi' }
-            ],
-            'anything-llm': [
-              { name: 'storage', label: 'Storage', placeholder: '1Gi' },
-              { name: 'qdrantStorage', label: 'Qdrant Storage', placeholder: '1Gi' }
-            ],
-            'observability': [
-              { name: 'lokiStorage', label: 'Loki Storage', placeholder: '1Gi' },
-              { name: 'alertmanagerStorage', label: 'Alertmanager Storage', placeholder: '1Gi' },
-              { name: 'prometheusStorage', label: 'Prometheus Storage', placeholder: '1Gi' }
-            ]
-          };
           const $ = (id) => document.getElementById(id);
           const apiState = $('api-state');
           let latestModelPayload = {};
@@ -1000,9 +974,47 @@ data:
             return payload;
           };
 
+          const titleFromKey = (name) => String(name || '')
+            .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+            .replace(/[-_]+/g, ' ')
+            .split(/\s+/)
+            .filter(Boolean)
+            .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(' ') || 'Module';
+
+          const moduleCatalog = (modulePayload) => (((modulePayload || {}).catalogJson || {}).modules || {});
+
           const moduleSpec = (modulePayload, name) => {
             const modules = ((modulePayload || {}).modules || {});
             return modules[name] || {};
+          };
+
+          const moduleCatalogSpec = (modulePayload, name, spec = {}) => {
+            return spec.catalog || moduleCatalog(modulePayload)[name] || {};
+          };
+
+          const moduleDisplayName = (name, catalogSpec = {}, spec = {}) => {
+            return spec.displayName || catalogSpec.displayName || titleFromKey(name);
+          };
+
+          const moduleOrder = (name, catalogSpec = {}) => {
+            const value = Number(catalogSpec.order);
+            return Number.isFinite(value) ? value : 10000;
+          };
+
+          const orderedModules = (modulePayload) => {
+            const catalog = moduleCatalog(modulePayload);
+            const modules = ((modulePayload || {}).modules || {});
+            const names = new Set([...Object.keys(catalog), ...Object.keys(modules)]);
+            return Array.from(names).map((name) => {
+              const spec = modules[name] || {};
+              const catalogSpec = moduleCatalogSpec(modulePayload, name, spec);
+              return { name, spec, catalogSpec, title: moduleDisplayName(name, catalogSpec, spec) };
+            }).sort((left, right) => {
+              const orderDelta = moduleOrder(left.name, left.catalogSpec) - moduleOrder(right.name, right.catalogSpec);
+              if (orderDelta !== 0) { return orderDelta; }
+              return left.title.localeCompare(right.title) || left.name.localeCompare(right.name);
+            });
           };
 
           const parameterDisplayValue = (value) => {
@@ -1013,8 +1025,8 @@ data:
             return String(value);
           };
 
-          const renderModuleAdvanced = (item, name, spec) => {
-            const fields = moduleAdvancedFields[name] || [];
+          const renderModuleAdvanced = (item, name, spec, modulePayload) => {
+            const fields = moduleCatalogSpec(modulePayload, name, spec).parameters || [];
             if (!fields.length) { return; }
             const parameters = (spec || {}).parameters || {};
             const details = document.createElement('details');
@@ -1031,6 +1043,7 @@ data:
               const input = document.createElement('input');
               input.name = field.name;
               input.placeholder = field.placeholder;
+              input.type = field.type || 'text';
               input.value = parameterDisplayValue(parameters[field.name]);
               input.dataset.moduleParameter = field.name;
               label.appendChild(input);
@@ -1068,9 +1081,9 @@ data:
             const list = $('module-list');
             if (!list) { return; }
             list.innerHTML = '';
-            moduleNames.forEach(([name, title]) => {
-              const spec = moduleSpec(modulePayload, name);
+            orderedModules(modulePayload).forEach(({ name, spec, catalogSpec, title }) => {
               const enabled = spec.enabled === true;
+              const activationMode = spec.activationMode || catalogSpec.activationMode || 'moduleactivation';
               const phase = (((spec.status || {}).phase) || (enabled ? 'Requested' : 'Disabled'));
               const item = document.createElement('div');
               item.className = 'module-item';
@@ -1087,20 +1100,22 @@ data:
               phaseItem.textContent = phase;
               const actions = document.createElement('div');
               actions.className = 'action-row';
-              const enable = document.createElement('button');
-              enable.className = 'control-button primary';
-              enable.type = 'button';
-              enable.dataset.moduleEnable = name;
-              enable.textContent = 'Enable';
-              const disable = document.createElement('button');
-              disable.className = 'control-button danger';
-              disable.type = 'button';
-              disable.dataset.moduleDisable = name;
-              disable.textContent = 'Disable';
-              actions.append(enable, disable);
               item.append(row, phaseItem);
-              renderModuleAdvanced(item, name, spec);
-              item.appendChild(actions);
+              renderModuleAdvanced(item, name, spec, modulePayload);
+              if (activationMode === 'moduleactivation') {
+                const enable = document.createElement('button');
+                enable.className = 'control-button primary';
+                enable.type = 'button';
+                enable.dataset.moduleEnable = name;
+                enable.textContent = 'Enable';
+                const disable = document.createElement('button');
+                disable.className = 'control-button danger';
+                disable.type = 'button';
+                disable.dataset.moduleDisable = name;
+                disable.textContent = 'Disable';
+                actions.append(enable, disable);
+                item.appendChild(actions);
+              }
               list.appendChild(item);
             });
           };
@@ -1496,7 +1511,7 @@ data:
               if (enable && hasAdvancedFields) {
                 body.parameters = moduleParametersFromItem(item);
               }
-              await request('/api/modules/' + name + '/' + action, { method: 'POST', body: JSON.stringify(body) });
+              await request('/api/modules/' + encodeURIComponent(name) + '/' + action, { method: 'POST', body: JSON.stringify(body) });
               const message = name + ' ' + action + ' requested through ModuleActivation.';
               if ($('module-output')) { $('module-output').textContent = message; }
               if ($('model-output')) { $('model-output').textContent = message; }
