@@ -123,10 +123,13 @@ data:
           border-radius: 18px;
           padding: 1rem;
           display: grid;
+          grid-template-columns: minmax(150px, 210px) minmax(0, 1fr);
+          align-items: start;
           gap: 1rem;
         }
 
         .panel-heading {
+          grid-column: 1 / -1;
           display: flex;
           align-items: baseline;
           justify-content: space-between;
@@ -140,9 +143,11 @@ data:
         }
 
         .tabs {
-          display: flex;
+          grid-column: 1;
+          grid-row: 2;
+          display: grid;
           gap: 0.45rem;
-          flex-wrap: wrap;
+          align-content: start;
         }
 
         .tab-button,
@@ -154,6 +159,11 @@ data:
           cursor: pointer;
           font: inherit;
           padding: 0.45rem 0.7rem;
+        }
+
+        .tab-button {
+          width: 100%;
+          text-align: left;
         }
 
         .tab-button[aria-selected="true"],
@@ -172,6 +182,12 @@ data:
         .field select:disabled {
           cursor: not-allowed;
           opacity: 0.55;
+        }
+
+        .tab-panel {
+          grid-column: 2;
+          grid-row: 2;
+          min-width: 0;
         }
 
         .dashboard-grid {
@@ -200,8 +216,8 @@ data:
           font-size: 0.88rem;
         }
 
-        .tab-panel[hidden] {
-          display: none;
+        [hidden] {
+          display: none !important;
         }
 
         .module-list,
@@ -301,6 +317,18 @@ data:
           font-size: 0.82rem;
         }
 
+        @media (max-width: 780px) {
+          .control-panel {
+            grid-template-columns: 1fr;
+          }
+
+          .tabs,
+          .tab-panel {
+            grid-column: 1;
+            grid-row: auto;
+          }
+        }
+
         @media (max-width: 680px) {
           .page {
             width: min(1120px, 100% - 1.1rem);
@@ -357,6 +385,10 @@ data:
               <article class="dashboard-card">
                 <h3>Instances</h3>
                 <p id="instance-summary">Loading</p>
+              </article>
+              <article class="dashboard-card">
+                <h3>Models</h3>
+                <p id="model-summary">Loading</p>
               </article>
             </div>
           </section>
@@ -1124,6 +1156,8 @@ data:
               const instances = ((instancePayload || {}).instances || {});
               const instanceCount = Object.values(instances).reduce((count, items) => count + (Array.isArray(items) ? items.length : 0), 0);
               $('instance-summary').textContent = instanceCount + ' instances requested';
+              const installedModelIds = new Set(((modelPayload || {}).models || []).map(modelIdentifier).filter(Boolean));
+              $('model-summary').textContent = installedModelIds.size + (installedModelIds.size === 1 ? ' model installed' : ' models installed');
               renderConditions((appliance.status || {}).conditions || []);
               renderModules(modulePayload);
               renderInstances(instancePayload);

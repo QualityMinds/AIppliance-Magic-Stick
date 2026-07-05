@@ -3,6 +3,8 @@ kind: Deployment
 metadata:
   name: ai-appliance-dashboard
   namespace: dashboard
+  annotations:
+    configmap.reloader.stakater.com/reload: ai-appliance-dashboard-api,ai-appliance-dashboard-nginx,ai-appliance-dashboard-renderer
   labels:
     app: ai-appliance-dashboard
 spec:
