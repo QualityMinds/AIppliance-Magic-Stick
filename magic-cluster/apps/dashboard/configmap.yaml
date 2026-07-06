@@ -718,7 +718,7 @@ data:
                 <div class="form-grid">
                   <label class="field">Name<input name="name" value="default" /></label>
                   <label class="field">Model<select name="model" data-model-select="chat" data-model-fallback="CHANGEME_MODEL"><option value="">Loading models</option></select></label>
-                  <label class="field">Host<input name="host" value="openclaw.magicstick.example.com" data-host-prefix="openclaw" /></label>
+                  <label class="field">Host<input name="host" value="default.openclaw.magicstick.example.com" data-host-prefix="openclaw" /></label>
                   <label class="field">Storage<input name="storage" value="20Gi" /></label>
                 </div>
                 <button class="control-button primary" type="submit">Create OpenClaw</button>
@@ -728,7 +728,7 @@ data:
                 <div class="form-grid">
                   <label class="field">Name<input name="name" value="default" /></label>
                   <label class="field">Model<select name="model" data-model-select="chat" data-model-fallback="qwen3635b"><option value="">Loading models</option></select></label>
-                  <label class="field">Host<input name="host" value="hermes.magicstick.example.com" data-host-prefix="hermes" /></label>
+                  <label class="field">Host<input name="host" value="default.hermes.magicstick.example.com" data-host-prefix="hermes" /></label>
                   <label class="field">Storage<input name="storage" value="10Gi" /></label>
                 </div>
                 <button class="control-button primary" type="submit">Create Hermes</button>
@@ -738,7 +738,7 @@ data:
                 <div class="form-grid">
                   <label class="field">Name<input name="name" value="default" /></label>
                   <label class="field">Admin Email<input name="adminEmail" value="admin@example.com" /></label>
-                  <label class="field">Host<input name="host" value="paperclip.magicstick.example.com" data-host-prefix="paperclip" /></label>
+                  <label class="field">Host<input name="host" value="default.paperclip.magicstick.example.com" data-host-prefix="paperclip" /></label>
                   <label class="field">Storage<input name="storage" value="5Gi" /></label>
                   <label class="field">Postgres<input name="postgresStorage" value="10Gi" /></label>
                 </div>
@@ -749,7 +749,7 @@ data:
                 <div class="form-grid">
                   <label class="field">Name<input name="name" value="default" /></label>
                   <label class="field">Model<select name="model" data-model-select="chat" data-model-fallback="CHANGEME_MODEL"><option value="">Loading models</option></select></label>
-                  <label class="field">Host<input name="host" value="kubeopencode.magicstick.example.com" data-host-prefix="kubeopencode" /></label>
+                  <label class="field">Host<input name="host" value="default.kubeopencode.magicstick.example.com" data-host-prefix="kubeopencode" /></label>
                   <label class="field">Template<input name="template" value="default-coder" /></label>
                 </div>
                 <button class="control-button primary" type="submit">Create KubeOpenCode</button>
@@ -1610,6 +1610,40 @@ data:
             return cleanPrefix && cleanDomain ? cleanPrefix + '.' + cleanDomain : cleanDomain;
           };
 
+          const dnsLabelPart = (value, fallback) => {
+            const clean = String(value || '')
+              .trim()
+              .toLowerCase()
+              .replace(/[^a-z0-9-]+/g, '-')
+              .replace(/^-+|-+$/g, '')
+              .replace(/--+/g, '-');
+            return clean || fallback;
+          };
+
+          const instanceHostPrefix = (form) => {
+            const type = dnsLabelPart((form || {}).dataset ? form.dataset.instanceType : '', 'instance');
+            const field = form && form.elements ? form.elements.name : null;
+            let name = dnsLabelPart(field ? field.value : '', 'default');
+            if (name.startsWith(type + '-')) {
+              name = name.slice(type.length + 1) || 'default';
+            }
+            return name + '.' + type;
+          };
+
+          const instanceHostDefault = (form, settings) => {
+            const domain = (settings || latestSettings).publicDomain || 'magicstick.example.com';
+            return appHost(instanceHostPrefix(form), domain);
+          };
+
+          const isLegacyInstanceHostDefault = (input, current, domain) => {
+            const type = dnsLabelPart(input.dataset.hostPrefix, 'instance');
+            return [
+              appHost(type, domain),
+              appHost(type, 'magicstick.example.com'),
+              appHost(type, 'example.local')
+            ].includes(current);
+          };
+
           const setText = (id, value) => {
             const node = $(id);
             if (node) {
@@ -1639,14 +1673,16 @@ data:
 
           const setInstanceHostDefaults = (settings) => {
             const domain = (settings || latestSettings).publicDomain || 'magicstick.example.com';
-            document.querySelectorAll('input[data-host-prefix]').forEach((input) => {
-              const next = appHost(input.dataset.hostPrefix, domain);
+            document.querySelectorAll('.instance-form').forEach((form) => {
+              const input = form.querySelector('input[data-host-prefix]');
+              if (!input) { return; }
+              const next = instanceHostDefault(form, settings);
               const current = String(input.value || '').trim();
               if (!input.dataset.hostDefault) {
                 input.dataset.hostDefault = current;
               }
               const previous = input.dataset.hostDefault || '';
-              const shouldUpdate = !current || current === previous || current.endsWith('.example.local') || current.endsWith('.magicstick.example.com');
+              const shouldUpdate = !current || current === previous || isLegacyInstanceHostDefault(input, current, domain);
               if (shouldUpdate) {
                 input.value = next;
                 input.dataset.hostDefault = next;
@@ -2110,6 +2146,11 @@ data:
           }
 
           document.querySelectorAll('.instance-form').forEach((form) => {
+            const nameField = form.elements ? form.elements.name : null;
+            if (nameField) {
+              nameField.addEventListener('input', () => setInstanceHostDefaults(latestSettings));
+              nameField.addEventListener('change', () => setInstanceHostDefaults(latestSettings));
+            }
             form.addEventListener('submit', async (event) => {
               event.preventDefault();
               const data = new FormData(form);
@@ -2129,24 +2170,25 @@ data:
                 namespace: 'ai',
                 model: selectedModel || 'CHANGEME_MODEL'
               };
+              const host = String(data.get('host') || '').trim() || instanceHostDefault(form, latestSettings);
               if (type === 'openclaw') {
                 payload.storage = { size: data.get('storage') || '20Gi' };
-                payload.ingress = { enabled: true, host: data.get('host') || appHost('openclaw', latestSettings.publicDomain) };
+                payload.ingress = { enabled: true, host };
               }
               if (type === 'hermes') {
                 payload.model = selectedModel || 'qwen3635b';
                 payload.storage = { size: data.get('storage') || '10Gi' };
-                payload.ingress = { enabled: true, host: data.get('host') || appHost('hermes', latestSettings.publicDomain) };
+                payload.ingress = { enabled: true, host };
               }
               if (type === 'paperclip') {
                 delete payload.model;
                 payload.storage = { size: data.get('storage') || '5Gi' };
                 payload.database = { managed: { storageSize: data.get('postgresStorage') || '10Gi' } };
-                payload.ingress = { enabled: true, host: data.get('host') || appHost('paperclip', latestSettings.publicDomain) };
+                payload.ingress = { enabled: true, host };
                 payload.admin = { email: data.get('adminEmail') || 'admin@example.com', name: 'Admin' };
               }
               if (type === 'kubeopencode') {
-                payload.server = { enabled: true, ingress: { enabled: true, host: data.get('host') || appHost('kubeopencode', latestSettings.publicDomain) } };
+                payload.server = { enabled: true, ingress: { enabled: true, host } };
                 payload.agentTemplates = [{ name: data.get('template') || 'default-coder', description: 'Default coding agent template' }];
               }
               try {
