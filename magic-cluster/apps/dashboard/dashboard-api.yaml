@@ -551,6 +551,7 @@ data:
                 "status": {},
             }
         current = appliance()
+        appliance_status_modules = ((current.get("status") or {}).get("modules") or {})
         for module, spec in ((current.get("spec") or {}).get("modules") or {}).items():
             try:
                 canonical = canonical_module(module, catalog)
@@ -569,7 +570,14 @@ data:
                 "parameters": {},
                 "status": {},
             })
-            modules[canonical].update({"enabled": spec.get("enabled") is True, "source": "appliance"})
+            enabled = spec.get("enabled") is True
+            status = appliance_status_modules.get(canonical) or {}
+            if not status and catalog_spec["activationMode"] == "static":
+                status = {
+                    "phase": "Ready" if enabled else "Disabled",
+                    "message": "Static module is managed by the cluster bootstrap.",
+                }
+            modules[canonical].update({"enabled": enabled, "source": "appliance", "status": status})
         for activation in module_activations():
             metadata = activation.get("metadata") or {}
             spec = activation.get("spec") or {}

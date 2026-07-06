@@ -653,6 +653,7 @@ data:
           let renderedPresetSignature = '';
           let localPresetLastApplied = '';
           const pendingModuleActions = {};
+          const pendingModelDeletes = {};
 
           const setApiState = (text, ok = false) => {
             if (!apiState) { return; }
@@ -941,7 +942,7 @@ data:
                 const enabled = spec.enabled === true;
                 const status = spec.status || {};
                 const activationMode = spec.activationMode || catalogSpec.activationMode || 'moduleactivation';
-                const phase = status.phase || (enabled ? 'Requested' : 'Disabled');
+                const phase = status.phase || (activationMode === 'static' && enabled ? 'Ready' : (enabled ? 'Requested' : 'Disabled'));
                 const pendingAction = pendingModuleActions[name];
                 const runtimeInProgress = phaseInProgress(phase) || moduleGenerationPending(spec);
                 if (pendingAction && !runtimeInProgress) {
@@ -1332,6 +1333,11 @@ data:
             const catalogModels = new Map(((modelPayload || {}).models || []).map((model) => [model.id, model]));
             const activations = (modelPayload || {}).activations || [];
             const activationNames = new Set(activations.map((activation) => (activation.metadata || {}).name).filter(Boolean));
+            Object.keys(pendingModelDeletes).forEach((name) => {
+              if (!activationNames.has(name)) {
+                delete pendingModelDeletes[name];
+              }
+            });
             if (activations.length) {
               const section = document.createElement('section');
               section.className = 'module-group';
@@ -1349,7 +1355,9 @@ data:
                 const spec = activation.spec || {};
                 const status = activation.status || {};
                 const enabled = spec.enabled !== false;
-                const phase = status.phase || (enabled ? 'Requested' : 'Disabled');
+                const basePhase = status.phase || (enabled ? 'Requested' : 'Disabled');
+                const deleting = Boolean(metadata.name && pendingModelDeletes[metadata.name]) || Boolean(metadata.deletionTimestamp) || String(basePhase).toLowerCase() === 'removing';
+                const phase = deleting ? 'Removing' : basePhase;
                 const progress = moduleProgress(phase, enabled, status);
                 const catalog = catalogModels.get(metadata.name) || {};
                 const item = document.createElement('article');
@@ -1373,12 +1381,16 @@ data:
                 const actions = document.createElement('div');
                 actions.className = 'action-row';
                 item.append(header, createProgressBox(progress), details);
-                if (metadata.name && String(phase).toLowerCase() !== 'removing') {
+                if (metadata.name) {
                   const remove = document.createElement('button');
                   remove.className = 'control-button danger';
                   remove.type = 'button';
                   remove.dataset.modelDelete = metadata.name;
-                  remove.textContent = 'Remove';
+                  remove.textContent = deleting ? 'Removing' : 'Remove';
+                  remove.disabled = deleting;
+                  if (deleting) {
+                    remove.title = 'Remove requested';
+                  }
                   actions.appendChild(remove);
                   item.appendChild(actions);
                 }
@@ -1543,10 +1555,18 @@ data:
             if (!remove) { return; }
             const name = remove.dataset.modelDelete;
             try {
+              pendingModelDeletes[name] = true;
+              remove.disabled = true;
+              remove.textContent = 'Removing';
+              remove.title = 'Remove requested';
               await request('/api/models/' + encodeURIComponent(name), { method: 'DELETE' });
               $('model-output').textContent = name + ' remove requested.';
               await refresh();
             } catch (error) {
+              delete pendingModelDeletes[name];
+              remove.disabled = false;
+              remove.textContent = 'Remove';
+              remove.removeAttribute('title');
               $('model-output').textContent = error.message;
             }
           });
