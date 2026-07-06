@@ -369,6 +369,29 @@ data:
           overflow-wrap: anywhere;
         }
 
+        .resource-links {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.4rem;
+        }
+
+        .resource-link {
+          border: 1px solid rgba(125, 211, 252, 0.32);
+          border-radius: 999px;
+          color: var(--accent);
+          font-size: 0.78rem;
+          overflow-wrap: anywhere;
+          padding: 0.22rem 0.55rem;
+          text-decoration: none;
+        }
+
+        .resource-link:hover,
+        .resource-link:focus-visible {
+          background: rgba(14, 116, 144, 0.25);
+          border-color: rgba(125, 211, 252, 0.75);
+          color: var(--text);
+        }
+
         .module-progress {
           display: grid;
           gap: 0.35rem;
@@ -699,6 +722,10 @@ data:
               <article class="dashboard-card">
                 <h3>Models</h3>
                 <p id="model-summary">Loading</p>
+              </article>
+              <article class="dashboard-card">
+                <h3>Ingresses</h3>
+                <div id="overview-ingress-list" class="mini-list"></div>
               </article>
             </div>
           </section>
@@ -1168,6 +1195,148 @@ data:
             return parameters;
           };
 
+          const ensureHttpUrl = (value) => {
+            const raw = String(value || '').trim();
+            if (!raw) { return ''; }
+            if (/^https?:\/\//i.test(raw)) { return raw; }
+            return 'http://' + raw.replace(/^\/+/, '').replace(/\/?$/, '/');
+          };
+
+          const urlHost = (value) => {
+            const url = ensureHttpUrl(value);
+            if (!url) { return ''; }
+            try {
+              return new URL(url).host;
+            } catch (error) {
+              return String(value || '').replace(/^https?:\/\//i, '').replace(/\/.*$/, '');
+            }
+          };
+
+          const normalizedKey = (value) => {
+            return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+          };
+
+          const firstHostLabel = (host) => {
+            return String(urlHost(host) || host || '').split('.')[0] || '';
+          };
+
+          const linkFromUrl = (value) => {
+            const url = ensureHttpUrl(value);
+            if (!url) { return null; }
+            return { url, label: urlHost(url) || url };
+          };
+
+          const linksFromIngress = (ingress) => {
+            return ((ingress || {}).hosts || []).map(linkFromUrl).filter(Boolean);
+          };
+
+          const uniqueLinks = (links) => {
+            const seen = new Set();
+            return (links || []).filter((link) => {
+              const key = String((link || {}).url || '').replace(/\/$/, '');
+              if (!key || seen.has(key)) { return false; }
+              seen.add(key);
+              return true;
+            });
+          };
+
+          const createResourceLinks = (links) => {
+            const unique = uniqueLinks(links);
+            if (!unique.length) { return null; }
+            const wrapper = document.createElement('div');
+            wrapper.className = 'resource-links';
+            unique.forEach((link) => {
+              const anchor = document.createElement('a');
+              anchor.className = 'resource-link';
+              anchor.href = link.url;
+              anchor.target = '_blank';
+              anchor.rel = 'noreferrer';
+              anchor.textContent = link.label;
+              wrapper.appendChild(anchor);
+            });
+            return wrapper;
+          };
+
+          const moduleIngressLookupKeys = (name, catalogSpec = {}) => {
+            const values = [name].concat(catalogSpec.aliases || []);
+            return new Set(values.map(normalizedKey).filter(Boolean));
+          };
+
+          const moduleIngressLinks = (name, catalogSpec = {}, status = {}) => {
+            const keys = moduleIngressLookupKeys(name, catalogSpec);
+            const allowNameContains = (catalogSpec.activationMode || '') === 'static';
+            const matches = (ingress) => {
+              const ingressName = normalizedKey((ingress || {}).name);
+              if (keys.has(ingressName)) { return true; }
+              if (allowNameContains && Array.from(keys).some((key) => key && ingressName.includes(key))) { return true; }
+              return ((ingress || {}).hosts || []).some((host) => keys.has(normalizedKey(firstHostLabel(host))));
+            };
+            return uniqueLinks(((status || {}).ingresses || []).filter(matches).flatMap(linksFromIngress));
+          };
+
+          const instanceConfiguredHosts = (instance) => {
+            const spec = (instance || {}).spec || {};
+            const params = spec.parameters || {};
+            const status = (instance || {}).status || {};
+            const server = params.server || {};
+            const hosts = [
+              status.url,
+              ((params.ingress || {}).host),
+              ((server.ingress || {}).host),
+              params.host
+            ].map(urlHost).filter(Boolean);
+            return new Set(hosts);
+          };
+
+          const instanceIngressLinks = (instance, status = {}) => {
+            const metadata = (instance || {}).metadata || {};
+            const nameKey = normalizedKey(metadata.name);
+            const expectedHosts = instanceConfiguredHosts(instance);
+            const matches = (ingress) => {
+              const ingressName = normalizedKey((ingress || {}).name);
+              if (nameKey && ingressName === nameKey) { return true; }
+              return ((ingress || {}).hosts || []).some((host) => expectedHosts.has(urlHost(host)));
+            };
+            const ingressLinks = ((status || {}).ingresses || []).filter(matches).flatMap(linksFromIngress);
+            const statusLink = linkFromUrl(((instance || {}).status || {}).url);
+            return uniqueLinks(statusLink ? ingressLinks.concat(statusLink) : ingressLinks);
+          };
+
+          const renderIngressSummaryItem = (target, kind, name, links) => {
+            const unique = uniqueLinks(links);
+            if (!target || !unique.length) { return; }
+            const item = document.createElement('div');
+            item.className = 'mini-item';
+            const label = document.createElement('strong');
+            label.textContent = kind + ': ' + name;
+            item.appendChild(label);
+            const linkRow = createResourceLinks(unique);
+            if (linkRow) { item.appendChild(linkRow); }
+            target.appendChild(item);
+          };
+
+          const renderOverviewIngresses = (modulePayload, instancePayload, status) => {
+            const target = $('overview-ingress-list');
+            if (!target) { return; }
+            target.innerHTML = '';
+            orderedModules(modulePayload).forEach(({ name, catalogSpec, title }) => {
+              renderIngressSummaryItem(target, 'Module', title, moduleIngressLinks(name, catalogSpec, status));
+            });
+            const instances = ((instancePayload || {}).instances || {});
+            Object.keys(instances).sort().forEach((type) => {
+              (instances[type] || []).forEach((instance) => {
+                const metadata = instance.metadata || {};
+                renderIngressSummaryItem(target, 'Instance', metadata.name || titleFromKey(type), instanceIngressLinks(instance, status));
+              });
+            });
+            if (!target.childElementCount) {
+              const item = document.createElement('div');
+              item.className = 'mini-item';
+              item.textContent = 'No module or instance ingresses discovered.';
+              target.appendChild(item);
+            }
+          };
+
           const renderConditions = (conditions) => {
             const target = $('appliance-conditions');
             if (!target) { return; }
@@ -1180,7 +1349,7 @@ data:
             });
           };
 
-          const renderModules = (modulePayload) => {
+          const renderModules = (modulePayload, statusPayload = {}) => {
             const list = $('module-list');
             if (!list) { return; }
             list.innerHTML = '';
@@ -1232,10 +1401,14 @@ data:
                 const message = document.createElement('div');
                 message.className = 'module-message';
                 message.textContent = status.message || ((catalogSpec.requires || []).length ? 'Requires: ' + catalogSpec.requires.join(', ') : '');
+                const links = createResourceLinks(moduleIngressLinks(name, catalogSpec, statusPayload));
 
                 const actions = document.createElement('div');
                 actions.className = 'action-row';
                 item.append(header, progressBox, message);
+                if (links) {
+                  item.appendChild(links);
+                }
                 if (!enabled) {
                   renderModuleAdvanced(item, name, spec, modulePayload);
                 }
@@ -1266,7 +1439,7 @@ data:
             });
           };
 
-          const renderInstances = (instancePayload) => {
+          const renderInstances = (instancePayload, statusPayload = {}) => {
             const list = $('instance-list');
             if (!list) { return; }
             list.innerHTML = '';
@@ -1313,6 +1486,10 @@ data:
                 const actions = document.createElement('div');
                 actions.className = 'action-row';
                 item.append(header, createProgressBox(progress), details);
+                const links = createResourceLinks(instanceIngressLinks(instance, statusPayload));
+                if (links) {
+                  item.appendChild(links);
+                }
                 if (metadata.name && String(phase).toLowerCase() !== 'removing') {
                   const remove = document.createElement('button');
                   remove.className = 'control-button danger';
@@ -1903,7 +2080,17 @@ data:
               (status.ingresses || []).slice(0, 8).forEach((ingress) => {
                 const node = document.createElement('div');
                 node.className = 'mini-item';
-                node.textContent = ingress.namespace + '/' + ingress.name + ': ' + ((ingress.hosts || []).join(', ') || 'no host');
+                const label = document.createElement('strong');
+                label.textContent = ingress.namespace + '/' + ingress.name;
+                node.appendChild(label);
+                const links = createResourceLinks(linksFromIngress(ingress));
+                if (links) {
+                  node.appendChild(links);
+                } else {
+                  const empty = document.createElement('span');
+                  empty.textContent = 'no host';
+                  node.appendChild(empty);
+                }
                 ingressList.appendChild(node);
               });
             }
@@ -1938,8 +2125,9 @@ data:
               const installedModelIds = new Set(((modelPayload || {}).models || []).map(modelIdentifier).filter(Boolean));
               $('model-summary').textContent = installedModelIds.size + (installedModelIds.size === 1 ? ' model installed' : ' models installed');
               renderConditions((appliance.status || {}).conditions || []);
-              renderModules(modulePayload);
-              renderInstances(instancePayload);
+              renderOverviewIngresses(modulePayload, instancePayload, status);
+              renderModules(modulePayload, status);
+              renderInstances(instancePayload, status);
               renderVram(modelPayload);
               renderModels(modelPayload);
               renderStatus(status);
