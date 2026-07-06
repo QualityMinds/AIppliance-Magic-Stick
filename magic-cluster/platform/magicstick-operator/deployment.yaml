@@ -3,6 +3,8 @@ kind: Deployment
 metadata:
   name: magicstick-operator
   namespace: ai-system
+  annotations:
+    configmap.reloader.stakater.com/reload: magicstick-operator-controller
   labels:
     app.kubernetes.io/name: magicstick-operator
     app.kubernetes.io/component: controller
@@ -18,7 +20,7 @@ spec:
         app.kubernetes.io/name: magicstick-operator
         app.kubernetes.io/component: controller
       annotations:
-        appliance.magicstick.dev/controller-config-revision: runtime-crs-v29
+        appliance.magicstick.dev/controller-config-revision: runtime-crs-v30
     spec:
       serviceAccountName: magicstick-operator
       containers:

@@ -29,6 +29,9 @@ data:
     MODEL_PRESETS_NAMESPACE = os.environ.get("MODEL_PRESETS_NAMESPACE", "ai-system")
     MODEL_PRESETS_NAME = os.environ.get("MODEL_PRESETS_NAME", "magicstick-model-presets")
     FLUX_NAMESPACE = os.environ.get("FLUX_NAMESPACE", "flux-system")
+    SETTINGS_NAMESPACE = os.environ.get("SETTINGS_NAMESPACE", FLUX_NAMESPACE)
+    SETTINGS_CONFIGMAP_NAME = os.environ.get("SETTINGS_CONFIGMAP_NAME", "ai-appliance-settings")
+    DEFAULT_MDNS_DOMAIN = os.environ.get("DEFAULT_MDNS_DOMAIN", "magicstick.local")
     REQUEUE_SECONDS = int(os.environ.get("REQUEUE_SECONDS", "20"))
     KUBE_API = os.environ.get("KUBERNETES_SERVICE_URL", "https://kubernetes.default.svc").rstrip("/")
     SA_TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
@@ -310,11 +313,79 @@ data:
         return selected, models
 
 
-    def local_http_host(name):
-        raw = str(name or "").strip().strip(".")
+    def dns_label_part(value, fallback="default"):
+        raw = str(value or "").strip().lower()
+        pieces = []
+        last_dash = False
+        for char in raw:
+            if char.isalnum():
+                pieces.append(char)
+                last_dash = False
+            elif not last_dash:
+                pieces.append("-")
+                last_dash = True
+        clean = "".join(pieces).strip("-")
+        return clean or fallback
+
+
+    def normalize_domain(domain, fallback=DEFAULT_MDNS_DOMAIN):
+        raw = str(domain or "").strip().strip(".").lower()
+        labels = [dns_label_part(label, "") for label in raw.split(".")]
+        labels = [label for label in labels if label]
+        normalized = ".".join(labels)
+        if not normalized or not normalized.endswith(".local"):
+            return fallback
+        return normalized
+
+
+    def settings_data():
+        configmap = get_core_resource("v1", "configmaps", SETTINGS_NAMESPACE, SETTINGS_CONFIGMAP_NAME) or {}
+        return configmap.get("data") or {}
+
+
+    def mdns_domain():
+        try:
+            data = settings_data()
+            domain = data.get("AI_APPLIANCE_MDNS_DOMAIN")
+            if not domain:
+                name = data.get("AI_APPLIANCE_MDNS_NAME") or data.get("AI_APPLIANCE_DASHBOARD_MDNS_NAME")
+                domain = (str(name).strip().strip(".") + ".local") if name else DEFAULT_MDNS_DOMAIN
+            return normalize_domain(domain)
+        except Exception as error:
+            print(f"Could not read mDNS settings, using {DEFAULT_MDNS_DOMAIN}: {error}", flush=True)
+            return DEFAULT_MDNS_DOMAIN
+
+
+    def local_http_host(name, domain=None):
+        raw = str(name or "").strip().strip(".").lower()
         if not raw:
             return ""
-        return raw if raw.endswith(".local") else raw + ".local"
+        if raw.endswith(".local"):
+            return raw
+        labels = [dns_label_part(label, "") for label in raw.split(".")]
+        prefix = ".".join([label for label in labels if label])
+        if not prefix:
+            return ""
+        return prefix + "." + normalize_domain(domain or mdns_domain())
+
+
+    def local_mdns_name(host):
+        raw = str(host or "").strip().strip(".").lower()
+        return raw[:-6] if raw.endswith(".local") else raw
+
+
+    def app_instance_short_name(instance, instance_type):
+        metadata = instance.get("metadata") or {}
+        params = ((instance.get("spec") or {}).get("parameters") or {})
+        raw = str(params.get("name") or metadata.get("name") or "default").strip()
+        prefix = str(instance_type or "").strip() + "-"
+        if prefix and raw.startswith(prefix):
+            raw = raw[len(prefix):]
+        return dns_label_part(raw, "default")
+
+
+    def app_instance_local_host(instance, instance_type):
+        return local_http_host(app_instance_short_name(instance, instance_type) + "." + dns_label_part(instance_type, "instance"))
 
 
     def canonical_module(name):
@@ -894,6 +965,8 @@ data:
         name = metadata.get("name")
         namespace = spec.get("targetNamespace") or "ai"
         host = ((params.get("ingress") or {}).get("host") or params.get("host") or "openclaw.example.local")
+        local_host = app_instance_local_host(instance, "openclaw")
+        local_name = local_mdns_name(local_host)
         model = params.get("model") or "CHANGEME_MODEL"
         storage = ((params.get("storage") or {}).get("size") or params.get("storageSize") or "10Gi")
         catalog_init_script = textwrap.dedent("""\
@@ -1058,12 +1131,12 @@ data:
                             "dashboard.ai-appliance.io/category": "AI",
                             "dashboard.ai-appliance.io/order": "45",
                             "lab42.io/mdns.enabled": "true",
-                            "lab42.io/mdns.name": "openclaw",
-                            "lab42.io/mdns.host": "openclaw",
+                            "lab42.io/mdns.name": local_name,
+                            "lab42.io/mdns.host": local_name,
                         },
                         "hosts": [
                             {"host": host, "paths": [{"path": "/", "pathType": "Prefix"}]},
-                            {"host": local_http_host("openclaw"), "paths": [{"path": "/", "pathType": "Prefix"}]},
+                            {"host": local_host, "paths": [{"path": "/", "pathType": "Prefix"}]},
                         ],
                     },
                 },
@@ -1079,7 +1152,9 @@ data:
         name = metadata.get("name")
         namespace = spec.get("targetNamespace") or "ai"
         host = ((params.get("ingress") or {}).get("host") or params.get("host") or "hermes.example.local")
-        ingress_host = local_http_host("hermes") if host == "hermes.example.local" else host
+        local_host = app_instance_local_host(instance, "hermes")
+        local_name = local_mdns_name(local_host)
+        ingress_host = local_host if host == "hermes.example.local" else host
         model = params.get("model") or "qwen3635b"
         storage = ((params.get("storage") or {}).get("size") or params.get("storageSize") or "10Gi")
         catalog_init_script = textwrap.dedent("""\
@@ -1248,8 +1323,8 @@ data:
                             "dashboard.ai-appliance.io/category": "AI",
                             "dashboard.ai-appliance.io/order": "45",
                             "lab42.io/mdns.enabled": "true",
-                            "lab42.io/mdns.name": "hermes",
-                            "lab42.io/mdns.host": "hermes",
+                            "lab42.io/mdns.name": local_name,
+                            "lab42.io/mdns.host": local_name,
                             "nginx.ingress.kubernetes.io/proxy-read-timeout": "3600",
                             "nginx.ingress.kubernetes.io/proxy-send-timeout": "3600",
                             "nginx.ingress.kubernetes.io/proxy-http-version": "1.1",
@@ -1269,8 +1344,8 @@ data:
         name = metadata.get("name")
         namespace = spec.get("targetNamespace") or "ai"
         host = ((params.get("ingress") or {}).get("host") or params.get("host") or "paperclip.example.local")
-        local_host = local_http_host(params.get("localHost") or params.get("localHostname") or name or "paperclip")
-        local_name = local_host[:-6] if local_host.endswith(".local") else local_host
+        local_host = app_instance_local_host(instance, "paperclip")
+        local_name = local_mdns_name(local_host)
         public_url = "http://" + host
         storage = ((params.get("storage") or {}).get("size") or params.get("storageSize") or "5Gi")
         database = params.get("database") or {}
@@ -1530,7 +1605,7 @@ data:
                                     {"name": "PAPERCLIP_AUTH_BASE_URL_MODE", "value": "explicit"},
                                     {"name": "PAPERCLIP_AUTH_PUBLIC_BASE_URL", "value": public_url},
                                     {"name": "BETTER_AUTH_TRUSTED_ORIGINS", "value": "*"},
-                                    {"name": "PAPERCLIP_ALLOWED_HOSTNAMES", "value": ",".join([host, "localhost", "127.0.0.1", name or "paperclip", (name or "paperclip") + "." + namespace, (name or "paperclip") + "." + namespace + ".svc", (name or "paperclip") + "." + namespace + ".svc.cluster.local"])},
+                                    {"name": "PAPERCLIP_ALLOWED_HOSTNAMES", "value": ",".join([host, local_host, "localhost", "127.0.0.1", name or "paperclip", (name or "paperclip") + "." + namespace, (name or "paperclip") + "." + namespace + ".svc", (name or "paperclip") + "." + namespace + ".svc.cluster.local"])},
                                     {"name": "DB_PASSWORD", "valueFrom": {"secretKeyRef": {"name": (name or "paperclip") + "-db-credentials", "key": "password"}}},
                                     {"name": "DATABASE_URL", "value": db_service_url},
                                     {"name": "BETTER_AUTH_SECRET", "valueFrom": {"secretKeyRef": {"name": auth_secret_name, "key": "BETTER_AUTH_SECRET"}}},
@@ -1663,6 +1738,8 @@ data:
         server = params.get("server") or {}
         server_ingress = server.get("ingress") or {}
         host = server_ingress.get("host") or ((params.get("ingress") or {}).get("host")) or params.get("host") or "kubeopencode.example.local"
+        if host == "kubeopencode.example.local":
+            host = app_instance_local_host(instance, "kubeopencode")
         templates = params.get("agentTemplates") or []
         template_name = params.get("template") or (templates[0].get("name") if templates else metadata.get("name"))
         agent_name = params.get("agent") or params.get("agentName") or params.get("name") or metadata.get("name")
