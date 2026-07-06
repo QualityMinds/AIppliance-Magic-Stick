@@ -216,6 +216,83 @@ data:
           font-size: 0.88rem;
         }
 
+        .model-workspace {
+          display: grid;
+          gap: 1rem;
+        }
+
+        .model-vram-card {
+          align-content: start;
+        }
+
+        .model-section {
+          display: grid;
+          gap: 0.7rem;
+        }
+
+        .model-create-panel {
+          display: grid;
+          gap: 0.75rem;
+        }
+
+        .model-create-summary {
+          border: 1px solid rgba(125, 211, 252, 0.3);
+          border-radius: 10px;
+          background: rgba(15, 23, 42, 0.82);
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.75rem;
+          list-style: none;
+          padding: 0.7rem 0.85rem;
+        }
+
+        .model-create-summary::-webkit-details-marker {
+          display: none;
+        }
+
+        .model-create-summary span:first-child {
+          display: grid;
+          gap: 0.12rem;
+        }
+
+        .model-create-summary small {
+          color: var(--muted);
+          font-size: 0.78rem;
+        }
+
+        .model-create-grid {
+          display: grid;
+          gap: 0.85rem;
+          grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+          padding-top: 0.75rem;
+        }
+
+        .model-form {
+          align-content: start;
+        }
+
+        .model-meta {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.45rem;
+        }
+
+        .model-meta-item {
+          border: 1px solid rgba(148, 163, 184, 0.2);
+          border-radius: 999px;
+          color: var(--muted);
+          font-size: 0.76rem;
+          padding: 0.18rem 0.5rem;
+          overflow-wrap: anywhere;
+        }
+
+        .model-meta-item strong {
+          color: var(--text);
+          font-weight: 600;
+        }
+
         [hidden] {
           display: none !important;
         }
@@ -440,6 +517,30 @@ data:
           font-size: 0.8rem;
         }
 
+        .vram-summary-grid {
+          display: grid;
+          gap: 0.55rem;
+          grid-template-columns: repeat(auto-fit, minmax(125px, 1fr));
+        }
+
+        .vram-summary-grid div {
+          border: 1px solid rgba(148, 163, 184, 0.2);
+          border-radius: 10px;
+          display: grid;
+          gap: 0.16rem;
+          padding: 0.6rem;
+          background: rgba(15, 23, 42, 0.5);
+        }
+
+        .vram-summary-grid span {
+          color: var(--muted);
+          font-size: 0.74rem;
+        }
+
+        .vram-summary-grid strong {
+          font-size: 1rem;
+        }
+
         .vram-breakdown {
           display: grid;
           gap: 0.45rem;
@@ -467,6 +568,47 @@ data:
         .vram-estimate input[type="range"] {
           width: 100%;
           accent-color: #22d3ee;
+        }
+
+        .segmented-control {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.4rem;
+        }
+
+        .segmented-control .control-button {
+          flex: 1 1 8rem;
+          text-align: center;
+        }
+
+        .vram-breakdown-details summary {
+          color: var(--muted);
+          cursor: pointer;
+          font-size: 0.82rem;
+        }
+
+        .vram-breakdown-details[open] summary {
+          margin-bottom: 0.55rem;
+        }
+
+        .estimate-callouts {
+          display: grid;
+          gap: 0.4rem;
+        }
+
+        .estimate-callout {
+          border: 1px solid rgba(125, 211, 252, 0.24);
+          border-radius: 10px;
+          color: var(--muted);
+          font-size: 0.8rem;
+          padding: 0.5rem 0.6rem;
+          background: rgba(14, 116, 144, 0.12);
+        }
+
+        .estimate-callout.warning {
+          border-color: rgba(251, 191, 36, 0.35);
+          background: rgba(120, 53, 15, 0.18);
+          color: #fde68a;
         }
 
         .vram-estimate .action-row {
@@ -618,68 +760,87 @@ data:
           </section>
 
           <section id="tab-models" class="tab-panel" hidden>
-            <div class="dashboard-grid">
-              <article class="dashboard-card">
+            <div class="model-workspace">
+              <article class="dashboard-card model-vram-card">
                 <h3>VRAM</h3>
                 <p id="vram-summary">Waiting for GPU metrics.</p>
                 <div id="vram-list" class="mini-list"></div>
               </article>
-            </div>
-            <div class="dashboard-grid">
-              <form class="dashboard-card" id="local-model-form">
-                <h3>Add Local Model</h3>
-                <div class="form-grid">
-                  <label class="field">Name<input name="name" value="qwen352bvlembedding" /></label>
-                  <label class="field">Preset<select name="preset" id="local-model-preset"><option value="qwen352bvlembedding">qwen352bvlembedding</option><option value="qwen3635b">qwen3635b</option><option value="qwen359b">qwen359b</option><option value="custom">Custom</option></select></label>
-                  <label class="field">Type<select name="modelType"><option value="chat">chat</option><option value="embedding">embedding</option></select></label>
-                  <label class="field">VRAM Limit<input name="vram" value="5Gi" /></label>
-                  <label class="field">HF URL<input name="url" placeholder="hf://example/model" /></label>
-                  <label class="field">Context Size<input name="contextWindow" value="4096" /></label>
-                  <label class="field">Max Num Seqs<input name="maxNumSeqs" placeholder="32" /></label>
+
+              <section class="model-section">
+                <div class="module-group-heading">
+                  <h3>Installed Models</h3>
+                  <span id="model-list-count">Waiting for catalog</span>
                 </div>
-                <div class="vram-estimate" id="vram-estimate">
-                  <div class="vram-estimate-header">
-                    <strong>VRAM Estimate</strong>
-                    <span id="vram-estimate-status">Waiting for model metadata</span>
-                  </div>
-                  <div class="vram-breakdown">
-                    <div><span>Weights</span><strong id="vram-estimate-weights">-</strong></div>
-                    <div><span>KV Cache</span><strong id="vram-estimate-kv">-</strong></div>
-                    <div><span>Reserve</span><strong id="vram-estimate-reserve">-</strong></div>
-                    <div><span>Minimum</span><strong id="vram-estimate-minimum">-</strong></div>
-                    <div><span>Recommended</span><strong id="vram-estimate-recommended">-</strong></div>
-                    <div><span>Available</span><strong id="vram-estimate-maximum">-</strong></div>
-                  </div>
-                  <label class="field">VRAM Limit Slider<input id="vram-estimate-slider" type="range" min="0" max="0" step="256" disabled /></label>
-                  <div class="vram-estimate-row">
-                    <span id="vram-estimate-selected">Selected: -</span>
-                    <span id="vram-estimate-meta">-</span>
-                  </div>
-                  <div class="action-row">
-                    <button class="control-button" type="button" data-vram-use="minimum" disabled>Use minimum</button>
-                    <button class="control-button primary" type="button" data-vram-use="recommended" disabled>Use recommended</button>
-                    <button class="control-button" type="button" data-vram-use="maximum" disabled>Use max available</button>
-                  </div>
-                  <div class="module-message" id="vram-estimate-warnings"></div>
+                <div id="model-list" class="module-list model-list"></div>
+              </section>
+
+              <details class="model-create-panel">
+                <summary class="model-create-summary">
+                  <span>
+                    <strong>Add Model</strong>
+                    <small>Local presets and external providers</small>
+                  </span>
+                  <span class="status-pill">Create</span>
+                </summary>
+                <div class="model-create-grid">
+                  <form class="dashboard-card model-form" id="local-model-form">
+                    <h3>Local Model</h3>
+                    <div class="form-grid">
+                      <label class="field">Name<input name="name" value="qwen352bvlembedding" /></label>
+                      <label class="field">Preset<select name="preset" id="local-model-preset"><option value="qwen352bvlembedding">qwen352bvlembedding</option><option value="qwen3635b">qwen3635b</option><option value="qwen359b">qwen359b</option><option value="custom">Custom</option></select></label>
+                      <label class="field">Type<select name="modelType"><option value="chat">chat</option><option value="embedding">embedding</option></select></label>
+                      <label class="field">VRAM Limit<input name="vram" value="5Gi" /></label>
+                      <label class="field">HF URL<input name="url" placeholder="hf://example/model" /></label>
+                      <label class="field">Context Size<input name="contextWindow" value="4096" /></label>
+                      <label class="field">Max Num Seqs<input name="maxNumSeqs" placeholder="32" /></label>
+                    </div>
+                    <div class="vram-estimate" id="vram-estimate">
+                      <div class="vram-estimate-header">
+                        <strong>VRAM Estimate</strong>
+                        <span id="vram-estimate-status">Waiting for model metadata</span>
+                      </div>
+                      <div class="vram-summary-grid">
+                        <div><span>Minimum</span><strong id="vram-estimate-minimum">-</strong></div>
+                        <div><span>Recommended</span><strong id="vram-estimate-recommended">-</strong></div>
+                        <div><span>Available</span><strong id="vram-estimate-maximum">-</strong></div>
+                      </div>
+                      <label class="field">VRAM Limit<input id="vram-estimate-slider" type="range" min="0" max="0" step="256" disabled /></label>
+                      <div class="vram-estimate-row">
+                        <span id="vram-estimate-selected">Selected: -</span>
+                        <span id="vram-estimate-meta">-</span>
+                      </div>
+                      <div class="segmented-control vram-choice">
+                        <button class="control-button" type="button" data-vram-use="minimum" disabled>Minimum</button>
+                        <button class="control-button primary" type="button" data-vram-use="recommended" disabled>Recommended</button>
+                        <button class="control-button" type="button" data-vram-use="maximum" disabled>Max</button>
+                      </div>
+                      <details class="vram-breakdown-details">
+                        <summary>Breakdown</summary>
+                        <div class="vram-breakdown">
+                          <div><span>Weights</span><strong id="vram-estimate-weights">-</strong></div>
+                          <div><span>KV Cache</span><strong id="vram-estimate-kv">-</strong></div>
+                          <div><span>Reserve</span><strong id="vram-estimate-reserve">-</strong></div>
+                        </div>
+                      </details>
+                      <div class="estimate-callouts" id="vram-estimate-warnings"></div>
+                    </div>
+                    <button class="control-button primary" type="submit">Add Local Model</button>
+                  </form>
+                  <form class="dashboard-card model-form" id="external-model-form">
+                    <h3>External Model</h3>
+                    <div class="form-grid">
+                      <label class="field">Name<input name="name" value="example-openai-gpt-4o-mini" /></label>
+                      <label class="field">Provider Model<input name="model" value="openai/gpt-4o-mini" /></label>
+                      <label class="field">API Base<input name="apiBase" value="https://api.openai.com/v1" /></label>
+                      <label class="field">Type<select name="modelType"><option value="chat">chat</option><option value="embedding">embedding</option></select></label>
+                      <label class="field">Context<input name="contextWindow" value="128000" /></label>
+                      <label class="field">API Key<input name="apiKey" type="password" placeholder="CHANGEME" /></label>
+                    </div>
+                    <button class="control-button primary" type="submit">Add External Model</button>
+                  </form>
                 </div>
-                <button class="control-button primary" type="submit">Add Local Model</button>
-              </form>
-              <form class="dashboard-card" id="external-model-form">
-                <h3>Add External Model</h3>
-                <div class="form-grid">
-                  <label class="field">Name<input name="name" value="example-openai-gpt-4o-mini" /></label>
-                  <label class="field">Provider Model<input name="model" value="openai/gpt-4o-mini" /></label>
-                  <label class="field">API Base<input name="apiBase" value="https://api.openai.com/v1" /></label>
-                  <label class="field">Type<select name="modelType"><option value="chat">chat</option><option value="embedding">embedding</option></select></label>
-                  <label class="field">Context<input name="contextWindow" value="128000" /></label>
-                  <label class="field">API Key<input name="apiKey" type="password" placeholder="CHANGEME" /></label>
-                </div>
-                <button class="control-button primary" type="submit">Add External Model</button>
-              </form>
-            </div>
-            <div class="dashboard-card">
-              <h3>Models</h3>
-              <div id="model-list" class="module-list"></div>
+              </details>
             </div>
             <p id="model-output" class="api-output"></p>
           </section>
@@ -1208,6 +1369,24 @@ data:
             document.querySelectorAll('[data-vram-use]').forEach((button) => { button.disabled = !enabled; });
           };
 
+          const setVramUseMode = (mode) => {
+            document.querySelectorAll('[data-vram-use]').forEach((button) => {
+              button.classList.toggle('primary', button.dataset.vramUse === mode);
+            });
+          };
+
+          const renderVramEstimateWarnings = (warnings) => {
+            const node = $('vram-estimate-warnings');
+            if (!node) { return; }
+            node.innerHTML = '';
+            (warnings || []).forEach((warning) => {
+              const item = document.createElement('div');
+              item.className = 'estimate-callout ' + (/exceeds|unavailable|not available|could not/i.test(warning) ? 'warning' : '');
+              item.textContent = warning;
+              node.appendChild(item);
+            });
+          };
+
           const renderEmptyVramEstimate = (message) => {
             latestVramEstimate = null;
             setEstimateText('vram-estimate-status', message || 'Waiting for model metadata');
@@ -1216,15 +1395,17 @@ data:
             });
             setEstimateText('vram-estimate-selected', 'Selected: -');
             setEstimateText('vram-estimate-meta', '-');
-            setEstimateText('vram-estimate-warnings', '');
+            renderVramEstimateWarnings([]);
+            setVramUseMode('');
             setVramEstimateControls(false);
           };
 
-          const applyVramLimitMi = (value) => {
+          const applyVramLimitMi = (value, mode = '') => {
             const form = $('local-model-form');
             if (!form) { return; }
             setFormValue(form, 'vram', formatVramInput(value));
             setEstimateText('vram-estimate-selected', 'Selected: ' + formatMi(value));
+            setVramUseMode(mode);
           };
 
           const renderVramEstimate = (estimate, options = {}) => {
@@ -1246,7 +1427,7 @@ data:
             setEstimateText('vram-estimate-recommended', formatMi(recommended));
             setEstimateText('vram-estimate-maximum', estimate.gpuAvailable ? formatMi(maximum) : 'Unknown');
             setEstimateText('vram-estimate-meta', 'Context ' + estimate.contextWindow + ', max seqs ' + estimate.maxNumSeqs);
-            setEstimateText('vram-estimate-warnings', (estimate.warnings || []).join(' '));
+            renderVramEstimateWarnings(estimate.warnings || []);
             const slider = $('vram-estimate-slider');
             if (slider) {
               slider.min = String(minimum);
@@ -1256,7 +1437,7 @@ data:
             }
             setVramEstimateControls(true);
             if (options.applyRecommended !== false) {
-              applyVramLimitMi(selected);
+              applyVramLimitMi(selected, 'recommended');
             }
           };
 
@@ -1276,7 +1457,7 @@ data:
             }
             const requestId = ++vramEstimateRequest;
             setEstimateText('vram-estimate-status', 'Estimating');
-            setEstimateText('vram-estimate-warnings', '');
+            renderVramEstimateWarnings([]);
             setVramEstimateControls(false);
             try {
               const estimate = await request('/api/models/estimate-vram', { method: 'POST', body: JSON.stringify(payload) });
@@ -1287,7 +1468,7 @@ data:
               if (requestId !== vramEstimateRequest) { return; }
               latestVramEstimateSignature = '';
               renderEmptyVramEstimate('Estimate unavailable');
-              setEstimateText('vram-estimate-warnings', error.message || 'Could not estimate VRAM.');
+              renderVramEstimateWarnings([error.message || 'Could not estimate VRAM.']);
             }
           };
 
@@ -1539,6 +1720,17 @@ data:
             });
           };
 
+          const appendModelMeta = (container, label, value) => {
+            const text = value === undefined || value === null ? '' : String(value).trim();
+            if (!text) { return; }
+            const item = document.createElement('span');
+            item.className = 'model-meta-item';
+            const strong = document.createElement('strong');
+            strong.textContent = label + ': ';
+            item.append(strong, text);
+            container.appendChild(item);
+          };
+
           const renderModels = (modelPayload) => {
             const list = $('model-list');
             if (!list) { return; }
@@ -1546,6 +1738,12 @@ data:
             const catalogModels = new Map(((modelPayload || {}).models || []).map((model) => [model.id, model]));
             const activations = (modelPayload || {}).activations || [];
             const activationNames = new Set(activations.map((activation) => (activation.metadata || {}).name).filter(Boolean));
+            const registeredModels = ((modelPayload || {}).models || []).filter((model) => !activationNames.has(model.id));
+            const countNode = $('model-list-count');
+            if (countNode) {
+              const total = activations.length + registeredModels.length;
+              countNode.textContent = total + (total === 1 ? ' model' : ' models');
+            }
             Object.keys(pendingModelDeletes).forEach((name) => {
               if (!activationNames.has(name)) {
                 delete pendingModelDeletes[name];
@@ -1554,19 +1752,14 @@ data:
             if (activations.length) {
               const section = document.createElement('section');
               section.className = 'module-group';
-              const heading = document.createElement('div');
-              heading.className = 'module-group-heading';
-              const title = document.createElement('h3');
-              title.textContent = 'Model Activations';
-              const count = document.createElement('span');
-              count.textContent = activations.length + (activations.length === 1 ? ' model' : ' models');
-              heading.append(title, count);
               const grid = document.createElement('div');
               grid.className = 'module-grid';
               activations.forEach((activation) => {
                 const metadata = activation.metadata || {};
                 const spec = activation.spec || {};
                 const status = activation.status || {};
+                const local = spec.local || {};
+                const external = spec.external || {};
                 const enabled = spec.enabled !== false;
                 const basePhase = status.phase || (enabled ? 'Requested' : 'Disabled');
                 const deleting = Boolean(metadata.name && pendingModelDeletes[metadata.name]) || Boolean(metadata.deletionTimestamp) || String(basePhase).toLowerCase() === 'removing';
@@ -1588,12 +1781,22 @@ data:
                 pill.className = 'status-pill ' + progressPillClass(progress);
                 pill.textContent = phase;
                 header.append(titleBlock, pill);
+                const meta = document.createElement('div');
+                meta.className = 'model-meta';
+                appendModelMeta(meta, 'VRAM', status.vramRequiredMi ? formatMi(status.vramRequiredMi) : (local.vram || (local.vramMi ? formatMi(local.vramMi) : '')));
+                appendModelMeta(meta, 'Context', local.contextWindow || external.contextWindow || '');
+                appendModelMeta(meta, 'Max seqs', local.maxNumSeqs || '');
+                appendModelMeta(meta, 'Target', spec.targetNamespace || '');
                 const details = document.createElement('div');
                 details.className = 'module-message';
-                details.textContent = status.message || ((status.modelRef || catalog.modelRef || 'pending') + (status.vramRequiredMi ? ' - ' + formatMi(status.vramRequiredMi) : ''));
+                details.textContent = status.message || status.modelRef || catalog.modelRef || 'pending';
                 const actions = document.createElement('div');
                 actions.className = 'action-row';
-                item.append(header, createProgressBox(progress), details);
+                item.append(header);
+                if (meta.childElementCount) {
+                  item.appendChild(meta);
+                }
+                item.append(createProgressBox(progress), details);
                 if (metadata.name) {
                   const remove = document.createElement('button');
                   remove.className = 'control-button danger';
@@ -1609,10 +1812,9 @@ data:
                 }
                 grid.appendChild(item);
               });
-              section.append(heading, grid);
+              section.appendChild(grid);
               list.appendChild(section);
             }
-            const registeredModels = ((modelPayload || {}).models || []).filter((model) => !activationNames.has(model.id));
             if (registeredModels.length) {
               const section = document.createElement('section');
               section.className = 'module-group';
@@ -1837,7 +2039,7 @@ data:
                   slider.max = String(effectiveMax);
                   slider.value = String(value);
                 }
-                applyVramLimitMi(value);
+                applyVramLimitMi(value, mode);
               });
             });
             localModelForm.addEventListener('submit', async (event) => {
