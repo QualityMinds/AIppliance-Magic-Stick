@@ -1511,7 +1511,7 @@ data:
             setFormValue(form, 'vram', preset.vram || (preset.vramMi ? preset.vramMi + 'Mi' : ''));
             setFormValue(form, 'url', preset.url);
             setFormValue(form, 'contextWindow', preset.contextWindow);
-            setFormValue(form, 'maxNumSeqs', presetMaxNumSeqs(preset));
+            setFormValue(form, 'maxNumSeqs', presetMaxNumSeqs(preset) || ((preset.type || preset.modelType) === 'embedding' ? 8 : 32));
             localPresetLastApplied = marker;
             scheduleVramEstimate();
           };

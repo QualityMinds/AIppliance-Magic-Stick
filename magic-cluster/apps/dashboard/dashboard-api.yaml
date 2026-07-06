@@ -502,6 +502,11 @@ data:
         return "https://huggingface.co/" + urllib.parse.quote(namespace) + "/" + urllib.parse.quote(name) + "/resolve/main/" + filename
 
 
+    def hf_model_api_url(repo):
+        namespace, name = repo.split("/", 1)
+        return "https://huggingface.co/api/models/" + urllib.parse.quote(namespace) + "/" + urllib.parse.quote(name)
+
+
     def fetch_public_json(url, required=True):
         request = urllib.request.Request(url, headers={
             "Accept": "application/json",
@@ -525,16 +530,43 @@ data:
         cached = HF_METADATA_CACHE.get(repo)
         if cached and now - cached.get("fetchedAt", 0) < HF_CACHE_TTL_SECONDS:
             return cached
-        config = fetch_public_json(hf_resolve_url(repo, "config.json"), required=True)
+        model_api = fetch_public_json(hf_model_api_url(repo), required=False)
+        config = fetch_public_json(hf_resolve_url(repo, "config.json"), required=False)
+        if not config:
+            config = (model_api or {}).get("config")
+        if not config:
+            raise ValueError("public HuggingFace config.json is not available for this model")
         safetensors_index = fetch_public_json(hf_resolve_url(repo, "model.safetensors.index.json"), required=False)
         cached = {
             "repo": repo,
             "config": config or {},
             "safetensorsIndex": safetensors_index or {},
+            "modelApi": model_api or {},
             "fetchedAt": now,
         }
         HF_METADATA_CACHE[repo] = cached
         return cached
+
+
+    def has_model_dimensions(config):
+        config = config or {}
+        has_layers = any(positive_int(config.get(key)) for key in ("num_hidden_layers", "n_layer", "num_layers"))
+        has_hidden = any(positive_int(config.get(key)) for key in ("hidden_size", "n_embd", "d_model"))
+        has_heads = any(positive_int(config.get(key)) for key in ("num_attention_heads", "n_head"))
+        return has_layers and has_hidden and has_heads
+
+
+    def model_dimension_config(config):
+        config = config or {}
+        if has_model_dimensions(config):
+            return config
+        for key in ("text_config", "language_config", "llm_config", "model_config"):
+            nested = config.get(key)
+            if isinstance(nested, dict) and has_model_dimensions(nested):
+                merged = dict(config)
+                merged.update(nested)
+                return merged
+        return config
 
 
     def config_int(config, *keys):
@@ -581,6 +613,12 @@ data:
         return ceil_mib(total_size) if total_size else None
 
 
+    def api_safetensors_weight_mi(model_api):
+        safetensors = (model_api or {}).get("safetensors") or {}
+        total_size = positive_int(safetensors.get("total"))
+        return ceil_mib(total_size) if total_size else None
+
+
     def estimated_parameter_count(config):
         explicit = config_int(config, "num_parameters", "n_params", "parameter_count")
         if explicit:
@@ -611,8 +649,18 @@ data:
         return ceil_mib(params * dtype_bytes(config) * overhead)
 
 
-    def kv_cache_mi(config, context_window, max_num_seqs):
+    def kv_cache_layer_count(config):
         layers = config_int(config, "num_hidden_layers", "n_layer", "num_layers")
+        layer_types = (config or {}).get("layer_types")
+        if isinstance(layer_types, list) and layer_types:
+            full_attention_layers = sum(1 for layer_type in layer_types if str(layer_type).lower() == "full_attention")
+            if full_attention_layers:
+                return full_attention_layers, len(layer_types)
+        return layers, layers
+
+
+    def kv_cache_mi(config, context_window, max_num_seqs):
+        layers, _total_layers = kv_cache_layer_count(config)
         hidden = config_int(config, "hidden_size", "n_embd", "d_model")
         heads = config_int(config, "num_attention_heads", "n_head")
         kv_heads = config_int(config, "num_key_value_heads", "num_kv_heads", "n_head_kv") or heads
@@ -629,9 +677,10 @@ data:
         repo = hf_repo_id(payload.get("url"))
         metadata = hf_metadata(repo)
         config = metadata.get("config") or {}
+        dimensions = model_dimension_config(config)
         warnings = []
-        model_type = str(payload.get("modelType") or config.get("model_type") or "chat").lower()
-        context_window = positive_int(payload.get("contextWindow")) or config_int(config, "max_position_embeddings", "model_max_length") or 4096
+        model_type = str(payload.get("modelType") or dimensions.get("model_type") or config.get("model_type") or "chat").lower()
+        context_window = positive_int(payload.get("contextWindow")) or config_int(dimensions, "max_position_embeddings", "model_max_length") or 4096
         if not positive_int(payload.get("contextWindow")):
             warnings.append("Context Size was missing; using model config or 4096 token fallback.")
         max_num_seqs = positive_int(payload.get("maxNumSeqs"))
@@ -642,19 +691,27 @@ data:
         weights_mi = safetensors_weight_mi(metadata.get("safetensorsIndex"))
         confidence = "high"
         if not weights_mi:
-            weights_mi = fallback_weight_mi(config)
-            confidence = "estimated"
-            warnings.append("Safetensors index not available; estimated model weights from config.")
+            weights_mi = api_safetensors_weight_mi(metadata.get("modelApi"))
+            if weights_mi:
+                warnings.append("Safetensors index metadata unavailable; used HuggingFace model API safetensors total.")
+            else:
+                weights_mi = fallback_weight_mi(dimensions)
+                confidence = "estimated"
+                warnings.append("Safetensors index not available; estimated model weights from config.")
         if not weights_mi:
             weights_mi = 0
             confidence = "fallback"
             warnings.append("Could not estimate model weight size from HuggingFace metadata.")
 
-        kv_mi = kv_cache_mi(config, context_window, max_num_seqs)
+        kv_mi = kv_cache_mi(dimensions, context_window, max_num_seqs)
         if kv_mi is None:
             kv_mi = 0
             confidence = "fallback"
             warnings.append("Could not estimate KV cache from model config.")
+        else:
+            kv_layers, total_layers = kv_cache_layer_count(dimensions)
+            if kv_layers and total_layers and kv_layers < total_layers:
+                warnings.append("Detected hybrid attention; KV cache uses " + str(kv_layers) + " full-attention layers out of " + str(total_layers) + ".")
         runtime_mi = max(1024, int((weights_mi + kv_mi) * 0.05))
         minimum_mi = weights_mi + kv_mi + runtime_mi
         reserve_mi = max(2048, int(minimum_mi * 0.15))
