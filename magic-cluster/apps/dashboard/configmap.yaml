@@ -724,8 +724,13 @@ data:
                   <label class="field">Name<input name="name" value="default" /></label>
                   <label class="field">Model<select name="model" data-model-select="chat" data-model-fallback="CHANGEME_MODEL"><option value="">Loading models</option></select></label>
                   <label class="field">Host<input value="default.openclaw.magicstick.example.com" data-host-prefix="openclaw" readonly aria-readonly="true" /></label>
-                  <label class="field">Storage<input name="storage" value="20Gi" /></label>
                 </div>
+                <details class="module-advanced">
+                  <summary>Configure</summary>
+                  <div class="form-grid">
+                    <label class="field">Storage<input name="storage" value="20Gi" /></label>
+                  </div>
+                </details>
                 <button class="control-button primary" type="submit">Create OpenClaw</button>
               </form>
               <form class="dashboard-card instance-form" data-instance-type="hermes">
@@ -734,8 +739,13 @@ data:
                   <label class="field">Name<input name="name" value="default" /></label>
                   <label class="field">Model<select name="model" data-model-select="chat" data-model-fallback="qwen3635b"><option value="">Loading models</option></select></label>
                   <label class="field">Host<input value="default.hermes.magicstick.example.com" data-host-prefix="hermes" readonly aria-readonly="true" /></label>
-                  <label class="field">Storage<input name="storage" value="10Gi" /></label>
                 </div>
+                <details class="module-advanced">
+                  <summary>Configure</summary>
+                  <div class="form-grid">
+                    <label class="field">Storage<input name="storage" value="10Gi" /></label>
+                  </div>
+                </details>
                 <button class="control-button primary" type="submit">Create Hermes</button>
               </form>
               <form class="dashboard-card instance-form" data-instance-type="paperclip">
@@ -744,9 +754,14 @@ data:
                   <label class="field">Name<input name="name" value="default" /></label>
                   <label class="field">Admin Email<input name="adminEmail" value="admin@example.com" /></label>
                   <label class="field">Host<input value="default.paperclip.magicstick.example.com" data-host-prefix="paperclip" readonly aria-readonly="true" /></label>
-                  <label class="field">Storage<input name="storage" value="5Gi" /></label>
-                  <label class="field">Postgres<input name="postgresStorage" value="10Gi" /></label>
                 </div>
+                <details class="module-advanced">
+                  <summary>Configure</summary>
+                  <div class="form-grid">
+                    <label class="field">Storage<input name="storage" value="5Gi" /></label>
+                    <label class="field">Postgres<input name="postgresStorage" value="10Gi" /></label>
+                  </div>
+                </details>
                 <button class="control-button primary" type="submit">Create Paperclip</button>
               </form>
               <form class="dashboard-card instance-form" data-instance-type="kubeopencode">
