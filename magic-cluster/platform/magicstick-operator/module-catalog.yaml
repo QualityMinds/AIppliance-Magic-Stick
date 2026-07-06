@@ -9,9 +9,18 @@ metadata:
 data:
   modules.json: |
     {
+      "groups": {
+        "core": {"displayName": "Core", "order": 10},
+        "runtime": {"displayName": "AI Runtime", "order": 20},
+        "apps": {"displayName": "Apps", "order": 30},
+        "operators": {"displayName": "Operators", "order": 40},
+        "observability": {"displayName": "Observability", "order": 50},
+        "other": {"displayName": "Other", "order": 1000}
+      },
       "modules": {
         "basis": {
           "displayName": "Basis",
+          "group": "core",
           "activationMode": "static",
           "order": 10,
           "path": "magic-cluster/platform/basis",
@@ -23,6 +32,7 @@ data:
         },
         "dashboard": {
           "displayName": "Dashboard",
+          "group": "core",
           "activationMode": "static",
           "order": 20,
           "path": "magic-cluster/apps/dashboard",
@@ -35,6 +45,7 @@ data:
         },
         "litellm": {
           "displayName": "LiteLLM",
+          "group": "runtime",
           "activationMode": "moduleactivation",
           "order": 50,
           "path": "magic-cluster/apps/ai/litellm/base",
@@ -50,6 +61,7 @@ data:
         },
         "model-catalog": {
           "displayName": "Model Catalog",
+          "group": "runtime",
           "aliases": ["modelCatalog"],
           "activationMode": "moduleactivation",
           "order": 60,
@@ -63,6 +75,7 @@ data:
         },
         "anything-llm": {
           "displayName": "AnythingLLM",
+          "group": "apps",
           "aliases": ["anythingllm", "anythingLlm"],
           "activationMode": "moduleactivation",
           "order": 70,
@@ -80,6 +93,7 @@ data:
         },
         "gpu": {
           "displayName": "GPU",
+          "group": "runtime",
           "activationMode": "moduleactivation",
           "order": 30,
           "path": "magic-cluster/platform/gpu",
@@ -91,6 +105,7 @@ data:
         },
         "kubeai": {
           "displayName": "KubeAI",
+          "group": "runtime",
           "activationMode": "moduleactivation",
           "order": 40,
           "path": "magic-cluster/platform/ai/kubeai",
@@ -102,6 +117,7 @@ data:
         },
         "openclaw-operator": {
           "displayName": "OpenClaw Operator",
+          "group": "operators",
           "aliases": ["openclawOperator"],
           "activationMode": "moduleactivation",
           "order": 80,
@@ -114,6 +130,7 @@ data:
         },
         "hermes-operator": {
           "displayName": "Hermes Operator",
+          "group": "operators",
           "aliases": ["hermesOperator"],
           "activationMode": "moduleactivation",
           "order": 90,
@@ -126,6 +143,7 @@ data:
         },
         "paperclip-operator": {
           "displayName": "Paperclip Operator",
+          "group": "operators",
           "aliases": ["paperclipOperator"],
           "activationMode": "moduleactivation",
           "order": 100,
@@ -138,6 +156,7 @@ data:
         },
         "kubeopencode": {
           "displayName": "KubeOpenCode",
+          "group": "apps",
           "activationMode": "moduleactivation",
           "order": 110,
           "path": "magic-cluster/apps/ai/kubeopencode",
@@ -157,6 +176,7 @@ data:
         },
         "observability": {
           "displayName": "Observability",
+          "group": "observability",
           "activationMode": "moduleactivation",
           "order": 120,
           "path": "magic-cluster/platform/observability",

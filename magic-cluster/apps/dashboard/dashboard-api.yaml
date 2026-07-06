@@ -571,12 +571,14 @@ data:
             })
             modules[canonical].update({"enabled": spec.get("enabled") is True, "source": "appliance"})
         for activation in module_activations():
+            metadata = activation.get("metadata") or {}
             spec = activation.get("spec") or {}
+            status = activation.get("status") or {}
             try:
-                module = canonical_module(spec.get("module") or (activation.get("metadata") or {}).get("name"), catalog)
+                module = canonical_module(spec.get("module") or metadata.get("name"), catalog)
                 catalog_spec = catalog_modules.get(module) or catalog_module_metadata(module, {})
             except ValueError:
-                module = str(spec.get("module") or (activation.get("metadata") or {}).get("name") or "").strip()
+                module = str(spec.get("module") or metadata.get("name") or "").strip()
                 catalog_spec = catalog_module_metadata(module, {"activationMode": "static"})
             if not module:
                 continue
@@ -592,12 +594,14 @@ data:
             modules[module] = {
                 "enabled": spec.get("enabled", True) is not False,
                 "source": "moduleactivation",
-                "activation": (activation.get("metadata") or {}).get("name"),
+                "activation": metadata.get("name"),
+                "generation": int(metadata.get("generation") or 0),
+                "observedGeneration": int(status.get("observedGeneration") or 0),
                 "displayName": catalog_spec["displayName"],
                 "activationMode": catalog_spec["activationMode"],
                 "catalog": catalog_spec,
                 "parameters": spec.get("parameters") or {},
-                "status": activation.get("status") or {},
+                "status": status,
             }
         return {
             "catalog": json.dumps(catalog, indent=2, sort_keys=True),

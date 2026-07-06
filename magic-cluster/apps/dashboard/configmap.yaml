@@ -220,7 +220,112 @@ data:
           display: none !important;
         }
 
-        .module-list,
+        .module-list {
+          display: grid;
+          gap: 1rem;
+        }
+
+        .module-group {
+          display: grid;
+          gap: 0.7rem;
+        }
+
+        .module-group-heading {
+          display: flex;
+          align-items: baseline;
+          justify-content: space-between;
+          gap: 0.7rem;
+        }
+
+        .module-group-heading h3 {
+          margin: 0;
+          font-size: 0.95rem;
+        }
+
+        .module-group-heading span {
+          color: var(--muted);
+          font-size: 0.78rem;
+        }
+
+        .module-grid {
+          display: grid;
+          gap: 0.75rem;
+          grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        }
+
+        .module-card {
+          border: 1px solid rgba(148, 163, 184, 0.22);
+          border-radius: 12px;
+          padding: 0.8rem;
+          display: grid;
+          gap: 0.65rem;
+          background: rgba(2, 6, 23, 0.38);
+          min-width: 0;
+        }
+
+        .module-card-header {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 0.65rem;
+        }
+
+        .module-card-title {
+          display: grid;
+          gap: 0.18rem;
+          min-width: 0;
+        }
+
+        .module-card-title strong {
+          overflow-wrap: anywhere;
+        }
+
+        .module-card-title span,
+        .module-phase,
+        .module-message {
+          color: var(--muted);
+          font-size: 0.8rem;
+        }
+
+        .module-message {
+          min-height: 1rem;
+          overflow-wrap: anywhere;
+        }
+
+        .module-progress {
+          display: grid;
+          gap: 0.35rem;
+        }
+
+        .module-progress-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.65rem;
+          color: var(--muted);
+          font-size: 0.78rem;
+        }
+
+        .module-progress-track {
+          height: 0.48rem;
+          overflow: hidden;
+          border-radius: 999px;
+          background: rgba(15, 23, 42, 0.92);
+          border: 1px solid rgba(148, 163, 184, 0.2);
+        }
+
+        .module-progress-value {
+          height: 100%;
+          width: var(--module-progress, 0%);
+          border-radius: inherit;
+          background: linear-gradient(90deg, rgba(34, 211, 238, 0.72), rgba(134, 239, 172, 0.82));
+          transition: width 0.25s ease;
+        }
+
+        .module-progress.degraded .module-progress-value {
+          background: linear-gradient(90deg, rgba(248, 113, 113, 0.72), rgba(251, 191, 36, 0.82));
+        }
+
         .mini-list {
           display: grid;
           gap: 0.55rem;
@@ -274,6 +379,11 @@ data:
         .status-pill.disabled {
           border-color: rgba(251, 191, 36, 0.42);
           color: #fde68a;
+        }
+
+        .status-pill.degraded {
+          border-color: rgba(248, 113, 113, 0.5);
+          color: #fecaca;
         }
 
         .form-grid {
@@ -445,7 +555,7 @@ data:
                 <button class="control-button primary" type="submit">Create KubeOpenCode</button>
               </form>
             </div>
-            <div id="instance-list" class="mini-list"></div>
+            <div id="instance-list" class="module-list"></div>
             <p id="instance-output" class="api-output"></p>
           </section>
 
@@ -486,7 +596,7 @@ data:
             </div>
             <div class="dashboard-card">
               <h3>Models</h3>
-              <div id="model-list" class="mini-list"></div>
+              <div id="model-list" class="module-list"></div>
             </div>
             <p id="model-output" class="api-output"></p>
           </section>
@@ -542,6 +652,7 @@ data:
           };
           let renderedPresetSignature = '';
           let localPresetLastApplied = '';
+          const pendingModuleActions = {};
 
           const setApiState = (text, ok = false) => {
             if (!apiState) { return; }
@@ -570,6 +681,8 @@ data:
             .join(' ') || 'Module';
 
           const moduleCatalog = (modulePayload) => (((modulePayload || {}).catalogJson || {}).modules || {});
+
+          const moduleGroups = (modulePayload) => (((modulePayload || {}).catalogJson || {}).groups || {});
 
           const moduleSpec = (modulePayload, name) => {
             const modules = ((modulePayload || {}).modules || {});
@@ -635,6 +748,87 @@ data:
             return Number.isFinite(value) ? value : 10000;
           };
 
+          const moduleGroupKey = (catalogSpec = {}) => {
+            const key = String(catalogSpec.group || 'other').trim().toLowerCase();
+            return key || 'other';
+          };
+
+          const moduleGroupSpec = (modulePayload, key) => {
+            const groups = moduleGroups(modulePayload);
+            const spec = groups[key] || {};
+            return {
+              displayName: spec.displayName || titleFromKey(key),
+              order: Number.isFinite(Number(spec.order)) ? Number(spec.order) : 10000
+            };
+          };
+
+          const moduleProgress = (phase, enabled, status = {}) => {
+            const normalized = String(phase || '').toLowerCase();
+            if (normalized === 'ready') {
+              return { value: 100, label: 'Ready', className: 'ready' };
+            }
+            if (normalized === 'waitingformodules') {
+              return { value: 35, label: 'Waiting for dependencies', className: 'waiting' };
+            }
+            if (normalized === 'waitingforcrds') {
+              return { value: 45, label: 'Waiting for CRDs', className: 'waiting' };
+            }
+            if (normalized === 'reconciling') {
+              return { value: 70, label: 'Reconciling', className: 'waiting' };
+            }
+            if (normalized === 'removing') {
+              return { value: 65, label: 'Removing', className: 'waiting' };
+            }
+            if (normalized === 'degraded') {
+              return { value: 100, label: status.message || 'Needs attention', className: 'degraded' };
+            }
+            if (normalized === 'disabled' || normalized === 'suspended' || !enabled) {
+              return { value: 0, label: normalized === 'suspended' ? 'Suspended' : 'Disabled', className: 'disabled' };
+            }
+            return { value: 20, label: 'Requested', className: 'waiting' };
+          };
+
+          const phaseInProgress = (phase) => {
+            return ['requested', 'waitingformodules', 'waitingforcrds', 'reconciling', 'removing'].includes(String(phase || '').toLowerCase());
+          };
+
+          const moduleGenerationPending = (spec = {}) => {
+            const generation = Number(spec.generation || 0);
+            const observed = Number(spec.observedGeneration || ((spec.status || {}).observedGeneration) || 0);
+            return generation > 0 && observed < generation;
+          };
+
+          const moduleActionProgress = (action) => {
+            if (action === 'disable') {
+              return { value: 65, label: 'Disable requested', className: 'waiting' };
+            }
+            return { value: 20, label: 'Enable requested', className: 'waiting' };
+          };
+
+          const progressPillClass = (progress) => {
+            return ['ready', 'waiting', 'disabled', 'degraded'].includes(progress.className) ? progress.className : 'waiting';
+          };
+
+          const createProgressBox = (progress) => {
+            const progressBox = document.createElement('div');
+            progressBox.className = 'module-progress ' + progress.className;
+            const progressRow = document.createElement('div');
+            progressRow.className = 'module-progress-row';
+            const progressLabel = document.createElement('span');
+            progressLabel.textContent = progress.label;
+            const progressValue = document.createElement('span');
+            progressValue.textContent = progress.value + '%';
+            progressRow.append(progressLabel, progressValue);
+            const track = document.createElement('div');
+            track.className = 'module-progress-track';
+            const value = document.createElement('div');
+            value.className = 'module-progress-value';
+            value.style.setProperty('--module-progress', progress.value + '%');
+            track.appendChild(value);
+            progressBox.append(progressRow, track);
+            return progressBox;
+          };
+
           const orderedModules = (modulePayload) => {
             const catalog = moduleCatalog(modulePayload);
             const modules = ((modulePayload || {}).modules || {});
@@ -647,6 +841,22 @@ data:
               const orderDelta = moduleOrder(left.name, left.catalogSpec) - moduleOrder(right.name, right.catalogSpec);
               if (orderDelta !== 0) { return orderDelta; }
               return left.title.localeCompare(right.title) || left.name.localeCompare(right.name);
+            });
+          };
+
+          const groupedModules = (modulePayload) => {
+            const groups = new Map();
+            orderedModules(modulePayload).forEach((module) => {
+              const key = moduleGroupKey(module.catalogSpec);
+              if (!groups.has(key)) {
+                groups.set(key, { key, spec: moduleGroupSpec(modulePayload, key), modules: [] });
+              }
+              groups.get(key).modules.push(module);
+            });
+            return Array.from(groups.values()).sort((left, right) => {
+              const orderDelta = left.spec.order - right.spec.order;
+              if (orderDelta !== 0) { return orderDelta; }
+              return left.spec.displayName.localeCompare(right.spec.displayName) || left.key.localeCompare(right.key);
             });
           };
 
@@ -666,7 +876,7 @@ data:
             details.className = 'module-advanced';
             details.open = fields.some((field) => parameterDisplayValue(parameters[field.name]) !== '');
             const summary = document.createElement('summary');
-            summary.textContent = 'Advanced';
+            summary.textContent = 'Configure';
             const grid = document.createElement('div');
             grid.className = 'form-grid';
             fields.forEach((field) => {
@@ -714,42 +924,85 @@ data:
             const list = $('module-list');
             if (!list) { return; }
             list.innerHTML = '';
-            orderedModules(modulePayload).forEach(({ name, spec, catalogSpec, title }) => {
-              const enabled = spec.enabled === true;
-              const activationMode = spec.activationMode || catalogSpec.activationMode || 'moduleactivation';
-              const phase = (((spec.status || {}).phase) || (enabled ? 'Requested' : 'Disabled'));
-              const item = document.createElement('div');
-              item.className = 'module-item';
-              const row = document.createElement('div');
-              row.className = 'module-row';
-              const label = document.createElement('strong');
-              label.textContent = title;
-              const pill = document.createElement('span');
-              pill.className = 'status-pill ' + (enabled ? 'enabled' : 'disabled');
-              pill.textContent = enabled ? 'Enabled' : 'Disabled';
-              row.append(label, pill);
-              const phaseItem = document.createElement('div');
-              phaseItem.className = 'mini-item';
-              phaseItem.textContent = phase;
-              const actions = document.createElement('div');
-              actions.className = 'action-row';
-              item.append(row, phaseItem);
-              renderModuleAdvanced(item, name, spec, modulePayload);
-              if (activationMode === 'moduleactivation') {
-                const enable = document.createElement('button');
-                enable.className = 'control-button primary';
-                enable.type = 'button';
-                enable.dataset.moduleEnable = name;
-                enable.textContent = 'Enable';
-                const disable = document.createElement('button');
-                disable.className = 'control-button danger';
-                disable.type = 'button';
-                disable.dataset.moduleDisable = name;
-                disable.textContent = 'Disable';
-                actions.append(enable, disable);
-                item.appendChild(actions);
-              }
-              list.appendChild(item);
+            groupedModules(modulePayload).forEach((group) => {
+              const section = document.createElement('section');
+              section.className = 'module-group';
+              const heading = document.createElement('div');
+              heading.className = 'module-group-heading';
+              const title = document.createElement('h3');
+              title.textContent = group.spec.displayName;
+              const count = document.createElement('span');
+              count.textContent = group.modules.length + (group.modules.length === 1 ? ' module' : ' modules');
+              heading.append(title, count);
+              const grid = document.createElement('div');
+              grid.className = 'module-grid';
+
+              group.modules.forEach(({ name, spec, catalogSpec, title: moduleTitle }) => {
+                const enabled = spec.enabled === true;
+                const status = spec.status || {};
+                const activationMode = spec.activationMode || catalogSpec.activationMode || 'moduleactivation';
+                const phase = status.phase || (enabled ? 'Requested' : 'Disabled');
+                const pendingAction = pendingModuleActions[name];
+                const runtimeInProgress = phaseInProgress(phase) || moduleGenerationPending(spec);
+                if (pendingAction && !runtimeInProgress) {
+                  delete pendingModuleActions[name];
+                }
+                const activePendingAction = pendingModuleActions[name];
+                const progress = activePendingAction
+                  ? moduleActionProgress(activePendingAction)
+                  : (moduleGenerationPending(spec) ? moduleActionProgress(enabled ? 'enable' : 'disable') : moduleProgress(phase, enabled, status));
+                const item = document.createElement('article');
+                item.className = 'module-card';
+                const header = document.createElement('div');
+                header.className = 'module-card-header';
+                const titleBlock = document.createElement('div');
+                titleBlock.className = 'module-card-title';
+                const label = document.createElement('strong');
+                label.textContent = moduleTitle;
+                const key = document.createElement('span');
+                key.textContent = name;
+                titleBlock.append(label, key);
+                const pill = document.createElement('span');
+                pill.className = 'status-pill ' + progressPillClass(progress);
+                pill.textContent = phase;
+                header.append(titleBlock, pill);
+
+                const progressBox = createProgressBox(progress);
+
+                const message = document.createElement('div');
+                message.className = 'module-message';
+                message.textContent = status.message || ((catalogSpec.requires || []).length ? 'Requires: ' + catalogSpec.requires.join(', ') : '');
+
+                const actions = document.createElement('div');
+                actions.className = 'action-row';
+                item.append(header, progressBox, message);
+                if (!enabled) {
+                  renderModuleAdvanced(item, name, spec, modulePayload);
+                }
+                if (activationMode === 'moduleactivation') {
+                  const action = document.createElement('button');
+                  action.type = 'button';
+                  if (enabled) {
+                    action.className = 'control-button danger';
+                    action.dataset.moduleDisable = name;
+                    action.textContent = 'Disable';
+                  } else {
+                    action.className = 'control-button primary';
+                    action.dataset.moduleEnable = name;
+                    action.textContent = 'Enable';
+                  }
+                  action.disabled = runtimeInProgress || Boolean(activePendingAction);
+                  if (action.disabled) {
+                    action.title = progress.label;
+                  }
+                  actions.appendChild(action);
+                  item.appendChild(actions);
+                }
+                grid.appendChild(item);
+              });
+
+              section.append(heading, grid);
+              list.appendChild(section);
             });
           };
 
@@ -758,37 +1011,61 @@ data:
             if (!list) { return; }
             list.innerHTML = '';
             const instances = ((instancePayload || {}).instances || {});
-            Object.keys(instances).forEach((type) => {
-              (instances[type] || []).forEach((instance) => {
+            Object.keys(instances).sort().forEach((type) => {
+              const items = instances[type] || [];
+              if (!items.length) { return; }
+              const section = document.createElement('section');
+              section.className = 'module-group';
+              const heading = document.createElement('div');
+              heading.className = 'module-group-heading';
+              const title = document.createElement('h3');
+              title.textContent = titleFromKey(type);
+              const count = document.createElement('span');
+              count.textContent = items.length + (items.length === 1 ? ' instance' : ' instances');
+              heading.append(title, count);
+              const grid = document.createElement('div');
+              grid.className = 'module-grid';
+              items.forEach((instance) => {
                 const metadata = instance.metadata || {};
                 const spec = instance.spec || {};
                 const status = instance.status || {};
-                const item = document.createElement('div');
-                item.className = 'mini-item';
-                const row = document.createElement('div');
-                row.className = 'module-row';
-                const title = document.createElement('strong');
-                title.textContent = type + '/' + (metadata.name || 'unnamed');
+                const enabled = spec.enabled !== false;
+                const phase = status.phase || (enabled ? 'Requested' : 'Suspended');
+                const progress = moduleProgress(phase, enabled, status);
+                const item = document.createElement('article');
+                item.className = 'module-card';
+                const header = document.createElement('div');
+                header.className = 'module-card-header';
+                const titleBlock = document.createElement('div');
+                titleBlock.className = 'module-card-title';
+                const label = document.createElement('strong');
+                label.textContent = metadata.name || 'unnamed';
+                const key = document.createElement('span');
+                key.textContent = type + ' / ' + (spec.targetNamespace || 'ai');
+                titleBlock.append(label, key);
                 const pill = document.createElement('span');
-                pill.className = 'status-pill ' + (status.phase === 'Ready' ? 'ready' : 'waiting');
-                pill.textContent = status.phase || 'Requested';
-                row.append(title, pill);
+                pill.className = 'status-pill ' + progressPillClass(progress);
+                pill.textContent = phase;
+                header.append(titleBlock, pill);
                 const details = document.createElement('div');
-                details.textContent = 'namespace: ' + (spec.targetNamespace || 'ai') + (status.url ? ' - ' + status.url : '');
+                details.className = 'module-message';
+                details.textContent = status.message || ('namespace: ' + (spec.targetNamespace || 'ai') + (status.url ? ' - ' + status.url : ''));
                 const actions = document.createElement('div');
                 actions.className = 'action-row';
-                const remove = document.createElement('button');
-                remove.className = 'control-button danger';
-                remove.type = 'button';
-                remove.dataset.instanceDelete = metadata.name || '';
-                remove.textContent = 'Remove';
-                if (!metadata.name) {
-                  remove.disabled = true;
+                item.append(header, createProgressBox(progress), details);
+                if (metadata.name && String(phase).toLowerCase() !== 'removing') {
+                  const remove = document.createElement('button');
+                  remove.className = 'control-button danger';
+                  remove.type = 'button';
+                  remove.dataset.instanceDelete = metadata.name;
+                  remove.textContent = 'Remove';
+                  actions.appendChild(remove);
+                  item.appendChild(actions);
                 }
-                actions.appendChild(remove);
-                item.append(row, details, actions);
-                list.appendChild(item);
+                grid.appendChild(item);
               });
+              section.append(heading, grid);
+              list.appendChild(section);
             });
             if (!list.childElementCount) {
               const item = document.createElement('div');
@@ -1054,43 +1331,100 @@ data:
             list.innerHTML = '';
             const catalogModels = new Map(((modelPayload || {}).models || []).map((model) => [model.id, model]));
             const activations = (modelPayload || {}).activations || [];
-            activations.forEach((activation) => {
-              const metadata = activation.metadata || {};
-              const spec = activation.spec || {};
-              const status = activation.status || {};
-              const catalog = catalogModels.get(metadata.name) || {};
-              const item = document.createElement('div');
-              item.className = 'mini-item';
-              const row = document.createElement('div');
-              row.className = 'module-row';
-              const title = document.createElement('strong');
-              title.textContent = metadata.name || 'unnamed';
-              const pill = document.createElement('span');
-              pill.className = 'status-pill ' + (status.phase === 'Ready' ? 'ready' : 'waiting');
-              pill.textContent = status.phase || 'Requested';
-              row.append(title, pill);
-              const details = document.createElement('div');
-              details.textContent = (spec.type || 'model') + ' - ' + (catalog.type || (spec.external || {}).modelType || (spec.local || {}).modelType || 'chat') + ' - ' + (status.modelRef || catalog.modelRef || 'pending') + (status.vramRequiredMi ? ' - ' + formatMi(status.vramRequiredMi) : '');
-              const actions = document.createElement('div');
-              actions.className = 'action-row';
-              const remove = document.createElement('button');
-              remove.className = 'control-button danger';
-              remove.type = 'button';
-              remove.dataset.modelDelete = metadata.name;
-              remove.textContent = 'Remove';
-              actions.appendChild(remove);
-              item.append(row, details, actions);
-              list.appendChild(item);
-            });
-            ((modelPayload || {}).models || []).forEach((model) => {
-              if (activations.some((activation) => (activation.metadata || {}).name === model.id)) {
-                return;
-              }
-              const item = document.createElement('div');
-              item.className = 'mini-item';
-              item.textContent = model.id + ' - ' + (model.type || 'model') + ' - ' + (model.modelRef || 'catalog');
-              list.appendChild(item);
-            });
+            const activationNames = new Set(activations.map((activation) => (activation.metadata || {}).name).filter(Boolean));
+            if (activations.length) {
+              const section = document.createElement('section');
+              section.className = 'module-group';
+              const heading = document.createElement('div');
+              heading.className = 'module-group-heading';
+              const title = document.createElement('h3');
+              title.textContent = 'Model Activations';
+              const count = document.createElement('span');
+              count.textContent = activations.length + (activations.length === 1 ? ' model' : ' models');
+              heading.append(title, count);
+              const grid = document.createElement('div');
+              grid.className = 'module-grid';
+              activations.forEach((activation) => {
+                const metadata = activation.metadata || {};
+                const spec = activation.spec || {};
+                const status = activation.status || {};
+                const enabled = spec.enabled !== false;
+                const phase = status.phase || (enabled ? 'Requested' : 'Disabled');
+                const progress = moduleProgress(phase, enabled, status);
+                const catalog = catalogModels.get(metadata.name) || {};
+                const item = document.createElement('article');
+                item.className = 'module-card';
+                const header = document.createElement('div');
+                header.className = 'module-card-header';
+                const titleBlock = document.createElement('div');
+                titleBlock.className = 'module-card-title';
+                const label = document.createElement('strong');
+                label.textContent = metadata.name || 'unnamed';
+                const key = document.createElement('span');
+                key.textContent = (spec.type || 'model') + ' / ' + (catalog.type || (spec.external || {}).modelType || (spec.local || {}).modelType || 'chat');
+                titleBlock.append(label, key);
+                const pill = document.createElement('span');
+                pill.className = 'status-pill ' + progressPillClass(progress);
+                pill.textContent = phase;
+                header.append(titleBlock, pill);
+                const details = document.createElement('div');
+                details.className = 'module-message';
+                details.textContent = status.message || ((status.modelRef || catalog.modelRef || 'pending') + (status.vramRequiredMi ? ' - ' + formatMi(status.vramRequiredMi) : ''));
+                const actions = document.createElement('div');
+                actions.className = 'action-row';
+                item.append(header, createProgressBox(progress), details);
+                if (metadata.name && String(phase).toLowerCase() !== 'removing') {
+                  const remove = document.createElement('button');
+                  remove.className = 'control-button danger';
+                  remove.type = 'button';
+                  remove.dataset.modelDelete = metadata.name;
+                  remove.textContent = 'Remove';
+                  actions.appendChild(remove);
+                  item.appendChild(actions);
+                }
+                grid.appendChild(item);
+              });
+              section.append(heading, grid);
+              list.appendChild(section);
+            }
+            const registeredModels = ((modelPayload || {}).models || []).filter((model) => !activationNames.has(model.id));
+            if (registeredModels.length) {
+              const section = document.createElement('section');
+              section.className = 'module-group';
+              const heading = document.createElement('div');
+              heading.className = 'module-group-heading';
+              const title = document.createElement('h3');
+              title.textContent = 'Registered Models';
+              const count = document.createElement('span');
+              count.textContent = registeredModels.length + (registeredModels.length === 1 ? ' model' : ' models');
+              heading.append(title, count);
+              const grid = document.createElement('div');
+              grid.className = 'module-grid';
+              registeredModels.forEach((model) => {
+                const item = document.createElement('article');
+                item.className = 'module-card';
+                const header = document.createElement('div');
+                header.className = 'module-card-header';
+                const titleBlock = document.createElement('div');
+                titleBlock.className = 'module-card-title';
+                const label = document.createElement('strong');
+                label.textContent = model.id || model.name || 'unnamed';
+                const key = document.createElement('span');
+                key.textContent = (model.type || 'model') + ' / ' + (model.provider || model.source || 'catalog');
+                titleBlock.append(label, key);
+                const pill = document.createElement('span');
+                pill.className = 'status-pill ready';
+                pill.textContent = 'Registered';
+                header.append(titleBlock, pill);
+                const details = document.createElement('div');
+                details.className = 'module-message';
+                details.textContent = model.modelRef || 'catalog';
+                item.append(header, createProgressBox({ value: 100, label: 'Registered', className: 'ready' }), details);
+                grid.appendChild(item);
+              });
+              section.append(heading, grid);
+              list.appendChild(section);
+            }
             if (!list.childElementCount) {
               const item = document.createElement('div');
               item.className = 'mini-item';
@@ -1184,7 +1518,9 @@ data:
             const name = enable ? enable.dataset.moduleEnable : (disable ? disable.dataset.moduleDisable : null);
             if (!action || !name) { return; }
             try {
-              const item = (enable || disable).closest('.module-item, .mini-item');
+              pendingModuleActions[name] = action;
+              (enable || disable).disabled = true;
+              const item = (enable || disable).closest('.module-card, .module-item, .mini-item');
               const hasAdvancedFields = item && item.querySelector('[data-module-parameter]');
               const body = {};
               if (enable && hasAdvancedFields) {
@@ -1196,6 +1532,7 @@ data:
               if ($('model-output')) { $('model-output').textContent = message; }
               await refresh();
             } catch (error) {
+              delete pendingModuleActions[name];
               if ($('module-output')) { $('module-output').textContent = error.message; }
               if ($('model-output')) { $('model-output').textContent = error.message; }
             }
