@@ -637,6 +637,31 @@ data:
                   <label class="field">Context Size<input name="contextWindow" value="4096" /></label>
                   <label class="field">Max Num Seqs<input name="maxNumSeqs" placeholder="32" /></label>
                 </div>
+                <div class="vram-estimate" id="vram-estimate">
+                  <div class="vram-estimate-header">
+                    <strong>VRAM Estimate</strong>
+                    <span id="vram-estimate-status">Waiting for model metadata</span>
+                  </div>
+                  <div class="vram-breakdown">
+                    <div><span>Weights</span><strong id="vram-estimate-weights">-</strong></div>
+                    <div><span>KV Cache</span><strong id="vram-estimate-kv">-</strong></div>
+                    <div><span>Reserve</span><strong id="vram-estimate-reserve">-</strong></div>
+                    <div><span>Minimum</span><strong id="vram-estimate-minimum">-</strong></div>
+                    <div><span>Recommended</span><strong id="vram-estimate-recommended">-</strong></div>
+                    <div><span>Available</span><strong id="vram-estimate-maximum">-</strong></div>
+                  </div>
+                  <label class="field">VRAM Limit Slider<input id="vram-estimate-slider" type="range" min="0" max="0" step="256" disabled /></label>
+                  <div class="vram-estimate-row">
+                    <span id="vram-estimate-selected">Selected: -</span>
+                    <span id="vram-estimate-meta">-</span>
+                  </div>
+                  <div class="action-row">
+                    <button class="control-button" type="button" data-vram-use="minimum" disabled>Use minimum</button>
+                    <button class="control-button primary" type="button" data-vram-use="recommended" disabled>Use recommended</button>
+                    <button class="control-button" type="button" data-vram-use="maximum" disabled>Use max available</button>
+                  </div>
+                  <div class="module-message" id="vram-estimate-warnings"></div>
+                </div>
                 <button class="control-button primary" type="submit">Add Local Model</button>
               </form>
               <form class="dashboard-card" id="external-model-form">
@@ -712,6 +737,10 @@ data:
           let localPresetLastApplied = '';
           const pendingModuleActions = {};
           const pendingModelDeletes = {};
+          let vramEstimateTimer = null;
+          let vramEstimateRequest = 0;
+          let latestVramEstimate = null;
+          let latestVramEstimateSignature = '';
 
           const setApiState = (text, ok = false) => {
             if (!apiState) { return; }
@@ -1142,6 +1171,131 @@ data:
             return number + ' MiB';
           };
 
+          const formatVramInput = (value) => {
+            const number = Math.max(0, Math.round(Number(value || 0)));
+            return number % 1024 === 0 ? (number / 1024) + 'Gi' : number + 'Mi';
+          };
+
+          const formNumber = (form, name) => {
+            const value = String((form.elements[name] || {}).value || '').trim();
+            return /^\d+$/.test(value) ? Number(value) : 0;
+          };
+
+          const localPreset = (form) => {
+            const presetName = String((form.elements.preset || {}).value || '').trim();
+            return ((latestModelPayload || {}).presets || {})[presetName] || {};
+          };
+
+          const vramEstimatePayload = (form) => {
+            const preset = localPreset(form);
+            const modelTypeValue = String((form.elements.modelType || {}).value || preset.modelType || preset.type || 'chat').trim().toLowerCase();
+            return {
+              url: String((form.elements.url || {}).value || preset.url || '').trim(),
+              contextWindow: formNumber(form, 'contextWindow') || Number(preset.contextWindow || 0) || null,
+              maxNumSeqs: formNumber(form, 'maxNumSeqs') || Number(presetMaxNumSeqs(preset) || 0) || (modelTypeValue === 'embedding' ? 8 : 32),
+              modelType: modelTypeValue || 'chat'
+            };
+          };
+
+          const setEstimateText = (id, value) => {
+            const node = $(id);
+            if (node) { node.textContent = value; }
+          };
+
+          const setVramEstimateControls = (enabled) => {
+            const slider = $('vram-estimate-slider');
+            if (slider) { slider.disabled = !enabled; }
+            document.querySelectorAll('[data-vram-use]').forEach((button) => { button.disabled = !enabled; });
+          };
+
+          const renderEmptyVramEstimate = (message) => {
+            latestVramEstimate = null;
+            setEstimateText('vram-estimate-status', message || 'Waiting for model metadata');
+            ['weights', 'kv', 'reserve', 'minimum', 'recommended', 'maximum'].forEach((key) => {
+              setEstimateText('vram-estimate-' + key, '-');
+            });
+            setEstimateText('vram-estimate-selected', 'Selected: -');
+            setEstimateText('vram-estimate-meta', '-');
+            setEstimateText('vram-estimate-warnings', '');
+            setVramEstimateControls(false);
+          };
+
+          const applyVramLimitMi = (value) => {
+            const form = $('local-model-form');
+            if (!form) { return; }
+            setFormValue(form, 'vram', formatVramInput(value));
+            setEstimateText('vram-estimate-selected', 'Selected: ' + formatMi(value));
+          };
+
+          const renderVramEstimate = (estimate, options = {}) => {
+            latestVramEstimate = estimate || null;
+            if (!estimate) {
+              renderEmptyVramEstimate('Waiting for model metadata');
+              return;
+            }
+            const minimum = Number(estimate.minimumMi || 0);
+            const recommended = Number(estimate.recommendedMi || minimum);
+            const maximum = estimate.maximumMi === null || estimate.maximumMi === undefined ? 0 : Number(estimate.maximumMi || 0);
+            const effectiveMax = estimate.gpuAvailable ? Math.max(minimum, maximum) : Math.max(minimum, recommended);
+            const selected = Math.min(effectiveMax, Math.max(minimum, recommended));
+            setEstimateText('vram-estimate-status', estimate.confidence === 'high' ? 'High confidence' : 'Estimated');
+            setEstimateText('vram-estimate-weights', formatMi(estimate.weightsMi));
+            setEstimateText('vram-estimate-kv', formatMi(estimate.kvCacheMi));
+            setEstimateText('vram-estimate-reserve', formatMi((estimate.reserveMi || 0) + (estimate.recommendedReserveMi || 0)));
+            setEstimateText('vram-estimate-minimum', formatMi(minimum));
+            setEstimateText('vram-estimate-recommended', formatMi(recommended));
+            setEstimateText('vram-estimate-maximum', estimate.gpuAvailable ? formatMi(maximum) : 'Unknown');
+            setEstimateText('vram-estimate-meta', 'Context ' + estimate.contextWindow + ', max seqs ' + estimate.maxNumSeqs);
+            setEstimateText('vram-estimate-warnings', (estimate.warnings || []).join(' '));
+            const slider = $('vram-estimate-slider');
+            if (slider) {
+              slider.min = String(minimum);
+              slider.max = String(effectiveMax);
+              slider.step = '256';
+              slider.value = String(selected);
+            }
+            setVramEstimateControls(true);
+            if (options.applyRecommended !== false) {
+              applyVramLimitMi(selected);
+            }
+          };
+
+          const runVramEstimate = async () => {
+            const form = $('local-model-form');
+            if (!form) { return; }
+            const payload = vramEstimatePayload(form);
+            if (!payload.url) {
+              latestVramEstimateSignature = '';
+              renderEmptyVramEstimate('Waiting for HF URL');
+              return;
+            }
+            const signature = JSON.stringify(payload);
+            if (signature === latestVramEstimateSignature && latestVramEstimate) {
+              renderVramEstimate(latestVramEstimate, { applyRecommended: false });
+              return;
+            }
+            const requestId = ++vramEstimateRequest;
+            setEstimateText('vram-estimate-status', 'Estimating');
+            setEstimateText('vram-estimate-warnings', '');
+            setVramEstimateControls(false);
+            try {
+              const estimate = await request('/api/models/estimate-vram', { method: 'POST', body: JSON.stringify(payload) });
+              if (requestId !== vramEstimateRequest) { return; }
+              latestVramEstimateSignature = signature;
+              renderVramEstimate(estimate);
+            } catch (error) {
+              if (requestId !== vramEstimateRequest) { return; }
+              latestVramEstimateSignature = '';
+              renderEmptyVramEstimate('Estimate unavailable');
+              setEstimateText('vram-estimate-warnings', error.message || 'Could not estimate VRAM.');
+            }
+          };
+
+          const scheduleVramEstimate = () => {
+            clearTimeout(vramEstimateTimer);
+            vramEstimateTimer = setTimeout(runVramEstimate, 450);
+          };
+
           const orderedPresetKeys = (presets) => {
             const preferred = ['qwen352bvlembedding', 'qwen3635b', 'qwen359b'];
             const keys = Object.keys(presets || {});
@@ -1359,6 +1513,7 @@ data:
             setFormValue(form, 'contextWindow', preset.contextWindow);
             setFormValue(form, 'maxNumSeqs', presetMaxNumSeqs(preset));
             localPresetLastApplied = marker;
+            scheduleVramEstimate();
           };
 
           const renderVram = (modelPayload) => {
@@ -1649,8 +1804,42 @@ data:
             if (localPresetSelect) {
               localPresetSelect.addEventListener('change', () => {
                 applyLocalPresetFields(localPresetSelect.value, { force: true });
+                if (localPresetSelect.value === 'custom') {
+                  scheduleVramEstimate();
+                }
               });
             }
+            ['url', 'contextWindow', 'maxNumSeqs', 'modelType'].forEach((name) => {
+              const field = localModelForm.elements[name];
+              if (field) {
+                field.addEventListener('input', scheduleVramEstimate);
+                field.addEventListener('change', scheduleVramEstimate);
+              }
+            });
+            const vramSlider = $('vram-estimate-slider');
+            if (vramSlider) {
+              vramSlider.addEventListener('input', () => {
+                applyVramLimitMi(Number(vramSlider.value || 0));
+              });
+            }
+            document.querySelectorAll('[data-vram-use]').forEach((button) => {
+              button.addEventListener('click', () => {
+                if (!latestVramEstimate) { return; }
+                const mode = button.dataset.vramUse;
+                const minimum = Number(latestVramEstimate.minimumMi || 0);
+                const recommended = Number(latestVramEstimate.recommendedMi || minimum);
+                const maximum = latestVramEstimate.maximumMi === null || latestVramEstimate.maximumMi === undefined ? recommended : Number(latestVramEstimate.maximumMi || recommended);
+                const effectiveMax = latestVramEstimate.gpuAvailable ? Math.max(minimum, maximum) : Math.max(minimum, recommended);
+                const requested = mode === 'minimum' ? minimum : (mode === 'maximum' ? effectiveMax : recommended);
+                const value = Math.min(effectiveMax, Math.max(minimum, requested));
+                const slider = $('vram-estimate-slider');
+                if (slider) {
+                  slider.max = String(effectiveMax);
+                  slider.value = String(value);
+                }
+                applyVramLimitMi(value);
+              });
+            });
             localModelForm.addEventListener('submit', async (event) => {
               event.preventDefault();
               const data = new FormData(localModelForm);
