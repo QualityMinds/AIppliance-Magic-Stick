@@ -415,6 +415,64 @@ data:
           resize: vertical;
         }
 
+        .vram-estimate {
+          border: 1px solid rgba(148, 163, 184, 0.22);
+          border-radius: 10px;
+          padding: 0.75rem;
+          display: grid;
+          gap: 0.7rem;
+          background: rgba(2, 6, 23, 0.32);
+        }
+
+        .vram-estimate-header,
+        .vram-estimate-row {
+          display: flex;
+          align-items: baseline;
+          justify-content: space-between;
+          gap: 0.65rem;
+          flex-wrap: wrap;
+        }
+
+        .vram-estimate-header span,
+        .vram-estimate-row span,
+        .vram-estimate-meta {
+          color: var(--muted);
+          font-size: 0.8rem;
+        }
+
+        .vram-breakdown {
+          display: grid;
+          gap: 0.45rem;
+          grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+        }
+
+        .vram-breakdown div {
+          border: 1px solid rgba(148, 163, 184, 0.18);
+          border-radius: 10px;
+          padding: 0.55rem;
+          display: grid;
+          gap: 0.2rem;
+          background: rgba(15, 23, 42, 0.5);
+        }
+
+        .vram-breakdown span {
+          color: var(--muted);
+          font-size: 0.76rem;
+        }
+
+        .vram-breakdown strong {
+          font-size: 0.95rem;
+        }
+
+        .vram-estimate input[type="range"] {
+          width: 100%;
+          accent-color: #22d3ee;
+        }
+
+        .vram-estimate .action-row {
+          justify-content: flex-start;
+        }
+
         .api-output {
           min-height: 1.3rem;
           color: var(--muted);

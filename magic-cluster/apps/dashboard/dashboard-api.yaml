@@ -14,6 +14,7 @@ data:
     import os
     import re
     import ssl
+    import time
     import urllib.error
     import urllib.parse
     import urllib.request
@@ -45,6 +46,9 @@ data:
     INSTANCE_TYPES = {"openclaw", "hermes", "paperclip", "kubeopencode"}
     MODEL_SECRET_PREFIX = "ai-model-provider-"
     SSL_CONTEXT = ssl.create_default_context(cafile=SA_CA_PATH)
+    PUBLIC_SSL_CONTEXT = ssl.create_default_context()
+    HF_CACHE_TTL_SECONDS = 900
+    HF_METADATA_CACHE = {}
 
 
     def token():
@@ -460,6 +464,225 @@ data:
         if unit not in factors:
             return None
         return int(float(match.group(1)) * factors[unit])
+
+
+    def ceil_mib(bytes_value):
+        return int((int(bytes_value or 0) + 1024 * 1024 - 1) // (1024 * 1024))
+
+
+    def hf_repo_id(value):
+        raw = str(value or "").strip()
+        if not raw:
+            raise ValueError("HF URL is required")
+        if raw.startswith("hf://"):
+            repo = raw[5:].strip("/")
+        elif raw.startswith("https://") or raw.startswith("http://"):
+            parsed = urllib.parse.urlparse(raw)
+            if parsed.scheme != "https" or parsed.netloc not in {"huggingface.co", "www.huggingface.co"}:
+                raise ValueError("only public https://huggingface.co URLs are supported")
+            parts = [part for part in parsed.path.split("/") if part]
+            if len(parts) >= 4 and parts[2] in {"resolve", "blob", "tree"}:
+                repo = "/".join(parts[:2])
+            elif len(parts) >= 2:
+                repo = "/".join(parts[:2])
+            else:
+                raise ValueError("HF URL must include namespace and model name")
+        elif re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*", raw):
+            repo = raw
+        else:
+            raise ValueError("HF URL must be hf://namespace/model or https://huggingface.co/namespace/model")
+        parts = repo.split("/")
+        if len(parts) != 2 or any(not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", part) for part in parts):
+            raise ValueError("HF URL must reference a public namespace/model repository")
+        return "/".join(parts)
+
+
+    def hf_resolve_url(repo, filename):
+        namespace, name = repo.split("/", 1)
+        return "https://huggingface.co/" + urllib.parse.quote(namespace) + "/" + urllib.parse.quote(name) + "/resolve/main/" + filename
+
+
+    def fetch_public_json(url, required=True):
+        request = urllib.request.Request(url, headers={
+            "Accept": "application/json",
+            "User-Agent": "magicstick-dashboard/0.1",
+        })
+        try:
+            with urllib.request.urlopen(request, timeout=12, context=PUBLIC_SSL_CONTEXT) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as error:
+            if error.code == 404 and not required:
+                return None
+            if error.code in {401, 403}:
+                raise ValueError("private or unauthorized HuggingFace models are not supported in this version")
+            if not required:
+                return None
+            raise
+
+
+    def hf_metadata(repo):
+        now = time.time()
+        cached = HF_METADATA_CACHE.get(repo)
+        if cached and now - cached.get("fetchedAt", 0) < HF_CACHE_TTL_SECONDS:
+            return cached
+        config = fetch_public_json(hf_resolve_url(repo, "config.json"), required=True)
+        safetensors_index = fetch_public_json(hf_resolve_url(repo, "model.safetensors.index.json"), required=False)
+        cached = {
+            "repo": repo,
+            "config": config or {},
+            "safetensorsIndex": safetensors_index or {},
+            "fetchedAt": now,
+        }
+        HF_METADATA_CACHE[repo] = cached
+        return cached
+
+
+    def config_int(config, *keys):
+        for key in keys:
+            value = positive_int((config or {}).get(key))
+            if value:
+                return value
+        return None
+
+
+    def quantization_bits(config):
+        quant = (config or {}).get("quantization_config") or {}
+        for key in ("bits", "weight_bits", "load_in_bits"):
+            value = positive_int(quant.get(key))
+            if value:
+                return value
+        if quant.get("load_in_4bit") is True:
+            return 4
+        if quant.get("load_in_8bit") is True:
+            return 8
+        method = str(quant.get("quant_method") or quant.get("quantization_method") or "").lower()
+        if method in {"awq", "gptq", "aqlm"}:
+            return 4
+        return None
+
+
+    def dtype_bytes(config):
+        bits = quantization_bits(config)
+        if bits:
+            return max(0.5, bits / 8.0)
+        raw = str((config or {}).get("torch_dtype") or (config or {}).get("dtype") or "").lower()
+        if "float32" in raw or "fp32" in raw:
+            return 4
+        if "float8" in raw or "fp8" in raw or "int8" in raw:
+            return 1
+        if "int4" in raw:
+            return 0.5
+        return 2
+
+
+    def safetensors_weight_mi(index):
+        metadata = (index or {}).get("metadata") or {}
+        total_size = positive_int(metadata.get("total_size"))
+        return ceil_mib(total_size) if total_size else None
+
+
+    def estimated_parameter_count(config):
+        explicit = config_int(config, "num_parameters", "n_params", "parameter_count")
+        if explicit:
+            return explicit
+        layers = config_int(config, "num_hidden_layers", "n_layer", "num_layers")
+        hidden = config_int(config, "hidden_size", "n_embd", "d_model")
+        heads = config_int(config, "num_attention_heads", "n_head")
+        kv_heads = config_int(config, "num_key_value_heads", "num_kv_heads", "n_head_kv") or heads
+        vocab = config_int(config, "vocab_size", "padded_vocab_size") or 0
+        intermediate = config_int(config, "intermediate_size", "ffn_dim")
+        if not layers or not hidden or not heads:
+            return None
+        head_dim = config_int(config, "head_dim", "qk_rope_head_dim") or max(1, hidden // heads)
+        attention = hidden * (heads * head_dim + 2 * kv_heads * head_dim) + hidden * hidden
+        if intermediate:
+            mlp = 3 * hidden * intermediate
+        else:
+            mlp = 8 * hidden * hidden
+        embeddings = vocab * hidden
+        return int(embeddings + layers * (attention + mlp))
+
+
+    def fallback_weight_mi(config):
+        params = estimated_parameter_count(config)
+        if not params:
+            return None
+        overhead = 1.12 if quantization_bits(config) else 1.0
+        return ceil_mib(params * dtype_bytes(config) * overhead)
+
+
+    def kv_cache_mi(config, context_window, max_num_seqs):
+        layers = config_int(config, "num_hidden_layers", "n_layer", "num_layers")
+        hidden = config_int(config, "hidden_size", "n_embd", "d_model")
+        heads = config_int(config, "num_attention_heads", "n_head")
+        kv_heads = config_int(config, "num_key_value_heads", "num_kv_heads", "n_head_kv") or heads
+        if not layers or not hidden or not heads or not kv_heads:
+            return None
+        head_dim = config_int(config, "head_dim", "qk_rope_head_dim") or max(1, hidden // heads)
+        kv_dtype_bytes = 1 if "fp8" in str(config.get("kv_cache_dtype") or "").lower() else 2
+        bytes_value = 2 * layers * kv_heads * head_dim * kv_dtype_bytes * int(context_window) * int(max_num_seqs)
+        return ceil_mib(bytes_value)
+
+
+    def estimate_model_vram(payload):
+        payload = payload or {}
+        repo = hf_repo_id(payload.get("url"))
+        metadata = hf_metadata(repo)
+        config = metadata.get("config") or {}
+        warnings = []
+        model_type = str(payload.get("modelType") or config.get("model_type") or "chat").lower()
+        context_window = positive_int(payload.get("contextWindow")) or config_int(config, "max_position_embeddings", "model_max_length") or 4096
+        if not positive_int(payload.get("contextWindow")):
+            warnings.append("Context Size was missing; using model config or 4096 token fallback.")
+        max_num_seqs = positive_int(payload.get("maxNumSeqs"))
+        if not max_num_seqs:
+            max_num_seqs = 8 if model_type == "embedding" else 32
+            warnings.append("Max Num Seqs was missing; using " + str(max_num_seqs) + " for the estimate.")
+
+        weights_mi = safetensors_weight_mi(metadata.get("safetensorsIndex"))
+        confidence = "high"
+        if not weights_mi:
+            weights_mi = fallback_weight_mi(config)
+            confidence = "estimated"
+            warnings.append("Safetensors index not available; estimated model weights from config.")
+        if not weights_mi:
+            weights_mi = 0
+            confidence = "fallback"
+            warnings.append("Could not estimate model weight size from HuggingFace metadata.")
+
+        kv_mi = kv_cache_mi(config, context_window, max_num_seqs)
+        if kv_mi is None:
+            kv_mi = 0
+            confidence = "fallback"
+            warnings.append("Could not estimate KV cache from model config.")
+        runtime_mi = max(1024, int((weights_mi + kv_mi) * 0.05))
+        minimum_mi = weights_mi + kv_mi + runtime_mi
+        reserve_mi = max(2048, int(minimum_mi * 0.15))
+        recommended_mi = minimum_mi + reserve_mi
+
+        vram = vram_summary(model_activations())
+        maximum_mi = vram.get("plannedRemainingMi") if vram.get("available") else None
+        if maximum_mi is None:
+            warnings.append("Live GPU availability unavailable; max available cannot be verified.")
+        elif maximum_mi < minimum_mi:
+            warnings.append("Estimated minimum exceeds currently available unplanned VRAM.")
+
+        return {
+            "repo": repo,
+            "sourceUrl": "https://huggingface.co/" + repo,
+            "minimumMi": int(minimum_mi),
+            "recommendedMi": int(recommended_mi),
+            "maximumMi": None if maximum_mi is None else int(maximum_mi),
+            "weightsMi": int(weights_mi),
+            "kvCacheMi": int(kv_mi),
+            "reserveMi": int(runtime_mi),
+            "recommendedReserveMi": int(reserve_mi),
+            "contextWindow": int(context_window),
+            "maxNumSeqs": int(max_num_seqs),
+            "confidence": confidence,
+            "gpuAvailable": bool(vram.get("available")),
+            "warnings": warnings,
+        }
 
 
     def provider_secret_name(model_name):
@@ -893,6 +1116,10 @@ data:
                     collection = f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/appinstances"
                     item = collection + "/" + name
                     self.send_json(create_or_patch(collection, item, resource, {"spec": resource["spec"], "metadata": {"labels": resource["metadata"]["labels"]}}))
+                    return
+
+                if len(parts) == 3 and parts[:2] == ["api", "models"] and parts[2] == "estimate-vram":
+                    self.send_json(estimate_model_vram(read_body(self)))
                     return
 
                 if len(parts) == 3 and parts[:2] == ["api", "models"] and parts[2] in {"local", "external"}:
