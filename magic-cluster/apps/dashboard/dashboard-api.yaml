@@ -712,7 +712,7 @@ data:
             kv_layers, total_layers = kv_cache_layer_count(dimensions)
             if kv_layers and total_layers and kv_layers < total_layers:
                 warnings.append("Detected hybrid attention; KV cache uses " + str(kv_layers) + " full-attention layers out of " + str(total_layers) + ".")
-        runtime_mi = max(1024, int((weights_mi + kv_mi) * 0.05))
+        runtime_mi = max(2048, int((weights_mi + kv_mi) * 0.08))
         minimum_mi = weights_mi + kv_mi + runtime_mi
         reserve_mi = max(2048, int(minimum_mi * 0.15))
         recommended_mi = minimum_mi + reserve_mi
