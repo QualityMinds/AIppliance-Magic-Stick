@@ -492,6 +492,11 @@ data:
           resize: vertical;
         }
 
+        .field input[readonly] {
+          color: var(--muted);
+          background: rgba(15, 23, 42, 0.52);
+        }
+
         .vram-estimate {
           border: 1px solid rgba(148, 163, 184, 0.22);
           border-radius: 10px;
@@ -718,7 +723,7 @@ data:
                 <div class="form-grid">
                   <label class="field">Name<input name="name" value="default" /></label>
                   <label class="field">Model<select name="model" data-model-select="chat" data-model-fallback="CHANGEME_MODEL"><option value="">Loading models</option></select></label>
-                  <label class="field">Host<input name="host" value="default.openclaw.magicstick.example.com" data-host-prefix="openclaw" /></label>
+                  <label class="field">Host<input value="default.openclaw.magicstick.example.com" data-host-prefix="openclaw" readonly aria-readonly="true" /></label>
                   <label class="field">Storage<input name="storage" value="20Gi" /></label>
                 </div>
                 <button class="control-button primary" type="submit">Create OpenClaw</button>
@@ -728,7 +733,7 @@ data:
                 <div class="form-grid">
                   <label class="field">Name<input name="name" value="default" /></label>
                   <label class="field">Model<select name="model" data-model-select="chat" data-model-fallback="qwen3635b"><option value="">Loading models</option></select></label>
-                  <label class="field">Host<input name="host" value="default.hermes.magicstick.example.com" data-host-prefix="hermes" /></label>
+                  <label class="field">Host<input value="default.hermes.magicstick.example.com" data-host-prefix="hermes" readonly aria-readonly="true" /></label>
                   <label class="field">Storage<input name="storage" value="10Gi" /></label>
                 </div>
                 <button class="control-button primary" type="submit">Create Hermes</button>
@@ -738,7 +743,7 @@ data:
                 <div class="form-grid">
                   <label class="field">Name<input name="name" value="default" /></label>
                   <label class="field">Admin Email<input name="adminEmail" value="admin@example.com" /></label>
-                  <label class="field">Host<input name="host" value="default.paperclip.magicstick.example.com" data-host-prefix="paperclip" /></label>
+                  <label class="field">Host<input value="default.paperclip.magicstick.example.com" data-host-prefix="paperclip" readonly aria-readonly="true" /></label>
                   <label class="field">Storage<input name="storage" value="5Gi" /></label>
                   <label class="field">Postgres<input name="postgresStorage" value="10Gi" /></label>
                 </div>
@@ -749,7 +754,7 @@ data:
                 <div class="form-grid">
                   <label class="field">Name<input name="name" value="default" /></label>
                   <label class="field">Model<select name="model" data-model-select="chat" data-model-fallback="CHANGEME_MODEL"><option value="">Loading models</option></select></label>
-                  <label class="field">Host<input name="host" value="default.kubeopencode.magicstick.example.com" data-host-prefix="kubeopencode" /></label>
+                  <label class="field">Host<input value="default.kubeopencode.magicstick.example.com" data-host-prefix="kubeopencode" readonly aria-readonly="true" /></label>
                   <label class="field">Template<input name="template" value="default-coder" /></label>
                 </div>
                 <button class="control-button primary" type="submit">Create KubeOpenCode</button>
@@ -2170,7 +2175,7 @@ data:
                 namespace: 'ai',
                 model: selectedModel || 'CHANGEME_MODEL'
               };
-              const host = String(data.get('host') || '').trim() || instanceHostDefault(form, latestSettings);
+              const host = instanceHostDefault(form, latestSettings);
               if (type === 'openclaw') {
                 payload.storage = { size: data.get('storage') || '20Gi' };
                 payload.ingress = { enabled: true, host };
