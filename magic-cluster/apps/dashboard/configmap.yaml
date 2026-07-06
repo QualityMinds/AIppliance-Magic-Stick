@@ -492,11 +492,6 @@ data:
           resize: vertical;
         }
 
-        .field input[readonly] {
-          color: var(--muted);
-          background: rgba(15, 23, 42, 0.52);
-        }
-
         .vram-estimate {
           border: 1px solid rgba(148, 163, 184, 0.22);
           border-radius: 10px;
@@ -723,7 +718,6 @@ data:
                 <div class="form-grid">
                   <label class="field">Name<input name="name" value="default" /></label>
                   <label class="field">Model<select name="model" data-model-select="chat" data-model-fallback="CHANGEME_MODEL"><option value="">Loading models</option></select></label>
-                  <label class="field">Host<input value="default.openclaw.magicstick.example.com" data-host-prefix="openclaw" readonly aria-readonly="true" /></label>
                 </div>
                 <details class="module-advanced">
                   <summary>Configure</summary>
@@ -738,7 +732,6 @@ data:
                 <div class="form-grid">
                   <label class="field">Name<input name="name" value="default" /></label>
                   <label class="field">Model<select name="model" data-model-select="chat" data-model-fallback="qwen3635b"><option value="">Loading models</option></select></label>
-                  <label class="field">Host<input value="default.hermes.magicstick.example.com" data-host-prefix="hermes" readonly aria-readonly="true" /></label>
                 </div>
                 <details class="module-advanced">
                   <summary>Configure</summary>
@@ -753,7 +746,6 @@ data:
                 <div class="form-grid">
                   <label class="field">Name<input name="name" value="default" /></label>
                   <label class="field">Admin Email<input name="adminEmail" value="admin@example.com" /></label>
-                  <label class="field">Host<input value="default.paperclip.magicstick.example.com" data-host-prefix="paperclip" readonly aria-readonly="true" /></label>
                 </div>
                 <details class="module-advanced">
                   <summary>Configure</summary>
@@ -769,7 +761,6 @@ data:
                 <div class="form-grid">
                   <label class="field">Name<input name="name" value="default" /></label>
                   <label class="field">Model<select name="model" data-model-select="chat" data-model-fallback="CHANGEME_MODEL"><option value="">Loading models</option></select></label>
-                  <label class="field">Host<input value="default.kubeopencode.magicstick.example.com" data-host-prefix="kubeopencode" readonly aria-readonly="true" /></label>
                   <label class="field">Template<input name="template" value="default-coder" /></label>
                 </div>
                 <button class="control-button primary" type="submit">Create KubeOpenCode</button>
@@ -1655,15 +1646,6 @@ data:
             return appHost(instanceHostPrefix(form), domain);
           };
 
-          const isLegacyInstanceHostDefault = (input, current, domain) => {
-            const type = dnsLabelPart(input.dataset.hostPrefix, 'instance');
-            return [
-              appHost(type, domain),
-              appHost(type, 'magicstick.example.com'),
-              appHost(type, 'example.local')
-            ].includes(current);
-          };
-
           const setText = (id, value) => {
             const node = $(id);
             if (node) {
@@ -1689,25 +1671,6 @@ data:
             setText('settings-dashboard-local', 'Dashboard local: http://' + latestSettings.mdnsDomain + '/');
             setText('settings-anythingllm-public', 'AnythingLLM public: http://' + appHost('anythingllm', latestSettings.publicDomain) + '/');
             setText('settings-anythingllm-local', 'AnythingLLM local: http://' + appHost('anythingllm', latestSettings.mdnsDomain) + '/');
-          };
-
-          const setInstanceHostDefaults = (settings) => {
-            const domain = (settings || latestSettings).publicDomain || 'magicstick.example.com';
-            document.querySelectorAll('.instance-form').forEach((form) => {
-              const input = form.querySelector('input[data-host-prefix]');
-              if (!input) { return; }
-              const next = instanceHostDefault(form, settings);
-              const current = String(input.value || '').trim();
-              if (!input.dataset.hostDefault) {
-                input.dataset.hostDefault = current;
-              }
-              const previous = input.dataset.hostDefault || '';
-              const shouldUpdate = !current || current === previous || isLegacyInstanceHostDefault(input, current, domain);
-              if (shouldUpdate) {
-                input.value = next;
-                input.dataset.hostDefault = next;
-              }
-            });
           };
 
           const presetArgValue = (preset, flag) => {
@@ -1955,7 +1918,6 @@ data:
               const modelPayload = await request('/api/models');
               const status = await request('/api/status');
               renderSettings(settings);
-              setInstanceHostDefaults(settings);
               latestModulePayload = modulePayload || {};
               latestModelPayload = modelPayload || {};
               renderLocalPresetOptions(latestModelPayload);
@@ -2166,11 +2128,6 @@ data:
           }
 
           document.querySelectorAll('.instance-form').forEach((form) => {
-            const nameField = form.elements ? form.elements.name : null;
-            if (nameField) {
-              nameField.addEventListener('input', () => setInstanceHostDefaults(latestSettings));
-              nameField.addEventListener('change', () => setInstanceHostDefaults(latestSettings));
-            }
             form.addEventListener('submit', async (event) => {
               event.preventDefault();
               const data = new FormData(form);
@@ -2238,7 +2195,6 @@ data:
                 const settings = await request('/api/settings', { method: 'PATCH', body: JSON.stringify(payload) });
                 settingsForm.dataset.dirty = 'false';
                 renderSettings(settings, { force: true });
-                setInstanceHostDefaults(settings);
                 $('settings-output').textContent = 'Domain settings saved.';
                 await refresh();
               } catch (error) {
