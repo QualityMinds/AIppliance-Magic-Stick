@@ -216,6 +216,67 @@ data:
           font-size: 0.88rem;
         }
 
+        .overview-workspace {
+          display: grid;
+          gap: 1rem;
+        }
+
+        .overview-metrics {
+          display: grid;
+          gap: 0.75rem;
+          grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+        }
+
+        .overview-metric p {
+          color: var(--text);
+          font-size: 1rem;
+          font-weight: 700;
+        }
+
+        .overview-panel {
+          display: grid;
+          gap: 0.75rem;
+        }
+
+        .overview-app-list {
+          display: grid;
+          gap: 0.55rem;
+        }
+
+        .overview-app-row {
+          border: 1px solid rgba(148, 163, 184, 0.22);
+          border-radius: 10px;
+          padding: 0.7rem;
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          align-items: center;
+          gap: 0.75rem;
+          background: rgba(2, 6, 23, 0.32);
+        }
+
+        .overview-app-title {
+          display: grid;
+          gap: 0.18rem;
+          min-width: 0;
+        }
+
+        .overview-app-title strong {
+          overflow-wrap: anywhere;
+        }
+
+        .overview-app-title span {
+          color: var(--muted);
+          font-size: 0.8rem;
+          overflow-wrap: anywhere;
+        }
+
+        .overview-app-actions {
+          display: flex;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+          gap: 0.4rem;
+        }
+
         .model-workspace {
           display: grid;
           gap: 1rem;
@@ -660,6 +721,14 @@ data:
             grid-column: 1;
             grid-row: auto;
           }
+
+          .overview-app-row {
+            grid-template-columns: 1fr;
+          }
+
+          .overview-app-actions {
+            justify-content: flex-start;
+          }
         }
 
         @media (max-width: 680px) {
@@ -705,28 +774,39 @@ data:
           </nav>
 
           <section id="tab-overview" class="tab-panel">
-            <div class="dashboard-grid">
-              <article class="dashboard-card">
-                <h3>Appliance</h3>
-                <p id="appliance-summary">Loading</p>
-                <div id="appliance-conditions" class="mini-list"></div>
-              </article>
-              <article class="dashboard-card">
-                <h3>Modules</h3>
-                <p id="module-summary">Loading</p>
-              </article>
-              <article class="dashboard-card">
-                <h3>Instances</h3>
-                <p id="instance-summary">Loading</p>
-              </article>
-              <article class="dashboard-card">
-                <h3>Models</h3>
-                <p id="model-summary">Loading</p>
-              </article>
-              <article class="dashboard-card">
-                <h3>Ingresses</h3>
-                <div id="overview-ingress-list" class="mini-list"></div>
-              </article>
+            <div class="overview-workspace">
+              <div class="overview-metrics">
+                <article class="dashboard-card overview-metric">
+                  <h3>Appliance</h3>
+                  <p id="appliance-summary">Loading</p>
+                </article>
+                <article class="dashboard-card overview-metric">
+                  <h3>Modules</h3>
+                  <p id="module-summary">Loading</p>
+                </article>
+                <article class="dashboard-card overview-metric">
+                  <h3>Instances</h3>
+                  <p id="instance-summary">Loading</p>
+                </article>
+                <article class="dashboard-card overview-metric">
+                  <h3>Models</h3>
+                  <p id="model-summary">Loading</p>
+                </article>
+              </div>
+              <section class="dashboard-card overview-panel">
+                <div class="module-group-heading">
+                  <h3>Available Apps</h3>
+                  <span id="overview-app-count">Loading</span>
+                </div>
+                <div id="overview-app-list" class="overview-app-list"></div>
+              </section>
+              <section class="dashboard-card overview-panel">
+                <div class="module-group-heading">
+                  <h3>Attention</h3>
+                  <span id="overview-attention-count">Loading</span>
+                </div>
+                <div id="overview-attention-list" class="mini-list"></div>
+              </section>
             </div>
           </section>
 
@@ -1212,6 +1292,16 @@ data:
             }
           };
 
+          const urlHostname = (value) => {
+            const url = ensureHttpUrl(value);
+            if (!url) { return ''; }
+            try {
+              return new URL(url).hostname;
+            } catch (error) {
+              return String(urlHost(value) || '').replace(/:\d+$/, '');
+            }
+          };
+
           const normalizedKey = (value) => {
             return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
           };
@@ -1302,51 +1392,206 @@ data:
             return uniqueLinks(statusLink ? ingressLinks.concat(statusLink) : ingressLinks);
           };
 
-          const renderIngressSummaryItem = (target, kind, name, links) => {
-            const unique = uniqueLinks(links);
-            if (!target || !unique.length) { return; }
-            const item = document.createElement('div');
-            item.className = 'mini-item';
-            const label = document.createElement('strong');
-            label.textContent = kind + ': ' + name;
-            item.appendChild(label);
-            const linkRow = createResourceLinks(unique);
-            if (linkRow) { item.appendChild(linkRow); }
-            target.appendChild(item);
+          const overviewLinkScope = (link) => {
+            const hostname = urlHostname((link || {}).url || (link || {}).label);
+            if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname) || hostname === 'localhost') {
+              return { key: 'direct', label: 'Open direct', order: 30 };
+            }
+            if (hostname.endsWith('.local')) {
+              return { key: 'local', label: 'Open local', order: 10 };
+            }
+            return { key: 'public', label: 'Open public', order: 20 };
           };
 
-          const renderOverviewIngresses = (modulePayload, instancePayload, status) => {
-            const target = $('overview-ingress-list');
+          const overviewActionLinks = (links) => {
+            const picked = new Map();
+            uniqueLinks(links).forEach((link) => {
+              const scope = overviewLinkScope(link);
+              if (!picked.has(scope.key)) {
+                picked.set(scope.key, { link, scope });
+              }
+            });
+            return Array.from(picked.values()).sort((left, right) => left.scope.order - right.scope.order);
+          };
+
+          const createOverviewAppActions = (links) => {
+            const actions = overviewActionLinks(links);
+            if (!actions.length) { return null; }
+            const wrapper = document.createElement('div');
+            wrapper.className = 'overview-app-actions';
+            actions.forEach(({ link, scope }) => {
+              const anchor = document.createElement('a');
+              anchor.className = 'resource-link';
+              anchor.href = link.url;
+              anchor.target = '_blank';
+              anchor.rel = 'noreferrer';
+              anchor.title = link.label;
+              anchor.textContent = scope.label;
+              wrapper.appendChild(anchor);
+            });
+            return wrapper;
+          };
+
+          const instanceOverviewTitle = (type, instance) => {
+            const metadata = (instance || {}).metadata || {};
+            const rawName = metadata.name || '';
+            const prefix = type + '-';
+            const shortName = rawName.startsWith(prefix) ? rawName.slice(prefix.length) : rawName;
+            return titleFromKey(type) + (shortName && shortName !== type ? ' ' + shortName : '');
+          };
+
+          const createOverviewAppRow = ({ title, subtitle, phase, links }) => {
+            const row = document.createElement('article');
+            row.className = 'overview-app-row';
+            const titleBlock = document.createElement('div');
+            titleBlock.className = 'overview-app-title';
+            const name = document.createElement('strong');
+            name.textContent = title;
+            const meta = document.createElement('span');
+            meta.textContent = [subtitle, phase].filter(Boolean).join(' - ');
+            titleBlock.append(name, meta);
+            const actions = createOverviewAppActions(links);
+            row.appendChild(titleBlock);
+            if (actions) {
+              row.appendChild(actions);
+            }
+            return row;
+          };
+
+          const addOverviewRow = (target, rows, seenLinks, row) => {
+            const links = uniqueLinks(row.links || []);
+            const freshLinks = links.filter((link) => {
+              const key = String(link.url || '').replace(/\/$/, '');
+              return key && !seenLinks.has(key);
+            });
+            if (!freshLinks.length) { return; }
+            freshLinks.forEach((link) => seenLinks.add(String(link.url || '').replace(/\/$/, '')));
+            target.appendChild(createOverviewAppRow({ ...row, links: freshLinks }));
+            rows.push(row);
+          };
+
+          const renderOverviewApps = (modulePayload, instancePayload, status) => {
+            const target = $('overview-app-list');
+            const count = $('overview-app-count');
             if (!target) { return; }
             target.innerHTML = '';
-            orderedModules(modulePayload).forEach(({ name, catalogSpec, title }) => {
-              renderIngressSummaryItem(target, 'Module', title, moduleIngressLinks(name, catalogSpec, status));
-            });
+            const rows = [];
+            const seenLinks = new Set();
             const instances = ((instancePayload || {}).instances || {});
             Object.keys(instances).sort().forEach((type) => {
               (instances[type] || []).forEach((instance) => {
-                const metadata = instance.metadata || {};
-                renderIngressSummaryItem(target, 'Instance', metadata.name || titleFromKey(type), instanceIngressLinks(instance, status));
+                const spec = instance.spec || {};
+                const statusSpec = instance.status || {};
+                const enabled = spec.enabled !== false;
+                const phase = statusSpec.phase || (enabled ? 'Requested' : 'Suspended');
+                addOverviewRow(target, rows, seenLinks, {
+                  title: instanceOverviewTitle(type, instance),
+                  subtitle: 'Instance',
+                  phase,
+                  links: instanceIngressLinks(instance, status)
+                });
+              });
+            });
+            orderedModules(modulePayload).forEach(({ name, spec, catalogSpec, title }) => {
+              const enabled = spec.enabled === true;
+              const activationMode = spec.activationMode || catalogSpec.activationMode || 'moduleactivation';
+              const phase = (spec.status || {}).phase || (activationMode === 'static' && enabled ? 'Ready' : (enabled ? 'Requested' : 'Disabled'));
+              addOverviewRow(target, rows, seenLinks, {
+                title,
+                subtitle: 'Module',
+                phase,
+                links: moduleIngressLinks(name, catalogSpec, status)
               });
             });
             if (!target.childElementCount) {
               const item = document.createElement('div');
               item.className = 'mini-item';
-              item.textContent = 'No module or instance ingresses discovered.';
+              item.textContent = 'No app ingresses discovered yet.';
               target.appendChild(item);
+            }
+            if (count) {
+              count.textContent = rows.length + (rows.length === 1 ? ' app' : ' apps');
             }
           };
 
-          const renderConditions = (conditions) => {
-            const target = $('appliance-conditions');
+          const attentionItem = (target, items, label, detail) => {
+            if (!target) { return; }
+            const item = document.createElement('div');
+            item.className = 'mini-item';
+            const strong = document.createElement('strong');
+            strong.textContent = label;
+            item.appendChild(strong);
+            if (detail) {
+              const text = document.createElement('span');
+              text.textContent = detail;
+              item.appendChild(text);
+            }
+            target.appendChild(item);
+            items.push(label);
+          };
+
+          const phaseNeedsOverviewAttention = (phase) => {
+            const normalized = String(phase || '').toLowerCase();
+            return normalized === 'degraded' || phaseInProgress(normalized);
+          };
+
+          const renderOverviewAttention = (appliance, modulePayload, instancePayload, modelPayload, statusPayload) => {
+            const target = $('overview-attention-list');
+            const count = $('overview-attention-count');
             if (!target) { return; }
             target.innerHTML = '';
-            (conditions || []).slice(0, 5).forEach((condition) => {
+            const items = [];
+            (((appliance || {}).status || {}).conditions || []).forEach((condition) => {
+              if (condition.status && condition.status !== 'True') {
+                attentionItem(target, items, 'Appliance ' + (condition.type || 'Condition'), (condition.reason || condition.message || condition.status || '').trim());
+              }
+            });
+            orderedModules(modulePayload).forEach(({ name, spec, catalogSpec, title }) => {
+              const enabled = spec.enabled === true;
+              const activationMode = spec.activationMode || catalogSpec.activationMode || 'moduleactivation';
+              const moduleStatus = spec.status || {};
+              const phase = moduleStatus.phase || (activationMode === 'static' && enabled ? 'Ready' : (enabled ? 'Requested' : 'Disabled'));
+              if (phaseNeedsOverviewAttention(phase)) {
+                attentionItem(target, items, 'Module ' + title, moduleStatus.message || phase);
+              }
+            });
+            const instances = ((instancePayload || {}).instances || {});
+            Object.keys(instances).sort().forEach((type) => {
+              (instances[type] || []).forEach((instance) => {
+                const spec = instance.spec || {};
+                const status = instance.status || {};
+                const enabled = spec.enabled !== false;
+                const phase = status.phase || (enabled ? 'Requested' : 'Suspended');
+                if (phaseNeedsOverviewAttention(phase)) {
+                  attentionItem(target, items, 'Instance ' + (instanceOverviewTitle(type, instance)), status.message || phase);
+                }
+              });
+            });
+            ((modelPayload || {}).activations || []).forEach((activation) => {
+              const metadata = activation.metadata || {};
+              const spec = activation.spec || {};
+              const status = activation.status || {};
+              const enabled = spec.enabled !== false;
+              const phase = status.phase || (enabled ? 'Requested' : 'Disabled');
+              if (phaseNeedsOverviewAttention(phase) || metadata.deletionTimestamp || pendingModelDeletes[metadata.name]) {
+                attentionItem(target, items, 'Model ' + (metadata.name || 'unnamed'), status.message || (metadata.deletionTimestamp ? 'Removing' : phase));
+              }
+            });
+            ((statusPayload || {}).fluxKustomizations || []).forEach((item) => {
+              const ready = (item.conditions || []).find((condition) => condition.type === 'Ready');
+              if (ready && ready.status && ready.status !== 'True') {
+                attentionItem(target, items, 'Flux ' + (item.name || 'Kustomization'), ready.reason || ready.message || ready.status);
+              }
+            });
+            if (!target.childElementCount) {
               const item = document.createElement('div');
               item.className = 'mini-item';
-              item.textContent = (condition.type || 'Condition') + ': ' + (condition.status || 'Unknown') + ' ' + (condition.reason || '');
+              item.textContent = 'No issues detected.';
               target.appendChild(item);
-            });
+            }
+            if (count) {
+              count.textContent = items.length ? (items.length + (items.length === 1 ? ' item' : ' items')) : 'No issues';
+            }
           };
 
           const renderModules = (modulePayload, statusPayload = {}) => {
@@ -2124,8 +2369,8 @@ data:
               $('instance-summary').textContent = instanceCount + ' instances requested';
               const installedModelIds = new Set(((modelPayload || {}).models || []).map(modelIdentifier).filter(Boolean));
               $('model-summary').textContent = installedModelIds.size + (installedModelIds.size === 1 ? ' model installed' : ' models installed');
-              renderConditions((appliance.status || {}).conditions || []);
-              renderOverviewIngresses(modulePayload, instancePayload, status);
+              renderOverviewApps(modulePayload, instancePayload, status);
+              renderOverviewAttention(appliance, modulePayload, instancePayload, modelPayload, status);
               renderModules(modulePayload, status);
               renderInstances(instancePayload, status);
               renderVram(modelPayload);
