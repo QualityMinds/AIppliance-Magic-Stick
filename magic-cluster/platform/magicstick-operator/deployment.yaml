@@ -20,7 +20,7 @@ spec:
         app.kubernetes.io/name: magicstick-operator
         app.kubernetes.io/component: controller
       annotations:
-        appliance.magicstick.dev/controller-config-revision: runtime-crs-v30
+        appliance.magicstick.dev/controller-config-revision: runtime-crs-v32
     spec:
       serviceAccountName: magicstick-operator
       containers:

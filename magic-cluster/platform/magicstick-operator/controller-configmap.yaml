@@ -31,6 +31,8 @@ data:
     FLUX_NAMESPACE = os.environ.get("FLUX_NAMESPACE", "flux-system")
     SETTINGS_NAMESPACE = os.environ.get("SETTINGS_NAMESPACE", FLUX_NAMESPACE)
     SETTINGS_CONFIGMAP_NAME = os.environ.get("SETTINGS_CONFIGMAP_NAME", "ai-appliance-settings")
+    KDNS_NAMESPACE = os.environ.get("KDNS_NAMESPACE", "kdns")
+    KDNS_DEPLOYMENT_NAME = os.environ.get("KDNS_DEPLOYMENT_NAME", "kdns-kdns")
     DEFAULT_MDNS_DOMAIN = os.environ.get("DEFAULT_MDNS_DOMAIN", "magicstick.local")
     REQUEUE_SECONDS = int(os.environ.get("REQUEUE_SECONDS", "20"))
     KUBE_API = os.environ.get("KUBERNETES_SERVICE_URL", "https://kubernetes.default.svc").rstrip("/")
@@ -67,6 +69,7 @@ data:
         ("paperclip.inc", "Instance"): "instances",
         ("kubeopencode.io", "Agent"): "agents",
         ("kubeopencode.io", "AgentTemplate"): "agenttemplates",
+        ("networking.k8s.io", "Ingress"): "ingresses",
     }
 
     STATIC_DEPENDENCIES = {
@@ -167,6 +170,32 @@ data:
 
     def delete_resource(group, version, plural, namespace, name):
         return delete_json(f"/apis/{group}/{version}/namespaces/{namespace}/{plural}/{name}")
+
+
+    def refresh_kdns(reason):
+        try:
+            patch_json(
+                f"/apis/apps/v1/namespaces/{KDNS_NAMESPACE}/deployments/{KDNS_DEPLOYMENT_NAME}",
+                {
+                    "spec": {
+                        "template": {
+                            "metadata": {
+                                "annotations": {
+                                    "appliance.magicstick.dev/kdns-refresh": now(),
+                                    "appliance.magicstick.dev/kdns-refresh-reason": str(reason or "runtime-ingress")[:63],
+                                },
+                            },
+                        },
+                    },
+                },
+            )
+        except urllib.error.HTTPError as error:
+            if error.code == 404:
+                print(f"kdns deployment {KDNS_NAMESPACE}/{KDNS_DEPLOYMENT_NAME} not found; mDNS refresh skipped", flush=True)
+                return
+            raise
+        except Exception as error:
+            print(f"Could not refresh kdns: {error}", flush=True)
 
 
     def get_core_resource(version, plural, namespace, name):
@@ -386,6 +415,72 @@ data:
 
     def app_instance_local_host(instance, instance_type):
         return local_http_host(app_instance_short_name(instance, instance_type) + "." + dns_label_part(instance_type, "instance"))
+
+
+    def derived_resource_name(name, suffix):
+        clean_name = dns_label_part(name, "app")
+        clean_suffix = dns_label_part(suffix, "managed")
+        max_base = 63 - len(clean_suffix) - 1
+        return clean_name[:max_base].rstrip("-") + "-" + clean_suffix
+
+
+    def ingress_backend_port(value):
+        if isinstance(value, int):
+            return {"number": value}
+        if isinstance(value, str) and value.isdigit():
+            return {"number": int(value)}
+        return {"name": str(value or "http")}
+
+
+    def managed_ingress(name, namespace, hosts, service_name, service_port, annotations=None, labels=None):
+        unique_hosts = []
+        for host in hosts:
+            host = str(host or "").strip().strip(".").lower()
+            if host and host not in unique_hosts:
+                unique_hosts.append(host)
+        return {
+            "apiVersion": "networking.k8s.io/v1",
+            "kind": "Ingress",
+            "metadata": {
+                "name": name,
+                "namespace": namespace,
+                "labels": labels or {},
+                "annotations": annotations or {},
+            },
+            "spec": {
+                "ingressClassName": "nginx",
+                "rules": [{
+                    "host": host,
+                    "http": {
+                        "paths": [{
+                            "path": "/",
+                            "pathType": "Prefix",
+                            "backend": {
+                                "service": {
+                                    "name": service_name,
+                                    "port": ingress_backend_port(service_port),
+                                },
+                            },
+                        }],
+                    },
+                } for host in unique_hosts],
+            },
+        }
+
+
+    def dashboard_ingress_annotations(title, description, icon, category, order, local_name, extra=None):
+        annotations = {
+            "dashboard.ai-appliance.io/title": title,
+            "dashboard.ai-appliance.io/description": description,
+            "dashboard.ai-appliance.io/icon": icon,
+            "dashboard.ai-appliance.io/category": category,
+            "dashboard.ai-appliance.io/order": str(order),
+            "lab42.io/mdns.enabled": "true",
+            "lab42.io/mdns.name": local_name,
+            "lab42.io/mdns.host": local_name,
+        }
+        annotations.update(extra or {})
+        return annotations
 
 
     def canonical_module(name):
@@ -1109,6 +1204,7 @@ data:
                 "security": {
                     "networkPolicy": {
                         "enabled": True,
+                        "allowedIngressNamespaces": ["ai", "ingress-nginx"],
                         "additionalEgress": [{
                             "to": [{"podSelector": {"matchLabels": {"app": "litellm"}}}],
                             "ports": [{"protocol": "TCP", "port": 4000}],
@@ -1240,6 +1336,7 @@ data:
                 "security": {
                     "networkPolicy": {
                         "enabled": True,
+                        "allowedIngressNamespaces": ["ai", "ingress-nginx"],
                         "additionalEgress": [{
                             "to": [{"podSelector": {"matchLabels": {"app": "litellm"}}}],
                             "ports": [{"protocol": "TCP", "port": 4000}],
@@ -1334,7 +1431,31 @@ data:
                 "observability": {"logging": {"level": "info"}},
             },
         }
-        return hermes_instance, "http://" + ingress_host + "/"
+        resources = []
+        if ingress_host != local_host:
+            resources.append(managed_ingress(
+                derived_resource_name(name or "hermes", "local"),
+                namespace,
+                [local_host],
+                name,
+                "gateway",
+                dashboard_ingress_annotations(
+                    "Hermes",
+                    "Self-improving AI agent managed by the Hermes operator.",
+                    "HE",
+                    "AI",
+                    "45",
+                    local_name,
+                    {
+                        "nginx.ingress.kubernetes.io/proxy-read-timeout": "3600",
+                        "nginx.ingress.kubernetes.io/proxy-send-timeout": "3600",
+                        "nginx.ingress.kubernetes.io/proxy-http-version": "1.1",
+                    },
+                ),
+                {"app": "hermes", "appliance.magicstick.dev/appinstance": metadata.get("name", "")},
+            ))
+        resources.append(hermes_instance)
+        return resources, "http://" + ingress_host + "/"
 
 
     def build_paperclip(instance):
@@ -1740,6 +1861,8 @@ data:
         host = server_ingress.get("host") or ((params.get("ingress") or {}).get("host")) or params.get("host") or "kubeopencode.example.local"
         if host == "kubeopencode.example.local":
             host = app_instance_local_host(instance, "kubeopencode")
+        local_host = app_instance_local_host(instance, "kubeopencode")
+        local_name = local_mdns_name(local_host)
         templates = params.get("agentTemplates") or []
         template_name = params.get("template") or (templates[0].get("name") if templates else metadata.get("name"))
         agent_name = params.get("agent") or params.get("agentName") or params.get("name") or metadata.get("name")
@@ -1798,7 +1921,28 @@ data:
                 "suspend": False,
             },
         }
-        return [template, agent], "http://" + host + "/"
+        ingress = managed_ingress(
+            metadata.get("name") or derived_resource_name(agent_name or "kubeopencode", "ingress"),
+            namespace,
+            [host, local_host],
+            agent_name,
+            "http",
+            dashboard_ingress_annotations(
+                "KubeOpenCode",
+                "Browser-accessible OpenCode agent managed by the KubeOpenCode operator.",
+                "KO",
+                "AI",
+                "50",
+                local_name,
+                {
+                    "nginx.ingress.kubernetes.io/proxy-read-timeout": "3600",
+                    "nginx.ingress.kubernetes.io/proxy-send-timeout": "3600",
+                    "nginx.ingress.kubernetes.io/proxy-http-version": "1.1",
+                },
+            ),
+            {"app": "kubeopencode", "appliance.magicstick.dev/appinstance": metadata.get("name", "")},
+        )
+        return [template, ingress, agent], "http://" + host + "/"
 
 
     def app_instance_target_resources(instance):
@@ -1811,7 +1955,10 @@ data:
         if instance_type == "openclaw":
             return [{"apiVersion": "openclaw.rocks/v1alpha1", "kind": "OpenClawInstance", "metadata": {"name": name, "namespace": namespace}}]
         if instance_type == "hermes":
-            return [{"apiVersion": "hermes.agent/v1", "kind": "HermesInstance", "metadata": {"name": name, "namespace": namespace}}]
+            return [
+                {"apiVersion": "hermes.agent/v1", "kind": "HermesInstance", "metadata": {"name": name, "namespace": namespace}},
+                {"apiVersion": "networking.k8s.io/v1", "kind": "Ingress", "metadata": {"name": derived_resource_name(name or "hermes", "local"), "namespace": namespace}},
+            ]
         if instance_type == "paperclip":
             return [{"apiVersion": "paperclip.inc/v1alpha1", "kind": "Instance", "metadata": {"name": name, "namespace": namespace}}]
         if instance_type == "kubeopencode":
@@ -1824,6 +1971,7 @@ data:
             return [
                 {"apiVersion": "kubeopencode.io/v1alpha1", "kind": "Agent", "metadata": {"name": agent_name, "namespace": namespace}},
                 {"apiVersion": "kubeopencode.io/v1alpha1", "kind": "AgentTemplate", "metadata": {"name": template_name, "namespace": namespace}},
+                {"apiVersion": "networking.k8s.io/v1", "kind": "Ingress", "metadata": {"name": name, "namespace": namespace}},
             ]
         return []
 
@@ -1859,7 +2007,9 @@ data:
     def reconcile_instance(instance, catalog):
         metadata = instance.get("metadata") or {}
         spec = instance.get("spec") or {}
+        status = instance.get("status") or {}
         generation = int(metadata.get("generation") or 0)
+        observed_generation = int(status.get("observedGeneration") or 0)
         instance_type = spec.get("type")
         enabled = spec.get("enabled", True) is not False
         mapping = (catalog.get("instanceMappings") or {}).get(instance_type)
@@ -1898,8 +2048,11 @@ data:
 
         built_resources, url = INSTANCE_BUILDERS[instance_type](instance)
         resources = built_resources if isinstance(built_resources, list) else [built_resources]
+        refresh_runtime_dns = generation > observed_generation and any(item.get("kind") == "Ingress" for item in resources)
         for item in resources:
             apply_resource(item)
+        if refresh_runtime_dns:
+            refresh_kdns(f"appinstance-{metadata.get('name', '')}")
         resource = resources[-1]
         target = {
             "kind": resource["kind"],
