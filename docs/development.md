@@ -1,7 +1,8 @@
 # Development
 
 This repository is a public template. Development work should preserve the
-boundary between reusable public bases and private deployment overlays.
+boundary between reusable public bases and runtime or deployment-specific
+values.
 
 ## Local Workflow
 
@@ -51,7 +52,8 @@ magic-installer/write-usb.sh --help
 - Keep real deployment values out of the public repository.
 - Use `example.local`, `example.com`, `CHANGEME`, or documented variables.
 - Put real domains, storage sizes, model selections, runtime CR seeds, and
-  secret integrations in private overlays.
+  secret integrations in runtime settings, runtime CRs, Secrets, or optional
+  external overlays.
 - Public Kubernetes manifests should be reusable bases, not one-off deployment
   manifests.
 - Public Secret manifests may only use generated-secret annotations,
@@ -77,7 +79,7 @@ magic-installer/write-usb.sh --help
    `magic-cluster/platform/magicstick-operator/module-catalog.yaml`.
 3. Choose a stable generated Flux `kustomizationName`.
 4. Document required CRDs and dependencies.
-5. Add or update `Appliance` examples when the module is user-selectable.
+5. Update the module catalog and docs when the module is user-selectable.
 6. Render `magic-cluster/platform/magicstick-operator` and any touched base.
 
 ## Adding An App Variable
@@ -97,7 +99,7 @@ Prefer one of these patterns:
 
 - generated Secret with secret-generator annotations
 - `valueFrom.secretKeyRef` pointing to a Secret supplied by a private overlay
-- external secret manager integration in a private deployment repository
+- external secret manager integration outside this public repository
 
 Never commit real secret data. When debugging, avoid copying decoded Secret
 values into logs, issues, commits, or docs.

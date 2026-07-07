@@ -86,17 +86,23 @@ Common public hostnames use `AI_APPLIANCE_DOMAIN`:
 | Dashboard | `magicstick.example.com` |
 | AnythingLLM | `anythingllm.magicstick.example.com` |
 | LiteLLM | `litellm.magicstick.example.com` |
-| Hermes | `hermes.magicstick.example.com` |
-| OpenClaw | `openclaw.magicstick.example.com` |
-| Paperclip | `paperclip.magicstick.example.com` |
 | Grafana | `grafana.magicstick.example.com` |
 | Prometheus | `prometheus.magicstick.example.com` |
 | Alertmanager | `alertmanager.magicstick.example.com` |
 
+AppInstance hostnames include the instance name:
+
+| Instance type | Example public host | Example local host |
+|---|---|---|
+| OpenClaw | `default.openclaw.magicstick.example.com` | `default.openclaw.magicstick.local` |
+| Hermes | `default.hermes.magicstick.example.com` | `default.hermes.magicstick.local` |
+| Paperclip | `default.paperclip.magicstick.example.com` | `default.paperclip.magicstick.local` |
+| KubeOpenCode | `default.kubeopencode.magicstick.example.com` | `default.kubeopencode.magicstick.local` |
+
 Local mDNS hostnames use `AI_APPLIANCE_MDNS_DOMAIN`, for example
 `magicstick.local` for the dashboard and `anythingllm.magicstick.local` for
-AnythingLLM. Actual private deployments should replace these through runtime settings or
-private overlays.
+AnythingLLM. Instance-local hostnames use the same instance-name pattern with
+the mDNS domain.
 
 ## Model Catalog
 

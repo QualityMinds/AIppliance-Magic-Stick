@@ -1,8 +1,6 @@
 # Getting Started
 
-This guide covers local validation and the public read-only installer flow. For
-private deployment repositories, read [gitops-overlays.md](gitops-overlays.md)
-after this page.
+This guide covers local validation and the public read-only installer flow.
 
 ## Prerequisites
 
@@ -93,29 +91,6 @@ On Linux the device will usually look like `/dev/sdX` or `/dev/nvmeXnY`. On
 macOS it will look like `/dev/diskN`. Always pass a whole disk, not a
 partition.
 
-## Private GitHub Bootstrap
-
-Private mode is opt-in and writes Flux bootstrap state to a private deployment
-repository.
-
-```bash
-export FLUX_GITHUB_TOKEN=<personal-access-token>
-
-magic-installer/build-installer-image.sh \
-  --flux-bootstrap-mode github \
-  --deployment-name example-deployment \
-  --hostname example-host-01 \
-  --git-owner example-org \
-  --git-repo example-deployment \
-  --git-branch main \
-  --flux-cluster-path deployments/example-deployment/infra-cluster/flux-bootstrap \
-  --output dist/magicstick-installer-private.img
-```
-
-Images built in `github` mode are sensitive because the rendered cloud-init
-configuration can contain the Flux GitHub token. Keep them out of Git and treat
-them as secrets.
-
 ## After First Boot
 
 On the host:
@@ -141,7 +116,7 @@ Continue with [operations.md](operations.md) for runtime checks.
 ## Select Optional Capabilities
 
 The installer brings up the base appliance. Optional modules and app instances
-are selected after installation through `Appliance` resources.
+are selected after installation through the dashboard or runtime CRs.
 
 Inspect the default resource:
 
@@ -149,6 +124,6 @@ Inspect the default resource:
 kubectl -n ai-system get appliance local -o yaml
 ```
 
-Public-safe examples are available under
-`magic-cluster/platform/magicstick-operator/examples/`. Private deployments
-should copy the shape into private overlays and replace placeholders there.
+The dashboard writes `ModuleActivation`, `ModelActivation`, and `AppInstance`
+resources. `Appliance/local.spec` remains Git-owned and should not be edited for
+normal runtime changes.

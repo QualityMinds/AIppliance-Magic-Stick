@@ -1,7 +1,7 @@
 # Architecture
 
-AIppliance Magic Stick is split into reusable layers that can be consumed by a
-read-only public deployment or by a private GitOps deployment repository.
+AIppliance Magic Stick is split into reusable layers for public read-only
+bootstrap, runtime configuration, and optional advanced GitOps overlays.
 
 ## Repository Layers
 
@@ -10,11 +10,12 @@ read-only public deployment or by a private GitOps deployment repository.
 | Installer | `magic-installer` | Builds bootable Ubuntu autoinstall media with cloud-init metadata. |
 | Host automation | `magic-host` | Installs and reconciles the local host with Ansible, K3s, and Flux. |
 | Cluster bases | `magic-cluster` | Reusable Flux, platform, app, observability, GPU, and profile bases. |
-| Examples | `examples` | Safe example overlays using `example.local` values. |
+| Examples | `examples` | Render-only public overlays using `example.local` values. |
 | Documentation | `docs` | Public contract, operations, development, and release notes. |
 
-The public repository must stay deployment-neutral. Private deployments should
-import it and apply their own overlays, secrets, domains, and storage sizing.
+The public repository must stay deployment-neutral. Real secrets, domains, and
+storage sizing are supplied through installer metadata, dashboard settings,
+runtime CRs, Kubernetes Secrets, or optional external overlays.
 
 ## Bootstrap Flow
 
@@ -32,15 +33,16 @@ Installer image
 ```
 
 The converge runner is installed as host automation and can be rerun manually.
-It updates the pinned public checkout, optionally updates a private deployment
-checkout, and runs the public Ansible playbook with the configured inventory.
+It updates the pinned public checkout and runs the public Ansible playbook with
+the configured inventory. In optional GitHub bootstrap mode it can also update an
+external deployment checkout.
 
 ## Bootstrap Modes
 
 | Mode | Behavior | When to use |
 |---|---|---|
 | `readonly-public` | Flux reads this public repository directly and applies a public profile path. No Git token is required. | Safe demos, local appliance bring-up, and public template validation. |
-| `github` | Flux bootstraps a private GitHub deployment repository and applies a private sync manifest that can include this public repository. | Real deployments that need private domains, secrets, storage sizing, and overlay ownership. |
+| `github` | Flux bootstraps an external GitHub deployment repository and applies a sync manifest that can include this public repository. | Advanced GitOps deployments that need separate overlay ownership. |
 
 ## Flux Graph
 
@@ -91,7 +93,7 @@ directly.
 | Area | Components |
 |---|---|
 | Basis | Namespaces, ingress-nginx, cert-manager, generated secrets, reloader, and kdns. |
-| Appliance control plane | Appliance CRDs, module catalog, operator RBAC, live controller, and examples. |
+| Appliance control plane | Appliance CRDs, module catalog, model presets, operator RBAC, and live controller. |
 | AI modules | NVIDIA GPU support, KubeAI, Hermes operator, OpenClaw operator, and Paperclip operator. |
 | GPU | NVIDIA GPU Operator and time-slicing GPU sharing. |
 | Observability | kube-prometheus-stack, Loki, Promtail, OpenTelemetry Collector, Grafana dashboards, and public ingresses. |
@@ -114,7 +116,7 @@ values must be supplied by:
 
 - `/etc/default/ai-appliance-repo` during host bootstrap
 - `ConfigMap/ai-appliance-settings` for Flux post-build substitution
-- private Kustomize overlays and patches
+- optional external Kustomize overlays and patches
 - runtime-generated Kubernetes Secrets
 - approved external secret management
 

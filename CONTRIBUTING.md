@@ -54,4 +54,4 @@ full release checklist.
   runtime parameters.
 - Add or update validation coverage for new Kustomize entry points.
 - Include a short validation summary in the PR description.
-- Do not mix reusable public template changes with private deployment overlay changes.
+- Do not mix reusable public template changes with deployment-specific overlay changes.

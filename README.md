@@ -2,16 +2,19 @@
 
 Reusable public template for building an AI Appliance from an empty machine to a running AI platform.
 
-This repository intentionally contains only generic template code, safe example overlays, and placeholders. Real deployment values belong in a private deployment repository, which can include this repo through Flux `GitRepository.spec.include`.
+This repository intentionally contains generic template code, public-safe
+defaults, render-only examples, and placeholders. Real deployment values are
+supplied at install time, through runtime settings, or through runtime CRs
+created by the dashboard.
 
 ## Layout
 
 ```text
 .
-├── magic-installer/                  # reusable cloud-init/autoinstall template
+├── magic-installer/            # reusable cloud-init/autoinstall template
 ├── magic-host/                 # reusable Ansible playbooks and roles
 ├── magic-cluster/              # reusable Kubernetes, app, platform and Flux bases
-├── examples/demo/              # safe example overlay using example.local hosts
+├── examples/demo/              # render-only public overlay using example.local values
 ├── docs/
 │   ├── .nojekyll
 │   ├── index.html
@@ -31,9 +34,15 @@ This repository intentionally contains only generic template code, safe example 
 │   ├── privacy.html
 │   └── public-release-checklist.md
 ├── CONTRIBUTING.md
+├── SUPPORT.md
 ├── SECURITY.md
 ├── CODE_OF_CONDUCT.md
+├── GOVERNANCE.md
+├── MAINTAINERS.md
+├── CHANGELOG.md
+├── ROADMAP.md
 ├── THIRD_PARTY_NOTICES.md
+├── LICENSE
 ├── AGENTS.md
 └── .gitleaks.toml
 ```
@@ -56,7 +65,7 @@ site.
 | Module catalog | [docs/modules.md](docs/modules.md) |
 | Operator orchestration | [docs/operator-orchestration.md](docs/operator-orchestration.md) |
 | Runtime variables and secrets | [docs/configuration.md](docs/configuration.md) |
-| Private GitOps overlays | [docs/gitops-overlays.md](docs/gitops-overlays.md) |
+| Optional GitOps overlays | [docs/gitops-overlays.md](docs/gitops-overlays.md) |
 | Cluster operations | [docs/operations.md](docs/operations.md) |
 | AI model catalog | [docs/model-catalog.md](docs/model-catalog.md) |
 | Development and release checks | [docs/development.md](docs/development.md) |
@@ -66,8 +75,13 @@ site.
 - [CONTRIBUTING.md](CONTRIBUTING.md) explains the public repository boundary,
   validation commands, and pull request expectations.
 - [SECURITY.md](SECURITY.md) defines how to report suspected vulnerabilities or
-  leaked credentials without exposing private deployment details.
+  leaked credentials without exposing deployment-specific details.
 - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) sets collaboration expectations.
+- [SUPPORT.md](SUPPORT.md) explains where to ask public questions and where not
+  to put deployment-specific data.
+- [GOVERNANCE.md](GOVERNANCE.md), [MAINTAINERS.md](MAINTAINERS.md), and
+  [CHANGELOG.md](CHANGELOG.md) document the lightweight public project process.
+- [ROADMAP.md](ROADMAP.md) lists likely public project directions.
 - [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists referenced runtime
   images and Helm charts for release review.
 
@@ -79,7 +93,7 @@ Public template:
 kubectl kustomize magic-cluster/flux/entrypoints/base
 ```
 
-Safe demo overlay:
+Render-only demo overlay:
 
 ```bash
 kubectl kustomize examples/demo/infra-cluster/flux-bootstrap
@@ -91,7 +105,8 @@ Public single-node profile:
 kubectl kustomize magic-cluster/flux/entrypoints/single-node
 ```
 
-Private deployments should include this repository into their source artifact, for example:
+Advanced deployments that use an external GitOps repository can include this
+repository into their source artifact, for example:
 
 ```yaml
 include:
@@ -123,7 +138,7 @@ settings:
 - `AI_APPLIANCE_DASHBOARD_MDNS_NAME`
 
 The host converge runner supplies defaults for the public checkout, inventory
-and playbook paths. Private GitHub bootstrap is opt-in and additionally uses:
+and playbook paths. Optional GitHub bootstrap mode additionally uses:
 
 - `GIT_OWNER`
 - `GIT_REPO`
@@ -137,9 +152,10 @@ In `readonly-public` mode Flux reads only this public repository and does not
 need a Git token.
 
 The generated AI model catalog honors `AI_APPLIANCE_DEFAULT_CHAT_MODEL` and
-`AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL` for private deployments that need to
-override the public defaults. App-specific storage, host, and preferred model
-values are runtime `AppInstance` parameters; module storage values are runtime
+`AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL` when runtime settings override the public
+defaults. App-specific storage and preferred model values are runtime
+`AppInstance` parameters; instance hostnames are derived as
+`<instance-name>.<instance-type>.<domain>`. Module storage values are runtime
 `ModuleActivation.spec.parameters`.
 
 See [docs/model-catalog.md](docs/model-catalog.md) for the model catalog
@@ -194,4 +210,4 @@ kubectl kustomize magic-cluster/apps/ai/kubeopencode
 kubectl kustomize examples/demo/infra-cluster/flux-bootstrap
 ```
 
-See [docs/public-release-checklist.md](docs/public-release-checklist.md) before publishing a release tag for private deployments to pin.
+See [docs/public-release-checklist.md](docs/public-release-checklist.md) before publishing a release tag.

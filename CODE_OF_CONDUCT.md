@@ -2,6 +2,10 @@
 
 This project should be a practical, respectful place to collaborate.
 
+This code of conduct applies to repository issues, pull requests, discussions,
+reviews, project communication channels, and maintainer interactions related to
+AIppliance-Magic-Stick.
+
 ## Expected Behavior
 
 - Be kind, direct, and constructive.
@@ -18,6 +22,18 @@ This project should be a practical, respectful place to collaborate.
 
 ## Enforcement
 
-Maintainers may edit, hide, or remove comments and may limit participation when
-behavior makes collaboration unsafe or unproductive. Security issues and private
-deployment details should be moved to private channels immediately.
+Report conduct concerns privately to `hello@qualityminds.de` with the subject
+`Code of conduct report: AIppliance-Magic-Stick`. Do not include private
+deployment credentials or secrets in the report.
+
+Maintainers may:
+
+- redirect a discussion back to the technical topic
+- edit, hide, or remove comments
+- close or lock issues and pull requests
+- temporarily or permanently limit participation in project spaces
+
+Maintainers should apply enforcement consistently and explain moderation actions
+when doing so does not expose private information or create additional harm.
+Security issues and private deployment details should be moved to the reporting
+paths in [SECURITY.md](SECURITY.md).

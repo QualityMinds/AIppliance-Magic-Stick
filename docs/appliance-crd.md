@@ -5,7 +5,7 @@ the local Magic Stick installation. Runtime module, instance, and model
 requests are represented as separate `ModuleActivation`, `AppInstance`, and
 `ModelActivation` CRs so Flux does not overwrite dashboard actions.
 
-The MVP installs the CRD and a default `Appliance/local` resource. The
+The public base installs the CRD and a default `Appliance/local` resource. The
 controller Deployment runs in-cluster and reconciles runtime CRs.
 
 ## API
@@ -51,7 +51,7 @@ The CRD is namespaced, with plural `appliances` and short names `msapp` and
 
 The default public install uses profile `ai-workstation` and
 `spec.source.name: flux-system` because readonly-public mode creates that Git
-source. Private deployment repositories that include this public repo can use
+source. External GitOps repositories that include this public repo can use
 `magicstick-public`.
 
 Runtime `ModuleActivation` resources take precedence over `spec.modules`.
@@ -67,8 +67,8 @@ OpenClaw operator module. Creating an `AppInstance` with `spec.type: openclaw`
 asks the Magic Stick Operator to create an `OpenClawInstance` after required
 modules and CRDs are available.
 
-The MVP contract auto-enables modules required by an enabled instance and
-reports that in status. For example, an OpenClaw instance requires:
+The operator auto-enables modules required by an enabled instance and reports
+that in status. For example, an OpenClaw instance requires:
 
 - `openclaw-operator`
 - `litellm`
@@ -107,10 +107,18 @@ spec:
   parameters:
     name: default
     model: CHANGEME_MODEL
-    ingress:
-      enabled: true
-      host: openclaw.example.local
 ```
+
+Instance hostnames are derived from runtime settings instead of being configured
+as arbitrary per-instance values:
+
+```text
+<instance-name>.<instance-type>.<domain>
+```
+
+For the `openclaw-default` example, the default public and local hosts are
+`default.openclaw.magicstick.example.com` and
+`default.openclaw.magicstick.local`.
 
 ```yaml
 apiVersion: appliance.magicstick.dev/v1alpha1
@@ -169,7 +177,7 @@ status:
         namespace: ai
         kind: OpenClawInstance
         name: default
-        url: https://openclaw.example.local
+        url: http://default.openclaw.magicstick.local/
         message: OpenClaw instance is ready
   models:
     qwen352bvlembedding:
@@ -188,11 +196,9 @@ status:
 
 ## Examples
 
-Public-safe examples live under
-`magic-cluster/platform/magicstick-operator/examples/`:
+The default public resource lives at
+`magic-cluster/platform/magicstick-operator/default-appliance.yaml`.
 
-- `appliance-minimal.yaml`
-- `appliance-ai-workstation.yaml`
-- `appliance-full.yaml`
-
-They use `example.local` hosts and `CHANGEME_MODEL` placeholders only.
+Use the runtime CR snippets above for examples of module, instance, and model
+intent. For normal installations, prefer the dashboard because it writes the same
+runtime CRs without requiring users to maintain example YAML overlays.

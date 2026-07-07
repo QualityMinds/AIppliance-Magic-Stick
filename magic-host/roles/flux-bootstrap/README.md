@@ -19,11 +19,11 @@ This Ansible role installs the Flux CLI and performs the cluster bootstrap.
 | `magicstick_public_ref` | Yes | Public template ref, loaded from `MAGICSTICK_PUBLIC_REF` |
 | `magicstick_public_ref_kind` | No | `branch`, `tag`, `semver`, or `commit`; default: `branch` |
 | `flux_public_sync_path` | `readonly-public` | Public profile path, default: `magic-cluster/flux/entrypoints/single-node` |
-| `flux_cluster_path` | `github` | Path in the private deployment repository, e.g. `deployments/<deployment>/infra-cluster/flux-bootstrap` |
+| `flux_cluster_path` | `github` | Path in the external deployment repository, e.g. `deployments/<deployment>/infra-cluster/flux-bootstrap` |
 | `flux_github_owner` | `github` | GitHub owner (organization or user) |
 | `flux_github_repo` | `github` | Repository name (without owner prefix) |
 | `flux_github_branch` | `github` | Target branch for the bootstrap |
-| `ai_appliance_private_checkout` | `github` | Private deployment checkout path, loaded from `AI_APPLIANCE_PRIVATE_CHECKOUT` |
+| `ai_appliance_private_checkout` | `github` | External deployment checkout path, loaded from `AI_APPLIANCE_PRIVATE_CHECKOUT` |
 | `flux_github_token` | `github` | GitHub Personal Access Token (PAT) with repo write access for `flux bootstrap github` |
 | `flux_bootstrap_seed_path` | No | CLI-owned bootstrap path for `github` mode |
 | `flux_custom_sync_manifest_path` | No | AI Appliance sync manifest path in the private checkout for `github` mode |
@@ -37,7 +37,7 @@ This Ansible role installs the Flux CLI and performs the cluster bootstrap.
 
 These values are loaded centrally from `/etc/default/ai-appliance-repo` when
 present. In `readonly-public` mode Flux reads only the public Magicstick
-repository and does not require a GitHub token or private deployment source.
+repository and does not require a GitHub token or external deployment source.
 
 ## Installation security note
 
@@ -73,7 +73,7 @@ sudo k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml apply \
   -f "${AI_APPLIANCE_PRIVATE_CHECKOUT}/${FLUX_CLUSTER_PATH}/flux-system/magicstick-sync.yaml"
 ```
 
-After a successful bootstrap, Flux takes over continuous reconciliation of the cluster with the private deployment repository.
+After a successful bootstrap, Flux takes over continuous reconciliation of the cluster with the external deployment repository.
 
 ## Manual public read-only bootstrap
 

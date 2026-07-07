@@ -1,7 +1,9 @@
 # GitOps And Overlays
 
-This repository is designed to be consumed by Flux and Kustomize. Public bases
-stay reusable; private deployments provide concrete values through overlays.
+This repository is designed to be consumed by Flux and Kustomize. The default
+public path uses `magic-cluster/flux/entrypoints/single-node` directly. Advanced
+deployments can still include this repository from another GitOps source and
+apply overlays outside the public repository.
 
 ## Public Entry Points
 
@@ -9,7 +11,7 @@ stay reusable; private deployments provide concrete values through overlays.
 |---|---|
 | `magic-cluster/flux/entrypoints/base` | Neutral public Flux graph. |
 | `magic-cluster/flux/entrypoints/single-node` | Public single-node profile alias for the neutral graph. |
-| `examples/demo/infra-cluster/flux-bootstrap` | Safe example overlay using `example.local` hostnames. |
+| `examples/demo/infra-cluster/flux-bootstrap` | Render-only public demo overlay using safe `example.local` values. |
 
 Render them locally:
 
@@ -19,9 +21,9 @@ kubectl kustomize magic-cluster/flux/entrypoints/single-node
 kubectl kustomize examples/demo/infra-cluster/flux-bootstrap
 ```
 
-## Private Repository Include Pattern
+## Optional Repository Include Pattern
 
-Private deployments should include this repository into their Flux source
+Advanced deployments should include this repository into their Flux source
 artifact rather than copying public bases.
 
 ```yaml
@@ -32,7 +34,7 @@ include:
     toPath: vendor/magicstick
 ```
 
-Private overlays can then import public bases from paths such as:
+External overlays can then import public bases from paths such as:
 
 ```yaml
 resources:
@@ -40,12 +42,12 @@ resources:
   - ../../vendor/magicstick/magic-cluster/apps/ai/litellm/base
 ```
 
-The private repository owns deployment-specific paths, hostnames, storage,
+The external repository owns deployment-specific paths, hostnames, storage,
 model selection, secret integration, and runtime CR seeding.
 
 ## Overlay Responsibilities
 
-Use private overlays for:
+Use external overlays for:
 
 - real domains and ingress hosts
 - TLS issuer choices
@@ -54,7 +56,7 @@ Use private overlays for:
 - external model definitions or provider Secrets
 - provider credential Secret creation or references
 - admin identities
-- private Flux paths
+- external Flux paths
 - optional runtime CRs that should not be enabled by every deployment
 
 Keep public bases generic and safe.
@@ -62,8 +64,8 @@ Keep public bases generic and safe.
 ## Flux Path Patching
 
 The static public graph now keeps optional apps out of the base reconciliation.
-Private deployments that still define their own Flux Kustomizations can patch
-paths from public bases to deployment overlays:
+Advanced deployments that still define their own Flux Kustomizations can patch
+paths from public bases to external overlays:
 
 ```yaml
 patches:
@@ -113,7 +115,7 @@ modules, models, and app instances should be requested with `ModuleActivation`,
 `ModelActivation`, and `AppInstance` resources instead of making the base graph
 install them for every cluster.
 
-Private deployments can either reuse a profile and patch it, or define their
+Advanced deployments can either reuse a profile and patch it, or define their
 own path set.
 
 ## Optional Apps And Operators

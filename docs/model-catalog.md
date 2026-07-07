@@ -263,7 +263,7 @@ Render the base:
 kubectl kustomize magic-cluster/apps/ai/model-catalog
 ```
 
-Private deployments commonly patch:
+Advanced deployments or runtime operators commonly set:
 
 - `AI_APPLIANCE_DEFAULT_CHAT_MODEL`
 - `AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL`

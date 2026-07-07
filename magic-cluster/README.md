@@ -17,7 +17,7 @@ runtime checks.
 | `flux/entrypoints/base` | Neutral public Flux entrypoint |
 | `flux/entrypoints/single-node` | Public read-only single-node Flux entrypoint |
 | `platform/basis` | Namespaces, ingress-nginx, cert-manager, secret generator, reloader, kdns |
-| `platform/magicstick-operator` | Appliance CRD, module catalog, operator RBAC, disabled controller skeleton, and public examples |
+| `platform/magicstick-operator` | Appliance CRDs, module catalog, model presets, operator RBAC, live controller, and public examples |
 | `platform/ai/kubeai` | KubeAI model-serving platform module |
 | `platform/ai/openclaw-operator` | OpenClaw CRD operator base for `openclaw.rocks/v1alpha1` instances |
 | `platform/ai/hermes-operator` | Hermes CRD operator base for `hermes.agent/v1` instances |
@@ -32,8 +32,8 @@ runtime checks.
 
 ## Deployment Overlays
 
-Concrete deployments can either use a public profile directly or live in
-private repositories. A private repo can include this repository into
+Concrete deployments can use a public profile directly. Advanced deployments can
+also include this repository from an external GitOps repository into
 `vendor/magicstick` with Flux `GitRepository.spec.include`, then import bases
 from `vendor/magicstick/magic-cluster/platform/*` or
 `vendor/magicstick/magic-cluster/apps/*` and patch:

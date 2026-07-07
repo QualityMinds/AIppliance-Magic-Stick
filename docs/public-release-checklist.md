@@ -1,15 +1,20 @@
 # Public Release Checklist
 
-Run this before publishing this repository or creating a release tag for private deployments to pin.
+Run this before publishing this repository or creating a public release tag.
 
 ## Structure
 
-- This repository contains only reusable template files and safe examples.
-- Real deployment values live in private deployment repositories.
-- New deployments use private overlays and patches instead of editing public bases directly.
+- This repository contains only reusable template files, public-safe defaults,
+  and render-only examples.
+- Real deployment values come from installer metadata, runtime settings, runtime
+  CRs, Kubernetes Secrets, or optional external overlays.
+- New deployments do not edit public bases directly for local-only values.
 - Public documentation links from `README.md` and `docs/README.md` stay current.
-- `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, and
+- `CONTRIBUTING.md`, `SUPPORT.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`,
+  `GOVERNANCE.md`, `MAINTAINERS.md`, `CHANGELOG.md`, `ROADMAP.md`, and
   `THIRD_PARTY_NOTICES.md` reflect the current public release posture.
+- `docs/index.html`, `docs/legal-notice.html`, and `docs/privacy.html` are
+  present when GitHub Pages is published from `docs/`.
 - CI release checks are present under `.github/workflows/`.
 - Runtime images and chart versions avoid mutable tags such as `latest` where practical.
 
@@ -68,14 +73,14 @@ Do not commit generated Kubernetes Secrets, Flux bootstrap token secrets, privat
 ## Review Questions
 
 - Does every public hostname use `example.local`, `example.com`, or a documented placeholder?
-- Are real domains, admin emails, storage sizes, and private Flux paths absent from this repository?
+- Are real domains, admin emails, storage sizes, and external Flux paths absent from this repository?
 - Are catalog placeholders such as `AI_APPLIANCE_DEFAULT_CHAT_MODEL` and
   `AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL` documented and safe by default?
 - Does the public `ai-external-models` ConfigMap contain only an empty example schema and no provider secrets?
-- Are safe defaults clearly documented for private deployments to patch?
+- Are safe defaults clearly documented for runtime settings and optional overlays?
 - Are optional modules, models, and app instances represented as runtime CRs
   instead of static public descriptors?
-- Are Appliance examples public-safe and limited to `example.local`,
+- Are render-only examples public-safe and limited to `example.local`,
   `example.com`, `CHANGEME`, or documented variables?
 - Do module catalog paths point only to reusable public bases?
 - Do example overlays still build after public base changes?
@@ -85,4 +90,4 @@ Do not commit generated Kubernetes Secrets, Flux bootstrap token secrets, privat
 - Are new public interfaces documented in `docs/configuration.md`,
   `docs/gitops-overlays.md`, `docs/operations.md`, or another focused page?
 - Are issue templates and pull request checklists steering users away from
-  posting private deployment values?
+  posting deployment-specific values?

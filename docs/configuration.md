@@ -1,7 +1,7 @@
 # Configuration
 
-Configuration flows from installer inputs to host metadata, then into Flux
-post-build variables and private overlays.
+Configuration flows from installer inputs to host metadata, Flux post-build
+variables, dashboard settings, runtime CRs, and optional external overlays.
 
 ## Host Metadata
 
@@ -26,17 +26,17 @@ Optional advanced overrides:
 | `ANSIBLE_INVENTORY_PATH` | Inventory path passed to the converge runner. Defaults to `magic-host/inventory/localhost.yml`. |
 | `ANSIBLE_PLAYBOOK_PATH` | Playbook path passed to the converge runner. Defaults to `magic-host/playbooks/local.yml`. |
 
-Private GitHub bootstrap keys:
+Optional GitHub bootstrap keys:
 
 | Key | Purpose |
 |---|---|
-| `GIT_HOST` | Git host for private bootstrap mode. Defaults to `github.com`. |
-| `GIT_OWNER` | Private deployment repository owner for `github` mode. |
-| `GIT_REPO` | Private deployment repository name for `github` mode. |
-| `GIT_BRANCH` | Private deployment branch for `github` mode. |
-| `FLUX_CLUSTER_PATH` | Private Flux bootstrap path for `github` mode. |
-| `AI_APPLIANCE_PRIVATE_CHECKOUT` | Private deployment checkout path for `github` mode. |
-| `FLUX_GITHUB_TOKEN` | Runtime token for private GitHub bootstrap. Do not commit it. |
+| `GIT_HOST` | Git host for optional GitHub bootstrap mode. Defaults to `github.com`. |
+| `GIT_OWNER` | External deployment repository owner for `github` mode. |
+| `GIT_REPO` | External deployment repository name for `github` mode. |
+| `GIT_BRANCH` | External deployment branch for `github` mode. |
+| `FLUX_CLUSTER_PATH` | External Flux bootstrap path for `github` mode. |
+| `AI_APPLIANCE_PRIVATE_CHECKOUT` | External deployment checkout path for `github` mode. |
+| `FLUX_GITHUB_TOKEN` | Runtime token for optional GitHub bootstrap. Do not commit it. |
 
 ## Runtime Settings
 
@@ -46,11 +46,18 @@ Kustomizations use it through `postBuild.substituteFrom`.
 
 | Setting | Default | Used by |
 |---|---|---|
-| `AI_APPLIANCE_DOMAIN` | `magicstick.example.com` | Public app and observability hostnames. |
+| `AI_APPLIANCE_DOMAIN` | `magicstick.example.com` | Public app, observability, and derived instance hostnames. |
 | `AI_APPLIANCE_DASHBOARD_HOST` | `magicstick.example.com` | Dashboard public ingress hostname. |
-| `AI_APPLIANCE_MDNS_DOMAIN` | `magicstick.local` | Local mDNS domain used for dashboard and app hostnames. |
+| `AI_APPLIANCE_MDNS_DOMAIN` | `magicstick.local` | Local mDNS domain used for dashboard, app, and derived instance hostnames. |
 | `AI_APPLIANCE_MDNS_NAME` | `magicstick` | Local mDNS name suffix used in mDNS annotations. |
 | `AI_APPLIANCE_DASHBOARD_MDNS_NAME` | `magicstick` | Legacy dashboard mDNS name, kept for compatibility. |
+
+AppInstance hostnames are derived from runtime settings and are not arbitrary
+per-instance configuration:
+
+```text
+<instance-name>.<instance-type>.<domain>
+```
 
 ## Module Advanced Parameters
 
@@ -78,10 +85,9 @@ Generated model catalog values such as `AI_APPLIANCE_MODEL_CATALOG_READY`,
 `AI_APPLIANCE_MODEL_CATALOG_HASH`, and model counts are outputs, not user
 inputs. See [model-catalog.md](model-catalog.md).
 
-App-specific host, storage, and preferred model values are runtime
-`AppInstance` parameters. Module storage values are runtime `ModuleActivation`
-parameters. Local and external model selections are runtime `ModelActivation`
-resources.
+App-specific storage and preferred model values are runtime `AppInstance`
+parameters. Module storage values are runtime `ModuleActivation` parameters.
+Local and external model selections are runtime `ModelActivation` resources.
 
 ## Installer Build Variables
 
@@ -94,10 +100,10 @@ Common build-only variables:
 | Variable | Purpose |
 |---|---|
 | `MAGICSTICK_HOSTNAME` | Hostname written to cloud-init metadata. |
-| `MAGICSTICK_DEPLOYMENT_NAME` | Name used to derive private Flux paths. |
+| `MAGICSTICK_DEPLOYMENT_NAME` | Name used to derive optional external Flux paths. |
 | `MAGICSTICK_FLUX_BOOTSTRAP_MODE` | Installer bootstrap mode. |
 | `MAGICSTICK_FLUX_PUBLIC_SYNC_PATH` | Public profile path for read-only installs. |
-| `MAGICSTICK_FLUX_GITHUB_TOKEN` | Token passed into private installer image generation. |
+| `MAGICSTICK_FLUX_GITHUB_TOKEN` | Token passed into optional GitHub installer image generation. |
 | `MAGICSTICK_UBUNTU_ISO_URL` | Ubuntu Server ISO URL. |
 | `MAGICSTICK_UBUNTU_ISO_SHA256` | Expected ISO checksum. |
 | `MAGICSTICK_CACHE_DIR` | Local build cache path inside the builder. |
@@ -124,5 +130,5 @@ Disallowed public patterns:
 - real admin passwords
 - provider credentials embedded in `ConfigMap/ai-external-models`
 
-Use Kubernetes Secrets from private overlays, runtime bootstrap, or an approved
-external secret management flow.
+Use Kubernetes Secrets from runtime bootstrap, optional external overlays, or an
+approved external secret management flow.

@@ -34,7 +34,7 @@ when `FLUX_BOOTSTRAP_MODE=github`.
 | `AI_APPLIANCE_MDNS_NAME` | local mDNS annotation suffix, e.g. `magicstick` |
 | `AI_APPLIANCE_DASHBOARD_MDNS_NAME` | legacy dashboard mDNS name |
 
-Optional overrides and private bootstrap values:
+Optional overrides and GitHub bootstrap values:
 
 | Environment value | Ansible variable |
 |---|---|
@@ -46,7 +46,7 @@ Optional overrides and private bootstrap values:
 | `GIT_REPO` | `flux_github_repo` |
 | `GIT_BRANCH` | `flux_github_branch` |
 | `FLUX_CLUSTER_PATH` | `flux_cluster_path` |
-| `AI_APPLIANCE_PRIVATE_CHECKOUT` | private deployment checkout path |
+| `AI_APPLIANCE_PRIVATE_CHECKOUT` | external deployment checkout path |
 | `FLUX_GITHUB_TOKEN` | `flux_github_token` |
 
 ## Converge Runner
@@ -54,11 +54,11 @@ Optional overrides and private bootstrap values:
 The `ansible-pull-timer` role installs `/usr/local/sbin/ai-appliance-converge`. The runner:
 
 - updates the pinned public template checkout
-- updates the private deployment checkout in `github` mode
+- updates the external deployment checkout in `github` mode
 - runs the public playbook with the configured inventory, defaulting to the public local inventory
 - uses `FLUX_GITHUB_TOKEN` through a temporary `GIT_ASKPASS` helper when a token is present
 
-In `readonly-public` mode the runner skips the private deployment checkout and
+In `readonly-public` mode the runner skips the external deployment checkout and
 Flux reads only the public Magicstick repository.
 
 ```bash

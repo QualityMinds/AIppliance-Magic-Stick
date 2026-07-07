@@ -1,9 +1,9 @@
 # Magic Stick Dashboard
 
-The Magic Stick Dashboard is the user interface for the Appliance control
-plane. It is a client of the Kubernetes API, the `Appliance` status surface,
-and the runtime `ModuleActivation`, `AppInstance`, and `ModelActivation` CRs.
-It does not directly install workloads.
+The Magic Stick Dashboard is the user interface for the Appliance control plane.
+It reads Kubernetes status and writes runtime intent resources. It does not
+directly install workloads, create Flux Kustomizations, or manage specialized app
+resources itself.
 
 ```text
 Dashboard UI
@@ -18,33 +18,30 @@ Dashboard UI
 
 The dashboard may:
 
-- read the default `Appliance/local` resource
+- read `Appliance/local`
 - read `ConfigMap/magicstick-module-catalog`
-- create or patch `ModuleActivation` CRs when a user enables or disables a
-  module
-- create or patch `AppInstance` CRs when a user requests an app or agent
-  instance
-- create or delete `ModelActivation` CRs when a user adds or removes a local
-  KubeAI model or external LiteLLM-backed provider model
+- read model presets and the generated `ConfigMap/ai-model-catalog`
+- read Flux, Pod, Service, Ingress, ConfigMap, Event, and GPU metric status
+- read and patch the runtime settings `ConfigMap/ai-appliance-settings`
+- create or patch `ModuleActivation` resources for catalog-driven modules
+- create or delete `AppInstance` resources for supported instance types
+- create or delete `ModelActivation` resources for local and external models
 - create Dashboard-managed provider API key Secrets in namespace `ai`
-- read status from `Appliance.status`, Flux Kustomizations, Pods, Services,
-  Ingresses, ConfigMaps, and Events
+- read OpenClaw instance credentials when the generated instance exposes them
 
-The dashboard must not replace the Magic Stick Operator, Flux, OpenClaw,
-Hermes, Paperclip, or KubeOpenCode. Workload lifecycle remains owned by those
-controllers.
+The dashboard must not replace the Magic Stick Operator, Flux, OpenClaw, Hermes,
+Paperclip, KubeOpenCode, KubeAI, or LiteLLM.
 
-## MVP Pages
+## UI Areas
 
-| Page | Purpose |
+| Area | Purpose |
 |---|---|
-| Overview | Shows `Appliance.status.phase`, enabled module count, requested instance count, and current conditions. |
-| Modules | Enables or disables modules by creating or patching `ModuleActivation` CRs. |
-| Instances | Creates example OpenClaw, Hermes, Paperclip, and KubeOpenCode requests by creating or patching `AppInstance` CRs. |
-| Models | Adds/removes local and external models, shows VRAM, and controls the model stack including AnythingLLM. |
-| System Status | Shows Flux Kustomization readiness, Pod phase summary, and ingress hosts. |
-
-The existing ingress discovery dashboard remains available on the same page.
+| Overview | Shows appliance health, module/instance/model counts, and discovered ingress links. |
+| Modules | Renders grouped module cards from the module catalog and writes `ModuleActivation` intent. |
+| Instances | Shows instance cards and creates instance requests only for installed/supported operators. |
+| Models | Creates/removes local and external model activations and estimates local model VRAM. |
+| System Status | Shows Flux, Pod, Service, Ingress, and Event status. |
+| Settings | Edits appliance-wide public and mDNS domain settings. |
 
 ## Backend API
 
@@ -55,239 +52,98 @@ The dashboard Deployment runs an API sidecar from
 |---|---|---|
 | `GET` | `/api/appliance` | Returns `Appliance/local`. |
 | `PATCH` | `/api/appliance` | Returns `405`; `Appliance/local.spec` is Git-owned. |
-| `GET` | `/api/modules` | Returns module catalog plus current `ModuleActivation` spec/status. |
-| `POST` | `/api/modules/{name}/enable` | Creates or patches `ModuleActivation/<name>` with `spec.enabled: true`; optional `parameters` are stored on the `ModuleActivation`. |
-| `POST` | `/api/modules/{name}/disable` | Creates or patches `ModuleActivation/<name>` with `spec.enabled: false`; the Magic Stick Operator removes the generated Flux `Kustomization`. |
+| `GET` | `/api/settings` | Returns public domain, dashboard public host, mDNS domain, and derived mDNS name. |
+| `PATCH` | `/api/settings` | Validates and patches `flux-system/ai-appliance-settings` while preserving unrelated keys. |
+| `GET` | `/api/modules` | Returns catalog metadata plus current `ModuleActivation` spec/status. |
+| `POST` | `/api/modules/{name}/enable` | Creates or patches a `ModuleActivation` with `spec.enabled: true`. |
+| `POST` | `/api/modules/{name}/disable` | Creates or patches a `ModuleActivation` with `spec.enabled: false`. |
 | `GET` | `/api/instances` | Returns `AppInstance` resources and status. |
-| `POST` | `/api/instances/openclaw` | Adds or replaces an OpenClaw `AppInstance`. |
-| `POST` | `/api/instances/hermes` | Adds or replaces a Hermes `AppInstance`. |
-| `POST` | `/api/instances/paperclip` | Adds or replaces a Paperclip `AppInstance`. |
-| `POST` | `/api/instances/kubeopencode` | Adds or replaces a KubeOpenCode `AppInstance`. |
-| `GET` | `/api/models` | Returns model catalog entries, `ModelActivation` resources, model presets, AnythingLLM status, and VRAM summary. |
+| `GET` | `/api/instances/{name}/credentials` | Returns supported generated credentials for an instance, currently OpenClaw. |
+| `POST` | `/api/instances/{type}` | Adds or replaces an `AppInstance` for supported types such as `openclaw`, `hermes`, `paperclip`, or `kubeopencode`. |
+| `DELETE` | `/api/instances/{name}` | Deletes the `AppInstance`; operator finalizers clean generated custom resources. |
+| `GET` | `/api/models` | Returns model catalog entries, model presets, `ModelActivation` resources, AnythingLLM status, and VRAM summary. |
+| `POST` | `/api/models/estimate-vram` | Estimates VRAM for public HuggingFace model metadata, context size, and max sequence count. |
 | `POST` | `/api/models/local` | Adds or replaces a local KubeAI-backed `ModelActivation`. |
-| `POST` | `/api/models/external` | Adds or replaces an external LiteLLM provider `ModelActivation`; UI-entered API keys are stored as Secrets. |
+| `POST` | `/api/models/external` | Adds or replaces an external LiteLLM-backed `ModelActivation`; Dashboard-entered API keys are stored as Secrets. |
 | `DELETE` | `/api/models/{name}` | Deletes the `ModelActivation` and a Dashboard-created provider Secret when present. |
 | `GET` | `/api/status` | Returns Appliance, Flux, Pod, Service, and Ingress status summaries. |
 | `GET` | `/api/events` | Returns core and `events.k8s.io` event summaries. |
 
-## Example UI Flows
+## Module Controls
 
-Enable LiteLLM:
+The Modules screen is catalog-driven. It uses
+`ConfigMap/magicstick-module-catalog.data["modules.json"]` for display names,
+groups, activation mode, aliases, ordering, dependencies, and optional advanced
+parameters.
 
-```http
-POST /api/modules/litellm/enable
-Content-Type: application/json
+Modules with `activationMode: static` are displayed as status cards but cannot
+be enabled or disabled from the dashboard. Modules with
+`activationMode: moduleactivation` expose only the currently valid action:
+`Enable` for disabled modules and `Disable` for enabled modules. In-progress
+modules disable their action button until the request settles.
 
-{
-  "parameters": {
-    "postgresStorage": "5Gi"
-  }
-}
+Progress is phase-based. The dashboard maps existing status phases such as
+`Disabled`, `WaitingForModules`, `Reconciling`, `Removing`, `Ready`, and
+`Degraded` to visual progress states. These percentages are orientation hints,
+not scheduler- or operator-reported completion percentages.
+
+## Instance Controls
+
+Instances are runtime requests stored as `AppInstance` resources in namespace
+`ai-system`. The dashboard shows create controls only for instance types whose
+required operator modules are installed or installable according to the module
+catalog and current module status.
+
+Instance hostnames are derived, not user-entered:
+
+```text
+<instance-name>.<instance-type>.<domain>
 ```
 
-Enable OpenClaw Operator:
+For example, an OpenClaw instance named `default` uses:
 
-```http
-POST /api/modules/openclaw-operator/enable
-```
+- `default.openclaw.magicstick.example.com`
+- `default.openclaw.magicstick.local`
 
-Create OpenClaw:
+The dashboard may still submit an ingress parameter internally for compatibility
+with the operator, but users should not configure arbitrary instance hostnames in
+the UI.
 
-```http
-POST /api/instances/openclaw
-Content-Type: application/json
+## Model Controls
 
-{
-  "name": "default",
-  "enabled": true,
-  "namespace": "ai",
-  "model": "CHANGEME_MODEL",
-  "storage": {
-    "size": "20Gi"
-  },
-  "ingress": {
-    "enabled": true,
-    "host": "openclaw.example.local"
-  }
-}
-```
+Local and external models are runtime requests stored as `ModelActivation`
+resources in namespace `ai-system`.
 
-Create Hermes:
+For local HuggingFace-backed models, the dashboard can call
+`POST /api/models/estimate-vram` to fetch public metadata, estimate model
+weights and KV cache, and suggest minimum and recommended VRAM values. The value
+stored in `spec.local.vram` remains the actual request passed to KubeAI/vLLM.
 
-```http
-POST /api/instances/hermes
-Content-Type: application/json
-
-{
-  "name": "default",
-  "enabled": true,
-  "namespace": "ai",
-  "model": "qwen3635b",
-  "storage": {
-    "size": "10Gi"
-  },
-  "ingress": {
-    "enabled": true,
-    "host": "hermes.example.local"
-  }
-}
-```
-
-Additional Hermes instances can be requested by choosing a different `name`
-and `ingress.host`. The Magic Stick Operator renders each request as an
-operator-managed `HermesInstance` and configures it from the LiteLLM-backed
-model catalog.
-
-Create Paperclip:
-
-```http
-POST /api/instances/paperclip
-Content-Type: application/json
-
-{
-  "name": "default",
-  "enabled": true,
-  "namespace": "ai",
-  "storage": {
-    "size": "5Gi"
-  },
-  "database": {
-    "managed": {
-      "storageSize": "10Gi"
-    }
-  },
-  "ingress": {
-    "enabled": true,
-    "host": "paperclip.example.local"
-  }
-}
-```
-
-Enable KubeOpenCode:
-
-```http
-POST /api/modules/kubeopencode/enable
-```
-
-Create KubeOpenCode:
-
-```http
-POST /api/instances/kubeopencode
-Content-Type: application/json
-
-{
-  "name": "default",
-  "enabled": true,
-  "namespace": "ai",
-  "model": "CHANGEME_MODEL",
-  "server": {
-    "enabled": true,
-    "ingress": {
-      "enabled": true,
-      "host": "kubeopencode.example.local"
-    }
-  },
-  "agentTemplates": [
-    {
-      "name": "default-coder",
-      "description": "Default coding agent template"
-    }
-  ]
-}
-```
-
-For KubeOpenCode, the Dashboard still creates only an
-`AppInstance/kubeopencode-*`. The Magic Stick Operator renders that request
-into an `AgentTemplate` plus an `Agent` that references the template. The
-requested `model` is treated as a preference: if it is not present in
-`ConfigMap/ai-model-catalog`, the generated template falls back to
-`catalog.defaultChatModel`, then to the first catalog chat model. Task Pods are
-created later by KubeOpenCode when a task is started against the Agent.
-
-Add a local preset model:
-
-```http
-POST /api/models/local
-Content-Type: application/json
-
-{
-  "name": "qwen359b",
-  "enabled": true,
-  "targetNamespace": "ai",
-  "local": {
-    "preset": "qwen359b",
-    "vram": "16Gi",
-    "contextWindow": 8192,
-    "maxNumSeqs": 32
-  }
-}
-```
-
-Add an external provider model:
-
-```http
-POST /api/models/external
-Content-Type: application/json
-
-{
-  "name": "example-openai-gpt-4o-mini",
-  "enabled": true,
-  "targetNamespace": "ai",
-  "external": {
-    "model": "openai/gpt-4o-mini",
-    "apiBase": "https://api.openai.com/v1",
-    "modelType": "chat",
-    "contextWindow": 128000,
-    "apiKeySecretRef": {
-      "name": "external-openai-api-key",
-      "key": "api-key"
-    }
-  }
-}
-```
+Catalog-only models are read-only in the Models screen. Remove actions are shown
+only for `ModelActivation` rows that the dashboard can delete.
 
 ## RBAC
 
 The dashboard ServiceAccount is `dashboard/ai-appliance-dashboard`. Its
-ClusterRole is intentionally limited:
+permissions are intentionally narrow:
 
-- `get`, `list`, `watch`, `create`, `patch`, `update` on
-  `moduleactivations.appliance.magicstick.dev` and
-  `appinstances.appliance.magicstick.dev`
-- `get`, `list`, `watch`, `create`, `patch`, `update`, `delete` on
-  `modelactivations.appliance.magicstick.dev`
-- namespaced `get`, `create`, `patch`, `update`, `delete` on Secrets in
-  namespace `ai` for Dashboard-created provider credentials
-- `get` on the DCGM exporter service proxy for live VRAM metrics
-- `get`, `list`, `watch` on `appliances.appliance.magicstick.dev`
-- `get`, `list`, `watch` on Flux Kustomizations
-- `get`, `list`, `watch` on Pods, Services, Ingresses, ConfigMaps, and Events
+- read `appliances.appliance.magicstick.dev`
+- read, create, patch, and update `moduleactivations.appliance.magicstick.dev`
+- read, create, patch, update, and delete `appinstances.appliance.magicstick.dev`
+- read, create, patch, update, and delete `modelactivations.appliance.magicstick.dev`
+- read OpenClaw instances for generated credential discovery
+- read Flux Kustomizations
+- read Pods, Services, Ingresses, ConfigMaps, and Events
+- read the DCGM exporter service proxy for live VRAM metrics
+- patch only `flux-system/ai-appliance-settings`
+- manage only Dashboard-created provider credential Secrets in namespace `ai`
 
-It does not have cluster-admin and does not have permission to create
-workloads directly.
-
-## Status Mapping
-
-The dashboard displays:
-
-- `Appliance.status.phase`
-- `Appliance.status.modules`
-- `Appliance.status.instances`
-- `Appliance.status.models`
-- `Appliance.status.conditions`
-- model-catalog `catalog.json`
-- `ModelActivation.status`
-- DCGM framebuffer memory metrics when available
-- Flux Kustomization `Ready` conditions
-- Pod phase summaries
-- service and ingress discovery data
-- ingress URLs from `spec.rules[].host`
-
-If the API cannot read the Appliance CR, the UI reports the API error and
-leaves workload reconciliation to the Operator and Flux.
+It does not have cluster-admin and does not have permission to create workloads
+directly.
 
 ## Public-Safe Values
 
 Examples use only `example.local`, `example.com`, `CHANGEME`, and documented
-variables or public model preset identifiers. Real domains, private repository
-paths, credentials, kubeconfigs, and customer values belong in private overlays.
+variables or public model preset identifiers. Real domains, external repository
+paths, credentials, kubeconfigs, and customer values belong in runtime settings,
+runtime Secrets, or optional external overlays.

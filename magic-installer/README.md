@@ -18,14 +18,14 @@ for the variables written into `/etc/default/ai-appliance-repo`.
 ## Deployment Values
 
 The default installer uses `readonly-public` mode and reads only the public
-Magic-Stick repository. Private GitHub deployment values are only required when
+Magic-Stick repository. GitHub deployment values are only required when
 `FLUX_BOOTSTRAP_MODE=github`.
 
 Default `readonly-public` metadata:
 
 | Variable | Description |
 |---|---|
-| `FLUX_BOOTSTRAP_MODE` | `readonly-public` by default; use `github` only for private Git bootstrap |
+| `FLUX_BOOTSTRAP_MODE` | `readonly-public` by default; use `github` only for optional Git bootstrap |
 | `MAGICSTICK_PUBLIC_REPO` | Public template repository to fetch at bootstrap |
 | `MAGICSTICK_PUBLIC_REF` | Public template branch, tag, semver, or commit |
 | `MAGICSTICK_PUBLIC_REF_KIND` | Ref kind for Flux, usually `branch` |
@@ -43,14 +43,14 @@ Optional advanced overrides:
 | `ANSIBLE_INVENTORY_PATH` | Inventory path for the converge runner; defaults to `magic-host/inventory/localhost.yml` |
 | `ANSIBLE_PLAYBOOK_PATH` | Playbook path for the converge runner; defaults to `magic-host/playbooks/local.yml` |
 
-Private GitHub bootstrap metadata:
+Optional GitHub bootstrap metadata:
 
 | Variable | Description |
 |---|---|
-| `GIT_HOST` | Git host for private bootstrap; defaults to `github.com` |
+| `GIT_HOST` | Git host for optional bootstrap; defaults to `github.com` |
 | `GIT_OWNER`, `GIT_REPO`, `GIT_BRANCH` | Required only for `github` bootstrap mode |
 | `FLUX_CLUSTER_PATH` | Required only for `github` bootstrap mode |
-| `AI_APPLIANCE_PRIVATE_CHECKOUT` | Private checkout path; defaults to `/opt/ai-appliance/deployment` |
+| `AI_APPLIANCE_PRIVATE_CHECKOUT` | External checkout path; defaults to `/opt/ai-appliance/deployment` |
 | `FLUX_GITHUB_TOKEN` | Required only for `github` bootstrap mode; do not commit a real token |
 
 ## Creating Installation Media
@@ -70,7 +70,7 @@ This default uses `--flux-bootstrap-mode readonly-public`, the public
 `QualityMinds/AIppliance-Magic-Stick` repository, and
 `magic-cluster/flux/entrypoints/single-node`.
 
-For private GitHub bootstrap, opt in explicitly:
+For optional GitHub bootstrap, opt in explicitly:
 
 ```bash
 magic-installer/build-installer-image.sh \

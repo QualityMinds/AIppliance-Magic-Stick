@@ -1,22 +1,21 @@
 # Documentation
 
 This directory contains the operational and contributor documentation for the
-public AIppliance Magic Stick template. The repository is a reusable base; real
-deployment values belong in private deployment repositories or runtime
-configuration.
+public AIppliance Magic Stick template. The default flow is public read-only
+bootstrap plus runtime configuration through the dashboard and runtime CRs.
 
 ## Reading Path
 
 | Document | Use it for |
 |---|---|
-| [getting-started.md](getting-started.md) | First local checkout, render checks, demo overlay, and installer image workflow. |
+| [getting-started.md](getting-started.md) | First local checkout, render checks, and public read-only installer workflow. |
 | [architecture.md](architecture.md) | Repository layers, bootstrap flow, Flux graph, and cluster component overview. |
 | [appliance-crd.md](appliance-crd.md) | `Appliance` API, spec, status, and public examples. |
 | [dashboard.md](dashboard.md) | Dashboard UI/API contract for managing the `Appliance` CR. |
 | [modules.md](modules.md) | Magic Stick module catalog and generated Flux Kustomization contract. |
 | [operator-orchestration.md](operator-orchestration.md) | Meta-operator responsibilities and specialized operator handoff. |
 | [configuration.md](configuration.md) | Bootstrap variables, appliance-wide settings, module parameters, Flux post-build substitution, and secret handling. |
-| [gitops-overlays.md](gitops-overlays.md) | Public bases, private overlays, Flux `GitRepository.spec.include`, profiles, and patching patterns. |
+| [gitops-overlays.md](gitops-overlays.md) | Optional GitOps include and overlay patterns for advanced deployments. |
 | [operations.md](operations.md) | Day-2 checks for Flux, K3s, apps, models, storage, GPU, logs, and common failures. |
 | [model-catalog.md](model-catalog.md) | AI model catalog contract, external model schema, generated ConfigMap keys, and troubleshooting. |
 | [development.md](development.md) | Contribution workflow, validation commands, public release checks, and review rules. |
@@ -27,9 +26,18 @@ Top-level community and release files:
 | File | Use it for |
 |---|---|
 | [../CONTRIBUTING.md](../CONTRIBUTING.md) | Public repository boundary, local validation, and pull request expectations. |
+| [../LICENSE](../LICENSE) | Project license. |
 | [../SECURITY.md](../SECURITY.md) | Private reporting guidance for vulnerabilities and leaked credentials. |
 | [../CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md) | Collaboration expectations. |
+| [../SUPPORT.md](../SUPPORT.md) | Public support boundaries and safe issue content. |
+| [../GOVERNANCE.md](../GOVERNANCE.md) | Lightweight project governance. |
+| [../MAINTAINERS.md](../MAINTAINERS.md) | Maintainer responsibilities. |
+| [../CHANGELOG.md](../CHANGELOG.md) | Public release notes. |
+| [../ROADMAP.md](../ROADMAP.md) | Likely public project directions. |
 | [../THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) | Runtime image and Helm chart inventory for release review. |
+| [index.html](index.html) | GitHub Pages landing page. |
+| [legal-notice.html](legal-notice.html) | Legal notice for the GitHub Pages site. |
+| [privacy.html](privacy.html) | Privacy policy for the GitHub Pages site. |
 
 ## Quick Commands
 
