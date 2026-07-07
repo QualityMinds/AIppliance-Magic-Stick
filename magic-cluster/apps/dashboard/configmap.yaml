@@ -459,6 +459,43 @@ data:
           color: var(--text);
         }
 
+        .credential-panel {
+          border: 1px solid rgba(125, 211, 252, 0.24);
+          border-radius: 10px;
+          display: grid;
+          gap: 0.55rem;
+          padding: 0.65rem;
+          background: rgba(15, 23, 42, 0.48);
+        }
+
+        .credential-heading,
+        .credential-row {
+          display: grid;
+          gap: 0.35rem;
+        }
+
+        .credential-heading span,
+        .credential-row label {
+          color: var(--muted);
+          font-size: 0.76rem;
+        }
+
+        .credential-value {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 0.45rem;
+        }
+
+        .credential-value input {
+          border: 1px solid var(--line);
+          border-radius: 10px;
+          background: rgba(2, 6, 23, 0.45);
+          color: var(--text);
+          font: inherit;
+          min-width: 0;
+          padding: 0.48rem 0.55rem;
+        }
+
         .module-progress {
           display: grid;
           gap: 0.35rem;
@@ -1453,6 +1490,74 @@ data:
             return wrapper;
           };
 
+          const copyText = async (value, input) => {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              try {
+                await navigator.clipboard.writeText(value);
+                return true;
+              } catch (error) {
+                // Fall back to selecting the readonly field below.
+              }
+            }
+            if (input) {
+              input.focus();
+              input.select();
+              return document.execCommand && document.execCommand('copy');
+            }
+            return false;
+          };
+
+          const showInstanceCredentials = (card, payload) => {
+            if (!card) { return; }
+            const existing = card.querySelector('.credential-panel');
+            if (existing) {
+              existing.remove();
+            }
+            const panel = document.createElement('div');
+            panel.className = 'credential-panel';
+            const heading = document.createElement('div');
+            heading.className = 'credential-heading';
+            const title = document.createElement('strong');
+            title.textContent = 'OpenClaw credentials';
+            const meta = document.createElement('span');
+            meta.textContent = [payload.namespace, payload.secretName].filter(Boolean).join('/');
+            heading.append(title, meta);
+            panel.appendChild(heading);
+            const credentials = Array.isArray(payload.credentials) && payload.credentials.length
+              ? payload.credentials
+              : [{ key: 'token', value: payload.token || '' }];
+            credentials.filter((credential) => credential && credential.value).forEach((credential) => {
+              const row = document.createElement('div');
+              row.className = 'credential-row';
+              const label = document.createElement('label');
+              label.textContent = credential.key || 'token';
+              const valueRow = document.createElement('div');
+              valueRow.className = 'credential-value';
+              const input = document.createElement('input');
+              input.readOnly = true;
+              input.value = credential.value || '';
+              const copy = document.createElement('button');
+              copy.type = 'button';
+              copy.className = 'control-button';
+              copy.textContent = 'Copy';
+              copy.addEventListener('click', async () => {
+                try {
+                  await copyText(input.value, input);
+                  copy.textContent = 'Copied';
+                  window.setTimeout(() => { copy.textContent = 'Copy'; }, 1200);
+                } catch (error) {
+                  copy.textContent = 'Select';
+                  input.focus();
+                  input.select();
+                }
+              });
+              valueRow.append(input, copy);
+              row.append(label, valueRow);
+              panel.appendChild(row);
+            });
+            card.appendChild(panel);
+          };
+
           const instanceOverviewTitle = (type, instance) => {
             const metadata = (instance || {}).metadata || {};
             const rawName = metadata.name || '';
@@ -1756,6 +1861,14 @@ data:
                 if (links) {
                   item.appendChild(links);
                 }
+                if (type === 'openclaw' && metadata.name && String(phase).toLowerCase() !== 'removing') {
+                  const credentials = document.createElement('button');
+                  credentials.className = 'control-button';
+                  credentials.type = 'button';
+                  credentials.dataset.instanceCredentials = metadata.name;
+                  credentials.textContent = 'Credentials';
+                  actions.appendChild(credentials);
+                }
                 if (metadata.name && String(phase).toLowerCase() !== 'removing') {
                   const remove = document.createElement('button');
                   remove.className = 'control-button danger';
@@ -1763,6 +1876,8 @@ data:
                   remove.dataset.instanceDelete = metadata.name;
                   remove.textContent = 'Remove';
                   actions.appendChild(remove);
+                }
+                if (actions.childElementCount) {
                   item.appendChild(actions);
                 }
                 grid.appendChild(item);
@@ -2455,6 +2570,33 @@ data:
               remove.textContent = 'Remove';
               remove.removeAttribute('title');
               $('model-output').textContent = error.message;
+            }
+          });
+
+          document.addEventListener('click', async (event) => {
+            const credentials = event.target.closest('[data-instance-credentials]');
+            if (!credentials) { return; }
+            const name = credentials.dataset.instanceCredentials;
+            const card = credentials.closest('.module-card');
+            if (!name || !card) { return; }
+            const existing = card.querySelector('.credential-panel');
+            if (existing) {
+              existing.remove();
+              credentials.textContent = 'Credentials';
+              return;
+            }
+            try {
+              credentials.disabled = true;
+              credentials.textContent = 'Loading';
+              const payload = await request('/api/instances/' + encodeURIComponent(name) + '/credentials');
+              showInstanceCredentials(card, payload);
+              credentials.textContent = 'Hide credentials';
+              $('instance-output').textContent = name + ' credentials loaded.';
+            } catch (error) {
+              credentials.textContent = 'Credentials';
+              $('instance-output').textContent = error.message;
+            } finally {
+              credentials.disabled = false;
             }
           });
 

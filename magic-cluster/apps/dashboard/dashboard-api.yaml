@@ -349,12 +349,87 @@ data:
         return list_resource(f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/appinstances")
 
 
+    def app_instance(name):
+        return get_resource(f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/appinstances/{name}")
+
+
     def model_activations():
         return list_resource(f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/modelactivations")
 
 
     def model_activation(name):
         return get_resource(f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/modelactivations/{name}")
+
+
+    def decode_secret_value(value):
+        try:
+            decoded = base64.b64decode(str(value or ""), validate=True).decode("utf-8")
+        except Exception:
+            return ""
+        return decoded.strip()
+
+
+    def openclaw_target(instance):
+        metadata = instance.get("metadata") or {}
+        spec = instance.get("spec") or {}
+        return {
+            "name": metadata.get("name") or "",
+            "namespace": spec.get("targetNamespace") or MODEL_TARGET_NAMESPACE,
+        }
+
+
+    def openclaw_instance_resource(namespace, name):
+        return get_resource(f"/apis/openclaw.rocks/v1alpha1/namespaces/{namespace}/openclawinstances/{name}")
+
+
+    def openclaw_credentials(name):
+        if not DNS_LABEL.match(name):
+            raise ValueError("name must be a DNS-1123 label")
+        instance = app_instance(name)
+        if not instance:
+            raise LookupError("AppInstance not found: " + name)
+        spec = instance.get("spec") or {}
+        if spec.get("type") != "openclaw":
+            raise ValueError("credentials are only available for OpenClaw instances")
+        target = openclaw_target(instance)
+        target_name = target.get("name") or name
+        namespace = target.get("namespace") or MODEL_TARGET_NAMESPACE
+        openclaw = openclaw_instance_resource(namespace, target_name)
+        if not openclaw:
+            raise LookupError("OpenClaw target resource is not ready yet")
+        status = openclaw.get("status") or {}
+        managed = status.get("managedResources") or {}
+        secret_name = managed.get("gatewayTokenSecret") or status.get("gatewayTokenSecret") or ""
+        if not secret_name:
+            raise LookupError("OpenClaw gateway token secret is not published yet")
+        if not DNS_LABEL.match(secret_name):
+            raise ValueError("OpenClaw gateway token secret name is invalid")
+        secret = get_resource(f"/api/v1/namespaces/{namespace}/secrets/{secret_name}")
+        if not secret:
+            raise LookupError("OpenClaw gateway token secret was not found")
+        fields = []
+        for key, value in sorted(((secret.get("data") or {}).items())):
+            decoded = decode_secret_value(value)
+            if decoded:
+                fields.append({"key": key, "value": decoded})
+        if not fields:
+            raise LookupError("OpenClaw gateway token secret has no readable token data")
+        preferred_keys = ["token", "gateway-token", "gatewayToken", "GATEWAY_TOKEN", "OPENCLAW_GATEWAY_TOKEN", "auth-token"]
+        token_value = ""
+        for preferred in preferred_keys:
+            match = next((field for field in fields if field["key"] == preferred), None)
+            if match:
+                token_value = match["value"]
+                break
+        if not token_value:
+            token_value = fields[0]["value"]
+        return {
+            "instance": name,
+            "namespace": namespace,
+            "secretName": secret_name,
+            "token": token_value,
+            "credentials": fields,
+        }
 
 
     def model_presets():
@@ -1102,6 +1177,7 @@ data:
         def do_GET(self):
             try:
                 path = self.route()
+                parts = path.strip("/").split("/")
                 if path == "/healthz":
                     self.send_json({"ok": True})
                 elif path == "/api/appliance":
@@ -1110,6 +1186,8 @@ data:
                     self.send_json(summarized_modules())
                 elif path == "/api/instances":
                     self.send_json(summarized_instances())
+                elif len(parts) == 4 and parts[:2] == ["api", "instances"] and parts[3] == "credentials":
+                    self.send_json(openclaw_credentials(parts[2]))
                 elif path == "/api/models":
                     self.send_json(summarized_models())
                 elif path == "/api/status":
@@ -1122,6 +1200,10 @@ data:
                     self.send_json({"events": summarize_objects(core_events + new_events)})
                 else:
                     self.send_error_json(404, "not found")
+            except LookupError as error:
+                self.send_error_json(404, str(error))
+            except ValueError as error:
+                self.send_error_json(400, str(error))
             except urllib.error.HTTPError as error:
                 self.send_error_json(error.code, error.read().decode("utf-8", errors="replace"))
             except Exception as error:
