@@ -1309,6 +1309,10 @@ data:
                 loaded = yaml.safe_load(config_path.read_text()) or {}
                 if isinstance(loaded, dict):
                     existing = loaded
+            dashboard_config = existing.setdefault("dashboard", {})
+            hidden_plugins = dashboard_config.setdefault("hidden_plugins", [])
+            if isinstance(hidden_plugins, list) and "example" not in hidden_plugins:
+                hidden_plugins.append("example")
 
             config_path.parent.mkdir(parents=True, exist_ok=True)
             config_path.write_text(yaml.safe_dump(deep_merge(existing, overlay), sort_keys=False))
