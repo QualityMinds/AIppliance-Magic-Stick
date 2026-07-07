@@ -23,10 +23,12 @@ This repository intentionally contains only generic template code, safe example 
 │   ├── development.md
 │   ├── getting-started.md
 │   ├── gitops-overlays.md
+│   ├── legal-notice.html
 │   ├── modules.md
 │   ├── model-catalog.md
 │   ├── operator-orchestration.md
 │   ├── operations.md
+│   ├── privacy.html
 │   └── public-release-checklist.md
 ├── CONTRIBUTING.md
 ├── SECURITY.md
