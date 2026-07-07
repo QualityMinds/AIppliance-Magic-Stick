@@ -894,24 +894,10 @@ data:
 
           <section id="tab-models" class="tab-panel" hidden>
             <div class="model-workspace">
-              <article class="dashboard-card model-vram-card">
-                <h3>VRAM</h3>
-                <p id="vram-summary">Waiting for GPU metrics.</p>
-                <div id="vram-list" class="mini-list"></div>
-              </article>
-
-              <section class="model-section">
-                <div class="module-group-heading">
-                  <h3>Installed Models</h3>
-                  <span id="model-list-count">Waiting for catalog</span>
-                </div>
-                <div id="model-list" class="module-list model-list"></div>
-              </section>
-
               <details class="model-create-panel">
                 <summary class="model-create-summary">
                   <span>
-                    <strong>Add Model</strong>
+                    <strong>Create Model</strong>
                     <small>Local presets and external providers</small>
                   </span>
                   <span class="status-pill">Create</span>
@@ -974,6 +960,20 @@ data:
                   </form>
                 </div>
               </details>
+
+              <article class="dashboard-card model-vram-card">
+                <h3>VRAM</h3>
+                <p id="vram-summary">Waiting for GPU metrics.</p>
+                <div id="vram-list" class="mini-list"></div>
+              </article>
+
+              <section class="model-section">
+                <div class="module-group-heading">
+                  <h3>Installed Models</h3>
+                  <span id="model-list-count">Waiting for catalog</span>
+                </div>
+                <div id="model-list" class="module-list model-list"></div>
+              </section>
             </div>
             <p id="model-output" class="api-output"></p>
           </section>
@@ -1405,7 +1405,7 @@ data:
               const ingressName = String((ingress || {}).name || '').toLowerCase();
               const labels = (ingress || {}).labels || {};
               const appInstanceName = String(labels['appliance.magicstick.dev/appinstance'] || '').toLowerCase();
-              if (instanceName && (ingressName === instanceName || ingressName.startsWith(`${instanceName}-`) || appInstanceName === instanceName)) { return true; }
+              if (instanceName && (ingressName === instanceName || ingressName.startsWith(instanceName + '-') || appInstanceName === instanceName)) { return true; }
               return ((ingress || {}).hosts || []).some((host) => expectedHosts.has(urlHost(host)));
             };
             const ingressLinks = ((status || {}).ingresses || []).filter(matches).flatMap(linksFromIngress);
