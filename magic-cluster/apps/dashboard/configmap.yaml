@@ -866,7 +866,7 @@ data:
               <summary class="instance-create-summary">
                 <span>
                   <strong>Create Instance</strong>
-                  <small>Only installed instance operators are shown</small>
+                  <small>Only installed instance modules are shown</small>
                 </span>
                 <span class="status-pill">Create</span>
               </summary>
@@ -922,6 +922,23 @@ data:
                   <label class="field">Template<input name="template" value="default-coder" /></label>
                 </div>
                 <button class="control-button primary" type="submit">Create KubeOpenCode</button>
+              </form>
+              <form class="dashboard-card instance-form" data-instance-type="odysseus">
+                <h3>Odysseus</h3>
+                <div class="form-grid">
+                  <label class="field">Name<input name="name" value="default" /></label>
+                  <label class="field">Model<select name="model" data-model-select="chat" data-model-fallback="CHANGEME_MODEL"><option value="">Loading models</option></select></label>
+                </div>
+                <details class="module-advanced">
+                  <summary>Configure</summary>
+                  <div class="form-grid">
+                    <label class="field">Storage<input name="storage" value="20Gi" /></label>
+                    <label class="field">Chroma<input name="chromaStorage" value="5Gi" /></label>
+                    <label class="field">SearXNG<input name="searxngStorage" value="1Gi" /></label>
+                    <label class="field">ntfy<input name="ntfyStorage" value="1Gi" /></label>
+                  </div>
+                </details>
+                <button class="control-button primary" type="submit">Create Odysseus</button>
               </form>
               </div>
             </details>
@@ -1111,6 +1128,7 @@ data:
           const INSTANCE_REQUIRED_MODULES = {
             openclaw: ['openclaw-operator', 'litellm', 'model-catalog'],
             hermes: ['hermes-operator', 'litellm', 'model-catalog'],
+            odysseus: ['odysseus', 'litellm', 'model-catalog'],
             paperclip: ['paperclip-operator', 'litellm', 'model-catalog'],
             kubeopencode: ['kubeopencode', 'litellm', 'model-catalog']
           };
@@ -2763,6 +2781,13 @@ data:
               if (type === 'kubeopencode') {
                 payload.server = { enabled: true, ingress: { enabled: true, host } };
                 payload.agentTemplates = [{ name: data.get('template') || 'default-coder', description: 'Default coding agent template' }];
+              }
+              if (type === 'odysseus') {
+                payload.storage = { size: data.get('storage') || '20Gi' };
+                payload.chroma = { storage: { size: data.get('chromaStorage') || '5Gi' } };
+                payload.searxng = { storage: { size: data.get('searxngStorage') || '1Gi' } };
+                payload.ntfy = { storage: { size: data.get('ntfyStorage') || '1Gi' } };
+                payload.ingress = { enabled: true, host };
               }
               try {
                 await request('/api/instances/' + type, { method: 'POST', body: JSON.stringify(payload) });

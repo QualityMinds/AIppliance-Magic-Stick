@@ -43,7 +43,7 @@ data:
     DEFAULT_MDNS_DOMAIN = "magicstick.local"
     SETTINGS_WATCH_LABELS = {"reconcile.fluxcd.io/watch": "Enabled"}
 
-    INSTANCE_TYPES = {"openclaw", "hermes", "paperclip", "kubeopencode"}
+    INSTANCE_TYPES = {"openclaw", "hermes", "odysseus", "paperclip", "kubeopencode"}
     MODEL_SECRET_PREFIX = "ai-model-provider-"
     SSL_CONTEXT = ssl.create_default_context(cafile=SA_CA_PATH)
     PUBLIC_SSL_CONTEXT = ssl.create_default_context()

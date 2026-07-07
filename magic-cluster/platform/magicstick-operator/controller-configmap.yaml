@@ -69,6 +69,7 @@ data:
         ("paperclip.inc", "Instance"): "instances",
         ("kubeopencode.io", "Agent"): "agents",
         ("kubeopencode.io", "AgentTemplate"): "agenttemplates",
+        ("apps", "Deployment"): "deployments",
         ("networking.k8s.io", "Ingress"): "ingresses",
     }
 
@@ -141,21 +142,43 @@ data:
             raise
 
 
+    def resource_path(api_version, kind, namespace, name):
+        if "/" in api_version:
+            group, version = api_version.split("/", 1)
+            plural = PLURALS[(group, kind)]
+            return f"/apis/{group}/{version}/namespaces/{namespace}/{plural}/{name}"
+        plural = kind.lower() + "s"
+        return f"/api/{api_version}/namespaces/{namespace}/{plural}/{name}"
+
+
     def apply_resource(resource):
         api_version = resource["apiVersion"]
         kind = resource["kind"]
         metadata = resource.setdefault("metadata", {})
         namespace = metadata.get("namespace")
         name = metadata["name"]
-        if "/" in api_version:
-            group, version = api_version.split("/", 1)
-            plural = PLURALS[(group, kind)]
-            path = f"/apis/{group}/{version}/namespaces/{namespace}/{plural}/{name}"
-        else:
-            plural = kind.lower() + "s"
-            path = f"/api/{api_version}/namespaces/{namespace}/{plural}/{name}"
+        path = resource_path(api_version, kind, namespace, name)
         query = urllib.parse.urlencode({"fieldManager": FIELD_MANAGER, "force": "true"})
         return patch_json(path + "?" + query, resource, "application/apply-patch+yaml")
+
+
+    def get_applied_resource(resource):
+        api_version = resource["apiVersion"]
+        kind = resource["kind"]
+        metadata = resource.get("metadata") or {}
+        try:
+            return get_json(resource_path(api_version, kind, metadata.get("namespace"), metadata.get("name")))
+        except urllib.error.HTTPError as error:
+            if error.code == 404:
+                return None
+            raise
+
+
+    def delete_applied_resource(resource):
+        api_version = resource["apiVersion"]
+        kind = resource["kind"]
+        metadata = resource.get("metadata") or {}
+        return delete_json(resource_path(api_version, kind, metadata.get("namespace"), metadata.get("name")))
 
 
     def get_resource(group, version, plural, namespace, name):
@@ -226,6 +249,9 @@ data:
                 return condition
         for condition in (resource.get("status") or {}).get("conditions", []):
             if condition.get("type") in ("ServerReady", "ServerHealthy"):
+                return condition
+        for condition in (resource.get("status") or {}).get("conditions", []):
+            if condition.get("type") == "Available":
                 return condition
         return {}
 
@@ -2000,6 +2026,264 @@ data:
         return [template, ingress, agent], "http://" + host + "/"
 
 
+    def build_odysseus(instance):
+        metadata = instance.get("metadata") or {}
+        spec = instance.get("spec") or {}
+        params = spec.get("parameters") or {}
+        name = metadata.get("name")
+        namespace = spec.get("targetNamespace") or "ai"
+        host = ((params.get("ingress") or {}).get("host") or params.get("host") or "odysseus.example.local")
+        local_host = app_instance_local_host(instance, "odysseus")
+        local_name = local_mdns_name(local_host)
+        ingress_host = local_host if host == "odysseus.example.local" else host
+        image = params.get("image") or {}
+        image_repository = image.get("repository") or params.get("imageRepository") or "ghcr.io/pewdiepie-archdaemon/odysseus"
+        image_tag = image.get("tag") or params.get("imageTag") or "latest"
+        app_storage = ((params.get("storage") or {}).get("size") or params.get("storageSize") or "20Gi")
+        chroma_params = params.get("chroma") or {}
+        chroma_storage_params = chroma_params.get("storage") or {}
+        chroma_storage = chroma_storage_params.get("size") or chroma_params.get("storageSize") or params.get("chromaStorage") or "5Gi"
+        searxng_params = params.get("searxng") or {}
+        searxng_storage_params = searxng_params.get("storage") or {}
+        searxng_storage = searxng_storage_params.get("size") or searxng_params.get("storageSize") or params.get("searxngStorage") or "1Gi"
+        ntfy_params = params.get("ntfy") or {}
+        ntfy_storage_params = ntfy_params.get("storage") or {}
+        ntfy_storage = ntfy_storage_params.get("size") or ntfy_params.get("storageSize") or params.get("ntfyStorage") or "1Gi"
+        model, _ = select_catalog_chat_model(namespace, params.get("model"))
+        base_name = name or "odysseus"
+        data_pvc = derived_resource_name(base_name, "data")
+        chroma_name = derived_resource_name(base_name, "chroma")
+        chroma_pvc = derived_resource_name(base_name, "chroma-data")
+        searxng_name = derived_resource_name(base_name, "searxng")
+        searxng_pvc = derived_resource_name(base_name, "searxng-data")
+        searxng_config = derived_resource_name(base_name, "searxng-config")
+        ntfy_name = derived_resource_name(base_name, "ntfy")
+        ntfy_pvc = derived_resource_name(base_name, "ntfy-data")
+        litellm_alias = derived_resource_name(base_name, "litellm")
+        common_labels = {
+            "app": "odysseus",
+            "app.kubernetes.io/name": "odysseus",
+            "app.kubernetes.io/instance": base_name,
+            "appliance.magicstick.dev/appinstance": metadata.get("name", ""),
+        }
+
+        def labels(component):
+            result = dict(common_labels)
+            result["app.kubernetes.io/component"] = component
+            return result
+
+        def pvc(pvc_name, size):
+            return {
+                "apiVersion": "v1",
+                "kind": "PersistentVolumeClaim",
+                "metadata": {"name": pvc_name, "namespace": namespace, "labels": labels("storage")},
+                "spec": {
+                    "accessModes": ["ReadWriteOnce"],
+                    "resources": {"requests": {"storage": size}},
+                },
+            }
+
+        def service(service_name, selector, port, target_port=None):
+            return {
+                "apiVersion": "v1",
+                "kind": "Service",
+                "metadata": {"name": service_name, "namespace": namespace, "labels": selector},
+                "spec": {
+                    "type": "ClusterIP",
+                    "selector": selector,
+                    "ports": [{
+                        "name": "http",
+                        "port": port,
+                        "targetPort": target_port or port,
+                        "protocol": "TCP",
+                    }],
+                },
+            }
+
+        def deployment(deployment_name, component, image_ref, port, env=None, volumes=None, volume_mounts=None, args=None, command=None, resources=None, annotations=None):
+            return {
+                "apiVersion": "apps/v1",
+                "kind": "Deployment",
+                "metadata": {"name": deployment_name, "namespace": namespace, "labels": labels(component)},
+                "spec": {
+                    "replicas": 1,
+                    "selector": {"matchLabels": labels(component)},
+                    "strategy": {"type": "Recreate"},
+                    "template": {
+                        "metadata": {"labels": labels(component), "annotations": annotations or {}},
+                        "spec": {
+                            "containers": [{
+                                "name": component,
+                                "image": image_ref,
+                                "imagePullPolicy": "IfNotPresent",
+                                **({"command": command} if command else {}),
+                                **({"args": args} if args else {}),
+                                "ports": [{"name": "http", "containerPort": port, "protocol": "TCP"}],
+                                "env": env or [],
+                                "resources": resources or {
+                                    "requests": {"cpu": "100m", "memory": "256Mi"},
+                                    "limits": {"cpu": "1", "memory": "1Gi"},
+                                },
+                                "volumeMounts": volume_mounts or [],
+                            }],
+                            "volumes": volumes or [],
+                        },
+                    },
+                },
+            }
+
+        searxng_secret = hashlib.sha256(((metadata.get("uid") or base_name) + "|searxng").encode("utf-8")).hexdigest()
+        searxng_settings = textwrap.dedent(f"""\
+            use_default_settings: true
+
+            server:
+              secret_key: "{searxng_secret}"
+
+            search:
+              formats:
+                - html
+                - json
+        """)
+        allowed_origins = params.get("allowedOrigins") or [
+            "http://" + ingress_host,
+            "http://" + local_host,
+            "http://localhost",
+            "http://127.0.0.1",
+        ]
+        odysseus_env = [
+            {"name": "LLM_HOST", "value": litellm_alias},
+            {"name": "LLM_HOSTS", "value": litellm_alias},
+            {"name": "OPENAI_API_KEY", "valueFrom": {"secretKeyRef": {"name": "litellm-masterkey-secret", "key": "LITELLM_MASTER_KEY"}}},
+            {"name": "RESEARCH_LLM_ENDPOINT", "value": f"http://{litellm_alias}:8000/v1/chat/completions"},
+            {"name": "ODYSSEUS_DEFAULT_MODEL", "value": model},
+            {"name": "SEARXNG_INSTANCE", "value": f"http://{searxng_name}:8080"},
+            {"name": "CHROMADB_HOST", "value": chroma_name},
+            {"name": "CHROMADB_PORT", "value": "8000"},
+            {"name": "DATABASE_URL", "value": "sqlite:///./data/app.db"},
+            {"name": "AUTH_ENABLED", "value": str(params.get("authEnabled", True)).lower()},
+            {"name": "LOCALHOST_BYPASS", "value": "false"},
+            {"name": "ODYSSEUS_ADMIN_USER", "value": ((params.get("admin") or {}).get("user") or params.get("adminUser") or "admin")},
+            {"name": "ALLOWED_ORIGINS", "value": ",".join(allowed_origins)},
+            {"name": "SECURE_COOKIES", "value": str(params.get("secureCookies", False)).lower()},
+            {"name": "NTFY_BASE_URL", "value": f"http://{ntfy_name}:80"},
+            {"name": "PUID", "value": "1000"},
+            {"name": "PGID", "value": "1000"},
+        ]
+        admin = params.get("admin") or {}
+        admin_password_ref = admin.get("passwordSecretRef") or {}
+        admin_secret_name = admin_password_ref.get("name") or admin.get("passwordSecretName") or params.get("adminPasswordSecretName")
+        admin_secret_key = admin_password_ref.get("key") or admin.get("passwordSecretKey") or params.get("adminPasswordSecretKey") or "ODYSSEUS_ADMIN_PASSWORD"
+        if admin_secret_name:
+            odysseus_env.append({
+                "name": "ODYSSEUS_ADMIN_PASSWORD",
+                "valueFrom": {"secretKeyRef": {"name": admin_secret_name, "key": admin_secret_key}},
+            })
+
+        resources = [
+            pvc(data_pvc, app_storage),
+            pvc(chroma_pvc, chroma_storage),
+            pvc(searxng_pvc, searxng_storage),
+            pvc(ntfy_pvc, ntfy_storage),
+            {
+                "apiVersion": "v1",
+                "kind": "ConfigMap",
+                "metadata": {"name": searxng_config, "namespace": namespace, "labels": labels("searxng")},
+                "data": {"settings.yml": searxng_settings},
+            },
+            service(base_name, labels("app"), 7000),
+            service(chroma_name, labels("chroma"), 8000),
+            service(searxng_name, labels("searxng"), 8080),
+            service(ntfy_name, labels("ntfy"), 80),
+            {
+                "apiVersion": "v1",
+                "kind": "Service",
+                "metadata": {"name": litellm_alias, "namespace": namespace, "labels": labels("litellm")},
+                "spec": {
+                    "type": "ClusterIP",
+                    "selector": {"app": "litellm"},
+                    "ports": [{"name": "http", "port": 8000, "targetPort": 4000, "protocol": "TCP"}],
+                },
+            },
+            deployment(
+                chroma_name,
+                "chroma",
+                "docker.io/chromadb/chroma:latest",
+                8000,
+                env=[{"name": "ANONYMIZED_TELEMETRY", "value": "FALSE"}],
+                volumes=[{"name": "data", "persistentVolumeClaim": {"claimName": chroma_pvc}}],
+                volume_mounts=[{"name": "data", "mountPath": "/chroma/chroma"}],
+                resources={"requests": {"cpu": "100m", "memory": "512Mi"}, "limits": {"cpu": "1", "memory": "1Gi"}},
+            ),
+            deployment(
+                searxng_name,
+                "searxng",
+                "docker.io/searxng/searxng:2026.5.31-7159b8aed",
+                8080,
+                env=[{"name": "SEARXNG_BASE_URL", "value": f"http://{searxng_name}:8080/"}],
+                volumes=[
+                    {"name": "settings", "configMap": {"name": searxng_config}},
+                    {"name": "cache", "persistentVolumeClaim": {"claimName": searxng_pvc}},
+                ],
+                volume_mounts=[
+                    {"name": "settings", "mountPath": "/etc/searxng/settings.yml", "subPath": "settings.yml", "readOnly": True},
+                    {"name": "cache", "mountPath": "/var/cache/searxng"},
+                ],
+                resources={"requests": {"cpu": "50m", "memory": "256Mi"}, "limits": {"cpu": "500m", "memory": "512Mi"}},
+            ),
+            deployment(
+                ntfy_name,
+                "ntfy",
+                "docker.io/binwiederhier/ntfy:latest",
+                80,
+                args=["serve"],
+                env=[{"name": "NTFY_BASE_URL", "value": f"http://{ntfy_name}:80"}],
+                volumes=[{"name": "cache", "persistentVolumeClaim": {"claimName": ntfy_pvc}}],
+                volume_mounts=[{"name": "cache", "mountPath": "/var/cache/ntfy"}],
+                resources={"requests": {"cpu": "25m", "memory": "64Mi"}, "limits": {"cpu": "250m", "memory": "256Mi"}},
+            ),
+            managed_ingress(
+                base_name,
+                namespace,
+                [ingress_host, local_host],
+                base_name,
+                "http",
+                dashboard_ingress_annotations(
+                    "Odysseus",
+                    "Self-hosted Odysseus workspace managed by Magic Stick.",
+                    "OD",
+                    "AI",
+                    "46",
+                    local_name,
+                    {
+                        "nginx.ingress.kubernetes.io/proxy-read-timeout": "3600",
+                        "nginx.ingress.kubernetes.io/proxy-send-timeout": "3600",
+                        "nginx.ingress.kubernetes.io/proxy-http-version": "1.1",
+                        "nginx.ingress.kubernetes.io/proxy-body-size": "100m",
+                    },
+                ),
+                labels("app"),
+            ),
+            deployment(
+                base_name,
+                "app",
+                image_repository + ":" + image_tag,
+                7000,
+                env=odysseus_env,
+                volumes=[{"name": "data", "persistentVolumeClaim": {"claimName": data_pvc}}],
+                volume_mounts=[
+                    {"name": "data", "mountPath": "/app/data", "subPath": "data"},
+                    {"name": "data", "mountPath": "/app/logs", "subPath": "logs"},
+                    {"name": "data", "mountPath": "/app/.ssh", "subPath": "ssh"},
+                    {"name": "data", "mountPath": "/app/.cache/huggingface", "subPath": "huggingface"},
+                    {"name": "data", "mountPath": "/app/.local", "subPath": "local"},
+                ],
+                resources={"requests": {"cpu": "250m", "memory": "1Gi"}, "limits": {"cpu": "2", "memory": "4Gi"}},
+                annotations={"ai-appliance.io/model-catalog-consumer": "true"},
+            ),
+        ]
+        return resources, "http://" + ingress_host + "/"
+
+
     def app_instance_target_resources(instance):
         metadata = instance.get("metadata") or {}
         spec = instance.get("spec") or {}
@@ -2028,15 +2312,31 @@ data:
                 {"apiVersion": "kubeopencode.io/v1alpha1", "kind": "AgentTemplate", "metadata": {"name": template_name, "namespace": namespace}},
                 {"apiVersion": "networking.k8s.io/v1", "kind": "Ingress", "metadata": {"name": name, "namespace": namespace}},
             ]
+        if instance_type == "odysseus":
+            base_name = name or "odysseus"
+            chroma_name = derived_resource_name(base_name, "chroma")
+            searxng_name = derived_resource_name(base_name, "searxng")
+            searxng_config = derived_resource_name(base_name, "searxng-config")
+            ntfy_name = derived_resource_name(base_name, "ntfy")
+            litellm_alias = derived_resource_name(base_name, "litellm")
+            return [
+                {"apiVersion": "networking.k8s.io/v1", "kind": "Ingress", "metadata": {"name": base_name, "namespace": namespace}},
+                {"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": base_name, "namespace": namespace}},
+                {"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": chroma_name, "namespace": namespace}},
+                {"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": searxng_name, "namespace": namespace}},
+                {"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": ntfy_name, "namespace": namespace}},
+                {"apiVersion": "v1", "kind": "Service", "metadata": {"name": base_name, "namespace": namespace}},
+                {"apiVersion": "v1", "kind": "Service", "metadata": {"name": chroma_name, "namespace": namespace}},
+                {"apiVersion": "v1", "kind": "Service", "metadata": {"name": searxng_name, "namespace": namespace}},
+                {"apiVersion": "v1", "kind": "Service", "metadata": {"name": ntfy_name, "namespace": namespace}},
+                {"apiVersion": "v1", "kind": "Service", "metadata": {"name": litellm_alias, "namespace": namespace}},
+                {"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": searxng_config, "namespace": namespace}},
+            ]
         return []
 
 
     def delete_target_resource(resource):
-        api_version = resource["apiVersion"]
-        kind = resource["kind"]
-        metadata = resource.get("metadata") or {}
-        group, version = api_version.split("/", 1)
-        delete_resource(group, version, PLURALS[(group, kind)], metadata.get("namespace"), metadata.get("name"))
+        delete_applied_resource(resource)
 
 
     def cleanup_app_instance_targets(instance):
@@ -2054,6 +2354,7 @@ data:
     INSTANCE_BUILDERS = {
         "openclaw": build_openclaw,
         "hermes": build_hermes,
+        "odysseus": build_odysseus,
         "paperclip": build_paperclip,
         "kubeopencode": build_kubeopencode,
     }
@@ -2114,8 +2415,7 @@ data:
             "name": resource["metadata"]["name"],
             "namespace": resource["metadata"]["namespace"],
         }
-        group, version = resource["apiVersion"].split("/", 1)
-        target_resource = get_resource(group, version, PLURALS[(group, resource["kind"])], target["namespace"], target["name"])
+        target_resource = get_applied_resource(resource)
         ready = ready_condition(target_resource or {})
         if ready.get("status") == "False":
             phase = "Degraded"

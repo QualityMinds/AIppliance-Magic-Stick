@@ -107,7 +107,10 @@ postBuild:
 
 `instanceMappings` define which modules and CRDs an `AppInstance` type needs.
 For example, an OpenClaw instance requires `openclaw-operator`, `litellm`, and
-`model-catalog`.
+`model-catalog`. Odysseus instances require the `odysseus` app module plus
+`litellm` and `model-catalog`, but their Kubernetes workloads are reconciled
+directly by the Magic Stick Operator because Odysseus does not ship a dedicated
+upstream operator.
 
 Enabled app instances do not override a disabled module intent. If an instance
 requires a disabled module, the instance waits in `WaitingForModules` until the

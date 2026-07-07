@@ -96,6 +96,7 @@ AppInstance hostnames include the instance name:
 |---|---|---|
 | OpenClaw | `default.openclaw.magicstick.example.com` | `default.openclaw.magicstick.local` |
 | Hermes | `default.hermes.magicstick.example.com` | `default.hermes.magicstick.local` |
+| Odysseus | `default.odysseus.magicstick.example.com` | `default.odysseus.magicstick.local` |
 | Paperclip | `default.paperclip.magicstick.example.com` | `default.paperclip.magicstick.local` |
 | KubeOpenCode | `default.kubeopencode.magicstick.example.com` | `default.kubeopencode.magicstick.local` |
 

@@ -121,12 +121,13 @@ own path set.
 ## Optional Apps And Operators
 
 `ModuleActivation` installs optional operators and app modules such as KubeAI,
-Hermes, OpenClaw, Paperclip, LiteLLM, and KubeOpenCode. App instances are
+Hermes, OpenClaw, Odysseus, Paperclip, LiteLLM, and KubeOpenCode. App instances are
 regular runtime CRs and should be represented as `AppInstance` resources.
 
-When adding a new operator-backed app:
+When adding a new app instance type:
 
-1. Put the operator in `magic-cluster/platform/ai/<operator>`.
+1. Put any dedicated operator under `magic-cluster/platform/ai/` or direct app
+   module gate under `magic-cluster/apps/ai/`.
 2. Add an `AppInstance` builder and `instanceMappings` entry to the Magic Stick
    Operator catalog/controller.
 3. Keep instance-specific secrets generated or externally referenced.

@@ -2,8 +2,8 @@
 
 The Magic Stick Dashboard is the user interface for the Appliance control plane.
 It reads Kubernetes status and writes runtime intent resources. It does not
-directly install workloads, create Flux Kustomizations, or manage specialized app
-resources itself.
+directly install workloads, create Flux Kustomizations, or manage app resources
+itself.
 
 ```text
 Dashboard UI
@@ -11,7 +11,7 @@ Dashboard UI
   -> Kubernetes API
   -> ModuleActivation, AppInstance, and ModelActivation CRs
   -> Magic Stick Operator
-  -> Flux Kustomizations and specialized operator CRs
+  -> Flux Kustomizations, specialized operator CRs, and direct runtime resources
 ```
 
 ## Role
@@ -30,7 +30,7 @@ The dashboard may:
 - read OpenClaw instance credentials when the generated instance exposes them
 
 The dashboard must not replace the Magic Stick Operator, Flux, OpenClaw, Hermes,
-Paperclip, KubeOpenCode, KubeAI, or LiteLLM.
+Paperclip, KubeOpenCode, KubeAI, LiteLLM, or direct app instance reconcilers.
 
 ## UI Areas
 
@@ -59,8 +59,8 @@ The dashboard Deployment runs an API sidecar from
 | `POST` | `/api/modules/{name}/disable` | Creates or patches a `ModuleActivation` with `spec.enabled: false`. |
 | `GET` | `/api/instances` | Returns `AppInstance` resources and status. |
 | `GET` | `/api/instances/{name}/credentials` | Returns supported generated credentials for an instance, currently OpenClaw. |
-| `POST` | `/api/instances/{type}` | Adds or replaces an `AppInstance` for supported types such as `openclaw`, `hermes`, `paperclip`, or `kubeopencode`. |
-| `DELETE` | `/api/instances/{name}` | Deletes the `AppInstance`; operator finalizers clean generated custom resources. |
+| `POST` | `/api/instances/{type}` | Adds or replaces an `AppInstance` for supported types such as `openclaw`, `hermes`, `odysseus`, `paperclip`, or `kubeopencode`. |
+| `DELETE` | `/api/instances/{name}` | Deletes the `AppInstance`; operator finalizers clean generated runtime resources. |
 | `GET` | `/api/models` | Returns model catalog entries, model presets, `ModelActivation` resources, AnythingLLM status, and VRAM summary. |
 | `POST` | `/api/models/estimate-vram` | Estimates VRAM for public HuggingFace model metadata, context size, and max sequence count. |
 | `POST` | `/api/models/local` | Adds or replaces a local KubeAI-backed `ModelActivation`. |
@@ -91,7 +91,7 @@ not scheduler- or operator-reported completion percentages.
 
 Instances are runtime requests stored as `AppInstance` resources in namespace
 `ai-system`. The dashboard shows create controls only for instance types whose
-required operator modules are installed or installable according to the module
+required modules are installed or installable according to the module
 catalog and current module status.
 
 Instance hostnames are derived, not user-entered:

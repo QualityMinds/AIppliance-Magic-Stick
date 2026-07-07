@@ -38,7 +38,7 @@ spec:
       schema:
         openAPIV3Schema:
           type: object
-          description: Appliance selects Magic Stick modules and operator-backed instances.
+          description: Appliance selects Magic Stick modules and runtime instances.
           required:
             - spec
           properties:
@@ -94,7 +94,7 @@ spec:
                           - remove
                 instances:
                   type: object
-                  description: Concrete resources managed by specialized operators.
+                  description: Legacy concrete resources managed by specialized operators or direct reconcilers.
                   properties:
                     openclaw:
                       type: array

@@ -79,8 +79,10 @@ remain authoritative so administrators can disable a default module explicitly.
 
 The Magic Stick Operator is a meta-operator. It enables modules by generating
 Flux `Kustomization` resources and creates instance resources only after the
-required specialized operator CRDs exist. OpenClaw, Hermes, Paperclip, and
-KubeOpenCode continue to own their workload-specific reconciliation.
+required specialized operator CRDs or direct app modules exist. OpenClaw,
+Hermes, Paperclip, and KubeOpenCode continue to own their workload-specific
+reconciliation; Odysseus workloads are reconciled directly because there is no
+upstream Odysseus operator.
 
 The dashboard is the user-facing client for this model. It runs in the cluster,
 reads the Appliance, module catalog, Flux, Pod, Service, Ingress, and Event
@@ -106,7 +108,7 @@ directly.
 | LiteLLM | `magic-cluster/apps/ai/litellm/base` | In-cluster OpenAI-compatible API and model routing. |
 | Model catalog | `magic-cluster/apps/ai/model-catalog` | Syncs KubeAI and external models into LiteLLM and publishes generated catalog fragments. |
 | AnythingLLM | `magic-cluster/apps/ai/anything-llm/base` | Uses LiteLLM and the generated embedding default. |
-| Runtime app instances | `AppInstance` CRs | Hermes, OpenClaw, Paperclip, and KubeOpenCode instances created by the Magic Stick Operator. |
+| Runtime app instances | `AppInstance` CRs | Hermes, OpenClaw, Odysseus, Paperclip, and KubeOpenCode instances created by the Magic Stick Operator. |
 | KubeOpenCode | `magic-cluster/apps/ai/kubeopencode` | Helm-managed KubeOpenCode controller and server module. |
 
 ## Value Boundary

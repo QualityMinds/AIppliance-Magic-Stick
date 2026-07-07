@@ -10,7 +10,7 @@ The dashboard is also not an operator. It reads status and creates or patches
 
 | Component | Responsibility |
 |---|---|
-| Magic Stick Operator | Watches `ModuleActivation`, `ModelActivation`, and `AppInstance`, enables modules with Flux, cleans generated Flux Kustomizations for disabled modules, waits for CRDs, creates model and specialized app CRs, and reports aggregate `Appliance.status`. |
+| Magic Stick Operator | Watches `ModuleActivation`, `ModelActivation`, and `AppInstance`, enables modules with Flux, cleans generated Flux Kustomizations for disabled modules, waits for CRDs, creates model resources, specialized app CRs, and direct app resources, and reports aggregate `Appliance.status`. |
 | Magic Stick Dashboard | Reads `Appliance`, module catalog, Flux, Pod, Service, Ingress, and Event status; creates or patches runtime CRs only. |
 | OpenClaw Operator | Owns lifecycle of `OpenClawInstance` resources. |
 | Hermes Operator | Owns lifecycle of `HermesInstance` resources. |
@@ -52,6 +52,7 @@ removed, or repaired.
 | `hermes` | `hermes-operator` | `hermesinstances.hermes.agent` | `HermesInstance` `hermes.agent/v1` |
 | `paperclip` | `paperclip-operator` | `instances.paperclip.inc` | `Instance` `paperclip.inc/v1alpha1` |
 | `kubeopencode` | `kubeopencode` | `agenttemplates.kubeopencode.io` | `AgentTemplate` and related `kubeopencode.io/v1alpha1` resources |
+| `odysseus` | `odysseus` | none | `Deployment` `apps/v1` plus supporting Services, PVCs, ConfigMaps, and Ingress |
 
 All enabled AI app instances also require `litellm` and `model-catalog`.
 
