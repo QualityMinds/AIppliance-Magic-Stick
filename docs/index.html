@@ -1,0 +1,991 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="MagicStick is a self-hosted AI appliance template for local models, agents, apps, Kubernetes operators, Flux, and GitOps-managed automation." />
+  <meta name="theme-color" content="#071014" />
+  <meta property="og:title" content="MagicStick" />
+  <meta property="og:description" content="A self-hosted AI appliance for local models, agents, apps, and Kubernetes-native automation." />
+  <meta property="og:type" content="website" />
+  <title>MagicStick - Self-hosted AI Appliance</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #061014;
+      --surface: #0c171c;
+      --surface-strong: #111d24;
+      --surface-soft: #15212a;
+      --text: #ecf4f2;
+      --muted: #aebebc;
+      --line: #274049;
+      --teal: #26d9c5;
+      --cyan: #72d7ff;
+      --green: #7ce38b;
+      --amber: #f4c762;
+      --coral: #ff8c72;
+      --ink: #020607;
+      --max: 1160px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    a {
+      color: inherit;
+    }
+
+    .site-header {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      border-bottom: 1px solid rgba(39, 64, 73, 0.72);
+      background: rgba(6, 16, 20, 0.9);
+      backdrop-filter: blur(18px);
+    }
+
+    .nav {
+      width: min(var(--max), calc(100% - 40px));
+      margin: 0 auto;
+      min-height: 68px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      font-weight: 800;
+    }
+
+    .brand-mark {
+      width: 34px;
+      height: 34px;
+      border: 1px solid rgba(38, 217, 197, 0.65);
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      background: #0d2729;
+      color: var(--teal);
+      font-size: 0.95rem;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .nav-links a {
+      padding: 9px 11px;
+      border-radius: 8px;
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 0.94rem;
+    }
+
+    .nav-links a:hover,
+    .nav-links a:focus-visible {
+      background: rgba(38, 217, 197, 0.09);
+      color: var(--text);
+      outline: none;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 9px;
+      min-height: 42px;
+      padding: 0 15px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: var(--text);
+      text-decoration: none;
+      font-weight: 750;
+      background: rgba(17, 29, 36, 0.86);
+    }
+
+    .button:hover,
+    .button:focus-visible {
+      border-color: rgba(114, 215, 255, 0.9);
+      outline: none;
+    }
+
+    .button.primary {
+      border-color: rgba(38, 217, 197, 0.84);
+      background: #0b5d5d;
+    }
+
+    .button.secondary {
+      color: var(--muted);
+    }
+
+    .hero {
+      border-bottom: 1px solid rgba(39, 64, 73, 0.72);
+      background: var(--bg);
+    }
+
+    .hero-inner {
+      width: min(var(--max), calc(100% - 40px));
+      margin: 0 auto;
+      padding: 72px 0 64px;
+      display: grid;
+      grid-template-columns: minmax(0, 0.92fr) minmax(390px, 1.08fr);
+      align-items: center;
+      gap: 54px;
+    }
+
+    .eyebrow {
+      margin: 0 0 18px;
+      color: var(--teal);
+      font-size: 0.86rem;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
+    }
+
+    h1 {
+      margin-bottom: 22px;
+      font-size: 4.6rem;
+      line-height: 0.95;
+    }
+
+    .hero-copy {
+      max-width: 690px;
+      color: var(--muted);
+      font-size: 1.18rem;
+      line-height: 1.7;
+    }
+
+    .hero-actions {
+      margin-top: 30px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .hero-proof {
+      margin-top: 28px;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .proof-item {
+      border: 1px solid rgba(39, 64, 73, 0.8);
+      border-radius: 8px;
+      padding: 12px;
+      background: rgba(12, 23, 28, 0.78);
+    }
+
+    .proof-item strong {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--text);
+      font-size: 1rem;
+    }
+
+    .proof-item span {
+      color: var(--muted);
+      font-size: 0.82rem;
+      line-height: 1.35;
+    }
+
+    .product-shot {
+      position: relative;
+      border: 1px solid rgba(114, 215, 255, 0.26);
+      border-radius: 8px;
+      overflow: hidden;
+      background: #081117;
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+    }
+
+    .product-topbar {
+      min-height: 46px;
+      border-bottom: 1px solid rgba(39, 64, 73, 0.78);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      background: #0c171c;
+    }
+
+    .window-dots {
+      display: flex;
+      gap: 7px;
+    }
+
+    .window-dots span {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--line);
+    }
+
+    .window-dots span:nth-child(1) {
+      background: var(--coral);
+    }
+
+    .window-dots span:nth-child(2) {
+      background: var(--amber);
+    }
+
+    .window-dots span:nth-child(3) {
+      background: var(--green);
+    }
+
+    .topbar-status {
+      color: var(--muted);
+      font-size: 0.78rem;
+    }
+
+    .dashboard-scene {
+      display: grid;
+      grid-template-columns: 150px minmax(0, 1fr);
+      min-height: 475px;
+    }
+
+    .sidebar {
+      border-right: 1px solid rgba(39, 64, 73, 0.72);
+      padding: 16px 12px;
+      background: #0a1419;
+    }
+
+    .sidebar-title {
+      margin-bottom: 16px;
+      color: var(--muted);
+      font-size: 0.76rem;
+      text-transform: uppercase;
+      font-weight: 800;
+    }
+
+    .side-pill {
+      display: block;
+      margin-bottom: 8px;
+      padding: 9px 10px;
+      border: 1px solid rgba(39, 64, 73, 0.9);
+      border-radius: 8px;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
+    .side-pill.active {
+      border-color: rgba(38, 217, 197, 0.62);
+      background: rgba(38, 217, 197, 0.13);
+      color: var(--text);
+    }
+
+    .dashboard-main {
+      padding: 18px;
+      display: grid;
+      gap: 16px;
+      background: #081117;
+    }
+
+    .metric-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .metric {
+      border: 1px solid rgba(39, 64, 73, 0.82);
+      border-radius: 8px;
+      padding: 12px;
+      background: #0d171d;
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.72rem;
+    }
+
+    .metric strong {
+      display: block;
+      margin-top: 6px;
+      font-size: 1.18rem;
+    }
+
+    .module-preview-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .module-card {
+      border: 1px solid rgba(39, 64, 73, 0.82);
+      border-radius: 8px;
+      padding: 13px;
+      display: grid;
+      gap: 10px;
+      background: #0d171d;
+    }
+
+    .module-card-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .module-card h3 {
+      margin: 0;
+      font-size: 1rem;
+    }
+
+    .status {
+      border: 1px solid rgba(124, 227, 139, 0.45);
+      border-radius: 999px;
+      color: var(--green);
+      padding: 2px 8px;
+      font-size: 0.72rem;
+      white-space: nowrap;
+    }
+
+    .status.waiting {
+      border-color: rgba(244, 199, 98, 0.5);
+      color: var(--amber);
+    }
+
+    .bar {
+      height: 7px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #14232b;
+    }
+
+    .bar span {
+      display: block;
+      height: 100%;
+      width: var(--value);
+      background: var(--teal);
+    }
+
+    .module-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.8rem;
+      line-height: 1.45;
+    }
+
+    .terminal {
+      border: 1px solid rgba(39, 64, 73, 0.82);
+      border-radius: 8px;
+      padding: 13px;
+      background: #020607;
+      color: #baf7df;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.78rem;
+      line-height: 1.7;
+      overflow: hidden;
+    }
+
+    .section {
+      border-bottom: 1px solid rgba(39, 64, 73, 0.7);
+      background: var(--bg);
+    }
+
+    .section.alt {
+      background: #081319;
+    }
+
+    .section-inner {
+      width: min(var(--max), calc(100% - 40px));
+      margin: 0 auto;
+      padding: 76px 0;
+    }
+
+    .section-header {
+      max-width: 760px;
+      margin-bottom: 32px;
+    }
+
+    .section-header h2 {
+      margin-bottom: 14px;
+      font-size: 2.1rem;
+      line-height: 1.12;
+    }
+
+    .section-header p {
+      color: var(--muted);
+      font-size: 1.03rem;
+      line-height: 1.7;
+    }
+
+    .feature-grid,
+    .module-grid,
+    .doc-grid {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .feature,
+    .module,
+    .doc-link,
+    .quick-panel {
+      border: 1px solid rgba(39, 64, 73, 0.84);
+      border-radius: 8px;
+      padding: 18px;
+      background: rgba(17, 29, 36, 0.62);
+    }
+
+    .feature h3,
+    .module h3,
+    .doc-link h3 {
+      margin-bottom: 8px;
+      font-size: 1.04rem;
+    }
+
+    .feature p,
+    .module p,
+    .doc-link p {
+      margin-bottom: 0;
+      color: var(--muted);
+      line-height: 1.6;
+      font-size: 0.95rem;
+    }
+
+    .module-tag {
+      display: inline-flex;
+      margin-bottom: 12px;
+      border: 1px solid rgba(114, 215, 255, 0.34);
+      border-radius: 999px;
+      color: var(--cyan);
+      padding: 3px 9px;
+      font-size: 0.78rem;
+      font-weight: 700;
+    }
+
+    .quick-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(360px, 0.75fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .steps {
+      display: grid;
+      gap: 12px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .steps li {
+      border: 1px solid rgba(39, 64, 73, 0.78);
+      border-radius: 8px;
+      padding: 15px;
+      background: rgba(12, 23, 28, 0.74);
+    }
+
+    .steps strong {
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .steps span {
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    pre {
+      margin: 0;
+      border: 1px solid rgba(39, 64, 73, 0.84);
+      border-radius: 8px;
+      padding: 18px;
+      overflow-x: auto;
+      background: #020607;
+      color: #d8f9eb;
+      font-size: 0.86rem;
+      line-height: 1.7;
+    }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .architecture {
+      border: 1px solid rgba(39, 64, 73, 0.84);
+      border-radius: 8px;
+      padding: 18px;
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+      background: rgba(12, 23, 28, 0.72);
+    }
+
+    .arch-node {
+      min-height: 104px;
+      border: 1px solid rgba(39, 64, 73, 0.9);
+      border-radius: 8px;
+      display: grid;
+      align-content: center;
+      gap: 8px;
+      padding: 14px;
+      background: #0d171d;
+    }
+
+    .arch-node strong {
+      font-size: 0.94rem;
+    }
+
+    .arch-node span {
+      color: var(--muted);
+      font-size: 0.78rem;
+      line-height: 1.45;
+    }
+
+    .footer {
+      background: #020607;
+    }
+
+    .footer-inner {
+      width: min(var(--max), calc(100% - 40px));
+      margin: 0 auto;
+      padding: 36px 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .footer-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+    }
+
+    .footer-links a {
+      color: var(--muted);
+      text-decoration: none;
+    }
+
+    .footer-links a:hover,
+    .footer-links a:focus-visible {
+      color: var(--text);
+      outline: none;
+    }
+
+    @media (max-width: 980px) {
+      .hero-inner,
+      .quick-layout {
+        grid-template-columns: 1fr;
+      }
+
+      .product-shot {
+        max-width: 720px;
+      }
+
+      .feature-grid,
+      .module-grid,
+      .doc-grid,
+      .architecture {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 720px) {
+      .nav {
+        min-height: auto;
+        padding: 14px 0;
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .nav-links {
+        justify-content: flex-start;
+      }
+
+      h1 {
+        font-size: 3.1rem;
+      }
+
+      .hero-inner,
+      .section-inner {
+        width: min(100% - 28px, var(--max));
+      }
+
+      .hero-inner {
+        padding-top: 48px;
+      }
+
+      .hero-proof,
+      .metric-strip,
+      .module-preview-grid,
+      .feature-grid,
+      .module-grid,
+      .doc-grid,
+      .architecture {
+        grid-template-columns: 1fr;
+      }
+
+      .dashboard-scene {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        border-right: 0;
+        border-bottom: 1px solid rgba(39, 64, 73, 0.72);
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .sidebar-title {
+        grid-column: 1 / -1;
+        margin: 0;
+      }
+
+      .side-pill {
+        margin: 0;
+      }
+
+      .footer-inner {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <nav class="nav" aria-label="Main navigation">
+      <a class="brand" href="#top" aria-label="MagicStick home">
+        <span class="brand-mark" aria-hidden="true">MS</span>
+        <span>MagicStick</span>
+      </a>
+      <div class="nav-links">
+        <a href="#why">Why</a>
+        <a href="#modules">Modules</a>
+        <a href="#quickstart">Quickstart</a>
+        <a href="#docs">Docs</a>
+        <a class="button secondary" href="https://github.com/QualityMinds/AIppliance-Magic-Stick">GitHub</a>
+      </div>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-inner">
+        <div>
+          <p class="eyebrow">Open source AI appliance template</p>
+          <h1 id="hero-title">MagicStick</h1>
+          <p class="hero-copy">
+            A self-hosted AI appliance for local models, agents, apps, and Kubernetes-native automation. Bootstrap a machine, let Flux converge the platform, then manage modules, model activations, app instances, domains, and ingress links from one dashboard.
+          </p>
+          <div class="hero-actions" aria-label="Primary actions">
+            <a class="button primary" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/getting-started.md">Get started</a>
+            <a class="button" href="https://github.com/QualityMinds/AIppliance-Magic-Stick">View on GitHub</a>
+            <a class="button secondary" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/README.md">Read docs</a>
+          </div>
+          <div class="hero-proof" aria-label="Project highlights">
+            <div class="proof-item">
+              <strong>Local-first</strong>
+              <span>Run private AI workloads on your own appliance.</span>
+            </div>
+            <div class="proof-item">
+              <strong>GitOps-ready</strong>
+              <span>Flux keeps the cluster aligned with declarative state.</span>
+            </div>
+            <div class="proof-item">
+              <strong>Operator-led</strong>
+              <span>Modules and app instances reconcile through Kubernetes CRs.</span>
+            </div>
+          </div>
+        </div>
+
+        <figure class="product-shot" aria-label="MagicStick dashboard preview">
+          <div class="product-topbar">
+            <div class="window-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+            <div class="topbar-status">magicstick.local</div>
+          </div>
+          <div class="dashboard-scene">
+            <aside class="sidebar" aria-label="Dashboard sections">
+              <div class="sidebar-title">Dashboard</div>
+              <span class="side-pill active">Overview</span>
+              <span class="side-pill">Modules</span>
+              <span class="side-pill">Instances</span>
+              <span class="side-pill">Models</span>
+            </aside>
+            <div class="dashboard-main">
+              <div class="metric-strip">
+                <div class="metric"><span>Modules</span><strong>9 ready</strong></div>
+                <div class="metric"><span>Instances</span><strong>4 apps</strong></div>
+                <div class="metric"><span>Models</span><strong>3 local</strong></div>
+                <div class="metric"><span>VRAM</span><strong>23 GiB</strong></div>
+              </div>
+              <div class="module-preview-grid">
+                <article class="module-card">
+                  <div class="module-card-head">
+                    <h3>OpenClaw</h3>
+                    <span class="status">Ready</span>
+                  </div>
+                  <div class="bar" aria-hidden="true"><span style="--value: 100%"></span></div>
+                  <p>Agent runtime with local ingress and dashboard credentials.</p>
+                </article>
+                <article class="module-card">
+                  <div class="module-card-head">
+                    <h3>Hermes</h3>
+                    <span class="status">Ready</span>
+                  </div>
+                  <div class="bar" aria-hidden="true"><span style="--value: 100%"></span></div>
+                  <p>Browser chat workspace backed by deployed chat models.</p>
+                </article>
+                <article class="module-card">
+                  <div class="module-card-head">
+                    <h3>Qwen Local</h3>
+                    <span class="status waiting">Reconciling</span>
+                  </div>
+                  <div class="bar" aria-hidden="true"><span style="--value: 70%"></span></div>
+                  <p>Local model activation with VRAM estimate and scheduler hints.</p>
+                </article>
+                <article class="module-card">
+                  <div class="module-card-head">
+                    <h3>AnythingLLM</h3>
+                    <span class="status">Ready</span>
+                  </div>
+                  <div class="bar" aria-hidden="true"><span style="--value: 100%"></span></div>
+                  <p>Knowledge workspace published under public and mDNS hosts.</p>
+                </article>
+              </div>
+              <div class="terminal" aria-label="Bootstrap flow">
+                <div>$ kubectl kustomize magic-cluster/flux/entrypoints/single-node</div>
+                <div>$ flux reconcile kustomization magicstick-operator</div>
+                <div>local appliance: modules ready, model catalog published</div>
+              </div>
+            </div>
+          </div>
+        </figure>
+      </div>
+    </section>
+
+    <section class="section" id="why">
+      <div class="section-inner">
+        <div class="section-header">
+          <h2>Build a small AI platform without turning it into a platform team.</h2>
+          <p>
+            MagicStick packages the boring but critical pieces of a local AI appliance: host bootstrap, K3s, Flux, GPU platform bits, model serving, app operators, ingress naming, and a dashboard that writes runtime CRs instead of hand-editing cluster state.
+          </p>
+        </div>
+        <div class="feature-grid">
+          <article class="feature">
+            <h3>Dashboard-managed runtime</h3>
+            <p>Enable modules, add local or external models, create app instances, inspect progress, and open generated ingress URLs.</p>
+          </article>
+          <article class="feature">
+            <h3>Catalog-driven modules</h3>
+            <p>The module catalog controls display names, dependencies, activation mode, parameters, and instance availability.</p>
+          </article>
+          <article class="feature">
+            <h3>Public-safe base repo</h3>
+            <p>Keep this repository reusable and generic while private deployments provide real domains, tokens, and overlays.</p>
+          </article>
+          <article class="feature">
+            <h3>Local model workflows</h3>
+            <p>Deploy KubeAI-backed models, surface catalog status, and estimate VRAM from HuggingFace metadata before creating activations.</p>
+          </article>
+          <article class="feature">
+            <h3>Public and mDNS ingress</h3>
+            <p>Publish apps through predictable host schemes like instance.type.domain and local `.local` names.</p>
+          </article>
+          <article class="feature">
+            <h3>GitOps as the baseline</h3>
+            <p>Flux owns the platform graph, while runtime resources let users work through Kubernetes APIs and the dashboard.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section alt" id="modules">
+      <div class="section-inner">
+        <div class="section-header">
+          <h2>One appliance, many AI surfaces.</h2>
+          <p>
+            The reusable cluster base brings together model routing, local inference, app operators, and observability. Optional modules can be activated from the dashboard or through Kubernetes resources.
+          </p>
+        </div>
+        <div class="module-grid">
+          <article class="module">
+            <span class="module-tag">Core</span>
+            <h3>MagicStick Operator</h3>
+            <p>Coordinates module activations, app instances, model activations, and status across the appliance.</p>
+          </article>
+          <article class="module">
+            <span class="module-tag">Models</span>
+            <h3>KubeAI and LiteLLM</h3>
+            <p>Serve local models and route OpenAI-compatible traffic to local or external providers.</p>
+          </article>
+          <article class="module">
+            <span class="module-tag">Knowledge</span>
+            <h3>AnythingLLM</h3>
+            <p>Run a self-hosted workspace for documents, embeddings, and chat-backed knowledge flows.</p>
+          </article>
+          <article class="module">
+            <span class="module-tag">Agents</span>
+            <h3>OpenClaw</h3>
+            <p>Create managed agent instances with model catalog integration and dashboard-accessible credentials.</p>
+          </article>
+          <article class="module">
+            <span class="module-tag">Chat</span>
+            <h3>Hermes</h3>
+            <p>Run a browser chat workspace wired to deployed chat models and local ingress hosts.</p>
+          </article>
+          <article class="module">
+            <span class="module-tag">Ops</span>
+            <h3>Observability</h3>
+            <p>Use Prometheus, Grafana, Loki, and Flux status to inspect the appliance after bootstrap.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="quickstart">
+      <div class="section-inner">
+        <div class="section-header">
+          <h2>Start from the public template, then layer private deployment values.</h2>
+          <p>
+            The public repo stays safe to share. Real domains, credentials, and site-specific overrides belong in runtime settings or a private GitOps repository that includes this template.
+          </p>
+        </div>
+        <div class="quick-layout">
+          <div class="quick-panel">
+            <ol class="steps">
+              <li>
+                <strong>Clone the template</strong>
+                <span>Use the public repository as the reusable base for appliance bootstrap and cluster rendering.</span>
+              </li>
+              <li>
+                <strong>Render the Flux graph</strong>
+                <span>Validate the public base or the single-node profile before applying it to a cluster.</span>
+              </li>
+              <li>
+                <strong>Converge the appliance</strong>
+                <span>Flux applies modules, the MagicStick Operator reconciles CRs, and the dashboard exposes runtime actions.</span>
+              </li>
+            </ol>
+          </div>
+          <pre><code>git clone https://github.com/QualityMinds/AIppliance-Magic-Stick
+cd AIppliance-Magic-Stick
+
+kubectl kustomize magic-cluster/flux/entrypoints/base
+kubectl kustomize magic-cluster/flux/entrypoints/single-node
+kubectl kustomize magic-cluster/apps/dashboard</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="section alt" id="architecture">
+      <div class="section-inner">
+        <div class="section-header">
+          <h2>Kubernetes-native from install to day two.</h2>
+          <p>
+            MagicStick keeps the control plane explicit: host automation prepares the node, Flux owns the platform, the operator creates runtime resources, and app operators run the actual workloads.
+          </p>
+        </div>
+        <div class="architecture" aria-label="Architecture flow">
+          <div class="arch-node">
+            <strong>Installer</strong>
+            <span>Cloud-init and host defaults</span>
+          </div>
+          <div class="arch-node">
+            <strong>K3s</strong>
+            <span>Small Kubernetes base</span>
+          </div>
+          <div class="arch-node">
+            <strong>Flux</strong>
+            <span>GitOps platform graph</span>
+          </div>
+          <div class="arch-node">
+            <strong>Operator</strong>
+            <span>Modules, models, instances</span>
+          </div>
+          <div class="arch-node">
+            <strong>Dashboard</strong>
+            <span>Runtime UI and links</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="docs">
+      <div class="section-inner">
+        <div class="section-header">
+          <h2>Documentation for builders and operators.</h2>
+          <p>
+            Jump into the details when you are ready to bootstrap a node, design an overlay, extend the module catalog, or operate the cluster.
+          </p>
+        </div>
+        <div class="doc-grid">
+          <a class="doc-link" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/getting-started.md">
+            <h3>Getting Started</h3>
+            <p>First checkout, render checks, demo overlay, and installer workflow.</p>
+          </a>
+          <a class="doc-link" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/architecture.md">
+            <h3>Architecture</h3>
+            <p>Repository layers, bootstrap flow, Flux graph, and components.</p>
+          </a>
+          <a class="doc-link" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/dashboard.md">
+            <h3>Dashboard</h3>
+            <p>UI and API contract for runtime modules, models, instances, and settings.</p>
+          </a>
+          <a class="doc-link" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/modules.md">
+            <h3>Modules</h3>
+            <p>Catalog-driven module activation and generated Flux Kustomizations.</p>
+          </a>
+          <a class="doc-link" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/model-catalog.md">
+            <h3>Model Catalog</h3>
+            <p>Generated model metadata, external model schema, and troubleshooting.</p>
+          </a>
+          <a class="doc-link" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/operations.md">
+            <h3>Operations</h3>
+            <p>Day-two checks for Flux, K3s, apps, GPU, storage, logs, and failures.</p>
+          </a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+      <div>MagicStick is an open-source AI appliance template.</div>
+      <div class="footer-links">
+        <a href="https://github.com/QualityMinds/AIppliance-Magic-Stick">GitHub</a>
+        <a href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/CONTRIBUTING.md">Contributing</a>
+        <a href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/SECURITY.md">Security</a>
+        <a href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/LICENSE">License</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
