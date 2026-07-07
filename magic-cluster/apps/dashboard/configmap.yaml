@@ -291,12 +291,14 @@ data:
           gap: 0.7rem;
         }
 
-        .model-create-panel {
+        .model-create-panel,
+        .instance-create-panel {
           display: grid;
           gap: 0.75rem;
         }
 
-        .model-create-summary {
+        .model-create-summary,
+        .instance-create-summary {
           border: 1px solid rgba(125, 211, 252, 0.3);
           border-radius: 10px;
           background: rgba(15, 23, 42, 0.82);
@@ -309,21 +311,25 @@ data:
           padding: 0.7rem 0.85rem;
         }
 
-        .model-create-summary::-webkit-details-marker {
+        .model-create-summary::-webkit-details-marker,
+        .instance-create-summary::-webkit-details-marker {
           display: none;
         }
 
-        .model-create-summary span:first-child {
+        .model-create-summary span:first-child,
+        .instance-create-summary span:first-child {
           display: grid;
           gap: 0.12rem;
         }
 
-        .model-create-summary small {
+        .model-create-summary small,
+        .instance-create-summary small {
           color: var(--muted);
           font-size: 0.78rem;
         }
 
-        .model-create-grid {
+        .model-create-grid,
+        .instance-create-grid {
           display: grid;
           gap: 0.85rem;
           grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -816,10 +822,18 @@ data:
           </section>
 
           <section id="tab-instances" class="tab-panel" hidden>
-            <div class="dashboard-grid">
-              <article class="dashboard-card" id="instance-form-empty" hidden>
-                <h3>No installed instance modules</h3>
-              </article>
+            <article class="dashboard-card" id="instance-form-empty" hidden>
+              <h3>No installed instance modules</h3>
+            </article>
+            <details class="instance-create-panel" id="instance-create-panel">
+              <summary class="instance-create-summary">
+                <span>
+                  <strong>Create Instance</strong>
+                  <small>Only installed instance operators are shown</small>
+                </span>
+                <span class="status-pill">Create</span>
+              </summary>
+              <div class="instance-create-grid">
               <form class="dashboard-card instance-form" data-instance-type="openclaw">
                 <h3>OpenClaw</h3>
                 <div class="form-grid">
@@ -872,7 +886,8 @@ data:
                 </div>
                 <button class="control-button primary" type="submit">Create KubeOpenCode</button>
               </form>
-            </div>
+              </div>
+            </details>
             <div id="instance-list" class="module-list"></div>
             <p id="instance-output" class="api-output"></p>
           </section>
@@ -1099,6 +1114,10 @@ data:
             const empty = $('instance-form-empty');
             if (empty) {
               empty.hidden = visibleCount !== 0;
+            }
+            const createPanel = $('instance-create-panel');
+            if (createPanel) {
+              createPanel.hidden = visibleCount === 0;
             }
           };
 
@@ -1380,11 +1399,13 @@ data:
 
           const instanceIngressLinks = (instance, status = {}) => {
             const metadata = (instance || {}).metadata || {};
-            const nameKey = normalizedKey(metadata.name);
+            const instanceName = String(metadata.name || '').toLowerCase();
             const expectedHosts = instanceConfiguredHosts(instance);
             const matches = (ingress) => {
-              const ingressName = normalizedKey((ingress || {}).name);
-              if (nameKey && ingressName === nameKey) { return true; }
+              const ingressName = String((ingress || {}).name || '').toLowerCase();
+              const labels = (ingress || {}).labels || {};
+              const appInstanceName = String(labels['appliance.magicstick.dev/appinstance'] || '').toLowerCase();
+              if (instanceName && (ingressName === instanceName || ingressName.startsWith(`${instanceName}-`) || appInstanceName === instanceName)) { return true; }
               return ((ingress || {}).hosts || []).some((host) => expectedHosts.has(urlHost(host)));
             };
             const ingressLinks = ((status || {}).ingresses || []).filter(matches).flatMap(linksFromIngress);
