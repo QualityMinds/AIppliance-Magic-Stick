@@ -61,6 +61,22 @@ magic-installer/write-usb.sh --help
 - Update documentation when adding variables, entrypoints, apps, profiles, or
   operator dependencies.
 
+## Agent Instructions And Skills
+
+Agents and contributors should read [../AGENTS.md](../AGENTS.md) before making
+repo changes. That file is the source of truth for public safety, documentation
+sync, validation selection, and git hygiene.
+
+Repo-local Codex skill sources live under `../.codex/skills/`. They are
+workflow aids for common project work:
+
+- `magicstick-repo-maintenance` for general repo hygiene and documentation sync
+- `magicstick-gitops-module` for modules, Flux, Kustomize, Helm, and catalog work
+- `magicstick-dashboard-runtime` for dashboard/API/runtime CR behavior
+- `magicstick-public-release` for release, legal, security, and public scans
+
+Keep skills concise. Detailed policy belongs in `AGENTS.md` and public docs.
+
 ## Adding A Cluster Base
 
 1. Add the base under the narrowest existing ownership path.

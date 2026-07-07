@@ -15,6 +15,7 @@ created by the dashboard.
 ├── magic-host/                 # reusable Ansible playbooks and roles
 ├── magic-cluster/              # reusable Kubernetes, app, platform and Flux bases
 ├── examples/demo/              # render-only public overlay using example.local values
+├── .codex/skills/              # optional repo-local Codex skill sources
 ├── docs/
 │   ├── .nojekyll
 │   ├── index.html
@@ -69,6 +70,9 @@ site.
 | Cluster operations | [docs/operations.md](docs/operations.md) |
 | AI model catalog | [docs/model-catalog.md](docs/model-catalog.md) |
 | Development and release checks | [docs/development.md](docs/development.md) |
+
+Agent-specific repo instructions live in [AGENTS.md](AGENTS.md). Optional
+repo-local Codex skill sources live under [.codex/skills](.codex/skills).
 
 ## Community And Security
 
