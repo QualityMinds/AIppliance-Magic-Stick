@@ -12,10 +12,9 @@ This repository intentionally contains only generic template code, safe example 
 ├── magic-host/                 # reusable Ansible playbooks and roles
 ├── magic-cluster/              # reusable Kubernetes, app, platform and Flux bases
 ├── examples/demo/              # safe example overlay using example.local hosts
-├── pages/                      # GitHub Pages landing page
-│   ├── .nojekyll
-│   └── index.html
 ├── docs/
+│   ├── .nojekyll
+│   ├── index.html
 │   ├── README.md
 │   ├── architecture.md
 │   ├── appliance-crd.md
@@ -42,8 +41,8 @@ Use `example.local`, `example.com`, `CHANGEME`, or documented variables for all 
 ## Documentation
 
 Start with [docs/README.md](docs/README.md) for the full documentation index.
-The GitHub Pages landing page lives at [pages/index.html](pages/index.html);
-configure Pages to publish from the `pages/` directory for a buildless project
+The GitHub Pages landing page lives at [docs/index.html](docs/index.html);
+configure Pages to publish from the `docs/` directory for a buildless project
 site.
 
 | Topic | Document |
