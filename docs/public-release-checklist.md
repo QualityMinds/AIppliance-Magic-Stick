@@ -8,6 +8,10 @@ Run this before publishing this repository or creating a release tag for private
 - Real deployment values live in private deployment repositories.
 - New deployments use private overlays and patches instead of editing public bases directly.
 - Public documentation links from `README.md` and `docs/README.md` stay current.
+- `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, and
+  `THIRD_PARTY_NOTICES.md` reflect the current public release posture.
+- CI release checks are present under `.github/workflows/`.
+- Runtime images and chart versions avoid mutable tags such as `latest` where practical.
 
 ## Value Scan
 
@@ -23,6 +27,9 @@ Expected findings should be placeholders, generated-secret annotations, Kubernet
 ## Build Checks
 
 ```bash
+ANSIBLE_ROLES_PATH=magic-host/roles \
+  ansible-playbook --syntax-check magic-host/playbooks/local.yml
+
 kubectl kustomize magic-cluster/flux/entrypoints/base
 kubectl kustomize magic-cluster/flux/entrypoints/single-node
 kubectl kustomize magic-cluster/apps/dashboard
@@ -44,10 +51,19 @@ kubectl kustomize examples/demo/infra-cluster/flux-bootstrap
 ## Secret Checks
 
 ```bash
-gitleaks detect --source . --config .gitleaks.toml --no-git
+gitleaks detect --source . --config .gitleaks.toml --no-git --redact
+gitleaks detect --source . --config .gitleaks.toml --redact
 ```
 
 Do not commit generated Kubernetes Secrets, Flux bootstrap token secrets, private keys, kubeconfigs, Ansible Vault files, or filled installer tokens.
+
+## Third-Party Review
+
+- Review [../THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) for referenced
+  runtime images and Helm charts.
+- Confirm upstream artifact licenses and terms are acceptable for the intended release.
+- Confirm brand and project names are used only to identify integrations.
+- Confirm pinned images or digest references are still intentionally selected.
 
 ## Review Questions
 
@@ -68,3 +84,5 @@ Do not commit generated Kubernetes Secrets, Flux bootstrap token secrets, privat
 - Are new secrets generated at runtime instead of stored in Git?
 - Are new public interfaces documented in `docs/configuration.md`,
   `docs/gitops-overlays.md`, `docs/operations.md`, or another focused page?
+- Are issue templates and pull request checklists steering users away from
+  posting private deployment values?

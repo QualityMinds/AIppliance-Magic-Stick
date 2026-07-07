@@ -12,6 +12,3 @@ regexes = [
   '''api_key: "none"''',
   '''secret-generator\.v1\.mittwald\.de/autogenerate''',
 ]
-paths = [
-  '''infra-cluster/flux-bootstrap/flux-system/gotk-components\.yaml''',
-]

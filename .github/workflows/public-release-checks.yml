@@ -1,0 +1,72 @@
+name: Public release checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release-checks:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: v1.36.0
+
+      - name: Install Ansible
+        run: |
+          python3 -m pip install --user ansible-core
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Secret scan current tree
+        run: |
+          docker run --rm -v "$PWD:/repo:ro" ghcr.io/gitleaks/gitleaks:v8.30.1 \
+            detect --source /repo --config /repo/.gitleaks.toml --no-git --redact
+
+      - name: Secret scan git history
+        run: |
+          docker run --rm -v "$PWD:/repo:ro" ghcr.io/gitleaks/gitleaks:v8.30.1 \
+            detect --source /repo --config /repo/.gitleaks.toml --redact
+
+      - name: Check Ansible playbook syntax
+        env:
+          ANSIBLE_ROLES_PATH: magic-host/roles
+        run: ansible-playbook --syntax-check magic-host/playbooks/local.yml
+
+      - name: Render public Kustomize targets
+        run: |
+          targets=(
+            magic-cluster/flux/entrypoints/base
+            magic-cluster/flux/entrypoints/single-node
+            magic-cluster/apps/dashboard
+            magic-cluster/platform/magicstick-operator
+            magic-cluster/platform/basis
+            magic-cluster/platform/gpu
+            magic-cluster/platform/ai/kubeai
+            magic-cluster/platform/ai/hermes-operator
+            magic-cluster/platform/ai/openclaw-operator
+            magic-cluster/platform/ai/paperclip-operator
+            magic-cluster/platform/observability
+            magic-cluster/apps/ai/litellm/base
+            magic-cluster/apps/ai/model-catalog
+            magic-cluster/apps/ai/anything-llm/base
+            magic-cluster/apps/ai/kubeopencode
+            examples/demo/infra-cluster/flux-bootstrap
+          )
+
+          for target in "${targets[@]}"; do
+            echo "Rendering ${target}"
+            kubectl kustomize "${target}" > /tmp/kustomize-render.yaml
+          done

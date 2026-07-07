@@ -26,6 +26,10 @@ This repository intentionally contains only generic template code, safe example 
 │   ├── operator-orchestration.md
 │   ├── operations.md
 │   └── public-release-checklist.md
+├── CONTRIBUTING.md
+├── SECURITY.md
+├── CODE_OF_CONDUCT.md
+├── THIRD_PARTY_NOTICES.md
 ├── AGENTS.md
 └── .gitleaks.toml
 ```
@@ -49,6 +53,16 @@ Start with [docs/README.md](docs/README.md) for the full documentation index.
 | Cluster operations | [docs/operations.md](docs/operations.md) |
 | AI model catalog | [docs/model-catalog.md](docs/model-catalog.md) |
 | Development and release checks | [docs/development.md](docs/development.md) |
+
+## Community And Security
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) explains the public repository boundary,
+  validation commands, and pull request expectations.
+- [SECURITY.md](SECURITY.md) defines how to report suspected vulnerabilities or
+  leaked credentials without exposing private deployment details.
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) sets collaboration expectations.
+- [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists referenced runtime
+  images and Helm charts for release review.
 
 ## GitOps Entry Points
 
@@ -151,6 +165,9 @@ See [docs/appliance-crd.md](docs/appliance-crd.md),
 ```bash
 ANSIBLE_ROLES_PATH=magic-host/roles \
   ansible-playbook --syntax-check magic-host/playbooks/local.yml
+
+gitleaks detect --source . --config .gitleaks.toml --no-git --redact
+gitleaks detect --source . --config .gitleaks.toml --redact
 
 kubectl kustomize magic-cluster/flux/entrypoints/base
 kubectl kustomize magic-cluster/flux/entrypoints/single-node

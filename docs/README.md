@@ -22,6 +22,15 @@ configuration.
 | [development.md](development.md) | Contribution workflow, validation commands, public release checks, and review rules. |
 | [public-release-checklist.md](public-release-checklist.md) | Final checklist before publishing a public release tag. |
 
+Top-level community and release files:
+
+| File | Use it for |
+|---|---|
+| [../CONTRIBUTING.md](../CONTRIBUTING.md) | Public repository boundary, local validation, and pull request expectations. |
+| [../SECURITY.md](../SECURITY.md) | Private reporting guidance for vulnerabilities and leaked credentials. |
+| [../CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md) | Collaboration expectations. |
+| [../THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) | Runtime image and Helm chart inventory for release review. |
+
 ## Quick Commands
 
 Render the public Flux graph:
@@ -50,7 +59,8 @@ Run the public release scans before publishing:
 ```bash
 rg -n "Q[M]-Worker1|quality[m]inds|ai-box-[0]1|github.com/Quality[M]inds|19[2]\.|1[0]\.|17[2]\.(1[6-9]|2[0-9]|3[0-1])\." .
 rg -n "ghp_|github_pat_|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|AKIA|password:|token:|api[_-]?key" .
-gitleaks detect --source . --config .gitleaks.toml --no-git
+gitleaks detect --source . --config .gitleaks.toml --no-git --redact
+gitleaks detect --source . --config .gitleaks.toml --redact
 ```
 
 Expected scan findings must be safe placeholders, generated-secret annotations,

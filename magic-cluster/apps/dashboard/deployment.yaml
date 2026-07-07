@@ -98,7 +98,7 @@ spec:
             - name: api-tmp
               mountPath: /tmp
         - name: renderer
-          image: bitnami/kubectl:latest
+          image: bitnami/kubectl@sha256:a67b11e95e953f550f020a41970185ccc5f83d78b86b8c575d02c904aa0f9cd7
           command: ["/bin/sh", "/scripts/render.sh"]
           securityContext:
             allowPrivilegeEscalation: false
