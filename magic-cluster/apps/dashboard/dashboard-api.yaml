@@ -501,6 +501,62 @@ data:
         }
 
 
+    def paperclip_credentials(name):
+        if not DNS_LABEL.match(name):
+            raise ValueError("name must be a DNS-1123 label")
+        instance = app_instance(name)
+        if not instance:
+            raise LookupError("AppInstance not found: " + name)
+        metadata = instance.get("metadata") or {}
+        spec = instance.get("spec") or {}
+        if spec.get("type") != "paperclip":
+            raise ValueError("credentials are only available for Paperclip instances")
+        params = spec.get("parameters") or {}
+        admin = params.get("admin") or {}
+        if admin.get("enabled", True) is False:
+            raise LookupError("Paperclip admin credentials are disabled for this instance")
+        password_ref = admin.get("passwordSecretRef") or {}
+        target_name = metadata.get("name") or name
+        namespace = spec.get("targetNamespace") or MODEL_TARGET_NAMESPACE
+        secret_base = (target_name or "paperclip")[:56].rstrip("-") or "paperclip"
+        secret_name = (
+            password_ref.get("name")
+            or admin.get("passwordSecretName")
+            or params.get("adminPasswordSecretName")
+            or secret_base + "-admin"
+        )
+        secret_key = (
+            password_ref.get("key")
+            or admin.get("passwordSecretKey")
+            or params.get("adminPasswordSecretKey")
+            or "PAPERCLIP_ADMIN_PASSWORD"
+        )
+        secret = read_secret(namespace, secret_name, "Paperclip admin")
+        data = secret.get("data") or {}
+        email = admin.get("email") or params.get("adminEmail") or "admin@example.com"
+        display_name = admin.get("name") or params.get("adminName") or "Admin"
+        password = decode_secret_value(data.get(secret_key))
+        fields = [
+            {"key": "email", "value": email},
+            {"key": "name", "value": display_name},
+        ]
+        if password:
+            fields.append({"key": "password", "value": password})
+        status = instance.get("status") or {}
+        if status.get("url"):
+            fields.append({"key": "url", "value": status.get("url")})
+        if not password:
+            raise LookupError("Paperclip admin password is not available yet")
+        return {
+            "instance": name,
+            "type": "paperclip",
+            "title": "Paperclip",
+            "namespace": namespace,
+            "secretName": secret_name,
+            "credentials": fields,
+        }
+
+
     def instance_credentials(name):
         if not DNS_LABEL.match(name):
             raise ValueError("name must be a DNS-1123 label")
@@ -512,6 +568,8 @@ data:
             return openclaw_credentials(name)
         if instance_type == "odysseus":
             return odysseus_credentials(name)
+        if instance_type == "paperclip":
+            return paperclip_credentials(name)
         raise ValueError("credentials are not available for " + str(instance_type or "unknown") + " instances")
 
 

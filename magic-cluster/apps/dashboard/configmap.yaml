@@ -1888,7 +1888,7 @@ data:
                 if (links) {
                   item.appendChild(links);
                 }
-                if (['openclaw', 'odysseus'].includes(type) && metadata.name && String(phase).toLowerCase() !== 'removing') {
+                if (['openclaw', 'odysseus', 'paperclip'].includes(type) && metadata.name && String(phase).toLowerCase() !== 'removing') {
                   const credentials = document.createElement('button');
                   credentials.className = 'control-button';
                   credentials.type = 'button';
