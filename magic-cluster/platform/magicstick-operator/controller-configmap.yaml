@@ -2073,6 +2073,8 @@ data:
         ntfy_name = derived_resource_name(base_name, "ntfy")
         ntfy_pvc = derived_resource_name(base_name, "ntfy-data")
         litellm_alias = derived_resource_name(base_name, "litellm")
+        litellm_base_url = "http://litellm.ai.svc.cluster.local:4000"
+        litellm_api_base = litellm_base_url + "/v1"
         common_labels = {
             "app": "odysseus",
             "app.kubernetes.io/name": "odysseus",
@@ -2184,6 +2186,14 @@ data:
             {"name": "LLM_HOST", "value": litellm_alias},
             {"name": "LLM_HOSTS", "value": litellm_alias},
             {"name": "OPENAI_API_KEY", "valueFrom": {"secretKeyRef": {"name": "litellm-masterkey-secret", "key": "LITELLM_MASTER_KEY"}}},
+            {"name": "OPENAI_BASE_URL", "value": litellm_api_base},
+            {"name": "OPENAI_API_BASE", "value": litellm_api_base},
+            {"name": "LITELLM_BASE_URL", "value": litellm_base_url},
+            {"name": "LITELLM_API_BASE", "value": litellm_api_base},
+            {"name": "AI_MODEL_CATALOG_PATH", "value": "/catalog/catalog.json"},
+            {"name": "AI_MODEL_CATALOG_CHAT_PATH", "value": "/catalog/chat-models.json"},
+            {"name": "AI_MODEL_CATALOG_DEFAULTS_PATH", "value": "/catalog/defaults.env"},
+            {"name": "AI_APPLIANCE_MODEL_CATALOG_HASH", "valueFrom": {"configMapKeyRef": {"name": "ai-model-catalog", "key": "AI_APPLIANCE_MODEL_CATALOG_HASH"}}},
             {"name": "RESEARCH_LLM_ENDPOINT", "value": f"http://{litellm_alias}:8000/v1/chat/completions"},
             {"name": "ODYSSEUS_DEFAULT_MODEL", "value": model},
             {"name": "SEARXNG_INSTANCE", "value": f"http://{searxng_name}:8080"},
@@ -2273,6 +2283,141 @@ data:
             "resources": {
                 "requests": {"cpu": "25m", "memory": "64Mi"},
                 "limits": {"cpu": "250m", "memory": "256Mi"},
+            },
+        }
+        model_catalog_bootstrap_script = textwrap.dedent("""\
+            import json
+            import os
+            import pathlib
+            import sys
+            import time
+
+            os.chdir("/app")
+            if "/app" not in sys.path:
+                sys.path.insert(0, "/app")
+
+            catalog_dir = pathlib.Path("/catalog")
+            defaults_path = catalog_dir / "defaults.env"
+            for attempt in range(1, 121):
+                try:
+                    defaults = defaults_path.read_text(encoding="utf-8")
+                    if "AI_APPLIANCE_MODEL_CATALOG_READY=true" in defaults.splitlines():
+                        break
+                except FileNotFoundError:
+                    pass
+                print(f"Waiting for ai-model-catalog ({attempt}/120)", flush=True)
+                time.sleep(5)
+            else:
+                raise SystemExit("ai-model-catalog did not become ready")
+
+            chat_catalog_path = pathlib.Path(os.environ.get("AI_MODEL_CATALOG_CHAT_PATH", "/catalog/chat-models.json"))
+            chat_catalog = json.loads(chat_catalog_path.read_text(encoding="utf-8"))
+            catalog_models = chat_catalog.get("models") or []
+            model_ids = []
+            for item in catalog_models:
+                model_id = item.get("id") if isinstance(item, dict) else str(item or "")
+                model_id = model_id.strip()
+                if model_id and model_id not in model_ids:
+                    model_ids.append(model_id)
+            if not model_ids:
+                raise SystemExit("ai-model-catalog has no chat models for Odysseus")
+
+            preferred_model = os.environ.get("ODYSSEUS_DEFAULT_MODEL", "").strip()
+            catalog_default = str(chat_catalog.get("defaultModel") or "").strip()
+            if preferred_model in model_ids:
+                selected_model = preferred_model
+            elif catalog_default in model_ids:
+                selected_model = catalog_default
+            else:
+                selected_model = model_ids[0]
+
+            api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+            if not api_key:
+                raise SystemExit("OPENAI_API_KEY is empty")
+
+            endpoint_id = "magicstick-litellm"
+            endpoint_name = "Magic Stick LiteLLM"
+            litellm_api_base = os.environ.get("LITELLM_API_BASE", "http://litellm.ai.svc.cluster.local:4000/v1").rstrip("/")
+
+            from core.database import ModelEndpoint, SessionLocal, init_db
+            from src.settings import load_settings, save_settings
+
+            init_db()
+            db = SessionLocal()
+            try:
+                endpoint = db.query(ModelEndpoint).filter(ModelEndpoint.id == endpoint_id).first()
+                if endpoint is None:
+                    endpoint = ModelEndpoint(id=endpoint_id, name=endpoint_name, base_url=litellm_api_base)
+                    db.add(endpoint)
+                endpoint.name = endpoint_name
+                endpoint.base_url = litellm_api_base
+                endpoint.api_key = api_key
+                endpoint.is_enabled = True
+                endpoint.model_type = "llm"
+                endpoint.endpoint_kind = "proxy"
+                endpoint.model_refresh_mode = "manual"
+                endpoint.cached_models = json.dumps(model_ids)
+                endpoint.pinned_models = json.dumps(model_ids)
+                endpoint.supports_tools = True
+                endpoint.owner = None
+                db.commit()
+                enabled_ids = {
+                    row.id
+                    for row in db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled == True).all()
+                }
+            finally:
+                db.close()
+
+            settings = load_settings()
+
+            def needs_assignment(endpoint_key, model_key):
+                current_endpoint = str(settings.get(endpoint_key) or "").strip()
+                current_model = str(settings.get(model_key) or "").strip()
+                if not current_endpoint or current_endpoint not in enabled_ids:
+                    return True
+                if current_endpoint == endpoint_id and current_model not in model_ids:
+                    return True
+                return False
+
+            for endpoint_key, model_key in (
+                ("default_endpoint_id", "default_model"),
+                ("utility_endpoint_id", "utility_model"),
+                ("research_endpoint_id", "research_model"),
+                ("task_endpoint_id", "task_model"),
+            ):
+                if needs_assignment(endpoint_key, model_key):
+                    settings[endpoint_key] = endpoint_id
+                    settings[model_key] = selected_model
+
+            save_settings(settings)
+            print(
+                "Configured Odysseus from ai-model-catalog with "
+                + str(len(model_ids))
+                + " chat models; default="
+                + selected_model,
+                flush=True,
+            )
+        """)
+        model_catalog_bootstrap_init = {
+            "name": "litellm-model-catalog",
+            "image": image_repository + ":" + image_tag,
+            "imagePullPolicy": "IfNotPresent",
+            "command": ["python", "-c"],
+            "args": [model_catalog_bootstrap_script],
+            "env": [
+                {"name": "DATABASE_URL", "value": "sqlite:///./data/app.db"},
+                {"name": "ODYSSEUS_DEFAULT_MODEL", "value": model},
+                {"name": "LITELLM_API_BASE", "value": litellm_api_base},
+                {"name": "AI_MODEL_CATALOG_CHAT_PATH", "value": "/catalog/chat-models.json"},
+                {"name": "OPENAI_API_KEY", "valueFrom": {"secretKeyRef": {"name": "litellm-masterkey-secret", "key": "LITELLM_MASTER_KEY"}}},
+            ],
+            "volumeMounts": [
+                {"name": "data", "mountPath": "/app/data", "subPath": "data"},
+                {"name": "ai-model-catalog", "mountPath": "/catalog", "readOnly": True},
+            ],
+            "resources": {
+                "requests": {"cpu": "50m", "memory": "128Mi"},
+                "limits": {"cpu": "500m", "memory": "512Mi"},
             },
         }
 
@@ -2367,17 +2512,21 @@ data:
                 image_repository + ":" + image_tag,
                 7000,
                 env=odysseus_env,
-                volumes=[{"name": "data", "persistentVolumeClaim": {"claimName": data_pvc}}],
+                volumes=[
+                    {"name": "data", "persistentVolumeClaim": {"claimName": data_pvc}},
+                    {"name": "ai-model-catalog", "configMap": {"name": "ai-model-catalog"}},
+                ],
                 volume_mounts=[
                     {"name": "data", "mountPath": "/app/data", "subPath": "data"},
                     {"name": "data", "mountPath": "/app/logs", "subPath": "logs"},
                     {"name": "data", "mountPath": "/app/.ssh", "subPath": "ssh"},
                     {"name": "data", "mountPath": "/app/.cache/huggingface", "subPath": "huggingface"},
                     {"name": "data", "mountPath": "/app/.local", "subPath": "local"},
+                    {"name": "ai-model-catalog", "mountPath": "/catalog", "readOnly": True},
                 ],
                 resources={"requests": {"cpu": "250m", "memory": "1Gi"}, "limits": {"cpu": "2", "memory": "4Gi"}},
                 annotations={"ai-appliance.io/model-catalog-consumer": "true"},
-                init_containers=[admin_bootstrap_init],
+                init_containers=[admin_bootstrap_init, model_catalog_bootstrap_init],
             ),
         ]
         return resources, "http://" + ingress_host + "/"
