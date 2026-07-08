@@ -1627,7 +1627,7 @@ data:
             NODE
         """).replace("__PUBLIC_URL__", public_url).replace("__LOCAL_HOST__", local_host)
         job_suffix = hashlib.sha256(((name or "paperclip") + "|auth-v3|" + public_url + "|" + local_host).encode("utf-8")).hexdigest()[:8]
-        admin_job_suffix = hashlib.sha256(((name or "paperclip") + "|admin-v4|" + public_url).encode("utf-8")).hexdigest()[:8]
+        admin_job_suffix = hashlib.sha256(((name or "paperclip") + "|admin-v5|" + public_url).encode("utf-8")).hexdigest()[:8]
         job_base = (name or "paperclip")[:42].rstrip("-") or "paperclip"
         service_url = "http://" + (name or "paperclip") + "." + namespace + ".svc.cluster.local:3100"
         db_service_url = "postgresql://paperclip:$(DB_PASSWORD)@" + (name or "paperclip") + "-db." + namespace + ".svc.cluster.local:5432/paperclip"
