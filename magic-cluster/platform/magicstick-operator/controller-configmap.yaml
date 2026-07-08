@@ -2285,6 +2285,33 @@ data:
                 "limits": {"cpu": "250m", "memory": "256Mi"},
             },
         }
+        runtime_patch_script = textwrap.dedent("""\
+            import pathlib
+
+            source_path = pathlib.Path("/app/routes/chat_routes.py")
+            target_path = pathlib.Path("/patches/chat_routes.py")
+            source = source_path.read_text(encoding="utf-8")
+            needle = "        _tool_intent = _classify_tool_intent(message) if isinstance(message, str) else None\\n"
+            insert = needle + "        _explicit_web_intent = bool(_tool_intent and _tool_intent.category == \\"web\\")\\n"
+            if "_explicit_web_intent =" not in source:
+                if needle not in source:
+                    raise SystemExit("Could not patch Odysseus chat_routes.py: anchor not found")
+                source = source.replace(needle, insert, 1)
+            target_path.write_text(source, encoding="utf-8")
+            print("Patched Odysseus chat_routes.py for missing _explicit_web_intent.")
+        """)
+        runtime_patch_init = {
+            "name": "odysseus-runtime-patches",
+            "image": image_repository + ":" + image_tag,
+            "imagePullPolicy": "IfNotPresent",
+            "command": ["python", "-c"],
+            "args": [runtime_patch_script],
+            "volumeMounts": [{"name": "runtime-patches", "mountPath": "/patches"}],
+            "resources": {
+                "requests": {"cpu": "25m", "memory": "64Mi"},
+                "limits": {"cpu": "250m", "memory": "256Mi"},
+            },
+        }
         model_catalog_bootstrap_script = textwrap.dedent("""\
             import json
             import os
@@ -2515,8 +2542,10 @@ data:
                 volumes=[
                     {"name": "data", "persistentVolumeClaim": {"claimName": data_pvc}},
                     {"name": "ai-model-catalog", "configMap": {"name": "ai-model-catalog"}},
+                    {"name": "runtime-patches", "emptyDir": {}},
                 ],
                 volume_mounts=[
+                    {"name": "runtime-patches", "mountPath": "/app/routes/chat_routes.py", "subPath": "chat_routes.py", "readOnly": True},
                     {"name": "data", "mountPath": "/app/data", "subPath": "data"},
                     {"name": "data", "mountPath": "/app/logs", "subPath": "logs"},
                     {"name": "data", "mountPath": "/app/.ssh", "subPath": "ssh"},
@@ -2526,7 +2555,7 @@ data:
                 ],
                 resources={"requests": {"cpu": "250m", "memory": "1Gi"}, "limits": {"cpu": "2", "memory": "4Gi"}},
                 annotations={"ai-appliance.io/model-catalog-consumer": "true"},
-                init_containers=[admin_bootstrap_init, model_catalog_bootstrap_init],
+                init_containers=[runtime_patch_init, admin_bootstrap_init, model_catalog_bootstrap_init],
             ),
         ]
         return resources, "http://" + ingress_host + "/"
