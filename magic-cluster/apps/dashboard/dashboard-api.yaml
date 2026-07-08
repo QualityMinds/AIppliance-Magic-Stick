@@ -1139,6 +1139,12 @@ data:
         summarized = []
         for item in items:
             metadata = item.get("metadata") or {}
+            annotations = metadata.get("annotations") or {}
+            dashboard_annotations = {
+                key: value
+                for key, value in annotations.items()
+                if key.startswith("dashboard.ai-appliance.io/")
+            }
             hosts = []
             for rule in (item.get("spec") or {}).get("rules", []):
                 host = rule.get("host")
@@ -1147,6 +1153,8 @@ data:
             summarized.append({
                 "namespace": metadata.get("namespace", ""),
                 "name": metadata.get("name", ""),
+                "labels": metadata.get("labels") or {},
+                "annotations": dashboard_annotations,
                 "hosts": hosts,
             })
         return summarized

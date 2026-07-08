@@ -1380,10 +1380,6 @@ data:
             return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
           };
 
-          const firstHostLabel = (host) => {
-            return String(urlHost(host) || host || '').split('.')[0] || '';
-          };
-
           const linkFromUrl = (value) => {
             const url = ensureHttpUrl(value);
             if (!url) { return null; }
@@ -1430,10 +1426,23 @@ data:
             const keys = moduleIngressLookupKeys(name, catalogSpec);
             const allowNameContains = (catalogSpec.activationMode || '') === 'static';
             const matches = (ingress) => {
+              const labels = (ingress || {}).labels || {};
+              const annotations = (ingress || {}).annotations || {};
+              const labeledKeys = [
+                labels.app,
+                labels['app.kubernetes.io/name'],
+                labels['appliance.magicstick.dev/module'],
+                annotations['dashboard.ai-appliance.io/title']
+              ].map(normalizedKey).filter(Boolean);
+              if (labeledKeys.some((key) => keys.has(key))) { return true; }
               const ingressName = normalizedKey((ingress || {}).name);
               if (keys.has(ingressName)) { return true; }
               if (allowNameContains && Array.from(keys).some((key) => key && ingressName.includes(key))) { return true; }
-              return ((ingress || {}).hosts || []).some((host) => keys.has(normalizedKey(firstHostLabel(host))));
+              return ((ingress || {}).hosts || []).some((host) => {
+                const hostname = String(urlHost(host) || host || '');
+                const hostLabels = hostname.split('.').map(normalizedKey).filter(Boolean);
+                return hostLabels.some((label) => keys.has(label));
+              });
             };
             return uniqueLinks(((status || {}).ingresses || []).filter(matches).flatMap(linksFromIngress));
           };
