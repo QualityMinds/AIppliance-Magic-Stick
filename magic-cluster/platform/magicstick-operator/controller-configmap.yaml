@@ -1444,6 +1444,7 @@ data:
                         "image": "nousresearch/hermes-agent:v2026.5.29.2",
                         "imagePullPolicy": "IfNotPresent",
                         "args": ["dashboard", "--host", "127.0.0.1", "--port", "9119", "--no-open", "--tui", "--insecure"],
+                        "ports": [{"name": "dashboard-api", "containerPort": 9119, "protocol": "TCP"}],
                         "env": [
                             {"name": "HERMES_HOME", "value": "/home/hermes/.hermes"},
                             {"name": "HERMES_UID", "value": "1000"},
@@ -1455,6 +1456,13 @@ data:
                         "resources": {
                             "requests": {"cpu": "250m", "memory": "512Mi"},
                             "limits": {"cpu": "1", "memory": "2Gi"},
+                        },
+                        "readinessProbe": {
+                            "httpGet": {"path": "/", "port": 9119, "scheme": "HTTP"},
+                            "initialDelaySeconds": 2,
+                            "periodSeconds": 3,
+                            "timeoutSeconds": 2,
+                            "failureThreshold": 40,
                         },
                         "securityContext": {
                             "runAsNonRoot": False,
@@ -1475,6 +1483,13 @@ data:
                         "resources": {
                             "requests": {"cpu": "25m", "memory": "32Mi"},
                             "limits": {"cpu": "100m", "memory": "128Mi"},
+                        },
+                        "readinessProbe": {
+                            "httpGet": {"path": "/", "port": "dashboard", "scheme": "HTTP"},
+                            "initialDelaySeconds": 2,
+                            "periodSeconds": 3,
+                            "timeoutSeconds": 2,
+                            "failureThreshold": 40,
                         },
                         "securityContext": {
                             "allowPrivilegeEscalation": False,
@@ -1676,8 +1691,8 @@ data:
 
             echo "Waiting for Paperclip server..."
             for attempt in $(seq 1 120); do
-              code="$(curl -s -o /dev/null -w '%{http_code}' "$SVC_URL/" || true)"
-              if [ "$code" != "000" ] && [ -n "$code" ]; then
+              code="$(curl -s -o /dev/null -w '%{http_code}' "$SVC_URL/api/health" || true)"
+              if echo "$code" | grep -q '^2'; then
                 echo "Server is ready (HTTP $code)."
                 break
               fi
@@ -1902,6 +1917,12 @@ data:
                     {"name": "PAPERCLIP_AUTH_PUBLIC_BASE_URL", "value": public_url},
                     {"name": "BETTER_AUTH_TRUSTED_ORIGINS", "value": "*"},
                 ],
+                "probes": {
+                    "type": "http",
+                    "startup": {"periodSeconds": 3, "timeoutSeconds": 2, "failureThreshold": 60},
+                    "readiness": {"initialDelaySeconds": 2, "periodSeconds": 3, "timeoutSeconds": 2, "failureThreshold": 40},
+                    "liveness": {"initialDelaySeconds": 15, "periodSeconds": 20, "timeoutSeconds": 5, "failureThreshold": 6},
+                },
                 "storage": {"persistence": {"enabled": True, "size": storage}},
                 "networking": {
                     "service": {"type": "ClusterIP", "port": 3100},
