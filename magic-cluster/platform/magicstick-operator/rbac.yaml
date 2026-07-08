@@ -180,6 +180,7 @@ rules:
       - create
       - update
       - patch
+      - delete
   - apiGroups:
       - batch
     resources:

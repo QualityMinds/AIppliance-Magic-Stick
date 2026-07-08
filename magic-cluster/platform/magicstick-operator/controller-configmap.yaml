@@ -2100,7 +2100,7 @@ data:
                 },
             }
 
-        def deployment(deployment_name, component, image_ref, port, env=None, volumes=None, volume_mounts=None, args=None, command=None, resources=None, annotations=None):
+        def deployment(deployment_name, component, image_ref, port, env=None, volumes=None, volume_mounts=None, args=None, command=None, resources=None, annotations=None, init_containers=None):
             return {
                 "apiVersion": "apps/v1",
                 "kind": "Deployment",
@@ -2112,6 +2112,7 @@ data:
                     "template": {
                         "metadata": {"labels": labels(component), "annotations": annotations or {}},
                         "spec": {
+                            **({"initContainers": init_containers} if init_containers else {}),
                             "containers": [{
                                 "name": component,
                                 "image": image_ref,
@@ -2150,6 +2151,22 @@ data:
             "http://localhost",
             "http://127.0.0.1",
         ]
+        admin = params.get("admin") or {}
+        admin_user = admin.get("user") or params.get("adminUser") or "admin"
+        admin_password_ref = admin.get("passwordSecretRef") or {}
+        admin_secret_name = (
+            admin_password_ref.get("name")
+            or admin.get("passwordSecretName")
+            or params.get("adminPasswordSecretName")
+            or derived_resource_name(base_name, "admin")
+        )
+        admin_secret_key = (
+            admin_password_ref.get("key")
+            or admin.get("passwordSecretKey")
+            or params.get("adminPasswordSecretKey")
+            or "password"
+        )
+
         odysseus_env = [
             {"name": "LLM_HOST", "value": litellm_alias},
             {"name": "LLM_HOSTS", "value": litellm_alias},
@@ -2162,24 +2179,92 @@ data:
             {"name": "DATABASE_URL", "value": "sqlite:///./data/app.db"},
             {"name": "AUTH_ENABLED", "value": str(params.get("authEnabled", True)).lower()},
             {"name": "LOCALHOST_BYPASS", "value": "false"},
-            {"name": "ODYSSEUS_ADMIN_USER", "value": ((params.get("admin") or {}).get("user") or params.get("adminUser") or "admin")},
+            {"name": "ODYSSEUS_ADMIN_USER", "value": admin_user},
+            {"name": "ODYSSEUS_ADMIN_PASSWORD", "valueFrom": {"secretKeyRef": {"name": admin_secret_name, "key": admin_secret_key}}},
             {"name": "ALLOWED_ORIGINS", "value": ",".join(allowed_origins)},
             {"name": "SECURE_COOKIES", "value": str(params.get("secureCookies", False)).lower()},
             {"name": "NTFY_BASE_URL", "value": f"http://{ntfy_name}:80"},
             {"name": "PUID", "value": "1000"},
             {"name": "PGID", "value": "1000"},
         ]
-        admin = params.get("admin") or {}
-        admin_password_ref = admin.get("passwordSecretRef") or {}
-        admin_secret_name = admin_password_ref.get("name") or admin.get("passwordSecretName") or params.get("adminPasswordSecretName")
-        admin_secret_key = admin_password_ref.get("key") or admin.get("passwordSecretKey") or params.get("adminPasswordSecretKey") or "ODYSSEUS_ADMIN_PASSWORD"
-        if admin_secret_name:
-            odysseus_env.append({
-                "name": "ODYSSEUS_ADMIN_PASSWORD",
-                "valueFrom": {"secretKeyRef": {"name": admin_secret_name, "key": admin_secret_key}},
-            })
+
+        admin_secret = None
+        if not admin_password_ref.get("name"):
+            admin_secret = {
+                "apiVersion": "v1",
+                "kind": "Secret",
+                "metadata": {
+                    "name": admin_secret_name,
+                    "namespace": namespace,
+                    "labels": labels("credentials"),
+                    "annotations": {
+                        "secret-generator.v1.mittwald.de/autogenerate": admin_secret_key,
+                        "secret-generator.v1.mittwald.de/encoding": "hex",
+                    },
+                },
+                "type": "Opaque",
+                "data": {},
+            }
+        admin_bootstrap_script = textwrap.dedent("""\
+            import hashlib
+            import json
+            import os
+            import pathlib
+            import tempfile
+
+            import bcrypt
+
+            data_dir = pathlib.Path("/app/data")
+            auth_path = data_dir / "auth.json"
+            marker_path = data_dir / ".magicstick-admin-credentials"
+            username = os.environ.get("ODYSSEUS_ADMIN_USER", "admin").strip().lower() or "admin"
+            password = os.environ.get("ODYSSEUS_ADMIN_PASSWORD", "").strip()
+            if not password:
+                raise SystemExit("ODYSSEUS_ADMIN_PASSWORD is empty")
+
+            data_dir.mkdir(parents=True, exist_ok=True)
+            fingerprint = hashlib.sha256((username + "\\0" + password).encode("utf-8")).hexdigest()
+            if auth_path.exists() and marker_path.exists() and marker_path.read_text(encoding="utf-8").strip() == fingerprint:
+                print("Magicstick Odysseus admin credentials already synchronized.")
+                raise SystemExit(0)
+
+            auth_data = {"users": {}}
+            if auth_path.exists():
+                with auth_path.open("r", encoding="utf-8") as handle:
+                    auth_data = json.load(handle)
+            users = auth_data.setdefault("users", {})
+            entry = users.get(username) or {}
+            entry["password_hash"] = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+            entry["is_admin"] = True
+            users[username] = entry
+
+            with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=str(data_dir), delete=False) as handle:
+                json.dump(auth_data, handle, indent=2)
+                handle.write("\\n")
+                tmp_name = handle.name
+            os.replace(tmp_name, auth_path)
+            marker_path.write_text(fingerprint + "\\n", encoding="utf-8")
+            print("Magicstick Odysseus admin credentials synchronized.")
+        """)
+        admin_bootstrap_init = {
+            "name": "admin-credentials",
+            "image": image_repository + ":" + image_tag,
+            "imagePullPolicy": "IfNotPresent",
+            "command": ["python", "-c"],
+            "args": [admin_bootstrap_script],
+            "env": [
+                {"name": "ODYSSEUS_ADMIN_USER", "value": admin_user},
+                {"name": "ODYSSEUS_ADMIN_PASSWORD", "valueFrom": {"secretKeyRef": {"name": admin_secret_name, "key": admin_secret_key}}},
+            ],
+            "volumeMounts": [{"name": "data", "mountPath": "/app/data", "subPath": "data"}],
+            "resources": {
+                "requests": {"cpu": "25m", "memory": "64Mi"},
+                "limits": {"cpu": "250m", "memory": "256Mi"},
+            },
+        }
 
         resources = [
+            *([admin_secret] if admin_secret else []),
             pvc(data_pvc, app_storage),
             pvc(chroma_pvc, chroma_storage),
             pvc(searxng_pvc, searxng_storage),
@@ -2279,6 +2364,7 @@ data:
                 ],
                 resources={"requests": {"cpu": "250m", "memory": "1Gi"}, "limits": {"cpu": "2", "memory": "4Gi"}},
                 annotations={"ai-appliance.io/model-catalog-consumer": "true"},
+                init_containers=[admin_bootstrap_init],
             ),
         ]
         return resources, "http://" + ingress_host + "/"
@@ -2319,7 +2405,14 @@ data:
             searxng_config = derived_resource_name(base_name, "searxng-config")
             ntfy_name = derived_resource_name(base_name, "ntfy")
             litellm_alias = derived_resource_name(base_name, "litellm")
-            return [
+            admin = params.get("admin") or {}
+            admin_password_ref = admin.get("passwordSecretRef") or {}
+            admin_secret_name = (
+                admin.get("passwordSecretName")
+                or params.get("adminPasswordSecretName")
+                or derived_resource_name(base_name, "admin")
+            )
+            resources = [
                 {"apiVersion": "networking.k8s.io/v1", "kind": "Ingress", "metadata": {"name": base_name, "namespace": namespace}},
                 {"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": base_name, "namespace": namespace}},
                 {"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": chroma_name, "namespace": namespace}},
@@ -2332,6 +2425,9 @@ data:
                 {"apiVersion": "v1", "kind": "Service", "metadata": {"name": litellm_alias, "namespace": namespace}},
                 {"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": searxng_config, "namespace": namespace}},
             ]
+            if not admin_password_ref.get("name"):
+                resources.append({"apiVersion": "v1", "kind": "Secret", "metadata": {"name": admin_secret_name, "namespace": namespace}})
+            return resources
         return []
 
 

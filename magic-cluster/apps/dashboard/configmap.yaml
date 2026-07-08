@@ -1545,7 +1545,7 @@ data:
             const heading = document.createElement('div');
             heading.className = 'credential-heading';
             const title = document.createElement('strong');
-            title.textContent = 'OpenClaw credentials';
+            title.textContent = (payload.title || titleFromKey(payload.type || 'instance')) + ' credentials';
             const meta = document.createElement('span');
             meta.textContent = [payload.namespace, payload.secretName].filter(Boolean).join('/');
             heading.append(title, meta);
@@ -1888,7 +1888,7 @@ data:
                 if (links) {
                   item.appendChild(links);
                 }
-                if (type === 'openclaw' && metadata.name && String(phase).toLowerCase() !== 'removing') {
+                if (['openclaw', 'odysseus'].includes(type) && metadata.name && String(phase).toLowerCase() !== 'removing') {
                   const credentials = document.createElement('button');
                   credentials.className = 'control-button';
                   credentials.type = 'button';

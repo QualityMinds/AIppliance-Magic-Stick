@@ -369,6 +369,19 @@ data:
         return decoded.strip()
 
 
+    def dns_label_part(value, fallback="app"):
+        clean = re.sub(r"[^a-z0-9-]+", "-", str(value or "").lower()).strip("-")
+        clean = re.sub(r"-+", "-", clean)
+        return (clean or fallback)[:63].strip("-") or fallback
+
+
+    def derived_resource_name(name, suffix):
+        clean_name = dns_label_part(name, "app")
+        clean_suffix = dns_label_part(suffix, "managed")
+        max_base = 63 - len(clean_suffix) - 1
+        return clean_name[:max_base].rstrip("-") + "-" + clean_suffix
+
+
     def openclaw_target(instance):
         metadata = instance.get("metadata") or {}
         spec = instance.get("spec") or {}
@@ -380,6 +393,15 @@ data:
 
     def openclaw_instance_resource(namespace, name):
         return get_resource(f"/apis/openclaw.rocks/v1alpha1/namespaces/{namespace}/openclawinstances/{name}")
+
+
+    def read_secret(namespace, secret_name, label):
+        if not DNS_LABEL.match(secret_name):
+            raise ValueError(label + " secret name is invalid")
+        secret = get_resource(f"/api/v1/namespaces/{namespace}/secrets/{secret_name}")
+        if not secret:
+            raise LookupError(label + " secret was not found")
+        return secret
 
 
     def openclaw_credentials(name):
@@ -402,11 +424,7 @@ data:
         secret_name = managed.get("gatewayTokenSecret") or status.get("gatewayTokenSecret") or ""
         if not secret_name:
             raise LookupError("OpenClaw gateway token secret is not published yet")
-        if not DNS_LABEL.match(secret_name):
-            raise ValueError("OpenClaw gateway token secret name is invalid")
-        secret = get_resource(f"/api/v1/namespaces/{namespace}/secrets/{secret_name}")
-        if not secret:
-            raise LookupError("OpenClaw gateway token secret was not found")
+        secret = read_secret(namespace, secret_name, "OpenClaw gateway token")
         fields = []
         for key, value in sorted(((secret.get("data") or {}).items())):
             decoded = decode_secret_value(value)
@@ -425,11 +443,76 @@ data:
             token_value = fields[0]["value"]
         return {
             "instance": name,
+            "type": "openclaw",
+            "title": "OpenClaw",
             "namespace": namespace,
             "secretName": secret_name,
             "token": token_value,
             "credentials": fields,
         }
+
+
+    def odysseus_credentials(name):
+        if not DNS_LABEL.match(name):
+            raise ValueError("name must be a DNS-1123 label")
+        instance = app_instance(name)
+        if not instance:
+            raise LookupError("AppInstance not found: " + name)
+        metadata = instance.get("metadata") or {}
+        spec = instance.get("spec") or {}
+        if spec.get("type") != "odysseus":
+            raise ValueError("credentials are only available for Odysseus instances")
+        params = spec.get("parameters") or {}
+        admin = params.get("admin") or {}
+        password_ref = admin.get("passwordSecretRef") or {}
+        target_name = metadata.get("name") or name
+        namespace = spec.get("targetNamespace") or MODEL_TARGET_NAMESPACE
+        secret_name = (
+            password_ref.get("name")
+            or admin.get("passwordSecretName")
+            or params.get("adminPasswordSecretName")
+            or derived_resource_name(target_name, "admin")
+        )
+        secret_key = (
+            password_ref.get("key")
+            or admin.get("passwordSecretKey")
+            or params.get("adminPasswordSecretKey")
+            or "password"
+        )
+        secret = read_secret(namespace, secret_name, "Odysseus admin")
+        data = secret.get("data") or {}
+        username = decode_secret_value(data.get("username")) or admin.get("user") or params.get("adminUser") or "admin"
+        password = decode_secret_value(data.get(secret_key))
+        fields = [{"key": "username", "value": username}]
+        if password:
+            fields.append({"key": "password", "value": password})
+        status = instance.get("status") or {}
+        if status.get("url"):
+            fields.append({"key": "url", "value": status.get("url")})
+        if not password:
+            raise LookupError("Odysseus admin password is not available yet")
+        return {
+            "instance": name,
+            "type": "odysseus",
+            "title": "Odysseus",
+            "namespace": namespace,
+            "secretName": secret_name,
+            "credentials": fields,
+        }
+
+
+    def instance_credentials(name):
+        if not DNS_LABEL.match(name):
+            raise ValueError("name must be a DNS-1123 label")
+        instance = app_instance(name)
+        if not instance:
+            raise LookupError("AppInstance not found: " + name)
+        instance_type = (instance.get("spec") or {}).get("type")
+        if instance_type == "openclaw":
+            return openclaw_credentials(name)
+        if instance_type == "odysseus":
+            return odysseus_credentials(name)
+        raise ValueError("credentials are not available for " + str(instance_type or "unknown") + " instances")
 
 
     def model_presets():
@@ -1195,7 +1278,7 @@ data:
                 elif path == "/api/instances":
                     self.send_json(summarized_instances())
                 elif len(parts) == 4 and parts[:2] == ["api", "instances"] and parts[3] == "credentials":
-                    self.send_json(openclaw_credentials(parts[2]))
+                    self.send_json(instance_credentials(parts[2]))
                 elif path == "/api/models":
                     self.send_json(summarized_models())
                 elif path == "/api/status":
