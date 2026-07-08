@@ -1534,7 +1534,7 @@ data:
             return false;
           };
 
-          const showCredentials = (card, payload) => {
+          const showInstanceCredentials = (card, payload) => {
             if (!card) { return; }
             const existing = card.querySelector('.credential-panel');
             if (existing) {
@@ -1810,14 +1810,6 @@ data:
                 if (!enabled) {
                   renderModuleAdvanced(item, name, spec, modulePayload);
                 }
-                if (name === 'litellm' && enabled && String(phase).toLowerCase() !== 'removing') {
-                  const credentials = document.createElement('button');
-                  credentials.className = 'control-button';
-                  credentials.type = 'button';
-                  credentials.dataset.moduleCredentials = name;
-                  credentials.textContent = 'Credentials';
-                  actions.appendChild(credentials);
-                }
                 if (activationMode === 'moduleactivation') {
                   const action = document.createElement('button');
                   action.type = 'button';
@@ -1835,8 +1827,6 @@ data:
                     action.title = progress.label;
                   }
                   actions.appendChild(action);
-                }
-                if (actions.childElementCount) {
                   item.appendChild(actions);
                 }
                 grid.appendChild(item);
@@ -2626,39 +2616,12 @@ data:
               credentials.disabled = true;
               credentials.textContent = 'Loading';
               const payload = await request('/api/instances/' + encodeURIComponent(name) + '/credentials');
-              showCredentials(card, payload);
+              showInstanceCredentials(card, payload);
               credentials.textContent = 'Hide credentials';
               $('instance-output').textContent = name + ' credentials loaded.';
             } catch (error) {
               credentials.textContent = 'Credentials';
               $('instance-output').textContent = error.message;
-            } finally {
-              credentials.disabled = false;
-            }
-          });
-
-          document.addEventListener('click', async (event) => {
-            const credentials = event.target.closest('[data-module-credentials]');
-            if (!credentials) { return; }
-            const name = credentials.dataset.moduleCredentials;
-            const card = credentials.closest('.module-card');
-            if (!name || !card) { return; }
-            const existing = card.querySelector('.credential-panel');
-            if (existing) {
-              existing.remove();
-              credentials.textContent = 'Credentials';
-              return;
-            }
-            try {
-              credentials.disabled = true;
-              credentials.textContent = 'Loading';
-              const payload = await request('/api/modules/' + encodeURIComponent(name) + '/credentials');
-              showCredentials(card, payload);
-              credentials.textContent = 'Hide credentials';
-              $('module-output').textContent = name + ' credentials loaded.';
-            } catch (error) {
-              credentials.textContent = 'Credentials';
-              $('module-output').textContent = error.message;
             } finally {
               credentials.disabled = false;
             }

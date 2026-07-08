@@ -573,42 +573,6 @@ data:
         raise ValueError("credentials are not available for " + str(instance_type or "unknown") + " instances")
 
 
-    def litellm_credentials():
-        namespace = MODEL_TARGET_NAMESPACE
-        secret_name = "litellm-masterkey-secret"
-        secret_key = "LITELLM_MASTER_KEY"
-        secret = read_secret(namespace, secret_name, "LiteLLM master key")
-        master_key = decode_secret_value((secret.get("data") or {}).get(secret_key))
-        if not master_key:
-            raise LookupError("LiteLLM master key is not available yet")
-        ingress_url = first_ingress_url(namespace, "litellm")
-        service_url = f"http://litellm.{namespace}.svc.cluster.local:4000"
-        fields = [
-            {"key": "master_key", "value": master_key},
-            {"key": "authorization", "value": "Bearer " + master_key},
-            {"key": "service_url", "value": service_url},
-            {"key": "api_base", "value": service_url + "/v1"},
-        ]
-        if ingress_url:
-            fields.append({"key": "url", "value": ingress_url})
-            fields.append({"key": "ingress_api_base", "value": ingress_url.rstrip("/") + "/v1"})
-        return {
-            "module": "litellm",
-            "type": "litellm",
-            "title": "LiteLLM",
-            "namespace": namespace,
-            "secretName": secret_name,
-            "credentials": fields,
-        }
-
-
-    def module_credentials(name):
-        module_name = canonical_module(name)
-        if module_name == "litellm":
-            return litellm_credentials()
-        raise ValueError("credentials are not available for " + module_name + " modules")
-
-
     def model_presets():
         configmap = get_resource(f"/api/v1/namespaces/{MODEL_PRESETS_NAMESPACE}/configmaps/{MODEL_PRESETS_NAME}") or {}
         raw = (configmap.get("data") or {}).get("presets.json", "{\"presets\":{}}")
@@ -1373,8 +1337,6 @@ data:
                     self.send_json(summarized_instances())
                 elif len(parts) == 4 and parts[:2] == ["api", "instances"] and parts[3] == "credentials":
                     self.send_json(instance_credentials(parts[2]))
-                elif len(parts) == 4 and parts[:2] == ["api", "modules"] and parts[3] == "credentials":
-                    self.send_json(module_credentials(parts[2]))
                 elif path == "/api/models":
                     self.send_json(summarized_models())
                 elif path == "/api/status":
