@@ -62,6 +62,8 @@ spec:
               drop:
                 - ALL
             runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data
