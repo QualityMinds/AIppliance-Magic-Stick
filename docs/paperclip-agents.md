@@ -108,13 +108,26 @@ workspace back to its application PVC and uploads it into the next Sandbox, so
 workspace files persist across runs even though the Sandbox Pod itself does not.
 The simpler Kubernetes Job backend is not used.
 
-Paperclip `v2026.707.0` defaults the remote sandbox working directory to `/tmp`.
-The matching Kubernetes plugin forwards `params.cwd` but does not apply it to
-the Kubernetes exec process. The generated Paperclip `Instance` therefore
-installs the pinned plugin with a guarded compatibility patch that changes into
-the requested working directory before each exec. The init container fails if
-the pinned upstream bundle no longer matches, preventing a silent fallback to
-the runtime image's `/workspace` working directory.
+Paperclip's authenticated public mode derives its browser-facing auth URL from
+`spec.deployment.publicURL`. That hostname is not necessarily resolvable from
+inside the cluster. Paperclip `v2026.707.0` also overwrites a preconfigured
+`PAPERCLIP_RUNTIME_API_URL` with that public URL during startup, which breaks the
+sandbox callback bridge. The generated Instance therefore sets the internal
+Service URL and installs a guarded server compatibility patch that preserves
+the configured value. A small ConfigMap-backed Node preloader applies the patch
+inside each container before the server bundle is imported. The preloader fails
+when the pinned upstream bundle no longer matches, so a future Paperclip upgrade
+cannot silently restore the external callback route.
+
+Paperclip `v2026.707.0` can request `/tmp` as the remote sandbox working
+directory. The matching Kubernetes plugin also forwards `params.cwd` but does
+not apply it to the Kubernetes exec process. The generated Paperclip `Instance`
+therefore installs the pinned plugin with a guarded compatibility patch that
+normalizes the `/tmp` fallback to `/workspace` and changes into the requested
+working directory before each exec. Paperclip runtime state is kept separately
+under `/tmp/.paperclip-runtime`; only `/workspace` is synchronized back to the
+agent workspace. The init container fails if the pinned upstream bundle no
+longer matches.
 
 ## Runtime Types
 
@@ -132,6 +145,18 @@ image. Additional CLI agents should use a small dedicated image that contains:
 Register the image in `spec.adapters.registry` with a probe command and an
 explicit list of allowed environment keys. Do not install agent CLIs in the
 Paperclip server image and do not use Paperclip sidecars for per-run agents.
+
+Every OpenCode agent must install the `paperclipai/paperclip/paperclip` skill.
+Sandbox runs receive a run-scoped callback URL and token in
+`PAPERCLIP_API_URL` and `PAPERCLIP_API_KEY`. API requests must use the exact
+runtime URL and the header `Authorization: Bearer $PAPERCLIP_API_KEY`; do not
+hard-code the public Paperclip hostname or omit the `Bearer` scheme. Agent
+instructions should repeat this contract because model-generated shell commands
+can otherwise degrade a valid token into an invalid header.
+
+Agents must work only in `PAPERCLIP_WORKSPACE_CWD`. They must never inspect,
+move, or delete `.paperclip-runtime`, which contains the active callback bridge
+and other runtime state, and must never print `PAPERCLIP_API_KEY`.
 
 ### OpenClaw And Hermes
 
@@ -236,3 +261,16 @@ Paperclip `Instance` contains `backend: sandbox-cr`, and the selected agent uses
 an enabled adapter with a runtime image. If a sandbox starts but inference
 fails, inspect `ai-model-catalog`, the LiteLLM Service, and the tenant namespace
 NetworkPolicies before changing credentials.
+
+When an agent is repurposed after a failed or diagnostic task, reset its runtime
+session before assigning unrelated work. The persistent workspace is preserved,
+but the stale OpenCode conversation is cleared:
+
+```bash
+curl -X POST \
+  -H 'Content-Type: application/json' \
+  -H "Origin: $PAPERCLIP_ORIGIN" \
+  -b paperclip-cookies.txt \
+  -d '{}' \
+  "$PAPERCLIP_ORIGIN/api/agents/$AGENT_ID/runtime-state/reset-session"
+```

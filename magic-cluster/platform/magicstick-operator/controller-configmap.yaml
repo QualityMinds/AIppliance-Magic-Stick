@@ -143,9 +143,9 @@ data:
         return request_json("PATCH", path, body, content_type)
 
 
-    def delete_json(path):
+    def delete_json(path, body=None):
         try:
-            return request_json("DELETE", path)
+            return request_json("DELETE", path, body)
         except urllib.error.HTTPError as error:
             if error.code == 404:
                 return None
@@ -191,6 +191,19 @@ data:
         kind = resource["kind"]
         metadata = resource.get("metadata") or {}
         return delete_json(resource_path(api_version, kind, metadata.get("namespace"), metadata.get("name")))
+
+
+    def delete_labeled_resources(api_version, kind, namespace, label_selector):
+        item_path = resource_path(api_version, kind, namespace, "item")
+        collection_path = item_path.rsplit("/", 1)[0]
+        query = urllib.parse.urlencode({"labelSelector": label_selector})
+        for resource in list_items(collection_path + "?" + query):
+            name = ((resource.get("metadata") or {}).get("name") or "").strip()
+            if name:
+                delete_json(
+                    collection_path + "/" + urllib.parse.quote(name, safe=""),
+                    {"apiVersion": "v1", "kind": "DeleteOptions", "propagationPolicy": "Background"},
+                )
 
 
     def get_resource(group, version, plural, namespace, name):
@@ -2087,6 +2100,54 @@ data:
             paperclip_annotations["appliance.magicstick.dev/openclaw-instance-ref"] = open_claw_ref
         if hermes_enabled and hermes_ref:
             paperclip_annotations["appliance.magicstick.dev/hermes-instance-ref"] = hermes_ref
+        runtime_compat_name = derived_resource_name(name or "paperclip", "runtime-compat")
+        runtime_compat_loader = textwrap.dedent("""\
+            const fs = require("node:fs");
+            function patchFile(filePath, oldSource, newSource, label) {
+              let source = fs.readFileSync(filePath, "utf8");
+              const matches = source.split(oldSource).length - 1;
+              if (matches === 1) {
+                source = source.replace(oldSource, newSource);
+                fs.writeFileSync(filePath, source);
+              } else if (matches !== 0 || !source.includes(newSource)) {
+                throw new Error(`Unsupported Paperclip bundle: ${label} compatibility patch did not match`);
+              }
+            }
+
+            patchFile(
+              "/app/server/dist/index.js",
+              "process.env.PAPERCLIP_RUNTIME_API_URL = runtimeApiUrl;",
+              "process.env.PAPERCLIP_RUNTIME_API_URL = process.env.PAPERCLIP_RUNTIME_API_URL?.trim() || runtimeApiUrl;",
+              "runtime API URL",
+            );
+            patchFile(
+              "/app/server/dist/services/environment-execution-target.js",
+              'export const DEFAULT_SANDBOX_REMOTE_CWD = "/tmp";',
+              'export const DEFAULT_SANDBOX_REMOTE_CWD = "/workspace";',
+              "sandbox workspace directory",
+            );
+            patchFile(
+              "/app/packages/adapter-utils/src/sandbox-managed-runtime.ts",
+              'const runtimeRootDir = path.posix.join(workspaceRemoteDir, ".paperclip-runtime", input.adapterKey);',
+              'const runtimeRootDir = path.posix.join("/tmp", ".paperclip-runtime", input.adapterKey);',
+              "sandbox runtime directory",
+            );
+        """)
+        runtime_compat_hash = hashlib.sha256(runtime_compat_loader.encode("utf-8")).hexdigest()[:16]
+        runtime_compat_config = {
+            "apiVersion": "v1",
+            "kind": "ConfigMap",
+            "metadata": {
+                "name": runtime_compat_name,
+                "namespace": namespace,
+                "labels": {
+                    "app.kubernetes.io/managed-by": "magicstick-operator",
+                    "app.kubernetes.io/name": "paperclip",
+                    "appliance.magicstick.dev/appinstance": metadata.get("name", ""),
+                },
+            },
+            "data": {"runtime-url-loader.cjs": runtime_compat_loader},
+        }
         instance_resource = {
             "apiVersion": "paperclip.inc/v1alpha1",
             "kind": "Instance",
@@ -2097,7 +2158,10 @@ data:
                 "annotations": paperclip_annotations,
             },
             "spec": {
-                "podAnnotations": {"ai-appliance.io/model-catalog-consumer": "true"},
+                "podAnnotations": {
+                    "ai-appliance.io/model-catalog-consumer": "true",
+                    "appliance.magicstick.dev/paperclip-runtime-compat-hash": runtime_compat_hash,
+                },
                 "image": {"repository": "ghcr.io/paperclipai/paperclip", "tag": paperclip_image_tag},
                 "deployment": {
                     "mode": "authenticated",
@@ -2110,6 +2174,8 @@ data:
                 "env": [
                     {"name": "PAPERCLIP_AUTH_BASE_URL_MODE", "value": "explicit"},
                     {"name": "PAPERCLIP_AUTH_PUBLIC_BASE_URL", "value": public_url},
+                    {"name": "PAPERCLIP_RUNTIME_API_URL", "value": "http://" + (name or "paperclip") + "." + namespace + ".svc.cluster.local:3100"},
+                    {"name": "NODE_OPTIONS", "value": "--require=/opt/paperclip-runtime-compat/runtime-url-loader.cjs"},
                     {"name": "PAPERCLIP_KUBERNETES_PLUGIN_PATH", "value": "/opt/paperclip-kubernetes-plugin/node_modules/@paperclipai/plugin-kubernetes"},
                     {"name": "BETTER_AUTH_TRUSTED_ORIGINS", "value": "*"},
                     {"name": "OPENAI_API_KEY", "valueFrom": {"secretKeyRef": {"name": "litellm-masterkey-secret", "key": "LITELLM_MASTER_KEY"}}},
@@ -2179,14 +2245,24 @@ data:
                           "        : baseExecCommand;",
                           "const execCommand = wrapCommandWithEnv(commandWithCwd, params.env);",
                         ].join(String.fromCharCode(10) + "            ");
-                        if (!source.includes(oldImport) || !source.includes(oldExec)) {
+                        const oldWorkspaceCwd = [
+                          "const cwd = params.workspace.remotePath && params.workspace.remotePath.trim().length > 0",
+                          "    ? params.workspace.remotePath.trim()",
+                          '    : "/workspace";',
+                        ].join(String.fromCharCode(10) + "        ");
+                        const newWorkspaceCwd = 'const cwd = "/workspace";';
+                        if (!source.includes(oldImport) || !source.includes(oldExec) || !source.includes(oldWorkspaceCwd)) {
                           throw new Error("Unsupported Kubernetes plugin bundle: cwd compatibility patch did not match");
                         }
-                        source = source.replace(oldImport, newImport).replace(oldExec, newExec);
+                        source = source
+                          .replace(oldImport, newImport)
+                          .replace(oldExec, newExec)
+                          .replace(oldWorkspaceCwd, newWorkspaceCwd);
                         fs.writeFileSync(pluginPath, source);
                         NODE
                         test -f node_modules/@paperclipai/plugin-kubernetes/dist/manifest.js
                         grep -q 'const commandWithCwd =' node_modules/@paperclipai/plugin-kubernetes/dist/plugin.js
+                        grep -q 'const cwd = "/workspace";' node_modules/@paperclipai/plugin-kubernetes/dist/plugin.js
                     """).replace("__PLUGIN_VERSION__", kubernetes_plugin_version)],
                     "env": [
                         {"name": "HOME", "value": "/tmp"},
@@ -2201,12 +2277,22 @@ data:
                         "runAsGroup": 1000,
                     },
                 }],
-                "extraVolumes": [{"name": "paperclip-kubernetes-plugin", "emptyDir": {}}],
-                "extraVolumeMounts": [{
-                    "name": "paperclip-kubernetes-plugin",
-                    "mountPath": "/opt/paperclip-kubernetes-plugin",
-                    "readOnly": True,
-                }],
+                "extraVolumes": [
+                    {"name": "paperclip-kubernetes-plugin", "emptyDir": {}},
+                    {"name": "paperclip-runtime-compat", "configMap": {"name": runtime_compat_name}},
+                ],
+                "extraVolumeMounts": [
+                    {
+                        "name": "paperclip-kubernetes-plugin",
+                        "mountPath": "/opt/paperclip-kubernetes-plugin",
+                        "readOnly": True,
+                    },
+                    {
+                        "name": "paperclip-runtime-compat",
+                        "mountPath": "/opt/paperclip-runtime-compat",
+                        "readOnly": True,
+                    },
+                ],
                 "storage": {"persistence": {"enabled": True, "size": storage}},
                 "security": {"networkPolicy": {"enabled": True, "extraEgress": paperclip_egress}},
                 "networking": {
@@ -2268,7 +2354,7 @@ data:
                 "namespace": namespace,
             }],
         }
-        resources = [rancher_namespace_auth_role, rancher_namespace_auth_binding]
+        resources = [rancher_namespace_auth_role, rancher_namespace_auth_binding, runtime_compat_config]
         if auth_secret:
             resources.append(auth_secret)
         if admin_secret:
@@ -2932,6 +3018,7 @@ data:
             )
             resources = [
                 {"apiVersion": "paperclip.inc/v1alpha1", "kind": "Instance", "metadata": {"name": name, "namespace": namespace}},
+                {"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": derived_resource_name(name or "paperclip", "runtime-compat"), "namespace": namespace}},
                 {"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "ClusterRoleBinding", "metadata": {"name": rancher_namespace_auth_name}},
                 {"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "ClusterRole", "metadata": {"name": rancher_namespace_auth_name}},
                 {"apiVersion": "batch/v1", "kind": "Job", "metadata": {"name": job_base + "-auth-" + job_suffix, "namespace": namespace}},
@@ -2995,14 +3082,19 @@ data:
 
 
     def cleanup_app_instance_targets(instance):
+        metadata = instance.get("metadata") or {}
+        spec = instance.get("spec") or {}
+        if spec.get("type") == "paperclip" and metadata.get("name"):
+            namespace = spec.get("targetNamespace") or "ai"
+            selector = "appliance.magicstick.dev/appinstance=" + metadata["name"]
+            delete_labeled_resources("batch/v1", "Job", namespace, selector)
+            delete_labeled_resources("v1", "Pod", namespace, selector)
         resources = app_instance_target_resources(instance)
         for resource in resources:
             delete_target_resource(resource)
         if resources:
             metadata = resources[0].get("metadata") or {}
             return {"kind": resources[0].get("kind", ""), "name": metadata.get("name", ""), "namespace": metadata.get("namespace", "")}
-        spec = instance.get("spec") or {}
-        metadata = instance.get("metadata") or {}
         return {"kind": "", "name": metadata.get("name", ""), "namespace": spec.get("targetNamespace") or "ai"}
 
 
