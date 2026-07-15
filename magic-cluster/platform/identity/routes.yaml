@@ -3,6 +3,8 @@ kind: HTTPRoute
 metadata:
   name: keycloak
   namespace: identity-system
+  annotations:
+    lab42.io/mdns.enabled: "true"
 spec:
   parentRefs:
     - name: identity-pilot
@@ -103,6 +105,8 @@ kind: HTTPRoute
 metadata:
   name: auth-pilot
   namespace: identity-system
+  annotations:
+    lab42.io/mdns.enabled: "true"
 spec:
   parentRefs:
     - name: identity-pilot

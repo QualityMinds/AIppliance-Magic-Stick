@@ -43,7 +43,7 @@ digest, or chart version.
 | `cert-manager` | https://charts.jetstack.io | `v1.20.2` | Certificate management |
 | `kubernetes-secret-generator` | https://helm.mittwald.de | `3.4.1` | Generated Kubernetes secrets |
 | `reloader` | https://stakater.github.io/stakater-charts | Unpinned | Config and secret reloads |
-| `kdns` | `oci://ghcr.io/lab42/charts` | Unpinned | Local DNS integration |
+| `kdns` | `oci://ghcr.io/lab42/charts` | `0.2.3` | Local DNS integration; the repository tracks an upstream Gateway API contribution patch until a released image can be pinned |
 | `gpu-operator` | https://helm.ngc.nvidia.com/nvidia | Unpinned | NVIDIA GPU support |
 | `kubeai` | https://www.kubeai.org | `0.23.2` | AI model serving platform |
 | `hermes-operator` | `oci://ghcr.io/paperclipinc/charts` | `0.1.17` | Hermes runtime orchestration |

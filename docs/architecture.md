@@ -95,7 +95,7 @@ directly.
 
 | Area | Components |
 |---|---|
-| Basis | Namespaces, cert-manager, generated secrets, reloader, and kdns. |
+| Basis | Namespaces, cert-manager, generated secrets, reloader, and Gateway-aware kdns. |
 | Identity and human access | Envoy Gateway, local Keycloak identity broker, PostgreSQL, and route-level OIDC policies. |
 | Appliance control plane | Appliance CRDs, module catalog, model presets, operator RBAC, and live controller. |
 | AI modules | NVIDIA GPU support, KubeAI, Hermes operator, OpenClaw operator, and Paperclip operator. |
@@ -118,6 +118,11 @@ authenticated local and public `HTTPRoute` resources plus API-level role
 checks. Other legacy application `Ingress` objects are intentionally not served
 until their routes and authorization checks are migrated to Gateway API. See
 [authentication.md](authentication.md).
+
+Local mDNS discovery follows the same Gateway API model. Routes opt in with
+`lab42.io/mdns.enabled: "true"`; kdns publishes only accepted `.local`
+`HTTPRoute` hostnames and uses the programmed address and listener port from the
+referenced `Gateway`. No discovery-only Ingress is required.
 
 ## Value Boundary
 

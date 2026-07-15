@@ -1,0 +1,498 @@
+diff --git a/README.md b/README.md
+index 86b1073..da69ec5 100644
+--- a/README.md
++++ b/README.md
+@@ -93,6 +93,40 @@ Once `kdns` is installed, it will expose services on the local network using mDN
+ - The `kdns` server will automatically expose this service on the local network.
+ - Access it using the `.local` domain name, like `http://my-service.local`.
+ 
++### Gateway API
++
++`kdns` can publish hostnames from accepted Gateway API `HTTPRoute` resources.
++The route must opt in explicitly:
++
++```yaml
++apiVersion: gateway.networking.k8s.io/v1
++kind: HTTPRoute
++metadata:
++  name: dashboard
++  annotations:
++    lab42.io/mdns.enabled: "true"
++spec:
++  parentRefs:
++    - name: main
++      sectionName: https
++  hostnames:
++    - dashboard.example.local
++```
++
++The referenced `Gateway` must expose an IP address in
++`status.addresses`, and the matching route parent must report
++`Accepted=True`. The Gateway listener supplies the advertised port and service
++type. Only hostnames in the configured mDNS domain (`local` by default) are
++published.
++
++The kdns service account needs read access to Gateway API resources:
++
++```yaml
++- apiGroups: ["gateway.networking.k8s.io"]
++  resources: ["gateways", "httproutes"]
++  verbs: ["get", "list", "watch"]
++```
++
+ <h2 align="center">Helm Chart Customization</h2>
+ 
+ For a full list of configurable parameters, check the [Helm Chart values](https://github.com/lab42/charts/blob/main/charts/kdns/values.yaml).
+diff --git a/cmd/root.go b/cmd/root.go
+index 964ab78..9188e3b 100644
+--- a/cmd/root.go
++++ b/cmd/root.go
+@@ -47,7 +47,7 @@ var rootCmd = &cobra.Command{
+ 		serviceHandler := handler.NewServiceHandler(&mDNSManager)
+ 
+ 		// Create the Kubernetes watcher
+-		watcher, err := watcher.NewK8sWatcher(ingressHandler, serviceHandler)
++		watcher, err := watcher.NewK8sWatcher(ingressHandler, serviceHandler, &mDNSManager)
+ 		if err != nil {
+ 			return err
+ 		}
+diff --git a/handler/gateway_api_handler.go b/handler/gateway_api_handler.go
+new file mode 100644
+index 0000000..b339179
+--- /dev/null
++++ b/handler/gateway_api_handler.go
+@@ -0,0 +1,263 @@
++package handler
++
++import (
++	"context"
++	"encoding/json"
++	"fmt"
++	"log"
++	"net"
++	"strconv"
++	"strings"
++	"sync"
++
++	"github.com/brutella/dnssd"
++	"github.com/lab42/kdns/mdns"
++	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
++	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
++	"k8s.io/apimachinery/pkg/runtime/schema"
++	"k8s.io/client-go/dynamic"
++)
++
++var (
++	gatewayGVR   = schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"}
++	httpRouteGVR = schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "httproutes"}
++)
++
++type GatewayAPIHandlerImpl struct {
++	mdns       *mdns.Manager
++	client     dynamic.Interface
++	mu         sync.Mutex
++	advertised map[string]string
++}
++
++func NewGatewayAPIHandler(mdnsManager *mdns.Manager, client dynamic.Interface) GatewayAPIHandlerImpl {
++	return GatewayAPIHandlerImpl{
++		mdns:       mdnsManager,
++		client:     client,
++		advertised: make(map[string]string),
++	}
++}
++
++func (h *GatewayAPIHandlerImpl) Reconcile(ctx context.Context) error {
++	routes, err := h.client.Resource(httpRouteGVR).Namespace(metav1.NamespaceAll).List(ctx, metav1.ListOptions{})
++	if err != nil {
++		return fmt.Errorf("failed to list HTTPRoutes: %w", err)
++	}
++	gatewayList, err := h.client.Resource(gatewayGVR).Namespace(metav1.NamespaceAll).List(ctx, metav1.ListOptions{})
++	if err != nil {
++		return fmt.Errorf("failed to list Gateways: %w", err)
++	}
++
++	desired := gatewayAPIConfigs(routes.Items, gatewayList.Items)
++	h.mu.Lock()
++	defer h.mu.Unlock()
++
++	for name := range h.advertised {
++		if _, exists := desired[name]; !exists {
++			if err := h.mdns.Remove(name); err != nil {
++				log.Printf("failed to remove Gateway API mDNS config %s: %v", name, err)
++			} else {
++				log.Printf("removed Gateway API mDNS config: %s", name)
++			}
++			delete(h.advertised, name)
++		}
++	}
++
++	for name, config := range desired {
++		fingerprint := configFingerprint(config)
++		if h.advertised[name] == fingerprint {
++			continue
++		}
++		if err := h.mdns.Upsert(config); err != nil {
++			log.Printf("failed to publish Gateway API mDNS config %s: %v", name, err)
++			continue
++		}
++		h.advertised[name] = fingerprint
++		log.Printf("published Gateway API mDNS config: %s -> %v:%d", config.Host, config.IPs, config.Port)
++	}
++	return nil
++}
++
++func gatewayAPIConfigs(routes, gateways []unstructured.Unstructured) map[string]dnssd.Config {
++	gatewayIndex := make(map[string]unstructured.Unstructured, len(gateways))
++	for _, gateway := range gateways {
++		gatewayIndex[gateway.GetNamespace()+"/"+gateway.GetName()] = gateway
++	}
++
++	result := make(map[string]dnssd.Config)
++	for _, route := range routes {
++		annotations := route.GetAnnotations()
++		if annotations[mdnsEnabledAnnotation] != "true" {
++			continue
++		}
++		hostnames, _, _ := unstructured.NestedStringSlice(route.Object, "spec", "hostnames")
++		if len(hostnames) == 0 {
++			continue
++		}
++		parentRefs, _, _ := unstructured.NestedSlice(route.Object, "spec", "parentRefs")
++		for _, rawParent := range parentRefs {
++			parent, ok := rawParent.(map[string]interface{})
++			if !ok || stringValue(parent["kind"], "Gateway") != "Gateway" || stringValue(parent["group"], "gateway.networking.k8s.io") != "gateway.networking.k8s.io" {
++				continue
++			}
++			name, _ := parent["name"].(string)
++			if name == "" {
++				continue
++			}
++			namespace := stringValue(parent["namespace"], route.GetNamespace())
++			sectionName, _ := parent["sectionName"].(string)
++			if !routeParentAccepted(route, namespace, name, sectionName) {
++				continue
++			}
++			gateway, exists := gatewayIndex[namespace+"/"+name]
++			if !exists {
++				continue
++			}
++			ips := gatewayAddresses(gateway)
++			if override := parseIPs(annotations[mdnsIPsAnnotation]); len(override) > 0 {
++				ips = override
++			}
++			if len(ips) == 0 {
++				continue
++			}
++			port, serviceType := gatewayListener(gateway, sectionName)
++			if value, err := strconv.Atoi(annotations[mdnsPortAnnotation]); err == nil && value > 0 {
++				port = value
++			}
++			if annotations[mdnsTypeAnnotation] != "" {
++				serviceType = annotations[mdnsTypeAnnotation]
++			}
++			domain := strings.Trim(strings.TrimSpace(stringValue(annotations[mdnsDomainAnnotation], mdnsDefaultDomain)), ".")
++			for _, rawHostname := range hostnames {
++				hostname := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(rawHostname)), ".")
++				suffix := "." + strings.ToLower(domain)
++				if !strings.HasSuffix(hostname, suffix) {
++					continue
++				}
++				configName := strings.TrimSuffix(hostname, suffix)
++				if len(hostnames) == 1 && annotations[mdnsNameAnnotation] != "" {
++					configName = annotations[mdnsNameAnnotation]
++				}
++				host := hostname
++				if len(hostnames) == 1 && annotations[mdnsHostAnnotation] != "" {
++					host = annotations[mdnsHostAnnotation]
++				}
++				config := dnssd.Config{
++					Name:   configName,
++					Host:   host,
++					Type:   serviceType,
++					Domain: domain,
++					Port:   port,
++					IPs:    ips,
++				}
++				if text := annotations[mdnsTextAnnotation]; text != "" {
++					_ = json.Unmarshal([]byte(text), &config.Text)
++				}
++				if rawIfaces := annotations[mdnsIfacesAnnotation]; rawIfaces != "" {
++					for _, iface := range strings.Split(rawIfaces, ",") {
++						if trimmed := strings.TrimSpace(iface); trimmed != "" {
++							config.Ifaces = append(config.Ifaces, trimmed)
++						}
++					}
++				}
++				if config.Name != "" {
++					result[config.Name] = config
++				}
++			}
++		}
++	}
++	return result
++}
++
++func routeParentAccepted(route unstructured.Unstructured, namespace, name, sectionName string) bool {
++	parents, _, _ := unstructured.NestedSlice(route.Object, "status", "parents")
++	for _, rawParent := range parents {
++		parent, ok := rawParent.(map[string]interface{})
++		if !ok {
++			continue
++		}
++		parentRef, _, _ := unstructured.NestedMap(parent, "parentRef")
++		if stringValue(parentRef["name"], "") != name || stringValue(parentRef["namespace"], route.GetNamespace()) != namespace || stringValue(parentRef["sectionName"], "") != sectionName {
++			continue
++		}
++		conditions, _, _ := unstructured.NestedSlice(parent, "conditions")
++		for _, rawCondition := range conditions {
++			condition, ok := rawCondition.(map[string]interface{})
++			if ok && condition["type"] == "Accepted" && condition["status"] == "True" {
++				return true
++			}
++		}
++	}
++	return false
++}
++
++func gatewayAddresses(gateway unstructured.Unstructured) []net.IP {
++	addresses, _, _ := unstructured.NestedSlice(gateway.Object, "status", "addresses")
++	result := make([]net.IP, 0, len(addresses))
++	for _, rawAddress := range addresses {
++		address, ok := rawAddress.(map[string]interface{})
++		if !ok || stringValue(address["type"], "IPAddress") != "IPAddress" {
++			continue
++		}
++		if parsed := net.ParseIP(stringValue(address["value"], "")); parsed != nil {
++			result = append(result, parsed)
++		}
++	}
++	return result
++}
++
++func gatewayListener(gateway unstructured.Unstructured, sectionName string) (int, string) {
++	listeners, _, _ := unstructured.NestedSlice(gateway.Object, "spec", "listeners")
++	if sectionName == "" {
++		for _, rawListener := range listeners {
++			listener, ok := rawListener.(map[string]interface{})
++			if ok && strings.EqualFold(stringValue(listener["protocol"], ""), "HTTPS") {
++				return listenerConfig(listener)
++			}
++		}
++	}
++	for _, rawListener := range listeners {
++		listener, ok := rawListener.(map[string]interface{})
++		if !ok || sectionName != "" && stringValue(listener["name"], "") != sectionName {
++			continue
++		}
++		return listenerConfig(listener)
++	}
++	return 443, "_https._tcp"
++}
++
++func listenerConfig(listener map[string]interface{}) (int, string) {
++	port := 443
++	switch value := listener["port"].(type) {
++	case int64:
++		port = int(value)
++	case float64:
++		port = int(value)
++	}
++	serviceType := mdnsDefaultType
++	if strings.EqualFold(stringValue(listener["protocol"], ""), "HTTPS") {
++		serviceType = "_https._tcp"
++	}
++	return port, serviceType
++}
++
++func parseIPs(value string) []net.IP {
++	result := make([]net.IP, 0)
++	for _, candidate := range strings.Split(value, ",") {
++		if parsed := net.ParseIP(strings.TrimSpace(candidate)); parsed != nil {
++			result = append(result, parsed)
++		}
++	}
++	return result
++}
++
++func configFingerprint(config dnssd.Config) string {
++	return fmt.Sprintf("%s|%s|%s|%s|%d|%v|%v|%v", config.Name, config.Host, config.Type, config.Domain, config.Port, config.IPs, config.Ifaces, config.Text)
++}
++
++func stringValue(value interface{}, fallback string) string {
++	if result, ok := value.(string); ok && result != "" {
++		return result
++	}
++	return fallback
++}
+diff --git a/handler/gateway_api_handler_test.go b/handler/gateway_api_handler_test.go
+new file mode 100644
+index 0000000..f323b77
+--- /dev/null
++++ b/handler/gateway_api_handler_test.go
+@@ -0,0 +1,83 @@
++package handler
++
++import (
++	"testing"
++
++	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
++)
++
++func TestGatewayAPIConfigsPublishesAcceptedLocalRoute(t *testing.T) {
++	gateway := unstructured.Unstructured{Object: map[string]interface{}{
++		"apiVersion": "gateway.networking.k8s.io/v1",
++		"kind":       "Gateway",
++		"metadata": map[string]interface{}{
++			"name":      "main",
++			"namespace": "gateway-system",
++		},
++		"spec": map[string]interface{}{
++			"listeners": []interface{}{map[string]interface{}{
++				"name": "https", "protocol": "HTTPS", "port": int64(443),
++			}},
++		},
++		"status": map[string]interface{}{
++			"addresses": []interface{}{map[string]interface{}{
++				"type": "IPAddress", "value": "192.0.2.10",
++			}},
++		},
++	}}
++	route := unstructured.Unstructured{Object: map[string]interface{}{
++		"apiVersion": "gateway.networking.k8s.io/v1",
++		"kind":       "HTTPRoute",
++		"metadata": map[string]interface{}{
++			"name":      "dashboard",
++			"namespace": "apps",
++			"annotations": map[string]interface{}{
++				mdnsEnabledAnnotation: "true",
++			},
++		},
++		"spec": map[string]interface{}{
++			"hostnames": []interface{}{"dashboard.example.local"},
++			"parentRefs": []interface{}{map[string]interface{}{
++				"name": "main", "namespace": "gateway-system", "sectionName": "https",
++			}},
++		},
++		"status": map[string]interface{}{
++			"parents": []interface{}{map[string]interface{}{
++				"parentRef": map[string]interface{}{
++					"name": "main", "namespace": "gateway-system", "sectionName": "https",
++				},
++				"conditions": []interface{}{map[string]interface{}{
++					"type": "Accepted", "status": "True",
++				}},
++			}},
++		},
++	}}
++
++	configs := gatewayAPIConfigs([]unstructured.Unstructured{route}, []unstructured.Unstructured{gateway})
++	config, exists := configs["dashboard.example"]
++	if !exists {
++		t.Fatalf("expected dashboard.example config, got %#v", configs)
++	}
++	if config.Host != "dashboard.example.local" || config.Port != 443 || config.Type != "_https._tcp" {
++		t.Fatalf("unexpected config: %#v", config)
++	}
++	if got := config.IPs[0].String(); got != "192.0.2.10" {
++		t.Fatalf("expected gateway address 192.0.2.10, got %s", got)
++	}
++}
++
++func TestGatewayAPIConfigsIgnoresUnapprovedRoutesAndPublicHosts(t *testing.T) {
++	route := unstructured.Unstructured{Object: map[string]interface{}{
++		"metadata": map[string]interface{}{
++			"name": "public", "namespace": "apps",
++			"annotations": map[string]interface{}{mdnsEnabledAnnotation: "true"},
++		},
++		"spec": map[string]interface{}{
++			"hostnames":  []interface{}{"public.example.com"},
++			"parentRefs": []interface{}{map[string]interface{}{"name": "main"}},
++		},
++	}}
++	if configs := gatewayAPIConfigs([]unstructured.Unstructured{route}, nil); len(configs) != 0 {
++		t.Fatalf("expected no configs, got %#v", configs)
++	}
++}
+diff --git a/watcher/watcher.go b/watcher/watcher.go
+index f6c2681..3a91141 100644
+--- a/watcher/watcher.go
++++ b/watcher/watcher.go
+@@ -1,12 +1,15 @@
+ package watcher
+ 
+ import (
++	"context"
+ 	"fmt"
+ 	"log"
+ 	"path/filepath"
+ 	"time"
+ 
+ 	"github.com/lab42/kdns/handler"
++	"github.com/lab42/kdns/mdns"
++	"k8s.io/client-go/dynamic"
+ 	"k8s.io/client-go/informers"
+ 	"k8s.io/client-go/kubernetes"
+ 	"k8s.io/client-go/rest"
+@@ -17,12 +20,13 @@ import (
+ type K8sWatcher struct {
+ 	ingressHandler  *handler.IngressHandlerImpl
+ 	serviceHandler  *handler.ServiceHandlerImpl
++	gatewayHandler  *handler.GatewayAPIHandlerImpl
+ 	clientset       *kubernetes.Clientset
+ 	stopCh          chan struct{}
+ 	informerFactory informers.SharedInformerFactory
+ }
+ 
+-func NewK8sWatcher(ingressHandler handler.IngressHandlerImpl, serviceHandler handler.ServiceHandlerImpl) (*K8sWatcher, error) {
++func NewK8sWatcher(ingressHandler handler.IngressHandlerImpl, serviceHandler handler.ServiceHandlerImpl, mdnsManager *mdns.Manager) (*K8sWatcher, error) {
+ 	config, err := rest.InClusterConfig()
+ 	if err != nil {
+ 		kubeconfig := filepath.Join("/root/.kube", "config")
+@@ -36,12 +40,18 @@ func NewK8sWatcher(ingressHandler handler.IngressHandlerImpl, serviceHandler han
+ 	if err != nil {
+ 		return nil, fmt.Errorf("failed to create Kubernetes client: %w", err)
+ 	}
++	dynamicClient, err := dynamic.NewForConfig(config)
++	if err != nil {
++		return nil, fmt.Errorf("failed to create Gateway API client: %w", err)
++	}
++	gatewayHandler := handler.NewGatewayAPIHandler(mdnsManager, dynamicClient)
+ 
+ 	informerFactory := informers.NewSharedInformerFactory(clientset, 10*time.Minute)
+ 
+ 	return &K8sWatcher{
+ 		ingressHandler:  &ingressHandler,
+ 		serviceHandler:  &serviceHandler,
++		gatewayHandler:  &gatewayHandler,
+ 		clientset:       clientset,
+ 		stopCh:          make(chan struct{}),
+ 		informerFactory: informerFactory,
+@@ -67,7 +77,25 @@ func (w *K8sWatcher) Run() {
+ 
+ 	w.informerFactory.Start(w.stopCh)
+ 	w.informerFactory.WaitForCacheSync(w.stopCh)
+-	log.Println("K8sWatcher is running and listening for Ingress and Service changes.")
++	go w.runGatewayReconciler()
++	log.Println("K8sWatcher is running and listening for Ingress, Service, Gateway, and HTTPRoute changes.")
++}
++
++func (w *K8sWatcher) runGatewayReconciler() {
++	ctx, cancel := context.WithCancel(context.Background())
++	defer cancel()
++	ticker := time.NewTicker(15 * time.Second)
++	defer ticker.Stop()
++	for {
++		if err := w.gatewayHandler.Reconcile(ctx); err != nil {
++			log.Printf("Gateway API mDNS reconciliation failed: %v", err)
++		}
++		select {
++		case <-ticker.C:
++		case <-w.stopCh:
++			return
++		}
++	}
+ }
+ 
+ func (w *K8sWatcher) Stop() {
+

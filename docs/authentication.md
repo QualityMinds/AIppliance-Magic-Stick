@@ -124,6 +124,12 @@ Open `https://magicstick.local` to validate the real dashboard route. After
 login, `local-admin` has the `magicstick-admin` role and can use all dashboard
 operations. `/logout` clears the Envoy browser session.
 
+On a host-local K3s appliance, Gateway-aware kdns publishes the annotated local
+routes automatically. Rancher Desktop keeps multicast inside its Linux VM; use
+`magic-cluster/platform/basis/kdns/publish-rancher-desktop-mdns.sh` on macOS
+while testing so the same accepted routes are published through the host mDNS
+responder.
+
 ## Production Migration
 
 The remaining rollout is intentionally incremental:

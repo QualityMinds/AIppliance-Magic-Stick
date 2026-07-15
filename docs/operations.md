@@ -120,6 +120,24 @@ Local mDNS hostnames use `AI_APPLIANCE_MDNS_DOMAIN`, for example
 AnythingLLM. Instance-local hostnames use the same instance-name pattern with
 the mDNS domain.
 
+Gateway-backed names are published only when their `HTTPRoute` has
+`lab42.io/mdns.enabled: "true"`, the selected parent reports `Accepted=True`,
+and the referenced `Gateway` has an IP address. Check discovery with:
+
+```bash
+kubectl get gateway,httproute -A
+kubectl -n kdns logs deploy/kdns-kdns
+```
+
+Rancher Desktop isolates Kubernetes multicast traffic inside its Linux VM. On
+macOS, keep the host bridge running in a separate terminal while testing:
+
+```bash
+magic-cluster/platform/basis/kdns/publish-rancher-desktop-mdns.sh
+```
+
+Host-local K3s appliances do not need this development bridge.
+
 ## Model Catalog
 
 ```bash
