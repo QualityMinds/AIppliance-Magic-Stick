@@ -163,7 +163,9 @@ and other runtime state, and must never print `PAPERCLIP_API_KEY`.
 OpenClaw and Hermes remain independent `AppInstance` resources. Selecting one
 in Appliance Control enables its Paperclip adapter and allows only the selected
 gateway port from the Paperclip Pod. Hermes exposes its authenticated API from
-the generated `hermes-api` sidecar on port 8642. OpenClaw uses its gateway on
+the generated `hermes-api` sidecar on port 8642. All Hermes containers use UID
+and GID `1000` so the dashboard, catalog init, and API gateway can share the
+same persistent home directory. OpenClaw uses its gateway on
 Service port 18789; policies also admit its operator-managed Pod target port
 18790 so the route works regardless of where the CNI enforces egress relative
 to Service DNAT.

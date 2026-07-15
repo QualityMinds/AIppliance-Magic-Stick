@@ -1516,6 +1516,8 @@ data:
                             {"name": "API_SERVER_HOST", "value": "0.0.0.0"},
                             {"name": "API_SERVER_PORT", "value": "8642"},
                             {"name": "API_SERVER_KEY", "valueFrom": {"secretKeyRef": {"name": api_server_secret_name, "key": "API_SERVER_KEY"}}},
+                            {"name": "HERMES_UID", "value": "1000"},
+                            {"name": "HERMES_GID", "value": "1000"},
                             {"name": "HERMES_HOME", "value": "/home/hermes/.hermes"},
                             {"name": "HOME", "value": "/home/hermes"},
                             {"name": "XDG_CACHE_HOME", "value": "/tmp/.cache"},
