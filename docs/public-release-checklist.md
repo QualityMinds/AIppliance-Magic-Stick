@@ -40,6 +40,8 @@ kubectl kustomize magic-cluster/flux/entrypoints/single-node
 kubectl kustomize magic-cluster/apps/dashboard
 kubectl kustomize magic-cluster/platform/magicstick-operator
 kubectl kustomize magic-cluster/platform/basis
+kubectl kustomize magic-cluster/platform/gateway/envoy-gateway
+kubectl kustomize magic-cluster/platform/identity
 kubectl kustomize magic-cluster/platform/gpu
 kubectl kustomize magic-cluster/platform/ai/kubeai
 kubectl kustomize magic-cluster/platform/ai/hermes-operator

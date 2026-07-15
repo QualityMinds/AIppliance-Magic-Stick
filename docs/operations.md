@@ -79,6 +79,19 @@ kubectl -n dashboard get pods,ingress
 kubectl -n observability get pods,ingress
 ```
 
+## Identity Pilot Checks
+
+```bash
+kubectl -n flux-system get kustomizations envoy-gateway identity-pilot
+kubectl -n envoy-gateway-system get helmrelease,pods
+kubectl -n identity-system get pods,pvc,gateway,httproute,securitypolicy
+kubectl -n identity-system logs deploy/keycloak
+```
+
+The identity pilot is parallel to ingress-nginx and uses a `ClusterIP` Envoy
+service. Follow [authentication.md](authentication.md) for port-forwarding,
+local name resolution, login validation, and generated credential handling.
+
 Common public hostnames use `AI_APPLIANCE_DOMAIN`:
 
 | Service | Default public host pattern |
@@ -180,4 +193,5 @@ deploy,pods` if a command does not match the running resource name.
 | Paperclip task creates no Sandbox | Check `sandboxes.agents.x-k8s.io`, the Agent Sandbox controller, `spec.adapters.execution.kubernetes.backend`, and the selected adapter runtime image. |
 | Paperclip sandbox cannot call a model | Check `opencode-providers.json`, `litellm-masterkey-secret`, LiteLLM on port 4000, and NetworkPolicies in the Paperclip tenant namespace. |
 | Generated Secret missing | Check the secret generator HelmRelease and Secret annotations. |
+| OIDC route does not redirect | Check the `SecurityPolicy` and `HTTPRoute` status, Keycloak readiness, the Envoy data-plane logs, and whether both pilot hostnames resolve to the port-forward address. |
 | GPU model never starts | Check GPU Operator, allocatable GPU resources, KubeAI model status, and vLLM logs. |

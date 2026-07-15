@@ -17,6 +17,8 @@ runtime checks.
 | `flux/entrypoints/base` | Neutral public Flux entrypoint |
 | `flux/entrypoints/single-node` | Public read-only single-node Flux entrypoint |
 | `platform/basis` | Namespaces, ingress-nginx, cert-manager, secret generator, reloader, kdns |
+| `platform/gateway/envoy-gateway` | Parallel Envoy Gateway control plane and Gateway API CRDs |
+| `platform/identity` | Local Keycloak/PostgreSQL identity broker and protected OIDC pilot route |
 | `platform/magicstick-operator` | Appliance CRDs, module catalog, model presets, operator RBAC, live controller, and public examples |
 | `platform/ai/kubeai` | KubeAI model-serving platform module |
 | `platform/ai/openclaw-operator` | OpenClaw CRD operator base for `openclaw.rocks/v1alpha1` instances |
@@ -56,6 +58,8 @@ kubectl kustomize magic-cluster/flux/entrypoints/single-node
 kubectl kustomize magic-cluster/apps/dashboard
 kubectl kustomize magic-cluster/platform/magicstick-operator
 kubectl kustomize magic-cluster/platform/basis
+kubectl kustomize magic-cluster/platform/gateway/envoy-gateway
+kubectl kustomize magic-cluster/platform/identity
 kubectl kustomize magic-cluster/platform/gpu
 kubectl kustomize magic-cluster/platform/ai/kubeai
 kubectl kustomize magic-cluster/platform/ai/openclaw-operator

@@ -51,6 +51,8 @@ Kustomizations use it through `postBuild.substituteFrom`.
 | `AI_APPLIANCE_MDNS_DOMAIN` | `magicstick.local` | Local mDNS domain used for dashboard, app, and derived instance hostnames. |
 | `AI_APPLIANCE_MDNS_NAME` | `magicstick` | Local mDNS name suffix used in mDNS annotations. |
 | `AI_APPLIANCE_DASHBOARD_MDNS_NAME` | `magicstick` | Legacy dashboard mDNS name, kept for compatibility. |
+| `AI_APPLIANCE_IDENTITY_PILOT_PORT` | `8443` | External development port used by the parallel Envoy/Keycloak pilot. |
+| `AI_APPLIANCE_KEYCLOAK_POSTGRES_STORAGE` | `1Gi` | Persistent storage requested by the local identity database. |
 
 AppInstance hostnames are derived from runtime settings and are not arbitrary
 per-instance configuration:

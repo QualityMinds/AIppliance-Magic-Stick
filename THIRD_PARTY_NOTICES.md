@@ -22,6 +22,7 @@ digest, or chart version.
 | `busybox:1.36` | https://hub.docker.com/_/busybox | Init containers | Referenced only |
 | `postgres:16.4` | https://hub.docker.com/_/postgres | LiteLLM PostgreSQL | Referenced only |
 | `postgres:17-alpine` | https://hub.docker.com/_/postgres | Operator-generated application database | Referenced only |
+| `quay.io/keycloak/keycloak:26.6.3` | https://www.keycloak.org | Local OIDC identity provider and identity broker | Referenced only |
 | `ghcr.io/berriai/litellm:v1.84.0` | https://github.com/BerriAI/litellm | LiteLLM | Referenced only |
 | `mintplexlabs/anythingllm:1.12.1` | https://github.com/Mintplex-Labs/anything-llm | AnythingLLM | Referenced only |
 | `qdrant/qdrant:v1.13.6` | https://github.com/qdrant/qdrant | Qdrant vector database | Referenced only |
@@ -39,6 +40,7 @@ digest, or chart version.
 | Chart or source | Repository | Version | Usage |
 |---|---|---:|---|
 | `ingress-nginx` | https://kubernetes.github.io/ingress-nginx | `4.15.1` | Ingress controller |
+| `gateway-helm` | https://gateway.envoyproxy.io | `v1.8.2` | Envoy Gateway control plane, data plane, and Gateway API extensions |
 | `cert-manager` | https://charts.jetstack.io | `v1.20.2` | Certificate management |
 | `kubernetes-secret-generator` | https://helm.mittwald.de | `3.4.1` | Generated Kubernetes secrets |
 | `reloader` | https://stakater.github.io/stakater-charts | Unpinned | Config and secret reloads |

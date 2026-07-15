@@ -1,0 +1,22 @@
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: auth-pilot-oidc
+  namespace: identity-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: auth-pilot
+  oidc:
+    provider:
+      issuer: "https://id.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}:${AI_APPLIANCE_IDENTITY_PILOT_PORT:=8443}/realms/magicstick"
+      authorizationEndpoint: "https://id.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}:${AI_APPLIANCE_IDENTITY_PILOT_PORT:=8443}/realms/magicstick/protocol/openid-connect/auth"
+      tokenEndpoint: http://keycloak.identity-system.svc.cluster.local:8080/realms/magicstick/protocol/openid-connect/token
+      endSessionEndpoint: "https://id.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}:${AI_APPLIANCE_IDENTITY_PILOT_PORT:=8443}/realms/magicstick/protocol/openid-connect/logout"
+    clientID: magicstick-human-gateway-local
+    clientSecret:
+      name: magicstick-human-gateway-client
+    redirectURL: "https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}:${AI_APPLIANCE_IDENTITY_PILOT_PORT:=8443}/oauth2/callback"
+    logoutPath: /logout
+    cookieDomain: "${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
