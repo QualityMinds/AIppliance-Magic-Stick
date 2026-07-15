@@ -1349,6 +1349,10 @@ data:
         model = params.get("model") or "qwen3635b"
         storage = ((params.get("storage") or {}).get("size") or params.get("storageSize") or "10Gi")
         api_server_secret_name = derived_resource_name(name or "hermes", "api-server")
+        paperclip_agent_secret_ref = params.get("paperclipAgentSecretRef") or {}
+        paperclip_agent_secret_name = paperclip_agent_secret_ref.get("name") or ""
+        paperclip_agent_secret_key = paperclip_agent_secret_ref.get("key") or "PAPERCLIP_API_KEY"
+        paperclip_api_url = params.get("paperclipApiUrl") or ""
         catalog_init_script = textwrap.dedent("""\
             set -eu
             for attempt in $(seq 1 120); do
@@ -1450,6 +1454,31 @@ data:
             "metadata": {"name": "hermes-dashboard-proxy", "namespace": namespace},
             "data": {"default.conf": dashboard_proxy_config},
         })
+        hermes_api_env = [
+            {"name": "API_SERVER_ENABLED", "value": "true"},
+            {"name": "API_SERVER_HOST", "value": "0.0.0.0"},
+            {"name": "API_SERVER_PORT", "value": "8642"},
+            {"name": "API_SERVER_KEY", "valueFrom": {"secretKeyRef": {"name": api_server_secret_name, "key": "API_SERVER_KEY"}}},
+            {"name": "HERMES_UID", "value": "1000"},
+            {"name": "HERMES_GID", "value": "1000"},
+            {"name": "HERMES_HOME", "value": "/home/hermes/.hermes"},
+            {"name": "HOME", "value": "/home/hermes"},
+            {"name": "XDG_CACHE_HOME", "value": "/tmp/.cache"},
+            {"name": "TIRITH_ENABLED", "value": "false"},
+            {"name": "HERMES_YOLO_MODE", "value": "1"},
+            {"name": "OPENAI_API_KEY", "valueFrom": {"secretKeyRef": {"name": "litellm-masterkey-secret", "key": "LITELLM_MASTER_KEY"}}},
+            {"name": "OPENAI_BASE_URL", "value": "http://litellm.ai.svc.cluster.local:4000/v1"},
+        ]
+        if paperclip_agent_secret_name:
+            hermes_api_env.append({
+                "name": "PAPERCLIP_API_KEY",
+                "valueFrom": {"secretKeyRef": {
+                    "name": paperclip_agent_secret_name,
+                    "key": paperclip_agent_secret_key,
+                }},
+            })
+        if paperclip_api_url:
+            hermes_api_env.append({"name": "PAPERCLIP_API_URL", "value": paperclip_api_url})
         hermes_instance = {
             "apiVersion": "hermes.agent/v1",
             "kind": "HermesInstance",
@@ -1549,21 +1578,7 @@ data:
                         "imagePullPolicy": "IfNotPresent",
                         "args": ["gateway", "run", "--replace", "--accept-hooks"],
                         "ports": [{"name": "hermes-api", "containerPort": 8642, "protocol": "TCP"}],
-                        "env": [
-                            {"name": "API_SERVER_ENABLED", "value": "true"},
-                            {"name": "API_SERVER_HOST", "value": "0.0.0.0"},
-                            {"name": "API_SERVER_PORT", "value": "8642"},
-                            {"name": "API_SERVER_KEY", "valueFrom": {"secretKeyRef": {"name": api_server_secret_name, "key": "API_SERVER_KEY"}}},
-                            {"name": "HERMES_UID", "value": "1000"},
-                            {"name": "HERMES_GID", "value": "1000"},
-                            {"name": "HERMES_HOME", "value": "/home/hermes/.hermes"},
-                            {"name": "HOME", "value": "/home/hermes"},
-                            {"name": "XDG_CACHE_HOME", "value": "/tmp/.cache"},
-                            {"name": "TIRITH_ENABLED", "value": "false"},
-                            {"name": "HERMES_YOLO_MODE", "value": "1"},
-                            {"name": "OPENAI_API_KEY", "valueFrom": {"secretKeyRef": {"name": "litellm-masterkey-secret", "key": "LITELLM_MASTER_KEY"}}},
-                            {"name": "OPENAI_BASE_URL", "value": "http://litellm.ai.svc.cluster.local:4000/v1"},
-                        ],
+                        "env": hermes_api_env,
                         "resources": {
                             "requests": {"cpu": "250m", "memory": "512Mi"},
                             "limits": {"cpu": "1", "memory": "2Gi"},

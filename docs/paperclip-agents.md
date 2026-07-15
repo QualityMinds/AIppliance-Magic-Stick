@@ -204,8 +204,23 @@ adapter's required path with mode `0600`. Never put the response or token in an
 OpenClaw instance after rotating the Secret so the init container copies the
 new value.
 
-Hermes receives its Paperclip agent key in each authenticated gateway run. The
-automated `hermes-api` sidecar disables Tirith and starts with
+Paperclip authenticates to the Hermes gateway with `API_SERVER_KEY`, but this
+gateway credential is not the Paperclip agent credential. For callbacks, store
+the `token` from `POST /api/agents/{agentId}/keys` in a Kubernetes Secret and
+bind it to the Hermes `AppInstance` together with the reachable Paperclip URL:
+
+```yaml
+spec:
+  parameters:
+    paperclipApiUrl: http://paperclip-default.ai.svc.cluster.local:3100
+    paperclipAgentSecretRef:
+      name: hermes-default-paperclip-agent
+      key: PAPERCLIP_API_KEY
+```
+
+Only the automated `hermes-api` sidecar receives `PAPERCLIP_API_KEY` and
+`PAPERCLIP_API_URL`; the interactive dashboard does not. The API sidecar also
+disables Tirith and starts with
 `HERMES_YOLO_MODE=1` because there is no interactive terminal attached to
 answer command approval prompts; otherwise an internal Paperclip callback can
 remain pending until the run times out. This exception applies only to that API
