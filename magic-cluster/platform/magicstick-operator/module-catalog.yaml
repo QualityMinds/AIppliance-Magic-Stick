@@ -154,6 +154,18 @@ data:
           "default": false,
           "uninstallPolicy": "keep-data"
         },
+        "agent-sandbox": {
+          "displayName": "Agent Sandbox",
+          "group": "operators",
+          "activationMode": "moduleactivation",
+          "order": 105,
+          "path": "magic-cluster/platform/ai/agent-sandbox",
+          "kustomizationName": "platform-agent-sandbox",
+          "requires": ["basis"],
+          "requiredCrds": ["sandboxes.agents.x-k8s.io"],
+          "default": false,
+          "uninstallPolicy": "keep-data"
+        },
         "kubeopencode": {
           "displayName": "KubeOpenCode",
           "group": "apps",
@@ -222,8 +234,8 @@ data:
           "kind": "HermesInstance"
         },
         "paperclip": {
-          "requiredModules": ["paperclip-operator", "litellm", "model-catalog"],
-          "requiredCrds": ["instances.paperclip.inc"],
+          "requiredModules": ["paperclip-operator", "agent-sandbox", "litellm", "model-catalog"],
+          "requiredCrds": ["instances.paperclip.inc", "sandboxes.agents.x-k8s.io"],
           "apiVersion": "paperclip.inc/v1alpha1",
           "kind": "Instance"
         },

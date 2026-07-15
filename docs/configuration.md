@@ -81,6 +81,10 @@ the module manifest default such as `${AI_APPLIANCE_LOKI_STORAGE:=1Gi}` is used.
 | `AI_APPLIANCE_DEFAULT_CHAT_MODEL` | `qwen3635b` | Preferred default chat model for the generated model catalog. |
 | `AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL` | `qwen352bvlembedding` | Preferred default embedding model for the generated model catalog. |
 
+`AI_APPLIANCE_DEFAULT_OPENCODE_MODEL` is a generated output in
+`litellm/<model-id>` form. It follows the selected default chat model and is not
+a separate user input.
+
 Generated model catalog values such as `AI_APPLIANCE_MODEL_CATALOG_READY`,
 `AI_APPLIANCE_MODEL_CATALOG_HASH`, and model counts are outputs, not user
 inputs. See [model-catalog.md](model-catalog.md).

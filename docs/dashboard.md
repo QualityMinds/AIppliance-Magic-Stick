@@ -109,6 +109,14 @@ The dashboard may still submit an ingress parameter internally for compatibility
 with the operator, but users should not configure arbitrary instance hostnames in
 the UI.
 
+The Paperclip form additionally selects the default chat model, enables the
+OpenCode sandbox runtime, optionally binds an existing OpenClaw or Hermes
+gateway instance, and sets the maximum concurrent sandbox count. Gateway
+selectors list existing matching `AppInstance` resources and are required only
+when their checkbox is enabled. These values are stored under
+`spec.parameters.agentExecution`; the dashboard does not create Paperclip
+companies, employee agents, or gateway credentials.
+
 ## Model Controls
 
 Local and external models are runtime requests stored as `ModelActivation`

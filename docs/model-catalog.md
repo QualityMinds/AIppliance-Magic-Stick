@@ -161,6 +161,7 @@ Supported external model fields:
 | `customLlmProvider` or `custom_llm_provider` | Optional LiteLLM custom provider. |
 | `tpm` and `rpm` | Optional LiteLLM rate limits. |
 | `contextWindow`, `context_window`, or `max_input_tokens` | Optional model context metadata. |
+| `maxOutputTokens`, `max_output_tokens`, or LiteLLM `max_completion_tokens` metadata | Optional OpenCode output limit. |
 
 ## Defaults
 
@@ -175,6 +176,8 @@ The controller reads these deployment variables:
 | `CONSUMER_RESTART_ENABLED` | `true` | Delete known consumer pods after catalog changes. |
 | `AGENT_TEMPLATE_SYNC_ENABLED` | `true` | Patch configured KubeOpenCode AgentTemplates. |
 | `AGENT_TEMPLATE_NAMES` | `litellm-default` | Comma-separated AgentTemplate names to update. |
+| `OPENCODE_DEFAULT_CONTEXT_TOKENS` | `131072` | Context limit used when a model exposes no positive limit. |
+| `OPENCODE_DEFAULT_OUTPUT_TOKENS` | `8192` | Output limit used when a model exposes no positive limit. |
 
 Defaults are selected only if the requested model id exists in the generated
 catalog. If the requested id is missing, the first model of the matching type is
@@ -196,6 +199,8 @@ used. If no model of that type exists, the default is an empty string.
 | `embedding-models.json` | Embedding models plus selected embedding default. |
 | `openclaw.json` | OpenClaw-ready LiteLLM provider fragment. |
 | `hermes.yaml` | Hermes-ready LiteLLM provider fragment. |
+| `opencode-providers.json` | OpenCode provider map for the internal LiteLLM endpoint, including required context and output limits. |
+| `AI_APPLIANCE_DEFAULT_OPENCODE_MODEL` | Selected chat default in `litellm/<model-id>` form. |
 
 `catalog.json` uses this shape:
 
@@ -237,8 +242,11 @@ Current consumers include:
   the `AppInstance` preferred model if present in the catalog.
 - OpenClaw waits for readiness, reads `openclaw.json`, and applies
   the `AppInstance` preferred model if present in the catalog.
-- Paperclip reads `AI_APPLIANCE_DEFAULT_CHAT_MODEL` and uses the in-cluster
-  LiteLLM API for inference.
+- Paperclip reads `opencode-providers.json` and
+  `AI_APPLIANCE_DEFAULT_OPENCODE_MODEL`. Its OpenCode sandbox runtime uses the
+  in-cluster LiteLLM API, and the API key comes only from a Kubernetes Secret.
+  Catalog changes include OpenCode limit metadata in the consumer hash, so a
+  changed limit follows the normal catalog consumer restart path.
 - Dashboard-created KubeOpenCode `AppInstance` resources are rendered by the
   Magic Stick Operator into `AgentTemplate` resources using all generated chat
   models and into `Agent` resources that reference those templates.

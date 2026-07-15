@@ -69,6 +69,7 @@ site.
 | Optional GitOps overlays | [docs/gitops-overlays.md](docs/gitops-overlays.md) |
 | Cluster operations | [docs/operations.md](docs/operations.md) |
 | AI model catalog | [docs/model-catalog.md](docs/model-catalog.md) |
+| Paperclip agent execution | [docs/paperclip-agents.md](docs/paperclip-agents.md) |
 | Development and release checks | [docs/development.md](docs/development.md) |
 
 Agent-specific repo instructions live in [AGENTS.md](AGENTS.md). Optional
@@ -206,6 +207,7 @@ kubectl kustomize magic-cluster/platform/ai/kubeai
 kubectl kustomize magic-cluster/platform/ai/hermes-operator
 kubectl kustomize magic-cluster/platform/ai/openclaw-operator
 kubectl kustomize magic-cluster/platform/ai/paperclip-operator
+kubectl kustomize magic-cluster/platform/ai/agent-sandbox
 kubectl kustomize magic-cluster/platform/observability
 kubectl kustomize magic-cluster/apps/ai/litellm/base
 kubectl kustomize magic-cluster/apps/ai/model-catalog

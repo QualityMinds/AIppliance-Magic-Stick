@@ -22,6 +22,8 @@ POLL_SECONDS = int(os.environ.get("CATALOG_POLL_SECONDS", "30"))
 WATCH_SECONDS = int(os.environ.get("CATALOG_WATCH_SECONDS", str(max(1, POLL_SECONDS // 2))))
 DEFAULT_CHAT_MODEL = os.environ.get("AI_APPLIANCE_DEFAULT_CHAT_MODEL", "qwen3635b")
 DEFAULT_EMBEDDING_MODEL = os.environ.get("AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL", "qwen352bvlembedding")
+OPENCODE_DEFAULT_CONTEXT_TOKENS = int(os.environ.get("OPENCODE_DEFAULT_CONTEXT_TOKENS", "131072"))
+OPENCODE_DEFAULT_OUTPUT_TOKENS = int(os.environ.get("OPENCODE_DEFAULT_OUTPUT_TOKENS", "8192"))
 RESTART_CONSUMERS = os.environ.get("CONSUMER_RESTART_ENABLED", "true").lower() == "true"
 SYNC_AGENT_TEMPLATES = os.environ.get("AGENT_TEMPLATE_SYNC_ENABLED", "true").lower() == "true"
 AGENT_TEMPLATE_NAMES = [name.strip() for name in os.environ.get("AGENT_TEMPLATE_NAMES", "litellm-default").split(",") if name.strip()]
@@ -215,6 +217,11 @@ def context_from_model(model):
     return context_from_args((model.get("spec") or {}).get("args") or [])
 
 
+def output_from_model(model):
+    annotations = (model.get("metadata") or {}).get("annotations") or {}
+    return positive_int(annotations.get("ai-appliance.io/max-output-tokens"))
+
+
 def list_kubeai_models():
     path = f"/apis/kubeai.org/v1/namespaces/{NAMESPACE}/models"
     try:
@@ -279,6 +286,8 @@ def external_activation_item(activation):
         item["type"] = external.get("modelType")
     if external.get("contextWindow") and "contextWindow" not in item:
         item["contextWindow"] = external.get("contextWindow")
+    if external.get("maxOutputTokens") and "maxOutputTokens" not in item:
+        item["maxOutputTokens"] = external.get("maxOutputTokens")
     return item
 
 
@@ -289,6 +298,7 @@ def kubeai_deployment(model):
     features = spec.get("features") or []
     model_type = model_type_from_features(features, name)
     context_window = context_from_model(model)
+    max_output_tokens = output_from_model(model)
     model_info = {
         "id": safe_id("ai-appliance-kubeai", name),
         "ai_appliance_managed": True,
@@ -299,6 +309,8 @@ def kubeai_deployment(model):
     }
     if context_window:
         model_info["max_input_tokens"] = context_window
+    if max_output_tokens:
+        model_info["max_output_tokens"] = max_output_tokens
     return {
         "model_name": name,
         "litellm_params": {
@@ -337,8 +349,11 @@ def external_deployment(item):
         "source": "external",
     }
     context_window = positive_int(item.get("contextWindow") or item.get("context_window") or item.get("max_input_tokens"))
+    max_output_tokens = positive_int(item.get("maxOutputTokens") or item.get("max_output_tokens"))
     if context_window:
         model_info["max_input_tokens"] = context_window
+    if max_output_tokens:
+        model_info["max_output_tokens"] = max_output_tokens
     return {
         "model_name": name,
         "litellm_params": params,
@@ -434,6 +449,7 @@ def catalog_entry(model):
     params = model.get("litellm_params") or {}
     model_type = info.get("ai_appliance_type") or model_type_from_features(info.get("features") or [], name)
     context_window = first_positive(info, ["max_input_tokens", "contextWindow", "context_window", "context_length", "max_context_length", "max_tokens"])
+    max_output_tokens = first_positive(info, ["max_output_tokens", "maxOutputTokens", "max_completion_tokens"])
     entry = {
         "id": name,
         "name": info.get("team_public_model_name") or name,
@@ -449,6 +465,8 @@ def catalog_entry(model):
     }
     if context_window:
         entry["contextWindow"] = context_window
+    if max_output_tokens:
+        entry["maxOutputTokens"] = max_output_tokens
     return entry
 
 
@@ -471,6 +489,16 @@ def hermes_model(model):
     return entry
 
 
+def opencode_model(model):
+    return {
+        "name": model.get("name") or model["id"],
+        "limit": {
+            "context": model.get("contextWindow") or OPENCODE_DEFAULT_CONTEXT_TOKENS,
+            "output": model.get("maxOutputTokens") or OPENCODE_DEFAULT_OUTPUT_TOKENS,
+        },
+    }
+
+
 def build_catalog(litellm_models):
     models = [catalog_entry(model) for model in litellm_models if model.get("model_name")]
     models.sort(key=lambda item: (item.get("type") or "", item["id"]))
@@ -482,6 +510,8 @@ def build_catalog(litellm_models):
         "models": models,
         "defaultChatModel": default_chat,
         "defaultEmbeddingModel": default_embedding,
+        "opencodeDefaultContextTokens": OPENCODE_DEFAULT_CONTEXT_TOKENS,
+        "opencodeDefaultOutputTokens": OPENCODE_DEFAULT_OUTPUT_TOKENS,
     }
     catalog_hash = hashlib.sha256(json.dumps(hash_input, sort_keys=True).encode("utf-8")).hexdigest()[:16]
 
@@ -524,10 +554,23 @@ def build_catalog(litellm_models):
             }
         },
     }
+    opencode_providers = {
+        "litellm": {
+            "npm": "@ai-sdk/openai-compatible",
+            "name": "LiteLLM",
+            "options": {
+                "baseURL": LITELLM_API_BASE,
+                "apiKey": "{env:OPENAI_API_KEY}",
+            },
+            "models": {model["id"]: opencode_model(model) for model in chat_models},
+        }
+    }
+    default_opencode_model = "litellm/" + default_chat if default_chat else ""
     defaults_env = "\n".join([
         "AI_APPLIANCE_MODEL_CATALOG_READY=true",
         "AI_APPLIANCE_MODEL_CATALOG_HASH=" + catalog_hash,
         "AI_APPLIANCE_DEFAULT_CHAT_MODEL=" + default_chat,
+        "AI_APPLIANCE_DEFAULT_OPENCODE_MODEL=" + default_opencode_model,
         "AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL=" + default_embedding,
         "AI_APPLIANCE_MODEL_COUNT=" + str(len(models)),
         "AI_APPLIANCE_CHAT_MODEL_COUNT=" + str(len(chat_models)),
@@ -541,9 +584,11 @@ def build_catalog(litellm_models):
         "defaults.env": defaults_env,
         "openclaw.json": json_dumps(openclaw),
         "hermes.yaml": json_dumps(hermes),
+        "opencode-providers.json": json_dumps(opencode_providers),
         "AI_APPLIANCE_MODEL_CATALOG_READY": "true",
         "AI_APPLIANCE_MODEL_CATALOG_HASH": catalog_hash,
         "AI_APPLIANCE_DEFAULT_CHAT_MODEL": default_chat,
+        "AI_APPLIANCE_DEFAULT_OPENCODE_MODEL": default_opencode_model,
         "AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL": default_embedding,
     }
     return data, catalog_hash
@@ -552,7 +597,8 @@ def build_catalog(litellm_models):
 def write_catalog(data, catalog_hash):
     existing = get_configmap(CATALOG_CONFIGMAP)
     existing_hash = (((existing or {}).get("metadata") or {}).get("annotations") or {}).get(CATALOG_HASH_ANNOTATION)
-    if existing and existing_hash == catalog_hash:
+    existing_data = (existing or {}).get("data") or {}
+    if existing and existing_hash == catalog_hash and all(existing_data.get(key) == value for key, value in data.items()):
         return False
     metadata = (existing or {}).get("metadata") or {}
     labels = metadata.get("labels") or {}

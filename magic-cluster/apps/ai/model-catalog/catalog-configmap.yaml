@@ -12,11 +12,13 @@ data:
   AI_APPLIANCE_MODEL_CATALOG_READY: "false"
   AI_APPLIANCE_MODEL_CATALOG_HASH: bootstrap
   AI_APPLIANCE_DEFAULT_CHAT_MODEL: ""
+  AI_APPLIANCE_DEFAULT_OPENCODE_MODEL: ""
   AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL: ""
   defaults.env: |
     AI_APPLIANCE_MODEL_CATALOG_READY=false
     AI_APPLIANCE_MODEL_CATALOG_HASH=bootstrap
     AI_APPLIANCE_DEFAULT_CHAT_MODEL=
+    AI_APPLIANCE_DEFAULT_OPENCODE_MODEL=
     AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL=
     AI_APPLIANCE_MODEL_COUNT=0
     AI_APPLIANCE_CHAT_MODEL_COUNT=0
@@ -74,6 +76,18 @@ data:
           "default_model": "",
           "discover_models": false,
           "models": {}
+        }
+      }
+    }
+  opencode-providers.json: |
+    {
+      "litellm": {
+        "models": {},
+        "name": "LiteLLM",
+        "npm": "@ai-sdk/openai-compatible",
+        "options": {
+          "apiKey": "{env:OPENAI_API_KEY}",
+          "baseURL": "http://litellm.ai.svc.cluster.local:4000/v1"
         }
       }
     }

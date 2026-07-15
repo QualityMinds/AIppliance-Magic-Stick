@@ -619,6 +619,35 @@ data:
           resize: vertical;
         }
 
+        .runtime-options {
+          border: 0;
+          display: grid;
+          gap: 0.55rem;
+          margin: 0;
+          padding: 0;
+        }
+
+        .runtime-options legend {
+          color: var(--muted);
+          font-size: 0.8rem;
+          margin-bottom: 0.2rem;
+          padding: 0;
+        }
+
+        .runtime-option {
+          align-items: center;
+          display: flex;
+          gap: 0.5rem;
+          min-height: 2rem;
+        }
+
+        .runtime-option input {
+          accent-color: var(--accent-strong);
+          height: 1rem;
+          margin: 0;
+          width: 1rem;
+        }
+
         .vram-estimate {
           border: 1px solid rgba(148, 163, 184, 0.22);
           border-radius: 10px;
@@ -904,12 +933,22 @@ data:
                 <div class="form-grid">
                   <label class="field">Name<input name="name" value="default" /></label>
                   <label class="field">Admin Email<input name="adminEmail" value="admin@example.com" /></label>
+                  <label class="field">Default Model<select name="model" data-model-select="chat" data-model-fallback="CHANGEME_MODEL"><option value="">Loading models</option></select></label>
                 </div>
+                <fieldset class="runtime-options">
+                  <legend>Agent runtimes</legend>
+                  <label class="runtime-option"><input type="checkbox" name="openCodeEnabled" checked /><span>OpenCode</span></label>
+                  <label class="runtime-option"><input type="checkbox" name="openClawEnabled" data-gateway-toggle="openclaw" /><span>OpenClaw Gateway</span></label>
+                  <label class="field">OpenClaw Instance<select name="openClawInstanceRef" data-instance-ref-type="openclaw" disabled><option value="">No instance available</option></select></label>
+                  <label class="runtime-option"><input type="checkbox" name="hermesEnabled" data-gateway-toggle="hermes" /><span>Hermes Gateway</span></label>
+                  <label class="field">Hermes Instance<select name="hermesInstanceRef" data-instance-ref-type="hermes" disabled><option value="">No instance available</option></select></label>
+                </fieldset>
                 <details class="module-advanced">
                   <summary>Configure</summary>
                   <div class="form-grid">
                     <label class="field">Storage<input name="storage" value="5Gi" /></label>
                     <label class="field">Postgres<input name="postgresStorage" value="10Gi" /></label>
+                    <label class="field">Parallel Agents<input name="maxConcurrentAgents" type="number" min="1" max="10" step="1" value="2" /></label>
                   </div>
                 </details>
                 <button class="control-button primary" type="submit">Create Paperclip</button>
@@ -1129,7 +1168,7 @@ data:
             openclaw: ['openclaw-operator', 'litellm', 'model-catalog'],
             hermes: ['hermes-operator', 'litellm', 'model-catalog'],
             odysseus: ['odysseus', 'litellm', 'model-catalog'],
-            paperclip: ['paperclip-operator', 'litellm', 'model-catalog'],
+            paperclip: ['paperclip-operator', 'agent-sandbox', 'litellm', 'model-catalog'],
             kubeopencode: ['kubeopencode', 'litellm', 'model-catalog']
           };
 
@@ -1842,6 +1881,38 @@ data:
             if (!list) { return; }
             list.innerHTML = '';
             const instances = ((instancePayload || {}).instances || {});
+            document.querySelectorAll('select[data-instance-ref-type]').forEach((select) => {
+              const type = select.dataset.instanceRefType;
+              const items = (instances[type] || []).filter((instance) => {
+                const phase = String(((instance.status || {}).phase) || '').toLowerCase();
+                return phase !== 'removing' && (instance.spec || {}).enabled !== false;
+              });
+              const previous = String(select.value || '').trim();
+              select.innerHTML = '';
+              const emptyOption = document.createElement('option');
+              emptyOption.value = '';
+              emptyOption.textContent = items.length ? 'Select instance' : 'No instance available';
+              select.appendChild(emptyOption);
+              items.forEach((instance) => {
+                const option = document.createElement('option');
+                option.value = (instance.metadata || {}).name || '';
+                option.textContent = option.value;
+                select.appendChild(option);
+              });
+              if (items.some((instance) => ((instance.metadata || {}).name || '') === previous)) {
+                select.value = previous;
+              } else if (items.length === 1) {
+                select.value = (items[0].metadata || {}).name || '';
+              }
+              const form = select.closest('form');
+              const toggleName = type === 'openclaw' ? 'openClawEnabled' : 'hermesEnabled';
+              const toggle = form && form.elements ? form.elements[toggleName] : null;
+              if (toggle) {
+                toggle.disabled = items.length === 0;
+                if (!items.length) { toggle.checked = false; }
+                select.disabled = !toggle.checked || items.length === 0;
+              }
+            });
             Object.keys(instances).sort().forEach((type) => {
               const items = instances[type] || [];
               if (!items.length) { return; }
@@ -2781,11 +2852,33 @@ data:
                 payload.ingress = { enabled: true, host };
               }
               if (type === 'paperclip') {
-                delete payload.model;
                 payload.storage = { size: data.get('storage') || '5Gi' };
                 payload.database = { managed: { storageSize: data.get('postgresStorage') || '10Gi' } };
                 payload.ingress = { enabled: true, host };
                 payload.admin = { email: data.get('adminEmail') || 'admin@example.com', name: 'Admin' };
+                const openClawEnabled = data.has('openClawEnabled');
+                const hermesEnabled = data.has('hermesEnabled');
+                const openClawInstanceRef = String(data.get('openClawInstanceRef') || '').trim();
+                const hermesInstanceRef = String(data.get('hermesInstanceRef') || '').trim();
+                if (openClawEnabled && !openClawInstanceRef) {
+                  $('instance-output').textContent = 'Select an OpenClaw instance or disable its gateway.';
+                  return;
+                }
+                if (hermesEnabled && !hermesInstanceRef) {
+                  $('instance-output').textContent = 'Select a Hermes instance or disable its gateway.';
+                  return;
+                }
+                const requestedConcurrency = Number(data.get('maxConcurrentAgents') || 2);
+                const maxConcurrentAgents = Number.isFinite(requestedConcurrency)
+                  ? Math.max(1, Math.min(10, Math.trunc(requestedConcurrency)))
+                  : 2;
+                payload.agentExecution = {
+                  defaultModel: 'litellm/' + selectedModel.replace(/^(litellm|openai)\//, ''),
+                  maxConcurrentAgents,
+                  openCode: { enabled: data.has('openCodeEnabled') },
+                  openClaw: { enabled: openClawEnabled, instanceRef: openClawInstanceRef },
+                  hermes: { enabled: hermesEnabled, instanceRef: hermesInstanceRef }
+                };
               }
               if (type === 'kubeopencode') {
                 payload.server = { enabled: true, ingress: { enabled: true, host } };
@@ -2804,6 +2897,16 @@ data:
                 await refresh();
               } catch (error) {
                 $('instance-output').textContent = error.message;
+              }
+            });
+          });
+
+          document.querySelectorAll('input[data-gateway-toggle]').forEach((toggle) => {
+            toggle.addEventListener('change', () => {
+              const form = toggle.closest('form');
+              const select = form && form.querySelector('select[data-instance-ref-type="' + toggle.dataset.gatewayToggle + '"]');
+              if (select) {
+                select.disabled = !toggle.checked || toggle.disabled;
               }
             });
           });

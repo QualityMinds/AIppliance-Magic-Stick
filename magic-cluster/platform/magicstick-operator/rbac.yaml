@@ -132,6 +132,26 @@ rules:
       - networking.k8s.io
     resources:
       - ingresses
+      - networkpolicies
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - management.cattle.io
+    resources:
+      - projects
+    verbs:
+      - updatepsa
+  - apiGroups:
+      - rbac.authorization.k8s.io
+    resources:
+      - clusterroles
+      - clusterrolebindings
     verbs:
       - get
       - list
@@ -156,7 +176,9 @@ rules:
       - ""
     resources:
       - configmaps
+      - limitranges
       - persistentvolumeclaims
+      - resourcequotas
       - services
     verbs:
       - get

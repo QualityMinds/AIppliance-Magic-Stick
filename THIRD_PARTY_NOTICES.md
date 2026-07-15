@@ -25,9 +25,12 @@ digest, or chart version.
 | `ghcr.io/berriai/litellm:v1.84.0` | https://github.com/BerriAI/litellm | LiteLLM | Referenced only |
 | `mintplexlabs/anythingllm:1.12.1` | https://github.com/Mintplex-Labs/anything-llm | AnythingLLM | Referenced only |
 | `qdrant/qdrant:v1.13.6` | https://github.com/qdrant/qdrant | Qdrant vector database | Referenced only |
-| `ghcr.io/paperclipai/paperclip:sha-e59eb10` | https://github.com/paperclip-ai/paperclip | Paperclip runtime | Referenced only |
+| `ghcr.io/paperclipai/paperclip:sha-df0e5bd` | https://github.com/paperclipai/paperclip | Paperclip `v2026.707.0` compatible runtime build | Referenced only |
+| `ghcr.io/paperclipai/agent-runtime-base:git-b18cbb0dd3d524d3d332f54143c84f00c694636c` | https://github.com/paperclipai/paperclip | Paperclip gateway sandbox runtime | Referenced only |
+| `ghcr.io/paperclipai/agent-runtime-opencode:git-b18cbb0dd3d524d3d332f54143c84f00c694636c` | https://github.com/paperclipai/paperclip | Paperclip OpenCode sandbox runtime | Referenced only |
 | `ghcr.io/paperclipinc/hermes-agent:v2026.5.29.2` | https://github.com/paperclip-ai/hermes | Hermes agent runtime | Referenced only |
 | `nousresearch/hermes-agent:v2026.5.29.2` | https://github.com/NousResearch/hermes-agent | Hermes dashboard runtime | Referenced only |
+| `nousresearch/hermes-agent:v2026.7.7.2` | https://github.com/NousResearch/hermes-agent | Authenticated Hermes API gateway sidecar | Referenced only |
 | `tignis/kubernetes-secret-generator:3.4.1` | https://github.com/mittwald/kubernetes-secret-generator | Generated Kubernetes secrets | Referenced only |
 | `otel/opentelemetry-collector-k8s` | https://github.com/open-telemetry/opentelemetry-collector-contrib | OpenTelemetry collector image selected by chart values | Referenced only |
 
@@ -44,7 +47,8 @@ digest, or chart version.
 | `kubeai` | https://www.kubeai.org | `0.23.2` | AI model serving platform |
 | `hermes-operator` | `oci://ghcr.io/paperclipinc/charts` | `0.1.17` | Hermes runtime orchestration |
 | `openclaw-operator` | `oci://ghcr.io/paperclipinc/charts` | `0.36.4` | OpenClaw runtime orchestration |
-| `paperclip-operator` | `oci://ghcr.io/paperclipinc/charts` | `0.17.2` | Paperclip runtime orchestration |
+| `paperclip-operator` | `oci://ghcr.io/paperclipinc/charts` | `0.18.0` | Paperclip runtime orchestration |
+| `agent-sandbox` | https://github.com/kubernetes-sigs/agent-sandbox | `v0.5.1` | Kubernetes sandbox CRD and controller |
 | `kube-prometheus-stack` | https://prometheus-community.github.io/helm-charts | `69.8.2` | Prometheus and Grafana stack |
 | `loki` | https://grafana.github.io/helm-charts | `6.28.0` | Log aggregation |
 | `promtail` | https://grafana.github.io/helm-charts | `6.16.6` | Log shipping |

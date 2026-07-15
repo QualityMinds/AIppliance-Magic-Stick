@@ -14,7 +14,9 @@ data:
     import os
     import ssl
     import textwrap
+    import threading
     import time
+    import traceback
     import urllib.error
     import urllib.parse
     import urllib.request
@@ -71,6 +73,14 @@ data:
         ("kubeopencode.io", "AgentTemplate"): "agenttemplates",
         ("apps", "Deployment"): "deployments",
         ("networking.k8s.io", "Ingress"): "ingresses",
+        ("networking.k8s.io", "NetworkPolicy"): "networkpolicies",
+        ("rbac.authorization.k8s.io", "ClusterRole"): "clusterroles",
+        ("rbac.authorization.k8s.io", "ClusterRoleBinding"): "clusterrolebindings",
+    }
+
+    CLUSTER_SCOPED_RESOURCES = {
+        ("rbac.authorization.k8s.io", "ClusterRole"),
+        ("rbac.authorization.k8s.io", "ClusterRoleBinding"),
     }
 
     STATIC_DEPENDENCIES = {
@@ -146,6 +156,8 @@ data:
         if "/" in api_version:
             group, version = api_version.split("/", 1)
             plural = PLURALS[(group, kind)]
+            if (group, kind) in CLUSTER_SCOPED_RESOURCES:
+                return f"/apis/{group}/{version}/{plural}/{name}"
             return f"/apis/{group}/{version}/namespaces/{namespace}/{plural}/{name}"
         plural = kind.lower() + "s"
         return f"/api/{api_version}/namespaces/{namespace}/{plural}/{name}"
@@ -293,6 +305,18 @@ data:
             parsed = int(value.strip())
             return parsed if parsed > 0 else None
         return None
+
+
+    def boolean_value(value, default=False):
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in ("true", "1", "yes", "on"):
+                return True
+            if normalized in ("false", "0", "no", "off"):
+                return False
+        return default
 
 
     def parse_mib(value):
@@ -1279,6 +1303,7 @@ data:
         ingress_host = local_host if host == "hermes.example.local" else host
         model = params.get("model") or "qwen3635b"
         storage = ((params.get("storage") or {}).get("size") or params.get("storageSize") or "10Gi")
+        api_server_secret_name = derived_resource_name(name or "hermes", "api-server")
         catalog_init_script = textwrap.dedent("""\
             set -eu
             for attempt in $(seq 1 120); do
@@ -1468,6 +1493,45 @@ data:
                         ],
                     },
                     {
+                        "name": "hermes-api",
+                        "image": "nousresearch/hermes-agent:v2026.7.7.2",
+                        "imagePullPolicy": "IfNotPresent",
+                        "args": ["gateway", "run", "--replace", "--accept-hooks"],
+                        "ports": [{"name": "hermes-api", "containerPort": 8642, "protocol": "TCP"}],
+                        "env": [
+                            {"name": "API_SERVER_ENABLED", "value": "true"},
+                            {"name": "API_SERVER_HOST", "value": "0.0.0.0"},
+                            {"name": "API_SERVER_PORT", "value": "8642"},
+                            {"name": "API_SERVER_KEY", "valueFrom": {"secretKeyRef": {"name": api_server_secret_name, "key": "API_SERVER_KEY"}}},
+                            {"name": "HERMES_HOME", "value": "/home/hermes/.hermes"},
+                            {"name": "HOME", "value": "/home/hermes"},
+                            {"name": "XDG_CACHE_HOME", "value": "/tmp/.cache"},
+                            {"name": "OPENAI_API_KEY", "valueFrom": {"secretKeyRef": {"name": "litellm-masterkey-secret", "key": "LITELLM_MASTER_KEY"}}},
+                            {"name": "OPENAI_BASE_URL", "value": "http://litellm.ai.svc.cluster.local:4000/v1"},
+                        ],
+                        "resources": {
+                            "requests": {"cpu": "250m", "memory": "512Mi"},
+                            "limits": {"cpu": "1", "memory": "2Gi"},
+                        },
+                        "readinessProbe": {
+                            "httpGet": {"path": "/health", "port": "hermes-api", "scheme": "HTTP"},
+                            "initialDelaySeconds": 5,
+                            "periodSeconds": 5,
+                            "timeoutSeconds": 2,
+                            "failureThreshold": 30,
+                        },
+                        "securityContext": {
+                            "runAsNonRoot": False,
+                            "runAsUser": 0,
+                            "runAsGroup": 0,
+                            "readOnlyRootFilesystem": False,
+                        },
+                        "volumeMounts": [
+                            {"name": "data", "mountPath": "/home/hermes/.hermes"},
+                            {"name": "tmp", "mountPath": "/tmp"},
+                        ],
+                    },
+                    {
                         "name": "hermes-dashboard-proxy",
                         "image": "nginx:1.27-alpine",
                         "imagePullPolicy": "IfNotPresent",
@@ -1496,7 +1560,13 @@ data:
                     },
                 ],
                 "networking": {
-                    "service": {"type": "ClusterIP"},
+                    "service": {
+                        "type": "ClusterIP",
+                        "ports": [
+                            {"name": "gateway", "port": 8443, "targetPort": 8443, "protocol": "TCP"},
+                            {"name": "hermes-api", "port": 8642, "targetPort": 8642, "protocol": "TCP"},
+                        ],
+                    },
                     "ingress": {
                         "enabled": True,
                         "className": "nginx",
@@ -1519,7 +1589,21 @@ data:
                 "observability": {"logging": {"level": "info"}},
             },
         }
-        resources = []
+        resources = [{
+            "apiVersion": "v1",
+            "kind": "Secret",
+            "metadata": {
+                "name": api_server_secret_name,
+                "namespace": namespace,
+                "labels": {"app": "hermes", "appliance.magicstick.dev/appinstance": metadata.get("name", "")},
+                "annotations": {
+                    "secret-generator.v1.mittwald.de/autogenerate": "API_SERVER_KEY",
+                    "secret-generator.v1.mittwald.de/encoding": "hex",
+                },
+            },
+            "type": "Opaque",
+            "data": {},
+        }]
         if ingress_host != local_host:
             resources.append(managed_ingress(
                 derived_resource_name(name or "hermes", "local"),
@@ -1556,11 +1640,45 @@ data:
         local_host = app_instance_local_host(instance, "paperclip")
         local_name = local_mdns_name(local_host)
         public_url = "http://" + host
+        paperclip_image_tag = "sha-df0e5bd"
+        kubernetes_plugin_version = "2026.707.0"
+        agent_runtime_tag = "git-b18cbb0dd3d524d3d332f54143c84f00c694636c"
         storage = ((params.get("storage") or {}).get("size") or params.get("storageSize") or "5Gi")
         database = params.get("database") or {}
         managed_database = database.get("managed") or {}
         postgres_storage = managed_database.get("storageSize") or params.get("postgresStorage") or params.get("postgresStorageSize") or "10Gi"
-        auth_secret_name = params.get("authSecretName") or "paperclip-auth"
+        agent_execution = params.get("agentExecution") or {}
+        open_code = agent_execution.get("openCode")
+        open_claw = agent_execution.get("openClaw")
+        hermes = agent_execution.get("hermes")
+        open_code_enabled = boolean_value((open_code or {}).get("enabled") if isinstance(open_code, dict) else open_code, True)
+        open_claw_enabled = boolean_value((open_claw or {}).get("enabled") if isinstance(open_claw, dict) else open_claw, False)
+        hermes_enabled = boolean_value((hermes or {}).get("enabled") if isinstance(hermes, dict) else hermes, False)
+        open_claw_ref = ((open_claw or {}).get("instanceRef") if isinstance(open_claw, dict) else "") or ""
+        hermes_ref = ((hermes or {}).get("instanceRef") if isinstance(hermes, dict) else "") or ""
+        max_concurrent_agents = min(10, positive_int(agent_execution.get("maxConcurrentAgents")) or 2)
+        requested_agent_model = agent_execution.get("defaultModel") or params.get("model") or ""
+        default_agent_model = "litellm/" + strip_model_provider_prefix(requested_agent_model) if requested_agent_model else ""
+        namespace_prefix = (dns_label_part(name or "paperclip", "paperclip")[:30].rstrip("-") or "paperclip") + "-"
+        rancher_namespace_auth_name = derived_resource_name(
+            namespace + "-" + (name or "paperclip"),
+            "rancher-namespace-auth",
+        )
+        requested_auth_secret_name = params.get("authSecretName") or ""
+        existing_paperclip = get_resource(
+            "paperclip.inc",
+            "v1alpha1",
+            "instances",
+            namespace,
+            name or "paperclip",
+        )
+        existing_auth_secret_name = (((existing_paperclip or {}).get("spec") or {}).get("auth") or {}).get("secretRef") or {}
+        existing_auth_secret_name = existing_auth_secret_name.get("name") or ""
+        auth_secret_name = (
+            requested_auth_secret_name
+            or existing_auth_secret_name
+            or derived_resource_name(name or "paperclip", "auth")
+        )
         admin = params.get("admin") or {}
         admin_enabled = admin.get("enabled", True) is not False
         admin_email = admin.get("email") or params.get("adminEmail") or "admin@example.com"
@@ -1618,8 +1736,8 @@ data:
             fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + String.fromCharCode(10), { mode: 0o600 });
             NODE
         """).replace("__PUBLIC_URL__", public_url).replace("__LOCAL_HOST__", local_host)
-        job_suffix = hashlib.sha256(((name or "paperclip") + "|auth-v3|" + public_url + "|" + local_host).encode("utf-8")).hexdigest()[:8]
-        admin_job_suffix = hashlib.sha256(((name or "paperclip") + "|admin-v5|" + public_url).encode("utf-8")).hexdigest()[:8]
+        job_suffix = hashlib.sha256(((name or "paperclip") + "|auth-v4|" + paperclip_image_tag + "|" + public_url + "|" + local_host).encode("utf-8")).hexdigest()[:8]
+        admin_job_suffix = hashlib.sha256(((name or "paperclip") + "|admin-v6|" + paperclip_image_tag + "|" + public_url).encode("utf-8")).hexdigest()[:8]
         job_base = (name or "paperclip")[:42].rstrip("-") or "paperclip"
         service_url = "http://" + (name or "paperclip") + "." + namespace + ".svc.cluster.local:3100"
         db_service_url = "postgresql://paperclip:$(DB_PASSWORD)@" + (name or "paperclip") + "-db." + namespace + ".svc.cluster.local:5432/paperclip"
@@ -1648,7 +1766,7 @@ data:
                         "restartPolicy": "OnFailure",
                         "containers": [{
                             "name": "auth-config",
-                            "image": "ghcr.io/paperclipai/paperclip:sha-e59eb10",
+                            "image": "ghcr.io/paperclipai/paperclip:" + paperclip_image_tag,
                             "imagePullPolicy": "IfNotPresent",
                             "command": ["/bin/sh", "-c"],
                             "args": [auth_config_patch],
@@ -1798,7 +1916,7 @@ data:
                             "restartPolicy": "OnFailure",
                             "initContainers": [{
                                 "name": "admin-account",
-                                "image": "ghcr.io/paperclipai/paperclip:sha-e59eb10",
+                                "image": "ghcr.io/paperclipai/paperclip:" + paperclip_image_tag,
                                 "imagePullPolicy": "IfNotPresent",
                                 "command": ["/bin/sh", "-c"],
                                 "args": [admin_bootstrap_script],
@@ -1856,21 +1974,23 @@ data:
                     },
                 },
             }
-        auth_secret = {
-            "apiVersion": "v1",
-            "kind": "Secret",
-            "metadata": {
-                "name": auth_secret_name,
-                "namespace": namespace,
-                "labels": {"app": "paperclip", "appliance.magicstick.dev/appinstance": metadata.get("name", "")},
-                "annotations": {
-                    "secret-generator.v1.mittwald.de/autogenerate": "BETTER_AUTH_SECRET",
-                    "secret-generator.v1.mittwald.de/encoding": "hex",
+        auth_secret = None
+        if not requested_auth_secret_name:
+            auth_secret = {
+                "apiVersion": "v1",
+                "kind": "Secret",
+                "metadata": {
+                    "name": auth_secret_name,
+                    "namespace": namespace,
+                    "labels": {"app": "paperclip", "appliance.magicstick.dev/appinstance": metadata.get("name", "")},
+                    "annotations": {
+                        "secret-generator.v1.mittwald.de/autogenerate": "BETTER_AUTH_SECRET",
+                        "secret-generator.v1.mittwald.de/encoding": "hex",
+                    },
                 },
-            },
-            "type": "Opaque",
-            "data": {},
-        }
+                "type": "Opaque",
+                "data": {},
+            }
         admin_secret = None
         if admin_enabled and not admin_password_ref.get("name"):
             admin_secret = {
@@ -1889,13 +2009,96 @@ data:
                 "data": {},
             }
         auth_spec = {"secretRef": {"name": auth_secret_name, "key": "BETTER_AUTH_SECRET"}}
+        adapter_registry = []
+        if open_code_enabled:
+            adapter_registry.append({
+                "adapterType": "opencode_local",
+                "enabled": True,
+                "runtimeImage": "ghcr.io/paperclipai/agent-runtime-opencode:" + agent_runtime_tag,
+                "envKeys": [
+                    "OPENAI_API_KEY",
+                    "OPENAI_BASE_URL",
+                    "PAPERCLIP_OPENCODE_PROVIDERS",
+                    "PAPERCLIP_OPENCODE_SMALL_MODEL",
+                    "PAPERCLIP_OPENCODE_CHEAP_MODEL",
+                ],
+                "allowFqdns": [],
+                "probeCommand": ["opencode", "--version"],
+                "defaultEnv": {"OPENAI_BASE_URL": "http://litellm.ai.svc.cluster.local:4000/v1"},
+            })
+        if open_claw_enabled:
+            adapter_registry.append({
+                "adapterType": "openclaw_gateway",
+                "enabled": True,
+                "runtimeImage": "ghcr.io/paperclipai/agent-runtime-base:" + agent_runtime_tag,
+                "envKeys": [],
+                "allowFqdns": [],
+            })
+        if hermes_enabled:
+            adapter_registry.append({
+                "adapterType": "hermes_gateway",
+                "enabled": True,
+                "runtimeImage": "ghcr.io/paperclipai/agent-runtime-base:" + agent_runtime_tag,
+                "envKeys": [],
+                "allowFqdns": [],
+            })
+
+        paperclip_egress = [
+            {"ports": [
+                {"protocol": "TCP", "port": 443},
+                {"protocol": "TCP", "port": 6443},
+            ]},
+            {
+                "to": [{
+                    "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": namespace}},
+                    "podSelector": {"matchLabels": {"app": "litellm"}},
+                }],
+                "ports": [{"protocol": "TCP", "port": 4000}],
+            },
+        ]
+        if open_claw_enabled and open_claw_ref:
+            paperclip_egress.append({
+                "to": [{
+                    "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": namespace}},
+                    "podSelector": {"matchLabels": {
+                        "app.kubernetes.io/instance": open_claw_ref,
+                        "app.kubernetes.io/name": "openclaw",
+                    }},
+                }],
+                "ports": [
+                    {"protocol": "TCP", "port": 18789},
+                    {"protocol": "TCP", "port": 18790},
+                ],
+            })
+        if hermes_enabled and hermes_ref:
+            paperclip_egress.append({
+                "to": [{
+                    "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": namespace}},
+                    "podSelector": {"matchLabels": {
+                        "app.kubernetes.io/instance": hermes_ref,
+                        "app.kubernetes.io/name": "hermes-agent",
+                    }},
+                }],
+                "ports": [{"protocol": "TCP", "port": 8642}],
+            })
+
+        paperclip_annotations = {}
+        if open_claw_enabled and open_claw_ref:
+            paperclip_annotations["appliance.magicstick.dev/openclaw-instance-ref"] = open_claw_ref
+        if hermes_enabled and hermes_ref:
+            paperclip_annotations["appliance.magicstick.dev/hermes-instance-ref"] = hermes_ref
         instance_resource = {
             "apiVersion": "paperclip.inc/v1alpha1",
             "kind": "Instance",
-            "metadata": {"name": name, "namespace": namespace, "labels": {"app": "paperclip"}},
+            "metadata": {
+                "name": name,
+                "namespace": namespace,
+                "labels": {"app": "paperclip"},
+                "annotations": paperclip_annotations,
+            },
             "spec": {
                 "podAnnotations": {"ai-appliance.io/model-catalog-consumer": "true"},
-                "image": {"repository": "ghcr.io/paperclipai/paperclip", "tag": "sha-e59eb10"},
+                "image": {"repository": "ghcr.io/paperclipai/paperclip", "tag": paperclip_image_tag},
                 "deployment": {
                     "mode": "authenticated",
                     "exposure": "public",
@@ -1907,15 +2110,105 @@ data:
                 "env": [
                     {"name": "PAPERCLIP_AUTH_BASE_URL_MODE", "value": "explicit"},
                     {"name": "PAPERCLIP_AUTH_PUBLIC_BASE_URL", "value": public_url},
+                    {"name": "PAPERCLIP_KUBERNETES_PLUGIN_PATH", "value": "/opt/paperclip-kubernetes-plugin/node_modules/@paperclipai/plugin-kubernetes"},
                     {"name": "BETTER_AUTH_TRUSTED_ORIGINS", "value": "*"},
+                    {"name": "OPENAI_API_KEY", "valueFrom": {"secretKeyRef": {"name": "litellm-masterkey-secret", "key": "LITELLM_MASTER_KEY"}}},
+                    {"name": "OPENAI_BASE_URL", "value": "http://litellm.ai.svc.cluster.local:4000/v1"},
+                    {"name": "PAPERCLIP_OPENCODE_PROVIDERS", "valueFrom": {"configMapKeyRef": {"name": "ai-model-catalog", "key": "opencode-providers.json"}}},
+                    ({"name": "PAPERCLIP_OPENCODE_SMALL_MODEL", "value": default_agent_model} if default_agent_model else {"name": "PAPERCLIP_OPENCODE_SMALL_MODEL", "valueFrom": {"configMapKeyRef": {"name": "ai-model-catalog", "key": "AI_APPLIANCE_DEFAULT_OPENCODE_MODEL"}}}),
+                    ({"name": "PAPERCLIP_OPENCODE_CHEAP_MODEL", "value": default_agent_model} if default_agent_model else {"name": "PAPERCLIP_OPENCODE_CHEAP_MODEL", "valueFrom": {"configMapKeyRef": {"name": "ai-model-catalog", "key": "AI_APPLIANCE_DEFAULT_OPENCODE_MODEL"}}}),
                 ],
+                "adapters": {
+                    "execution": {
+                        "mode": "kubernetes",
+                        "kubernetes": {
+                            "backend": "sandbox-cr",
+                            "egressMode": "standard",
+                            "namespacePrefix": namespace_prefix,
+                            "perTenantQuota": {
+                                "pods": str(max_concurrent_agents),
+                                "requestsCpu": str(max_concurrent_agents * 500) + "m",
+                                "requestsMemory": str(max_concurrent_agents) + "Gi",
+                                "limitsCpu": str(max_concurrent_agents * 2),
+                                "limitsMemory": str(max_concurrent_agents * 4) + "Gi",
+                            },
+                            "perTenantLimitRange": {
+                                "defaultCpu": "1",
+                                "defaultMemory": "2Gi",
+                                "defaultRequestCpu": "500m",
+                                "defaultRequestMemory": "1Gi",
+                                "maxCpu": "2",
+                                "maxMemory": "4Gi",
+                            },
+                        },
+                    },
+                    "registry": adapter_registry,
+                },
                 "probes": {
                     "type": "http",
                     "startup": {"periodSeconds": 3, "timeoutSeconds": 2, "failureThreshold": 60},
                     "readiness": {"initialDelaySeconds": 2, "periodSeconds": 3, "timeoutSeconds": 2, "failureThreshold": 40},
                     "liveness": {"initialDelaySeconds": 15, "periodSeconds": 20, "timeoutSeconds": 5, "failureThreshold": 6},
                 },
+                "initContainers": [{
+                    "name": "install-kubernetes-plugin",
+                    "image": "ghcr.io/paperclipai/paperclip:" + paperclip_image_tag,
+                    "imagePullPolicy": "IfNotPresent",
+                    "command": ["/bin/sh", "-c"],
+                    "args": [textwrap.dedent("""\
+                        set -eu
+                        cd /opt/paperclip-kubernetes-plugin
+                        npm install \
+                          --omit=dev \
+                          --ignore-scripts \
+                          --no-audit \
+                          --no-fund \
+                          "@paperclipai/plugin-kubernetes@__PLUGIN_VERSION__"
+                        # 2026.707.0 forwards cwd but does not apply it to Kubernetes exec.
+                        node --input-type=commonjs <<'NODE'
+                        const fs = require("node:fs");
+                        const pluginPath = "node_modules/@paperclipai/plugin-kubernetes/dist/plugin.js";
+                        let source = fs.readFileSync(pluginPath, "utf8");
+                        const oldImport = 'import { execInPod, wrapCommandWithEnv } from "./pod-exec.js";';
+                        const newImport = 'import { execInPod, shQuote, wrapCommandWithEnv } from "./pod-exec.js";';
+                        const oldExec = "const execCommand = wrapCommandWithEnv(baseExecCommand, params.env);";
+                        const newExec = [
+                          "const commandWithCwd =",
+                          '    typeof params.cwd === "string" && params.cwd.trim().length > 0',
+                          '        ? ["/bin/sh", "-c", `cd ${shQuote(params.cwd.trim())} && exec ${baseExecCommand.map(shQuote).join(" ")}`]',
+                          "        : baseExecCommand;",
+                          "const execCommand = wrapCommandWithEnv(commandWithCwd, params.env);",
+                        ].join(String.fromCharCode(10) + "            ");
+                        if (!source.includes(oldImport) || !source.includes(oldExec)) {
+                          throw new Error("Unsupported Kubernetes plugin bundle: cwd compatibility patch did not match");
+                        }
+                        source = source.replace(oldImport, newImport).replace(oldExec, newExec);
+                        fs.writeFileSync(pluginPath, source);
+                        NODE
+                        test -f node_modules/@paperclipai/plugin-kubernetes/dist/manifest.js
+                        grep -q 'const commandWithCwd =' node_modules/@paperclipai/plugin-kubernetes/dist/plugin.js
+                    """).replace("__PLUGIN_VERSION__", kubernetes_plugin_version)],
+                    "env": [
+                        {"name": "HOME", "value": "/tmp"},
+                        {"name": "NPM_CONFIG_CACHE", "value": "/tmp/npm-cache"},
+                    ],
+                    "volumeMounts": [{"name": "paperclip-kubernetes-plugin", "mountPath": "/opt/paperclip-kubernetes-plugin"}],
+                    "securityContext": {
+                        "allowPrivilegeEscalation": False,
+                        "capabilities": {"drop": ["ALL"]},
+                        "runAsNonRoot": True,
+                        "runAsUser": 1000,
+                        "runAsGroup": 1000,
+                    },
+                }],
+                "extraVolumes": [{"name": "paperclip-kubernetes-plugin", "emptyDir": {}}],
+                "extraVolumeMounts": [{
+                    "name": "paperclip-kubernetes-plugin",
+                    "mountPath": "/opt/paperclip-kubernetes-plugin",
+                    "readOnly": True,
+                }],
                 "storage": {"persistence": {"enabled": True, "size": storage}},
+                "security": {"networkPolicy": {"enabled": True, "extraEgress": paperclip_egress}},
                 "networking": {
                     "service": {"type": "ClusterIP", "port": 3100},
                     "ingress": {
@@ -1936,7 +2229,48 @@ data:
                 },
             },
         }
-        resources = [auth_secret]
+        rancher_namespace_auth_role = {
+            "apiVersion": "rbac.authorization.k8s.io/v1",
+            "kind": "ClusterRole",
+            "metadata": {
+                "name": rancher_namespace_auth_name,
+                "labels": {
+                    "app.kubernetes.io/managed-by": "magicstick-operator",
+                    "app.kubernetes.io/name": "paperclip",
+                    "appliance.magicstick.dev/appinstance": metadata.get("name", ""),
+                },
+            },
+            "rules": [{
+                "apiGroups": ["management.cattle.io"],
+                "resources": ["projects"],
+                "verbs": ["updatepsa"],
+            }],
+        }
+        rancher_namespace_auth_binding = {
+            "apiVersion": "rbac.authorization.k8s.io/v1",
+            "kind": "ClusterRoleBinding",
+            "metadata": {
+                "name": rancher_namespace_auth_name,
+                "labels": {
+                    "app.kubernetes.io/managed-by": "magicstick-operator",
+                    "app.kubernetes.io/name": "paperclip",
+                    "appliance.magicstick.dev/appinstance": metadata.get("name", ""),
+                },
+            },
+            "roleRef": {
+                "apiGroup": "rbac.authorization.k8s.io",
+                "kind": "ClusterRole",
+                "name": rancher_namespace_auth_name,
+            },
+            "subjects": [{
+                "kind": "ServiceAccount",
+                "name": name or "paperclip",
+                "namespace": namespace,
+            }],
+        }
+        resources = [rancher_namespace_auth_role, rancher_namespace_auth_binding]
+        if auth_secret:
+            resources.append(auth_secret)
         if admin_secret:
             resources.append(admin_secret)
         if admin_bootstrap_job:
@@ -2574,9 +2908,43 @@ data:
             return [
                 {"apiVersion": "hermes.agent/v1", "kind": "HermesInstance", "metadata": {"name": name, "namespace": namespace}},
                 {"apiVersion": "networking.k8s.io/v1", "kind": "Ingress", "metadata": {"name": derived_resource_name(name or "hermes", "local"), "namespace": namespace}},
+                {"apiVersion": "v1", "kind": "Secret", "metadata": {"name": derived_resource_name(name or "hermes", "api-server"), "namespace": namespace}},
             ]
         if instance_type == "paperclip":
-            return [{"apiVersion": "paperclip.inc/v1alpha1", "kind": "Instance", "metadata": {"name": name, "namespace": namespace}}]
+            host = ((params.get("ingress") or {}).get("host") or params.get("host") or "paperclip.example.local")
+            local_host = app_instance_local_host(instance, "paperclip")
+            public_url = "http://" + host
+            paperclip_image_tag = "sha-df0e5bd"
+            job_base = (name or "paperclip")[:42].rstrip("-") or "paperclip"
+            job_suffix = hashlib.sha256(((name or "paperclip") + "|auth-v4|" + paperclip_image_tag + "|" + public_url + "|" + local_host).encode("utf-8")).hexdigest()[:8]
+            admin_job_suffix = hashlib.sha256(((name or "paperclip") + "|admin-v6|" + paperclip_image_tag + "|" + public_url).encode("utf-8")).hexdigest()[:8]
+            admin = params.get("admin") or {}
+            admin_password_ref = admin.get("passwordSecretRef") or {}
+            admin_secret_name = (
+                admin_password_ref.get("name")
+                or admin.get("passwordSecretName")
+                or params.get("adminPasswordSecretName")
+                or ((name or "paperclip")[:56].rstrip("-") or "paperclip") + "-admin"
+            )
+            rancher_namespace_auth_name = derived_resource_name(
+                namespace + "-" + (name or "paperclip"),
+                "rancher-namespace-auth",
+            )
+            resources = [
+                {"apiVersion": "paperclip.inc/v1alpha1", "kind": "Instance", "metadata": {"name": name, "namespace": namespace}},
+                {"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "ClusterRoleBinding", "metadata": {"name": rancher_namespace_auth_name}},
+                {"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "ClusterRole", "metadata": {"name": rancher_namespace_auth_name}},
+                {"apiVersion": "batch/v1", "kind": "Job", "metadata": {"name": job_base + "-auth-" + job_suffix, "namespace": namespace}},
+            ]
+            if admin.get("enabled", True) is not False:
+                resources.append({"apiVersion": "batch/v1", "kind": "Job", "metadata": {"name": job_base + "-admin-" + admin_job_suffix, "namespace": namespace}})
+            if not params.get("authSecretName"):
+                resources.append({"apiVersion": "v1", "kind": "Secret", "metadata": {"name": derived_resource_name(name or "paperclip", "auth"), "namespace": namespace}})
+            if admin.get("enabled", True) is not False and not admin_password_ref.get("name"):
+                resources.append({"apiVersion": "v1", "kind": "Secret", "metadata": {"name": admin_secret_name, "namespace": namespace}})
+            if host != local_host:
+                resources.append({"apiVersion": "networking.k8s.io/v1", "kind": "Ingress", "metadata": {"name": derived_resource_name(name or "paperclip", "local"), "namespace": namespace}})
+            return resources
         if instance_type == "kubeopencode":
             templates = params.get("agentTemplates") or []
             template_name = params.get("template") or (templates[0].get("name") if templates else name)
@@ -2742,6 +3110,162 @@ data:
         }})
 
 
+    def reconcile_paperclip_sandbox_network_policies(instances):
+        paperclip_instances = []
+        for instance in instances:
+            metadata = instance.get("metadata") or {}
+            spec = instance.get("spec") or {}
+            if spec.get("type") != "paperclip" or spec.get("enabled", True) is False:
+                continue
+            name = metadata.get("name") or "paperclip"
+            prefix = (dns_label_part(name, "paperclip")[:30].rstrip("-") or "paperclip") + "-"
+            paperclip_instances.append((prefix, instance))
+        paperclip_instances.sort(key=lambda item: len(item[0]), reverse=True)
+
+        selector = urllib.parse.urlencode({"labelSelector": "paperclip.io/managed-by=paperclip-k8s-plugin"})
+        namespaces = list_items("/api/v1/namespaces?" + selector)
+        for item in namespaces:
+            namespace = ((item.get("metadata") or {}).get("name") or "").strip()
+            if not namespace:
+                continue
+            owner = next((instance for prefix, instance in paperclip_instances if namespace.startswith(prefix)), None)
+            if not owner:
+                continue
+            owner_metadata = owner.get("metadata") or {}
+            owner_spec = owner.get("spec") or {}
+            owner_params = owner_spec.get("parameters") or {}
+            owner_name = owner_metadata.get("name") or "paperclip"
+            target_namespace = owner_spec.get("targetNamespace") or "ai"
+            agent_execution = owner_params.get("agentExecution") or {}
+            max_concurrent_agents = min(10, positive_int(agent_execution.get("maxConcurrentAgents")) or 2)
+            open_claw = agent_execution.get("openClaw") or {}
+            hermes = agent_execution.get("hermes") or {}
+            open_claw_ref = open_claw.get("instanceRef") if isinstance(open_claw, dict) else ""
+            hermes_ref = hermes.get("instanceRef") if isinstance(hermes, dict) else ""
+            egress = [
+                {
+                    "to": [{
+                        "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": target_namespace}},
+                        "podSelector": {"matchLabels": {"app": "litellm"}},
+                    }],
+                    "ports": [{"protocol": "TCP", "port": 4000}],
+                },
+                {
+                    "to": [{
+                        "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": target_namespace}},
+                        "podSelector": {"matchLabels": {
+                            "app.kubernetes.io/instance": owner_name,
+                            "app.kubernetes.io/name": "paperclip",
+                        }},
+                    }],
+                    "ports": [{"protocol": "TCP", "port": 3100}],
+                },
+            ]
+            if boolean_value(open_claw.get("enabled"), False) and open_claw_ref:
+                egress.append({
+                    "to": [{
+                        "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": target_namespace}},
+                        "podSelector": {"matchLabels": {
+                            "app.kubernetes.io/instance": open_claw_ref,
+                            "app.kubernetes.io/name": "openclaw",
+                        }},
+                    }],
+                    "ports": [
+                        {"protocol": "TCP", "port": 18789},
+                        {"protocol": "TCP", "port": 18790},
+                    ],
+                })
+            if boolean_value(hermes.get("enabled"), False) and hermes_ref:
+                egress.append({
+                    "to": [{
+                        "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": target_namespace}},
+                        "podSelector": {"matchLabels": {
+                            "app.kubernetes.io/instance": hermes_ref,
+                            "app.kubernetes.io/name": "hermes-agent",
+                        }},
+                    }],
+                    "ports": [{"protocol": "TCP", "port": 8642}],
+                })
+            apply_resource({
+                "apiVersion": "v1",
+                "kind": "ResourceQuota",
+                "metadata": {
+                    "name": "paperclip-quota",
+                    "namespace": namespace,
+                    "labels": {"app.kubernetes.io/managed-by": "magicstick-operator"},
+                },
+                "spec": {"hard": {
+                    "pods": str(max_concurrent_agents),
+                    "requests.cpu": str(max_concurrent_agents * 500) + "m",
+                    "requests.memory": str(max_concurrent_agents) + "Gi",
+                    "limits.cpu": str(max_concurrent_agents * 2),
+                    "limits.memory": str(max_concurrent_agents * 4) + "Gi",
+                }},
+            })
+            apply_resource({
+                "apiVersion": "v1",
+                "kind": "LimitRange",
+                "metadata": {
+                    "name": "paperclip-limits",
+                    "namespace": namespace,
+                    "labels": {"app.kubernetes.io/managed-by": "magicstick-operator"},
+                },
+                "spec": {"limits": [{
+                    "type": "Container",
+                    "default": {"cpu": "1", "memory": "2Gi"},
+                    "defaultRequest": {"cpu": "500m", "memory": "1Gi"},
+                    "max": {"cpu": "2", "memory": "4Gi"},
+                }]},
+            })
+            apply_resource({
+                "apiVersion": "networking.k8s.io/v1",
+                "kind": "NetworkPolicy",
+                "metadata": {
+                    "name": "ai-appliance-litellm-egress",
+                    "namespace": namespace,
+                    "labels": {
+                        "app.kubernetes.io/managed-by": "magicstick-operator",
+                        "paperclip.io/managed-by": "paperclip-k8s-plugin",
+                    },
+                },
+                "spec": {
+                    "podSelector": {"matchLabels": {"paperclip.io/role": "agent"}},
+                    "policyTypes": ["Egress"],
+                    "egress": egress,
+                },
+            })
+
+
+    def watch_paperclip_sandbox_namespaces():
+        query = urllib.parse.urlencode({
+            "watch": "true",
+            "allowWatchBookmarks": "true",
+            "timeoutSeconds": "300",
+        })
+        path = "/api/v1/namespaces?" + query
+        while True:
+            request = urllib.request.Request(KUBE_API + path, headers={
+                "Accept": "application/json",
+                "Authorization": "Bearer " + token(),
+            })
+            try:
+                with urllib.request.urlopen(request, timeout=330, context=SSL_CONTEXT) as response:
+                    for raw_line in response:
+                        if not raw_line.strip():
+                            continue
+                        event = json.loads(raw_line)
+                        if event.get("type") not in ("ADDED", "MODIFIED"):
+                            continue
+                        namespace = event.get("object") or {}
+                        labels = (namespace.get("metadata") or {}).get("labels") or {}
+                        if labels.get("paperclip.io/managed-by") != "paperclip-k8s-plugin":
+                            continue
+                        reconcile_paperclip_sandbox_network_policies(app_instances())
+            except Exception as error:
+                print("sandbox namespace watch reconnecting: " + repr(error), flush=True)
+                time.sleep(2)
+
+
     def reconcile_once():
         catalog = load_catalog()
         presets = load_model_presets()
@@ -2805,17 +3329,20 @@ data:
             phase, status = reconcile_model_activation(model, catalog, presets)
             model_statuses[name] = status
 
+        reconcile_paperclip_sandbox_network_policies(instances)
         patch_appliance_status(module_statuses, instance_statuses, model_statuses)
         print(f"reconciled modules={len(module_statuses)} instances={len(instances)} models={len(models)}", flush=True)
 
 
     def main():
         print("magicstick-operator live controller starting", flush=True)
+        threading.Thread(target=watch_paperclip_sandbox_namespaces, daemon=True).start()
         while True:
             try:
                 reconcile_once()
             except Exception as error:
                 print("reconcile failed: " + repr(error), flush=True)
+                traceback.print_exc()
             time.sleep(REQUEUE_SECONDS)
 
 

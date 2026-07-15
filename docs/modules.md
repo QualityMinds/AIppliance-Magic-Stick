@@ -112,6 +112,12 @@ For example, an OpenClaw instance requires `openclaw-operator`, `litellm`, and
 directly by the Magic Stick Operator because Odysseus does not ship a dedicated
 upstream operator.
 
+A Paperclip instance requires `paperclip-operator`, `agent-sandbox`, `litellm`,
+and `model-catalog`. `agent-sandbox` installs the upstream Agent Sandbox
+controller pinned to `v0.5.1` and provides `sandboxes.agents.x-k8s.io` for
+Paperclip's `sandbox-cr` execution backend. Both operator modules remain opt-in
+until an enabled Paperclip `AppInstance` requests them.
+
 Enabled app instances do not override a disabled module intent. If an instance
 requires a disabled module, the instance waits in `WaitingForModules` until the
 module is enabled again.

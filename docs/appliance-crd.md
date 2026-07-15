@@ -79,6 +79,39 @@ its only workload intent write surface. The Magic Stick Operator, Flux, the
 model-catalog controller, and the specialized operators perform the actual
 reconciliation.
 
+A Paperclip instance also auto-enables `paperclip-operator`, `agent-sandbox`,
+`litellm`, and `model-catalog`. Its `agentExecution` parameters select available
+adapter runtimes and sandbox concurrency without creating domain-level teams or
+agents:
+
+```yaml
+apiVersion: appliance.magicstick.dev/v1alpha1
+kind: AppInstance
+metadata:
+  name: paperclip-default
+  namespace: ai-system
+spec:
+  type: paperclip
+  targetNamespace: ai
+  parameters:
+    name: default
+    model: qwen3635b
+    agentExecution:
+      defaultModel: litellm/qwen3635b
+      maxConcurrentAgents: 2
+      openCode:
+        enabled: true
+      openClaw:
+        enabled: false
+        instanceRef: ""
+      hermes:
+        enabled: false
+        instanceRef: ""
+```
+
+See [paperclip-agents.md](paperclip-agents.md) for the generated adapter,
+network, model, and credential contracts.
+
 ## Runtime CRs
 
 ```yaml

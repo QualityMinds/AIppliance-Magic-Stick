@@ -15,6 +15,7 @@ The dashboard is also not an operator. It reads status and creates or patches
 | OpenClaw Operator | Owns lifecycle of `OpenClawInstance` resources. |
 | Hermes Operator | Owns lifecycle of `HermesInstance` resources. |
 | Paperclip Operator | Owns lifecycle of Paperclip `Instance` resources. |
+| Agent Sandbox Controller | Owns lifecycle of `Sandbox` resources and their isolated runtime Pods. |
 | KubeOpenCode controller | Owns KubeOpenCode resources such as `AgentTemplate`, `Agent`, `Task`, `CronTask`, `Registry`, and `KubeOpenCodeConfig`. |
 
 ## Reconcile Flow
@@ -50,11 +51,13 @@ removed, or repaired.
 |---|---|---|---|
 | `openclaw` | `openclaw-operator` | `openclawinstances.openclaw.rocks` | `OpenClawInstance` `openclaw.rocks/v1alpha1` |
 | `hermes` | `hermes-operator` | `hermesinstances.hermes.agent` | `HermesInstance` `hermes.agent/v1` |
-| `paperclip` | `paperclip-operator` | `instances.paperclip.inc` | `Instance` `paperclip.inc/v1alpha1` |
+| `paperclip` | `paperclip-operator`, `agent-sandbox` | `instances.paperclip.inc`, `sandboxes.agents.x-k8s.io` | `Instance` `paperclip.inc/v1alpha1` and per-run `Sandbox` resources |
 | `kubeopencode` | `kubeopencode` | `agenttemplates.kubeopencode.io` | `AgentTemplate` and related `kubeopencode.io/v1alpha1` resources |
 | `odysseus` | `odysseus` | none | `Deployment` `apps/v1` plus supporting Services, PVCs, ConfigMaps, and Ingress |
 
 All enabled AI app instances also require `litellm` and `model-catalog`.
+Paperclip uses the Agent Sandbox CR backend for CLI runtimes; OpenClaw and
+Hermes remain separate gateway services.
 
 ## Defaulting
 

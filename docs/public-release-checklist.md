@@ -45,6 +45,7 @@ kubectl kustomize magic-cluster/platform/ai/kubeai
 kubectl kustomize magic-cluster/platform/ai/hermes-operator
 kubectl kustomize magic-cluster/platform/ai/openclaw-operator
 kubectl kustomize magic-cluster/platform/ai/paperclip-operator
+kubectl kustomize magic-cluster/platform/ai/agent-sandbox
 kubectl kustomize magic-cluster/platform/observability
 kubectl kustomize magic-cluster/apps/ai/litellm/base
 kubectl kustomize magic-cluster/apps/ai/model-catalog

@@ -54,6 +54,10 @@ spec:
               value: "${AI_APPLIANCE_DEFAULT_CHAT_MODEL:=qwen3635b}"
             - name: AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL
               value: "${AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL:=qwen352bvlembedding}"
+            - name: OPENCODE_DEFAULT_CONTEXT_TOKENS
+              value: "131072"
+            - name: OPENCODE_DEFAULT_OUTPUT_TOKENS
+              value: "8192"
             - name: LITELLM_MASTER_KEY
               valueFrom:
                 secretKeyRef:
