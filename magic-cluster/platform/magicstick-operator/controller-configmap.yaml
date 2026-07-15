@@ -1127,6 +1127,9 @@ data:
         local_name = local_mdns_name(local_host)
         model = params.get("model") or "CHANGEME_MODEL"
         storage = ((params.get("storage") or {}).get("size") or params.get("storageSize") or "10Gi")
+        paperclip_agent_secret_ref = params.get("paperclipAgentSecretRef") or {}
+        paperclip_agent_secret_name = paperclip_agent_secret_ref.get("name") or ""
+        paperclip_agent_secret_key = paperclip_agent_secret_ref.get("key") or "paperclip-claimed-api-key.json"
         catalog_init_script = textwrap.dedent("""\
             set -eu
             for attempt in $(seq 1 120); do
@@ -1232,7 +1235,33 @@ data:
             fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\\n");
             console.log("Configured OpenClaw from ai-model-catalog with " + models.length + " models; primary=litellm/" + selectedModel);
             NODE
+            if [ -f /paperclip-agent-key/paperclip-claimed-api-key.json ]; then
+              mkdir -p /data/workspace
+              chmod 700 /data/workspace
+              cp /paperclip-agent-key/paperclip-claimed-api-key.json /data/workspace/paperclip-claimed-api-key.json
+              chmod 600 /data/workspace/paperclip-claimed-api-key.json
+              echo "Installed OpenClaw Paperclip agent credentials"
+            fi
         """)
+        openclaw_extra_volumes = [{"name": "ai-model-catalog", "configMap": {"name": "ai-model-catalog"}}]
+        openclaw_init_volume_mounts = [
+            {"name": "data", "mountPath": "/data"},
+            {"name": "ai-model-catalog", "mountPath": "/catalog", "readOnly": True},
+        ]
+        if paperclip_agent_secret_name:
+            openclaw_extra_volumes.append({
+                "name": "paperclip-agent-key",
+                "secret": {
+                    "secretName": paperclip_agent_secret_name,
+                    "items": [{"key": paperclip_agent_secret_key, "path": "paperclip-claimed-api-key.json"}],
+                    "defaultMode": 256,
+                },
+            })
+            openclaw_init_volume_mounts.append({
+                "name": "paperclip-agent-key",
+                "mountPath": "/paperclip-agent-key",
+                "readOnly": True,
+            })
         openclaw_instance = {
             "apiVersion": "openclaw.rocks/v1alpha1",
             "kind": "OpenClawInstance",
@@ -1257,12 +1286,9 @@ data:
                         {"name": "AI_MODEL_CATALOG_OPENCLAW_PATH", "value": "/catalog/openclaw.json"},
                         {"name": "OPENAI_API_KEY", "valueFrom": {"secretKeyRef": {"name": "litellm-masterkey-secret", "key": "LITELLM_MASTER_KEY"}}},
                     ],
-                    "volumeMounts": [
-                        {"name": "data", "mountPath": "/data"},
-                        {"name": "ai-model-catalog", "mountPath": "/catalog", "readOnly": True},
-                    ],
+                    "volumeMounts": openclaw_init_volume_mounts,
                 }],
-                "extraVolumes": [{"name": "ai-model-catalog", "configMap": {"name": "ai-model-catalog"}}],
+                "extraVolumes": openclaw_extra_volumes,
                 "storage": {"persistence": {"enabled": True, "size": storage}},
                 "security": {
                     "networkPolicy": {
@@ -1521,6 +1547,7 @@ data:
                             {"name": "HERMES_HOME", "value": "/home/hermes/.hermes"},
                             {"name": "HOME", "value": "/home/hermes"},
                             {"name": "XDG_CACHE_HOME", "value": "/tmp/.cache"},
+                            {"name": "TIRITH_ENABLED", "value": "false"},
                             {"name": "OPENAI_API_KEY", "valueFrom": {"secretKeyRef": {"name": "litellm-masterkey-secret", "key": "LITELLM_MASTER_KEY"}}},
                             {"name": "OPENAI_BASE_URL", "value": "http://litellm.ai.svc.cluster.local:4000/v1"},
                         ],

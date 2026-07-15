@@ -178,6 +178,39 @@ the Paperclip Pod. Use `apiKey` for Hermes and `authToken` for OpenClaw; both
 fields are normalized to encrypted Company Secret references before Paperclip
 persists the agent configuration.
 
+An OpenClaw gateway also needs its own Paperclip agent API key for callbacks.
+The recommended onboarding path is Paperclip's OpenClaw invite prompt: OpenClaw
+submits the join request, the board approves it, and OpenClaw claims and saves
+the one-time key at
+`~/.openclaw/workspace/paperclip-claimed-api-key.json`. Merely creating an
+`openclaw_gateway` agent in the Paperclip form does not perform this claim.
+
+For an agent that was created manually, create a standard key once with
+`POST /api/agents/{agentId}/keys`, store the complete one-time JSON response in
+a Kubernetes Secret, and reference it from the OpenClaw `AppInstance`:
+
+```yaml
+spec:
+  parameters:
+    paperclipAgentSecretRef:
+      name: openclaw-default-paperclip-agent
+      key: paperclip-claimed-api-key.json
+```
+
+The generated OpenClaw init container installs that Secret at the upstream
+adapter's required path with mode `0600`. Never put the response or token in an
+`AppInstance`, ConfigMap, Git manifest, shell history, or log. Restart the
+OpenClaw instance after rotating the Secret so the init container copies the
+new value.
+
+Hermes receives its Paperclip agent key in each authenticated gateway run. The
+automated `hermes-api` sidecar disables Tirith command approvals because there
+is no interactive terminal attached to answer them; otherwise an internal
+Paperclip callback over HTTP remains pending until the run times out. This
+exception applies only to that API sidecar. Its Kubernetes NetworkPolicy still
+limits reachable services, while the interactive Hermes dashboard keeps its
+normal Tirith protection.
+
 ## Model Catalog
 
 `ConfigMap/ai-model-catalog` publishes:
