@@ -39,7 +39,6 @@ digest, or chart version.
 
 | Chart or source | Repository | Version | Usage |
 |---|---|---:|---|
-| `ingress-nginx` | https://kubernetes.github.io/ingress-nginx | `4.15.1` | Ingress controller |
 | `gateway-helm` | https://gateway.envoyproxy.io | `v1.8.2` | Envoy Gateway control plane, data plane, and Gateway API extensions |
 | `cert-manager` | https://charts.jetstack.io | `v1.20.2` | Certificate management |
 | `kubernetes-secret-generator` | https://helm.mittwald.de | `3.4.1` | Generated Kubernetes secrets |

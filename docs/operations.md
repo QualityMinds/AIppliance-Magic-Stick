@@ -88,9 +88,10 @@ kubectl -n identity-system get pods,pvc,gateway,httproute,securitypolicy
 kubectl -n identity-system logs deploy/keycloak
 ```
 
-The identity pilot is parallel to ingress-nginx and uses a `ClusterIP` Envoy
-service. Follow [authentication.md](authentication.md) for port-forwarding,
-local name resolution, login validation, and generated credential handling.
+Envoy Gateway is the installed application gateway and exposes the HTTPS
+listener through a `LoadBalancer` service. Follow
+[authentication.md](authentication.md) for local name resolution, login
+validation, and generated credential handling.
 
 Common public hostnames use `AI_APPLIANCE_DOMAIN`:
 
@@ -186,12 +187,12 @@ deploy,pods` if a command does not match the running resource name.
 |---|---|
 | Flux Kustomization is `False` | `kubectl -n flux-system describe kustomization <name>` and render the same path locally with `kubectl kustomize`. |
 | HelmRelease is not ready | `kubectl -n flux-system describe helmrelease <name>` and inspect chart values. |
-| Ingress host does not resolve | Check `AI_APPLIANCE_DOMAIN`, kdns/mDNS behavior, local DNS, and ingress-nginx service. |
+| Legacy Ingress has no endpoint | The nginx controller is intentionally not installed. Migrate the application to an Envoy `HTTPRoute`. |
 | App waits for model catalog | Check `ai-model-catalog-controller` logs and `AI_APPLIANCE_MODEL_CATALOG_READY`. |
 | LiteLLM Prisma reports `P1000` authentication failed | The PostgreSQL PVC may be older than `litellm-postgresql-secret`. Keep generated DB credentials prune-disabled and rotate the DB user password to match the current Secret. |
 | Paperclip login origin fails | Confirm `BETTER_AUTH_TRUSTED_ORIGINS` on the Paperclip `Instance` and restart the app pod after changes. |
 | Paperclip task creates no Sandbox | Check `sandboxes.agents.x-k8s.io`, the Agent Sandbox controller, `spec.adapters.execution.kubernetes.backend`, and the selected adapter runtime image. |
 | Paperclip sandbox cannot call a model | Check `opencode-providers.json`, `litellm-masterkey-secret`, LiteLLM on port 4000, and NetworkPolicies in the Paperclip tenant namespace. |
 | Generated Secret missing | Check the secret generator HelmRelease and Secret annotations. |
-| OIDC route does not redirect | Check the `SecurityPolicy` and `HTTPRoute` status, Keycloak readiness, the Envoy data-plane logs, and whether both pilot hostnames resolve to the port-forward address. |
+| OIDC route does not redirect | Check the `SecurityPolicy` and `HTTPRoute` status, Keycloak readiness, the Envoy data-plane logs, and whether both pilot hostnames resolve to the Envoy LoadBalancer address. |
 | GPU model never starts | Check GPU Operator, allocatable GPU resources, KubeAI model status, and vLLM logs. |

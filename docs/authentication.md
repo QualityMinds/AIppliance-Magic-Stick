@@ -5,9 +5,10 @@ OpenID Connect (OIDC) provider and identity broker. Envoy Gateway enforces the
 login before a protected HTTP route reaches an application. The appliance can
 therefore authenticate users while fully disconnected from cloud services.
 
-This page describes the target architecture and the first isolated pilot. The
-pilot does not yet move the dashboard or existing applications away from
-ingress-nginx.
+This page describes the target architecture and the first isolated pilot. Envoy
+Gateway is the only installed application gateway. The pilot does not yet move
+the dashboard or existing applications to authenticated `HTTPRoute` resources;
+their legacy `Ingress` objects are therefore intentionally not served.
 
 ## Target Architecture
 
@@ -61,16 +62,15 @@ combination); they must not reuse browser cookies or the human gateway client.
 
 The first implementation adds:
 
-- Envoy Gateway `v1.8.2` as a parallel `ClusterIP` data plane
+- Envoy Gateway `v1.8.2` as the primary `LoadBalancer` data plane
 - Keycloak with PostgreSQL in namespace `identity-system`
 - runtime-generated database, bootstrap-admin, local-admin, and OIDC client secrets
 - a self-signed pilot certificate for local `.local` hostnames
 - an unprotected Keycloak route and a protected `auth-pilot` route
 - a local `local-admin` account for end-to-end validation
 
-The pilot uses port `8443` through a local port-forward. This deliberately
-avoids taking ports 80/443 from ingress-nginx before application migration is
-complete. The `.local` names remain part of the design and can continue to be
+The pilot uses the standard HTTPS port `443` through the Envoy `LoadBalancer`
+service. The `.local` names remain part of the design and can continue to be
 used by the later mTLS layer.
 
 ## Run the Pilot
@@ -83,17 +83,17 @@ kubectl -n envoy-gateway-system get helmrelease envoy-gateway
 kubectl -n identity-system get pods,gateway,httproute,securitypolicy
 ```
 
-Forward the generated Envoy service to the pilot port:
+Read the address of the generated Envoy service:
 
 ```bash
-ENVOY_SERVICE="$(kubectl -n envoy-gateway-system get service \
+kubectl -n envoy-gateway-system get service \
   -l gateway.envoyproxy.io/owning-gateway-namespace=identity-system,gateway.envoyproxy.io/owning-gateway-name=identity-pilot \
-  -o jsonpath='{.items[0].metadata.name}')"
-kubectl -n envoy-gateway-system port-forward "service/${ENVOY_SERVICE}" 8443:443
+  -o wide
 ```
 
-Resolve both pilot names to `127.0.0.1` with local DNS or temporary hosts-file
-entries:
+Resolve both pilot names to the reported LoadBalancer address with local DNS or
+temporary hosts-file entries. Rancher Desktop commonly exposes the service on
+`127.0.0.1`:
 
 ```text
 127.0.0.1 id.magicstick.local auth-pilot.magicstick.local
@@ -109,7 +109,7 @@ kubectl -n identity-system get secret keycloak-local-admin \
   -o jsonpath='{.data.password}' | base64 --decode
 ```
 
-Open `https://auth-pilot.magicstick.local:8443`. Accept the pilot's self-signed
+Open `https://auth-pilot.magicstick.local`. Accept the pilot's self-signed
 certificate only in the isolated development environment. The request must be
 redirected to Keycloak and return to the protected success page after login.
 
@@ -125,11 +125,12 @@ The remaining rollout is intentionally incremental:
    `AppInstance`.
 5. Add separate machine clients and JWT/mTLS policies for APIs and agents.
 6. Configure optional upstream identity providers and group-to-role mappings.
-7. Remove ingress-nginx only after all routes and rollback checks pass.
+7. Delete obsolete application `Ingress` resources after every replacement
+   `HTTPRoute` has passed its rollback checks.
 
-During migration, Envoy Gateway and ingress-nginx run side by side. Envoy is
-the target application gateway; an additional Envoy API gateway is not needed
-for the authentication layer.
+During migration, only routes already represented by Envoy `HTTPRoute`
+resources are externally reachable. An additional Envoy API gateway is not
+needed for the authentication layer.
 
 ## Secret and Recovery Rules
 

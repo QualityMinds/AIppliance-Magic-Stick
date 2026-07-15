@@ -16,8 +16,8 @@ runtime checks.
 | `flux/graph/base` | Stable Flux Kustomization graph and dependency waves |
 | `flux/entrypoints/base` | Neutral public Flux entrypoint |
 | `flux/entrypoints/single-node` | Public read-only single-node Flux entrypoint |
-| `platform/basis` | Namespaces, ingress-nginx, cert-manager, secret generator, reloader, kdns |
-| `platform/gateway/envoy-gateway` | Parallel Envoy Gateway control plane and Gateway API CRDs |
+| `platform/basis` | Namespaces, cert-manager, secret generator, reloader, kdns |
+| `platform/gateway/envoy-gateway` | Primary Envoy Gateway control plane and Gateway API CRDs |
 | `platform/identity` | Local Keycloak/PostgreSQL identity broker and protected OIDC pilot route |
 | `platform/magicstick-operator` | Appliance CRDs, module catalog, model presets, operator RBAC, live controller, and public examples |
 | `platform/ai/kubeai` | KubeAI model-serving platform module |

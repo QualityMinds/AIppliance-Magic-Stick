@@ -95,7 +95,7 @@ directly.
 
 | Area | Components |
 |---|---|
-| Basis | Namespaces, ingress-nginx, cert-manager, generated secrets, reloader, and kdns. |
+| Basis | Namespaces, cert-manager, generated secrets, reloader, and kdns. |
 | Identity and human access | Envoy Gateway, local Keycloak identity broker, PostgreSQL, and route-level OIDC policies. |
 | Appliance control plane | Appliance CRDs, module catalog, model presets, operator RBAC, and live controller. |
 | AI modules | NVIDIA GPU support, KubeAI, Hermes operator, OpenClaw operator, and Paperclip operator. |
@@ -113,9 +113,11 @@ directly.
 | Runtime app instances | `AppInstance` CRs | The Magic Stick Operator creates one Flux HelmRelease per instance; its chart owns the application resources. |
 | KubeOpenCode | `magic-cluster/apps/ai/kubeopencode` | Helm-managed KubeOpenCode controller and server module. |
 
-The identity layer is currently an isolated pilot. Existing application
-Ingress resources still use ingress-nginx until their routes and application
-authorization checks are migrated. See [authentication.md](authentication.md).
+Envoy Gateway is the only installed application gateway. The identity layer is
+currently an isolated authenticated route pilot. Legacy application `Ingress`
+objects are intentionally not served until their routes and application
+authorization checks are migrated to Gateway API. See
+[authentication.md](authentication.md).
 
 ## Value Boundary
 

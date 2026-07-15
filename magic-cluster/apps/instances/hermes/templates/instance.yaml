@@ -35,7 +35,7 @@ spec:
   security:
     networkPolicy:
       enabled: true
-      allowedIngressNamespaces: [ai, ingress-nginx]
+      allowedIngressNamespaces: [ai, envoy-gateway-system]
   networking:
     service:
       type: ClusterIP

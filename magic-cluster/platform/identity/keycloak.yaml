@@ -74,7 +74,7 @@ spec:
                   name: magicstick-human-gateway-client
                   key: client-secret
             - name: KC_HOSTNAME
-              value: "https://id.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}:${AI_APPLIANCE_IDENTITY_PILOT_PORT:=8443}"
+              value: "https://id.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
             - name: KC_HTTP_ENABLED
               value: "true"
             - name: KC_PROXY_HEADERS

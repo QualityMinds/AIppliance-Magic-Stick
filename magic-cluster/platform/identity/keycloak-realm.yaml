@@ -33,10 +33,10 @@ data:
           "serviceAccountsEnabled": false,
           "publicClient": false,
           "redirectUris": [
-            "https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}:${AI_APPLIANCE_IDENTITY_PILOT_PORT:=8443}/oauth2/callback"
+            "https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback"
           ],
           "webOrigins": [
-            "https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}:${AI_APPLIANCE_IDENTITY_PILOT_PORT:=8443}"
+            "https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
           ],
           "protocol": "openid-connect"
         }
