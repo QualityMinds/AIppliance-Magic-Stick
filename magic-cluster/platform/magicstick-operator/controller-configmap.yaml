@@ -1560,6 +1560,7 @@ data:
                             {"name": "HOME", "value": "/home/hermes"},
                             {"name": "XDG_CACHE_HOME", "value": "/tmp/.cache"},
                             {"name": "TIRITH_ENABLED", "value": "false"},
+                            {"name": "HERMES_YOLO_MODE", "value": "1"},
                             {"name": "OPENAI_API_KEY", "valueFrom": {"secretKeyRef": {"name": "litellm-masterkey-secret", "key": "LITELLM_MASTER_KEY"}}},
                             {"name": "OPENAI_BASE_URL", "value": "http://litellm.ai.svc.cluster.local:4000/v1"},
                         ],

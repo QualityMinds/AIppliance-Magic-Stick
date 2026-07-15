@@ -205,12 +205,13 @@ OpenClaw instance after rotating the Secret so the init container copies the
 new value.
 
 Hermes receives its Paperclip agent key in each authenticated gateway run. The
-automated `hermes-api` sidecar disables Tirith command approvals because there
-is no interactive terminal attached to answer them; otherwise an internal
-Paperclip callback over HTTP remains pending until the run times out. This
-exception applies only to that API sidecar. Its Kubernetes NetworkPolicy still
-limits reachable services, while the interactive Hermes dashboard keeps its
-normal Tirith protection.
+automated `hermes-api` sidecar disables Tirith and starts with
+`HERMES_YOLO_MODE=1` because there is no interactive terminal attached to
+answer command approval prompts; otherwise an internal Paperclip callback can
+remain pending until the run times out. This exception applies only to that API
+sidecar. Its Kubernetes NetworkPolicy still limits reachable services, while
+the interactive Hermes dashboard and CLI keep their normal approval and
+Tirith protection.
 
 ## Model Catalog
 
