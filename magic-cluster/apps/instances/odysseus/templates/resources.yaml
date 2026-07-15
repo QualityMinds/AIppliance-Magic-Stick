@@ -124,6 +124,14 @@ spec:
           ports:
             - name: http
               containerPort: {{ $port }}
+          {{- if eq $component "searxng" }}
+          env:
+            - name: SEARXNG_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $name }}-admin
+                  key: password
+          {{- end }}
           volumeMounts:
             - name: data
               mountPath: {{ if eq $component "chroma" }}/chroma/chroma{{ else if eq $component "searxng" }}/var/cache/searxng{{ else }}/var/cache/ntfy{{ end }}
