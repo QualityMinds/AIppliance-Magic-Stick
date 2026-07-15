@@ -172,7 +172,9 @@ Paperclip companies and employee agents are intentionally not created by the
 Appliance dashboard. After the first-admin onboarding, create the company and
 agent in Paperclip, then store the selected gateway URL and token as Paperclip
 Company Secrets. The dashboard selection does not copy gateway credentials into
-the Paperclip Pod.
+the Paperclip Pod. Use `apiKey` for Hermes and `authToken` for OpenClaw; both
+fields are normalized to encrypted Company Secret references before Paperclip
+persists the agent configuration.
 
 ## Model Catalog
 

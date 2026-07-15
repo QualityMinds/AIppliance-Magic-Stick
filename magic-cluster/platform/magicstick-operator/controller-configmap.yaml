@@ -2144,6 +2144,12 @@ data:
               'export async function refreshAdapterModels(type) {\\n    const declaredModels = getDeclaredAdapterModels();\\n    if (declaredModels && declaredModels[type]?.length) {\\n        return declaredModels[type].map((m) => ({ id: m.id, label: m.label ?? m.id }));\\n    }\\n    const adapter = findActiveServerAdapter(type);',
               "declared adapter model refresh",
             );
+            patchFile(
+              "/app/server/dist/services/secrets.js",
+              'const FALLBACK_ADAPTER_SCHEMA_SECRET_FIELDS = {\\n    hermes_gateway: ["apiKey"],\\n};',
+              'const FALLBACK_ADAPTER_SCHEMA_SECRET_FIELDS = {\\n    hermes_gateway: ["apiKey"],\\n    openclaw_gateway: ["authToken", "password", "devicePrivateKeyPem"],\\n};',
+              "OpenClaw gateway secret fields",
+            );
         """)
         runtime_compat_hash = hashlib.sha256(runtime_compat_loader.encode("utf-8")).hexdigest()[:16]
         runtime_compat_config = {
