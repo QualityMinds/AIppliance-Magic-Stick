@@ -168,7 +168,8 @@ and GID `1000` so the dashboard, catalog init, and API gateway can share the
 same persistent home directory. OpenClaw uses its gateway on
 Service port 18789; policies also admit its operator-managed Pod target port
 18790 so the route works regardless of where the CNI enforces egress relative
-to Service DNAT.
+to Service DNAT. Both gateway NetworkPolicies permit outbound Paperclip
+callbacks only to Pods labeled `app.kubernetes.io/name=paperclip` on TCP 3100.
 
 Paperclip companies and employee agents are intentionally not created by the
 Appliance dashboard. After the first-admin onboarding, create the company and
