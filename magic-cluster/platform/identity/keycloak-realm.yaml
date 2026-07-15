@@ -45,6 +45,7 @@ data:
         {
           "username": "local-admin",
           "enabled": true,
+          "email": "local-admin@magicstick.local",
           "emailVerified": true,
           "firstName": "Local",
           "lastName": "Administrator",
