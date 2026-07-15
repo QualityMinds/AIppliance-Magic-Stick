@@ -33,10 +33,14 @@ data:
           "serviceAccountsEnabled": false,
           "publicClient": false,
           "redirectUris": [
-            "https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback"
+            "https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback",
+            "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback",
+            "https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback"
           ],
           "webOrigins": [
-            "https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
+            "https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}",
+            "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}",
+            "https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"
           ],
           "protocol": "openid-connect"
         }

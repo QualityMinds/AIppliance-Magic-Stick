@@ -7,6 +7,7 @@ itself.
 
 ```text
 Dashboard UI
+  -> Envoy Gateway OIDC login
   -> Dashboard Backend API
   -> Kubernetes API
   -> ModuleActivation, AppInstance, and ModelActivation CRs
@@ -48,9 +49,13 @@ Paperclip, KubeOpenCode, KubeAI, LiteLLM, or direct app instance reconcilers.
 
 The dashboard Deployment runs an API sidecar from
 `ConfigMap/ai-appliance-dashboard-api`. nginx proxies `/api/*` to the sidecar.
+Envoy Gateway requires a Keycloak login for both the local and public dashboard
+hostnames and forwards the access token. The API validates the token against
+Keycloak before applying its own role checks.
 
 | Method | Path | Behavior |
 |---|---|---|
+| `GET` | `/api/session` | Returns the authenticated username and local realm roles. |
 | `GET` | `/api/appliance` | Returns `Appliance/local`. |
 | `PATCH` | `/api/appliance` | Returns `405`; `Appliance/local.spec` is Git-owned. |
 | `GET` | `/api/settings` | Returns public domain, dashboard public host, mDNS domain, and derived mDNS name. |
@@ -69,6 +74,11 @@ The dashboard Deployment runs an API sidecar from
 | `DELETE` | `/api/models/{name}` | Deletes the `ModelActivation` and a Dashboard-created provider Secret when present. |
 | `GET` | `/api/status` | Returns Appliance, Flux, Pod, Service, and Ingress status summaries. |
 | `GET` | `/api/events` | Returns core and `events.k8s.io` event summaries. |
+
+All read endpoints require `magicstick-viewer`, `magicstick-operator`, or
+`magicstick-admin`. Instance credential reads and runtime mutations require
+operator or admin. Settings changes require admin. Envoy authentication alone
+does not authorize a configuration change.
 
 ## Module Controls
 

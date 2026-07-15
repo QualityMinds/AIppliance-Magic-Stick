@@ -12,4 +12,4 @@ resources:
   - nginx-config.yaml
   - deployment.yaml
   - service.yaml
-  - ingress.yaml
+  - gateway.yaml

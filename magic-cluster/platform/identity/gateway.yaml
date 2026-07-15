@@ -40,4 +40,7 @@ spec:
             name: identity-pilot-tls
       allowedRoutes:
         namespaces:
-          from: Same
+          from: Selector
+          selector:
+            matchLabels:
+              gateway.magicstick.dev/route-access: "true"

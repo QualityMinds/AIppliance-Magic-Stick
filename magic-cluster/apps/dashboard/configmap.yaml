@@ -828,6 +828,8 @@ data:
       cat <<'HTML' >> "$tmp"
             </strong></span>
             <span class="chip">Refresh cadence: every 30s</span>
+            <span class="chip" id="session-user">Signed in</span>
+            <a class="chip" href="/logout">Sign out</a>
           </div>
         </header>
 
@@ -2567,6 +2569,7 @@ data:
 
           const refresh = async () => {
             try {
+              const session = await request('/api/session');
               const settings = await request('/api/settings');
               const appliance = await request('/api/appliance');
               const modulePayload = await request('/api/modules');
@@ -2600,6 +2603,7 @@ data:
               renderVram(modelPayload);
               renderModels(modelPayload);
               renderStatus(status);
+              setText('session-user', 'Signed in: ' + session.username);
               setApiState('Connected', true);
             } catch (error) {
               setApiState(error.message || 'API unavailable', false);

@@ -54,7 +54,7 @@ The base graph is defined under `magic-cluster/flux/graph/base`.
 | 05 | `envoy-gateway` | `magic-cluster/platform/gateway/envoy-gateway` | `infrastructure-basis` |
 | 10 | `identity-pilot` | `magic-cluster/platform/identity` | `envoy-gateway` |
 | 15 | `magicstick-operator` | `magic-cluster/platform/magicstick-operator` | `infrastructure-basis` |
-| 30 | `apps` | `magic-cluster/apps/dashboard` | `infrastructure-basis` |
+| 30 | `apps` | `magic-cluster/apps/dashboard` | `infrastructure-basis`, `identity-pilot` |
 
 Optional AI, Observability, GPU, and instance resources are no longer applied by
 the static graph. The Magic Stick Operator creates generated Flux
@@ -113,10 +113,10 @@ directly.
 | Runtime app instances | `AppInstance` CRs | The Magic Stick Operator creates one Flux HelmRelease per instance; its chart owns the application resources. |
 | KubeOpenCode | `magic-cluster/apps/ai/kubeopencode` | Helm-managed KubeOpenCode controller and server module. |
 
-Envoy Gateway is the only installed application gateway. The identity layer is
-currently an isolated authenticated route pilot. Legacy application `Ingress`
-objects are intentionally not served until their routes and application
-authorization checks are migrated to Gateway API. See
+Envoy Gateway is the only installed application gateway. The dashboard uses
+authenticated local and public `HTTPRoute` resources plus API-level role
+checks. Other legacy application `Ingress` objects are intentionally not served
+until their routes and authorization checks are migrated to Gateway API. See
 [authentication.md](authentication.md).
 
 ## Value Boundary
