@@ -181,6 +181,7 @@ the Paperclip Pod.
 | Key | Paperclip use |
 |---|---|
 | `opencode-providers.json` | OpenCode provider configuration for the internal LiteLLM API. |
+| `paperclip-adapter-models.json` | OpenCode model-picker entries exposed by Paperclip. |
 | `AI_APPLIANCE_DEFAULT_OPENCODE_MODEL` | Default value in `litellm/<model-id>` form. |
 | `chat-models.json` | Available chat models shown by Appliance Control. |
 

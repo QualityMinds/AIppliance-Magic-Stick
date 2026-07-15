@@ -91,3 +91,7 @@ data:
         }
       }
     }
+  paperclip-adapter-models.json: |
+    {
+      "opencode_local": []
+    }

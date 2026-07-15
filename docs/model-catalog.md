@@ -200,6 +200,7 @@ used. If no model of that type exists, the default is an empty string.
 | `openclaw.json` | OpenClaw-ready LiteLLM provider fragment. |
 | `hermes.yaml` | Hermes-ready LiteLLM provider fragment. |
 | `opencode-providers.json` | OpenCode provider map for the internal LiteLLM endpoint, including required context and output limits. |
+| `paperclip-adapter-models.json` | Paperclip model-picker entries for OpenCode adapters in `litellm/<model-id>` form. |
 | `AI_APPLIANCE_DEFAULT_OPENCODE_MODEL` | Selected chat default in `litellm/<model-id>` form. |
 
 `catalog.json` uses this shape:
@@ -242,9 +243,11 @@ Current consumers include:
   the `AppInstance` preferred model if present in the catalog.
 - OpenClaw waits for readiness, reads `openclaw.json`, and applies
   the `AppInstance` preferred model if present in the catalog.
-- Paperclip reads `opencode-providers.json` and
-  `AI_APPLIANCE_DEFAULT_OPENCODE_MODEL`. Its OpenCode sandbox runtime uses the
-  in-cluster LiteLLM API, and the API key comes only from a Kubernetes Secret.
+- Paperclip reads `opencode-providers.json`, `paperclip-adapter-models.json`,
+  and `AI_APPLIANCE_DEFAULT_OPENCODE_MODEL`. The adapter model list populates
+  the OpenCode model picker with all catalogued chat models. Its OpenCode
+  sandbox runtime uses the in-cluster LiteLLM API, and the API key comes only
+  from a Kubernetes Secret.
   Catalog changes include OpenCode limit metadata in the consumer hash, so a
   changed limit follows the normal catalog consumer restart path.
 - Dashboard-created KubeOpenCode `AppInstance` resources are rendered by the

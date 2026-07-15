@@ -565,6 +565,15 @@ def build_catalog(litellm_models):
             "models": {model["id"]: opencode_model(model) for model in chat_models},
         }
     }
+    paperclip_adapter_models = {
+        "opencode_local": [
+            {
+                "id": model["modelRef"],
+                "label": model.get("name") or model["id"],
+            }
+            for model in chat_models
+        ]
+    }
     default_opencode_model = "litellm/" + default_chat if default_chat else ""
     defaults_env = "\n".join([
         "AI_APPLIANCE_MODEL_CATALOG_READY=true",
@@ -585,6 +594,7 @@ def build_catalog(litellm_models):
         "openclaw.json": json_dumps(openclaw),
         "hermes.yaml": json_dumps(hermes),
         "opencode-providers.json": json_dumps(opencode_providers),
+        "paperclip-adapter-models.json": json_dumps(paperclip_adapter_models),
         "AI_APPLIANCE_MODEL_CATALOG_READY": "true",
         "AI_APPLIANCE_MODEL_CATALOG_HASH": catalog_hash,
         "AI_APPLIANCE_DEFAULT_CHAT_MODEL": default_chat,

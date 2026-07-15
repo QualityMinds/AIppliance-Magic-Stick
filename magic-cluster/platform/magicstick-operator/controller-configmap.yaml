@@ -2132,6 +2132,18 @@ data:
               'const runtimeRootDir = path.posix.join("/tmp", ".paperclip-runtime", input.adapterKey);',
               "sandbox runtime directory",
             );
+            patchFile(
+              "/app/server/dist/routes/agents.js",
+              '        if (type === "opencode_local" && environment && environment.driver !== "local") {\n            const adapter = requireServerAdapter(type);\n            res.json(adapter.models ?? []);\n            return;\n        }',
+              '        if (type === "opencode_local" && environment && environment.driver !== "local") {\n            res.json(await listAdapterModels(type));\n            return;\n        }',
+              "Kubernetes adapter model list",
+            );
+            patchFile(
+              "/app/server/dist/adapters/registry.js",
+              'export async function refreshAdapterModels(type) {\n    const adapter = findActiveServerAdapter(type);',
+              'export async function refreshAdapterModels(type) {\n    const declaredModels = getDeclaredAdapterModels();\n    if (declaredModels && declaredModels[type]?.length) {\n        return declaredModels[type].map((m) => ({ id: m.id, label: m.label ?? m.id }));\n    }\n    const adapter = findActiveServerAdapter(type);',
+              "declared adapter model refresh",
+            );
         """)
         runtime_compat_hash = hashlib.sha256(runtime_compat_loader.encode("utf-8")).hexdigest()[:16]
         runtime_compat_config = {
@@ -2180,6 +2192,7 @@ data:
                     {"name": "BETTER_AUTH_TRUSTED_ORIGINS", "value": "*"},
                     {"name": "OPENAI_API_KEY", "valueFrom": {"secretKeyRef": {"name": "litellm-masterkey-secret", "key": "LITELLM_MASTER_KEY"}}},
                     {"name": "OPENAI_BASE_URL", "value": "http://litellm.ai.svc.cluster.local:4000/v1"},
+                    {"name": "PAPERCLIP_ADAPTER_MODELS", "valueFrom": {"configMapKeyRef": {"name": "ai-model-catalog", "key": "paperclip-adapter-models.json"}}},
                     {"name": "PAPERCLIP_OPENCODE_PROVIDERS", "valueFrom": {"configMapKeyRef": {"name": "ai-model-catalog", "key": "opencode-providers.json"}}},
                     ({"name": "PAPERCLIP_OPENCODE_SMALL_MODEL", "value": default_agent_model} if default_agent_model else {"name": "PAPERCLIP_OPENCODE_SMALL_MODEL", "valueFrom": {"configMapKeyRef": {"name": "ai-model-catalog", "key": "AI_APPLIANCE_DEFAULT_OPENCODE_MODEL"}}}),
                     ({"name": "PAPERCLIP_OPENCODE_CHEAP_MODEL", "value": default_agent_model} if default_agent_model else {"name": "PAPERCLIP_OPENCODE_CHEAP_MODEL", "valueFrom": {"configMapKeyRef": {"name": "ai-model-catalog", "key": "AI_APPLIANCE_DEFAULT_OPENCODE_MODEL"}}}),
