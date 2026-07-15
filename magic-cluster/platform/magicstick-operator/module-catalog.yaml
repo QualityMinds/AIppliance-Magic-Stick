@@ -56,7 +56,7 @@ data:
           "uninstallPolicy": "keep-data",
           "postBuildSubstitution": true,
           "parameters": [
-            {"name": "postgresStorage", "label": "Postgres Storage", "placeholder": "1Gi"}
+            {"name": "postgresStorage", "label": "Postgres Storage", "placeholder": "1Gi", "substitution": "AI_APPLIANCE_LITELLM_POSTGRES_STORAGE"}
           ]
         },
         "model-catalog": {
@@ -87,8 +87,8 @@ data:
           "uninstallPolicy": "keep-data",
           "postBuildSubstitution": true,
           "parameters": [
-            {"name": "storage", "label": "Storage", "placeholder": "1Gi"},
-            {"name": "qdrantStorage", "label": "Qdrant Storage", "placeholder": "1Gi"}
+            {"name": "storage", "label": "Storage", "placeholder": "1Gi", "substitution": "AI_APPLIANCE_ANYTHING_LLM_STORAGE"},
+            {"name": "qdrantStorage", "label": "Qdrant Storage", "placeholder": "1Gi", "substitution": "AI_APPLIANCE_QDRANT_STORAGE"}
           ]
         },
         "gpu": {
@@ -214,42 +214,10 @@ data:
           "uninstallPolicy": "keep-data",
           "postBuildSubstitution": true,
           "parameters": [
-            {"name": "lokiStorage", "label": "Loki Storage", "placeholder": "1Gi"},
-            {"name": "alertmanagerStorage", "label": "Alertmanager Storage", "placeholder": "1Gi"},
-            {"name": "prometheusStorage", "label": "Prometheus Storage", "placeholder": "1Gi"}
+            {"name": "lokiStorage", "label": "Loki Storage", "placeholder": "1Gi", "substitution": "AI_APPLIANCE_LOKI_STORAGE"},
+            {"name": "alertmanagerStorage", "label": "Alertmanager Storage", "placeholder": "1Gi", "substitution": "AI_APPLIANCE_ALERTMANAGER_STORAGE"},
+            {"name": "prometheusStorage", "label": "Prometheus Storage", "placeholder": "1Gi", "substitution": "AI_APPLIANCE_PROMETHEUS_STORAGE"}
           ]
-        }
-      },
-      "instanceMappings": {
-        "openclaw": {
-          "requiredModules": ["openclaw-operator", "litellm", "model-catalog"],
-          "requiredCrds": ["openclawinstances.openclaw.rocks"],
-          "apiVersion": "openclaw.rocks/v1alpha1",
-          "kind": "OpenClawInstance"
-        },
-        "hermes": {
-          "requiredModules": ["hermes-operator", "litellm", "model-catalog"],
-          "requiredCrds": ["hermesinstances.hermes.agent"],
-          "apiVersion": "hermes.agent/v1",
-          "kind": "HermesInstance"
-        },
-        "paperclip": {
-          "requiredModules": ["paperclip-operator", "agent-sandbox", "litellm", "model-catalog"],
-          "requiredCrds": ["instances.paperclip.inc", "sandboxes.agents.x-k8s.io"],
-          "apiVersion": "paperclip.inc/v1alpha1",
-          "kind": "Instance"
-        },
-        "kubeopencode": {
-          "requiredModules": ["kubeopencode", "litellm", "model-catalog"],
-          "requiredCrds": ["agenttemplates.kubeopencode.io", "agents.kubeopencode.io"],
-          "apiVersion": "kubeopencode.io/v1alpha1",
-          "primaryKind": "Agent"
-        },
-        "odysseus": {
-          "requiredModules": ["odysseus", "litellm", "model-catalog"],
-          "requiredCrds": [],
-          "apiVersion": "apps/v1",
-          "kind": "Deployment"
         }
       }
     }

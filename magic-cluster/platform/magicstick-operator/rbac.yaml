@@ -60,6 +60,18 @@ rules:
       - patch
       - delete
   - apiGroups:
+      - helm.toolkit.fluxcd.io
+    resources:
+      - helmreleases
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
       - source.toolkit.fluxcd.io
     resources:
       - gitrepositories
@@ -76,154 +88,20 @@ rules:
       - list
       - watch
   - apiGroups:
-      - openclaw.rocks
-    resources:
-      - openclawinstances
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - patch
-      - delete
-  - apiGroups:
-      - hermes.agent
-    resources:
-      - hermesinstances
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - patch
-      - delete
-  - apiGroups:
-      - paperclip.inc
-    resources:
-      - instances
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - patch
-      - delete
-  - apiGroups:
-      - kubeopencode.io
-    resources:
-      - agents
-      - agenttemplates
-      - crontasks
-      - kubeopencodeconfigs
-      - registries
-      - tasks
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - patch
-      - delete
-  - apiGroups:
-      - networking.k8s.io
-    resources:
-      - ingresses
-      - networkpolicies
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - patch
-      - delete
-  - apiGroups:
-      - management.cattle.io
-    resources:
-      - projects
-    verbs:
-      - updatepsa
-  - apiGroups:
-      - rbac.authorization.k8s.io
-    resources:
-      - clusterroles
-      - clusterrolebindings
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - patch
-      - delete
-  - apiGroups:
       - apps
     resources:
       - deployments
     verbs:
       - get
-      - list
-      - watch
-      - create
-      - update
       - patch
-      - delete
   - apiGroups:
       - ""
     resources:
       - configmaps
-      - limitranges
-      - persistentvolumeclaims
-      - resourcequotas
-      - services
     verbs:
       - get
       - list
       - watch
-      - create
-      - update
-      - patch
-      - delete
-  - apiGroups:
-      - ""
-    resources:
-      - configmaps
-      - events
-      - namespaces
-      - secrets
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - patch
-      - delete
-  - apiGroups:
-      - batch
-    resources:
-      - jobs
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - patch
-      - delete
-  - apiGroups:
-      - ""
-    resources:
-      - pods
-    verbs:
-      - get
-      - list
-      - watch
-      - delete
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

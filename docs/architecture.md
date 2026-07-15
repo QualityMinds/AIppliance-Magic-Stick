@@ -56,8 +56,8 @@ The base graph is defined under `magic-cluster/flux/graph/base`.
 
 Optional AI, Observability, GPU, and instance resources are no longer applied by
 the static graph. The Magic Stick Operator creates generated Flux
-`Kustomization` resources from runtime CRs and creates model or app resources
-from `ModelActivation` and `AppInstance` CRs.
+`Kustomization` resources from `ModuleActivation`, native KubeAI resources from
+`ModelActivation`, and Flux `HelmRelease` resources from `AppInstance` CRs.
 
 ## Appliance Model
 
@@ -68,7 +68,7 @@ selection happens through `ModuleActivation`, `ModelActivation`, and
 - K3s and Flux from host automation
 - base platform components
 - `Appliance`, `ModuleActivation`, `ModelActivation`, and `AppInstance` CRDs
-- `ConfigMap/magicstick-module-catalog`
+- `ConfigMap/magicstick-module-catalog` and `ConfigMap/magicstick-app-catalog`
 - live `magicstick-operator` controller
 - default `Appliance/local` with profile `ai-workstation`
 
@@ -78,11 +78,10 @@ create missing `ModuleActivation` resources, but existing runtime activations
 remain authoritative so administrators can disable a default module explicitly.
 
 The Magic Stick Operator is a meta-operator. It enables modules by generating
-Flux `Kustomization` resources and creates instance resources only after the
-required specialized operator CRDs or direct app modules exist. OpenClaw,
-Hermes, Paperclip, and KubeOpenCode continue to own their workload-specific
-reconciliation; Odysseus workloads are reconciled directly because there is no
-upstream Odysseus operator.
+Flux `Kustomization` resources and creates one Flux `HelmRelease` per instance
+after required modules and CRDs exist. Charts for OpenClaw, Hermes, Paperclip,
+and KubeOpenCode create their specialized CRs. The Odysseus chart owns its
+workloads directly because there is no upstream Odysseus operator.
 
 The dashboard is the user-facing client for this model. It runs in the cluster,
 reads the Appliance, module catalog, Flux, Pod, Service, Ingress, and Event
@@ -108,7 +107,7 @@ directly.
 | LiteLLM | `magic-cluster/apps/ai/litellm/base` | In-cluster OpenAI-compatible API and model routing. |
 | Model catalog | `magic-cluster/apps/ai/model-catalog` | Syncs KubeAI and external models into LiteLLM and publishes generated catalog fragments. |
 | AnythingLLM | `magic-cluster/apps/ai/anything-llm/base` | Uses LiteLLM and the generated embedding default. |
-| Runtime app instances | `AppInstance` CRs | Hermes, OpenClaw, Odysseus, Paperclip, and KubeOpenCode instances created by the Magic Stick Operator. |
+| Runtime app instances | `AppInstance` CRs | The Magic Stick Operator creates one Flux HelmRelease per instance; its chart owns the application resources. |
 | KubeOpenCode | `magic-cluster/apps/ai/kubeopencode` | Helm-managed KubeOpenCode controller and server module. |
 
 ## Value Boundary

@@ -127,7 +127,9 @@ Use two layers:
 
 - `magic-cluster/platform/ai/<name>-operator` for the operator, HelmRepository,
   HelmRelease, namespace, CRDs, and operator RBAC patches.
-- a Magic Stick Operator `AppInstance` builder for concrete runtime instances.
+- `magic-cluster/apps/instances/<name>` for the AppInstance Helm chart.
+- an entry in `magicstick-app-catalog` declaring the chart, required modules,
+  and required CRDs.
 
 This keeps CRD availability in a module base and app lifecycle in runtime CRs.
 
@@ -135,7 +137,8 @@ This keeps CRD availability in a module base and app lifecycle in runtime CRs.
 
 The dashboard may read Kubernetes status and create or patch
 `ModuleActivation`, `ModelActivation`, and `AppInstance` resources. It must not
-directly create workloads, Flux Kustomizations, or specialized operator CRs.
+directly create workloads, Flux Kustomizations, HelmReleases, or specialized
+operator CRs.
 Provider Secrets created from user-entered model credentials must stay scoped to
 that dashboard workflow. Keep dashboard examples limited to `example.local`,
 `example.com`, `CHANGEME`, or documented variables.

@@ -15,7 +15,6 @@ The module catalog is the source of truth. It is installed as
 |---|---|
 | `groups` | UI and documentation grouping metadata. Each group can define `displayName` and `order`. |
 | `modules` | Canonical module definitions keyed by module name. |
-| `instanceMappings` | Mapping from `AppInstance.spec.type` to required modules, required CRDs, and generated resource kinds. |
 
 Each module definition may contain:
 
@@ -33,7 +32,7 @@ Each module definition may contain:
 | `default` | Whether the module is seeded by the default AI-workstation appliance. |
 | `uninstallPolicy` | Public metadata for data-retention choices. |
 | `postBuildSubstitution` | Whether to include `ai-appliance-settings` as Flux post-build substitution. |
-| `parameters` | Optional dashboard advanced fields stored in `ModuleActivation.spec.parameters`. |
+| `parameters` | Optional dashboard fields stored in `ModuleActivation.spec.parameters`; each field may declare its Flux `substitution` variable. |
 
 Do not maintain a second hardcoded module list in dashboard code or docs. Add a
 module to the catalog and let the operator and dashboard discover it there.
@@ -105,12 +104,12 @@ postBuild:
 
 ## Instance Dependencies
 
-`instanceMappings` define which modules and CRDs an `AppInstance` type needs.
+`ConfigMap/magicstick-app-catalog` defines which modules and CRDs an
+`AppInstance.spec.application` needs and points to its Helm chart.
 For example, an OpenClaw instance requires `openclaw-operator`, `litellm`, and
 `model-catalog`. Odysseus instances require the `odysseus` app module plus
-`litellm` and `model-catalog`, but their Kubernetes workloads are reconciled
-directly by the Magic Stick Operator because Odysseus does not ship a dedicated
-upstream operator.
+`litellm` and `model-catalog`. Flux renders every instance from its application
+chart; the Magic Stick Operator does not create application workloads directly.
 
 A Paperclip instance requires `paperclip-operator`, `agent-sandbox`, `litellm`,
 and `model-catalog`. `agent-sandbox` installs the upstream Agent Sandbox

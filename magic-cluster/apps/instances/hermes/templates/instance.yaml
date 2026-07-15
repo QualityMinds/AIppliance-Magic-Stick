@@ -1,0 +1,54 @@
+{{- $instance := required "instance is required" .Values.instance -}}
+{{- $values := default dict $instance.values -}}
+{{- $ingress := default dict $values.ingress -}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $instance.name }}-api-server
+  namespace: {{ $instance.namespace }}
+  annotations:
+    secret-generator.v1.mittwald.de/autogenerate: API_SERVER_KEY
+    secret-generator.v1.mittwald.de/encoding: hex
+type: Opaque
+data: {}
+---
+apiVersion: hermes.agent/v1
+kind: HermesInstance
+metadata:
+  name: {{ $instance.name }}
+  namespace: {{ $instance.namespace }}
+  labels:
+    app.kubernetes.io/name: hermes
+    app.kubernetes.io/instance: {{ $instance.name }}
+    appliance.magicstick.dev/appinstance: {{ $instance.name }}
+spec:
+  image:
+    repository: {{ dig "image" "repository" "ghcr.io/paperclipinc/hermes-agent" $values | quote }}
+    tag: {{ dig "image" "tag" "v2026.5.29.2" $values | quote }}
+  storage:
+    persistence:
+      enabled: true
+      size: {{ dig "storage" "size" "10Gi" $values | quote }}
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {cpu: "1", memory: 2Gi}
+  security:
+    networkPolicy:
+      enabled: true
+      allowedIngressNamespaces: [ai, ingress-nginx]
+  networking:
+    service:
+      type: ClusterIP
+    ingress:
+      enabled: {{ default true $ingress.enabled }}
+      className: nginx
+      host: {{ $ingress.host | quote }}
+      annotations:
+        dashboard.ai-appliance.io/title: Hermes
+        dashboard.ai-appliance.io/category: AI
+        lab42.io/mdns.enabled: "true"
+        lab42.io/mdns.name: {{ $instance.localName | quote }}
+        lab42.io/mdns.host: {{ $instance.localName | quote }}
+  observability:
+    logging:
+      level: info

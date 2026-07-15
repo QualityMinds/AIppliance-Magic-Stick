@@ -1164,21 +1164,11 @@ data:
             return modules[name] || {};
           };
 
-          const INSTANCE_REQUIRED_MODULES = {
-            openclaw: ['openclaw-operator', 'litellm', 'model-catalog'],
-            hermes: ['hermes-operator', 'litellm', 'model-catalog'],
-            odysseus: ['odysseus', 'litellm', 'model-catalog'],
-            paperclip: ['paperclip-operator', 'agent-sandbox', 'litellm', 'model-catalog'],
-            kubeopencode: ['kubeopencode', 'litellm', 'model-catalog']
-          };
-
-          const instanceMappings = (modulePayload) => (((modulePayload || {}).catalogJson || {}).instanceMappings || {});
+          const applicationDefinitions = (modulePayload) => (((modulePayload || {}).catalogJson || {}).applications || {});
 
           const requiredModulesForInstance = (modulePayload, type) => {
-            const mapping = instanceMappings(modulePayload)[type] || {};
-            return Array.isArray(mapping.requiredModules) && mapping.requiredModules.length
-              ? mapping.requiredModules
-              : (INSTANCE_REQUIRED_MODULES[type] || []);
+            const definition = applicationDefinitions(modulePayload)[type] || {};
+            return Array.isArray(definition.requiredModules) ? definition.requiredModules : [];
           };
 
           const moduleInstalled = (modulePayload, name) => {
@@ -1488,7 +1478,7 @@ data:
 
           const instanceConfiguredHosts = (instance) => {
             const spec = (instance || {}).spec || {};
-            const params = spec.parameters || {};
+            const params = spec.values || {};
             const status = (instance || {}).status || {};
             const server = params.server || {};
             const hosts = [

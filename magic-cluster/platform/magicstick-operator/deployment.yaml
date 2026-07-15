@@ -20,7 +20,7 @@ spec:
         app.kubernetes.io/name: magicstick-operator
         app.kubernetes.io/component: controller
       annotations:
-        appliance.magicstick.dev/controller-config-revision: runtime-crs-v38
+        appliance.magicstick.dev/controller-config-revision: helm-appinstances-v1
     spec:
       serviceAccountName: magicstick-operator
       containers:
@@ -39,6 +39,10 @@ spec:
               value: ai-system
             - name: MODULE_CATALOG_NAME
               value: magicstick-module-catalog
+            - name: APP_CATALOG_NAMESPACE
+              value: ai-system
+            - name: APP_CATALOG_NAME
+              value: magicstick-app-catalog
             - name: FLUX_NAMESPACE
               value: flux-system
             - name: REQUEUE_SECONDS

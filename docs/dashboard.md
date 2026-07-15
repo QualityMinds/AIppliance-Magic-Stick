@@ -11,7 +11,7 @@ Dashboard UI
   -> Kubernetes API
   -> ModuleActivation, AppInstance, and ModelActivation CRs
   -> Magic Stick Operator
-  -> Flux Kustomizations, specialized operator CRs, and direct runtime resources
+  -> Flux Kustomizations, HelmReleases, and native KubeAI Model resources
 ```
 
 ## Role
@@ -20,6 +20,7 @@ The dashboard may:
 
 - read `Appliance/local`
 - read `ConfigMap/magicstick-module-catalog`
+- read `ConfigMap/magicstick-app-catalog`
 - read model presets and the generated `ConfigMap/ai-model-catalog`
 - read Flux, Pod, Service, Ingress, ConfigMap, Event, and GPU metric status
 - read and patch the runtime settings `ConfigMap/ai-appliance-settings`
@@ -60,7 +61,7 @@ The dashboard Deployment runs an API sidecar from
 | `GET` | `/api/instances` | Returns `AppInstance` resources and status. |
 | `GET` | `/api/instances/{name}/credentials` | Returns supported generated credentials for an instance, currently OpenClaw. |
 | `POST` | `/api/instances/{type}` | Adds or replaces an `AppInstance` for supported types such as `openclaw`, `hermes`, `odysseus`, `paperclip`, or `kubeopencode`. |
-| `DELETE` | `/api/instances/{name}` | Deletes the `AppInstance`; operator finalizers clean generated runtime resources. |
+| `DELETE` | `/api/instances/{name}` | Deletes the `AppInstance`; its finalizer removes the generated HelmRelease and Helm cleans the application resources. |
 | `GET` | `/api/models` | Returns model catalog entries, model presets, `ModelActivation` resources, AnythingLLM status, and VRAM summary. |
 | `POST` | `/api/models/estimate-vram` | Estimates VRAM for public HuggingFace model metadata, context size, and max sequence count. |
 | `POST` | `/api/models/local` | Adds or replaces a local KubeAI-backed `ModelActivation`. |
@@ -114,7 +115,7 @@ OpenCode sandbox runtime, optionally binds an existing OpenClaw or Hermes
 gateway instance, and sets the maximum concurrent sandbox count. Gateway
 selectors list existing matching `AppInstance` resources and are required only
 when their checkbox is enabled. These values are stored under
-`spec.parameters.agentExecution`; the dashboard does not create Paperclip
+`spec.values.agentExecution`; the dashboard does not create Paperclip
 companies, employee agents, or gateway credentials.
 
 ## Model Controls

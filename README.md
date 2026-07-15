@@ -158,8 +158,8 @@ need a Git token.
 
 The generated AI model catalog honors `AI_APPLIANCE_DEFAULT_CHAT_MODEL` and
 `AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL` when runtime settings override the public
-defaults. App-specific storage and preferred model values are runtime
-`AppInstance` parameters; instance hostnames are derived as
+defaults. App-specific storage and preferred model settings are runtime
+`AppInstance.spec.values`; instance hostnames are derived as
 `<instance-name>.<instance-type>.<domain>`. Module storage values are runtime
 `ModuleActivation.spec.parameters`.
 

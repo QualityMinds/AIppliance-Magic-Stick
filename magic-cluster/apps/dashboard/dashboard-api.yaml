@@ -26,6 +26,8 @@ data:
     APPLIANCE_NAME = os.environ.get("APPLIANCE_NAME", "local")
     MODULE_CATALOG_NAMESPACE = os.environ.get("MODULE_CATALOG_NAMESPACE", "ai-system")
     MODULE_CATALOG_NAME = os.environ.get("MODULE_CATALOG_NAME", "magicstick-module-catalog")
+    APP_CATALOG_NAMESPACE = os.environ.get("APP_CATALOG_NAMESPACE", "ai-system")
+    APP_CATALOG_NAME = os.environ.get("APP_CATALOG_NAME", "magicstick-app-catalog")
     MODEL_PRESETS_NAMESPACE = os.environ.get("MODEL_PRESETS_NAMESPACE", "ai-system")
     MODEL_PRESETS_NAME = os.environ.get("MODEL_PRESETS_NAME", "magicstick-model-presets")
     MODEL_TARGET_NAMESPACE = os.environ.get("MODEL_TARGET_NAMESPACE", "ai")
@@ -43,7 +45,6 @@ data:
     DEFAULT_MDNS_DOMAIN = "magicstick.local"
     SETTINGS_WATCH_LABELS = {"reconcile.fluxcd.io/watch": "Enabled"}
 
-    INSTANCE_TYPES = {"openclaw", "hermes", "odysseus", "paperclip", "kubeopencode"}
     MODEL_SECRET_PREFIX = "ai-model-provider-"
     SSL_CONTEXT = ssl.create_default_context(cafile=SA_CA_PATH)
     PUBLIC_SSL_CONTEXT = ssl.create_default_context()
@@ -341,6 +342,12 @@ data:
         return request_json("GET", f"/api/v1/namespaces/{MODULE_CATALOG_NAMESPACE}/configmaps/{MODULE_CATALOG_NAME}")
 
 
+    def app_catalog_json():
+        configmap = request_json("GET", f"/api/v1/namespaces/{APP_CATALOG_NAMESPACE}/configmaps/{APP_CATALOG_NAME}")
+        raw = (configmap.get("data") or {}).get("applications.json", "{}")
+        return json.loads(raw)
+
+
     def module_activations():
         return list_resource(f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/moduleactivations")
 
@@ -411,7 +418,7 @@ data:
         if not instance:
             raise LookupError("AppInstance not found: " + name)
         spec = instance.get("spec") or {}
-        if spec.get("type") != "openclaw":
+        if spec.get("application") != "openclaw":
             raise ValueError("credentials are only available for OpenClaw instances")
         target = openclaw_target(instance)
         target_name = target.get("name") or name
@@ -460,9 +467,9 @@ data:
             raise LookupError("AppInstance not found: " + name)
         metadata = instance.get("metadata") or {}
         spec = instance.get("spec") or {}
-        if spec.get("type") != "odysseus":
+        if spec.get("application") != "odysseus":
             raise ValueError("credentials are only available for Odysseus instances")
-        params = spec.get("parameters") or {}
+        params = spec.get("values") or {}
         admin = params.get("admin") or {}
         password_ref = admin.get("passwordSecretRef") or {}
         target_name = metadata.get("name") or name
@@ -509,9 +516,9 @@ data:
             raise LookupError("AppInstance not found: " + name)
         metadata = instance.get("metadata") or {}
         spec = instance.get("spec") or {}
-        if spec.get("type") != "paperclip":
+        if spec.get("application") != "paperclip":
             raise ValueError("credentials are only available for Paperclip instances")
-        params = spec.get("parameters") or {}
+        params = spec.get("values") or {}
         admin = params.get("admin") or {}
         if admin.get("enabled", True) is False:
             raise LookupError("Paperclip admin credentials are disabled for this instance")
@@ -563,7 +570,7 @@ data:
         instance = app_instance(name)
         if not instance:
             raise LookupError("AppInstance not found: " + name)
-        instance_type = (instance.get("spec") or {}).get("type")
+        instance_type = (instance.get("spec") or {}).get("application")
         if instance_type == "openclaw":
             return openclaw_credentials(name)
         if instance_type == "odysseus":
@@ -636,18 +643,18 @@ data:
                 "namespace": APPLIANCE_NAMESPACE,
                 "labels": {
                     "app.kubernetes.io/managed-by": "ai-appliance-dashboard",
-                    "appliance.magicstick.dev/instance-type": instance_type,
+                    "appliance.magicstick.dev/application": instance_type,
                 },
             },
             "spec": {
-                "type": instance_type,
+                "application": instance_type,
                 "enabled": payload.get("enabled", True) is not False,
                 "targetNamespace": target_namespace,
                 "applianceRef": {
                     "name": APPLIANCE_NAME,
                     "namespace": APPLIANCE_NAMESPACE,
                 },
-                "parameters": parameters,
+                "values": parameters,
             },
         }
 
@@ -1109,7 +1116,7 @@ data:
             }
         return {
             "catalog": json.dumps(catalog, indent=2, sort_keys=True),
-            "catalogJson": catalog,
+            "catalogJson": {**catalog, **app_catalog_json()},
             "modules": modules,
             "activations": module_activations(),
         }
@@ -1119,7 +1126,7 @@ data:
         grouped = {}
         for instance in app_instances():
             spec = instance.get("spec") or {}
-            instance_type = spec.get("type") or "unknown"
+            instance_type = spec.get("application") or "unknown"
             grouped.setdefault(instance_type, []).append({
                 "metadata": instance.get("metadata") or {},
                 "spec": spec,
@@ -1397,7 +1404,8 @@ data:
                     self.send_json(create_or_patch(collection, item, resource, {"spec": resource["spec"], "metadata": {"labels": resource["metadata"]["labels"]}}))
                     return
 
-                if len(parts) == 3 and parts[:2] == ["api", "instances"] and parts[2] in INSTANCE_TYPES:
+                applications = app_catalog_json().get("applications") or {}
+                if len(parts) == 3 and parts[:2] == ["api", "instances"] and parts[2] in applications:
                     instance_type = parts[2]
                     resource = app_instance_payload(instance_type, read_body(self))
                     name = resource["metadata"]["name"]

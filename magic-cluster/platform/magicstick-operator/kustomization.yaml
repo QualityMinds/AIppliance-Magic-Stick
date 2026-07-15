@@ -8,6 +8,7 @@ resources:
   - crds/modelactivations.appliance.magicstick.dev.yaml
   - rbac.yaml
   - module-catalog.yaml
+  - app-catalog.yaml
   - model-presets.yaml
   - controller-configmap.yaml
   - deployment.yaml

@@ -24,7 +24,7 @@ spec:
       additionalPrinterColumns:
         - name: Type
           type: string
-          jsonPath: .spec.type
+          jsonPath: .spec.application
         - name: Enabled
           type: boolean
           jsonPath: .spec.enabled
@@ -56,16 +56,11 @@ spec:
             spec:
               type: object
               required:
-                - type
+                - application
               properties:
-                type:
+                application:
                   type: string
-                  enum:
-                    - openclaw
-                    - hermes
-                    - odysseus
-                    - paperclip
-                    - kubeopencode
+                  minLength: 1
                 enabled:
                   type: boolean
                   default: true
@@ -81,10 +76,10 @@ spec:
                     namespace:
                       type: string
                       default: ai-system
-                parameters:
+                values:
                   type: object
                   x-kubernetes-preserve-unknown-fields: true
-                  description: Public-safe instance parameters such as host, model, storage, and template.
+                  description: Public-safe Helm values for the selected application definition.
             status:
               type: object
               properties:

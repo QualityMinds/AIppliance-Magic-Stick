@@ -9,12 +9,9 @@ metadata:
 data:
   controller.py: |
     #!/usr/bin/env python3
-    import hashlib
     import json
     import os
     import ssl
-    import textwrap
-    import threading
     import time
     import traceback
     import urllib.error
@@ -28,6 +25,8 @@ data:
     APPLIANCE_NAME = os.environ.get("APPLIANCE_NAME", "local")
     CATALOG_NAMESPACE = os.environ.get("MODULE_CATALOG_NAMESPACE", "ai-system")
     CATALOG_NAME = os.environ.get("MODULE_CATALOG_NAME", "magicstick-module-catalog")
+    APP_CATALOG_NAMESPACE = os.environ.get("APP_CATALOG_NAMESPACE", "ai-system")
+    APP_CATALOG_NAME = os.environ.get("APP_CATALOG_NAME", "magicstick-app-catalog")
     MODEL_PRESETS_NAMESPACE = os.environ.get("MODEL_PRESETS_NAMESPACE", "ai-system")
     MODEL_PRESETS_NAME = os.environ.get("MODEL_PRESETS_NAME", "magicstick-model-presets")
     FLUX_NAMESPACE = os.environ.get("FLUX_NAMESPACE", "flux-system")
@@ -44,43 +43,13 @@ data:
     MODULE_FINALIZER = "appliance.magicstick.dev/module-cleanup"
     APPINSTANCE_FINALIZER = "appliance.magicstick.dev/appinstance-cleanup"
     MODEL_FINALIZER = "appliance.magicstick.dev/model-cleanup"
-    MODULE_PARAMETER_SUBSTITUTIONS = {
-        "litellm": {
-            "postgresStorage": "AI_APPLIANCE_LITELLM_POSTGRES_STORAGE",
-        },
-        "anything-llm": {
-            "storage": "AI_APPLIANCE_ANYTHING_LLM_STORAGE",
-            "qdrantStorage": "AI_APPLIANCE_QDRANT_STORAGE",
-        },
-        "observability": {
-            "lokiStorage": "AI_APPLIANCE_LOKI_STORAGE",
-            "alertmanagerStorage": "AI_APPLIANCE_ALERTMANAGER_STORAGE",
-            "prometheusStorage": "AI_APPLIANCE_PROMETHEUS_STORAGE",
-        },
-    }
-
     PLURALS = {
         ("appliance.magicstick.dev", "ModuleActivation"): "moduleactivations",
         ("appliance.magicstick.dev", "AppInstance"): "appinstances",
         ("appliance.magicstick.dev", "ModelActivation"): "modelactivations",
         ("kustomize.toolkit.fluxcd.io", "Kustomization"): "kustomizations",
-        ("batch", "Job"): "jobs",
+        ("helm.toolkit.fluxcd.io", "HelmRelease"): "helmreleases",
         ("kubeai.org", "Model"): "models",
-        ("openclaw.rocks", "OpenClawInstance"): "openclawinstances",
-        ("hermes.agent", "HermesInstance"): "hermesinstances",
-        ("paperclip.inc", "Instance"): "instances",
-        ("kubeopencode.io", "Agent"): "agents",
-        ("kubeopencode.io", "AgentTemplate"): "agenttemplates",
-        ("apps", "Deployment"): "deployments",
-        ("networking.k8s.io", "Ingress"): "ingresses",
-        ("networking.k8s.io", "NetworkPolicy"): "networkpolicies",
-        ("rbac.authorization.k8s.io", "ClusterRole"): "clusterroles",
-        ("rbac.authorization.k8s.io", "ClusterRoleBinding"): "clusterrolebindings",
-    }
-
-    CLUSTER_SCOPED_RESOURCES = {
-        ("rbac.authorization.k8s.io", "ClusterRole"),
-        ("rbac.authorization.k8s.io", "ClusterRoleBinding"),
     }
 
     STATIC_DEPENDENCIES = {
@@ -156,8 +125,6 @@ data:
         if "/" in api_version:
             group, version = api_version.split("/", 1)
             plural = PLURALS[(group, kind)]
-            if (group, kind) in CLUSTER_SCOPED_RESOURCES:
-                return f"/apis/{group}/{version}/{plural}/{name}"
             return f"/apis/{group}/{version}/namespaces/{namespace}/{plural}/{name}"
         plural = kind.lower() + "s"
         return f"/api/{api_version}/namespaces/{namespace}/{plural}/{name}"
@@ -191,19 +158,6 @@ data:
         kind = resource["kind"]
         metadata = resource.get("metadata") or {}
         return delete_json(resource_path(api_version, kind, metadata.get("namespace"), metadata.get("name")))
-
-
-    def delete_labeled_resources(api_version, kind, namespace, label_selector):
-        item_path = resource_path(api_version, kind, namespace, "item")
-        collection_path = item_path.rsplit("/", 1)[0]
-        query = urllib.parse.urlencode({"labelSelector": label_selector})
-        for resource in list_items(collection_path + "?" + query):
-            name = ((resource.get("metadata") or {}).get("name") or "").strip()
-            if name:
-                delete_json(
-                    collection_path + "/" + urllib.parse.quote(name, safe=""),
-                    {"apiVersion": "v1", "kind": "DeleteOptions", "propagationPolicy": "Background"},
-                )
 
 
     def get_resource(group, version, plural, namespace, name):
@@ -298,6 +252,12 @@ data:
         return json.loads(raw)
 
 
+    def load_app_catalog():
+        configmap = get_json(f"/api/v1/namespaces/{APP_CATALOG_NAMESPACE}/configmaps/{APP_CATALOG_NAME}")
+        raw = (configmap.get("data") or {}).get("applications.json", "{}")
+        return json.loads(raw)
+
+
     def load_model_presets():
         try:
             configmap = get_json(f"/api/v1/namespaces/{MODEL_PRESETS_NAMESPACE}/configmaps/{MODEL_PRESETS_NAME}")
@@ -318,18 +278,6 @@ data:
             parsed = int(value.strip())
             return parsed if parsed > 0 else None
         return None
-
-
-    def boolean_value(value, default=False):
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, str):
-            normalized = value.strip().lower()
-            if normalized in ("true", "1", "yes", "on"):
-                return True
-            if normalized in ("false", "0", "no", "off"):
-                return False
-        return default
 
 
     def parse_mib(value):
@@ -368,41 +316,6 @@ data:
 
     def catalog_contains_model(namespace, model_name):
         return any(model.get("id") == model_name or model.get("name") == model_name for model in model_catalog_models(namespace))
-
-
-    def strip_model_provider_prefix(value):
-        raw = str(value or "").strip()
-        for prefix in ("litellm/", "openai/"):
-            if raw.startswith(prefix):
-                return raw[len(prefix):]
-        return raw
-
-
-    def model_catalog_chat_models(namespace):
-        configmap = get_core_resource("v1", "configmaps", namespace, "ai-model-catalog")
-        raw = ((configmap or {}).get("data") or {}).get("chat-models.json", "{}")
-        try:
-            catalog = json.loads(raw)
-        except Exception:
-            return [], ""
-        models = [model for model in (catalog.get("models") or []) if model.get("id") or model.get("name")]
-        return models, (catalog.get("defaultModel") or "").strip()
-
-
-    def select_catalog_chat_model(namespace, requested_model):
-        models, default_model = model_catalog_chat_models(namespace)
-        model_ids = [model.get("id") or model.get("name") for model in models]
-        normalized_requested = strip_model_provider_prefix(requested_model)
-        selected = ""
-        if normalized_requested in model_ids:
-            selected = normalized_requested
-        elif default_model in model_ids:
-            selected = default_model
-        elif model_ids:
-            selected = model_ids[0]
-        else:
-            selected = normalized_requested or "CHANGEME_MODEL"
-        return selected, models
 
 
     def dns_label_part(value, fallback="default"):
@@ -468,8 +381,8 @@ data:
 
     def app_instance_short_name(instance, instance_type):
         metadata = instance.get("metadata") or {}
-        params = ((instance.get("spec") or {}).get("parameters") or {})
-        raw = str(params.get("name") or metadata.get("name") or "default").strip()
+        values = ((instance.get("spec") or {}).get("values") or {})
+        raw = str(values.get("name") or metadata.get("name") or "default").strip()
         prefix = str(instance_type or "").strip() + "-"
         if prefix and raw.startswith(prefix):
             raw = raw[len(prefix):]
@@ -478,72 +391,6 @@ data:
 
     def app_instance_local_host(instance, instance_type):
         return local_http_host(app_instance_short_name(instance, instance_type) + "." + dns_label_part(instance_type, "instance"))
-
-
-    def derived_resource_name(name, suffix):
-        clean_name = dns_label_part(name, "app")
-        clean_suffix = dns_label_part(suffix, "managed")
-        max_base = 63 - len(clean_suffix) - 1
-        return clean_name[:max_base].rstrip("-") + "-" + clean_suffix
-
-
-    def ingress_backend_port(value):
-        if isinstance(value, int):
-            return {"number": value}
-        if isinstance(value, str) and value.isdigit():
-            return {"number": int(value)}
-        return {"name": str(value or "http")}
-
-
-    def managed_ingress(name, namespace, hosts, service_name, service_port, annotations=None, labels=None):
-        unique_hosts = []
-        for host in hosts:
-            host = str(host or "").strip().strip(".").lower()
-            if host and host not in unique_hosts:
-                unique_hosts.append(host)
-        return {
-            "apiVersion": "networking.k8s.io/v1",
-            "kind": "Ingress",
-            "metadata": {
-                "name": name,
-                "namespace": namespace,
-                "labels": labels or {},
-                "annotations": annotations or {},
-            },
-            "spec": {
-                "ingressClassName": "nginx",
-                "rules": [{
-                    "host": host,
-                    "http": {
-                        "paths": [{
-                            "path": "/",
-                            "pathType": "Prefix",
-                            "backend": {
-                                "service": {
-                                    "name": service_name,
-                                    "port": ingress_backend_port(service_port),
-                                },
-                            },
-                        }],
-                    },
-                } for host in unique_hosts],
-            },
-        }
-
-
-    def dashboard_ingress_annotations(title, description, icon, category, order, local_name, extra=None):
-        annotations = {
-            "dashboard.ai-appliance.io/title": title,
-            "dashboard.ai-appliance.io/description": description,
-            "dashboard.ai-appliance.io/icon": icon,
-            "dashboard.ai-appliance.io/category": category,
-            "dashboard.ai-appliance.io/order": str(order),
-            "lab42.io/mdns.enabled": "true",
-            "lab42.io/mdns.name": local_name,
-            "lab42.io/mdns.host": local_name,
-        }
-        annotations.update(extra or {})
-        return annotations
 
 
     def canonical_module(name):
@@ -699,9 +546,13 @@ data:
         return str(value or "").strip()
 
 
-    def module_parameter_substitutions(module, parameters):
+    def module_parameter_substitutions(module_spec, parameters):
         substitutions = {}
-        for parameter_name, env_name in (MODULE_PARAMETER_SUBSTITUTIONS.get(module) or {}).items():
+        for parameter in module_spec.get("parameters") or []:
+            parameter_name = parameter.get("name")
+            env_name = parameter.get("substitution")
+            if not parameter_name or not env_name:
+                continue
             value = parameter_value(parameters, parameter_name)
             if value:
                 substitutions[env_name] = value
@@ -728,7 +579,7 @@ data:
         }
         if depends_on:
             spec["dependsOn"] = depends_on
-        substitutions = module_parameter_substitutions(module, parameters)
+        substitutions = module_parameter_substitutions(module_spec, parameters)
         if module_spec.get("postBuildSubstitution"):
             substitute = {"var_substitution_enabled": "true"}
             substitute.update(substitutions)
@@ -1116,2144 +967,154 @@ data:
         return "Reconciling", {"phase": "Reconciling", "modelRef": model_ref, "catalogId": name, "vramRequiredMi": vram_mi, "message": message}
 
 
-    def build_openclaw(instance):
+    def app_instance_helmrelease(instance, definition, source, suspend=False):
         metadata = instance.get("metadata") or {}
         spec = instance.get("spec") or {}
-        params = spec.get("parameters") or {}
+        values = dict(spec.get("values") or {})
+        application = spec.get("application") or ""
         name = metadata.get("name")
-        namespace = spec.get("targetNamespace") or "ai"
-        host = ((params.get("ingress") or {}).get("host") or params.get("host") or "openclaw.example.local")
-        local_host = app_instance_local_host(instance, "openclaw")
-        local_name = local_mdns_name(local_host)
-        model = params.get("model") or "CHANGEME_MODEL"
-        storage = ((params.get("storage") or {}).get("size") or params.get("storageSize") or "10Gi")
-        paperclip_agent_secret_ref = params.get("paperclipAgentSecretRef") or {}
-        paperclip_agent_secret_name = paperclip_agent_secret_ref.get("name") or ""
-        paperclip_agent_secret_key = paperclip_agent_secret_ref.get("key") or "paperclip-claimed-api-key.json"
-        catalog_init_script = textwrap.dedent("""\
-            set -eu
-            for attempt in $(seq 1 120); do
-              if [ -f /catalog/defaults.env ] && grep -q '^AI_APPLIANCE_MODEL_CATALOG_READY=true$' /catalog/defaults.env; then
-                break
-              fi
-              echo "Waiting for ai-model-catalog ($attempt/120)"
-              sleep 5
-            done
-            grep -q '^AI_APPLIANCE_MODEL_CATALOG_READY=true$' /catalog/defaults.env
-            node <<'NODE'
-            const fs = require("fs");
-            const configPath = "/data/openclaw.json";
-            const catalogPath = process.env.AI_MODEL_CATALOG_OPENCLAW_PATH || "/catalog/openclaw.json";
-            const preferredModel = process.env.OPENCLAW_DEFAULT_MODEL || "";
-
-            function normalizeModel(value) {
-              return String(value || "").replace(/^(openai|litellm|openrouter)\\//, "");
-            }
-
-            function deepMerge(base, overlay) {
-              const result = { ...base };
-              for (const [key, value] of Object.entries(overlay)) {
-                if (
-                  value &&
-                  typeof value === "object" &&
-                  !Array.isArray(value) &&
-                  result[key] &&
-                  typeof result[key] === "object" &&
-                  !Array.isArray(result[key])
-                ) {
-                  result[key] = deepMerge(result[key], value);
-                } else {
-                  result[key] = value;
-                }
-              }
-              return result;
-            }
-
-            function deletePath(object, path) {
-              const parts = path.split(".");
-              let current = object;
-              for (let index = 0; index < parts.length - 1; index += 1) {
-                if (!current || typeof current !== "object") {
-                  return;
-                }
-                current = current[parts[index]];
-              }
-              if (current && typeof current === "object") {
-                delete current[parts[parts.length - 1]];
-              }
-            }
-
-            const overlay = JSON.parse(fs.readFileSync(catalogPath, "utf8"));
-            const provider = (((overlay.models || {}).providers || {}).litellm || {});
-            provider.baseUrl = process.env.OPENAI_BASE_URL.replace(/\\/+$/, "");
-            provider.apiKey = "$" + "{OPENAI_API_KEY}";
-            const models = Array.isArray(provider.models) ? provider.models : [];
-            if (models.length === 0) {
-              throw new Error("ai-model-catalog has no OpenClaw chat models");
-            }
-
-            const ids = new Set(models.map((item) => item.id));
-            const normalizedPreferredModel = normalizeModel(preferredModel);
-            const catalogDefault = normalizeModel(((((overlay.agents || {}).defaults || {}).model || {}).primary || ""));
-            const selectedModel = normalizedPreferredModel && ids.has(normalizedPreferredModel)
-              ? normalizedPreferredModel
-              : catalogDefault && ids.has(catalogDefault)
-                ? catalogDefault
-                : models[0].id;
-
-            overlay.models = {
-              ...(overlay.models || {}),
-              providers: {
-                ...((overlay.models || {}).providers || {}),
-                litellm: provider,
-              },
-            };
-            overlay.agents = {
-              ...(overlay.agents || {}),
-              defaults: {
-                ...((overlay.agents || {}).defaults || {}),
-                model: {
-                  ...(((overlay.agents || {}).defaults || {}).model || {}),
-                  primary: "litellm/" + selectedModel,
-                },
-              },
-            };
-
-            const existing = fs.existsSync(configPath)
-              ? JSON.parse(fs.readFileSync(configPath, "utf8"))
-              : {};
-            for (const path of [
-              "models.providers.openai",
-              "models.providers.openrouter",
-              "providers.openai",
-              "providers.openrouter",
-            ]) {
-              deletePath(existing, path);
-            }
-            const config = deepMerge(existing, overlay);
-
-            fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\\n");
-            console.log("Configured OpenClaw from ai-model-catalog with " + models.length + " models; primary=litellm/" + selectedModel);
-            NODE
-            if [ -f /paperclip-agent-key/paperclip-claimed-api-key.json ]; then
-              mkdir -p /data/workspace
-              chmod 700 /data/workspace
-              cp /paperclip-agent-key/paperclip-claimed-api-key.json /data/workspace/paperclip-claimed-api-key.json
-              chmod 600 /data/workspace/paperclip-claimed-api-key.json
-              echo "Installed OpenClaw Paperclip agent credentials"
-            fi
-        """)
-        openclaw_extra_volumes = [{"name": "ai-model-catalog", "configMap": {"name": "ai-model-catalog"}}]
-        openclaw_init_volume_mounts = [
-            {"name": "data", "mountPath": "/data"},
-            {"name": "ai-model-catalog", "mountPath": "/catalog", "readOnly": True},
-        ]
-        if paperclip_agent_secret_name:
-            openclaw_extra_volumes.append({
-                "name": "paperclip-agent-key",
-                "secret": {
-                    "secretName": paperclip_agent_secret_name,
-                    "items": [{"key": paperclip_agent_secret_key, "path": "paperclip-claimed-api-key.json"}],
-                    "defaultMode": 256,
-                },
-            })
-            openclaw_init_volume_mounts.append({
-                "name": "paperclip-agent-key",
-                "mountPath": "/paperclip-agent-key",
-                "readOnly": True,
-            })
-        openclaw_instance = {
-            "apiVersion": "openclaw.rocks/v1alpha1",
-            "kind": "OpenClawInstance",
-            "metadata": {"name": name, "namespace": namespace, "labels": {"app": "openclaw"}},
-            "spec": {
-                "podAnnotations": {"ai-appliance.io/model-catalog-consumer": "true"},
-                "config": {"mergeMode": "merge"},
-                "env": [
-                    {"name": "OPENAI_BASE_URL", "value": "http://litellm.ai.svc.cluster.local:4000/v1"},
-                    {"name": "OPENCLAW_DEFAULT_MODEL", "value": model},
-                    {"name": "OPENAI_API_KEY", "valueFrom": {"secretKeyRef": {"name": "litellm-masterkey-secret", "key": "LITELLM_MASTER_KEY"}}},
-                ],
-                "initContainers": [{
-                    "name": "openclaw-litellm-models",
-                    "image": "node:22-alpine",
-                    "imagePullPolicy": "IfNotPresent",
-                    "command": ["/bin/sh", "-c"],
-                    "args": [catalog_init_script],
-                    "env": [
-                        {"name": "OPENAI_BASE_URL", "value": "http://litellm.ai.svc.cluster.local:4000/v1"},
-                        {"name": "OPENCLAW_DEFAULT_MODEL", "value": model},
-                        {"name": "AI_MODEL_CATALOG_OPENCLAW_PATH", "value": "/catalog/openclaw.json"},
-                        {"name": "OPENAI_API_KEY", "valueFrom": {"secretKeyRef": {"name": "litellm-masterkey-secret", "key": "LITELLM_MASTER_KEY"}}},
-                    ],
-                    "volumeMounts": openclaw_init_volume_mounts,
-                }],
-                "extraVolumes": openclaw_extra_volumes,
-                "storage": {"persistence": {"enabled": True, "size": storage}},
-                "security": {
-                    "networkPolicy": {
-                        "enabled": True,
-                        "allowedIngressNamespaces": ["ai", "ingress-nginx"],
-                        "additionalEgress": [
-                            {
-                                "to": [{"podSelector": {"matchLabels": {"app": "litellm"}}}],
-                                "ports": [{"protocol": "TCP", "port": 4000}],
-                            },
-                            {
-                                "to": [{"podSelector": {"matchLabels": {"app.kubernetes.io/name": "paperclip"}}}],
-                                "ports": [{"protocol": "TCP", "port": 3100}],
-                            },
-                        ],
-                    },
-                },
-                "networking": {
-                    "service": {"type": "ClusterIP"},
-                    "ingress": {
-                        "enabled": True,
-                        "className": "nginx",
-                        "security": {
-                            "enableHSTS": False,
-                            "forceHTTPS": False,
-                        },
-                        "annotations": {
-                            "dashboard.ai-appliance.io/title": "OpenClaw",
-                            "dashboard.ai-appliance.io/description": "Self-hosted OpenClaw AI agent managed by the OpenClaw operator.",
-                            "dashboard.ai-appliance.io/icon": "OC",
-                            "dashboard.ai-appliance.io/category": "AI",
-                            "dashboard.ai-appliance.io/order": "45",
-                            "lab42.io/mdns.enabled": "true",
-                            "lab42.io/mdns.name": local_name,
-                            "lab42.io/mdns.host": local_name,
-                        },
-                        "hosts": [
-                            {"host": host, "paths": [{"path": "/", "pathType": "Prefix"}]},
-                            {"host": local_host, "paths": [{"path": "/", "pathType": "Prefix"}]},
-                        ],
-                    },
-                },
-            },
-        }
-        return openclaw_instance, "http://" + host + "/"
-
-
-    def build_hermes(instance):
-        metadata = instance.get("metadata") or {}
-        spec = instance.get("spec") or {}
-        params = spec.get("parameters") or {}
-        name = metadata.get("name")
-        namespace = spec.get("targetNamespace") or "ai"
-        host = ((params.get("ingress") or {}).get("host") or params.get("host") or "hermes.example.local")
-        local_host = app_instance_local_host(instance, "hermes")
-        local_name = local_mdns_name(local_host)
-        ingress_host = local_host if host == "hermes.example.local" else host
-        model = params.get("model") or "qwen3635b"
-        storage = ((params.get("storage") or {}).get("size") or params.get("storageSize") or "10Gi")
-        api_server_secret_name = derived_resource_name(name or "hermes", "api-server")
-        paperclip_agent_secret_ref = params.get("paperclipAgentSecretRef") or {}
-        paperclip_agent_secret_name = paperclip_agent_secret_ref.get("name") or ""
-        paperclip_agent_secret_key = paperclip_agent_secret_ref.get("key") or "PAPERCLIP_API_KEY"
-        paperclip_api_url = params.get("paperclipApiUrl") or ""
-        catalog_init_script = textwrap.dedent("""\
-            set -eu
-            for attempt in $(seq 1 120); do
-              if [ -f /catalog/defaults.env ] && grep -q '^AI_APPLIANCE_MODEL_CATALOG_READY=true$' /catalog/defaults.env; then
-                break
-              fi
-              echo "Waiting for ai-model-catalog ($attempt/120)"
-              sleep 5
-            done
-            grep -q '^AI_APPLIANCE_MODEL_CATALOG_READY=true$' /catalog/defaults.env
-            /opt/hermes/.venv/bin/python3 <<'PY'
-            import os
-            from pathlib import Path
-
-            import yaml
-
-            config_path = Path("/home/hermes/.hermes/config.yaml")
-            catalog_path = Path(os.environ.get("AI_MODEL_CATALOG_HERMES_PATH", "/catalog/hermes.yaml"))
-            preferred_model = os.environ.get("HERMES_DEFAULT_MODEL", "").strip()
-
-            def strip_provider_prefix(value):
-                return value.removeprefix("openai/").removeprefix("litellm/")
-
-            def deep_merge(base, overlay):
-                result = dict(base)
-                for key, value in overlay.items():
-                    if isinstance(value, dict) and isinstance(result.get(key), dict):
-                        result[key] = deep_merge(result[key], value)
-                    else:
-                        result[key] = value
-                return result
-
-            overlay = yaml.safe_load(catalog_path.read_text()) or {}
-            provider = (overlay.get("providers") or {}).get("litellm") or {}
-            models = provider.get("models") or {}
-            if not models:
-                raise RuntimeError("ai-model-catalog has no Hermes chat models")
-
-            selected_model = ((overlay.get("model") or {}).get("default") or "").strip()
-            if preferred_model:
-                preferred = strip_provider_prefix(preferred_model)
-                for model_id in models:
-                    if model_id == preferred_model or strip_provider_prefix(model_id) == preferred:
-                        selected_model = model_id
-                        break
-            if not selected_model:
-                selected_model = next(iter(models))
-
-            overlay.setdefault("model", {})["default"] = selected_model
-            overlay.setdefault("providers", {}).setdefault("litellm", {})["default_model"] = selected_model
-
-            existing = {}
-            if config_path.exists():
-                loaded = yaml.safe_load(config_path.read_text()) or {}
-                if isinstance(loaded, dict):
-                    existing = loaded
-            dashboard_config = existing.setdefault("dashboard", {})
-            hidden_plugins = dashboard_config.setdefault("hidden_plugins", [])
-            if isinstance(hidden_plugins, list) and "example" not in hidden_plugins:
-                hidden_plugins.append("example")
-
-            config_path.parent.mkdir(parents=True, exist_ok=True)
-            config_path.write_text(yaml.safe_dump(deep_merge(existing, overlay), sort_keys=False))
-            print(f"Configured Hermes from ai-model-catalog with {len(models)} models; default={selected_model}", flush=True)
-            PY
-        """)
-        apply_resource({
-            "apiVersion": "v1",
-            "kind": "ConfigMap",
-            "metadata": {"name": "hermes-runtime-wrapper", "namespace": namespace},
-            "data": {"hermes-entrypoint": "#!/bin/sh\nset -eu\nexec sleep infinity\n"},
-        })
-        dashboard_proxy_config = textwrap.dedent("""\
-            server {
-              listen 8443;
-              server_name _;
-              client_max_body_size 32m;
-              proxy_read_timeout 3600s;
-              proxy_send_timeout 3600s;
-              proxy_buffering off;
-
-              location / {
-                proxy_pass http://127.0.0.1:9119;
-                proxy_http_version 1.1;
-                proxy_set_header Host 127.0.0.1:9119;
-                proxy_set_header Origin http://127.0.0.1:9119;
-                proxy_set_header X-Real-IP 127.0.0.1;
-                proxy_set_header X-Forwarded-For 127.0.0.1;
-                proxy_set_header X-Forwarded-Host $host;
-                proxy_set_header X-Forwarded-Proto $scheme;
-                proxy_set_header Upgrade $http_upgrade;
-                proxy_set_header Connection "upgrade";
-              }
-            }
-        """)
-        apply_resource({
-            "apiVersion": "v1",
-            "kind": "ConfigMap",
-            "metadata": {"name": "hermes-dashboard-proxy", "namespace": namespace},
-            "data": {"default.conf": dashboard_proxy_config},
-        })
-        hermes_api_env = [
-            {"name": "API_SERVER_ENABLED", "value": "true"},
-            {"name": "API_SERVER_HOST", "value": "0.0.0.0"},
-            {"name": "API_SERVER_PORT", "value": "8642"},
-            {"name": "API_SERVER_KEY", "valueFrom": {"secretKeyRef": {"name": api_server_secret_name, "key": "API_SERVER_KEY"}}},
-            {"name": "HERMES_UID", "value": "1000"},
-            {"name": "HERMES_GID", "value": "1000"},
-            {"name": "HERMES_HOME", "value": "/home/hermes/.hermes"},
-            {"name": "HOME", "value": "/home/hermes"},
-            {"name": "XDG_CACHE_HOME", "value": "/tmp/.cache"},
-            {"name": "TIRITH_ENABLED", "value": "false"},
-            {"name": "HERMES_YOLO_MODE", "value": "1"},
-            {"name": "OPENAI_API_KEY", "valueFrom": {"secretKeyRef": {"name": "litellm-masterkey-secret", "key": "LITELLM_MASTER_KEY"}}},
-            {"name": "OPENAI_BASE_URL", "value": "http://litellm.ai.svc.cluster.local:4000/v1"},
-        ]
-        if paperclip_agent_secret_name:
-            hermes_api_env.append({
-                "name": "PAPERCLIP_API_KEY",
-                "valueFrom": {"secretKeyRef": {
-                    "name": paperclip_agent_secret_name,
-                    "key": paperclip_agent_secret_key,
-                }},
-            })
-        if paperclip_api_url:
-            hermes_api_env.append({"name": "PAPERCLIP_API_URL", "value": paperclip_api_url})
-        hermes_instance = {
-            "apiVersion": "hermes.agent/v1",
-            "kind": "HermesInstance",
-            "metadata": {"name": name, "namespace": namespace, "labels": {"app": "hermes"}},
-            "spec": {
-                "shareProcessNamespace": False,
-                "image": {"repository": "ghcr.io/paperclipinc/hermes-agent", "tag": "v2026.5.29.2"},
-                "storage": {"persistence": {"enabled": True, "size": storage}},
-                "resources": {
-                    "requests": {"cpu": "250m", "memory": "512Mi"},
-                    "limits": {"cpu": "1", "memory": "2Gi"},
-                },
-                "security": {
-                    "networkPolicy": {
-                        "enabled": True,
-                        "allowedIngressNamespaces": ["ai", "ingress-nginx"],
-                        "additionalEgress": [
-                            {
-                                "to": [{"podSelector": {"matchLabels": {"app": "litellm"}}}],
-                                "ports": [{"protocol": "TCP", "port": 4000}],
-                            },
-                            {
-                                "to": [{"podSelector": {"matchLabels": {"app.kubernetes.io/name": "paperclip"}}}],
-                                "ports": [{"protocol": "TCP", "port": 3100}],
-                            },
-                        ],
-                    },
-                },
-                "runtime": {"uv": {"enabled": False}},
-                "initContainers": [{
-                    "name": "hermes-litellm-models",
-                    "image": "nousresearch/hermes-agent:v2026.5.29.2",
-                    "imagePullPolicy": "IfNotPresent",
-                    "command": ["/bin/sh", "-c"],
-                    "args": [catalog_init_script],
-                    "env": [
-                        {"name": "OPENAI_API_KEY", "valueFrom": {"secretKeyRef": {"name": "litellm-masterkey-secret", "key": "LITELLM_MASTER_KEY"}}},
-                        {"name": "OPENAI_BASE_URL", "value": "http://litellm.ai.svc.cluster.local:4000/v1"},
-                        {"name": "AI_MODEL_CATALOG_HERMES_PATH", "value": "/catalog/hermes.yaml"},
-                        {"name": "HERMES_DEFAULT_MODEL", "value": model},
-                        {"name": "HOME", "value": "/home/hermes"},
-                        {"name": "HERMES_HOME", "value": "/home/hermes/.hermes"},
-                        {"name": "XDG_CACHE_HOME", "value": "/tmp/.cache"},
-                    ],
-                    "volumeMounts": [
-                        {"name": "data", "mountPath": "/home/hermes/.hermes"},
-                        {"name": "tmp", "mountPath": "/tmp"},
-                        {"name": "ai-model-catalog", "mountPath": "/catalog", "readOnly": True},
-                    ],
-                    "securityContext": {
-                        "allowPrivilegeEscalation": False,
-                        "capabilities": {"drop": ["ALL"]},
-                        "runAsNonRoot": True,
-                        "runAsUser": 1000,
-                        "runAsGroup": 1000,
-                        "readOnlyRootFilesystem": False,
-                    },
-                }],
-                "extraVolumes": [
-                    {"name": "hermes-runtime-wrapper", "configMap": {"name": "hermes-runtime-wrapper", "defaultMode": 365}},
-                    {"name": "ai-model-catalog", "configMap": {"name": "ai-model-catalog"}},
-                    {"name": "hermes-dashboard-proxy", "configMap": {"name": "hermes-dashboard-proxy"}},
-                ],
-                "extraVolumeMounts": [{"name": "hermes-runtime-wrapper", "mountPath": "/usr/local/bin/hermes-entrypoint", "subPath": "hermes-entrypoint", "readOnly": True}],
-                "sidecars": [
-                    {
-                        "name": "hermes-dashboard",
-                        "image": "nousresearch/hermes-agent:v2026.5.29.2",
-                        "imagePullPolicy": "IfNotPresent",
-                        "args": ["dashboard", "--host", "127.0.0.1", "--port", "9119", "--no-open", "--tui", "--insecure"],
-                        "env": [
-                            {"name": "HERMES_HOME", "value": "/home/hermes/.hermes"},
-                            {"name": "HERMES_UID", "value": "1000"},
-                            {"name": "HERMES_GID", "value": "1000"},
-                            {"name": "HOME", "value": "/home/hermes"},
-                            {"name": "XDG_CACHE_HOME", "value": "/tmp/.cache"},
-                            {"name": "OPENAI_API_KEY", "valueFrom": {"secretKeyRef": {"name": "litellm-masterkey-secret", "key": "LITELLM_MASTER_KEY"}}},
-                        ],
-                        "resources": {
-                            "requests": {"cpu": "250m", "memory": "512Mi"},
-                            "limits": {"cpu": "1", "memory": "2Gi"},
-                        },
-                        "securityContext": {
-                            "runAsNonRoot": False,
-                            "runAsUser": 0,
-                            "runAsGroup": 0,
-                            "readOnlyRootFilesystem": False,
-                        },
-                        "volumeMounts": [
-                            {"name": "data", "mountPath": "/home/hermes/.hermes"},
-                            {"name": "tmp", "mountPath": "/tmp"},
-                        ],
-                    },
-                    {
-                        "name": "hermes-api",
-                        "image": "nousresearch/hermes-agent:v2026.7.7.2",
-                        "imagePullPolicy": "IfNotPresent",
-                        "args": ["gateway", "run", "--replace", "--accept-hooks"],
-                        "ports": [{"name": "hermes-api", "containerPort": 8642, "protocol": "TCP"}],
-                        "env": hermes_api_env,
-                        "resources": {
-                            "requests": {"cpu": "250m", "memory": "512Mi"},
-                            "limits": {"cpu": "1", "memory": "2Gi"},
-                        },
-                        "readinessProbe": {
-                            "httpGet": {"path": "/health", "port": "hermes-api", "scheme": "HTTP"},
-                            "initialDelaySeconds": 5,
-                            "periodSeconds": 5,
-                            "timeoutSeconds": 2,
-                            "failureThreshold": 30,
-                        },
-                        "securityContext": {
-                            "runAsNonRoot": False,
-                            "runAsUser": 0,
-                            "runAsGroup": 0,
-                            "readOnlyRootFilesystem": False,
-                        },
-                        "volumeMounts": [
-                            {"name": "data", "mountPath": "/home/hermes/.hermes"},
-                            {"name": "tmp", "mountPath": "/tmp"},
-                        ],
-                    },
-                    {
-                        "name": "hermes-dashboard-proxy",
-                        "image": "nginx:1.27-alpine",
-                        "imagePullPolicy": "IfNotPresent",
-                        "ports": [{"name": "dashboard", "containerPort": 8443, "protocol": "TCP"}],
-                        "resources": {
-                            "requests": {"cpu": "25m", "memory": "32Mi"},
-                            "limits": {"cpu": "100m", "memory": "128Mi"},
-                        },
-                        "readinessProbe": {
-                            "httpGet": {"path": "/", "port": "dashboard", "scheme": "HTTP"},
-                            "initialDelaySeconds": 2,
-                            "periodSeconds": 3,
-                            "timeoutSeconds": 2,
-                            "failureThreshold": 40,
-                        },
-                        "securityContext": {
-                            "allowPrivilegeEscalation": False,
-                            "runAsNonRoot": False,
-                            "runAsUser": 0,
-                            "runAsGroup": 0,
-                            "readOnlyRootFilesystem": False,
-                        },
-                        "volumeMounts": [
-                            {"name": "hermes-dashboard-proxy", "mountPath": "/etc/nginx/conf.d/default.conf", "subPath": "default.conf", "readOnly": True},
-                        ],
-                    },
-                ],
-                "networking": {
-                    "service": {
-                        "type": "ClusterIP",
-                        "ports": [
-                            {"name": "gateway", "port": 8443, "targetPort": 8443, "protocol": "TCP"},
-                            {"name": "hermes-api", "port": 8642, "targetPort": 8642, "protocol": "TCP"},
-                        ],
-                    },
-                    "ingress": {
-                        "enabled": True,
-                        "className": "nginx",
-                        "host": ingress_host,
-                        "annotations": {
-                            "dashboard.ai-appliance.io/title": "Hermes",
-                            "dashboard.ai-appliance.io/description": "Self-improving AI agent managed by the Hermes operator.",
-                            "dashboard.ai-appliance.io/icon": "HE",
-                            "dashboard.ai-appliance.io/category": "AI",
-                            "dashboard.ai-appliance.io/order": "45",
-                            "lab42.io/mdns.enabled": "true",
-                            "lab42.io/mdns.name": local_name,
-                            "lab42.io/mdns.host": local_name,
-                            "nginx.ingress.kubernetes.io/proxy-read-timeout": "3600",
-                            "nginx.ingress.kubernetes.io/proxy-send-timeout": "3600",
-                            "nginx.ingress.kubernetes.io/proxy-http-version": "1.1",
-                        },
-                    },
-                },
-                "observability": {"logging": {"level": "info"}},
-            },
-        }
-        resources = [{
-            "apiVersion": "v1",
-            "kind": "Secret",
-            "metadata": {
-                "name": api_server_secret_name,
-                "namespace": namespace,
-                "labels": {"app": "hermes", "appliance.magicstick.dev/appinstance": metadata.get("name", "")},
-                "annotations": {
-                    "secret-generator.v1.mittwald.de/autogenerate": "API_SERVER_KEY",
-                    "secret-generator.v1.mittwald.de/encoding": "hex",
-                },
-            },
-            "type": "Opaque",
-            "data": {},
-        }]
-        if ingress_host != local_host:
-            resources.append(managed_ingress(
-                derived_resource_name(name or "hermes", "local"),
-                namespace,
-                [local_host],
-                name,
-                "gateway",
-                dashboard_ingress_annotations(
-                    "Hermes",
-                    "Self-improving AI agent managed by the Hermes operator.",
-                    "HE",
-                    "AI",
-                    "45",
-                    local_name,
-                    {
-                        "nginx.ingress.kubernetes.io/proxy-read-timeout": "3600",
-                        "nginx.ingress.kubernetes.io/proxy-send-timeout": "3600",
-                        "nginx.ingress.kubernetes.io/proxy-http-version": "1.1",
-                    },
-                ),
-                {"app": "hermes", "appliance.magicstick.dev/appinstance": metadata.get("name", "")},
-            ))
-        resources.append(hermes_instance)
-        return resources, "http://" + ingress_host + "/"
-
-
-    def build_paperclip(instance):
-        metadata = instance.get("metadata") or {}
-        spec = instance.get("spec") or {}
-        params = spec.get("parameters") or {}
-        name = metadata.get("name")
-        namespace = spec.get("targetNamespace") or "ai"
-        host = ((params.get("ingress") or {}).get("host") or params.get("host") or "paperclip.example.local")
-        local_host = app_instance_local_host(instance, "paperclip")
-        local_name = local_mdns_name(local_host)
-        public_url = "http://" + host
-        paperclip_image_tag = "sha-df0e5bd"
-        kubernetes_plugin_version = "2026.707.0"
-        agent_runtime_tag = "git-b18cbb0dd3d524d3d332f54143c84f00c694636c"
-        storage = ((params.get("storage") or {}).get("size") or params.get("storageSize") or "5Gi")
-        database = params.get("database") or {}
-        managed_database = database.get("managed") or {}
-        postgres_storage = managed_database.get("storageSize") or params.get("postgresStorage") or params.get("postgresStorageSize") or "10Gi"
-        agent_execution = params.get("agentExecution") or {}
-        open_code = agent_execution.get("openCode")
-        open_claw = agent_execution.get("openClaw")
-        hermes = agent_execution.get("hermes")
-        open_code_enabled = boolean_value((open_code or {}).get("enabled") if isinstance(open_code, dict) else open_code, True)
-        open_claw_enabled = boolean_value((open_claw or {}).get("enabled") if isinstance(open_claw, dict) else open_claw, False)
-        hermes_enabled = boolean_value((hermes or {}).get("enabled") if isinstance(hermes, dict) else hermes, False)
-        open_claw_ref = ((open_claw or {}).get("instanceRef") if isinstance(open_claw, dict) else "") or ""
-        hermes_ref = ((hermes or {}).get("instanceRef") if isinstance(hermes, dict) else "") or ""
-        max_concurrent_agents = min(10, positive_int(agent_execution.get("maxConcurrentAgents")) or 2)
-        requested_agent_model = agent_execution.get("defaultModel") or params.get("model") or ""
-        default_agent_model = "litellm/" + strip_model_provider_prefix(requested_agent_model) if requested_agent_model else ""
-        namespace_prefix = (dns_label_part(name or "paperclip", "paperclip")[:30].rstrip("-") or "paperclip") + "-"
-        rancher_namespace_auth_name = derived_resource_name(
-            namespace + "-" + (name or "paperclip"),
-            "rancher-namespace-auth",
-        )
-        requested_auth_secret_name = params.get("authSecretName") or ""
-        existing_paperclip = get_resource(
-            "paperclip.inc",
-            "v1alpha1",
-            "instances",
-            namespace,
-            name or "paperclip",
-        )
-        existing_auth_secret_name = (((existing_paperclip or {}).get("spec") or {}).get("auth") or {}).get("secretRef") or {}
-        existing_auth_secret_name = existing_auth_secret_name.get("name") or ""
-        auth_secret_name = (
-            requested_auth_secret_name
-            or existing_auth_secret_name
-            or derived_resource_name(name or "paperclip", "auth")
-        )
-        admin = params.get("admin") or {}
-        admin_enabled = admin.get("enabled", True) is not False
-        admin_email = admin.get("email") or params.get("adminEmail") or "admin@example.com"
-        admin_name = admin.get("name") or params.get("adminName") or "Admin"
-        admin_password_ref = admin.get("passwordSecretRef") or {}
-        admin_secret_base = (name or "paperclip")[:56].rstrip("-") or "paperclip"
-        admin_secret_name = (
-            admin_password_ref.get("name")
-            or admin.get("passwordSecretName")
-            or params.get("adminPasswordSecretName")
-            or admin_secret_base + "-admin"
-        )
-        admin_secret_key = (
-            admin_password_ref.get("key")
-            or admin.get("passwordSecretKey")
-            or params.get("adminPasswordSecretKey")
-            or "PAPERCLIP_ADMIN_PASSWORD"
-        )
-        auth_config_patch = textwrap.dedent("""\
-            set -eu
-            CONFIG="/paperclip/instances/default/config.json"
-            PUBLIC_URL="__PUBLIC_URL__"
-            LOCAL_HOST="__LOCAL_HOST__"
-            for attempt in $(seq 1 120); do
-              if [ -f "$CONFIG" ]; then
-                break
-              fi
-              echo "Waiting for Paperclip config ($attempt/120)"
-              sleep 5
-            done
-            test -f "$CONFIG"
-            CONFIG_PATH="$CONFIG" PUBLIC_URL="$PUBLIC_URL" LOCAL_HOST="$LOCAL_HOST" node <<'NODE'
-            const fs = require("fs");
-            const configPath = process.env.CONFIG_PATH;
-            const publicUrl = process.env.PUBLIC_URL;
-            const localHost = process.env.LOCAL_HOST;
-            const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
-            config.server = {
-              ...(config.server || {}),
-              deploymentMode: "authenticated",
-              exposure: "public",
-              bind: "custom",
-              customBindHost: "0.0.0.0",
-              host: "0.0.0.0",
-              port: 3100,
-            };
-            const publicHost = new URL(publicUrl).hostname.toLowerCase();
-            const allowed = new Set([...(config.server.allowedHostnames || []), publicHost, localHost, "localhost", "127.0.0.1"].filter(Boolean));
-            config.server.allowedHostnames = Array.from(allowed);
-            config.auth = {
-              ...(config.auth || {}),
-              baseUrlMode: "explicit",
-              publicBaseUrl: publicUrl,
-            };
-            fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + String.fromCharCode(10), { mode: 0o600 });
-            NODE
-        """).replace("__PUBLIC_URL__", public_url).replace("__LOCAL_HOST__", local_host)
-        job_suffix = hashlib.sha256(((name or "paperclip") + "|auth-v4|" + paperclip_image_tag + "|" + public_url + "|" + local_host).encode("utf-8")).hexdigest()[:8]
-        admin_job_suffix = hashlib.sha256(((name or "paperclip") + "|admin-v6|" + paperclip_image_tag + "|" + public_url).encode("utf-8")).hexdigest()[:8]
-        job_base = (name or "paperclip")[:42].rstrip("-") or "paperclip"
-        service_url = "http://" + (name or "paperclip") + "." + namespace + ".svc.cluster.local:3100"
-        db_service_url = "postgresql://paperclip:$(DB_PASSWORD)@" + (name or "paperclip") + "-db." + namespace + ".svc.cluster.local:5432/paperclip"
-        auth_config_job = {
-            "apiVersion": "batch/v1",
-            "kind": "Job",
-            "metadata": {
-                "name": job_base + "-auth-" + job_suffix,
-                "namespace": namespace,
-                "labels": {
-                    "app": "paperclip",
-                    "app.kubernetes.io/name": "paperclip-auth-config",
-                    "appliance.magicstick.dev/appinstance": metadata.get("name", ""),
-                },
-            },
-            "spec": {
-                "backoffLimit": 4,
-                "template": {
-                    "metadata": {
-                        "labels": {
-                            "app.kubernetes.io/name": "paperclip-auth-config",
-                            "appliance.magicstick.dev/appinstance": metadata.get("name", ""),
-                        },
-                    },
-                    "spec": {
-                        "restartPolicy": "OnFailure",
-                        "containers": [{
-                            "name": "auth-config",
-                            "image": "ghcr.io/paperclipai/paperclip:" + paperclip_image_tag,
-                            "imagePullPolicy": "IfNotPresent",
-                            "command": ["/bin/sh", "-c"],
-                            "args": [auth_config_patch],
-                            "volumeMounts": [{"name": "paperclip-data", "mountPath": "/paperclip"}],
-                            "securityContext": {
-                                "allowPrivilegeEscalation": False,
-                                "capabilities": {"drop": ["ALL"]},
-                                "runAsNonRoot": True,
-                                "runAsUser": 1000,
-                                "runAsGroup": 1000,
-                            },
-                        }],
-                        "volumes": [{
-                            "name": "paperclip-data",
-                            "persistentVolumeClaim": {"claimName": (name or "paperclip") + "-data"},
-                        }],
-                    },
-                },
-            },
-        }
-        admin_bootstrap_script = textwrap.dedent("""\
-            set -eu
-
-            PUBLIC_URL="__PUBLIC_URL__"
-            SVC_URL="__SERVICE_URL__"
-            COOKIE_JAR="$(mktemp /tmp/cookies.XXXXXX)"
-
-            cleanup() {
-              rm -f "$COOKIE_JAR"
-            }
-            trap cleanup EXIT
-
-            echo "Waiting for Paperclip server..."
-            for attempt in $(seq 1 120); do
-              code="$(curl -s -o /dev/null -w '%{http_code}' "$SVC_URL/api/health" || true)"
-              if echo "$code" | grep -q '^2'; then
-                echo "Server is ready (HTTP $code)."
-                break
-              fi
-              echo "Waiting... ($attempt/120)"
-              sleep 5
-            done
-
-            node <<'NODE'
-            const fs = require("fs");
-            fs.writeFileSync("/tmp/signup-payload.json", JSON.stringify({
-              name: process.env.ADMIN_NAME,
-              email: process.env.ADMIN_EMAIL,
-              password: process.env.ADMIN_PASSWORD,
-            }));
-            fs.writeFileSync("/tmp/signin-payload.json", JSON.stringify({
-              email: process.env.ADMIN_EMAIL,
-              password: process.env.ADMIN_PASSWORD,
-            }));
-            NODE
-
-            echo "Creating or signing in admin account..."
-            signup_status="$(curl -sS -o /tmp/signup.json -w '%{http_code}' \
-              -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
-              -H "Content-Type: application/json" \
-              -H "Origin: $PUBLIC_URL" \
-              -X POST "$SVC_URL/api/auth/sign-up/email" \
-              --data-binary @/tmp/signup-payload.json)" || true
-
-            if echo "$signup_status" | grep -q '^2'; then
-              echo "Admin account created."
-            else
-              echo "Sign-up returned HTTP $signup_status, trying sign-in..."
-              signin_status="$(curl -sS -o /tmp/signin.json -w '%{http_code}' \
-                -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
-                -H "Content-Type: application/json" \
-                -H "Origin: $PUBLIC_URL" \
-                -X POST "$SVC_URL/api/auth/sign-in/email" \
-                --data-binary @/tmp/signin-payload.json)" || true
-              if echo "$signin_status" | grep -q '^2'; then
-                echo "Signed in as existing admin."
-              else
-                echo "Could not sign up or sign in. Sign-up: $(cat /tmp/signup.json 2>/dev/null), Sign-in: $(cat /tmp/signin.json 2>/dev/null)"
-                exit 1
-              fi
-            fi
-
-            echo "Admin account is ready."
-        """).replace("__PUBLIC_URL__", public_url).replace("__SERVICE_URL__", service_url)
-        admin_role_script = textwrap.dedent("""\
-            set -eu
-
-            case "$ADMIN_EMAIL" in
-              *"'"*)
-                echo "Admin email contains unsupported quote character."
-                exit 1
-                ;;
-            esac
-
-            echo "Waiting for PostgreSQL..."
-            for attempt in $(seq 1 120); do
-              if psql -v ON_ERROR_STOP=1 -c "select 1" >/dev/null 2>&1; then
-                break
-              fi
-              echo "Waiting for PostgreSQL ($attempt/120)"
-              sleep 5
-            done
-
-            echo "Granting Paperclip instance_admin role..."
-            psql -v ON_ERROR_STOP=1 <<SQL
-            INSERT INTO instance_user_roles (user_id, role)
-            SELECT id, 'instance_admin'
-            FROM "user"
-            WHERE email = '$ADMIN_EMAIL'
-            ON CONFLICT (user_id, role) DO UPDATE SET updated_at = now();
-            SQL
-
-            count="$(psql -tA -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM instance_user_roles r JOIN \\"user\\" u ON u.id = r.user_id WHERE u.email = '$ADMIN_EMAIL' AND r.role = 'instance_admin';")"
-            if [ "$count" = "0" ]; then
-              echo "Admin role was not granted."
-              exit 1
-            fi
-            echo "Admin bootstrap finished successfully."
-        """)
-        admin_bootstrap_job = None
-        if admin_enabled:
-            admin_bootstrap_job = {
-                "apiVersion": "batch/v1",
-                "kind": "Job",
-                "metadata": {
-                    "name": job_base + "-admin-" + admin_job_suffix,
-                    "namespace": namespace,
-                    "labels": {
-                        "app": "paperclip",
-                        "app.kubernetes.io/name": "paperclip-admin-bootstrap",
-                        "appliance.magicstick.dev/appinstance": metadata.get("name", ""),
-                    },
-                },
-                "spec": {
-                    "backoffLimit": 6,
-                    "template": {
-                        "metadata": {
-                            "labels": {
-                                "app.kubernetes.io/component": "server",
-                                "app.kubernetes.io/instance": name or "paperclip",
-                                "app.kubernetes.io/name": "paperclip",
-                                "appliance.magicstick.dev/bootstrap": "paperclip-admin",
-                                "appliance.magicstick.dev/appinstance": metadata.get("name", ""),
-                            },
-                        },
-                        "spec": {
-                            "restartPolicy": "OnFailure",
-                            "initContainers": [{
-                                "name": "admin-account",
-                                "image": "ghcr.io/paperclipai/paperclip:" + paperclip_image_tag,
-                                "imagePullPolicy": "IfNotPresent",
-                                "command": ["/bin/sh", "-c"],
-                                "args": [admin_bootstrap_script],
-                                "env": [
-                                    {"name": "PORT", "value": "3100"},
-                                    {"name": "PAPERCLIP_BIND", "value": "custom"},
-                                    {"name": "PAPERCLIP_BIND_HOST", "value": "0.0.0.0"},
-                                    {"name": "PAPERCLIP_HOME", "value": "/paperclip"},
-                                    {"name": "SERVE_UI", "value": "true"},
-                                    {"name": "PAPERCLIP_DEPLOYMENT_MODE", "value": "authenticated"},
-                                    {"name": "PAPERCLIP_DEPLOYMENT_EXPOSURE", "value": "public"},
-                                    {"name": "PAPERCLIP_PUBLIC_URL", "value": public_url},
-                                    {"name": "PAPERCLIP_AUTH_BASE_URL_MODE", "value": "explicit"},
-                                    {"name": "PAPERCLIP_AUTH_PUBLIC_BASE_URL", "value": public_url},
-                                    {"name": "BETTER_AUTH_TRUSTED_ORIGINS", "value": "*"},
-                                    {"name": "PAPERCLIP_ALLOWED_HOSTNAMES", "value": ",".join([host, local_host, "localhost", "127.0.0.1", name or "paperclip", (name or "paperclip") + "." + namespace, (name or "paperclip") + "." + namespace + ".svc", (name or "paperclip") + "." + namespace + ".svc.cluster.local"])},
-                                    {"name": "DB_PASSWORD", "valueFrom": {"secretKeyRef": {"name": (name or "paperclip") + "-db-credentials", "key": "password"}}},
-                                    {"name": "DATABASE_URL", "value": db_service_url},
-                                    {"name": "BETTER_AUTH_SECRET", "valueFrom": {"secretKeyRef": {"name": auth_secret_name, "key": "BETTER_AUTH_SECRET"}}},
-                                    {"name": "PAPERCLIP_SECRETS_MASTER_KEY", "valueFrom": {"secretKeyRef": {"name": (name or "paperclip") + "-secrets-master-key", "key": "master-key"}}},
-                                    {"name": "ADMIN_EMAIL", "value": admin_email},
-                                    {"name": "ADMIN_NAME", "value": admin_name},
-                                    {"name": "ADMIN_PASSWORD", "valueFrom": {"secretKeyRef": {"name": admin_secret_name, "key": admin_secret_key}}},
-                                ],
-                                "securityContext": {
-                                    "allowPrivilegeEscalation": False,
-                                    "capabilities": {"drop": ["ALL"]},
-                                    "runAsNonRoot": True,
-                                    "runAsUser": 1000,
-                                    "runAsGroup": 1000,
-                                },
-                            }],
-                            "containers": [{
-                                "name": "admin-role",
-                                "image": "postgres:17-alpine",
-                                "imagePullPolicy": "IfNotPresent",
-                                "command": ["/bin/sh", "-c"],
-                                "args": [admin_role_script],
-                                "env": [
-                                    {"name": "ADMIN_EMAIL", "value": admin_email},
-                                    {"name": "PGHOST", "value": (name or "paperclip") + "-db." + namespace + ".svc.cluster.local"},
-                                    {"name": "PGDATABASE", "value": "paperclip"},
-                                    {"name": "PGUSER", "value": "paperclip"},
-                                    {"name": "PGPASSWORD", "valueFrom": {"secretKeyRef": {"name": (name or "paperclip") + "-db-credentials", "key": "password"}}},
-                                ],
-                                "securityContext": {
-                                    "allowPrivilegeEscalation": False,
-                                    "capabilities": {"drop": ["ALL"]},
-                                    "runAsNonRoot": True,
-                                    "runAsUser": 1000,
-                                    "runAsGroup": 1000,
-                                },
-                            }],
-                        },
-                    },
-                },
-            }
-        auth_secret = None
-        if not requested_auth_secret_name:
-            auth_secret = {
-                "apiVersion": "v1",
-                "kind": "Secret",
-                "metadata": {
-                    "name": auth_secret_name,
-                    "namespace": namespace,
-                    "labels": {"app": "paperclip", "appliance.magicstick.dev/appinstance": metadata.get("name", "")},
-                    "annotations": {
-                        "secret-generator.v1.mittwald.de/autogenerate": "BETTER_AUTH_SECRET",
-                        "secret-generator.v1.mittwald.de/encoding": "hex",
-                    },
-                },
-                "type": "Opaque",
-                "data": {},
-            }
-        admin_secret = None
-        if admin_enabled and not admin_password_ref.get("name"):
-            admin_secret = {
-                "apiVersion": "v1",
-                "kind": "Secret",
-                "metadata": {
-                    "name": admin_secret_name,
-                    "namespace": namespace,
-                    "labels": {"app": "paperclip", "appliance.magicstick.dev/appinstance": metadata.get("name", "")},
-                    "annotations": {
-                        "secret-generator.v1.mittwald.de/autogenerate": admin_secret_key,
-                        "secret-generator.v1.mittwald.de/encoding": "hex",
-                    },
-                },
-                "type": "Opaque",
-                "data": {},
-            }
-        auth_spec = {"secretRef": {"name": auth_secret_name, "key": "BETTER_AUTH_SECRET"}}
-        adapter_registry = []
-        if open_code_enabled:
-            adapter_registry.append({
-                "adapterType": "opencode_local",
-                "enabled": True,
-                "runtimeImage": "ghcr.io/paperclipai/agent-runtime-opencode:" + agent_runtime_tag,
-                "envKeys": [
-                    "OPENAI_API_KEY",
-                    "OPENAI_BASE_URL",
-                    "PAPERCLIP_OPENCODE_PROVIDERS",
-                    "PAPERCLIP_OPENCODE_SMALL_MODEL",
-                    "PAPERCLIP_OPENCODE_CHEAP_MODEL",
-                ],
-                "allowFqdns": [],
-                "probeCommand": ["opencode", "--version"],
-                "defaultEnv": {"OPENAI_BASE_URL": "http://litellm.ai.svc.cluster.local:4000/v1"},
-            })
-        if open_claw_enabled:
-            adapter_registry.append({
-                "adapterType": "openclaw_gateway",
-                "enabled": True,
-                "runtimeImage": "ghcr.io/paperclipai/agent-runtime-base:" + agent_runtime_tag,
-                "envKeys": [],
-                "allowFqdns": [],
-            })
-        if hermes_enabled:
-            adapter_registry.append({
-                "adapterType": "hermes_gateway",
-                "enabled": True,
-                "runtimeImage": "ghcr.io/paperclipai/agent-runtime-base:" + agent_runtime_tag,
-                "envKeys": [],
-                "allowFqdns": [],
-            })
-
-        paperclip_egress = [
-            {"ports": [
-                {"protocol": "TCP", "port": 443},
-                {"protocol": "TCP", "port": 6443},
-            ]},
-            {
-                "to": [{
-                    "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": namespace}},
-                    "podSelector": {"matchLabels": {"app": "litellm"}},
-                }],
-                "ports": [{"protocol": "TCP", "port": 4000}],
-            },
-        ]
-        if open_claw_enabled and open_claw_ref:
-            paperclip_egress.append({
-                "to": [{
-                    "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": namespace}},
-                    "podSelector": {"matchLabels": {
-                        "app.kubernetes.io/instance": open_claw_ref,
-                        "app.kubernetes.io/name": "openclaw",
-                    }},
-                }],
-                "ports": [
-                    {"protocol": "TCP", "port": 18789},
-                    {"protocol": "TCP", "port": 18790},
-                ],
-            })
-        if hermes_enabled and hermes_ref:
-            paperclip_egress.append({
-                "to": [{
-                    "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": namespace}},
-                    "podSelector": {"matchLabels": {
-                        "app.kubernetes.io/instance": hermes_ref,
-                        "app.kubernetes.io/name": "hermes-agent",
-                    }},
-                }],
-                "ports": [{"protocol": "TCP", "port": 8642}],
-            })
-
-        paperclip_annotations = {}
-        if open_claw_enabled and open_claw_ref:
-            paperclip_annotations["appliance.magicstick.dev/openclaw-instance-ref"] = open_claw_ref
-        if hermes_enabled and hermes_ref:
-            paperclip_annotations["appliance.magicstick.dev/hermes-instance-ref"] = hermes_ref
-        runtime_compat_name = derived_resource_name(name or "paperclip", "runtime-compat")
-        runtime_compat_loader = textwrap.dedent("""\
-            const fs = require("node:fs");
-            function patchFile(filePath, oldSource, newSource, label) {
-              let source = fs.readFileSync(filePath, "utf8");
-              const matches = source.split(oldSource).length - 1;
-              if (matches === 1) {
-                source = source.replace(oldSource, newSource);
-                fs.writeFileSync(filePath, source);
-              } else if (matches !== 0 || !source.includes(newSource)) {
-                throw new Error(`Unsupported Paperclip bundle: ${label} compatibility patch did not match`);
-              }
-            }
-
-            patchFile(
-              "/app/server/dist/index.js",
-              "process.env.PAPERCLIP_RUNTIME_API_URL = runtimeApiUrl;",
-              "process.env.PAPERCLIP_RUNTIME_API_URL = process.env.PAPERCLIP_RUNTIME_API_URL?.trim() || runtimeApiUrl;",
-              "runtime API URL",
-            );
-            patchFile(
-              "/app/server/dist/services/environment-execution-target.js",
-              'export const DEFAULT_SANDBOX_REMOTE_CWD = "/tmp";',
-              'export const DEFAULT_SANDBOX_REMOTE_CWD = "/workspace";',
-              "sandbox workspace directory",
-            );
-            patchFile(
-              "/app/packages/adapter-utils/src/sandbox-managed-runtime.ts",
-              'const runtimeRootDir = path.posix.join(workspaceRemoteDir, ".paperclip-runtime", input.adapterKey);',
-              'const runtimeRootDir = path.posix.join("/tmp", ".paperclip-runtime", input.adapterKey);',
-              "sandbox runtime directory",
-            );
-            patchFile(
-              "/app/server/dist/routes/agents.js",
-              '        if (type === "opencode_local" && environment && environment.driver !== "local") {\\n            const adapter = requireServerAdapter(type);\\n            res.json(adapter.models ?? []);\\n            return;\\n        }',
-              '        if (type === "opencode_local" && environment && environment.driver !== "local") {\\n            res.json(await listAdapterModels(type));\\n            return;\\n        }',
-              "Kubernetes adapter model list",
-            );
-            patchFile(
-              "/app/server/dist/adapters/registry.js",
-              'export async function refreshAdapterModels(type) {\\n    const adapter = findActiveServerAdapter(type);',
-              'export async function refreshAdapterModels(type) {\\n    const declaredModels = getDeclaredAdapterModels();\\n    if (declaredModels && declaredModels[type]?.length) {\\n        return declaredModels[type].map((m) => ({ id: m.id, label: m.label ?? m.id }));\\n    }\\n    const adapter = findActiveServerAdapter(type);',
-              "declared adapter model refresh",
-            );
-            patchFile(
-              "/app/server/dist/services/secrets.js",
-              'const FALLBACK_ADAPTER_SCHEMA_SECRET_FIELDS = {\\n    hermes_gateway: ["apiKey"],\\n};',
-              'const FALLBACK_ADAPTER_SCHEMA_SECRET_FIELDS = {\\n    hermes_gateway: ["apiKey"],\\n    openclaw_gateway: ["authToken", "password", "devicePrivateKeyPem"],\\n};',
-              "OpenClaw gateway secret fields",
-            );
-        """)
-        runtime_compat_hash = hashlib.sha256(runtime_compat_loader.encode("utf-8")).hexdigest()[:16]
-        runtime_compat_config = {
-            "apiVersion": "v1",
-            "kind": "ConfigMap",
-            "metadata": {
-                "name": runtime_compat_name,
-                "namespace": namespace,
-                "labels": {
-                    "app.kubernetes.io/managed-by": "magicstick-operator",
-                    "app.kubernetes.io/name": "paperclip",
-                    "appliance.magicstick.dev/appinstance": metadata.get("name", ""),
-                },
-            },
-            "data": {"runtime-url-loader.cjs": runtime_compat_loader},
-        }
-        instance_resource = {
-            "apiVersion": "paperclip.inc/v1alpha1",
-            "kind": "Instance",
+        target_namespace = spec.get("targetNamespace") or "ai"
+        local_host = app_instance_local_host(instance, application)
+        ingress = dict(values.get("ingress") or {})
+        server_ingress = dict(((values.get("server") or {}).get("ingress") or {}))
+        host = ingress.get("host") or server_ingress.get("host") or values.get("host") or local_host
+        ingress["host"] = host
+        values["ingress"] = ingress
+        chart_path = str(definition.get("chartPath") or "").strip()
+        if not chart_path:
+            raise ValueError("application definition has no chartPath")
+        source_namespace = source.get("namespace") or FLUX_NAMESPACE
+        return {
+            "apiVersion": "helm.toolkit.fluxcd.io/v2",
+            "kind": "HelmRelease",
             "metadata": {
                 "name": name,
-                "namespace": namespace,
-                "labels": {"app": "paperclip"},
-                "annotations": paperclip_annotations,
-            },
-            "spec": {
-                "podAnnotations": {
-                    "ai-appliance.io/model-catalog-consumer": "true",
-                    "appliance.magicstick.dev/paperclip-runtime-compat-hash": runtime_compat_hash,
-                },
-                "image": {"repository": "ghcr.io/paperclipai/paperclip", "tag": paperclip_image_tag},
-                "deployment": {
-                    "mode": "authenticated",
-                    "exposure": "public",
-                    "publicURL": public_url,
-                    "allowedHostnames": [host, local_host, "localhost", "127.0.0.1"],
-                },
-                "database": {"mode": "managed", "managed": {"storageSize": postgres_storage}},
-                "auth": auth_spec,
-                "env": [
-                    {"name": "PAPERCLIP_AUTH_BASE_URL_MODE", "value": "explicit"},
-                    {"name": "PAPERCLIP_AUTH_PUBLIC_BASE_URL", "value": public_url},
-                    {"name": "PAPERCLIP_RUNTIME_API_URL", "value": "http://" + (name or "paperclip") + "." + namespace + ".svc.cluster.local:3100"},
-                    {"name": "NODE_OPTIONS", "value": "--require=/opt/paperclip-runtime-compat/runtime-url-loader.cjs"},
-                    {"name": "PAPERCLIP_KUBERNETES_PLUGIN_PATH", "value": "/opt/paperclip-kubernetes-plugin/node_modules/@paperclipai/plugin-kubernetes"},
-                    {"name": "BETTER_AUTH_TRUSTED_ORIGINS", "value": "*"},
-                    {"name": "OPENAI_API_KEY", "valueFrom": {"secretKeyRef": {"name": "litellm-masterkey-secret", "key": "LITELLM_MASTER_KEY"}}},
-                    {"name": "OPENAI_BASE_URL", "value": "http://litellm.ai.svc.cluster.local:4000/v1"},
-                    {"name": "PAPERCLIP_ADAPTER_MODELS", "valueFrom": {"configMapKeyRef": {"name": "ai-model-catalog", "key": "paperclip-adapter-models.json"}}},
-                    {"name": "PAPERCLIP_OPENCODE_PROVIDERS", "valueFrom": {"configMapKeyRef": {"name": "ai-model-catalog", "key": "opencode-providers.json"}}},
-                    ({"name": "PAPERCLIP_OPENCODE_SMALL_MODEL", "value": default_agent_model} if default_agent_model else {"name": "PAPERCLIP_OPENCODE_SMALL_MODEL", "valueFrom": {"configMapKeyRef": {"name": "ai-model-catalog", "key": "AI_APPLIANCE_DEFAULT_OPENCODE_MODEL"}}}),
-                    ({"name": "PAPERCLIP_OPENCODE_CHEAP_MODEL", "value": default_agent_model} if default_agent_model else {"name": "PAPERCLIP_OPENCODE_CHEAP_MODEL", "valueFrom": {"configMapKeyRef": {"name": "ai-model-catalog", "key": "AI_APPLIANCE_DEFAULT_OPENCODE_MODEL"}}}),
-                ],
-                "adapters": {
-                    "execution": {
-                        "mode": "kubernetes",
-                        "kubernetes": {
-                            "backend": "sandbox-cr",
-                            "egressMode": "standard",
-                            "namespacePrefix": namespace_prefix,
-                            "perTenantQuota": {
-                                "pods": str(max_concurrent_agents),
-                                "requestsCpu": str(max_concurrent_agents * 500) + "m",
-                                "requestsMemory": str(max_concurrent_agents) + "Gi",
-                                "limitsCpu": str(max_concurrent_agents * 2),
-                                "limitsMemory": str(max_concurrent_agents * 4) + "Gi",
-                            },
-                            "perTenantLimitRange": {
-                                "defaultCpu": "1",
-                                "defaultMemory": "2Gi",
-                                "defaultRequestCpu": "500m",
-                                "defaultRequestMemory": "1Gi",
-                                "maxCpu": "2",
-                                "maxMemory": "4Gi",
-                            },
-                        },
-                    },
-                    "registry": adapter_registry,
-                },
-                "probes": {
-                    "type": "http",
-                    "startup": {"periodSeconds": 3, "timeoutSeconds": 2, "failureThreshold": 60},
-                    "readiness": {"initialDelaySeconds": 2, "periodSeconds": 3, "timeoutSeconds": 2, "failureThreshold": 40},
-                    "liveness": {"initialDelaySeconds": 15, "periodSeconds": 20, "timeoutSeconds": 5, "failureThreshold": 6},
-                },
-                "initContainers": [{
-                    "name": "install-kubernetes-plugin",
-                    "image": "ghcr.io/paperclipai/paperclip:" + paperclip_image_tag,
-                    "imagePullPolicy": "IfNotPresent",
-                    "command": ["/bin/sh", "-c"],
-                    "args": [textwrap.dedent("""\
-                        set -eu
-                        cd /opt/paperclip-kubernetes-plugin
-                        npm install \
-                          --omit=dev \
-                          --ignore-scripts \
-                          --no-audit \
-                          --no-fund \
-                          "@paperclipai/plugin-kubernetes@__PLUGIN_VERSION__"
-                        # 2026.707.0 forwards cwd but does not apply it to Kubernetes exec.
-                        node --input-type=commonjs <<'NODE'
-                        const fs = require("node:fs");
-                        const pluginPath = "node_modules/@paperclipai/plugin-kubernetes/dist/plugin.js";
-                        let source = fs.readFileSync(pluginPath, "utf8");
-                        const oldImport = 'import { execInPod, wrapCommandWithEnv } from "./pod-exec.js";';
-                        const newImport = 'import { execInPod, shQuote, wrapCommandWithEnv } from "./pod-exec.js";';
-                        const oldExec = "const execCommand = wrapCommandWithEnv(baseExecCommand, params.env);";
-                        const newExec = [
-                          "const commandWithCwd =",
-                          '    typeof params.cwd === "string" && params.cwd.trim().length > 0',
-                          '        ? ["/bin/sh", "-c", `cd ${shQuote(params.cwd.trim())} && exec ${baseExecCommand.map(shQuote).join(" ")}`]',
-                          "        : baseExecCommand;",
-                          "const execCommand = wrapCommandWithEnv(commandWithCwd, params.env);",
-                        ].join(String.fromCharCode(10) + "            ");
-                        const oldWorkspaceCwd = [
-                          "const cwd = params.workspace.remotePath && params.workspace.remotePath.trim().length > 0",
-                          "    ? params.workspace.remotePath.trim()",
-                          '    : "/workspace";',
-                        ].join(String.fromCharCode(10) + "        ");
-                        const newWorkspaceCwd = 'const cwd = "/workspace";';
-                        if (!source.includes(oldImport) || !source.includes(oldExec) || !source.includes(oldWorkspaceCwd)) {
-                          throw new Error("Unsupported Kubernetes plugin bundle: cwd compatibility patch did not match");
-                        }
-                        source = source
-                          .replace(oldImport, newImport)
-                          .replace(oldExec, newExec)
-                          .replace(oldWorkspaceCwd, newWorkspaceCwd);
-                        fs.writeFileSync(pluginPath, source);
-                        NODE
-                        test -f node_modules/@paperclipai/plugin-kubernetes/dist/manifest.js
-                        grep -q 'const commandWithCwd =' node_modules/@paperclipai/plugin-kubernetes/dist/plugin.js
-                        grep -q 'const cwd = "/workspace";' node_modules/@paperclipai/plugin-kubernetes/dist/plugin.js
-                    """).replace("__PLUGIN_VERSION__", kubernetes_plugin_version)],
-                    "env": [
-                        {"name": "HOME", "value": "/tmp"},
-                        {"name": "NPM_CONFIG_CACHE", "value": "/tmp/npm-cache"},
-                    ],
-                    "volumeMounts": [{"name": "paperclip-kubernetes-plugin", "mountPath": "/opt/paperclip-kubernetes-plugin"}],
-                    "securityContext": {
-                        "allowPrivilegeEscalation": False,
-                        "capabilities": {"drop": ["ALL"]},
-                        "runAsNonRoot": True,
-                        "runAsUser": 1000,
-                        "runAsGroup": 1000,
-                    },
-                }],
-                "extraVolumes": [
-                    {"name": "paperclip-kubernetes-plugin", "emptyDir": {}},
-                    {"name": "paperclip-runtime-compat", "configMap": {"name": runtime_compat_name}},
-                ],
-                "extraVolumeMounts": [
-                    {
-                        "name": "paperclip-kubernetes-plugin",
-                        "mountPath": "/opt/paperclip-kubernetes-plugin",
-                        "readOnly": True,
-                    },
-                    {
-                        "name": "paperclip-runtime-compat",
-                        "mountPath": "/opt/paperclip-runtime-compat",
-                        "readOnly": True,
-                    },
-                ],
-                "storage": {"persistence": {"enabled": True, "size": storage}},
-                "security": {"networkPolicy": {"enabled": True, "extraEgress": paperclip_egress}},
-                "networking": {
-                    "service": {"type": "ClusterIP", "port": 3100},
-                    "ingress": {
-                        "enabled": True,
-                        "ingressClassName": "nginx",
-                        "hosts": [host, local_host],
-                        "annotations": {
-                            "dashboard.ai-appliance.io/title": "Paperclip",
-                            "dashboard.ai-appliance.io/description": "AI agent company control plane managed by the Paperclip operator.",
-                            "dashboard.ai-appliance.io/icon": "PC",
-                            "dashboard.ai-appliance.io/category": "AI",
-                            "dashboard.ai-appliance.io/order": "40",
-                            "lab42.io/mdns.enabled": "true",
-                            "lab42.io/mdns.name": local_name,
-                            "lab42.io/mdns.host": local_name,
-                        },
-                    },
-                },
-            },
-        }
-        rancher_namespace_auth_role = {
-            "apiVersion": "rbac.authorization.k8s.io/v1",
-            "kind": "ClusterRole",
-            "metadata": {
-                "name": rancher_namespace_auth_name,
+                "namespace": APPLIANCE_NAMESPACE,
                 "labels": {
                     "app.kubernetes.io/managed-by": "magicstick-operator",
-                    "app.kubernetes.io/name": "paperclip",
-                    "appliance.magicstick.dev/appinstance": metadata.get("name", ""),
+                    "appliance.magicstick.dev/appinstance": name,
+                    "appliance.magicstick.dev/application": application,
                 },
-            },
-            "rules": [{
-                "apiGroups": ["management.cattle.io"],
-                "resources": ["projects"],
-                "verbs": ["updatepsa"],
-            }],
-        }
-        rancher_namespace_auth_binding = {
-            "apiVersion": "rbac.authorization.k8s.io/v1",
-            "kind": "ClusterRoleBinding",
-            "metadata": {
-                "name": rancher_namespace_auth_name,
-                "labels": {
-                    "app.kubernetes.io/managed-by": "magicstick-operator",
-                    "app.kubernetes.io/name": "paperclip",
-                    "appliance.magicstick.dev/appinstance": metadata.get("name", ""),
-                },
-            },
-            "roleRef": {
-                "apiGroup": "rbac.authorization.k8s.io",
-                "kind": "ClusterRole",
-                "name": rancher_namespace_auth_name,
-            },
-            "subjects": [{
-                "kind": "ServiceAccount",
-                "name": name or "paperclip",
-                "namespace": namespace,
-            }],
-        }
-        resources = [rancher_namespace_auth_role, rancher_namespace_auth_binding, runtime_compat_config]
-        if auth_secret:
-            resources.append(auth_secret)
-        if admin_secret:
-            resources.append(admin_secret)
-        if admin_bootstrap_job:
-            resources.append(admin_bootstrap_job)
-        resources.extend([auth_config_job, instance_resource])
-        return resources, "http://" + host + "/"
-
-
-    def build_kubeopencode(instance):
-        metadata = instance.get("metadata") or {}
-        spec = instance.get("spec") or {}
-        params = spec.get("parameters") or {}
-        namespace = spec.get("targetNamespace") or "ai"
-        server = params.get("server") or {}
-        server_ingress = server.get("ingress") or {}
-        host = server_ingress.get("host") or ((params.get("ingress") or {}).get("host")) or params.get("host") or "kubeopencode.example.local"
-        if host == "kubeopencode.example.local":
-            host = app_instance_local_host(instance, "kubeopencode")
-        local_host = app_instance_local_host(instance, "kubeopencode")
-        local_name = local_mdns_name(local_host)
-        templates = params.get("agentTemplates") or []
-        template_name = params.get("template") or (templates[0].get("name") if templates else metadata.get("name"))
-        agent_name = params.get("agent") or params.get("agentName") or params.get("name") or metadata.get("name")
-        if str(agent_name or "").startswith("kubeopencode-"):
-            agent_name = str(agent_name)[len("kubeopencode-"):]
-        agent_name = agent_name or metadata.get("name")
-        model, chat_models = select_catalog_chat_model(namespace, params.get("model") or "")
-        template_models = {
-            model_item.get("id") or model_item.get("name"): {"name": model_item.get("name") or model_item.get("id")}
-            for model_item in chat_models
-        }
-        if not template_models:
-            template_models = {model: {"name": model if model != "CHANGEME_MODEL" else "Example model"}}
-        template = {
-            "apiVersion": "kubeopencode.io/v1alpha1",
-            "kind": "AgentTemplate",
-            "metadata": {"name": template_name, "namespace": namespace},
-            "spec": {
-                "serviceAccountName": "default",
-                "workspaceDir": "/workspace",
-                "config": {
-                    "provider": {
-                        "litellm": {
-                            "npm": "@ai-sdk/openai-compatible",
-                            "name": "LiteLLM",
-                            "options": {
-                                "baseURL": "http://litellm.ai.svc.cluster.local:4000/v1",
-                                "apiKey": "{env:LITELLM_MASTER_KEY}",
-                            },
-                            "models": template_models,
-                        }
-                    },
-                    "model": "litellm/" + model,
-                    "small_model": "litellm/" + model,
-                    "autoupdate": False,
-                },
-                "credentials": [{
-                    "name": "litellm-api-key",
-                    "secretRef": {"name": "litellm-masterkey-secret", "key": "LITELLM_MASTER_KEY"},
-                    "env": "LITELLM_MASTER_KEY",
-                }],
-            },
-        }
-        agent = {
-            "apiVersion": "kubeopencode.io/v1alpha1",
-            "kind": "Agent",
-            "metadata": {
-                "name": agent_name,
-                "namespace": namespace,
-                "labels": {"appliance.magicstick.dev/appinstance": metadata.get("name", "")},
             },
             "spec": {
-                "templateRef": {"name": template_name},
-                "profile": params.get("profile") or "AI Appliance coding agent managed by Magic Stick.",
-                "maxConcurrentTasks": positive_int(params.get("maxConcurrentTasks")) or 1,
-                "suspend": False,
-            },
-        }
-        ingress = managed_ingress(
-            metadata.get("name") or derived_resource_name(agent_name or "kubeopencode", "ingress"),
-            namespace,
-            [host, local_host],
-            agent_name,
-            "http",
-            dashboard_ingress_annotations(
-                "KubeOpenCode",
-                "Browser-accessible OpenCode agent managed by the KubeOpenCode operator.",
-                "KO",
-                "AI",
-                "50",
-                local_name,
-                {
-                    "nginx.ingress.kubernetes.io/proxy-read-timeout": "3600",
-                    "nginx.ingress.kubernetes.io/proxy-send-timeout": "3600",
-                    "nginx.ingress.kubernetes.io/proxy-http-version": "1.1",
-                },
-            ),
-            {"app": "kubeopencode", "appliance.magicstick.dev/appinstance": metadata.get("name", "")},
-        )
-        return [template, ingress, agent], "http://" + host + "/"
-
-
-    def build_odysseus(instance):
-        metadata = instance.get("metadata") or {}
-        spec = instance.get("spec") or {}
-        params = spec.get("parameters") or {}
-        name = metadata.get("name")
-        namespace = spec.get("targetNamespace") or "ai"
-        host = ((params.get("ingress") or {}).get("host") or params.get("host") or "odysseus.example.local")
-        local_host = app_instance_local_host(instance, "odysseus")
-        local_name = local_mdns_name(local_host)
-        ingress_host = local_host if host == "odysseus.example.local" else host
-        image = params.get("image") or {}
-        image_repository = image.get("repository") or params.get("imageRepository") or "ghcr.io/pewdiepie-archdaemon/odysseus"
-        image_tag = image.get("tag") or params.get("imageTag") or "latest"
-        app_storage = ((params.get("storage") or {}).get("size") or params.get("storageSize") or "20Gi")
-        chroma_params = params.get("chroma") or {}
-        chroma_storage_params = chroma_params.get("storage") or {}
-        chroma_storage = chroma_storage_params.get("size") or chroma_params.get("storageSize") or params.get("chromaStorage") or "5Gi"
-        searxng_params = params.get("searxng") or {}
-        searxng_storage_params = searxng_params.get("storage") or {}
-        searxng_storage = searxng_storage_params.get("size") or searxng_params.get("storageSize") or params.get("searxngStorage") or "1Gi"
-        ntfy_params = params.get("ntfy") or {}
-        ntfy_storage_params = ntfy_params.get("storage") or {}
-        ntfy_storage = ntfy_storage_params.get("size") or ntfy_params.get("storageSize") or params.get("ntfyStorage") or "1Gi"
-        model, _ = select_catalog_chat_model(namespace, params.get("model"))
-        base_name = name or "odysseus"
-        data_pvc = derived_resource_name(base_name, "data")
-        chroma_name = derived_resource_name(base_name, "chroma")
-        chroma_pvc = derived_resource_name(base_name, "chroma-data")
-        searxng_name = derived_resource_name(base_name, "searxng")
-        searxng_pvc = derived_resource_name(base_name, "searxng-data")
-        searxng_config = derived_resource_name(base_name, "searxng-config")
-        ntfy_name = derived_resource_name(base_name, "ntfy")
-        ntfy_pvc = derived_resource_name(base_name, "ntfy-data")
-        litellm_alias = derived_resource_name(base_name, "litellm")
-        litellm_base_url = "http://litellm.ai.svc.cluster.local:4000"
-        litellm_api_base = litellm_base_url + "/v1"
-        common_labels = {
-            "app": "odysseus",
-            "app.kubernetes.io/name": "odysseus",
-            "app.kubernetes.io/instance": base_name,
-            "appliance.magicstick.dev/appinstance": metadata.get("name", ""),
-        }
-
-        def labels(component):
-            result = dict(common_labels)
-            result["app.kubernetes.io/component"] = component
-            return result
-
-        def pvc(pvc_name, size):
-            return {
-                "apiVersion": "v1",
-                "kind": "PersistentVolumeClaim",
-                "metadata": {"name": pvc_name, "namespace": namespace, "labels": labels("storage")},
-                "spec": {
-                    "accessModes": ["ReadWriteOnce"],
-                    "resources": {"requests": {"storage": size}},
-                },
-            }
-
-        def service(service_name, selector, port, target_port=None):
-            return {
-                "apiVersion": "v1",
-                "kind": "Service",
-                "metadata": {"name": service_name, "namespace": namespace, "labels": selector},
-                "spec": {
-                    "type": "ClusterIP",
-                    "selector": selector,
-                    "ports": [{
-                        "name": "http",
-                        "port": port,
-                        "targetPort": target_port or port,
-                        "protocol": "TCP",
-                    }],
-                },
-            }
-
-        def deployment(deployment_name, component, image_ref, port, env=None, volumes=None, volume_mounts=None, args=None, command=None, resources=None, annotations=None, init_containers=None):
-            return {
-                "apiVersion": "apps/v1",
-                "kind": "Deployment",
-                "metadata": {"name": deployment_name, "namespace": namespace, "labels": labels(component)},
-                "spec": {
-                    "replicas": 1,
-                    "selector": {"matchLabels": labels(component)},
-                    "strategy": {"type": "Recreate"},
-                    "template": {
-                        "metadata": {"labels": labels(component), "annotations": annotations or {}},
-                        "spec": {
-                            **({"initContainers": init_containers} if init_containers else {}),
-                            "containers": [{
-                                "name": component,
-                                "image": image_ref,
-                                "imagePullPolicy": "IfNotPresent",
-                                **({"command": command} if command else {}),
-                                **({"args": args} if args else {}),
-                                "ports": [{"name": "http", "containerPort": port, "protocol": "TCP"}],
-                                "env": env or [],
-                                "resources": resources or {
-                                    "requests": {"cpu": "100m", "memory": "256Mi"},
-                                    "limits": {"cpu": "1", "memory": "1Gi"},
-                                },
-                                "volumeMounts": volume_mounts or [],
-                            }],
-                            "volumes": volumes or [],
+                "interval": "10m0s",
+                "releaseName": name,
+                "targetNamespace": target_namespace,
+                "storageNamespace": APPLIANCE_NAMESPACE,
+                "suspend": bool(suspend),
+                "install": {"createNamespace": True},
+                "upgrade": {"cleanupOnFail": True},
+                "uninstall": {"keepHistory": False},
+                "chart": {
+                    "spec": {
+                        "chart": "./" + chart_path.lstrip("./"),
+                        "interval": "10m0s",
+                        "reconcileStrategy": "Revision",
+                        "sourceRef": {
+                            "kind": source.get("kind") or "GitRepository",
+                            "name": source.get("name") or "flux-system",
+                            "namespace": source_namespace,
                         },
                     },
                 },
-            }
-
-        searxng_secret = hashlib.sha256(((metadata.get("uid") or base_name) + "|searxng").encode("utf-8")).hexdigest()
-        searxng_settings = textwrap.dedent(f"""\
-            use_default_settings: true
-
-            server:
-              secret_key: "{searxng_secret}"
-
-            search:
-              formats:
-                - html
-                - json
-        """)
-        allowed_origins = params.get("allowedOrigins") or [
-            "http://" + ingress_host,
-            "http://" + local_host,
-            "http://localhost",
-            "http://127.0.0.1",
-        ]
-        admin = params.get("admin") or {}
-        admin_user = admin.get("user") or params.get("adminUser") or "admin"
-        admin_password_ref = admin.get("passwordSecretRef") or {}
-        admin_secret_name = (
-            admin_password_ref.get("name")
-            or admin.get("passwordSecretName")
-            or params.get("adminPasswordSecretName")
-            or derived_resource_name(base_name, "admin")
-        )
-        admin_secret_key = (
-            admin_password_ref.get("key")
-            or admin.get("passwordSecretKey")
-            or params.get("adminPasswordSecretKey")
-            or "password"
-        )
-
-        odysseus_env = [
-            {"name": "LLM_HOST", "value": litellm_alias},
-            {"name": "LLM_HOSTS", "value": litellm_alias},
-            {"name": "OPENAI_API_KEY", "valueFrom": {"secretKeyRef": {"name": "litellm-masterkey-secret", "key": "LITELLM_MASTER_KEY"}}},
-            {"name": "OPENAI_BASE_URL", "value": litellm_api_base},
-            {"name": "OPENAI_API_BASE", "value": litellm_api_base},
-            {"name": "LITELLM_BASE_URL", "value": litellm_base_url},
-            {"name": "LITELLM_API_BASE", "value": litellm_api_base},
-            {"name": "AI_MODEL_CATALOG_PATH", "value": "/catalog/catalog.json"},
-            {"name": "AI_MODEL_CATALOG_CHAT_PATH", "value": "/catalog/chat-models.json"},
-            {"name": "AI_MODEL_CATALOG_DEFAULTS_PATH", "value": "/catalog/defaults.env"},
-            {"name": "AI_APPLIANCE_MODEL_CATALOG_HASH", "valueFrom": {"configMapKeyRef": {"name": "ai-model-catalog", "key": "AI_APPLIANCE_MODEL_CATALOG_HASH"}}},
-            {"name": "RESEARCH_LLM_ENDPOINT", "value": f"http://{litellm_alias}:8000/v1/chat/completions"},
-            {"name": "ODYSSEUS_DEFAULT_MODEL", "value": model},
-            {"name": "SEARXNG_INSTANCE", "value": f"http://{searxng_name}:8080"},
-            {"name": "CHROMADB_HOST", "value": chroma_name},
-            {"name": "CHROMADB_PORT", "value": "8000"},
-            {"name": "DATABASE_URL", "value": "sqlite:///./data/app.db"},
-            {"name": "AUTH_ENABLED", "value": str(params.get("authEnabled", True)).lower()},
-            {"name": "LOCALHOST_BYPASS", "value": "false"},
-            {"name": "ODYSSEUS_ADMIN_USER", "value": admin_user},
-            {"name": "ODYSSEUS_ADMIN_PASSWORD", "valueFrom": {"secretKeyRef": {"name": admin_secret_name, "key": admin_secret_key}}},
-            {"name": "ALLOWED_ORIGINS", "value": ",".join(allowed_origins)},
-            {"name": "SECURE_COOKIES", "value": str(params.get("secureCookies", False)).lower()},
-            {"name": "NTFY_BASE_URL", "value": f"http://{ntfy_name}:80"},
-            {"name": "PUID", "value": "1000"},
-            {"name": "PGID", "value": "1000"},
-        ]
-
-        admin_secret = None
-        if not admin_password_ref.get("name"):
-            admin_secret = {
-                "apiVersion": "v1",
-                "kind": "Secret",
-                "metadata": {
-                    "name": admin_secret_name,
-                    "namespace": namespace,
-                    "labels": labels("credentials"),
-                    "annotations": {
-                        "secret-generator.v1.mittwald.de/autogenerate": admin_secret_key,
-                        "secret-generator.v1.mittwald.de/encoding": "hex",
+                "values": {
+                    "instance": {
+                        "name": name,
+                        "namespace": target_namespace,
+                        "application": application,
+                        "localHost": local_host,
+                        "localName": local_mdns_name(local_host),
+                        "values": values,
                     },
                 },
-                "type": "Opaque",
-                "data": {},
-            }
-        admin_bootstrap_script = textwrap.dedent("""\
-            import hashlib
-            import json
-            import os
-            import pathlib
-            import tempfile
-
-            import bcrypt
-
-            data_dir = pathlib.Path("/app/data")
-            auth_path = data_dir / "auth.json"
-            marker_path = data_dir / ".magicstick-admin-credentials"
-            username = os.environ.get("ODYSSEUS_ADMIN_USER", "admin").strip().lower() or "admin"
-            password = os.environ.get("ODYSSEUS_ADMIN_PASSWORD", "").strip()
-            if not password:
-                raise SystemExit("ODYSSEUS_ADMIN_PASSWORD is empty")
-
-            data_dir.mkdir(parents=True, exist_ok=True)
-            fingerprint = hashlib.sha256((username + "\\0" + password).encode("utf-8")).hexdigest()
-            if auth_path.exists() and marker_path.exists() and marker_path.read_text(encoding="utf-8").strip() == fingerprint:
-                print("Magicstick Odysseus admin credentials already synchronized.")
-                raise SystemExit(0)
-
-            auth_data = {"users": {}}
-            if auth_path.exists():
-                with auth_path.open("r", encoding="utf-8") as handle:
-                    auth_data = json.load(handle)
-            users = auth_data.setdefault("users", {})
-            entry = users.get(username) or {}
-            entry["password_hash"] = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-            entry["is_admin"] = True
-            users[username] = entry
-
-            with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=str(data_dir), delete=False) as handle:
-                json.dump(auth_data, handle, indent=2)
-                handle.write("\\n")
-                tmp_name = handle.name
-            os.replace(tmp_name, auth_path)
-            marker_path.write_text(fingerprint + "\\n", encoding="utf-8")
-            print("Magicstick Odysseus admin credentials synchronized.")
-        """)
-        admin_bootstrap_init = {
-            "name": "admin-credentials",
-            "image": image_repository + ":" + image_tag,
-            "imagePullPolicy": "IfNotPresent",
-            "command": ["python", "-c"],
-            "args": [admin_bootstrap_script],
-            "env": [
-                {"name": "ODYSSEUS_ADMIN_USER", "value": admin_user},
-                {"name": "ODYSSEUS_ADMIN_PASSWORD", "valueFrom": {"secretKeyRef": {"name": admin_secret_name, "key": admin_secret_key}}},
-            ],
-            "volumeMounts": [{"name": "data", "mountPath": "/app/data", "subPath": "data"}],
-            "resources": {
-                "requests": {"cpu": "25m", "memory": "64Mi"},
-                "limits": {"cpu": "250m", "memory": "256Mi"},
             },
-        }
-        runtime_patch_script = textwrap.dedent("""\
-            import pathlib
+        }, "http://" + host + "/"
 
-            source_path = pathlib.Path("/app/routes/chat_routes.py")
-            target_path = pathlib.Path("/patches/chat_routes.py")
-            source = source_path.read_text(encoding="utf-8")
-            needle = "        _tool_intent = _classify_tool_intent(message) if isinstance(message, str) else None\\n"
-            insert = needle + "        _explicit_web_intent = bool(_tool_intent and _tool_intent.category == \\"web\\")\\n"
-            if "_explicit_web_intent =" not in source:
-                if needle not in source:
-                    raise SystemExit("Could not patch Odysseus chat_routes.py: anchor not found")
-                source = source.replace(needle, insert, 1)
-            target_path.write_text(source, encoding="utf-8")
-            print("Patched Odysseus chat_routes.py for missing _explicit_web_intent.")
-        """)
-        runtime_patch_init = {
-            "name": "odysseus-runtime-patches",
-            "image": image_repository + ":" + image_tag,
-            "imagePullPolicy": "IfNotPresent",
-            "command": ["python", "-c"],
-            "args": [runtime_patch_script],
-            "volumeMounts": [{"name": "runtime-patches", "mountPath": "/patches"}],
-            "resources": {
-                "requests": {"cpu": "25m", "memory": "64Mi"},
-                "limits": {"cpu": "250m", "memory": "256Mi"},
-            },
-        }
-        model_catalog_bootstrap_script = textwrap.dedent("""\
-            import json
-            import os
-            import pathlib
-            import sys
-            import time
 
-            os.chdir("/app")
-            if "/app" not in sys.path:
-                sys.path.insert(0, "/app")
-
-            catalog_dir = pathlib.Path("/catalog")
-            defaults_path = catalog_dir / "defaults.env"
-            for attempt in range(1, 121):
-                try:
-                    defaults = defaults_path.read_text(encoding="utf-8")
-                    if "AI_APPLIANCE_MODEL_CATALOG_READY=true" in defaults.splitlines():
-                        break
-                except FileNotFoundError:
-                    pass
-                print(f"Waiting for ai-model-catalog ({attempt}/120)", flush=True)
-                time.sleep(5)
-            else:
-                raise SystemExit("ai-model-catalog did not become ready")
-
-            chat_catalog_path = pathlib.Path(os.environ.get("AI_MODEL_CATALOG_CHAT_PATH", "/catalog/chat-models.json"))
-            chat_catalog = json.loads(chat_catalog_path.read_text(encoding="utf-8"))
-            catalog_models = chat_catalog.get("models") or []
-            model_ids = []
-            for item in catalog_models:
-                model_id = item.get("id") if isinstance(item, dict) else str(item or "")
-                model_id = model_id.strip()
-                if model_id and model_id not in model_ids:
-                    model_ids.append(model_id)
-            if not model_ids:
-                raise SystemExit("ai-model-catalog has no chat models for Odysseus")
-
-            preferred_model = os.environ.get("ODYSSEUS_DEFAULT_MODEL", "").strip()
-            catalog_default = str(chat_catalog.get("defaultModel") or "").strip()
-            if preferred_model in model_ids:
-                selected_model = preferred_model
-            elif catalog_default in model_ids:
-                selected_model = catalog_default
-            else:
-                selected_model = model_ids[0]
-
-            api_key = os.environ.get("OPENAI_API_KEY", "").strip()
-            if not api_key:
-                raise SystemExit("OPENAI_API_KEY is empty")
-
-            endpoint_id = "magicstick-litellm"
-            endpoint_name = "Magic Stick LiteLLM"
-            litellm_api_base = os.environ.get("LITELLM_API_BASE", "http://litellm.ai.svc.cluster.local:4000/v1").rstrip("/")
-
-            from core.database import ModelEndpoint, SessionLocal, init_db
-            from src.settings import load_settings, save_settings
-
-            init_db()
-            db = SessionLocal()
-            try:
-                endpoint = db.query(ModelEndpoint).filter(ModelEndpoint.id == endpoint_id).first()
-                if endpoint is None:
-                    endpoint = ModelEndpoint(id=endpoint_id, name=endpoint_name, base_url=litellm_api_base)
-                    db.add(endpoint)
-                endpoint.name = endpoint_name
-                endpoint.base_url = litellm_api_base
-                endpoint.api_key = api_key
-                endpoint.is_enabled = True
-                endpoint.model_type = "llm"
-                endpoint.endpoint_kind = "proxy"
-                endpoint.model_refresh_mode = "manual"
-                endpoint.cached_models = json.dumps(model_ids)
-                endpoint.pinned_models = json.dumps(model_ids)
-                endpoint.supports_tools = True
-                endpoint.owner = None
-                db.commit()
-                enabled_ids = {
-                    row.id
-                    for row in db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled == True).all()
-                }
-            finally:
-                db.close()
-
-            settings = load_settings()
-
-            def needs_assignment(endpoint_key, model_key):
-                current_endpoint = str(settings.get(endpoint_key) or "").strip()
-                current_model = str(settings.get(model_key) or "").strip()
-                if not current_endpoint or current_endpoint not in enabled_ids:
-                    return True
-                if current_endpoint == endpoint_id and current_model not in model_ids:
-                    return True
-                return False
-
-            for endpoint_key, model_key in (
-                ("default_endpoint_id", "default_model"),
-                ("utility_endpoint_id", "utility_model"),
-                ("research_endpoint_id", "research_model"),
-                ("task_endpoint_id", "task_model"),
-            ):
-                if needs_assignment(endpoint_key, model_key):
-                    settings[endpoint_key] = endpoint_id
-                    settings[model_key] = selected_model
-
-            save_settings(settings)
-            print(
-                "Configured Odysseus from ai-model-catalog with "
-                + str(len(model_ids))
-                + " chat models; default="
-                + selected_model,
-                flush=True,
-            )
-        """)
-        model_catalog_bootstrap_init = {
-            "name": "litellm-model-catalog",
-            "image": image_repository + ":" + image_tag,
-            "imagePullPolicy": "IfNotPresent",
-            "command": ["python", "-c"],
-            "args": [model_catalog_bootstrap_script],
-            "env": [
-                {"name": "DATABASE_URL", "value": "sqlite:///./data/app.db"},
-                {"name": "ODYSSEUS_DEFAULT_MODEL", "value": model},
-                {"name": "LITELLM_API_BASE", "value": litellm_api_base},
-                {"name": "AI_MODEL_CATALOG_CHAT_PATH", "value": "/catalog/chat-models.json"},
-                {"name": "OPENAI_API_KEY", "valueFrom": {"secretKeyRef": {"name": "litellm-masterkey-secret", "key": "LITELLM_MASTER_KEY"}}},
-            ],
-            "volumeMounts": [
-                {"name": "data", "mountPath": "/app/data", "subPath": "data"},
-                {"name": "ai-model-catalog", "mountPath": "/catalog", "readOnly": True},
-            ],
-            "resources": {
-                "requests": {"cpu": "50m", "memory": "128Mi"},
-                "limits": {"cpu": "500m", "memory": "512Mi"},
-            },
+    def app_instance_helmrelease_ref(instance):
+        metadata = instance.get("metadata") or {}
+        return {
+            "apiVersion": "helm.toolkit.fluxcd.io/v2",
+            "kind": "HelmRelease",
+            "metadata": {"name": metadata.get("name"), "namespace": APPLIANCE_NAMESPACE},
         }
 
-        resources = [
-            *([admin_secret] if admin_secret else []),
-            pvc(data_pvc, app_storage),
-            pvc(chroma_pvc, chroma_storage),
-            pvc(searxng_pvc, searxng_storage),
-            pvc(ntfy_pvc, ntfy_storage),
-            {
-                "apiVersion": "v1",
-                "kind": "ConfigMap",
-                "metadata": {"name": searxng_config, "namespace": namespace, "labels": labels("searxng")},
-                "data": {"settings.yml": searxng_settings},
-            },
-            service(base_name, labels("app"), 7000),
-            service(chroma_name, labels("chroma"), 8000),
-            service(searxng_name, labels("searxng"), 8080),
-            service(ntfy_name, labels("ntfy"), 80),
-            {
-                "apiVersion": "v1",
-                "kind": "Service",
-                "metadata": {"name": litellm_alias, "namespace": namespace, "labels": labels("litellm")},
-                "spec": {
-                    "type": "ClusterIP",
-                    "selector": {"app": "litellm"},
-                    "ports": [{"name": "http", "port": 8000, "targetPort": 4000, "protocol": "TCP"}],
-                },
-            },
-            deployment(
-                chroma_name,
-                "chroma",
-                "docker.io/chromadb/chroma:latest",
-                8000,
-                env=[{"name": "ANONYMIZED_TELEMETRY", "value": "FALSE"}],
-                volumes=[{"name": "data", "persistentVolumeClaim": {"claimName": chroma_pvc}}],
-                volume_mounts=[{"name": "data", "mountPath": "/chroma/chroma"}],
-                resources={"requests": {"cpu": "100m", "memory": "512Mi"}, "limits": {"cpu": "1", "memory": "1Gi"}},
-            ),
-            deployment(
-                searxng_name,
-                "searxng",
-                "docker.io/searxng/searxng:2026.5.31-7159b8aed",
-                8080,
-                env=[{"name": "SEARXNG_BASE_URL", "value": f"http://{searxng_name}:8080/"}],
-                volumes=[
-                    {"name": "settings", "configMap": {"name": searxng_config}},
-                    {"name": "cache", "persistentVolumeClaim": {"claimName": searxng_pvc}},
-                ],
-                volume_mounts=[
-                    {"name": "settings", "mountPath": "/etc/searxng/settings.yml", "subPath": "settings.yml", "readOnly": True},
-                    {"name": "cache", "mountPath": "/var/cache/searxng"},
-                ],
-                resources={"requests": {"cpu": "50m", "memory": "256Mi"}, "limits": {"cpu": "500m", "memory": "512Mi"}},
-            ),
-            deployment(
-                ntfy_name,
-                "ntfy",
-                "docker.io/binwiederhier/ntfy:latest",
-                80,
-                args=["serve"],
-                env=[{"name": "NTFY_BASE_URL", "value": f"http://{ntfy_name}:80"}],
-                volumes=[{"name": "cache", "persistentVolumeClaim": {"claimName": ntfy_pvc}}],
-                volume_mounts=[{"name": "cache", "mountPath": "/var/cache/ntfy"}],
-                resources={"requests": {"cpu": "25m", "memory": "64Mi"}, "limits": {"cpu": "250m", "memory": "256Mi"}},
-            ),
-            managed_ingress(
-                base_name,
-                namespace,
-                [ingress_host, local_host],
-                base_name,
-                "http",
-                dashboard_ingress_annotations(
-                    "Odysseus",
-                    "Self-hosted Odysseus workspace managed by Magic Stick.",
-                    "OD",
-                    "AI",
-                    "46",
-                    local_name,
-                    {
-                        "nginx.ingress.kubernetes.io/proxy-read-timeout": "3600",
-                        "nginx.ingress.kubernetes.io/proxy-send-timeout": "3600",
-                        "nginx.ingress.kubernetes.io/proxy-http-version": "1.1",
-                        "nginx.ingress.kubernetes.io/proxy-body-size": "100m",
-                    },
-                ),
-                labels("app"),
-            ),
-            deployment(
-                base_name,
-                "app",
-                image_repository + ":" + image_tag,
-                7000,
-                env=odysseus_env,
-                volumes=[
-                    {"name": "data", "persistentVolumeClaim": {"claimName": data_pvc}},
-                    {"name": "ai-model-catalog", "configMap": {"name": "ai-model-catalog"}},
-                    {"name": "runtime-patches", "emptyDir": {}},
-                ],
-                volume_mounts=[
-                    {"name": "runtime-patches", "mountPath": "/app/routes/chat_routes.py", "subPath": "chat_routes.py", "readOnly": True},
-                    {"name": "data", "mountPath": "/app/data", "subPath": "data"},
-                    {"name": "data", "mountPath": "/app/logs", "subPath": "logs"},
-                    {"name": "data", "mountPath": "/app/.ssh", "subPath": "ssh"},
-                    {"name": "data", "mountPath": "/app/.cache/huggingface", "subPath": "huggingface"},
-                    {"name": "data", "mountPath": "/app/.local", "subPath": "local"},
-                    {"name": "ai-model-catalog", "mountPath": "/catalog", "readOnly": True},
-                ],
-                resources={"requests": {"cpu": "250m", "memory": "1Gi"}, "limits": {"cpu": "2", "memory": "4Gi"}},
-                annotations={"ai-appliance.io/model-catalog-consumer": "true"},
-                init_containers=[runtime_patch_init, admin_bootstrap_init, model_catalog_bootstrap_init],
-            ),
-        ]
-        return resources, "http://" + ingress_host + "/"
 
-
-    def app_instance_target_resources(instance):
+    def reconcile_helm_app_instance(instance, definition, source):
         metadata = instance.get("metadata") or {}
         spec = instance.get("spec") or {}
-        params = spec.get("parameters") or {}
-        instance_type = spec.get("type")
-        name = metadata.get("name")
-        namespace = spec.get("targetNamespace") or "ai"
-        if instance_type == "openclaw":
-            return [{"apiVersion": "openclaw.rocks/v1alpha1", "kind": "OpenClawInstance", "metadata": {"name": name, "namespace": namespace}}]
-        if instance_type == "hermes":
-            return [
-                {"apiVersion": "hermes.agent/v1", "kind": "HermesInstance", "metadata": {"name": name, "namespace": namespace}},
-                {"apiVersion": "networking.k8s.io/v1", "kind": "Ingress", "metadata": {"name": derived_resource_name(name or "hermes", "local"), "namespace": namespace}},
-                {"apiVersion": "v1", "kind": "Secret", "metadata": {"name": derived_resource_name(name or "hermes", "api-server"), "namespace": namespace}},
-            ]
-        if instance_type == "paperclip":
-            host = ((params.get("ingress") or {}).get("host") or params.get("host") or "paperclip.example.local")
-            local_host = app_instance_local_host(instance, "paperclip")
-            public_url = "http://" + host
-            paperclip_image_tag = "sha-df0e5bd"
-            job_base = (name or "paperclip")[:42].rstrip("-") or "paperclip"
-            job_suffix = hashlib.sha256(((name or "paperclip") + "|auth-v4|" + paperclip_image_tag + "|" + public_url + "|" + local_host).encode("utf-8")).hexdigest()[:8]
-            admin_job_suffix = hashlib.sha256(((name or "paperclip") + "|admin-v6|" + paperclip_image_tag + "|" + public_url).encode("utf-8")).hexdigest()[:8]
-            admin = params.get("admin") or {}
-            admin_password_ref = admin.get("passwordSecretRef") or {}
-            admin_secret_name = (
-                admin_password_ref.get("name")
-                or admin.get("passwordSecretName")
-                or params.get("adminPasswordSecretName")
-                or ((name or "paperclip")[:56].rstrip("-") or "paperclip") + "-admin"
-            )
-            rancher_namespace_auth_name = derived_resource_name(
-                namespace + "-" + (name or "paperclip"),
-                "rancher-namespace-auth",
-            )
-            resources = [
-                {"apiVersion": "paperclip.inc/v1alpha1", "kind": "Instance", "metadata": {"name": name, "namespace": namespace}},
-                {"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": derived_resource_name(name or "paperclip", "runtime-compat"), "namespace": namespace}},
-                {"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "ClusterRoleBinding", "metadata": {"name": rancher_namespace_auth_name}},
-                {"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "ClusterRole", "metadata": {"name": rancher_namespace_auth_name}},
-                {"apiVersion": "batch/v1", "kind": "Job", "metadata": {"name": job_base + "-auth-" + job_suffix, "namespace": namespace}},
-            ]
-            if admin.get("enabled", True) is not False:
-                resources.append({"apiVersion": "batch/v1", "kind": "Job", "metadata": {"name": job_base + "-admin-" + admin_job_suffix, "namespace": namespace}})
-            if not params.get("authSecretName"):
-                resources.append({"apiVersion": "v1", "kind": "Secret", "metadata": {"name": derived_resource_name(name or "paperclip", "auth"), "namespace": namespace}})
-            if admin.get("enabled", True) is not False and not admin_password_ref.get("name"):
-                resources.append({"apiVersion": "v1", "kind": "Secret", "metadata": {"name": admin_secret_name, "namespace": namespace}})
-            if host != local_host:
-                resources.append({"apiVersion": "networking.k8s.io/v1", "kind": "Ingress", "metadata": {"name": derived_resource_name(name or "paperclip", "local"), "namespace": namespace}})
-            return resources
-        if instance_type == "kubeopencode":
-            templates = params.get("agentTemplates") or []
-            template_name = params.get("template") or (templates[0].get("name") if templates else name)
-            agent_name = params.get("agent") or params.get("agentName") or params.get("name") or name
-            if str(agent_name or "").startswith("kubeopencode-"):
-                agent_name = str(agent_name)[len("kubeopencode-"):]
-            agent_name = agent_name or name
-            return [
-                {"apiVersion": "kubeopencode.io/v1alpha1", "kind": "Agent", "metadata": {"name": agent_name, "namespace": namespace}},
-                {"apiVersion": "kubeopencode.io/v1alpha1", "kind": "AgentTemplate", "metadata": {"name": template_name, "namespace": namespace}},
-                {"apiVersion": "networking.k8s.io/v1", "kind": "Ingress", "metadata": {"name": name, "namespace": namespace}},
-            ]
-        if instance_type == "odysseus":
-            base_name = name or "odysseus"
-            chroma_name = derived_resource_name(base_name, "chroma")
-            searxng_name = derived_resource_name(base_name, "searxng")
-            searxng_config = derived_resource_name(base_name, "searxng-config")
-            ntfy_name = derived_resource_name(base_name, "ntfy")
-            litellm_alias = derived_resource_name(base_name, "litellm")
-            admin = params.get("admin") or {}
-            admin_password_ref = admin.get("passwordSecretRef") or {}
-            admin_secret_name = (
-                admin.get("passwordSecretName")
-                or params.get("adminPasswordSecretName")
-                or derived_resource_name(base_name, "admin")
-            )
-            resources = [
-                {"apiVersion": "networking.k8s.io/v1", "kind": "Ingress", "metadata": {"name": base_name, "namespace": namespace}},
-                {"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": base_name, "namespace": namespace}},
-                {"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": chroma_name, "namespace": namespace}},
-                {"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": searxng_name, "namespace": namespace}},
-                {"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": ntfy_name, "namespace": namespace}},
-                {"apiVersion": "v1", "kind": "Service", "metadata": {"name": base_name, "namespace": namespace}},
-                {"apiVersion": "v1", "kind": "Service", "metadata": {"name": chroma_name, "namespace": namespace}},
-                {"apiVersion": "v1", "kind": "Service", "metadata": {"name": searxng_name, "namespace": namespace}},
-                {"apiVersion": "v1", "kind": "Service", "metadata": {"name": ntfy_name, "namespace": namespace}},
-                {"apiVersion": "v1", "kind": "Service", "metadata": {"name": litellm_alias, "namespace": namespace}},
-                {"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": searxng_config, "namespace": namespace}},
-            ]
-            if not admin_password_ref.get("name"):
-                resources.append({"apiVersion": "v1", "kind": "Secret", "metadata": {"name": admin_secret_name, "namespace": namespace}})
-            return resources
-        return []
-
-
-    def delete_target_resource(resource):
-        delete_applied_resource(resource)
-
-
-    def cleanup_app_instance_targets(instance):
-        metadata = instance.get("metadata") or {}
-        spec = instance.get("spec") or {}
-        if spec.get("type") == "paperclip" and metadata.get("name"):
-            namespace = spec.get("targetNamespace") or "ai"
-            selector = "appliance.magicstick.dev/appinstance=" + metadata["name"]
-            delete_labeled_resources("batch/v1", "Job", namespace, selector)
-            delete_labeled_resources("v1", "Pod", namespace, selector)
-        resources = app_instance_target_resources(instance)
-        for resource in resources:
-            delete_target_resource(resource)
-        if resources:
-            metadata = resources[0].get("metadata") or {}
-            return {"kind": resources[0].get("kind", ""), "name": metadata.get("name", ""), "namespace": metadata.get("namespace", "")}
-        return {"kind": "", "name": metadata.get("name", ""), "namespace": spec.get("targetNamespace") or "ai"}
-
-
-    INSTANCE_BUILDERS = {
-        "openclaw": build_openclaw,
-        "hermes": build_hermes,
-        "odysseus": build_odysseus,
-        "paperclip": build_paperclip,
-        "kubeopencode": build_kubeopencode,
-    }
-
-
-    def reconcile_instance(instance, catalog):
-        metadata = instance.get("metadata") or {}
-        spec = instance.get("spec") or {}
-        status = instance.get("status") or {}
         generation = int(metadata.get("generation") or 0)
-        observed_generation = int(status.get("observedGeneration") or 0)
-        instance_type = spec.get("type")
+        name = metadata.get("name")
+        target = {"kind": "HelmRelease", "name": name, "namespace": APPLIANCE_NAMESPACE}
+        reference = app_instance_helmrelease_ref(instance)
+
+        if metadata.get("deletionTimestamp"):
+            if get_applied_resource(reference):
+                delete_applied_resource(reference)
+                patch_instance_status(instance, "Removing", target, "Removing", "Helm release is being removed.", generation=generation)
+                return "Removing", target
+            remove_app_instance_finalizer(instance)
+            return "Disabled", target
+
+        ensure_app_instance_finalizer(instance)
         enabled = spec.get("enabled", True) is not False
-        mapping = (catalog.get("instanceMappings") or {}).get(instance_type)
-        if not mapping or instance_type not in INSTANCE_BUILDERS:
+        release, url = app_instance_helmrelease(instance, definition, source, suspend=not enabled)
+        apply_resource(release)
+        if not enabled:
+            patch_instance_status(instance, "Suspended", target, "Suspended", "Helm release is suspended.", url=url, generation=generation)
+            return "Suspended", target
+
+        current = get_applied_resource(reference) or {}
+        ready = ready_condition(current)
+        if ready.get("status") == "True":
+            phase = "Ready"
+            reason = ready.get("reason") or "HelmReleaseReady"
+            message = ready.get("message") or "Helm release is ready."
+        elif ready.get("status") == "False" and ready.get("reason") not in ("Progressing", "InstallSucceeded", "UpgradeSucceeded"):
+            phase = "Degraded"
+            reason = ready.get("reason") or "HelmReleaseNotReady"
+            message = ready.get("message") or "Helm release is not ready."
+        else:
+            phase = "Reconciling"
+            reason = ready.get("reason") or "WaitingForHelmRelease"
+            message = ready.get("message") or "Waiting for Flux to reconcile the Helm release."
+        patch_instance_status(instance, phase, target, reason, message, url=url, generation=generation)
+        return phase, target
+
+
+    def reconcile_instance(instance, module_catalog, app_catalog, source):
+        metadata = instance.get("metadata") or {}
+        spec = instance.get("spec") or {}
+        generation = int(metadata.get("generation") or 0)
+        application = spec.get("application")
+        definition = (app_catalog.get("applications") or {}).get(application)
+        if not definition:
             if metadata.get("deletionTimestamp"):
                 remove_app_instance_finalizer(instance)
                 return "Disabled", {"kind": "", "name": metadata.get("name", ""), "namespace": spec.get("targetNamespace") or "ai"}
-            patch_instance_status(instance, "Degraded", {}, "UnknownInstanceType", f"Unknown instance type '{instance_type}'", generation=generation)
+            patch_instance_status(instance, "Degraded", {}, "UnknownApplication", f"Unknown application '{application}'", generation=generation)
             return "Degraded", {}
-        if metadata.get("deletionTimestamp"):
-            target = cleanup_app_instance_targets(instance)
-            patch_instance_status(instance, "Removing", target, "Removing", "AppInstance is being deleted; generated target resources are being removed.", generation=generation)
-            remove_app_instance_finalizer(instance)
-            return "Disabled", target
-        ensure_app_instance_finalizer(instance)
-        if not enabled:
-            target = {"kind": mapping.get("kind") or mapping.get("primaryKind") or "", "name": metadata.get("name"), "namespace": spec.get("targetNamespace") or "ai"}
-            patch_instance_status(instance, "Suspended", target, "Suspended", "AppInstance is disabled.", generation=generation)
-            return "Suspended", target
 
-        required_modules = mapping.get("requiredModules") or []
+        if metadata.get("deletionTimestamp") or spec.get("enabled", True) is False:
+            return reconcile_helm_app_instance(instance, definition, source)
+
+        required_modules = definition.get("requiredModules") or []
         for module in required_modules:
             ensure_module_activation(module, auto=True)
-        missing_modules = [module for module in required_modules if not module_ready(module, catalog)]
-        target = {"kind": mapping.get("kind") or mapping.get("primaryKind") or "", "name": metadata.get("name"), "namespace": spec.get("targetNamespace") or "ai"}
+        missing_modules = [module for module in required_modules if not module_ready(module, module_catalog)]
+        target = {"kind": "HelmRelease", "name": metadata.get("name"), "namespace": APPLIANCE_NAMESPACE}
         if missing_modules:
             message = "Waiting for required modules: " + ", ".join(missing_modules)
             patch_instance_status(instance, "WaitingForModules", target, "WaitingForModules", message, generation=generation)
             return "WaitingForModules", target
 
-        missing_crds = [crd for crd in (mapping.get("requiredCrds") or []) if not crd_exists(crd)]
+        missing_crds = [crd for crd in (definition.get("requiredCrds") or []) if not crd_exists(crd)]
         if missing_crds:
             message = "Waiting for required CRDs: " + ", ".join(missing_crds)
             patch_instance_status(instance, "WaitingForCRDs", target, "WaitingForCRDs", message, generation=generation)
             return "WaitingForCRDs", target
 
-        built_resources, url = INSTANCE_BUILDERS[instance_type](instance)
-        resources = built_resources if isinstance(built_resources, list) else [built_resources]
-        refresh_runtime_dns = generation > observed_generation and any(item.get("kind") == "Ingress" for item in resources)
-        for item in resources:
-            apply_resource(item)
-        if refresh_runtime_dns:
-            refresh_kdns(f"appinstance-{metadata.get('name', '')}")
-        resource = resources[-1]
-        target = {
-            "kind": resource["kind"],
-            "name": resource["metadata"]["name"],
-            "namespace": resource["metadata"]["namespace"],
-        }
-        target_resource = get_applied_resource(resource)
-        ready = ready_condition(target_resource or {})
-        if ready.get("status") == "False":
-            phase = "Degraded"
-            reason = ready.get("reason") or "TargetNotReady"
-            message = ready.get("message") or "Target resource is not ready."
-        elif ready.get("status") == "True" or resource["kind"] == "AgentTemplate":
-            phase = "Ready"
-            reason = ready.get("reason") or "Applied"
-            message = ready.get("message") or "Target resource has been applied."
-        else:
-            phase = "Reconciling"
-            reason = "WaitingForTarget"
-            message = "Target resource has been applied and is reconciling."
-        patch_instance_status(instance, phase, target, reason, message, url=url, generation=generation)
-        return phase, target
+        return reconcile_helm_app_instance(instance, definition, source)
 
 
     def patch_appliance_status(module_statuses, instance_statuses, model_statuses):
@@ -3278,164 +1139,9 @@ data:
         }})
 
 
-    def reconcile_paperclip_sandbox_network_policies(instances):
-        paperclip_instances = []
-        for instance in instances:
-            metadata = instance.get("metadata") or {}
-            spec = instance.get("spec") or {}
-            if spec.get("type") != "paperclip" or spec.get("enabled", True) is False:
-                continue
-            name = metadata.get("name") or "paperclip"
-            prefix = (dns_label_part(name, "paperclip")[:30].rstrip("-") or "paperclip") + "-"
-            paperclip_instances.append((prefix, instance))
-        paperclip_instances.sort(key=lambda item: len(item[0]), reverse=True)
-
-        selector = urllib.parse.urlencode({"labelSelector": "paperclip.io/managed-by=paperclip-k8s-plugin"})
-        namespaces = list_items("/api/v1/namespaces?" + selector)
-        for item in namespaces:
-            namespace = ((item.get("metadata") or {}).get("name") or "").strip()
-            if not namespace:
-                continue
-            owner = next((instance for prefix, instance in paperclip_instances if namespace.startswith(prefix)), None)
-            if not owner:
-                continue
-            owner_metadata = owner.get("metadata") or {}
-            owner_spec = owner.get("spec") or {}
-            owner_params = owner_spec.get("parameters") or {}
-            owner_name = owner_metadata.get("name") or "paperclip"
-            target_namespace = owner_spec.get("targetNamespace") or "ai"
-            agent_execution = owner_params.get("agentExecution") or {}
-            max_concurrent_agents = min(10, positive_int(agent_execution.get("maxConcurrentAgents")) or 2)
-            open_claw = agent_execution.get("openClaw") or {}
-            hermes = agent_execution.get("hermes") or {}
-            open_claw_ref = open_claw.get("instanceRef") if isinstance(open_claw, dict) else ""
-            hermes_ref = hermes.get("instanceRef") if isinstance(hermes, dict) else ""
-            egress = [
-                {
-                    "to": [{
-                        "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": target_namespace}},
-                        "podSelector": {"matchLabels": {"app": "litellm"}},
-                    }],
-                    "ports": [{"protocol": "TCP", "port": 4000}],
-                },
-                {
-                    "to": [{
-                        "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": target_namespace}},
-                        "podSelector": {"matchLabels": {
-                            "app.kubernetes.io/instance": owner_name,
-                            "app.kubernetes.io/name": "paperclip",
-                        }},
-                    }],
-                    "ports": [{"protocol": "TCP", "port": 3100}],
-                },
-            ]
-            if boolean_value(open_claw.get("enabled"), False) and open_claw_ref:
-                egress.append({
-                    "to": [{
-                        "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": target_namespace}},
-                        "podSelector": {"matchLabels": {
-                            "app.kubernetes.io/instance": open_claw_ref,
-                            "app.kubernetes.io/name": "openclaw",
-                        }},
-                    }],
-                    "ports": [
-                        {"protocol": "TCP", "port": 18789},
-                        {"protocol": "TCP", "port": 18790},
-                    ],
-                })
-            if boolean_value(hermes.get("enabled"), False) and hermes_ref:
-                egress.append({
-                    "to": [{
-                        "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": target_namespace}},
-                        "podSelector": {"matchLabels": {
-                            "app.kubernetes.io/instance": hermes_ref,
-                            "app.kubernetes.io/name": "hermes-agent",
-                        }},
-                    }],
-                    "ports": [{"protocol": "TCP", "port": 8642}],
-                })
-            apply_resource({
-                "apiVersion": "v1",
-                "kind": "ResourceQuota",
-                "metadata": {
-                    "name": "paperclip-quota",
-                    "namespace": namespace,
-                    "labels": {"app.kubernetes.io/managed-by": "magicstick-operator"},
-                },
-                "spec": {"hard": {
-                    "pods": str(max_concurrent_agents),
-                    "requests.cpu": str(max_concurrent_agents * 500) + "m",
-                    "requests.memory": str(max_concurrent_agents) + "Gi",
-                    "limits.cpu": str(max_concurrent_agents * 2),
-                    "limits.memory": str(max_concurrent_agents * 4) + "Gi",
-                }},
-            })
-            apply_resource({
-                "apiVersion": "v1",
-                "kind": "LimitRange",
-                "metadata": {
-                    "name": "paperclip-limits",
-                    "namespace": namespace,
-                    "labels": {"app.kubernetes.io/managed-by": "magicstick-operator"},
-                },
-                "spec": {"limits": [{
-                    "type": "Container",
-                    "default": {"cpu": "1", "memory": "2Gi"},
-                    "defaultRequest": {"cpu": "500m", "memory": "1Gi"},
-                    "max": {"cpu": "2", "memory": "4Gi"},
-                }]},
-            })
-            apply_resource({
-                "apiVersion": "networking.k8s.io/v1",
-                "kind": "NetworkPolicy",
-                "metadata": {
-                    "name": "ai-appliance-litellm-egress",
-                    "namespace": namespace,
-                    "labels": {
-                        "app.kubernetes.io/managed-by": "magicstick-operator",
-                        "paperclip.io/managed-by": "paperclip-k8s-plugin",
-                    },
-                },
-                "spec": {
-                    "podSelector": {"matchLabels": {"paperclip.io/role": "agent"}},
-                    "policyTypes": ["Egress"],
-                    "egress": egress,
-                },
-            })
-
-
-    def watch_paperclip_sandbox_namespaces():
-        query = urllib.parse.urlencode({
-            "watch": "true",
-            "allowWatchBookmarks": "true",
-            "timeoutSeconds": "300",
-        })
-        path = "/api/v1/namespaces?" + query
-        while True:
-            request = urllib.request.Request(KUBE_API + path, headers={
-                "Accept": "application/json",
-                "Authorization": "Bearer " + token(),
-            })
-            try:
-                with urllib.request.urlopen(request, timeout=330, context=SSL_CONTEXT) as response:
-                    for raw_line in response:
-                        if not raw_line.strip():
-                            continue
-                        event = json.loads(raw_line)
-                        if event.get("type") not in ("ADDED", "MODIFIED"):
-                            continue
-                        namespace = event.get("object") or {}
-                        labels = (namespace.get("metadata") or {}).get("labels") or {}
-                        if labels.get("paperclip.io/managed-by") != "paperclip-k8s-plugin":
-                            continue
-                        reconcile_paperclip_sandbox_network_policies(app_instances())
-            except Exception as error:
-                print("sandbox namespace watch reconnecting: " + repr(error), flush=True)
-                time.sleep(2)
-
-
     def reconcile_once():
         catalog = load_catalog()
+        app_catalog = load_app_catalog()
         presets = load_model_presets()
         current = appliance() or {}
         source = ((current.get("spec") or {}).get("source") or {"kind": "GitRepository", "name": "flux-system", "namespace": FLUX_NAMESPACE})
@@ -3447,10 +1153,10 @@ data:
         activations = module_activations()
 
         for instance in instances:
-            mapping = (catalog.get("instanceMappings") or {}).get((instance.get("spec") or {}).get("type")) or {}
+            definition = (app_catalog.get("applications") or {}).get((instance.get("spec") or {}).get("application")) or {}
             if ((instance.get("spec") or {}).get("enabled", True) is False):
                 continue
-            for module in mapping.get("requiredModules") or []:
+            for module in definition.get("requiredModules") or []:
                 ensure_module_activation(module, auto=True)
         for model in models:
             spec = model.get("spec") or {}
@@ -3479,9 +1185,9 @@ data:
 
         instance_statuses = {}
         for instance in instances:
-            instance_type = (instance.get("spec") or {}).get("type") or "unknown"
+            instance_type = (instance.get("spec") or {}).get("application") or "unknown"
             name = (instance.get("metadata") or {}).get("name")
-            phase, target = reconcile_instance(instance, catalog)
+            phase, target = reconcile_instance(instance, catalog, app_catalog, source)
             instance_statuses.setdefault(instance_type, {})[name] = {
                 "phase": phase,
                 "namespace": target.get("namespace", ""),
@@ -3497,14 +1203,12 @@ data:
             phase, status = reconcile_model_activation(model, catalog, presets)
             model_statuses[name] = status
 
-        reconcile_paperclip_sandbox_network_policies(instances)
         patch_appliance_status(module_statuses, instance_statuses, model_statuses)
         print(f"reconciled modules={len(module_statuses)} instances={len(instances)} models={len(models)}", flush=True)
 
 
     def main():
         print("magicstick-operator live controller starting", flush=True)
-        threading.Thread(target=watch_paperclip_sandbox_namespaces, daemon=True).start()
         while True:
             try:
                 reconcile_once()
