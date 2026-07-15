@@ -1,0 +1,75 @@
+{{- $instance := required "instance is required" .Values.instance -}}
+{{- $values := default dict $instance.values -}}
+{{- $templates := default list $values.agentTemplates -}}
+{{- $templateName := default $instance.name $values.template -}}
+{{- if $templates }}{{- $templateName = default $templateName (index $templates 0).name -}}{{- end }}
+{{- $agentName := trimPrefix "kubeopencode-" (default $instance.name $values.agentName) -}}
+{{- $model := trimPrefix "litellm/" (trimPrefix "openai/" (default "CHANGEME_MODEL" $values.model)) -}}
+apiVersion: kubeopencode.io/v1alpha1
+kind: AgentTemplate
+metadata:
+  name: {{ $templateName }}
+  namespace: {{ $instance.namespace }}
+  labels:
+    appliance.magicstick.dev/appinstance: {{ $instance.name }}
+spec:
+  serviceAccountName: default
+  workspaceDir: /workspace
+  config:
+    provider:
+      litellm:
+        npm: "@ai-sdk/openai-compatible"
+        name: LiteLLM
+        options:
+          baseURL: http://litellm.ai.svc.cluster.local:4000/v1
+          apiKey: "{env:LITELLM_MASTER_KEY}"
+        models:
+          {{ $model }}:
+            name: {{ $model | quote }}
+    model: {{ printf "litellm/%s" $model | quote }}
+    small_model: {{ printf "litellm/%s" $model | quote }}
+    autoupdate: false
+  credentials:
+    - name: litellm-api-key
+      secretRef:
+        name: litellm-masterkey-secret
+        key: LITELLM_MASTER_KEY
+      env: LITELLM_MASTER_KEY
+---
+apiVersion: kubeopencode.io/v1alpha1
+kind: Agent
+metadata:
+  name: {{ $agentName }}
+  namespace: {{ $instance.namespace }}
+  labels:
+    appliance.magicstick.dev/appinstance: {{ $instance.name }}
+spec:
+  templateRef:
+    name: {{ $templateName }}
+  profile: {{ default "AI Appliance coding agent managed by Magic Stick." $values.profile | quote }}
+  maxConcurrentTasks: {{ default 1 $values.maxConcurrentTasks }}
+  suspend: false
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $instance.name }}
+  namespace: {{ $instance.namespace }}
+  annotations:
+    dashboard.ai-appliance.io/title: KubeOpenCode
+    dashboard.ai-appliance.io/category: AI
+    lab42.io/mdns.enabled: "true"
+    lab42.io/mdns.name: {{ $instance.localName | quote }}
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: {{ dig "ingress" "host" $instance.localHost $values | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $agentName }}
+                port:
+                  name: http

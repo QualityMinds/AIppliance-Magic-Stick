@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: magicstick-app-catalog
+  namespace: ai-system
+  labels:
+    app.kubernetes.io/name: magicstick-operator
+    app.kubernetes.io/component: app-catalog
+data:
+  applications.json: |
+    {
+      "applications": {
+        "openclaw": {
+          "displayName": "OpenClaw",
+          "chartPath": "magic-cluster/apps/instances/openclaw",
+          "requiredModules": ["openclaw-operator", "litellm", "model-catalog"],
+          "requiredCrds": ["openclawinstances.openclaw.rocks"]
+        },
+        "hermes": {
+          "displayName": "Hermes",
+          "chartPath": "magic-cluster/apps/instances/hermes",
+          "requiredModules": ["hermes-operator", "litellm", "model-catalog"],
+          "requiredCrds": ["hermesinstances.hermes.agent"]
+        },
+        "paperclip": {
+          "displayName": "Paperclip",
+          "chartPath": "magic-cluster/apps/instances/paperclip",
+          "requiredModules": ["paperclip-operator", "agent-sandbox", "litellm", "model-catalog"],
+          "requiredCrds": ["instances.paperclip.inc", "sandboxes.agents.x-k8s.io"]
+        },
+        "kubeopencode": {
+          "displayName": "KubeOpenCode",
+          "chartPath": "magic-cluster/apps/instances/kubeopencode",
+          "requiredModules": ["kubeopencode", "litellm", "model-catalog"],
+          "requiredCrds": ["agenttemplates.kubeopencode.io", "agents.kubeopencode.io"]
+        },
+        "odysseus": {
+          "displayName": "Odysseus",
+          "chartPath": "magic-cluster/apps/instances/odysseus",
+          "requiredModules": ["odysseus", "litellm", "model-catalog"],
+          "requiredCrds": []
+        }
+      }
+    }

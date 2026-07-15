@@ -53,10 +53,10 @@ metadata:
   name: paperclip-default
   namespace: ai-system
 spec:
-  type: paperclip
+  application: paperclip
   enabled: true
   targetNamespace: ai
-  parameters:
+  values:
     name: default
     model: qwen3635b
     storage:
@@ -192,7 +192,7 @@ a Kubernetes Secret, and reference it from the OpenClaw `AppInstance`:
 
 ```yaml
 spec:
-  parameters:
+  values:
     paperclipAgentSecretRef:
       name: openclaw-default-paperclip-agent
       key: paperclip-claimed-api-key.json
@@ -211,7 +211,7 @@ bind it to the Hermes `AppInstance` together with the reachable Paperclip URL:
 
 ```yaml
 spec:
-  parameters:
+  values:
     paperclipApiUrl: http://paperclip-default.ai.svc.cluster.local:3100
     paperclipAgentSecretRef:
       name: hermes-default-paperclip-agent
@@ -285,10 +285,10 @@ Credential ownership is split by purpose:
 | Git provider token or SSH key | Paperclip Company Secret or a dedicated per-agent Kubernetes Secret reference. |
 | Paperclip first-admin password | Generated Kubernetes Secret exposed through the existing credentials endpoint. |
 
-Never place secret values in the module catalog, `AppInstance.spec.parameters`,
+Never place secret values in the module catalog, `AppInstance.spec.values`,
 adapter `defaultEnv`, or dashboard source.
 
-Set `spec.parameters.authSecretName` only to reference an externally managed
+Set `spec.values.authSecretName` only to reference an externally managed
 Secret that already contains `BETTER_AUTH_SECRET`; the Magic Stick Operator does
 not generate or delete an explicitly named auth Secret.
 

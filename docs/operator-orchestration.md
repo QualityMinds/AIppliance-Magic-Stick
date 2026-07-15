@@ -10,7 +10,7 @@ The dashboard is also not an operator. It reads status and creates or patches
 
 | Component | Responsibility |
 |---|---|
-| Magic Stick Operator | Watches `ModuleActivation`, `ModelActivation`, and `AppInstance`, enables modules with Flux, cleans generated Flux Kustomizations for disabled modules, waits for CRDs, creates model resources, specialized app CRs, and direct app resources, and reports aggregate `Appliance.status`. |
+| Magic Stick Operator | Watches `ModuleActivation`, `ModelActivation`, and `AppInstance`, enables modules with Flux, creates one Flux HelmRelease per app instance, creates KubeAI model resources, and reports aggregate `Appliance.status`. |
 | Magic Stick Dashboard | Reads `Appliance`, module catalog, Flux, Pod, Service, Ingress, and Event status; creates or patches runtime CRs only. |
 | OpenClaw Operator | Owns lifecycle of `OpenClawInstance` resources. |
 | Hermes Operator | Owns lifecycle of `HermesInstance` resources. |
@@ -23,7 +23,7 @@ The dashboard is also not an operator. It reads status and creates or patches
 - Read the Git-owned `Appliance/local` source configuration.
 - Watch or poll `ModuleActivation`, `ModelActivation`, and `AppInstance`
   resources.
-- Load `ConfigMap/magicstick-module-catalog`.
+- Load `ConfigMap/magicstick-module-catalog` and `ConfigMap/magicstick-app-catalog`.
 - Normalize user-facing module keys to canonical catalog names.
 - Seed missing `ModuleActivation` resources from enabled
   `Appliance.spec.modules` entries.
@@ -37,7 +37,7 @@ The dashboard is also not an operator. It reads status and creates or patches
 - Delete stale generated Flux Kustomizations that no longer have a matching
   `ModuleActivation`.
 - Wait for required CRDs.
-- Create or patch KubeAI model resources and specialized instance resources.
+- Create or patch KubeAI model resources and one generated HelmRelease per app instance.
 - Update module, instance, and condition status.
 
 The static Flux `magicstick-operator` Kustomization must not wait on
@@ -47,7 +47,7 @@ removed, or repaired.
 
 ## Instance Mapping
 
-| AppInstance type | Required module | Required CRD | Generated kind |
+| Application | Required module | Required CRD | Chart output |
 |---|---|---|---|
 | `openclaw` | `openclaw-operator` | `openclawinstances.openclaw.rocks` | `OpenClawInstance` `openclaw.rocks/v1alpha1` |
 | `hermes` | `hermes-operator` | `hermesinstances.hermes.agent` | `HermesInstance` `hermes.agent/v1` |
@@ -59,6 +59,12 @@ All enabled AI app instances also require `litellm` and `model-catalog`.
 Paperclip uses the Agent Sandbox CR backend for CLI runtimes; OpenClaw and
 Hermes remain separate gateway services.
 
+The generated HelmRelease is stored in `ai-system`, targets the requested app
+namespace, and loads its chart from the GitRepository configured in
+`Appliance.spec.source`. Charts for operator-backed apps render the native CR;
+the Odysseus chart renders its Deployments, Services, PVCs, Secret, ConfigMap,
+and Ingress directly. Helm owns upgrade and cleanup for all of these resources.
+
 ## Defaulting
 
 For v1alpha1, examples use these defaults:
@@ -68,7 +74,7 @@ For v1alpha1, examples use these defaults:
   `litellm`, and `model-catalog`
 - missing default module activations are seeded once; existing
   `ModuleActivation` resources, including disabled ones, take precedence
-- instance namespace defaults to `ai`
+- instance target namespace defaults to `ai`
 - `enabled` defaults to `true` inside instance arrays
 - generated Flux namespace is always `flux-system`
 - generated Flux interval is `10m0s`
@@ -91,9 +97,9 @@ ready, the module remains in `WaitingForModules`; the operator removes any stale
 generated Flux Kustomization for that module to avoid Flux `dependsOn` errors
 for missing dependencies.
 
-The controller should set `Ready=True` only when every desired generated Flux
-Kustomization is ready and every enabled instance is ready or accepted by its
-specialized operator.
+The controller sets an instance to `Ready` when its generated HelmRelease is
+ready. Native application readiness remains the responsibility of the chart and
+the specialized operator it installs a CR for.
 
 ## Public Boundary
 

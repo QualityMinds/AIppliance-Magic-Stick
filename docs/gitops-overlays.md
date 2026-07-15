@@ -128,8 +128,8 @@ When adding a new app instance type:
 
 1. Put any dedicated operator under `magic-cluster/platform/ai/` or direct app
    module gate under `magic-cluster/apps/ai/`.
-2. Add an `AppInstance` builder and `instanceMappings` entry to the Magic Stick
-   Operator catalog/controller.
+2. Add an AppInstance Helm chart under `magic-cluster/apps/instances/` and an
+   application entry to `magicstick-app-catalog`.
 3. Keep instance-specific secrets generated or externally referenced.
 4. Document new variables in [configuration.md](configuration.md) and
    [public-release-checklist.md](public-release-checklist.md).

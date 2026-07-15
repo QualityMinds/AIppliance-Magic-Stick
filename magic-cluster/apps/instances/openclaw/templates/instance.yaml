@@ -1,0 +1,69 @@
+{{- $instance := required "instance is required" .Values.instance -}}
+{{- $values := default dict $instance.values -}}
+{{- $ingress := default dict $values.ingress -}}
+apiVersion: openclaw.rocks/v1alpha1
+kind: OpenClawInstance
+metadata:
+  name: {{ $instance.name }}
+  namespace: {{ $instance.namespace }}
+  labels:
+    app.kubernetes.io/name: openclaw
+    app.kubernetes.io/instance: {{ $instance.name }}
+    appliance.magicstick.dev/appinstance: {{ $instance.name }}
+spec:
+  podAnnotations:
+    ai-appliance.io/model-catalog-consumer: "true"
+  config:
+    mergeMode: merge
+  env:
+    - name: OPENAI_BASE_URL
+      value: http://litellm.ai.svc.cluster.local:4000/v1
+    - name: OPENCLAW_DEFAULT_MODEL
+      value: {{ default "CHANGEME_MODEL" $values.model | quote }}
+    - name: OPENAI_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: litellm-masterkey-secret
+          key: LITELLM_MASTER_KEY
+  storage:
+    persistence:
+      enabled: true
+      size: {{ dig "storage" "size" "10Gi" $values | quote }}
+  security:
+    networkPolicy:
+      enabled: true
+      allowedIngressNamespaces: [ai, ingress-nginx]
+      additionalEgress:
+        - to:
+            - podSelector:
+                matchLabels:
+                  app: litellm
+          ports:
+            - protocol: TCP
+              port: 4000
+  networking:
+    service:
+      type: ClusterIP
+    ingress:
+      enabled: {{ default true $ingress.enabled }}
+      className: nginx
+      security:
+        enableHSTS: false
+        forceHTTPS: false
+      annotations:
+        dashboard.ai-appliance.io/title: OpenClaw
+        dashboard.ai-appliance.io/category: AI
+        lab42.io/mdns.enabled: "true"
+        lab42.io/mdns.name: {{ $instance.localName | quote }}
+        lab42.io/mdns.host: {{ $instance.localName | quote }}
+      hosts:
+        - host: {{ $ingress.host | quote }}
+          paths:
+            - path: /
+              pathType: Prefix
+        {{- if ne $ingress.host $instance.localHost }}
+        - host: {{ $instance.localHost | quote }}
+          paths:
+            - path: /
+              pathType: Prefix
+        {{- end }}

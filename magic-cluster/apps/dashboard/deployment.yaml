@@ -66,6 +66,10 @@ spec:
               value: ai-system
             - name: MODULE_CATALOG_NAME
               value: magicstick-module-catalog
+            - name: APP_CATALOG_NAMESPACE
+              value: ai-system
+            - name: APP_CATALOG_NAME
+              value: magicstick-app-catalog
             - name: MODEL_PRESETS_NAMESPACE
               value: ai-system
             - name: MODEL_PRESETS_NAME

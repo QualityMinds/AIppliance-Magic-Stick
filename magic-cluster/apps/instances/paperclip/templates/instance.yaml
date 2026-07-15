@@ -1,0 +1,124 @@
+{{- $instance := required "instance is required" .Values.instance -}}
+{{- $values := default dict $instance.values -}}
+{{- $ingress := default dict $values.ingress -}}
+{{- $admin := default dict $values.admin -}}
+{{- $agentExecution := default dict $values.agentExecution -}}
+{{- $model := trimPrefix "litellm/" (trimPrefix "openai/" (default "CHANGEME_MODEL" (default $values.model $agentExecution.defaultModel))) -}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $instance.name }}-auth
+  namespace: {{ $instance.namespace }}
+  annotations:
+    secret-generator.v1.mittwald.de/autogenerate: BETTER_AUTH_SECRET
+    secret-generator.v1.mittwald.de/encoding: hex
+type: Opaque
+data: {}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $instance.name }}-admin
+  namespace: {{ $instance.namespace }}
+  annotations:
+    secret-generator.v1.mittwald.de/autogenerate: PAPERCLIP_ADMIN_PASSWORD
+    secret-generator.v1.mittwald.de/encoding: hex
+type: Opaque
+data: {}
+---
+apiVersion: paperclip.inc/v1alpha1
+kind: Instance
+metadata:
+  name: {{ $instance.name }}
+  namespace: {{ $instance.namespace }}
+  labels:
+    app.kubernetes.io/name: paperclip
+    app.kubernetes.io/instance: {{ $instance.name }}
+    appliance.magicstick.dev/appinstance: {{ $instance.name }}
+spec:
+  podAnnotations:
+    ai-appliance.io/model-catalog-consumer: "true"
+  image:
+    repository: {{ dig "image" "repository" "ghcr.io/paperclipai/paperclip" $values | quote }}
+    tag: {{ dig "image" "tag" "sha-df0e5bd" $values | quote }}
+  deployment:
+    mode: authenticated
+    exposure: public
+    publicURL: {{ printf "http://%s" $ingress.host | quote }}
+    allowedHostnames:
+      - {{ $ingress.host | quote }}
+      - {{ $instance.localHost | quote }}
+      - localhost
+      - 127.0.0.1
+  database:
+    mode: managed
+    managed:
+      storageSize: {{ dig "database" "managed" "storageSize" "10Gi" $values | quote }}
+  auth:
+    secretRef:
+      name: {{ $instance.name }}-auth
+      key: BETTER_AUTH_SECRET
+  env:
+    - name: OPENAI_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: litellm-masterkey-secret
+          key: LITELLM_MASTER_KEY
+    - name: OPENAI_BASE_URL
+      value: http://litellm.ai.svc.cluster.local:4000/v1
+    - name: PAPERCLIP_ADAPTER_MODELS
+      valueFrom:
+        configMapKeyRef:
+          name: ai-model-catalog
+          key: paperclip-adapter-models.json
+    - name: PAPERCLIP_OPENCODE_PROVIDERS
+      valueFrom:
+        configMapKeyRef:
+          name: ai-model-catalog
+          key: opencode-providers.json
+    - name: PAPERCLIP_OPENCODE_SMALL_MODEL
+      value: {{ printf "litellm/%s" $model | quote }}
+    - name: PAPERCLIP_OPENCODE_CHEAP_MODEL
+      value: {{ printf "litellm/%s" $model | quote }}
+  adapters:
+    execution:
+      mode: kubernetes
+      kubernetes:
+        backend: sandbox-cr
+        egressMode: standard
+        namespacePrefix: {{ printf "%s-" $instance.name | quote }}
+    registry:
+      - adapterType: opencode_local
+        enabled: true
+        runtimeImage: ghcr.io/paperclipai/agent-runtime-opencode:git-b18cbb0dd3d524d3d332f54143c84f00c694636c
+        envKeys:
+          - OPENAI_API_KEY
+          - OPENAI_BASE_URL
+          - PAPERCLIP_OPENCODE_PROVIDERS
+          - PAPERCLIP_OPENCODE_SMALL_MODEL
+          - PAPERCLIP_OPENCODE_CHEAP_MODEL
+        defaultEnv:
+          OPENAI_BASE_URL: http://litellm.ai.svc.cluster.local:4000/v1
+  storage:
+    persistence:
+      enabled: true
+      size: {{ dig "storage" "size" "5Gi" $values | quote }}
+  security:
+    networkPolicy:
+      enabled: true
+  networking:
+    service:
+      type: ClusterIP
+      port: 3100
+    ingress:
+      enabled: true
+      ingressClassName: nginx
+      hosts:
+        - {{ $ingress.host | quote }}
+        - {{ $instance.localHost | quote }}
+      annotations:
+        dashboard.ai-appliance.io/title: Paperclip
+        dashboard.ai-appliance.io/category: AI
+        lab42.io/mdns.enabled: "true"
+        lab42.io/mdns.name: {{ $instance.localName | quote }}
+        lab42.io/mdns.host: {{ $instance.localName | quote }}

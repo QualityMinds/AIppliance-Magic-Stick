@@ -250,9 +250,9 @@ Current consumers include:
   from a Kubernetes Secret.
   Catalog changes include OpenCode limit metadata in the consumer hash, so a
   changed limit follows the normal catalog consumer restart path.
-- Dashboard-created KubeOpenCode `AppInstance` resources are rendered by the
-  Magic Stick Operator into `AgentTemplate` resources using all generated chat
-  models and into `Agent` resources that reference those templates.
+- Dashboard-created KubeOpenCode `AppInstance` resources are reconciled as Flux
+  HelmReleases; the instance chart renders `AgentTemplate` and `Agent`
+  resources.
 - KubeOpenCode `AgentTemplate/litellm-default` is patched with generated
   LiteLLM chat models when the static template CRD and resource are present.
 

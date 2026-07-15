@@ -68,8 +68,9 @@ The render-only demo overlay is kept as a public composition smoke test:
 ## Implementation Rules
 
 - Read the nearby manifests/docs before changing behavior.
-- Use the module catalog as the source of truth for modules and instance
-  mappings; do not reintroduce hardcoded dashboard module lists.
+- Use the module catalog as the source of truth for modules and the app catalog
+  as the source of truth for instance charts and dependencies; do not
+  reintroduce hardcoded dashboard lists.
 - Preserve the derived instance hostname scheme:
   `<instance-name>.<instance-type>.<domain>`.
 - Keep `Appliance/local.spec` Git-owned. Runtime changes should use

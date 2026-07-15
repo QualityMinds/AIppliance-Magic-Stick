@@ -63,9 +63,10 @@ keeps it disabled; the operator only seeds missing activations.
 Modules are capabilities. Instances are concrete uses of those capabilities.
 
 For example, creating `ModuleActivation/openclaw-operator` installs the
-OpenClaw operator module. Creating an `AppInstance` with `spec.type: openclaw`
-asks the Magic Stick Operator to create an `OpenClawInstance` after required
-modules and CRDs are available.
+OpenClaw operator module. Creating an `AppInstance` with
+`spec.application: openclaw` asks the Magic Stick Operator to create a Flux
+HelmRelease for the OpenClaw instance chart after required modules and CRDs are
+available. The chart creates the `OpenClawInstance`.
 
 The operator auto-enables modules required by an enabled instance and reports
 that in status. For example, an OpenClaw instance requires:
@@ -91,9 +92,9 @@ metadata:
   name: paperclip-default
   namespace: ai-system
 spec:
-  type: paperclip
+  application: paperclip
   targetNamespace: ai
-  parameters:
+  values:
     name: default
     model: qwen3635b
     agentExecution:
@@ -134,10 +135,10 @@ metadata:
   name: openclaw-default
   namespace: ai-system
 spec:
-  type: openclaw
+  application: openclaw
   enabled: true
   targetNamespace: ai
-  parameters:
+  values:
     name: default
     model: CHANGEME_MODEL
 ```
