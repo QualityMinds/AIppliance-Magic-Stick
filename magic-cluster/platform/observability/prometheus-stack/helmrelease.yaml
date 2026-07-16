@@ -42,8 +42,7 @@ spec:
           header_name: Authorization
           username_claim: preferred_username
           auto_sign_up: true
-          jwk_set_url: https://keycloak.identity-system.svc.cluster.local:8443/realms/magicstick/protocol/openid-connect/certs
-          tls_skip_verify_insecure: true
+          jwk_set_url: http://keycloak.identity-system.svc.cluster.local:8080/realms/magicstick/protocol/openid-connect/certs
           role_attribute_path: "contains(realm_access.roles[*], 'magicstick-admin') && 'GrafanaAdmin' || contains(realm_access.roles[*], 'magicstick-operator') && 'Editor' || 'Viewer'"
           role_attribute_strict: true
           allow_assign_grafana_admin: true
