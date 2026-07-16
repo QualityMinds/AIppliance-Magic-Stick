@@ -62,7 +62,6 @@ jobs:
             magic-cluster/platform/ai/openclaw-operator
             magic-cluster/platform/ai/paperclip-operator
             magic-cluster/platform/ai/agent-sandbox
-            magic-cluster/platform/observability
             magic-cluster/apps/ai/litellm/base
             magic-cluster/apps/ai/model-catalog
             magic-cluster/apps/ai/anything-llm/base

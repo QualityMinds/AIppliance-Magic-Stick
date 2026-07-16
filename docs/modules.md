@@ -21,7 +21,7 @@ Each module definition may contain:
 | Field | Purpose |
 |---|---|
 | `displayName` | Human-readable title. The dashboard falls back to the module key. |
-| `group` | Catalog group key such as `core`, `runtime`, `apps`, `operators`, or `observability`. |
+| `group` | Catalog group key such as `core`, `runtime`, `apps`, or `operators`. |
 | `aliases` | Backward-compatible names accepted by the API, such as `anythingllm`. |
 | `activationMode` | `static` for Git-owned modules, `moduleactivation` for runtime-toggleable modules. |
 | `order` | Stable sort order inside a group. |

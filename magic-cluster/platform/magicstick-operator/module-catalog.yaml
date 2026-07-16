@@ -14,7 +14,6 @@ data:
         "runtime": {"displayName": "AI Runtime", "order": 20},
         "apps": {"displayName": "Apps", "order": 30},
         "operators": {"displayName": "Operators", "order": 40},
-        "observability": {"displayName": "Observability", "order": 50},
         "other": {"displayName": "Other", "order": 1000}
       },
       "modules": {
@@ -197,27 +196,6 @@ data:
           "requiredCrds": [],
           "default": false,
           "uninstallPolicy": "keep-data"
-        },
-        "observability": {
-          "displayName": "Observability",
-          "group": "observability",
-          "activationMode": "moduleactivation",
-          "order": 120,
-          "path": "magic-cluster/platform/observability",
-          "kustomizationName": "platform-observability",
-          "requires": ["basis"],
-          "requiredCrds": [
-            "prometheuses.monitoring.coreos.com",
-            "servicemonitors.monitoring.coreos.com"
-          ],
-          "default": false,
-          "uninstallPolicy": "keep-data",
-          "postBuildSubstitution": true,
-          "parameters": [
-            {"name": "lokiStorage", "label": "Loki Storage", "placeholder": "1Gi", "substitution": "AI_APPLIANCE_LOKI_STORAGE"},
-            {"name": "alertmanagerStorage", "label": "Alertmanager Storage", "placeholder": "1Gi", "substitution": "AI_APPLIANCE_ALERTMANAGER_STORAGE"},
-            {"name": "prometheusStorage", "label": "Prometheus Storage", "placeholder": "1Gi", "substitution": "AI_APPLIANCE_PROMETHEUS_STORAGE"}
-          ]
         }
       }
     }

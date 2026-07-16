@@ -6,9 +6,9 @@ login before a protected HTTP route reaches an application. The appliance can
 therefore authenticate users while fully disconnected from cloud services.
 
 Envoy Gateway is the only installed application gateway. The dashboard, all
-operator-managed AppInstances, LiteLLM, AnythingLLM, Grafana, Prometheus, and
-Alertmanager use authenticated Gateway API resources. The bundled installation
-contains no application `Ingress` resources.
+operator-managed AppInstances, LiteLLM, and AnythingLLM use authenticated
+Gateway API resources. The bundled installation contains no application
+`Ingress` resources.
 
 ## Target Architecture
 
@@ -88,12 +88,7 @@ The current implementation provides:
 - dashboard API token validation and viewer/operator/admin authorization
 - protected local and public routes for LiteLLM and AnythingLLM with a minimum
   `magicstick-user` role
-- protected local and public routes for Grafana, Prometheus, and Alertmanager
-  with a minimum `magicstick-viewer` role
-- Grafana JWT authentication from the Envoy-forwarded Keycloak access token,
-  including viewer/operator/admin mapping without a second login form
-- removal of the bundled dashboard, AI application, and observability
-  `Ingress` resources
+- removal of the bundled dashboard and AI application `Ingress` resources
 - a local `local-admin` account for end-to-end validation
 
 The pilot uses the standard HTTPS port `443` through the Envoy `LoadBalancer`

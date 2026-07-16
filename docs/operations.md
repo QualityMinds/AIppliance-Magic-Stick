@@ -77,7 +77,6 @@ kubectl -n ai get pods
 kubectl -n ai get svc,ingress
 kubectl -n dashboard get pods,service,referencegrant
 kubectl -n identity-system get httproute,securitypolicy
-kubectl -n observability get pods
 kubectl -n identity-system get httproutes,securitypolicies
 ```
 
@@ -102,9 +101,6 @@ Common public hostnames use `AI_APPLIANCE_DOMAIN`:
 | Dashboard | `magicstick.example.com` |
 | AnythingLLM | `anythingllm.magicstick.example.com` |
 | LiteLLM | `litellm.magicstick.example.com` |
-| Grafana | `grafana.magicstick.example.com` |
-| Prometheus | `prometheus.magicstick.example.com` |
-| Alertmanager | `alertmanager.magicstick.example.com` |
 
 AppInstance hostnames include the instance name:
 
@@ -130,27 +126,19 @@ kubectl get gateway,httproute -A
 kubectl -n kdns logs deploy/kdns-kdns
 ```
 
-LiteLLM, AnythingLLM, Grafana, Prometheus, and Alertmanager use static routes in
-`identity-system` and narrowly scoped backend grants in their service
-namespaces. Inspect the complete contract with:
+LiteLLM and AnythingLLM use static routes in `identity-system` and narrowly
+scoped backend grants in their service namespace. Inspect the complete contract
+with:
 
 ```bash
 kubectl -n identity-system get httproutes,securitypolicies \
   -o custom-columns=KIND:.kind,NAME:.metadata.name
 kubectl -n ai get referencegrants
-kubectl -n observability get referencegrants
 ```
 
-LiteLLM and AnythingLLM require `magicstick-user` or a higher role. Grafana,
-Prometheus, and Alertmanager require `magicstick-viewer`, `magicstick-operator`,
-or `magicstick-admin`. Every static policy uses an exact callback path on the
-shared dashboard host, so it remains inside the redirect URI patterns of the
-single human gateway client.
-
-Envoy forwards the Keycloak access token to Grafana. Grafana validates the JWT
-against Keycloak and maps `magicstick-viewer` to Viewer,
-`magicstick-operator` to Editor, and `magicstick-admin` to GrafanaAdmin. Its
-basic login form is disabled, so the gateway login is the only browser login.
+LiteLLM and AnythingLLM require `magicstick-user` or a higher role. Every static
+policy uses an exact callback path on the shared dashboard host, so it remains
+inside the redirect URI patterns of the single human gateway client.
 
 Rancher Desktop isolates Kubernetes multicast traffic inside its Linux VM. On
 macOS, keep the host bridge running in a separate terminal while testing:
@@ -214,7 +202,6 @@ If model pods fail to start, check:
 
 ```bash
 kubectl get pvc -A
-kubectl -n observability get pvc
 kubectl -n ai get pvc
 ```
 
@@ -229,7 +216,6 @@ kubectl -n ai logs deploy/litellm
 kubectl -n ai logs deploy/anything-llm
 kubectl -n ai logs deploy/ai-model-catalog-controller
 kubectl -n ai logs statefulset/paperclip
-kubectl -n observability logs deploy/loki
 ```
 
 For operator-backed apps, also check the operator namespace:
@@ -258,6 +244,6 @@ deploy,pods` if a command does not match the running resource name.
 | Generated Secret missing | Check the secret generator HelmRelease and Secret annotations. |
 | OIDC route does not redirect | Check the `SecurityPolicy` and `HTTPRoute` status, Keycloak readiness, the Envoy data-plane logs, and whether the identity and requested application hostnames resolve to the Envoy LoadBalancer address. |
 | AppInstance route returns `403` after SSO | Compare `spec.access.role` with the user's `magicstick-user`, `magicstick-viewer`, `magicstick-operator`, or `magicstick-admin` realm roles. |
-| Static AI or observability route returns `403` after SSO | AI routes require at least `magicstick-user`; observability routes require at least `magicstick-viewer`. Check the user's realm roles and the corresponding static `SecurityPolicy`. |
+| Static AI route returns `403` after SSO | AI routes require at least `magicstick-user`. Check the user's realm roles and the corresponding static `SecurityPolicy`. |
 | Dashboard returns `403` after login | Confirm the user has `magicstick-viewer`, `magicstick-operator`, or `magicstick-admin`; configuration changes need operator or admin as documented in `authentication.md`. |
 | GPU model never starts | Check GPU Operator, allocatable GPU resources, KubeAI model status, and vLLM logs. |

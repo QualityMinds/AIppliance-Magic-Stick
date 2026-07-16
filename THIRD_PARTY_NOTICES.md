@@ -34,7 +34,6 @@ digest, or chart version.
 | `nousresearch/hermes-agent:v2026.7.7.2` | https://github.com/NousResearch/hermes-agent | Authenticated Hermes API gateway sidecar | Referenced only |
 | `tignis/kubernetes-secret-generator:3.4.1` | https://github.com/mittwald/kubernetes-secret-generator | Generated Kubernetes secrets | Referenced only |
 | `ghcr.io/qualityminds/magicstick-kdns` | https://github.com/lab42/kdns | Temporary Gateway-aware kdns build from pinned upstream source plus the contribution carried in this repository | Built and published by this repository; deployed by digest. The upstream README states MIT, but the pinned `LICENSE` file is empty and should be clarified before permanent mirroring. |
-| `otel/opentelemetry-collector-k8s` | https://github.com/open-telemetry/opentelemetry-collector-contrib | OpenTelemetry collector image selected by chart values | Referenced only |
 
 ## Helm Charts And Operators
 
@@ -51,10 +50,6 @@ digest, or chart version.
 | `openclaw-operator` | `oci://ghcr.io/paperclipinc/charts` | `0.36.4` | OpenClaw runtime orchestration |
 | `paperclip-operator` | `oci://ghcr.io/paperclipinc/charts` | `0.18.0` | Paperclip runtime orchestration |
 | `agent-sandbox` | https://github.com/kubernetes-sigs/agent-sandbox | `v0.5.1` | Kubernetes sandbox CRD and controller |
-| `kube-prometheus-stack` | https://prometheus-community.github.io/helm-charts | `69.8.2` | Prometheus and Grafana stack |
-| `loki` | https://grafana.github.io/helm-charts | `6.28.0` | Log aggregation |
-| `promtail` | https://grafana.github.io/helm-charts | `6.16.6` | Log shipping |
-| `opentelemetry-collector` | https://open-telemetry.github.io/opentelemetry-helm-charts | `0.121.0` | Telemetry collection |
 | `kubeopencode` | `oci://ghcr.io/kubeopencode/helm-charts` | `0.1.6` | AI coding workspace integration |
 
 ## Ansible Collections

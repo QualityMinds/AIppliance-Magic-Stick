@@ -40,6 +40,3 @@ spec:
       type: ClusterIP
     ingress:
       enabled: false
-  observability:
-    logging:
-      level: info
