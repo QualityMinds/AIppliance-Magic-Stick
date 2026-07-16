@@ -33,6 +33,7 @@ digest, or chart version.
 | `nousresearch/hermes-agent:v2026.5.29.2` | https://github.com/NousResearch/hermes-agent | Hermes dashboard runtime | Referenced only |
 | `nousresearch/hermes-agent:v2026.7.7.2` | https://github.com/NousResearch/hermes-agent | Authenticated Hermes API gateway sidecar | Referenced only |
 | `tignis/kubernetes-secret-generator:3.4.1` | https://github.com/mittwald/kubernetes-secret-generator | Generated Kubernetes secrets | Referenced only |
+| `ghcr.io/qualityminds/magicstick-kdns` | https://github.com/lab42/kdns | Temporary Gateway-aware kdns build from pinned upstream source plus the contribution carried in this repository | Built and published by this repository; deployed by digest. The upstream README states MIT, but the pinned `LICENSE` file is empty and should be clarified before permanent mirroring. |
 | `otel/opentelemetry-collector-k8s` | https://github.com/open-telemetry/opentelemetry-collector-contrib | OpenTelemetry collector image selected by chart values | Referenced only |
 
 ## Helm Charts And Operators
@@ -43,7 +44,7 @@ digest, or chart version.
 | `cert-manager` | https://charts.jetstack.io | `v1.20.2` | Certificate management |
 | `kubernetes-secret-generator` | https://helm.mittwald.de | `3.4.1` | Generated Kubernetes secrets |
 | `reloader` | https://stakater.github.io/stakater-charts | Unpinned | Config and secret reloads |
-| `kdns` | `oci://ghcr.io/lab42/charts` | `0.2.3` | Local DNS integration; the repository tracks an upstream Gateway API contribution patch until a released image can be pinned |
+| `kdns` | `oci://ghcr.io/lab42/charts` | `0.2.3` | Local DNS integration; chart remains upstream while the workload image temporarily uses the repository-built Gateway API contribution |
 | `gpu-operator` | https://helm.ngc.nvidia.com/nvidia | Unpinned | NVIDIA GPU support |
 | `kubeai` | https://www.kubeai.org | `0.23.2` | AI model serving platform |
 | `hermes-operator` | `oci://ghcr.io/paperclipinc/charts` | `0.1.17` | Hermes runtime orchestration |

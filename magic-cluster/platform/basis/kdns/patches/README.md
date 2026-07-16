@@ -29,9 +29,13 @@ docker run --rm -v "$(cd /tmp/kdns && pwd -P):/src" -w /src golang:1.26 \
 ```
 
 The cluster manifests already grant the required read-only Gateway API RBAC
-and opt the local Keycloak, SSO pilot, and dashboard routes into discovery.
-The patched image must be released and pinned before replacing the upstream
-image in the HelmRelease.
+and opt the local Keycloak, SSO pilot, dashboard, and generated AppInstance
+routes into discovery. `.github/workflows/build-kdns-image.yml` checks out this
+exact upstream commit, applies the patch, runs the Go tests and vet, and builds
+an amd64/arm64 image as `ghcr.io/qualityminds/magicstick-kdns`. Branch builds
+publish an immutable `sha-<commit>` tag; `main` additionally publishes
+`v0.2.22-gateway-api.1`. Deployments pin the resulting multi-architecture
+manifest digest rather than either tag.
 
 Rancher Desktop runs Kubernetes in a Linux VM and does not reliably forward
 multicast DNS packets to macOS. For that development environment, run the
