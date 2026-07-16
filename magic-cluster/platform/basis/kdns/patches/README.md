@@ -14,6 +14,9 @@ The patch is based on upstream commit
 - requires the referenced route parent to report `Accepted=True`;
 - takes IP addresses from `Gateway.status.addresses`;
 - derives the service type and port from the selected Gateway listener;
+- passes hostnames to the DNS-SD library relative to the configured domain, so
+  `magicstick.local` is published exactly once instead of as
+  `magicstick.local.local`;
 - removes records when the route is removed or no longer accepted; and
 - keeps the existing Ingress and LoadBalancer Service support.
 
