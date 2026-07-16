@@ -10,6 +10,7 @@ data:
   server.py: |
     #!/usr/bin/env python3
     import base64
+    import hashlib
     import json
     import os
     import re
@@ -50,6 +51,105 @@ data:
     PUBLIC_SSL_CONTEXT = ssl.create_default_context()
     HF_CACHE_TTL_SECONDS = 900
     HF_METADATA_CACHE = {}
+    OIDC_USERINFO_URL = os.environ.get(
+        "OIDC_USERINFO_URL",
+        "http://keycloak.identity-system.svc.cluster.local:8080/realms/magicstick/protocol/openid-connect/userinfo",
+    )
+    OIDC_EXPECTED_ISSUER = os.environ.get(
+        "OIDC_EXPECTED_ISSUER",
+        "https://id.magicstick.local/realms/magicstick",
+    ).rstrip("/")
+    OIDC_EXPECTED_CLIENT_ID = os.environ.get(
+        "OIDC_EXPECTED_CLIENT_ID",
+        "magicstick-human-gateway-local",
+    )
+    AUTH_CACHE_TTL_SECONDS = 30
+    AUTH_CACHE = {}
+    ROLE_ACCESS = {
+        "viewer": {"magicstick-viewer", "magicstick-operator", "magicstick-admin"},
+        "operator": {"magicstick-operator", "magicstick-admin"},
+        "admin": {"magicstick-admin"},
+    }
+
+
+    class AuthError(Exception):
+        def __init__(self, status, message):
+            super().__init__(message)
+            self.status = status
+
+
+    def jwt_payload(access_token):
+        try:
+            encoded = access_token.split(".")[1]
+            encoded += "=" * (-len(encoded) % 4)
+            return json.loads(base64.urlsafe_b64decode(encoded).decode("utf-8"))
+        except (IndexError, ValueError, json.JSONDecodeError) as error:
+            raise AuthError(401, "invalid access token") from error
+
+
+    def authenticated_principal(authorization):
+        scheme, separator, access_token = (authorization or "").partition(" ")
+        if not separator or scheme.lower() != "bearer" or not access_token.strip():
+            raise AuthError(401, "authentication required")
+        access_token = access_token.strip()
+        now = time.time()
+        cache_key = hashlib.sha256(access_token.encode("utf-8")).hexdigest()
+        cached = AUTH_CACHE.get(cache_key)
+        if cached and cached[0] > now:
+            return cached[1]
+
+        request = urllib.request.Request(
+            OIDC_USERINFO_URL,
+            headers={
+                "Accept": "application/json",
+                "Authorization": "Bearer " + access_token,
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=5) as response:
+                userinfo = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as error:
+            if error.code in {400, 401, 403}:
+                raise AuthError(401, "invalid or expired access token") from error
+            raise AuthError(503, "identity provider unavailable") from error
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
+            raise AuthError(503, "identity provider unavailable") from error
+
+        claims = jwt_payload(access_token)
+        if str(claims.get("iss") or "").rstrip("/") != OIDC_EXPECTED_ISSUER:
+            raise AuthError(401, "access token issuer is not trusted")
+        if str(claims.get("azp") or "") != OIDC_EXPECTED_CLIENT_ID:
+            raise AuthError(401, "access token client is not trusted")
+        try:
+            if float(claims.get("exp", 0)) <= now:
+                raise AuthError(401, "access token has expired")
+        except (TypeError, ValueError) as error:
+            raise AuthError(401, "access token expiry is invalid") from error
+
+        realm_access = claims.get("realm_access") or {}
+        raw_roles = realm_access.get("roles", []) if isinstance(realm_access, dict) else []
+        roles = {str(role) for role in raw_roles} if isinstance(raw_roles, list) else set()
+        principal = {
+            "subject": str(userinfo.get("sub") or claims.get("sub") or ""),
+            "username": str(
+                userinfo.get("preferred_username")
+                or userinfo.get("email")
+                or claims.get("preferred_username")
+                or claims.get("sub")
+                or "unknown"
+            ),
+            "roles": sorted(roles),
+        }
+        AUTH_CACHE[cache_key] = (min(now + AUTH_CACHE_TTL_SECONDS, float(claims["exp"])), principal)
+        return principal
+
+
+    def authorize(authorization, required_access):
+        principal = authenticated_principal(authorization)
+        allowed_roles = ROLE_ACCESS[required_access]
+        if not allowed_roles.intersection(principal["roles"]):
+            raise AuthError(403, f"{required_access} role required")
+        return principal
 
 
     def token():
@@ -632,9 +732,19 @@ data:
         requested_name = require_name(payload)
         name = app_instance_name(instance_type, requested_name)
         parameters = dict(payload)
+        requested_access = dict(parameters.pop("access", {}) or {})
         parameters.pop("enabled", None)
         parameters.pop("namespace", None)
         target_namespace = str(payload.get("namespace") or payload.get("targetNamespace") or "ai")
+        authentication = str(requested_access.get("authentication") or "sso")
+        role = str(requested_access.get("role") or "user")
+        exposure = str(requested_access.get("exposure") or "localAndPublic")
+        if authentication not in {"sso", "none"}:
+            raise ValueError("access.authentication must be sso or none")
+        if exposure not in {"local", "localAndPublic"}:
+            raise ValueError("access.exposure must be local or localAndPublic")
+        if role not in {"user", "viewer", "operator", "admin"}:
+            raise ValueError("access.role must be user, viewer, operator, or admin")
         return {
             "apiVersion": f"{APPLIANCE_GROUP}/{APPLIANCE_VERSION}",
             "kind": "AppInstance",
@@ -650,6 +760,11 @@ data:
                 "application": instance_type,
                 "enabled": payload.get("enabled", True) is not False,
                 "targetNamespace": target_namespace,
+                "access": {
+                    "authentication": authentication,
+                    "role": role,
+                    "exposure": exposure,
+                },
                 "applianceRef": {
                     "name": APPLIANCE_NAME,
                     "namespace": APPLIANCE_NAMESPACE,
@@ -1256,6 +1371,7 @@ data:
         pods = list_resource("/api/v1/pods")
         services = list_resource("/api/v1/services")
         ingresses = list_resource("/apis/networking.k8s.io/v1/ingresses")
+        http_routes = list_resource("/apis/gateway.networking.k8s.io/v1/httproutes")
         return {
             "appliance": {
                 "metadata": current.get("metadata", {}),
@@ -1268,6 +1384,7 @@ data:
             "pods": summarize_objects(pods),
             "services": summarize_objects(services),
             "ingresses": summarize_ingresses(ingresses),
+            "httpRoutes": summarize_http_routes(http_routes),
         }
 
 
@@ -1308,8 +1425,28 @@ data:
         return summarized
 
 
+    def summarize_http_routes(items):
+        summarized = []
+        for item in items:
+            metadata = item.get("metadata") or {}
+            spec = item.get("spec") or {}
+            accepted = False
+            for parent in (item.get("status") or {}).get("parents", []):
+                for route_condition in parent.get("conditions", []):
+                    if route_condition.get("type") == "Accepted" and route_condition.get("status") == "True":
+                        accepted = True
+            summarized.append({
+                "namespace": metadata.get("namespace", ""),
+                "name": metadata.get("name", ""),
+                "labels": metadata.get("labels") or {},
+                "hostnames": spec.get("hostnames") or [],
+                "accepted": accepted,
+            })
+        return summarized
+
+
     class Handler(BaseHTTPRequestHandler):
-        server_version = "MagicStickDashboardAPI/0.3"
+        server_version = "MagicStickDashboardAPI/0.4"
 
         def log_message(self, format, *args):
             print("%s - %s" % (self.address_string(), format % args), flush=True)
@@ -1326,6 +1463,22 @@ data:
         def send_error_json(self, status, message):
             self.send_json({"error": message}, status)
 
+        def send_auth_error(self, error):
+            if error.status == 401:
+                data = json.dumps({"error": str(error)}, indent=2, sort_keys=True).encode("utf-8")
+                self.send_response(401)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("WWW-Authenticate", 'Bearer realm="magicstick"')
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+                return
+            self.send_error_json(error.status, str(error))
+
+        def require_access(self, required_access):
+            return authorize(self.headers.get("Authorization", ""), required_access)
+
         def route(self):
             parsed = urllib.parse.urlparse(self.path)
             return parsed.path.rstrip("/") or "/"
@@ -1336,6 +1489,11 @@ data:
                 parts = path.strip("/").split("/")
                 if path == "/healthz":
                     self.send_json({"ok": True})
+                    return
+                required_access = "operator" if len(parts) == 4 and parts[:2] == ["api", "instances"] and parts[3] == "credentials" else "viewer"
+                principal = self.require_access(required_access)
+                if path == "/api/session":
+                    self.send_json(principal)
                 elif path == "/api/appliance":
                     self.send_json(appliance())
                 elif path == "/api/modules":
@@ -1356,6 +1514,8 @@ data:
                     self.send_json({"events": summarize_objects(core_events + new_events)})
                 else:
                     self.send_error_json(404, "not found")
+            except AuthError as error:
+                self.send_auth_error(error)
             except LookupError as error:
                 self.send_error_json(404, str(error))
             except ValueError as error:
@@ -1368,7 +1528,10 @@ data:
         def do_PATCH(self):
             if self.route() == "/api/settings":
                 try:
+                    self.require_access("admin")
                     self.send_json(settings_patch(read_body(self)))
+                except AuthError as error:
+                    self.send_auth_error(error)
                 except LookupError as error:
                     self.send_error_json(404, str(error))
                 except urllib.error.HTTPError as error:
@@ -1377,6 +1540,11 @@ data:
                     self.send_error_json(400, str(error))
                 return
             if self.route() == "/api/appliance":
+                try:
+                    self.require_access("admin")
+                except AuthError as error:
+                    self.send_auth_error(error)
+                    return
                 self.send_error_json(405, "Appliance spec is Git-owned; create ModuleActivation or AppInstance resources instead.")
                 return
             self.send_error_json(404, "not found")
@@ -1386,6 +1554,7 @@ data:
                 path = self.route()
                 parts = path.strip("/").split("/")
                 if len(parts) == 4 and parts[0] == "api" and parts[1] == "modules":
+                    self.require_access("operator")
                     catalog = catalog_json()
                     module = canonical_module(parts[2], catalog)
                     catalog_spec = ((catalog.get("modules") or {}).get(module) or {})
@@ -1406,6 +1575,7 @@ data:
 
                 applications = app_catalog_json().get("applications") or {}
                 if len(parts) == 3 and parts[:2] == ["api", "instances"] and parts[2] in applications:
+                    self.require_access("operator")
                     instance_type = parts[2]
                     resource = app_instance_payload(instance_type, read_body(self))
                     name = resource["metadata"]["name"]
@@ -1415,10 +1585,12 @@ data:
                     return
 
                 if len(parts) == 3 and parts[:2] == ["api", "models"] and parts[2] == "estimate-vram":
+                    self.require_access("viewer")
                     self.send_json(estimate_model_vram(read_body(self)))
                     return
 
                 if len(parts) == 3 and parts[:2] == ["api", "models"] and parts[2] in {"local", "external"}:
+                    self.require_access("operator")
                     model_type = parts[2]
                     resource = model_activation_payload(model_type, read_body(self))
                     name = resource["metadata"]["name"]
@@ -1428,6 +1600,8 @@ data:
                     return
 
                 self.send_error_json(404, "not found")
+            except AuthError as error:
+                self.send_auth_error(error)
             except urllib.error.HTTPError as error:
                 self.send_error_json(error.code, error.read().decode("utf-8", errors="replace"))
             except Exception as error:
@@ -1437,6 +1611,7 @@ data:
             try:
                 path = self.route()
                 parts = path.strip("/").split("/")
+                self.require_access("operator")
                 if len(parts) == 3 and parts[:2] == ["api", "instances"]:
                     name = parts[2]
                     if not DNS_LABEL.match(name):
@@ -1465,6 +1640,8 @@ data:
                     self.send_json({"deleted": name})
                     return
                 self.send_error_json(404, "not found")
+            except AuthError as error:
+                self.send_auth_error(error)
             except urllib.error.HTTPError as error:
                 self.send_error_json(error.code, error.read().decode("utf-8", errors="replace"))
             except Exception as error:

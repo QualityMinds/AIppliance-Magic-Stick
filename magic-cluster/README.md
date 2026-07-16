@@ -16,18 +16,20 @@ runtime checks.
 | `flux/graph/base` | Stable Flux Kustomization graph and dependency waves |
 | `flux/entrypoints/base` | Neutral public Flux entrypoint |
 | `flux/entrypoints/single-node` | Public read-only single-node Flux entrypoint |
-| `platform/basis` | Namespaces, ingress-nginx, cert-manager, secret generator, reloader, kdns |
+| `platform/basis` | Namespaces, cert-manager, secret generator, reloader, kdns |
+| `platform/gateway/envoy-gateway` | Primary Envoy Gateway control plane and Gateway API CRDs |
+| `platform/identity` | Local Keycloak/PostgreSQL identity broker and protected OIDC pilot route |
 | `platform/magicstick-operator` | Appliance CRDs, module catalog, model presets, operator RBAC, live controller, and public examples |
 | `platform/ai/kubeai` | KubeAI model-serving platform module |
 | `platform/ai/openclaw-operator` | OpenClaw CRD operator base for `openclaw.rocks/v1alpha1` instances |
 | `platform/ai/hermes-operator` | Hermes CRD operator base for `hermes.agent/v1` instances |
 | `platform/ai/paperclip-operator` | Paperclip CRD operator base for `paperclip.inc/v1alpha1` instances |
 | `platform/gpu` | NVIDIA GPU Operator with time-slicing GPU sharing |
-| `platform/observability` | Prometheus stack, Loki, Promtail, OpenTelemetry, Grafana dashboards |
-| `apps/dashboard` | Dashboard app, ingress discovery surface, and Appliance CR UI/API client |
-| `apps/ai/litellm/base` | LiteLLM API and model-routing module |
+| `platform/observability` | Prometheus stack, Loki, Promtail, OpenTelemetry, Grafana dashboards, and viewer-protected Envoy routes |
+| `apps/dashboard` | Dashboard app, route discovery surface, and Appliance CR UI/API client |
+| `apps/ai/litellm/base` | LiteLLM API and model-routing module with shared SSO routes |
 | `apps/ai/model-catalog` | Controller that syncs KubeAI `Model` CRs and optional external models into LiteLLM and publishes the generated `ai-model-catalog` ConfigMap |
-| `apps/ai/anything-llm/base` | AnythingLLM app module with Qdrant |
+| `apps/ai/anything-llm/base` | AnythingLLM app module with Qdrant and shared SSO routes |
 | `apps/ai/kubeopencode` | KubeOpenCode Helm release, separated so CRDs can become ready before custom resources |
 
 ## Deployment Overlays
@@ -56,6 +58,8 @@ kubectl kustomize magic-cluster/flux/entrypoints/single-node
 kubectl kustomize magic-cluster/apps/dashboard
 kubectl kustomize magic-cluster/platform/magicstick-operator
 kubectl kustomize magic-cluster/platform/basis
+kubectl kustomize magic-cluster/platform/gateway/envoy-gateway
+kubectl kustomize magic-cluster/platform/identity
 kubectl kustomize magic-cluster/platform/gpu
 kubectl kustomize magic-cluster/platform/ai/kubeai
 kubectl kustomize magic-cluster/platform/ai/openclaw-operator

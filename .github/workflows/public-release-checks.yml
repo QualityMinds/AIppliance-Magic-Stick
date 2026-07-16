@@ -30,6 +30,9 @@ jobs:
           python3 -m pip install --user ansible-core
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
+      - name: Install Ansible collections
+        run: ansible-galaxy collection install -r magic-host/requirements.yml
+
       - name: Secret scan current tree
         run: |
           docker run --rm -v "$PWD:/repo:ro" ghcr.io/gitleaks/gitleaks:v8.30.1 \

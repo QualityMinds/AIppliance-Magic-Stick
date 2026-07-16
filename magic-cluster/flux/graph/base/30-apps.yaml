@@ -6,6 +6,7 @@ metadata:
 spec:
   dependsOn:
     - name: infrastructure-basis
+    - name: identity-pilot
   interval: 10m0s
   path: ./magic-cluster/apps/dashboard
   postBuild:

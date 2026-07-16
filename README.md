@@ -21,6 +21,7 @@ created by the dashboard.
 │   ├── index.html
 │   ├── README.md
 │   ├── architecture.md
+│   ├── authentication.md
 │   ├── appliance-crd.md
 │   ├── configuration.md
 │   ├── dashboard.md
@@ -61,6 +62,7 @@ site.
 |---|---|
 | First checkout and installer flow | [docs/getting-started.md](docs/getting-started.md) |
 | Repository and cluster architecture | [docs/architecture.md](docs/architecture.md) |
+| Local authentication and enterprise SSO | [docs/authentication.md](docs/authentication.md) |
 | Appliance CRD | [docs/appliance-crd.md](docs/appliance-crd.md) |
 | Dashboard UI/API | [docs/dashboard.md](docs/dashboard.md) |
 | Module catalog | [docs/modules.md](docs/modules.md) |

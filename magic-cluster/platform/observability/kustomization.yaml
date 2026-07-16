@@ -6,4 +6,4 @@ resources:
   - promtail
   - opentelemetry-collector
   - dashboards
-  - ingresses
+  - routes

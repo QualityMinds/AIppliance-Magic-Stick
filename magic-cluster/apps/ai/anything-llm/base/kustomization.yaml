@@ -4,6 +4,6 @@ resources:
   - ../qdrant/base
   - configmap.yaml
   - deployment.yaml
-  - ingress.yaml
+  - gateway.yaml
   - service.yaml
   - pvc.yaml

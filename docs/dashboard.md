@@ -7,6 +7,7 @@ itself.
 
 ```text
 Dashboard UI
+  -> Envoy Gateway OIDC login
   -> Dashboard Backend API
   -> Kubernetes API
   -> ModuleActivation, AppInstance, and ModelActivation CRs
@@ -48,9 +49,13 @@ Paperclip, KubeOpenCode, KubeAI, LiteLLM, or direct app instance reconcilers.
 
 The dashboard Deployment runs an API sidecar from
 `ConfigMap/ai-appliance-dashboard-api`. nginx proxies `/api/*` to the sidecar.
+Envoy Gateway requires a Keycloak login for both the local and public dashboard
+hostnames and forwards the access token. The API validates the token against
+Keycloak before applying its own role checks.
 
 | Method | Path | Behavior |
 |---|---|---|
+| `GET` | `/api/session` | Returns the authenticated username and local realm roles. |
 | `GET` | `/api/appliance` | Returns `Appliance/local`. |
 | `PATCH` | `/api/appliance` | Returns `405`; `Appliance/local.spec` is Git-owned. |
 | `GET` | `/api/settings` | Returns public domain, dashboard public host, mDNS domain, and derived mDNS name. |
@@ -69,6 +74,11 @@ The dashboard Deployment runs an API sidecar from
 | `DELETE` | `/api/models/{name}` | Deletes the `ModelActivation` and a Dashboard-created provider Secret when present. |
 | `GET` | `/api/status` | Returns Appliance, Flux, Pod, Service, and Ingress status summaries. |
 | `GET` | `/api/events` | Returns core and `events.k8s.io` event summaries. |
+
+All read endpoints require `magicstick-viewer`, `magicstick-operator`, or
+`magicstick-admin`. Instance credential reads and runtime mutations require
+operator or admin. Settings changes require admin. Envoy authentication alone
+does not authorize a configuration change.
 
 ## Module Controls
 
@@ -106,9 +116,15 @@ For example, an OpenClaw instance named `default` uses:
 - `default.openclaw.magicstick.example.com`
 - `default.openclaw.magicstick.local`
 
-The dashboard may still submit an ingress parameter internally for compatibility
-with the operator, but users should not configure arbitrary instance hostnames in
-the UI.
+Every create form selects an access mode and exposure. The safe default is
+shared SSO for any authenticated `magicstick-user`, with optional minimum roles
+of viewer, operator, or administrator. An unauthenticated route is available
+only through the explicit `Public without login` choice. Exposure can be local
+only or both local and public; hostnames remain derived and are not user-entered.
+
+The operator, not the instance chart or dashboard, creates `HTTPRoute`,
+`SecurityPolicy`, and `ReferenceGrant` resources. Both local and public links
+are reported in `AppInstance.status` and displayed on the instance card.
 
 The Paperclip form additionally selects the default chat model, enables the
 OpenCode sandbox runtime, optionally binds an existing OpenClaw or Hermes
@@ -142,7 +158,7 @@ permissions are intentionally narrow:
 - read, create, patch, update, and delete `modelactivations.appliance.magicstick.dev`
 - read OpenClaw instances for generated credential discovery
 - read Flux Kustomizations
-- read Pods, Services, Ingresses, ConfigMaps, and Events
+- read Pods, Services, Ingresses, HTTPRoutes, ConfigMaps, and Events
 - read the DCGM exporter service proxy for live VRAM metrics
 - patch only `flux-system/ai-appliance-settings`
 - manage only Dashboard-created provider credential Secrets in namespace `ai`

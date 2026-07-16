@@ -1,0 +1,68 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keycloak-realm
+  namespace: identity-system
+data:
+  magicstick-realm.json: |
+    {
+      "realm": "magicstick",
+      "enabled": true,
+      "displayName": "Magic Stick",
+      "registrationAllowed": false,
+      "resetPasswordAllowed": true,
+      "rememberMe": true,
+      "loginWithEmailAllowed": true,
+      "roles": {
+        "realm": [
+          {"name": "magicstick-user"},
+          {"name": "magicstick-viewer"},
+          {"name": "magicstick-operator"},
+          {"name": "magicstick-admin"}
+        ]
+      },
+      "clients": [
+        {
+          "clientId": "magicstick-human-gateway-local",
+          "name": "Magic Stick human gateway (local)",
+          "enabled": true,
+          "clientAuthenticatorType": "client-secret",
+          "secret": "$${MAGICSTICK_HUMAN_GATEWAY_CLIENT_SECRET}",
+          "standardFlowEnabled": true,
+          "directAccessGrantsEnabled": false,
+          "serviceAccountsEnabled": false,
+          "publicClient": false,
+          "redirectUris": [
+            "https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback",
+            "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback",
+            "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback/*",
+            "https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback",
+            "https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback/*"
+          ],
+          "webOrigins": [
+            "https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}",
+            "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}",
+            "https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"
+          ],
+          "protocol": "openid-connect"
+        }
+      ],
+      "users": [
+        {
+          "username": "local-admin",
+          "enabled": true,
+          "email": "local-admin@magicstick.local",
+          "emailVerified": true,
+          "firstName": "Local",
+          "lastName": "Administrator",
+          "credentials": [
+            {
+              "type": "password",
+              "value": "$${MAGICSTICK_LOCAL_ADMIN_PASSWORD}",
+              "temporary": false
+            }
+          ],
+          "realmRoles": ["magicstick-user", "magicstick-admin"]
+        }
+      ]
+    }

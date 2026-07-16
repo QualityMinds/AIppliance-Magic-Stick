@@ -35,6 +35,11 @@ data:
     KDNS_NAMESPACE = os.environ.get("KDNS_NAMESPACE", "kdns")
     KDNS_DEPLOYMENT_NAME = os.environ.get("KDNS_DEPLOYMENT_NAME", "kdns-kdns")
     DEFAULT_MDNS_DOMAIN = os.environ.get("DEFAULT_MDNS_DOMAIN", "magicstick.local")
+    DEFAULT_PUBLIC_DOMAIN = os.environ.get("DEFAULT_PUBLIC_DOMAIN", "magicstick.example.com")
+    IDENTITY_NAMESPACE = os.environ.get("IDENTITY_NAMESPACE", "identity-system")
+    IDENTITY_GATEWAY_NAME = os.environ.get("IDENTITY_GATEWAY_NAME", "identity-pilot")
+    OIDC_CLIENT_ID = os.environ.get("OIDC_CLIENT_ID", "magicstick-human-gateway-local")
+    OIDC_CLIENT_SECRET_NAME = os.environ.get("OIDC_CLIENT_SECRET_NAME", "magicstick-human-gateway-client")
     REQUEUE_SECONDS = int(os.environ.get("REQUEUE_SECONDS", "20"))
     KUBE_API = os.environ.get("KUBERNETES_SERVICE_URL", "https://kubernetes.default.svc").rstrip("/")
     SA_TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
@@ -50,6 +55,9 @@ data:
         ("kustomize.toolkit.fluxcd.io", "Kustomization"): "kustomizations",
         ("helm.toolkit.fluxcd.io", "HelmRelease"): "helmreleases",
         ("kubeai.org", "Model"): "models",
+        ("gateway.networking.k8s.io", "HTTPRoute"): "httproutes",
+        ("gateway.networking.k8s.io", "ReferenceGrant"): "referencegrants",
+        ("gateway.envoyproxy.io", "SecurityPolicy"): "securitypolicies",
     }
 
     STATIC_DEPENDENCIES = {
@@ -343,6 +351,13 @@ data:
         return normalized
 
 
+    def normalize_public_domain(domain, fallback=DEFAULT_PUBLIC_DOMAIN):
+        raw = str(domain or "").strip().strip(".").lower()
+        labels = [dns_label_part(label, "") for label in raw.split(".")]
+        normalized = ".".join([label for label in labels if label])
+        return normalized if normalized and not normalized.endswith(".local") else fallback
+
+
     def settings_data():
         configmap = get_core_resource("v1", "configmaps", SETTINGS_NAMESPACE, SETTINGS_CONFIGMAP_NAME) or {}
         return configmap.get("data") or {}
@@ -359,6 +374,23 @@ data:
         except Exception as error:
             print(f"Could not read mDNS settings, using {DEFAULT_MDNS_DOMAIN}: {error}", flush=True)
             return DEFAULT_MDNS_DOMAIN
+
+
+    def public_domain():
+        try:
+            return normalize_public_domain(settings_data().get("AI_APPLIANCE_DOMAIN"))
+        except Exception as error:
+            print(f"Could not read public domain settings, using {DEFAULT_PUBLIC_DOMAIN}: {error}", flush=True)
+            return DEFAULT_PUBLIC_DOMAIN
+
+
+    def dashboard_public_host():
+        try:
+            data = settings_data()
+            return normalize_public_domain(data.get("AI_APPLIANCE_DASHBOARD_HOST"), public_domain())
+        except Exception as error:
+            print(f"Could not read dashboard host settings, using {DEFAULT_PUBLIC_DOMAIN}: {error}", flush=True)
+            return DEFAULT_PUBLIC_DOMAIN
 
 
     def local_http_host(name, domain=None):
@@ -391,6 +423,11 @@ data:
 
     def app_instance_local_host(instance, instance_type):
         return local_http_host(app_instance_short_name(instance, instance_type) + "." + dns_label_part(instance_type, "instance"))
+
+
+    def app_instance_public_host(instance, instance_type):
+        prefix = app_instance_short_name(instance, instance_type) + "." + dns_label_part(instance_type, "instance")
+        return prefix + "." + public_domain()
 
 
     def canonical_module(name):
@@ -735,8 +772,9 @@ data:
         }})
 
 
-    def patch_instance_status(instance, phase, target, reason, message, url="", generation=0):
+    def patch_instance_status(instance, phase, target, reason, message, url="", access=None, generation=0):
         metadata = instance.get("metadata") or {}
+        access = access or {}
         path = f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{metadata.get('namespace')}/appinstances/{metadata.get('name')}/status"
         patch_json(path, {"status": {
             "observedGeneration": generation,
@@ -745,6 +783,10 @@ data:
             "name": target.get("name", ""),
             "namespace": target.get("namespace", ""),
             "url": url,
+            "localURL": access.get("localURL", ""),
+            "publicURL": access.get("publicURL", ""),
+            "authentication": access.get("authentication", ""),
+            "requiredRole": access.get("requiredRole", ""),
             "message": message,
             "conditions": [condition("True" if phase in ("Ready", "Suspended", "Disabled") else "False", reason, message, generation)],
         }})
@@ -967,6 +1009,290 @@ data:
         return "Reconciling", {"phase": "Reconciling", "modelRef": model_ref, "catalogId": name, "vramRequiredMi": vram_mi, "message": message}
 
 
+    def managed_resource_name(name, suffix):
+        suffix = dns_label_part(suffix, "resource")
+        prefix = dns_label_part(name, "instance")[: max(1, 62 - len(suffix))].rstrip("-")
+        return prefix + "-" + suffix
+
+
+    def app_instance_access_config(instance):
+        access = ((instance.get("spec") or {}).get("access") or {})
+        authentication = str(access.get("authentication") or "sso")
+        role = str(access.get("role") or "user")
+        exposure = str(access.get("exposure") or "localAndPublic")
+        if authentication not in ("sso", "none"):
+            raise ValueError("spec.access.authentication must be sso or none")
+        if exposure not in ("local", "localAndPublic"):
+            raise ValueError("spec.access.exposure must be local or localAndPublic")
+        if role not in ("user", "viewer", "operator", "admin"):
+            raise ValueError("spec.access.role must be user, viewer, operator, or admin")
+        return authentication, role, exposure
+
+
+    def app_instance_backend(instance, definition):
+        metadata = instance.get("metadata") or {}
+        application = ((instance.get("spec") or {}).get("application") or "")
+        route = definition.get("route") or {}
+        service_mode = route.get("serviceName") or "instance"
+        if service_mode == "instance":
+            service_name = metadata.get("name")
+        elif service_mode == "shortName":
+            service_name = app_instance_short_name(instance, application)
+        else:
+            raise ValueError("application route.serviceName must be instance or shortName")
+        port = positive_int(route.get("port"))
+        if not service_name or not port:
+            raise ValueError("application definition has no valid route service and port")
+        return service_name, port
+
+
+    def access_resource_labels(instance):
+        metadata = instance.get("metadata") or {}
+        application = ((instance.get("spec") or {}).get("application") or "")
+        return {
+            "app.kubernetes.io/managed-by": "magicstick-operator",
+            "appliance.magicstick.dev/appinstance": metadata.get("name"),
+            "appliance.magicstick.dev/application": application,
+        }
+
+
+    def app_instance_route(instance, route_name, hostname, service_name, service_port, local=False):
+        target_namespace = ((instance.get("spec") or {}).get("targetNamespace") or "ai")
+        metadata = {
+            "name": route_name,
+            "namespace": IDENTITY_NAMESPACE,
+            "labels": access_resource_labels(instance),
+        }
+        if local:
+            metadata["annotations"] = {"lab42.io/mdns.enabled": "true"}
+        return {
+            "apiVersion": "gateway.networking.k8s.io/v1",
+            "kind": "HTTPRoute",
+            "metadata": metadata,
+            "spec": {
+                "parentRefs": [{"name": IDENTITY_GATEWAY_NAME}],
+                "hostnames": [hostname],
+                "rules": [{
+                    "backendRefs": [{
+                        "name": service_name,
+                        "namespace": target_namespace,
+                        "port": service_port,
+                    }],
+                }],
+            },
+        }
+
+
+    def app_instance_callback_route(instance, route_name, hostname, callback_path, service_name, service_port):
+        target_namespace = ((instance.get("spec") or {}).get("targetNamespace") or "ai")
+        return {
+            "apiVersion": "gateway.networking.k8s.io/v1",
+            "kind": "HTTPRoute",
+            "metadata": {
+                "name": route_name,
+                "namespace": IDENTITY_NAMESPACE,
+                "labels": access_resource_labels(instance),
+            },
+            "spec": {
+                "parentRefs": [{"name": IDENTITY_GATEWAY_NAME}],
+                "hostnames": [hostname],
+                "rules": [{
+                    "matches": [{"path": {"type": "Exact", "value": callback_path}}],
+                    "backendRefs": [{
+                        "name": service_name,
+                        "namespace": target_namespace,
+                        "port": service_port,
+                    }],
+                }],
+            },
+        }
+
+
+    def app_instance_security_policy(instance, policy_name, route_names, redirect_url, cookie_domain, required_role):
+        issuer = "https://id." + mdns_domain() + "/realms/magicstick"
+        allowed_roles = {
+            "user": ["magicstick-user", "magicstick-viewer", "magicstick-operator", "magicstick-admin"],
+            "viewer": ["magicstick-viewer", "magicstick-operator", "magicstick-admin"],
+            "operator": ["magicstick-operator", "magicstick-admin"],
+            "admin": ["magicstick-admin"],
+        }[required_role]
+        return {
+            "apiVersion": "gateway.envoyproxy.io/v1alpha1",
+            "kind": "SecurityPolicy",
+            "metadata": {
+                "name": policy_name,
+                "namespace": IDENTITY_NAMESPACE,
+                "labels": access_resource_labels(instance),
+            },
+            "spec": {
+                "targetRefs": [{
+                    "group": "gateway.networking.k8s.io",
+                    "kind": "HTTPRoute",
+                    "name": route_name,
+                } for route_name in route_names],
+                "oidc": {
+                    "provider": {
+                        "issuer": issuer,
+                        "authorizationEndpoint": issuer + "/protocol/openid-connect/auth",
+                        "tokenEndpoint": "http://keycloak.identity-system.svc.cluster.local:8080/realms/magicstick/protocol/openid-connect/token",
+                        "endSessionEndpoint": issuer + "/protocol/openid-connect/logout",
+                    },
+                    "clientID": OIDC_CLIENT_ID,
+                    "clientSecret": {"name": OIDC_CLIENT_SECRET_NAME},
+                    "redirectURL": redirect_url,
+                    "logoutPath": "/logout",
+                    "cookieDomain": cookie_domain,
+                    "cookieNames": {
+                        "accessToken": "MagicStickAccessToken",
+                        "idToken": "MagicStickIDToken",
+                    },
+                    "forwardAccessToken": True,
+                },
+                "jwt": {
+                    "providers": [{
+                        "name": "keycloak",
+                        "issuer": issuer,
+                        "remoteJWKS": {
+                            "uri": "http://keycloak.identity-system.svc.cluster.local:8080/realms/magicstick/protocol/openid-connect/certs",
+                            "backendRefs": [{"name": "keycloak", "port": 8080}],
+                        },
+                        "extractFrom": {"cookies": ["MagicStickAccessToken"]},
+                    }],
+                },
+                "authorization": {
+                    "defaultAction": "Deny",
+                    "rules": [{
+                        "name": "required-magicstick-role",
+                        "action": "Allow",
+                        "principal": {
+                            "jwt": {
+                                "provider": "keycloak",
+                                "claims": [{
+                                    "name": "realm_access.roles",
+                                    "valueType": "StringArray",
+                                    "values": allowed_roles,
+                                }],
+                            },
+                        },
+                    }],
+                },
+            },
+        }
+
+
+    def app_instance_access_resources(instance, definition):
+        metadata = instance.get("metadata") or {}
+        spec = instance.get("spec") or {}
+        name = metadata.get("name")
+        target_namespace = spec.get("targetNamespace") or "ai"
+        application = spec.get("application") or ""
+        authentication, required_role, exposure = app_instance_access_config(instance)
+        service_name, service_port = app_instance_backend(instance, definition)
+        local_host = app_instance_local_host(instance, application)
+        public_host = app_instance_public_host(instance, application)
+        local_route_name = managed_resource_name(name, "local")
+        public_route_name = managed_resource_name(name, "public")
+        local_callback_name = managed_resource_name(name, "local-callback")
+        public_callback_name = managed_resource_name(name, "public-callback")
+        local_policy_name = managed_resource_name(name, "local-sso")
+        public_policy_name = managed_resource_name(name, "public-sso")
+        grant_name = managed_resource_name(name, "route-access")
+        resources = [{
+            "apiVersion": "gateway.networking.k8s.io/v1beta1",
+            "kind": "ReferenceGrant",
+            "metadata": {
+                "name": grant_name,
+                "namespace": target_namespace,
+                "labels": access_resource_labels(instance),
+            },
+            "spec": {
+                "from": [{
+                    "group": "gateway.networking.k8s.io",
+                    "kind": "HTTPRoute",
+                    "namespace": IDENTITY_NAMESPACE,
+                }],
+                "to": [{"group": "", "kind": "Service", "name": service_name}],
+            },
+        }]
+        resources.append(app_instance_route(instance, local_route_name, local_host, service_name, service_port, local=True))
+        if authentication == "sso":
+            local_callback_path = "/oauth2/callback/" + local_route_name
+            resources.append(app_instance_callback_route(
+                instance,
+                local_callback_name,
+                mdns_domain(),
+                local_callback_path,
+                service_name,
+                service_port,
+            ))
+            resources.append(app_instance_security_policy(
+                instance,
+                local_policy_name,
+                [local_route_name, local_callback_name],
+                "https://" + mdns_domain() + local_callback_path,
+                mdns_domain(),
+                required_role,
+            ))
+        public_url = ""
+        if exposure == "localAndPublic":
+            resources.append(app_instance_route(instance, public_route_name, public_host, service_name, service_port))
+            public_url = "https://" + public_host + "/"
+            if authentication == "sso":
+                public_callback_path = "/oauth2/callback/" + public_route_name
+                resources.append(app_instance_callback_route(
+                    instance,
+                    public_callback_name,
+                    dashboard_public_host(),
+                    public_callback_path,
+                    service_name,
+                    service_port,
+                ))
+                resources.append(app_instance_security_policy(
+                    instance,
+                    public_policy_name,
+                    [public_route_name, public_callback_name],
+                    "https://" + dashboard_public_host() + public_callback_path,
+                    public_domain(),
+                    required_role,
+                ))
+        return resources, {
+            "authentication": authentication,
+            "requiredRole": required_role,
+            "localURL": "https://" + local_host + "/",
+            "publicURL": public_url,
+        }
+
+
+    def app_instance_access_refs(instance):
+        name = (instance.get("metadata") or {}).get("name")
+        target_namespace = ((instance.get("spec") or {}).get("targetNamespace") or "ai")
+        return [
+            {"apiVersion": "gateway.networking.k8s.io/v1", "kind": "HTTPRoute", "metadata": {"name": managed_resource_name(name, "local"), "namespace": IDENTITY_NAMESPACE}},
+            {"apiVersion": "gateway.networking.k8s.io/v1", "kind": "HTTPRoute", "metadata": {"name": managed_resource_name(name, "public"), "namespace": IDENTITY_NAMESPACE}},
+            {"apiVersion": "gateway.networking.k8s.io/v1", "kind": "HTTPRoute", "metadata": {"name": managed_resource_name(name, "local-callback"), "namespace": IDENTITY_NAMESPACE}},
+            {"apiVersion": "gateway.networking.k8s.io/v1", "kind": "HTTPRoute", "metadata": {"name": managed_resource_name(name, "public-callback"), "namespace": IDENTITY_NAMESPACE}},
+            {"apiVersion": "gateway.envoyproxy.io/v1alpha1", "kind": "SecurityPolicy", "metadata": {"name": managed_resource_name(name, "local-sso"), "namespace": IDENTITY_NAMESPACE}},
+            {"apiVersion": "gateway.envoyproxy.io/v1alpha1", "kind": "SecurityPolicy", "metadata": {"name": managed_resource_name(name, "public-sso"), "namespace": IDENTITY_NAMESPACE}},
+            {"apiVersion": "gateway.networking.k8s.io/v1beta1", "kind": "ReferenceGrant", "metadata": {"name": managed_resource_name(name, "route-access"), "namespace": target_namespace}},
+        ]
+
+
+    def sync_app_instance_access(instance, definition, enabled=True):
+        desired, access_status = app_instance_access_resources(instance, definition) if enabled else ([], {"authentication": "sso", "requiredRole": "user", "localURL": "", "publicURL": ""})
+        desired_keys = {
+            (resource["apiVersion"], resource["kind"], resource["metadata"]["namespace"], resource["metadata"]["name"])
+            for resource in desired
+        }
+        for reference in app_instance_access_refs(instance):
+            metadata = reference["metadata"]
+            key = (reference["apiVersion"], reference["kind"], metadata["namespace"], metadata["name"])
+            if key not in desired_keys and get_applied_resource(reference):
+                delete_applied_resource(reference)
+        for resource in desired:
+            apply_resource(resource)
+        return access_status
+
+
     def app_instance_helmrelease(instance, definition, source, suspend=False):
         metadata = instance.get("metadata") or {}
         spec = instance.get("spec") or {}
@@ -975,11 +1301,17 @@ data:
         name = metadata.get("name")
         target_namespace = spec.get("targetNamespace") or "ai"
         local_host = app_instance_local_host(instance, application)
+        public_host = app_instance_public_host(instance, application)
         ingress = dict(values.get("ingress") or {})
-        server_ingress = dict(((values.get("server") or {}).get("ingress") or {}))
-        host = ingress.get("host") or server_ingress.get("host") or values.get("host") or local_host
-        ingress["host"] = host
+        ingress["enabled"] = False
+        ingress["host"] = public_host
         values["ingress"] = ingress
+        server = dict(values.get("server") or {})
+        server_ingress = dict(server.get("ingress") or {})
+        server_ingress["enabled"] = False
+        server_ingress["host"] = public_host
+        server["ingress"] = server_ingress
+        values["server"] = server
         chart_path = str(definition.get("chartPath") or "").strip()
         if not chart_path:
             raise ValueError("application definition has no chartPath")
@@ -1024,11 +1356,12 @@ data:
                         "application": application,
                         "localHost": local_host,
                         "localName": local_mdns_name(local_host),
+                        "publicHost": public_host,
                         "values": values,
                     },
                 },
             },
-        }, "http://" + host + "/"
+        }, "https://" + local_host + "/"
 
 
     def app_instance_helmrelease_ref(instance):
@@ -1049,6 +1382,7 @@ data:
         reference = app_instance_helmrelease_ref(instance)
 
         if metadata.get("deletionTimestamp"):
+            sync_app_instance_access(instance, definition, enabled=False)
             if get_applied_resource(reference):
                 delete_applied_resource(reference)
                 patch_instance_status(instance, "Removing", target, "Removing", "Helm release is being removed.", generation=generation)
@@ -1058,10 +1392,11 @@ data:
 
         ensure_app_instance_finalizer(instance)
         enabled = spec.get("enabled", True) is not False
+        access_status = sync_app_instance_access(instance, definition, enabled=enabled)
         release, url = app_instance_helmrelease(instance, definition, source, suspend=not enabled)
         apply_resource(release)
         if not enabled:
-            patch_instance_status(instance, "Suspended", target, "Suspended", "Helm release is suspended.", url=url, generation=generation)
+            patch_instance_status(instance, "Suspended", target, "Suspended", "Helm release is suspended and external routes are removed.", url=url, access=access_status, generation=generation)
             return "Suspended", target
 
         current = get_applied_resource(reference) or {}
@@ -1078,7 +1413,7 @@ data:
             phase = "Reconciling"
             reason = ready.get("reason") or "WaitingForHelmRelease"
             message = ready.get("message") or "Waiting for Flux to reconcile the Helm release."
-        patch_instance_status(instance, phase, target, reason, message, url=url, generation=generation)
+        patch_instance_status(instance, phase, target, reason, message, url=url, access=access_status, generation=generation)
         return phase, target
 
 
@@ -1090,6 +1425,7 @@ data:
         definition = (app_catalog.get("applications") or {}).get(application)
         if not definition:
             if metadata.get("deletionTimestamp"):
+                sync_app_instance_access(instance, {}, enabled=False)
                 remove_app_instance_finalizer(instance)
                 return "Disabled", {"kind": "", "name": metadata.get("name", ""), "namespace": spec.get("targetNamespace") or "ai"}
             patch_instance_status(instance, "Degraded", {}, "UnknownApplication", f"Unknown application '{application}'", generation=generation)

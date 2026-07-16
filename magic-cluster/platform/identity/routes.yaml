@@ -1,0 +1,119 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: keycloak
+  namespace: identity-system
+  annotations:
+    lab42.io/mdns.enabled: "true"
+spec:
+  parentRefs:
+    - name: identity-pilot
+      sectionName: https
+  hostnames:
+    - "id.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
+  rules:
+    - backendRefs:
+        - name: keycloak
+          port: 8080
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: auth-pilot-content
+  namespace: identity-system
+data:
+  index.html: |
+    <!doctype html>
+    <html lang="de">
+      <head><meta charset="utf-8"><title>Magic Stick SSO Pilot</title></head>
+      <body>
+        <h1>Magic Stick SSO funktioniert</h1>
+        <p>Diese Seite wurde durch den lokalen Keycloak-Login und Envoy Gateway geschützt.</p>
+        <p><a href="/logout">Abmelden</a></p>
+      </body>
+    </html>
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-pilot
+  namespace: identity-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: auth-pilot
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: auth-pilot
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.27.5-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - CHOWN
+                - DAC_OVERRIDE
+                - SETGID
+                - SETUID
+          volumeMounts:
+            - name: content
+              mountPath: /usr/share/nginx/html
+              readOnly: true
+      volumes:
+        - name: content
+          configMap:
+            name: auth-pilot-content
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-pilot
+  namespace: identity-system
+spec:
+  selector:
+    app.kubernetes.io/name: auth-pilot
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: auth-pilot
+  namespace: identity-system
+  annotations:
+    lab42.io/mdns.enabled: "true"
+spec:
+  parentRefs:
+    - name: identity-pilot
+      sectionName: https
+  hostnames:
+    - "auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
+  rules:
+    - backendRefs:
+        - name: auth-pilot
+          port: 80

@@ -10,6 +10,7 @@ bootstrap plus runtime configuration through the dashboard and runtime CRs.
 |---|---|
 | [getting-started.md](getting-started.md) | First local checkout, render checks, and public read-only installer workflow. |
 | [architecture.md](architecture.md) | Repository layers, bootstrap flow, Flux graph, and cluster component overview. |
+| [authentication.md](authentication.md) | Local-first SSO architecture, Envoy/Keycloak pilot, roles, and migration plan. |
 | [appliance-crd.md](appliance-crd.md) | `Appliance` API, spec, status, and public examples. |
 | [dashboard.md](dashboard.md) | Dashboard UI/API contract for managing the `Appliance` CR. |
 | [modules.md](modules.md) | Magic Stick module catalog and generated Flux Kustomization contract. |
@@ -58,6 +59,8 @@ Run the main Kubernetes render checks:
 
 ```bash
 kubectl kustomize magic-cluster/platform/magicstick-operator
+kubectl kustomize magic-cluster/platform/gateway/envoy-gateway
+kubectl kustomize magic-cluster/platform/identity
 kubectl kustomize magic-cluster/platform/ai/kubeai
 kubectl kustomize magic-cluster/platform/ai/agent-sandbox
 kubectl kustomize magic-cluster/apps/ai/model-catalog

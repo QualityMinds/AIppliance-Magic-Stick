@@ -138,6 +138,10 @@ spec:
   application: openclaw
   enabled: true
   targetNamespace: ai
+  access:
+    authentication: sso
+    role: user
+    exposure: localAndPublic
   values:
     name: default
     model: CHANGEME_MODEL
@@ -153,6 +157,19 @@ as arbitrary per-instance values:
 For the `openclaw-default` example, the default public and local hosts are
 `default.openclaw.magicstick.example.com` and
 `default.openclaw.magicstick.local`.
+
+`spec.access` is deny-by-default at the Gateway boundary: omitted values mean
+shared SSO, the `user` role, and both derived hostnames. `role` accepts `user`,
+`viewer`, `operator`, or `admin`; higher dashboard roles inherit lower access.
+Set `exposure: local` to omit the public hostname. Setting
+`authentication: none` deliberately creates an unauthenticated route and must
+be an explicit review decision.
+
+For every enabled instance, the operator creates the required application and
+per-instance callback `HTTPRoute` objects, cross-namespace `ReferenceGrant`,
+and (for SSO) Envoy `SecurityPolicy` objects. The callback route shares the
+dashboard hostname but uses an exact, instance-specific path. The application
+charts no longer create nginx `Ingress` resources.
 
 ```yaml
 apiVersion: appliance.magicstick.dev/v1alpha1

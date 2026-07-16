@@ -84,6 +84,12 @@ spec:
               value: nvidia-dcgm-exporter
             - name: DCGM_PORT
               value: "9400"
+            - name: OIDC_USERINFO_URL
+              value: http://keycloak.identity-system.svc.cluster.local:8080/realms/magicstick/protocol/openid-connect/userinfo
+            - name: OIDC_EXPECTED_ISSUER
+              value: "https://id.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/realms/magicstick"
+            - name: OIDC_EXPECTED_CLIENT_ID
+              value: magicstick-human-gateway-local
             - name: PYTHONDONTWRITEBYTECODE
               value: "1"
           securityContext:

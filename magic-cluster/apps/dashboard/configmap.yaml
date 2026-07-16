@@ -828,6 +828,8 @@ data:
       cat <<'HTML' >> "$tmp"
             </strong></span>
             <span class="chip">Refresh cadence: every 30s</span>
+            <span class="chip" id="session-user">Signed in</span>
+            <a class="chip" href="/logout">Sign out</a>
           </div>
         </header>
 
@@ -905,6 +907,9 @@ data:
                 <div class="form-grid">
                   <label class="field">Name<input name="name" value="default" /></label>
                   <label class="field">Model<select name="model" data-model-select="chat" data-model-fallback="CHANGEME_MODEL"><option value="">Loading models</option></select></label>
+                  <label class="field">Access<select name="authentication"><option value="sso">SSO protected</option><option value="none">Public without login</option></select></label>
+                  <label class="field">Minimum Role<select name="role"><option value="user">Authenticated user</option><option value="viewer">Viewer</option><option value="operator">Operator</option><option value="admin">Administrator</option></select></label>
+                  <label class="field">Exposure<select name="exposure"><option value="localAndPublic">Local and public hosts</option><option value="local">Local host only</option></select></label>
                 </div>
                 <details class="module-advanced">
                   <summary>Configure</summary>
@@ -919,6 +924,9 @@ data:
                 <div class="form-grid">
                   <label class="field">Name<input name="name" value="default" /></label>
                   <label class="field">Model<select name="model" data-model-select="chat" data-model-fallback="qwen3635b"><option value="">Loading models</option></select></label>
+                  <label class="field">Access<select name="authentication"><option value="sso">SSO protected</option><option value="none">Public without login</option></select></label>
+                  <label class="field">Minimum Role<select name="role"><option value="user">Authenticated user</option><option value="viewer">Viewer</option><option value="operator">Operator</option><option value="admin">Administrator</option></select></label>
+                  <label class="field">Exposure<select name="exposure"><option value="localAndPublic">Local and public hosts</option><option value="local">Local host only</option></select></label>
                 </div>
                 <details class="module-advanced">
                   <summary>Configure</summary>
@@ -934,6 +942,9 @@ data:
                   <label class="field">Name<input name="name" value="default" /></label>
                   <label class="field">Admin Email<input name="adminEmail" value="admin@example.com" /></label>
                   <label class="field">Default Model<select name="model" data-model-select="chat" data-model-fallback="CHANGEME_MODEL"><option value="">Loading models</option></select></label>
+                  <label class="field">Access<select name="authentication"><option value="sso">SSO protected</option><option value="none">Public without login</option></select></label>
+                  <label class="field">Minimum Role<select name="role"><option value="user">Authenticated user</option><option value="viewer">Viewer</option><option value="operator">Operator</option><option value="admin">Administrator</option></select></label>
+                  <label class="field">Exposure<select name="exposure"><option value="localAndPublic">Local and public hosts</option><option value="local">Local host only</option></select></label>
                 </div>
                 <fieldset class="runtime-options">
                   <legend>Agent runtimes</legend>
@@ -959,6 +970,9 @@ data:
                   <label class="field">Name<input name="name" value="default" /></label>
                   <label class="field">Model<select name="model" data-model-select="chat" data-model-fallback="CHANGEME_MODEL"><option value="">Loading models</option></select></label>
                   <label class="field">Template<input name="template" value="default-coder" /></label>
+                  <label class="field">Access<select name="authentication"><option value="sso">SSO protected</option><option value="none">Public without login</option></select></label>
+                  <label class="field">Minimum Role<select name="role"><option value="user">Authenticated user</option><option value="viewer">Viewer</option><option value="operator">Operator</option><option value="admin">Administrator</option></select></label>
+                  <label class="field">Exposure<select name="exposure"><option value="localAndPublic">Local and public hosts</option><option value="local">Local host only</option></select></label>
                 </div>
                 <button class="control-button primary" type="submit">Create KubeOpenCode</button>
               </form>
@@ -967,6 +981,9 @@ data:
                 <div class="form-grid">
                   <label class="field">Name<input name="name" value="default" /></label>
                   <label class="field">Model<select name="model" data-model-select="chat" data-model-fallback="CHANGEME_MODEL"><option value="">Loading models</option></select></label>
+                  <label class="field">Access<select name="authentication"><option value="sso">SSO protected</option><option value="none">Public without login</option></select></label>
+                  <label class="field">Minimum Role<select name="role"><option value="user">Authenticated user</option><option value="viewer">Viewer</option><option value="operator">Operator</option><option value="admin">Administrator</option></select></label>
+                  <label class="field">Exposure<select name="exposure"><option value="localAndPublic">Local and public hosts</option><option value="local">Local host only</option></select></label>
                 </div>
                 <details class="module-advanced">
                   <summary>Configure</summary>
@@ -1099,7 +1116,7 @@ data:
             <div class="dashboard-grid">
               <article class="dashboard-card"><h3>Flux</h3><div id="flux-list" class="mini-list"></div></article>
               <article class="dashboard-card"><h3>Pods</h3><p id="pod-summary">Loading</p></article>
-              <article class="dashboard-card"><h3>Ingresses</h3><div id="ingress-list" class="mini-list"></div></article>
+              <article class="dashboard-card"><h3>Gateway Routes</h3><div id="route-list" class="mini-list"></div></article>
             </div>
           </section>
         </section>
@@ -1483,6 +1500,8 @@ data:
             const server = params.server || {};
             const hosts = [
               status.url,
+              status.localURL,
+              status.publicURL,
               ((params.ingress || {}).host),
               ((server.ingress || {}).host),
               params.host
@@ -1502,8 +1521,9 @@ data:
               return ((ingress || {}).hosts || []).some((host) => expectedHosts.has(urlHost(host)));
             };
             const ingressLinks = ((status || {}).ingresses || []).filter(matches).flatMap(linksFromIngress);
-            const statusLink = linkFromUrl(((instance || {}).status || {}).url);
-            return uniqueLinks(statusLink ? ingressLinks.concat(statusLink) : ingressLinks);
+            const instanceStatus = ((instance || {}).status || {});
+            const statusLinks = [instanceStatus.localURL, instanceStatus.publicURL, instanceStatus.url].map(linkFromUrl).filter(Boolean);
+            return uniqueLinks(ingressLinks.concat(statusLinks));
           };
 
           const overviewLinkScope = (link) => {
@@ -1941,7 +1961,11 @@ data:
                 header.append(titleBlock, pill);
                 const details = document.createElement('div');
                 details.className = 'module-message';
-                details.textContent = status.message || ('namespace: ' + (spec.targetNamespace || 'ai') + (status.url ? ' - ' + status.url : ''));
+                const accessSpec = spec.access || {};
+                const access = (accessSpec.authentication || status.authentication || 'sso') === 'none'
+                  ? 'public without login'
+                  : 'SSO: ' + (accessSpec.role || status.requiredRole || 'user');
+                details.textContent = (status.message || ('namespace: ' + (spec.targetNamespace || 'ai'))) + ' - ' + access;
                 const actions = document.createElement('div');
                 actions.className = 'action-row';
                 item.append(header, createProgressBox(progress), details);
@@ -2543,16 +2567,16 @@ data:
               const running = pods.filter((pod) => pod.phase === 'Running').length;
               podSummary.textContent = running + '/' + pods.length + ' pods running';
             }
-            const ingressList = $('ingress-list');
-            if (ingressList) {
-              ingressList.innerHTML = '';
-              (status.ingresses || []).slice(0, 8).forEach((ingress) => {
+            const routeList = $('route-list');
+            if (routeList) {
+              routeList.innerHTML = '';
+              (status.httpRoutes || []).slice(0, 8).forEach((route) => {
                 const node = document.createElement('div');
                 node.className = 'mini-item';
                 const label = document.createElement('strong');
-                label.textContent = ingress.namespace + '/' + ingress.name;
+                label.textContent = route.namespace + '/' + route.name + ': ' + (route.accepted ? 'Accepted' : 'Pending');
                 node.appendChild(label);
-                const links = createResourceLinks(linksFromIngress(ingress));
+                const links = createResourceLinks((route.hostnames || []).map((hostname) => linkFromUrl('https://' + hostname)).filter(Boolean));
                 if (links) {
                   node.appendChild(links);
                 } else {
@@ -2567,6 +2591,7 @@ data:
 
           const refresh = async () => {
             try {
+              const session = await request('/api/session');
               const settings = await request('/api/settings');
               const appliance = await request('/api/appliance');
               const modulePayload = await request('/api/modules');
@@ -2600,6 +2625,7 @@ data:
               renderVram(modelPayload);
               renderModels(modelPayload);
               renderStatus(status);
+              setText('session-user', 'Signed in: ' + session.username);
               setApiState('Connected', true);
             } catch (error) {
               setApiState(error.message || 'API unavailable', false);
@@ -2829,22 +2855,27 @@ data:
                 name: data.get('name') || 'default',
                 enabled: true,
                 namespace: 'ai',
-                model: selectedModel || 'CHANGEME_MODEL'
+                model: selectedModel || 'CHANGEME_MODEL',
+                access: {
+                  authentication: data.get('authentication') || 'sso',
+                  role: data.get('role') || 'user',
+                  exposure: data.get('exposure') || 'localAndPublic'
+                }
               };
               const host = instanceHostDefault(form, latestSettings);
               if (type === 'openclaw') {
                 payload.storage = { size: data.get('storage') || '20Gi' };
-                payload.ingress = { enabled: true, host };
+                payload.ingress = { enabled: false, host };
               }
               if (type === 'hermes') {
                 payload.model = selectedModel || 'qwen3635b';
                 payload.storage = { size: data.get('storage') || '10Gi' };
-                payload.ingress = { enabled: true, host };
+                payload.ingress = { enabled: false, host };
               }
               if (type === 'paperclip') {
                 payload.storage = { size: data.get('storage') || '5Gi' };
                 payload.database = { managed: { storageSize: data.get('postgresStorage') || '10Gi' } };
-                payload.ingress = { enabled: true, host };
+                payload.ingress = { enabled: false, host };
                 payload.admin = { email: data.get('adminEmail') || 'admin@example.com', name: 'Admin' };
                 const openClawEnabled = data.has('openClawEnabled');
                 const hermesEnabled = data.has('hermesEnabled');
@@ -2871,7 +2902,7 @@ data:
                 };
               }
               if (type === 'kubeopencode') {
-                payload.server = { enabled: true, ingress: { enabled: true, host } };
+                payload.server = { enabled: true, ingress: { enabled: false, host } };
                 payload.agentTemplates = [{ name: data.get('template') || 'default-coder', description: 'Default coding agent template' }];
               }
               if (type === 'odysseus') {
@@ -2879,7 +2910,7 @@ data:
                 payload.chroma = { storage: { size: data.get('chromaStorage') || '5Gi' } };
                 payload.searxng = { storage: { size: data.get('searxngStorage') || '1Gi' } };
                 payload.ntfy = { storage: { size: data.get('ntfyStorage') || '1Gi' } };
-                payload.ingress = { enabled: true, host };
+                payload.ingress = { enabled: false, host };
               }
               try {
                 await request('/api/instances/' + type, { method: 'POST', body: JSON.stringify(payload) });

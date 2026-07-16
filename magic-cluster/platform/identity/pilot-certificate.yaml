@@ -1,0 +1,23 @@
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: identity-pilot-selfsigned
+  namespace: identity-system
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: identity-pilot
+  namespace: identity-system
+spec:
+  dnsNames:
+    - "id.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
+    - "auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
+    - "${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
+    - "${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"
+  issuerRef:
+    kind: Issuer
+    name: identity-pilot-selfsigned
+  secretName: identity-pilot-tls

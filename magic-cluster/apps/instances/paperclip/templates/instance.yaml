@@ -111,14 +111,4 @@ spec:
       type: ClusterIP
       port: 3100
     ingress:
-      enabled: true
-      ingressClassName: nginx
-      hosts:
-        - {{ $ingress.host | quote }}
-        - {{ $instance.localHost | quote }}
-      annotations:
-        dashboard.ai-appliance.io/title: Paperclip
-        dashboard.ai-appliance.io/category: AI
-        lab42.io/mdns.enabled: "true"
-        lab42.io/mdns.name: {{ $instance.localName | quote }}
-        lab42.io/mdns.host: {{ $instance.localName | quote }}
+      enabled: false

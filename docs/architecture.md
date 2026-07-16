@@ -51,8 +51,10 @@ The base graph is defined under `magic-cluster/flux/graph/base`.
 | Wave | Flux Kustomization | Path | Depends on |
 |---|---|---|---|
 | 00 | `infrastructure-basis` | `magic-cluster/platform/basis` | none |
+| 05 | `envoy-gateway` | `magic-cluster/platform/gateway/envoy-gateway` | `infrastructure-basis` |
+| 10 | `identity-pilot` | `magic-cluster/platform/identity` | `envoy-gateway` |
 | 15 | `magicstick-operator` | `magic-cluster/platform/magicstick-operator` | `infrastructure-basis` |
-| 30 | `apps` | `magic-cluster/apps/dashboard` | `infrastructure-basis` |
+| 30 | `apps` | `magic-cluster/apps/dashboard` | `infrastructure-basis`, `identity-pilot` |
 
 Optional AI, Observability, GPU, and instance resources are no longer applied by
 the static graph. The Magic Stick Operator creates generated Flux
@@ -93,11 +95,12 @@ directly.
 
 | Area | Components |
 |---|---|
-| Basis | Namespaces, ingress-nginx, cert-manager, generated secrets, reloader, and kdns. |
+| Basis | Namespaces, cert-manager, generated secrets, reloader, and Gateway-aware kdns. |
+| Identity and human access | Envoy Gateway, local Keycloak identity broker, PostgreSQL, and route-level OIDC policies. |
 | Appliance control plane | Appliance CRDs, module catalog, model presets, operator RBAC, and live controller. |
 | AI modules | NVIDIA GPU support, KubeAI, Hermes operator, OpenClaw operator, and Paperclip operator. |
 | GPU | NVIDIA GPU Operator and time-slicing GPU sharing. |
-| Observability | kube-prometheus-stack, Loki, Promtail, OpenTelemetry Collector, Grafana dashboards, and public ingresses. |
+| Observability | kube-prometheus-stack, Loki, Promtail, OpenTelemetry Collector, Grafana dashboards, and authenticated Gateway API routes. |
 
 ## Application Components
 
@@ -109,6 +112,18 @@ directly.
 | AnythingLLM | `magic-cluster/apps/ai/anything-llm/base` | Uses LiteLLM and the generated embedding default. |
 | Runtime app instances | `AppInstance` CRs | The Magic Stick Operator creates one Flux HelmRelease per instance; its chart owns the application resources. |
 | KubeOpenCode | `magic-cluster/apps/ai/kubeopencode` | Helm-managed KubeOpenCode controller and server module. |
+
+Envoy Gateway is the only installed application gateway. The dashboard uses
+authenticated local and public `HTTPRoute` resources plus API-level role
+checks. LiteLLM and AnythingLLM require an authenticated Magic Stick user;
+Grafana, Prometheus, and Alertmanager require at least the viewer role. The
+bundled installation has no application `Ingress` resources. See
+[authentication.md](authentication.md).
+
+Local mDNS discovery follows the same Gateway API model. Routes opt in with
+`lab42.io/mdns.enabled: "true"`; kdns publishes only accepted `.local`
+`HTTPRoute` hostnames and uses the programmed address and listener port from the
+referenced `Gateway`. No discovery-only Ingress is required.
 
 ## Value Boundary
 

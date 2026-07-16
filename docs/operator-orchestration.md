@@ -10,8 +10,8 @@ The dashboard is also not an operator. It reads status and creates or patches
 
 | Component | Responsibility |
 |---|---|
-| Magic Stick Operator | Watches `ModuleActivation`, `ModelActivation`, and `AppInstance`, enables modules with Flux, creates one Flux HelmRelease per app instance, creates KubeAI model resources, and reports aggregate `Appliance.status`. |
-| Magic Stick Dashboard | Reads `Appliance`, module catalog, Flux, Pod, Service, Ingress, and Event status; creates or patches runtime CRs only. |
+| Magic Stick Operator | Watches `ModuleActivation`, `ModelActivation`, and `AppInstance`, enables modules with Flux, creates one Flux HelmRelease plus authenticated Gateway resources per app instance, creates KubeAI model resources, and reports aggregate `Appliance.status`. |
+| Magic Stick Dashboard | Reads `Appliance`, module catalog, Flux, Pod, Service, Ingress, HTTPRoute, and Event status; creates or patches runtime CRs only. |
 | OpenClaw Operator | Owns lifecycle of `OpenClawInstance` resources. |
 | Hermes Operator | Owns lifecycle of `HermesInstance` resources. |
 | Paperclip Operator | Owns lifecycle of Paperclip `Instance` resources. |
@@ -38,6 +38,11 @@ The dashboard is also not an operator. It reads status and creates or patches
   `ModuleActivation`.
 - Wait for required CRDs.
 - Create or patch KubeAI model resources and one generated HelmRelease per app instance.
+- Resolve each instance backend from the app catalog and create derived local
+  and optional public HTTPRoutes, exact callback routes on the shared dashboard
+  hosts, the cross-namespace ReferenceGrant, and an Envoy SecurityPolicy for
+  shared OIDC plus minimum-role authorization.
+- Remove generated routes and policies when an instance is suspended or deleted.
 - Update module, instance, and condition status.
 
 The static Flux `magicstick-operator` Kustomization must not wait on
@@ -53,7 +58,7 @@ removed, or repaired.
 | `hermes` | `hermes-operator` | `hermesinstances.hermes.agent` | `HermesInstance` `hermes.agent/v1` |
 | `paperclip` | `paperclip-operator`, `agent-sandbox` | `instances.paperclip.inc`, `sandboxes.agents.x-k8s.io` | `Instance` `paperclip.inc/v1alpha1` and per-run `Sandbox` resources |
 | `kubeopencode` | `kubeopencode` | `agenttemplates.kubeopencode.io` | `AgentTemplate` and related `kubeopencode.io/v1alpha1` resources |
-| `odysseus` | `odysseus` | none | `Deployment` `apps/v1` plus supporting Services, PVCs, ConfigMaps, and Ingress |
+| `odysseus` | `odysseus` | none | `Deployment` `apps/v1` plus supporting Services, PVCs, and ConfigMaps |
 
 All enabled AI app instances also require `litellm` and `model-catalog`.
 Paperclip uses the Agent Sandbox CR backend for CLI runtimes; OpenClaw and
@@ -63,7 +68,8 @@ The generated HelmRelease is stored in `ai-system`, targets the requested app
 namespace, and loads its chart from the GitRepository configured in
 `Appliance.spec.source`. Charts for operator-backed apps render the native CR;
 the Odysseus chart renders its Deployments, Services, PVCs, Secret, ConfigMap,
-and Ingress directly. Helm owns upgrade and cleanup for all of these resources.
+directly. Helm owns upgrade and cleanup for application resources; the Magic
+Stick Operator owns all external Gateway resources.
 
 ## Defaulting
 
@@ -76,6 +82,8 @@ For v1alpha1, examples use these defaults:
   `ModuleActivation` resources, including disabled ones, take precedence
 - instance target namespace defaults to `ai`
 - `enabled` defaults to `true` inside instance arrays
+- instance authentication defaults to shared SSO with minimum role `user`
+- instance exposure defaults to derived local and public hostnames
 - generated Flux namespace is always `flux-system`
 - generated Flux interval is `10m0s`
 - generated Flux prune is `true`

@@ -13,30 +13,35 @@ data:
         "openclaw": {
           "displayName": "OpenClaw",
           "chartPath": "magic-cluster/apps/instances/openclaw",
+          "route": {"serviceName": "instance", "port": 18789},
           "requiredModules": ["openclaw-operator", "litellm", "model-catalog"],
           "requiredCrds": ["openclawinstances.openclaw.rocks"]
         },
         "hermes": {
           "displayName": "Hermes",
           "chartPath": "magic-cluster/apps/instances/hermes",
+          "route": {"serviceName": "instance", "port": 8642},
           "requiredModules": ["hermes-operator", "litellm", "model-catalog"],
           "requiredCrds": ["hermesinstances.hermes.agent"]
         },
         "paperclip": {
           "displayName": "Paperclip",
           "chartPath": "magic-cluster/apps/instances/paperclip",
+          "route": {"serviceName": "instance", "port": 3100},
           "requiredModules": ["paperclip-operator", "agent-sandbox", "litellm", "model-catalog"],
           "requiredCrds": ["instances.paperclip.inc", "sandboxes.agents.x-k8s.io"]
         },
         "kubeopencode": {
           "displayName": "KubeOpenCode",
           "chartPath": "magic-cluster/apps/instances/kubeopencode",
+          "route": {"serviceName": "shortName", "port": 4096},
           "requiredModules": ["kubeopencode", "litellm", "model-catalog"],
           "requiredCrds": ["agenttemplates.kubeopencode.io", "agents.kubeopencode.io"]
         },
         "odysseus": {
           "displayName": "Odysseus",
           "chartPath": "magic-cluster/apps/instances/odysseus",
+          "route": {"serviceName": "instance", "port": 7000},
           "requiredModules": ["odysseus", "litellm", "model-catalog"],
           "requiredCrds": []
         }

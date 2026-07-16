@@ -22,6 +22,7 @@ digest, or chart version.
 | `busybox:1.36` | https://hub.docker.com/_/busybox | Init containers | Referenced only |
 | `postgres:16.4` | https://hub.docker.com/_/postgres | LiteLLM PostgreSQL | Referenced only |
 | `postgres:17-alpine` | https://hub.docker.com/_/postgres | Operator-generated application database | Referenced only |
+| `quay.io/keycloak/keycloak:26.6.3` | https://www.keycloak.org | Local OIDC identity provider and identity broker | Referenced only |
 | `ghcr.io/berriai/litellm:v1.84.0` | https://github.com/BerriAI/litellm | LiteLLM | Referenced only |
 | `mintplexlabs/anythingllm:1.12.1` | https://github.com/Mintplex-Labs/anything-llm | AnythingLLM | Referenced only |
 | `qdrant/qdrant:v1.13.6` | https://github.com/qdrant/qdrant | Qdrant vector database | Referenced only |
@@ -32,17 +33,18 @@ digest, or chart version.
 | `nousresearch/hermes-agent:v2026.5.29.2` | https://github.com/NousResearch/hermes-agent | Hermes dashboard runtime | Referenced only |
 | `nousresearch/hermes-agent:v2026.7.7.2` | https://github.com/NousResearch/hermes-agent | Authenticated Hermes API gateway sidecar | Referenced only |
 | `tignis/kubernetes-secret-generator:3.4.1` | https://github.com/mittwald/kubernetes-secret-generator | Generated Kubernetes secrets | Referenced only |
+| `ghcr.io/qualityminds/magicstick-kdns` | https://github.com/lab42/kdns | Temporary Gateway-aware kdns build from pinned upstream source plus the contribution carried in this repository | Built and published by this repository; deployed by digest. The upstream README states MIT, but the pinned `LICENSE` file is empty and should be clarified before permanent mirroring. |
 | `otel/opentelemetry-collector-k8s` | https://github.com/open-telemetry/opentelemetry-collector-contrib | OpenTelemetry collector image selected by chart values | Referenced only |
 
 ## Helm Charts And Operators
 
 | Chart or source | Repository | Version | Usage |
 |---|---|---:|---|
-| `ingress-nginx` | https://kubernetes.github.io/ingress-nginx | `4.15.1` | Ingress controller |
+| `gateway-helm` | https://gateway.envoyproxy.io | `v1.8.2` | Envoy Gateway control plane, data plane, and Gateway API extensions |
 | `cert-manager` | https://charts.jetstack.io | `v1.20.2` | Certificate management |
 | `kubernetes-secret-generator` | https://helm.mittwald.de | `3.4.1` | Generated Kubernetes secrets |
 | `reloader` | https://stakater.github.io/stakater-charts | Unpinned | Config and secret reloads |
-| `kdns` | `oci://ghcr.io/lab42/charts` | Unpinned | Local DNS integration |
+| `kdns` | `oci://ghcr.io/lab42/charts` | `0.2.3` | Local DNS integration; chart remains upstream while the workload image temporarily uses the repository-built Gateway API contribution |
 | `gpu-operator` | https://helm.ngc.nvidia.com/nvidia | Unpinned | NVIDIA GPU support |
 | `kubeai` | https://www.kubeai.org | `0.23.2` | AI model serving platform |
 | `hermes-operator` | `oci://ghcr.io/paperclipinc/charts` | `0.1.17` | Hermes runtime orchestration |
@@ -54,6 +56,12 @@ digest, or chart version.
 | `promtail` | https://grafana.github.io/helm-charts | `6.16.6` | Log shipping |
 | `opentelemetry-collector` | https://open-telemetry.github.io/opentelemetry-helm-charts | `0.121.0` | Telemetry collection |
 | `kubeopencode` | `oci://ghcr.io/kubeopencode/helm-charts` | `0.1.6` | AI coding workspace integration |
+
+## Ansible Collections
+
+| Collection | Repository | Version | Usage |
+|---|---|---:|---|
+| `community.general` | https://github.com/ansible-collections/community.general | `13.2.0` | Host timezone configuration; installed from Ansible Galaxy for minimal `ansible-core` environments |
 
 ## Release Review
 

@@ -1,0 +1,167 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  namespace: identity-system
+spec:
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+  selector:
+    app.kubernetes.io/name: keycloak
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: identity-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: keycloak
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: keycloak
+    spec:
+      containers:
+        - name: keycloak
+          image: quay.io/keycloak/keycloak:26.6.3
+          imagePullPolicy: IfNotPresent
+          args:
+            - start
+            - --import-realm
+          env:
+            - name: KC_DB
+              value: postgres
+            - name: KC_DB_URL_HOST
+              value: keycloak-postgresql
+            - name: KC_DB_URL_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-postgresql
+                  key: POSTGRES_DB
+            - name: KC_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-postgresql
+                  key: POSTGRES_USER
+            - name: KC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-postgresql
+                  key: POSTGRES_PASSWORD
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-bootstrap-admin
+                  key: KC_BOOTSTRAP_ADMIN_USERNAME
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-bootstrap-admin
+                  key: KC_BOOTSTRAP_ADMIN_PASSWORD
+            - name: MAGICSTICK_LOCAL_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-local-admin
+                  key: password
+            - name: MAGICSTICK_HUMAN_GATEWAY_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: magicstick-human-gateway-client
+                  key: client-secret
+            - name: KC_HOSTNAME
+              value: "https://id.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
+            - name: KC_HTTP_ENABLED
+              value: "true"
+            - name: KC_PROXY_HEADERS
+              value: xforwarded
+            - name: KC_HEALTH_ENABLED
+              value: "true"
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/sh
+                  - -ec
+                  - |
+                    (
+                      config=/tmp/kcadm-client-sync.config
+                      attempt=0
+                      while [ "$attempt" -lt 36 ]; do
+                        if /opt/keycloak/bin/kcadm.sh config credentials \
+                          --config "$config" \
+                          --server http://localhost:8080 \
+                          --realm master \
+                          --user "$KC_BOOTSTRAP_ADMIN_USERNAME" \
+                          --password "$KC_BOOTSTRAP_ADMIN_PASSWORD" >/dev/null; then
+                          client_uuid="$(
+                            /opt/keycloak/bin/kcadm.sh get clients \
+                              --config "$config" \
+                              --realm magicstick \
+                              --query clientId=magicstick-human-gateway-local \
+                              --fields id \
+                              --format csv \
+                              --noquotes | tail -n 1 | tr -d '\r'
+                          )"
+                          if [ -n "$client_uuid" ] && /opt/keycloak/bin/kcadm.sh update "clients/$client_uuid" \
+                            --config "$config" \
+                            --realm magicstick \
+                            -s 'redirectUris=["https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback/*","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback/*"]' \
+                            -s 'webOrigins=["https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"]'; then
+                            echo "Synchronized Keycloak human gateway callback patterns"
+                            rm -f "$config"
+                            exit 0
+                          fi
+                        fi
+                        attempt=$((attempt + 1))
+                        sleep 5
+                      done
+                      echo "Keycloak client synchronization did not complete; existing realm settings require administrator review" >&2
+                      rm -f "$config"
+                    ) >/proc/1/fd/1 2>/proc/1/fd/2 &
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: management
+              containerPort: 9000
+          startupProbe:
+            httpGet:
+              path: /health/started
+              port: management
+            failureThreshold: 60
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: management
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: management
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1536Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+          volumeMounts:
+            - name: realm
+              mountPath: /opt/keycloak/data/import
+              readOnly: true
+      volumes:
+        - name: realm
+          configMap:
+            name: keycloak-realm
