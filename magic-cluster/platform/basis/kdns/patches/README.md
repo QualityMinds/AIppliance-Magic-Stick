@@ -43,7 +43,7 @@ manifest digest rather than either tag.
 The currently deployed build is:
 
 ```text
-ghcr.io/qualityminds/magicstick-kdns@sha256:0a840305d8ecbcc9442ff7fd5e570e639011197b0366cd35439c608ca870aa72
+ghcr.io/qualityminds/magicstick-kdns@sha256:b207d9d9102593196e30ffeb7ac6cde070b02b075494e37532c2d5c2b81e2af1
 ```
 
 Package visibility is managed once in the GitHub package settings. The
