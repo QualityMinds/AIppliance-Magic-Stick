@@ -64,6 +64,12 @@ All enabled AI app instances also require `litellm` and `model-catalog`.
 Paperclip uses the Agent Sandbox CR backend for CLI runtimes; OpenClaw and
 Hermes remain separate gateway services.
 
+The shared Envoy route is the browser authentication boundary. Hermes uses
+LiteLLM through its native `config.raw` and listens on service port `8443`.
+Paperclip is kept private in `local_trusted` mode, and Odysseus runs with its
+local login disabled, preventing an application-specific second login after
+SSO without exposing either backend directly.
+
 The generated HelmRelease is stored in `ai-system`, targets the requested app
 namespace, and loads its chart from the GitRepository configured in
 `Appliance.spec.source`. Charts for operator-backed apps render the native CR;

@@ -62,6 +62,12 @@ class HelmAppInstanceTests(unittest.TestCase):
         self.assertFalse(release["spec"]["values"]["instance"]["values"]["ingress"]["enabled"])
         self.assertEqual(url, "https://demo.kubeopencode.magicstick.local/")
 
+    def test_catalog_routes_hermes_to_its_gateway_port(self):
+        manifest = yaml.safe_load((ROOT / "app-catalog.yaml").read_text(encoding="utf-8"))
+        catalog = yaml.safe_load(manifest["data"]["applications.json"])
+
+        self.assertEqual(catalog["applications"]["hermes"]["route"]["port"], 8443)
+
     def test_generates_sso_protected_local_and_public_routes_by_default(self):
         instance = {
             "metadata": {"name": "kubeopencode-demo"},

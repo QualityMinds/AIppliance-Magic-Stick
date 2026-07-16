@@ -1,20 +1,18 @@
 {{- $instance := required "instance is required" .Values.instance -}}
 {{- $values := default dict $instance.values -}}
-{{- $admin := default dict $values.admin -}}
 {{- $name := $instance.name -}}
 {{- $model := trimPrefix "litellm/" (trimPrefix "openai/" (default "CHANGEME_MODEL" $values.model)) -}}
 {{- $components := dict "chroma" 8000 "searxng" 8080 "ntfy" 80 -}}
 apiVersion: v1
 kind: Secret
 metadata:
-  name: {{ $name }}-admin
+  name: {{ $name }}-internal
   namespace: {{ $instance.namespace }}
   annotations:
     secret-generator.v1.mittwald.de/autogenerate: password
     secret-generator.v1.mittwald.de/encoding: hex
 type: Opaque
-stringData:
-  username: {{ default "admin" $admin.user | quote }}
+data: {}
 ---
 {{- range $suffix, $size := dict "data" (dig "storage" "size" "20Gi" $values) "chroma-data" (dig "chroma" "storage" "size" "5Gi" $values) "searxng-data" (dig "searxng" "storage" "size" "1Gi" $values) "ntfy-data" (dig "ntfy" "storage" "size" "1Gi" $values) }}
 apiVersion: v1
@@ -128,7 +126,7 @@ spec:
             - name: SEARXNG_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ $name }}-admin
+                  name: {{ $name }}-internal
                   key: password
           {{- end }}
           volumeMounts:
@@ -193,6 +191,12 @@ spec:
               value: http://litellm.ai.svc.cluster.local:4000/v1
             - name: ODYSSEUS_DEFAULT_MODEL
               value: {{ $model | quote }}
+            # Envoy Gateway authenticates every browser request. Disable the
+            # application-local login so users do not authenticate twice.
+            - name: AUTH_ENABLED
+              value: "false"
+            - name: LOCALHOST_BYPASS
+              value: "false"
             - name: SEARXNG_INSTANCE
               value: http://{{ $name }}-searxng:8080
             - name: CHROMADB_HOST
@@ -201,16 +205,6 @@ spec:
               value: "8000"
             - name: NTFY_BASE_URL
               value: http://{{ $name }}-ntfy:80
-            - name: ODYSSEUS_ADMIN_USER
-              valueFrom:
-                secretKeyRef:
-                  name: {{ $name }}-admin
-                  key: username
-            - name: ODYSSEUS_ADMIN_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ $name }}-admin
-                  key: password
           volumeMounts:
             - name: data
               mountPath: /app/data

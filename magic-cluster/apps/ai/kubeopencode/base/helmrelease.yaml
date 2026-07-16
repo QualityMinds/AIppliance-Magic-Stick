@@ -22,18 +22,4 @@ spec:
       service:
         port: 2746
       ingress:
-        enabled: true
-        className: nginx
-        annotations:
-          lab42.io/mdns.enabled: "true"
-          lab42.io/mdns.name: "kubeopencode.${AI_APPLIANCE_MDNS_NAME:=magicstick}"
-          lab42.io/mdns.host: "kubeopencode.${AI_APPLIANCE_MDNS_NAME:=magicstick}"
-        hosts:
-          - host: "kubeopencode.${AI_APPLIANCE_DOMAIN:=magicstick.example.com}"
-            paths:
-              - path: /
-                pathType: Prefix
-          - host: "kubeopencode.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
-            paths:
-              - path: /
-                pathType: Prefix
+        enabled: false

@@ -6,9 +6,9 @@ login before a protected HTTP route reaches an application. The appliance can
 therefore authenticate users while fully disconnected from cloud services.
 
 Envoy Gateway is the only installed application gateway. The dashboard, all
-operator-managed AppInstances, LiteLLM, and AnythingLLM use authenticated
-Gateway API resources. The bundled installation contains no application
-`Ingress` resources.
+operator-managed AppInstances, LiteLLM, AnythingLLM, and the KubeOpenCode
+server use authenticated Gateway API resources. The bundled installation
+contains no application `Ingress` resources.
 
 ## Target Architecture
 
@@ -86,8 +86,8 @@ The current implementation provides:
 - a non-blocking Keycloak startup reconciliation that adds the callback path
   patterns needed by existing installations
 - dashboard API token validation and viewer/operator/admin authorization
-- protected local and public routes for LiteLLM and AnythingLLM with a minimum
-  `magicstick-user` role
+- protected local and public routes for LiteLLM, AnythingLLM, and KubeOpenCode
+  with a minimum `magicstick-user` role
 - removal of the bundled dashboard and AI application `Ingress` resources
 - a local `local-admin` account for end-to-end validation
 

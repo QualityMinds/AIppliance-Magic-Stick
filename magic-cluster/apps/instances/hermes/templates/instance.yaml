@@ -1,16 +1,6 @@
 {{- $instance := required "instance is required" .Values.instance -}}
 {{- $values := default dict $instance.values -}}
-apiVersion: v1
-kind: Secret
-metadata:
-  name: {{ $instance.name }}-api-server
-  namespace: {{ $instance.namespace }}
-  annotations:
-    secret-generator.v1.mittwald.de/autogenerate: API_SERVER_KEY
-    secret-generator.v1.mittwald.de/encoding: hex
-type: Opaque
-data: {}
----
+{{- $model := trimPrefix "litellm/" (trimPrefix "openai/" (default "CHANGEME_MODEL" $values.model)) -}}
 apiVersion: hermes.agent/v1
 kind: HermesInstance
 metadata:
@@ -24,6 +14,16 @@ spec:
   image:
     repository: {{ dig "image" "repository" "ghcr.io/paperclipinc/hermes-agent" $values | quote }}
     tag: {{ dig "image" "tag" "v2026.5.29.2" $values | quote }}
+  config:
+    raw:
+      model: {{ $model | quote }}
+      base_url: http://litellm.ai.svc.cluster.local:4000/v1
+  env:
+    - name: OPENAI_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: litellm-masterkey-secret
+          key: LITELLM_MASTER_KEY
   storage:
     persistence:
       enabled: true

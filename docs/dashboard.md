@@ -126,6 +126,13 @@ The operator, not the instance chart or dashboard, creates `HTTPRoute`,
 `SecurityPolicy`, and `ReferenceGrant` resources. Both local and public links
 are reported in `AppInstance.status` and displayed on the instance card.
 
+Envoy Gateway is also the browser authentication boundary for application
+instances. Hermes is configured against the in-cluster LiteLLM endpoint.
+Paperclip runs as a private `local_trusted` service and Odysseus disables its
+application-local login, so neither presents a second login after the shared
+SSO check. Their Services remain ClusterIP-only and are reached externally only
+through the operator-generated authenticated routes.
+
 The Paperclip form additionally selects the default chat model, enables the
 OpenCode sandbox runtime, optionally binds an existing OpenClaw or Hermes
 gateway instance, and sets the maximum concurrent sandbox count. Gateway

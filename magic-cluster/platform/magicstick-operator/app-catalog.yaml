@@ -20,7 +20,7 @@ data:
         "hermes": {
           "displayName": "Hermes",
           "chartPath": "magic-cluster/apps/instances/hermes",
-          "route": {"serviceName": "instance", "port": 8642},
+          "route": {"serviceName": "instance", "port": 8443},
           "requiredModules": ["hermes-operator", "litellm", "model-catalog"],
           "requiredCrds": ["hermesinstances.hermes.agent"]
         },
