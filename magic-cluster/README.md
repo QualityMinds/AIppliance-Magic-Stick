@@ -25,11 +25,11 @@ runtime checks.
 | `platform/ai/hermes-operator` | Hermes CRD operator base for `hermes.agent/v1` instances |
 | `platform/ai/paperclip-operator` | Paperclip CRD operator base for `paperclip.inc/v1alpha1` instances |
 | `platform/gpu` | NVIDIA GPU Operator with time-slicing GPU sharing |
-| `platform/observability` | Prometheus stack, Loki, Promtail, OpenTelemetry, Grafana dashboards |
-| `apps/dashboard` | Dashboard app, ingress discovery surface, and Appliance CR UI/API client |
-| `apps/ai/litellm/base` | LiteLLM API and model-routing module |
+| `platform/observability` | Prometheus stack, Loki, Promtail, OpenTelemetry, Grafana dashboards, and viewer-protected Envoy routes |
+| `apps/dashboard` | Dashboard app, route discovery surface, and Appliance CR UI/API client |
+| `apps/ai/litellm/base` | LiteLLM API and model-routing module with shared SSO routes |
 | `apps/ai/model-catalog` | Controller that syncs KubeAI `Model` CRs and optional external models into LiteLLM and publishes the generated `ai-model-catalog` ConfigMap |
-| `apps/ai/anything-llm/base` | AnythingLLM app module with Qdrant |
+| `apps/ai/anything-llm/base` | AnythingLLM app module with Qdrant and shared SSO routes |
 | `apps/ai/kubeopencode` | KubeOpenCode Helm release, separated so CRDs can become ready before custom resources |
 
 ## Deployment Overlays

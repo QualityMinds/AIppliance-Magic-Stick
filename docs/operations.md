@@ -77,7 +77,8 @@ kubectl -n ai get pods
 kubectl -n ai get svc,ingress
 kubectl -n dashboard get pods,service,referencegrant
 kubectl -n identity-system get httproute,securitypolicy
-kubectl -n observability get pods,ingress
+kubectl -n observability get pods
+kubectl -n identity-system get httproutes,securitypolicies
 ```
 
 ## Identity Pilot Checks
@@ -128,6 +129,28 @@ and the referenced `Gateway` has an IP address. Check discovery with:
 kubectl get gateway,httproute -A
 kubectl -n kdns logs deploy/kdns-kdns
 ```
+
+LiteLLM, AnythingLLM, Grafana, Prometheus, and Alertmanager use static routes in
+`identity-system` and narrowly scoped backend grants in their service
+namespaces. Inspect the complete contract with:
+
+```bash
+kubectl -n identity-system get httproutes,securitypolicies \
+  -o custom-columns=KIND:.kind,NAME:.metadata.name
+kubectl -n ai get referencegrants
+kubectl -n observability get referencegrants
+```
+
+LiteLLM and AnythingLLM require `magicstick-user` or a higher role. Grafana,
+Prometheus, and Alertmanager require `magicstick-viewer`, `magicstick-operator`,
+or `magicstick-admin`. Every static policy uses an exact callback path on the
+shared dashboard host, so it remains inside the redirect URI patterns of the
+single human gateway client.
+
+Envoy forwards the Keycloak access token to Grafana. Grafana validates the JWT
+against Keycloak and maps `magicstick-viewer` to Viewer,
+`magicstick-operator` to Editor, and `magicstick-admin` to GrafanaAdmin. Its
+basic login form is disabled, so the gateway login is the only browser login.
 
 Rancher Desktop isolates Kubernetes multicast traffic inside its Linux VM. On
 macOS, keep the host bridge running in a separate terminal while testing:
@@ -226,7 +249,7 @@ deploy,pods` if a command does not match the running resource name.
 |---|---|
 | Flux Kustomization is `False` | `kubectl -n flux-system describe kustomization <name>` and render the same path locally with `kubectl kustomize`. |
 | HelmRelease is not ready | `kubectl -n flux-system describe helmrelease <name>` and inspect chart values. |
-| Legacy Ingress has no endpoint | The nginx controller is intentionally not installed. Migrate the application to an Envoy `HTTPRoute`. |
+| Custom legacy Ingress has no endpoint | The nginx controller is intentionally not installed. Bundled surfaces already use Envoy; migrate custom applications to an authenticated `HTTPRoute`. |
 | App waits for model catalog | Check `ai-model-catalog-controller` logs and `AI_APPLIANCE_MODEL_CATALOG_READY`. |
 | LiteLLM Prisma reports `P1000` authentication failed | The PostgreSQL PVC may be older than `litellm-postgresql-secret`. Keep generated DB credentials prune-disabled and rotate the DB user password to match the current Secret. |
 | Paperclip login origin fails | Confirm `BETTER_AUTH_TRUSTED_ORIGINS` on the Paperclip `Instance` and restart the app pod after changes. |
@@ -235,5 +258,6 @@ deploy,pods` if a command does not match the running resource name.
 | Generated Secret missing | Check the secret generator HelmRelease and Secret annotations. |
 | OIDC route does not redirect | Check the `SecurityPolicy` and `HTTPRoute` status, Keycloak readiness, the Envoy data-plane logs, and whether the identity and requested application hostnames resolve to the Envoy LoadBalancer address. |
 | AppInstance route returns `403` after SSO | Compare `spec.access.role` with the user's `magicstick-user`, `magicstick-viewer`, `magicstick-operator`, or `magicstick-admin` realm roles. |
+| Static AI or observability route returns `403` after SSO | AI routes require at least `magicstick-user`; observability routes require at least `magicstick-viewer`. Check the user's realm roles and the corresponding static `SecurityPolicy`. |
 | Dashboard returns `403` after login | Confirm the user has `magicstick-viewer`, `magicstick-operator`, or `magicstick-admin`; configuration changes need operator or admin as documented in `authentication.md`. |
 | GPU model never starts | Check GPU Operator, allocatable GPU resources, KubeAI model status, and vLLM logs. |

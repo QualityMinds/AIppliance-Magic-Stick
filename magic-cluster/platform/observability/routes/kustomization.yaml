@@ -1,9 +1,4 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - ../qdrant/base
-  - configmap.yaml
-  - deployment.yaml
   - gateway.yaml
-  - service.yaml
-  - pvc.yaml

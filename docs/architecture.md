@@ -100,7 +100,7 @@ directly.
 | Appliance control plane | Appliance CRDs, module catalog, model presets, operator RBAC, and live controller. |
 | AI modules | NVIDIA GPU support, KubeAI, Hermes operator, OpenClaw operator, and Paperclip operator. |
 | GPU | NVIDIA GPU Operator and time-slicing GPU sharing. |
-| Observability | kube-prometheus-stack, Loki, Promtail, OpenTelemetry Collector, Grafana dashboards, and public ingresses. |
+| Observability | kube-prometheus-stack, Loki, Promtail, OpenTelemetry Collector, Grafana dashboards, and authenticated Gateway API routes. |
 
 ## Application Components
 
@@ -115,8 +115,9 @@ directly.
 
 Envoy Gateway is the only installed application gateway. The dashboard uses
 authenticated local and public `HTTPRoute` resources plus API-level role
-checks. Other legacy application `Ingress` objects are intentionally not served
-until their routes and authorization checks are migrated to Gateway API. See
+checks. LiteLLM and AnythingLLM require an authenticated Magic Stick user;
+Grafana, Prometheus, and Alertmanager require at least the viewer role. The
+bundled installation has no application `Ingress` resources. See
 [authentication.md](authentication.md).
 
 Local mDNS discovery follows the same Gateway API model. Routes opt in with

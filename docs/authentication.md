@@ -5,10 +5,10 @@ OpenID Connect (OIDC) provider and identity broker. Envoy Gateway enforces the
 login before a protected HTTP route reaches an application. The appliance can
 therefore authenticate users while fully disconnected from cloud services.
 
-Envoy Gateway is the only installed application gateway. The dashboard and all
-operator-managed AppInstances use authenticated Gateway API resources; other
-static applications can be migrated incrementally from legacy `Ingress`
-objects.
+Envoy Gateway is the only installed application gateway. The dashboard, all
+operator-managed AppInstances, LiteLLM, AnythingLLM, Grafana, Prometheus, and
+Alertmanager use authenticated Gateway API resources. The bundled installation
+contains no application `Ingress` resources.
 
 ## Target Architecture
 
@@ -71,7 +71,7 @@ combination); they must not reuse browser cookies or the human gateway client.
 
 ## Implemented Scope
 
-The first implementation adds:
+The current implementation provides:
 
 - Envoy Gateway `v1.8.2` as the primary `LoadBalancer` data plane
 - Keycloak with PostgreSQL in namespace `identity-system`
@@ -86,7 +86,14 @@ The first implementation adds:
 - a non-blocking Keycloak startup reconciliation that adds the callback path
   patterns needed by existing installations
 - dashboard API token validation and viewer/operator/admin authorization
-- removal of the legacy dashboard `Ingress`
+- protected local and public routes for LiteLLM and AnythingLLM with a minimum
+  `magicstick-user` role
+- protected local and public routes for Grafana, Prometheus, and Alertmanager
+  with a minimum `magicstick-viewer` role
+- Grafana JWT authentication from the Envoy-forwarded Keycloak access token,
+  including viewer/operator/admin mapping without a second login form
+- removal of the bundled dashboard, AI application, and observability
+  `Ingress` resources
 - a local `local-admin` account for end-to-end validation
 
 The pilot uses the standard HTTPS port `443` through the Envoy `LoadBalancer`
@@ -148,16 +155,11 @@ responder.
 The remaining rollout is intentionally incremental:
 
 1. Replace the pilot certificate with the appliance certificate trust model.
-2. Move the remaining static web applications to `HTTPRoute` resources and the shared human
-   OIDC policy.
-3. Add separate machine clients and JWT/mTLS policies for APIs and agents.
-4. Configure optional upstream identity providers and group-to-role mappings.
-5. Delete obsolete static application `Ingress` resources after every replacement
-   `HTTPRoute` has passed its rollback checks.
+2. Add separate machine clients and JWT/mTLS policies for APIs and agents.
+3. Configure optional upstream identity providers and group-to-role mappings.
 
-During migration, only routes already represented by Envoy `HTTPRoute`
-resources are externally reachable. An additional Envoy API gateway is not
-needed for the authentication layer.
+All bundled browser surfaces are represented by Envoy `HTTPRoute` resources.
+An additional Envoy API gateway is not needed for the authentication layer.
 
 ## Secret and Recovery Rules
 
