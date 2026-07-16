@@ -9,7 +9,7 @@ bootstrap, runtime configuration, and optional advanced GitOps overlays.
 |---|---|---|
 | Installer | `magic-installer` | Builds bootable Ubuntu autoinstall media with cloud-init metadata. |
 | Host automation | `magic-host` | Installs and reconciles the local host with Ansible, K3s, and Flux. |
-| Cluster bases | `magic-cluster` | Reusable Flux, platform, app, observability, GPU, and profile bases. |
+| Cluster bases | `magic-cluster` | Reusable Flux, platform, app, GPU, and profile bases. |
 | Examples | `examples` | Render-only public overlays using `example.local` values. |
 | Documentation | `docs` | Public contract, operations, development, and release notes. |
 
@@ -56,7 +56,7 @@ The base graph is defined under `magic-cluster/flux/graph/base`.
 | 15 | `magicstick-operator` | `magic-cluster/platform/magicstick-operator` | `infrastructure-basis` |
 | 30 | `apps` | `magic-cluster/apps/dashboard` | `infrastructure-basis`, `identity-pilot` |
 
-Optional AI, Observability, GPU, and instance resources are no longer applied by
+Optional AI, GPU, and instance resources are no longer applied by
 the static graph. The Magic Stick Operator creates generated Flux
 `Kustomization` resources from `ModuleActivation`, native KubeAI resources from
 `ModelActivation`, and Flux `HelmRelease` resources from `AppInstance` CRs.
@@ -100,7 +100,6 @@ directly.
 | Appliance control plane | Appliance CRDs, module catalog, model presets, operator RBAC, and live controller. |
 | AI modules | NVIDIA GPU support, KubeAI, Hermes operator, OpenClaw operator, and Paperclip operator. |
 | GPU | NVIDIA GPU Operator and time-slicing GPU sharing. |
-| Observability | kube-prometheus-stack, Loki, Promtail, OpenTelemetry Collector, Grafana dashboards, and authenticated Gateway API routes. |
 
 ## Application Components
 
@@ -115,8 +114,7 @@ directly.
 
 Envoy Gateway is the only installed application gateway. The dashboard uses
 authenticated local and public `HTTPRoute` resources plus API-level role
-checks. LiteLLM and AnythingLLM require an authenticated Magic Stick user;
-Grafana, Prometheus, and Alertmanager require at least the viewer role. The
+checks. LiteLLM and AnythingLLM require an authenticated Magic Stick user. The
 bundled installation has no application `Ingress` resources. See
 [authentication.md](authentication.md).
 

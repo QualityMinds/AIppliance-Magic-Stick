@@ -46,7 +46,7 @@ Kustomizations use it through `postBuild.substituteFrom`.
 
 | Setting | Default | Used by |
 |---|---|---|
-| `AI_APPLIANCE_DOMAIN` | `magicstick.example.com` | Public app, observability, and derived instance hostnames. |
+| `AI_APPLIANCE_DOMAIN` | `magicstick.example.com` | Public app and derived instance hostnames. |
 | `AI_APPLIANCE_DASHBOARD_HOST` | `magicstick.example.com` | Dashboard public ingress hostname. |
 | `AI_APPLIANCE_MDNS_DOMAIN` | `magicstick.local` | Local mDNS domain used for dashboard, app, and derived instance hostnames. |
 | `AI_APPLIANCE_MDNS_NAME` | `magicstick` | Local mDNS name suffix used in mDNS annotations. |
@@ -64,16 +64,14 @@ per-instance configuration:
 
 Module storage is configured at runtime through Dashboard advanced options or
 directly through `ModuleActivation.spec.parameters`. If a parameter is omitted,
-the module manifest default such as `${AI_APPLIANCE_LOKI_STORAGE:=1Gi}` is used.
+the module manifest default such as
+`${AI_APPLIANCE_LITELLM_POSTGRES_STORAGE:=1Gi}` is used.
 
 | Module | Parameter | Flux substitution |
 |---|---|---|
 | `litellm` | `postgresStorage` | `AI_APPLIANCE_LITELLM_POSTGRES_STORAGE` |
 | `anything-llm` | `storage` | `AI_APPLIANCE_ANYTHING_LLM_STORAGE` |
 | `anything-llm` | `qdrantStorage` | `AI_APPLIANCE_QDRANT_STORAGE` |
-| `observability` | `lokiStorage` | `AI_APPLIANCE_LOKI_STORAGE` |
-| `observability` | `alertmanagerStorage` | `AI_APPLIANCE_ALERTMANAGER_STORAGE` |
-| `observability` | `prometheusStorage` | `AI_APPLIANCE_PROMETHEUS_STORAGE` |
 
 ## Model Catalog Settings
 
