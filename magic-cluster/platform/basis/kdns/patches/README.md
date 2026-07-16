@@ -37,6 +37,15 @@ publish an immutable `sha-<commit>` tag; `main` additionally publishes
 `v0.2.22-gateway-api.1`. Deployments pin the resulting multi-architecture
 manifest digest rather than either tag.
 
+The currently deployed build is:
+
+```text
+ghcr.io/qualityminds/magicstick-kdns@sha256:0a840305d8ecbcc9442ff7fd5e570e639011197b0366cd35439c608ca870aa72
+```
+
+Package visibility is managed once in the GitHub package settings. The
+workflow token intentionally only builds and publishes immutable images.
+
 Rancher Desktop runs Kubernetes in a Linux VM and does not reliably forward
 multicast DNS packets to macOS. For that development environment, run the
 host-side bridge in a separate terminal:

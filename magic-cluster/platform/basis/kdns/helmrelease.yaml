@@ -24,6 +24,9 @@ spec:
               name: kdns-kdns
             patch: |
               - op: replace
+                path: /spec/template/spec/containers/0/image
+                value: ghcr.io/qualityminds/magicstick-kdns@sha256:0a840305d8ecbcc9442ff7fd5e570e639011197b0366cd35439c608ca870aa72
+              - op: replace
                 path: /spec/template/spec/containers/0/env/0
                 value:
                   name: KUBERNETES_SERVICE_HOST

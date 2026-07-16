@@ -112,15 +112,6 @@ jobs:
           provenance: mode=max
           sbom: true
 
-      - name: Make repository package public
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh api \
-            --method PATCH \
-            /orgs/QualityMinds/packages/container/magicstick-kdns \
-            -f visibility=public
-
       - name: Record immutable digest
         run: |
           {
