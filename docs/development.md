@@ -37,6 +37,7 @@ kubectl kustomize examples/demo/infra-cluster/flux-bootstrap
 For host automation changes:
 
 ```bash
+ansible-galaxy collection install -r magic-host/requirements.yml
 ANSIBLE_ROLES_PATH=magic-host/roles \
   ansible-playbook --syntax-check magic-host/playbooks/local.yml
 ```

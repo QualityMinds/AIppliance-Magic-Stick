@@ -10,6 +10,15 @@ See [../docs/architecture.md](../docs/architecture.md) for the bootstrap flow,
 
 ## Entry Point
 
+Install the versioned collection dependencies when using a minimal
+`ansible-core` environment. The Ubuntu `ansible` package already includes the
+community collections, but running this command is safe and keeps development
+and CI reproducible:
+
+```bash
+ansible-galaxy collection install -r magic-host/requirements.yml
+```
+
 ```bash
 ANSIBLE_ROLES_PATH=magic-host/roles \
   ansible-playbook --syntax-check magic-host/playbooks/local.yml

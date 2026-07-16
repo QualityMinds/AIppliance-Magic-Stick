@@ -57,6 +57,12 @@ digest, or chart version.
 | `opentelemetry-collector` | https://open-telemetry.github.io/opentelemetry-helm-charts | `0.121.0` | Telemetry collection |
 | `kubeopencode` | `oci://ghcr.io/kubeopencode/helm-charts` | `0.1.6` | AI coding workspace integration |
 
+## Ansible Collections
+
+| Collection | Repository | Version | Usage |
+|---|---|---:|---|
+| `community.general` | https://github.com/ansible-collections/community.general | `13.2.0` | Host timezone configuration; installed from Ansible Galaxy for minimal `ansible-core` environments |
+
 ## Release Review
 
 Before a public release tag, confirm that referenced third-party artifacts are
