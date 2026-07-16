@@ -81,6 +81,48 @@ spec:
               value: xforwarded
             - name: KC_HEALTH_ENABLED
               value: "true"
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/sh
+                  - -ec
+                  - |
+                    (
+                      config=/tmp/kcadm-client-sync.config
+                      attempt=0
+                      while [ "$attempt" -lt 36 ]; do
+                        if /opt/keycloak/bin/kcadm.sh config credentials \
+                          --config "$config" \
+                          --server http://localhost:8080 \
+                          --realm master \
+                          --user "$KC_BOOTSTRAP_ADMIN_USERNAME" \
+                          --password "$KC_BOOTSTRAP_ADMIN_PASSWORD" >/dev/null; then
+                          client_uuid="$(
+                            /opt/keycloak/bin/kcadm.sh get clients \
+                              --config "$config" \
+                              --realm magicstick \
+                              --query clientId=magicstick-human-gateway-local \
+                              --fields id \
+                              --format csv \
+                              --noquotes | tail -n 1 | tr -d '\r'
+                          )"
+                          if [ -n "$client_uuid" ] && /opt/keycloak/bin/kcadm.sh update "clients/$client_uuid" \
+                            --config "$config" \
+                            --realm magicstick \
+                            -s 'redirectUris=["https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback/*","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback/*"]' \
+                            -s 'webOrigins=["https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"]'; then
+                            echo "Synchronized Keycloak human gateway callback patterns"
+                            rm -f "$config"
+                            exit 0
+                          fi
+                        fi
+                        attempt=$((attempt + 1))
+                        sleep 5
+                      done
+                      echo "Keycloak client synchronization did not complete; existing realm settings require administrator review" >&2
+                      rm -f "$config"
+                    ) >/proc/1/fd/1 2>/proc/1/fd/2 &
           ports:
             - name: http
               containerPort: 8080

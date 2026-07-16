@@ -83,8 +83,8 @@ The first implementation adds:
   default SSO and optional user/viewer/operator/admin minimum roles
 - per-instance callback routes on the shared dashboard hosts, so the same
   Keycloak client and browser session protect dynamically created instances
-- a one-time Keycloak client migration Job that adds the callback path patterns
-  needed by existing installations
+- a non-blocking Keycloak startup reconciliation that adds the callback path
+  patterns needed by existing installations
 - dashboard API token validation and viewer/operator/admin authorization
 - removal of the legacy dashboard `Ingress`
 - a local `local-admin` account for end-to-end validation
@@ -165,8 +165,8 @@ needed for the authentication layer.
 - Identity database storage must be backed up before production use.
 - Realm configuration changes after the first import must be managed through a
   reviewed realm export or an administration workflow; restarting Keycloak does
-  not overwrite an existing realm. The versioned `keycloak-client-sync-v1` Job
-  is the reviewed migration for AppInstance callback redirect patterns.
+  not overwrite an existing realm. The scoped startup reconciliation is the
+  reviewed exception for the human gateway callback patterns and web origins.
 - Production deployments must rotate the pilot account and client secret and
   document break-glass access.
 - A cloud identity provider outage must not prevent local break-glass login.
