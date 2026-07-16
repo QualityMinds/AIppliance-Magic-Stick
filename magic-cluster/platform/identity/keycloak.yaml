@@ -8,6 +8,9 @@ spec:
     - name: http
       port: 8080
       targetPort: http
+    - name: https
+      port: 8443
+      targetPort: https
   selector:
     app.kubernetes.io/name: keycloak
 ---
@@ -77,6 +80,10 @@ spec:
               value: "https://id.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
             - name: KC_HTTP_ENABLED
               value: "true"
+            - name: KC_HTTPS_CERTIFICATE_FILE
+              value: /etc/x509/https/tls.crt
+            - name: KC_HTTPS_CERTIFICATE_KEY_FILE
+              value: /etc/x509/https/tls.key
             - name: KC_PROXY_HEADERS
               value: xforwarded
             - name: KC_HEALTH_ENABLED
@@ -126,6 +133,8 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+            - name: https
+              containerPort: 8443
             - name: management
               containerPort: 9000
           startupProbe:
@@ -161,7 +170,13 @@ spec:
             - name: realm
               mountPath: /opt/keycloak/data/import
               readOnly: true
+            - name: internal-tls
+              mountPath: /etc/x509/https
+              readOnly: true
       volumes:
         - name: realm
           configMap:
             name: keycloak-realm
+        - name: internal-tls
+          secret:
+            secretName: keycloak-internal-tls

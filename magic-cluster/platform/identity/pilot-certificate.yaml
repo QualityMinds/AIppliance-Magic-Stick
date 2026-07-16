@@ -21,3 +21,19 @@ spec:
     kind: Issuer
     name: identity-pilot-selfsigned
   secretName: identity-pilot-tls
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: keycloak-internal
+  namespace: identity-system
+spec:
+  dnsNames:
+    - keycloak
+    - keycloak.identity-system
+    - keycloak.identity-system.svc
+    - keycloak.identity-system.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: identity-pilot-selfsigned
+  secretName: keycloak-internal-tls
