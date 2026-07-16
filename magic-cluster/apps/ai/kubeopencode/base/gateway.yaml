@@ -1,0 +1,208 @@
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: allow-identity-kubeopencode
+  namespace: ai
+spec:
+  from:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      namespace: identity-system
+  to:
+    - group: ""
+      kind: Service
+      name: ai-kubeopencode-server
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: static-kubeopencode-local
+  namespace: identity-system
+  annotations:
+    lab42.io/mdns.enabled: "true"
+spec:
+  parentRefs:
+    - name: identity-pilot
+      sectionName: https
+  hostnames:
+    - "kubeopencode.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
+  rules:
+    - backendRefs:
+        - name: ai-kubeopencode-server
+          namespace: ai
+          port: 2746
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: static-kubeopencode-local-callback
+  namespace: identity-system
+spec:
+  parentRefs:
+    - name: identity-pilot
+      sectionName: https
+  hostnames:
+    - "${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
+  rules:
+    - matches:
+        - path:
+            type: Exact
+            value: /oauth2/callback/static-kubeopencode-local
+      backendRefs:
+        - name: ai-kubeopencode-server
+          namespace: ai
+          port: 2746
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: static-kubeopencode-local-sso
+  namespace: identity-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: static-kubeopencode-local
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: static-kubeopencode-local-callback
+  oidc:
+    provider:
+      issuer: "https://id.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/realms/magicstick"
+      authorizationEndpoint: "https://id.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/realms/magicstick/protocol/openid-connect/auth"
+      tokenEndpoint: http://keycloak.identity-system.svc.cluster.local:8080/realms/magicstick/protocol/openid-connect/token
+      endSessionEndpoint: "https://id.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/realms/magicstick/protocol/openid-connect/logout"
+    clientID: magicstick-human-gateway-local
+    clientSecret:
+      name: magicstick-human-gateway-client
+    redirectURL: "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback/static-kubeopencode-local"
+    logoutPath: /logout
+    cookieDomain: "${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
+    cookieNames:
+      accessToken: MagicStickAccessToken
+      idToken: MagicStickIDToken
+    forwardAccessToken: true
+  jwt:
+    providers:
+      - name: keycloak
+        issuer: "https://id.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/realms/magicstick"
+        remoteJWKS:
+          uri: http://keycloak.identity-system.svc.cluster.local:8080/realms/magicstick/protocol/openid-connect/certs
+          backendRefs:
+            - name: keycloak
+              port: 8080
+        extractFrom:
+          cookies:
+            - MagicStickAccessToken
+  authorization:
+    defaultAction: Deny
+    rules:
+      - name: required-magicstick-user
+        action: Allow
+        principal:
+          jwt:
+            provider: keycloak
+            claims:
+              - name: realm_access.roles
+                valueType: StringArray
+                values:
+                  - magicstick-user
+                  - magicstick-viewer
+                  - magicstick-operator
+                  - magicstick-admin
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: static-kubeopencode-public
+  namespace: identity-system
+spec:
+  parentRefs:
+    - name: identity-pilot
+      sectionName: https
+  hostnames:
+    - "kubeopencode.${AI_APPLIANCE_DOMAIN:=magicstick.example.com}"
+  rules:
+    - backendRefs:
+        - name: ai-kubeopencode-server
+          namespace: ai
+          port: 2746
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: static-kubeopencode-public-callback
+  namespace: identity-system
+spec:
+  parentRefs:
+    - name: identity-pilot
+      sectionName: https
+  hostnames:
+    - "${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"
+  rules:
+    - matches:
+        - path:
+            type: Exact
+            value: /oauth2/callback/static-kubeopencode-public
+      backendRefs:
+        - name: ai-kubeopencode-server
+          namespace: ai
+          port: 2746
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: static-kubeopencode-public-sso
+  namespace: identity-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: static-kubeopencode-public
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: static-kubeopencode-public-callback
+  oidc:
+    provider:
+      issuer: "https://id.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/realms/magicstick"
+      authorizationEndpoint: "https://id.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/realms/magicstick/protocol/openid-connect/auth"
+      tokenEndpoint: http://keycloak.identity-system.svc.cluster.local:8080/realms/magicstick/protocol/openid-connect/token
+      endSessionEndpoint: "https://id.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/realms/magicstick/protocol/openid-connect/logout"
+    clientID: magicstick-human-gateway-local
+    clientSecret:
+      name: magicstick-human-gateway-client
+    redirectURL: "https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback/static-kubeopencode-public"
+    logoutPath: /logout
+    cookieDomain: "${AI_APPLIANCE_DOMAIN:=magicstick.example.com}"
+    cookieNames:
+      accessToken: MagicStickAccessToken
+      idToken: MagicStickIDToken
+    forwardAccessToken: true
+  jwt:
+    providers:
+      - name: keycloak
+        issuer: "https://id.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/realms/magicstick"
+        remoteJWKS:
+          uri: http://keycloak.identity-system.svc.cluster.local:8080/realms/magicstick/protocol/openid-connect/certs
+          backendRefs:
+            - name: keycloak
+              port: 8080
+        extractFrom:
+          cookies:
+            - MagicStickAccessToken
+  authorization:
+    defaultAction: Deny
+    rules:
+      - name: required-magicstick-user
+        action: Allow
+        principal:
+          jwt:
+            provider: keycloak
+            claims:
+              - name: realm_access.roles
+                valueType: StringArray
+                values:
+                  - magicstick-user
+                  - magicstick-viewer
+                  - magicstick-operator
+                  - magicstick-admin

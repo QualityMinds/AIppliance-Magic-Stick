@@ -114,8 +114,8 @@ directly.
 
 Envoy Gateway is the only installed application gateway. The dashboard uses
 authenticated local and public `HTTPRoute` resources plus API-level role
-checks. LiteLLM and AnythingLLM require an authenticated Magic Stick user. The
-bundled installation has no application `Ingress` resources. See
+checks. LiteLLM, AnythingLLM, and KubeOpenCode require an authenticated Magic
+Stick user. The bundled installation has no application `Ingress` resources. See
 [authentication.md](authentication.md).
 
 Local mDNS discovery follows the same Gateway API model. Routes opt in with

@@ -101,6 +101,7 @@ Common public hostnames use `AI_APPLIANCE_DOMAIN`:
 | Dashboard | `magicstick.example.com` |
 | AnythingLLM | `anythingllm.magicstick.example.com` |
 | LiteLLM | `litellm.magicstick.example.com` |
+| KubeOpenCode | `kubeopencode.magicstick.example.com` |
 
 AppInstance hostnames include the instance name:
 
@@ -126,9 +127,9 @@ kubectl get gateway,httproute -A
 kubectl -n kdns logs deploy/kdns-kdns
 ```
 
-LiteLLM and AnythingLLM use static routes in `identity-system` and narrowly
-scoped backend grants in their service namespace. Inspect the complete contract
-with:
+LiteLLM, AnythingLLM, and the KubeOpenCode server use static routes in
+`identity-system` and narrowly scoped backend grants in their service
+namespace. Inspect the complete contract with:
 
 ```bash
 kubectl -n identity-system get httproutes,securitypolicies \
@@ -136,9 +137,9 @@ kubectl -n identity-system get httproutes,securitypolicies \
 kubectl -n ai get referencegrants
 ```
 
-LiteLLM and AnythingLLM require `magicstick-user` or a higher role. Every static
-policy uses an exact callback path on the shared dashboard host, so it remains
-inside the redirect URI patterns of the single human gateway client.
+All three static AI surfaces require `magicstick-user` or a higher role. Every
+static policy uses an exact callback path on the shared dashboard host, so it
+remains inside the redirect URI patterns of the single human gateway client.
 
 Rancher Desktop isolates Kubernetes multicast traffic inside its Linux VM. On
 macOS, keep the host bridge running in a separate terminal while testing:
@@ -238,7 +239,7 @@ deploy,pods` if a command does not match the running resource name.
 | Custom legacy Ingress has no endpoint | The nginx controller is intentionally not installed. Bundled surfaces already use Envoy; migrate custom applications to an authenticated `HTTPRoute`. |
 | App waits for model catalog | Check `ai-model-catalog-controller` logs and `AI_APPLIANCE_MODEL_CATALOG_READY`. |
 | LiteLLM Prisma reports `P1000` authentication failed | The PostgreSQL PVC may be older than `litellm-postgresql-secret`. Keep generated DB credentials prune-disabled and rotate the DB user password to match the current Secret. |
-| Paperclip login origin fails | Confirm `BETTER_AUTH_TRUSTED_ORIGINS` on the Paperclip `Instance` and restart the app pod after changes. |
+| Application shows a second login after SSO | Confirm Paperclip uses `deployment.mode: local_trusted` with `exposure: private`, Odysseus has `AUTH_ENABLED=false`, and the application Service is exposed only through its authenticated Envoy route. |
 | Paperclip task creates no Sandbox | Check `sandboxes.agents.x-k8s.io`, the Agent Sandbox controller, `spec.adapters.execution.kubernetes.backend`, and the selected adapter runtime image. |
 | Paperclip sandbox cannot call a model | Check `opencode-providers.json`, `litellm-masterkey-secret`, LiteLLM on port 4000, and NetworkPolicies in the Paperclip tenant namespace. |
 | Generated Secret missing | Check the secret generator HelmRelease and Secret annotations. |

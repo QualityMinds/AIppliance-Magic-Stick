@@ -29,7 +29,7 @@ runtime checks.
 | `apps/ai/litellm/base` | LiteLLM API and model-routing module with shared SSO routes |
 | `apps/ai/model-catalog` | Controller that syncs KubeAI `Model` CRs and optional external models into LiteLLM and publishes the generated `ai-model-catalog` ConfigMap |
 | `apps/ai/anything-llm/base` | AnythingLLM app module with Qdrant and shared SSO routes |
-| `apps/ai/kubeopencode` | KubeOpenCode Helm release, separated so CRDs can become ready before custom resources |
+| `apps/ai/kubeopencode` | KubeOpenCode Helm release with Envoy Gateway SSO routes, separated so CRDs can become ready before custom resources |
 
 ## Deployment Overlays
 
