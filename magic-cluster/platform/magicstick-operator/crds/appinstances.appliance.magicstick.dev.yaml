@@ -76,6 +76,33 @@ spec:
                     namespace:
                       type: string
                       default: ai-system
+                access:
+                  type: object
+                  description: Controls browser exposure through the shared Envoy Gateway. SSO is required unless explicitly disabled.
+                  properties:
+                    authentication:
+                      type: string
+                      enum:
+                        - sso
+                        - none
+                      default: sso
+                      description: sso requires the shared Keycloak login; none deliberately exposes the route without gateway authentication.
+                    role:
+                      type: string
+                      enum:
+                        - user
+                        - viewer
+                        - operator
+                        - admin
+                      default: user
+                      description: Minimum Magic Stick realm role required when authentication is sso. Higher dashboard roles inherit lower access.
+                    exposure:
+                      type: string
+                      enum:
+                        - local
+                        - localAndPublic
+                      default: localAndPublic
+                      description: Selects a local mDNS route only or both the derived local and public hostnames.
                 values:
                   type: object
                   x-kubernetes-preserve-unknown-fields: true
@@ -96,6 +123,14 @@ spec:
                 namespace:
                   type: string
                 url:
+                  type: string
+                localURL:
+                  type: string
+                publicURL:
+                  type: string
+                authentication:
+                  type: string
+                requiredRole:
                   type: string
                 message:
                   type: string

@@ -1,6 +1,5 @@
 {{- $instance := required "instance is required" .Values.instance -}}
 {{- $values := default dict $instance.values -}}
-{{- $ingress := default dict $values.ingress -}}
 apiVersion: openclaw.rocks/v1alpha1
 kind: OpenClawInstance
 metadata:
@@ -45,25 +44,4 @@ spec:
     service:
       type: ClusterIP
     ingress:
-      enabled: {{ default true $ingress.enabled }}
-      className: nginx
-      security:
-        enableHSTS: false
-        forceHTTPS: false
-      annotations:
-        dashboard.ai-appliance.io/title: OpenClaw
-        dashboard.ai-appliance.io/category: AI
-        lab42.io/mdns.enabled: "true"
-        lab42.io/mdns.name: {{ $instance.localName | quote }}
-        lab42.io/mdns.host: {{ $instance.localName | quote }}
-      hosts:
-        - host: {{ $ingress.host | quote }}
-          paths:
-            - path: /
-              pathType: Prefix
-        {{- if ne $ingress.host $instance.localHost }}
-        - host: {{ $instance.localHost | quote }}
-          paths:
-            - path: /
-              pathType: Prefix
-        {{- end }}
+      enabled: false

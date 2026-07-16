@@ -49,27 +49,3 @@ spec:
   profile: {{ default "AI Appliance coding agent managed by Magic Stick." $values.profile | quote }}
   maxConcurrentTasks: {{ default 1 $values.maxConcurrentTasks }}
   suspend: false
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: {{ $instance.name }}
-  namespace: {{ $instance.namespace }}
-  annotations:
-    dashboard.ai-appliance.io/title: KubeOpenCode
-    dashboard.ai-appliance.io/category: AI
-    lab42.io/mdns.enabled: "true"
-    lab42.io/mdns.name: {{ $instance.localName | quote }}
-spec:
-  ingressClassName: nginx
-  rules:
-    - host: {{ dig "ingress" "host" $instance.localHost $values | quote }}
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ $agentName }}
-                port:
-                  name: http

@@ -35,7 +35,9 @@ data:
           "redirectUris": [
             "https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback",
             "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback",
-            "https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback"
+            "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback/*",
+            "https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback",
+            "https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback/*"
           ],
           "webOrigins": [
             "https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}",

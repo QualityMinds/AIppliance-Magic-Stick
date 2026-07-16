@@ -1,6 +1,5 @@
 {{- $instance := required "instance is required" .Values.instance -}}
 {{- $values := default dict $instance.values -}}
-{{- $ingress := default dict $values.ingress -}}
 apiVersion: v1
 kind: Secret
 metadata:
@@ -40,15 +39,7 @@ spec:
     service:
       type: ClusterIP
     ingress:
-      enabled: {{ default true $ingress.enabled }}
-      className: nginx
-      host: {{ $ingress.host | quote }}
-      annotations:
-        dashboard.ai-appliance.io/title: Hermes
-        dashboard.ai-appliance.io/category: AI
-        lab42.io/mdns.enabled: "true"
-        lab42.io/mdns.name: {{ $instance.localName | quote }}
-        lab42.io/mdns.host: {{ $instance.localName | quote }}
+      enabled: false
   observability:
     logging:
       level: info

@@ -5,9 +5,10 @@ OpenID Connect (OIDC) provider and identity broker. Envoy Gateway enforces the
 login before a protected HTTP route reaches an application. The appliance can
 therefore authenticate users while fully disconnected from cloud services.
 
-Envoy Gateway is the only installed application gateway. The dashboard is the
-first production route migrated to authenticated Gateway API resources; other
-applications are migrated incrementally from their legacy `Ingress` objects.
+Envoy Gateway is the only installed application gateway. The dashboard and all
+operator-managed AppInstances use authenticated Gateway API resources; other
+static applications can be migrated incrementally from legacy `Ingress`
+objects.
 
 ## Target Architecture
 
@@ -58,6 +59,12 @@ also permits module, instance, model, and credential operations, and admin also
 permits appliance-wide settings changes. `magicstick-user` alone does not grant
 dashboard access.
 
+AppInstance access uses the same hierarchy at the Envoy edge. OIDC stores the
+Keycloak access token in the shared `MagicStickAccessToken` cookie; Envoy's JWT
+filter validates that token and authorizes the selected minimum
+`realm_access.roles` value before forwarding to the application. A route can be
+made unauthenticated only with explicit `spec.access.authentication: none`.
+
 Human browser sessions use OIDC Authorization Code Flow. Machine clients must
 use separate clients and policies (service accounts, JWT validation, mTLS, or a
 combination); they must not reuse browser cookies or the human gateway client.
@@ -72,6 +79,12 @@ The first implementation adds:
 - a self-signed pilot certificate for local `.local` hostnames
 - an unprotected Keycloak route and a protected `auth-pilot` test route
 - protected local and public dashboard `HTTPRoute` resources
+- operator-generated local and public AppInstance `HTTPRoute` resources with
+  default SSO and optional user/viewer/operator/admin minimum roles
+- per-instance callback routes on the shared dashboard hosts, so the same
+  Keycloak client and browser session protect dynamically created instances
+- a one-time Keycloak client migration Job that adds the callback path patterns
+  needed by existing installations
 - dashboard API token validation and viewer/operator/admin authorization
 - removal of the legacy dashboard `Ingress`
 - a local `local-admin` account for end-to-end validation
@@ -135,13 +148,11 @@ responder.
 The remaining rollout is intentionally incremental:
 
 1. Replace the pilot certificate with the appliance certificate trust model.
-2. Move static web applications to `HTTPRoute` resources and the shared human
+2. Move the remaining static web applications to `HTTPRoute` resources and the shared human
    OIDC policy.
-3. Teach the Magic Stick Operator to generate authenticated routes for every
-   `AppInstance`.
-4. Add separate machine clients and JWT/mTLS policies for APIs and agents.
-5. Configure optional upstream identity providers and group-to-role mappings.
-6. Delete obsolete application `Ingress` resources after every replacement
+3. Add separate machine clients and JWT/mTLS policies for APIs and agents.
+4. Configure optional upstream identity providers and group-to-role mappings.
+5. Delete obsolete static application `Ingress` resources after every replacement
    `HTTPRoute` has passed its rollback checks.
 
 During migration, only routes already represented by Envoy `HTTPRoute`
@@ -154,7 +165,8 @@ needed for the authentication layer.
 - Identity database storage must be backed up before production use.
 - Realm configuration changes after the first import must be managed through a
   reviewed realm export or an administration workflow; restarting Keycloak does
-  not overwrite an existing realm.
+  not overwrite an existing realm. The versioned `keycloak-client-sync-v1` Job
+  is the reviewed migration for AppInstance callback redirect patterns.
 - Production deployments must rotate the pilot account and client secret and
   document break-glass access.
 - A cloud identity provider outage must not prevent local break-glass login.

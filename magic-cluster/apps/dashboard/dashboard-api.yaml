@@ -732,9 +732,19 @@ data:
         requested_name = require_name(payload)
         name = app_instance_name(instance_type, requested_name)
         parameters = dict(payload)
+        requested_access = dict(parameters.pop("access", {}) or {})
         parameters.pop("enabled", None)
         parameters.pop("namespace", None)
         target_namespace = str(payload.get("namespace") or payload.get("targetNamespace") or "ai")
+        authentication = str(requested_access.get("authentication") or "sso")
+        role = str(requested_access.get("role") or "user")
+        exposure = str(requested_access.get("exposure") or "localAndPublic")
+        if authentication not in {"sso", "none"}:
+            raise ValueError("access.authentication must be sso or none")
+        if exposure not in {"local", "localAndPublic"}:
+            raise ValueError("access.exposure must be local or localAndPublic")
+        if role not in {"user", "viewer", "operator", "admin"}:
+            raise ValueError("access.role must be user, viewer, operator, or admin")
         return {
             "apiVersion": f"{APPLIANCE_GROUP}/{APPLIANCE_VERSION}",
             "kind": "AppInstance",
@@ -750,6 +760,11 @@ data:
                 "application": instance_type,
                 "enabled": payload.get("enabled", True) is not False,
                 "targetNamespace": target_namespace,
+                "access": {
+                    "authentication": authentication,
+                    "role": role,
+                    "exposure": exposure,
+                },
                 "applianceRef": {
                     "name": APPLIANCE_NAME,
                     "namespace": APPLIANCE_NAMESPACE,
@@ -1356,6 +1371,7 @@ data:
         pods = list_resource("/api/v1/pods")
         services = list_resource("/api/v1/services")
         ingresses = list_resource("/apis/networking.k8s.io/v1/ingresses")
+        http_routes = list_resource("/apis/gateway.networking.k8s.io/v1/httproutes")
         return {
             "appliance": {
                 "metadata": current.get("metadata", {}),
@@ -1368,6 +1384,7 @@ data:
             "pods": summarize_objects(pods),
             "services": summarize_objects(services),
             "ingresses": summarize_ingresses(ingresses),
+            "httpRoutes": summarize_http_routes(http_routes),
         }
 
 
@@ -1404,6 +1421,26 @@ data:
                 "labels": metadata.get("labels") or {},
                 "annotations": dashboard_annotations,
                 "hosts": hosts,
+            })
+        return summarized
+
+
+    def summarize_http_routes(items):
+        summarized = []
+        for item in items:
+            metadata = item.get("metadata") or {}
+            spec = item.get("spec") or {}
+            accepted = False
+            for parent in (item.get("status") or {}).get("parents", []):
+                for route_condition in parent.get("conditions", []):
+                    if route_condition.get("type") == "Accepted" and route_condition.get("status") == "True":
+                        accepted = True
+            summarized.append({
+                "namespace": metadata.get("namespace", ""),
+                "name": metadata.get("name", ""),
+                "labels": metadata.get("labels") or {},
+                "hostnames": spec.get("hostnames") or [],
+                "accepted": accepted,
             })
         return summarized
 

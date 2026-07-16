@@ -6,6 +6,7 @@ resources:
   - postgresql.yaml
   - keycloak-realm.yaml
   - keycloak.yaml
+  - keycloak-client-sync-v1.yaml
   - pilot-certificate.yaml
   - gateway.yaml
   - routes.yaml

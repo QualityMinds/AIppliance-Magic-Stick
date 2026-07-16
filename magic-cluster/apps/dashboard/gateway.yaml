@@ -53,6 +53,9 @@ spec:
     redirectURL: "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback"
     logoutPath: /logout
     cookieDomain: "${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
+    cookieNames:
+      accessToken: MagicStickAccessToken
+      idToken: MagicStickIDToken
     forwardAccessToken: true
 ---
 apiVersion: gateway.networking.k8s.io/v1
@@ -92,5 +95,8 @@ spec:
       name: magicstick-human-gateway-client
     redirectURL: "https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback"
     logoutPath: /logout
-    cookieDomain: "${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"
+    cookieDomain: "${AI_APPLIANCE_DOMAIN:=magicstick.example.com}"
+    cookieNames:
+      accessToken: MagicStickAccessToken
+      idToken: MagicStickIDToken
     forwardAccessToken: true

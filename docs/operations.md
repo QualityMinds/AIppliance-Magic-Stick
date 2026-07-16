@@ -138,6 +138,26 @@ magic-cluster/platform/basis/kdns/publish-rancher-desktop-mdns.sh
 
 Host-local K3s appliances do not need this development bridge.
 
+## AppInstance Gateway Access
+
+The operator publishes enabled instances through Envoy Gateway and removes the
+routes again when an instance is suspended or deleted. Inspect the generated
+contract with:
+
+```bash
+kubectl -n ai-system get appinstances
+kubectl -n identity-system get httproutes,securitypolicies \
+  -l appliance.magicstick.dev/appinstance
+kubectl -n ai get referencegrants
+```
+
+An SSO route must report `Accepted=True`, its SecurityPolicy must be accepted,
+and its backend ReferenceGrant must name the application Service. `403` after a
+successful login means the account does not have the minimum role selected in
+`spec.access.role`. Each protected application route has a companion callback
+route with an exact `/oauth2/callback/<route-name>` match on the shared local or
+public dashboard host; both routes must be accepted by the same SecurityPolicy.
+
 ## Model Catalog
 
 ```bash
@@ -214,5 +234,6 @@ deploy,pods` if a command does not match the running resource name.
 | Paperclip sandbox cannot call a model | Check `opencode-providers.json`, `litellm-masterkey-secret`, LiteLLM on port 4000, and NetworkPolicies in the Paperclip tenant namespace. |
 | Generated Secret missing | Check the secret generator HelmRelease and Secret annotations. |
 | OIDC route does not redirect | Check the `SecurityPolicy` and `HTTPRoute` status, Keycloak readiness, the Envoy data-plane logs, and whether the identity and requested application hostnames resolve to the Envoy LoadBalancer address. |
+| AppInstance route returns `403` after SSO | Compare `spec.access.role` with the user's `magicstick-user`, `magicstick-viewer`, `magicstick-operator`, or `magicstick-admin` realm roles. |
 | Dashboard returns `403` after login | Confirm the user has `magicstick-viewer`, `magicstick-operator`, or `magicstick-admin`; configuration changes need operator or admin as documented in `authentication.md`. |
 | GPU model never starts | Check GPU Operator, allocatable GPU resources, KubeAI model status, and vLLM logs. |

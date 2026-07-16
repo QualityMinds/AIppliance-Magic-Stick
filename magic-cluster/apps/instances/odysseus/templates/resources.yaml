@@ -1,6 +1,5 @@
 {{- $instance := required "instance is required" .Values.instance -}}
 {{- $values := default dict $instance.values -}}
-{{- $ingress := default dict $values.ingress -}}
 {{- $admin := default dict $values.admin -}}
 {{- $name := $instance.name -}}
 {{- $model := trimPrefix "litellm/" (trimPrefix "openai/" (default "CHANGEME_MODEL" $values.model)) -}}
@@ -229,27 +228,3 @@ spec:
         - name: catalog
           configMap:
             name: ai-model-catalog
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: {{ $name }}
-  namespace: {{ $instance.namespace }}
-  annotations:
-    dashboard.ai-appliance.io/title: Odysseus
-    dashboard.ai-appliance.io/category: AI
-    lab42.io/mdns.enabled: "true"
-    lab42.io/mdns.name: {{ $instance.localName | quote }}
-spec:
-  ingressClassName: nginx
-  rules:
-    - host: {{ $ingress.host | quote }}
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ $name }}
-                port:
-                  name: http

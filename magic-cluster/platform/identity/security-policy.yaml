@@ -20,3 +20,6 @@ spec:
     redirectURL: "https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback"
     logoutPath: /logout
     cookieDomain: "${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
+    cookieNames:
+      accessToken: MagicStickAccessToken
+      idToken: MagicStickIDToken
