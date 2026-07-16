@@ -61,7 +61,7 @@ new file mode 100644
 index 0000000..b339179
 --- /dev/null
 +++ b/handler/gateway_api_handler.go
-@@ -0,0 +1,263 @@
+@@ -0,0 +1,266 @@
 +package handler
 +
 +import (
@@ -202,9 +202,12 @@ index 0000000..b339179
 +				if len(hostnames) == 1 && annotations[mdnsNameAnnotation] != "" {
 +					configName = annotations[mdnsNameAnnotation]
 +				}
-+				host := hostname
++				host := strings.TrimSuffix(hostname, suffix)
 +				if len(hostnames) == 1 && annotations[mdnsHostAnnotation] != "" {
-+					host = annotations[mdnsHostAnnotation]
++					host = strings.TrimSuffix(
++						strings.ToLower(strings.TrimSuffix(strings.TrimSpace(annotations[mdnsHostAnnotation]), ".")),
++						suffix,
++					)
 +				}
 +				config := dnssd.Config{
 +					Name:   configName,
@@ -391,7 +394,7 @@ index 0000000..f323b77
 +	if !exists {
 +		t.Fatalf("expected dashboard.example config, got %#v", configs)
 +	}
-+	if config.Host != "dashboard.example.local" || config.Port != 443 || config.Type != "_https._tcp" {
++	if config.Host != "dashboard.example" || config.Port != 443 || config.Type != "_https._tcp" {
 +		t.Fatalf("unexpected config: %#v", config)
 +	}
 +	if got := config.IPs[0].String(); got != "192.0.2.10" {
@@ -495,4 +498,3 @@ index f6c2681..3a91141 100644
  }
  
  func (w *K8sWatcher) Stop() {
-
