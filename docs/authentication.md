@@ -91,8 +91,7 @@ The current implementation provides:
 - protected local and public routes for Grafana, Prometheus, and Alertmanager
   with a minimum `magicstick-viewer` role
 - Grafana JWT authentication from the Envoy-forwarded Keycloak access token,
-  including viewer/operator/admin mapping without a second login form; Grafana
-  reads the signing keys over Keycloak's dedicated cluster-internal HTTPS port
+  including viewer/operator/admin mapping without a second login form
 - removal of the bundled dashboard, AI application, and observability
   `Ingress` resources
 - a local `local-admin` account for end-to-end validation
