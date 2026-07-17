@@ -18,3 +18,8 @@ spec:
     createNamespace: true
   upgrade:
     force: true
+  values:
+    # The 0.1.18 chart omits the "v" prefix although the published GHCR image
+    # is tagged v0.1.18. Keep the chart version and runtime image aligned.
+    image:
+      tag: v0.1.18
