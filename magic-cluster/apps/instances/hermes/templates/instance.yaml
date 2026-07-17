@@ -13,13 +13,11 @@ metadata:
 spec:
   image:
     repository: {{ dig "image" "repository" "ghcr.io/paperclipinc/hermes-agent" $values | quote }}
-    tag: {{ dig "image" "tag" "v2026.5.29.2" $values | quote }}
+    tag: {{ dig "image" "tag" "v0.16.0" $values | quote }}
   config:
     raw:
-      model:
-        default: {{ $model | quote }}
-        provider: custom
-        base_url: http://litellm.ai.svc.cluster.local:4000/v1
+      model: {{ $model | quote }}
+      base_url: http://litellm.ai.svc.cluster.local:4000/v1
   env:
     - name: OPENAI_API_KEY
       valueFrom:

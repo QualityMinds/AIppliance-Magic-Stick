@@ -90,13 +90,6 @@ spec:
     managed:
       storageSize: {{ dig "database" "managed" "storageSize" "10Gi" $values | quote }}
   env:
-    # paperclip-operator defaults to a network bind for ordinary authenticated
-    # deployments. local_trusted must stay on loopback; the sidecar above is
-    # the only listener on the Pod IP.
-    - name: PAPERCLIP_BIND
-      value: loopback
-    - name: PAPERCLIP_BIND_HOST
-      value: 127.0.0.1
     - name: OPENAI_API_KEY
       valueFrom:
         secretKeyRef:

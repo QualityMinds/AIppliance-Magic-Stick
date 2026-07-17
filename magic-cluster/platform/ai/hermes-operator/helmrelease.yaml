@@ -9,7 +9,7 @@ spec:
   chart:
     spec:
       chart: hermes-operator
-      version: "0.1.17"
+      version: "0.1.18"
       sourceRef:
         kind: HelmRepository
         name: hermes-operator
@@ -18,8 +18,3 @@ spec:
     createNamespace: true
   upgrade:
     force: true
-  values:
-    image:
-      # The 0.1.17 chart defaults to image tag "0.1.17", but upstream publishes
-      # the operator image with the release tag prefix.
-      tag: v0.1.17

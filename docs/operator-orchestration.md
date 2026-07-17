@@ -69,7 +69,10 @@ LiteLLM through its native `config.raw` and listens on service port `8443`.
 Paperclip is kept private in `local_trusted` mode; an in-pod TCP proxy exposes
 its loopback listener only on the Pod IP for the ClusterIP Service. Odysseus
 runs with its local login disabled. Both avoid an application-specific second
-login after SSO without exposing either backend directly.
+login after SSO without exposing either backend directly. MagicStick rebuilds
+the pinned Paperclip operator with a documented compatibility patch so only
+`local_trusted` instances bind to loopback; authenticated instances retain the
+upstream network bind.
 
 The generated HelmRelease is stored in `ai-system`, targets the requested app
 namespace, and loads its chart from the GitRepository configured in

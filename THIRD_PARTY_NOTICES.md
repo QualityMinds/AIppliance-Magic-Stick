@@ -46,9 +46,9 @@ digest, or chart version.
 | `kdns` | `oci://ghcr.io/lab42/charts` | `0.2.3` | Local DNS integration; chart remains upstream while the workload image temporarily uses the repository-built Gateway API contribution |
 | `gpu-operator` | https://helm.ngc.nvidia.com/nvidia | Unpinned | NVIDIA GPU support |
 | `kubeai` | https://www.kubeai.org | `0.23.2` | AI model serving platform |
-| `hermes-operator` | `oci://ghcr.io/paperclipinc/charts` | `0.1.17` | Hermes runtime orchestration |
+| `hermes-operator` | `oci://ghcr.io/paperclipinc/charts` | `0.1.18` | Hermes runtime orchestration and long-lived gateway runtime |
 | `openclaw-operator` | `oci://ghcr.io/paperclipinc/charts` | `0.36.4` | OpenClaw runtime orchestration |
-| `paperclip-operator` | `oci://ghcr.io/paperclipinc/charts` | `0.18.0` | Paperclip runtime orchestration |
+| `paperclip-operator` | `oci://ghcr.io/paperclipinc/charts` | `0.18.0` | CRDs and Paperclip runtime orchestration; the deployed controller image is rebuilt from this tag with the documented local-trusted loopback compatibility patch |
 | `agent-sandbox` | https://github.com/kubernetes-sigs/agent-sandbox | `v0.5.1` | Kubernetes sandbox CRD and controller |
 | `kubeopencode` | `oci://ghcr.io/kubeopencode/helm-charts` | `0.1.6` | AI coding workspace integration |
 

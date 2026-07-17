@@ -1,0 +1,45 @@
+diff --git a/internal/resources/realignment_test.go b/internal/resources/realignment_test.go
+index cefd70e..90a17e1 100644
+--- a/internal/resources/realignment_test.go
++++ b/internal/resources/realignment_test.go
+@@ -98,6 +98,15 @@ func TestBuildStatefulSet_BindEnv(t *testing.T) {
+ 	}
+ }
+ 
++func TestBuildStatefulSet_LocalTrustedUsesLoopback(t *testing.T) {
++	inst := newTestInstance("p")
++	inst.Spec.Deployment.Mode = "local_trusted"
++	inst.Spec.Deployment.Exposure = "private"
++	env := containerEnv(inst)
++	wantEnvValue(t, env, "PAPERCLIP_BIND", "loopback")
++	wantEnvValue(t, env, "PAPERCLIP_BIND_HOST", "127.0.0.1")
++}
++
+ // --- allowed hostnames always include in-cluster Service DNS ---
+ // In authenticated mode the app rejects auth requests from hostnames not in its
+ // allowlist. The operator's own bootstrap Job calls the Service DNS, so those
+diff --git a/internal/resources/statefulset.go b/internal/resources/statefulset.go
+index 40e2b91..26b0795 100644
+--- a/internal/resources/statefulset.go
++++ b/internal/resources/statefulset.go
+@@ -97,10 +97,18 @@ func buildMainContainer(instance *paperclipv1alpha1.Instance) corev1.Container {
+ 
+ func buildEnvVars(instance *paperclipv1alpha1.Instance) []corev1.EnvVar {
+ 	port := servicePort(instance)
++	bindMode := "custom"
++	bindHost := "0.0.0.0"
++	if instance.Spec.Deployment.Mode == "local_trusted" {
++		// Paperclip rejects local_trusted on a non-loopback listener. A separate
++		// sidecar may publish this socket to a private ClusterIP Service.
++		bindMode = "loopback"
++		bindHost = "127.0.0.1"
++	}
+ 	vars := []corev1.EnvVar{
+ 		{Name: "PORT", Value: fmt.Sprintf("%d", port)},
+-		{Name: "PAPERCLIP_BIND", Value: "custom"},
+-		{Name: "PAPERCLIP_BIND_HOST", Value: "0.0.0.0"},
++		{Name: "PAPERCLIP_BIND", Value: bindMode},
++		{Name: "PAPERCLIP_BIND_HOST", Value: bindHost},
+ 		{Name: "PAPERCLIP_HOME", Value: DataMountPath},
+ 		{Name: "SERVE_UI", Value: "true"},
+ 		{Name: "PAPERCLIP_DEPLOYMENT_MODE", Value: instance.Spec.Deployment.Mode},
