@@ -11,9 +11,12 @@ metadata:
     app.kubernetes.io/instance: {{ $instance.name }}
     appliance.magicstick.dev/appinstance: {{ $instance.name }}
 spec:
+  # The upstream s6 runtime must own PID 1. Set this explicitly so instances
+  # created by operator 0.1.17 migrate away from its persisted true default.
+  shareProcessNamespace: false
   image:
     repository: {{ dig "image" "repository" "ghcr.io/paperclipinc/hermes-agent" $values | quote }}
-    tag: {{ dig "image" "tag" "v2026.5.29.2" $values | quote }}
+    tag: {{ dig "image" "tag" "v0.16.0" $values | quote }}
   config:
     raw:
       model: {{ $model | quote }}

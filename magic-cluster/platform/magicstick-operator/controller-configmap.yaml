@@ -1056,7 +1056,7 @@ data:
         }
 
 
-    def app_instance_route(instance, route_name, hostname, service_name, service_port, local=False):
+    def app_instance_route(instance, route_name, hostname, service_name, service_port, local=False, strip_cookies=False):
         target_namespace = ((instance.get("spec") or {}).get("targetNamespace") or "ai")
         metadata = {
             "name": route_name,
@@ -1065,6 +1065,22 @@ data:
         }
         if local:
             metadata["annotations"] = {"lab42.io/mdns.enabled": "true"}
+        rule = {
+            "backendRefs": [{
+                "name": service_name,
+                "namespace": target_namespace,
+                "port": service_port,
+            }],
+        }
+        if strip_cookies:
+            # Edge authentication has already consumed the OIDC cookies. Hermes
+            # is an API gateway and does not use application cookies; removing
+            # them prevents Envoy's encrypted session cookies from exceeding
+            # aiohttp's per-header limit after several SSO-protected apps.
+            rule["filters"] = [{
+                "type": "RequestHeaderModifier",
+                "requestHeaderModifier": {"remove": ["Cookie"]},
+            }]
         return {
             "apiVersion": "gateway.networking.k8s.io/v1",
             "kind": "HTTPRoute",
@@ -1072,13 +1088,7 @@ data:
             "spec": {
                 "parentRefs": [{"name": IDENTITY_GATEWAY_NAME}],
                 "hostnames": [hostname],
-                "rules": [{
-                    "backendRefs": [{
-                        "name": service_name,
-                        "namespace": target_namespace,
-                        "port": service_port,
-                    }],
-                }],
+                "rules": [rule],
             },
         }
 
@@ -1214,7 +1224,16 @@ data:
                 "to": [{"group": "", "kind": "Service", "name": service_name}],
             },
         }]
-        resources.append(app_instance_route(instance, local_route_name, local_host, service_name, service_port, local=True))
+        strip_cookies = bool((definition.get("route") or {}).get("stripCookies"))
+        resources.append(app_instance_route(
+            instance,
+            local_route_name,
+            local_host,
+            service_name,
+            service_port,
+            local=True,
+            strip_cookies=strip_cookies,
+        ))
         if authentication == "sso":
             local_callback_path = "/oauth2/callback/" + local_route_name
             resources.append(app_instance_callback_route(
@@ -1235,7 +1254,14 @@ data:
             ))
         public_url = ""
         if exposure == "localAndPublic":
-            resources.append(app_instance_route(instance, public_route_name, public_host, service_name, service_port))
+            resources.append(app_instance_route(
+                instance,
+                public_route_name,
+                public_host,
+                service_name,
+                service_port,
+                strip_cookies=strip_cookies,
+            ))
             public_url = "https://" + public_host + "/"
             if authentication == "sso":
                 public_callback_path = "/oauth2/callback/" + public_route_name

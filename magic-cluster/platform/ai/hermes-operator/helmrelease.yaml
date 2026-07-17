@@ -9,7 +9,7 @@ spec:
   chart:
     spec:
       chart: hermes-operator
-      version: "0.1.17"
+      version: "0.1.18"
       sourceRef:
         kind: HelmRepository
         name: hermes-operator
@@ -19,7 +19,7 @@ spec:
   upgrade:
     force: true
   values:
+    # The 0.1.18 chart omits the "v" prefix although the published GHCR image
+    # is tagged v0.1.18. Keep the chart version and runtime image aligned.
     image:
-      # The 0.1.17 chart defaults to image tag "0.1.17", but upstream publishes
-      # the operator image with the release tag prefix.
-      tag: v0.1.17
+      tag: v0.1.18
