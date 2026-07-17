@@ -92,6 +92,13 @@ partition.
 
 ## After First Boot
 
+The physical console displays the first-run setup screen after Flux and the
+identity platform are ready. Scan its QR code or open
+`https://<private-node-ip>:9443/setup`; this IP path works without mDNS. Compare
+the browser certificate fingerprint with the console, enter the one-time claim
+code, and create the first administrator. See
+[first-run-setup.md](first-run-setup.md) for the complete flow.
+
 On the host:
 
 ```bash
@@ -99,6 +106,7 @@ sudo systemctl status k3s
 sudo /usr/local/sbin/ai-appliance-converge
 sudo k3s kubectl get nodes
 sudo k3s kubectl -n flux-system get kustomizations
+sudo magicstick setup show
 ```
 
 From another machine with a kubeconfig:

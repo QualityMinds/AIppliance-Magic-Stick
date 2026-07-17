@@ -74,22 +74,6 @@ data:
               "view-realm"
             ]
           }
-        },
-        {
-          "username": "local-admin",
-          "enabled": true,
-          "email": "local-admin@magicstick.local",
-          "emailVerified": true,
-          "firstName": "Local",
-          "lastName": "Administrator",
-          "credentials": [
-            {
-              "type": "password",
-              "value": "$${MAGICSTICK_LOCAL_ADMIN_PASSWORD}",
-              "temporary": false
-            }
-          ],
-          "realmRoles": ["magicstick-user", "magicstick-admin"]
         }
       ]
     }

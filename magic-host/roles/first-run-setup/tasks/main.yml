@@ -1,0 +1,281 @@
+---
+- name: Create protected first-run state directory
+  ansible.builtin.file:
+    path: "{{ setup_state_directory }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Install Magicstick setup console command
+  ansible.builtin.template:
+    src: magicstick.j2
+    dest: /usr/local/sbin/magicstick
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install first-run claim cleanup service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/magicstick-setup-cleanup.service
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Remove completed Magicstick first-run credentials
+      After=k3s.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/magicstick setup cleanup
+
+- name: Install first-run console display service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/magicstick-setup-console.service
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Display Magicstick first-run access on the local console
+      After=k3s.service network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/magicstick setup show
+      StandardInput=tty
+      StandardOutput=tty
+      StandardError=tty
+      TTYPath=/dev/tty1
+      TTYReset=no
+      TTYVHangup=no
+
+      [Install]
+      WantedBy=multi-user.target
+  notify: Reload systemd
+
+- name: Install first-run claim cleanup timer
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/magicstick-setup-cleanup.timer
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Check Magicstick first-run completion
+
+      [Timer]
+      OnBootSec=2min
+      OnUnitActiveSec=1min
+      Unit=magicstick-setup-cleanup.service
+
+      [Install]
+      WantedBy=timers.target
+  notify: Reload systemd
+
+- name: Enable first-run claim cleanup timer
+  ansible.builtin.systemd:
+    name: magicstick-setup-cleanup.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Enable first-run console display service
+  ansible.builtin.systemd:
+    name: magicstick-setup-console.service
+    enabled: true
+    daemon_reload: true
+
+- name: Wait for ApplianceSetup CRD
+  ansible.builtin.command:
+    argv:
+      - "{{ setup_kubectl_binary }}"
+      - kubectl
+      - --kubeconfig
+      - "{{ setup_kubeconfig_path }}"
+      - wait
+      - --for=condition=Established
+      - "crd/{{ setup_crd_name }}"
+      - --timeout=10m
+  changed_when: false
+
+- name: Check existing ApplianceSetup resource
+  ansible.builtin.command:
+    argv:
+      - "{{ setup_kubectl_binary }}"
+      - kubectl
+      - --kubeconfig
+      - "{{ setup_kubeconfig_path }}"
+      - --namespace
+      - "{{ setup_namespace }}"
+      - get
+      - appliancesetup
+      - "{{ setup_resource_name }}"
+      - --ignore-not-found
+      - -o
+      - name
+  register: setup_existing_resource
+  changed_when: false
+
+- name: Check installer first-run marker
+  ansible.builtin.stat:
+    path: "{{ setup_new_install_marker }}"
+  register: setup_new_install
+
+- name: Check installation identifier
+  ansible.builtin.stat:
+    path: "{{ setup_installation_id_file }}"
+  register: setup_installation_id
+
+- name: Generate installation identifier
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/uuidgen
+  register: setup_generated_installation_id
+  changed_when: true
+  when:
+    - setup_existing_resource.stdout | trim | length == 0
+    - not setup_installation_id.stat.exists
+
+- name: Persist installation identifier
+  ansible.builtin.copy:
+    dest: "{{ setup_installation_id_file }}"
+    content: "{{ setup_generated_installation_id.stdout | trim }}\n"
+    owner: root
+    group: root
+    mode: "0600"
+  when:
+    - setup_existing_resource.stdout | trim | length == 0
+    - not setup_installation_id.stat.exists
+
+- name: Read installation identifier
+  ansible.builtin.slurp:
+    path: "{{ setup_installation_id_file }}"
+  register: setup_installation_id_content
+  when: setup_existing_resource.stdout | trim | length == 0
+
+- name: Generate first-run claim code
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/openssl
+      - rand
+      - -hex
+      - "16"
+  register: setup_generated_claim
+  changed_when: true
+  no_log: true
+  when:
+    - setup_existing_resource.stdout | trim | length == 0
+    - setup_new_install.stat.exists
+
+- name: Persist first-run claim code on the host
+  ansible.builtin.copy:
+    dest: "{{ setup_claim_file }}"
+    content: "{{ setup_generated_claim.stdout | trim }}\n"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  when:
+    - setup_existing_resource.stdout | trim | length == 0
+    - setup_new_install.stat.exists
+
+- name: Calculate first-run claim hash
+  ansible.builtin.set_fact:
+    setup_claim_hash: "{{ (setup_generated_claim.stdout | trim) | hash('sha256') }}"
+  no_log: true
+  when:
+    - setup_existing_resource.stdout | trim | length == 0
+    - setup_new_install.stat.exists
+
+- name: Store only the first-run claim hash in Kubernetes
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail &&
+      {{ setup_kubectl_binary }} kubectl --kubeconfig {{ setup_kubeconfig_path | quote }}
+      --namespace {{ setup_namespace | quote }} create secret generic magicstick-setup-claim
+      --from-literal=claim-sha256={{ setup_claim_hash | quote }}
+      --dry-run=client -o yaml |
+      {{ setup_kubectl_binary }} kubectl --kubeconfig {{ setup_kubeconfig_path | quote }} apply -f -
+    executable: /bin/bash
+  no_log: true
+  when:
+    - setup_existing_resource.stdout | trim | length == 0
+    - setup_new_install.stat.exists
+
+- name: Create initial ApplianceSetup state
+  ansible.builtin.shell:
+    cmd: >-
+      {{ setup_kubectl_binary }} kubectl --kubeconfig {{ setup_kubeconfig_path | quote }} apply -f -
+    executable: /bin/bash
+    stdin: |
+      apiVersion: appliance.magicstick.dev/v1alpha1
+      kind: ApplianceSetup
+      metadata:
+        name: {{ setup_resource_name }}
+        namespace: {{ setup_namespace }}
+      spec:
+        setupVersion: v1
+        installationId: {{ (setup_installation_id_content.content | b64decode | trim) | to_json }}
+      status:
+        phase: {{ 'Pending' if setup_new_install.stat.exists else 'CompletedLegacy' }}
+  register: setup_initial_resource_apply
+  changed_when: >-
+    ('created' in setup_initial_resource_apply.stdout)
+    or ('configured' in setup_initial_resource_apply.stdout)
+  when: setup_existing_resource.stdout | trim | length == 0
+
+- name: Persist initial ApplianceSetup status subresource
+  ansible.builtin.command:
+    argv:
+      - "{{ setup_kubectl_binary }}"
+      - kubectl
+      - --kubeconfig
+      - "{{ setup_kubeconfig_path }}"
+      - --namespace
+      - "{{ setup_namespace }}"
+      - patch
+      - appliancesetup
+      - "{{ setup_resource_name }}"
+      - --subresource=status
+      - --type=merge
+      - -p
+      - "{{ {'status': {'phase': ('Pending' if setup_new_install.stat.exists else 'CompletedLegacy')}} | to_json }}"
+  when: setup_existing_resource.stdout | trim | length == 0
+
+- name: Remove consumed installer first-run marker
+  ansible.builtin.file:
+    path: "{{ setup_new_install_marker }}"
+    state: absent
+  when:
+    - setup_existing_resource.stdout | trim | length == 0
+    - setup_new_install.stat.exists
+
+- name: Wait for first-run IP certificate before displaying console details
+  ansible.builtin.command:
+    argv:
+      - "{{ setup_kubectl_binary }}"
+      - kubectl
+      - --kubeconfig
+      - "{{ setup_kubeconfig_path }}"
+      - --namespace
+      - "{{ setup_namespace }}"
+      - wait
+      - --for=condition=Ready
+      - certificate/magicstick-setup
+      - --timeout=5m
+  changed_when: false
+  failed_when: false
+  when:
+    - setup_existing_resource.stdout | trim | length == 0
+    - setup_new_install.stat.exists
+
+- name: Show first-run access details on a new installation
+  ansible.builtin.systemd:
+    name: magicstick-setup-console.service
+    state: started
+  when:
+    - setup_existing_resource.stdout | trim | length == 0
+    - setup_new_install.stat.exists

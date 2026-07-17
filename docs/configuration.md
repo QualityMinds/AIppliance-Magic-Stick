@@ -51,6 +51,9 @@ Kustomizations use it through `postBuild.substituteFrom`.
 | `AI_APPLIANCE_MDNS_DOMAIN` | `magicstick.local` | Local mDNS domain used for dashboard, app, and derived instance hostnames. |
 | `AI_APPLIANCE_MDNS_NAME` | `magicstick` | Local mDNS name suffix used in mDNS annotations. |
 | `AI_APPLIANCE_DASHBOARD_MDNS_NAME` | `magicstick` | Legacy dashboard mDNS name, kept for compatibility. |
+| `AI_APPLIANCE_NAME` | `Magicstick` | Human-readable appliance name selected during first-run setup. |
+| `AI_APPLIANCE_TIMEZONE` | `UTC` | Appliance timezone selected during first-run setup. |
+| `AI_APPLIANCE_LANGUAGE` | `de` | Dashboard/setup language preference. |
 | `AI_APPLIANCE_KEYCLOAK_POSTGRES_STORAGE` | `1Gi` | Persistent storage requested by the local identity database. |
 
 AppInstance hostnames are derived from runtime settings and are not arbitrary
@@ -135,3 +138,7 @@ Disallowed public patterns:
 
 Use Kubernetes Secrets from runtime bootstrap, optional external overlays, or an
 approved external secret management flow.
+
+New installations do not generate a human administrator Secret. The first-run
+claim is stored as a root-only host file, while Kubernetes stores only its
+SHA-256 hash. Human and recovery passwords are written directly to Keycloak.

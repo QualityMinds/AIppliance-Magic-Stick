@@ -94,6 +94,21 @@ listener through a `LoadBalancer` service. Follow
 [authentication.md](authentication.md) for local name resolution, login
 validation, and generated credential handling.
 
+During a new installation, inspect first-run state without reading Secret
+values:
+
+```bash
+sudo magicstick setup show
+kubectl -n identity-system get appliancesetup local
+kubectl -n identity-system get gateway,httproute,securitypolicy \
+  -l app.kubernetes.io/managed-by=magicstick-setup
+```
+
+Temporary setup resources exist only in `Pending`, `Claimed`, `Applying`, or
+`Failed`. They must be absent after `Completed` or `CompletedLegacy`. Use
+`sudo magicstick setup reissue` before completion when a browser claim was
+abandoned. See [first-run-setup.md](first-run-setup.md).
+
 Common public hostnames use `AI_APPLIANCE_DOMAIN`:
 
 | Service | Default public host pattern |
