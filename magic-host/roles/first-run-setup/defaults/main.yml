@@ -8,3 +8,5 @@ setup_kubectl_binary: /usr/local/bin/k3s
 setup_namespace: identity-system
 setup_resource_name: local
 setup_crd_name: appliancesetups.appliance.magicstick.dev
+setup_crd_ready_retries: 120
+setup_crd_ready_delay: 5
