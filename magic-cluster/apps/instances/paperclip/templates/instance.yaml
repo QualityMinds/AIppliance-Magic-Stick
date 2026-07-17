@@ -3,6 +3,8 @@
 {{- $ingress := default dict $values.ingress -}}
 {{- $agentExecution := default dict $values.agentExecution -}}
 {{- $model := trimPrefix "litellm/" (trimPrefix "openai/" (default "CHANGEME_MODEL" (default $values.model $agentExecution.defaultModel))) -}}
+{{- $imageRepository := dig "image" "repository" "ghcr.io/paperclipai/paperclip" $values -}}
+{{- $imageTag := dig "image" "tag" "sha-df0e5bd" $values -}}
 apiVersion: paperclip.inc/v1alpha1
 kind: Instance
 metadata:
@@ -16,8 +18,8 @@ spec:
   podAnnotations:
     ai-appliance.io/model-catalog-consumer: "true"
   image:
-    repository: {{ dig "image" "repository" "ghcr.io/paperclipai/paperclip" $values | quote }}
-    tag: {{ dig "image" "tag" "sha-df0e5bd" $values | quote }}
+    repository: {{ $imageRepository | quote }}
+    tag: {{ $imageTag | quote }}
   deployment:
     # Envoy Gateway is the authentication boundary. Paperclip stays private
     # and does not present a second, application-local login screen.
@@ -28,11 +30,73 @@ spec:
       - {{ $instance.localHost | quote }}
       - localhost
       - 127.0.0.1
+  # local_trusted intentionally binds Paperclip to loopback. This sidecar
+  # listens only on the Pod IP and forwards raw TCP to that loopback socket,
+  # making the existing ClusterIP Service reachable without opening Paperclip
+  # directly or adding a second application login.
+  sidecars:
+    - name: gateway-loopback-proxy
+      image: {{ printf "%s:%s" $imageRepository $imageTag | quote }}
+      imagePullPolicy: IfNotPresent
+      command: [node, -e]
+      args:
+        - |
+          const net = require("net");
+          const http = require("http");
+          const listenHost = process.env.POD_IP;
+          const listenPort = 3100;
+          const server = net.createServer((downstream) => {
+            const upstream = net.connect({host: "127.0.0.1", port: 3100});
+            downstream.pipe(upstream);
+            upstream.pipe(downstream);
+            downstream.on("error", () => upstream.destroy());
+            upstream.on("error", () => downstream.destroy());
+          });
+          const waitForPaperclip = () => {
+            const probe = http.get({host: "127.0.0.1", port: 3100, path: "/api/health", timeout: 1000}, (response) => {
+              response.resume();
+              server.listen(listenPort, listenHost);
+            });
+            probe.once("error", () => setTimeout(waitForPaperclip, 250));
+            probe.once("timeout", () => probe.destroy());
+          };
+          waitForPaperclip();
+      env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+      readinessProbe:
+        tcpSocket:
+          port: 3100
+        periodSeconds: 5
+      resources:
+        requests: {cpu: 10m, memory: 32Mi}
+        limits: {cpu: 100m, memory: 128Mi}
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: [ALL]
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+  # Kubelet probes address the Pod IP and therefore traverse the loopback
+  # proxy. TCP avoids Paperclip rejecting the probe's Pod-IP Host header.
+  probes:
+    type: tcp
   database:
     mode: managed
     managed:
       storageSize: {{ dig "database" "managed" "storageSize" "10Gi" $values | quote }}
   env:
+    # paperclip-operator defaults to a network bind for ordinary authenticated
+    # deployments. local_trusted must stay on loopback; the sidecar above is
+    # the only listener on the Pod IP.
+    - name: PAPERCLIP_BIND
+      value: loopback
+    - name: PAPERCLIP_BIND_HOST
+      value: 127.0.0.1
     - name: OPENAI_API_KEY
       valueFrom:
         secretKeyRef:
