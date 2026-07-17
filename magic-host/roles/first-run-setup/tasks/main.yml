@@ -174,10 +174,15 @@
 - name: Generate first-run claim code
   ansible.builtin.command:
     argv:
-      - /usr/bin/openssl
-      - rand
-      - -hex
-      - "16"
+      - /usr/bin/python3
+      - -c
+      - >-
+        import secrets, sys;
+        alphabet = sys.argv[1];
+        length = int(sys.argv[2]);
+        print(''.join(secrets.choice(alphabet) for _ in range(length)))
+      - "{{ setup_claim_alphabet }}"
+      - "{{ setup_claim_length | string }}"
   register: setup_generated_claim
   changed_when: true
   no_log: true

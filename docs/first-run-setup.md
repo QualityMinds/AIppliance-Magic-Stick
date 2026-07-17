@@ -8,7 +8,7 @@ service only on the local network. Existing installations are initialized as
 ## Open the Setup Screen
 
 The physical text console shows the local addresses, certificate fingerprint,
-and one-time claim code. Open either:
+and an eight-character one-time claim code. Open either:
 
 - `https://magicstick.local` when mDNS is available
 - `https://<private-node-ip>:9443/setup` when mDNS is unavailable
