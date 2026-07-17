@@ -46,7 +46,11 @@ jobs:
 
       - name: Test patched source
         working-directory: .build/paperclip-operator
-        run: go test ./...
+        # Controller tests require envtest binaries and the upstream e2e suite
+        # requires a pre-created kind cluster. The compatibility patch touches
+        # only the resource builder; native runtime behavior is verified later
+        # against the real MagicStick cluster.
+        run: go test ./internal/resources ./internal/registry ./test/conformance
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
