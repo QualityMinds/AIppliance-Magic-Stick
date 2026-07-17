@@ -45,9 +45,36 @@ data:
             "https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"
           ],
           "protocol": "openid-connect"
+        },
+        {
+          "clientId": "magicstick-setup",
+          "name": "Magicstick appliance setup controller",
+          "enabled": true,
+          "clientAuthenticatorType": "client-secret",
+          "secret": "$${MAGICSTICK_SETUP_CLIENT_SECRET}",
+          "standardFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "serviceAccountsEnabled": true,
+          "publicClient": false,
+          "protocol": "openid-connect"
         }
       ],
       "users": [
+        {
+          "username": "service-account-magicstick-setup",
+          "enabled": true,
+          "serviceAccountClientId": "magicstick-setup",
+          "clientRoles": {
+            "realm-management": [
+              "manage-clients",
+              "view-clients",
+              "manage-users",
+              "query-users",
+              "view-users",
+              "view-realm"
+            ]
+          }
+        },
         {
           "username": "local-admin",
           "enabled": true,

@@ -73,6 +73,11 @@ spec:
                 secretKeyRef:
                   name: magicstick-human-gateway-client
                   key: client-secret
+            - name: MAGICSTICK_SETUP_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: magicstick-setup-client
+                  key: client-secret
             - name: KC_HOSTNAME
               value: "https://id.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
             - name: KC_HTTP_ENABLED
@@ -90,14 +95,75 @@ spec:
                   - |
                     (
                       config=/tmp/kcadm-client-sync.config
+                      sync_callbacks() {
+                        /opt/keycloak/bin/kcadm.sh config credentials \
+                          --config "$config" \
+                          --server http://localhost:8080 \
+                          --realm magicstick \
+                          --client magicstick-setup \
+                          --secret "$MAGICSTICK_SETUP_CLIENT_SECRET" >/dev/null 2>&1 || return 1
+                        client_uuid="$(
+                          /opt/keycloak/bin/kcadm.sh get clients \
+                            --config "$config" \
+                            --realm magicstick \
+                            --query clientId=magicstick-human-gateway-local \
+                            --fields id \
+                            --format csv \
+                            --noquotes 2>/dev/null | tail -n 1 | tr -d '\r'
+                        )"
+                        [ -n "$client_uuid" ] || return 1
+                        /opt/keycloak/bin/kcadm.sh update "clients/$client_uuid" \
+                          --config "$config" \
+                          --realm magicstick \
+                          -s 'redirectUris=["https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback/*","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback/*"]' \
+                          -s 'webOrigins=["https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"]' >/dev/null 2>&1
+                      }
                       attempt=0
                       while [ "$attempt" -lt 36 ]; do
+                        if sync_callbacks; then
+                          echo "Synchronized Keycloak human gateway callback patterns with scoped client"
+                          rm -f "$config"
+                          exit 0
+                        fi
                         if /opt/keycloak/bin/kcadm.sh config credentials \
                           --config "$config" \
                           --server http://localhost:8080 \
                           --realm master \
                           --user "$KC_BOOTSTRAP_ADMIN_USERNAME" \
-                          --password "$KC_BOOTSTRAP_ADMIN_PASSWORD" >/dev/null; then
+                          --password "$KC_BOOTSTRAP_ADMIN_PASSWORD" >/dev/null 2>&1; then
+                          setup_client_uuid="$(
+                            /opt/keycloak/bin/kcadm.sh get clients \
+                              --config "$config" \
+                              --realm magicstick \
+                              --query clientId=magicstick-setup \
+                              --fields id \
+                              --format csv \
+                              --noquotes 2>/dev/null | tail -n 1 | tr -d '\r'
+                          )"
+                          if [ -z "$setup_client_uuid" ]; then
+                            /opt/keycloak/bin/kcadm.sh create clients \
+                              --config "$config" \
+                              --realm magicstick \
+                              -s clientId=magicstick-setup \
+                              -s name='Magicstick appliance setup controller' \
+                              -s enabled=true \
+                              -s clientAuthenticatorType=client-secret \
+                              -s "secret=$MAGICSTICK_SETUP_CLIENT_SECRET" \
+                              -s standardFlowEnabled=false \
+                              -s directAccessGrantsEnabled=false \
+                              -s serviceAccountsEnabled=true \
+                              -s publicClient=false \
+                              -s protocol=openid-connect >/dev/null 2>&1 || true
+                            setup_client_uuid="$(
+                              /opt/keycloak/bin/kcadm.sh get clients \
+                                --config "$config" \
+                                --realm magicstick \
+                                --query clientId=magicstick-setup \
+                                --fields id \
+                                --format csv \
+                                --noquotes 2>/dev/null | tail -n 1 | tr -d '\r'
+                            )"
+                          fi
                           client_uuid="$(
                             /opt/keycloak/bin/kcadm.sh get clients \
                               --config "$config" \
@@ -105,16 +171,33 @@ spec:
                               --query clientId=magicstick-human-gateway-local \
                               --fields id \
                               --format csv \
-                              --noquotes | tail -n 1 | tr -d '\r'
+                              --noquotes 2>/dev/null | tail -n 1 | tr -d '\r'
                           )"
-                          if [ -n "$client_uuid" ] && /opt/keycloak/bin/kcadm.sh update "clients/$client_uuid" \
-                            --config "$config" \
-                            --realm magicstick \
-                            -s 'redirectUris=["https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback/*","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback/*"]' \
-                            -s 'webOrigins=["https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"]'; then
-                            echo "Synchronized Keycloak human gateway callback patterns"
-                            rm -f "$config"
-                            exit 0
+                          if [ -n "$setup_client_uuid" ] && [ -n "$client_uuid" ]; then
+                            /opt/keycloak/bin/kcadm.sh update "clients/$setup_client_uuid" \
+                              --config "$config" \
+                              --realm magicstick \
+                              -s "secret=$MAGICSTICK_SETUP_CLIENT_SECRET" >/dev/null 2>&1 || true
+                            /opt/keycloak/bin/kcadm.sh update "clients/$client_uuid" \
+                              --config "$config" \
+                              --realm magicstick \
+                              -s "secret=$MAGICSTICK_HUMAN_GATEWAY_CLIENT_SECRET" >/dev/null 2>&1 || true
+                            /opt/keycloak/bin/kcadm.sh add-roles \
+                              --config "$config" \
+                              --target-realm magicstick \
+                              --uusername service-account-magicstick-setup \
+                              --cclientid realm-management \
+                              --rolename manage-clients \
+                              --rolename view-clients \
+                              --rolename manage-users \
+                              --rolename query-users \
+                              --rolename view-users \
+                              --rolename view-realm >/dev/null 2>&1 || true
+                            if sync_callbacks; then
+                              echo "Provisioned scoped Keycloak setup client and synchronized callback patterns"
+                              rm -f "$config"
+                              exit 0
+                            fi
                           fi
                         fi
                         attempt=$((attempt + 1))
