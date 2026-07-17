@@ -16,6 +16,8 @@
       - nvme-cli
       - mc
       - sqlite3
+      - qrencode
+      - uuid-runtime
     state: present
 
 - name: Set timezone to UTC

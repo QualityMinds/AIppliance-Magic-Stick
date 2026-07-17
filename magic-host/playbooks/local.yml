@@ -169,4 +169,5 @@
     - k3s
     - ansible-pull-timer
     - flux-bootstrap
+    - first-run-setup
     

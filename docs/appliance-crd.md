@@ -253,3 +253,28 @@ The default public resource lives at
 Use the runtime CR snippets above for examples of module, instance, and model
 intent. For normal installations, prefer the dashboard because it writes the same
 runtime CRs without requiring users to maintain example YAML overlays.
+
+## ApplianceSetup First-Run State
+
+`ApplianceSetup/local` is a namespaced lifecycle resource in `identity-system`.
+Host automation creates it explicitly; the cluster never infers first-run mode
+from an absent resource.
+
+```yaml
+apiVersion: appliance.magicstick.dev/v1alpha1
+kind: ApplianceSetup
+metadata:
+  name: local
+  namespace: identity-system
+spec:
+  setupVersion: v1
+  installationId: 11111111-2222-3333-4444-555555555555
+status:
+  phase: Pending
+```
+
+`status.phase` accepts `Pending`, `Claimed`, `Applying`, `Completed`, `Failed`,
+or `CompletedLegacy`. Status may also contain `claimedAt`, `completedAt`, and a
+non-sensitive `lastErrorCode`. Claims, session values, passwords, and recovery
+codes are never fields of this resource. New installer runs create `Pending`;
+an upgrade without the installer marker creates `CompletedLegacy`.

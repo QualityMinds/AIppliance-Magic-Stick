@@ -75,7 +75,10 @@ The current implementation provides:
 
 - Envoy Gateway `v1.8.2` as the primary `LoadBalancer` data plane
 - Keycloak with PostgreSQL in namespace `identity-system`
-- runtime-generated database, bootstrap-admin, local-admin, and OIDC client secrets
+- runtime-generated database, bootstrap-admin, and OIDC client secrets
+- a first-run wizard that creates the first human and recovery administrators
+  without storing their passwords in Kubernetes
+- a scoped Keycloak service account for setup, user management, and callback reconciliation
 - a self-signed pilot certificate for local `.local` hostnames
 - an unprotected Keycloak route and a protected `auth-pilot` test route
 - protected local and public dashboard `HTTPRoute` resources
@@ -92,7 +95,7 @@ The current implementation provides:
 - protected local and public routes for LiteLLM, AnythingLLM, and KubeOpenCode
   with a minimum `magicstick-user` role
 - removal of the bundled dashboard and AI application `Ingress` resources
-- a local `local-admin` account for end-to-end validation
+- no human default password on new installations
 
 The pilot uses the standard HTTPS port `443` through the Envoy `LoadBalancer`
 service. The `.local` names remain part of the design and can continue to be
@@ -124,22 +127,16 @@ the address shown for the Envoy service:
 192.168.64.2 id.magicstick.local auth-pilot.magicstick.local magicstick.local
 ```
 
-Read the generated login credentials locally (do not paste them into tickets or
-logs):
-
-```bash
-kubectl -n identity-system get secret keycloak-local-admin \
-  -o jsonpath='{.data.username}' | base64 --decode
-kubectl -n identity-system get secret keycloak-local-admin \
-  -o jsonpath='{.data.password}' | base64 --decode
-```
+For a new installation, complete the physical-console claim flow described in
+[first-run-setup.md](first-run-setup.md). There is no Kubernetes Secret that
+contains the first administrator's password.
 
 Open `https://auth-pilot.magicstick.local`. Accept the pilot's self-signed
 certificate only in the isolated development environment. The request must be
 redirected to Keycloak and return to the protected success page after login.
 
 Open `https://magicstick.local` to validate the real dashboard route. After
-login, `local-admin` has the `magicstick-admin` role and can use all dashboard
+login, the administrator created during first-run setup can use all dashboard
 operations. `/logout` clears the Envoy browser session.
 
 On a host-local K3s appliance, Gateway-aware kdns publishes the annotated local
@@ -167,6 +164,5 @@ An additional Envoy API gateway is not needed for the authentication layer.
   reviewed realm export or an administration workflow; restarting Keycloak does
   not overwrite an existing realm. The scoped startup reconciliation is the
   reviewed exception for the human gateway callback patterns and web origins.
-- Production deployments must rotate the pilot account and client secret and
-  document break-glass access.
+- Save and test the one-time recovery administrator created by first-run setup.
 - A cloud identity provider outage must not prevent local break-glass login.

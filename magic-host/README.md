@@ -75,3 +75,18 @@ Flux reads only the public Magicstick repository.
 ```
 
 `FLUX_GITHUB_TOKEN` is a secret. Provide it at runtime or through an approved secret management mechanism. Do not commit it.
+
+## First-Run Setup
+
+The `first-run-setup` role distinguishes installer-created machines from
+upgrades, initializes `ApplianceSetup/local`, and installs the local console
+command:
+
+```bash
+sudo magicstick setup show
+sudo magicstick setup reissue
+```
+
+The installer marker creates `Pending`; an existing host without that marker
+is initialized as `CompletedLegacy`. This fail-closed rule prevents a repository
+upgrade from exposing the setup route on an already running appliance.

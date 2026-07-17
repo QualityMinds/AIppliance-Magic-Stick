@@ -63,11 +63,6 @@ spec:
                 secretKeyRef:
                   name: keycloak-bootstrap-admin
                   key: KC_BOOTSTRAP_ADMIN_PASSWORD
-            - name: MAGICSTICK_LOCAL_ADMIN_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: keycloak-local-admin
-                  key: password
             - name: MAGICSTICK_HUMAN_GATEWAY_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:

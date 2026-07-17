@@ -121,3 +121,9 @@ sync
 ```
 
 The public template uses `example-host-01` as a safe hostname. Real hostnames belong in `deployments/<name>/installer/meta-data`; the default K3s node name follows the installed hostname.
+
+At first boot, cloud-init writes a one-time new-install marker before the first
+converge. Host automation consumes that marker to generate the root-only setup
+claim and `Pending` state. The generated human password is never placed on the
+installer media or in Kubernetes. Continue with
+[../docs/first-run-setup.md](../docs/first-run-setup.md).

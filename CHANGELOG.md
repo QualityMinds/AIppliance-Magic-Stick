@@ -15,6 +15,9 @@ formalized, release entries should group changes under:
 
 ### Added
 
+- A local-network-only first-run wizard with physical-console claim code,
+  mDNS-independent IP access, and one-time administrator provisioning.
+- `ApplianceSetup` lifecycle state and fail-closed legacy migration behavior.
 - GitHub Pages landing page with legal notice and privacy policy.
 - Public support, maintainer, and governance documentation.
 - A Git-owned application catalog and per-application Helm charts for runtime
@@ -30,5 +33,7 @@ formalized, release entries should group changes under:
 
 ### Removed
 
+- Human default passwords and the generated `keycloak-local-admin` Secret from
+  new installations.
 - Application-specific manifest builders, cleanup lists, and direct workload
   permissions from the Magic Stick Operator.

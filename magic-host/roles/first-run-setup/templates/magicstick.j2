@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+KUBECTL=({{ setup_kubectl_binary | quote }} kubectl --kubeconfig {{ setup_kubeconfig_path | quote }})
+NAMESPACE={{ setup_namespace | quote }}
+STATE_DIR={{ setup_state_directory | quote }}
+CLAIM_FILE={{ setup_claim_file | quote }}
+
+phase() {
+  "${KUBECTL[@]}" -n "$NAMESPACE" get appliancesetup {{ setup_resource_name | quote }} \
+    -o jsonpath='{.status.phase}' 2>/dev/null || true
+}
+
+require_root() {
+  if [[ "$(id -u)" != "0" ]]; then
+    echo "Dieser Befehl muss als root ausgeführt werden." >&2
+    exit 1
+  fi
+}
+
+show_setup() {
+  require_root
+  local current token mdns fingerprint grouped
+  current="$(phase)"
+  echo "Magicstick First-Run-Setup"
+  echo "Status: ${current:-nicht initialisiert}"
+  if [[ "$current" == "Completed" || "$current" == "CompletedLegacy" ]]; then
+    echo "Die Einrichtung ist abgeschlossen. Das Dashboard verwendet jetzt SSO."
+    exit 0
+  fi
+  if [[ ! -s "$CLAIM_FILE" ]]; then
+    echo "Kein aktiver Einrichtungscode vorhanden. Verwende: magicstick setup reissue" >&2
+    exit 1
+  fi
+  token="$(tr -d '[:space:]' < "$CLAIM_FILE")"
+  grouped="$(sed -E 's/(.{6})/\1-/g;s/-$//' <<<"$token")"
+  mdns="$("${KUBECTL[@]}" -n flux-system get configmap ai-appliance-settings -o jsonpath='{.data.AI_APPLIANCE_MDNS_DOMAIN}' 2>/dev/null || true)"
+  mdns="${mdns:-magicstick.local}"
+  fingerprint="$("${KUBECTL[@]}" -n "$NAMESPACE" get secret magicstick-setup-tls -o jsonpath='{.data.tls\.crt}' 2>/dev/null | base64 -d 2>/dev/null | openssl x509 -noout -fingerprint -sha256 2>/dev/null | cut -d= -f2 || true)"
+  echo
+  echo "Einrichtungscode: $grouped"
+  echo "TLS SHA-256: ${fingerprint:-wird noch erzeugt}"
+  echo
+  local_url="https://${mdns}/#claim=${token}"
+  echo "Bevorzugt: https://${mdns}/"
+  qrencode -t ANSIUTF8 "$local_url" 2>/dev/null || qrencode -t ASCII "$local_url"
+  while read -r ip; do
+    [[ -n "$ip" ]] || continue
+    display_ip="$ip"
+    [[ "$ip" == *:* ]] && display_ip="[$ip]"
+    direct_url="https://${display_ip}:9443/setup#claim=${token}"
+    echo
+    echo "Ohne mDNS: https://${display_ip}:9443/setup"
+    qrencode -t ANSIUTF8 "$direct_url" 2>/dev/null || qrencode -t ASCII "$direct_url"
+  done < <(
+    ip -o addr show | awk '{split($4,a,"/"); print a[1]}' |
+      python3 -c 'import ipaddress,sys
+for raw in sys.stdin:
+    try:
+        address = ipaddress.ip_address(raw.strip())
+    except ValueError:
+        continue
+    if address.is_private or address.is_link_local:
+        print(address)' |
+      sort -u
+  )
+}
+
+reissue_setup() {
+  require_root
+  local current token digest
+  current="$(phase)"
+  if [[ "$current" != "Pending" && "$current" != "Failed" && "$current" != "Claimed" ]]; then
+    echo "Ein neuer Code ist nur vor Abschluss der Einrichtung möglich." >&2
+    exit 1
+  fi
+  install -d -m 0700 -o root -g root "$STATE_DIR"
+  token="$(openssl rand -hex 16)"
+  printf '%s\n' "$token" > "$CLAIM_FILE"
+  chmod 0600 "$CLAIM_FILE"
+  digest="$(printf '%s' "$token" | sha256sum | awk '{print $1}')"
+  "${KUBECTL[@]}" -n "$NAMESPACE" create secret generic magicstick-setup-claim \
+    --from-literal="claim-sha256=$digest" --dry-run=client -o yaml | "${KUBECTL[@]}" apply -f - >/dev/null
+  "${KUBECTL[@]}" -n "$NAMESPACE" delete secret magicstick-setup-session --ignore-not-found >/dev/null
+  "${KUBECTL[@]}" -n "$NAMESPACE" patch appliancesetup {{ setup_resource_name | quote }} --subresource=status \
+    --type=merge -p '{"status":{"phase":"Pending","claimedAt":null,"lastErrorCode":""}}' >/dev/null
+  show_setup
+}
+
+cleanup_setup() {
+  require_root
+  local current
+  current="$(phase)"
+  if [[ "$current" == "Completed" || "$current" == "CompletedLegacy" ]]; then
+    rm -f "$CLAIM_FILE"
+    timezone="$("${KUBECTL[@]}" -n flux-system get configmap ai-appliance-settings -o jsonpath='{.data.AI_APPLIANCE_TIMEZONE}' 2>/dev/null || true)"
+    if [[ -n "$timezone" ]] && timedatectl list-timezones | grep -Fxq "$timezone"; then
+      timedatectl set-timezone "$timezone"
+    fi
+  fi
+}
+
+case "${1:-} ${2:-}" in
+  "setup show") show_setup ;;
+  "setup reissue") reissue_setup ;;
+  "setup cleanup") cleanup_setup ;;
+  *) echo "Verwendung: magicstick setup {show|reissue}" >&2; exit 2 ;;
+esac

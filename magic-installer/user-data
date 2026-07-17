@@ -14,6 +14,7 @@ autoinstall:
     - ansible
     - curl
     - ca-certificates
+    - qrencode
 
   user-data:
     manage_etc_hosts: true
@@ -38,6 +39,9 @@ autoinstall:
           AI_APPLIANCE_DASHBOARD_MDNS_NAME=magicstick
 
     runcmd:
+      - install -d -m 0700 -o root -g root /var/lib/magicstick/setup
+      - touch /var/lib/magicstick/setup/new-install
+      - chmod 0600 /var/lib/magicstick/setup/new-install
       - >
         /bin/bash -lc '. /etc/default/ai-appliance-repo &&
         MAGICSTICK_PUBLIC_REPO="${MAGICSTICK_PUBLIC_REPO:-https://github.com/QualityMinds/AIppliance-Magic-Stick.git}" &&
