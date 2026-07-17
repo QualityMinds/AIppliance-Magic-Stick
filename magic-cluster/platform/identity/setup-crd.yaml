@@ -1,0 +1,60 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: appliancesetups.appliance.magicstick.dev
+spec:
+  group: appliance.magicstick.dev
+  names:
+    kind: ApplianceSetup
+    listKind: ApplianceSetupList
+    plural: appliancesetups
+    singular: appliancesetup
+    shortNames:
+      - apsetup
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Completed
+          type: date
+          jsonPath: .status.completedAt
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required:
+                - setupVersion
+                - installationId
+              properties:
+                setupVersion:
+                  type: string
+                  enum: [v1]
+                installationId:
+                  type: string
+                  minLength: 16
+                  maxLength: 64
+                  pattern: "^[a-f0-9-]+$"
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: [Pending, Claimed, Applying, Completed, Failed, CompletedLegacy]
+                claimedAt:
+                  type: string
+                  format: date-time
+                completedAt:
+                  type: string
+                  format: date-time
+                lastErrorCode:
+                  type: string
+                  maxLength: 80

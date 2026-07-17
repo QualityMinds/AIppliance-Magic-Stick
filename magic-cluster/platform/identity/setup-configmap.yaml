@@ -1,0 +1,583 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: magicstick-setup
+  namespace: identity-system
+data:
+  server.py: |
+    #!/usr/bin/env python3
+    import base64
+    import datetime
+    import hashlib
+    import hmac
+    import ipaddress
+    import json
+    import os
+    import re
+    import secrets
+    import ssl
+    import threading
+    import time
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+    from http.cookies import SimpleCookie
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    PORT = int(os.environ.get("PORT", "8080"))
+    NAMESPACE = os.environ.get("SETUP_NAMESPACE", "identity-system")
+    SETTINGS_NAMESPACE = os.environ.get("SETTINGS_NAMESPACE", "flux-system")
+    KEYCLOAK_URL = os.environ.get("KEYCLOAK_URL", "http://keycloak:8080").rstrip("/")
+    KEYCLOAK_CLIENT_ID = os.environ.get("KEYCLOAK_CLIENT_ID", "magicstick-setup")
+    KEYCLOAK_CLIENT_SECRET = os.environ.get("KEYCLOAK_CLIENT_SECRET", "")
+    KUBE_API = os.environ.get("KUBERNETES_SERVICE_URL", "https://kubernetes.default.svc").rstrip("/")
+    SA_TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+    SA_CA_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+    SSL_CONTEXT = ssl.create_default_context(cafile=SA_CA_PATH if os.path.exists(SA_CA_PATH) else None)
+    SETUP_PATH = f"/apis/appliance.magicstick.dev/v1alpha1/namespaces/{NAMESPACE}/appliancesetups/local"
+    SECRETS_PATH = f"/api/v1/namespaces/{NAMESPACE}/secrets"
+    SETTINGS_PATH = f"/api/v1/namespaces/{SETTINGS_NAMESPACE}/configmaps/ai-appliance-settings"
+    CLAIM_SECRET_PATH = f"{SECRETS_PATH}/magicstick-setup-claim"
+    SESSION_SECRET_PATH = f"{SECRETS_PATH}/magicstick-setup-session"
+    SESSION_COOKIE = "MagicStickSetupSession"
+    CSRF_COOKIE = "MagicStickSetupCsrf"
+    SESSION_TTL_SECONDS = 1800
+    PRIVATE_CIDRS = [
+        "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16",
+        "fc00::/7", "fe80::/10",
+    ]
+    USERNAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{2,63}$")
+    DNS_LABEL = re.compile(r"^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$")
+    FAILED_CLAIMS = {}
+
+
+    class ApiError(Exception):
+        def __init__(self, status, message, code="request_failed"):
+            super().__init__(message)
+            self.status = status
+            self.code = code
+
+
+    def now():
+        return datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+    def sa_token():
+        with open(SA_TOKEN_PATH, "r", encoding="utf-8") as token_file:
+            return token_file.read().strip()
+
+
+    def kube_request(method, path, body=None, content_type="application/json", allow_missing=False):
+        headers = {"Accept": "application/json", "Authorization": "Bearer " + sa_token()}
+        data = None
+        if body is not None:
+            data = json.dumps(body, separators=(",", ":")).encode("utf-8")
+            headers["Content-Type"] = content_type
+        request = urllib.request.Request(KUBE_API + path, data=data, headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(request, timeout=15, context=SSL_CONTEXT) as response:
+                payload = response.read().decode("utf-8")
+                return json.loads(payload) if payload else {}
+        except urllib.error.HTTPError as error:
+            if allow_missing and error.code == 404:
+                return None
+            raise
+
+
+    def get_resource(path):
+        return kube_request("GET", path, allow_missing=True)
+
+
+    def apply_resource(collection_path, item_path, resource):
+        existing = get_resource(item_path)
+        if existing is None:
+            return kube_request("POST", collection_path, resource)
+        patch = {"metadata": {"labels": resource.get("metadata", {}).get("labels", {})}, "spec": resource.get("spec", {})}
+        return kube_request("PATCH", item_path, patch, "application/merge-patch+json")
+
+
+    def delete_resource(path):
+        try:
+            kube_request("DELETE", path, {})
+        except urllib.error.HTTPError as error:
+            if error.code != 404:
+                raise
+
+
+    def decode_secret(secret, key):
+        value = (secret or {}).get("data", {}).get(key)
+        if not value:
+            return ""
+        return base64.b64decode(value).decode("utf-8")
+
+
+    def setup_resource():
+        return get_resource(SETUP_PATH)
+
+
+    def setup_phase(resource=None):
+        return ((resource or setup_resource() or {}).get("status") or {}).get("phase", "Absent")
+
+
+    def patch_status(phase, **fields):
+        status = {"phase": phase, **fields}
+        return kube_request("PATCH", SETUP_PATH + "/status", {"status": status}, "application/merge-patch+json")
+
+
+    def secret_hash(value):
+        return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+    def constant_match(left, right):
+        return bool(left and right and hmac.compare_digest(left, right))
+
+
+    def private_node_ips():
+        nodes = kube_request("GET", "/api/v1/nodes").get("items", [])
+        values = []
+        for node in nodes:
+            for address in node.get("status", {}).get("addresses", []):
+                if address.get("type") != "InternalIP":
+                    continue
+                try:
+                    parsed = ipaddress.ip_address(address.get("address", ""))
+                except ValueError:
+                    continue
+                if parsed.is_private or parsed.is_link_local:
+                    values.append(str(parsed))
+        return sorted(set(values))
+
+
+    def setup_access_ips():
+        values = set(private_node_ips())
+        gateway_path = f"/apis/gateway.networking.k8s.io/v1/namespaces/{NAMESPACE}/gateways/magicstick-setup"
+        gateway = get_resource(gateway_path) or {}
+        for address in gateway.get("status", {}).get("addresses", []):
+            try:
+                parsed = ipaddress.ip_address(address.get("value", ""))
+            except ValueError:
+                continue
+            if parsed.is_private or parsed.is_link_local:
+                values.add(str(parsed))
+        return sorted(values)
+
+
+    def current_settings():
+        resource = get_resource(SETTINGS_PATH) or {}
+        data = resource.get("data") or {}
+        return {
+            "applianceName": data.get("AI_APPLIANCE_NAME", "Magicstick"),
+            "mdnsDomain": data.get("AI_APPLIANCE_MDNS_DOMAIN", "magicstick.local"),
+            "timezone": data.get("AI_APPLIANCE_TIMEZONE", "UTC"),
+            "language": data.get("AI_APPLIANCE_LANGUAGE", "de"),
+            "publicDomain": data.get("AI_APPLIANCE_DASHBOARD_HOST", ""),
+        }
+
+
+    def validate_hostname(value, field, required=True):
+        hostname = str(value or "").strip().lower().strip(".")
+        if not hostname and not required:
+            return ""
+        labels = hostname.split(".")
+        if not hostname or len(labels) < 2 or any(not DNS_LABEL.fullmatch(label) for label in labels):
+            raise ApiError(400, field + " ist kein gültiger Hostname.", "invalid_hostname")
+        return hostname
+
+
+    def validate_complete(payload):
+        appliance_name = str(payload.get("applianceName") or "").strip()
+        if not 2 <= len(appliance_name) <= 80:
+            raise ApiError(400, "Der Appliance-Name muss 2 bis 80 Zeichen lang sein.", "invalid_appliance_name")
+        mdns = validate_hostname(payload.get("mdnsDomain"), "Die lokale Adresse")
+        if not mdns.endswith(".local"):
+            raise ApiError(400, "Die lokale Adresse muss auf .local enden.", "invalid_mdns_domain")
+        public_domain = validate_hostname(payload.get("publicDomain"), "Die öffentliche Domain", required=False)
+        timezone = str(payload.get("timezone") or "").strip()
+        if not re.fullmatch(r"[A-Za-z_+-]+(?:/[A-Za-z0-9_+.-]+)+|UTC", timezone):
+            raise ApiError(400, "Die Zeitzone ist ungültig.", "invalid_timezone")
+        language = str(payload.get("language") or "").lower()
+        if language not in {"de", "en"}:
+            raise ApiError(400, "Die Sprache wird nicht unterstützt.", "invalid_language")
+        username = str(payload.get("username") or "").strip()
+        if not USERNAME.fullmatch(username):
+            raise ApiError(400, "Der Benutzername ist ungültig.", "invalid_username")
+        password = str(payload.get("password") or "")
+        if len(password) < 12 or len(password) > 256:
+            raise ApiError(400, "Das Passwort muss mindestens 12 Zeichen lang sein.", "weak_password")
+        display_name = str(payload.get("displayName") or "").strip()
+        if not 2 <= len(display_name) <= 100:
+            raise ApiError(400, "Der Anzeigename ist ungültig.", "invalid_display_name")
+        email = str(payload.get("email") or "").strip().lower()
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+            raise ApiError(400, "Die E-Mail-Adresse ist ungültig.", "invalid_email")
+        recovery_username = str(payload.get("recoveryUsername") or "").strip()
+        recovery_code = str(payload.get("recoveryCode") or "")
+        if not USERNAME.fullmatch(recovery_username) or len(recovery_code) < 20:
+            raise ApiError(400, "Die Recovery-Zugangsdaten sind ungültig.", "invalid_recovery")
+        return {
+            "applianceName": appliance_name,
+            "mdnsDomain": mdns,
+            "timezone": timezone,
+            "language": language,
+            "publicDomain": public_domain,
+            "username": username,
+            "password": password,
+            "displayName": display_name,
+            "email": email,
+            "recoveryUsername": recovery_username,
+            "recoveryCode": recovery_code,
+        }
+
+
+    def update_settings(values):
+        mdns_name = values["mdnsDomain"][:-6]
+        data = {
+            "AI_APPLIANCE_NAME": values["applianceName"],
+            "AI_APPLIANCE_MDNS_DOMAIN": values["mdnsDomain"],
+            "AI_APPLIANCE_MDNS_NAME": mdns_name,
+            "AI_APPLIANCE_DASHBOARD_MDNS_NAME": mdns_name,
+            "AI_APPLIANCE_TIMEZONE": values["timezone"],
+            "AI_APPLIANCE_LANGUAGE": values["language"],
+        }
+        if values["publicDomain"]:
+            data["AI_APPLIANCE_DOMAIN"] = values["publicDomain"]
+            data["AI_APPLIANCE_DASHBOARD_HOST"] = values["publicDomain"]
+        kube_request("PATCH", SETTINGS_PATH, {"data": data}, "application/merge-patch+json")
+
+
+    def keycloak_request(method, path, token=None, body=None, form=None):
+        headers = {"Accept": "application/json"}
+        data = None
+        if token:
+            headers["Authorization"] = "Bearer " + token
+        if form is not None:
+            data = urllib.parse.urlencode(form).encode("utf-8")
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
+        elif body is not None:
+            data = json.dumps(body, separators=(",", ":")).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        request = urllib.request.Request(KEYCLOAK_URL + path, data=data, headers=headers, method=method)
+        with urllib.request.urlopen(request, timeout=15) as response:
+            payload = response.read().decode("utf-8")
+            return json.loads(payload) if payload else {}, response.headers
+
+
+    def keycloak_token():
+        payload, _ = keycloak_request("POST", "/realms/magicstick/protocol/openid-connect/token", form={
+            "grant_type": "client_credentials", "client_id": KEYCLOAK_CLIENT_ID, "client_secret": KEYCLOAK_CLIENT_SECRET,
+        })
+        return payload["access_token"]
+
+
+    def keycloak_roles(token):
+        roles, _ = keycloak_request("GET", "/admin/realms/magicstick/roles", token=token)
+        return {role["name"]: role for role in roles}
+
+
+    def ensure_keycloak_user(token, username, password, email, display_name):
+        query = urllib.parse.urlencode({"username": username, "exact": "true"})
+        users, _ = keycloak_request("GET", "/admin/realms/magicstick/users?" + query, token=token)
+        first_name, _, last_name = display_name.partition(" ")
+        if users:
+            user_id = users[0]["id"]
+            keycloak_request("PUT", f"/admin/realms/magicstick/users/{user_id}", token=token, body={
+                "username": username, "enabled": True, "email": email,
+                "emailVerified": True, "firstName": first_name, "lastName": last_name,
+            })
+        else:
+            _, headers = keycloak_request("POST", "/admin/realms/magicstick/users", token=token, body={
+                "username": username, "enabled": True, "email": email,
+                "emailVerified": True, "firstName": first_name, "lastName": last_name,
+            })
+            user_id = headers.get("Location", "").rstrip("/").split("/")[-1]
+            if not user_id:
+                users, _ = keycloak_request("GET", "/admin/realms/magicstick/users?" + query, token=token)
+                user_id = users[0]["id"]
+        keycloak_request("PUT", f"/admin/realms/magicstick/users/{user_id}/reset-password", token=token, body={
+            "type": "password", "value": password, "temporary": False,
+        })
+        roles = keycloak_roles(token)
+        assignments = [roles[name] for name in ("magicstick-user", "magicstick-admin")]
+        keycloak_request("POST", f"/admin/realms/magicstick/users/{user_id}/role-mappings/realm", token=token, body=assignments)
+        assigned, _ = keycloak_request("GET", f"/admin/realms/magicstick/users/{user_id}/role-mappings/realm", token=token)
+        assigned_names = {role.get("name") for role in assigned}
+        if not {"magicstick-user", "magicstick-admin"}.issubset(assigned_names):
+            raise RuntimeError("Keycloak role verification failed")
+        return user_id
+
+
+    def session_secret():
+        return get_resource(SESSION_SECRET_PATH)
+
+
+    def validate_session(cookie_header):
+        cookies = SimpleCookie(cookie_header or "")
+        session = cookies.get(SESSION_COOKIE)
+        stored = session_secret()
+        if not session or not stored:
+            raise ApiError(401, "Die Setup-Sitzung fehlt.", "session_required")
+        expires = float(decode_secret(stored, "expires-at") or "0")
+        if expires <= time.time() or not constant_match(secret_hash(session.value), decode_secret(stored, "session-sha256")):
+            raise ApiError(401, "Die Setup-Sitzung ist abgelaufen.", "session_expired")
+        return cookies, stored
+
+
+    def validate_csrf(cookies, stored, header):
+        csrf = cookies.get(CSRF_COOKIE)
+        if not csrf or not header or not constant_match(csrf.value, header):
+            raise ApiError(403, "Die Sicherheitsprüfung der Sitzung ist fehlgeschlagen.", "csrf_failed")
+        if not constant_match(secret_hash(header), decode_secret(stored, "csrf-sha256")):
+            raise ApiError(403, "Die Sicherheitsprüfung der Sitzung ist fehlgeschlagen.", "csrf_failed")
+
+
+    def dynamic_resources(mdns_domain, ips):
+        labels = {"app.kubernetes.io/managed-by": "magicstick-setup"}
+        ns = NAMESPACE
+        resources = []
+        resources.append((f"/apis/cert-manager.io/v1/namespaces/{ns}/issuers", f"/apis/cert-manager.io/v1/namespaces/{ns}/issuers/magicstick-setup-selfsigned", {
+            "apiVersion": "cert-manager.io/v1", "kind": "Issuer",
+            "metadata": {"name": "magicstick-setup-selfsigned", "namespace": ns, "labels": labels}, "spec": {"selfSigned": {}},
+        }))
+        resources.append((f"/apis/cert-manager.io/v1/namespaces/{ns}/certificates", f"/apis/cert-manager.io/v1/namespaces/{ns}/certificates/magicstick-setup", {
+            "apiVersion": "cert-manager.io/v1", "kind": "Certificate",
+            "metadata": {"name": "magicstick-setup", "namespace": ns, "labels": labels},
+            "spec": {"secretName": "magicstick-setup-tls", "dnsNames": [mdns_domain], "ipAddresses": ips,
+                     "issuerRef": {"kind": "Issuer", "name": "magicstick-setup-selfsigned"}},
+        }))
+        resources.append((f"/apis/gateway.envoyproxy.io/v1alpha1/namespaces/{ns}/envoyproxies", f"/apis/gateway.envoyproxy.io/v1alpha1/namespaces/{ns}/envoyproxies/magicstick-setup", {
+            "apiVersion": "gateway.envoyproxy.io/v1alpha1", "kind": "EnvoyProxy",
+            "metadata": {"name": "magicstick-setup", "namespace": ns, "labels": labels},
+            "spec": {"provider": {"type": "Kubernetes", "kubernetes": {"envoyService": {
+                "type": "LoadBalancer", "externalTrafficPolicy": "Local", "loadBalancerSourceRanges": PRIVATE_CIDRS,
+            }}}},
+        }))
+        resources.append((f"/apis/gateway.networking.k8s.io/v1/namespaces/{ns}/gateways", f"/apis/gateway.networking.k8s.io/v1/namespaces/{ns}/gateways/magicstick-setup", {
+            "apiVersion": "gateway.networking.k8s.io/v1", "kind": "Gateway",
+            "metadata": {"name": "magicstick-setup", "namespace": ns, "labels": labels},
+            "spec": {"gatewayClassName": "magicstick-envoy", "infrastructure": {"parametersRef": {
+                "group": "gateway.envoyproxy.io", "kind": "EnvoyProxy", "name": "magicstick-setup",
+            }}, "listeners": [{"name": "setup-https", "protocol": "HTTPS", "port": 9443,
+                "tls": {"mode": "Terminate", "certificateRefs": [{"kind": "Secret", "name": "magicstick-setup-tls"}]},
+                "allowedRoutes": {"namespaces": {"from": "Same"}}}]},
+        }))
+        backend = [{"name": "magicstick-setup", "port": 8080}]
+        resources.append((f"/apis/gateway.networking.k8s.io/v1/namespaces/{ns}/httproutes", f"/apis/gateway.networking.k8s.io/v1/namespaces/{ns}/httproutes/magicstick-setup-direct", {
+            "apiVersion": "gateway.networking.k8s.io/v1", "kind": "HTTPRoute",
+            "metadata": {"name": "magicstick-setup-direct", "namespace": ns, "labels": labels},
+            "spec": {"parentRefs": [{"name": "magicstick-setup"}], "rules": [{
+                "matches": [{"path": {"type": "PathPrefix", "value": "/setup"}}], "backendRefs": backend,
+            }]},
+        }))
+        resources.append((f"/apis/gateway.networking.k8s.io/v1/namespaces/{ns}/httproutes", f"/apis/gateway.networking.k8s.io/v1/namespaces/{ns}/httproutes/magicstick-setup-local", {
+            "apiVersion": "gateway.networking.k8s.io/v1", "kind": "HTTPRoute",
+            "metadata": {"name": "magicstick-setup-local", "namespace": ns, "labels": labels,
+                         "annotations": {"lab42.io/mdns.enabled": "true"}},
+            "spec": {"parentRefs": [{"name": "identity-pilot"}], "hostnames": [mdns_domain], "rules": [{
+                "matches": [{"path": {"type": "Exact", "value": "/"}}, {"path": {"type": "PathPrefix", "value": "/setup"}}],
+                "backendRefs": backend,
+            }]},
+        }))
+        resources.append((f"/apis/gateway.envoyproxy.io/v1alpha1/namespaces/{ns}/securitypolicies", f"/apis/gateway.envoyproxy.io/v1alpha1/namespaces/{ns}/securitypolicies/magicstick-setup-local-only", {
+            "apiVersion": "gateway.envoyproxy.io/v1alpha1", "kind": "SecurityPolicy",
+            "metadata": {"name": "magicstick-setup-local-only", "namespace": ns, "labels": labels},
+            "spec": {"targetRefs": [
+                {"group": "gateway.networking.k8s.io", "kind": "HTTPRoute", "name": "magicstick-setup-direct"},
+                {"group": "gateway.networking.k8s.io", "kind": "HTTPRoute", "name": "magicstick-setup-local"},
+            ], "authorization": {"defaultAction": "Deny", "rules": [{"action": "Allow", "principal": {"clientCIDRs": PRIVATE_CIDRS}}]}},
+        }))
+        return resources
+
+
+    DYNAMIC_PATHS = [
+        f"/apis/gateway.envoyproxy.io/v1alpha1/namespaces/{NAMESPACE}/securitypolicies/magicstick-setup-local-only",
+        f"/apis/gateway.networking.k8s.io/v1/namespaces/{NAMESPACE}/httproutes/magicstick-setup-local",
+        f"/apis/gateway.networking.k8s.io/v1/namespaces/{NAMESPACE}/httproutes/magicstick-setup-direct",
+        f"/apis/gateway.networking.k8s.io/v1/namespaces/{NAMESPACE}/gateways/magicstick-setup",
+        f"/apis/gateway.envoyproxy.io/v1alpha1/namespaces/{NAMESPACE}/envoyproxies/magicstick-setup",
+        f"/apis/cert-manager.io/v1/namespaces/{NAMESPACE}/certificates/magicstick-setup",
+        f"/api/v1/namespaces/{NAMESPACE}/secrets/magicstick-setup-tls",
+        f"/apis/cert-manager.io/v1/namespaces/{NAMESPACE}/issuers/magicstick-setup-selfsigned",
+    ]
+
+
+    def reconcile_once():
+        setup = setup_resource()
+        phase = setup_phase(setup)
+        if phase not in {"Pending", "Claimed", "Applying", "Failed"}:
+            for path in DYNAMIC_PATHS:
+                delete_resource(path)
+            return
+        settings = current_settings()
+        for collection, item, resource in dynamic_resources(settings["mdnsDomain"], setup_access_ips()):
+            apply_resource(collection, item, resource)
+
+
+    def reconcile_loop():
+        while True:
+            try:
+                reconcile_once()
+            except Exception as error:
+                print("setup reconciliation failed:", type(error).__name__, flush=True)
+            time.sleep(15)
+
+
+    INDEX_HTML = """<!doctype html><html lang=de><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Magicstick einrichten</title><link rel=stylesheet href=/setup/style.css></head><body><main><header><span class=mark>MS</span><div><h1>Magicstick einrichten</h1><p>Lokale Ersteinrichtung</p></div></header><section id=status class=card>Systemstatus wird geprüft …</section><section id=claim class=card hidden><h2>Einrichtungscode</h2><p>Scanne den QR-Code an der Appliance oder gib den Code von der Textkonsole ein.</p><form id=claimForm><label>Einrichtungscode<input id=claimToken autocomplete=one-time-code required></label><button>Appliance übernehmen</button></form></section><section id=config class=card hidden><h2>Grundkonfiguration</h2><form id=setupForm><div class=grid><label>Appliance-Name<input name=applianceName required maxlength=80></label><label>Lokale Adresse<input name=mdnsDomain required></label><label>Zeitzone<input name=timezone required></label><label>Sprache<select name=language><option value=de>Deutsch</option><option value=en>English</option></select></label><label class=wide>Öffentliche Domain (optional)<input name=publicDomain placeholder=magicstick.example.com></label></div><h2>Erster Administrator</h2><div class=grid><label>Benutzername<input name=username required autocomplete=username></label><label>Anzeigename<input name=displayName required autocomplete=name></label><label class=wide>E-Mail<input name=email required type=email autocomplete=email></label><label>Passwort<input name=password required type=password minlength=12 autocomplete=new-password></label><label>Passwort bestätigen<input name=passwordConfirm required type=password minlength=12 autocomplete=new-password></label></div><aside>Beim Abschluss wird zusätzlich ein einmaliger Recovery-Zugang erzeugt. Speichere ihn außerhalb der Appliance.</aside><button>Einrichtung abschließen</button></form></section><section id=done class=card hidden><h2>Einrichtung abgeschlossen</h2><p>Speichere diese einmalig angezeigten Recovery-Zugangsdaten:</p><pre id=recovery></pre><p>Danach kannst du dich mit deinem neuen Administratorkonto anmelden.</p><a id=login class=button href=/>Zum SSO-Login</a></section><p id=message role=alert></p></main><script src=/setup/app.js></script></body></html>"""
+    STYLE_CSS = """:root{color-scheme:light;font-family:Inter,ui-sans-serif,system-ui,sans-serif;background:#f3f5f7;color:#17212b}*{box-sizing:border-box}body{margin:0}main{max-width:760px;margin:0 auto;padding:40px 20px}header{display:flex;align-items:center;gap:16px;margin-bottom:24px}.mark{display:grid;place-items:center;width:52px;height:52px;border-radius:14px;background:#143d59;color:white;font-weight:800}h1{margin:0;font-size:1.8rem}header p{margin:4px 0;color:#596875}.card{background:white;border:1px solid #dce2e7;border-radius:16px;padding:24px;box-shadow:0 10px 32px #17324d10;margin-bottom:18px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.wide{grid-column:1/-1}label{display:grid;gap:7px;font-weight:650}input,select{width:100%;padding:11px 12px;border:1px solid #aeb9c2;border-radius:8px;font:inherit}button,.button{display:inline-block;margin-top:20px;padding:12px 18px;border:0;border-radius:9px;background:#176b87;color:white;font:inherit;font-weight:750;text-decoration:none;cursor:pointer}button:disabled{opacity:.55}aside{margin-top:20px;padding:14px;background:#edf6f7;border-left:4px solid #2b8a9d}pre{padding:16px;background:#17212b;color:#f4fbfc;border-radius:9px;white-space:pre-wrap}#message{color:#a32626;font-weight:700}[hidden]{display:none!important}@media(max-width:600px){.grid{grid-template-columns:1fr}.wide{grid-column:auto}main{padding-top:24px}}"""
+    APP_JS = r"""const $=s=>document.querySelector(s);let defaults={};const cookie=n=>document.cookie.split('; ').find(v=>v.startsWith(n+'='))?.split('=').slice(1).join('=')||'';async function api(path,opts={}){opts.headers={'Content-Type':'application/json',...(opts.headers||{})};if(opts.method&&opts.method!=='GET')opts.headers['X-MagicStick-CSRF']=decodeURIComponent(cookie('MagicStickSetupCsrf'));const r=await fetch('/setup/api/'+path,{...opts,cache:'no-store'});const b=await r.json().catch(()=>({}));if(!r.ok)throw new Error(b.message||'Die Anfrage ist fehlgeschlagen.');return b}function show(id){for(const x of ['claim','config','done'])$('#'+x).hidden=x!==id}function randomCode(bytes=18){const b=new Uint8Array(bytes);crypto.getRandomValues(b);return Array.from(b,x=>x.toString(16).padStart(2,'0')).join('').match(/.{1,6}/g).join('-')}async function load(){try{const s=await api('status');$('#status').textContent=s.phase==='Absent'?'Die Appliance wurde noch nicht für den Setup-Modus initialisiert.':'Setup-Status: '+s.phase;if(['Completed','CompletedLegacy'].includes(s.phase)){location.replace('/');return}const fragment=new URLSearchParams(location.hash.slice(1));const claim=fragment.get('claim');history.replaceState(null,'',location.pathname);if(s.phase==='Claimed'){try{await openConfig();return}catch(e){$('#message').textContent='Die Appliance wurde bereits von einem Browser übernommen. Nutze bei Bedarf „magicstick setup reissue“ an der Konsole.';return}}show('claim');if(claim){$('#claimToken').value=claim;$('#claimForm').requestSubmit()}}catch(e){$('#message').textContent=e.message}}async function openConfig(){defaults=await api('config');for(const [k,v] of Object.entries(defaults))if($('#setupForm').elements[k])$('#setupForm').elements[k].value=v||'';show('config')}$('#claimForm').addEventListener('submit',async e=>{e.preventDefault();$('#message').textContent='';try{await api('claim',{method:'POST',body:JSON.stringify({claimToken:$('#claimToken').value.replaceAll('-','').trim()})});await openConfig()}catch(x){$('#message').textContent=x.message}});$('#setupForm').addEventListener('submit',async e=>{e.preventDefault();$('#message').textContent='';const f=Object.fromEntries(new FormData(e.target));if(f.password!==f.passwordConfirm){$('#message').textContent='Die Passwörter stimmen nicht überein.';return}const setupId=(await api('status')).installationId||randomCode(6).replaceAll('-','');f.recoveryUsername='recovery-'+setupId.slice(0,8);f.recoveryCode=randomCode();delete f.passwordConfirm;const button=e.target.querySelector('button');button.disabled=true;try{const result=await api('complete',{method:'POST',body:JSON.stringify(f)});$('#recovery').textContent='Benutzer: '+result.recoveryUsername+'\nCode:     '+result.recoveryCode;$('#login').href='https://'+f.mdnsDomain+'/';show('done');$('#status').textContent='Setup-Status: Completed'}catch(x){$('#message').textContent=x.message;button.disabled=false}});load();"""
+
+
+    class Handler(BaseHTTPRequestHandler):
+        server_version = "MagicstickSetup/1"
+
+        def log_message(self, fmt, *args):
+            print("setup request", self.command, self.path.split("?", 1)[0], flush=True)
+
+        def send_security_headers(self, content_type, length=0, cookies=None):
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(length))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Security-Policy", "default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            for cookie in cookies or []:
+                self.send_header("Set-Cookie", cookie)
+
+        def send_bytes(self, status, payload, content_type, cookies=None):
+            self.send_response(status)
+            self.send_security_headers(content_type, len(payload), cookies)
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(payload)
+
+        def send_json(self, status, payload, cookies=None):
+            self.send_bytes(status, json.dumps(payload, separators=(",", ":")).encode("utf-8"), "application/json; charset=utf-8", cookies)
+
+        def read_json(self):
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+            except ValueError as error:
+                raise ApiError(400, "Die Anfrage ist ungültig.") from error
+            if length <= 0 or length > 32768:
+                raise ApiError(400, "Die Anfrage ist ungültig.")
+            try:
+                return json.loads(self.rfile.read(length).decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as error:
+                raise ApiError(400, "Die Anfrage ist ungültig.") from error
+
+        def client_key(self):
+            forwarded = self.headers.get("X-Forwarded-For", "").split(",", 1)[0].strip()
+            return forwarded or self.client_address[0]
+
+        def do_GET(self):
+            try:
+                path = self.path.split("?", 1)[0]
+                if path in {"/", "/setup", "/setup/"}:
+                    self.send_bytes(200, INDEX_HTML.encode("utf-8"), "text/html; charset=utf-8")
+                elif path == "/setup/style.css":
+                    self.send_bytes(200, STYLE_CSS.encode("utf-8"), "text/css; charset=utf-8")
+                elif path == "/setup/app.js":
+                    self.send_bytes(200, APP_JS.encode("utf-8"), "application/javascript; charset=utf-8")
+                elif path == "/setup/api/status":
+                    setup = setup_resource()
+                    spec = (setup or {}).get("spec") or {}
+                    self.send_json(200, {"phase": setup_phase(setup), "installationId": spec.get("installationId", ""), "ready": setup is not None})
+                elif path == "/setup/api/config":
+                    validate_session(self.headers.get("Cookie"))
+                    self.send_json(200, current_settings())
+                else:
+                    self.send_json(404, {"message": "Nicht gefunden."})
+            except ApiError as error:
+                self.send_json(error.status, {"message": str(error), "code": error.code})
+            except Exception as error:
+                print("setup GET failed:", type(error).__name__, flush=True)
+                self.send_json(503, {"message": "Der Setup-Dienst ist noch nicht bereit.", "code": "unavailable"})
+
+        def do_POST(self):
+            try:
+                path = self.path.split("?", 1)[0]
+                if path == "/setup/api/claim":
+                    self.claim()
+                elif path == "/setup/api/complete":
+                    self.complete()
+                else:
+                    self.send_json(404, {"message": "Nicht gefunden."})
+            except ApiError as error:
+                self.send_json(error.status, {"message": str(error), "code": error.code})
+            except urllib.error.HTTPError as error:
+                print("setup dependency HTTP error:", error.code, flush=True)
+                try:
+                    patch_status("Failed", lastErrorCode="dependency_http_error")
+                except Exception:
+                    pass
+                self.send_json(503, {"message": "Eine interne Abhängigkeit ist noch nicht bereit.", "code": "dependency_unavailable"})
+            except Exception as error:
+                print("setup POST failed:", type(error).__name__, flush=True)
+                try:
+                    patch_status("Failed", lastErrorCode="internal_error")
+                except Exception:
+                    pass
+                self.send_json(500, {"message": "Die Einrichtung konnte nicht abgeschlossen werden.", "code": "internal_error"})
+
+        def claim(self):
+            phase = setup_phase()
+            if phase not in {"Pending", "Failed"}:
+                raise ApiError(409, "Die Appliance wurde bereits übernommen.", "already_claimed")
+            key = self.client_key()
+            failures = [stamp for stamp in FAILED_CLAIMS.get(key, []) if stamp > time.time() - 300]
+            FAILED_CLAIMS[key] = failures
+            if len(failures) >= 5:
+                raise ApiError(429, "Zu viele Fehlversuche. Bitte warte fünf Minuten.", "rate_limited")
+            supplied = str(self.read_json().get("claimToken") or "").replace("-", "").strip().lower()
+            expected = decode_secret(get_resource(CLAIM_SECRET_PATH), "claim-sha256")
+            if not constant_match(secret_hash(supplied), expected):
+                failures.append(time.time())
+                raise ApiError(403, "Der Einrichtungscode ist falsch.", "invalid_claim")
+            session_token = secrets.token_urlsafe(32)
+            csrf_token = secrets.token_urlsafe(24)
+            resource = {
+                "apiVersion": "v1", "kind": "Secret", "metadata": {"name": "magicstick-setup-session", "namespace": NAMESPACE},
+                "type": "Opaque", "stringData": {"session-sha256": secret_hash(session_token), "csrf-sha256": secret_hash(csrf_token),
+                    "expires-at": str(time.time() + SESSION_TTL_SECONDS)},
+            }
+            try:
+                kube_request("POST", SECRETS_PATH, resource)
+            except urllib.error.HTTPError as error:
+                if error.code == 409:
+                    raise ApiError(409, "Die Appliance wurde bereits von einem anderen Browser übernommen.", "already_claimed") from error
+                raise
+            patch_status("Claimed", claimedAt=now(), lastErrorCode="")
+            cookies = [
+                f"{SESSION_COOKIE}={session_token}; Path=/setup; Max-Age={SESSION_TTL_SECONDS}; Secure; HttpOnly; SameSite=Strict",
+                f"{CSRF_COOKIE}={csrf_token}; Path=/; Max-Age={SESSION_TTL_SECONDS}; Secure; SameSite=Strict",
+            ]
+            self.send_json(200, {"claimed": True}, cookies)
+
+        def complete(self):
+            phase = setup_phase()
+            if phase == "Completed":
+                raise ApiError(409, "Die Einrichtung ist bereits abgeschlossen.", "already_completed")
+            if phase not in {"Claimed", "Applying", "Failed"}:
+                raise ApiError(409, "Die Appliance wurde noch nicht übernommen.", "claim_required")
+            cookies, stored = validate_session(self.headers.get("Cookie"))
+            validate_csrf(cookies, stored, self.headers.get("X-MagicStick-CSRF", ""))
+            values = validate_complete(self.read_json())
+            patch_status("Applying", claimedAt=((setup_resource().get("status") or {}).get("claimedAt", now())), lastErrorCode="")
+            update_settings(values)
+            token = keycloak_token()
+            ensure_keycloak_user(token, values["username"], values["password"], values["email"], values["displayName"])
+            ensure_keycloak_user(token, values["recoveryUsername"], values["recoveryCode"],
+                                 values["recoveryUsername"] + "@" + values["mdnsDomain"], "Recovery Administrator")
+            patch_status("Completed", completedAt=now(), lastErrorCode="")
+            delete_resource(CLAIM_SECRET_PATH)
+            delete_resource(SESSION_SECRET_PATH)
+            expired = [
+                f"{SESSION_COOKIE}=; Path=/setup; Max-Age=0; Secure; HttpOnly; SameSite=Strict",
+                f"{CSRF_COOKIE}=; Path=/; Max-Age=0; Secure; SameSite=Strict",
+            ]
+            self.send_json(200, {"completed": True, "recoveryUsername": values["recoveryUsername"],
+                                 "recoveryCode": values["recoveryCode"]}, expired)
+
+
+    if __name__ == "__main__":
+        threading.Thread(target=reconcile_loop, daemon=True).start()
+        ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
