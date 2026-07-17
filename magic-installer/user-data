@@ -14,7 +14,6 @@ autoinstall:
     - ansible
     - curl
     - ca-certificates
-    - qrencode
 
   user-data:
     manage_etc_hosts: true

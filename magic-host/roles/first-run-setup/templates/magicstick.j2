@@ -38,20 +38,13 @@ show_setup() {
   mdns="${mdns:-magicstick.local}"
   fingerprint="$("${KUBECTL[@]}" -n "$NAMESPACE" get secret magicstick-setup-tls -o jsonpath='{.data.tls\.crt}' 2>/dev/null | base64 -d 2>/dev/null | openssl x509 -noout -fingerprint -sha256 2>/dev/null | cut -d= -f2 || true)"
   echo
-  echo "Einrichtungscode: $grouped"
-  echo "TLS SHA-256: ${fingerprint:-wird noch erzeugt}"
-  echo
-  local_url="https://${mdns}/#claim=${token}"
-  echo "Bevorzugt: https://${mdns}/"
-  qrencode -t ANSIUTF8 "$local_url" 2>/dev/null || qrencode -t ASCII "$local_url"
+  echo "Lokaler Zugriff:"
+  echo "  https://${mdns}/"
   while read -r ip; do
     [[ -n "$ip" ]] || continue
     display_ip="$ip"
     [[ "$ip" == *:* ]] && display_ip="[$ip]"
-    direct_url="https://${display_ip}:9443/setup#claim=${token}"
-    echo
-    echo "Ohne mDNS: https://${display_ip}:9443/setup"
-    qrencode -t ANSIUTF8 "$direct_url" 2>/dev/null || qrencode -t ASCII "$direct_url"
+    echo "  https://${display_ip}:9443/setup (ohne mDNS)"
   done < <(
     ip -o addr show | awk '{split($4,a,"/"); print a[1]}' |
       python3 -c 'import ipaddress,sys
@@ -64,6 +57,9 @@ for raw in sys.stdin:
         print(address)' |
       sort -u
   )
+  echo
+  echo "TLS SHA-256: ${fingerprint:-wird noch erzeugt}"
+  echo "Einrichtungscode: $grouped"
 }
 
 reissue_setup() {
