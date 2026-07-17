@@ -67,6 +67,26 @@ class HelmAppInstanceTests(unittest.TestCase):
         catalog = yaml.safe_load(manifest["data"]["applications.json"])
 
         self.assertEqual(catalog["applications"]["hermes"]["route"]["port"], 8443)
+        self.assertTrue(catalog["applications"]["hermes"]["route"]["stripCookies"])
+
+    def test_hermes_route_strips_edge_session_cookies_before_upstream(self):
+        instance = {
+            "metadata": {"name": "hermes-demo"},
+            "spec": {"application": "hermes", "targetNamespace": "ai", "values": {}},
+        }
+        definition = {"route": {"serviceName": "instance", "port": 8443, "stripCookies": True}}
+
+        resources, _ = self.controller["app_instance_access_resources"](instance, definition)
+
+        routes = [resource for resource in resources if resource["kind"] == "HTTPRoute"]
+        application_routes = [
+            route for route in routes if not route["metadata"]["name"].endswith("-callback")
+        ]
+        for route in application_routes:
+            self.assertEqual(
+                route["spec"]["rules"][0]["filters"],
+                [{"type": "RequestHeaderModifier", "requestHeaderModifier": {"remove": ["Cookie"]}}],
+            )
 
     def test_generates_sso_protected_local_and_public_routes_by_default(self):
         instance = {

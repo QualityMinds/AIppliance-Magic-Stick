@@ -81,6 +81,9 @@ The current implementation provides:
 - protected local and public dashboard `HTTPRoute` resources
 - operator-generated local and public AppInstance `HTTPRoute` resources with
   default SSO and optional user/viewer/operator/admin minimum roles
+- removal of edge-managed OIDC cookies before requests reach the Hermes API
+  gateway; authorization is completed at Envoy and the access token is
+  forwarded in the `Authorization` header
 - per-instance callback routes on the shared dashboard hosts, so the same
   Keycloak client and browser session protect dynamically created instances
 - a non-blocking Keycloak startup reconciliation that adds the callback path
