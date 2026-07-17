@@ -22,3 +22,6 @@ spec:
     crds:
       install: true
       keep: true
+    image:
+      repository: ghcr.io/qualityminds/magicstick-paperclip-operator
+      tag: sha-1f9867b542b9b7b10fbc77f631a97a7cb25324be
