@@ -45,6 +45,7 @@ autoinstall:
         /bin/bash -lc '. /etc/default/ai-appliance-repo &&
         MAGICSTICK_PUBLIC_REPO="${MAGICSTICK_PUBLIC_REPO:-https://github.com/QualityMinds/AIppliance-Magic-Stick.git}" &&
         MAGICSTICK_PUBLIC_REF="${MAGICSTICK_PUBLIC_REF:-main}" &&
+        MAGICSTICK_PUBLIC_REF_KIND="${MAGICSTICK_PUBLIC_REF_KIND:-branch}" &&
         MAGICSTICK_PUBLIC_CHECKOUT="${MAGICSTICK_PUBLIC_CHECKOUT:-/opt/ai-appliance/magicstick}" &&
         mkdir -p "$(dirname "$MAGICSTICK_PUBLIC_CHECKOUT")" &&
         if [ -d "$MAGICSTICK_PUBLIC_CHECKOUT/.git" ]; then
@@ -54,5 +55,9 @@ autoinstall:
           git clone --no-checkout "$MAGICSTICK_PUBLIC_REPO" "$MAGICSTICK_PUBLIC_CHECKOUT";
         fi &&
         git -C "$MAGICSTICK_PUBLIC_CHECKOUT" fetch --tags --prune origin &&
-        git -C "$MAGICSTICK_PUBLIC_CHECKOUT" checkout --force --detach "$MAGICSTICK_PUBLIC_REF" &&
+        if [ "$MAGICSTICK_PUBLIC_REF_KIND" = branch ] && git -C "$MAGICSTICK_PUBLIC_CHECKOUT" show-ref --verify --quiet "refs/remotes/origin/$MAGICSTICK_PUBLIC_REF"; then
+          git -C "$MAGICSTICK_PUBLIC_CHECKOUT" checkout --force -B "$MAGICSTICK_PUBLIC_REF" "origin/$MAGICSTICK_PUBLIC_REF";
+        else
+          git -C "$MAGICSTICK_PUBLIC_CHECKOUT" checkout --force --detach "$MAGICSTICK_PUBLIC_REF";
+        fi &&
         bash "$MAGICSTICK_PUBLIC_CHECKOUT/magic-host/roles/ansible-pull-timer/files/ai-appliance-converge"'
