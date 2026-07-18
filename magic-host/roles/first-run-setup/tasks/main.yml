@@ -45,7 +45,7 @@
       [Service]
       Type=oneshot
       ExecStart=/usr/local/sbin/magicstick setup show
-      StandardInput=tty
+      StandardInput=null
       StandardOutput=tty
       StandardError=tty
       TTYPath=/dev/tty1
@@ -88,7 +88,22 @@
     enabled: true
     daemon_reload: true
 
-- name: Wait for ApplianceSetup CRD
+- name: Wait for ApplianceSetup CRD to exist
+  ansible.builtin.command:
+    argv:
+      - "{{ setup_kubectl_binary }}"
+      - kubectl
+      - --kubeconfig
+      - "{{ setup_kubeconfig_path }}"
+      - get
+      - "crd/{{ setup_crd_name }}"
+  register: setup_crd_exists
+  changed_when: false
+  retries: "{{ setup_crd_ready_retries | int }}"
+  delay: "{{ setup_crd_ready_delay | int }}"
+  until: setup_crd_exists.rc == 0
+
+- name: Wait for ApplianceSetup CRD to become established
   ansible.builtin.command:
     argv:
       - "{{ setup_kubectl_binary }}"
@@ -159,10 +174,15 @@
 - name: Generate first-run claim code
   ansible.builtin.command:
     argv:
-      - /usr/bin/openssl
-      - rand
-      - -hex
-      - "16"
+      - /usr/bin/python3
+      - -c
+      - >-
+        import secrets, sys;
+        alphabet = sys.argv[1];
+        length = int(sys.argv[2]);
+        print(''.join(secrets.choice(alphabet) for _ in range(length)))
+      - "{{ setup_claim_alphabet }}"
+      - "{{ setup_claim_length | string }}"
   register: setup_generated_claim
   changed_when: true
   no_log: true

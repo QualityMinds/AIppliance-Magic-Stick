@@ -7,7 +7,8 @@ service only on the local network. Existing installations are initialized as
 
 ## Open the Setup Screen
 
-The physical text console shows a one-time claim code and QR codes. Use either:
+The physical text console shows the local addresses, certificate fingerprint,
+and an eight-character one-time claim code. Open either:
 
 - `https://magicstick.local` when mDNS is available
 - `https://<private-node-ip>:9443/setup` when mDNS is unavailable
@@ -40,7 +41,7 @@ magicstick setup show
 magicstick setup reissue
 ```
 
-`show` redraws the URLs, QR codes, claim code, and certificate fingerprint.
+`show` redraws the URLs, claim code, and certificate fingerprint.
 `reissue` invalidates the previous claim and browser session. It is available
 only before setup completes. A completed appliance cannot be reopened with
 these commands; factory reset is intentionally a separate future workflow.

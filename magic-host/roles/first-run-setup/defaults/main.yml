@@ -3,8 +3,12 @@ setup_state_directory: /var/lib/magicstick/setup
 setup_new_install_marker: "{{ setup_state_directory }}/new-install"
 setup_installation_id_file: "{{ setup_state_directory }}/installation-id"
 setup_claim_file: "{{ setup_state_directory }}/claim"
+setup_claim_length: 8
+setup_claim_alphabet: "0123456789abcdefghjkmnpqrstvwxyz"
 setup_kubeconfig_path: /etc/rancher/k3s/k3s.yaml
 setup_kubectl_binary: /usr/local/bin/k3s
 setup_namespace: identity-system
 setup_resource_name: local
 setup_crd_name: appliancesetups.appliance.magicstick.dev
+setup_crd_ready_retries: 120
+setup_crd_ready_delay: 5
