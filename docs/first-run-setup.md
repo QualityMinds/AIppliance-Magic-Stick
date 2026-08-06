@@ -5,6 +5,11 @@ starts in `ApplianceSetup/local` phase `Pending` and exposes a temporary setup
 service only on the local network. Existing installations are initialized as
 `CompletedLegacy`; a missing setup resource never enables setup access.
 
+Flux reconciles the `identity-system` namespace and `ApplianceSetup` CRD in an
+early bootstrap stage that does not depend on Envoy Gateway readiness. The
+temporary setup application and routes remain part of the later identity
+stage.
+
 ## Open the Setup Screen
 
 The physical text console shows the local addresses, certificate fingerprint,

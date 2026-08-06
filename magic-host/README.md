@@ -42,6 +42,7 @@ when `FLUX_BOOTSTRAP_MODE=github`.
 | `AI_APPLIANCE_MDNS_DOMAIN` | local mDNS domain, e.g. `magicstick.local` |
 | `AI_APPLIANCE_MDNS_NAME` | local mDNS annotation suffix, e.g. `magicstick` |
 | `AI_APPLIANCE_DASHBOARD_MDNS_NAME` | legacy dashboard mDNS name |
+| `AI_APPLIANCE_ENVOY_CRDS_POLICY` | Envoy Gateway Helm CRD policy; defaults to `CreateReplace` for appliance-owned clusters |
 
 Optional overrides and GitHub bootstrap values:
 

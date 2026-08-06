@@ -56,6 +56,9 @@ jobs:
             magic-cluster/apps/dashboard
             magic-cluster/platform/magicstick-operator
             magic-cluster/platform/basis
+            magic-cluster/platform/first-run-setup
+            magic-cluster/platform/gateway/envoy-gateway
+            magic-cluster/platform/identity
             magic-cluster/platform/gpu
             magic-cluster/platform/ai/kubeai
             magic-cluster/platform/ai/hermes-operator

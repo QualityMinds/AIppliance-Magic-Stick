@@ -28,6 +28,7 @@ Installer image
   -> K3s
   -> Flux
   -> Flux graph under magic-cluster/flux/graph/base
+  -> First-run namespace and ApplianceSetup CRD
   -> Magic Stick Operator CRD, module catalog, and default Appliance
   -> platform and app Kustomize bases
 ```
@@ -51,8 +52,9 @@ The base graph is defined under `magic-cluster/flux/graph/base`.
 | Wave | Flux Kustomization | Path | Depends on |
 |---|---|---|---|
 | 00 | `infrastructure-basis` | `magic-cluster/platform/basis` | none |
+| 02 | `first-run-bootstrap` | `magic-cluster/platform/first-run-setup` | none |
 | 05 | `envoy-gateway` | `magic-cluster/platform/gateway/envoy-gateway` | `infrastructure-basis` |
-| 10 | `identity-pilot` | `magic-cluster/platform/identity` | `envoy-gateway` |
+| 10 | `identity-pilot` | `magic-cluster/platform/identity` | `first-run-bootstrap`, `envoy-gateway` |
 | 15 | `magicstick-operator` | `magic-cluster/platform/magicstick-operator` | `infrastructure-basis` |
 | 30 | `apps` | `magic-cluster/apps/dashboard` | `infrastructure-basis`, `identity-pilot` |
 
@@ -60,6 +62,11 @@ Optional AI, GPU, and instance resources are no longer applied by
 the static graph. The Magic Stick Operator creates generated Flux
 `Kustomization` resources from `ModuleActivation`, native KubeAI resources from
 `ModelActivation`, and Flux `HelmRelease` resources from `AppInstance` CRs.
+
+The first-run namespace and `ApplianceSetup` CRD are intentionally reconciled
+before and independently of Envoy Gateway. Host automation can therefore
+persist setup state even while the gateway and identity workloads are still
+starting or reporting an unrelated error.
 
 ## Appliance Model
 

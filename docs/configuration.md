@@ -51,6 +51,7 @@ Kustomizations use it through `postBuild.substituteFrom`.
 | `AI_APPLIANCE_MDNS_DOMAIN` | `magicstick.local` | Local mDNS domain used for dashboard, app, and derived instance hostnames. |
 | `AI_APPLIANCE_MDNS_NAME` | `magicstick` | Local mDNS name suffix used in mDNS annotations. |
 | `AI_APPLIANCE_DASHBOARD_MDNS_NAME` | `magicstick` | Legacy dashboard mDNS name, kept for compatibility. |
+| `AI_APPLIANCE_ENVOY_CRDS_POLICY` | `CreateReplace` | Helm CRD policy for the appliance-owned Envoy Gateway installation. Use `Skip` only when an external platform manages the same CRDs. |
 | `AI_APPLIANCE_NAME` | `Magicstick` | Human-readable appliance name selected during first-run setup. |
 | `AI_APPLIANCE_TIMEZONE` | `UTC` | Appliance timezone selected during first-run setup. |
 | `AI_APPLIANCE_LANGUAGE` | `de` | Dashboard/setup language preference. |

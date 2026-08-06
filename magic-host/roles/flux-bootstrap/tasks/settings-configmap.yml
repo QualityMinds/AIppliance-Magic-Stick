@@ -37,7 +37,8 @@
             'AI_APPLIANCE_DASHBOARD_HOST': ai_appliance_dashboard_host | default(ai_appliance_domain | default('magicstick.example.com', true), true),
             'AI_APPLIANCE_MDNS_DOMAIN': ai_appliance_mdns_domain | default('magicstick.local', true),
             'AI_APPLIANCE_MDNS_NAME': ai_appliance_mdns_name | default((ai_appliance_mdns_domain | default('magicstick.local', true)) | regex_replace('\\.local$', ''), true),
-            'AI_APPLIANCE_DASHBOARD_MDNS_NAME': ai_appliance_dashboard_mdns_name | default(ai_appliance_mdns_name | default((ai_appliance_mdns_domain | default('magicstick.local', true)) | regex_replace('\\.local$', ''), true), true)
+            'AI_APPLIANCE_DASHBOARD_MDNS_NAME': ai_appliance_dashboard_mdns_name | default(ai_appliance_mdns_name | default((ai_appliance_mdns_domain | default('magicstick.local', true)) | regex_replace('\\.local$', ''), true), true),
+            'AI_APPLIANCE_ENVOY_CRDS_POLICY': ai_appliance_envoy_crds_policy | default('CreateReplace', true)
           })
       }}
 
