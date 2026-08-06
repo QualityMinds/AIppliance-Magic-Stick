@@ -17,5 +17,6 @@ ai_appliance_dashboard_host: magicstick.example.com
 ai_appliance_mdns_domain: magicstick.local
 ai_appliance_mdns_name: magicstick
 ai_appliance_dashboard_mdns_name: magicstick
+ai_appliance_envoy_crds_policy: CreateReplace
 ai_appliance_settings_extra: {}
 flux_reconcile_timeout: 5m0s

@@ -17,6 +17,7 @@ runtime checks.
 | `flux/entrypoints/base` | Neutral public Flux entrypoint |
 | `flux/entrypoints/single-node` | Public read-only single-node Flux entrypoint |
 | `platform/basis` | Namespaces, cert-manager, secret generator, reloader, kdns |
+| `platform/first-run-setup` | Early identity namespace and ApplianceSetup CRD bootstrap |
 | `platform/gateway/envoy-gateway` | Primary Envoy Gateway control plane and Gateway API CRDs |
 | `platform/identity` | Local Keycloak/PostgreSQL identity broker and protected OIDC pilot route |
 | `platform/magicstick-operator` | Appliance CRDs, module catalog, model presets, operator RBAC, live controller, and public examples |
@@ -57,6 +58,7 @@ kubectl kustomize magic-cluster/flux/entrypoints/single-node
 kubectl kustomize magic-cluster/apps/dashboard
 kubectl kustomize magic-cluster/platform/magicstick-operator
 kubectl kustomize magic-cluster/platform/basis
+kubectl kustomize magic-cluster/platform/first-run-setup
 kubectl kustomize magic-cluster/platform/gateway/envoy-gateway
 kubectl kustomize magic-cluster/platform/identity
 kubectl kustomize magic-cluster/platform/gpu

@@ -5,6 +5,7 @@ metadata:
   namespace: flux-system
 spec:
   dependsOn:
+    - name: first-run-bootstrap
     - name: envoy-gateway
   interval: 10m0s
   path: ./magic-cluster/platform/identity
