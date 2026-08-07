@@ -7,6 +7,8 @@ The playbook is intentionally generic. By default, deployments use the reusable 
 See [../docs/architecture.md](../docs/architecture.md) for the bootstrap flow,
 [../docs/configuration.md](../docs/configuration.md) for host metadata, and
 [../docs/operations.md](../docs/operations.md) for runtime checks.
+End-user installation steps are collected in
+[../docs/installation/README.md](../docs/installation/README.md).
 
 ## Entry Point
 

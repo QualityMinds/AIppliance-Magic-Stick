@@ -51,9 +51,9 @@ spec:
             - name: AGENT_TEMPLATE_NAMES
               value: litellm-default
             - name: AI_APPLIANCE_DEFAULT_CHAT_MODEL
-              value: "${AI_APPLIANCE_DEFAULT_CHAT_MODEL:=qwen3635b}"
+              value: "${AI_APPLIANCE_DEFAULT_CHAT_MODEL:=auto}"
             - name: AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL
-              value: "${AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL:=qwen352bvlembedding}"
+              value: "${AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL:=auto}"
             - name: OPENCODE_DEFAULT_CONTEXT_TOKENS
               value: "131072"
             - name: OPENCODE_DEFAULT_OUTPUT_TOKENS

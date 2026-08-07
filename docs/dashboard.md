@@ -5,6 +5,9 @@ It reads Kubernetes status and writes runtime intent resources. It does not
 directly install workloads, create Flux Kustomizations, or manage app resources
 itself.
 
+For the step-by-step end-user workflow after first-run setup, see
+[installation/after-installation-dashboard.md](installation/after-installation-dashboard.md).
+
 ```text
 Dashboard UI
   -> Envoy Gateway OIDC login
@@ -71,6 +74,7 @@ Keycloak before applying its own role checks.
 | `POST` | `/api/models/estimate-vram` | Estimates VRAM for public HuggingFace model metadata, context size, and max sequence count. |
 | `POST` | `/api/models/local` | Adds or replaces a local KubeAI-backed `ModelActivation`. |
 | `POST` | `/api/models/external` | Adds or replaces an external LiteLLM-backed `ModelActivation`; Dashboard-entered API keys are stored as Secrets. |
+| `POST` | `/api/models/local-runtime/remove` | Removes automatically enabled KubeAI and GPU module activations after all local models have been removed. |
 | `DELETE` | `/api/models/{name}` | Deletes the `ModelActivation` and a Dashboard-created provider Secret when present. |
 | `GET` | `/api/status` | Returns Appliance, Flux, Pod, Service, and Ingress status summaries. |
 | `GET` | `/api/events` | Returns core and `events.k8s.io` event summaries. |
@@ -92,6 +96,12 @@ be enabled or disabled from the dashboard. Modules with
 `activationMode: moduleactivation` expose only the currently valid action:
 `Enable` for disabled modules and `Disable` for enabled modules. In-progress
 modules disable their action button until the request settles.
+
+This includes the optional `gpu` and `kubeai` modules. They stay disabled on a
+fresh installation, may be enabled automatically by a local model, and may also
+be enabled or disabled manually. A manual action takes ownership away from the
+automatic local-model cleanup flow. KubeAI reports `WaitingForModules` until
+its GPU dependency is enabled and ready.
 
 Progress is phase-based. The dashboard maps existing status phases such as
 `Disabled`, `WaitingForModules`, `Reconciling`, `Removing`, `Ready`, and
@@ -150,6 +160,16 @@ For local HuggingFace-backed models, the dashboard can call
 `POST /api/models/estimate-vram` to fetch public metadata, estimate model
 weights and KV cache, and suggest minimum and recommended VRAM values. The value
 stored in `spec.local.vram` remains the actual request passed to KubeAI/vLLM.
+
+The default dashboard is GPU-neutral. External models do not require or activate
+GPU or KubeAI modules. The local-model form stays disabled until both the GPU and
+KubeAI modules are enabled and report `Ready`; it names every missing or pending
+module and directs the operator to the Modules screen. The API enforces the same
+precondition and returns HTTP `409` if a client attempts to bypass the UI.
+
+The Models screen treats missing DCGM metrics as a neutral state while the local
+runtime is not installed and exposes runtime removal only when no local model
+still depends on it.
 
 Catalog-only models are read-only in the Models screen. Remove actions are shown
 only for `ModelActivation` rows that the dashboard can delete.

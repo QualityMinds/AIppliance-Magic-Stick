@@ -4,9 +4,11 @@ Reusable Ubuntu autoinstall and cloud-init files for the AI Appliance template.
 
 These files intentionally contain placeholders only. Copy them into a deployment directory before creating installation media.
 
-See [../docs/getting-started.md](../docs/getting-started.md) for the
-end-to-end installer workflow and [../docs/configuration.md](../docs/configuration.md)
-for the variables written into `/etc/default/ai-appliance-repo`.
+See [../docs/installation/README.md](../docs/installation/README.md) for the
+user-oriented installation paths,
+[../docs/getting-started.md](../docs/getting-started.md) for developer-oriented
+validation, and [../docs/configuration.md](../docs/configuration.md) for the
+variables written into `/etc/default/ai-appliance-repo`.
 
 ## Files
 

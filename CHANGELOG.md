@@ -30,6 +30,9 @@ formalized, release entries should group changes under:
 - `AppInstance` now uses `spec.application` and `spec.values`; the Magic Stick
   Operator creates one Flux HelmRelease per instance instead of rendering app
   workloads in controller code.
+- New appliances are GPU-neutral. GPU Operator and KubeAI are activated on
+  demand by local models, while external models run without the local GPU
+  runtime.
 
 ### Removed
 

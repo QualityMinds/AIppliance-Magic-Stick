@@ -20,11 +20,11 @@ runtime checks.
 | `platform/gateway/envoy-gateway` | Primary Envoy Gateway control plane and Gateway API CRDs |
 | `platform/identity` | Local Keycloak/PostgreSQL identity broker and protected OIDC pilot route |
 | `platform/magicstick-operator` | Appliance CRDs, module catalog, model presets, operator RBAC, live controller, and public examples |
-| `platform/ai/kubeai` | KubeAI model-serving platform module |
+| `platform/ai/kubeai` | Optional KubeAI model-serving module enabled before creating local models |
 | `platform/ai/openclaw-operator` | OpenClaw CRD operator base for `openclaw.rocks/v1alpha1` instances |
 | `platform/ai/hermes-operator` | Hermes CRD operator base for `hermes.agent/v1` instances |
 | `platform/ai/paperclip-operator` | Paperclip CRD operator base for `paperclip.inc/v1alpha1` instances |
-| `platform/gpu` | NVIDIA GPU Operator with time-slicing GPU sharing |
+| `platform/gpu` | Optional NVIDIA GPU Operator enabled before creating local models |
 | `apps/dashboard` | Dashboard app, route discovery surface, and Appliance CR UI/API client |
 | `apps/ai/litellm/base` | LiteLLM API and model-routing module with shared SSO routes |
 | `apps/ai/model-catalog` | Controller that syncs KubeAI `Model` CRs and optional external models into LiteLLM and publishes the generated `ai-model-catalog` ConfigMap |
@@ -80,6 +80,11 @@ required modules and creates the underlying specialized custom resources.
 The `ai-model-catalog-controller` syncs KubeAI `Model` resources created from
 local `ModelActivation` requests and enabled external model entries into
 LiteLLM, then publishes the generated `ai-model-catalog` ConfigMap for
-downstream consumers. See
-[../docs/model-catalog.md](../docs/model-catalog.md) for the full contract,
+downstream consumers.
+
+The base installation is GPU-neutral. External `ModelActivation` resources use
+LiteLLM and the model catalog without creating GPU or KubeAI module
+activations. A local model request enables those two modules automatically.
+
+See [../docs/model-catalog.md](../docs/model-catalog.md) for the full contract,
 external model schema, generated ConfigMap keys, and troubleshooting commands.

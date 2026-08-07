@@ -822,6 +822,19 @@ data:
         return LOCAL_MODEL_MODULES if model_type == "local" else EXTERNAL_MODEL_MODULES
 
 
+    def nvidia_gpu_capacity():
+        total = 0
+        for node in list_items("/api/v1/nodes"):
+            status = node.get("status") or {}
+            resources = status.get("allocatable") or status.get("capacity") or {}
+            raw = str(resources.get("nvidia.com/gpu") or "0").strip()
+            try:
+                total += max(0, int(raw))
+            except ValueError:
+                continue
+        return total
+
+
     def merged_local_model(activation, presets):
         metadata = activation.get("metadata") or {}
         spec = activation.get("spec") or {}
@@ -987,6 +1000,10 @@ data:
             return "WaitingForModules", {"phase": "WaitingForModules", "modelRef": model_ref, "vramRequiredMi": vram_mi, "message": message}
 
         if model_type == "local":
+            if nvidia_gpu_capacity() < 1:
+                message = "The local model runtime is installed, but Kubernetes reports no allocatable nvidia.com/gpu resources."
+                patch_model_status(activation, "WaitingForGPU", "WaitingForGPU", message, model_ref, name, vram_mi, generation)
+                return "WaitingForGPU", {"phase": "WaitingForGPU", "modelRef": model_ref, "vramRequiredMi": vram_mi, "message": message}
             if not crd_exists("models.kubeai.org"):
                 message = "Waiting for required CRDs: models.kubeai.org"
                 patch_model_status(activation, "WaitingForCRDs", "WaitingForCRDs", message, model_ref, name, vram_mi, generation)

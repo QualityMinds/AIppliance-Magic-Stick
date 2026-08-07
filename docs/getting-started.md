@@ -1,6 +1,9 @@
 # Getting Started
 
 This guide covers local validation and the public read-only installer flow.
+For step-by-step end-user installation on physical hardware, cloud VMs,
+existing Ubuntu VMs, or existing Kubernetes clusters, start with the
+[installation guide](installation/README.md).
 
 ## Prerequisites
 
@@ -18,11 +21,13 @@ For installer image creation:
 - enough disk space for the Ubuntu Server ISO and generated installer image
 - a target machine that can boot the generated USB image
 
-For GPU model serving:
+Only for local GPU model serving:
 
 - NVIDIA GPU hardware
 - a host compatible with K3s, the NVIDIA GPU Operator, and the configured GPU
   sharing mode
+
+External LiteLLM-backed providers do not require NVIDIA hardware or drivers.
 
 ## Clone And Validate
 
@@ -133,3 +138,8 @@ kubectl -n ai-system get appliance local -o yaml
 The dashboard writes `ModuleActivation`, `ModelActivation`, and `AppInstance`
 resources. `Appliance/local.spec` remains Git-owned and should not be edited for
 normal runtime changes.
+
+A fresh installation is GPU-neutral. External models use the default LiteLLM
+and model-catalog modules. Before adding a local model, enable the NVIDIA GPU
+Operator and KubeAI on the dashboard's Modules page and wait until both report
+`Ready`.

@@ -78,6 +78,12 @@ data:
             self.status = status
 
 
+    class RequestError(Exception):
+        def __init__(self, status, message):
+            super().__init__(message)
+            self.status = status
+
+
     def jwt_payload(access_token):
         try:
             encoded = access_token.split(".")[1]
@@ -371,6 +377,10 @@ data:
         return mode if mode in {"static", "moduleactivation"} else "moduleactivation"
 
 
+    def module_manual_control_enabled(spec):
+        return module_activation_mode("", spec) == "moduleactivation"
+
+
     def catalog_module_metadata(module, spec):
         metadata = dict(spec or {})
         metadata["displayName"] = str(metadata.get("displayName") or title_from_key(module))
@@ -452,6 +462,10 @@ data:
         return list_resource(f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/moduleactivations")
 
 
+    def module_activation(name):
+        return get_resource(f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/moduleactivations/{name}")
+
+
     def app_instances():
         return list_resource(f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/appinstances")
 
@@ -466,6 +480,39 @@ data:
 
     def model_activation(name):
         return get_resource(f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/modelactivations/{name}")
+
+
+    def active_local_model_names():
+        names = []
+        for activation in model_activations():
+            metadata = activation.get("metadata") or {}
+            spec = activation.get("spec") or {}
+            status = activation.get("status") or {}
+            if spec.get("type") != "local":
+                continue
+            if spec.get("enabled", True) is False and not metadata.get("deletionTimestamp") and status.get("phase") != "Removing":
+                continue
+            names.append(metadata.get("name") or "unnamed")
+        return sorted(set(names))
+
+
+    def remove_local_model_runtime():
+        blockers = active_local_model_names()
+        if blockers:
+            raise RequestError(409, "local GPU runtime is still required by: " + ", ".join(blockers))
+        removed = []
+        skipped = []
+        for module in ("kubeai", "gpu"):
+            activation = module_activation(module)
+            if not activation:
+                continue
+            annotations = (activation.get("metadata") or {}).get("annotations") or {}
+            if str(annotations.get("appliance.magicstick.dev/auto-enabled") or "").lower() != "true":
+                skipped.append(module)
+                continue
+            delete_json(f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/moduleactivations/{module}")
+            removed.append(module)
+        return {"removed": removed, "skipped": skipped}
 
 
     def decode_secret_value(value):
@@ -718,8 +765,25 @@ data:
                     "app.kubernetes.io/managed-by": "ai-appliance-dashboard",
                     "appliance.magicstick.dev/module": module,
                 },
+                "annotations": {
+                    "appliance.magicstick.dev/activation-source": "manual",
+                },
             },
             "spec": spec,
+        }
+
+
+    def manual_module_activation_patch(resource):
+        metadata = resource["metadata"]
+        return {
+            "metadata": {
+                "labels": metadata["labels"],
+                "annotations": {
+                    "appliance.magicstick.dev/activation-source": "manual",
+                    "appliance.magicstick.dev/auto-enabled": None,
+                },
+            },
+            "spec": resource["spec"],
         }
 
 
@@ -1221,6 +1285,7 @@ data:
                 "enabled": spec.get("enabled", True) is not False,
                 "source": "moduleactivation",
                 "activation": metadata.get("name"),
+                "autoEnabled": str((metadata.get("annotations") or {}).get("appliance.magicstick.dev/auto-enabled") or "").lower() == "true",
                 "generation": int(metadata.get("generation") or 0),
                 "observedGeneration": int(status.get("observedGeneration") or 0),
                 "displayName": catalog_spec["displayName"],
@@ -1331,6 +1396,41 @@ data:
 
     def module_state(modules_payload, name):
         return ((modules_payload or {}).get("modules") or {}).get(name) or {}
+
+
+    LOCAL_MODEL_REQUIRED_MODULES = ("gpu", "kubeai")
+
+
+    def local_model_runtime_requirements(modules_payload=None):
+        modules_payload = modules_payload if modules_payload is not None else summarized_modules()
+        missing = []
+        for name in LOCAL_MODEL_REQUIRED_MODULES:
+            spec = module_state(modules_payload, name)
+            status = spec.get("status") or {}
+            if spec.get("enabled") is True and str(status.get("phase") or "").lower() == "ready":
+                continue
+            missing.append({
+                "name": name,
+                "displayName": str(spec.get("displayName") or title_from_key(name)),
+                "phase": str(status.get("phase") or ("Disabled" if spec.get("enabled") is not True else "Pending")),
+            })
+        return {
+            "ready": not missing,
+            "required": list(LOCAL_MODEL_REQUIRED_MODULES),
+            "missing": missing,
+        }
+
+
+    def require_local_model_runtime():
+        requirements = local_model_runtime_requirements()
+        if requirements["ready"]:
+            return requirements
+        missing = ", ".join(item["displayName"] for item in requirements["missing"])
+        raise RequestError(
+            409,
+            "Local models require these modules to be enabled and Ready: " + missing
+            + ". Enable them on the Modules page and wait for installation to finish.",
+        )
 
 
     def first_ingress_url(namespace, name):
@@ -1558,7 +1658,7 @@ data:
                     catalog = catalog_json()
                     module = canonical_module(parts[2], catalog)
                     catalog_spec = ((catalog.get("modules") or {}).get(module) or {})
-                    if catalog_spec.get("activationMode") != "moduleactivation":
+                    if not module_manual_control_enabled(catalog_spec):
                         self.send_error_json(400, "module is statically managed: " + module)
                         return
                     if parts[3] not in {"enable", "disable"}:
@@ -1570,7 +1670,7 @@ data:
                     name = resource["metadata"]["name"]
                     collection = f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/moduleactivations"
                     item = collection + "/" + name
-                    self.send_json(create_or_patch(collection, item, resource, {"spec": resource["spec"], "metadata": {"labels": resource["metadata"]["labels"]}}))
+                    self.send_json(create_or_patch(collection, item, resource, manual_module_activation_patch(resource)))
                     return
 
                 applications = app_catalog_json().get("applications") or {}
@@ -1589,9 +1689,16 @@ data:
                     self.send_json(estimate_model_vram(read_body(self)))
                     return
 
+                if len(parts) == 4 and parts[:3] == ["api", "models", "local-runtime"] and parts[3] == "remove":
+                    self.require_access("operator")
+                    self.send_json(remove_local_model_runtime())
+                    return
+
                 if len(parts) == 3 and parts[:2] == ["api", "models"] and parts[2] in {"local", "external"}:
                     self.require_access("operator")
                     model_type = parts[2]
+                    if model_type == "local":
+                        require_local_model_runtime()
                     resource = model_activation_payload(model_type, read_body(self))
                     name = resource["metadata"]["name"]
                     collection = f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/modelactivations"
@@ -1602,6 +1709,8 @@ data:
                 self.send_error_json(404, "not found")
             except AuthError as error:
                 self.send_auth_error(error)
+            except RequestError as error:
+                self.send_error_json(error.status, str(error))
             except urllib.error.HTTPError as error:
                 self.send_error_json(error.code, error.read().decode("utf-8", errors="replace"))
             except Exception as error:

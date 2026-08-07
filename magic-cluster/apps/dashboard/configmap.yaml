@@ -340,6 +340,19 @@ data:
           align-content: start;
         }
 
+        .model-form-fields {
+          border: 0;
+          display: grid;
+          gap: 0.85rem;
+          margin: 0;
+          min-width: 0;
+          padding: 0;
+        }
+
+        .model-form-fields:disabled {
+          opacity: 0.58;
+        }
+
         .model-meta {
           display: flex;
           flex-wrap: wrap;
@@ -1015,7 +1028,9 @@ data:
                 <div class="model-create-grid">
                   <form class="dashboard-card model-form" id="local-model-form">
                     <h3>Local Model</h3>
-                    <div class="form-grid">
+                    <p class="module-message" id="local-model-requirements" role="status">Checking whether GPU and KubeAI are ready.</p>
+                    <fieldset class="model-form-fields" id="local-model-fields" disabled>
+                      <div class="form-grid">
                       <label class="field">Name<input name="name" value="qwen352bvlembedding" /></label>
                       <label class="field">Preset<select name="preset" id="local-model-preset"><option value="qwen352bvlembedding">qwen352bvlembedding</option><option value="qwen3635b">qwen3635b</option><option value="qwen359b">qwen359b</option><option value="custom">Custom</option></select></label>
                       <label class="field">Type<select name="modelType"><option value="chat">chat</option><option value="embedding">embedding</option></select></label>
@@ -1023,8 +1038,8 @@ data:
                       <label class="field">HF URL<input name="url" placeholder="hf://example/model" /></label>
                       <label class="field">Context Size<input name="contextWindow" value="4096" /></label>
                       <label class="field">Max Num Seqs<input name="maxNumSeqs" placeholder="32" /></label>
-                    </div>
-                    <div class="vram-estimate" id="vram-estimate">
+                      </div>
+                      <div class="vram-estimate" id="vram-estimate">
                       <div class="vram-estimate-header">
                         <strong>VRAM Estimate</strong>
                         <span id="vram-estimate-status">Waiting for model metadata</span>
@@ -1053,11 +1068,13 @@ data:
                         </div>
                       </details>
                       <div class="estimate-callouts" id="vram-estimate-warnings"></div>
-                    </div>
-                    <button class="control-button primary" type="submit">Add Local Model</button>
+                      </div>
+                      <button class="control-button primary" type="submit">Add Local Model</button>
+                    </fieldset>
                   </form>
                   <form class="dashboard-card model-form" id="external-model-form">
                     <h3>External Model</h3>
+                    <p class="module-message">Uses a remote provider through LiteLLM. No local GPU driver or KubeAI installation is required.</p>
                     <div class="form-grid">
                       <label class="field">Name<input name="name" value="example-openai-gpt-4o-mini" /></label>
                       <label class="field">Provider Model<input name="model" value="openai/gpt-4o-mini" /></label>
@@ -1075,6 +1092,7 @@ data:
                 <h3>VRAM</h3>
                 <p id="vram-summary">Waiting for GPU metrics.</p>
                 <div id="vram-list" class="mini-list"></div>
+                <button class="control-button danger" id="remove-local-runtime" type="button" hidden>Remove Local GPU Runtime</button>
               </article>
 
               <section class="model-section">
@@ -1203,6 +1221,26 @@ data:
             return requiredModules.length > 0 && requiredModules.every((name) => moduleInstalled(modulePayload, name));
           };
 
+          const localModelRequiredModules = ['gpu', 'kubeai'];
+
+          const missingLocalModelModules = (modulePayload) => localModelRequiredModules.filter((name) => !moduleInstalled(modulePayload, name));
+
+          const renderLocalModelAvailability = (modulePayload) => {
+            const fields = $('local-model-fields');
+            const message = $('local-model-requirements');
+            const missing = missingLocalModelModules(modulePayload);
+            if (fields) {
+              fields.disabled = missing.length > 0;
+            }
+            if (!message) { return; }
+            if (missing.length === 0) {
+              message.textContent = 'GPU and KubeAI are Ready. Local models can be created.';
+              return;
+            }
+            const labels = missing.map((name) => moduleDisplayName(name, moduleCatalogSpec(modulePayload, name), moduleSpec(modulePayload, name)));
+            message.textContent = 'Local models are unavailable. Enable and wait until these modules are Ready: ' + labels.join(', ') + '.';
+          };
+
           const renderInstanceForms = (modulePayload) => {
             let visibleCount = 0;
             document.querySelectorAll('.instance-form[data-instance-type]').forEach((form) => {
@@ -1260,6 +1298,9 @@ data:
             if (normalized === 'waitingforcrds') {
               return { value: 45, label: 'Waiting for CRDs', className: 'waiting' };
             }
+            if (normalized === 'waitingforgpu') {
+              return { value: 55, label: 'Waiting for NVIDIA GPU', className: 'waiting' };
+            }
             if (normalized === 'reconciling') {
               return { value: 70, label: 'Reconciling', className: 'waiting' };
             }
@@ -1276,7 +1317,7 @@ data:
           };
 
           const phaseInProgress = (phase) => {
-            return ['requested', 'waitingformodules', 'waitingforcrds', 'reconciling', 'removing'].includes(String(phase || '').toLowerCase());
+            return ['requested', 'waitingformodules', 'waitingforcrds', 'waitingforgpu', 'reconciling', 'removing'].includes(String(phase || '').toLowerCase());
           };
 
           const moduleGenerationPending = (spec = {}) => {
@@ -1847,7 +1888,7 @@ data:
 
                 const message = document.createElement('div');
                 message.className = 'module-message';
-                message.textContent = status.message || ((catalogSpec.requires || []).length ? 'Requires: ' + catalogSpec.requires.join(', ') : '');
+                message.textContent = status.message || catalogSpec.description || ((catalogSpec.requires || []).length ? 'Requires: ' + catalogSpec.requires.join(', ') : '');
                 const links = createResourceLinks(moduleIngressLinks(name, catalogSpec, statusPayload));
 
                 const actions = document.createElement('div');
@@ -2391,12 +2432,31 @@ data:
             const list = $('vram-list');
             if (!summary || !list) { return; }
             const vram = (modelPayload || {}).vram || {};
+            const modules = (modelPayload || {}).modules || {};
+            const localModels = ((modelPayload || {}).activations || []).filter((activation) => {
+              const metadata = activation.metadata || {};
+              const spec = activation.spec || {};
+              const status = activation.status || {};
+              return spec.type === 'local' && (spec.enabled !== false || metadata.deletionTimestamp || status.phase === 'Removing');
+            });
+            const localRuntimeEnabled = ['gpu', 'kubeai'].some((name) => ((modules[name] || {}).enabled === true));
+            const localRuntimeAutoEnabled = ['gpu', 'kubeai'].some((name) => ((modules[name] || {}).autoEnabled === true));
+            const removeRuntime = $('remove-local-runtime');
+            if (removeRuntime) {
+              removeRuntime.hidden = !(localRuntimeEnabled && localRuntimeAutoEnabled && localModels.length === 0);
+              removeRuntime.disabled = false;
+            }
             list.innerHTML = '';
             if (!vram.available) {
-              summary.textContent = 'Live GPU metrics unavailable. Planned VRAM: ' + formatMi(vram.plannedMi || 0);
               const item = document.createElement('div');
               item.className = 'mini-item';
-              item.textContent = vram.error || 'DCGM metrics are not available.';
+              if (!localRuntimeEnabled && localModels.length === 0) {
+                summary.textContent = 'Local GPU runtime is not installed. External models work without it.';
+                item.textContent = 'Enable GPU and KubeAI on the Modules page before adding a local model.';
+              } else {
+                summary.textContent = 'Live GPU metrics unavailable. Planned VRAM: ' + formatMi(vram.plannedMi || 0);
+                item.textContent = vram.error || 'DCGM metrics are not available.';
+              }
               list.appendChild(item);
               return;
             }
@@ -2603,6 +2663,7 @@ data:
               latestModelPayload = modelPayload || {};
               renderLocalPresetOptions(latestModelPayload);
               renderInstanceForms(latestModulePayload);
+              renderLocalModelAvailability(latestModulePayload);
               renderInstanceModelOptions(latestModelPayload);
               if (!localPresetLastApplied) {
                 const presetSelect = $('local-model-preset');
@@ -2772,6 +2833,12 @@ data:
             });
             localModelForm.addEventListener('submit', async (event) => {
               event.preventDefault();
+              const missing = missingLocalModelModules(latestModulePayload);
+              if (missing.length > 0) {
+                const labels = missing.map((name) => moduleDisplayName(name, moduleCatalogSpec(latestModulePayload, name), moduleSpec(latestModulePayload, name)));
+                $('model-output').textContent = 'Local models require these modules to be Ready: ' + labels.join(', ') + '.';
+                return;
+              }
               const data = new FormData(localModelForm);
               const preset = data.get('preset') || 'custom';
               const payload = {
@@ -2801,6 +2868,25 @@ data:
                 await refresh();
               } catch (error) {
                 $('model-output').textContent = error.message;
+              }
+            });
+          }
+
+          const removeLocalRuntime = $('remove-local-runtime');
+          if (removeLocalRuntime) {
+            removeLocalRuntime.addEventListener('click', async () => {
+              if (!window.confirm('Remove the automatically installed KubeAI and NVIDIA GPU runtime?')) { return; }
+              try {
+                removeLocalRuntime.disabled = true;
+                const result = await request('/api/models/local-runtime/remove', { method: 'POST', body: '{}' });
+                const removed = (result.removed || []).join(', ') || 'no modules';
+                const skipped = (result.skipped || []).join(', ');
+                $('model-output').textContent = 'Local runtime removal requested for ' + removed + (skipped ? '; manually managed modules skipped: ' + skipped : '') + '.';
+                await refresh();
+              } catch (error) {
+                $('model-output').textContent = error.message;
+              } finally {
+                removeLocalRuntime.disabled = false;
               }
             });
           }

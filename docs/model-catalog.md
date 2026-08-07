@@ -5,6 +5,9 @@ turns selected KubeAI `Model` resources and optional external model entries
 into LiteLLM deployments, then publishes a generated `ai-model-catalog`
 ConfigMap for apps that need a stable source of model metadata.
 
+The catalog is GPU-neutral. External models work with LiteLLM alone. KubeAI and
+the NVIDIA runtime are installed only when a local `ModelActivation` is enabled.
+
 ## Responsibilities
 
 - Watch KubeAI `Model` resources in the `ai` namespace.
@@ -169,8 +172,8 @@ The controller reads these deployment variables:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `AI_APPLIANCE_DEFAULT_CHAT_MODEL` | `qwen3635b` | Preferred default chat model id. |
-| `AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL` | `qwen352bvlembedding` | Preferred default embedding model id. |
+| `AI_APPLIANCE_DEFAULT_CHAT_MODEL` | `auto` | Preferred default chat model id; falls back to the first available chat model. |
+| `AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL` | `auto` | Preferred default embedding model id; falls back to the first available embedding model. |
 | `CATALOG_POLL_SECONDS` | `30` | Retry delay after reconciliation errors. |
 | `CATALOG_WATCH_SECONDS` | `15` | Watch timeout for model and external model changes. |
 | `CONSUMER_RESTART_ENABLED` | `true` | Delete known consumer pods after catalog changes. |

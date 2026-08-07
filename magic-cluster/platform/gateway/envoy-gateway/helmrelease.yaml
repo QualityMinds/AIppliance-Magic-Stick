@@ -8,12 +8,12 @@ spec:
     kind: OCIRepository
     name: envoy-gateway
   install:
-    crds: Skip
+    crds: ${AI_APPLIANCE_ENVOY_CRDS_POLICY:=Skip}
   interval: 10m0s
   releaseName: envoy-gateway
   timeout: 10m0s
   upgrade:
-    crds: Skip
+    crds: ${AI_APPLIANCE_ENVOY_CRDS_POLICY:=Skip}
   values:
     deployment:
       replicas: 1

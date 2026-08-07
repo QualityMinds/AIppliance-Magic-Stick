@@ -29,7 +29,8 @@ Each module definition may contain:
 | `kustomizationName` | Generated Flux `Kustomization.metadata.name`. |
 | `requires` | Canonical module dependencies. |
 | `requiredCrds` | CRDs that must exist before dependent instances are created. |
-| `default` | Whether the module is seeded by the default AI-workstation appliance. |
+| `default` | Whether the module is seeded by the default GPU-neutral appliance. |
+| `activationPolicy` | Optional lifecycle hint. `local-model` modules are requested automatically by local models and can also be managed explicitly in the dashboard. |
 | `uninstallPolicy` | Public metadata for data-retention choices. |
 | `postBuildSubstitution` | Whether to include `ai-appliance-settings` as Flux post-build substitution. |
 | `parameters` | Optional dashboard fields stored in `ModuleActivation.spec.parameters`; each field may declare its Flux `substitution` variable. |
@@ -62,6 +63,23 @@ spec:
   parameters:
     postgresStorage: 5Gi
 ```
+
+## On-Demand Local Model Runtime
+
+`gpu` and `kubeai` use `activationPolicy: local-model` and are not part of a
+fresh installation. The dashboard requires both modules to be enabled and
+`Ready` before it allows an enabled local `ModelActivation` to be created.
+External `ModelActivation` resources require only `litellm` and
+`model-catalog`.
+
+Both modules also expose normal **Enable** and **Disable** actions in the
+dashboard. KubeAI depends on the GPU module, so enable GPU first or KubeAI waits
+in `WaitingForModules`. A manual action removes any automatic-activation marker
+and makes the module user-managed. For backward compatibility, the operator can
+still reconcile automatic markers on model activations created outside the
+dashboard. After every local model has been removed, **Remove Local GPU
+Runtime** deletes only automatically created KubeAI and GPU activations;
+manually managed activations are preserved.
 
 ## Generated Flux Kustomization
 

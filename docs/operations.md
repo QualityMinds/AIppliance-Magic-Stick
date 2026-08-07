@@ -199,6 +199,10 @@ For schema details and model troubleshooting, see
 
 ## GPU And KubeAI
 
+These checks apply only after a local model has requested the optional GPU
+runtime. A healthy external-only appliance has no `gpu-operator` namespace,
+`platform-gpu` Flux Kustomization, or KubeAI resources.
+
 ```bash
 kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.status.allocatable.nvidia\.com/gpu}{"\n"}{end}'
 kubectl -n gpu-operator get pods
@@ -263,3 +267,4 @@ deploy,pods` if a command does not match the running resource name.
 | Static AI route returns `403` after SSO | AI routes require at least `magicstick-user`. Check the user's realm roles and the corresponding static `SecurityPolicy`. |
 | Dashboard returns `403` after login | Confirm the user has `magicstick-viewer`, `magicstick-operator`, or `magicstick-admin`; configuration changes need operator or admin as documented in `authentication.md`. |
 | GPU model never starts | Check GPU Operator, allocatable GPU resources, KubeAI model status, and vLLM logs. |
+| Local model stays in `WaitingForGPU` | The optional runtime is installed but Kubernetes reports no allocatable `nvidia.com/gpu`; verify supported hardware, driver pods, and node capacity. |

@@ -1,6 +1,7 @@
 #cloud-config
 autoinstall:
   version: 1
+  shutdown: poweroff
 
   interactive-sections:
     - storage
@@ -36,6 +37,7 @@ autoinstall:
           AI_APPLIANCE_MDNS_DOMAIN=magicstick.local
           AI_APPLIANCE_MDNS_NAME=magicstick
           AI_APPLIANCE_DASHBOARD_MDNS_NAME=magicstick
+          AI_APPLIANCE_ENVOY_CRDS_POLICY=CreateReplace
 
     runcmd:
       - install -d -m 0700 -o root -g root /var/lib/magicstick/setup

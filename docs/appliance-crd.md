@@ -27,10 +27,6 @@ spec:
       enabled: true
     dashboard:
       enabled: true
-    gpu:
-      enabled: true
-    kubeai:
-      enabled: true
     litellm:
       enabled: true
     model-catalog:
@@ -49,9 +45,11 @@ The CRD is namespaced, with plural `appliances` and short names `msapp` and
 | `spec.modules` | Git-owned module defaults. The operator seeds missing `ModuleActivation` resources from enabled entries. |
 | `spec.instances` | Deprecated for runtime use. Runtime instance changes use `AppInstance`. |
 
-The default public install uses profile `ai-workstation` and
+The default public install uses the GPU-neutral profile `ai-workstation` and
 `spec.source.name: flux-system` because readonly-public mode creates that Git
-source. External GitOps repositories that include this public repo can use
+source. It seeds LiteLLM and the model catalog for external providers. GPU and
+KubeAI are requested only when an enabled local `ModelActivation` exists.
+External GitOps repositories that include this public repo can use
 `magicstick-public`.
 
 Runtime `ModuleActivation` resources take precedence over `spec.modules`.
