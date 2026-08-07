@@ -210,7 +210,10 @@ spec:
             httpGet:
               path: /health/started
               port: management
-            failureThreshold: 60
+            # Keycloak performs a Quarkus augmentation on the first container
+            # start. On ARM appliance hardware this can take more than four
+            # minutes before the management endpoint starts listening.
+            failureThreshold: 120
             periodSeconds: 5
           readinessProbe:
             httpGet:

@@ -156,6 +156,108 @@ class HelmAppInstanceTests(unittest.TestCase):
             "/apis/gateway.networking.k8s.io/v1/namespaces/identity-system/httproutes/demo-local",
         )
 
+    def test_default_appliance_is_gpu_neutral(self):
+        appliance = yaml.safe_load((ROOT / "default-appliance.yaml").read_text(encoding="utf-8"))
+        modules = appliance["spec"]["modules"]
+
+        self.assertEqual(set(modules), {"basis", "dashboard", "litellm", "model-catalog"})
+        self.assertNotIn("gpu", modules)
+        self.assertNotIn("kubeai", modules)
+
+    def test_gpu_modules_are_on_demand_in_catalog(self):
+        manifest = yaml.safe_load((ROOT / "module-catalog.yaml").read_text(encoding="utf-8"))
+        catalog = yaml.safe_load(manifest["data"]["modules.json"])
+
+        for name in ("gpu", "kubeai"):
+            self.assertFalse(catalog["modules"][name]["default"])
+            self.assertEqual(catalog["modules"][name]["activationPolicy"], "local-model")
+
+    def test_model_module_dependencies_separate_local_and_external_models(self):
+        required = self.controller["model_required_modules"]
+
+        self.assertEqual(required("external"), ["litellm", "model-catalog"])
+        self.assertEqual(required("local"), ["gpu", "kubeai", "litellm", "model-catalog"])
+
+    def test_nvidia_capacity_uses_allocatable_resources(self):
+        original = self.controller["list_items"]
+        self.controller["list_items"] = lambda _path: [
+            {"status": {"allocatable": {"nvidia.com/gpu": "2"}}},
+            {"status": {"capacity": {"nvidia.com/gpu": "1"}}},
+            {"status": {"allocatable": {}}},
+        ]
+        try:
+            self.assertEqual(self.controller["nvidia_gpu_capacity"](), 3)
+        finally:
+            self.controller["list_items"] = original
+
+    def test_external_model_reconciliation_never_requests_gpu_runtime(self):
+        names = (
+            "ensure_model_finalizer",
+            "ensure_module_activation",
+            "module_ready",
+            "catalog_contains_model",
+            "patch_model_status",
+            "nvidia_gpu_capacity",
+        )
+        originals = {name: self.controller[name] for name in names}
+        requested = []
+        statuses = []
+        self.controller["ensure_model_finalizer"] = lambda _activation: None
+        self.controller["ensure_module_activation"] = lambda module, auto=False: requested.append((module, auto))
+        self.controller["module_ready"] = lambda _module, _catalog: True
+        self.controller["catalog_contains_model"] = lambda _namespace, _name: True
+        self.controller["patch_model_status"] = lambda *args, **kwargs: statuses.append((args, kwargs))
+        self.controller["nvidia_gpu_capacity"] = lambda: self.fail("external models must not inspect GPU capacity")
+        activation = {
+            "metadata": {"name": "remote-chat", "namespace": "ai-system", "generation": 1},
+            "spec": {"type": "external", "targetNamespace": "ai", "external": {"model": "openai/example"}},
+        }
+        try:
+            phase, _status = self.controller["reconcile_model_activation"](activation, {"modules": {}}, {})
+        finally:
+            self.controller.update(originals)
+
+        self.assertEqual(phase, "Ready")
+        self.assertEqual(requested, [("litellm", True), ("model-catalog", True)])
+        self.assertEqual(statuses[-1][0][1], "Ready")
+
+    def test_local_model_waits_for_gpu_before_creating_kubeai_model(self):
+        names = (
+            "ensure_model_finalizer",
+            "ensure_module_activation",
+            "module_ready",
+            "kubeai_model_resource",
+            "nvidia_gpu_capacity",
+            "patch_model_status",
+            "apply_resource",
+        )
+        originals = {name: self.controller[name] for name in names}
+        requested = []
+        statuses = []
+        self.controller["ensure_model_finalizer"] = lambda _activation: None
+        self.controller["ensure_module_activation"] = lambda module, auto=False: requested.append((module, auto))
+        self.controller["module_ready"] = lambda _module, _catalog: True
+        self.controller["kubeai_model_resource"] = lambda _activation, _presets: ({}, 8192)
+        self.controller["nvidia_gpu_capacity"] = lambda: 0
+        self.controller["patch_model_status"] = lambda *args, **kwargs: statuses.append((args, kwargs))
+        self.controller["apply_resource"] = lambda _resource: self.fail("KubeAI Model must not be created without a GPU")
+        activation = {
+            "metadata": {"name": "local-chat", "namespace": "ai-system", "generation": 1},
+            "spec": {"type": "local", "targetNamespace": "ai", "local": {}},
+        }
+        try:
+            phase, status = self.controller["reconcile_model_activation"](activation, {"modules": {}}, {})
+        finally:
+            self.controller.update(originals)
+
+        self.assertEqual(phase, "WaitingForGPU")
+        self.assertEqual(status["vramRequiredMi"], 8192)
+        self.assertEqual(
+            requested,
+            [("gpu", True), ("kubeai", True), ("litellm", True), ("model-catalog", True)],
+        )
+        self.assertEqual(statuses[-1][0][1], "WaitingForGPU")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -60,6 +60,8 @@ site.
 
 | Topic | Document |
 |---|---|
+| Installation on hardware, VMs, or Kubernetes | [docs/installation/README.md](docs/installation/README.md) |
+| Configuration after installation | [docs/installation/after-installation-dashboard.md](docs/installation/after-installation-dashboard.md) |
 | First checkout and installer flow | [docs/getting-started.md](docs/getting-started.md) |
 | Repository and cluster architecture | [docs/architecture.md](docs/architecture.md) |
 | Local authentication and enterprise SSO | [docs/authentication.md](docs/authentication.md) |
@@ -178,6 +180,11 @@ are selected declaratively through runtime CRs. The Magic Stick Operator is a
 meta-operator: it enables modules with Flux and creates custom resources for
 specialized operators, while OpenClaw, Hermes, Paperclip, and KubeOpenCode
 remain responsible for their own workloads.
+
+The default appliance is GPU-neutral: LiteLLM and the model catalog support
+external providers without NVIDIA hardware. The first enabled local model
+installs the NVIDIA GPU Operator and KubeAI on demand; it remains in
+`WaitingForGPU` until Kubernetes exposes an allocatable NVIDIA GPU.
 
 The dashboard is the UI and API client for this model. It reads the Appliance,
 module catalog, Flux, Pod, Service, Ingress, and Event status, and creates or

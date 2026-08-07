@@ -86,8 +86,11 @@ Stick Operator owns all external Gateway resources.
 For v1alpha1, examples use these defaults:
 
 - the installed public appliance profile is `ai-workstation`
-- `Appliance.spec.modules` enables `basis`, `dashboard`, `gpu`, `kubeai`,
-  `litellm`, and `model-catalog`
+- `Appliance.spec.modules` enables `basis`, `dashboard`, `litellm`, and
+  `model-catalog`; it does not enable GPU or KubeAI
+- enabled external models require only `litellm` and `model-catalog`
+- the first enabled local model auto-enables `gpu` and `kubeai` in addition to
+  the external-model runtime
 - missing default module activations are seeded once; existing
   `ModuleActivation` resources, including disabled ones, take precedence
 - instance target namespace defaults to `ai`
@@ -114,6 +117,10 @@ If an enabled module requires another runtime module that is disabled or not
 ready, the module remains in `WaitingForModules`; the operator removes any stale
 generated Flux Kustomization for that module to avoid Flux `dependsOn` errors
 for missing dependencies.
+
+After the local runtime modules are ready, a local model remains in
+`WaitingForGPU` until Kubernetes reports at least one allocatable
+`nvidia.com/gpu` resource. This state does not affect external models.
 
 The controller sets an instance to `Ready` when its generated HelmRelease is
 ready. Native application readiness remains the responsibility of the chart and

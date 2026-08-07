@@ -37,6 +37,10 @@ and recovery users receive `magicstick-user` and `magicstick-admin`. The setup
 claim, session, temporary certificate, gateway, and routes are then removed;
 the local address returns to the normal OIDC-protected dashboard.
 
+Continue with the user guide
+[After installation: configure Magic Stick in the dashboard](installation/after-installation-dashboard.md)
+to select domains, modules, models, and application instances.
+
 ## Console Recovery Before Completion
 
 Run these commands as root on the appliance:

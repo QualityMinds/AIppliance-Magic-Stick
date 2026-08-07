@@ -17,10 +17,6 @@ spec:
       enabled: true
     dashboard:
       enabled: true
-    gpu:
-      enabled: true
-    kubeai:
-      enabled: true
     litellm:
       enabled: true
     model-catalog:

@@ -44,8 +44,8 @@ digest, or chart version.
 | `kubernetes-secret-generator` | https://helm.mittwald.de | `3.4.1` | Generated Kubernetes secrets |
 | `reloader` | https://stakater.github.io/stakater-charts | Unpinned | Config and secret reloads |
 | `kdns` | `oci://ghcr.io/lab42/charts` | `0.2.3` | Local DNS integration; chart remains upstream while the workload image temporarily uses the repository-built Gateway API contribution |
-| `gpu-operator` | https://helm.ngc.nvidia.com/nvidia | Unpinned | NVIDIA GPU support |
-| `kubeai` | https://www.kubeai.org | `0.23.2` | AI model serving platform |
+| `gpu-operator` | https://helm.ngc.nvidia.com/nvidia | Unpinned | Optional NVIDIA GPU support installed for local models only |
+| `kubeai` | https://www.kubeai.org | `0.23.2` | Optional local AI model serving platform |
 | `hermes-operator` | `oci://ghcr.io/paperclipinc/charts` | `0.1.18` | Hermes runtime orchestration and long-lived gateway runtime |
 | `openclaw-operator` | `oci://ghcr.io/paperclipinc/charts` | `0.36.4` | OpenClaw runtime orchestration |
 | `paperclip-operator` | `oci://ghcr.io/paperclipinc/charts` | `0.18.0` | CRDs and Paperclip runtime orchestration; the deployed controller image is rebuilt from this tag with the documented local-trusted loopback compatibility patch |

@@ -81,8 +81,8 @@ the module manifest default such as
 
 | Setting | Default | Purpose |
 |---|---|---|
-| `AI_APPLIANCE_DEFAULT_CHAT_MODEL` | `qwen3635b` | Preferred default chat model for the generated model catalog. |
-| `AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL` | `qwen352bvlembedding` | Preferred default embedding model for the generated model catalog. |
+| `AI_APPLIANCE_DEFAULT_CHAT_MODEL` | `auto` | Preferred default chat model; `auto` selects the first available chat model. |
+| `AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL` | `auto` | Preferred default embedding model; `auto` selects the first available embedding model. |
 
 `AI_APPLIANCE_DEFAULT_OPENCODE_MODEL` is a generated output in
 `litellm/<model-id>` form. It follows the selected default chat model and is not

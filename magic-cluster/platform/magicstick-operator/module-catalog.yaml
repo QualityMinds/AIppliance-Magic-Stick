@@ -92,26 +92,30 @@ data:
         },
         "gpu": {
           "displayName": "GPU",
+          "description": "Enable the NVIDIA runtime before creating local models, or disable it when local inference is not needed. External models do not require it.",
           "group": "runtime",
           "activationMode": "moduleactivation",
+          "activationPolicy": "local-model",
           "order": 30,
           "path": "magic-cluster/platform/gpu",
           "kustomizationName": "platform-gpu",
           "requires": ["basis"],
           "requiredCrds": ["clusterpolicies.nvidia.com"],
-          "default": true,
+          "default": false,
           "uninstallPolicy": "keep-data"
         },
         "kubeai": {
           "displayName": "KubeAI",
+          "description": "Enable KubeAI before creating local models. It requires the GPU module; external models use LiteLLM without KubeAI.",
           "group": "runtime",
           "activationMode": "moduleactivation",
+          "activationPolicy": "local-model",
           "order": 40,
           "path": "magic-cluster/platform/ai/kubeai",
           "kustomizationName": "platform-kubeai",
           "requires": ["basis", "gpu"],
           "requiredCrds": ["models.kubeai.org"],
-          "default": true,
+          "default": false,
           "uninstallPolicy": "keep-data"
         },
         "openclaw-operator": {
