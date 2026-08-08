@@ -27,7 +27,12 @@ def request(base_url, method, path, body=None, authenticated=True, expected=(200
             payload = response.read().decode("utf-8")
             if response.status not in expected:
                 raise AssertionError(f"{method} {path}: expected {expected}, got {response.status}")
-            return response.status, json.loads(payload) if payload else {}
+            if not payload:
+                return response.status, {}
+            try:
+                return response.status, json.loads(payload)
+            except json.JSONDecodeError:
+                return response.status, {"raw": payload}
     except urllib.error.HTTPError as error:
         payload = error.read().decode("utf-8", errors="replace")
         if error.code not in expected:
@@ -126,7 +131,13 @@ def main():
     request(AISIX_BASE_URL, "GET", "/livez", authenticated=False)
     request(AISIX_BASE_URL, "GET", "/readyz", authenticated=False)
     request(AISIX_BASE_URL, "GET", "/v1/models", authenticated=False, expected=(401, 403))
-    request(AISIX_BASE_URL, "POST", "/v1/chat/completions", {"model": "magicstick-does-not-exist", "messages": []}, expected=(400, 404))
+    request(
+        AISIX_BASE_URL,
+        "POST",
+        "/v1/chat/completions",
+        {"model": "magicstick-does-not-exist", "messages": [{"role": "user", "content": "test"}]},
+        expected=(404,),
+    )
     aisix_ids = check_models()
     check_chat(aisix_ids)
     check_embeddings(aisix_ids)

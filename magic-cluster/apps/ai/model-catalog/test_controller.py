@@ -57,7 +57,7 @@ class AisixRendererTests(unittest.TestCase):
         rendered = json.dumps(document)
 
         self.assertNotIn("provider-secret-value", rendered)
-        self.assertIn("${AISIX_PROVIDER_KEY_", rendered)
+        self.assertIn("${MAGICSTICK_AISIX_PROVIDER_KEY_", rendered)
         self.assertEqual(list(credentials.values()), ["provider-secret-value"])
         self.assertNotIn("unit-test-client-key", rendered)
         self.assertEqual(

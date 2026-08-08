@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
@@ -84,4 +85,5 @@ class Handler(BaseHTTPRequestHandler):
         self.write_json(404, {"error": {"message": "not found", "type": "invalid_request_error"}})
 
 
-ThreadingHTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
+port = int(os.environ.get("PORT", "8080"))
+ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()

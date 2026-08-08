@@ -427,7 +427,7 @@ def aisix_openai_model(deployment):
         return None, None, "missing provider credential"
 
     provider_name = safe_id("provider", name)
-    credential_env = "AISIX_PROVIDER_KEY_" + hashlib.sha256(name.encode("utf-8")).hexdigest()[:16].upper()
+    credential_env = "MAGICSTICK_AISIX_PROVIDER_KEY_" + hashlib.sha256(name.encode("utf-8")).hexdigest()[:16].upper()
     provider_key = {
         "display_name": provider_name,
         "provider": "openai",
