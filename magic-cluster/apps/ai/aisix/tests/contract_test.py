@@ -11,6 +11,7 @@ LITELLM_BASE_URL = os.environ.get("LITELLM_BASE_URL", "http://litellm.ai.svc.clu
 API_KEY = os.environ.get("AI_GATEWAY_API_KEY", "")
 CHAT_MODEL = os.environ.get("TEST_CHAT_MODEL", "").strip()
 EMBEDDING_MODEL = os.environ.get("TEST_EMBEDDING_MODEL", "").strip()
+MOCK_BASE_URL = os.environ.get("MOCK_BASE_URL", "").rstrip("/")
 
 
 def request(base_url, method, path, body=None, authenticated=True, expected=(200,)):
@@ -45,6 +46,19 @@ def request(base_url, method, path, body=None, authenticated=True, expected=(200
 
 def model_ids(payload):
     return {str(item.get("id")) for item in (payload.get("data") or []) if item.get("id")}
+
+
+def wait_until(label, check, timeout_seconds=240):
+    deadline = time.monotonic() + timeout_seconds
+    last_error = None
+    while True:
+        try:
+            return check()
+        except (AssertionError, OSError, urllib.error.URLError) as error:
+            last_error = error
+        if time.monotonic() >= deadline:
+            raise AssertionError(f"timed out waiting for {label}: {last_error}") from last_error
+        time.sleep(2)
 
 
 def stream_request(base_url, body):
@@ -128,8 +142,10 @@ def check_embeddings(aisix_ids):
 def main():
     if not API_KEY:
         raise RuntimeError("AI_GATEWAY_API_KEY is required")
-    request(AISIX_BASE_URL, "GET", "/livez", authenticated=False)
-    request(AISIX_BASE_URL, "GET", "/readyz", authenticated=False)
+    if MOCK_BASE_URL:
+        wait_until("the contract mock", lambda: request(MOCK_BASE_URL, "GET", "/healthz", authenticated=False))
+    wait_until("AISIX liveness", lambda: request(AISIX_BASE_URL, "GET", "/livez", authenticated=False))
+    wait_until("AISIX readiness", lambda: request(AISIX_BASE_URL, "GET", "/readyz", authenticated=False))
     request(AISIX_BASE_URL, "GET", "/v1/models", authenticated=False, expected=(401, 403))
     request(
         AISIX_BASE_URL,

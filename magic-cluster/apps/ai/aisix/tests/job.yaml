@@ -31,6 +31,8 @@ spec:
               value: aisix-contract-chat
             - name: TEST_EMBEDDING_MODEL
               value: aisix-contract-embedding
+            - name: MOCK_BASE_URL
+              value: http://aisix-contract-mock.ai.svc.cluster.local:8080
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
