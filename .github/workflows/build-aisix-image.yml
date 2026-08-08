@@ -68,6 +68,7 @@ jobs:
             org.opencontainers.image.description=Multi-architecture AISIX gateway built from pinned upstream source
             org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick
             org.opencontainers.image.licenses=Apache-2.0
+            org.opencontainers.image.created=2026-08-07T14:18:40Z
             org.opencontainers.image.version=${{ env.IMAGE_VERSION }}
             org.opencontainers.image.revision=${{ env.AISIX_REF }}
 
