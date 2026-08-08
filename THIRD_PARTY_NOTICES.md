@@ -24,7 +24,7 @@ digest, or chart version.
 | `postgres:17-alpine` | https://hub.docker.com/_/postgres | Operator-generated application database | Referenced only |
 | `quay.io/keycloak/keycloak:26.6.3` | https://www.keycloak.org | Local OIDC identity provider and identity broker | Referenced only |
 | `ghcr.io/berriai/litellm:v1.84.0` | https://github.com/BerriAI/litellm | LiteLLM | Referenced only |
-| `ghcr.io/qualityminds/magicstick-aisix` | https://github.com/api7/aisix | Optional AISIX `v0.8.1` canary | Built for AMD64 and ARM64 from pinned upstream commit `315ab1f94802a6704c7355fdc4e85cc4ccadeb74`; Apache-2.0; deployed by digest after the build workflow succeeds. |
+| `ghcr.io/qualityminds/magicstick-aisix` | https://github.com/api7/aisix | Optional AISIX `v0.8.1` canary | Built for AMD64 and ARM64 from pinned upstream commit `315ab1f94802a6704c7355fdc4e85cc4ccadeb74`; Apache-2.0; deployed as multi-architecture digest `sha256:007cb3c8865e26ac7535bd51253172eca0039176e891be064409cc6dc4ec976c`. |
 | `mintplexlabs/anythingllm:1.12.1` | https://github.com/Mintplex-Labs/anything-llm | AnythingLLM | Referenced only |
 | `qdrant/qdrant:v1.13.6` | https://github.com/qdrant/qdrant | Qdrant vector database | Referenced only |
 | `ghcr.io/paperclipai/paperclip:sha-df0e5bd` | https://github.com/paperclipai/paperclip | Paperclip `v2026.707.0` compatible runtime build | Referenced only |

@@ -28,6 +28,7 @@ spec:
         app.kubernetes.io/component: ai-gateway-canary
     spec:
       automountServiceAccountToken: false
+      enableServiceLinks: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
@@ -37,7 +38,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: aisix
-          image: ${AI_APPLIANCE_AISIX_IMAGE:=ghcr.io/api7/aisix:0.8.1}
+          image: ${AI_APPLIANCE_AISIX_IMAGE:=ghcr.io/qualityminds/magicstick-aisix@sha256:007cb3c8865e26ac7535bd51253172eca0039176e891be064409cc6dc4ec976c}
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

@@ -45,6 +45,12 @@ deployment uses `maxUnavailable: 0`; a new pod must become ready before the
 last valid gateway pod is removed. Invalid generated configuration therefore
 does not deliberately terminate the last ready process.
 
+The AISIX pod disables Kubernetes service-link environment variables. The
+same-named `aisix` Service would otherwise inject variables such as
+`AISIX_PORT_9090_TCP_ADDR`, which AISIX interprets as configuration overrides.
+Provider credentials use the separate `MAGICSTICK_AISIX_PROVIDER_KEY_*`
+namespace for the same reason.
+
 ## Compatibility Scope
 
 The first evaluation deliberately supports:
@@ -71,8 +77,9 @@ the exact upstream commit
 
 Every branch build receives an immutable `sha-<git-sha>` tag. The deployment
 image can be overridden from the module's **Configure** section. `main` also
-publishes the reviewed `v0.8.1-magicstick.1` tag. Release manifests should pin
-the resulting multi-architecture digest after the image workflow succeeds.
+publishes the reviewed `v0.8.1-magicstick.1` tag. The base manifest is pinned
+to the verified AMD64/ARM64 index digest
+`sha256:007cb3c8865e26ac7535bd51253172eca0039176e891be064409cc6dc4ec976c`.
 
 ## Enable The Canary
 
@@ -97,11 +104,11 @@ spec:
   module: aisix
   enabled: true
   parameters:
-    image: ghcr.io/qualityminds/magicstick-aisix@sha256:CHANGEME
+    image: ghcr.io/qualityminds/magicstick-aisix@sha256:007cb3c8865e26ac7535bd51253172eca0039176e891be064409cc6dc4ec976c
 ```
 
-The image parameter may be omitted after the base manifest has been pinned to
-an available multi-architecture digest.
+The image parameter may normally be omitted. Use it only to evaluate another
+reviewed digest without changing the base manifest.
 
 Check the rollout without printing Secret data:
 
