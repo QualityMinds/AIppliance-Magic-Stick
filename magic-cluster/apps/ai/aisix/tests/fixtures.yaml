@@ -1,0 +1,128 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: aisix-contract-provider-key
+  namespace: ai
+  labels:
+    app: aisix-contract-test
+type: Opaque
+stringData:
+  api-key: contract-test-only-not-a-secret
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aisix-contract-mock
+  namespace: ai
+  labels:
+    app: aisix-contract-mock
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aisix-contract-mock
+  template:
+    metadata:
+      labels:
+        app: aisix-contract-mock
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: mock
+          image: python:3.13-alpine
+          command:
+            - python
+            - /mock/mock_server.py
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 24Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mock
+              mountPath: /mock
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: mock
+          configMap:
+            name: aisix-contract-mock
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aisix-contract-mock
+  namespace: ai
+  labels:
+    app: aisix-contract-mock
+spec:
+  selector:
+    app: aisix-contract-mock
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: appliance.magicstick.dev/v1alpha1
+kind: ModelActivation
+metadata:
+  name: aisix-contract-chat
+  namespace: ai-system
+  labels:
+    app: aisix-contract-test
+spec:
+  type: external
+  enabled: true
+  targetNamespace: ai
+  external:
+    model: openai/aisix-contract-chat
+    apiBase: http://aisix-contract-mock.ai.svc.cluster.local:8080/v1
+    modelType: chat
+    apiKeySecretRef:
+      name: aisix-contract-provider-key
+      key: api-key
+---
+apiVersion: appliance.magicstick.dev/v1alpha1
+kind: ModelActivation
+metadata:
+  name: aisix-contract-embedding
+  namespace: ai-system
+  labels:
+    app: aisix-contract-test
+spec:
+  type: external
+  enabled: true
+  targetNamespace: ai
+  external:
+    model: openai/aisix-contract-embedding
+    apiBase: http://aisix-contract-mock.ai.svc.cluster.local:8080/v1
+    modelType: embedding
+    apiKeySecretRef:
+      name: aisix-contract-provider-key
+      key: api-key

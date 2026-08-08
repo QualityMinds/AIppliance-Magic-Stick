@@ -28,17 +28,9 @@ spec:
                   name: litellm-masterkey-secret
                   key: LITELLM_MASTER_KEY
             - name: TEST_CHAT_MODEL
-              valueFrom:
-                configMapKeyRef:
-                  name: ai-model-catalog
-                  key: AI_APPLIANCE_DEFAULT_CHAT_MODEL
-                  optional: true
+              value: aisix-contract-chat
             - name: TEST_EMBEDDING_MODEL
-              valueFrom:
-                configMapKeyRef:
-                  name: ai-model-catalog
-                  key: AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL
-                  optional: true
+              value: aisix-contract-embedding
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

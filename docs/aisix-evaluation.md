@@ -127,12 +127,14 @@ one-shot Job that checks:
 - rejection of unauthenticated requests;
 - invalid-model behavior;
 - `/v1/models` compatibility with LiteLLM;
-- a real chat request when the selected default chat model is AISIX-compatible;
-- a real embedding request when the selected default embedding model is
-  AISIX-compatible.
+- a non-streaming and streaming chat request through both gateways;
+- an embedding request through both gateways.
 
-Real chat and embedding checks can consume provider quota. Review the selected
-defaults before applying the Job.
+The overlay creates two temporary `ModelActivation` resources and a local,
+OpenAI-compatible mock upstream. This exercises the complete model-catalog,
+LiteLLM, AISIX, JSON, SSE, and embedding paths without a GPU, Internet access,
+or provider quota. All fixture credentials are explicitly non-secret test
+values.
 
 ```bash
 kubectl -n ai delete job aisix-contract-test --ignore-not-found
@@ -144,6 +146,12 @@ A successful basic run ends with:
 
 ```text
 AISIX/LiteLLM contract smoke test passed
+```
+
+Remove all temporary test resources afterward:
+
+```bash
+kubectl delete -k magic-cluster/apps/ai/aisix/tests
 ```
 
 ## Disable And Roll Back

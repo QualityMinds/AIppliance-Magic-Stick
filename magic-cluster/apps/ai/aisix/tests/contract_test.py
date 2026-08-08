@@ -2,6 +2,7 @@
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -64,11 +65,22 @@ def stream_request(base_url, body):
     raise AssertionError("streaming response contained no SSE data event")
 
 
-def check_models():
-    _, aisix = request(AISIX_BASE_URL, "GET", "/v1/models")
-    _, litellm = request(LITELLM_BASE_URL, "GET", "/v1/models")
-    aisix_ids = model_ids(aisix)
-    litellm_ids = model_ids(litellm)
+def check_models(timeout_seconds=240):
+    deadline = time.monotonic() + timeout_seconds
+    expected = {model for model in (CHAT_MODEL, EMBEDDING_MODEL) if model}
+    while True:
+        _, aisix = request(AISIX_BASE_URL, "GET", "/v1/models")
+        _, litellm = request(LITELLM_BASE_URL, "GET", "/v1/models")
+        aisix_ids = model_ids(aisix)
+        litellm_ids = model_ids(litellm)
+        if expected.issubset(aisix_ids) and expected.issubset(litellm_ids):
+            break
+        if time.monotonic() >= deadline:
+            raise AssertionError(
+                "timed out waiting for contract models; "
+                + f"expected={sorted(expected)} AISIX={sorted(aisix_ids)} LiteLLM={sorted(litellm_ids)}"
+            )
+        time.sleep(5)
     missing = sorted(aisix_ids - litellm_ids)
     if missing:
         raise AssertionError("AISIX returned models absent from LiteLLM: " + ", ".join(missing))
@@ -78,7 +90,7 @@ def check_models():
 
 def check_chat(aisix_ids):
     if not CHAT_MODEL:
-        print("chat: skipped (the catalog has no default chat model)")
+        print("chat: skipped (no contract chat model configured)")
         return
     if CHAT_MODEL not in aisix_ids:
         print("chat: skipped (the default model is not AISIX-compatible: " + CHAT_MODEL + ")")
@@ -94,7 +106,7 @@ def check_chat(aisix_ids):
 
 def check_embeddings(aisix_ids):
     if not EMBEDDING_MODEL:
-        print("embeddings: skipped (the catalog has no default embedding model)")
+        print("embeddings: skipped (no contract embedding model configured)")
         return
     if EMBEDDING_MODEL not in aisix_ids:
         print("embeddings: skipped (the default model is not AISIX-compatible: " + EMBEDDING_MODEL + ")")

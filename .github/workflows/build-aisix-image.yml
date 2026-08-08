@@ -4,7 +4,6 @@ on:
   push:
     paths:
       - .github/workflows/build-aisix-image.yml
-      - magic-cluster/apps/ai/aisix/**
   workflow_dispatch:
 
 permissions:
