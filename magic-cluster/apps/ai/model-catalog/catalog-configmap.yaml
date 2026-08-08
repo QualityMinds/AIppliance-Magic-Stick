@@ -95,3 +95,14 @@ data:
     {
       "opencode_local": []
     }
+  gateway-backends.json: |
+    {
+      "litellm": {
+        "active": true
+      },
+      "aisix": {
+        "published": false,
+        "compatibleModels": [],
+        "skippedModels": []
+      }
+    }

@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: aisix
+  namespace: aisix-system
+  labels:
+    app: aisix
+    app.kubernetes.io/name: aisix
+    app.kubernetes.io/component: ai-gateway-canary
+spec:
+  type: ClusterIP
+  selector:
+    app: aisix
+  ports:
+    - name: http
+      port: 4000
+      targetPort: http
+      protocol: TCP
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+      protocol: TCP

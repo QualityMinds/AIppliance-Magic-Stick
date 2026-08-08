@@ -40,6 +40,14 @@ spec:
               value: ai-model-catalog
             - name: EXTERNAL_MODELS_CONFIGMAP
               value: ai-external-models
+            - name: AISIX_CONFIG_PUBLISH_ENABLED
+              value: "true"
+            - name: AISIX_NAMESPACE
+              value: aisix-system
+            - name: AISIX_RESOURCES_SECRET
+              value: aisix-runtime-resources
+            - name: AISIX_CREDENTIALS_SECRET
+              value: aisix-provider-credentials
             - name: CATALOG_POLL_SECONDS
               value: "30"
             - name: CATALOG_WATCH_SECONDS

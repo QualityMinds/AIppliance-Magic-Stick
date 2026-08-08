@@ -66,6 +66,8 @@ jobs:
             magic-cluster/platform/ai/paperclip-operator
             magic-cluster/platform/ai/agent-sandbox
             magic-cluster/apps/ai/litellm/base
+            magic-cluster/apps/ai/aisix/base
+            magic-cluster/apps/ai/aisix/tests
             magic-cluster/apps/ai/model-catalog
             magic-cluster/apps/ai/anything-llm/base
             magic-cluster/apps/ai/kubeopencode

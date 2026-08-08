@@ -1,0 +1,35 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: aisix-resource-publisher
+  namespace: aisix-system
+  labels:
+    app.kubernetes.io/name: aisix
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    resourceNames:
+      - aisix-runtime-resources
+      - aisix-provider-credentials
+    verbs:
+      - get
+      - update
+      - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: aisix-resource-publisher
+  namespace: aisix-system
+  labels:
+    app.kubernetes.io/name: aisix
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: aisix-resource-publisher
+subjects:
+  - kind: ServiceAccount
+    name: ai-model-catalog-controller
+    namespace: ai

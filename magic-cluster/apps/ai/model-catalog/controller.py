@@ -18,6 +18,10 @@ LITELLM_API_BASE = os.environ.get("LITELLM_API_BASE", LITELLM_BASE_URL + "/v1").
 KUBEAI_API_BASE = os.environ.get("KUBEAI_API_BASE", "http://kubeai.ai.svc.cluster.local/openai/v1").rstrip("/")
 CATALOG_CONFIGMAP = os.environ.get("CATALOG_CONFIGMAP", "ai-model-catalog")
 EXTERNAL_MODELS_CONFIGMAP = os.environ.get("EXTERNAL_MODELS_CONFIGMAP", "ai-external-models")
+AISIX_CONFIG_PUBLISH_ENABLED = os.environ.get("AISIX_CONFIG_PUBLISH_ENABLED", "true").lower() == "true"
+AISIX_NAMESPACE = os.environ.get("AISIX_NAMESPACE", "aisix-system")
+AISIX_RESOURCES_SECRET = os.environ.get("AISIX_RESOURCES_SECRET", "aisix-runtime-resources")
+AISIX_CREDENTIALS_SECRET = os.environ.get("AISIX_CREDENTIALS_SECRET", "aisix-provider-credentials")
 POLL_SECONDS = int(os.environ.get("CATALOG_POLL_SECONDS", "30"))
 WATCH_SECONDS = int(os.environ.get("CATALOG_WATCH_SECONDS", str(max(1, POLL_SECONDS // 2))))
 DEFAULT_CHAT_MODEL = os.environ.get("AI_APPLIANCE_DEFAULT_CHAT_MODEL", "auto")
@@ -69,7 +73,7 @@ def k8s_token():
         return token_file.read().strip()
 
 
-K8S_SSL = ssl.create_default_context(cafile=SA_CA_PATH)
+K8S_SSL = ssl.create_default_context(cafile=SA_CA_PATH if os.path.exists(SA_CA_PATH) else None)
 
 
 def k8s_request(method, path, body=None, ok=(200, 201, 202)):
@@ -242,6 +246,17 @@ def get_configmap(name):
         raise
 
 
+def get_secret(name, namespace=None):
+    namespace = namespace or NAMESPACE
+    path = f"/api/v1/namespaces/{namespace}/secrets/{name}"
+    try:
+        return k8s_request("GET", path)
+    except RuntimeError as error:
+        if " returned 404:" in str(error):
+            return None
+        raise
+
+
 def read_secret_value(ref):
     name = ref.get("name")
     key = ref.get("key")
@@ -385,6 +400,162 @@ def desired_deployments():
     return {deployment["model_name"]: deployment for deployment in deployments}
 
 
+def aisix_openai_model(deployment):
+    name = str(deployment.get("model_name") or "").strip()
+    info = deployment.get("model_info") or {}
+    params = deployment.get("litellm_params") or {}
+    raw_model = str(params.get("model") or "").strip()
+    source = str(info.get("ai_appliance_source") or info.get("source") or "").strip().lower()
+    custom_provider = str(params.get("custom_llm_provider") or "").strip().lower()
+    prefix = raw_model.split("/", 1)[0].lower() if "/" in raw_model else ""
+
+    compatible = source == "kubeai" or (
+        prefix in {"", "openai"}
+        and custom_provider in {"", "openai", "openai-compatible", "openai_compatible"}
+    )
+    if not compatible:
+        provider = custom_provider or prefix or "unknown"
+        return None, None, f"unsupported provider adapter: {provider}"
+    if not name or not raw_model:
+        return None, None, "missing model name"
+
+    upstream_model = raw_model.split("/", 1)[1] if prefix == "openai" else raw_model
+    api_key = str(params.get("api_key") or "").strip()
+    if source == "kubeai" and not api_key:
+        api_key = "none"
+    if not api_key:
+        return None, None, "missing provider credential"
+
+    provider_name = safe_id("provider", name)
+    credential_env = "AISIX_PROVIDER_KEY_" + hashlib.sha256(name.encode("utf-8")).hexdigest()[:16].upper()
+    provider_key = {
+        "display_name": provider_name,
+        "provider": "openai",
+        "adapter": "openai",
+        "api_key": "${" + credential_env + "}",
+    }
+    api_base = str(params.get("api_base") or "").strip()
+    if api_base:
+        provider_key["api_base"] = api_base
+
+    model = {
+        "display_name": name,
+        "provider": "openai",
+        "model_name": upstream_model,
+        "provider_key": provider_name,
+    }
+    return model, {"provider": provider_key, "env": credential_env, "value": api_key}, ""
+
+
+def aisix_document(deployments):
+    if not LITELLM_MASTER_KEY:
+        raise RuntimeError("LITELLM_MASTER_KEY is required to render AISIX caller authentication")
+    provider_keys = []
+    models = []
+    credentials = {}
+    compatible = []
+    skipped = []
+    for name in sorted(deployments):
+        model, credential, reason = aisix_openai_model(deployments[name])
+        if not model:
+            skipped.append({"id": name, "reason": reason})
+            continue
+        models.append(model)
+        provider_keys.append(credential["provider"])
+        credentials[credential["env"]] = credential["value"]
+        compatible.append(name)
+    document = {
+        "_format_version": "1",
+        "provider_keys": provider_keys,
+        "models": models,
+        "api_keys": [
+            {
+                "display_name": "magicstick-clients",
+                "key_hash": hashlib.sha256(LITELLM_MASTER_KEY.encode("utf-8")).hexdigest(),
+                "allowed_models": ["*"],
+            }
+        ],
+    }
+    summary = {
+        "published": AISIX_CONFIG_PUBLISH_ENABLED,
+        "compatibleModels": compatible,
+        "skippedModels": skipped,
+    }
+    return document, credentials, summary
+
+
+def write_generated_secret(name, values, content_hash):
+    encoded = {
+        key: base64.b64encode(value.encode("utf-8")).decode("ascii")
+        for key, value in values.items()
+    }
+    existing = get_secret(name, AISIX_NAMESPACE)
+    if not existing:
+        raise RuntimeError(f"generated Secret {AISIX_NAMESPACE}/{name} is missing")
+    existing_data = (existing or {}).get("data") or {}
+    existing_hash = (((existing or {}).get("metadata") or {}).get("annotations") or {}).get(CATALOG_HASH_ANNOTATION)
+    if existing and existing_hash == content_hash and existing_data == encoded:
+        return False
+    metadata = (existing or {}).get("metadata") or {}
+    labels = dict(metadata.get("labels") or {})
+    annotations = dict(metadata.get("annotations") or {})
+    labels.update({
+        "app": "aisix",
+        "app.kubernetes.io/managed-by": "ai-model-catalog-controller",
+    })
+    annotations.update({
+        CATALOG_HASH_ANNOTATION: content_hash,
+        "ai-appliance.io/last-sync": utc_now(),
+    })
+    obj = {
+        "apiVersion": "v1",
+        "kind": "Secret",
+        "metadata": {
+            "name": name,
+            "namespace": AISIX_NAMESPACE,
+            "labels": labels,
+            "annotations": annotations,
+        },
+        "type": "Opaque",
+        "data": encoded,
+    }
+    obj["metadata"]["resourceVersion"] = metadata["resourceVersion"]
+    k8s_request("PUT", f"/api/v1/namespaces/{AISIX_NAMESPACE}/secrets/{name}", obj)
+    return True
+
+
+def publish_aisix_resources(deployments):
+    document, credentials, summary = aisix_document(deployments)
+    if not AISIX_CONFIG_PUBLISH_ENABLED:
+        return summary
+    resources = json_dumps(document)
+    resources_hash = hashlib.sha256(resources.encode("utf-8")).hexdigest()[:16]
+    credentials_hash = hashlib.sha256(
+        json.dumps(credentials, sort_keys=True).encode("utf-8")
+    ).hexdigest()[:16]
+    try:
+        write_generated_secret(AISIX_CREDENTIALS_SECRET, credentials, credentials_hash)
+        write_generated_secret(AISIX_RESOURCES_SECRET, {"resources.yaml": resources}, resources_hash)
+    except RuntimeError as error:
+        if " returned 404:" in str(error) or "generated Secret " in str(error):
+            summary["published"] = False
+            summary["reason"] = "AISIX bootstrap resources are not installed"
+            log("AISIX resources are waiting for their isolated bootstrap Secrets")
+            return summary
+        raise
+    summary["resourcesHash"] = resources_hash
+    log(
+        "published AISIX resources hash "
+        + resources_hash
+        + " with "
+        + str(len(summary["compatibleModels"]))
+        + " compatible models and "
+        + str(len(summary["skippedModels"]))
+        + " skipped models"
+    )
+    return summary
+
+
 def fetch_litellm_models():
     payload = litellm_request("GET", "/model/info")
     return payload.get("data") if isinstance(payload, dict) and isinstance(payload.get("data"), list) else []
@@ -399,8 +570,8 @@ def is_managed(model):
     return value is True or str(value).lower() == "true"
 
 
-def sync_litellm():
-    desired = desired_deployments()
+def sync_litellm(desired=None):
+    desired = desired if desired is not None else desired_deployments()
     existing = fetch_litellm_models()
     existing_by_name = {model.get("model_name"): model for model in existing if model.get("model_name")}
 
@@ -499,7 +670,7 @@ def opencode_model(model):
     }
 
 
-def build_catalog(litellm_models):
+def build_catalog(litellm_models, aisix_summary=None):
     models = [catalog_entry(model) for model in litellm_models if model.get("model_name")]
     models.sort(key=lambda item: (item.get("type") or "", item["id"]))
     chat_models = [model for model in models if model.get("type") == "chat"]
@@ -512,6 +683,7 @@ def build_catalog(litellm_models):
         "defaultEmbeddingModel": default_embedding,
         "opencodeDefaultContextTokens": OPENCODE_DEFAULT_CONTEXT_TOKENS,
         "opencodeDefaultOutputTokens": OPENCODE_DEFAULT_OUTPUT_TOKENS,
+        "aisix": aisix_summary or {},
     }
     catalog_hash = hashlib.sha256(json.dumps(hash_input, sort_keys=True).encode("utf-8")).hexdigest()[:16]
 
@@ -595,6 +767,10 @@ def build_catalog(litellm_models):
         "hermes.yaml": json_dumps(hermes),
         "opencode-providers.json": json_dumps(opencode_providers),
         "paperclip-adapter-models.json": json_dumps(paperclip_adapter_models),
+        "gateway-backends.json": json_dumps({
+            "litellm": {"active": True},
+            "aisix": aisix_summary or {"published": False, "compatibleModels": [], "skippedModels": []},
+        }),
         "AI_APPLIANCE_MODEL_CATALOG_READY": "true",
         "AI_APPLIANCE_MODEL_CATALOG_HASH": catalog_hash,
         "AI_APPLIANCE_DEFAULT_CHAT_MODEL": default_chat,
@@ -714,8 +890,10 @@ def restart_consumers():
 
 
 def reconcile_once():
-    litellm_models = sync_litellm()
-    data, catalog_hash = build_catalog(litellm_models)
+    desired = desired_deployments()
+    aisix_summary = publish_aisix_resources(desired)
+    litellm_models = sync_litellm(desired)
+    data, catalog_hash = build_catalog(litellm_models, aisix_summary)
     changed = write_catalog(data, catalog_hash)
     sync_agent_templates(data)
     if changed:

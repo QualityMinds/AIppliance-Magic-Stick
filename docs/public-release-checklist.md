@@ -50,6 +50,8 @@ kubectl kustomize magic-cluster/platform/ai/openclaw-operator
 kubectl kustomize magic-cluster/platform/ai/paperclip-operator
 kubectl kustomize magic-cluster/platform/ai/agent-sandbox
 kubectl kustomize magic-cluster/apps/ai/litellm/base
+kubectl kustomize magic-cluster/apps/ai/aisix/base
+kubectl kustomize magic-cluster/apps/ai/aisix/tests
 kubectl kustomize magic-cluster/apps/ai/model-catalog
 kubectl kustomize magic-cluster/apps/ai/anything-llm/base
 kubectl kustomize magic-cluster/apps/ai/kubeopencode

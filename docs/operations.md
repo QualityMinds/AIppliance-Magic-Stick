@@ -197,6 +197,24 @@ kubectl -n ai logs deploy/ai-model-catalog-controller
 For schema details and model troubleshooting, see
 [model-catalog.md](model-catalog.md).
 
+## AISIX Canary
+
+The isolated namespace and generated configuration exist with the model
+catalog. The AISIX Deployment and Service exist only after the experimental
+module is enabled:
+
+```bash
+kubectl -n flux-system get kustomization app-aisix
+kubectl -n aisix-system get deployment,pods,service
+kubectl -n aisix-system logs deployment/aisix
+kubectl -n ai get configmap ai-model-catalog \
+  -o jsonpath='{.data.gateway-backends\.json}' | jq .
+```
+
+Do not decode or print the AISIX runtime Secrets during routine diagnosis.
+Use the one-shot contract suite and rollback procedure in
+[aisix-evaluation.md](aisix-evaluation.md).
+
 ## GPU And KubeAI
 
 These checks apply only after a local model has requested the optional GPU
@@ -257,6 +275,8 @@ deploy,pods` if a command does not match the running resource name.
 | HelmRelease is not ready | `kubectl -n flux-system describe helmrelease <name>` and inspect chart values. |
 | Custom legacy Ingress has no endpoint | The nginx controller is intentionally not installed. Bundled surfaces already use Envoy; migrate custom applications to an authenticated `HTTPRoute`. |
 | App waits for model catalog | Check `ai-model-catalog-controller` logs and `AI_APPLIANCE_MODEL_CATALOG_READY`. |
+| AISIX pod is waiting for a Secret | Confirm the model catalog controller is running and the isolated `aisix-resource-publisher` RoleBinding exists. Do not create a plaintext replacement Secret manually. |
+| AISIX model count is lower than LiteLLM | Inspect the non-sensitive `gateway-backends.json`; the PoC intentionally skips provider adapters outside its OpenAI-compatible scope. |
 | LiteLLM Prisma reports `P1000` authentication failed | The PostgreSQL PVC may be older than `litellm-postgresql-secret`. Keep generated DB credentials prune-disabled and rotate the DB user password to match the current Secret. |
 | Application shows a second login after SSO | Confirm Paperclip uses `deployment.mode: local_trusted` with `exposure: private`, the patched operator emits `PAPERCLIP_BIND=loopback`, and its `gateway-loopback-proxy` sidecar is ready; confirm Odysseus has `AUTH_ENABLED=false` and the application Service is exposed only through its authenticated Envoy route. |
 | Paperclip task creates no Sandbox | Check `sandboxes.agents.x-k8s.io`, the Agent Sandbox controller, `spec.adapters.execution.kubernetes.backend`, and the selected adapter runtime image. |

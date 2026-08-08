@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aisix-system
+  labels:
+    app.kubernetes.io/name: aisix
+    app.kubernetes.io/part-of: magicstick

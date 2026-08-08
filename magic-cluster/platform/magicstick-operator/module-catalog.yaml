@@ -72,6 +72,23 @@ data:
           "uninstallPolicy": "keep-data",
           "postBuildSubstitution": true
         },
+        "aisix": {
+          "displayName": "AISIX (Experimental)",
+          "description": "Install the local AISIX canary gateway beside LiteLLM. It is internal-only and does not replace the production gateway until the compatibility tests pass.",
+          "group": "runtime",
+          "activationMode": "moduleactivation",
+          "order": 65,
+          "path": "magic-cluster/apps/ai/aisix/base",
+          "kustomizationName": "app-aisix",
+          "requires": ["basis", "litellm", "model-catalog"],
+          "requiredCrds": [],
+          "default": false,
+          "uninstallPolicy": "remove",
+          "postBuildSubstitution": true,
+          "parameters": [
+            {"name": "image", "label": "AISIX Image Override", "placeholder": "ghcr.io/qualityminds/magicstick-aisix@sha256:...", "substitution": "AI_APPLIANCE_AISIX_IMAGE"}
+          ]
+        },
         "anything-llm": {
           "displayName": "AnythingLLM",
           "group": "apps",

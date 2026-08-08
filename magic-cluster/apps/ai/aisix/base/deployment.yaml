@@ -1,0 +1,102 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aisix
+  namespace: aisix-system
+  labels:
+    app: aisix
+    app.kubernetes.io/name: aisix
+    app.kubernetes.io/component: ai-gateway-canary
+  annotations:
+    configmap.reloader.stakater.com/reload: aisix-config
+    secret.reloader.stakater.com/reload: aisix-runtime-resources,aisix-provider-credentials
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: aisix
+  template:
+    metadata:
+      labels:
+        app: aisix
+        app.kubernetes.io/name: aisix
+        app.kubernetes.io/component: ai-gateway-canary
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: aisix
+          image: ${AI_APPLIANCE_AISIX_IMAGE:=ghcr.io/api7/aisix:0.8.1}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: aisix-provider-credentials
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - NET_BIND_SERVICE
+          volumeMounts:
+            - name: config
+              mountPath: /etc/aisix/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            - name: runtime-resources
+              mountPath: /etc/aisix-runtime
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: aisix-config
+        - name: runtime-resources
+          secret:
+            secretName: aisix-runtime-resources
+            defaultMode: 0440
+        - name: tmp
+          emptyDir: {}

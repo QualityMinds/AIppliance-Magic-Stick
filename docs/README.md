@@ -22,6 +22,7 @@ bootstrap plus runtime configuration through the dashboard and runtime CRs.
 | [gitops-overlays.md](gitops-overlays.md) | Optional GitOps include and overlay patterns for advanced deployments. |
 | [operations.md](operations.md) | Day-2 checks for Flux, K3s, apps, models, storage, GPU, logs, and common failures. |
 | [model-catalog.md](model-catalog.md) | AI model catalog contract, external model schema, generated ConfigMap keys, and troubleshooting. |
+| [aisix-evaluation.md](aisix-evaluation.md) | Optional AISIX canary, multi-architecture image, contract tests, rollback, and replacement decision gate. |
 | [paperclip-agents.md](paperclip-agents.md) | Paperclip sandbox execution, gateway agents, model access, credentials, and network isolation. |
 | [development.md](development.md) | Contribution workflow, validation commands, public release checks, and review rules. |
 | [public-release-checklist.md](public-release-checklist.md) | Final checklist before publishing a public release tag. |

@@ -81,6 +81,15 @@ dashboard. After every local model has been removed, **Remove Local GPU
 Runtime** deletes only automatically created KubeAI and GPU activations;
 manually managed activations are preserved.
 
+## Experimental AISIX Gateway
+
+`aisix` is an opt-in runtime module that depends on `litellm` and
+`model-catalog`. It installs an internal canary in `aisix-system`; it has no
+HTTPRoute and does not change production clients. The model catalog publishes
+an OpenAI-compatible subset for side-by-side testing. Enable or disable it from
+the normal Modules page. See [aisix-evaluation.md](aisix-evaluation.md) for the
+image override, contract test, security boundary, and decision gate.
+
 ## Generated Flux Kustomization
 
 For enabled runtime modules, the operator creates Flux `Kustomization` resources

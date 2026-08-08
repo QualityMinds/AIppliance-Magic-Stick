@@ -1,0 +1,61 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: aisix-contract-test
+  namespace: ai
+  labels:
+    app: aisix-contract-test
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: aisix-contract-test
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      containers:
+        - name: test
+          image: python:3.13-alpine
+          command:
+            - python
+            - /tests/contract_test.py
+          env:
+            - name: AI_GATEWAY_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-masterkey-secret
+                  key: LITELLM_MASTER_KEY
+            - name: TEST_CHAT_MODEL
+              valueFrom:
+                configMapKeyRef:
+                  name: ai-model-catalog
+                  key: AI_APPLIANCE_DEFAULT_CHAT_MODEL
+                  optional: true
+            - name: TEST_EMBEDDING_MODEL
+              valueFrom:
+                configMapKeyRef:
+                  name: ai-model-catalog
+                  key: AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL
+                  optional: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tests
+              mountPath: /tests
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tests
+          configMap:
+            name: aisix-contract-test
+        - name: tmp
+          emptyDir: {}

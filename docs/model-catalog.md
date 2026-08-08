@@ -15,6 +15,8 @@ the NVIDIA runtime are installed only when a local `ModelActivation` is enabled.
 - Read external runtime model requests from `ModelActivation` resources in
   namespace `ai-system`.
 - Create, update, and remove AI Appliance managed models in LiteLLM.
+- Render an experimental AISIX-compatible subset into isolated runtime Secrets
+  without changing the production gateway.
 - Publish generated catalog files in `ConfigMap/ai-model-catalog`.
 - Update KubeOpenCode `AgentTemplate` resources when available.
 - Restart known model-catalog consumer pods after catalog changes.
@@ -29,8 +31,11 @@ public `magic-cluster/apps/ai` base.
 | `Deployment/ai-model-catalog-controller` | Runs the Python reconciliation loop. |
 | `ConfigMap/ai-external-models` | Optional user-provided model definitions. The public base is empty. |
 | `ConfigMap/ai-model-catalog` | Generated catalog consumed by apps. Starts as a bootstrap placeholder. |
+| `Secret/aisix-runtime-resources` in `aisix-system` | Generated standalone AISIX resource file with credential references and the hashed caller key. |
+| `Secret/aisix-provider-credentials` in `aisix-system` | Provider credentials for AISIX-compatible models. |
 | `ServiceAccount/ai-model-catalog-controller` | Runtime identity for the controller. |
 | `Role/ai-model-catalog-controller` | Allows reading models, configmaps, secrets, pods, and AgentTemplates. |
+| `Role/aisix-resource-publisher` in `aisix-system` | Allows updating only the two pre-created AISIX runtime Secrets; it cannot create other Secrets. |
 
 ## Reconciliation Flow
 
@@ -39,13 +44,17 @@ public `magic-cluster/apps/ai` base.
 3. It reads enabled external `ModelActivation` resources when present.
 4. It builds the desired LiteLLM model set and marks those models with
    `ai_appliance_managed=true`.
-5. It calls LiteLLM `/model/new` or `/model/update` for desired models.
-6. It deletes stale LiteLLM models only when they were previously marked as AI
+5. It renders local KubeAI and external OpenAI-compatible models into AISIX's
+   declarative format. Other provider adapters are reported as skipped.
+6. It writes AISIX runtime data only into the dedicated `aisix-system`
+   namespace and keeps provider credentials separate from the resource file.
+7. It calls LiteLLM `/model/new` or `/model/update` for desired models.
+8. It deletes stale LiteLLM models only when they were previously marked as AI
    Appliance managed.
-7. It writes generated catalog data to `ConfigMap/ai-model-catalog`.
-8. It updates configured KubeOpenCode AgentTemplates with the generated chat
+9. It writes generated catalog data to `ConfigMap/ai-model-catalog`.
+10. It updates configured KubeOpenCode AgentTemplates with the generated chat
    model list.
-9. If the catalog hash changed, it deletes known consumer pods so their owning
+11. If the catalog hash changed, it deletes known consumer pods so their owning
    controllers recreate them with the new catalog.
 
 ## KubeAI Models
@@ -179,6 +188,8 @@ The controller reads these deployment variables:
 | `CONSUMER_RESTART_ENABLED` | `true` | Delete known consumer pods after catalog changes. |
 | `AGENT_TEMPLATE_SYNC_ENABLED` | `true` | Patch configured KubeOpenCode AgentTemplates. |
 | `AGENT_TEMPLATE_NAMES` | `litellm-default` | Comma-separated AgentTemplate names to update. |
+| `AISIX_CONFIG_PUBLISH_ENABLED` | `true` | Publish the experimental AISIX model subset without changing production clients. |
+| `AISIX_NAMESPACE` | `aisix-system` | Isolated namespace for generated AISIX runtime Secrets. |
 | `OPENCODE_DEFAULT_CONTEXT_TOKENS` | `131072` | Context limit used when a model exposes no positive limit. |
 | `OPENCODE_DEFAULT_OUTPUT_TOKENS` | `8192` | Output limit used when a model exposes no positive limit. |
 
@@ -204,6 +215,7 @@ used. If no model of that type exists, the default is an empty string.
 | `hermes.yaml` | Hermes-ready LiteLLM provider fragment. |
 | `opencode-providers.json` | OpenCode provider map for the internal LiteLLM endpoint, including required context and output limits. |
 | `paperclip-adapter-models.json` | Paperclip model-picker entries for OpenCode adapters in `litellm/<model-id>` form. |
+| `gateway-backends.json` | Non-sensitive LiteLLM/AISIX status, compatible model ids, skipped ids, and skip reasons. |
 | `AI_APPLIANCE_DEFAULT_OPENCODE_MODEL` | Selected chat default in `litellm/<model-id>` form. |
 
 `catalog.json` uses this shape:

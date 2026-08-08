@@ -22,6 +22,8 @@ formalized, release entries should group changes under:
 - Public support, maintainer, and governance documentation.
 - A Git-owned application catalog and per-application Helm charts for runtime
   `AppInstance` resources.
+- An opt-in, internal AISIX canary with isolated generated configuration,
+  multi-architecture image builds, and a LiteLLM comparison test suite.
 
 ### Changed
 

@@ -116,6 +116,7 @@ directly.
 | Dashboard | `magic-cluster/apps/dashboard` | Cluster landing page, app discovery surface, and Appliance CR UI/API client. |
 | LiteLLM | `magic-cluster/apps/ai/litellm/base` | In-cluster OpenAI-compatible API and model routing. |
 | Model catalog | `magic-cluster/apps/ai/model-catalog` | Syncs KubeAI and external models into LiteLLM and publishes generated catalog fragments. |
+| AISIX canary | `magic-cluster/apps/ai/aisix/base` | Optional internal-only gateway evaluation beside LiteLLM; it is not a default production path. |
 | AnythingLLM | `magic-cluster/apps/ai/anything-llm/base` | Uses LiteLLM and the generated embedding default. |
 | Runtime app instances | `AppInstance` CRs | The Magic Stick Operator creates one Flux HelmRelease per instance; its chart owns the application resources. |
 | KubeOpenCode | `magic-cluster/apps/ai/kubeopencode` | Helm-managed KubeOpenCode controller and server module. |
