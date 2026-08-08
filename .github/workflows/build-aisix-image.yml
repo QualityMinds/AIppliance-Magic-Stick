@@ -16,81 +16,118 @@ concurrency:
   group: aisix-image-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  IMAGE_NAME: ghcr.io/qualityminds/magicstick-aisix
+  IMAGE_VERSION: v0.8.1-magicstick.1
+  AISIX_REF: 315ab1f94802a6704c7355fdc4e85cc4ccadeb74
+
 jobs:
-  verify-source:
-    name: Verify pinned AISIX source
-    runs-on: ubuntu-24.04
+  build:
+    name: Build ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+            suffix: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            suffix: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
     steps:
       - name: Check out pinned AISIX source
         uses: actions/checkout@v4
         with:
           repository: api7/aisix
-          ref: 315ab1f94802a6704c7355fdc4e85cc4ccadeb74
+          ref: ${{ env.AISIX_REF }}
           path: .build/aisix
 
       - name: Verify upstream version
         working-directory: .build/aisix
         run: |
-          test "$(git rev-parse HEAD)" = "315ab1f94802a6704c7355fdc4e85cc4ccadeb74"
+          test "$(git rev-parse HEAD)" = "$AISIX_REF"
           grep -q '^channel = "1\.93\.1"' rust-toolchain.toml
 
-  build:
-    name: Build native AMD64 and ARM64 image
-    needs: verify-source
-    uses: docker/github-builder/.github/workflows/build.yml@a492c6d04fd3315f67230809b44d60cc0acd50b3
-    permissions:
-      contents: read
-      packages: write
-      attestations: write
-      id-token: write
-    with:
-      output: image
-      push: true
-      platforms: linux/amd64,linux/arm64
-      context: https://github.com/api7/aisix.git#315ab1f94802a6704c7355fdc4e85cc4ccadeb74
-      file: Dockerfile
-      build-args: |
-        BUILD_SHA=315ab1f94802a6704c7355fdc4e85cc4ccadeb74
-        BUILD_VERSION=0.8.1
-      cache: true
-      cache-mode: max
-      cache-scope: magicstick-aisix-v0.8.1
-      sbom: true
-      sign: auto
-      set-meta-labels: true
-      meta-images: ghcr.io/qualityminds/magicstick-aisix
-      meta-tags: |
-        type=sha,prefix=sha-,format=long
-        type=raw,value=v0.8.1-magicstick.1,enable=${{ github.ref == 'refs/heads/main' }}
-      meta-labels: |
-        org.opencontainers.image.title=MagicStick AISIX
-        org.opencontainers.image.description=Multi-architecture AISIX gateway built from pinned upstream source
-        org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick
-        org.opencontainers.image.licenses=Apache-2.0
-        org.opencontainers.image.created=2026-08-07T14:18:40Z
-        org.opencontainers.image.version=v0.8.1-magicstick.1
-        org.opencontainers.image.revision=315ab1f94802a6704c7355fdc4e85cc4ccadeb74
-    secrets:
-      registry-auths: |
-        - registry: ghcr.io
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-  report:
-    name: Record immutable digest
+      - name: Build and push native image
+        uses: docker/build-push-action@v6
+        with:
+          context: .build/aisix
+          file: .build/aisix/Dockerfile
+          platforms: ${{ matrix.platform }}
+          push: true
+          tags: ${{ env.IMAGE_NAME }}:build-${{ github.sha }}-${{ matrix.suffix }}
+          labels: |
+            org.opencontainers.image.title=MagicStick AISIX
+            org.opencontainers.image.description=Multi-architecture AISIX gateway built from pinned upstream source
+            org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick
+            org.opencontainers.image.licenses=Apache-2.0
+            org.opencontainers.image.created=2026-08-07T14:18:40Z
+            org.opencontainers.image.version=${{ env.IMAGE_VERSION }}
+            org.opencontainers.image.revision=${{ env.AISIX_REF }}
+          build-args: |
+            BUILD_SHA=${{ env.AISIX_REF }}
+            BUILD_VERSION=0.8.1
+          cache-from: type=gha,scope=magicstick-aisix-${{ matrix.suffix }}
+          cache-to: type=gha,mode=max,scope=magicstick-aisix-${{ matrix.suffix }}
+          provenance: mode=max
+          sbom: true
+
+  merge:
+    name: Create multi-architecture manifest
     needs: build
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - name: Write build summary
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Merge platform images and record digest
+        id: merge
+        shell: bash
+        run: |
+          tags=(--tag "${IMAGE_NAME}:sha-${GITHUB_SHA}")
+          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            tags+=(--tag "${IMAGE_NAME}:${IMAGE_VERSION}")
+          fi
+          docker buildx imagetools create \
+            "${tags[@]}" \
+            --metadata-file /tmp/aisix-image-metadata.json \
+            "${IMAGE_NAME}:build-${GITHUB_SHA}-amd64" \
+            "${IMAGE_NAME}:build-${GITHUB_SHA}-arm64"
+          digest="$(jq -r '."containerimage.descriptor".digest' /tmp/aisix-image-metadata.json)"
+          test -n "$digest"
+          test "$digest" != "null"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Record immutable digest
         env:
-          IMAGE_DIGEST: ${{ needs.build.outputs.digest }}
+          IMAGE_DIGEST: ${{ steps.merge.outputs.digest }}
         run: |
           {
             echo "### MagicStick AISIX image"
             echo
-            echo "- Image: \`ghcr.io/qualityminds/magicstick-aisix\`"
+            echo "- Image: \`${IMAGE_NAME}\`"
             echo "- Branch tag: \`sha-${GITHUB_SHA}\`"
             echo "- Digest: \`${IMAGE_DIGEST}\`"
             echo "- Platforms: \`linux/amd64,linux/arm64\`"
-            echo "- Upstream: \`315ab1f94802a6704c7355fdc4e85cc4ccadeb74\` (v0.8.1)"
+            echo "- Upstream: \`${AISIX_REF}\` (v0.8.1)"
           } >> "$GITHUB_STEP_SUMMARY"
