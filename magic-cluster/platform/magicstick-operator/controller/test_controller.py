@@ -178,6 +178,36 @@ class HelmAppInstanceTests(unittest.TestCase):
         self.assertEqual(required("external"), ["litellm", "model-catalog"])
         self.assertEqual(required("local"), ["gpu", "kubeai", "litellm", "model-catalog"])
 
+    def test_qwen38_preset_generates_validated_single_gpu_runtime(self):
+        manifest = yaml.safe_load((ROOT / "model-presets.yaml").read_text(encoding="utf-8"))
+        presets = yaml.safe_load(manifest["data"]["presets.json"])["presets"]
+        preset = presets["qwen3827b"]
+        activation = {
+            "metadata": {"name": "qwen3827b"},
+            "spec": {
+                "targetNamespace": "ai",
+                "local": {"preset": "qwen3827b"},
+            },
+        }
+
+        resource, vram_mi = self.controller["kubeai_model_resource"](activation, presets)
+
+        self.assertEqual(preset["url"], "hf://cyankiwi/Qwen3.8-27B-AWQ-INT4")
+        self.assertEqual(vram_mi, 24062)
+        self.assertEqual(resource["metadata"]["annotations"]["ai-appliance.io/context-window"], "20000")
+        self.assertEqual(resource["spec"]["env"]["MAGICSTICK_VLLM_VRAM_LIMIT"], "24062Mi")
+        self.assertEqual(
+            resource["spec"]["args"],
+            [
+                "--tensor-parallel-size=1",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder",
+                "--max-model-len=20000",
+                "--max-num-seqs=1",
+            ],
+        )
+
     def test_nvidia_capacity_uses_allocatable_resources(self):
         original = self.controller["list_items"]
         self.controller["list_items"] = lambda _path: [
