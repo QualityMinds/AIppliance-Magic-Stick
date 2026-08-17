@@ -128,6 +128,24 @@ BROWSER_API_MOCK = r"""
             activationMode: 'moduleactivation',
             displayName: 'LiteLLM',
             status: { phase: 'Ready' }
+          },
+          'model-catalog': {
+            enabled: true,
+            activationMode: 'static',
+            displayName: 'Model Catalog',
+            status: { phase: 'Ready' }
+          },
+          'openclaw-operator': {
+            enabled: true,
+            activationMode: 'static',
+            displayName: 'OpenClaw Operator',
+            status: { phase: 'Ready' }
+          },
+          'hermes-operator': {
+            enabled: true,
+            activationMode: 'static',
+            displayName: 'Hermes Operator',
+            status: { phase: 'Ready' }
           }
         },
         catalogJson: {
@@ -135,7 +153,16 @@ BROWSER_API_MOCK = r"""
             litellm: { displayName: 'LiteLLM', activationMode: 'moduleactivation', order: 50 }
           },
           groups: {},
-          applications: {}
+          applications: {
+            openclaw: {
+              displayName: 'OpenClaw',
+              requiredModules: ['openclaw-operator', 'litellm', 'model-catalog']
+            },
+            hermes: {
+              displayName: 'Hermes',
+              requiredModules: ['hermes-operator', 'litellm', 'model-catalog']
+            }
+          }
         }
       });
     }
@@ -294,6 +321,35 @@ BROWSER_ASSERTIONS = r"""
     assert(!overviewUrls.includes('https://magicstick.local'), 'OIDC callback route leaked into module URLs');
     assert(!overviewUrls.includes('https://pending.magicstick.example.com'), 'unaccepted HTTPRoute was shown');
     assert(document.getElementById('overview-app-count').textContent === '2 URLs', 'overview URL count is incorrect');
+    document.querySelector('[data-tab="instances"]').click();
+    await waitFor(() => !document.getElementById('tab-instances').hidden, 'Instances tab');
+    const createInstance = document.getElementById('instance-create-open');
+    assert(createInstance && !createInstance.hidden && !createInstance.closest('[hidden]'), 'Create Instance button is not visible');
+    createInstance.click();
+    const instanceDialog = document.getElementById('instance-create-dialog');
+    await waitFor(() => instanceDialog.open, 'instance create dialog');
+    const choices = Array.from(document.querySelectorAll('[data-instance-choice]'));
+    assert(choices.length === 2, 'instance picker must show only the two installed types');
+    assert(choices.map((choice) => choice.dataset.instanceChoice).join(',') === 'openclaw,hermes', 'instance picker types are incorrect');
+    assert(Array.from(document.querySelectorAll('.instance-form')).every((form) => form.hidden), 'configuration forms are visible before selecting a type');
+    await sleep(20);
+    assert(document.activeElement === choices[0], 'instance picker did not receive focus');
+
+    document.querySelector('[data-instance-choice="hermes"]').click();
+    await waitFor(() => !document.getElementById('instance-config-step').hidden, 'Hermes configuration step');
+    const hermesForm = document.querySelector('.instance-form[data-instance-type="hermes"]');
+    const openClawForm = document.querySelector('.instance-form[data-instance-type="openclaw"]');
+    assert(!hermesForm.hidden, 'selected Hermes form is hidden');
+    assert(openClawForm.hidden, 'unselected OpenClaw form is visible');
+    assert(Array.from(document.querySelectorAll('.instance-form')).filter((form) => !form.hidden).length === 1, 'more than one instance form is visible');
+    assert(document.getElementById('instance-selected-type').textContent === 'Hermes configuration', 'selected type heading is incorrect');
+
+    document.getElementById('instance-create-back').click();
+    await waitFor(() => !document.getElementById('instance-type-step').hidden, 'return to instance types');
+    assert(Array.from(document.querySelectorAll('.instance-form')).every((form) => form.hidden), 'configuration form remained visible after Back');
+    instanceDialog.querySelector('[data-dialog-cancel]').click();
+    await waitFor(() => !instanceDialog.open, 'close instance create dialog');
+
     const usersTab = document.getElementById('users-tab-button');
     assert(usersTab, 'Users tab is missing from the rendered DOM');
 
@@ -445,6 +501,34 @@ class DashboardUserManagementUiTests(unittest.TestCase):
         self.assertIn("anchor.textContent = link.url", self.script)
         self.assertIn("seenLinks.size === 1 ? ' URL' : ' URLs'", self.script)
         self.assertIn("No module or instance URLs discovered yet.", self.script)
+
+    def test_instance_creation_uses_catalog_driven_two_step_dialog(self):
+        self.assertIn('id="instance-create-open"', self.source)
+        self.assertIn('id="instance-create-dialog"', self.source)
+        self.assertIn('id="instance-type-picker"', self.source)
+        self.assertIn('id="instance-config-step"', self.source)
+        self.assertIn('id="instance-create-back"', self.source)
+        self.assertNotIn('class="instance-create-summary"', self.source)
+        self.assertIn("const renderInstanceTypeChoices = () =>", self.script)
+        self.assertIn("applicationDefinitions(latestModulePayload)[type]", self.script)
+        self.assertIn("button.dataset.instanceChoice = type", self.script)
+        self.assertIn("form.hidden = form !== selectedForm", self.script)
+        self.assertIn("selectInstanceCreateType('')", self.script)
+
+    def test_instance_picker_exposes_only_ready_catalog_applications(self):
+        self.assertIn("form.dataset.instanceAvailable = installed ? 'true' : 'false'", self.script)
+        self.assertIn("instanceTypeInstalled(modulePayload, form.dataset.instanceType)", self.script)
+        self.assertIn("availableInstanceForms().forEach((form)", self.script)
+        self.assertIn("createPanel.hidden = availableCount === 0", self.script)
+
+    def test_successful_instance_creation_closes_the_dialog(self):
+        handler = self.script.split("document.querySelectorAll('.instance-form').forEach((form) =>", 1)[1]
+        handler = handler.split("document.querySelectorAll('input[data-gateway-toggle]')", 1)[0]
+        request_line = "await request('/api/instances/' + type"
+        close_line = "closeUserDialog($('instance-create-dialog'));"
+        self.assertIn(request_line, handler)
+        self.assertIn(close_line, handler)
+        self.assertLess(handler.index(request_line), handler.index(close_line))
 
     def test_overview_url_discovery_matches_routes_and_excludes_callbacks(self):
         if not shutil.which("node"):

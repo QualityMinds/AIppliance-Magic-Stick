@@ -491,14 +491,12 @@ data:
           gap: 0.7rem;
         }
 
-        .model-create-panel,
-        .instance-create-panel {
+        .model-create-panel {
           display: grid;
           gap: 0.75rem;
         }
 
-        .model-create-summary,
-        .instance-create-summary {
+        .model-create-summary {
           border: 1px solid rgba(125, 211, 252, 0.3);
           border-radius: 10px;
           background: rgba(15, 23, 42, 0.82);
@@ -511,29 +509,107 @@ data:
           padding: 0.7rem 0.85rem;
         }
 
-        .model-create-summary::-webkit-details-marker,
-        .instance-create-summary::-webkit-details-marker {
+        .model-create-summary::-webkit-details-marker {
           display: none;
         }
 
-        .model-create-summary span:first-child,
-        .instance-create-summary span:first-child {
+        .model-create-summary span:first-child {
           display: grid;
           gap: 0.12rem;
         }
 
-        .model-create-summary small,
-        .instance-create-summary small {
+        .model-create-summary small {
           color: var(--muted);
           font-size: 0.78rem;
         }
 
-        .model-create-grid,
-        .instance-create-grid {
+        .model-create-grid {
           display: grid;
           gap: 0.85rem;
           grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
           padding-top: 0.75rem;
+        }
+
+        .instance-create-toolbar {
+          align-items: center;
+          border: 1px solid rgba(125, 211, 252, 0.26);
+          border-radius: 12px;
+          background: rgba(15, 23, 42, 0.62);
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.7rem;
+          justify-content: space-between;
+          padding: 0.8rem;
+        }
+
+        .instance-create-toolbar p {
+          color: var(--muted);
+          flex: 1 1 18rem;
+          font-size: 0.8rem;
+          margin: 0;
+        }
+
+        .instance-create-dialog {
+          max-width: min(760px, calc(100% - 2rem));
+        }
+
+        .instance-type-picker {
+          display: grid;
+          gap: 0.75rem;
+          grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+        }
+
+        .instance-type-choice {
+          appearance: none;
+          background: rgba(15, 23, 42, 0.78);
+          border: 1px solid rgba(125, 211, 252, 0.28);
+          border-radius: 12px;
+          color: var(--text);
+          cursor: pointer;
+          display: grid;
+          gap: 0.35rem;
+          min-height: 6rem;
+          padding: 0.9rem;
+          text-align: left;
+        }
+
+        .instance-type-choice:hover,
+        .instance-type-choice:focus-visible {
+          background: rgba(14, 116, 144, 0.2);
+          border-color: rgba(34, 211, 238, 0.7);
+          outline: none;
+        }
+
+        .instance-type-choice strong {
+          font-size: 1rem;
+        }
+
+        .instance-type-choice small {
+          color: var(--muted);
+          font-size: 0.78rem;
+          line-height: 1.4;
+        }
+
+        .instance-config-step,
+        .instance-create-grid {
+          display: grid;
+          gap: 0.85rem;
+        }
+
+        .instance-config-heading {
+          align-items: center;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.65rem;
+          justify-content: space-between;
+        }
+
+        .instance-config-heading strong {
+          color: var(--text);
+        }
+
+        .instance-create-grid .instance-form {
+          width: auto;
         }
 
         .model-form {
@@ -1159,16 +1235,27 @@ data:
           <section id="tab-instances" class="tab-panel" hidden>
             <article class="dashboard-card" id="instance-form-empty" hidden>
               <h3>No installed instance modules</h3>
+              <p>Enable an instance module and wait until it is Ready before creating an instance.</p>
             </article>
-            <details class="instance-create-panel" id="instance-create-panel">
-              <summary class="instance-create-summary">
-                <span>
-                  <strong>Create Instance</strong>
-                  <small>Only installed instance modules are shown</small>
-                </span>
-                <span class="status-pill">Create</span>
-              </summary>
-              <div class="instance-create-grid">
+            <div class="instance-create-toolbar" id="instance-create-panel">
+              <button class="control-button primary" id="instance-create-open" type="button">Create Instance</button>
+              <p>Choose an installed instance type first. The next step shows only its configuration.</p>
+            </div>
+            <dialog class="dashboard-dialog instance-create-dialog" id="instance-create-dialog" aria-labelledby="instance-create-title" aria-describedby="instance-create-description">
+              <div class="dialog-form">
+                <div class="dialog-heading">
+                  <h3 id="instance-create-title">Create Instance</h3>
+                  <p id="instance-create-description">Choose the type of instance you want to create.</p>
+                </div>
+                <section id="instance-type-step" aria-label="Instance type">
+                  <div class="instance-type-picker" id="instance-type-picker"></div>
+                </section>
+                <section class="instance-config-step" id="instance-config-step" aria-label="Instance configuration" hidden>
+                  <div class="instance-config-heading">
+                    <button class="control-button" id="instance-create-back" type="button">Back to types</button>
+                    <strong id="instance-selected-type"></strong>
+                  </div>
+                  <div class="instance-create-grid">
               <form class="dashboard-card instance-form" data-instance-type="openclaw">
                 <h3>OpenClaw</h3>
                 <div class="form-grid">
@@ -1263,8 +1350,13 @@ data:
                 </details>
                 <button class="control-button primary" type="submit">Create Odysseus</button>
               </form>
+                  </div>
+                </section>
+                <div class="dialog-actions">
+                  <button class="control-button" type="button" data-dialog-cancel>Cancel</button>
+                </div>
               </div>
-            </details>
+            </dialog>
             <div id="instance-list" class="module-list"></div>
             <p id="instance-output" class="api-output"></p>
           </section>
@@ -1602,6 +1694,7 @@ data:
           let activeUserRoles = null;
           let activeUserPassword = null;
           let activeUserConfirmation = null;
+          let activeInstanceCreateType = '';
           const dialogOpeners = new Map();
 
           const setApiState = (text, ok = false) => {
@@ -1690,22 +1783,101 @@ data:
             message.textContent = 'Local models are unavailable. Enable and wait until these modules are Ready: ' + labels.join(', ') + '.';
           };
 
+          const instanceForms = () => Array.from(document.querySelectorAll('.instance-form[data-instance-type]'));
+
+          const availableInstanceForms = () => instanceForms().filter((form) => form.dataset.instanceAvailable === 'true');
+
+          const instanceTypeDisplayName = (form) => {
+            const type = form ? String(form.dataset.instanceType || '') : '';
+            const definition = applicationDefinitions(latestModulePayload)[type] || {};
+            const heading = form && form.querySelector('h3');
+            return String(definition.displayName || (heading && heading.textContent) || titleFromKey(type));
+          };
+
+          const selectInstanceCreateType = (type = '') => {
+            const selectedForm = availableInstanceForms().find((form) => form.dataset.instanceType === type) || null;
+            activeInstanceCreateType = selectedForm ? type : '';
+            const typeStep = $('instance-type-step');
+            const configStep = $('instance-config-step');
+            if (typeStep) { typeStep.hidden = Boolean(selectedForm); }
+            if (configStep) { configStep.hidden = !selectedForm; }
+            instanceForms().forEach((form) => { form.hidden = form !== selectedForm; });
+
+            const selectedType = $('instance-selected-type');
+            const description = $('instance-create-description');
+            if (selectedForm) {
+              const displayName = instanceTypeDisplayName(selectedForm);
+              if (selectedType) { selectedType.textContent = displayName + ' configuration'; }
+              if (description) { description.textContent = 'Configure only the options for ' + displayName + '.'; }
+            } else {
+              if (selectedType) { selectedType.textContent = ''; }
+              if (description) { description.textContent = 'Choose the type of instance you want to create.'; }
+            }
+
+            const dialog = $('instance-create-dialog');
+            if (!dialog || !dialog.open) { return; }
+            requestAnimationFrame(() => {
+              const focusTarget = selectedForm
+                ? (selectedForm.querySelector('input:not([type="hidden"]), select, button') || $('instance-create-back'))
+                : $('instance-type-picker').querySelector('.instance-type-choice');
+              if (focusTarget) { focusTarget.focus(); }
+            });
+          };
+
+          const renderInstanceTypeChoices = () => {
+            const picker = $('instance-type-picker');
+            if (!picker) { return; }
+            picker.replaceChildren();
+            availableInstanceForms().forEach((form) => {
+              const type = String(form.dataset.instanceType || '');
+              const displayName = instanceTypeDisplayName(form);
+              const button = document.createElement('button');
+              button.className = 'instance-type-choice';
+              button.type = 'button';
+              button.dataset.instanceChoice = type;
+              const heading = document.createElement('strong');
+              heading.textContent = displayName;
+              const detail = document.createElement('small');
+              detail.textContent = 'Configure a new ' + displayName + ' instance.';
+              button.append(heading, detail);
+              button.addEventListener('click', () => selectInstanceCreateType(type));
+              picker.appendChild(button);
+            });
+          };
+
+          const openInstanceCreateDialog = () => {
+            const dialog = $('instance-create-dialog');
+            if (!dialog || typeof dialog.showModal !== 'function' || availableInstanceForms().length === 0) { return; }
+            renderInstanceTypeChoices();
+            selectInstanceCreateType('');
+            dialogOpeners.set(dialog, document.activeElement);
+            dialog.showModal();
+            requestAnimationFrame(() => {
+              const firstChoice = $('instance-type-picker').querySelector('.instance-type-choice');
+              if (firstChoice) { firstChoice.focus(); }
+            });
+          };
+
           const renderInstanceForms = (modulePayload) => {
-            let visibleCount = 0;
-            document.querySelectorAll('.instance-form[data-instance-type]').forEach((form) => {
+            let availableCount = 0;
+            instanceForms().forEach((form) => {
               const installed = instanceTypeInstalled(modulePayload, form.dataset.instanceType);
-              form.hidden = !installed;
-              if (installed) {
-                visibleCount += 1;
-              }
+              form.dataset.instanceAvailable = installed ? 'true' : 'false';
+              form.hidden = true;
+              if (installed) { availableCount += 1; }
             });
             const empty = $('instance-form-empty');
             if (empty) {
-              empty.hidden = visibleCount !== 0;
+              empty.hidden = availableCount !== 0;
             }
             const createPanel = $('instance-create-panel');
             if (createPanel) {
-              createPanel.hidden = visibleCount === 0;
+              createPanel.hidden = availableCount === 0;
+            }
+            const dialog = $('instance-create-dialog');
+            if (dialog && dialog.open) {
+              renderInstanceTypeChoices();
+              selectInstanceCreateType(activeInstanceCreateType);
             }
           };
 
@@ -3363,8 +3535,18 @@ data:
             });
           };
 
+          const restoreDialogOpener = (dialog) => {
+            const opener = dialogOpeners.get(dialog);
+            dialogOpeners.delete(dialog);
+            if (opener && typeof opener.focus === 'function' && document.contains(opener)) {
+              opener.focus();
+            }
+          };
+
           const closeUserDialog = (dialog) => {
-            if (dialog && dialog.open) { dialog.close(); }
+            if (!dialog || !dialog.open) { return; }
+            dialog.close();
+            restoreDialogOpener(dialog);
           };
 
           const clearPasswordInputs = (form) => {
@@ -3627,14 +3809,28 @@ data:
             button.addEventListener('click', () => closeUserDialog(button.closest('dialog')));
           });
 
+          const instanceCreateOpen = $('instance-create-open');
+          if (instanceCreateOpen) {
+            instanceCreateOpen.addEventListener('click', openInstanceCreateDialog);
+          }
+
+          const instanceCreateBack = $('instance-create-back');
+          if (instanceCreateBack) {
+            instanceCreateBack.addEventListener('click', () => selectInstanceCreateType(''));
+          }
+
+          const instanceCreateDialog = $('instance-create-dialog');
+          if (instanceCreateDialog) {
+            instanceCreateDialog.addEventListener('close', () => {
+              activeInstanceCreateType = '';
+              selectInstanceCreateType('');
+            });
+          }
+
           document.querySelectorAll('.dashboard-dialog').forEach((dialog) => {
             dialog.addEventListener('close', () => {
               clearPasswordInputs(dialog.querySelector('form'));
-              const opener = dialogOpeners.get(dialog);
-              dialogOpeners.delete(dialog);
-              if (opener && typeof opener.focus === 'function' && document.contains(opener)) {
-                opener.focus();
-              }
+              restoreDialogOpener(dialog);
             });
           });
 
@@ -4121,6 +4317,7 @@ data:
               try {
                 await request('/api/instances/' + type, { method: 'POST', body: JSON.stringify(payload) });
                 $('instance-output').textContent = type + '/' + payload.name + ' requested through AppInstance.';
+                closeUserDialog($('instance-create-dialog'));
                 await refresh();
               } catch (error) {
                 $('instance-output').textContent = error.message;
