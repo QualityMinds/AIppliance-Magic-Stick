@@ -19,11 +19,28 @@ class LiteLlmGatewayTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.documents = gateway_documents()
+        cls.routes = {
+            document["metadata"]["name"]: document
+            for document in cls.documents
+            if document.get("kind") == "HTTPRoute"
+        }
         cls.policies = {
             document["metadata"]["name"]: document
             for document in cls.documents
             if document.get("kind") == "SecurityPolicy"
         }
+
+    def test_litellm_streaming_routes_disable_the_default_request_timeout(self):
+        for name in ("static-litellm-local", "static-litellm-public"):
+            with self.subTest(route=name):
+                rules = self.routes[name]["spec"]["rules"]
+                self.assertEqual(len(rules), 1)
+                self.assertEqual(rules[0]["timeouts"], {"request": "0s"})
+
+        for name in ("static-litellm-local-callback", "static-litellm-public-callback"):
+            with self.subTest(route=name):
+                rules = self.routes[name]["spec"]["rules"]
+                self.assertNotIn("timeouts", rules[0])
 
     def test_local_and_public_oidc_do_not_replace_litellm_authorization(self):
         for name in ("static-litellm-local-sso", "static-litellm-public-sso"):

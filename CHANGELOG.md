@@ -44,6 +44,8 @@ formalized, release entries should group changes under:
 
 ### Fixed
 
+- LiteLLM streaming responses are no longer terminated by Envoy's default
+  15-second request timeout.
 - LiteLLM's SSO policy no longer replaces its `Bearer sk-...` virtual-key
   header with the Keycloak access token on UI and API requests.
 - The enabled LiteLLM module again exposes its generated UI and API credentials
