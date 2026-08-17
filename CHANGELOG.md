@@ -22,6 +22,9 @@ formalized, release entries should group changes under:
 - Public support, maintainer, and governance documentation.
 - A Git-owned application catalog and per-application Helm charts for runtime
   `AppInstance` resources.
+- An administrator-only dashboard user-management tab for local Keycloak users,
+  including search, access-level assignment, enable/disable, temporary-password
+  reset, and protected deletion.
 
 ### Changed
 
@@ -40,3 +43,9 @@ formalized, release entries should group changes under:
   new installations.
 - Application-specific manifest builders, cleanup lists, and direct workload
   permissions from the Magic Stick Operator.
+
+### Security
+
+- Dashboard user administration uses a dedicated scoped Keycloak service
+  account, exact-name Kubernetes Secret RBAC, live administrator checks,
+  same-origin mutation protection, and last-local-administrator safeguards.

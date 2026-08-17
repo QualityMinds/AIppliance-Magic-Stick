@@ -7,8 +7,11 @@ resources:
   - clusterrolebinding.yaml
   - settings-rbac.yaml
   - model-secrets-rbac.yaml
+  - user-admin-rbac.yaml
   - configmap.yaml
   - dashboard-api.yaml
+  - api-deployment.yaml
+  - api-service.yaml
   - nginx-config.yaml
   - deployment.yaml
   - service.yaml

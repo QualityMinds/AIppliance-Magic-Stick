@@ -48,6 +48,21 @@ jobs:
           ANSIBLE_ROLES_PATH: magic-host/roles
         run: ansible-playbook --syntax-check magic-host/playbooks/local.yml
 
+      - name: Run identity and dashboard unit tests
+        run: |
+          python3 -m unittest discover -s magic-cluster/platform/identity/tests -p 'test_*.py'
+          python3 -m unittest discover -s magic-cluster/apps/dashboard -p 'test_*.py'
+
+      - name: Check embedded dashboard JavaScript syntax
+        run: |
+          awk '
+            /^[[:space:]]*<script>$/ { in_script = 1; next }
+            /^[[:space:]]*<\/script>$/ { in_script = 0 }
+            in_script { sub(/^      /, ""); print }
+          ' magic-cluster/apps/dashboard/configmap.yaml > /tmp/magicstick-dashboard.js
+          test -s /tmp/magicstick-dashboard.js
+          node --check /tmp/magicstick-dashboard.js
+
       - name: Render public Kustomize targets
         run: |
           targets=(

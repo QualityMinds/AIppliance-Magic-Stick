@@ -1,11 +1,11 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: ai-appliance-dashboard
+  name: ai-appliance-dashboard-api
 subjects:
   - kind: ServiceAccount
-    name: ai-appliance-dashboard
-    namespace: dashboard
+    name: ai-appliance-dashboard-api
+    namespace: identity-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole

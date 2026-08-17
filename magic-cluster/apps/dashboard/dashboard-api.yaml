@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: ai-appliance-dashboard-api
-  namespace: dashboard
+  namespace: identity-system
   labels:
     app: ai-appliance-dashboard
     app.kubernetes.io/component: api
@@ -14,7 +14,9 @@ data:
     import json
     import os
     import re
+    import secrets
     import ssl
+    import threading
     import time
     import urllib.error
     import urllib.parse
@@ -70,6 +72,48 @@ data:
         "operator": {"magicstick-operator", "magicstick-admin"},
         "admin": {"magicstick-admin"},
     }
+    KEYCLOAK_ADMIN_URL = os.environ.get(
+        "KEYCLOAK_ADMIN_URL",
+        "http://keycloak.identity-system.svc.cluster.local:8080",
+    ).rstrip("/")
+    KEYCLOAK_REALM = os.environ.get("KEYCLOAK_REALM", "magicstick")
+    KEYCLOAK_USER_ADMIN_SECRET_NAMESPACE = os.environ.get(
+        "KEYCLOAK_USER_ADMIN_SECRET_NAMESPACE",
+        "identity-system",
+    )
+    KEYCLOAK_USER_ADMIN_SECRET_NAME = os.environ.get(
+        "KEYCLOAK_USER_ADMIN_SECRET_NAME",
+        "magicstick-user-admin-client",
+    )
+    IDENTITY_MANAGEMENT_MODE = os.environ.get("IDENTITY_MANAGEMENT_MODE", "keycloak").strip().lower()
+    DASHBOARD_ALLOWED_ORIGINS = {
+        origin.strip().rstrip("/")
+        for origin in os.environ.get("DASHBOARD_ALLOWED_ORIGINS", "").split(",")
+        if origin.strip()
+    }
+    MANAGED_REALM_ROLES = {
+        "magicstick-user",
+        "magicstick-viewer",
+        "magicstick-operator",
+        "magicstick-admin",
+    }
+    RECOVERY_GROUP_NAME = "magicstick-recovery"
+    RECOVERY_GROUP_PATH = "/magicstick-recovery"
+    ACCESS_LEVEL_ROLES = {
+        "user": {"magicstick-user"},
+        "viewer": {"magicstick-user", "magicstick-viewer"},
+        "operator": {"magicstick-user", "magicstick-operator"},
+        "admin": {"magicstick-user", "magicstick-admin"},
+    }
+    USER_ID = re.compile(r"^[A-Za-z0-9._:-]{1,160}$")
+    USERNAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@+-]{0,127}$")
+    EMAIL = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+    MAX_REQUEST_BODY_BYTES = 64 * 1024
+    MAX_USERS_PAGE_SIZE = 100
+    MAX_USER_SEARCH_LENGTH = 128
+    USER_MUTATION_LOCK = threading.RLock()
+    KEYCLOAK_TOKEN_LOCK = threading.Lock()
+    KEYCLOAK_TOKEN_CACHE = {"access_token": "", "expires_at": 0.0}
 
 
     class AuthError(Exception):
@@ -198,6 +242,842 @@ data:
             if error.code == 404:
                 return {}
             raise
+
+
+    def require_identity_management():
+        if IDENTITY_MANAGEMENT_MODE != "keycloak":
+            raise RequestError(503, "local identity management is not available")
+
+
+    def decode_secret_field(secret, key):
+        encoded = ((secret or {}).get("data") or {}).get(key)
+        if not encoded:
+            raise RequestError(503, "identity administration is not configured")
+        try:
+            value = base64.b64decode(encoded, validate=True).decode("utf-8").strip()
+        except (ValueError, UnicodeDecodeError) as error:
+            raise RequestError(503, "identity administration is not configured") from error
+        if not value:
+            raise RequestError(503, "identity administration is not configured")
+        return value
+
+
+    def keycloak_client_credentials():
+        path = (
+            f"/api/v1/namespaces/{urllib.parse.quote(KEYCLOAK_USER_ADMIN_SECRET_NAMESPACE, safe='')}"
+            f"/secrets/{urllib.parse.quote(KEYCLOAK_USER_ADMIN_SECRET_NAME, safe='')}"
+        )
+        try:
+            secret = request_json("GET", path)
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as error:
+            raise RequestError(503, "identity administration is not configured") from error
+        return decode_secret_field(secret, "client-id"), decode_secret_field(secret, "client-secret")
+
+
+    def _keycloak_http_request(method, path, access_token=None, body=None, form=None):
+        headers = {"Accept": "application/json"}
+        data = None
+        if access_token:
+            headers["Authorization"] = "Bearer " + access_token
+        if form is not None:
+            data = urllib.parse.urlencode(form).encode("utf-8")
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
+        elif body is not None:
+            data = json.dumps(body, separators=(",", ":")).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        request = urllib.request.Request(
+            KEYCLOAK_ADMIN_URL + path,
+            data=data,
+            headers=headers,
+            method=method,
+        )
+        with urllib.request.urlopen(request, timeout=15, context=PUBLIC_SSL_CONTEXT) as response:
+            raw = response.read().decode("utf-8")
+            try:
+                payload = json.loads(raw) if raw else {}
+            except json.JSONDecodeError as error:
+                raise RequestError(503, "identity provider returned an invalid response") from error
+            return payload, response.headers
+
+
+    def clear_keycloak_token_cache():
+        with KEYCLOAK_TOKEN_LOCK:
+            KEYCLOAK_TOKEN_CACHE["access_token"] = ""
+            KEYCLOAK_TOKEN_CACHE["expires_at"] = 0.0
+
+
+    def keycloak_admin_token(force_refresh=False):
+        require_identity_management()
+        now = time.time()
+        with KEYCLOAK_TOKEN_LOCK:
+            if (
+                not force_refresh
+                and KEYCLOAK_TOKEN_CACHE["access_token"]
+                and KEYCLOAK_TOKEN_CACHE["expires_at"] > now + 15
+            ):
+                return KEYCLOAK_TOKEN_CACHE["access_token"]
+            client_id, client_secret = keycloak_client_credentials()
+            realm = urllib.parse.quote(KEYCLOAK_REALM, safe="")
+            try:
+                payload, _ = _keycloak_http_request(
+                    "POST",
+                    f"/realms/{realm}/protocol/openid-connect/token",
+                    form={
+                        "grant_type": "client_credentials",
+                        "client_id": client_id,
+                        "client_secret": client_secret,
+                    },
+                )
+            except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as error:
+                raise RequestError(503, "identity administration is unavailable") from error
+            access_token = str(payload.get("access_token") or "")
+            try:
+                expires_in = max(1, int(payload.get("expires_in", 60)))
+            except (TypeError, ValueError):
+                expires_in = 60
+            if not access_token:
+                raise RequestError(503, "identity administration is unavailable")
+            KEYCLOAK_TOKEN_CACHE["access_token"] = access_token
+            KEYCLOAK_TOKEN_CACHE["expires_at"] = now + expires_in
+            return access_token
+
+
+    def _mapped_keycloak_error(error):
+        if error.code == 400:
+            return RequestError(400, "identity provider rejected the request")
+        if error.code == 404:
+            return RequestError(404, "user not found")
+        if error.code == 409:
+            return RequestError(409, "username or email already exists")
+        if error.code == 413:
+            return RequestError(413, "identity provider rejected the request size")
+        if error.code == 429:
+            return RequestError(503, "identity administration is temporarily rate limited")
+        return RequestError(503, "identity administration is unavailable")
+
+
+    def keycloak_admin_request(method, path, body=None):
+        for attempt in range(2):
+            access_token = keycloak_admin_token(force_refresh=attempt > 0)
+            try:
+                return _keycloak_http_request(method, path, access_token=access_token, body=body)
+            except urllib.error.HTTPError as error:
+                if error.code == 401 and attempt == 0:
+                    clear_keycloak_token_cache()
+                    continue
+                raise _mapped_keycloak_error(error) from error
+            except (urllib.error.URLError, TimeoutError) as error:
+                raise RequestError(503, "identity administration is unavailable") from error
+        raise RequestError(503, "identity administration is unavailable")
+
+
+    def _user_path(user_id, suffix=""):
+        if not USER_ID.fullmatch(str(user_id or "")):
+            raise RequestError(400, "invalid user id")
+        realm = urllib.parse.quote(KEYCLOAK_REALM, safe="")
+        encoded_id = urllib.parse.quote(str(user_id), safe="")
+        return f"/admin/realms/{realm}/users/{encoded_id}{suffix}"
+
+
+    def _realm_path(suffix):
+        realm = urllib.parse.quote(KEYCLOAK_REALM, safe="")
+        return f"/admin/realms/{realm}{suffix}"
+
+
+    def keycloak_user(user_id):
+        payload, _ = keycloak_admin_request("GET", _user_path(user_id))
+        if not isinstance(payload, dict) or not payload.get("id"):
+            raise RequestError(404, "user not found")
+        if is_service_account_user(payload):
+            raise RequestError(404, "user not found")
+        return payload
+
+
+    def keycloak_user_roles(user_id, effective=False):
+        suffix = "/role-mappings/realm/composite" if effective else "/role-mappings/realm"
+        roles, _ = keycloak_admin_request("GET", _user_path(user_id, suffix))
+        if not isinstance(roles, list):
+            raise RequestError(503, "identity provider returned an invalid response")
+        return roles
+
+
+    def keycloak_user_groups(user_id):
+        groups = []
+        offset = 0
+        batch_size = 100
+        while offset < 10000:
+            query = urllib.parse.urlencode({
+                "briefRepresentation": "true",
+                "first": offset,
+                "max": batch_size,
+            })
+            page, _ = keycloak_admin_request(
+                "GET",
+                _user_path(user_id, "/groups?") + query,
+            )
+            if not isinstance(page, list):
+                raise RequestError(503, "identity provider returned an invalid response")
+            if any(not isinstance(group, dict) for group in page):
+                raise RequestError(503, "identity provider returned an invalid response")
+            groups.extend(page)
+            if len(page) < batch_size:
+                return groups
+            offset += len(page)
+        raise RequestError(503, "identity group membership could not be verified")
+
+
+    def keycloak_federated_identities(user_id, user=None):
+        included = (user or {}).get("federatedIdentities")
+        if isinstance(included, list) and included:
+            return included
+        try:
+            identities, _ = keycloak_admin_request("GET", _user_path(user_id, "/federated-identity"))
+        except RequestError as error:
+            if error.status == 404:
+                return []
+            raise
+        return identities if isinstance(identities, list) else []
+
+
+    def is_service_account_user(user):
+        username = str((user or {}).get("username") or "").lower()
+        return bool((user or {}).get("serviceAccountClientId")) or username.startswith("service-account-")
+
+
+    def identity_source(user, fetch_links=True):
+        if is_service_account_user(user):
+            return "service-account", str(user.get("serviceAccountClientId"))
+        identities = user.get("federatedIdentities")
+        if fetch_links and not identities:
+            identities = keycloak_federated_identities(user.get("id"), user)
+        if isinstance(identities, list) and identities:
+            provider = str((identities[0] or {}).get("identityProvider") or "external")
+            return "brokered", provider
+        if user.get("federationLink"):
+            return "federated", str(user.get("federationLink"))
+        return "local", "local"
+
+
+    def attribute_value(user, name):
+        value = ((user.get("attributes") or {}).get(name))
+        if isinstance(value, list):
+            return str(value[0]) if value else ""
+        return str(value or "")
+
+
+    def protected_user(user, direct_groups=None):
+        account_type = attribute_value(user, "magicstick.accountType").strip().lower()
+        explicitly_protected = attribute_value(user, "magicstick.protected").strip().lower()
+        if account_type == "recovery" or explicitly_protected == "true":
+            return True
+        if direct_groups is None:
+            user_id = str(user.get("id") or "")
+            if not user_id:
+                raise RequestError(503, "identity group membership could not be verified")
+            direct_groups = keycloak_user_groups(user_id)
+        return any(
+            str(group.get("name") or "") == RECOVERY_GROUP_NAME
+            and str(group.get("path") or "") == RECOVERY_GROUP_PATH
+            for group in direct_groups
+            if isinstance(group, dict)
+        )
+
+
+    def role_names(roles):
+        return {str(role.get("name")) for role in roles if isinstance(role, dict) and role.get("name")}
+
+
+    def access_level(roles):
+        names = set(roles)
+        if "magicstick-admin" in names:
+            return "admin"
+        if "magicstick-operator" in names:
+            return "operator"
+        if "magicstick-viewer" in names:
+            return "viewer"
+        return "user"
+
+
+    def user_summary(user, actor_id):
+        user_id = str(user.get("id") or "")
+        if not user_id or is_service_account_user(user):
+            raise RequestError(404, "user not found")
+        all_direct = role_names(keycloak_user_roles(user_id, effective=False))
+        all_effective = role_names(keycloak_user_roles(user_id, effective=True))
+        direct = all_direct & MANAGED_REALM_ROLES
+        effective = all_effective & MANAGED_REALM_ROLES
+        source, provider = identity_source(user)
+        is_self = user_id == actor_id
+        is_protected = protected_user(user, keycloak_user_groups(user_id))
+        is_local = source == "local"
+        first_name = str(user.get("firstName") or "")
+        last_name = str(user.get("lastName") or "")
+        display_name = " ".join(part for part in (first_name, last_name) if part).strip()
+        if not display_name:
+            display_name = str(user.get("username") or "")
+        return {
+            "id": user_id,
+            "username": str(user.get("username") or ""),
+            "firstName": first_name,
+            "lastName": last_name,
+            "displayName": display_name,
+            "email": str(user.get("email") or ""),
+            "emailVerified": bool(user.get("emailVerified", False)),
+            "enabled": bool(user.get("enabled", False)),
+            "createdAt": user.get("createdTimestamp"),
+            "source": source,
+            "provider": provider,
+            "directRoles": sorted(direct),
+            "effectiveRoles": sorted(effective),
+            "accessLevel": access_level(direct),
+            "effectiveAccessLevel": access_level(effective),
+            "capabilities": {
+                "canEditProfile": is_local and not is_protected,
+                "canManageRoles": not is_self and not is_protected,
+                "canEnable": not bool(user.get("enabled", False)) and not is_self and not is_protected,
+                "canDisable": bool(user.get("enabled", False)) and not is_self and not is_protected,
+                "canResetPassword": is_local and not is_self and not is_protected,
+                "canDelete": is_local and not is_self and not is_protected,
+                "isSelf": is_self,
+                "isProtected": is_protected,
+            },
+        }
+
+
+    def live_admin_actor(principal):
+        require_identity_management()
+        subject = str((principal or {}).get("subject") or "")
+        if not subject:
+            raise AuthError(403, "administrator identity is unavailable")
+        try:
+            actor = keycloak_user(subject)
+        except RequestError as error:
+            if error.status == 404:
+                raise AuthError(403, "administrator access has been revoked") from error
+            raise
+        effective_roles = role_names(keycloak_user_roles(subject, effective=True))
+        if not actor.get("enabled") or "magicstick-admin" not in effective_roles:
+            raise AuthError(403, "administrator access has been revoked")
+        return actor
+
+
+    def _all_human_users(search=""):
+        users = []
+        offset = 0
+        batch_size = 100
+        while offset < 10000:
+            query = {"first": offset, "max": batch_size}
+            if search:
+                query["search"] = search
+            page, _ = keycloak_admin_request(
+                "GET",
+                _realm_path("/users?") + urllib.parse.urlencode(query),
+            )
+            if not isinstance(page, list):
+                raise RequestError(503, "identity provider returned an invalid response")
+            users.extend(user for user in page if not is_service_account_user(user))
+            if len(page) < batch_size:
+                break
+            offset += batch_size
+        return users
+
+
+    def parse_user_list_query(query):
+        def integer(name, default, minimum, maximum):
+            raw = (query.get(name) or [str(default)])[0]
+            try:
+                value = int(raw)
+            except (TypeError, ValueError) as error:
+                raise RequestError(400, f"{name} must be an integer") from error
+            if value < minimum or value > maximum:
+                raise RequestError(400, f"{name} must be between {minimum} and {maximum}")
+            return value
+
+        first = integer("first", 0, 0, 1000000)
+        maximum = integer("max", 50, 1, MAX_USERS_PAGE_SIZE)
+        search = str((query.get("search") or [""])[0]).strip()
+        if len(search) > MAX_USER_SEARCH_LENGTH:
+            raise RequestError(400, "search is too long")
+        return first, maximum, search
+
+
+    def _keycloak_raw_user_page(first, maximum, search=""):
+        query = {"first": first, "max": maximum}
+        if search:
+            query["search"] = search
+        page, _ = keycloak_admin_request(
+            "GET",
+            _realm_path("/users?") + urllib.parse.urlencode(query),
+        )
+        if not isinstance(page, list):
+            raise RequestError(503, "identity provider returned an invalid response")
+        return page
+
+
+    def _keycloak_user_page(first, maximum, search=""):
+        # Keycloak has no server-side predicate for excluding service accounts.
+        # Walk only as far as the requested human-user page so service accounts
+        # cannot create empty pages or shift the public pagination cursor.
+        users = []
+        human_offset = 0
+        raw_offset = 0
+        batch_size = max(MAX_USERS_PAGE_SIZE, maximum)
+        while len(users) < maximum and raw_offset < 10000:
+            page = _keycloak_raw_user_page(raw_offset, batch_size, search)
+            for user in page:
+                if is_service_account_user(user):
+                    continue
+                if human_offset < first:
+                    human_offset += 1
+                    continue
+                users.append(user)
+                human_offset += 1
+                if len(users) == maximum:
+                    break
+            if len(page) < batch_size:
+                break
+            raw_offset += len(page)
+        return users
+
+
+    def _matching_service_account_count(search=""):
+        lookup = search or "service-account-"
+        count = 0
+        raw_offset = 0
+        batch_size = MAX_USERS_PAGE_SIZE
+        while raw_offset < 10000:
+            page = _keycloak_raw_user_page(raw_offset, batch_size, lookup)
+            count += sum(1 for user in page if is_service_account_user(user))
+            if len(page) < batch_size:
+                break
+            raw_offset += len(page)
+        return count
+
+
+    def _keycloak_user_count(search=""):
+        query = urllib.parse.urlencode({"search": search}) if search else ""
+        suffix = "/users/count" + (("?" + query) if query else "")
+        count, _ = keycloak_admin_request("GET", _realm_path(suffix))
+        try:
+            total = max(0, int(count))
+        except (TypeError, ValueError) as error:
+            raise RequestError(503, "identity provider returned an invalid response") from error
+        return max(0, total - _matching_service_account_count(search))
+
+
+    def list_users(principal, query):
+        actor = live_admin_actor(principal)
+        first, maximum, search = parse_user_list_query(query)
+        users = _keycloak_user_page(first, maximum, search)
+        return {
+            "users": [user_summary(user, actor["id"]) for user in users],
+            "total": _keycloak_user_count(search),
+            "first": first,
+            "max": maximum,
+        }
+
+
+    def get_user(principal, user_id):
+        actor = live_admin_actor(principal)
+        return user_summary(keycloak_user(user_id), actor["id"])
+
+
+    def _reject_unknown_fields(payload, allowed):
+        unknown = sorted(set(payload) - set(allowed))
+        if unknown:
+            raise RequestError(400, "unsupported field: " + unknown[0])
+
+
+    def _clean_text(payload, name, maximum, required=False):
+        if name not in payload:
+            if required:
+                raise RequestError(400, name + " is required")
+            return None
+        value = payload.get(name)
+        if not isinstance(value, str):
+            raise RequestError(400, name + " must be a string")
+        value = value.strip()
+        if required and not value:
+            raise RequestError(400, name + " is required")
+        if len(value) > maximum or any(ord(character) < 32 for character in value):
+            raise RequestError(400, name + " is invalid")
+        return value
+
+
+    def _validated_access_level(payload):
+        level = _clean_text(payload, "accessLevel", 16, required=True)
+        if level not in ACCESS_LEVEL_ROLES:
+            raise RequestError(400, "accessLevel must be user, viewer, operator, or admin")
+        return level
+
+
+    def _validated_password(payload):
+        password = payload.get("password")
+        if not isinstance(password, str):
+            raise RequestError(400, "password must be a string")
+        if len(password) < 12:
+            raise RequestError(400, "password must contain at least 12 characters")
+        if len(password) > 1024 or any(ord(character) < 32 for character in password):
+            raise RequestError(400, "password is invalid")
+        temporary = payload.get("temporary", True)
+        if temporary is not True:
+            raise RequestError(400, "temporary must be true")
+        return password
+
+
+    def _validated_email(payload, required=False):
+        email = _clean_text(payload, "email", 254, required=required)
+        if email and not EMAIL.fullmatch(email):
+            raise RequestError(400, "email is invalid")
+        return email
+
+
+    def _exact_user_matches(field, value):
+        query = urllib.parse.urlencode({field: value, "exact": "true", "first": 0, "max": 2})
+        users, _ = keycloak_admin_request("GET", _realm_path("/users?") + query)
+        if not isinstance(users, list):
+            raise RequestError(503, "identity provider returned an invalid response")
+        return [user for user in users if not is_service_account_user(user)]
+
+
+    def _realm_role(role_name):
+        encoded = urllib.parse.quote(role_name, safe="")
+        role, _ = keycloak_admin_request("GET", _realm_path("/roles/") + encoded)
+        if not isinstance(role, dict) or not role.get("id"):
+            raise RequestError(503, "identity roles are not configured")
+        return role
+
+
+    def _replace_managed_roles(user_id, desired_names):
+        desired_names = set(desired_names)
+        if not desired_names.issubset(MANAGED_REALM_ROLES):
+            raise RequestError(400, "unsupported role")
+        original = keycloak_user_roles(user_id, effective=False)
+        original_by_name = {role.get("name"): role for role in original if role.get("name") in MANAGED_REALM_ROLES}
+        add_names = desired_names - set(original_by_name)
+        remove_names = set(original_by_name) - desired_names
+        try:
+            if add_names:
+                additions = [_realm_role(name) for name in sorted(add_names)]
+                keycloak_admin_request("POST", _user_path(user_id, "/role-mappings/realm"), additions)
+            if remove_names:
+                removals = [original_by_name[name] for name in sorted(remove_names)]
+                keycloak_admin_request("DELETE", _user_path(user_id, "/role-mappings/realm"), removals)
+            assigned = role_names(keycloak_user_roles(user_id, effective=False)) & MANAGED_REALM_ROLES
+            if assigned != desired_names:
+                raise RequestError(503, "identity role update could not be verified")
+        except Exception:
+            try:
+                current = keycloak_user_roles(user_id, effective=False)
+                current_by_name = {role.get("name"): role for role in current if role.get("name") in MANAGED_REALM_ROLES}
+                restore_add = set(original_by_name) - set(current_by_name)
+                restore_remove = set(current_by_name) - set(original_by_name)
+                if restore_add:
+                    keycloak_admin_request(
+                        "POST",
+                        _user_path(user_id, "/role-mappings/realm"),
+                        [original_by_name[name] for name in sorted(restore_add)],
+                    )
+                if restore_remove:
+                    keycloak_admin_request(
+                        "DELETE",
+                        _user_path(user_id, "/role-mappings/realm"),
+                        [current_by_name[name] for name in sorted(restore_remove)],
+                    )
+            except Exception:
+                pass
+            raise
+
+
+    def _logout_user(user_id):
+        try:
+            keycloak_admin_request("POST", _user_path(user_id, "/logout"))
+        except RequestError as error:
+            if error.status != 404:
+                raise
+
+
+    def _enabled_admin_counts(excluding_user_id):
+        administrators = 0
+        local_administrators = 0
+        for candidate in _all_human_users():
+            candidate_id = str(candidate.get("id") or "")
+            if not candidate_id or candidate_id == excluding_user_id or not candidate.get("enabled"):
+                continue
+            effective = role_names(keycloak_user_roles(candidate_id, effective=True))
+            if "magicstick-admin" not in effective:
+                continue
+            administrators += 1
+            detailed = keycloak_user(candidate_id)
+            source, _ = identity_source(detailed)
+            if source == "local":
+                local_administrators += 1
+        return administrators, local_administrators
+
+
+    def _ensure_admins_survive(target):
+        if not target.get("enabled"):
+            return
+        effective = role_names(keycloak_user_roles(target["id"], effective=True))
+        if "magicstick-admin" not in effective:
+            return
+        administrators, local_administrators = _enabled_admin_counts(target["id"])
+        if administrators < 1:
+            raise RequestError(409, "the last enabled administrator cannot be changed")
+        source, _ = identity_source(target)
+        if source == "local" and local_administrators < 1:
+            raise RequestError(409, "the last enabled local administrator cannot be changed")
+
+
+    def audit_user_action(principal, action, target, result, request_id, status=None):
+        event = {
+            "event": "magicstick.user-admin",
+            "requestId": str(request_id or "")[:128],
+            "actorId": str((principal or {}).get("subject") or "")[:160],
+            "actorUsername": str((principal or {}).get("username") or "")[:128],
+            "target": str(target or "")[:160],
+            "action": action,
+            "result": result,
+        }
+        if status is not None:
+            event["status"] = int(status)
+        print(json.dumps(event, separators=(",", ":"), sort_keys=True), flush=True)
+
+
+    def _audit_failure(principal, action, target, request_id, error):
+        status = getattr(error, "status", 500)
+        audit_user_action(principal, action, target, "failure", request_id, status)
+
+
+    def create_user(principal, payload, request_id=""):
+        _reject_unknown_fields(
+            payload,
+            {"username", "firstName", "lastName", "email", "enabled", "accessLevel", "password", "temporary"},
+        )
+        username = _clean_text(payload, "username", 128, required=True)
+        if not USERNAME.fullmatch(username):
+            raise RequestError(400, "username is invalid")
+        first_name = _clean_text(payload, "firstName", 128) or ""
+        last_name = _clean_text(payload, "lastName", 128) or ""
+        email = _validated_email(payload, required=True)
+        level = _validated_access_level(payload)
+        password = _validated_password(payload)
+        enabled = payload.get("enabled", True)
+        if not isinstance(enabled, bool):
+            raise RequestError(400, "enabled must be a boolean")
+        with USER_MUTATION_LOCK:
+            live_admin_actor(principal)
+            user_id = ""
+            try:
+                if _exact_user_matches("username", username) or _exact_user_matches("email", email):
+                    raise RequestError(409, "username or email already exists")
+                _, headers = keycloak_admin_request("POST", _realm_path("/users"), {
+                    "username": username,
+                    "enabled": False,
+                    "firstName": first_name,
+                    "lastName": last_name,
+                    "email": email,
+                    "emailVerified": False,
+                })
+                user_id = str(headers.get("Location", "")).rstrip("/").split("/")[-1]
+                if not user_id:
+                    matches = _exact_user_matches("username", username)
+                    if len(matches) != 1:
+                        raise RequestError(503, "created user could not be resolved")
+                    user_id = str(matches[0]["id"])
+                keycloak_admin_request("PUT", _user_path(user_id, "/reset-password"), {
+                    "type": "password",
+                    "value": password,
+                    "temporary": True,
+                })
+                _replace_managed_roles(user_id, ACCESS_LEVEL_ROLES[level])
+                if enabled:
+                    keycloak_admin_request("PUT", _user_path(user_id), {"enabled": True})
+                result = user_summary(keycloak_user(user_id), str(principal.get("subject") or ""))
+            except Exception as error:
+                if user_id:
+                    try:
+                        keycloak_admin_request("DELETE", _user_path(user_id))
+                    except Exception:
+                        try:
+                            keycloak_admin_request("PUT", _user_path(user_id), {"enabled": False})
+                        except Exception:
+                            pass
+                _audit_failure(principal, "create", username, request_id, error)
+                raise
+            audit_user_action(principal, "create", user_id, "success", request_id, 201)
+            return result
+
+
+    def update_user_profile(principal, user_id, payload, request_id=""):
+        _reject_unknown_fields(payload, {"firstName", "lastName", "email"})
+        if not payload:
+            raise RequestError(400, "at least one profile field is required")
+        updates = {}
+        for field in ("firstName", "lastName"):
+            value = _clean_text(payload, field, 128)
+            if value is not None:
+                updates[field] = value
+        if "email" in payload:
+            updates["email"] = _validated_email(payload, required=True)
+            updates["emailVerified"] = False
+        with USER_MUTATION_LOCK:
+            live_admin_actor(principal)
+            try:
+                target = keycloak_user(user_id)
+                source, _ = identity_source(target)
+                if source != "local":
+                    raise RequestError(409, "profile fields are managed by the external identity provider")
+                if protected_user(target):
+                    raise RequestError(409, "protected recovery users cannot be edited")
+                body = {
+                    "username": target.get("username"),
+                    "enabled": bool(target.get("enabled")),
+                    "emailVerified": bool(target.get("emailVerified")),
+                    "firstName": str(target.get("firstName") or ""),
+                    "lastName": str(target.get("lastName") or ""),
+                    "email": str(target.get("email") or ""),
+                    "attributes": target.get("attributes") or {},
+                }
+                body.update(updates)
+                keycloak_admin_request("PUT", _user_path(user_id), body)
+                result = user_summary(keycloak_user(user_id), str(principal.get("subject") or ""))
+            except Exception as error:
+                _audit_failure(principal, "update-profile", user_id, request_id, error)
+                raise
+            audit_user_action(principal, "update-profile", user_id, "success", request_id, 200)
+            return result
+
+
+    def update_user_roles(principal, user_id, payload, request_id=""):
+        _reject_unknown_fields(payload, {"accessLevel"})
+        level = _validated_access_level(payload)
+        desired = ACCESS_LEVEL_ROLES[level]
+        with USER_MUTATION_LOCK:
+            live_admin_actor(principal)
+            try:
+                target = keycloak_user(user_id)
+                if user_id == str(principal.get("subject") or "") and "magicstick-admin" not in desired:
+                    raise RequestError(409, "you cannot remove your own administrator access")
+                direct = role_names(keycloak_user_roles(user_id, effective=False))
+                effective = role_names(keycloak_user_roles(user_id, effective=True))
+                if protected_user(target):
+                    raise RequestError(409, "protected recovery access cannot be changed")
+                inherited_admin = "magicstick-admin" in effective and "magicstick-admin" not in direct
+                if "magicstick-admin" in effective and "magicstick-admin" not in desired and not inherited_admin:
+                    _ensure_admins_survive(target)
+                before = direct & MANAGED_REALM_ROLES
+                _replace_managed_roles(user_id, desired)
+                if before != desired:
+                    _logout_user(user_id)
+                result = user_summary(keycloak_user(user_id), str(principal.get("subject") or ""))
+            except Exception as error:
+                _audit_failure(principal, "update-roles", user_id, request_id, error)
+                raise
+            audit_user_action(principal, "update-roles", user_id, "success", request_id, 200)
+            return result
+
+
+    def set_user_enabled(principal, user_id, enabled, request_id=""):
+        action = "enable" if enabled else "disable"
+        with USER_MUTATION_LOCK:
+            live_admin_actor(principal)
+            try:
+                target = keycloak_user(user_id)
+                if protected_user(target):
+                    raise RequestError(409, "protected recovery users cannot be enabled or disabled")
+                if not enabled:
+                    if user_id == str(principal.get("subject") or ""):
+                        raise RequestError(409, "you cannot disable your own account")
+                    _ensure_admins_survive(target)
+                if bool(target.get("enabled")) != enabled:
+                    keycloak_admin_request("PUT", _user_path(user_id), {"enabled": enabled})
+                    if not enabled:
+                        _logout_user(user_id)
+                result = user_summary(keycloak_user(user_id), str(principal.get("subject") or ""))
+            except Exception as error:
+                _audit_failure(principal, action, user_id, request_id, error)
+                raise
+            audit_user_action(principal, action, user_id, "success", request_id, 200)
+            return result
+
+
+    def reset_user_password(principal, user_id, payload, request_id=""):
+        _reject_unknown_fields(payload, {"password", "temporary"})
+        password = _validated_password(payload)
+        with USER_MUTATION_LOCK:
+            live_admin_actor(principal)
+            try:
+                target = keycloak_user(user_id)
+                if user_id == str(principal.get("subject") or ""):
+                    raise RequestError(409, "use the account page to change your own password")
+                source, _ = identity_source(target)
+                if source != "local":
+                    raise RequestError(409, "passwords are managed by the external identity provider")
+                if protected_user(target):
+                    raise RequestError(409, "protected recovery credentials cannot be reset here")
+                keycloak_admin_request("PUT", _user_path(user_id, "/reset-password"), {
+                    "type": "password",
+                    "value": password,
+                    "temporary": True,
+                })
+                _logout_user(user_id)
+                result = {"id": user_id, "passwordReset": True, "temporary": True}
+            except Exception as error:
+                _audit_failure(principal, "reset-password", user_id, request_id, error)
+                raise
+            audit_user_action(principal, "reset-password", user_id, "success", request_id, 200)
+            return result
+
+
+    def delete_user(principal, user_id, payload, request_id=""):
+        _reject_unknown_fields(payload, {"usernameConfirmation"})
+        confirmation = _clean_text(payload, "usernameConfirmation", 128, required=True)
+        with USER_MUTATION_LOCK:
+            live_admin_actor(principal)
+            try:
+                target = keycloak_user(user_id)
+                if confirmation != str(target.get("username") or ""):
+                    raise RequestError(409, "username confirmation does not match")
+                if user_id == str(principal.get("subject") or ""):
+                    raise RequestError(409, "you cannot delete your own account")
+                source, _ = identity_source(target)
+                if source != "local":
+                    raise RequestError(409, "external identities must be disabled at their identity provider")
+                if protected_user(target):
+                    raise RequestError(409, "protected recovery users cannot be deleted")
+                _ensure_admins_survive(target)
+                _logout_user(user_id)
+                keycloak_admin_request("DELETE", _user_path(user_id))
+            except Exception as error:
+                _audit_failure(principal, "delete", user_id, request_id, error)
+                raise
+            audit_user_action(principal, "delete", user_id, "success", request_id, 200)
+            return {"deleted": user_id}
+
+
+    def validate_user_mutation_request(handler):
+        csrf_header = str(handler.headers.get("X-MagicStick-CSRF", "") or "").strip()
+        if csrf_header != "dashboard":
+            raise AuthError(403, "CSRF protection header is missing or invalid")
+        fetch_site = str(handler.headers.get("Sec-Fetch-Site", "") or "").strip().lower()
+        if fetch_site and fetch_site != "same-origin":
+            raise AuthError(403, "cross-site user administration requests are not allowed")
+        origin = str(handler.headers.get("Origin", "") or "").strip().rstrip("/")
+        if not origin:
+            if fetch_site:
+                raise AuthError(403, "request origin is required")
+            return
+        parsed = urllib.parse.urlparse(origin)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.path not in {"", "/"}:
+            raise AuthError(403, "request origin is not allowed")
+        allowed = set(DASHBOARD_ALLOWED_ORIGINS)
+        host = str(handler.headers.get("X-Forwarded-Host") or handler.headers.get("Host") or "").split(",", 1)[0].strip()
+        proto = str(handler.headers.get("X-Forwarded-Proto") or "https").split(",", 1)[0].strip().lower()
+        if not allowed and host and proto in {"http", "https"}:
+            allowed.add(f"{proto}://{host}".rstrip("/"))
+        if origin not in allowed:
+            raise AuthError(403, "request origin is not allowed")
 
 
     def appliance_path():
@@ -434,11 +1314,27 @@ data:
 
 
     def read_body(handler):
-        length = int(handler.headers.get("Content-Length", "0") or "0")
+        try:
+            length = int(handler.headers.get("Content-Length", "0") or "0")
+        except ValueError as error:
+            raise RequestError(400, "invalid Content-Length") from error
+        if length < 0:
+            raise RequestError(400, "invalid Content-Length")
+        if length > MAX_REQUEST_BODY_BYTES:
+            raise RequestError(413, "request body is too large")
         if length == 0:
             return {}
-        raw = handler.rfile.read(length).decode("utf-8")
-        return json.loads(raw) if raw.strip() else {}
+        content_type = (handler.headers.get("Content-Type", "") or "").split(";", 1)[0].strip().lower()
+        if content_type != "application/json":
+            raise RequestError(415, "Content-Type must be application/json")
+        try:
+            raw = handler.rfile.read(length).decode("utf-8")
+            payload = json.loads(raw) if raw.strip() else {}
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise RequestError(400, "request body must contain valid JSON") from error
+        if not isinstance(payload, dict):
+            raise RequestError(400, "request body must be a JSON object")
+        return payload
 
 
     def require_name(payload):
@@ -1579,6 +2475,12 @@ data:
         def require_access(self, required_access):
             return authorize(self.headers.get("Authorization", ""), required_access)
 
+        def request_id(self):
+            candidate = str(self.headers.get("X-Request-ID", "") or "").strip()
+            if candidate and re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", candidate):
+                return candidate
+            return secrets.token_hex(12)
+
         def route(self):
             parsed = urllib.parse.urlparse(self.path)
             return parsed.path.rstrip("/") or "/"
@@ -1590,10 +2492,24 @@ data:
                 if path == "/healthz":
                     self.send_json({"ok": True})
                     return
+                if path == "/api/users" or (len(parts) == 3 and parts[:2] == ["api", "users"]):
+                    principal = self.require_access("admin")
+                    if path == "/api/users":
+                        query = urllib.parse.parse_qs(
+                            urllib.parse.urlparse(self.path).query,
+                            keep_blank_values=True,
+                        )
+                        self.send_json(list_users(principal, query))
+                    else:
+                        self.send_json(get_user(principal, parts[2]))
+                    return
                 required_access = "operator" if len(parts) == 4 and parts[:2] == ["api", "instances"] and parts[3] == "credentials" else "viewer"
                 principal = self.require_access(required_access)
                 if path == "/api/session":
-                    self.send_json(principal)
+                    session = dict(principal)
+                    session["identityManagementAvailable"] = IDENTITY_MANAGEMENT_MODE == "keycloak"
+                    session["identityManagementMode"] = IDENTITY_MANAGEMENT_MODE
+                    self.send_json(session)
                 elif path == "/api/appliance":
                     self.send_json(appliance())
                 elif path == "/api/modules":
@@ -1616,16 +2532,38 @@ data:
                     self.send_error_json(404, "not found")
             except AuthError as error:
                 self.send_auth_error(error)
+            except RequestError as error:
+                self.send_error_json(error.status, str(error))
             except LookupError as error:
                 self.send_error_json(404, str(error))
             except ValueError as error:
                 self.send_error_json(400, str(error))
             except urllib.error.HTTPError as error:
-                self.send_error_json(error.code, error.read().decode("utf-8", errors="replace"))
+                if self.route().startswith("/api/users"):
+                    self.send_error_json(503, "identity administration is unavailable")
+                else:
+                    self.send_error_json(error.code, error.read().decode("utf-8", errors="replace"))
             except Exception as error:
-                self.send_error_json(500, str(error))
+                if self.route().startswith("/api/users"):
+                    self.send_error_json(500, "user administration failed")
+                else:
+                    self.send_error_json(500, str(error))
 
         def do_PATCH(self):
+            path = self.route()
+            parts = path.strip("/").split("/")
+            if len(parts) == 3 and parts[:2] == ["api", "users"]:
+                try:
+                    principal = self.require_access("admin")
+                    validate_user_mutation_request(self)
+                    self.send_json(update_user_profile(principal, parts[2], read_body(self), self.request_id()))
+                except AuthError as error:
+                    self.send_auth_error(error)
+                except RequestError as error:
+                    self.send_error_json(error.status, str(error))
+                except Exception:
+                    self.send_error_json(500, "user administration failed")
+                return
             if self.route() == "/api/settings":
                 try:
                     self.require_access("admin")
@@ -1634,6 +2572,8 @@ data:
                     self.send_auth_error(error)
                 except LookupError as error:
                     self.send_error_json(404, str(error))
+                except RequestError as error:
+                    self.send_error_json(error.status, str(error))
                 except urllib.error.HTTPError as error:
                     self.send_error_json(error.code, error.read().decode("utf-8", errors="replace"))
                 except Exception as error:
@@ -1653,6 +2593,27 @@ data:
             try:
                 path = self.route()
                 parts = path.strip("/").split("/")
+                if path == "/api/users":
+                    principal = self.require_access("admin")
+                    validate_user_mutation_request(self)
+                    self.send_json(create_user(principal, read_body(self), self.request_id()), 201)
+                    return
+
+                if len(parts) == 4 and parts[:2] == ["api", "users"] and parts[3] in {"enable", "disable"}:
+                    principal = self.require_access("admin")
+                    validate_user_mutation_request(self)
+                    payload = read_body(self)
+                    _reject_unknown_fields(payload, set())
+                    self.send_json(
+                        set_user_enabled(
+                            principal,
+                            parts[2],
+                            parts[3] == "enable",
+                            self.request_id(),
+                        )
+                    )
+                    return
+
                 if len(parts) == 4 and parts[0] == "api" and parts[1] == "modules":
                     self.require_access("operator")
                     catalog = catalog_json()
@@ -1712,14 +2673,50 @@ data:
             except RequestError as error:
                 self.send_error_json(error.status, str(error))
             except urllib.error.HTTPError as error:
-                self.send_error_json(error.code, error.read().decode("utf-8", errors="replace"))
+                if self.route().startswith("/api/users"):
+                    self.send_error_json(503, "identity administration is unavailable")
+                else:
+                    self.send_error_json(error.code, error.read().decode("utf-8", errors="replace"))
             except Exception as error:
-                self.send_error_json(400, str(error))
+                if self.route().startswith("/api/users"):
+                    self.send_error_json(500, "user administration failed")
+                else:
+                    self.send_error_json(400, str(error))
+
+        def do_PUT(self):
+            try:
+                path = self.route()
+                parts = path.strip("/").split("/")
+                if len(parts) != 4 or parts[:2] != ["api", "users"]:
+                    self.send_error_json(404, "not found")
+                    return
+                principal = self.require_access("admin")
+                validate_user_mutation_request(self)
+                payload = read_body(self)
+                if parts[3] == "roles":
+                    self.send_json(update_user_roles(principal, parts[2], payload, self.request_id()))
+                    return
+                if parts[3] == "password":
+                    self.send_json(reset_user_password(principal, parts[2], payload, self.request_id()))
+                    return
+                self.send_error_json(404, "not found")
+            except AuthError as error:
+                self.send_auth_error(error)
+            except RequestError as error:
+                self.send_error_json(error.status, str(error))
+            except Exception:
+                self.send_error_json(500, "user administration failed")
 
         def do_DELETE(self):
             try:
                 path = self.route()
                 parts = path.strip("/").split("/")
+                if len(parts) == 3 and parts[:2] == ["api", "users"]:
+                    principal = self.require_access("admin")
+                    validate_user_mutation_request(self)
+                    payload = read_body(self)
+                    self.send_json(delete_user(principal, parts[2], payload, self.request_id()))
+                    return
                 self.require_access("operator")
                 if len(parts) == 3 and parts[:2] == ["api", "instances"]:
                     name = parts[2]
@@ -1751,10 +2748,18 @@ data:
                 self.send_error_json(404, "not found")
             except AuthError as error:
                 self.send_auth_error(error)
+            except RequestError as error:
+                self.send_error_json(error.status, str(error))
             except urllib.error.HTTPError as error:
-                self.send_error_json(error.code, error.read().decode("utf-8", errors="replace"))
+                if self.route().startswith("/api/users"):
+                    self.send_error_json(503, "identity administration is unavailable")
+                else:
+                    self.send_error_json(error.code, error.read().decode("utf-8", errors="replace"))
             except Exception as error:
-                self.send_error_json(400, str(error))
+                if self.route().startswith("/api/users"):
+                    self.send_error_json(500, "user administration failed")
+                else:
+                    self.send_error_json(400, str(error))
 
 
     if __name__ == "__main__":

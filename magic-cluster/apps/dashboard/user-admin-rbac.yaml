@@ -1,19 +1,19 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: ai-appliance-dashboard-settings
-  namespace: flux-system
+  name: ai-appliance-dashboard-user-admin-client
+  namespace: identity-system
 rules:
   - apiGroups: [""]
-    resources: ["configmaps"]
-    resourceNames: ["ai-appliance-settings"]
-    verbs: ["get", "patch"]
+    resources: ["secrets"]
+    resourceNames: ["magicstick-user-admin-client"]
+    verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: ai-appliance-dashboard-settings
-  namespace: flux-system
+  name: ai-appliance-dashboard-user-admin-client
+  namespace: identity-system
 subjects:
   - kind: ServiceAccount
     name: ai-appliance-dashboard-api
@@ -21,4 +21,4 @@ subjects:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: ai-appliance-dashboard-settings
+  name: ai-appliance-dashboard-user-admin-client

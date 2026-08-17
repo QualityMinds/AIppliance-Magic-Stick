@@ -48,7 +48,9 @@ data:
     ]
     USERNAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{2,63}$")
     DNS_LABEL = re.compile(r"^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$")
+    INSTALLATION_ID = re.compile(r"^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$")
     FAILED_CLAIMS = {}
+    RECOVERY_MIGRATIONS_COMPLETE = set()
 
 
     class ApiError(Exception):
@@ -274,21 +276,83 @@ data:
         return {role["name"]: role for role in roles}
 
 
-    def ensure_keycloak_user(token, username, password, email, display_name):
+    def find_recovery_group(token):
+        query = urllib.parse.urlencode({
+            "search": "magicstick-recovery", "exact": "true", "briefRepresentation": "true",
+        })
+        groups, _ = keycloak_request("GET", "/admin/realms/magicstick/groups?" + query, token=token)
+        matches = [
+            group for group in groups if isinstance(group, dict)
+            and group.get("name") == "magicstick-recovery"
+            and group.get("path") == "/magicstick-recovery"
+            and group.get("id")
+        ]
+        if len(matches) > 1:
+            raise RuntimeError("Keycloak recovery group is ambiguous")
+        return matches[0] if matches else None
+
+
+    def ensure_recovery_group(token):
+        group = find_recovery_group(token)
+        if group:
+            return group
+        try:
+            keycloak_request(
+                "POST", "/admin/realms/magicstick/groups", token=token,
+                body={"name": "magicstick-recovery"},
+            )
+        except urllib.error.HTTPError as error:
+            if error.code != 409:
+                raise
+        group = find_recovery_group(token)
+        if not group:
+            raise RuntimeError("Keycloak recovery group creation verification failed")
+        return group
+
+
+    def user_has_recovery_group(token, user_id, group_id):
+        query = urllib.parse.urlencode({
+            "search": "magicstick-recovery", "briefRepresentation": "true",
+        })
+        groups, _ = keycloak_request(
+            "GET", f"/admin/realms/magicstick/users/{user_id}/groups?" + query, token=token,
+        )
+        return any(
+            isinstance(group, dict) and group.get("id") == group_id
+            and group.get("name") == "magicstick-recovery"
+            and group.get("path") == "/magicstick-recovery"
+            for group in groups
+        )
+
+
+    def ensure_recovery_group_membership(token, user_id):
+        group = ensure_recovery_group(token)
+        group_id = str(group["id"])
+        if user_has_recovery_group(token, user_id, group_id):
+            return False
+        keycloak_request(
+            "PUT", f"/admin/realms/magicstick/users/{user_id}/groups/{group_id}", token=token,
+        )
+        if not user_has_recovery_group(token, user_id, group_id):
+            raise RuntimeError("Keycloak recovery group membership verification failed")
+        return True
+
+
+    def ensure_keycloak_user(token, username, password, email, display_name, account_type="primary"):
+        if account_type not in {"primary", "recovery"}:
+            raise ValueError("unsupported Keycloak account type")
         query = urllib.parse.urlencode({"username": username, "exact": "true"})
         users, _ = keycloak_request("GET", "/admin/realms/magicstick/users?" + query, token=token)
         first_name, _, last_name = display_name.partition(" ")
+        user_body = {
+            "username": username, "enabled": True, "email": email,
+            "emailVerified": True, "firstName": first_name, "lastName": last_name,
+        }
         if users:
             user_id = users[0]["id"]
-            keycloak_request("PUT", f"/admin/realms/magicstick/users/{user_id}", token=token, body={
-                "username": username, "enabled": True, "email": email,
-                "emailVerified": True, "firstName": first_name, "lastName": last_name,
-            })
+            keycloak_request("PUT", f"/admin/realms/magicstick/users/{user_id}", token=token, body=user_body)
         else:
-            _, headers = keycloak_request("POST", "/admin/realms/magicstick/users", token=token, body={
-                "username": username, "enabled": True, "email": email,
-                "emailVerified": True, "firstName": first_name, "lastName": last_name,
-            })
+            _, headers = keycloak_request("POST", "/admin/realms/magicstick/users", token=token, body=user_body)
             user_id = headers.get("Location", "").rstrip("/").split("/")[-1]
             if not user_id:
                 users, _ = keycloak_request("GET", "/admin/realms/magicstick/users?" + query, token=token)
@@ -297,13 +361,54 @@ data:
             "type": "password", "value": password, "temporary": False,
         })
         roles = keycloak_roles(token)
-        assignments = [roles[name] for name in ("magicstick-user", "magicstick-admin")]
+        required_role_names = {"magicstick-user", "magicstick-admin"}
+        assignments = [roles[name] for name in sorted(required_role_names)]
         keycloak_request("POST", f"/admin/realms/magicstick/users/{user_id}/role-mappings/realm", token=token, body=assignments)
         assigned, _ = keycloak_request("GET", f"/admin/realms/magicstick/users/{user_id}/role-mappings/realm", token=token)
         assigned_names = {role.get("name") for role in assigned}
-        if not {"magicstick-user", "magicstick-admin"}.issubset(assigned_names):
+        if not required_role_names.issubset(assigned_names):
             raise RuntimeError("Keycloak role verification failed")
+        if account_type == "recovery":
+            ensure_recovery_group_membership(token, user_id)
         return user_id
+
+
+    def completed_setup_recovery_identity(resource):
+        resource = resource or {}
+        spec = resource.get("spec") or {}
+        status = resource.get("status") or {}
+        installation_id = str(spec.get("installationId") or "").strip()
+        if (status.get("phase") != "Completed" or not status.get("completedAt")
+                or spec.get("setupVersion") != "v1" or not INSTALLATION_ID.fullmatch(installation_id)):
+            return "", ""
+        return installation_id, "recovery-" + installation_id[:8]
+
+
+    def migrate_completed_recovery_user(resource):
+        installation_id, username = completed_setup_recovery_identity(resource)
+        if not installation_id or installation_id in RECOVERY_MIGRATIONS_COMPLETE:
+            return False
+        token = keycloak_token()
+        query = urllib.parse.urlencode({"username": username, "exact": "true"})
+        users, _ = keycloak_request("GET", "/admin/realms/magicstick/users?" + query, token=token)
+        if (not isinstance(users, list) or len(users) != 1
+                or str(users[0].get("username") or "") != username):
+            return False
+        user_id = str(users[0].get("id") or "").strip()
+        if not user_id:
+            return False
+        user, _ = keycloak_request("GET", f"/admin/realms/magicstick/users/{user_id}", token=token)
+        if str(user.get("id") or "") != user_id or str(user.get("username") or "") != username:
+            return False
+        assigned, _ = keycloak_request(
+            "GET", f"/admin/realms/magicstick/users/{user_id}/role-mappings/realm", token=token,
+        )
+        assigned_names = {str(role.get("name") or "") for role in assigned if isinstance(role, dict)}
+        if not {"magicstick-user", "magicstick-admin"}.issubset(assigned_names):
+            return False
+        changed = ensure_recovery_group_membership(token, user_id)
+        RECOVERY_MIGRATIONS_COMPLETE.add(installation_id)
+        return changed
 
 
     def session_secret():
@@ -406,6 +511,8 @@ data:
         if phase not in {"Pending", "Claimed", "Applying", "Failed"}:
             for path in DYNAMIC_PATHS:
                 delete_resource(path)
+            if phase == "Completed":
+                migrate_completed_recovery_user(setup)
             return
         settings = current_settings()
         for collection, item, resource in dynamic_resources(settings["mdnsDomain"], setup_access_ips()):
@@ -564,9 +671,9 @@ data:
             patch_status("Applying", claimedAt=((setup_resource().get("status") or {}).get("claimedAt", now())), lastErrorCode="")
             update_settings(values)
             token = keycloak_token()
-            ensure_keycloak_user(token, values["username"], values["password"], values["email"], values["displayName"])
+            ensure_keycloak_user(token, values["username"], values["password"], values["email"], values["displayName"], "primary")
             ensure_keycloak_user(token, values["recoveryUsername"], values["recoveryCode"],
-                                 values["recoveryUsername"] + "@" + values["mdnsDomain"], "Recovery Administrator")
+                                 values["recoveryUsername"] + "@" + values["mdnsDomain"], "Recovery Administrator", "recovery")
             patch_status("Completed", completedAt=now(), lastErrorCode="")
             delete_resource(CLAIM_SECRET_PATH)
             delete_resource(SESSION_SECRET_PATH)

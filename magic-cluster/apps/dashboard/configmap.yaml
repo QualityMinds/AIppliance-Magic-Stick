@@ -196,6 +196,182 @@ data:
           grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
         }
 
+        .users-workspace {
+          display: grid;
+          gap: 0.85rem;
+        }
+
+        .users-toolbar,
+        .users-toolbar form,
+        .users-pagination {
+          align-items: end;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.55rem;
+        }
+
+        .users-toolbar {
+          justify-content: space-between;
+        }
+
+        .users-toolbar form {
+          flex: 1 1 34rem;
+        }
+
+        .users-toolbar .field {
+          min-width: min(15rem, 100%);
+        }
+
+        .users-toolbar .user-search-field {
+          flex: 1 1 18rem;
+        }
+
+        .users-table-wrap {
+          border: 1px solid rgba(148, 163, 184, 0.22);
+          border-radius: 12px;
+          overflow-x: auto;
+        }
+
+        .users-table {
+          border-collapse: collapse;
+          min-width: 760px;
+          width: 100%;
+        }
+
+        .users-table th,
+        .users-table td {
+          border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+          padding: 0.7rem;
+          text-align: left;
+          vertical-align: top;
+        }
+
+        .users-table th {
+          color: var(--muted);
+          font-size: 0.76rem;
+          font-weight: 700;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+        }
+
+        .users-table tbody tr:last-child td {
+          border-bottom: 0;
+        }
+
+        .user-identity {
+          display: grid;
+          gap: 0.15rem;
+        }
+
+        .user-identity span,
+        .user-source-note,
+        .user-role-note,
+        .dialog-helper {
+          color: var(--muted);
+          font-size: 0.78rem;
+        }
+
+        .user-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.35rem;
+          min-width: 13rem;
+        }
+
+        .user-actions .control-button {
+          font-size: 0.78rem;
+          padding: 0.35rem 0.55rem;
+        }
+
+        .user-empty-state {
+          border: 1px dashed rgba(148, 163, 184, 0.35);
+          border-radius: 12px;
+          color: var(--muted);
+          padding: 1.2rem;
+          text-align: center;
+        }
+
+        .users-pagination {
+          justify-content: space-between;
+        }
+
+        .users-pagination span {
+          color: var(--muted);
+          font-size: 0.82rem;
+        }
+
+        .dashboard-dialog {
+          background: var(--panel-strong);
+          border: 1px solid rgba(125, 211, 252, 0.35);
+          border-radius: 16px;
+          color: var(--text);
+          max-height: min(90vh, 760px);
+          max-width: min(620px, calc(100% - 2rem));
+          overflow: auto;
+          padding: 0;
+          width: 100%;
+        }
+
+        .dashboard-dialog::backdrop {
+          background: rgba(2, 6, 23, 0.82);
+        }
+
+        .dialog-form {
+          display: grid;
+          gap: 1rem;
+          margin: 0;
+          padding: 1.1rem;
+        }
+
+        .dialog-heading {
+          display: grid;
+          gap: 0.35rem;
+        }
+
+        .dialog-heading h3,
+        .dialog-heading p {
+          margin: 0;
+        }
+
+        .dialog-heading p {
+          color: var(--muted);
+          font-size: 0.86rem;
+        }
+
+        .dialog-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.55rem;
+          justify-content: flex-end;
+        }
+
+        .dialog-error {
+          color: #fecaca;
+          min-height: 1.2rem;
+        }
+
+        .checkbox-field {
+          align-items: center;
+          color: var(--muted);
+          display: flex;
+          font-size: 0.82rem;
+          gap: 0.5rem;
+        }
+
+        .checkbox-field input {
+          accent-color: var(--accent-strong);
+        }
+
+        .sr-only {
+          clip: rect(0, 0, 0, 0);
+          clip-path: inset(50%);
+          height: 1px;
+          overflow: hidden;
+          position: absolute;
+          white-space: nowrap;
+          width: 1px;
+        }
+
         .dashboard-card {
           border: 1px solid rgba(100, 116, 139, 0.3);
           border-radius: 12px;
@@ -825,6 +1001,59 @@ data:
           .hero {
             border-radius: 18px;
           }
+
+          .users-table {
+            display: block;
+            min-width: 0;
+          }
+
+          .users-table thead {
+            display: none;
+          }
+
+          .users-table tbody,
+          .users-table tr,
+          .users-table td {
+            display: block;
+            width: 100%;
+          }
+
+          .users-table tbody {
+            display: grid;
+            gap: 0.75rem;
+            padding: 0.75rem;
+          }
+
+          .users-table tr {
+            border: 1px solid rgba(148, 163, 184, 0.22);
+            border-radius: 10px;
+            padding: 0.2rem;
+          }
+
+          .users-table td {
+            border-bottom: 1px solid rgba(148, 163, 184, 0.13);
+            display: grid;
+            gap: 0.35rem;
+            grid-template-columns: minmax(6rem, 35%) minmax(0, 1fr);
+          }
+
+          .users-table td::before {
+            color: var(--muted);
+            content: attr(data-label);
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+          }
+
+          .users-table td:last-child {
+            border-bottom: 0;
+            display: block;
+          }
+
+          .users-table td:last-child::before {
+            display: block;
+            margin-bottom: 0.4rem;
+          }
         }
       </style>
     </head>
@@ -857,6 +1086,7 @@ data:
             <button class="tab-button" type="button" aria-selected="false" data-tab="instances">Instances</button>
             <button class="tab-button" type="button" aria-selected="false" data-tab="models">Models</button>
             <button class="tab-button" type="button" aria-selected="false" data-tab="settings">Settings</button>
+            <button class="tab-button" id="users-tab-button" type="button" aria-selected="false" data-tab="users" hidden>Users</button>
             <button class="tab-button" type="button" aria-selected="false" data-tab="system">System Status</button>
           </nav>
 
@@ -1130,6 +1360,70 @@ data:
             <p id="settings-output" class="api-output"></p>
           </section>
 
+          <section id="tab-users" class="tab-panel" hidden aria-labelledby="users-tab-button">
+            <div class="users-workspace">
+              <div class="users-toolbar">
+                <form id="user-search-form" role="search">
+                  <label class="field user-search-field">Search users
+                    <input id="user-search" name="search" type="search" autocomplete="off" placeholder="Username, name, or email" />
+                  </label>
+                  <label class="field">Status
+                    <select id="user-status-filter" name="status">
+                      <option value="all">All</option>
+                      <option value="enabled">Enabled</option>
+                      <option value="disabled">Disabled</option>
+                    </select>
+                  </label>
+                  <label class="field">Source
+                    <select id="user-source-filter" name="source">
+                      <option value="all">All</option>
+                      <option value="local">Local</option>
+                      <option value="external">External</option>
+                    </select>
+                  </label>
+                  <button class="control-button" type="submit">Search</button>
+                  <button class="control-button" id="user-refresh" type="button">Refresh</button>
+                </form>
+                <button class="control-button primary" id="user-create" type="button">Create User</button>
+              </div>
+              <p id="users-output" class="api-output" role="status" aria-live="polite">Open this page to load users.</p>
+              <div id="users-loading" class="user-empty-state" role="status" hidden>Loading users…</div>
+              <div id="users-error" class="user-empty-state" role="alert" hidden></div>
+              <div id="users-empty" class="user-empty-state" hidden>No users match the current search and filters.</div>
+              <div id="users-table-wrap" class="users-table-wrap" hidden>
+                <table class="users-table">
+                  <caption class="sr-only">Keycloak users known to this appliance</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">User</th>
+                      <th scope="col">Email</th>
+                      <th scope="col">Source</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">Access</th>
+                      <th scope="col">Created</th>
+                      <th scope="col">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="users-list"></tbody>
+                </table>
+              </div>
+              <div class="users-pagination" id="users-pagination" hidden>
+                <span id="users-page-summary">0 users</span>
+                <div class="action-row">
+                  <label class="field">Per page
+                    <select id="users-page-size">
+                      <option value="10">10</option>
+                      <option value="25" selected>25</option>
+                      <option value="50">50</option>
+                    </select>
+                  </label>
+                  <button class="control-button" id="users-previous" type="button">Previous</button>
+                  <button class="control-button" id="users-next" type="button">Next</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
           <section id="tab-system" class="tab-panel" hidden>
             <div class="dashboard-grid">
               <article class="dashboard-card"><h3>Flux</h3><div id="flux-list" class="mini-list"></div></article>
@@ -1143,6 +1437,115 @@ data:
           Generated by the dashboard renderer.
         </footer>
       </main>
+
+      <dialog class="dashboard-dialog" id="user-editor-dialog" aria-labelledby="user-editor-title">
+        <form class="dialog-form" id="user-editor-form">
+          <div class="dialog-heading">
+            <h3 id="user-editor-title">Create User</h3>
+            <p id="user-editor-description">Create a local Keycloak user for this appliance.</p>
+          </div>
+          <div class="form-grid">
+            <label class="field">Username
+              <input name="username" autocomplete="username" required maxlength="128" pattern="[A-Za-z0-9][A-Za-z0-9._@+-]{0,127}" title="Start with a letter or digit; then use letters, digits, dot, underscore, at sign, plus, or hyphen." />
+            </label>
+            <label class="field">First name
+              <input name="firstName" autocomplete="given-name" maxlength="128" />
+            </label>
+            <label class="field">Last name
+              <input name="lastName" autocomplete="family-name" maxlength="128" />
+            </label>
+            <label class="field">Email
+              <input name="email" type="email" autocomplete="email" maxlength="254" required />
+            </label>
+            <label class="field" id="user-editor-access-field">Access level
+              <select name="accessLevel">
+                <option value="user">User</option>
+                <option value="viewer">Viewer</option>
+                <option value="operator">Operator</option>
+                <option value="admin">Administrator</option>
+              </select>
+            </label>
+            <label class="field" id="user-editor-password-field">Temporary password
+              <input name="password" type="password" autocomplete="new-password" minlength="12" />
+            </label>
+            <label class="field" id="user-editor-confirm-field">Confirm temporary password
+              <input name="passwordConfirmation" type="password" autocomplete="new-password" minlength="12" />
+            </label>
+          </div>
+          <label class="checkbox-field" id="user-editor-enabled-field">
+            <input name="enabled" type="checkbox" checked />
+            Enable the account after it has been created
+          </label>
+          <p class="dialog-helper" id="user-editor-source-note" hidden></p>
+          <p class="dialog-error" id="user-editor-error" role="alert" aria-live="assertive"></p>
+          <div class="dialog-actions">
+            <button class="control-button" type="button" data-dialog-cancel>Cancel</button>
+            <button class="control-button primary" id="user-editor-submit" type="submit">Create User</button>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog class="dashboard-dialog" id="user-role-dialog" aria-labelledby="user-role-title">
+        <form class="dialog-form" id="user-role-form">
+          <div class="dialog-heading">
+            <h3 id="user-role-title">Change access</h3>
+            <p id="user-role-description">Choose the MagicStick access level. Unmanaged and inherited roles are preserved.</p>
+          </div>
+          <label class="field">Access level
+            <select name="accessLevel">
+              <option value="user">User</option>
+              <option value="viewer">Viewer</option>
+              <option value="operator">Operator</option>
+              <option value="admin">Administrator</option>
+            </select>
+          </label>
+          <p class="user-role-note" id="user-role-note"></p>
+          <p class="dialog-error" id="user-role-error" role="alert" aria-live="assertive"></p>
+          <div class="dialog-actions">
+            <button class="control-button" type="button" data-dialog-cancel>Cancel</button>
+            <button class="control-button primary" type="submit">Save Access</button>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog class="dashboard-dialog" id="user-password-dialog" aria-labelledby="user-password-title">
+        <form class="dialog-form" id="user-password-form">
+          <div class="dialog-heading">
+            <h3 id="user-password-title">Reset password</h3>
+            <p id="user-password-description">Set a temporary password. The user must change it at the next sign-in.</p>
+          </div>
+          <div class="form-grid">
+            <label class="field">Temporary password
+              <input name="password" type="password" autocomplete="new-password" minlength="12" required />
+            </label>
+            <label class="field">Confirm temporary password
+              <input name="passwordConfirmation" type="password" autocomplete="new-password" minlength="12" required />
+            </label>
+          </div>
+          <p class="dialog-error" id="user-password-error" role="alert" aria-live="assertive"></p>
+          <div class="dialog-actions">
+            <button class="control-button" type="button" data-dialog-cancel>Cancel</button>
+            <button class="control-button primary" type="submit">Set Temporary Password</button>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog class="dashboard-dialog" id="user-confirm-dialog" aria-labelledby="user-confirm-title">
+        <form class="dialog-form" id="user-confirm-form">
+          <div class="dialog-heading">
+            <h3 id="user-confirm-title">Confirm action</h3>
+            <p id="user-confirm-description"></p>
+          </div>
+          <label class="field" id="user-delete-confirm-field" hidden>Enter the username to confirm deletion
+            <input name="usernameConfirmation" autocomplete="off" />
+          </label>
+          <p class="dialog-error" id="user-confirm-error" role="alert" aria-live="assertive"></p>
+          <div class="dialog-actions">
+            <button class="control-button" type="button" data-dialog-cancel>Cancel</button>
+            <button class="control-button danger" id="user-confirm-submit" type="submit">Confirm</button>
+          </div>
+        </form>
+      </dialog>
       <script>
         (() => {
           const $ = (id) => document.getElementById(id);
@@ -1163,6 +1566,19 @@ data:
           let vramEstimateRequest = 0;
           let latestVramEstimate = null;
           let latestVramEstimateSignature = '';
+          let latestSession = {};
+          let usersLoaded = false;
+          let usersLoading = false;
+          let usersRequestSequence = 0;
+          let usersPageFirst = 0;
+          let usersPageSize = 25;
+          let usersTotal = 0;
+          let usersPageItems = [];
+          let activeUserEditor = null;
+          let activeUserRoles = null;
+          let activeUserPassword = null;
+          let activeUserConfirmation = null;
+          const dialogOpeners = new Map();
 
           const setApiState = (text, ok = false) => {
             if (!apiState) { return; }
@@ -1180,6 +1596,15 @@ data:
               throw new Error(payload.error || response.statusText);
             }
             return payload;
+          };
+
+          const userRequest = (path, options = {}) => {
+            const method = String(options.method || 'GET').toUpperCase();
+            const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+            if (method !== 'GET' && method !== 'HEAD') {
+              headers['X-MagicStick-CSRF'] = 'dashboard';
+            }
+            return request(path, { ...options, headers });
           };
 
           const titleFromKey = (name) => String(name || '')
@@ -2612,6 +3037,405 @@ data:
             }
           };
 
+          const sessionIsUserAdmin = (session) => {
+            const roles = Array.isArray((session || {}).roles) ? session.roles : [];
+            return roles.includes('magicstick-admin') && (session || {}).identityManagementAvailable !== false;
+          };
+
+          const setUsersTabAccess = (session) => {
+            const button = $('users-tab-button');
+            const allowed = sessionIsUserAdmin(session);
+            if (!button) { return; }
+            button.hidden = !allowed;
+            if (!allowed && button.getAttribute('aria-selected') === 'true') {
+              const overview = document.querySelector('.tab-button[data-tab="overview"]');
+              if (overview) {
+                overview.click();
+              }
+            }
+          };
+
+          const userSource = (user) => {
+            const raw = (user || {}).source;
+            if (raw && typeof raw === 'object') {
+              return String(raw.displayName || raw.provider || raw.alias || raw.type || 'External');
+            }
+            return String((user || {}).provider || raw || 'Local');
+          };
+
+          const userIsLocal = (user) => {
+            if ((user || {}).local === true) { return true; }
+            if ((user || {}).local === false) { return false; }
+            const normalized = userSource(user).trim().toLowerCase();
+            return ['local', 'keycloak', 'internal'].includes(normalized);
+          };
+
+          const userRoles = (user, key) => {
+            const roles = (user || {})[key];
+            return Array.isArray(roles) ? roles.map((role) => String(role)) : [];
+          };
+
+          const userAccessLevel = (user) => {
+            const explicit = String((user || {}).accessLevel || '').trim().toLowerCase();
+            if (['user', 'viewer', 'operator', 'admin'].includes(explicit)) { return explicit; }
+            const roles = new Set(userRoles(user, 'directRoles').concat(userRoles(user, 'effectiveRoles')));
+            if (roles.has('magicstick-admin')) { return 'admin'; }
+            if (roles.has('magicstick-operator')) { return 'operator'; }
+            if (roles.has('magicstick-viewer')) { return 'viewer'; }
+            return 'user';
+          };
+
+          const userEffectiveAccessLevel = (user) => {
+            const explicit = String((user || {}).effectiveAccessLevel || '').trim().toLowerCase();
+            if (['user', 'viewer', 'operator', 'admin'].includes(explicit)) { return explicit; }
+            const roles = new Set(userRoles(user, 'effectiveRoles'));
+            if (roles.has('magicstick-admin')) { return 'admin'; }
+            if (roles.has('magicstick-operator')) { return 'operator'; }
+            if (roles.has('magicstick-viewer')) { return 'viewer'; }
+            return userAccessLevel(user);
+          };
+
+          const userDisplayName = (user) => {
+            const explicit = String((user || {}).displayName || '').trim();
+            if (explicit) { return explicit; }
+            return [user.firstName, user.lastName].map((value) => String(value || '').trim()).filter(Boolean).join(' ') || String(user.username || 'Unnamed user');
+          };
+
+          const userCapability = (user, capability) => {
+            return ((user || {}).capabilities || {})[capability] === true;
+          };
+
+          const formatUserDate = (value) => {
+            if (value === undefined || value === null || value === '') { return 'Unknown'; }
+            const numeric = typeof value === 'number' ? value : Number(value);
+            const date = Number.isFinite(numeric)
+              ? new Date(numeric < 100000000000 ? numeric * 1000 : numeric)
+              : new Date(String(value));
+            return Number.isNaN(date.getTime()) ? 'Unknown' : date.toLocaleString();
+          };
+
+          const userById = (id) => usersPageItems.find((user) => String(user.id) === String(id));
+
+          const createUserAction = (user, action, label, allowed, options = {}) => {
+            const button = document.createElement('button');
+            button.className = 'control-button' + (options.danger ? ' danger' : '');
+            button.type = 'button';
+            button.dataset.userAction = action;
+            button.dataset.userId = String(user.id || '');
+            button.textContent = label;
+            button.disabled = !allowed;
+            if (!allowed && options.unavailableReason) {
+              button.title = options.unavailableReason;
+              button.setAttribute('aria-label', label + ': ' + options.unavailableReason);
+            }
+            return button;
+          };
+
+          const renderUsers = () => {
+            const list = $('users-list');
+            if (!list) { return; }
+            const statusFilter = ($('user-status-filter') || {}).value || 'all';
+            const sourceFilter = ($('user-source-filter') || {}).value || 'all';
+            const visibleUsers = usersPageItems.filter((user) => {
+              const statusMatches = statusFilter === 'all' || (statusFilter === 'enabled' ? user.enabled !== false : user.enabled === false);
+              const local = userIsLocal(user);
+              const sourceMatches = sourceFilter === 'all' || (sourceFilter === 'local' ? local : !local);
+              return statusMatches && sourceMatches;
+            });
+            list.replaceChildren();
+            visibleUsers.forEach((user) => {
+              const row = document.createElement('tr');
+
+              const identityCell = document.createElement('td');
+              identityCell.dataset.label = 'User';
+              const identity = document.createElement('div');
+              identity.className = 'user-identity';
+              const displayName = document.createElement('strong');
+              displayName.textContent = userDisplayName(user);
+              const username = document.createElement('span');
+              username.textContent = String(user.username || 'Unknown username');
+              identity.append(displayName, username);
+              identityCell.appendChild(identity);
+
+              const emailCell = document.createElement('td');
+              emailCell.dataset.label = 'Email';
+              emailCell.textContent = String(user.email || 'Not set');
+
+              const sourceCell = document.createElement('td');
+              sourceCell.dataset.label = 'Source';
+              const sourceName = document.createElement('strong');
+              sourceName.textContent = userSource(user);
+              const sourceNote = document.createElement('div');
+              sourceNote.className = 'user-source-note';
+              sourceNote.textContent = userIsLocal(user) ? 'Managed locally' : 'Profile and password managed upstream';
+              sourceCell.append(sourceName, sourceNote);
+
+              const statusCell = document.createElement('td');
+              statusCell.dataset.label = 'Status';
+              const status = document.createElement('span');
+              status.className = 'status-pill ' + (user.enabled === false ? 'disabled' : 'enabled');
+              status.textContent = user.enabled === false ? 'Disabled' : 'Enabled';
+              statusCell.appendChild(status);
+
+              const roleCell = document.createElement('td');
+              roleCell.dataset.label = 'Access';
+              const access = document.createElement('strong');
+              access.textContent = titleFromKey(userEffectiveAccessLevel(user));
+              const directRoles = userRoles(user, 'directRoles');
+              const effectiveRoles = userRoles(user, 'effectiveRoles');
+              const directNote = document.createElement('div');
+              directNote.className = 'user-role-note';
+              directNote.textContent = 'Direct: ' + (directRoles.join(', ') || 'none');
+              const effectiveNote = document.createElement('div');
+              effectiveNote.className = 'user-role-note';
+              effectiveNote.textContent = 'Effective: ' + (effectiveRoles.join(', ') || 'none');
+              roleCell.append(access, directNote, effectiveNote);
+
+              const createdCell = document.createElement('td');
+              createdCell.dataset.label = 'Created';
+              createdCell.textContent = formatUserDate(user.createdAt || user.createdTimestamp);
+
+              const actionsCell = document.createElement('td');
+              actionsCell.dataset.label = 'Actions';
+              const actions = document.createElement('div');
+              actions.className = 'user-actions';
+              const isSelf = userCapability(user, 'isSelf');
+              const isProtected = userCapability(user, 'isProtected');
+              const externalProfileReason = userIsLocal(user)
+                ? (isProtected ? 'Protected recovery profiles cannot be edited here.' : 'This profile cannot be edited here.')
+                : 'This profile is managed by the external identity provider.';
+              const accessReason = isSelf
+                ? 'You cannot change your own access level.'
+                : (isProtected ? 'Protected recovery access cannot be changed.' : 'This account\'s MagicStick access cannot be changed here.');
+              const passwordReason = !userIsLocal(user)
+                ? 'Reset this password at the external identity provider.'
+                : (isSelf ? 'Use the Keycloak account page to change your own password.' : (isProtected ? 'Protected recovery credentials cannot be reset here.' : 'Password reset is unavailable.'));
+              const deleteReason = !userIsLocal(user)
+                ? 'External accounts must be disabled here or removed at the identity provider.'
+                : (isSelf ? 'You cannot delete your own account.' : (isProtected ? 'Protected recovery users cannot be deleted.' : 'The last local administrator cannot be deleted.'));
+              actions.append(
+                createUserAction(user, 'edit', 'Edit', userCapability(user, 'canEditProfile'), { unavailableReason: externalProfileReason }),
+                createUserAction(user, 'roles', 'Access', userCapability(user, 'canManageRoles'), { unavailableReason: accessReason })
+              );
+              if (user.enabled === false) {
+                actions.appendChild(createUserAction(user, 'enable', 'Enable', userCapability(user, 'canEnable'), { unavailableReason: 'This protected account cannot be enabled here.' }));
+              } else {
+                actions.appendChild(createUserAction(user, 'disable', 'Disable', userCapability(user, 'canDisable'), { unavailableReason: 'You cannot disable yourself or the protected last local administrator.' }));
+              }
+              actions.append(
+                createUserAction(user, 'password', 'Reset Password', userCapability(user, 'canResetPassword'), {
+                  unavailableReason: passwordReason
+                }),
+                createUserAction(user, 'delete', 'Delete', userCapability(user, 'canDelete'), {
+                  danger: true,
+                  unavailableReason: deleteReason
+                })
+              );
+              actionsCell.appendChild(actions);
+              row.append(identityCell, emailCell, sourceCell, statusCell, roleCell, createdCell, actionsCell);
+              list.appendChild(row);
+            });
+
+            const table = $('users-table-wrap');
+            const empty = $('users-empty');
+            const pagination = $('users-pagination');
+            if (table) { table.hidden = visibleUsers.length === 0; }
+            if (empty) { empty.hidden = visibleUsers.length !== 0; }
+            if (pagination) { pagination.hidden = usersPageItems.length === 0 && usersPageFirst === 0; }
+            const summary = $('users-page-summary');
+            if (summary) {
+              const start = usersPageItems.length ? usersPageFirst + 1 : 0;
+              const end = usersPageFirst + usersPageItems.length;
+              const filtered = visibleUsers.length !== usersPageItems.length ? '; ' + visibleUsers.length + ' shown after filters' : '';
+              summary.textContent = start + '–' + end + ' of ' + usersTotal + filtered;
+            }
+            const previous = $('users-previous');
+            const next = $('users-next');
+            if (previous) { previous.disabled = usersLoading || usersPageFirst === 0; }
+            if (next) { next.disabled = usersLoading || usersPageFirst + usersPageItems.length >= usersTotal || usersPageItems.length === 0; }
+          };
+
+          const setUsersLoading = (loading) => {
+            usersLoading = loading;
+            const loadingNode = $('users-loading');
+            const error = $('users-error');
+            if (loadingNode) { loadingNode.hidden = !loading; }
+            if (loading && error) { error.hidden = true; }
+            if (loading) {
+              const table = $('users-table-wrap');
+              const empty = $('users-empty');
+              const pagination = $('users-pagination');
+              if (table) { table.hidden = true; }
+              if (empty) { empty.hidden = true; }
+              if (pagination) { pagination.hidden = true; }
+            }
+            ['user-search', 'user-status-filter', 'user-source-filter', 'user-refresh', 'users-page-size', 'users-previous', 'users-next'].forEach((id) => {
+              const node = $(id);
+              if (node) { node.disabled = loading; }
+            });
+          };
+
+          const loadUsers = async (force = false) => {
+            if (!sessionIsUserAdmin(latestSession) || usersLoading || (usersLoaded && !force)) { return; }
+            const sequence = ++usersRequestSequence;
+            setUsersLoading(true);
+            const output = $('users-output');
+            if (output) { output.textContent = 'Loading users from Keycloak…'; }
+            const params = new URLSearchParams({ first: String(usersPageFirst), max: String(usersPageSize) });
+            const search = String(($('user-search') || {}).value || '').trim();
+            if (search) { params.set('search', search); }
+            try {
+              const payload = await userRequest('/api/users?' + params.toString());
+              if (sequence !== usersRequestSequence) { return; }
+              const items = Array.isArray(payload) ? payload : (payload.users || payload.items || payload.results || []);
+              usersPageItems = Array.isArray(items) ? items.filter((user) => user && user.id && user.username) : [];
+              const reportedTotal = Number((payload || {}).total ?? (payload || {}).totalCount);
+              usersTotal = Number.isFinite(reportedTotal) ? reportedTotal : usersPageFirst + usersPageItems.length;
+              usersLoaded = true;
+              const error = $('users-error');
+              if (error) { error.hidden = true; error.textContent = ''; }
+              if (output) { output.textContent = 'Users loaded. Changes are written directly to Keycloak.'; }
+              renderUsers();
+            } catch (error) {
+              if (sequence !== usersRequestSequence) { return; }
+              usersLoaded = false;
+              usersPageItems = [];
+              const errorNode = $('users-error');
+              if (errorNode) {
+                errorNode.textContent = 'Users could not be loaded: ' + (error.message || 'Keycloak is unavailable.');
+                errorNode.hidden = false;
+              }
+              const table = $('users-table-wrap');
+              const empty = $('users-empty');
+              const pagination = $('users-pagination');
+              if (table) { table.hidden = true; }
+              if (empty) { empty.hidden = true; }
+              if (pagination) { pagination.hidden = true; }
+              if (output) { output.textContent = 'Use Refresh to retry.'; }
+            } finally {
+              if (sequence === usersRequestSequence) {
+                setUsersLoading(false);
+                if (usersLoaded) { renderUsers(); }
+              }
+            }
+          };
+
+          const showUserDialog = (dialog, focusSelector) => {
+            if (!dialog || typeof dialog.showModal !== 'function') { return; }
+            dialogOpeners.set(dialog, document.activeElement);
+            dialog.showModal();
+            requestAnimationFrame(() => {
+              const focusTarget = dialog.querySelector(focusSelector || 'input:not([type="hidden"]), select, button');
+              if (focusTarget) { focusTarget.focus(); }
+            });
+          };
+
+          const closeUserDialog = (dialog) => {
+            if (dialog && dialog.open) { dialog.close(); }
+          };
+
+          const clearPasswordInputs = (form) => {
+            if (!form) { return; }
+            form.querySelectorAll('input[type="password"]').forEach((input) => { input.value = ''; });
+          };
+
+          const setDialogBusy = (form, busy) => {
+            if (!form) { return; }
+            Array.from(form.elements).forEach((element) => { element.disabled = busy; });
+          };
+
+          const loadUserDetails = async (user) => {
+            if (!user || !user.id) { throw new Error('The selected user no longer exists.'); }
+            return userRequest('/api/users/' + encodeURIComponent(user.id));
+          };
+
+          const openUserEditor = (user = null) => {
+            const dialog = $('user-editor-dialog');
+            const form = $('user-editor-form');
+            if (!dialog || !form) { return; }
+            form.reset();
+            activeUserEditor = user;
+            const creating = !user;
+            $('user-editor-title').textContent = creating ? 'Create User' : 'Edit User';
+            $('user-editor-description').textContent = creating
+              ? 'Create a local Keycloak user for this appliance.'
+              : 'Edit locally managed profile fields for ' + String(user.username || 'this user') + '.';
+            form.elements.username.value = creating ? '' : String(user.username || '');
+            form.elements.username.readOnly = !creating;
+            form.elements.firstName.value = creating ? '' : String(user.firstName || '');
+            form.elements.lastName.value = creating ? '' : String(user.lastName || '');
+            form.elements.email.value = creating ? '' : String(user.email || '');
+            form.elements.accessLevel.value = creating ? 'user' : userAccessLevel(user);
+            form.elements.enabled.checked = creating ? true : user.enabled !== false;
+            $('user-editor-access-field').hidden = !creating;
+            $('user-editor-password-field').hidden = !creating;
+            $('user-editor-confirm-field').hidden = !creating;
+            $('user-editor-enabled-field').hidden = !creating;
+            form.elements.password.required = creating;
+            form.elements.passwordConfirmation.required = creating;
+            const note = $('user-editor-source-note');
+            note.hidden = creating || userIsLocal(user);
+            note.textContent = creating ? '' : 'This identity comes from ' + userSource(user) + '. Only fields explicitly allowed by the server can be changed.';
+            $('user-editor-error').textContent = '';
+            $('user-editor-submit').textContent = creating ? 'Create User' : 'Save Profile';
+            showUserDialog(dialog, creating ? 'input[name="username"]' : 'input[name="firstName"]');
+          };
+
+          const openUserRoles = (user) => {
+            const dialog = $('user-role-dialog');
+            const form = $('user-role-form');
+            if (!dialog || !form) { return; }
+            activeUserRoles = user;
+            form.reset();
+            form.elements.accessLevel.value = userAccessLevel(user);
+            $('user-role-title').textContent = 'Change access for ' + String(user.username || 'user');
+            const direct = userRoles(user, 'directRoles');
+            const effective = userRoles(user, 'effectiveRoles');
+            $('user-role-note').textContent = 'Direct roles: ' + (direct.join(', ') || 'none') + '. Effective roles: ' + (effective.join(', ') || 'none') + '. Unmanaged roles are preserved.';
+            $('user-role-error').textContent = '';
+            showUserDialog(dialog, 'select[name="accessLevel"]');
+          };
+
+          const openUserPassword = (user) => {
+            const dialog = $('user-password-dialog');
+            const form = $('user-password-form');
+            if (!dialog || !form) { return; }
+            activeUserPassword = user;
+            form.reset();
+            $('user-password-title').textContent = 'Reset password for ' + String(user.username || 'user');
+            $('user-password-error').textContent = '';
+            showUserDialog(dialog, 'input[name="password"]');
+          };
+
+          const openUserConfirmation = (user, action) => {
+            const dialog = $('user-confirm-dialog');
+            const form = $('user-confirm-form');
+            if (!dialog || !form) { return; }
+            activeUserConfirmation = { user, action };
+            form.reset();
+            const username = String(user.username || 'this user');
+            const title = action === 'delete' ? 'Delete user' : (action === 'disable' ? 'Disable user' : 'Enable user');
+            const description = action === 'delete'
+              ? 'Permanently delete the local account ' + username + '. This cannot be undone.'
+              : (action === 'disable'
+                ? 'Disable ' + username + ' and request a Keycloak logout for the user.'
+                : 'Enable ' + username + ' so the user can sign in again.');
+            $('user-confirm-title').textContent = title;
+            $('user-confirm-description').textContent = description;
+            $('user-delete-confirm-field').hidden = action !== 'delete';
+            form.elements.usernameConfirmation.required = action === 'delete';
+            $('user-confirm-submit').textContent = action === 'delete' ? 'Delete User' : title;
+            $('user-confirm-error').textContent = '';
+            showUserDialog(dialog, action === 'delete' ? 'input[name="usernameConfirmation"]' : '#user-confirm-submit');
+          };
+
+          const refreshUsersAfterMutation = async (message) => {
+            usersLoaded = false;
+            await loadUsers(true);
+            const output = $('users-output');
+            if (output && usersLoaded) { output.textContent = message; }
+          };
+
           const renderStatus = (status) => {
             const fluxList = $('flux-list');
             if (fluxList) {
@@ -2655,6 +3479,8 @@ data:
           const refresh = async () => {
             try {
               const session = await request('/api/session');
+              latestSession = session || {};
+              setUsersTabAccess(latestSession);
               const settings = await request('/api/settings');
               const appliance = await request('/api/appliance');
               const modulePayload = await request('/api/modules');
@@ -2697,10 +3523,268 @@ data:
           };
 
           document.querySelectorAll('.tab-button').forEach((button) => {
-            button.addEventListener('click', () => {
+            button.addEventListener('click', async () => {
               document.querySelectorAll('.tab-button').forEach((item) => item.setAttribute('aria-selected', item === button ? 'true' : 'false'));
               document.querySelectorAll('.tab-panel').forEach((panel) => { panel.hidden = panel.id !== ('tab-' + button.dataset.tab); });
+              if (button.dataset.tab === 'users') {
+                await loadUsers(false);
+              }
             });
+          });
+
+          const userCreate = $('user-create');
+          if (userCreate) {
+            userCreate.addEventListener('click', () => openUserEditor());
+          }
+
+          const userSearchForm = $('user-search-form');
+          if (userSearchForm) {
+            userSearchForm.addEventListener('submit', async (event) => {
+              event.preventDefault();
+              usersPageFirst = 0;
+              usersLoaded = false;
+              await loadUsers(true);
+            });
+          }
+
+          ['user-status-filter', 'user-source-filter'].forEach((id) => {
+            const filter = $(id);
+            if (filter) {
+              filter.addEventListener('change', renderUsers);
+            }
+          });
+
+          const userRefresh = $('user-refresh');
+          if (userRefresh) {
+            userRefresh.addEventListener('click', async () => {
+              usersLoaded = false;
+              await loadUsers(true);
+            });
+          }
+
+          const userPageSize = $('users-page-size');
+          if (userPageSize) {
+            userPageSize.addEventListener('change', async () => {
+              usersPageSize = Number(userPageSize.value || 25);
+              usersPageFirst = 0;
+              usersLoaded = false;
+              await loadUsers(true);
+            });
+          }
+
+          const usersPrevious = $('users-previous');
+          if (usersPrevious) {
+            usersPrevious.addEventListener('click', async () => {
+              usersPageFirst = Math.max(0, usersPageFirst - usersPageSize);
+              usersLoaded = false;
+              await loadUsers(true);
+            });
+          }
+
+          const usersNext = $('users-next');
+          if (usersNext) {
+            usersNext.addEventListener('click', async () => {
+              usersPageFirst += usersPageSize;
+              usersLoaded = false;
+              await loadUsers(true);
+            });
+          }
+
+          document.querySelectorAll('[data-dialog-cancel]').forEach((button) => {
+            button.addEventListener('click', () => closeUserDialog(button.closest('dialog')));
+          });
+
+          document.querySelectorAll('.dashboard-dialog').forEach((dialog) => {
+            dialog.addEventListener('close', () => {
+              clearPasswordInputs(dialog.querySelector('form'));
+              const opener = dialogOpeners.get(dialog);
+              dialogOpeners.delete(dialog);
+              if (opener && typeof opener.focus === 'function' && document.contains(opener)) {
+                opener.focus();
+              }
+            });
+          });
+
+          const userEditorForm = $('user-editor-form');
+          if (userEditorForm) {
+            userEditorForm.addEventListener('submit', async (event) => {
+              event.preventDefault();
+              const creating = !activeUserEditor;
+              const data = new FormData(userEditorForm);
+              const errorNode = $('user-editor-error');
+              errorNode.textContent = '';
+              let path;
+              let method;
+              let body;
+              if (creating) {
+                const password = String(data.get('password') || '');
+                const confirmation = String(data.get('passwordConfirmation') || '');
+                if (password !== confirmation) {
+                  errorNode.textContent = 'The temporary passwords do not match.';
+                  clearPasswordInputs(userEditorForm);
+                  userEditorForm.elements.password.focus();
+                  return;
+                }
+                path = '/api/users';
+                method = 'POST';
+                body = JSON.stringify({
+                  username: String(data.get('username') || '').trim(),
+                  firstName: String(data.get('firstName') || '').trim(),
+                  lastName: String(data.get('lastName') || '').trim(),
+                  email: String(data.get('email') || '').trim(),
+                  accessLevel: String(data.get('accessLevel') || 'user'),
+                  enabled: data.has('enabled'),
+                  password,
+                  temporary: true
+                });
+              } else {
+                path = '/api/users/' + encodeURIComponent(activeUserEditor.id);
+                method = 'PATCH';
+                body = JSON.stringify({
+                  firstName: String(data.get('firstName') || '').trim(),
+                  lastName: String(data.get('lastName') || '').trim(),
+                  email: String(data.get('email') || '').trim()
+                });
+              }
+              clearPasswordInputs(userEditorForm);
+              setDialogBusy(userEditorForm, true);
+              try {
+                await userRequest(path, { method, body });
+                closeUserDialog($('user-editor-dialog'));
+                await refreshUsersAfterMutation(creating ? 'User created.' : 'User profile updated.');
+              } catch (error) {
+                errorNode.textContent = (error.message || 'The user could not be saved.') + (creating ? ' Re-enter the temporary password before retrying.' : '');
+              } finally {
+                setDialogBusy(userEditorForm, false);
+              }
+            });
+          }
+
+          const userRoleForm = $('user-role-form');
+          if (userRoleForm) {
+            userRoleForm.addEventListener('submit', async (event) => {
+              event.preventDefault();
+              if (!activeUserRoles) { return; }
+              const errorNode = $('user-role-error');
+              errorNode.textContent = '';
+              const data = new FormData(userRoleForm);
+              const accessLevel = String(data.get('accessLevel') || 'user');
+              setDialogBusy(userRoleForm, true);
+              try {
+                await userRequest('/api/users/' + encodeURIComponent(activeUserRoles.id) + '/roles', {
+                  method: 'PUT',
+                  body: JSON.stringify({ accessLevel })
+                });
+                closeUserDialog($('user-role-dialog'));
+                await refreshUsersAfterMutation('User access updated and Keycloak logout requested.');
+              } catch (error) {
+                errorNode.textContent = error.message || 'The access level could not be updated.';
+              } finally {
+                setDialogBusy(userRoleForm, false);
+              }
+            });
+          }
+
+          const userPasswordForm = $('user-password-form');
+          if (userPasswordForm) {
+            userPasswordForm.addEventListener('submit', async (event) => {
+              event.preventDefault();
+              if (!activeUserPassword) { return; }
+              const data = new FormData(userPasswordForm);
+              const password = String(data.get('password') || '');
+              const confirmation = String(data.get('passwordConfirmation') || '');
+              const errorNode = $('user-password-error');
+              errorNode.textContent = '';
+              if (password !== confirmation) {
+                errorNode.textContent = 'The temporary passwords do not match.';
+                clearPasswordInputs(userPasswordForm);
+                userPasswordForm.elements.password.focus();
+                return;
+              }
+              const body = JSON.stringify({ password, temporary: true });
+              clearPasswordInputs(userPasswordForm);
+              setDialogBusy(userPasswordForm, true);
+              try {
+                await userRequest('/api/users/' + encodeURIComponent(activeUserPassword.id) + '/password', { method: 'PUT', body });
+                closeUserDialog($('user-password-dialog'));
+                await refreshUsersAfterMutation('Temporary password set and Keycloak logout requested.');
+              } catch (error) {
+                errorNode.textContent = (error.message || 'The password could not be reset.') + ' Re-enter the temporary password before retrying.';
+              } finally {
+                setDialogBusy(userPasswordForm, false);
+              }
+            });
+          }
+
+          const userConfirmForm = $('user-confirm-form');
+          if (userConfirmForm) {
+            userConfirmForm.addEventListener('submit', async (event) => {
+              event.preventDefault();
+              if (!activeUserConfirmation) { return; }
+              const { user, action } = activeUserConfirmation;
+              const errorNode = $('user-confirm-error');
+              errorNode.textContent = '';
+              let usernameConfirmation = '';
+              if (action === 'delete') {
+                usernameConfirmation = String(new FormData(userConfirmForm).get('usernameConfirmation') || '');
+                if (usernameConfirmation !== String(user.username || '')) {
+                  errorNode.textContent = 'Enter the exact username to confirm deletion.';
+                  userConfirmForm.elements.usernameConfirmation.focus();
+                  return;
+                }
+              }
+              setDialogBusy(userConfirmForm, true);
+              try {
+                const basePath = '/api/users/' + encodeURIComponent(user.id);
+                if (action === 'delete') {
+                  await userRequest(basePath, {
+                    method: 'DELETE',
+                    body: JSON.stringify({ usernameConfirmation })
+                  });
+                } else {
+                  await userRequest(basePath + '/' + action, { method: 'POST', body: '{}' });
+                }
+                closeUserDialog($('user-confirm-dialog'));
+                await refreshUsersAfterMutation(action === 'delete' ? 'User deleted.' : 'User ' + action + 'd; Keycloak session state updated.');
+              } catch (error) {
+                errorNode.textContent = error.message || 'The requested action could not be completed.';
+              } finally {
+                setDialogBusy(userConfirmForm, false);
+              }
+            });
+          }
+
+          document.addEventListener('click', async (event) => {
+            const actionButton = event.target.closest('[data-user-action]');
+            if (!actionButton || actionButton.disabled) { return; }
+            const user = userById(actionButton.dataset.userId);
+            if (!user) {
+              const output = $('users-output');
+              if (output) { output.textContent = 'The selected user is no longer on this page. Refresh the list.'; }
+              return;
+            }
+            const action = actionButton.dataset.userAction;
+            if (action === 'edit') {
+              try {
+                actionButton.disabled = true;
+                const payload = await loadUserDetails(user);
+                const detail = (payload || {}).user || payload;
+                openUserEditor({ ...user, ...detail, capabilities: detail.capabilities || user.capabilities });
+              } catch (error) {
+                const output = $('users-output');
+                if (output) { output.textContent = error.message || 'The user details could not be loaded.'; }
+              } finally {
+                actionButton.disabled = false;
+              }
+              return;
+            }
+            if (action === 'roles') {
+              openUserRoles(user);
+            } else if (action === 'password') {
+              openUserPassword(user);
+            } else if (['enable', 'disable', 'delete'].includes(action)) {
+              openUserConfirmation(user, action);
+            }
           });
 
           document.addEventListener('click', async (event) => {

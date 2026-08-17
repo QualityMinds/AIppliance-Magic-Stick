@@ -21,6 +21,9 @@ data:
           {"name": "magicstick-admin"}
         ]
       },
+      "groups": [
+        {"name": "magicstick-recovery"}
+      ],
       "clients": [
         {
           "clientId": "magicstick-human-gateway-local",
@@ -44,6 +47,9 @@ data:
             "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}",
             "https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"
           ],
+          "attributes": {
+            "post.logout.redirect.uris": "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/##https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/"
+          },
           "protocol": "openid-connect"
         },
         {
@@ -53,6 +59,19 @@ data:
           "clientAuthenticatorType": "client-secret",
           "secret": "$${MAGICSTICK_SETUP_CLIENT_SECRET}",
           "standardFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "serviceAccountsEnabled": true,
+          "publicClient": false,
+          "protocol": "openid-connect"
+        },
+        {
+          "clientId": "magicstick-user-admin",
+          "name": "Magic Stick dashboard user administration",
+          "enabled": true,
+          "clientAuthenticatorType": "client-secret",
+          "secret": "$${MAGICSTICK_USER_ADMIN_CLIENT_SECRET}",
+          "standardFlowEnabled": false,
+          "implicitFlowEnabled": false,
           "directAccessGrantsEnabled": false,
           "serviceAccountsEnabled": true,
           "publicClient": false,
@@ -68,6 +87,19 @@ data:
             "realm-management": [
               "manage-clients",
               "view-clients",
+              "manage-users",
+              "query-users",
+              "view-users",
+              "view-realm"
+            ]
+          }
+        },
+        {
+          "username": "service-account-magicstick-user-admin",
+          "enabled": true,
+          "serviceAccountClientId": "magicstick-user-admin",
+          "clientRoles": {
+            "realm-management": [
               "manage-users",
               "query-users",
               "view-users",
