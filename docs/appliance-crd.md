@@ -166,8 +166,10 @@ be an explicit review decision.
 For every enabled instance, the operator creates the required application and
 per-instance callback `HTTPRoute` objects, cross-namespace `ReferenceGrant`,
 and (for SSO) Envoy `SecurityPolicy` objects. The callback route shares the
-dashboard hostname but uses an exact, instance-specific path. The application
-charts no longer create nginx `Ingress` resources.
+dashboard hostname but uses an exact, instance-specific path. Application
+routes for the catalogued AI workloads set `timeouts.request: "0s"` so streamed
+responses are not cut off by Envoy's 15-second default; callback routes remain
+bounded. The application charts no longer create nginx `Ingress` resources.
 
 ```yaml
 apiVersion: appliance.magicstick.dev/v1alpha1

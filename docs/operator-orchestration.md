@@ -41,7 +41,9 @@ The dashboard is also not an operator. It reads status and creates or patches
 - Resolve each instance backend from the app catalog and create derived local
   and optional public HTTPRoutes, exact callback routes on the shared dashboard
   hosts, the cross-namespace ReferenceGrant, and an Envoy SecurityPolicy for
-  shared OIDC plus minimum-role authorization.
+  shared OIDC plus minimum-role authorization. Catalogued AI application routes
+  disable Envoy's total request timeout for long-lived streams, while the exact
+  callback routes retain the bounded default.
 - Remove generated routes and policies when an instance is suspended or deleted.
 - Update module, instance, and condition status.
 
