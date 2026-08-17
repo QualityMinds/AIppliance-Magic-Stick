@@ -189,5 +189,45 @@ class OpenCodeModelLimitTests(unittest.TestCase):
             self.assertEqual(model["limit"], {"context": 20000, "output": 8192})
 
 
+class OpenClawCatalogTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.controller = load_controller()
+
+    def test_catalog_configures_the_litellm_provider_and_default_model(self):
+        data, _ = self.controller["build_catalog"](
+            [
+                {
+                    "model_name": "qwen3827b",
+                    "litellm_params": {
+                        "model": "openai/qwen3827b",
+                        "api_base": "http://kubeai.ai.svc.cluster.local/openai/v1",
+                    },
+                    "model_info": {
+                        "ai_appliance_type": "chat",
+                        "max_input_tokens": 20000,
+                    },
+                }
+            ]
+        )
+
+        config = json.loads(data["openclaw.json"])
+        provider = config["models"]["providers"]["litellm"]
+        self.assertEqual(
+            provider["baseUrl"],
+            "http://litellm.ai.svc.cluster.local:4000/v1",
+        )
+        self.assertEqual(provider["apiKey"], "${LITELLM_API_KEY}")
+        self.assertEqual(provider["api"], "openai-completions")
+        self.assertEqual(
+            provider["models"],
+            [{"id": "qwen3827b", "name": "qwen3827b", "contextWindow": 20000}],
+        )
+        self.assertEqual(
+            config["agents"]["defaults"]["model"]["primary"],
+            "litellm/qwen3827b",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
