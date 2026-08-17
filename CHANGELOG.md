@@ -42,6 +42,11 @@ formalized, release entries should group changes under:
   demand by local models, while external models run without the local GPU
   runtime.
 
+### Fixed
+
+- The Envoy Gateway now redirects appliance HTTP URLs, including LiteLLM UI
+  paths, to the equivalent HTTPS URL instead of refusing port 80 connections.
+
 ### Removed
 
 - Human default passwords and the generated `keycloak-local-admin` Secret from

@@ -146,8 +146,12 @@ API still denies a disabled or demoted administrator immediately because it
 performs a live actor lookup for every request.
 
 The pilot uses the standard HTTPS port `443` through the Envoy `LoadBalancer`
-service. The `.local` names remain part of the design and can continue to be
-used by the later mTLS layer.
+service. Port `80` serves no application content; one catch-all Gateway API
+route redirects every HTTP hostname and path to the equivalent HTTPS URL with
+status `301`. For example, `http://litellm.magicstick.local/ui/` redirects to
+`https://litellm.magicstick.local/ui/` before the normal SSO flow begins. The
+`.local` names remain part of the design and can continue to be used by the
+later mTLS layer.
 
 ## Run the Pilot
 
