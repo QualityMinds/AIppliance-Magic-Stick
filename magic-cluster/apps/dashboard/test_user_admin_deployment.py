@@ -17,7 +17,7 @@ class UserAdminDeploymentTests(unittest.TestCase):
         pod = deployment["spec"]["template"]["spec"]
 
         self.assertFalse(pod["automountServiceAccountToken"])
-        self.assertNotIn("serviceAccountName", pod)
+        self.assertEqual(pod["serviceAccountName"], "default")
         self.assertEqual(
             {container["name"] for container in pod["containers"]},
             {"nginx", "renderer"},
