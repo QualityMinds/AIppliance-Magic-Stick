@@ -55,9 +55,9 @@ The static Flux `magicstick-operator` Kustomization must not wait on
 be `Reconciling` or `Degraded` while optional modules are being installed,
 removed, or repaired.
 
-The controller runs as one replica with a `Recreate` rollout strategy. This
-keeps reconciliation serialized while its in-process loop updates generated
-Flux resources and status.
+The controller runs as one replica with a zero-surge rolling strategy. The old
+Pod is stopped before its replacement starts, which keeps reconciliation
+serialized while remaining upgrade-compatible with Flux server-side apply.
 
 ## Instance Mapping
 

@@ -11,7 +11,13 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      # With one replica, zero surge stops the old reconciler before Kubernetes
+      # starts the new one while remaining upgrade-compatible with existing
+      # RollingUpdate Deployments managed through Flux server-side apply.
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: magicstick-operator
