@@ -44,6 +44,9 @@ formalized, release entries should group changes under:
 
 ### Fixed
 
+- OpenClaw instances now consume the generated LiteLLM provider catalog and
+  start with the catalogued local model instead of silently falling back to the
+  built-in public OpenAI provider.
 - Hermes instance URLs now open the bundled web dashboard on port `9119`
   instead of routing browsers to the API-only gateway root on port `8443`.
 - Odysseus instances now register their selected model and the shared LiteLLM

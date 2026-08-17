@@ -14,12 +14,14 @@ spec:
     ai-appliance.io/model-catalog-consumer: "true"
   config:
     mergeMode: merge
+    configMapRef:
+      name: ai-model-catalog
+      key: openclaw.json
+    forcePaths:
+      - models.providers
+      - agents.defaults.model
   env:
-    - name: OPENAI_BASE_URL
-      value: http://litellm.ai.svc.cluster.local:4000/v1
-    - name: OPENCLAW_DEFAULT_MODEL
-      value: {{ default "CHANGEME_MODEL" $values.model | quote }}
-    - name: OPENAI_API_KEY
+    - name: LITELLM_API_KEY
       valueFrom:
         secretKeyRef:
           name: litellm-masterkey-secret

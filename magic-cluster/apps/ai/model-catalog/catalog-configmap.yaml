@@ -46,6 +46,7 @@ data:
         "providers": {
           "litellm": {
             "baseUrl": "http://litellm.ai.svc.cluster.local:4000/v1",
+            "apiKey": "${LITELLM_API_KEY}",
             "api": "openai-completions",
             "models": []
           }

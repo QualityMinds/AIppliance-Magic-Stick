@@ -529,7 +529,7 @@ def build_catalog(litellm_models):
             "providers": {
                 "litellm": {
                     "baseUrl": LITELLM_API_BASE,
-                    "apiKey": "$" + "{OPENAI_API_KEY}",
+                    "apiKey": "$" + "{LITELLM_API_KEY}",
                     "api": "openai-completions",
                     "models": openclaw_models,
                 }

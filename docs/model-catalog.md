@@ -274,8 +274,11 @@ Current consumers include:
   from the ConfigMap.
 - Hermes waits for readiness, reads `hermes.yaml`, and applies
   the `AppInstance` preferred model if present in the catalog.
-- OpenClaw waits for readiness, reads `openclaw.json`, and applies
-  the `AppInstance` preferred model if present in the catalog.
+- OpenClaw reads `openclaw.json` through its operator-managed `configMapRef`.
+  The generated `litellm` provider and default model are force-applied on every
+  pod start so persisted runtime settings cannot silently restore the built-in
+  public OpenAI provider. The LiteLLM credential is injected only through the
+  `LITELLM_API_KEY` environment variable from its Kubernetes Secret.
 - Paperclip reads `opencode-providers.json`, `paperclip-adapter-models.json`,
   and `AI_APPLIANCE_DEFAULT_OPENCODE_MODEL`. The adapter model list populates
   the OpenCode model picker with all catalogued chat models. Its OpenCode
