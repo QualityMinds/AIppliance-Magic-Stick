@@ -47,6 +47,9 @@ data:
             "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}",
             "https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"
           ],
+          "attributes": {
+            "post.logout.redirect.uris": "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/##https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/"
+          },
           "protocol": "openid-connect"
         },
         {

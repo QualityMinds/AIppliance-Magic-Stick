@@ -225,7 +225,8 @@ spec:
                           --config "$config" \
                           --realm magicstick \
                           -s 'redirectUris=["https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback/*","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback/*"]' \
-                          -s 'webOrigins=["https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"]' >/dev/null 2>&1
+                          -s 'webOrigins=["https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"]' \
+                          -s 'attributes."post.logout.redirect.uris"=https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/##https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/' >/dev/null 2>&1
                         sync_user_admin_client
                       }
                       attempt=0

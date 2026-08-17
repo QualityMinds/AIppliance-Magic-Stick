@@ -10,6 +10,11 @@ import yaml
 IDENTITY_DIR = pathlib.Path(__file__).parents[1]
 CLIENT_ID = "magicstick-user-admin"
 CLIENT_SECRET_NAME = "magicstick-user-admin-client"
+HUMAN_GATEWAY_CLIENT_ID = "magicstick-human-gateway-local"
+EXPECTED_POST_LOGOUT_REDIRECT_URIS = (
+    "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/##"
+    "https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/"
+)
 EXPECTED_ADMIN_ROLES = {
     "manage-users",
     "query-users",
@@ -57,6 +62,21 @@ def realm_import():
 
 
 class UserAdminIdentityTests(unittest.TestCase):
+    def test_fresh_realm_import_has_exact_dashboard_logout_redirects(self):
+        realm = realm_import()
+        client = next(
+            client
+            for client in realm["clients"]
+            if client["clientId"] == HUMAN_GATEWAY_CLIENT_ID
+        )
+
+        self.assertEqual(
+            client["attributes"],
+            {"post.logout.redirect.uris": EXPECTED_POST_LOGOUT_REDIRECT_URIS},
+        )
+        self.assertNotIn("*", EXPECTED_POST_LOGOUT_REDIRECT_URIS)
+        self.assertNotIn("+", EXPECTED_POST_LOGOUT_REDIRECT_URIS)
+
     def test_fresh_realm_import_defines_internal_recovery_group(self):
         realm = realm_import()
         groups = [group for group in realm["groups"] if group["name"] == "magicstick-recovery"]
@@ -127,6 +147,15 @@ class UserAdminIdentityTests(unittest.TestCase):
         )
         self.assertNotIn("user_admin_denied_roles", script)
         self.assertIn("kcadm.sh remove-roles", script)
+
+    def test_upgrade_reconciliation_sets_exact_dashboard_logout_redirects(self):
+        script = keycloak_container()["lifecycle"]["postStart"]["exec"]["command"][-1]
+
+        self.assertIn(
+            "-s 'attributes.\"post.logout.redirect.uris\"="
+            f"{EXPECTED_POST_LOGOUT_REDIRECT_URIS}'",
+            script,
+        )
 
     def test_upgrade_reconciliation_covers_the_full_keycloak_startup_budget(self):
         container = keycloak_container()
