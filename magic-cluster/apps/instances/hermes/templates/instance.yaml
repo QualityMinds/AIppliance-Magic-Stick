@@ -27,6 +27,19 @@ spec:
         secretKeyRef:
           name: litellm-masterkey-secret
           key: LITELLM_MASTER_KEY
+    # The gateway on 8443 is an API surface and intentionally returns 404 at
+    # /. Enable the bundled browser dashboard separately and let the shared
+    # Envoy SSO route be its authentication boundary. "Insecure" disables a
+    # second Hermes login; the Service remains ClusterIP-only and restricted by
+    # the operator-managed NetworkPolicy.
+    - name: HERMES_DASHBOARD
+      value: "true"
+    - name: HERMES_DASHBOARD_HOST
+      value: "0.0.0.0"
+    - name: HERMES_DASHBOARD_PORT
+      value: "9119"
+    - name: HERMES_DASHBOARD_INSECURE
+      value: "true"
   storage:
     persistence:
       enabled: true
@@ -41,5 +54,12 @@ spec:
   networking:
     service:
       type: ClusterIP
+      ports:
+        - name: gateway
+          port: 8443
+          targetPort: 8443
+        - name: dashboard
+          port: 9119
+          targetPort: 9119
     ingress:
       enabled: false

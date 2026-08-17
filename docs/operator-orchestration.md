@@ -74,7 +74,9 @@ Paperclip uses the Agent Sandbox CR backend for CLI runtimes; OpenClaw and
 Hermes remain separate gateway services.
 
 The shared Envoy route is the browser authentication boundary. Hermes uses
-LiteLLM through its native `config.raw` and listens on service port `8443`.
+LiteLLM through its native `config.raw`; its agent gateway remains available to
+in-cluster integrations on service port `8443`, while the authenticated browser
+route targets the bundled dashboard on service port `9119`.
 Paperclip is kept private in `local_trusted` mode; an in-pod TCP proxy exposes
 its loopback listener only on the Pod IP for the ClusterIP Service. Odysseus
 runs with its local login disabled. Both avoid an application-specific second
