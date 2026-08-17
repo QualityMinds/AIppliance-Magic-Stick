@@ -28,6 +28,8 @@ formalized, release entries should group changes under:
 
 ### Changed
 
+- The dashboard overview now lists complete local, public, and direct URLs for
+  modules and app instances, including accepted Gateway API `HTTPRoute` hosts.
 - Public documentation is being aligned with runtime CRs, catalog-driven modules,
   derived instance hostnames, and dashboard-managed settings.
 - `AppInstance` now uses `spec.application` and `spec.values`; the Magic Stick

@@ -45,7 +45,7 @@ Paperclip, KubeOpenCode, KubeAI, LiteLLM, or direct app instance reconcilers.
 
 | Area | Purpose |
 |---|---|
-| Overview | Shows appliance health, module/instance/model counts, and discovered ingress links. |
+| Overview | Shows appliance health, module/instance/model counts, and the complete local, public, or direct URLs discovered for modules and app instances from Ingress, Gateway API `HTTPRoute`, and instance status. |
 | Modules | Renders grouped module cards from the module catalog and writes `ModuleActivation` intent. |
 | Instances | Shows instance cards and creates instance requests only for installed/supported operators. |
 | Models | Creates/removes local and external model activations and estimates local model VRAM. |

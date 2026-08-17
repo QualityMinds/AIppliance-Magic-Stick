@@ -2,6 +2,7 @@
 """Focused source and syntax tests for the embedded dashboard user-management UI."""
 
 from pathlib import Path
+import json
 import os
 import re
 import shutil
@@ -120,16 +121,76 @@ BROWSER_API_MOCK = r"""
       return reply({ metadata: { namespace: 'ai-system', name: 'local' }, status: { phase: 'Ready' } });
     }
     if (url.pathname === '/api/modules') {
-      return reply({ modules: {}, catalogJson: { modules: {}, groups: {}, applications: {} } });
+      return reply({
+        modules: {
+          litellm: {
+            enabled: true,
+            activationMode: 'moduleactivation',
+            displayName: 'LiteLLM',
+            status: { phase: 'Ready' }
+          }
+        },
+        catalogJson: {
+          modules: {
+            litellm: { displayName: 'LiteLLM', activationMode: 'moduleactivation', order: 50 }
+          },
+          groups: {},
+          applications: {}
+        }
+      });
     }
     if (url.pathname === '/api/instances') {
-      return reply({ instances: {} });
+      return reply({
+        instances: {
+          openclaw: [{
+            metadata: { name: 'openclaw-demo' },
+            spec: { application: 'openclaw', enabled: true },
+            status: { phase: 'Ready' }
+          }]
+        }
+      });
     }
     if (url.pathname === '/api/models') {
       return reply({ models: [], activations: [], presets: [], vram: { available: false } });
     }
     if (url.pathname === '/api/status') {
-      return reply({ fluxKustomizations: [], pods: [], services: [], ingresses: [], httpRoutes: [], events: [] });
+      return reply({
+        fluxKustomizations: [],
+        pods: [],
+        services: [],
+        ingresses: [],
+        httpRoutes: [
+          {
+            namespace: 'identity-system',
+            name: 'static-litellm-local',
+            labels: {},
+            hostnames: ['litellm.magicstick.local'],
+            accepted: true
+          },
+          {
+            namespace: 'identity-system',
+            name: 'static-litellm-local-callback',
+            labels: {},
+            hostnames: ['magicstick.local'],
+            accepted: true
+          },
+          {
+            namespace: 'identity-system',
+            name: 'openclaw-demo-local',
+            labels: { 'appliance.magicstick.dev/appinstance': 'openclaw-demo' },
+            hostnames: ['demo.openclaw.magicstick.local'],
+            accepted: true
+          },
+          {
+            namespace: 'identity-system',
+            name: 'static-litellm-pending',
+            labels: { 'app.kubernetes.io/name': 'litellm' },
+            hostnames: ['pending.magicstick.example.com'],
+            accepted: false
+          }
+        ],
+        events: []
+      });
     }
     if (url.pathname === '/api/users' && method === 'GET') {
       return reply({ users: mockUser ? [mockUser] : [], total: mockUser ? 1 : 0, first: 0, max: 25 });
@@ -226,6 +287,13 @@ BROWSER_ASSERTIONS = r"""
 
   (async () => {
     await waitFor(() => document.getElementById('session-user').textContent.includes('Signed in: '), 'dashboard refresh');
+    await waitFor(() => document.querySelectorAll('.overview-url-link').length === 2, 'overview URLs');
+    const overviewUrls = Array.from(document.querySelectorAll('.overview-url-link')).map((link) => link.textContent);
+    assert(overviewUrls.includes('https://litellm.magicstick.local'), 'module URL is missing');
+    assert(overviewUrls.includes('https://demo.openclaw.magicstick.local'), 'instance URL is missing');
+    assert(!overviewUrls.includes('https://magicstick.local'), 'OIDC callback route leaked into module URLs');
+    assert(!overviewUrls.includes('https://pending.magicstick.example.com'), 'unaccepted HTTPRoute was shown');
+    assert(document.getElementById('overview-app-count').textContent === '2 URLs', 'overview URL count is incorrect');
     const usersTab = document.getElementById('users-tab-button');
     assert(usersTab, 'Users tab is missing from the rendered DOM');
 
@@ -370,6 +438,53 @@ class DashboardUserManagementUiTests(unittest.TestCase):
         self.assertIn("roles.includes('magicstick-admin')", self.script)
         self.assertIn("identityManagementAvailable !== false", self.script)
 
+    def test_overview_shows_full_module_and_instance_urls_from_http_routes(self):
+        self.assertIn("<h3>Available URLs</h3>", self.source)
+        self.assertIn("const linksFromHttpRoute", self.script)
+        self.assertIn("(status || {}).httpRoutes", self.script)
+        self.assertIn("anchor.textContent = link.url", self.script)
+        self.assertIn("seenLinks.size === 1 ? ' URL' : ' URLs'", self.script)
+        self.assertIn("No module or instance URLs discovered yet.", self.script)
+
+    def test_overview_url_discovery_matches_routes_and_excludes_callbacks(self):
+        if not shutil.which("node"):
+            self.skipTest("node is not installed")
+        start = self.script.index("const ensureHttpUrl")
+        end = self.script.index("const copyText", start)
+        functions = self.script[start:end]
+        probe = functions + r"""
+const statusPayload = {
+  ingresses: [],
+  httpRoutes: [
+    { name: 'static-litellm-local', labels: {}, hostnames: ['litellm.magicstick.local'], accepted: true },
+    { name: 'static-litellm-local-callback', labels: {}, hostnames: ['magicstick.local'], accepted: true },
+    { name: 'static-litellm-pending', labels: { 'app.kubernetes.io/name': 'litellm' }, hostnames: ['pending.magicstick.example.com'], accepted: false },
+    { name: 'openclaw-demo-local', labels: { 'appliance.magicstick.dev/appinstance': 'openclaw-demo' }, hostnames: ['demo.openclaw.magicstick.local'], accepted: true }
+  ]
+};
+const moduleLinks = moduleAccessLinks('litellm', { activationMode: 'moduleactivation' }, statusPayload);
+const instanceLinks = instanceAccessLinks({
+  metadata: { name: 'openclaw-demo' },
+  spec: { application: 'openclaw' },
+  status: { phase: 'Ready' }
+}, statusPayload);
+process.stdout.write(JSON.stringify({
+  module: moduleLinks.map((link) => link.url),
+  instance: instanceLinks.map((link) => link.url)
+}));
+"""
+        completed = subprocess.run(
+            ["node"],
+            input=probe,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        links = json.loads(completed.stdout)
+        self.assertEqual(links["module"], ["https://litellm.magicstick.local"])
+        self.assertEqual(links["instance"], ["https://demo.openclaw.magicstick.local"])
+
     def test_users_are_lazy_loaded_outside_the_global_refresh(self):
         refresh = self.script.split("const refresh = async () => {", 1)[1].split("document.querySelectorAll('.tab-button')", 1)[0]
         self.assertNotIn("/api/users", refresh)
@@ -446,19 +561,29 @@ class DashboardUserManagementUiTests(unittest.TestCase):
                     page.as_uri() + "?scenario=" + scenario,
                 ]
                 with self.subTest(scenario=scenario):
-                    completed = subprocess.run(
-                        command,
-                        text=True,
-                        capture_output=True,
-                        check=False,
-                        timeout=30,
-                    )
-                    self.assertEqual(completed.returncode, 0, completed.stderr[-4000:])
+                    try:
+                        completed = subprocess.run(
+                            command,
+                            text=True,
+                            capture_output=True,
+                            check=False,
+                            timeout=10,
+                        )
+                        stdout = completed.stdout
+                        stderr = completed.stderr
+                        self.assertEqual(completed.returncode, 0, stderr[-4000:])
+                    except subprocess.TimeoutExpired as error:
+                        # Some macOS Chrome builds keep the headless parent
+                        # process alive after --dump-dom. The DOM marker remains
+                        # authoritative because it is written only after every
+                        # browser assertion has completed.
+                        stdout = error.stdout.decode() if isinstance(error.stdout, bytes) else (error.stdout or "")
+                        stderr = error.stderr.decode() if isinstance(error.stderr, bytes) else (error.stderr or "")
                     match = re.search(
                         r'<pre id="browser-test-result" data-status="([^"]+)">([^<]*)</pre>',
-                        completed.stdout,
+                        stdout,
                     )
-                    self.assertIsNotNone(match, completed.stdout[-4000:] + completed.stderr[-2000:])
+                    self.assertIsNotNone(match, stdout[-4000:] + stderr[-2000:])
                     self.assertEqual(match.group(1), "passed", match.group(2))
                     self.assertEqual(match.group(2), "passed:" + scenario)
 
