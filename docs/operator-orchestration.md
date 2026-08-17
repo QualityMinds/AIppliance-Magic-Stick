@@ -34,6 +34,9 @@ The dashboard is also not an operator. It reads status and creates or patches
   module dependencies are requested and ready.
 - Delete generated Flux Kustomizations for disabled runtime modules so Flux can
   prune module resources.
+- Suspend, rather than delete, an enabled module Kustomization while a required
+  module is temporarily unready, preserving its workloads and persistent data
+  across source and operator rollouts.
 - Delete stale generated Flux Kustomizations that no longer have a matching
   `ModuleActivation`.
 - Wait for required CRDs.
@@ -51,6 +54,10 @@ The static Flux `magicstick-operator` Kustomization must not wait on
 `Appliance/local.status`: that status is a runtime dashboard read model and may
 be `Reconciling` or `Degraded` while optional modules are being installed,
 removed, or repaired.
+
+The controller runs as one replica with a `Recreate` rollout strategy. This
+keeps reconciliation serialized while its in-process loop updates generated
+Flux resources and status.
 
 ## Instance Mapping
 

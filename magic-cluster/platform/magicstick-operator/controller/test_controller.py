@@ -198,6 +198,12 @@ class HelmAppInstanceTests(unittest.TestCase):
         self.assertNotIn("gpu", modules)
         self.assertNotIn("kubeai", modules)
 
+    def test_controller_rollouts_never_run_competing_reconcilers(self):
+        deployment = yaml.safe_load((ROOT / "deployment.yaml").read_text(encoding="utf-8"))
+
+        self.assertEqual(deployment["spec"]["replicas"], 1)
+        self.assertEqual(deployment["spec"]["strategy"], {"type": "Recreate"})
+
     def test_gpu_modules_are_on_demand_in_catalog(self):
         manifest = yaml.safe_load((ROOT / "module-catalog.yaml").read_text(encoding="utf-8"))
         catalog = yaml.safe_load(manifest["data"]["modules.json"])
@@ -205,6 +211,58 @@ class HelmAppInstanceTests(unittest.TestCase):
         for name in ("gpu", "kubeai"):
             self.assertFalse(catalog["modules"][name]["default"])
             self.assertEqual(catalog["modules"][name]["activationPolicy"], "local-model")
+
+    def test_waiting_module_suspends_kustomization_without_deleting_resources(self):
+        names = (
+            "ensure_module_finalizer",
+            "ensure_module_activation",
+            "missing_module_dependencies",
+            "apply_resource",
+            "delete_module_kustomization",
+            "patch_module_status",
+        )
+        originals = {name: self.controller[name] for name in names}
+        applied = []
+        self.controller["ensure_module_finalizer"] = lambda _activation: None
+        self.controller["ensure_module_activation"] = lambda _module, auto=False: None
+        self.controller["missing_module_dependencies"] = lambda _spec, _catalog: ["litellm"]
+        self.controller["apply_resource"] = applied.append
+        self.controller["delete_module_kustomization"] = lambda *_args: self.fail(
+            "transient dependency waits must not delete module resources"
+        )
+        self.controller["patch_module_status"] = lambda *_args, **_kwargs: None
+        activation = {
+            "metadata": {"name": "anything-llm", "generation": 3},
+            "spec": {
+                "module": "anything-llm",
+                "enabled": True,
+                "parameters": {"storage": "2Gi"},
+            },
+        }
+        catalog = {
+            "modules": {
+                "anything-llm": {
+                    "kustomizationName": "app-anything-llm",
+                    "path": "magic-cluster/apps/ai/anything-llm/base",
+                    "requires": ["litellm"],
+                }
+            }
+        }
+        source = {"kind": "GitRepository", "name": "flux-system"}
+
+        try:
+            phase, status = self.controller["reconcile_module"](
+                "anything-llm", activation, catalog, source
+            )
+        finally:
+            self.controller.update(originals)
+
+        self.assertEqual(phase, "WaitingForModules")
+        self.assertEqual(status["kustomization"], "app-anything-llm")
+        self.assertEqual(len(applied), 1)
+        self.assertTrue(applied[0]["spec"]["suspend"])
+        self.assertTrue(applied[0]["spec"]["prune"])
+        self.assertEqual(applied[0]["spec"]["deletionPolicy"], "Delete")
 
     def test_model_module_dependencies_separate_local_and_external_models(self):
         required = self.controller["model_required_modules"]
