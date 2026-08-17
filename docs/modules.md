@@ -34,9 +34,15 @@ Each module definition may contain:
 | `uninstallPolicy` | Public metadata for data-retention choices. |
 | `postBuildSubstitution` | Whether to include `ai-appliance-settings` as Flux post-build substitution. |
 | `parameters` | Optional dashboard fields stored in `ModuleActivation.spec.parameters`; each field may declare its Flux `substitution` variable. |
+| `credentials.provider` | Optional fixed dashboard credential provider. The API supports only explicitly implemented providers and never accepts arbitrary Secret names from catalog data. |
 
 Do not maintain a second hardcoded module list in dashboard code or docs. Add a
 module to the catalog and let the operator and dashboard discover it there.
+
+Enabled modules with a supported credential provider expose **Credentials** to
+operators and administrators. LiteLLM uses this control for its generated UI
+login and API master key; the secret value remains in Kubernetes until an
+authorized user explicitly opens the panel.
 
 ## Runtime Activation
 

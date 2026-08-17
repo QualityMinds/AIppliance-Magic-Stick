@@ -49,6 +49,10 @@ data:
     SETTINGS_WATCH_LABELS = {"reconcile.fluxcd.io/watch": "Enabled"}
 
     MODEL_SECRET_PREFIX = "ai-model-provider-"
+    LITELLM_MASTER_KEY_SECRET_NAME = "litellm-masterkey-secret"
+    LITELLM_MASTER_KEY_SECRET_KEY = "LITELLM_MASTER_KEY"
+    LITELLM_UI_USERNAME = "admin"
+    LITELLM_SERVICE_URL = "http://litellm.ai.svc.cluster.local:4000"
     SSL_CONTEXT = ssl.create_default_context(cafile=SA_CA_PATH)
     PUBLIC_SSL_CONTEXT = ssl.create_default_context()
     HF_CACHE_TTL_SECONDS = 900
@@ -1623,6 +1627,61 @@ data:
         raise ValueError("credentials are not available for " + str(instance_type or "unknown") + " instances")
 
 
+    def litellm_credentials():
+        secret = read_secret(
+            MODEL_TARGET_NAMESPACE,
+            LITELLM_MASTER_KEY_SECRET_NAME,
+            "LiteLLM master key",
+        )
+        master_key = decode_secret_value(
+            (secret.get("data") or {}).get(LITELLM_MASTER_KEY_SECRET_KEY)
+        )
+        if not master_key:
+            raise LookupError("LiteLLM master key is not available yet")
+
+        settings = settings_response()
+        mdns_domain = settings.get("mdnsDomain") or DEFAULT_MDNS_DOMAIN
+        public_domain = settings.get("publicDomain") or DEFAULT_PUBLIC_DOMAIN
+        local_url = "https://litellm." + mdns_domain
+        public_url = "https://litellm." + public_domain
+        fields = [
+            {"key": "ui_username", "value": LITELLM_UI_USERNAME},
+            {"key": "ui_password", "value": master_key},
+            {"key": "master_key", "value": master_key},
+            {"key": "authorization", "value": "Bearer " + master_key},
+            {"key": "local_ui_url", "value": local_url + "/ui/"},
+            {"key": "local_api_base", "value": local_url + "/v1"},
+            {"key": "service_api_base", "value": LITELLM_SERVICE_URL + "/v1"},
+        ]
+        if public_url != local_url:
+            fields.extend([
+                {"key": "public_ui_url", "value": public_url + "/ui/"},
+                {"key": "public_api_base", "value": public_url + "/v1"},
+            ])
+        return {
+            "module": "litellm",
+            "type": "litellm",
+            "title": "LiteLLM",
+            "namespace": MODEL_TARGET_NAMESPACE,
+            "secretName": LITELLM_MASTER_KEY_SECRET_NAME,
+            "credentials": fields,
+        }
+
+
+    def module_credentials(name):
+        catalog = catalog_json()
+        module_name = canonical_module(name, catalog)
+        catalog_spec = ((catalog.get("modules") or {}).get(module_name) or {})
+        credential_spec = catalog_spec.get("credentials") or {}
+        provider = credential_spec.get("provider") if isinstance(credential_spec, dict) else ""
+        if provider != "litellm":
+            raise ValueError("credentials are not available for " + module_name + " modules")
+        activation = module_activation(module_name)
+        if not activation or (activation.get("spec") or {}).get("enabled") is not True:
+            raise RequestError(409, module_name + " must be enabled before its credentials are available")
+        return litellm_credentials()
+
+
     def model_presets():
         configmap = get_resource(f"/api/v1/namespaces/{MODEL_PRESETS_NAMESPACE}/configmaps/{MODEL_PRESETS_NAME}") or {}
         raw = (configmap.get("data") or {}).get("presets.json", "{\"presets\":{}}")
@@ -2441,6 +2500,16 @@ data:
         return summarized
 
 
+    def required_get_access(parts):
+        credential_route = (
+            len(parts) == 4
+            and parts[0] == "api"
+            and parts[1] in {"instances", "modules"}
+            and parts[3] == "credentials"
+        )
+        return "operator" if credential_route else "viewer"
+
+
     class Handler(BaseHTTPRequestHandler):
         server_version = "MagicStickDashboardAPI/0.4"
 
@@ -2503,7 +2572,7 @@ data:
                     else:
                         self.send_json(get_user(principal, parts[2]))
                     return
-                required_access = "operator" if len(parts) == 4 and parts[:2] == ["api", "instances"] and parts[3] == "credentials" else "viewer"
+                required_access = required_get_access(parts)
                 principal = self.require_access(required_access)
                 if path == "/api/session":
                     session = dict(principal)
@@ -2518,6 +2587,8 @@ data:
                     self.send_json(summarized_instances())
                 elif len(parts) == 4 and parts[:2] == ["api", "instances"] and parts[3] == "credentials":
                     self.send_json(instance_credentials(parts[2]))
+                elif len(parts) == 4 and parts[:2] == ["api", "modules"] and parts[3] == "credentials":
+                    self.send_json(module_credentials(parts[2]))
                 elif path == "/api/models":
                     self.send_json(summarized_models())
                 elif path == "/api/status":

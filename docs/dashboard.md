@@ -34,6 +34,8 @@ The dashboard may:
 - create or delete `AppInstance` resources for supported instance types
 - create or delete `ModelActivation` resources for local and external models
 - create Dashboard-managed provider API key Secrets in namespace `ai`
+- read the generated LiteLLM UI password and API master key when an operator or
+  administrator explicitly opens the module credential panel
 - read OpenClaw instance credentials when the generated instance exposes them
 - list and administer human Keycloak users when the signed-in actor has
   `magicstick-admin`
@@ -74,6 +76,7 @@ checks.
 | `GET` | `/api/modules` | Returns catalog metadata plus current `ModuleActivation` spec/status. |
 | `POST` | `/api/modules/{name}/enable` | Creates or patches a `ModuleActivation` with `spec.enabled: true`. |
 | `POST` | `/api/modules/{name}/disable` | Creates or patches a `ModuleActivation` with `spec.enabled: false`. |
+| `GET` | `/api/modules/{name}/credentials` | Returns credentials for an enabled catalog module with an explicitly supported provider, currently LiteLLM. |
 | `GET` | `/api/instances` | Returns `AppInstance` resources and status. |
 | `GET` | `/api/instances/{name}/credentials` | Returns supported generated credentials for an instance, currently OpenClaw. |
 | `POST` | `/api/instances/{type}` | Adds or replaces an `AppInstance` for supported types such as `openclaw`, `hermes`, `odysseus`, `paperclip`, or `kubeopencode`. |
@@ -174,6 +177,13 @@ be enabled or disabled from the dashboard. Modules with
 `activationMode: moduleactivation` expose only the currently valid action:
 `Enable` for disabled modules and `Disable` for enabled modules. In-progress
 modules disable their action button until the request settles.
+
+Catalog entries with a supported `credentials.provider` show a **Credentials**
+action only to operators and administrators while the module is enabled. For
+LiteLLM, the panel exposes `admin` plus the generated master key used as the UI
+password, API authorization value, and local/public API URLs. The API reads
+only the fixed `ai/litellm-masterkey-secret`; catalog data cannot redirect it to
+another Secret. Credential responses use `Cache-Control: no-store`.
 
 This includes the optional `gpu` and `kubeai` modules. They stay disabled on a
 fresh installation, may be enabled automatically by a local model, and may also

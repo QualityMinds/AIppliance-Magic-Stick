@@ -44,6 +44,8 @@ formalized, release entries should group changes under:
 
 ### Fixed
 
+- The enabled LiteLLM module again exposes its generated UI and API credentials
+  to authorized operators and administrators from the dashboard Modules tab.
 - The Envoy Gateway now redirects appliance HTTP URLs, including LiteLLM UI
   paths, to the equivalent HTTPS URL instead of refusing port 80 connections.
 

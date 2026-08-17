@@ -246,6 +246,12 @@ Einige Instanzen zeigen nach der Installation die Schaltfläche **Credentials**.
 Öffne sie nur in einer geschützten Administratorsitzung und bewahre angezeigte
 Zugangsdaten sicher auf.
 
+Auch das aktivierte LiteLLM-Modul zeigt unter **Modules → LiteLLM** die
+Schaltfläche **Credentials** für Operatoren und Administratoren. Dort findest
+du den Benutzernamen `admin`, das generierte UI-Passwort, den API-Master-Key und
+die passenden API-Adressen. Die Werte werden erst beim Öffnen des Bereichs
+abgerufen und dürfen nicht weitergegeben werden.
+
 ## 10. Anwendung öffnen und SSO prüfen
 
 Nach dem Zustand `Ready` erscheint die Adresse auf der Instanzkarte und unter

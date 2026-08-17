@@ -150,7 +150,12 @@ BROWSER_API_MOCK = r"""
         },
         catalogJson: {
           modules: {
-            litellm: { displayName: 'LiteLLM', activationMode: 'moduleactivation', order: 50 }
+            litellm: {
+              displayName: 'LiteLLM',
+              activationMode: 'moduleactivation',
+              order: 50,
+              credentials: { provider: 'litellm' }
+            }
           },
           groups: {},
           applications: {
@@ -179,6 +184,19 @@ BROWSER_API_MOCK = r"""
             status: { phase: 'Ready' }
           }]
         }
+      });
+    }
+    if (url.pathname === '/api/modules/litellm/credentials' && method === 'GET') {
+      return reply({
+        module: 'litellm',
+        type: 'litellm',
+        title: 'LiteLLM',
+        namespace: 'ai',
+        secretName: 'litellm-masterkey-secret',
+        credentials: [
+          { key: 'ui_username', value: 'admin' },
+          { key: 'ui_password', value: 'sk-CHANGEME' }
+        ]
       });
     }
     if (url.pathname === '/api/models') {
@@ -325,6 +343,24 @@ BROWSER_ASSERTIONS = r"""
     assert(!overviewUrls.includes('https://magicstick.local'), 'OIDC callback route leaked into module URLs');
     assert(!overviewUrls.includes('https://pending.magicstick.example.com'), 'unaccepted HTTPRoute was shown');
     assert(document.getElementById('overview-app-count').textContent === '2 URLs', 'overview URL count is incorrect');
+
+    document.querySelector('[data-tab="modules"]').click();
+    await waitFor(() => !document.getElementById('tab-modules').hidden, 'Modules tab');
+    const moduleCredentials = document.querySelector('[data-module-credentials="litellm"]');
+    const canReadCredentials = ['admin', 'operator', 'unavailable'].includes(scenario);
+    if (canReadCredentials) {
+      assert(moduleCredentials, scenario + ' cannot see LiteLLM credentials');
+      moduleCredentials.click();
+      await waitFor(() => callExists('GET', '/api/modules/litellm/credentials'), 'LiteLLM credentials request');
+      await waitFor(() => moduleCredentials.textContent === 'Hide credentials', 'LiteLLM credentials panel');
+      const credentialValues = Array.from(moduleCredentials.closest('.module-card').querySelectorAll('.credential-value input')).map((input) => input.value);
+      assert(credentialValues.includes('admin'), 'LiteLLM UI username is missing');
+      assert(credentialValues.includes('sk-CHANGEME'), 'LiteLLM UI password is missing');
+    } else {
+      assert(!moduleCredentials, scenario + ' must not see LiteLLM credentials');
+      assert(!callExists('GET', '/api/modules/litellm/credentials'), 'hidden LiteLLM credentials were requested');
+    }
+
     document.querySelector('[data-tab="instances"]').click();
     await waitFor(() => !document.getElementById('tab-instances').hidden, 'Instances tab');
     const createInstance = document.getElementById('instance-create-open');
@@ -509,6 +545,15 @@ class DashboardUserManagementUiTests(unittest.TestCase):
         self.assertIn("anchor.textContent = link.url", self.script)
         self.assertIn("seenLinks.size === 1 ? ' URL' : ' URLs'", self.script)
         self.assertIn("No module or instance URLs discovered yet.", self.script)
+
+    def test_litellm_credentials_are_catalog_driven_and_role_gated(self):
+        self.assertIn("credentialSpec = (catalogSpec || {}).credentials", self.script)
+        self.assertIn("credentials.dataset.moduleCredentials = name", self.script)
+        self.assertIn("/api/modules/", self.script)
+        self.assertIn("sessionCanReadCredentials(latestSession)", self.script)
+        self.assertIn("roles.includes('magicstick-operator')", self.script)
+        self.assertIn("roles.includes('magicstick-admin')", self.script)
+        self.assertIn("showCredentials(card, payload)", self.script)
 
     def test_instance_creation_uses_catalog_driven_two_step_dialog(self):
         self.assertIn('id="instance-create-open"', self.source)
