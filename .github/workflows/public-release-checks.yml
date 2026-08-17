@@ -48,11 +48,12 @@ jobs:
           ANSIBLE_ROLES_PATH: magic-host/roles
         run: ansible-playbook --syntax-check magic-host/playbooks/local.yml
 
-      - name: Run identity, dashboard, operator and AI route unit tests
+      - name: Run identity, dashboard, operator, model catalog and AI route unit tests
         run: |
           python3 -m unittest discover -s magic-cluster/platform/identity/tests -p 'test_*.py'
           python3 -m unittest discover -s magic-cluster/apps/dashboard -p 'test_*.py'
           python3 -m unittest discover -s magic-cluster/platform/magicstick-operator/controller -p 'test_*.py'
+          python3 -m unittest discover -s magic-cluster/apps/ai/model-catalog -p 'test_*.py'
           python3 -m unittest discover -s magic-cluster/apps/ai/tests -p 'test_*.py'
           python3 -m unittest discover -s magic-cluster/apps/ai/litellm/tests -p 'test_*.py'
 

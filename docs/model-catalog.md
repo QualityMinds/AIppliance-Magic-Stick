@@ -73,11 +73,17 @@ Model type is inferred from `spec.features`:
 Context window is read from `metadata.annotations["ai-appliance.io/context-window"]`
 first. If that annotation is absent, the controller looks for `--max-model-len`
 or `--max-model-len=<value>` in `spec.args`.
+The optional OpenCode output limit is read from
+`metadata.annotations["ai-appliance.io/max-output-tokens"]`. The generated
+OpenCode configuration always clamps its output limit to the model context
+window, so a consumer cannot request more output tokens than vLLM accepts.
 
 For Dashboard-created local `ModelActivation` resources, the Magic Stick
 Operator treats `spec.local.contextWindow` as the desired vLLM context size and
 writes it into the generated KubeAI `Model.spec.args` as
 `--max-model-len=<contextWindow>`.
+`spec.local.maxOutputTokens` is published as OpenCode consumer metadata but does
+not change the vLLM context size.
 `spec.local.maxNumSeqs` is handled the same way for vLLM sequence concurrency
 and is written as `--max-num-seqs=<maxNumSeqs>`.
 
@@ -87,12 +93,12 @@ The dashboard reads its local model choices from
 `ConfigMap/magicstick-model-presets`; the same identifiers can be used directly
 in `ModelActivation.spec.local.preset`.
 
-| Preset | Model | VRAM budget | Context | Max sequences |
-|---|---|---:|---:|---:|
-| `qwen3827b` | `hf://cyankiwi/Qwen3.8-27B-AWQ-INT4` | `24062Mi` | 20000 | 1 |
-| `qwen3635b` | `hf://cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit` | `15Gi` | 8192 | 128 |
-| `qwen359b` | `hf://cyankiwi/Qwen3.5-9B-AWQ-4bit` | `16Gi` | 8192 | 32 |
-| `qwen352bvlembedding` | `hf://LifetimeMistake/Qwen3-VL-Embedding-2B-AWQ-4bit` | `5Gi` | 4096 | runtime default |
+| Preset | Model | VRAM budget | Context | Max output | Max sequences |
+|---|---|---:|---:|---:|---:|
+| `qwen3827b` | `hf://cyankiwi/Qwen3.8-27B-AWQ-INT4` | `24062Mi` | 20000 | 8192 | 1 |
+| `qwen3635b` | `hf://cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit` | `15Gi` | 8192 | default | 128 |
+| `qwen359b` | `hf://cyankiwi/Qwen3.5-9B-AWQ-4bit` | `16Gi` | 8192 | default | 32 |
+| `qwen352bvlembedding` | `hf://LifetimeMistake/Qwen3-VL-Embedding-2B-AWQ-4bit` | `5Gi` | 4096 | n/a | runtime default |
 
 `qwen3827b` is the validated single-GPU profile for a 24 GB-class NVIDIA GPU.
 It deliberately uses a single sequence so the 20000-token KV cache remains
@@ -280,8 +286,9 @@ Current consumers include:
 - Dashboard-created KubeOpenCode `AppInstance` resources are reconciled as Flux
   HelmReleases; the instance chart renders `AgentTemplate` and `Agent`
   resources.
-- KubeOpenCode `AgentTemplate/litellm-default` is patched with generated
-  LiteLLM chat models when the static template CRD and resource are present.
+- KubeOpenCode `AgentTemplate/litellm-default` and every Magic Stick-managed
+  AppInstance template are patched with generated LiteLLM chat models and their
+  OpenCode context/output limits. Unmanaged templates are left unchanged.
 
 Consumers that should be restarted after catalog changes can add either a label
 or annotation:
