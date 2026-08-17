@@ -47,7 +47,7 @@ Paperclip, KubeOpenCode, KubeAI, LiteLLM, or direct app instance reconcilers.
 |---|---|
 | Overview | Shows appliance health, module/instance/model counts, and the complete local, public, or direct URLs discovered for modules and app instances from Ingress, Gateway API `HTTPRoute`, and instance status. |
 | Modules | Renders grouped module cards from the module catalog and writes `ModuleActivation` intent. |
-| Instances | Shows instance cards and creates instance requests only for installed/supported operators. |
+| Instances | Shows instance cards and opens a two-step create dialog for installed/supported operators: choose the instance type, then configure only that type. |
 | Models | Creates/removes local and external model activations and estimates local model VRAM. |
 | Users | Gives administrators a paginated Keycloak user overview and local-user lifecycle controls. |
 | System Status | Shows Flux, Pod, Service, Ingress, and Event status. |
@@ -192,6 +192,11 @@ Instances are runtime requests stored as `AppInstance` resources in namespace
 `ai-system`. The dashboard shows create controls only for instance types whose
 required modules are installed or installable according to the module
 catalog and current module status.
+
+`Create Instance` opens a two-step dialog. The first step lists only currently
+available instance types such as OpenClaw or Hermes. After selecting a type,
+the second step renders only that application's fields. `Back to types` keeps
+the workflow in the dialog without exposing the other configuration forms.
 
 Instance hostnames are derived, not user-entered:
 

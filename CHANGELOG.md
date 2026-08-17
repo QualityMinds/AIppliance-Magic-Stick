@@ -28,6 +28,8 @@ formalized, release entries should group changes under:
 
 ### Changed
 
+- Instance creation in the dashboard now uses a two-step dialog that first
+  selects an available instance type and then shows only its configuration.
 - The dashboard overview now lists complete local, public, and direct URLs for
   modules and app instances, including accepted Gateway API `HTTPRoute` hosts.
 - Public documentation is being aligned with runtime CRs, catalog-driven modules,
