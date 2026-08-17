@@ -278,7 +278,12 @@ Current consumers include:
   The generated `litellm` provider and default model are force-applied on every
   pod start so persisted runtime settings cannot silently restore the built-in
   public OpenAI provider. The LiteLLM credential is injected only through the
-  `LITELLM_API_KEY` environment variable from its Kubernetes Secret.
+  `LITELLM_API_KEY` environment variable from its Kubernetes Secret. The same
+  managed fragment selects OpenClaw's `coding` tool profile. For a selected
+  model with at most 32,768 context tokens, it disables OpenClaw's generic
+  20,000-token compaction floor and reserves at most 4,096 tokens instead. This
+  keeps the agent's own system and tool prompt usable on small local models;
+  larger or unknown context windows retain OpenClaw's 20,000-token safety floor.
 - Paperclip reads `opencode-providers.json`, `paperclip-adapter-models.json`,
   and `AI_APPLIANCE_DEFAULT_OPENCODE_MODEL`. The adapter model list populates
   the OpenCode model picker with all catalogued chat models. Its OpenCode

@@ -24,6 +24,11 @@ DEFAULT_CHAT_MODEL = os.environ.get("AI_APPLIANCE_DEFAULT_CHAT_MODEL", "auto")
 DEFAULT_EMBEDDING_MODEL = os.environ.get("AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL", "auto")
 OPENCODE_DEFAULT_CONTEXT_TOKENS = int(os.environ.get("OPENCODE_DEFAULT_CONTEXT_TOKENS", "131072"))
 OPENCODE_DEFAULT_OUTPUT_TOKENS = int(os.environ.get("OPENCODE_DEFAULT_OUTPUT_TOKENS", "8192"))
+OPENCLAW_SMALL_CONTEXT_MAX_TOKENS = 32768
+OPENCLAW_SMALL_CONTEXT_RESERVE_MAX_TOKENS = 4096
+OPENCLAW_SMALL_CONTEXT_RESERVE_MIN_TOKENS = 1024
+OPENCLAW_DEFAULT_RESERVE_TOKENS_FLOOR = 20000
+OPENCLAW_TOOLS_PROFILE = "coding"
 RESTART_CONSUMERS = os.environ.get("CONSUMER_RESTART_ENABLED", "true").lower() == "true"
 SYNC_AGENT_TEMPLATES = os.environ.get("AGENT_TEMPLATE_SYNC_ENABLED", "true").lower() == "true"
 AGENT_TEMPLATE_NAMES = [name.strip() for name in os.environ.get("AGENT_TEMPLATE_NAMES", "litellm-default").split(",") if name.strip()]
@@ -488,6 +493,20 @@ def openclaw_model(model):
     return entry
 
 
+def openclaw_compaction(models, default_model):
+    selected = next((model for model in models if model.get("id") == default_model), None)
+    context_window = positive_int((selected or {}).get("contextWindow"))
+    if context_window and context_window <= OPENCLAW_SMALL_CONTEXT_MAX_TOKENS:
+        return {
+            "reserveTokens": max(
+                OPENCLAW_SMALL_CONTEXT_RESERVE_MIN_TOKENS,
+                min(OPENCLAW_SMALL_CONTEXT_RESERVE_MAX_TOKENS, context_window // 4),
+            ),
+            "reserveTokensFloor": 0,
+        }
+    return {"reserveTokensFloor": OPENCLAW_DEFAULT_RESERVE_TOKENS_FLOOR}
+
+
 def hermes_model(model):
     entry = {"name": model.get("name") or model["id"]}
     if model.get("contextWindow"):
@@ -514,12 +533,15 @@ def build_catalog(litellm_models):
     embedding_models = [model for model in models if model.get("type") == "embedding"]
     default_chat = select_default(models, DEFAULT_CHAT_MODEL, "chat")
     default_embedding = select_default(models, DEFAULT_EMBEDDING_MODEL, "embedding")
+    openclaw_compaction_config = openclaw_compaction(chat_models, default_chat)
     hash_input = {
         "models": models,
         "defaultChatModel": default_chat,
         "defaultEmbeddingModel": default_embedding,
         "opencodeDefaultContextTokens": OPENCODE_DEFAULT_CONTEXT_TOKENS,
         "opencodeDefaultOutputTokens": OPENCODE_DEFAULT_OUTPUT_TOKENS,
+        "openclawCompaction": openclaw_compaction_config,
+        "openclawToolsProfile": OPENCLAW_TOOLS_PROFILE,
     }
     catalog_hash = hashlib.sha256(json.dumps(hash_input, sort_keys=True).encode("utf-8")).hexdigest()[:16]
 
@@ -537,10 +559,14 @@ def build_catalog(litellm_models):
         },
         "agents": {
             "defaults": {
+                "compaction": openclaw_compaction_config,
                 "model": {
                     "primary": "litellm/" + default_chat if default_chat else "",
                 }
             }
+        },
+        "tools": {
+            "profile": OPENCLAW_TOOLS_PROFILE,
         },
     }
     hermes = {

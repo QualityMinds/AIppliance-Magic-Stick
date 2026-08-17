@@ -54,10 +54,16 @@ data:
       },
       "agents": {
         "defaults": {
+          "compaction": {
+            "reserveTokensFloor": 20000
+          },
           "model": {
             "primary": ""
           }
         }
+      },
+      "tools": {
+        "profile": "coding"
       }
     }
   hermes.yaml: |

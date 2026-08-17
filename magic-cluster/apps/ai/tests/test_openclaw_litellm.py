@@ -31,7 +31,7 @@ class OpenClawLiteLLMChartTests(unittest.TestCase):
             template,
         )
         self.assertIn(
-            "forcePaths:\n      - models.providers\n      - agents.defaults.model",
+            "forcePaths:\n      - models.providers\n      - agents.defaults.compaction\n      - agents.defaults.model\n      - tools.profile",
             template,
         )
         self.assertIn("- name: LITELLM_API_KEY", template)
@@ -50,6 +50,12 @@ class OpenClawLiteLLMChartTests(unittest.TestCase):
 
         self.assertIn('"apiKey": "$${LITELLM_API_KEY}"', bootstrap)
         self.assertNotIn('"apiKey": "${LITELLM_API_KEY}"', bootstrap)
+
+    def test_bootstrap_uses_safe_openclaw_runtime_defaults(self):
+        bootstrap = MODEL_CATALOG_BOOTSTRAP.read_text(encoding="utf-8")
+
+        self.assertIn('"reserveTokensFloor": 20000', bootstrap)
+        self.assertIn('"profile": "coding"', bootstrap)
 
 
 if __name__ == "__main__":
