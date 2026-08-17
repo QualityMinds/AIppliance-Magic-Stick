@@ -718,15 +718,26 @@ data:
             if dep not in ("basis", "dashboard"):
                 ensure_module_activation(dep, auto=True)
 
+        parameters = (activation.get("spec") or {}).get("parameters") or {}
         missing_dependencies = missing_module_dependencies(module_spec, catalog)
         if missing_dependencies:
-            delete_module_kustomization(module, module_spec, catalog, source)
+            # Dependency readiness can be transient during a source revision or
+            # operator rollout. Keep the generated Kustomization suspended so
+            # Flux preserves existing workloads and persistent data. Destructive
+            # pruning is reserved for an explicit disable or deletion above.
+            apply_resource(generated_kustomization(
+                module,
+                module_spec,
+                catalog,
+                False,
+                source,
+                parameters,
+            ))
             phase = "WaitingForModules"
             message = "Waiting for required modules: " + ", ".join(missing_dependencies)
             patch_module_status(activation, phase, module_spec["kustomizationName"], "WaitingForModules", message, generation)
             return phase, {"phase": phase, "kustomization": module_spec["kustomizationName"], "message": message}
 
-        parameters = (activation.get("spec") or {}).get("parameters") or {}
         apply_resource(generated_kustomization(module, module_spec, catalog, enabled, source, parameters))
         kustomization = get_resource("kustomize.toolkit.fluxcd.io", "v1", "kustomizations", FLUX_NAMESPACE, module_spec["kustomizationName"])
 

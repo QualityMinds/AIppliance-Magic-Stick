@@ -10,6 +10,8 @@ metadata:
     app.kubernetes.io/component: controller
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: magicstick-operator
@@ -20,7 +22,7 @@ spec:
         app.kubernetes.io/name: magicstick-operator
         app.kubernetes.io/component: controller
       annotations:
-        appliance.magicstick.dev/controller-config-revision: ai-stream-timeouts-v2
+        appliance.magicstick.dev/controller-config-revision: dependency-wait-preserve-v3
     spec:
       serviceAccountName: magicstick-operator
       containers:

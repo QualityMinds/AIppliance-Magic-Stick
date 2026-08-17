@@ -44,6 +44,8 @@ formalized, release entries should group changes under:
 
 ### Fixed
 
+- Enabled modules are suspended instead of destructively pruned while their
+  dependencies are temporarily unready during a source or operator rollout.
 - Browser-streamed responses from LiteLLM, AnythingLLM, KubeOpenCode, and all
   catalogued application instances are no longer terminated by Envoy's default
   15-second request timeout.
