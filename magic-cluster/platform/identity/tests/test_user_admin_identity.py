@@ -61,7 +61,58 @@ def realm_import():
     return json.loads(config_map["data"]["magicstick-realm.json"])
 
 
+def identity_gateway_documents():
+    return [document for document in load_documents("gateway.yaml") if document]
+
+
 class UserAdminIdentityTests(unittest.TestCase):
+    def test_gateway_exposes_http_only_for_a_global_https_redirect(self):
+        gateway = next(
+            document
+            for document in identity_gateway_documents()
+            if document["kind"] == "Gateway"
+        )
+        listeners = {listener["name"]: listener for listener in gateway["spec"]["listeners"]}
+
+        self.assertEqual(listeners["http"]["protocol"], "HTTP")
+        self.assertEqual(listeners["http"]["port"], 80)
+        self.assertNotIn("tls", listeners["http"])
+        self.assertEqual(listeners["https"]["protocol"], "HTTPS")
+        self.assertEqual(listeners["https"]["port"], 443)
+        self.assertEqual(
+            listeners["http"]["allowedRoutes"],
+            listeners["https"]["allowedRoutes"],
+        )
+
+    def test_http_listener_has_no_backend_and_redirects_every_host_to_https(self):
+        route = next(
+            document
+            for document in identity_gateway_documents()
+            if document["kind"] == "HTTPRoute"
+            and document["metadata"]["name"] == "redirect-http-to-https"
+        )
+
+        self.assertEqual(route["metadata"]["namespace"], "identity-system")
+        self.assertNotIn("hostnames", route["spec"])
+        self.assertEqual(
+            route["spec"]["parentRefs"],
+            [{"name": "identity-pilot", "sectionName": "http"}],
+        )
+        self.assertEqual(
+            route["spec"]["rules"],
+            [
+                {
+                    "filters": [
+                        {
+                            "type": "RequestRedirect",
+                            "requestRedirect": {"scheme": "https", "statusCode": 301},
+                        }
+                    ]
+                }
+            ],
+        )
+        self.assertNotIn("backendRefs", route["spec"]["rules"][0])
+
     def test_fresh_realm_import_has_exact_dashboard_logout_redirects(self):
         realm = realm_import()
         client = next(
