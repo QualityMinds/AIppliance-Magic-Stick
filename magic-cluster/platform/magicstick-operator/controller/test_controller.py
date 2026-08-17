@@ -202,7 +202,13 @@ class HelmAppInstanceTests(unittest.TestCase):
         deployment = yaml.safe_load((ROOT / "deployment.yaml").read_text(encoding="utf-8"))
 
         self.assertEqual(deployment["spec"]["replicas"], 1)
-        self.assertEqual(deployment["spec"]["strategy"], {"type": "Recreate"})
+        self.assertEqual(
+            deployment["spec"]["strategy"],
+            {
+                "type": "RollingUpdate",
+                "rollingUpdate": {"maxSurge": 0, "maxUnavailable": 1},
+            },
+        )
 
     def test_gpu_modules_are_on_demand_in_catalog(self):
         manifest = yaml.safe_load((ROOT / "module-catalog.yaml").read_text(encoding="utf-8"))
