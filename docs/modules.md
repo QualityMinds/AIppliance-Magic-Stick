@@ -135,6 +135,13 @@ For example, an OpenClaw instance requires `openclaw-operator`, `litellm`, and
 `litellm` and `model-catalog`. Flux renders every instance from its application
 chart; the Magic Stick Operator does not create application workloads directly.
 
+The Odysseus instance chart registers the selected `spec.values.model` as a
+shared model on a managed LiteLLM endpoint through the Odysseus API. A small
+in-Pod bootstrap container waits until both Odysseus and the model are ready,
+keeps the registration idempotent across restarts, and reads the LiteLLM key
+directly from its Kubernetes Secret without writing it to a ConfigMap or log.
+Odysseus becomes Ready only after this initial registration succeeds.
+
 A Paperclip instance requires `paperclip-operator`, `agent-sandbox`, `litellm`,
 and `model-catalog`. `agent-sandbox` installs the upstream Agent Sandbox
 controller pinned to `v0.5.1` and provides `sandboxes.agents.x-k8s.io` for

@@ -44,6 +44,9 @@ formalized, release entries should group changes under:
 
 ### Fixed
 
+- Odysseus instances now register their selected model and the shared LiteLLM
+  endpoint through the Odysseus API instead of relying on unsupported
+  environment variables.
 - Magic Stick-managed KubeOpenCode templates now receive model-specific context
   and output limits, preventing OpenCode from requesting 32000 output tokens
   from local vLLM models with a smaller total context window.
