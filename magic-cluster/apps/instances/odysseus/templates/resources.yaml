@@ -41,6 +41,19 @@ data:
     search:
       formats: [html, json]
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-model-bootstrap
+  namespace: {{ $instance.namespace }}
+  labels:
+    app.kubernetes.io/name: odysseus
+    app.kubernetes.io/instance: {{ $name }}
+    app.kubernetes.io/component: model-bootstrap
+data:
+  model-bootstrap.py: |-
+{{ .Files.Get "files/model-bootstrap.py" | nindent 4 }}
+---
 {{- range $component, $port := $components }}
 apiVersion: v1
 kind: Service
@@ -215,6 +228,42 @@ spec:
           resources:
             requests: {cpu: 250m, memory: 1Gi}
             limits: {cpu: "2", memory: 4Gi}
+        - name: model-bootstrap
+          image: {{ printf "%s:%s" (dig "image" "repository" "ghcr.io/pewdiepie-archdaemon/odysseus" $values) (dig "image" "tag" "latest" $values) | quote }}
+          command: [python, /bootstrap/model-bootstrap.py]
+          env:
+            - name: ODYSSEUS_API_URL
+              value: http://127.0.0.1:7000
+            - name: LITELLM_BASE_URL
+              value: http://litellm.ai.svc.cluster.local:4000/v1
+            - name: LITELLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-masterkey-secret
+                  key: LITELLM_MASTER_KEY
+            - name: ODYSSEUS_DEFAULT_MODEL
+              value: {{ $model | quote }}
+          readinessProbe:
+            exec:
+              command: [test, -f, /tmp/ready]
+            periodSeconds: 5
+            failureThreshold: 12
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+          volumeMounts:
+            - name: model-bootstrap
+              mountPath: /bootstrap
+              readOnly: true
+            - name: model-bootstrap-tmp
+              mountPath: /tmp
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 100m, memory: 128Mi}
       volumes:
         - name: data
           persistentVolumeClaim:
@@ -222,3 +271,8 @@ spec:
         - name: catalog
           configMap:
             name: ai-model-catalog
+        - name: model-bootstrap
+          configMap:
+            name: {{ $name }}-model-bootstrap
+        - name: model-bootstrap-tmp
+          emptyDir: {}
