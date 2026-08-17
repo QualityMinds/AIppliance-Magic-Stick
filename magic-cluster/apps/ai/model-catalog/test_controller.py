@@ -227,6 +227,42 @@ class OpenClawCatalogTests(unittest.TestCase):
             config["agents"]["defaults"]["model"]["primary"],
             "litellm/qwen3827b",
         )
+        self.assertEqual(
+            config["agents"]["defaults"]["compaction"],
+            {"reserveTokens": 4096, "reserveTokensFloor": 0},
+        )
+        self.assertEqual(config["tools"]["profile"], "coding")
+
+    def test_catalog_keeps_openclaw_default_floor_for_large_context_models(self):
+        data, _ = self.controller["build_catalog"](
+            [
+                {
+                    "model_name": "large-context",
+                    "litellm_params": {"model": "openai/large-context"},
+                    "model_info": {
+                        "ai_appliance_type": "chat",
+                        "max_input_tokens": 128000,
+                    },
+                }
+            ]
+        )
+
+        config = json.loads(data["openclaw.json"])
+        self.assertEqual(
+            config["agents"]["defaults"]["compaction"],
+            {"reserveTokensFloor": 20000},
+        )
+
+    def test_small_openclaw_context_scales_the_reserve_below_four_thousand(self):
+        generated = self.controller["openclaw_compaction"](
+            [{"id": "small", "contextWindow": 8192}],
+            "small",
+        )
+
+        self.assertEqual(
+            generated,
+            {"reserveTokens": 2048, "reserveTokensFloor": 0},
+        )
 
 
 if __name__ == "__main__":

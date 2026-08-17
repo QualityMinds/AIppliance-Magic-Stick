@@ -19,7 +19,9 @@ spec:
       key: openclaw.json
     forcePaths:
       - models.providers
+      - agents.defaults.compaction
       - agents.defaults.model
+      - tools.profile
   env:
     - name: LITELLM_API_KEY
       valueFrom:
