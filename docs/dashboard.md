@@ -261,7 +261,9 @@ stored in `spec.local.vram` remains the actual request passed to KubeAI/vLLM.
 The preset selector is populated from `ConfigMap/magicstick-model-presets` and
 includes the `qwen3827b` profile for
 `hf://cyankiwi/Qwen3.8-27B-AWQ-INT4`. Selecting a preset fills its tested VRAM,
-context, and concurrency values before the activation is submitted.
+context, output-token, and concurrency values before the activation is
+submitted. The model catalog propagates those limits into managed KubeOpenCode
+templates.
 
 The default dashboard is GPU-neutral. External models do not require or activate
 GPU or KubeAI modules. The local-model form stays disabled until both the GPU and

@@ -27,6 +27,7 @@ OPENCODE_DEFAULT_OUTPUT_TOKENS = int(os.environ.get("OPENCODE_DEFAULT_OUTPUT_TOK
 RESTART_CONSUMERS = os.environ.get("CONSUMER_RESTART_ENABLED", "true").lower() == "true"
 SYNC_AGENT_TEMPLATES = os.environ.get("AGENT_TEMPLATE_SYNC_ENABLED", "true").lower() == "true"
 AGENT_TEMPLATE_NAMES = [name.strip() for name in os.environ.get("AGENT_TEMPLATE_NAMES", "litellm-default").split(",") if name.strip()]
+AGENT_TEMPLATE_APPINSTANCE_LABEL = "appliance.magicstick.dev/appinstance"
 CONSUMER_ANNOTATION = "ai-appliance.io/model-catalog-consumer"
 CATALOG_HASH_ANNOTATION = "ai-appliance.io/catalog-hash"
 LITELLM_MASTER_KEY = os.environ.get("LITELLM_MASTER_KEY", "")
@@ -495,11 +496,13 @@ def hermes_model(model):
 
 
 def opencode_model(model):
+    context = model.get("contextWindow") or OPENCODE_DEFAULT_CONTEXT_TOKENS
+    output = model.get("maxOutputTokens") or OPENCODE_DEFAULT_OUTPUT_TOKENS
     return {
         "name": model.get("name") or model["id"],
         "limit": {
-            "context": model.get("contextWindow") or OPENCODE_DEFAULT_CONTEXT_TOKENS,
-            "output": model.get("maxOutputTokens") or OPENCODE_DEFAULT_OUTPUT_TOKENS,
+            "context": context,
+            "output": min(output, context),
         },
     }
 
@@ -641,7 +644,25 @@ def write_catalog(data, catalog_hash):
 
 
 def agent_template_model(model):
-    return {"name": model.get("name") or model["id"]}
+    return opencode_model(model)
+
+
+def managed_agent_template_names():
+    path = path_with_query(
+        f"/apis/kubeopencode.io/v1alpha1/namespaces/{NAMESPACE}/agenttemplates",
+        {"labelSelector": AGENT_TEMPLATE_APPINSTANCE_LABEL},
+    )
+    try:
+        templates = k8s_request("GET", path).get("items") or []
+    except RuntimeError as error:
+        if " returned 404:" not in str(error):
+            log("managed AgentTemplate discovery failed: " + str(error))
+        return []
+    return [
+        (template.get("metadata") or {}).get("name")
+        for template in templates
+        if (template.get("metadata") or {}).get("name")
+    ]
 
 
 def sync_agent_templates(data):
@@ -668,7 +689,8 @@ def sync_agent_templates(data):
             },
         },
     }
-    for name in AGENT_TEMPLATE_NAMES:
+    template_names = list(dict.fromkeys(AGENT_TEMPLATE_NAMES + managed_agent_template_names()))
+    for name in template_names:
         path = f"/apis/kubeopencode.io/v1alpha1/namespaces/{NAMESPACE}/agenttemplates/{name}"
         try:
             existing = k8s_request("GET", path)

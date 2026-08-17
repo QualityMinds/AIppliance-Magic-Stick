@@ -291,8 +291,10 @@ class HelmAppInstanceTests(unittest.TestCase):
         resource, vram_mi = self.controller["kubeai_model_resource"](activation, presets)
 
         self.assertEqual(preset["url"], "hf://cyankiwi/Qwen3.8-27B-AWQ-INT4")
+        self.assertEqual(preset["maxOutputTokens"], 8192)
         self.assertEqual(vram_mi, 24062)
         self.assertEqual(resource["metadata"]["annotations"]["ai-appliance.io/context-window"], "20000")
+        self.assertEqual(resource["metadata"]["annotations"]["ai-appliance.io/max-output-tokens"], "8192")
         self.assertEqual(resource["spec"]["env"]["MAGICSTICK_VLLM_VRAM_LIMIT"], "24062Mi")
         self.assertEqual(
             resource["spec"]["args"],

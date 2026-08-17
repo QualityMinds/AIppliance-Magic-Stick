@@ -44,6 +44,9 @@ formalized, release entries should group changes under:
 
 ### Fixed
 
+- Magic Stick-managed KubeOpenCode templates now receive model-specific context
+  and output limits, preventing OpenCode from requesting 32000 output tokens
+  from local vLLM models with a smaller total context window.
 - Enabled modules are suspended instead of destructively pruned while their
   dependencies are temporarily unready during a source or operator rollout.
 - Browser-streamed responses from LiteLLM, AnythingLLM, KubeOpenCode, and all

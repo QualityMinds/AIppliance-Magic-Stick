@@ -110,6 +110,9 @@ spec:
                     contextWindow:
                       type: integer
                       minimum: 1
+                    maxOutputTokens:
+                      type: integer
+                      minimum: 1
                     maxNumSeqs:
                       type: integer
                       minimum: 1
@@ -156,6 +159,9 @@ spec:
                       type: integer
                       minimum: 1
                     contextWindow:
+                      type: integer
+                      minimum: 1
+                    maxOutputTokens:
                       type: integer
                       minimum: 1
             status:

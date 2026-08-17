@@ -930,9 +930,12 @@ data:
             raise ValueError("local.vram or local.vramMi is required for local ModelActivation")
         annotations = {}
         context_window = positive_int(local.get("contextWindow") or local.get("context_window"))
+        max_output_tokens = positive_int(local.get("maxOutputTokens") or local.get("max_output_tokens"))
         max_num_seqs = positive_int(local.get("maxNumSeqs") or local.get("max_num_seqs"))
         if context_window:
             annotations["ai-appliance.io/context-window"] = str(context_window)
+        if max_output_tokens:
+            annotations["ai-appliance.io/max-output-tokens"] = str(max_output_tokens)
         env = dict(local.get("env") or {})
         env["MAGICSTICK_VLLM_VRAM_LIMIT"] = local.get("vram") or str(vram_mi)
         for legacy_key in (

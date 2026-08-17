@@ -20,6 +20,7 @@ data:
           "vram": "24062Mi",
           "vramMi": 24062,
           "contextWindow": 20000,
+          "maxOutputTokens": 8192,
           "maxNumSeqs": 1,
           "args": [
             "--tensor-parallel-size=1",

@@ -270,9 +270,10 @@ If model pods fail to start, check:
 - model cache space under the host cache path
 
 The bundled `qwen3827b` preset reserves `24062Mi` and targets a single 24
-GB-class GPU. If the vLLM wrapper reports that this budget is larger than the
-physical GPU memory, choose a smaller preset or create a custom activation with
-lower VRAM, context, and concurrency values.
+GB-class GPU. Its OpenCode output limit is 8192 tokens inside the 20000-token
+vLLM context window. If the vLLM wrapper reports that this budget is larger than
+the physical GPU memory, choose a smaller preset or create a custom activation
+with lower VRAM, context, output, and concurrency values.
 
 ## Storage
 
