@@ -3667,12 +3667,13 @@ data:
               if (!activeUserRoles) { return; }
               const errorNode = $('user-role-error');
               errorNode.textContent = '';
+              const data = new FormData(userRoleForm);
+              const accessLevel = String(data.get('accessLevel') || 'user');
               setDialogBusy(userRoleForm, true);
               try {
-                const data = new FormData(userRoleForm);
                 await userRequest('/api/users/' + encodeURIComponent(activeUserRoles.id) + '/roles', {
                   method: 'PUT',
-                  body: JSON.stringify({ accessLevel: String(data.get('accessLevel') || 'user') })
+                  body: JSON.stringify({ accessLevel })
                 });
                 closeUserDialog($('user-role-dialog'));
                 await refreshUsersAfterMutation('User access updated and Keycloak logout requested.');

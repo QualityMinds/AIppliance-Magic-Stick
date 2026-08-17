@@ -316,6 +316,8 @@ BROWSER_ASSERTIONS = r"""
     const mutations = window.__dashboardBrowserCalls.filter((call) => call.path.startsWith('/api/users') && !['GET', 'HEAD'].includes(call.method));
     assert(mutations.every((call) => call.headers['X-MagicStick-CSRF'] === 'dashboard'), 'a user mutation omitted the CSRF header');
     assert(mutations.every((call) => call.headers['Content-Type'] === 'application/json'), 'a user mutation omitted JSON content type');
+    const roleUpdate = mutations.find((call) => call.method === 'PUT' && call.path === '/api/users/u-1/roles');
+    assert(roleUpdate && roleUpdate.body.accessLevel === 'operator', 'role update did not preserve the selected access level');
     const deletion = mutations.find((call) => call.method === 'DELETE');
     assert(deletion && deletion.body.usernameConfirmation === 'browser-user', 'delete confirmation body is missing');
 
@@ -386,6 +388,17 @@ class DashboardUserManagementUiTests(unittest.TestCase):
             self.assertIn("method: " + method, self.script)
         self.assertIn("headers['X-MagicStick-CSRF'] = 'dashboard'", self.script)
         self.assertIn("body: JSON.stringify({ usernameConfirmation })", self.script)
+
+    def test_role_form_captures_access_before_disabling_controls(self):
+        handler = self.script.split("const userRoleForm = $('user-role-form');", 1)[1]
+        handler = handler.split("const userPasswordForm = $('user-password-form');", 1)[0]
+
+        capture = "const data = new FormData(userRoleForm);"
+        disable = "setDialogBusy(userRoleForm, true);"
+        self.assertIn(capture, handler)
+        self.assertIn("const accessLevel = String(data.get('accessLevel') || 'user');", handler)
+        self.assertLess(handler.index(capture), handler.index(disable))
+        self.assertIn("body: JSON.stringify({ accessLevel })", handler)
 
     def test_user_supplied_values_use_dom_text_not_html(self):
         user_code = self.script.split("const sessionIsUserAdmin", 1)[1].split("const renderStatus", 1)[0]
