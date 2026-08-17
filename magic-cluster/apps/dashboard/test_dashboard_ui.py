@@ -161,6 +161,10 @@ BROWSER_API_MOCK = r"""
             hermes: {
               displayName: 'Hermes',
               requiredModules: ['hermes-operator', 'litellm', 'model-catalog']
+            },
+            paperclip: {
+              displayName: 'Paperclip',
+              requiredModules: ['paperclip-operator', 'agent-sandbox', 'litellm', 'model-catalog']
             }
           }
         }
@@ -329,8 +333,12 @@ BROWSER_ASSERTIONS = r"""
     const instanceDialog = document.getElementById('instance-create-dialog');
     await waitFor(() => instanceDialog.open, 'instance create dialog');
     const choices = Array.from(document.querySelectorAll('[data-instance-choice]'));
-    assert(choices.length === 2, 'instance picker must show only the two installed types');
-    assert(choices.map((choice) => choice.dataset.instanceChoice).join(',') === 'openclaw,hermes', 'instance picker types are incorrect');
+    assert(choices.length === 3, 'instance picker must show every catalogued type');
+    assert(choices.map((choice) => choice.dataset.instanceChoice).join(',') === 'openclaw,hermes,paperclip', 'instance picker types are incorrect');
+    const paperclipChoice = document.querySelector('[data-instance-choice="paperclip"]');
+    assert(paperclipChoice.disabled, 'Paperclip must remain disabled while required modules are missing');
+    assert(paperclipChoice.textContent.includes('Paperclip Operator'), 'Paperclip does not identify its missing operator');
+    assert(paperclipChoice.textContent.includes('Agent Sandbox'), 'Paperclip does not identify its missing sandbox module');
     assert(Array.from(document.querySelectorAll('.instance-form')).every((form) => form.hidden), 'configuration forms are visible before selecting a type');
     await sleep(20);
     assert(document.activeElement === choices[0], 'instance picker did not receive focus');
@@ -515,11 +523,13 @@ class DashboardUserManagementUiTests(unittest.TestCase):
         self.assertIn("form.hidden = form !== selectedForm", self.script)
         self.assertIn("selectInstanceCreateType('')", self.script)
 
-    def test_instance_picker_exposes_only_ready_catalog_applications(self):
+    def test_instance_picker_exposes_unavailable_catalog_applications_safely(self):
         self.assertIn("form.dataset.instanceAvailable = installed ? 'true' : 'false'", self.script)
         self.assertIn("instanceTypeInstalled(modulePayload, form.dataset.instanceType)", self.script)
-        self.assertIn("availableInstanceForms().forEach((form)", self.script)
-        self.assertIn("createPanel.hidden = availableCount === 0", self.script)
+        self.assertIn("cataloguedInstanceForms().forEach((form)", self.script)
+        self.assertIn("button.disabled = !available", self.script)
+        self.assertIn("'Unavailable. Enable and wait for: '", self.script)
+        self.assertIn("createPanel.hidden = cataloguedCount === 0", self.script)
 
     def test_successful_instance_creation_closes_the_dialog(self):
         handler = self.script.split("document.querySelectorAll('.instance-form').forEach((form) =>", 1)[1]

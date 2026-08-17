@@ -580,6 +580,15 @@ data:
           outline: none;
         }
 
+        .instance-type-choice:disabled {
+          cursor: not-allowed;
+          opacity: 0.72;
+        }
+
+        .instance-type-choice:disabled small {
+          color: #fde68a;
+        }
+
         .instance-type-choice strong {
           font-size: 1rem;
         }
@@ -1237,7 +1246,7 @@ data:
               <h3>No installed instance modules</h3>
               <p>Enable an instance module and wait until it is Ready before creating an instance.</p>
             </article>
-            <div class="instance-create-toolbar" id="instance-create-panel">
+            <div class="instance-create-toolbar" id="instance-create-panel" hidden>
               <button class="control-button primary" id="instance-create-open" type="button">Create Instance</button>
               <p>Choose an installed instance type first. The next step shows only its configuration.</p>
             </div>
@@ -1353,7 +1362,7 @@ data:
                   </div>
                 </section>
                 <div class="dialog-actions">
-                  <button class="control-button" type="button" data-dialog-cancel>Cancel</button>
+                  <button class="control-button" id="instance-create-cancel" type="button" data-dialog-cancel>Cancel</button>
                 </div>
               </div>
             </dialog>
@@ -1785,7 +1794,26 @@ data:
 
           const instanceForms = () => Array.from(document.querySelectorAll('.instance-form[data-instance-type]'));
 
-          const availableInstanceForms = () => instanceForms().filter((form) => form.dataset.instanceAvailable === 'true');
+          const cataloguedInstanceForms = () => {
+            const definitions = applicationDefinitions(latestModulePayload);
+            return instanceForms().filter((form) => Boolean(definitions[String(form.dataset.instanceType || '')]));
+          };
+
+          const availableInstanceForms = () => cataloguedInstanceForms().filter((form) => form.dataset.instanceAvailable === 'true');
+
+          const missingModulesForInstance = (type) => requiredModulesForInstance(latestModulePayload, type)
+            .filter((name) => !moduleInstalled(latestModulePayload, name));
+
+          const instanceModuleDisplayName = (name) => {
+            const spec = moduleSpec(latestModulePayload, name);
+            const catalogSpec = moduleCatalog(latestModulePayload)[name] || {};
+            return String(spec.displayName || catalogSpec.displayName || titleFromKey(name));
+          };
+
+          const firstInstanceChoiceTarget = () => {
+            const picker = $('instance-type-picker');
+            return (picker && picker.querySelector('.instance-type-choice:not(:disabled)')) || $('instance-create-cancel');
+          };
 
           const instanceTypeDisplayName = (form) => {
             const type = form ? String(form.dataset.instanceType || '') : '';
@@ -1819,7 +1847,7 @@ data:
             requestAnimationFrame(() => {
               const focusTarget = selectedForm
                 ? (selectedForm.querySelector('input:not([type="hidden"]), select, button') || $('instance-create-back'))
-                : $('instance-type-picker').querySelector('.instance-type-choice');
+                : firstInstanceChoiceTarget();
               if (focusTarget) { focusTarget.focus(); }
             });
           };
@@ -1828,17 +1856,26 @@ data:
             const picker = $('instance-type-picker');
             if (!picker) { return; }
             picker.replaceChildren();
-            availableInstanceForms().forEach((form) => {
+            cataloguedInstanceForms().forEach((form) => {
               const type = String(form.dataset.instanceType || '');
               const displayName = instanceTypeDisplayName(form);
+              const available = form.dataset.instanceAvailable === 'true';
+              const missingModules = missingModulesForInstance(type).map(instanceModuleDisplayName);
               const button = document.createElement('button');
               button.className = 'instance-type-choice';
               button.type = 'button';
               button.dataset.instanceChoice = type;
+              button.dataset.instanceAvailable = available ? 'true' : 'false';
+              button.disabled = !available;
               const heading = document.createElement('strong');
               heading.textContent = displayName;
               const detail = document.createElement('small');
-              detail.textContent = 'Configure a new ' + displayName + ' instance.';
+              detail.textContent = available
+                ? 'Configure a new ' + displayName + ' instance.'
+                : (missingModules.length
+                  ? 'Unavailable. Enable and wait for: ' + missingModules.join(', ') + '.'
+                  : 'Unavailable because its module requirements are incomplete.');
+              button.title = available ? '' : detail.textContent;
               button.append(heading, detail);
               button.addEventListener('click', () => selectInstanceCreateType(type));
               picker.appendChild(button);
@@ -1847,32 +1884,36 @@ data:
 
           const openInstanceCreateDialog = () => {
             const dialog = $('instance-create-dialog');
-            if (!dialog || typeof dialog.showModal !== 'function' || availableInstanceForms().length === 0) { return; }
+            if (!dialog || typeof dialog.showModal !== 'function' || cataloguedInstanceForms().length === 0) { return; }
             renderInstanceTypeChoices();
             selectInstanceCreateType('');
             dialogOpeners.set(dialog, document.activeElement);
             dialog.showModal();
             requestAnimationFrame(() => {
-              const firstChoice = $('instance-type-picker').querySelector('.instance-type-choice');
+              const firstChoice = firstInstanceChoiceTarget();
               if (firstChoice) { firstChoice.focus(); }
             });
           };
 
           const renderInstanceForms = (modulePayload) => {
             let availableCount = 0;
+            let cataloguedCount = 0;
+            const definitions = applicationDefinitions(modulePayload);
             instanceForms().forEach((form) => {
-              const installed = instanceTypeInstalled(modulePayload, form.dataset.instanceType);
+              const catalogued = Boolean(definitions[String(form.dataset.instanceType || '')]);
+              const installed = catalogued && instanceTypeInstalled(modulePayload, form.dataset.instanceType);
+              if (catalogued) { cataloguedCount += 1; }
               form.dataset.instanceAvailable = installed ? 'true' : 'false';
               form.hidden = true;
               if (installed) { availableCount += 1; }
             });
             const empty = $('instance-form-empty');
             if (empty) {
-              empty.hidden = availableCount !== 0;
+              empty.hidden = cataloguedCount === 0 || availableCount !== 0;
             }
             const createPanel = $('instance-create-panel');
             if (createPanel) {
-              createPanel.hidden = availableCount === 0;
+              createPanel.hidden = cataloguedCount === 0;
             }
             const dialog = $('instance-create-dialog');
             if (dialog && dialog.open) {

@@ -193,10 +193,12 @@ Instances are runtime requests stored as `AppInstance` resources in namespace
 required modules are installed or installable according to the module
 catalog and current module status.
 
-`Create Instance` opens a two-step dialog. The first step lists only currently
-available instance types such as OpenClaw or Hermes. After selecting a type,
-the second step renders only that application's fields. `Back to types` keeps
-the workflow in the dialog without exposing the other configuration forms.
+`Create Instance` opens a two-step dialog. The first step lists every instance
+type in the application catalog, such as OpenClaw, Hermes, or Paperclip. Types
+whose required modules are not Ready remain visible but disabled and identify
+the missing modules. After selecting an available type, the second step renders
+only that application's fields. `Back to types` keeps the workflow in the
+dialog without exposing the other configuration forms.
 
 Instance hostnames are derived, not user-entered:
 
