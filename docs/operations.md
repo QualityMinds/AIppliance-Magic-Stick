@@ -268,3 +268,4 @@ deploy,pods` if a command does not match the running resource name.
 | Dashboard returns `403` after login | Confirm the user has `magicstick-viewer`, `magicstick-operator`, or `magicstick-admin`; configuration changes need operator or admin as documented in `authentication.md`. |
 | GPU model never starts | Check GPU Operator, allocatable GPU resources, KubeAI model status, and vLLM logs. |
 | Local model stays in `WaitingForGPU` | The optional runtime is installed but Kubernetes reports no allocatable `nvidia.com/gpu`; verify supported hardware, driver pods, and node capacity. |
+| Local model stays in `Starting` | Compare `kubectl -n ai get model <name> -o jsonpath='{.status.replicas}'` with the model pod readiness and vLLM logs. The model is intentionally absent from LiteLLM until at least one replica is ready. |

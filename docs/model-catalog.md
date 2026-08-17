@@ -10,7 +10,7 @@ the NVIDIA runtime are installed only when a local `ModelActivation` is enabled.
 
 ## Responsibilities
 
-- Watch KubeAI `Model` resources in the `ai` namespace.
+- Watch KubeAI `Model` resources and publish only models with a ready replica.
 - Read optional external model definitions from `ConfigMap/ai-external-models`.
 - Read external runtime model requests from `ModelActivation` resources in
   namespace `ai-system`.
@@ -34,7 +34,8 @@ public `magic-cluster/apps/ai` base.
 
 ## Reconciliation Flow
 
-1. The controller lists KubeAI `Model` resources when the KubeAI CRD exists.
+1. The controller lists KubeAI `Model` resources when the KubeAI CRD exists
+   and selects only resources with `status.replicas.ready` greater than zero.
 2. It reads `ai-external-models.data["models.json"]` when present.
 3. It reads enabled external `ModelActivation` resources when present.
 4. It builds the desired LiteLLM model set and marks those models with
@@ -50,7 +51,11 @@ public `magic-cluster/apps/ai` base.
 
 ## KubeAI Models
 
-Any `kubeai.org/v1` `Model` in namespace `ai` becomes a LiteLLM deployment with:
+A `kubeai.org/v1` `Model` in namespace `ai` becomes a LiteLLM deployment only
+after KubeAI reports at least one ready replica. Models that are still pulling
+weights, compiling, warming up, or restarting are removed from the routable
+LiteLLM set and generated catalog until they are ready again. A ready model is
+published with:
 
 - `model_name`: the Kubernetes `metadata.name`
 - `litellm_params.model`: `openai/<model-name>`

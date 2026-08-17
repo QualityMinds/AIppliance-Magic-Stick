@@ -894,6 +894,17 @@ data:
         return default
 
 
+    def kubeai_model_replica_counts(model):
+        model = model or {}
+        spec = model.get("spec") or {}
+        replicas = (model.get("status") or {}).get("replicas") or {}
+        ready = non_negative_int(replicas.get("ready"), 0)
+        current = non_negative_int(replicas.get("all"), 0)
+        minimum = non_negative_int(spec.get("minReplicas"), 1)
+        expected = max(1, ready, current, minimum)
+        return ready, expected
+
+
     def kubeai_model_resource(activation, presets):
         metadata = activation.get("metadata") or {}
         spec = activation.get("spec") or {}
@@ -1014,7 +1025,19 @@ data:
                 message = str(error)
                 patch_model_status(activation, "Degraded", "InvalidModelSpec", message, model_ref, name, generation=generation)
                 return "Degraded", {"phase": "Degraded", "modelRef": model_ref, "message": message}
-            apply_resource(resource)
+            applied_model = apply_resource(resource)
+            kubeai_model = get_resource("kubeai.org", "v1", "models", namespace, name) or applied_model
+            ready_replicas, expected_replicas = kubeai_model_replica_counts(kubeai_model)
+            if ready_replicas < 1:
+                message = f"Waiting for KubeAI/vLLM to become ready: {ready_replicas}/{expected_replicas} replicas ready."
+                patch_model_status(activation, "Starting", "WaitingForReadyReplica", message, model_ref, name, vram_mi, generation)
+                return "Starting", {
+                    "phase": "Starting",
+                    "modelRef": model_ref,
+                    "catalogId": name,
+                    "vramRequiredMi": vram_mi,
+                    "message": message,
+                }
 
         if catalog_contains_model(namespace, name):
             message = "Model is available in the generated model catalog."

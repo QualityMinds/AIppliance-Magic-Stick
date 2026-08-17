@@ -144,6 +144,13 @@ class LocalRuntimeTests(unittest.TestCase):
         self.assertEqual(raised.exception.status, 409)
         self.assertIn("KubeAI", str(raised.exception))
 
+    def test_dashboard_renders_starting_model_phase_as_progress(self):
+        source = (ROOT / "configmap.yaml").read_text(encoding="utf-8")
+
+        self.assertIn("normalized === 'starting'", source)
+        self.assertIn("label: 'Starting model runtime'", source)
+        self.assertIn("'starting', 'reconciling'", source)
+
 
 if __name__ == "__main__":
     unittest.main()

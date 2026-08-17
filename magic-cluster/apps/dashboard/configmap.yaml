@@ -1301,6 +1301,9 @@ data:
             if (normalized === 'waitingforgpu') {
               return { value: 55, label: 'Waiting for NVIDIA GPU', className: 'waiting' };
             }
+            if (normalized === 'starting') {
+              return { value: 85, label: 'Starting model runtime', className: 'waiting' };
+            }
             if (normalized === 'reconciling') {
               return { value: 70, label: 'Reconciling', className: 'waiting' };
             }
@@ -1317,7 +1320,7 @@ data:
           };
 
           const phaseInProgress = (phase) => {
-            return ['requested', 'waitingformodules', 'waitingforcrds', 'waitingforgpu', 'reconciling', 'removing'].includes(String(phase || '').toLowerCase());
+            return ['requested', 'waitingformodules', 'waitingforcrds', 'waitingforgpu', 'starting', 'reconciling', 'removing'].includes(String(phase || '').toLowerCase());
           };
 
           const moduleGenerationPending = (spec = {}) => {

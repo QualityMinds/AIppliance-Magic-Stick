@@ -258,6 +258,94 @@ class HelmAppInstanceTests(unittest.TestCase):
         )
         self.assertEqual(statuses[-1][0][1], "WaitingForGPU")
 
+    def test_local_model_stays_starting_until_kubeai_has_a_ready_replica(self):
+        names = (
+            "ensure_model_finalizer",
+            "ensure_module_activation",
+            "module_ready",
+            "kubeai_model_resource",
+            "nvidia_gpu_capacity",
+            "crd_exists",
+            "apply_resource",
+            "get_resource",
+            "catalog_contains_model",
+            "patch_model_status",
+        )
+        originals = {name: self.controller[name] for name in names}
+        statuses = []
+        resource = {
+            "metadata": {"name": "local-chat", "namespace": "ai"},
+            "spec": {"minReplicas": 1},
+            "status": {"replicas": {"all": 1, "ready": 0}},
+        }
+        self.controller["ensure_model_finalizer"] = lambda _activation: None
+        self.controller["ensure_module_activation"] = lambda _module, auto=False: None
+        self.controller["module_ready"] = lambda _module, _catalog: True
+        self.controller["kubeai_model_resource"] = lambda _activation, _presets: (resource, 8192)
+        self.controller["nvidia_gpu_capacity"] = lambda: 1
+        self.controller["crd_exists"] = lambda _name: True
+        self.controller["apply_resource"] = lambda _resource: resource
+        self.controller["get_resource"] = lambda *_args: resource
+        self.controller["catalog_contains_model"] = lambda *_args: self.fail(
+            "an unready KubeAI model must not be accepted from the catalog"
+        )
+        self.controller["patch_model_status"] = lambda *args, **kwargs: statuses.append((args, kwargs))
+        activation = {
+            "metadata": {"name": "local-chat", "namespace": "ai-system", "generation": 1},
+            "spec": {"type": "local", "targetNamespace": "ai", "local": {}},
+        }
+        try:
+            phase, status = self.controller["reconcile_model_activation"](activation, {"modules": {}}, {})
+        finally:
+            self.controller.update(originals)
+
+        self.assertEqual(phase, "Starting")
+        self.assertEqual(status["message"], "Waiting for KubeAI/vLLM to become ready: 0/1 replicas ready.")
+        self.assertEqual(statuses[-1][0][1], "Starting")
+        self.assertEqual(statuses[-1][0][2], "WaitingForReadyReplica")
+
+    def test_local_model_is_ready_only_after_kubeai_and_catalog_are_ready(self):
+        names = (
+            "ensure_model_finalizer",
+            "ensure_module_activation",
+            "module_ready",
+            "kubeai_model_resource",
+            "nvidia_gpu_capacity",
+            "crd_exists",
+            "apply_resource",
+            "get_resource",
+            "catalog_contains_model",
+            "patch_model_status",
+        )
+        originals = {name: self.controller[name] for name in names}
+        statuses = []
+        resource = {
+            "metadata": {"name": "local-chat", "namespace": "ai"},
+            "spec": {"minReplicas": 1},
+            "status": {"replicas": {"all": 1, "ready": 1}},
+        }
+        self.controller["ensure_model_finalizer"] = lambda _activation: None
+        self.controller["ensure_module_activation"] = lambda _module, auto=False: None
+        self.controller["module_ready"] = lambda _module, _catalog: True
+        self.controller["kubeai_model_resource"] = lambda _activation, _presets: (resource, 8192)
+        self.controller["nvidia_gpu_capacity"] = lambda: 1
+        self.controller["crd_exists"] = lambda _name: True
+        self.controller["apply_resource"] = lambda _resource: resource
+        self.controller["get_resource"] = lambda *_args: resource
+        self.controller["catalog_contains_model"] = lambda *_args: True
+        self.controller["patch_model_status"] = lambda *args, **kwargs: statuses.append((args, kwargs))
+        activation = {
+            "metadata": {"name": "local-chat", "namespace": "ai-system", "generation": 1},
+            "spec": {"type": "local", "targetNamespace": "ai", "local": {}},
+        }
+        try:
+            phase, _status = self.controller["reconcile_model_activation"](activation, {"modules": {}}, {})
+        finally:
+            self.controller.update(originals)
+
+        self.assertEqual(phase, "Ready")
+        self.assertEqual(statuses[-1][0][1], "Ready")
+
 
 if __name__ == "__main__":
     unittest.main()
