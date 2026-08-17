@@ -218,6 +218,11 @@ If model pods fail to start, check:
 - vLLM model pod logs
 - model cache space under the host cache path
 
+The bundled `qwen3827b` preset reserves `24062Mi` and targets a single 24
+GB-class GPU. If the vLLM wrapper reports that this budget is larger than the
+physical GPU memory, choose a smaller preset or create a custom activation with
+lower VRAM, context, and concurrency values.
+
 ## Storage
 
 ```bash

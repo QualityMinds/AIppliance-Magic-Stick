@@ -10,6 +10,26 @@ data:
   presets.json: |
     {
       "presets": {
+        "qwen3827b": {
+          "title": "Qwen3.8 27B AWQ INT4",
+          "type": "chat",
+          "url": "hf://cyankiwi/Qwen3.8-27B-AWQ-INT4",
+          "features": ["TextGeneration"],
+          "engine": "VLLM",
+          "resourceProfile": "magicstick-nvidia-gpu:1",
+          "vram": "24062Mi",
+          "vramMi": 24062,
+          "contextWindow": 20000,
+          "maxNumSeqs": 1,
+          "args": [
+            "--tensor-parallel-size=1",
+            "--max-model-len=20000",
+            "--max-num-seqs=1",
+            "--reasoning-parser=qwen3",
+            "--enable-auto-tool-choice",
+            "--tool-call-parser=qwen3_coder"
+          ]
+        },
         "qwen3635b": {
           "title": "Qwen3.6 35B A3B AWQ",
           "type": "chat",

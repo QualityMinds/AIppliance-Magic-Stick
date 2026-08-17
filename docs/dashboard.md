@@ -160,6 +160,10 @@ For local HuggingFace-backed models, the dashboard can call
 `POST /api/models/estimate-vram` to fetch public metadata, estimate model
 weights and KV cache, and suggest minimum and recommended VRAM values. The value
 stored in `spec.local.vram` remains the actual request passed to KubeAI/vLLM.
+The preset selector is populated from `ConfigMap/magicstick-model-presets` and
+includes the `qwen3827b` profile for
+`hf://cyankiwi/Qwen3.8-27B-AWQ-INT4`. Selecting a preset fills its tested VRAM,
+context, and concurrency values before the activation is submitted.
 
 The default dashboard is GPU-neutral. External models do not require or activate
 GPU or KubeAI modules. The local-model form stays disabled until both the GPU and

@@ -81,6 +81,25 @@ writes it into the generated KubeAI `Model.spec.args` as
 `spec.local.maxNumSeqs` is handled the same way for vLLM sequence concurrency
 and is written as `--max-num-seqs=<maxNumSeqs>`.
 
+## Bundled Local Presets
+
+The dashboard reads its local model choices from
+`ConfigMap/magicstick-model-presets`; the same identifiers can be used directly
+in `ModelActivation.spec.local.preset`.
+
+| Preset | Model | VRAM budget | Context | Max sequences |
+|---|---|---:|---:|---:|
+| `qwen3827b` | `hf://cyankiwi/Qwen3.8-27B-AWQ-INT4` | `24062Mi` | 20000 | 1 |
+| `qwen3635b` | `hf://cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit` | `15Gi` | 8192 | 128 |
+| `qwen359b` | `hf://cyankiwi/Qwen3.5-9B-AWQ-4bit` | `16Gi` | 8192 | 32 |
+| `qwen352bvlembedding` | `hf://LifetimeMistake/Qwen3-VL-Embedding-2B-AWQ-4bit` | `5Gi` | 4096 | runtime default |
+
+`qwen3827b` is the validated single-GPU profile for a 24 GB-class NVIDIA GPU.
+It deliberately uses a single sequence so the 20000-token KV cache remains
+inside the available memory. The vLLM wrapper rejects the activation if the
+configured VRAM budget is larger than the memory reported by the GPU; in that
+case use a smaller model or create a custom activation with lower limits.
+
 ## External Models
 
 External models are configured through `ConfigMap/ai-external-models` in the
