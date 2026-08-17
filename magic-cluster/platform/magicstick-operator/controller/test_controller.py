@@ -62,11 +62,11 @@ class HelmAppInstanceTests(unittest.TestCase):
         self.assertFalse(release["spec"]["values"]["instance"]["values"]["ingress"]["enabled"])
         self.assertEqual(url, "https://demo.kubeopencode.magicstick.local/")
 
-    def test_catalog_routes_hermes_to_its_gateway_port(self):
+    def test_catalog_routes_hermes_to_its_dashboard_port(self):
         manifest = yaml.safe_load((ROOT / "app-catalog.yaml").read_text(encoding="utf-8"))
         catalog = yaml.safe_load(manifest["data"]["applications.json"])
 
-        self.assertEqual(catalog["applications"]["hermes"]["route"]["port"], 8443)
+        self.assertEqual(catalog["applications"]["hermes"]["route"]["port"], 9119)
         self.assertTrue(catalog["applications"]["hermes"]["route"]["stripCookies"])
 
     def test_catalog_disables_request_timeout_for_all_streaming_applications(self):
@@ -92,7 +92,7 @@ class HelmAppInstanceTests(unittest.TestCase):
             "metadata": {"name": "hermes-demo"},
             "spec": {"application": "hermes", "targetNamespace": "ai", "values": {}},
         }
-        definition = {"route": {"serviceName": "instance", "port": 8443, "stripCookies": True}}
+        definition = {"route": {"serviceName": "instance", "port": 9119, "stripCookies": True}}
 
         resources, _ = self.controller["app_instance_access_resources"](instance, definition)
 
@@ -101,6 +101,7 @@ class HelmAppInstanceTests(unittest.TestCase):
             route for route in routes if not route["metadata"]["name"].endswith("-callback")
         ]
         for route in application_routes:
+            self.assertEqual(route["spec"]["rules"][0]["backendRefs"][0]["port"], 9119)
             self.assertEqual(
                 route["spec"]["rules"][0]["filters"],
                 [{"type": "RequestHeaderModifier", "requestHeaderModifier": {"remove": ["Cookie"]}}],

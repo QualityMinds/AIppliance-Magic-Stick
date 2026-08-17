@@ -235,7 +235,9 @@ Envoy request timeout is disabled without changing the bounded SSO callback
 routes.
 
 Envoy Gateway is also the browser authentication boundary for application
-instances. Hermes is configured against the in-cluster LiteLLM endpoint.
+instances. Hermes is configured against the in-cluster LiteLLM endpoint and
+its instance URL opens the bundled Hermes dashboard on port `9119`; port `8443`
+remains the separate agent gateway used by in-cluster integrations.
 Paperclip runs in private `local_trusted` mode behind an in-pod loopback proxy,
 and Odysseus disables its application-local login, so neither presents a second
 login after the shared SSO check. Their Services remain ClusterIP-only and are
