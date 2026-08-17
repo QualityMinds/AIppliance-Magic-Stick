@@ -157,6 +157,99 @@ class LocalRuntimeTests(unittest.TestCase):
         self.assertIn("'starting', 'reconciling'", source)
 
 
+class ModuleCredentialTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.server = load_server()
+
+    def setUp(self):
+        names = (
+            "catalog_json",
+            "module_activation",
+            "read_secret",
+            "settings_response",
+        )
+        self.originals = {name: self.server[name] for name in names}
+        self.server["catalog_json"] = lambda: {
+            "modules": {
+                "litellm": {
+                    "credentials": {
+                        "provider": "litellm",
+                        "secretName": "must-not-control-secret-selection",
+                    }
+                },
+                "model-catalog": {},
+            }
+        }
+        self.server["module_activation"] = lambda name: {
+            "metadata": {"name": name},
+            "spec": {"module": name, "enabled": True},
+            "status": {"phase": "Ready"},
+        }
+        self.server["settings_response"] = lambda: {
+            "mdnsDomain": "magicstick.local",
+            "publicDomain": "magicstick.example.com",
+        }
+
+    def tearDown(self):
+        self.server.update(self.originals)
+
+    def test_litellm_credentials_use_only_the_fixed_master_key_secret(self):
+        requested = []
+        encoded_key = base64.b64encode(b"sk-CHANGEME").decode("ascii")
+
+        def read_secret(namespace, name, label):
+            requested.append((namespace, name, label))
+            return {"data": {"LITELLM_MASTER_KEY": encoded_key}}
+
+        self.server["read_secret"] = read_secret
+
+        result = self.server["module_credentials"]("litellm")
+
+        self.assertEqual(
+            requested,
+            [("ai", "litellm-masterkey-secret", "LiteLLM master key")],
+        )
+        self.assertEqual(result["module"], "litellm")
+        self.assertEqual(result["secretName"], "litellm-masterkey-secret")
+        fields = {item["key"]: item["value"] for item in result["credentials"]}
+        self.assertEqual(fields["ui_username"], "admin")
+        self.assertEqual(fields["ui_password"], "sk-CHANGEME")
+        self.assertEqual(fields["master_key"], "sk-CHANGEME")
+        self.assertEqual(fields["authorization"], "Bearer sk-CHANGEME")
+        self.assertEqual(fields["local_ui_url"], "https://litellm.magicstick.local/ui/")
+        self.assertEqual(fields["public_api_base"], "https://litellm.magicstick.example.com/v1")
+        self.assertEqual(fields["service_api_base"], "http://litellm.ai.svc.cluster.local:4000/v1")
+
+    def test_module_credentials_require_an_enabled_catalogued_provider(self):
+        self.server["read_secret"] = lambda *_args: self.fail("secret must not be read")
+        self.server["module_activation"] = lambda _name: {
+            "spec": {"enabled": False},
+        }
+
+        with self.assertRaises(self.server["RequestError"]) as raised:
+            self.server["module_credentials"]("litellm")
+
+        self.assertEqual(raised.exception.status, 409)
+
+        with self.assertRaises(ValueError):
+            self.server["module_credentials"]("model-catalog")
+
+    def test_module_and_instance_credentials_require_operator_access(self):
+        self.assertEqual(
+            self.server["required_get_access"](["api", "modules", "litellm", "credentials"]),
+            "operator",
+        )
+        self.assertEqual(
+            self.server["required_get_access"](["api", "instances", "demo", "credentials"]),
+            "operator",
+        )
+        self.assertEqual(
+            self.server["required_get_access"](["api", "modules"]),
+            "viewer",
+        )
+
+
 class UserAdministrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

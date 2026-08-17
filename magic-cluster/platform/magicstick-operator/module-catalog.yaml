@@ -54,6 +54,7 @@ data:
           "default": true,
           "uninstallPolicy": "keep-data",
           "postBuildSubstitution": true,
+          "credentials": {"provider": "litellm"},
           "parameters": [
             {"name": "postgresStorage", "label": "Postgres Storage", "placeholder": "1Gi", "substitution": "AI_APPLIANCE_LITELLM_POSTGRES_STORAGE"}
           ]
