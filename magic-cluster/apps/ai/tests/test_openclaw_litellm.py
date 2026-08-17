@@ -12,6 +12,14 @@ OPENCLAW_TEMPLATE = (
     / "templates"
     / "instance.yaml"
 )
+MODEL_CATALOG_BOOTSTRAP = (
+    REPO_ROOT
+    / "magic-cluster"
+    / "apps"
+    / "ai"
+    / "model-catalog"
+    / "catalog-configmap.yaml"
+)
 
 
 class OpenClawLiteLLMChartTests(unittest.TestCase):
@@ -36,6 +44,12 @@ class OpenClawLiteLLMChartTests(unittest.TestCase):
         self.assertNotIn("OPENAI_BASE_URL", template)
         self.assertNotIn("OPENCLAW_DEFAULT_MODEL", template)
         self.assertNotIn("- name: OPENAI_API_KEY", template)
+
+    def test_bootstrap_credential_reference_is_escaped_for_flux_post_build(self):
+        bootstrap = MODEL_CATALOG_BOOTSTRAP.read_text(encoding="utf-8")
+
+        self.assertIn('"apiKey": "$${LITELLM_API_KEY}"', bootstrap)
+        self.assertNotIn('"apiKey": "${LITELLM_API_KEY}"', bootstrap)
 
 
 if __name__ == "__main__":
