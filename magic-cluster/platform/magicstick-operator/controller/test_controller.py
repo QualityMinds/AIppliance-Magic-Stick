@@ -69,6 +69,24 @@ class HelmAppInstanceTests(unittest.TestCase):
         self.assertEqual(catalog["applications"]["hermes"]["route"]["port"], 8443)
         self.assertTrue(catalog["applications"]["hermes"]["route"]["stripCookies"])
 
+    def test_catalog_disables_request_timeout_for_all_streaming_applications(self):
+        manifest = yaml.safe_load((ROOT / "app-catalog.yaml").read_text(encoding="utf-8"))
+        catalog = yaml.safe_load(manifest["data"]["applications.json"])
+
+        self.assertEqual(
+            {
+                name: definition["route"].get("requestTimeout")
+                for name, definition in catalog["applications"].items()
+            },
+            {
+                "openclaw": "0s",
+                "hermes": "0s",
+                "paperclip": "0s",
+                "kubeopencode": "0s",
+                "odysseus": "0s",
+            },
+        )
+
     def test_hermes_route_strips_edge_session_cookies_before_upstream(self):
         instance = {
             "metadata": {"name": "hermes-demo"},
@@ -93,7 +111,9 @@ class HelmAppInstanceTests(unittest.TestCase):
             "metadata": {"name": "kubeopencode-demo"},
             "spec": {"application": "kubeopencode", "targetNamespace": "ai", "values": {"name": "demo"}},
         }
-        definition = {"route": {"serviceName": "shortName", "port": 4096}}
+        definition = {
+            "route": {"serviceName": "shortName", "port": 4096, "requestTimeout": "0s"}
+        }
 
         resources, access = self.controller["app_instance_access_resources"](instance, definition)
 
@@ -107,8 +127,10 @@ class HelmAppInstanceTests(unittest.TestCase):
         self.assertEqual(local_route["metadata"]["annotations"]["lab42.io/mdns.enabled"], "true")
         self.assertEqual(local_route["spec"]["hostnames"], ["demo.kubeopencode.magicstick.local"])
         self.assertEqual(local_route["spec"]["rules"][0]["backendRefs"][0], {"name": "demo", "namespace": "ai", "port": 4096})
+        self.assertEqual(local_route["spec"]["rules"][0]["timeouts"], {"request": "0s"})
         local_callback = next(route for route in routes if route["metadata"]["name"].endswith("-local-callback"))
         self.assertEqual(local_callback["spec"]["hostnames"], ["magicstick.local"])
+        self.assertNotIn("timeouts", local_callback["spec"]["rules"][0])
         self.assertEqual(
             local_callback["spec"]["rules"][0]["matches"][0]["path"],
             {"type": "Exact", "value": "/oauth2/callback/kubeopencode-demo-local"},
@@ -121,6 +143,18 @@ class HelmAppInstanceTests(unittest.TestCase):
         self.assertEqual(policy["spec"]["oidc"]["redirectURL"], "https://magicstick.local/oauth2/callback/kubeopencode-demo-local")
         self.assertEqual(policy["spec"]["jwt"]["providers"][0]["extractFrom"]["cookies"], ["MagicStickAccessToken"])
         self.assertIn("magicstick-admin", policy["spec"]["authorization"]["rules"][0]["principal"]["jwt"]["claims"][0]["values"])
+
+    def test_rejects_unsupported_application_route_timeout(self):
+        instance = {
+            "metadata": {"name": "kubeopencode-demo"},
+            "spec": {"application": "kubeopencode", "targetNamespace": "ai", "values": {}},
+        }
+        definition = {
+            "route": {"serviceName": "shortName", "port": 4096, "requestTimeout": "30s"}
+        }
+
+        with self.assertRaisesRegex(ValueError, "route.requestTimeout must be 0s"):
+            self.controller["app_instance_access_resources"](instance, definition)
 
     def test_explicit_public_local_instance_omits_security_policy(self):
         instance = {

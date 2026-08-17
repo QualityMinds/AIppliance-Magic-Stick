@@ -31,6 +31,10 @@ spec:
         - name: anything-llm
           namespace: ai
           port: 3001
+      # Chat responses are streamed and can legitimately run longer than
+      # Envoy's 15-second default request timeout.
+      timeouts:
+        request: "0s"
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
@@ -127,6 +131,10 @@ spec:
         - name: anything-llm
           namespace: ai
           port: 3001
+      # Chat responses are streamed and can legitimately run longer than
+      # Envoy's 15-second default request timeout.
+      timeouts:
+        request: "0s"
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute

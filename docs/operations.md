@@ -158,11 +158,12 @@ remains inside the redirect URI patterns of the single human gateway client.
 LiteLLM is the exception to upstream OIDC token forwarding: Envoy authenticates
 and authorizes the request at the edge but preserves LiteLLM's own
 `Authorization: Bearer sk-...` header for UI and API calls. Its local and
-public HTTPRoutes also set `rules[].timeouts.request: "0s"`, because streamed
-LLM responses can legitimately exceed Envoy's 15-second default request
-timeout. This disables the total request duration limit only for LiteLLM;
-Envoy's stream-idle handling and the model backend's generation limits still
-apply.
+public HTTPRoutes set `rules[].timeouts.request: "0s"`. AnythingLLM,
+KubeOpenCode, and every catalogued AppInstance apply the same setting to their
+application routes because streamed AI responses can legitimately exceed
+Envoy's 15-second default request timeout. Exact OIDC callback routes retain
+the bounded default. Envoy's stream-idle handling and the model backend's
+generation limits still apply.
 
 Rancher Desktop isolates Kubernetes multicast traffic inside its Linux VM. On
 macOS, keep the host bridge running in a separate terminal while testing:
@@ -314,7 +315,7 @@ deploy,pods` if a command does not match the running resource name.
 | App waits for model catalog | Check `ai-model-catalog-controller` logs and `AI_APPLIANCE_MODEL_CATALOG_READY`. |
 | LiteLLM Prisma reports `P1000` authentication failed | The PostgreSQL PVC may be older than `litellm-postgresql-secret`. Keep generated DB credentials prune-disabled and rotate the DB user password to match the current Secret. |
 | LiteLLM Models shows `Virtual Key expected` with a token beginning `eyJ` | The Keycloak JWT replaced LiteLLM's own API key. Confirm both `static-litellm-*-sso` policies set `spec.oidc.forwardAccessToken: false`, reconcile `app-litellm`, and reload the LiteLLM UI. |
-| LiteLLM Playground stops a longer answer with `TypeError: network error` | Check the Envoy access log for `response_code_details=response_timeout`, `response_flags=UT`, and a duration near 15000 ms. Confirm both `static-litellm-local` and `static-litellm-public` set `spec.rules[].timeouts.request: "0s"`, then reconcile `app-litellm`. |
+| An AI UI stops a longer answer with `TypeError: network error`, `Could not respond`, or `An error occurred while streaming response` | Check the Envoy access log for `response_code_details=response_timeout`, `response_flags=UT`, and a duration near 15000 ms. Confirm the application's local/public `HTTPRoute` sets `spec.rules[].timeouts.request: "0s"`. Reconcile the static module or `magicstick-operator` as appropriate. |
 | Application shows a second login after SSO | Confirm Paperclip uses `deployment.mode: local_trusted` with `exposure: private`, the patched operator emits `PAPERCLIP_BIND=loopback`, and its `gateway-loopback-proxy` sidecar is ready; confirm Odysseus has `AUTH_ENABLED=false` and the application Service is exposed only through its authenticated Envoy route. |
 | Paperclip task creates no Sandbox | Check `sandboxes.agents.x-k8s.io`, the Agent Sandbox controller, `spec.adapters.execution.kubernetes.backend`, and the selected adapter runtime image. |
 | Paperclip sandbox cannot call a model | Check `opencode-providers.json`, `litellm-masterkey-secret`, LiteLLM on port 4000, and NetworkPolicies in the Paperclip tenant namespace. |

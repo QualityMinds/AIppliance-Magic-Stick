@@ -229,7 +229,10 @@ only or both local and public; hostnames remain derived and are not user-entered
 
 The operator, not the instance chart or dashboard, creates `HTTPRoute`,
 `SecurityPolicy`, and `ReferenceGrant` resources. Both local and public links
-are reported in `AppInstance.status` and displayed on the instance card.
+are reported in `AppInstance.status` and displayed on the instance card. The
+catalog marks these AI application routes as streaming-capable, so their total
+Envoy request timeout is disabled without changing the bounded SSO callback
+routes.
 
 Envoy Gateway is also the browser authentication boundary for application
 instances. Hermes is configured against the in-cluster LiteLLM endpoint.

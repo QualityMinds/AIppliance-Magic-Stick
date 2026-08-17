@@ -1096,7 +1096,16 @@ data:
         }
 
 
-    def app_instance_route(instance, route_name, hostname, service_name, service_port, local=False, strip_cookies=False):
+    def app_instance_route(
+        instance,
+        route_name,
+        hostname,
+        service_name,
+        service_port,
+        local=False,
+        strip_cookies=False,
+        request_timeout=None,
+    ):
         target_namespace = ((instance.get("spec") or {}).get("targetNamespace") or "ai")
         metadata = {
             "name": route_name,
@@ -1112,6 +1121,12 @@ data:
                 "port": service_port,
             }],
         }
+        if request_timeout is not None:
+            if request_timeout != "0s":
+                raise ValueError("application route.requestTimeout must be 0s when set")
+            # AI application streams must not inherit Envoy's 15-second total
+            # request timeout. Callback routes remain bounded by the default.
+            rule["timeouts"] = {"request": request_timeout}
         if strip_cookies:
             # Edge authentication has already consumed the OIDC cookies. Hermes
             # is an API gateway and does not use application cookies; removing
@@ -1265,6 +1280,7 @@ data:
             },
         }]
         strip_cookies = bool((definition.get("route") or {}).get("stripCookies"))
+        request_timeout = (definition.get("route") or {}).get("requestTimeout")
         resources.append(app_instance_route(
             instance,
             local_route_name,
@@ -1273,6 +1289,7 @@ data:
             service_port,
             local=True,
             strip_cookies=strip_cookies,
+            request_timeout=request_timeout,
         ))
         if authentication == "sso":
             local_callback_path = "/oauth2/callback/" + local_route_name
@@ -1301,6 +1318,7 @@ data:
                 service_name,
                 service_port,
                 strip_cookies=strip_cookies,
+                request_timeout=request_timeout,
             ))
             public_url = "https://" + public_host + "/"
             if authentication == "sso":
