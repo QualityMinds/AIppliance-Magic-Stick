@@ -424,8 +424,8 @@ data:
           border-radius: 10px;
           padding: 0.7rem;
           display: grid;
-          grid-template-columns: minmax(0, 1fr) auto;
-          align-items: center;
+          grid-template-columns: minmax(12rem, 0.65fr) minmax(0, 1.35fr);
+          align-items: start;
           gap: 0.75rem;
           background: rgba(2, 6, 23, 0.32);
         }
@@ -447,10 +447,34 @@ data:
         }
 
         .overview-app-actions {
-          display: flex;
-          flex-wrap: wrap;
-          justify-content: flex-end;
+          display: grid;
           gap: 0.4rem;
+          min-width: 0;
+        }
+
+        .overview-url-entry {
+          align-items: center;
+          display: grid;
+          gap: 0.45rem;
+          grid-template-columns: auto minmax(0, 1fr);
+          min-width: 0;
+        }
+
+        .overview-url-scope {
+          border: 1px solid rgba(148, 163, 184, 0.24);
+          border-radius: 999px;
+          color: var(--muted);
+          font-size: 0.7rem;
+          min-width: 3.4rem;
+          padding: 0.18rem 0.42rem;
+          text-align: center;
+          text-transform: uppercase;
+        }
+
+        .overview-url-link {
+          border-radius: 8px;
+          display: block;
+          min-width: 0;
         }
 
         .model-workspace {
@@ -1112,7 +1136,7 @@ data:
               </div>
               <section class="dashboard-card overview-panel">
                 <div class="module-group-heading">
-                  <h3>Available Apps</h3>
+                  <h3>Available URLs</h3>
                   <span id="overview-app-count">Loading</span>
                 </div>
                 <div id="overview-app-list" class="overview-app-list"></div>
@@ -1905,6 +1929,11 @@ data:
             return ((ingress || {}).hosts || []).map(linkFromUrl).filter(Boolean);
           };
 
+          const linksFromHttpRoute = (route) => {
+            if ((route || {}).accepted !== true) { return []; }
+            return ((route || {}).hostnames || []).map((hostname) => linkFromUrl('https://' + hostname)).filter(Boolean);
+          };
+
           const uniqueLinks = (links) => {
             const seen = new Set();
             return (links || []).filter((link) => {
@@ -1937,12 +1966,12 @@ data:
             return new Set(values.map(normalizedKey).filter(Boolean));
           };
 
-          const moduleIngressLinks = (name, catalogSpec = {}, status = {}) => {
+          const moduleAccessLinks = (name, catalogSpec = {}, status = {}) => {
             const keys = moduleIngressLookupKeys(name, catalogSpec);
             const allowNameContains = (catalogSpec.activationMode || '') === 'static';
-            const matches = (ingress) => {
-              const labels = (ingress || {}).labels || {};
-              const annotations = (ingress || {}).annotations || {};
+            const matches = (resource) => {
+              const labels = (resource || {}).labels || {};
+              const annotations = (resource || {}).annotations || {};
               const labeledKeys = [
                 labels.app,
                 labels['app.kubernetes.io/name'],
@@ -1950,16 +1979,19 @@ data:
                 annotations['dashboard.ai-appliance.io/title']
               ].map(normalizedKey).filter(Boolean);
               if (labeledKeys.some((key) => keys.has(key))) { return true; }
-              const ingressName = normalizedKey((ingress || {}).name);
-              if (keys.has(ingressName)) { return true; }
-              if (allowNameContains && Array.from(keys).some((key) => key && ingressName.includes(key))) { return true; }
-              return ((ingress || {}).hosts || []).some((host) => {
+              const resourceName = normalizedKey((resource || {}).name);
+              if (keys.has(resourceName)) { return true; }
+              if (allowNameContains && Array.from(keys).some((key) => key && resourceName.includes(key))) { return true; }
+              const hosts = ((resource || {}).hosts || []).concat((resource || {}).hostnames || []);
+              return hosts.some((host) => {
                 const hostname = String(urlHost(host) || host || '');
                 const hostLabels = hostname.split('.').map(normalizedKey).filter(Boolean);
                 return hostLabels.some((label) => keys.has(label));
               });
             };
-            return uniqueLinks(((status || {}).ingresses || []).filter(matches).flatMap(linksFromIngress));
+            const ingressLinks = ((status || {}).ingresses || []).filter(matches).flatMap(linksFromIngress);
+            const routeLinks = ((status || {}).httpRoutes || []).filter(matches).flatMap(linksFromHttpRoute);
+            return uniqueLinks(ingressLinks.concat(routeLinks));
           };
 
           const instanceConfiguredHosts = (instance) => {
@@ -1978,59 +2010,64 @@ data:
             return new Set(hosts);
           };
 
-          const instanceIngressLinks = (instance, status = {}) => {
+          const instanceAccessLinks = (instance, status = {}) => {
             const metadata = (instance || {}).metadata || {};
             const instanceName = String(metadata.name || '').toLowerCase();
             const expectedHosts = instanceConfiguredHosts(instance);
-            const matches = (ingress) => {
-              const ingressName = String((ingress || {}).name || '').toLowerCase();
-              const labels = (ingress || {}).labels || {};
+            const matches = (resource) => {
+              const resourceName = String((resource || {}).name || '').toLowerCase();
+              const labels = (resource || {}).labels || {};
               const appInstanceName = String(labels['appliance.magicstick.dev/appinstance'] || '').toLowerCase();
-              if (instanceName && (ingressName === instanceName || ingressName.startsWith(instanceName + '-') || appInstanceName === instanceName)) { return true; }
-              return ((ingress || {}).hosts || []).some((host) => expectedHosts.has(urlHost(host)));
+              if (instanceName && (resourceName === instanceName || resourceName.startsWith(instanceName + '-') || appInstanceName === instanceName)) { return true; }
+              const hosts = ((resource || {}).hosts || []).concat((resource || {}).hostnames || []);
+              return hosts.some((host) => expectedHosts.has(urlHost(host)));
             };
             const ingressLinks = ((status || {}).ingresses || []).filter(matches).flatMap(linksFromIngress);
+            const routeLinks = ((status || {}).httpRoutes || []).filter(matches).flatMap(linksFromHttpRoute);
             const instanceStatus = ((instance || {}).status || {});
             const statusLinks = [instanceStatus.localURL, instanceStatus.publicURL, instanceStatus.url].map(linkFromUrl).filter(Boolean);
-            return uniqueLinks(ingressLinks.concat(statusLinks));
+            return uniqueLinks(ingressLinks.concat(routeLinks, statusLinks));
           };
 
           const overviewLinkScope = (link) => {
             const hostname = urlHostname((link || {}).url || (link || {}).label);
             if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname) || hostname === 'localhost') {
-              return { key: 'direct', label: 'Open direct', order: 30 };
+              return { key: 'direct', label: 'Direct', order: 30 };
             }
             if (hostname.endsWith('.local')) {
-              return { key: 'local', label: 'Open local', order: 10 };
+              return { key: 'local', label: 'Local', order: 10 };
             }
-            return { key: 'public', label: 'Open public', order: 20 };
+            return { key: 'public', label: 'Public', order: 20 };
           };
 
-          const overviewActionLinks = (links) => {
-            const picked = new Map();
-            uniqueLinks(links).forEach((link) => {
-              const scope = overviewLinkScope(link);
-              if (!picked.has(scope.key)) {
-                picked.set(scope.key, { link, scope });
-              }
+          const overviewDisplayLinks = (links) => {
+            return uniqueLinks(links).map((link) => ({ link, scope: overviewLinkScope(link) })).sort((left, right) => {
+              const orderDelta = left.scope.order - right.scope.order;
+              if (orderDelta !== 0) { return orderDelta; }
+              return String(left.link.url || '').localeCompare(String(right.link.url || ''));
             });
-            return Array.from(picked.values()).sort((left, right) => left.scope.order - right.scope.order);
           };
 
           const createOverviewAppActions = (links) => {
-            const actions = overviewActionLinks(links);
+            const actions = overviewDisplayLinks(links);
             if (!actions.length) { return null; }
             const wrapper = document.createElement('div');
             wrapper.className = 'overview-app-actions';
             actions.forEach(({ link, scope }) => {
+              const entry = document.createElement('div');
+              entry.className = 'overview-url-entry';
+              const badge = document.createElement('span');
+              badge.className = 'overview-url-scope';
+              badge.textContent = scope.label;
               const anchor = document.createElement('a');
-              anchor.className = 'resource-link';
+              anchor.className = 'resource-link overview-url-link';
               anchor.href = link.url;
               anchor.target = '_blank';
               anchor.rel = 'noreferrer';
-              anchor.title = link.label;
-              anchor.textContent = scope.label;
-              wrapper.appendChild(anchor);
+              anchor.title = 'Open ' + scope.label.toLowerCase() + ' URL';
+              anchor.textContent = link.url;
+              entry.append(badge, anchor);
+              wrapper.appendChild(entry);
             });
             return wrapper;
           };
@@ -2131,14 +2168,10 @@ data:
 
           const addOverviewRow = (target, rows, seenLinks, row) => {
             const links = uniqueLinks(row.links || []);
-            const freshLinks = links.filter((link) => {
-              const key = String(link.url || '').replace(/\/$/, '');
-              return key && !seenLinks.has(key);
-            });
-            if (!freshLinks.length) { return; }
-            freshLinks.forEach((link) => seenLinks.add(String(link.url || '').replace(/\/$/, '')));
-            target.appendChild(createOverviewAppRow({ ...row, links: freshLinks }));
-            rows.push(row);
+            if (!links.length) { return; }
+            links.forEach((link) => seenLinks.add(String(link.url || '').replace(/\/$/, '')));
+            target.appendChild(createOverviewAppRow({ ...row, links }));
+            rows.push({ ...row, links });
           };
 
           const renderOverviewApps = (modulePayload, instancePayload, status) => {
@@ -2159,7 +2192,7 @@ data:
                   title: instanceOverviewTitle(type, instance),
                   subtitle: 'Instance',
                   phase,
-                  links: instanceIngressLinks(instance, status)
+                  links: instanceAccessLinks(instance, status)
                 });
               });
             });
@@ -2171,17 +2204,17 @@ data:
                 title,
                 subtitle: 'Module',
                 phase,
-                links: moduleIngressLinks(name, catalogSpec, status)
+                links: moduleAccessLinks(name, catalogSpec, status)
               });
             });
             if (!target.childElementCount) {
               const item = document.createElement('div');
               item.className = 'mini-item';
-              item.textContent = 'No app ingresses discovered yet.';
+              item.textContent = 'No module or instance URLs discovered yet.';
               target.appendChild(item);
             }
             if (count) {
-              count.textContent = rows.length + (rows.length === 1 ? ' app' : ' apps');
+              count.textContent = seenLinks.size + (seenLinks.size === 1 ? ' URL' : ' URLs');
             }
           };
 
@@ -2317,7 +2350,7 @@ data:
                 const message = document.createElement('div');
                 message.className = 'module-message';
                 message.textContent = status.message || catalogSpec.description || ((catalogSpec.requires || []).length ? 'Requires: ' + catalogSpec.requires.join(', ') : '');
-                const links = createResourceLinks(moduleIngressLinks(name, catalogSpec, statusPayload));
+                const links = createResourceLinks(moduleAccessLinks(name, catalogSpec, statusPayload));
 
                 const actions = document.createElement('div');
                 actions.className = 'action-row';
@@ -2438,7 +2471,7 @@ data:
                 const actions = document.createElement('div');
                 actions.className = 'action-row';
                 item.append(header, createProgressBox(progress), details);
-                const links = createResourceLinks(instanceIngressLinks(instance, statusPayload));
+                const links = createResourceLinks(instanceAccessLinks(instance, statusPayload));
                 if (links) {
                   item.appendChild(links);
                 }
