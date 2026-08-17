@@ -50,9 +50,12 @@ The local realm defines four initial roles:
 | `magicstick-admin` | Identity, security, and appliance administration |
 
 Authentication and authorization remain separate. Envoy proves the identity
-and forwards the OIDC access token. The dashboard API validates that token with
-Keycloak and checks the relevant role before every operation. Upstream groups
-should be mapped to these local roles in Keycloak.
+and forwards the OIDC access token only to backends that consume it. The
+dashboard API validates that token with Keycloak and checks the relevant role
+before every operation. LiteLLM remains protected by the same edge login and
+role policy, but does not receive the OIDC token in `Authorization` because that
+header belongs to LiteLLM's own `Bearer sk-...` API authentication. Upstream
+groups should be mapped to the local Magic Stick roles in Keycloak.
 
 Dashboard access is hierarchical: viewer permits read-only endpoints, operator
 also permits module, instance, model, and credential operations, and admin also
@@ -98,6 +101,8 @@ The current implementation provides:
 - dashboard API token validation and viewer/operator/admin authorization
 - protected local and public routes for LiteLLM, AnythingLLM, and KubeOpenCode
   with a minimum `magicstick-user` role
+- LiteLLM-specific OIDC token forwarding disabled after edge authorization, so
+  its UI and API retain their own virtual-key `Authorization` header
 - removal of the bundled dashboard and AI application `Ingress` resources
 - no human default password on new installations
 

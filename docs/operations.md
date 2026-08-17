@@ -155,6 +155,9 @@ kubectl -n ai get referencegrants
 All three static AI surfaces require `magicstick-user` or a higher role. Every
 static policy uses an exact callback path on the shared dashboard host, so it
 remains inside the redirect URI patterns of the single human gateway client.
+LiteLLM is the exception to upstream OIDC token forwarding: Envoy authenticates
+and authorizes the request at the edge but preserves LiteLLM's own
+`Authorization: Bearer sk-...` header for UI and API calls.
 
 Rancher Desktop isolates Kubernetes multicast traffic inside its Linux VM. On
 macOS, keep the host bridge running in a separate terminal while testing:
@@ -305,6 +308,7 @@ deploy,pods` if a command does not match the running resource name.
 | Custom legacy Ingress has no endpoint | The nginx controller is intentionally not installed. Bundled surfaces already use Envoy; migrate custom applications to an authenticated `HTTPRoute`. |
 | App waits for model catalog | Check `ai-model-catalog-controller` logs and `AI_APPLIANCE_MODEL_CATALOG_READY`. |
 | LiteLLM Prisma reports `P1000` authentication failed | The PostgreSQL PVC may be older than `litellm-postgresql-secret`. Keep generated DB credentials prune-disabled and rotate the DB user password to match the current Secret. |
+| LiteLLM Models shows `Virtual Key expected` with a token beginning `eyJ` | The Keycloak JWT replaced LiteLLM's own API key. Confirm both `static-litellm-*-sso` policies set `spec.oidc.forwardAccessToken: false`, reconcile `app-litellm`, and reload the LiteLLM UI. |
 | Application shows a second login after SSO | Confirm Paperclip uses `deployment.mode: local_trusted` with `exposure: private`, the patched operator emits `PAPERCLIP_BIND=loopback`, and its `gateway-loopback-proxy` sidecar is ready; confirm Odysseus has `AUTH_ENABLED=false` and the application Service is exposed only through its authenticated Envoy route. |
 | Paperclip task creates no Sandbox | Check `sandboxes.agents.x-k8s.io`, the Agent Sandbox controller, `spec.adapters.execution.kubernetes.backend`, and the selected adapter runtime image. |
 | Paperclip sandbox cannot call a model | Check `opencode-providers.json`, `litellm-masterkey-secret`, LiteLLM on port 4000, and NetworkPolicies in the Paperclip tenant namespace. |
