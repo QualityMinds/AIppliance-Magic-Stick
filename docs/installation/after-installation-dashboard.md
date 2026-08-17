@@ -28,7 +28,54 @@ Setup absichtlich nicht mehr erreichbar.
 Der Recovery-Benutzer ist für Notfälle gedacht. Verwende ihn nicht als
 alltägliches Administratorkonto.
 
-## 2. Übersicht kontrollieren
+## 2. Benutzer verwalten
+
+Öffne als Administrator **Users**. Dieser Tab bleibt für Viewer und Operator
+unsichtbar und ist bei einer Installation ohne lokalen Keycloak nicht
+verfügbar. Die Liste wird erst beim Öffnen geladen und zeigt nur menschliche
+Benutzer, keine technischen Service Accounts.
+
+So legst du einen lokalen Benutzer an:
+
+1. Wähle **Create User**. Die Schaltfläche steht immer oben im geöffneten
+   Benutzer-Tab.
+2. Trage Benutzername, Vor- und Nachname sowie eine eindeutige E-Mail-Adresse
+   ein.
+3. Wähle das kleinste benötigte Zugriffslevel: **User**, **Viewer**,
+   **Operator** oder **Administrator**.
+4. Vergib ein temporäres Passwort mit mindestens zwölf Zeichen und bestätige
+   es.
+5. Wähle erneut **Create User**. Teile das temporäre Passwort über einen
+   geeigneten sicheren Kanal; es wird im Dashboard nicht noch einmal angezeigt.
+6. Lass den Benutzer sich anmelden und das temporäre Passwort direkt ändern.
+
+Die Zugriffslevel bedeuten:
+
+| Auswahl | Berechtigung |
+|---|---|
+| User | Anmeldung an SSO-geschützten Anwendungen |
+| Viewer | zusätzlich lesender Dashboard-Zugriff |
+| Operator | zusätzlich Module, Instanzen und Modelle verwalten |
+| Administrator | zusätzlich Einstellungen und Benutzer verwalten |
+
+Über **Edit**, **Access**, **Enable/Disable**, **Reset Password** und **Delete**
+verwaltet ein Administrator lokale Konten. Das Löschen muss durch Eingabe des
+exakten Benutzernamens bestätigt werden. Deaktivieren ist für vorübergehend
+nicht benötigte Konten die sicherere und rückgängig machbare Wahl.
+
+Benutzer aus Entra ID, Google, AWS oder einem anderen angebundenen Provider
+erscheinen, nachdem Keycloak sie erstmals kennt. Ihr externes Profil und
+Passwort werden weiterhin beim jeweiligen Provider verwaltet. Das Dashboard
+kennzeichnet diese Aktionen als nicht verfügbar; lokale MagicStick-Rollen und
+der lokale Aktivierungszustand können entsprechend der angezeigten
+Möglichkeiten verwaltet werden. Lösche einen externen Schattenbenutzer nicht,
+sondern deaktiviere ihn und sperre ihn zusätzlich beim externen Provider.
+
+Die Appliance verhindert, dass du dich selbst deaktivierst, löschst oder deine
+eigene Administratorrolle entfernst. Außerdem bleiben der geschützte
+Recovery-Benutzer und mindestens ein aktiver lokaler Administrator erhalten.
+
+## 3. Übersicht kontrollieren
 
 Öffne **Overview**. Die vier Karten zeigen den Zustand der Appliance sowie die
 Anzahl aktivierter Module, angeforderter Instanzen und installierter Modelle.
@@ -44,7 +91,7 @@ Das Dashboard aktualisiert sich alle 30 Sekunden. Eine angeforderte Änderung
 ist deshalb nicht sofort abgeschlossen. Warte immer auf **Ready**, bevor du den
 nächsten davon abhängigen Schritt startest.
 
-## 3. Domains und lokale Adresse prüfen
+## 4. Domains und lokale Adresse prüfen
 
 Öffne **Settings**. Dort findest du:
 
@@ -64,7 +111,7 @@ Anwendungsadressen. Eine öffentliche Domain allein macht die Appliance nicht
 automatisch aus dem Internet erreichbar; DNS, Firewall und Netzwerkzugang
 müssen separat eingerichtet sein.
 
-## 4. Systemzustand prüfen
+## 5. Systemzustand prüfen
 
 Öffne **System Status** und kontrolliere:
 
@@ -77,7 +124,7 @@ länger als einige Minuten unverändert oder wird `Degraded` angezeigt, verwende
 die [Betriebs- und Fehlerdiagnose](../operations.md), bevor du weitere Module
 installierst.
 
-## 5. Gewünschte Betriebsart wählen
+## 6. Gewünschte Betriebsart wählen
 
 Entscheide vor der Modellinstallation, ob du lokale oder externe KI-Modelle
 verwenden möchtest.
@@ -96,7 +143,7 @@ Verwende ein externes Modell. Eine neue Installation enthält weder den NVIDIA
 GPU Operator noch KubeAI. **LiteLLM** und **Model Catalog** bleiben aktiv; sie
 werden für externe Modelle und viele Anwendungen benötigt.
 
-## 6. Module installieren
+## 7. Module installieren
 
 Öffne **Modules**. Die Karten sind in **Core**, **AI Runtime**, **Apps** und
 **Operators** gruppiert.
@@ -125,7 +172,7 @@ Typische Modulauswahl:
 | KubeOpenCode-Instanz | KubeOpenCode, LiteLLM, Model Catalog |
 | Odysseus-Instanz | Odysseus, LiteLLM, Model Catalog |
 
-## 7. Ein Modell hinzufügen
+## 8. Ein Modell hinzufügen
 
 Öffne **Models** und klappe **Create Model** auf.
 
@@ -164,7 +211,7 @@ Dashboard angezeigt. Cluster-Administratoren können technisch auf dieses
 Secret zugreifen. Beachte außerdem Kosten-, Datenschutz- und
 Datenübertragungsregeln des gewählten Anbieters.
 
-## 8. Eine Anwendung oder Instanz erstellen
+## 9. Eine Anwendung oder Instanz erstellen
 
 Aktiviere unter **Modules** zuerst die für deine Anwendung benötigten Module.
 Sobald diese `Ready` sind, öffne **Instances** und klappe **Create Instance**
@@ -199,7 +246,7 @@ Einige Instanzen zeigen nach der Installation die Schaltfläche **Credentials**.
 Öffne sie nur in einer geschützten Administratorsitzung und bewahre angezeigte
 Zugangsdaten sicher auf.
 
-## 9. Anwendung öffnen und SSO prüfen
+## 10. Anwendung öffnen und SSO prüfen
 
 Nach dem Zustand `Ready` erscheint die Adresse auf der Instanzkarte und unter
 **Overview → Available Apps**.
@@ -214,7 +261,7 @@ Falls du `Viewer`, `Operator` oder `Administrator` als Mindestrolle gewählt
 hast, benötigt der Benutzer die entsprechende Keycloak-Rolle. Ein erfolgreicher
 Login mit anschließendem `403` bedeutet normalerweise, dass die Rolle fehlt.
 
-## 10. Änderungen sicher entfernen
+## 11. Änderungen sicher entfernen
 
 - Modelle entfernst du unter **Models** mit **Remove**.
 - Wenn kein lokales Modell mehr vorhanden ist, entfernt **Remove Local GPU
@@ -230,13 +277,15 @@ ein Backup nach deinem späteren Backup- und Restore-Konzept.
 ## Empfohlene Reihenfolge für eine neue Appliance
 
 1. In **Overview** und **System Status** einen stabilen Grundzustand prüfen.
-2. In **Settings** lokale und öffentliche Namen kontrollieren.
-3. Betriebsart wählen: lokale GPU-Modelle oder externer API-Anbieter.
-4. Benötigte Module aktivieren und jeweils auf `Ready` warten.
-5. Mindestens ein Chat-Modell bereitstellen.
-6. Gewünschte Anwendungsmodule aktivieren.
-7. Instanzen mit **SSO protected** und zunächst **Local host only** erstellen.
-8. Anwendung öffnen und SSO sowie Rollen prüfen.
+2. In **Users** weitere lokale Benutzer mit möglichst kleinen Zugriffsrechten
+   anlegen und den Recovery-Benutzer unangetastet lassen.
+3. In **Settings** lokale und öffentliche Namen kontrollieren.
+4. Betriebsart wählen: lokale GPU-Modelle oder externer API-Anbieter.
+5. Benötigte Module aktivieren und jeweils auf `Ready` warten.
+6. Mindestens ein Chat-Modell bereitstellen.
+7. Gewünschte Anwendungsmodule aktivieren.
+8. Instanzen mit **SSO protected** und zunächst **Local host only** erstellen.
+9. Anwendung öffnen und SSO sowie Rollen prüfen.
 
 Für technische Details zum Dashboard siehe
 [Dashboard-Architektur und API](../dashboard.md). Für Störungen und

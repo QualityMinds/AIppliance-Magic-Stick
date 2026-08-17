@@ -12,10 +12,12 @@ For the step-by-step end-user workflow after first-run setup, see
 Dashboard UI
   -> Envoy Gateway OIDC login
   -> Dashboard Backend API
-  -> Kubernetes API
-  -> ModuleActivation, AppInstance, and ModelActivation CRs
-  -> Magic Stick Operator
-  -> Flux Kustomizations, HelmReleases, and native KubeAI Model resources
+     -> Kubernetes API
+        -> ModuleActivation, AppInstance, and ModelActivation CRs
+        -> Magic Stick Operator
+        -> Flux Kustomizations, HelmReleases, and native KubeAI Model resources
+     -> dedicated Keycloak user-administration client
+        -> Keycloak Admin REST API
 ```
 
 ## Role
@@ -33,6 +35,8 @@ The dashboard may:
 - create or delete `ModelActivation` resources for local and external models
 - create Dashboard-managed provider API key Secrets in namespace `ai`
 - read OpenClaw instance credentials when the generated instance exposes them
+- list and administer human Keycloak users when the signed-in actor has
+  `magicstick-admin`
 
 The dashboard must not replace the Magic Stick Operator, Flux, OpenClaw, Hermes,
 Paperclip, KubeOpenCode, KubeAI, LiteLLM, or direct app instance reconcilers.
@@ -45,16 +49,20 @@ Paperclip, KubeOpenCode, KubeAI, LiteLLM, or direct app instance reconcilers.
 | Modules | Renders grouped module cards from the module catalog and writes `ModuleActivation` intent. |
 | Instances | Shows instance cards and creates instance requests only for installed/supported operators. |
 | Models | Creates/removes local and external model activations and estimates local model VRAM. |
+| Users | Gives administrators a paginated Keycloak user overview and local-user lifecycle controls. |
 | System Status | Shows Flux, Pod, Service, Ingress, and Event status. |
 | Settings | Edits appliance-wide public and mDNS domain settings. |
 
 ## Backend API
 
-The dashboard Deployment runs an API sidecar from
-`ConfigMap/ai-appliance-dashboard-api`. nginx proxies `/api/*` to the sidecar.
-Envoy Gateway requires a Keycloak login for both the local and public dashboard
-hostnames and forwards the access token. The API validates the token against
-Keycloak before applying its own role checks.
+The frontend Deployment contains only nginx and the HTML renderer and does not
+receive a Kubernetes ServiceAccount token. nginx proxies `/api/*` to the
+dedicated `identity-system/ai-appliance-dashboard-api` Service. That API runs in
+its own single-replica Deployment and uses
+`ConfigMap/ai-appliance-dashboard-api`. Envoy Gateway requires a Keycloak login
+for both the local and public dashboard hostnames and forwards the access token.
+The API validates the token against Keycloak before applying its own role
+checks.
 
 | Method | Path | Behavior |
 |---|---|---|
@@ -78,11 +86,81 @@ Keycloak before applying its own role checks.
 | `DELETE` | `/api/models/{name}` | Deletes the `ModelActivation` and a Dashboard-created provider Secret when present. |
 | `GET` | `/api/status` | Returns Appliance, Flux, Pod, Service, and Ingress status summaries. |
 | `GET` | `/api/events` | Returns core and `events.k8s.io` event summaries. |
+| `GET` | `/api/users?search=&first=&max=` | Searches human Keycloak users with bounded server-side pagination. |
+| `GET` | `/api/users/{id}` | Returns one sanitized human-user representation. |
+| `POST` | `/api/users` | Creates a local user with a temporary password and selected access level. |
+| `PATCH` | `/api/users/{id}` | Updates locally managed profile fields. |
+| `PUT` | `/api/users/{id}/roles` | Replaces only the direct MagicStick access roles and preserves unrelated roles. |
+| `POST` | `/api/users/{id}/enable` | Enables the account. |
+| `POST` | `/api/users/{id}/disable` | Disables the account and requests a Keycloak logout. |
+| `PUT` | `/api/users/{id}/password` | Sets a temporary local password and requests a Keycloak logout. |
+| `DELETE` | `/api/users/{id}` | Deletes an eligible local account. |
 
 All read endpoints require `magicstick-viewer`, `magicstick-operator`, or
 `magicstick-admin`. Instance credential reads and runtime mutations require
 operator or admin. Settings changes require admin. Envoy authentication alone
-does not authorize a configuration change.
+does not authorize a configuration change. All `/api/users` endpoints require
+`magicstick-admin`, re-check that the actor is still enabled and still an
+administrator in Keycloak, and return only sanitized fields and capability
+flags. User mutations also require same-origin browser metadata and the
+`X-MagicStick-CSRF` request marker used by the dashboard UI.
+
+## User Controls
+
+The **Users** tab is hidden unless `/api/session` contains
+`magicstick-admin` and does not report `identityManagementAvailable: false`.
+This is only a presentation rule; the backend independently enforces the same
+authorization. The user list is loaded lazily when an administrator opens the
+tab and after a mutation. It is not part of the global 30-second dashboard
+refresh. A direct-external-provider overlay has no local Keycloak administration
+surface, so it reports identity management unavailable and the tab stays hidden.
+
+The table shows username, display name, email, enabled state, identity source,
+creation time, direct MagicStick roles, and effective access. Search is
+server-side and bounded to 10, 25, or 50 results per page. Status and identity
+source filters operate on the current page. The **Create User** button remains
+visible at the top of the tab while it is open.
+
+The access selector maps to direct realm roles:
+
+| Access level | Direct roles managed by the dashboard |
+|---|---|
+| User | `magicstick-user` |
+| Viewer | `magicstick-user`, `magicstick-viewer` |
+| Operator | `magicstick-user`, `magicstick-operator` |
+| Administrator | `magicstick-user`, `magicstick-admin` |
+
+Role updates preserve unrelated realm roles and roles inherited from groups.
+The dashboard displays effective roles for orientation but does not attempt to
+remove group-derived access.
+
+Local users support profile changes, direct MagicStick role changes,
+enable/disable, temporary-password reset, and deletion when the API capability
+flags allow the action. Brokered or federated users are shown only after
+Keycloak knows them. Their upstream profile and password remain read-only;
+MagicStick roles and local enabled state may still be managed when permitted.
+External users are disabled rather than deleted because deleting a Keycloak
+shadow account neither deletes the upstream identity nor prevents it from
+returning on a later broker login.
+
+The server blocks self-disable, self-delete, self-demotion, recovery-account
+changes, and any operation that would remove the last enabled administrator or
+last enabled local administrator. The UI consumes per-user capability flags and
+explains unavailable actions, but callers must rely on the backend response as
+the authorization decision.
+
+Passwords are accepted only in create and reset forms, sent directly to the
+backend over the protected same-origin route, and immediately cleared from the
+browser form after submission. They are never returned by the API or rendered
+into the user list. Passwords created here are temporary and must be changed at
+the next Keycloak login.
+
+Disable, access reduction, password reset, and deletion request a server-side
+Keycloak logout. This ends the Keycloak session, but an already issued JWT can
+remain valid at Envoy's local JWT filter until that token expires. The
+user-administration API itself performs a live actor lookup, so a disabled or
+demoted administrator loses that API access immediately even while an older
+edge token still exists.
 
 ## Module Controls
 
@@ -185,8 +263,10 @@ health endpoint and that the generated catalog has published the model.
 
 ## RBAC
 
-The dashboard ServiceAccount is `dashboard/ai-appliance-dashboard`. Its
-permissions are intentionally narrow:
+Only the API Deployment uses the ServiceAccount
+`identity-system/ai-appliance-dashboard-api`; the frontend Pod disables
+automatic ServiceAccount-token mounting. The API permissions are intentionally
+narrow:
 
 - read `appliances.appliance.magicstick.dev`
 - read, create, patch, and update `moduleactivations.appliance.magicstick.dev`
@@ -198,9 +278,14 @@ permissions are intentionally narrow:
 - read the DCGM exporter service proxy for live VRAM metrics
 - patch only `flux-system/ai-appliance-settings`
 - manage only Dashboard-created provider credential Secrets in namespace `ai`
+- read only `Secret/magicstick-user-admin-client` in `identity-system` for the
+  dedicated Keycloak client-credentials flow
 
-It does not have cluster-admin and does not have permission to create workloads
-directly.
+The API ServiceAccount does not have cluster-admin and does not have permission
+to create workloads directly. It cannot list identity Secrets and cannot read
+the Keycloak bootstrap administrator or first-run setup client Secret. A
+`Recreate` deployment strategy keeps exactly one mutating API process active so
+the last-administrator guard cannot race across rolling replicas.
 
 ## Public-Safe Values
 

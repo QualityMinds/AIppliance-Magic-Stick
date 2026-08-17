@@ -165,6 +165,48 @@ magic-cluster/platform/basis/kdns/publish-rancher-desktop-mdns.sh
 
 Host-local K3s appliances do not need this development bridge.
 
+## User Administration Checks
+
+The dashboard **Users** tab is available only to `magicstick-admin` while local
+Keycloak identity management is enabled. Opening the tab performs a live
+Keycloak request; it is intentionally not included in the normal 30-second
+dashboard refresh.
+
+Check the dashboard API, dedicated Secret, and narrowly scoped Secret RBAC
+without decoding any credentials:
+
+```bash
+kubectl -n dashboard get deploy ai-appliance-dashboard
+kubectl -n identity-system get deploy,service ai-appliance-dashboard-api
+kubectl -n identity-system get role,rolebinding ai-appliance-dashboard-user-admin-client
+kubectl -n identity-system get secret magicstick-user-admin-client
+kubectl -n identity-system logs deploy/ai-appliance-dashboard-api -c api --tail=200
+```
+
+The Role must grant `get` only for
+`Secret/magicstick-user-admin-client`. It must not grant `list` or `watch`, and
+the API ServiceAccount must not be able to read the bootstrap or setup client
+Secrets. The frontend Deployment must keep
+`automountServiceAccountToken: false`.
+
+User mutations emit structured `magicstick.user-admin` audit lines containing
+the request ID, actor, target, action, result, and status. They deliberately omit
+passwords, request bodies, client secrets, and tokens. A `403` on the user API
+can mean that the browser token lacks `magicstick-admin` or that a live
+Keycloak check found the actor disabled or demoted. A `409` normally indicates
+a duplicate identity, an unsupported action on an external or protected user,
+or the last-local-administrator guard. A `503` indicates that Keycloak or the
+dedicated client configuration is unavailable.
+
+After disabling a user, changing direct access, or resetting a local password,
+verify that a new Keycloak login reflects the change. Keycloak logout ends the
+server-side session, but an already issued JWT may remain valid at Envoy until
+its expiry. The user-administration API itself performs a live actor check and
+therefore immediately denies a disabled or demoted administrator. Never
+troubleshoot by printing or decoding the client Secret. If a deployment uses
+the direct external-provider escape-hatch overlay instead of local Keycloak,
+identity management is unavailable and the **Users** tab stays hidden.
+
 ## AppInstance Gateway Access
 
 The operator publishes enabled instances through Envoy Gateway and removes the
@@ -271,6 +313,9 @@ deploy,pods` if a command does not match the running resource name.
 | AppInstance route returns `403` after SSO | Compare `spec.access.role` with the user's `magicstick-user`, `magicstick-viewer`, `magicstick-operator`, or `magicstick-admin` realm roles. |
 | Static AI route returns `403` after SSO | AI routes require at least `magicstick-user`. Check the user's realm roles and the corresponding static `SecurityPolicy`. |
 | Dashboard returns `403` after login | Confirm the user has `magicstick-viewer`, `magicstick-operator`, or `magicstick-admin`; configuration changes need operator or admin as documented in `authentication.md`. |
+| Users tab is missing for an administrator | Confirm the session contains `magicstick-admin` and the installation uses local Keycloak rather than the direct-external-provider escape hatch. Refresh the browser after role changes. |
+| Users tab reports that Keycloak is unavailable | Check Keycloak readiness, the dashboard API logs, the existence of `magicstick-user-admin-client`, and its exact-name Secret Role. Do not decode the Secret. |
+| User change returns `409` | Check whether the account is external, protected, the current actor, or the last enabled local administrator. Duplicate username or email also returns `409`. |
 | GPU model never starts | Check GPU Operator, allocatable GPU resources, KubeAI model status, and vLLM logs. |
 | Local model stays in `WaitingForGPU` | The optional runtime is installed but Kubernetes reports no allocatable `nvidia.com/gpu`; verify supported hardware, driver pods, and node capacity. |
 | Local model stays in `Starting` | Compare `kubectl -n ai get model <name> -o jsonpath='{.status.replicas}'` with the model pod readiness and vLLM logs. The model is intentionally absent from LiteLLM until at least one replica is ready. |

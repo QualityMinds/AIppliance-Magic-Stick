@@ -56,8 +56,8 @@ should be mapped to these local roles in Keycloak.
 
 Dashboard access is hierarchical: viewer permits read-only endpoints, operator
 also permits module, instance, model, and credential operations, and admin also
-permits appliance-wide settings changes. `magicstick-user` alone does not grant
-dashboard access.
+permits appliance-wide settings and human-user administration. `magicstick-user`
+alone does not grant dashboard access.
 
 AppInstance access uses the same hierarchy at the Envoy edge. OIDC stores the
 Keycloak access token in the shared `MagicStickAccessToken` cookie; Envoy's JWT
@@ -78,7 +78,11 @@ The current implementation provides:
 - runtime-generated database, bootstrap-admin, and OIDC client secrets
 - a first-run wizard that creates the first human and recovery administrators
   without storing their passwords in Kubernetes
-- a scoped Keycloak service account for setup, user management, and callback reconciliation
+- a scoped Keycloak setup service account for first-run and callback
+  reconciliation
+- a separate `magicstick-user-admin` service account for dashboard user
+  administration; it has user-query and user-management roles but no client,
+  realm, impersonation, or identity-provider administration role
 - a self-signed pilot certificate for local `.local` hostnames
 - an unprotected Keycloak route and a protected `auth-pilot` test route
 - protected local and public dashboard `HTTPRoute` resources
@@ -96,6 +100,50 @@ The current implementation provides:
   with a minimum `magicstick-user` role
 - removal of the bundled dashboard and AI application `Ingress` resources
 - no human default password on new installations
+
+## Dashboard User Lifecycle
+
+Administrators manage human identities from the dashboard **Users** tab. The
+dashboard backend uses its dedicated Keycloak client-credentials flow; the
+browser never receives that client secret or a Keycloak Admin API token. The
+dedicated API ServiceAccount
+`identity-system/ai-appliance-dashboard-api` may read only
+`Secret/magicstick-user-admin-client` and caches the short-lived admin token in
+memory until shortly before expiry. The nginx and renderer frontend Pod has no
+ServiceAccount token and therefore cannot read that Secret.
+
+Local accounts can be created, edited, enabled, disabled, assigned one of the
+four MagicStick access levels, reset to a temporary password, and deleted.
+Passwords travel directly to Keycloak and are neither stored as Kubernetes
+Secrets nor returned by the dashboard API. Service accounts are excluded from
+the user list.
+
+Identity-provider accounts become visible after Keycloak creates or links their
+local broker identity. The dashboard identifies the provider and treats the
+upstream profile and password as externally managed. It may administer direct
+MagicStick roles and Keycloak's local enabled state, but does not modify or
+delete the upstream directory account. Disabling is preferred to deleting a
+brokered shadow user.
+
+Every user-management request requires a current `magicstick-admin` role. The
+backend performs a live Keycloak lookup in addition to normal access-token
+validation so a disabled or demoted administrator cannot continue to use a
+cached browser token. Mutations are serialized and protect against:
+
+- self-disable, self-delete, and removal of the actor's administrator role
+- mutation of the recovery account marked by direct membership in the
+  non-editable internal top-level group `/magicstick-recovery`
+- removal of the last enabled administrator
+- removal of the last enabled local break-glass administrator
+
+Role updates own only `magicstick-user`, `magicstick-viewer`,
+`magicstick-operator`, and `magicstick-admin`. Other direct roles and all
+group-derived roles are preserved. Disabling an account, reducing its direct
+MagicStick access, resetting its password, or deleting it requests a Keycloak
+logout. The Keycloak session ends, but an already issued JWT may remain valid
+at Envoy's local JWT filter until token expiry. The dashboard user-management
+API still denies a disabled or demoted administrator immediately because it
+performs a live actor lookup for every request.
 
 The pilot uses the standard HTTPS port `443` through the Envoy `LoadBalancer`
 service. The `.local` names remain part of the design and can continue to be
@@ -166,3 +214,5 @@ An additional Envoy API gateway is not needed for the authentication layer.
   reviewed exception for the human gateway callback patterns and web origins.
 - Save and test the one-time recovery administrator created by first-run setup.
 - A cloud identity provider outage must not prevent local break-glass login.
+- Never grant the dashboard client `realm-admin`, `manage-clients`,
+  `manage-realm`, `impersonation`, or identity-provider administration.

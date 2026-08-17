@@ -37,6 +37,13 @@ and recovery users receive `magicstick-user` and `magicstick-admin`. The setup
 claim, session, temporary certificate, gateway, and routes are then removed;
 the local address returns to the normal OIDC-protected dashboard.
 
+The recovery user is marked as a protected local recovery account. The normal
+dashboard user administration cannot edit, disable, demote, reset, or delete
+it. Keep its one-time credentials offline and use the primary administrator for
+daily administration. After signing in as that primary administrator, the
+dashboard **Users** tab can create additional local users and assign their
+MagicStick access level without storing human passwords in Kubernetes.
+
 Continue with the user guide
 [After installation: configure Magic Stick in the dashboard](installation/after-installation-dashboard.md)
 to select domains, modules, models, and application instances.
