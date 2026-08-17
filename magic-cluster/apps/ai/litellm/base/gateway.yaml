@@ -81,7 +81,9 @@ spec:
     cookieNames:
       accessToken: MagicStickAccessToken
       idToken: MagicStickIDToken
-    forwardAccessToken: true
+    # LiteLLM uses Authorization: Bearer sk-... for its own API and UI calls.
+    # Keep OIDC at the edge without replacing that application credential.
+    forwardAccessToken: false
   jwt:
     providers:
       - name: keycloak
@@ -177,7 +179,9 @@ spec:
     cookieNames:
       accessToken: MagicStickAccessToken
       idToken: MagicStickIDToken
-    forwardAccessToken: true
+    # LiteLLM uses Authorization: Bearer sk-... for its own API and UI calls.
+    # Keep OIDC at the edge without replacing that application credential.
+    forwardAccessToken: false
   jwt:
     providers:
       - name: keycloak

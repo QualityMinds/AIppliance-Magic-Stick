@@ -44,6 +44,8 @@ formalized, release entries should group changes under:
 
 ### Fixed
 
+- LiteLLM's SSO policy no longer replaces its `Bearer sk-...` virtual-key
+  header with the Keycloak access token on UI and API requests.
 - The enabled LiteLLM module again exposes its generated UI and API credentials
   to authorized operators and administrators from the dashboard Modules tab.
 - The Envoy Gateway now redirects appliance HTTP URLs, including LiteLLM UI
