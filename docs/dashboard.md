@@ -104,7 +104,7 @@ automatic local-model cleanup flow. KubeAI reports `WaitingForModules` until
 its GPU dependency is enabled and ready.
 
 Progress is phase-based. The dashboard maps existing status phases such as
-`Disabled`, `WaitingForModules`, `Reconciling`, `Removing`, `Ready`, and
+`Disabled`, `WaitingForModules`, `Starting`, `Reconciling`, `Removing`, `Ready`, and
 `Degraded` to visual progress states. These percentages are orientation hints,
 not scheduler- or operator-reported completion percentages.
 
@@ -173,6 +173,11 @@ still depends on it.
 
 Catalog-only models are read-only in the Models screen. Remove actions are shown
 only for `ModelActivation` rows that the dashboard can delete.
+
+A local model is shown as `Starting` until KubeAI reports a ready vLLM replica.
+The status message includes the ready-replica count, for example `0/1 replicas
+ready`. `Ready` therefore means both that the local runtime is serving its
+health endpoint and that the generated catalog has published the model.
 
 ## RBAC
 

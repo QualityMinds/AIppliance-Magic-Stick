@@ -122,6 +122,14 @@ After the local runtime modules are ready, a local model remains in
 `WaitingForGPU` until Kubernetes reports at least one allocatable
 `nvidia.com/gpu` resource. This state does not affect external models.
 
+After the KubeAI `Model` is created, its `ModelActivation` remains in
+`Starting` while `status.replicas.ready` is zero. The operator reports the
+current ready-replica count in the status message. It changes the activation to
+`Ready` only after KubeAI has a ready vLLM replica and the model catalog has
+published the model. If the replica later becomes unavailable, the activation
+returns to `Starting` and the model catalog withdraws the LiteLLM route until
+the runtime is healthy again. External model readiness remains catalog-based.
+
 The controller sets an instance to `Ready` when its generated HelmRelease is
 ready. Native application readiness remains the responsibility of the chart and
 the specialized operator it installs a CR for.

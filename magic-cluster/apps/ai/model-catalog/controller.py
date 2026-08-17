@@ -232,6 +232,11 @@ def list_kubeai_models():
         raise
 
 
+def kubeai_ready_replicas(model):
+    replicas = ((model.get("status") or {}).get("replicas") or {})
+    return positive_int(replicas.get("ready")) or 0
+
+
 def get_configmap(name):
     path = f"/api/v1/namespaces/{NAMESPACE}/configmaps/{name}"
     try:
@@ -365,7 +370,7 @@ def desired_deployments():
     deployments = []
     for model in list_kubeai_models():
         name = ((model.get("metadata") or {}).get("name") or "").strip()
-        if name:
+        if name and kubeai_ready_replicas(model) > 0:
             deployments.append(kubeai_deployment(model))
     for item in read_external_models():
         if item.get("enabled", True) is False:

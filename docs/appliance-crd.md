@@ -203,6 +203,13 @@ spec:
       key: api-key
 ```
 
+For a local activation, `status.phase: Starting` means that its KubeAI `Model`
+exists but `status.replicas.ready` is still zero. The local activation becomes
+`Ready` only after at least one vLLM replica is ready and the generated model
+catalog contains the model. If the ready replica disappears, the phase returns
+to `Starting` and the model is withdrawn from the routable catalog. External
+activations keep their catalog-based readiness behavior.
+
 ## Status
 
 The controller status contract is:
