@@ -45,7 +45,11 @@ class PaperclipKubernetesProviderChartTests(unittest.TestCase):
         self.assertIn('"paperclip.io/run-id"', template)
         self.assertNotIn("deleteNamespacedNamespace", template)
 
-        script = template.split("        - |\n", 1)[1].split("\n      env:", 1)[0]
+        sidecar_marker = '        - |\n          const fs = require("fs");\n'
+        script = (
+            'const fs = require("fs");\n'
+            + template.split(sidecar_marker, 1)[1].split("\n      env:", 1)[0]
+        )
         syntax_check = subprocess.run(
             ["node", "--check", "-"],
             input=textwrap.dedent(script),
@@ -64,6 +68,49 @@ class PaperclipKubernetesProviderChartTests(unittest.TestCase):
         self.assertIn("- adapterType: opencode_local", template)
         self.assertIn("key: paperclip-opencode-providers.json", template)
         self.assertNotIn("key: opencode-providers.json", template)
+
+    def test_official_runtime_supports_skill_search_and_remote_instruction_contract(self):
+        template = (PAPERCLIP_CHART / "templates" / "instance.yaml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(
+            "ghcr.io/paperclipai/agent-runtime-opencode@sha256:1511797b21856fb3ce4b6b1ce5b0209a0a1c55ef227a21d4024bf4681a0fa49d",
+            template,
+        )
+        self.assertNotIn("magicstick-paperclip-opencode-runtime", template)
+        self.assertIn("prepare-paperclip-adapter-patch", template)
+        self.assertIn(
+            "Do not attempt to read their control-plane source path from the sandbox.",
+            template,
+        )
+        self.assertIn(
+            'discoveredExecutionTarget.providerKey === \\"kubernetes\\"',
+            template,
+        )
+        self.assertIn(
+            'overrideAdapterExecutionTargetRemoteCwd(discoveredExecutionTarget, "/workspace")',
+            template,
+        )
+        self.assertIn("Pinned OpenCode adapter workspace source no longer matches exactly", template)
+        self.assertIn("[MagicStick Paperclip heartbeat v2]", template)
+        self.assertIn('call the skill tool to load the \\"paperclip\\" skill', template)
+        self.assertIn('build every Paperclip request from \\"$PAPERCLIP_API_URL\\"', template)
+        self.assertIn("never use a literal localhost or 127.0.0.1 port", template)
+        self.assertIn('paragraph.startsWith("[MagicStick Paperclip heartbeat")', template)
+        self.assertIn("create task documents through the Paperclip API", template)
+        self.assertIn("set a final task disposition before exiting", template)
+        self.assertNotIn("MAX_RPC_TIMEOUT_MS = 60 * 60 * 1_000", template)
+        self.assertNotIn("plugin-worker-manager.js", template)
+        self.assertIn(
+            "adapter_source_dir=/app/cli/node_modules/@paperclipai/adapter-opencode-local/src/server",
+            template,
+        )
+        self.assertIn(
+            "mountPath: /app/packages/adapters/opencode-local/src/server",
+            template,
+        )
+        self.assertNotIn("subPath: opencode-execute.ts", template)
 
     def test_control_plane_egress_and_rancher_psa_access_are_explicit_and_narrow(self):
         template = (PAPERCLIP_CHART / "templates" / "kubernetes-access.yaml").read_text(
@@ -86,6 +133,11 @@ class PaperclipKubernetesProviderChartTests(unittest.TestCase):
         self.assertIn("- management.cattle.io", template)
         self.assertIn("- projects", template)
         self.assertIn("- updatepsa", template)
+        self.assertIn("sandbox-reconciler", template)
+        self.assertIn("- agents.x-k8s.io", template)
+        self.assertIn("- sandboxes", template)
+        self.assertIn("    verbs:\n      - list\n", template)
+        self.assertNotIn("    verbs:\n      - list\n      - delete\n", template)
         self.assertNotIn("system:masters", template)
 
 

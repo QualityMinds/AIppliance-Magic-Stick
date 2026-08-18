@@ -5,6 +5,7 @@
 {{- $model := trimPrefix "litellm/" (trimPrefix "openai/" (default "CHANGEME_MODEL" (default $values.model $agentExecution.defaultModel))) -}}
 {{- $imageRepository := dig "image" "repository" "ghcr.io/paperclipai/paperclip" $values -}}
 {{- $imageTag := dig "image" "tag" "sha-df0e5bd" $values -}}
+{{- $openCodeRuntimeImage := dig "openCode" "runtimeImage" "ghcr.io/paperclipai/agent-runtime-opencode@sha256:1511797b21856fb3ce4b6b1ce5b0209a0a1c55ef227a21d4024bf4681a0fa49d" $agentExecution -}}
 apiVersion: paperclip.inc/v1alpha1
 kind: Instance
 metadata:
@@ -20,6 +21,90 @@ spec:
   image:
     repository: {{ $imageRepository | quote }}
     tag: {{ $imageTag | quote }}
+  # Paperclip v2026.707.0 injects the contents of an agent's instructions into
+  # the remote prompt, but then tells the agent to read their control-plane-only
+  # source path from inside the sandbox. Its Kubernetes integration also drops
+  # the /workspace path returned by realizeWorkspace and falls back to /tmp for
+  # sync while the provider executes OpenCode in the image WORKDIR /workspace.
+  # This guarded compatibility patch keeps the injected instructions and makes
+  # the OpenCode adapter use the provider's actual workspace consistently.
+  initContainers:
+    - name: prepare-paperclip-adapter-patch
+      image: {{ printf "%s:%s" $imageRepository $imageTag | quote }}
+      imagePullPolicy: IfNotPresent
+      command: [/bin/sh, -ec]
+      args:
+        - |
+          adapter_source_dir=/app/cli/node_modules/@paperclipai/adapter-opencode-local/src/server
+          adapter_source="$adapter_source_dir/execute.ts"
+          adapter_target=/patched-adapter/execute.ts
+
+          test "$(grep -F -c 'The above agent instructions were loaded from ${resolvedInstructionsFilePath}.' "$adapter_source")" -eq 1
+          test "$(grep -F -c 'Resolve any relative file references from ${instructionsDir}.' "$adapter_source")" -eq 1
+          cp -R "$adapter_source_dir/." /patched-adapter/
+          sed -i 's|The above agent instructions were loaded from ${resolvedInstructionsFilePath}.|The above agent instructions are already loaded into this prompt. Do not attempt to read their control-plane source path from the sandbox.|' "$adapter_target"
+          sed -i 's|Resolve any relative file references from ${instructionsDir}.|Resolve any relative file references from the current workspace.|' "$adapter_target"
+
+          node - "$adapter_target" <<'NODE'
+          const fs = require("fs");
+          const file = process.argv[2];
+          const source = fs.readFileSync(file, "utf8");
+          const before = [
+            "  const executionTarget = readAdapterExecutionTarget({",
+            "    executionTarget: ctx.executionTarget,",
+            "    legacyRemoteExecution: ctx.executionTransport?.remoteExecution,",
+            "  });",
+            "  const executionTargetIsRemote = adapterExecutionTargetIsRemote(executionTarget);",
+          ].join("\n");
+          const after = [
+            "  const discoveredExecutionTarget = readAdapterExecutionTarget({",
+            "    executionTarget: ctx.executionTarget,",
+            "    legacyRemoteExecution: ctx.executionTransport?.remoteExecution,",
+            "  });",
+            "  // Paperclip v2026.707.0 loses the cwd returned by the Kubernetes",
+            "  // realizeWorkspace hook and supplies its generic /tmp fallback here.",
+            "  // The Kubernetes runtime is mounted and executed at /workspace.",
+            "  const executionTarget =",
+            "    discoveredExecutionTarget?.kind === \"remote\" &&",
+            "    discoveredExecutionTarget.transport === \"sandbox\" &&",
+            "    discoveredExecutionTarget.providerKey === \"kubernetes\" &&",
+            "    discoveredExecutionTarget.remoteCwd === \"/tmp\"",
+            "      ? overrideAdapterExecutionTargetRemoteCwd(discoveredExecutionTarget, \"/workspace\")",
+            "      : discoveredExecutionTarget;",
+            "  const executionTargetIsRemote = adapterExecutionTargetIsRemote(executionTarget);",
+          ].join("\n");
+          if (source.split(before).length !== 2) {
+            throw new Error("Pinned OpenCode adapter workspace source no longer matches exactly");
+          }
+          fs.writeFileSync(file, source.replace(before, after));
+          NODE
+
+          test "$(grep -F -c 'Do not attempt to read their control-plane source path from the sandbox.' "$adapter_target")" -eq 1
+          test "$(grep -F -c 'overrideAdapterExecutionTargetRemoteCwd(discoveredExecutionTarget, "/workspace")' "$adapter_target")" -eq 1
+
+          chmod 0444 "$adapter_target"
+      volumeMounts:
+        - name: paperclip-adapter-patch
+          mountPath: /patched-adapter
+      resources:
+        requests: {cpu: 10m, memory: 16Mi}
+        limits: {cpu: 100m, memory: 64Mi}
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: [ALL]
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+  extraVolumes:
+    - name: paperclip-adapter-patch
+      emptyDir:
+        sizeLimit: 1Mi
+  extraVolumeMounts:
+    - name: paperclip-adapter-patch
+      mountPath: /app/packages/adapters/opencode-local/src/server
+      readOnly: true
   deployment:
     # Envoy Gateway is the authentication boundary. Paperclip stays private
     # and does not present a second, application-local login screen.
@@ -65,6 +150,8 @@ spec:
           const pluginPackage = "@paperclipai/plugin-kubernetes";
           const pluginPackageVersion = "2026.707.0";
           const paperclipBaseSkill = "paperclipai/paperclip/paperclip";
+          const paperclipBootstrapMarker = "[MagicStick Paperclip heartbeat v2]";
+          const paperclipBootstrapInstruction = `${paperclipBootstrapMarker} Before doing any task work, call the skill tool to load the \"paperclip\" skill. Immediately after loading it, use the bash tool and build every Paperclip request from \"$PAPERCLIP_API_URL\"; never use a literal localhost or 127.0.0.1 port such as 3020 or 3100. The injected URL is the run-scoped callback bridge. Follow the skill's heartbeat procedure, create task documents through the Paperclip API instead of leaving deliverables only in the sandbox, and set a final task disposition before exiting.`;
           const defaultOpenCodeModel = process.env.PAPERCLIP_DEFAULT_OPENCODE_MODEL;
           let installAttempted = false;
           let enableAttempted = false;
@@ -206,27 +293,50 @@ spec:
                 if (!Array.isArray(agents)) throw new Error(`Company ${company.id} did not return an agent list`);
                 for (const agent of agents) {
                   const marker = agent?.metadata?.paperclipBuiltInAgent;
-                  const configuredModel = agent?.adapterConfig?.model;
+                  const currentAdapterConfig = agent?.adapterConfig && typeof agent.adapterConfig === "object"
+                    ? agent.adapterConfig
+                    : {};
+                  const nextAdapterConfig = {...currentAdapterConfig};
+                  const configuredModel = currentAdapterConfig.model;
                   const selectedAdapter = adaptersByType.get(agent?.adapterType);
                   const hasConfiguredModel = typeof configuredModel === "string" && configuredModel.trim().length > 0;
-                  const desiredSkills = Array.isArray(agent?.adapterConfig?.paperclipSkillSync?.desiredSkills)
-                    ? agent.adapterConfig.paperclipSkillSync.desiredSkills.filter((skill) => typeof skill === "string")
+                  const desiredSkills = Array.isArray(currentAdapterConfig.paperclipSkillSync?.desiredSkills)
+                    ? currentAdapterConfig.paperclipSkillSync.desiredSkills.filter((skill) => typeof skill === "string")
                     : [];
                   const updates = {};
+                  let adapterConfigChanged = false;
                   if (marker?.key && selectedAdapter?.disabled === true && !hasConfiguredModel) {
                     updates.adapterType = "opencode_local";
-                    updates.adapterConfig = {model: defaultOpenCodeModel};
+                    nextAdapterConfig.model = defaultOpenCodeModel;
+                    adapterConfigChanged = true;
                   }
                   const resolvedAdapterType = updates.adapterType || agent?.adapterType;
                   if (resolvedAdapterType === "opencode_local" && !desiredSkills.includes(paperclipBaseSkill)) {
-                    updates.adapterConfig = {
-                      ...(updates.adapterConfig || {}),
-                      paperclipSkillSync: {
-                        ...(agent?.adapterConfig?.paperclipSkillSync || {}),
-                        desiredSkills: [...desiredSkills, paperclipBaseSkill],
-                      },
+                    nextAdapterConfig.paperclipSkillSync = {
+                      ...(currentAdapterConfig.paperclipSkillSync || {}),
+                      desiredSkills: [...desiredSkills, paperclipBaseSkill],
                     };
+                    adapterConfigChanged = true;
                   }
+                  const bootstrapPrompt = typeof currentAdapterConfig.bootstrapPromptTemplate === "string"
+                    ? currentAdapterConfig.bootstrapPromptTemplate.trim()
+                    : "";
+                  const retainedBootstrapPrompt = bootstrapPrompt
+                    .split("\n\n")
+                    .filter((paragraph) => !paragraph.startsWith("[MagicStick Paperclip heartbeat"))
+                    .join("\n\n")
+                    .trim();
+                  const desiredBootstrapPrompt = retainedBootstrapPrompt
+                    ? `${paperclipBootstrapInstruction}\n\n${retainedBootstrapPrompt}`
+                    : paperclipBootstrapInstruction;
+                  if (
+                    resolvedAdapterType === "opencode_local" &&
+                    bootstrapPrompt !== desiredBootstrapPrompt
+                  ) {
+                    nextAdapterConfig.bootstrapPromptTemplate = desiredBootstrapPrompt;
+                    adapterConfigChanged = true;
+                  }
+                  if (adapterConfigChanged) updates.adapterConfig = nextAdapterConfig;
                   if (Object.keys(updates).length === 0) continue;
                   await apiRequest("PATCH", `/api/agents/${encodeURIComponent(agent.id)}`, updates);
                   console.log(`Reconciled OpenCode model and Paperclip skill for agent ${agent.id}`);
@@ -396,7 +506,7 @@ spec:
     registry:
       - adapterType: opencode_local
         enabled: true
-        runtimeImage: ghcr.io/paperclipai/agent-runtime-opencode:git-b18cbb0dd3d524d3d332f54143c84f00c694636c
+        runtimeImage: {{ $openCodeRuntimeImage | quote }}
         envKeys:
           - OPENAI_API_KEY
           - OPENAI_BASE_URL

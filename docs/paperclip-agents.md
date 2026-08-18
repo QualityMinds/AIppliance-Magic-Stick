@@ -28,6 +28,7 @@ allows each runtime image to have its own release and security policy.
 | Paperclip Operator chart | `0.18.0` |
 | Kubernetes Agent Sandbox | `v0.5.1` |
 | Paperclip Kubernetes plugin | `2026.707.0` |
+| OpenCode sandbox runtime | Official Paperclip image pinned by digest (`4f539625f7b63541d1beae1341220702638b7677`) |
 
 The Paperclip Operator requires Kubernetes 1.28 or newer. A Paperclip
 `AppInstance` automatically requests these runtime modules:
@@ -117,7 +118,7 @@ spec:
         backend: sandbox-cr
     registry:
       - adapterType: opencode_local
-        runtimeImage: ghcr.io/paperclipai/agent-runtime-opencode:git-b18cbb0dd3d524d3d332f54143c84f00c694636c
+        runtimeImage: ghcr.io/paperclipai/agent-runtime-opencode@sha256:1511797b21856fb3ce4b6b1ce5b0209a0a1c55ef227a21d4024bf4681a0fa49d
 ```
 
 The `sandbox-cr` backend supports multiple commands in one isolated run
@@ -156,9 +157,14 @@ longer matches.
 
 ### OpenCode And CLI Agents
 
-OpenCode uses the immutable
-`ghcr.io/paperclipai/agent-runtime-opencode:git-b18cbb0dd3d524d3d332f54143c84f00c694636c`
-image. Additional CLI agents should use a small dedicated image that contains:
+OpenCode uses the immutable official Paperclip runtime
+`ghcr.io/paperclipai/agent-runtime-opencode@sha256:1511797b21856fb3ce4b6b1ce5b0209a0a1c55ef227a21d4024bf4681a0fa49d`.
+It is built from Paperclip commit `4f539625f7b63541d1beae1341220702638b7677`,
+which puts `ripgrep` on `PATH` for OpenCode's skill-discovery tool. Magic Stick
+does not build or maintain a derived agent image. This upstream build is
+currently published for `linux/amd64`; Paperclip instances are unsupported on
+ARM64 until upstream publishes a matching runtime. Additional CLI agents should
+use an upstream runtime that contains:
 
 - the agent CLI and its fixed runtime dependencies
 - `/usr/local/bin/paperclip-agent-shim`
@@ -274,6 +280,26 @@ model physically accepts, so compaction happens before the LiteLLM/vLLM hard
 boundary. `OPENAI_API_KEY` is injected into Paperclip from
 `Secret/ai/litellm-masterkey-secret`; no key value is stored in an
 `AppInstance`, ConfigMap, or public manifest.
+
+Paperclip `v2026.707.0` imposes a hard 15-minute ceiling on every plugin RPC.
+Magic Stick retains that ceiling so an agent cannot hide a broken search loop
+behind a longer transport timeout. A fail-closed, exact-source adapter patch
+changes only the remote-agent instruction note so the model does not try to
+read a control-plane-only `AGENTS.md` path from inside its sandbox. Pod startup
+aborts if the pinned upstream source no longer matches. The same guarded patch
+normalizes the Kubernetes execution target to `/workspace`: this Paperclip
+version otherwise discards the path returned by `realizeWorkspace`, syncs the
+workspace through its generic `/tmp` fallback, but executes the official image
+in `/workspace`. Without normalization, generated files are not synchronized
+back to the task workspace.
+
+Assigning the upstream `paperclip` skill only makes it available to OpenCode; it
+does not guarantee that a model loads it. Magic Stick therefore prepends a
+small bootstrap directive to OpenCode agents, while leaving the upstream skill
+unchanged. New sessions explicitly load that skill before work, use the
+run-scoped callback address from `PAPERCLIP_API_URL` instead of inventing a
+localhost port, use the Paperclip API for task documents, and leave a final task
+disposition.
 
 Changing the catalog default updates the generated ConfigMap and triggers the
 existing model-catalog consumer restart path. Existing Paperclip agent settings
