@@ -122,10 +122,14 @@ spec:
 
 The `sandbox-cr` backend supports multiple commands in one isolated run
 environment. The plugin currently creates one `Sandbox` with `emptyDir` volumes
-per run and deletes that CR after the run. Paperclip copies the selected
-workspace back to its application PVC and uploads it into the next Sandbox, so
-workspace files persist across runs even though the Sandbox Pod itself does not.
-The simpler Kubernetes Job backend is not used.
+per run and deletes that CR after the run. A server restart or forced
+cancellation can interrupt the upstream release hook, so the loopback helper
+also removes only Sandboxes whose exact run id is terminal in the owning
+company for at least 60 seconds. Active, missing, and unknown runs are left
+untouched. Paperclip copies the selected workspace back to its application PVC
+and uploads it into the next Sandbox, so workspace files persist across runs
+even though the Sandbox Pod itself does not. The simpler Kubernetes Job backend
+is not used.
 
 Paperclip's authenticated public mode derives its browser-facing auth URL from
 `spec.deployment.publicURL`. That hostname is not necessarily resolvable from
@@ -263,10 +267,11 @@ The generated OpenCode provider uses
 `http://litellm.ai.svc.cluster.local:4000/v1`. Every chat model is exported as
 `litellm/<model-id>` with explicit context and output limits required by the
 OpenCode provider schema. Missing limits default to 131072 context tokens and
-8192 output tokens before the Paperclip-specific output cap is applied. The
-runtime requests at most 4096 output tokens and no more than one quarter of the
-model context, so agent instructions and tool history retain at least three
-quarters of the window. `OPENAI_API_KEY` is injected into Paperclip from
+8192 output tokens before the Paperclip-specific limits are applied. The
+runtime requests at most 4096 output tokens and no more than one quarter of its
+advertised context. It also advertises up to 2048 fewer context tokens than the
+model physically accepts, so compaction happens before the LiteLLM/vLLM hard
+boundary. `OPENAI_API_KEY` is injected into Paperclip from
 `Secret/ai/litellm-masterkey-secret`; no key value is stored in an
 `AppInstance`, ConfigMap, or public manifest.
 
@@ -370,6 +375,13 @@ the owning Paperclip server on TCP `3100` and LiteLLM Pods on TCP `4000`. Zero
 OpenCode output together with an immediate connection refusal to either Service
 means this policy has not yet been reconciled. Check the `magicstick-operator`
 logs and RBAC instead of increasing the task timeout.
+
+If a new run remains pending because `paperclip-quota` is already exhausted,
+list the tenant Sandboxes and compare their `paperclip.io/run-id` labels with
+the owning company's heartbeat runs. The instance helper deletes only known
+terminal runs after a 60-second safety grace. Check its
+`gateway-loopback-proxy` log when terminal Sandboxes remain longer; do not raise
+the quota to hide leaked runtime Pods.
 
 When an agent is repurposed after a failed or diagnostic task, reset its runtime
 session before assigning unrelated work. The persistent workspace is preserved,

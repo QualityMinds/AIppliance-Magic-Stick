@@ -41,10 +41,26 @@ spec:
       command: [node, -e]
       args:
         - |
+          const fs = require("fs");
+          const https = require("https");
           const net = require("net");
           const http = require("http");
           const listenHost = process.env.POD_IP;
           const listenPort = 3100;
+          const instanceName = process.env.PAPERCLIP_INSTANCE_NAME;
+          const sandboxCleanupGraceMs = Math.max(
+            0,
+            Number(process.env.PAPERCLIP_SANDBOX_CLEANUP_GRACE_SECONDS || "60") * 1000,
+          );
+          const terminalRunStatuses = new Set([
+            "succeeded",
+            "completed",
+            "failed",
+            "cancelled",
+            "interrupted",
+            "timed_out",
+            "timeout",
+          ]);
           const pluginKey = "paperclip.kubernetes-sandbox-provider";
           const pluginPackage = "@paperclipai/plugin-kubernetes";
           const pluginPackageVersion = "2026.707.0";
@@ -54,6 +70,7 @@ spec:
           let enableAttempted = false;
           let lastBootstrapError = "";
           let agentReconciliationRunning = false;
+          let sandboxReconciliationRunning = false;
           const server = net.createServer((downstream) => {
             const upstream = net.connect({host: "127.0.0.1", port: 3100});
             downstream.pipe(upstream);
@@ -103,6 +120,48 @@ spec:
             request.once("error", reject);
             request.once("timeout", () => request.destroy(new Error(`${method} ${path} timed out`)));
             if (payload !== null) request.write(payload);
+            request.end();
+          });
+          const kubeApiRequest = (method, path) => new Promise((resolve, reject) => {
+            const request = https.request({
+              host: process.env.KUBERNETES_SERVICE_HOST,
+              port: Number(process.env.KUBERNETES_SERVICE_PORT_HTTPS || "443"),
+              path,
+              method,
+              ca: fs.readFileSync("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"),
+              headers: {
+                Accept: "application/json",
+                Authorization: `Bearer ${fs.readFileSync("/var/run/secrets/kubernetes.io/serviceaccount/token", "utf8").trim()}`,
+              },
+            }, (response) => {
+              let responseBody = "";
+              response.setEncoding("utf8");
+              response.on("data", (chunk) => {
+                if (responseBody.length < 4 * 1024 * 1024) responseBody += chunk;
+              });
+              response.on("end", () => {
+                if (response.statusCode === 404) {
+                  resolve(null);
+                  return;
+                }
+                if (response.statusCode < 200 || response.statusCode >= 300) {
+                  reject(new Error(`${method} Kubernetes ${path} returned ${response.statusCode}: ${responseBody.slice(0, 500)}`));
+                  return;
+                }
+                if (responseBody.length === 0) {
+                  resolve(null);
+                  return;
+                }
+                try {
+                  resolve(JSON.parse(responseBody));
+                } catch (error) {
+                  reject(new Error(`${method} Kubernetes ${path} returned invalid JSON: ${error.message}`));
+                }
+              });
+            });
+            request.once("error", reject);
+            request.once("timeout", () => request.destroy(new Error(`${method} Kubernetes ${path} timed out`)));
+            request.setTimeout(5000);
             request.end();
           });
           const ensureKubernetesPlugin = async () => {
@@ -177,16 +236,83 @@ spec:
               agentReconciliationRunning = false;
             }
           };
+          const reconcileStaleSandboxes = async () => {
+            if (sandboxReconciliationRunning) return;
+            if (!instanceName || !/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(instanceName)) return;
+            sandboxReconciliationRunning = true;
+            try {
+              const companies = await apiRequest("GET", "/api/companies");
+              if (!Array.isArray(companies)) throw new Error("GET /api/companies did not return a company list");
+              for (const company of companies) {
+                const companyId = typeof company?.id === "string" ? company.id : "";
+                if (!/^[a-z0-9-]+$/.test(companyId)) continue;
+                const runResponse = await apiRequest(
+                  "GET",
+                  `/api/companies/${encodeURIComponent(companyId)}/heartbeat-runs`,
+                );
+                const runs = Array.isArray(runResponse)
+                  ? runResponse
+                  : (Array.isArray(runResponse?.items) ? runResponse.items : runResponse?.runs);
+                if (!Array.isArray(runs)) throw new Error(`Company ${companyId} did not return a heartbeat run list`);
+                const terminalRuns = new Map();
+                for (const run of runs) {
+                  const finishedAt = Date.parse(run?.finishedAt || "");
+                  if (
+                    typeof run?.id === "string"
+                    && terminalRunStatuses.has(run?.status)
+                    && Number.isFinite(finishedAt)
+                  ) {
+                    terminalRuns.set(run.id, finishedAt);
+                  }
+                }
+                if (terminalRuns.size === 0) continue;
+                const namespace = `${instanceName}-${companyId}`;
+                const selector = encodeURIComponent("paperclip.io/managed-by=paperclip-k8s-plugin");
+                const response = await kubeApiRequest(
+                  "GET",
+                  `/apis/agents.x-k8s.io/v1alpha1/namespaces/${namespace}/sandboxes?labelSelector=${selector}`,
+                );
+                if (response === null) continue;
+                if (!Array.isArray(response?.items)) throw new Error(`Namespace ${namespace} did not return a Sandbox list`);
+                for (const sandbox of response.items) {
+                  const sandboxName = sandbox?.metadata?.name;
+                  const runId = sandbox?.metadata?.labels?.["paperclip.io/run-id"];
+                  const finishedAt = terminalRuns.get(runId);
+                  if (
+                    typeof sandboxName !== "string"
+                    || !/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(sandboxName)
+                    || finishedAt === undefined
+                    || Date.now() - finishedAt < sandboxCleanupGraceMs
+                  ) continue;
+                  await kubeApiRequest(
+                    "DELETE",
+                    `/apis/agents.x-k8s.io/v1alpha1/namespaces/${namespace}/sandboxes/${sandboxName}`,
+                  );
+                  console.log(`Deleted stale Sandbox ${namespace}/${sandboxName} for terminal run ${runId}`);
+                }
+              }
+            } finally {
+              sandboxReconciliationRunning = false;
+            }
+          };
           const bootstrap = async () => {
             try {
               await apiRequest("GET", "/api/health");
               await ensureKubernetesPlugin();
               await reconcileOpenCodeAgents();
+              try {
+                await reconcileStaleSandboxes();
+              } catch (error) {
+                console.error(`Paperclip stale Sandbox reconciliation failed: ${error.message}`);
+              }
               server.listen(listenPort, listenHost, () => {
                 console.log(`Paperclip Kubernetes plugin is ready; gateway proxy listening on ${listenHost}:${listenPort}`);
                 setInterval(() => {
                   reconcileOpenCodeAgents().catch((error) => {
                     console.error(`Paperclip OpenCode agent reconciliation failed: ${error.message}`);
+                  });
+                  reconcileStaleSandboxes().catch((error) => {
+                    console.error(`Paperclip stale Sandbox reconciliation failed: ${error.message}`);
                   });
                 }, 30000);
               });
@@ -206,6 +332,10 @@ spec:
               fieldPath: status.podIP
         - name: PAPERCLIP_DEFAULT_OPENCODE_MODEL
           value: {{ printf "litellm/%s" $model | quote }}
+        - name: PAPERCLIP_INSTANCE_NAME
+          value: {{ $instance.name | quote }}
+        - name: PAPERCLIP_SANDBOX_CLEANUP_GRACE_SECONDS
+          value: "60"
       readinessProbe:
         tcpSocket:
           port: 3100

@@ -33,6 +33,17 @@ class PaperclipKubernetesProviderChartTests(unittest.TestCase):
         self.assertIn("desiredSkills: [...desiredSkills, paperclipBaseSkill]", template)
         self.assertIn('updates.adapterType = "opencode_local"', template)
         self.assertIn("PAPERCLIP_DEFAULT_OPENCODE_MODEL", template)
+        self.assertIn("PAPERCLIP_INSTANCE_NAME", template)
+        self.assertIn("PAPERCLIP_SANDBOX_CLEANUP_GRACE_SECONDS", template)
+        self.assertIn('terminalRunStatuses.has(run?.status)', template)
+        self.assertIn('Date.parse(run?.finishedAt || "")', template)
+        self.assertIn('Date.now() - finishedAt < sandboxCleanupGraceMs', template)
+        self.assertIn(
+            '`/apis/agents.x-k8s.io/v1alpha1/namespaces/${namespace}/sandboxes/${sandboxName}`',
+            template,
+        )
+        self.assertIn('"paperclip.io/run-id"', template)
+        self.assertNotIn("deleteNamespacedNamespace", template)
 
         script = template.split("        - |\n", 1)[1].split("\n      env:", 1)[0]
         syntax_check = subprocess.run(
