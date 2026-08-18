@@ -5,6 +5,7 @@
 {{- $model := trimPrefix "litellm/" (trimPrefix "openai/" (default "CHANGEME_MODEL" (default $values.model $agentExecution.defaultModel))) -}}
 {{- $imageRepository := dig "image" "repository" "ghcr.io/paperclipai/paperclip" $values -}}
 {{- $imageTag := dig "image" "tag" "sha-df0e5bd" $values -}}
+{{- $openCodeRuntimeImage := dig "openCode" "runtimeImage" "ghcr.io/paperclipai/agent-runtime-opencode@sha256:1511797b21856fb3ce4b6b1ce5b0209a0a1c55ef227a21d4024bf4681a0fa49d" $agentExecution -}}
 apiVersion: paperclip.inc/v1alpha1
 kind: Instance
 metadata:
@@ -20,6 +21,90 @@ spec:
   image:
     repository: {{ $imageRepository | quote }}
     tag: {{ $imageTag | quote }}
+  # Paperclip v2026.707.0 injects the contents of an agent's instructions into
+  # the remote prompt, but then tells the agent to read their control-plane-only
+  # source path from inside the sandbox. Its Kubernetes integration also drops
+  # the /workspace path returned by realizeWorkspace and falls back to /tmp for
+  # sync while the provider executes OpenCode in the image WORKDIR /workspace.
+  # This guarded compatibility patch keeps the injected instructions and makes
+  # the OpenCode adapter use the provider's actual workspace consistently.
+  initContainers:
+    - name: prepare-paperclip-adapter-patch
+      image: {{ printf "%s:%s" $imageRepository $imageTag | quote }}
+      imagePullPolicy: IfNotPresent
+      command: [/bin/sh, -ec]
+      args:
+        - |
+          adapter_source_dir=/app/cli/node_modules/@paperclipai/adapter-opencode-local/src/server
+          adapter_source="$adapter_source_dir/execute.ts"
+          adapter_target=/patched-adapter/execute.ts
+
+          test "$(grep -F -c 'The above agent instructions were loaded from ${resolvedInstructionsFilePath}.' "$adapter_source")" -eq 1
+          test "$(grep -F -c 'Resolve any relative file references from ${instructionsDir}.' "$adapter_source")" -eq 1
+          cp -R "$adapter_source_dir/." /patched-adapter/
+          sed -i 's|The above agent instructions were loaded from ${resolvedInstructionsFilePath}.|The above agent instructions are already loaded into this prompt. Do not attempt to read their control-plane source path from the sandbox.|' "$adapter_target"
+          sed -i 's|Resolve any relative file references from ${instructionsDir}.|Resolve any relative file references from the current workspace.|' "$adapter_target"
+
+          node - "$adapter_target" <<'NODE'
+          const fs = require("fs");
+          const file = process.argv[2];
+          const source = fs.readFileSync(file, "utf8");
+          const before = [
+            "  const executionTarget = readAdapterExecutionTarget({",
+            "    executionTarget: ctx.executionTarget,",
+            "    legacyRemoteExecution: ctx.executionTransport?.remoteExecution,",
+            "  });",
+            "  const executionTargetIsRemote = adapterExecutionTargetIsRemote(executionTarget);",
+          ].join("\n");
+          const after = [
+            "  const discoveredExecutionTarget = readAdapterExecutionTarget({",
+            "    executionTarget: ctx.executionTarget,",
+            "    legacyRemoteExecution: ctx.executionTransport?.remoteExecution,",
+            "  });",
+            "  // Paperclip v2026.707.0 loses the cwd returned by the Kubernetes",
+            "  // realizeWorkspace hook and supplies its generic /tmp fallback here.",
+            "  // The Kubernetes runtime is mounted and executed at /workspace.",
+            "  const executionTarget =",
+            "    discoveredExecutionTarget?.kind === \"remote\" &&",
+            "    discoveredExecutionTarget.transport === \"sandbox\" &&",
+            "    discoveredExecutionTarget.providerKey === \"kubernetes\" &&",
+            "    discoveredExecutionTarget.remoteCwd === \"/tmp\"",
+            "      ? overrideAdapterExecutionTargetRemoteCwd(discoveredExecutionTarget, \"/workspace\")",
+            "      : discoveredExecutionTarget;",
+            "  const executionTargetIsRemote = adapterExecutionTargetIsRemote(executionTarget);",
+          ].join("\n");
+          if (source.split(before).length !== 2) {
+            throw new Error("Pinned OpenCode adapter workspace source no longer matches exactly");
+          }
+          fs.writeFileSync(file, source.replace(before, after));
+          NODE
+
+          test "$(grep -F -c 'Do not attempt to read their control-plane source path from the sandbox.' "$adapter_target")" -eq 1
+          test "$(grep -F -c 'overrideAdapterExecutionTargetRemoteCwd(discoveredExecutionTarget, "/workspace")' "$adapter_target")" -eq 1
+
+          chmod 0444 "$adapter_target"
+      volumeMounts:
+        - name: paperclip-adapter-patch
+          mountPath: /patched-adapter
+      resources:
+        requests: {cpu: 10m, memory: 16Mi}
+        limits: {cpu: 100m, memory: 64Mi}
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: [ALL]
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+  extraVolumes:
+    - name: paperclip-adapter-patch
+      emptyDir:
+        sizeLimit: 1Mi
+  extraVolumeMounts:
+    - name: paperclip-adapter-patch
+      mountPath: /app/packages/adapters/opencode-local/src/server
+      readOnly: true
   deployment:
     # Envoy Gateway is the authentication boundary. Paperclip stays private
     # and does not present a second, application-local login screen.
@@ -41,19 +126,38 @@ spec:
       command: [node, -e]
       args:
         - |
+          const fs = require("fs");
+          const https = require("https");
           const net = require("net");
           const http = require("http");
           const listenHost = process.env.POD_IP;
           const listenPort = 3100;
+          const instanceName = process.env.PAPERCLIP_INSTANCE_NAME;
+          const sandboxCleanupGraceMs = Math.max(
+            0,
+            Number(process.env.PAPERCLIP_SANDBOX_CLEANUP_GRACE_SECONDS || "60") * 1000,
+          );
+          const terminalRunStatuses = new Set([
+            "succeeded",
+            "completed",
+            "failed",
+            "cancelled",
+            "interrupted",
+            "timed_out",
+            "timeout",
+          ]);
           const pluginKey = "paperclip.kubernetes-sandbox-provider";
           const pluginPackage = "@paperclipai/plugin-kubernetes";
           const pluginPackageVersion = "2026.707.0";
           const paperclipBaseSkill = "paperclipai/paperclip/paperclip";
+          const paperclipBootstrapMarker = "[MagicStick Paperclip heartbeat v2]";
+          const paperclipBootstrapInstruction = `${paperclipBootstrapMarker} Before doing any task work, call the skill tool to load the \"paperclip\" skill. Immediately after loading it, use the bash tool and build every Paperclip request from \"$PAPERCLIP_API_URL\"; never use a literal localhost or 127.0.0.1 port such as 3020 or 3100. The injected URL is the run-scoped callback bridge. Follow the skill's heartbeat procedure, create task documents through the Paperclip API instead of leaving deliverables only in the sandbox, and set a final task disposition before exiting.`;
           const defaultOpenCodeModel = process.env.PAPERCLIP_DEFAULT_OPENCODE_MODEL;
           let installAttempted = false;
           let enableAttempted = false;
           let lastBootstrapError = "";
           let agentReconciliationRunning = false;
+          let sandboxReconciliationRunning = false;
           const server = net.createServer((downstream) => {
             const upstream = net.connect({host: "127.0.0.1", port: 3100});
             downstream.pipe(upstream);
@@ -105,6 +209,48 @@ spec:
             if (payload !== null) request.write(payload);
             request.end();
           });
+          const kubeApiRequest = (method, path) => new Promise((resolve, reject) => {
+            const request = https.request({
+              host: process.env.KUBERNETES_SERVICE_HOST,
+              port: Number(process.env.KUBERNETES_SERVICE_PORT_HTTPS || "443"),
+              path,
+              method,
+              ca: fs.readFileSync("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"),
+              headers: {
+                Accept: "application/json",
+                Authorization: `Bearer ${fs.readFileSync("/var/run/secrets/kubernetes.io/serviceaccount/token", "utf8").trim()}`,
+              },
+            }, (response) => {
+              let responseBody = "";
+              response.setEncoding("utf8");
+              response.on("data", (chunk) => {
+                if (responseBody.length < 4 * 1024 * 1024) responseBody += chunk;
+              });
+              response.on("end", () => {
+                if (response.statusCode === 404) {
+                  resolve(null);
+                  return;
+                }
+                if (response.statusCode < 200 || response.statusCode >= 300) {
+                  reject(new Error(`${method} Kubernetes ${path} returned ${response.statusCode}: ${responseBody.slice(0, 500)}`));
+                  return;
+                }
+                if (responseBody.length === 0) {
+                  resolve(null);
+                  return;
+                }
+                try {
+                  resolve(JSON.parse(responseBody));
+                } catch (error) {
+                  reject(new Error(`${method} Kubernetes ${path} returned invalid JSON: ${error.message}`));
+                }
+              });
+            });
+            request.once("error", reject);
+            request.once("timeout", () => request.destroy(new Error(`${method} Kubernetes ${path} timed out`)));
+            request.setTimeout(5000);
+            request.end();
+          });
           const ensureKubernetesPlugin = async () => {
             const plugins = await apiRequest("GET", "/api/plugins");
             if (!Array.isArray(plugins)) throw new Error("GET /api/plugins did not return a plugin list");
@@ -147,27 +293,50 @@ spec:
                 if (!Array.isArray(agents)) throw new Error(`Company ${company.id} did not return an agent list`);
                 for (const agent of agents) {
                   const marker = agent?.metadata?.paperclipBuiltInAgent;
-                  const configuredModel = agent?.adapterConfig?.model;
+                  const currentAdapterConfig = agent?.adapterConfig && typeof agent.adapterConfig === "object"
+                    ? agent.adapterConfig
+                    : {};
+                  const nextAdapterConfig = {...currentAdapterConfig};
+                  const configuredModel = currentAdapterConfig.model;
                   const selectedAdapter = adaptersByType.get(agent?.adapterType);
                   const hasConfiguredModel = typeof configuredModel === "string" && configuredModel.trim().length > 0;
-                  const desiredSkills = Array.isArray(agent?.adapterConfig?.paperclipSkillSync?.desiredSkills)
-                    ? agent.adapterConfig.paperclipSkillSync.desiredSkills.filter((skill) => typeof skill === "string")
+                  const desiredSkills = Array.isArray(currentAdapterConfig.paperclipSkillSync?.desiredSkills)
+                    ? currentAdapterConfig.paperclipSkillSync.desiredSkills.filter((skill) => typeof skill === "string")
                     : [];
                   const updates = {};
+                  let adapterConfigChanged = false;
                   if (marker?.key && selectedAdapter?.disabled === true && !hasConfiguredModel) {
                     updates.adapterType = "opencode_local";
-                    updates.adapterConfig = {model: defaultOpenCodeModel};
+                    nextAdapterConfig.model = defaultOpenCodeModel;
+                    adapterConfigChanged = true;
                   }
                   const resolvedAdapterType = updates.adapterType || agent?.adapterType;
                   if (resolvedAdapterType === "opencode_local" && !desiredSkills.includes(paperclipBaseSkill)) {
-                    updates.adapterConfig = {
-                      ...(updates.adapterConfig || {}),
-                      paperclipSkillSync: {
-                        ...(agent?.adapterConfig?.paperclipSkillSync || {}),
-                        desiredSkills: [...desiredSkills, paperclipBaseSkill],
-                      },
+                    nextAdapterConfig.paperclipSkillSync = {
+                      ...(currentAdapterConfig.paperclipSkillSync || {}),
+                      desiredSkills: [...desiredSkills, paperclipBaseSkill],
                     };
+                    adapterConfigChanged = true;
                   }
+                  const bootstrapPrompt = typeof currentAdapterConfig.bootstrapPromptTemplate === "string"
+                    ? currentAdapterConfig.bootstrapPromptTemplate.trim()
+                    : "";
+                  const retainedBootstrapPrompt = bootstrapPrompt
+                    .split("\n\n")
+                    .filter((paragraph) => !paragraph.startsWith("[MagicStick Paperclip heartbeat"))
+                    .join("\n\n")
+                    .trim();
+                  const desiredBootstrapPrompt = retainedBootstrapPrompt
+                    ? `${paperclipBootstrapInstruction}\n\n${retainedBootstrapPrompt}`
+                    : paperclipBootstrapInstruction;
+                  if (
+                    resolvedAdapterType === "opencode_local" &&
+                    bootstrapPrompt !== desiredBootstrapPrompt
+                  ) {
+                    nextAdapterConfig.bootstrapPromptTemplate = desiredBootstrapPrompt;
+                    adapterConfigChanged = true;
+                  }
+                  if (adapterConfigChanged) updates.adapterConfig = nextAdapterConfig;
                   if (Object.keys(updates).length === 0) continue;
                   await apiRequest("PATCH", `/api/agents/${encodeURIComponent(agent.id)}`, updates);
                   console.log(`Reconciled OpenCode model and Paperclip skill for agent ${agent.id}`);
@@ -177,16 +346,83 @@ spec:
               agentReconciliationRunning = false;
             }
           };
+          const reconcileStaleSandboxes = async () => {
+            if (sandboxReconciliationRunning) return;
+            if (!instanceName || !/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(instanceName)) return;
+            sandboxReconciliationRunning = true;
+            try {
+              const companies = await apiRequest("GET", "/api/companies");
+              if (!Array.isArray(companies)) throw new Error("GET /api/companies did not return a company list");
+              for (const company of companies) {
+                const companyId = typeof company?.id === "string" ? company.id : "";
+                if (!/^[a-z0-9-]+$/.test(companyId)) continue;
+                const runResponse = await apiRequest(
+                  "GET",
+                  `/api/companies/${encodeURIComponent(companyId)}/heartbeat-runs`,
+                );
+                const runs = Array.isArray(runResponse)
+                  ? runResponse
+                  : (Array.isArray(runResponse?.items) ? runResponse.items : runResponse?.runs);
+                if (!Array.isArray(runs)) throw new Error(`Company ${companyId} did not return a heartbeat run list`);
+                const terminalRuns = new Map();
+                for (const run of runs) {
+                  const finishedAt = Date.parse(run?.finishedAt || "");
+                  if (
+                    typeof run?.id === "string"
+                    && terminalRunStatuses.has(run?.status)
+                    && Number.isFinite(finishedAt)
+                  ) {
+                    terminalRuns.set(run.id, finishedAt);
+                  }
+                }
+                if (terminalRuns.size === 0) continue;
+                const namespace = `${instanceName}-${companyId}`;
+                const selector = encodeURIComponent("paperclip.io/managed-by=paperclip-k8s-plugin");
+                const response = await kubeApiRequest(
+                  "GET",
+                  `/apis/agents.x-k8s.io/v1alpha1/namespaces/${namespace}/sandboxes?labelSelector=${selector}`,
+                );
+                if (response === null) continue;
+                if (!Array.isArray(response?.items)) throw new Error(`Namespace ${namespace} did not return a Sandbox list`);
+                for (const sandbox of response.items) {
+                  const sandboxName = sandbox?.metadata?.name;
+                  const runId = sandbox?.metadata?.labels?.["paperclip.io/run-id"];
+                  const finishedAt = terminalRuns.get(runId);
+                  if (
+                    typeof sandboxName !== "string"
+                    || !/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(sandboxName)
+                    || finishedAt === undefined
+                    || Date.now() - finishedAt < sandboxCleanupGraceMs
+                  ) continue;
+                  await kubeApiRequest(
+                    "DELETE",
+                    `/apis/agents.x-k8s.io/v1alpha1/namespaces/${namespace}/sandboxes/${sandboxName}`,
+                  );
+                  console.log(`Deleted stale Sandbox ${namespace}/${sandboxName} for terminal run ${runId}`);
+                }
+              }
+            } finally {
+              sandboxReconciliationRunning = false;
+            }
+          };
           const bootstrap = async () => {
             try {
               await apiRequest("GET", "/api/health");
               await ensureKubernetesPlugin();
               await reconcileOpenCodeAgents();
+              try {
+                await reconcileStaleSandboxes();
+              } catch (error) {
+                console.error(`Paperclip stale Sandbox reconciliation failed: ${error.message}`);
+              }
               server.listen(listenPort, listenHost, () => {
                 console.log(`Paperclip Kubernetes plugin is ready; gateway proxy listening on ${listenHost}:${listenPort}`);
                 setInterval(() => {
                   reconcileOpenCodeAgents().catch((error) => {
                     console.error(`Paperclip OpenCode agent reconciliation failed: ${error.message}`);
+                  });
+                  reconcileStaleSandboxes().catch((error) => {
+                    console.error(`Paperclip stale Sandbox reconciliation failed: ${error.message}`);
                   });
                 }, 30000);
               });
@@ -206,6 +442,10 @@ spec:
               fieldPath: status.podIP
         - name: PAPERCLIP_DEFAULT_OPENCODE_MODEL
           value: {{ printf "litellm/%s" $model | quote }}
+        - name: PAPERCLIP_INSTANCE_NAME
+          value: {{ $instance.name | quote }}
+        - name: PAPERCLIP_SANDBOX_CLEANUP_GRACE_SECONDS
+          value: "60"
       readinessProbe:
         tcpSocket:
           port: 3100
@@ -266,7 +506,7 @@ spec:
     registry:
       - adapterType: opencode_local
         enabled: true
-        runtimeImage: ghcr.io/paperclipai/agent-runtime-opencode:git-b18cbb0dd3d524d3d332f54143c84f00c694636c
+        runtimeImage: {{ $openCodeRuntimeImage | quote }}
         envKeys:
           - OPENAI_API_KEY
           - OPENAI_BASE_URL

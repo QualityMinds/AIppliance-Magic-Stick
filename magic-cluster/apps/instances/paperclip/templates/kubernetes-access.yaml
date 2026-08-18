@@ -1,5 +1,6 @@
 {{- $instance := required "instance is required" .Values.instance -}}
 {{- $rbacName := printf "%s-%s-rancher-psa" $instance.namespace $instance.name | trunc 63 | trimSuffix "-" -}}
+{{- $sandboxReconcilerRbacName := printf "%s-%s-sandbox-reconciler" $instance.namespace $instance.name | trunc 63 | trimSuffix "-" -}}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -67,6 +68,43 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: {{ $rbacName }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $instance.name }}
+    namespace: {{ $instance.namespace }}
+---
+# The operator-owned execution role can create/get/delete Sandboxes, but does
+# not grant collection listing. The stale-run reconciler needs only this
+# additional verb so it can find managed Sandboxes whose Paperclip run has
+# already reached a terminal state.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $sandboxReconcilerRbacName }}
+  labels:
+    app.kubernetes.io/name: paperclip
+    app.kubernetes.io/instance: {{ $instance.name }}
+    appliance.magicstick.dev/appinstance: {{ $instance.name }}
+rules:
+  - apiGroups:
+      - agents.x-k8s.io
+    resources:
+      - sandboxes
+    verbs:
+      - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $sandboxReconcilerRbacName }}
+  labels:
+    app.kubernetes.io/name: paperclip
+    app.kubernetes.io/instance: {{ $instance.name }}
+    appliance.magicstick.dev/appinstance: {{ $instance.name }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $sandboxReconcilerRbacName }}
 subjects:
   - kind: ServiceAccount
     name: {{ $instance.name }}

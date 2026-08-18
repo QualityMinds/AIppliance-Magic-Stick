@@ -272,11 +272,11 @@ If model pods fail to start, check:
 The bundled `qwen3827b` preset reserves `24062Mi` and targets a single 24
 GB-class GPU. Its OpenCode output limit is 8192 tokens inside the 20000-token
 vLLM context window. Paperclip uses a separate 4096-token cap and advertises a
-17952-token context to OpenCode, retaining 2048 physical tokens as safety
-headroom for compaction and tool-turn overhead. If the vLLM
-wrapper reports that this budget is larger than the physical GPU memory, choose
-a smaller preset or create a custom activation with lower VRAM, context, output,
-and concurrency values.
+15904-token context with a 3976-token output limit to OpenCode, retaining 4096
+physical tokens as safety headroom for compaction and tool-turn overhead. If
+the vLLM wrapper reports that this budget is larger than the physical GPU
+memory, choose a smaller preset or create a custom activation with lower VRAM,
+context, output, and concurrency values.
 
 ## Storage
 
@@ -326,7 +326,12 @@ deploy,pods` if a command does not match the running resource name.
 | Paperclip task reports that provider `kubernetes` is not registered or creates no Sandbox | Check that plugin `paperclip.kubernetes-sandbox-provider` is `ready`, then check `sandboxes.agents.x-k8s.io`, the Agent Sandbox controller, `PAPERCLIP_K8S_ADAPTER_TYPE=opencode_local`, `spec.adapters.execution.kubernetes.backend`, and the selected adapter runtime image. For K3s, confirm control-plane egress TCP `6443`; for Rancher namespace admission failures, confirm the instance-specific `updatepsa` ClusterRoleBinding. |
 | Paperclip onboarding discovers OpenCode models but the hello probe times out | Verify that the Paperclip server Pod can connect to `litellm.ai.svc.cluster.local:4000` and that its additive NetworkPolicy permits TCP `4000` only to Pods labeled `app=litellm`. OpenCode retries an immediate connection refusal with backoff, so this otherwise appears as a slow 60-second probe. |
 | Paperclip task stops after `Sandbox run log streaming enabled` | Find the namespace labeled `paperclip.io/managed-by=paperclip-k8s-plugin` and verify `NetworkPolicy/magicstick-paperclip-runtime-egress` exists. The policy must select `paperclip.io/role=agent` and permit only the owning Paperclip server on TCP `3100` plus `app=litellm` on TCP `4000`. Check `magicstick-operator` logs and RBAC if it is absent. |
-| Paperclip task repeatedly runs for minutes and LiteLLM reports `ContextWindowExceededError` by one token | Check that `paperclip-opencode-providers.json` advertises a smaller context than the physical model limit. For the bundled 20000-token Qwen preset the Paperclip value is 17952 with output 4096. Reconcile the model catalog and restart the affected Paperclip run after the generated provider file changes. |
+| Paperclip task repeatedly runs for minutes and LiteLLM reports `ContextWindowExceededError` | Check that `paperclip-opencode-providers.json` advertises a smaller context than the physical model limit. For the bundled 20000-token Qwen preset the Paperclip value is 15904 with output 3976. Reconcile the model catalog and restart the affected Paperclip run after the generated provider file changes. |
+| Paperclip task spends most of its run searching instructions or reports `skill ripgrep execution failed` | Confirm the Sandbox uses the pinned official Paperclip OpenCode runtime and that `rg --version` succeeds in it. Confirm the Paperclip Pod mounted the guarded adapter patch and its source-validation init container completed. Runs still keep the upstream 15-minute transport ceiling; repeated searches are a runtime or instruction-contract failure, not a reason to raise that timeout. |
+| Paperclip run succeeds but generated files are absent from the task workspace, or logs show `PAPERCLIP_WORKSPACE_CWD=/tmp` while tools write below `/workspace` | Confirm the guarded OpenCode adapter patch is mounted and the init container found its exact pinned source. Paperclip `v2026.707.0` drops the Kubernetes `realizeWorkspace` result before transport resolution; Magic Stick normalizes only the Kubernetes `/tmp` fallback to the runtime's `/workspace` mount. Restart the Paperclip Pod after updating the template and use a fresh run/session. |
+| Paperclip run creates local files but neither task documents nor a final issue status | Confirm the agent has `paperclipai/paperclip/paperclip` in `paperclipSkillSync.desiredSkills` and its `bootstrapPromptTemplate` contains `[MagicStick Paperclip heartbeat v2]`. Availability alone does not force OpenCode to load a skill; the managed bootstrap directive makes the upstream Paperclip heartbeat procedure explicit without modifying the skill. |
+| A sandboxed Paperclip agent reports that Paperclip is unavailable on `localhost:3020` or `localhost:3100` | Those literal ports are invalid inside the run sandbox. Paperclip injects a run-scoped callback bridge through `PAPERCLIP_API_URL`; the Magic Stick heartbeat bootstrap directive requires every agent API request to use that value. Reconcile the instance and start a fresh agent session so the current directive is applied. |
+| Paperclip run stays pending and the tenant namespace reports `exceeded quota: paperclip-quota` | Compare each Sandbox `paperclip.io/run-id` with the Paperclip heartbeat run. The instance helper removes only terminal runs after a 60-second grace; inspect the `gateway-loopback-proxy` log if they remain. Confirm the instance-specific `sandbox-reconciler` ClusterRole adds only `list`; the operator-owned execution role already supplies Sandbox deletion. Do not increase the quota to mask orphaned runtime Pods. |
 | Paperclip sandbox cannot call a model | Check `paperclip-opencode-providers.json`, `litellm-masterkey-secret`, LiteLLM on port 4000, and NetworkPolicies in the Paperclip tenant namespace. |
 | Generated Secret missing | Check the secret generator HelmRelease and Secret annotations. |
 | OIDC route does not redirect | Check the `SecurityPolicy` and `HTTPRoute` status, Keycloak readiness, the Envoy data-plane logs, and whether the identity and requested application hostnames resolve to the Envoy LoadBalancer address. |
