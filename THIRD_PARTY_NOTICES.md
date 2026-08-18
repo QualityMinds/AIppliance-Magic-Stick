@@ -30,6 +30,8 @@ digest, or chart version.
 | `@paperclipai/plugin-kubernetes` | https://www.npmjs.com/package/@paperclipai/plugin-kubernetes | `2026.707.0` Kubernetes sandbox provider installed through the local Paperclip API | Downloaded at first Paperclip startup and persisted |
 | `ghcr.io/paperclipai/agent-runtime-base:git-b18cbb0dd3d524d3d332f54143c84f00c694636c` | https://github.com/paperclipai/paperclip | Paperclip gateway sandbox runtime | Referenced only |
 | `ghcr.io/paperclipai/agent-runtime-opencode:git-b18cbb0dd3d524d3d332f54143c84f00c694636c` | https://github.com/paperclipai/paperclip | Paperclip OpenCode sandbox runtime | Referenced only |
+| `ghcr.io/qualityminds/magicstick-paperclip-opencode-runtime` | Derived from the pinned Paperclip OpenCode runtime above | MagicStick multi-architecture runtime adding Ubuntu's `ripgrep` package for OpenCode skill discovery | Built and published by this repository |
+| `ripgrep` | https://github.com/BurntSushi/ripgrep | Search executable required by OpenCode's skill tool | Installed from the pinned runtime image's Ubuntu repositories |
 | `ghcr.io/paperclipinc/hermes-agent:v2026.5.29.2` | https://github.com/paperclip-ai/hermes | Hermes agent runtime | Referenced only |
 | `nousresearch/hermes-agent:v2026.5.29.2` | https://github.com/NousResearch/hermes-agent | Hermes dashboard runtime | Referenced only |
 | `nousresearch/hermes-agent:v2026.7.7.2` | https://github.com/NousResearch/hermes-agent | Authenticated Hermes API gateway sidecar | Referenced only |

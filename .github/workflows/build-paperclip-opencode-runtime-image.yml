@@ -1,0 +1,88 @@
+name: Build MagicStick Paperclip OpenCode runtime image
+
+on:
+  push:
+    paths:
+      - .github/workflows/build-paperclip-opencode-runtime-image.yml
+      - magic-cluster/apps/instances/paperclip/runtime/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+  attestations: write
+  id-token: write
+
+concurrency:
+  group: paperclip-opencode-runtime-image-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_NAME: ghcr.io/qualityminds/magicstick-paperclip-opencode-runtime
+  UPSTREAM_IMAGE: ghcr.io/paperclipai/agent-runtime-opencode:git-b18cbb0dd3d524d3d332f54143c84f00c694636c
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out MagicStick
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: type=sha,prefix=sha-,format=long
+          labels: |
+            org.opencontainers.image.title=MagicStick Paperclip OpenCode runtime
+            org.opencontainers.image.description=Paperclip OpenCode runtime with the skill discovery dependency
+            org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick
+            org.opencontainers.image.licenses=Apache-2.0
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ env.UPSTREAM_IMAGE }}
+
+      - name: Build and push multi-architecture image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: magic-cluster/apps/instances/paperclip/runtime
+          file: magic-cluster/apps/instances/paperclip/runtime/Dockerfile
+          build-args: UPSTREAM_IMAGE=${{ env.UPSTREAM_IMAGE }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=magicstick-paperclip-opencode-runtime
+          cache-to: type=gha,mode=max,scope=magicstick-paperclip-opencode-runtime
+          provenance: mode=max
+          sbom: true
+
+      - name: Verify published runtime
+        run: |
+          docker run --rm "${IMAGE_NAME}:sha-${GITHUB_SHA}" rg --version
+          docker run --rm "${IMAGE_NAME}:sha-${GITHUB_SHA}" opencode --version
+
+      - name: Record immutable digest
+        run: |
+          {
+            echo "### MagicStick Paperclip OpenCode runtime image"
+            echo
+            echo "- Image: \`${IMAGE_NAME}\`"
+            echo "- Tag: \`sha-${GITHUB_SHA}\`"
+            echo "- Digest: \`${{ steps.build.outputs.digest }}\`"
+            echo "- Upstream: \`${UPSTREAM_IMAGE}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
