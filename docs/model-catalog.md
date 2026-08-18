@@ -212,6 +212,7 @@ The controller reads these deployment variables:
 | `OPENCODE_DEFAULT_CONTEXT_TOKENS` | `131072` | Context limit used when a model exposes no positive limit. |
 | `OPENCODE_DEFAULT_OUTPUT_TOKENS` | `8192` | Output limit used when a model exposes no positive limit. |
 | `PAPERCLIP_OPENCODE_MAX_OUTPUT_TOKENS` | `4096` | Maximum Paperclip OpenCode output budget; at least three quarters of each model context remains available for agent instructions, tool results, and conversation state. |
+| `PAPERCLIP_OPENCODE_CONTEXT_HEADROOM_TOKENS` | `2048` | Maximum physical-context safety margin hidden from Paperclip OpenCode. The margin is capped at one eighth of small contexts so they remain usable. |
 
 Defaults are selected only if the requested model id exists in the generated
 catalog. If the requested id is missing, the first model of the matching type is
@@ -291,8 +292,11 @@ Current consumers include:
   the OpenCode model picker with all catalogued chat models. Its OpenCode
   sandbox runtime uses the in-cluster LiteLLM API, and the API key comes only
   from a Kubernetes Secret. Paperclip caps output at 4,096 tokens and at most
-  one quarter of the model context, leaving room for its agent instructions,
-  tool responses, and accumulated conversation state.
+  one quarter of its advertised context. It also advertises up to 2,048 fewer
+  context tokens than the model physically accepts. This makes OpenCode compact
+  before the LiteLLM/vLLM boundary even when a tool turn crosses its local
+  compaction threshold by one token. Small contexts reserve at most one eighth,
+  so they remain usable for agent instructions, tool responses, and state.
   Catalog changes include OpenCode limit metadata in the consumer hash, so a
   changed limit follows the normal catalog consumer restart path.
 - Dashboard-created KubeOpenCode `AppInstance` resources are reconciled as Flux

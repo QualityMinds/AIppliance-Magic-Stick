@@ -27,6 +27,9 @@ OPENCODE_DEFAULT_OUTPUT_TOKENS = int(os.environ.get("OPENCODE_DEFAULT_OUTPUT_TOK
 PAPERCLIP_OPENCODE_MAX_OUTPUT_TOKENS = max(
     1, int(os.environ.get("PAPERCLIP_OPENCODE_MAX_OUTPUT_TOKENS", "4096"))
 )
+PAPERCLIP_OPENCODE_CONTEXT_HEADROOM_TOKENS = max(
+    0, int(os.environ.get("PAPERCLIP_OPENCODE_CONTEXT_HEADROOM_TOKENS", "2048"))
+)
 OPENCLAW_SMALL_CONTEXT_MAX_TOKENS = 32768
 OPENCLAW_SMALL_CONTEXT_RESERVE_MAX_TOKENS = 4096
 OPENCLAW_SMALL_CONTEXT_RESERVE_MIN_TOKENS = 1024
@@ -531,7 +534,16 @@ def opencode_model(model):
 
 def paperclip_opencode_model(model):
     generated = opencode_model(model)
-    context = generated["limit"]["context"]
+    physical_context = generated["limit"]["context"]
+    headroom = 0
+    if physical_context > 1 and PAPERCLIP_OPENCODE_CONTEXT_HEADROOM_TOKENS:
+        headroom = min(
+            PAPERCLIP_OPENCODE_CONTEXT_HEADROOM_TOKENS,
+            max(1, physical_context // 8),
+            physical_context - 1,
+        )
+    context = physical_context - headroom
+    generated["limit"]["context"] = context
     generated["limit"]["output"] = min(
         generated["limit"]["output"],
         PAPERCLIP_OPENCODE_MAX_OUTPUT_TOKENS,
@@ -555,6 +567,7 @@ def build_catalog(litellm_models):
         "opencodeDefaultContextTokens": OPENCODE_DEFAULT_CONTEXT_TOKENS,
         "opencodeDefaultOutputTokens": OPENCODE_DEFAULT_OUTPUT_TOKENS,
         "paperclipOpenCodeMaxOutputTokens": PAPERCLIP_OPENCODE_MAX_OUTPUT_TOKENS,
+        "paperclipOpenCodeContextHeadroomTokens": PAPERCLIP_OPENCODE_CONTEXT_HEADROOM_TOKENS,
         "openclawCompaction": openclaw_compaction_config,
         "openclawToolsProfile": OPENCLAW_TOOLS_PROFILE,
     }

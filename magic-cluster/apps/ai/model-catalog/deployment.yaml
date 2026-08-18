@@ -60,6 +60,8 @@ spec:
               value: "8192"
             - name: PAPERCLIP_OPENCODE_MAX_OUTPUT_TOKENS
               value: "4096"
+            - name: PAPERCLIP_OPENCODE_CONTEXT_HEADROOM_TOKENS
+              value: "2048"
             - name: LITELLM_MASTER_KEY
               valueFrom:
                 secretKeyRef:
