@@ -98,6 +98,18 @@ data:
         }
       }
     }
+  paperclip-opencode-providers.json: |
+    {
+      "litellm": {
+        "models": {},
+        "name": "LiteLLM",
+        "npm": "@ai-sdk/openai-compatible",
+        "options": {
+          "apiKey": "{env:OPENAI_API_KEY}",
+          "baseURL": "http://litellm.ai.svc.cluster.local:4000/v1"
+        }
+      }
+    }
   paperclip-adapter-models.json: |
     {
       "opencode_local": []

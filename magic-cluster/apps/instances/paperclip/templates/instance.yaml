@@ -48,11 +48,12 @@ spec:
           const pluginKey = "paperclip.kubernetes-sandbox-provider";
           const pluginPackage = "@paperclipai/plugin-kubernetes";
           const pluginPackageVersion = "2026.707.0";
+          const paperclipBaseSkill = "paperclipai/paperclip/paperclip";
           const defaultOpenCodeModel = process.env.PAPERCLIP_DEFAULT_OPENCODE_MODEL;
           let installAttempted = false;
           let enableAttempted = false;
           let lastBootstrapError = "";
-          let builtInReconciliationRunning = false;
+          let agentReconciliationRunning = false;
           const server = net.createServer((downstream) => {
             const upstream = net.connect({host: "127.0.0.1", port: 3100});
             downstream.pipe(upstream);
@@ -127,10 +128,10 @@ spec:
               throw new Error(`Kubernetes plugin is not ready yet (status=${plugin?.status ?? "unknown"})`);
             }
           };
-          const reconcileBuiltInAgents = async () => {
-            if (builtInReconciliationRunning) return;
+          const reconcileOpenCodeAgents = async () => {
+            if (agentReconciliationRunning) return;
             if (!defaultOpenCodeModel || defaultOpenCodeModel.includes("CHANGEME")) return;
-            builtInReconciliationRunning = true;
+            agentReconciliationRunning = true;
             try {
               const adapters = await apiRequest("GET", "/api/adapters");
               if (!Array.isArray(adapters)) throw new Error("GET /api/adapters did not return an adapter list");
@@ -149,28 +150,43 @@ spec:
                   const configuredModel = agent?.adapterConfig?.model;
                   const selectedAdapter = adaptersByType.get(agent?.adapterType);
                   const hasConfiguredModel = typeof configuredModel === "string" && configuredModel.trim().length > 0;
-                  if (!marker?.key || selectedAdapter?.disabled !== true || hasConfiguredModel) continue;
-                  await apiRequest("PATCH", `/api/agents/${encodeURIComponent(agent.id)}`, {
-                    adapterType: "opencode_local",
-                    adapterConfig: {model: defaultOpenCodeModel},
-                  });
-                  console.log(`Migrated incomplete built-in agent ${agent.id} from disabled adapter ${agent.adapterType} to opencode_local`);
+                  const desiredSkills = Array.isArray(agent?.adapterConfig?.paperclipSkillSync?.desiredSkills)
+                    ? agent.adapterConfig.paperclipSkillSync.desiredSkills.filter((skill) => typeof skill === "string")
+                    : [];
+                  const updates = {};
+                  if (marker?.key && selectedAdapter?.disabled === true && !hasConfiguredModel) {
+                    updates.adapterType = "opencode_local";
+                    updates.adapterConfig = {model: defaultOpenCodeModel};
+                  }
+                  const resolvedAdapterType = updates.adapterType || agent?.adapterType;
+                  if (resolvedAdapterType === "opencode_local" && !desiredSkills.includes(paperclipBaseSkill)) {
+                    updates.adapterConfig = {
+                      ...(updates.adapterConfig || {}),
+                      paperclipSkillSync: {
+                        ...(agent?.adapterConfig?.paperclipSkillSync || {}),
+                        desiredSkills: [...desiredSkills, paperclipBaseSkill],
+                      },
+                    };
+                  }
+                  if (Object.keys(updates).length === 0) continue;
+                  await apiRequest("PATCH", `/api/agents/${encodeURIComponent(agent.id)}`, updates);
+                  console.log(`Reconciled OpenCode model and Paperclip skill for agent ${agent.id}`);
                 }
               }
             } finally {
-              builtInReconciliationRunning = false;
+              agentReconciliationRunning = false;
             }
           };
           const bootstrap = async () => {
             try {
               await apiRequest("GET", "/api/health");
               await ensureKubernetesPlugin();
-              await reconcileBuiltInAgents();
+              await reconcileOpenCodeAgents();
               server.listen(listenPort, listenHost, () => {
                 console.log(`Paperclip Kubernetes plugin is ready; gateway proxy listening on ${listenHost}:${listenPort}`);
                 setInterval(() => {
-                  reconcileBuiltInAgents().catch((error) => {
-                    console.error(`Paperclip built-in agent reconciliation failed: ${error.message}`);
+                  reconcileOpenCodeAgents().catch((error) => {
+                    console.error(`Paperclip OpenCode agent reconciliation failed: ${error.message}`);
                   });
                 }, 30000);
               });
@@ -230,7 +246,7 @@ spec:
       valueFrom:
         configMapKeyRef:
           name: ai-model-catalog
-          key: opencode-providers.json
+          key: paperclip-opencode-providers.json
     - name: PAPERCLIP_OPENCODE_SMALL_MODEL
       value: {{ printf "litellm/%s" $model | quote }}
     - name: PAPERCLIP_OPENCODE_CHEAP_MODEL

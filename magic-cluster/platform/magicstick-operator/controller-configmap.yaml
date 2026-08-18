@@ -40,6 +40,9 @@ data:
     IDENTITY_GATEWAY_NAME = os.environ.get("IDENTITY_GATEWAY_NAME", "identity-pilot")
     OIDC_CLIENT_ID = os.environ.get("OIDC_CLIENT_ID", "magicstick-human-gateway-local")
     OIDC_CLIENT_SECRET_NAME = os.environ.get("OIDC_CLIENT_SECRET_NAME", "magicstick-human-gateway-client")
+    LITELLM_NAMESPACE = os.environ.get("LITELLM_NAMESPACE", "ai")
+    PAPERCLIP_TENANT_MANAGED_BY = "paperclip-k8s-plugin"
+    PAPERCLIP_TENANT_POLICY_NAME = "magicstick-paperclip-runtime-egress"
     REQUEUE_SECONDS = int(os.environ.get("REQUEUE_SECONDS", "20"))
     KUBE_API = os.environ.get("KUBERNETES_SERVICE_URL", "https://kubernetes.default.svc").rstrip("/")
     SA_TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
@@ -58,6 +61,7 @@ data:
         ("gateway.networking.k8s.io", "HTTPRoute"): "httproutes",
         ("gateway.networking.k8s.io", "ReferenceGrant"): "referencegrants",
         ("gateway.envoyproxy.io", "SecurityPolicy"): "securitypolicies",
+        ("networking.k8s.io", "NetworkPolicy"): "networkpolicies",
     }
 
     STATIC_DEPENDENCIES = {
@@ -470,6 +474,145 @@ data:
 
     def app_instances():
         return list_items(f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/appinstances")
+
+
+    def paperclip_max_concurrent_agents(instance):
+        values = ((instance.get("spec") or {}).get("values") or {})
+        raw = ((values.get("agentExecution") or {}).get("maxConcurrentAgents", 2))
+        try:
+            requested = int(raw)
+        except (TypeError, ValueError):
+            requested = 2
+        return max(1, min(10, requested))
+
+
+    def paperclip_tenant_instance(namespace, instances):
+        metadata = namespace.get("metadata") or {}
+        labels = metadata.get("labels") or {}
+        if labels.get("paperclip.io/managed-by") != PAPERCLIP_TENANT_MANAGED_BY:
+            return None
+        company_id = str(labels.get("paperclip.io/company-id") or "").strip()
+        namespace_name = str(metadata.get("name") or "").strip()
+        if not company_id or not namespace_name:
+            return None
+        matches = []
+        for instance in instances:
+            instance_metadata = instance.get("metadata") or {}
+            spec = instance.get("spec") or {}
+            instance_name = str(instance_metadata.get("name") or "").strip()
+            if (
+                spec.get("application") == "paperclip"
+                and spec.get("enabled", True) is not False
+                and not instance_metadata.get("deletionTimestamp")
+                and namespace_name == f"{instance_name}-{company_id}"
+            ):
+                matches.append(instance)
+        return matches[0] if len(matches) == 1 else None
+
+
+    def paperclip_tenant_resources(namespace, instance):
+        namespace_metadata = namespace.get("metadata") or {}
+        namespace_labels = namespace_metadata.get("labels") or {}
+        namespace_name = namespace_metadata.get("name")
+        instance_metadata = instance.get("metadata") or {}
+        spec = instance.get("spec") or {}
+        instance_name = instance_metadata.get("name")
+        target_namespace = spec.get("targetNamespace") or "ai"
+        company_id = namespace_labels.get("paperclip.io/company-id")
+        concurrency = paperclip_max_concurrent_agents(instance)
+        labels = {
+            "app.kubernetes.io/managed-by": "magicstick-operator",
+            "appliance.magicstick.dev/appinstance": instance_name,
+            "paperclip.io/company-id": company_id,
+            "paperclip.io/managed-by": PAPERCLIP_TENANT_MANAGED_BY,
+        }
+        return [
+            {
+                "apiVersion": "networking.k8s.io/v1",
+                "kind": "NetworkPolicy",
+                "metadata": {
+                    "name": PAPERCLIP_TENANT_POLICY_NAME,
+                    "namespace": namespace_name,
+                    "labels": labels,
+                },
+                "spec": {
+                    "podSelector": {"matchLabels": {"paperclip.io/role": "agent"}},
+                    "policyTypes": ["Egress"],
+                    "egress": [
+                        {
+                            "to": [{
+                                "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": LITELLM_NAMESPACE}},
+                                "podSelector": {"matchLabels": {"app": "litellm"}},
+                            }],
+                            "ports": [{"protocol": "TCP", "port": 4000}],
+                        },
+                        {
+                            "to": [{
+                                "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": target_namespace}},
+                                "podSelector": {"matchLabels": {
+                                    "app.kubernetes.io/name": "paperclip",
+                                    "app.kubernetes.io/instance": instance_name,
+                                    "app.kubernetes.io/component": "server",
+                                }},
+                            }],
+                            "ports": [{"protocol": "TCP", "port": 3100}],
+                        },
+                    ],
+                },
+            },
+            {
+                "apiVersion": "v1",
+                "kind": "ResourceQuota",
+                "metadata": {
+                    "name": "paperclip-quota",
+                    "namespace": namespace_name,
+                    "labels": labels,
+                },
+                "spec": {"hard": {
+                    "pods": str(concurrency),
+                    "requests.cpu": f"{concurrency * 500}m",
+                    "requests.memory": f"{concurrency}Gi",
+                    "limits.cpu": str(concurrency * 2),
+                    "limits.memory": f"{concurrency * 4}Gi",
+                }},
+            },
+            {
+                "apiVersion": "v1",
+                "kind": "LimitRange",
+                "metadata": {
+                    "name": "paperclip-limits",
+                    "namespace": namespace_name,
+                    "labels": labels,
+                },
+                "spec": {"limits": [{
+                    "type": "Container",
+                    "defaultRequest": {"cpu": "500m", "memory": "1Gi"},
+                    "default": {"cpu": "2", "memory": "4Gi"},
+                    "min": {"cpu": "100m", "memory": "128Mi"},
+                    "max": {"cpu": "2", "memory": "4Gi"},
+                }]},
+            },
+        ]
+
+
+    def reconcile_paperclip_tenant_namespaces(instances):
+        selector = urllib.parse.urlencode({"labelSelector": f"paperclip.io/managed-by={PAPERCLIP_TENANT_MANAGED_BY}"})
+        namespaces = list_items("/api/v1/namespaces?" + selector)
+        for namespace in namespaces:
+            metadata = namespace.get("metadata") or {}
+            namespace_name = metadata.get("name")
+            instance = paperclip_tenant_instance(namespace, instances)
+            if instance:
+                for resource in paperclip_tenant_resources(namespace, instance):
+                    apply_resource(resource)
+                continue
+            reference = {
+                "apiVersion": "networking.k8s.io/v1",
+                "kind": "NetworkPolicy",
+                "metadata": {"name": PAPERCLIP_TENANT_POLICY_NAME, "namespace": namespace_name},
+            }
+            if namespace_name and get_applied_resource(reference):
+                delete_applied_resource(reference)
 
 
     def app_instance_path(instance):
@@ -1630,6 +1773,8 @@ data:
                 "url": ((instance.get("status") or {}).get("url") or ""),
                 "message": ((instance.get("status") or {}).get("message") or ""),
             }
+
+        reconcile_paperclip_tenant_namespaces(instances)
 
         model_statuses = {}
         for model in models:

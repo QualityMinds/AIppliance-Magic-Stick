@@ -211,6 +211,7 @@ The controller reads these deployment variables:
 | `AGENT_TEMPLATE_NAMES` | `litellm-default` | Comma-separated AgentTemplate names to update. |
 | `OPENCODE_DEFAULT_CONTEXT_TOKENS` | `131072` | Context limit used when a model exposes no positive limit. |
 | `OPENCODE_DEFAULT_OUTPUT_TOKENS` | `8192` | Output limit used when a model exposes no positive limit. |
+| `PAPERCLIP_OPENCODE_MAX_OUTPUT_TOKENS` | `4096` | Maximum Paperclip OpenCode output budget; at least three quarters of each model context remains available for agent instructions, tool results, and conversation state. |
 
 Defaults are selected only if the requested model id exists in the generated
 catalog. If the requested id is missing, the first model of the matching type is
@@ -233,6 +234,7 @@ used. If no model of that type exists, the default is an empty string.
 | `openclaw.json` | OpenClaw-ready LiteLLM provider fragment. |
 | `hermes.yaml` | Hermes-ready LiteLLM provider fragment. |
 | `opencode-providers.json` | OpenCode provider map for the internal LiteLLM endpoint, including required context and output limits. |
+| `paperclip-opencode-providers.json` | Paperclip-specific OpenCode provider map with additional context headroom for long agent prompts. |
 | `paperclip-adapter-models.json` | Paperclip model-picker entries for OpenCode adapters in `litellm/<model-id>` form. |
 | `AI_APPLIANCE_DEFAULT_OPENCODE_MODEL` | Selected chat default in `litellm/<model-id>` form. |
 
@@ -284,11 +286,13 @@ Current consumers include:
   20,000-token compaction floor and reserves at most 4,096 tokens instead. This
   keeps the agent's own system and tool prompt usable on small local models;
   larger or unknown context windows retain OpenClaw's 20,000-token safety floor.
-- Paperclip reads `opencode-providers.json`, `paperclip-adapter-models.json`,
+- Paperclip reads `paperclip-opencode-providers.json`, `paperclip-adapter-models.json`,
   and `AI_APPLIANCE_DEFAULT_OPENCODE_MODEL`. The adapter model list populates
   the OpenCode model picker with all catalogued chat models. Its OpenCode
   sandbox runtime uses the in-cluster LiteLLM API, and the API key comes only
-  from a Kubernetes Secret.
+  from a Kubernetes Secret. Paperclip caps output at 4,096 tokens and at most
+  one quarter of the model context, leaving room for its agent instructions,
+  tool responses, and accumulated conversation state.
   Catalog changes include OpenCode limit metadata in the consumer hash, so a
   changed limit follows the normal catalog consumer restart path.
 - Dashboard-created KubeOpenCode `AppInstance` resources are reconciled as Flux

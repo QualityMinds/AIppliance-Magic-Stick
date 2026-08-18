@@ -24,6 +24,9 @@ DEFAULT_CHAT_MODEL = os.environ.get("AI_APPLIANCE_DEFAULT_CHAT_MODEL", "auto")
 DEFAULT_EMBEDDING_MODEL = os.environ.get("AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL", "auto")
 OPENCODE_DEFAULT_CONTEXT_TOKENS = int(os.environ.get("OPENCODE_DEFAULT_CONTEXT_TOKENS", "131072"))
 OPENCODE_DEFAULT_OUTPUT_TOKENS = int(os.environ.get("OPENCODE_DEFAULT_OUTPUT_TOKENS", "8192"))
+PAPERCLIP_OPENCODE_MAX_OUTPUT_TOKENS = max(
+    1, int(os.environ.get("PAPERCLIP_OPENCODE_MAX_OUTPUT_TOKENS", "4096"))
+)
 OPENCLAW_SMALL_CONTEXT_MAX_TOKENS = 32768
 OPENCLAW_SMALL_CONTEXT_RESERVE_MAX_TOKENS = 4096
 OPENCLAW_SMALL_CONTEXT_RESERVE_MIN_TOKENS = 1024
@@ -526,6 +529,17 @@ def opencode_model(model):
     }
 
 
+def paperclip_opencode_model(model):
+    generated = opencode_model(model)
+    context = generated["limit"]["context"]
+    generated["limit"]["output"] = min(
+        generated["limit"]["output"],
+        PAPERCLIP_OPENCODE_MAX_OUTPUT_TOKENS,
+        max(1, context // 4),
+    )
+    return generated
+
+
 def build_catalog(litellm_models):
     models = [catalog_entry(model) for model in litellm_models if model.get("model_name")]
     models.sort(key=lambda item: (item.get("type") or "", item["id"]))
@@ -540,6 +554,7 @@ def build_catalog(litellm_models):
         "defaultEmbeddingModel": default_embedding,
         "opencodeDefaultContextTokens": OPENCODE_DEFAULT_CONTEXT_TOKENS,
         "opencodeDefaultOutputTokens": OPENCODE_DEFAULT_OUTPUT_TOKENS,
+        "paperclipOpenCodeMaxOutputTokens": PAPERCLIP_OPENCODE_MAX_OUTPUT_TOKENS,
         "openclawCompaction": openclaw_compaction_config,
         "openclawToolsProfile": OPENCLAW_TOOLS_PROFILE,
     }
@@ -599,6 +614,20 @@ def build_catalog(litellm_models):
             "models": {model["id"]: opencode_model(model) for model in chat_models},
         }
     }
+    paperclip_opencode_providers = {
+        "litellm": {
+            "npm": "@ai-sdk/openai-compatible",
+            "name": "LiteLLM",
+            "options": {
+                "baseURL": LITELLM_API_BASE,
+                "apiKey": "{env:OPENAI_API_KEY}",
+            },
+            "models": {
+                model["id"]: paperclip_opencode_model(model)
+                for model in chat_models
+            },
+        }
+    }
     paperclip_adapter_models = {
         "opencode_local": [
             {
@@ -628,6 +657,7 @@ def build_catalog(litellm_models):
         "openclaw.json": json_dumps(openclaw),
         "hermes.yaml": json_dumps(hermes),
         "opencode-providers.json": json_dumps(opencode_providers),
+        "paperclip-opencode-providers.json": json_dumps(paperclip_opencode_providers),
         "paperclip-adapter-models.json": json_dumps(paperclip_adapter_models),
         "AI_APPLIANCE_MODEL_CATALOG_READY": "true",
         "AI_APPLIANCE_MODEL_CATALOG_HASH": catalog_hash,

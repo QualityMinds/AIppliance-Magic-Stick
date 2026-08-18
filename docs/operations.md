@@ -271,9 +271,11 @@ If model pods fail to start, check:
 
 The bundled `qwen3827b` preset reserves `24062Mi` and targets a single 24
 GB-class GPU. Its OpenCode output limit is 8192 tokens inside the 20000-token
-vLLM context window. If the vLLM wrapper reports that this budget is larger than
-the physical GPU memory, choose a smaller preset or create a custom activation
-with lower VRAM, context, output, and concurrency values.
+vLLM context window. Paperclip uses a separate 4096-token cap so its larger
+agent and tool prompt cannot consume the whole context window. If the vLLM
+wrapper reports that this budget is larger than the physical GPU memory, choose
+a smaller preset or create a custom activation with lower VRAM, context, output,
+and concurrency values.
 
 ## Storage
 
@@ -322,7 +324,8 @@ deploy,pods` if a command does not match the running resource name.
 | Application shows a second login after SSO | Confirm Paperclip uses `deployment.mode: local_trusted` with `exposure: private`, the patched operator emits `PAPERCLIP_BIND=loopback`, and its `gateway-loopback-proxy` sidecar is ready; confirm Odysseus has `AUTH_ENABLED=false` and the application Service is exposed only through its authenticated Envoy route. |
 | Paperclip task reports that provider `kubernetes` is not registered or creates no Sandbox | Check that plugin `paperclip.kubernetes-sandbox-provider` is `ready`, then check `sandboxes.agents.x-k8s.io`, the Agent Sandbox controller, `PAPERCLIP_K8S_ADAPTER_TYPE=opencode_local`, `spec.adapters.execution.kubernetes.backend`, and the selected adapter runtime image. For K3s, confirm control-plane egress TCP `6443`; for Rancher namespace admission failures, confirm the instance-specific `updatepsa` ClusterRoleBinding. |
 | Paperclip onboarding discovers OpenCode models but the hello probe times out | Verify that the Paperclip server Pod can connect to `litellm.ai.svc.cluster.local:4000` and that its additive NetworkPolicy permits TCP `4000` only to Pods labeled `app=litellm`. OpenCode retries an immediate connection refusal with backoff, so this otherwise appears as a slow 60-second probe. |
-| Paperclip sandbox cannot call a model | Check `opencode-providers.json`, `litellm-masterkey-secret`, LiteLLM on port 4000, and NetworkPolicies in the Paperclip tenant namespace. |
+| Paperclip task stops after `Sandbox run log streaming enabled` | Find the namespace labeled `paperclip.io/managed-by=paperclip-k8s-plugin` and verify `NetworkPolicy/magicstick-paperclip-runtime-egress` exists. The policy must select `paperclip.io/role=agent` and permit only the owning Paperclip server on TCP `3100` plus `app=litellm` on TCP `4000`. Check `magicstick-operator` logs and RBAC if it is absent. |
+| Paperclip sandbox cannot call a model | Check `paperclip-opencode-providers.json`, `litellm-masterkey-secret`, LiteLLM on port 4000, and NetworkPolicies in the Paperclip tenant namespace. |
 | Generated Secret missing | Check the secret generator HelmRelease and Secret annotations. |
 | OIDC route does not redirect | Check the `SecurityPolicy` and `HTTPRoute` status, Keycloak readiness, the Envoy data-plane logs, and whether the identity and requested application hostnames resolve to the Envoy LoadBalancer address. |
 | AppInstance route returns `403` after SSO | Compare `spec.access.role` with the user's `magicstick-user`, `magicstick-viewer`, `magicstick-operator`, or `magicstick-admin` realm roles. |

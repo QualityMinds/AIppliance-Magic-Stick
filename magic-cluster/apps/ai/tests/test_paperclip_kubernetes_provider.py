@@ -22,14 +22,16 @@ class PaperclipKubernetesProviderChartTests(unittest.TestCase):
 
         self.assertIn('const pluginPackage = "@paperclipai/plugin-kubernetes";', template)
         self.assertIn('const pluginPackageVersion = "2026.707.0";', template)
+        self.assertIn('const paperclipBaseSkill = "paperclipai/paperclip/paperclip";', template)
         self.assertIn('apiRequest("POST", "/api/plugins/install"', template)
         self.assertIn('path === "/api/plugins/install" ? 120000 : 5000', template)
         self.assertIn('plugin?.status !== "ready"', template)
         self.assertIn("server.listen(listenPort, listenHost", template)
         self.assertIn("marker?.key", template)
-        self.assertIn("selectedAdapter?.disabled !== true", template)
+        self.assertIn("selectedAdapter?.disabled === true", template)
         self.assertIn("hasConfiguredModel", template)
-        self.assertIn('adapterType: "opencode_local"', template)
+        self.assertIn("desiredSkills: [...desiredSkills, paperclipBaseSkill]", template)
+        self.assertIn('updates.adapterType = "opencode_local"', template)
         self.assertIn("PAPERCLIP_DEFAULT_OPENCODE_MODEL", template)
 
         script = template.split("        - |\n", 1)[1].split("\n      env:", 1)[0]
@@ -49,6 +51,8 @@ class PaperclipKubernetesProviderChartTests(unittest.TestCase):
 
         self.assertIn("- name: PAPERCLIP_K8S_ADAPTER_TYPE\n      value: opencode_local", template)
         self.assertIn("- adapterType: opencode_local", template)
+        self.assertIn("key: paperclip-opencode-providers.json", template)
+        self.assertNotIn("key: opencode-providers.json", template)
 
     def test_control_plane_egress_and_rancher_psa_access_are_explicit_and_narrow(self):
         template = (PAPERCLIP_CHART / "templates" / "kubernetes-access.yaml").read_text(
