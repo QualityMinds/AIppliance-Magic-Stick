@@ -19,11 +19,22 @@ spec:
     - Egress
   # Some CNIs evaluate the destination after Service DNAT. K3s exposes its API
   # endpoint on 6443, while the operator's base policy only permits Service port
-  # 443. This additive rule keeps in-cluster provider access portable.
+  # 443. This additive rule keeps in-cluster provider access portable. The
+  # operator policy also omits the internal LiteLLM service. Paperclip invokes
+  # OpenCode in the server Pod for onboarding and adapter health checks, so
+  # permit only the LiteLLM Pods on their API port instead of opening arbitrary
+  # cluster egress.
   egress:
     - ports:
         - protocol: TCP
           port: 6443
+    - to:
+        - podSelector:
+            matchLabels:
+              app: litellm
+      ports:
+        - protocol: TCP
+          port: 4000
 ---
 # The Kubernetes provider creates tenant namespaces with restricted PSA labels.
 # Rancher validates those labels with its custom updatepsa verb. This no-op rule

@@ -50,13 +50,23 @@ class PaperclipKubernetesProviderChartTests(unittest.TestCase):
         self.assertIn("- name: PAPERCLIP_K8S_ADAPTER_TYPE\n      value: opencode_local", template)
         self.assertIn("- adapterType: opencode_local", template)
 
-    def test_k3s_api_and_rancher_psa_access_are_explicit_and_narrow(self):
+    def test_control_plane_egress_and_rancher_psa_access_are_explicit_and_narrow(self):
         template = (PAPERCLIP_CHART / "templates" / "kubernetes-access.yaml").read_text(
             encoding="utf-8"
         )
 
         self.assertIn("kind: NetworkPolicy", template)
         self.assertIn("port: 6443", template)
+        self.assertIn(
+            "    - to:\n"
+            "        - podSelector:\n"
+            "            matchLabels:\n"
+            "              app: litellm\n"
+            "      ports:\n"
+            "        - protocol: TCP\n"
+            "          port: 4000\n",
+            template,
+        )
         self.assertIn("kind: ClusterRole", template)
         self.assertIn("- management.cattle.io", template)
         self.assertIn("- projects", template)
