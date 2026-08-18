@@ -154,8 +154,8 @@ class OpenCodeModelLimitTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(qwen["limit"], {"context": 20000, "output": 4096})
-        self.assertEqual(small["limit"], {"context": 8192, "output": 2048})
+        self.assertEqual(qwen["limit"], {"context": 17952, "output": 4096})
+        self.assertEqual(small["limit"], {"context": 7168, "output": 1792})
 
     def test_catalog_publishes_a_paperclip_specific_provider_budget(self):
         data, _ = self.controller["build_catalog"](
@@ -180,7 +180,7 @@ class OpenCodeModelLimitTests(unittest.TestCase):
         )
         self.assertEqual(
             paperclip["litellm"]["models"]["qwen3827b"]["limit"],
-            {"context": 20000, "output": 4096},
+            {"context": 17952, "output": 4096},
         )
 
     def test_sync_updates_named_and_magicstick_managed_agent_templates(self):
