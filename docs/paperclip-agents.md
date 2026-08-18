@@ -288,9 +288,12 @@ Kubernetes `NetworkPolicy`; otherwise these declarations do not provide network
 isolation.
 
 The Paperclip control-plane Pod, unlike its sandbox Pods, needs the Kubernetes
-API to create those tenant resources. The instance chart adds TCP `6443` to the
-operator's existing TCP `443` egress rule because K3s exposes the API endpoint
-on `6443` and some CNIs evaluate NetworkPolicy after Service DNAT. On
+API to create those tenant resources and LiteLLM to validate OpenCode during
+onboarding and later adapter health checks. The instance chart adds TCP `6443`
+to the operator's existing TCP `443` egress rule because K3s exposes the API
+endpoint on `6443` and some CNIs evaluate NetworkPolicy after Service DNAT. A
+second narrow rule permits TCP `4000` only to Pods labeled `app=litellm` in the
+instance namespace; it does not allow arbitrary service egress. On
 Rancher-managed clusters, the provider's restricted Pod Security Admission
 labels are additionally validated through Rancher's `updatepsa` verb. A
 dedicated ClusterRole grants the Paperclip ServiceAccount only that custom verb;
@@ -349,6 +352,12 @@ Kubernetes API. On Rancher, an `Unauthorized` response from
 `updatepsa` ClusterRole or binding is missing. If a sandbox starts but inference
 fails, inspect `ai-model-catalog`, the LiteLLM Service, and the tenant namespace
 NetworkPolicies before changing credentials.
+
+If the onboarding environment check discovers models but ends with
+`OpenCode hello probe timed out`, test TCP `4000` from the Paperclip server Pod
+to `litellm.ai.svc.cluster.local`. Immediate connection failures followed by a
+roughly one-minute warning indicate that the control-plane NetworkPolicy is
+missing its LiteLLM rule; increasing the probe timeout does not fix that case.
 
 When an agent is repurposed after a failed or diagnostic task, reset its runtime
 session before assigning unrelated work. The persistent workspace is preserved,
