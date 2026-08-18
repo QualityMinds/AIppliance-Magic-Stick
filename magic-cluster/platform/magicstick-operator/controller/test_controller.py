@@ -190,6 +190,127 @@ class HelmAppInstanceTests(unittest.TestCase):
             resource_path("gateway.networking.k8s.io/v1", "HTTPRoute", "identity-system", "demo-local"),
             "/apis/gateway.networking.k8s.io/v1/namespaces/identity-system/httproutes/demo-local",
         )
+        self.assertEqual(
+            resource_path("networking.k8s.io/v1", "NetworkPolicy", "paperclip-demo-company", "runtime-egress"),
+            "/apis/networking.k8s.io/v1/namespaces/paperclip-demo-company/networkpolicies/runtime-egress",
+        )
+
+    def test_paperclip_tenant_runtime_resources_are_instance_scoped(self):
+        company_id = "3c58fd1a-a31e-4947-97ab-e7a904915ad0"
+        namespace = {
+            "metadata": {
+                "name": f"paperclip-demo-{company_id}",
+                "labels": {
+                    "paperclip.io/company-id": company_id,
+                    "paperclip.io/managed-by": "paperclip-k8s-plugin",
+                },
+            },
+        }
+        instance = {
+            "metadata": {"name": "paperclip-demo"},
+            "spec": {
+                "application": "paperclip",
+                "targetNamespace": "ai",
+                "values": {"agentExecution": {"maxConcurrentAgents": 2}},
+            },
+        }
+
+        self.assertIs(
+            self.controller["paperclip_tenant_instance"](namespace, [instance]),
+            instance,
+        )
+        resources = self.controller["paperclip_tenant_resources"](namespace, instance)
+        by_kind = {resource["kind"]: resource for resource in resources}
+        policy = by_kind["NetworkPolicy"]
+        self.assertEqual(policy["metadata"]["namespace"], namespace["metadata"]["name"])
+        self.assertEqual(
+            policy["spec"]["podSelector"],
+            {"matchLabels": {"paperclip.io/role": "agent"}},
+        )
+        self.assertEqual(
+            policy["spec"]["egress"],
+            [
+                {
+                    "to": [{
+                        "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "ai"}},
+                        "podSelector": {"matchLabels": {"app": "litellm"}},
+                    }],
+                    "ports": [{"protocol": "TCP", "port": 4000}],
+                },
+                {
+                    "to": [{
+                        "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "ai"}},
+                        "podSelector": {"matchLabels": {
+                            "app.kubernetes.io/name": "paperclip",
+                            "app.kubernetes.io/instance": "paperclip-demo",
+                            "app.kubernetes.io/component": "server",
+                        }},
+                    }],
+                    "ports": [{"protocol": "TCP", "port": 3100}],
+                },
+            ],
+        )
+        self.assertEqual(
+            by_kind["ResourceQuota"]["spec"]["hard"],
+            {
+                "pods": "2",
+                "requests.cpu": "1000m",
+                "requests.memory": "2Gi",
+                "limits.cpu": "4",
+                "limits.memory": "8Gi",
+            },
+        )
+        self.assertEqual(
+            by_kind["LimitRange"]["spec"]["limits"][0]["max"],
+            {"cpu": "2", "memory": "4Gi"},
+        )
+
+    def test_paperclip_tenant_matching_is_exact_and_requires_an_active_instance(self):
+        company_id = "3c58fd1a-a31e-4947-97ab-e7a904915ad0"
+        namespace = {
+            "metadata": {
+                "name": f"paperclip-demo-{company_id}",
+                "labels": {
+                    "paperclip.io/company-id": company_id,
+                    "paperclip.io/managed-by": "paperclip-k8s-plugin",
+                },
+            },
+        }
+        unrelated = {
+            "metadata": {"name": "paperclip-dem"},
+            "spec": {"application": "paperclip"},
+        }
+        disabled = {
+            "metadata": {"name": "paperclip-demo"},
+            "spec": {"application": "paperclip", "enabled": False},
+        }
+
+        self.assertIsNone(
+            self.controller["paperclip_tenant_instance"](namespace, [unrelated, disabled])
+        )
+
+    def test_operator_rbac_can_only_reconcile_required_tenant_resources(self):
+        documents = list(yaml.safe_load_all((ROOT / "rbac.yaml").read_text(encoding="utf-8")))
+        cluster_role = next(document for document in documents if document["kind"] == "ClusterRole")
+        rules = cluster_role["rules"]
+
+        namespace_rule = next(
+            rule for rule in rules if rule["apiGroups"] == [""] and rule["resources"] == ["namespaces"]
+        )
+        quota_rule = next(
+            rule
+            for rule in rules
+            if rule["apiGroups"] == [""] and rule["resources"] == ["resourcequotas", "limitranges"]
+        )
+        policy_rule = next(
+            rule
+            for rule in rules
+            if rule["apiGroups"] == ["networking.k8s.io"]
+            and rule["resources"] == ["networkpolicies"]
+        )
+        self.assertEqual(namespace_rule["verbs"], ["get", "list", "watch"])
+        self.assertEqual(quota_rule["verbs"], ["get", "create", "update", "patch"])
+        self.assertEqual(policy_rule["verbs"], ["get", "create", "update", "patch", "delete"])
 
     def test_default_appliance_is_gpu_neutral(self):
         appliance = yaml.safe_load((ROOT / "default-appliance.yaml").read_text(encoding="utf-8"))

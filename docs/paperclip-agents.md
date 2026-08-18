@@ -165,11 +165,12 @@ Register the image in `spec.adapters.registry` with a probe command and an
 explicit list of allowed environment keys. Do not install agent CLIs in the
 Paperclip server image and do not use Paperclip sidecars for per-run agents.
 
-Every OpenCode agent must install the `paperclipai/paperclip/paperclip` skill.
-Sandbox runs receive a run-scoped callback URL and token in
-`PAPERCLIP_API_URL` and `PAPERCLIP_API_KEY`. API requests must use the exact
-runtime URL and the header `Authorization: Bearer $PAPERCLIP_API_KEY`; do not
-hard-code the public Paperclip hostname or omit the `Bearer` scheme. Agent
+The instance reconciler attaches the `paperclipai/paperclip/paperclip` base
+skill to every OpenCode agent and preserves any specialized skills already
+selected for that agent. Sandbox runs receive a run-scoped callback URL and
+token in `PAPERCLIP_API_URL` and `PAPERCLIP_API_KEY`. API requests must use the
+exact runtime URL and the header `Authorization: Bearer $PAPERCLIP_API_KEY`; do
+not hard-code the public Paperclip hostname or omit the `Bearer` scheme. Agent
 instructions should repeat this contract because model-generated shell commands
 can otherwise degrade a valid token into an invalid header.
 
@@ -253,7 +254,7 @@ Tirith protection.
 
 | Key | Paperclip use |
 |---|---|
-| `opencode-providers.json` | OpenCode provider configuration for the internal LiteLLM API. |
+| `paperclip-opencode-providers.json` | OpenCode provider configuration for the internal LiteLLM API, with Paperclip-safe context headroom. |
 | `paperclip-adapter-models.json` | OpenCode model-picker entries exposed by Paperclip. |
 | `AI_APPLIANCE_DEFAULT_OPENCODE_MODEL` | Default value in `litellm/<model-id>` form. |
 | `chat-models.json` | Available chat models shown by Appliance Control. |
@@ -262,7 +263,10 @@ The generated OpenCode provider uses
 `http://litellm.ai.svc.cluster.local:4000/v1`. Every chat model is exported as
 `litellm/<model-id>` with explicit context and output limits required by the
 OpenCode provider schema. Missing limits default to 131072 context tokens and
-8192 output tokens. `OPENAI_API_KEY` is injected into Paperclip from
+8192 output tokens before the Paperclip-specific output cap is applied. The
+runtime requests at most 4096 output tokens and no more than one quarter of the
+model context, so agent instructions and tool history retain at least three
+quarters of the window. `OPENAI_API_KEY` is injected into Paperclip from
 `Secret/ai/litellm-masterkey-secret`; no key value is stored in an
 `AppInstance`, ConfigMap, or public manifest.
 
@@ -280,7 +284,6 @@ managed namespace. Together the policies permit:
 - cluster DNS
 - the Paperclip callback Service
 - LiteLLM on TCP port 4000
-- an explicitly configured gateway route where applicable
 
 They do not permit the Kubernetes API, cloud metadata endpoints, or arbitrary
 cluster services from sandbox Pods. The cluster network provider must enforce
@@ -300,8 +303,9 @@ dedicated ClusterRole grants the Paperclip ServiceAccount only that custom verb;
 the rule has no effect when the Rancher API group is absent.
 
 The Paperclip callback selector uses the owning `AppInstance`, not the pinned
-plugin's hard-coded `paperclip` namespace. OpenClaw and Hermes routes are added
-only when the dashboard selection references a concrete existing instance.
+plugin's hard-coded `paperclip` namespace. Tenant ownership is accepted only
+when the managed namespace name exactly matches `<AppInstance>-<company-id>`;
+an unrelated or disabled instance cannot widen sandbox egress.
 
 ## Credentials
 
@@ -358,6 +362,14 @@ If the onboarding environment check discovers models but ends with
 to `litellm.ai.svc.cluster.local`. Immediate connection failures followed by a
 roughly one-minute warning indicate that the control-plane NetworkPolicy is
 missing its LiteLLM rule; increasing the probe timeout does not fix that case.
+
+If a task stops after `Sandbox run log streaming enabled for this run`, inspect
+the generated tenant namespace. It must contain
+`NetworkPolicy/magicstick-paperclip-runtime-egress`; its two rules permit only
+the owning Paperclip server on TCP `3100` and LiteLLM Pods on TCP `4000`. Zero
+OpenCode output together with an immediate connection refusal to either Service
+means this policy has not yet been reconciled. Check the `magicstick-operator`
+logs and RBAC instead of increasing the task timeout.
 
 When an agent is repurposed after a failed or diagnostic task, reset its runtime
 session before assigning unrelated work. The persistent workspace is preserved,

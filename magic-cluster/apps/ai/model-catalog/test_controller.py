@@ -138,6 +138,51 @@ class OpenCodeModelLimitTests(unittest.TestCase):
 
         self.assertEqual(generated["limit"], {"context": 4096, "output": 4096})
 
+    def test_paperclip_opencode_reserves_context_for_long_agent_prompts(self):
+        qwen = self.controller["paperclip_opencode_model"](
+            {
+                "id": "qwen3827b",
+                "contextWindow": 20000,
+                "maxOutputTokens": 8192,
+            }
+        )
+        small = self.controller["paperclip_opencode_model"](
+            {
+                "id": "small-context",
+                "contextWindow": 8192,
+                "maxOutputTokens": 8192,
+            }
+        )
+
+        self.assertEqual(qwen["limit"], {"context": 20000, "output": 4096})
+        self.assertEqual(small["limit"], {"context": 8192, "output": 2048})
+
+    def test_catalog_publishes_a_paperclip_specific_provider_budget(self):
+        data, _ = self.controller["build_catalog"](
+            [
+                {
+                    "model_name": "qwen3827b",
+                    "litellm_params": {"model": "openai/qwen3827b"},
+                    "model_info": {
+                        "ai_appliance_type": "chat",
+                        "max_input_tokens": 20000,
+                        "max_output_tokens": 8192,
+                    },
+                }
+            ]
+        )
+
+        generic = json.loads(data["opencode-providers.json"])
+        paperclip = json.loads(data["paperclip-opencode-providers.json"])
+        self.assertEqual(
+            generic["litellm"]["models"]["qwen3827b"]["limit"],
+            {"context": 20000, "output": 8192},
+        )
+        self.assertEqual(
+            paperclip["litellm"]["models"]["qwen3827b"]["limit"],
+            {"context": 20000, "output": 4096},
+        )
+
     def test_sync_updates_named_and_magicstick_managed_agent_templates(self):
         original_request = self.controller["k8s_request"]
         original_names = self.controller["AGENT_TEMPLATE_NAMES"]
