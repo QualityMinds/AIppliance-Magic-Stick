@@ -45,6 +45,14 @@ spec:
           const http = require("http");
           const listenHost = process.env.POD_IP;
           const listenPort = 3100;
+          const pluginKey = "paperclip.kubernetes-sandbox-provider";
+          const pluginPackage = "@paperclipai/plugin-kubernetes";
+          const pluginPackageVersion = "2026.707.0";
+          const defaultOpenCodeModel = process.env.PAPERCLIP_DEFAULT_OPENCODE_MODEL;
+          let installAttempted = false;
+          let enableAttempted = false;
+          let lastBootstrapError = "";
+          let builtInReconciliationRunning = false;
           const server = net.createServer((downstream) => {
             const upstream = net.connect({host: "127.0.0.1", port: 3100});
             downstream.pipe(upstream);
@@ -52,20 +60,136 @@ spec:
             downstream.on("error", () => upstream.destroy());
             upstream.on("error", () => downstream.destroy());
           });
-          const waitForPaperclip = () => {
-            const probe = http.get({host: "127.0.0.1", port: 3100, path: "/api/health", timeout: 1000}, (response) => {
-              response.resume();
-              server.listen(listenPort, listenHost);
+          server.once("error", (error) => {
+            console.error(`Paperclip gateway proxy failed: ${error.message}`);
+            process.exit(1);
+          });
+          const apiRequest = (method, path, body) => new Promise((resolve, reject) => {
+            const payload = body === undefined ? null : JSON.stringify(body);
+            const timeout = method === "POST" && path === "/api/plugins/install" ? 120000 : 5000;
+            const request = http.request({
+              host: "127.0.0.1",
+              port: 3100,
+              path,
+              method,
+              timeout,
+              headers: payload === null ? {} : {
+                "Content-Type": "application/json",
+                "Content-Length": Buffer.byteLength(payload),
+              },
+            }, (response) => {
+              let responseBody = "";
+              response.setEncoding("utf8");
+              response.on("data", (chunk) => {
+                if (responseBody.length < 1024 * 1024) responseBody += chunk;
+              });
+              response.on("end", () => {
+                if (response.statusCode < 200 || response.statusCode >= 300) {
+                  reject(new Error(`${method} ${path} returned ${response.statusCode}: ${responseBody.slice(0, 500)}`));
+                  return;
+                }
+                if (responseBody.length === 0) {
+                  resolve(null);
+                  return;
+                }
+                try {
+                  resolve(JSON.parse(responseBody));
+                } catch (error) {
+                  reject(new Error(`${method} ${path} returned invalid JSON: ${error.message}`));
+                }
+              });
             });
-            probe.once("error", () => setTimeout(waitForPaperclip, 250));
-            probe.once("timeout", () => probe.destroy());
+            request.once("error", reject);
+            request.once("timeout", () => request.destroy(new Error(`${method} ${path} timed out`)));
+            if (payload !== null) request.write(payload);
+            request.end();
+          });
+          const ensureKubernetesPlugin = async () => {
+            const plugins = await apiRequest("GET", "/api/plugins");
+            if (!Array.isArray(plugins)) throw new Error("GET /api/plugins did not return a plugin list");
+            let plugin = plugins.find((candidate) => candidate.pluginKey === pluginKey);
+            if (!plugin || plugin.status === "error" || plugin.status === "incompatible") {
+              if (installAttempted) {
+                throw new Error(`Kubernetes plugin did not become ready after installation (status=${plugin?.status ?? "missing"})`);
+              }
+              installAttempted = true;
+              plugin = await apiRequest("POST", "/api/plugins/install", {
+                packageName: pluginPackage,
+                version: pluginPackageVersion,
+                isLocalPath: false,
+              });
+            }
+            if (plugin?.status === "disabled" && !enableAttempted) {
+              enableAttempted = true;
+              plugin = await apiRequest("POST", `/api/plugins/${encodeURIComponent(plugin.id)}/enable`, {});
+            }
+            if (plugin?.status !== "ready") {
+              throw new Error(`Kubernetes plugin is not ready yet (status=${plugin?.status ?? "unknown"})`);
+            }
           };
-          waitForPaperclip();
+          const reconcileBuiltInAgents = async () => {
+            if (builtInReconciliationRunning) return;
+            if (!defaultOpenCodeModel || defaultOpenCodeModel.includes("CHANGEME")) return;
+            builtInReconciliationRunning = true;
+            try {
+              const adapters = await apiRequest("GET", "/api/adapters");
+              if (!Array.isArray(adapters)) throw new Error("GET /api/adapters did not return an adapter list");
+              const openCode = adapters.find((adapter) => adapter.type === "opencode_local" && adapter.disabled === false);
+              if (!openCode) return;
+              const adaptersByType = new Map(adapters.map((adapter) => [adapter.type, adapter]));
+              const companies = await apiRequest("GET", "/api/companies");
+              if (!Array.isArray(companies)) throw new Error("GET /api/companies did not return a company list");
+              for (const company of companies) {
+                const companyId = encodeURIComponent(company.id);
+                const response = await apiRequest("GET", `/api/companies/${companyId}/agents`);
+                const agents = Array.isArray(response) ? response : response?.items;
+                if (!Array.isArray(agents)) throw new Error(`Company ${company.id} did not return an agent list`);
+                for (const agent of agents) {
+                  const marker = agent?.metadata?.paperclipBuiltInAgent;
+                  const configuredModel = agent?.adapterConfig?.model;
+                  const selectedAdapter = adaptersByType.get(agent?.adapterType);
+                  const hasConfiguredModel = typeof configuredModel === "string" && configuredModel.trim().length > 0;
+                  if (!marker?.key || selectedAdapter?.disabled !== true || hasConfiguredModel) continue;
+                  await apiRequest("PATCH", `/api/agents/${encodeURIComponent(agent.id)}`, {
+                    adapterType: "opencode_local",
+                    adapterConfig: {model: defaultOpenCodeModel},
+                  });
+                  console.log(`Migrated incomplete built-in agent ${agent.id} from disabled adapter ${agent.adapterType} to opencode_local`);
+                }
+              }
+            } finally {
+              builtInReconciliationRunning = false;
+            }
+          };
+          const bootstrap = async () => {
+            try {
+              await apiRequest("GET", "/api/health");
+              await ensureKubernetesPlugin();
+              await reconcileBuiltInAgents();
+              server.listen(listenPort, listenHost, () => {
+                console.log(`Paperclip Kubernetes plugin is ready; gateway proxy listening on ${listenHost}:${listenPort}`);
+                setInterval(() => {
+                  reconcileBuiltInAgents().catch((error) => {
+                    console.error(`Paperclip built-in agent reconciliation failed: ${error.message}`);
+                  });
+                }, 30000);
+              });
+            } catch (error) {
+              if (error.message !== lastBootstrapError) {
+                lastBootstrapError = error.message;
+                console.error(`Waiting for Paperclip Kubernetes plugin: ${error.message}`);
+              }
+              setTimeout(bootstrap, 1000);
+            }
+          };
+          bootstrap();
       env:
         - name: POD_IP
           valueFrom:
             fieldRef:
               fieldPath: status.podIP
+        - name: PAPERCLIP_DEFAULT_OPENCODE_MODEL
+          value: {{ printf "litellm/%s" $model | quote }}
       readinessProbe:
         tcpSocket:
           port: 3100
@@ -111,6 +235,11 @@ spec:
       value: {{ printf "litellm/%s" $model | quote }}
     - name: PAPERCLIP_OPENCODE_CHEAP_MODEL
       value: {{ printf "litellm/%s" $model | quote }}
+    # The Paperclip operator currently exposes no CRD field for this supported
+    # server bootstrap setting. Without it, environment probes fall back to the
+    # unregistered claude_local adapter even though runs use opencode_local.
+    - name: PAPERCLIP_K8S_ADAPTER_TYPE
+      value: opencode_local
   adapters:
     execution:
       mode: kubernetes
