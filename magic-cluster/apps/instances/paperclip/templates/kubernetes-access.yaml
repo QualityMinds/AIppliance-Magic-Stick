@@ -1,0 +1,62 @@
+{{- $instance := required "instance is required" .Values.instance -}}
+{{- $rbacName := printf "%s-%s-rancher-psa" $instance.namespace $instance.name | trunc 63 | trimSuffix "-" -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ printf "%s-kubernetes-api" $instance.name | trunc 63 | trimSuffix "-" }}
+  namespace: {{ $instance.namespace }}
+  labels:
+    app.kubernetes.io/name: paperclip
+    app.kubernetes.io/instance: {{ $instance.name }}
+    appliance.magicstick.dev/appinstance: {{ $instance.name }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: paperclip
+      app.kubernetes.io/instance: {{ $instance.name }}
+      app.kubernetes.io/component: server
+  policyTypes:
+    - Egress
+  # Some CNIs evaluate the destination after Service DNAT. K3s exposes its API
+  # endpoint on 6443, while the operator's base policy only permits Service port
+  # 443. This additive rule keeps in-cluster provider access portable.
+  egress:
+    - ports:
+        - protocol: TCP
+          port: 6443
+---
+# The Kubernetes provider creates tenant namespaces with restricted PSA labels.
+# Rancher validates those labels with its custom updatepsa verb. This no-op rule
+# on non-Rancher clusters grants only that validation capability when present.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $rbacName }}
+  labels:
+    app.kubernetes.io/name: paperclip
+    app.kubernetes.io/instance: {{ $instance.name }}
+    appliance.magicstick.dev/appinstance: {{ $instance.name }}
+rules:
+  - apiGroups:
+      - management.cattle.io
+    resources:
+      - projects
+    verbs:
+      - updatepsa
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $rbacName }}
+  labels:
+    app.kubernetes.io/name: paperclip
+    app.kubernetes.io/instance: {{ $instance.name }}
+    appliance.magicstick.dev/appinstance: {{ $instance.name }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $rbacName }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $instance.name }}
+    namespace: {{ $instance.namespace }}

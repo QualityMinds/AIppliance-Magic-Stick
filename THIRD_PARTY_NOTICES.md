@@ -27,6 +27,7 @@ digest, or chart version.
 | `mintplexlabs/anythingllm:1.12.1` | https://github.com/Mintplex-Labs/anything-llm | AnythingLLM | Referenced only |
 | `qdrant/qdrant:v1.13.6` | https://github.com/qdrant/qdrant | Qdrant vector database | Referenced only |
 | `ghcr.io/paperclipai/paperclip:sha-df0e5bd` | https://github.com/paperclipai/paperclip | Paperclip `v2026.707.0` compatible runtime build | Referenced only |
+| `@paperclipai/plugin-kubernetes` | https://www.npmjs.com/package/@paperclipai/plugin-kubernetes | `2026.707.0` Kubernetes sandbox provider installed through the local Paperclip API | Downloaded at first Paperclip startup and persisted |
 | `ghcr.io/paperclipai/agent-runtime-base:git-b18cbb0dd3d524d3d332f54143c84f00c694636c` | https://github.com/paperclipai/paperclip | Paperclip gateway sandbox runtime | Referenced only |
 | `ghcr.io/paperclipai/agent-runtime-opencode:git-b18cbb0dd3d524d3d332f54143c84f00c694636c` | https://github.com/paperclipai/paperclip | Paperclip OpenCode sandbox runtime | Referenced only |
 | `ghcr.io/paperclipinc/hermes-agent:v2026.5.29.2` | https://github.com/paperclip-ai/hermes | Hermes agent runtime | Referenced only |

@@ -41,6 +41,22 @@ The Agent Sandbox base is reusable and opt-in. It installs the upstream chart
 from a Flux `GitRepository` pinned to tag `v0.5.1` and provides the
 `sandboxes.agents.x-k8s.io` CRD.
 
+The Paperclip application image contains the Kubernetes provider source but not
+its compiled plugin artifact. On every Pod start, the authenticated loopback
+gateway checks Paperclip's plugin registry. It installs the exact pinned npm
+package through Paperclip's local API only when the provider is missing, waits
+for plugin state `ready`, and only then exposes the application Service. The
+installed package and plugin record persist with Paperclip, so ordinary offline
+restarts do not contact npm again.
+
+Pinned Paperclip built-in agents currently select the first adapter in their
+own allowed list, even when that adapter is disabled. The same loopback helper
+therefore reconciles only incomplete built-in agents that have a Paperclip
+built-in marker, a disabled adapter, and no configured model. It assigns the
+enabled `opencode_local` adapter and the appliance default model. The check runs
+at startup and every 30 seconds so built-ins enabled later also work. Custom
+agents and every agent with an explicit model remain untouched.
+
 ## AppInstance Contract
 
 The dashboard writes the following runtime shape. The hostname is normally
@@ -91,6 +107,9 @@ The resulting `paperclip.inc/v1alpha1` resource uses:
 
 ```yaml
 spec:
+  env:
+    - name: PAPERCLIP_K8S_ADAPTER_TYPE
+      value: opencode_local
   adapters:
     execution:
       mode: kubernetes
@@ -268,6 +287,15 @@ cluster services from sandbox Pods. The cluster network provider must enforce
 Kubernetes `NetworkPolicy`; otherwise these declarations do not provide network
 isolation.
 
+The Paperclip control-plane Pod, unlike its sandbox Pods, needs the Kubernetes
+API to create those tenant resources. The instance chart adds TCP `6443` to the
+operator's existing TCP `443` egress rule because K3s exposes the API endpoint
+on `6443` and some CNIs evaluate NetworkPolicy after Service DNAT. On
+Rancher-managed clusters, the provider's restricted Pod Security Admission
+labels are additionally validated through Rancher's `updatepsa` verb. A
+dedicated ClusterRole grants the Paperclip ServiceAccount only that custom verb;
+the rule has no effect when the Rancher API group is absent.
+
 The Paperclip callback selector uses the owning `AppInstance`, not the pinned
 plugin's hard-coded `paperclip` namespace. OpenClaw and Hermes routes are added
 only when the dashboard selection references a concrete existing instance.
@@ -313,7 +341,12 @@ kubectl get resourcequotas,limitranges -A
 
 If no Sandbox appears for a task, verify that both required CRDs exist, the
 Paperclip `Instance` contains `backend: sandbox-cr`, and the selected agent uses
-an enabled adapter with a runtime image. If a sandbox starts but inference
+an enabled adapter with a runtime image. Also confirm that
+`paperclip.kubernetes-sandbox-provider` is `ready`, the managed environment uses
+`adapterType: opencode_local`, and the Paperclip control-plane Pod can reach the
+Kubernetes API. On Rancher, an `Unauthorized` response from
+`rancher.cattle.io.namespaces.create-non-kubesystem` means the instance-specific
+`updatepsa` ClusterRole or binding is missing. If a sandbox starts but inference
 fails, inspect `ai-model-catalog`, the LiteLLM Service, and the tenant namespace
 NetworkPolicies before changing credentials.
 
