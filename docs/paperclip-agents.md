@@ -269,7 +269,7 @@ The generated OpenCode provider uses
 OpenCode provider schema. Missing limits default to 131072 context tokens and
 8192 output tokens before the Paperclip-specific limits are applied. The
 runtime requests at most 4096 output tokens and no more than one quarter of its
-advertised context. It also advertises up to 2048 fewer context tokens than the
+advertised context. It also advertises up to 4096 fewer context tokens than the
 model physically accepts, so compaction happens before the LiteLLM/vLLM hard
 boundary. `OPENAI_API_KEY` is injected into Paperclip from
 `Secret/ai/litellm-masterkey-secret`; no key value is stored in an

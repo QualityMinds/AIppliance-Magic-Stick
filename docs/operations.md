@@ -272,11 +272,11 @@ If model pods fail to start, check:
 The bundled `qwen3827b` preset reserves `24062Mi` and targets a single 24
 GB-class GPU. Its OpenCode output limit is 8192 tokens inside the 20000-token
 vLLM context window. Paperclip uses a separate 4096-token cap and advertises a
-17952-token context to OpenCode, retaining 2048 physical tokens as safety
-headroom for compaction and tool-turn overhead. If the vLLM
-wrapper reports that this budget is larger than the physical GPU memory, choose
-a smaller preset or create a custom activation with lower VRAM, context, output,
-and concurrency values.
+15904-token context with a 3976-token output limit to OpenCode, retaining 4096
+physical tokens as safety headroom for compaction and tool-turn overhead. If
+the vLLM wrapper reports that this budget is larger than the physical GPU
+memory, choose a smaller preset or create a custom activation with lower VRAM,
+context, output, and concurrency values.
 
 ## Storage
 
@@ -326,7 +326,7 @@ deploy,pods` if a command does not match the running resource name.
 | Paperclip task reports that provider `kubernetes` is not registered or creates no Sandbox | Check that plugin `paperclip.kubernetes-sandbox-provider` is `ready`, then check `sandboxes.agents.x-k8s.io`, the Agent Sandbox controller, `PAPERCLIP_K8S_ADAPTER_TYPE=opencode_local`, `spec.adapters.execution.kubernetes.backend`, and the selected adapter runtime image. For K3s, confirm control-plane egress TCP `6443`; for Rancher namespace admission failures, confirm the instance-specific `updatepsa` ClusterRoleBinding. |
 | Paperclip onboarding discovers OpenCode models but the hello probe times out | Verify that the Paperclip server Pod can connect to `litellm.ai.svc.cluster.local:4000` and that its additive NetworkPolicy permits TCP `4000` only to Pods labeled `app=litellm`. OpenCode retries an immediate connection refusal with backoff, so this otherwise appears as a slow 60-second probe. |
 | Paperclip task stops after `Sandbox run log streaming enabled` | Find the namespace labeled `paperclip.io/managed-by=paperclip-k8s-plugin` and verify `NetworkPolicy/magicstick-paperclip-runtime-egress` exists. The policy must select `paperclip.io/role=agent` and permit only the owning Paperclip server on TCP `3100` plus `app=litellm` on TCP `4000`. Check `magicstick-operator` logs and RBAC if it is absent. |
-| Paperclip task repeatedly runs for minutes and LiteLLM reports `ContextWindowExceededError` by one token | Check that `paperclip-opencode-providers.json` advertises a smaller context than the physical model limit. For the bundled 20000-token Qwen preset the Paperclip value is 17952 with output 4096. Reconcile the model catalog and restart the affected Paperclip run after the generated provider file changes. |
+| Paperclip task repeatedly runs for minutes and LiteLLM reports `ContextWindowExceededError` | Check that `paperclip-opencode-providers.json` advertises a smaller context than the physical model limit. For the bundled 20000-token Qwen preset the Paperclip value is 15904 with output 3976. Reconcile the model catalog and restart the affected Paperclip run after the generated provider file changes. |
 | Paperclip run stays pending and the tenant namespace reports `exceeded quota: paperclip-quota` | Compare each Sandbox `paperclip.io/run-id` with the Paperclip heartbeat run. The instance helper removes only terminal runs after a 60-second grace; inspect the `gateway-loopback-proxy` log if they remain. Do not increase the quota to mask orphaned runtime Pods. |
 | Paperclip sandbox cannot call a model | Check `paperclip-opencode-providers.json`, `litellm-masterkey-secret`, LiteLLM on port 4000, and NetworkPolicies in the Paperclip tenant namespace. |
 | Generated Secret missing | Check the secret generator HelmRelease and Secret annotations. |

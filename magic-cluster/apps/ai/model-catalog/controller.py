@@ -28,7 +28,7 @@ PAPERCLIP_OPENCODE_MAX_OUTPUT_TOKENS = max(
     1, int(os.environ.get("PAPERCLIP_OPENCODE_MAX_OUTPUT_TOKENS", "4096"))
 )
 PAPERCLIP_OPENCODE_CONTEXT_HEADROOM_TOKENS = max(
-    0, int(os.environ.get("PAPERCLIP_OPENCODE_CONTEXT_HEADROOM_TOKENS", "2048"))
+    0, int(os.environ.get("PAPERCLIP_OPENCODE_CONTEXT_HEADROOM_TOKENS", "4096"))
 )
 OPENCLAW_SMALL_CONTEXT_MAX_TOKENS = 32768
 OPENCLAW_SMALL_CONTEXT_RESERVE_MAX_TOKENS = 4096
@@ -539,7 +539,7 @@ def paperclip_opencode_model(model):
     if physical_context > 1 and PAPERCLIP_OPENCODE_CONTEXT_HEADROOM_TOKENS:
         headroom = min(
             PAPERCLIP_OPENCODE_CONTEXT_HEADROOM_TOKENS,
-            max(1, physical_context // 8),
+            max(1, physical_context // 4),
             physical_context - 1,
         )
     context = physical_context - headroom
