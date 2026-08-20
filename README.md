@@ -34,6 +34,7 @@ created by the dashboard.
 │   ├── operator-orchestration.md
 │   ├── operations.md
 │   ├── privacy.html
+│   ├── sales-deck/
 │   └── public-release-checklist.md
 ├── CONTRIBUTING.md
 ├── SUPPORT.md
@@ -74,6 +75,7 @@ site.
 | Cluster operations | [docs/operations.md](docs/operations.md) |
 | AI model catalog | [docs/model-catalog.md](docs/model-catalog.md) |
 | Paperclip agent execution | [docs/paperclip-agents.md](docs/paperclip-agents.md) |
+| German sales deck (PowerPoint and PDF) | [docs/sales-deck/README.md](docs/sales-deck/README.md) |
 | Development and release checks | [docs/development.md](docs/development.md) |
 
 Agent-specific repo instructions live in [AGENTS.md](AGENTS.md). Optional
