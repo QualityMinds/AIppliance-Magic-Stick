@@ -23,6 +23,7 @@ bootstrap plus runtime configuration through the dashboard and runtime CRs.
 | [operations.md](operations.md) | Day-2 checks for Flux, K3s, apps, models, storage, GPU, logs, and common failures. |
 | [model-catalog.md](model-catalog.md) | AI model catalog contract, external model schema, generated ConfigMap keys, and troubleshooting. |
 | [paperclip-agents.md](paperclip-agents.md) | Paperclip sandbox execution, gateway agents, model access, credentials, and network isolation. |
+| [sales-deck/README.md](sales-deck/README.md) | German Magic Stick sales deck in PowerPoint and PDF format, including a visual preview and maintenance notes. |
 | [development.md](development.md) | Contribution workflow, validation commands, public release checks, and review rules. |
 | [public-release-checklist.md](public-release-checklist.md) | Final checklist before publishing a public release tag. |
 

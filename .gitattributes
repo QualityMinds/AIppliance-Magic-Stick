@@ -1,1 +1,3 @@
 magic-cluster/platform/basis/kdns/patches/*.patch -whitespace
+*.pdf binary
+*.pptx binary
