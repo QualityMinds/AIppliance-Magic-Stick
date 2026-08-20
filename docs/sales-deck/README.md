@@ -11,6 +11,18 @@ optional enterprise governance package for customer and pilot conversations.
 - [PowerPoint](Magic-Stick-Salesdeck-Dark-DE.pptx)
 - [PDF](Magic-Stick-Salesdeck-Dark-DE.pdf)
 
+## Marketing onepage
+
+The portrait one-page version explains at a glance what Magic Stick is, what
+changes for its users, and how the open-source foundation can be extended with
+optional enterprise governance. It combines a product promise, three concrete
+outcomes, and a real dashboard capture in a single shareable page.
+
+![Magic Stick marketing onepage](Magic-Stick-Onepager-DE.png)
+
+- [Editable PowerPoint](Magic-Stick-Onepager-DE.pptx)
+- [Shareable PDF](Magic-Stick-Onepager-DE.pdf)
+
 ## Storyline
 
 The 13-slide deck covers:
