@@ -599,6 +599,47 @@ data:
           line-height: 1.4;
         }
 
+        .compute-target-picker {
+          display: grid;
+          gap: 0.65rem;
+          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        }
+
+        .compute-target-choice {
+          appearance: none;
+          background: rgba(15, 23, 42, 0.78);
+          border: 1px solid rgba(125, 211, 252, 0.28);
+          border-radius: 12px;
+          color: var(--text);
+          cursor: pointer;
+          display: grid;
+          gap: 0.3rem;
+          min-height: 5.4rem;
+          padding: 0.8rem;
+          text-align: left;
+        }
+
+        .compute-target-choice[aria-pressed="true"] {
+          background: rgba(14, 116, 144, 0.28);
+          border-color: var(--accent);
+          box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.28);
+        }
+
+        .compute-target-choice:disabled {
+          cursor: not-allowed;
+          opacity: 0.68;
+        }
+
+        .compute-target-choice small {
+          color: var(--muted);
+          font-size: 0.76rem;
+          line-height: 1.35;
+        }
+
+        .compute-target-choice:disabled small {
+          color: #fde68a;
+        }
+
         .instance-config-step,
         .instance-create-grid {
           display: grid;
@@ -1383,18 +1424,21 @@ data:
                 <div class="model-create-grid">
                   <form class="dashboard-card model-form" id="local-model-form">
                     <h3>Local Model</h3>
-                    <p class="module-message" id="local-model-requirements" role="status">Checking whether GPU and KubeAI are ready.</p>
-                    <fieldset class="model-form-fields" id="local-model-fields" disabled>
+                    <p class="module-message" id="local-model-requirements" role="status">Checking available compute targets.</p>
+                    <fieldset class="model-form-fields" id="local-model-fields">
+                      <input type="hidden" name="computeTarget" id="local-model-compute-target" value="" />
+                      <div class="compute-target-picker" id="compute-target-picker" role="group" aria-label="Compute target"></div>
                       <div class="form-grid">
                       <label class="field">Name<input name="name" value="qwen352bvlembedding" /></label>
                       <label class="field">Preset<select name="preset" id="local-model-preset"><option value="qwen352bvlembedding">qwen352bvlembedding</option><option value="qwen3635b">qwen3635b</option><option value="qwen359b">qwen359b</option><option value="custom">Custom</option></select></label>
                       <label class="field">Type<select name="modelType"><option value="chat">chat</option><option value="embedding">embedding</option></select></label>
-                      <label class="field">VRAM Limit<input name="vram" value="5Gi" /></label>
+                      <label class="field" data-compute-target-section="nvidia-gpu">VRAM Limit<input name="vram" value="5Gi" /></label>
                       <label class="field">HF URL<input name="url" placeholder="hf://example/model" /></label>
                       <label class="field">Context Size<input name="contextWindow" value="4096" /></label>
                       <label class="field">Max Num Seqs<input name="maxNumSeqs" placeholder="32" /></label>
                       </div>
-                      <div class="vram-estimate" id="vram-estimate">
+                      <p class="module-message" id="cpu-runtime-summary" data-compute-target-section="cpu" hidden>CPU inference uses system RAM. The CPU vLLM profile is selected automatically.</p>
+                      <div class="vram-estimate" id="vram-estimate" data-compute-target-section="nvidia-gpu">
                       <div class="vram-estimate-header">
                         <strong>VRAM Estimate</strong>
                         <span id="vram-estimate-status">Waiting for model metadata</span>
@@ -1447,7 +1491,7 @@ data:
                 <h3>VRAM</h3>
                 <p id="vram-summary">Waiting for GPU metrics.</p>
                 <div id="vram-list" class="mini-list"></div>
-                <button class="control-button danger" id="remove-local-runtime" type="button" hidden>Remove Local GPU Runtime</button>
+                <button class="control-button danger" id="remove-local-runtime" type="button" hidden>Remove Local Inference Runtime</button>
               </article>
 
               <section class="model-section">
@@ -1685,6 +1729,7 @@ data:
           };
           let renderedPresetSignature = '';
           let localPresetLastApplied = '';
+          let activeComputeTarget = '';
           const pendingModuleActions = {};
           const pendingModelDeletes = {};
           let vramEstimateTimer = null;
@@ -1772,24 +1817,127 @@ data:
             return requiredModules.length > 0 && requiredModules.every((name) => moduleInstalled(modulePayload, name));
           };
 
-          const localModelRequiredModules = ['gpu', 'kubeai'];
+          const computeTargets = (modelPayload = latestModelPayload) => ((((modelPayload || {}).computeTargets || {}).targets) || []);
 
-          const missingLocalModelModules = (modulePayload) => localModelRequiredModules.filter((name) => !moduleInstalled(modulePayload, name));
+          const computeTarget = (targetId, modelPayload = latestModelPayload) => computeTargets(modelPayload)
+            .find((target) => String(target.id || '') === String(targetId || ''));
 
-          const renderLocalModelAvailability = (modulePayload) => {
+          const selectedComputeTarget = () => {
+            const field = $('local-model-compute-target');
+            return String((field || {}).value || activeComputeTarget || '').trim();
+          };
+
+          const presetVariant = (preset, targetId) => {
+            if (!preset || typeof preset !== 'object') { return null; }
+            const base = Object.fromEntries(Object.entries(preset).filter(([key]) => key !== 'variants'));
+            const variants = Array.isArray(preset.variants) ? preset.variants : [];
+            if (!variants.length) {
+              return targetId === 'nvidia-gpu' ? base : null;
+            }
+            const variant = variants.find((item) => (
+              String(item.computeTarget || '').toLowerCase() === String(targetId || '').toLowerCase()
+              && String(item.engine || 'VLLM').toUpperCase() === 'VLLM'
+            ));
+            return variant ? { ...base, ...variant } : null;
+          };
+
+          const renderComputeTargetSections = (targetId) => {
+            document.querySelectorAll('[data-compute-target-section]').forEach((node) => {
+              node.hidden = node.dataset.computeTargetSection !== targetId;
+            });
+            if (targetId !== 'nvidia-gpu') {
+              latestVramEstimateSignature = '';
+              renderEmptyVramEstimate('VRAM is not used for CPU inference');
+            }
+          };
+
+          const selectComputeTarget = (targetId, options = {}) => {
+            const target = computeTarget(targetId);
+            if (!target || target.available !== true) { return false; }
+            activeComputeTarget = targetId;
+            const field = $('local-model-compute-target');
+            if (field) { field.value = targetId; }
+            document.querySelectorAll('[data-compute-target]').forEach((button) => {
+              button.setAttribute('aria-pressed', button.dataset.computeTarget === targetId ? 'true' : 'false');
+            });
+            renderComputeTargetSections(targetId);
+            renderedPresetSignature = '';
+            localPresetLastApplied = '';
+            renderLocalPresetOptions(latestModelPayload);
+            const select = $('local-model-preset');
+            applyLocalPresetFields(select ? select.value : '', { force: true });
+            if (options.renderAvailability !== false) {
+              renderLocalModelAvailability(latestModelPayload);
+            }
+            return true;
+          };
+
+          const renderComputeTargets = (modelPayload) => {
+            const picker = $('compute-target-picker');
+            if (!picker) { return; }
+            picker.innerHTML = '';
+            const targets = computeTargets(modelPayload);
+            targets.forEach((target) => {
+              const button = document.createElement('button');
+              button.type = 'button';
+              button.className = 'compute-target-choice';
+              button.dataset.computeTarget = target.id;
+              button.disabled = target.available !== true;
+              button.setAttribute('aria-pressed', 'false');
+              const title = document.createElement('strong');
+              title.textContent = target.displayName || target.id;
+              const engine = document.createElement('span');
+              engine.textContent = (target.engines || ['VLLM']).join(', ');
+              const detail = document.createElement('small');
+              detail.textContent = target.message || (target.available ? 'Available' : 'Unavailable');
+              button.append(title, engine, detail);
+              button.addEventListener('click', () => selectComputeTarget(target.id));
+              picker.appendChild(button);
+            });
+            const requested = selectedComputeTarget();
+            const defaultTarget = String(((modelPayload || {}).computeTargets || {}).default || '');
+            const selected = computeTarget(requested, modelPayload);
+            const next = selected && selected.available === true
+              ? requested
+              : (defaultTarget || String(((targets.find((target) => target.available === true) || {}).id) || ''));
+            if (next) {
+              if (activeComputeTarget !== next) {
+                renderedPresetSignature = '';
+                localPresetLastApplied = '';
+              }
+              activeComputeTarget = next;
+              const field = $('local-model-compute-target');
+              if (field) { field.value = next; }
+              document.querySelectorAll('[data-compute-target]').forEach((button) => {
+                button.setAttribute('aria-pressed', button.dataset.computeTarget === next ? 'true' : 'false');
+              });
+              renderComputeTargetSections(next);
+            }
+          };
+
+          const renderLocalModelAvailability = (modelPayload) => {
             const fields = $('local-model-fields');
             const message = $('local-model-requirements');
-            const missing = missingLocalModelModules(modulePayload);
+            const targets = computeTargets(modelPayload);
+            const selected = computeTarget(selectedComputeTarget(), modelPayload);
+            const available = targets.filter((target) => target.available === true);
             if (fields) {
-              fields.disabled = missing.length > 0;
+              fields.disabled = !selected || selected.available !== true;
             }
             if (!message) { return; }
-            if (missing.length === 0) {
-              message.textContent = 'GPU and KubeAI are Ready. Local models can be created.';
+            if (!targets.length) {
+              message.textContent = 'No compute targets are configured.';
               return;
             }
-            const labels = missing.map((name) => moduleDisplayName(name, moduleCatalogSpec(modulePayload, name), moduleSpec(modulePayload, name)));
-            message.textContent = 'Local models are unavailable. Enable and wait until these modules are Ready: ' + labels.join(', ') + '.';
+            if (!available.length) {
+              message.textContent = 'No compute target is currently available. Check the node and accelerator status.';
+              return;
+            }
+            if (!selected || selected.available !== true) {
+              message.textContent = 'Select an available compute target.';
+              return;
+            }
+            message.textContent = (selected.displayName || selected.id) + ' selected. ' + (selected.message || 'Ready.');
           };
 
           const instanceForms = () => Array.from(document.querySelectorAll('.instance-form[data-instance-type]'));
@@ -2754,7 +2902,8 @@ data:
 
           const localPreset = (form) => {
             const presetName = String((form.elements.preset || {}).value || '').trim();
-            return ((latestModelPayload || {}).presets || {})[presetName] || {};
+            const preset = ((latestModelPayload || {}).presets || {})[presetName] || {};
+            return presetVariant(preset, selectedComputeTarget()) || {};
           };
 
           const vramEstimatePayload = (form) => {
@@ -2854,6 +3003,11 @@ data:
           const runVramEstimate = async () => {
             const form = $('local-model-form');
             if (!form) { return; }
+            if (selectedComputeTarget() !== 'nvidia-gpu') {
+              latestVramEstimateSignature = '';
+              renderEmptyVramEstimate('VRAM is not used for CPU inference');
+              return;
+            }
             const payload = vramEstimatePayload(form);
             if (!payload.url) {
               latestVramEstimateSignature = '';
@@ -2887,9 +3041,11 @@ data:
             vramEstimateTimer = setTimeout(runVramEstimate, 450);
           };
 
-          const orderedPresetKeys = (presets) => {
-            const preferred = ['qwen352bvlembedding', 'qwen3635b', 'qwen359b'];
-            const keys = Object.keys(presets || {});
+          const orderedPresetKeys = (presets, targetId) => {
+            const preferred = targetId === 'cpu'
+              ? ['qwen2505bcpu']
+              : ['qwen352bvlembedding', 'qwen3635b', 'qwen359b'];
+            const keys = Object.keys(presets || {}).filter((key) => Boolean(presetVariant(presets[key], targetId)));
             return [
               ...preferred.filter((key) => keys.includes(key)),
               ...keys.filter((key) => !preferred.includes(key)).sort()
@@ -2900,10 +3056,11 @@ data:
             const select = $('local-model-preset');
             if (!select) { return; }
             const presets = (modelPayload || {}).presets || {};
-            const keys = orderedPresetKeys(presets);
-            const signature = keys.join('|');
-            if (!keys.length || signature === renderedPresetSignature) { return; }
-            const selected = select.value || 'qwen352bvlembedding';
+            const targetId = selectedComputeTarget();
+            const keys = orderedPresetKeys(presets, targetId);
+            const signature = targetId + '|' + keys.join('|');
+            if (signature === renderedPresetSignature) { return; }
+            const selected = select.value || (targetId === 'cpu' ? 'qwen2505bcpu' : 'qwen352bvlembedding');
             select.innerHTML = '';
             keys.forEach((key) => {
               const option = document.createElement('option');
@@ -2915,7 +3072,7 @@ data:
             custom.value = 'custom';
             custom.textContent = 'Custom';
             select.appendChild(custom);
-            select.value = keys.includes(selected) || selected === 'custom' ? selected : keys[0];
+            select.value = keys.includes(selected) || selected === 'custom' ? selected : (keys[0] || 'custom');
             renderedPresetSignature = signature;
           };
 
@@ -3093,9 +3250,13 @@ data:
           const applyLocalPresetFields = (presetName, options = {}) => {
             const form = $('local-model-form');
             if (!form || !presetName || presetName === 'custom') { return; }
-            const preset = ((latestModelPayload || {}).presets || {})[presetName];
+            const preset = presetVariant(
+              ((latestModelPayload || {}).presets || {})[presetName],
+              selectedComputeTarget()
+            );
             if (!preset) { return; }
             const marker = [
+              selectedComputeTarget(),
               presetName,
               preset.vram || '',
               preset.vramMi || '',
@@ -3112,7 +3273,12 @@ data:
             setFormValue(form, 'contextWindow', preset.contextWindow);
             setFormValue(form, 'maxNumSeqs', presetMaxNumSeqs(preset) || ((preset.type || preset.modelType) === 'embedding' ? 8 : 32));
             localPresetLastApplied = marker;
-            scheduleVramEstimate();
+            if (selectedComputeTarget() === 'nvidia-gpu') {
+              scheduleVramEstimate();
+            } else {
+              latestVramEstimateSignature = '';
+              renderEmptyVramEstimate('VRAM is not used for CPU inference');
+            }
           };
 
           const renderVram = (modelPayload) => {
@@ -3127,6 +3293,7 @@ data:
               const status = activation.status || {};
               return spec.type === 'local' && (spec.enabled !== false || metadata.deletionTimestamp || status.phase === 'Removing');
             });
+            const gpuModels = localModels.filter((activation) => String((((activation.spec || {}).local || {}).computeTarget || 'nvidia-gpu')) === 'nvidia-gpu');
             const localRuntimeEnabled = ['gpu', 'kubeai'].some((name) => ((modules[name] || {}).enabled === true));
             const localRuntimeAutoEnabled = ['gpu', 'kubeai'].some((name) => ((modules[name] || {}).autoEnabled === true));
             const removeRuntime = $('remove-local-runtime');
@@ -3138,9 +3305,9 @@ data:
             if (!vram.available) {
               const item = document.createElement('div');
               item.className = 'mini-item';
-              if (!localRuntimeEnabled && localModels.length === 0) {
-                summary.textContent = 'Local GPU runtime is not installed. External models work without it.';
-                item.textContent = 'Enable GPU and KubeAI on the Modules page before adding a local model.';
+              if (gpuModels.length === 0) {
+                summary.textContent = 'No active NVIDIA model is using VRAM. CPU and external models remain available.';
+                item.textContent = 'NVIDIA metrics appear after the GPU module is Ready and a GPU target is available.';
               } else {
                 summary.textContent = 'Live GPU metrics unavailable. Planned VRAM: ' + formatMi(vram.plannedMi || 0);
                 item.textContent = vram.error || 'DCGM metrics are not available.';
@@ -3220,7 +3387,14 @@ data:
                 header.append(titleBlock, pill);
                 const meta = document.createElement('div');
                 meta.className = 'model-meta';
-                appendModelMeta(meta, 'VRAM', status.vramRequiredMi ? formatMi(status.vramRequiredMi) : (local.vram || (local.vramMi ? formatMi(local.vramMi) : '')));
+                const computeTargetId = status.computeTarget || local.computeTarget || (spec.type === 'local' ? 'nvidia-gpu' : 'external');
+                appendModelMeta(meta, 'Compute', computeTargetId);
+                appendModelMeta(meta, 'Engine', status.engine || local.engine || (spec.type === 'local' ? 'VLLM' : ''));
+                if (computeTargetId === 'cpu') {
+                  appendModelMeta(meta, 'RAM', status.memoryRequiredMi ? formatMi(status.memoryRequiredMi) : '');
+                } else {
+                  appendModelMeta(meta, 'VRAM', status.vramRequiredMi ? formatMi(status.vramRequiredMi) : (local.vram || (local.vramMi ? formatMi(local.vramMi) : '')));
+                }
                 appendModelMeta(meta, 'Context', local.contextWindow || external.contextWindow || '');
                 appendModelMeta(meta, 'Max seqs', local.maxNumSeqs || '');
                 appendModelMeta(meta, 'Target', spec.targetNamespace || '');
@@ -3765,9 +3939,10 @@ data:
               renderSettings(settings);
               latestModulePayload = modulePayload || {};
               latestModelPayload = modelPayload || {};
+              renderComputeTargets(latestModelPayload);
               renderLocalPresetOptions(latestModelPayload);
               renderInstanceForms(latestModulePayload);
-              renderLocalModelAvailability(latestModulePayload);
+              renderLocalModelAvailability(latestModelPayload);
               renderInstanceModelOptions(latestModelPayload);
               if (!localPresetLastApplied) {
                 const presetSelect = $('local-model-preset');
@@ -4236,10 +4411,12 @@ data:
             });
             localModelForm.addEventListener('submit', async (event) => {
               event.preventDefault();
-              const missing = missingLocalModelModules(latestModulePayload);
-              if (missing.length > 0) {
-                const labels = missing.map((name) => moduleDisplayName(name, moduleCatalogSpec(latestModulePayload, name), moduleSpec(latestModulePayload, name)));
-                $('model-output').textContent = 'Local models require these modules to be Ready: ' + labels.join(', ') + '.';
+              const computeTargetId = selectedComputeTarget();
+              const target = computeTarget(computeTargetId);
+              if (!target || target.available !== true) {
+                $('model-output').textContent = target
+                  ? (target.message || 'The selected compute target is unavailable.')
+                  : 'Select an available compute target.';
                 return;
               }
               const data = new FormData(localModelForm);
@@ -4250,9 +4427,13 @@ data:
                 targetNamespace: 'ai',
                 local: {
                   modelType: data.get('modelType') || 'chat',
-                  vram: data.get('vram') || '5Gi'
+                  computeTarget: computeTargetId,
+                  engine: 'VLLM'
                 }
               };
+              if (computeTargetId === 'nvidia-gpu') {
+                payload.local.vram = data.get('vram') || '5Gi';
+              }
               if (preset !== 'custom') {
                 payload.local.preset = preset;
               }
@@ -4278,7 +4459,7 @@ data:
           const removeLocalRuntime = $('remove-local-runtime');
           if (removeLocalRuntime) {
             removeLocalRuntime.addEventListener('click', async () => {
-              if (!window.confirm('Remove the automatically installed KubeAI and NVIDIA GPU runtime?')) { return; }
+              if (!window.confirm('Remove the automatically installed KubeAI and NVIDIA GPU runtime modules?')) { return; }
               try {
                 removeLocalRuntime.disabled = true;
                 const result = await request('/api/models/local-runtime/remove', { method: 'POST', body: '{}' });

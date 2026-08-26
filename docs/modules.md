@@ -28,6 +28,7 @@ Each module definition may contain:
 | `path` | Public repo Kustomize path without a leading `./`. |
 | `kustomizationName` | Generated Flux `Kustomization.metadata.name`. |
 | `requires` | Canonical module dependencies. |
+| `providesCapabilities` | Optional compute capability exposed by the module, such as `compute.gpu.nvidia`. |
 | `requiredCrds` | CRDs that must exist before dependent instances are created. |
 | `default` | Whether the module is seeded by the default GPU-neutral appliance. |
 | `activationPolicy` | Optional lifecycle hint. `local-model` modules are requested automatically by local models and can also be managed explicitly in the dashboard. |
@@ -73,19 +74,19 @@ spec:
 ## On-Demand Local Model Runtime
 
 `gpu` and `kubeai` use `activationPolicy: local-model` and are not part of a
-fresh installation. The dashboard requires both modules to be enabled and
-`Ready` before it allows an enabled local `ModelActivation` to be created.
-External `ModelActivation` resources require only `litellm` and
+fresh installation. Every local model requires KubeAI, while only the
+`nvidia-gpu` compute target resolves capability `compute.gpu.nvidia` to the
+`gpu` module. A CPU activation therefore installs KubeAI without installing an
+NVIDIA driver. External `ModelActivation` resources require only `litellm` and
 `model-catalog`.
 
 Both modules also expose normal **Enable** and **Disable** actions in the
-dashboard. KubeAI depends on the GPU module, so enable GPU first or KubeAI waits
-in `WaitingForModules`. A manual action removes any automatic-activation marker
-and makes the module user-managed. For backward compatibility, the operator can
-still reconcile automatic markers on model activations created outside the
-dashboard. After every local model has been removed, **Remove Local GPU
-Runtime** deletes only automatically created KubeAI and GPU activations;
-manually managed activations are preserved.
+dashboard. A manual action removes any automatic-activation marker and makes
+the module user-managed. For backward compatibility, the operator can still
+reconcile automatic markers on model activations created outside the dashboard.
+After every local model has been removed, **Remove Local Inference Runtime**
+deletes only automatically created KubeAI and GPU activations; manually managed
+activations are preserved.
 
 ## Generated Flux Kustomization
 

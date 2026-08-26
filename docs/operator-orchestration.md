@@ -100,8 +100,9 @@ For v1alpha1, examples use these defaults:
 - `Appliance.spec.modules` enables `basis`, `dashboard`, `litellm`, and
   `model-catalog`; it does not enable GPU or KubeAI
 - enabled external models require only `litellm` and `model-catalog`
-- the first enabled local model auto-enables `gpu` and `kubeai` in addition to
-  the external-model runtime
+- an enabled CPU model auto-enables `kubeai`, `litellm`, and `model-catalog`
+- an enabled NVIDIA model additionally resolves `compute.gpu.nvidia` to the
+  `gpu` module
 - missing default module activations are seeded once; existing
   `ModuleActivation` resources, including disabled ones, take precedence
 - instance target namespace defaults to `ai`
@@ -129,9 +130,10 @@ ready, the module remains in `WaitingForModules`; the operator removes any stale
 generated Flux Kustomization for that module to avoid Flux `dependsOn` errors
 for missing dependencies.
 
-After the local runtime modules are ready, a local model remains in
-`WaitingForGPU` until Kubernetes reports at least one allocatable
-`nvidia.com/gpu` resource. This state does not affect external models.
+After the local runtime modules are ready, only an `nvidia-gpu` model can enter
+`WaitingForGPU`, until Kubernetes reports at least one allocatable
+`nvidia.com/gpu` resource. CPU and external models never inspect NVIDIA
+capacity.
 
 After the KubeAI `Model` is created, its `ModelActivation` remains in
 `Starting` while `status.replicas.ready` is zero. The operator reports the

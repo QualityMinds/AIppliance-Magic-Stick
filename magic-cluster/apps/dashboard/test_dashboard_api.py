@@ -38,7 +38,43 @@ class LocalRuntimeTests(unittest.TestCase):
             "module_activation": self.server["module_activation"],
             "delete_json": self.server["delete_json"],
             "summarized_modules": self.server["summarized_modules"],
+            "compute_target_catalog": self.server["compute_target_catalog"],
+            "ready_schedulable_nodes": self.server["ready_schedulable_nodes"],
         }
+        self.server["compute_target_catalog"] = lambda: {
+            "schemaVersion": 1,
+            "targets": {
+                "cpu": {
+                    "displayName": "CPU",
+                    "kind": "cpu",
+                    "vendor": "generic",
+                    "architectures": ["amd64", "arm64"],
+                    "nodeSelector": {"kubernetes.io/os": "linux"},
+                    "requiredCapabilities": [],
+                    "resourceNames": [],
+                    "engines": ["VLLM"],
+                    "defaultResourceProfile": "magicstick-vllm-cpu:1",
+                },
+                "nvidia-gpu": {
+                    "displayName": "NVIDIA GPU",
+                    "kind": "gpu",
+                    "vendor": "nvidia",
+                    "architectures": ["amd64", "arm64"],
+                    "nodeSelector": {"kubernetes.io/os": "linux"},
+                    "requiredCapabilities": ["compute.gpu.nvidia"],
+                    "resourceNames": ["nvidia.com/gpu"],
+                    "engines": ["VLLM"],
+                    "defaultResourceProfile": "magicstick-nvidia-gpu:1",
+                },
+            },
+        }
+        self.server["ready_schedulable_nodes"] = lambda: [{
+            "metadata": {"labels": {"kubernetes.io/os": "linux"}},
+            "status": {
+                "nodeInfo": {"architecture": "arm64"},
+                "allocatable": {},
+            },
+        }]
 
     def tearDown(self):
         self.server.update(self.originals)
@@ -113,41 +149,100 @@ class LocalRuntimeTests(unittest.TestCase):
 
         self.assertTrue(supported)
 
-    def test_local_model_runtime_requires_gpu_and_kubeai_ready(self):
-        requirements = self.server["local_model_runtime_requirements"]({
+    def test_cpu_is_available_without_gpu_or_kubeai_modules(self):
+        availability = self.server["compute_target_availability"]({
             "modules": {
-                "gpu": {"enabled": True, "displayName": "NVIDIA GPU Operator", "status": {"phase": "Ready"}},
-                "kubeai": {"enabled": True, "displayName": "KubeAI", "status": {"phase": "Ready"}},
+                "gpu": {
+                    "enabled": False,
+                    "status": {"phase": "Disabled"},
+                    "catalog": {"providesCapabilities": ["compute.gpu.nvidia"]},
+                },
+                "kubeai": {"enabled": False, "status": {"phase": "Disabled"}},
             }
         })
 
-        self.assertTrue(requirements["ready"])
-        self.assertEqual(requirements["missing"], [])
+        targets = {target["id"]: target for target in availability["targets"]}
+        self.assertTrue(targets["cpu"]["available"])
+        self.assertEqual(targets["cpu"]["reason"], "ready")
+        self.assertFalse(targets["nvidia-gpu"]["available"])
+        self.assertEqual(targets["nvidia-gpu"]["reason"], "capability-module-disabled")
+        self.assertEqual(availability["default"], "cpu")
 
-    def test_local_model_runtime_reports_disabled_or_pending_modules(self):
-        requirements = self.server["local_model_runtime_requirements"]({
+    def test_nvidia_requires_ready_module_and_allocatable_gpu(self):
+        modules = {
             "modules": {
-                "gpu": {"enabled": False, "displayName": "NVIDIA GPU Operator", "status": {"phase": "Disabled"}},
-                "kubeai": {"enabled": True, "displayName": "KubeAI", "status": {"phase": "Reconciling"}},
+                "gpu": {
+                    "enabled": True,
+                    "displayName": "NVIDIA GPU",
+                    "status": {"phase": "Ready"},
+                    "catalog": {"providesCapabilities": ["compute.gpu.nvidia"]},
+                },
             }
-        })
+        }
 
-        self.assertFalse(requirements["ready"])
-        self.assertEqual([item["name"] for item in requirements["missing"]], ["gpu", "kubeai"])
+        targets = {
+            target["id"]: target
+            for target in self.server["compute_target_availability"](modules)["targets"]
+        }
+        self.assertFalse(targets["nvidia-gpu"]["available"])
+        self.assertEqual(targets["nvidia-gpu"]["reason"], "no-allocatable-resource")
 
-    def test_local_model_creation_guard_returns_conflict(self):
+        self.server["ready_schedulable_nodes"] = lambda: [{
+            "metadata": {"labels": {"kubernetes.io/os": "linux"}},
+            "status": {
+                "nodeInfo": {"architecture": "arm64"},
+                "allocatable": {"nvidia.com/gpu": "1"},
+            },
+        }]
+        targets = {
+            target["id"]: target
+            for target in self.server["compute_target_availability"](modules)["targets"]
+        }
+        self.assertTrue(targets["nvidia-gpu"]["available"])
+        self.assertEqual(targets["nvidia-gpu"]["reason"], "ready")
+
+    def test_unavailable_nvidia_target_returns_conflict(self):
         self.server["summarized_modules"] = lambda: {
             "modules": {
-                "gpu": {"enabled": True, "displayName": "NVIDIA GPU Operator", "status": {"phase": "Ready"}},
-                "kubeai": {"enabled": False, "displayName": "KubeAI", "status": {"phase": "Disabled"}},
+                "gpu": {
+                    "enabled": False,
+                    "displayName": "NVIDIA GPU",
+                    "status": {"phase": "Disabled"},
+                    "catalog": {"providesCapabilities": ["compute.gpu.nvidia"]},
+                },
             }
         }
 
         with self.assertRaises(self.server["RequestError"]) as raised:
-            self.server["require_local_model_runtime"]()
+            self.server["require_compute_target_available"]("nvidia-gpu")
 
         self.assertEqual(raised.exception.status, 409)
-        self.assertIn("KubeAI", str(raised.exception))
+        self.assertIn("NVIDIA GPU module", str(raised.exception))
+
+    def test_local_model_payload_is_compute_target_aware_and_sanitized(self):
+        resource = self.server["model_activation_payload"]("local", {
+            "name": "cpu-chat",
+            "local": {
+                "computeTarget": "cpu",
+                "preset": "qwen2505bcpu",
+                "vram": "99Gi",
+                "engine": "OLLAMA",
+                "resourceProfile": "attacker-profile:1",
+                "args": ["--trust-remote-code"],
+                "env": {"DANGEROUS": "true"},
+            },
+        })
+
+        local = resource["spec"]["local"]
+        self.assertEqual(local["computeTarget"], "cpu")
+        self.assertEqual(local["engine"], "VLLM")
+        self.assertEqual(local["preset"], "qwen2505bcpu")
+        for forbidden in ("vram", "vramMi", "resourceProfile", "args", "env"):
+            self.assertNotIn(forbidden, local)
+        self.assertEqual(
+            resource["metadata"]["labels"]["appliance.magicstick.dev/compute-target"],
+            "cpu",
+        )
 
     def test_dashboard_renders_starting_model_phase_as_progress(self):
         source = (ROOT / "configmap.yaml").read_text(encoding="utf-8")

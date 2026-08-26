@@ -396,12 +396,19 @@ class HelmAppInstanceTests(unittest.TestCase):
         required = self.controller["model_required_modules"]
 
         self.assertEqual(required("external"), ["litellm", "model-catalog"])
-        self.assertEqual(required("local"), ["gpu", "kubeai", "litellm", "model-catalog"])
+        self.assertEqual(
+            required("local", "nvidia-gpu"),
+            ["gpu", "kubeai", "litellm", "model-catalog"],
+        )
+        self.assertEqual(
+            required("local", "cpu"),
+            ["kubeai", "litellm", "model-catalog"],
+        )
 
     def test_qwen38_preset_generates_validated_single_gpu_runtime(self):
         manifest = yaml.safe_load((ROOT / "model-presets.yaml").read_text(encoding="utf-8"))
         presets = yaml.safe_load(manifest["data"]["presets.json"])["presets"]
-        preset = presets["qwen3827b"]
+        preset = presets["qwen3827b"]["variants"][0]
         activation = {
             "metadata": {"name": "qwen3827b"},
             "spec": {
@@ -410,11 +417,14 @@ class HelmAppInstanceTests(unittest.TestCase):
             },
         }
 
-        resource, vram_mi = self.controller["kubeai_model_resource"](activation, presets)
+        resource, runtime = self.controller["kubeai_model_resource"](activation, presets)
 
         self.assertEqual(preset["url"], "hf://cyankiwi/Qwen3.8-27B-AWQ-INT4")
         self.assertEqual(preset["maxOutputTokens"], 8192)
-        self.assertEqual(vram_mi, 24062)
+        self.assertEqual(runtime["vramMi"], 24062)
+        self.assertEqual(runtime["computeTarget"], "nvidia-gpu")
+        self.assertEqual(runtime["engine"], "VLLM")
+        self.assertEqual(runtime["resourceProfile"], "magicstick-nvidia-gpu:1")
         self.assertEqual(resource["metadata"]["annotations"]["ai-appliance.io/context-window"], "20000")
         self.assertEqual(resource["metadata"]["annotations"]["ai-appliance.io/max-output-tokens"], "8192")
         self.assertEqual(resource["spec"]["env"]["MAGICSTICK_VLLM_VRAM_LIMIT"], "24062Mi")
@@ -429,6 +439,63 @@ class HelmAppInstanceTests(unittest.TestCase):
                 "--max-num-seqs=1",
             ],
         )
+
+    def test_cpu_preset_generates_cpu_runtime_without_gpu_requirements(self):
+        manifest = yaml.safe_load((ROOT / "model-presets.yaml").read_text(encoding="utf-8"))
+        presets = yaml.safe_load(manifest["data"]["presets.json"])["presets"]
+        catalog_manifest = yaml.safe_load((ROOT / "compute-target-catalog.yaml").read_text(encoding="utf-8"))
+        compute_catalog = yaml.safe_load(catalog_manifest["data"]["targets.json"])
+        activation = {
+            "metadata": {"name": "qwen2505bcpu"},
+            "spec": {
+                "targetNamespace": "ai",
+                "local": {"preset": "qwen2505bcpu", "computeTarget": "cpu"},
+            },
+        }
+        original = self.controller["cluster_architectures"]
+        self.controller["cluster_architectures"] = lambda: {"arm64"}
+        try:
+            resource, runtime = self.controller["kubeai_model_resource"](
+                activation,
+                presets,
+                compute_catalog,
+            )
+        finally:
+            self.controller["cluster_architectures"] = original
+
+        self.assertEqual(runtime["computeTarget"], "cpu")
+        self.assertEqual(runtime["resourceProfile"], "magicstick-vllm-cpu:1")
+        self.assertEqual(runtime["memoryMi"], 4096)
+        self.assertEqual(runtime["vramMi"], 0)
+        self.assertEqual(resource["spec"]["engine"], "VLLM")
+        self.assertEqual(resource["spec"]["env"]["MAGICSTICK_COMPUTE_TARGET"], "cpu")
+        self.assertNotIn("VLLM_CPU_KVCACHE_SPACE", resource["spec"]["env"])
+        self.assertNotIn("MAGICSTICK_VLLM_VRAM_LIMIT", resource["spec"]["env"])
+        self.assertIn("--kv-cache-memory-bytes=536870912", resource["spec"]["args"])
+        self.assertEqual(
+            resource["metadata"]["labels"]["appliance.magicstick.dev/compute-target"],
+            "cpu",
+        )
+
+    def test_preset_variant_must_support_selected_compute_target(self):
+        manifest = yaml.safe_load((ROOT / "model-presets.yaml").read_text(encoding="utf-8"))
+        presets = yaml.safe_load(manifest["data"]["presets.json"])["presets"]
+        catalog_manifest = yaml.safe_load((ROOT / "compute-target-catalog.yaml").read_text(encoding="utf-8"))
+        compute_catalog = yaml.safe_load(catalog_manifest["data"]["targets.json"])
+        activation = {
+            "metadata": {"name": "qwen3827b"},
+            "spec": {
+                "targetNamespace": "ai",
+                "local": {"preset": "qwen3827b", "computeTarget": "cpu"},
+            },
+        }
+        original = self.controller["cluster_architectures"]
+        self.controller["cluster_architectures"] = lambda: {"arm64"}
+        try:
+            with self.assertRaisesRegex(ValueError, "has no unique VLLM/cpu variant"):
+                self.controller["kubeai_model_resource"](activation, presets, compute_catalog)
+        finally:
+            self.controller["cluster_architectures"] = original
 
     def test_nvidia_capacity_uses_allocatable_resources(self):
         original = self.controller["list_items"]
@@ -489,7 +556,14 @@ class HelmAppInstanceTests(unittest.TestCase):
         self.controller["ensure_model_finalizer"] = lambda _activation: None
         self.controller["ensure_module_activation"] = lambda module, auto=False: requested.append((module, auto))
         self.controller["module_ready"] = lambda _module, _catalog: True
-        self.controller["kubeai_model_resource"] = lambda _activation, _presets: ({}, 8192)
+        runtime = {
+            "computeTarget": "nvidia-gpu",
+            "engine": "VLLM",
+            "resourceProfile": "magicstick-nvidia-gpu:1",
+            "vramMi": 8192,
+            "memoryMi": 0,
+        }
+        self.controller["kubeai_model_resource"] = lambda _activation, _presets: ({}, runtime)
         self.controller["nvidia_gpu_capacity"] = lambda: 0
         self.controller["patch_model_status"] = lambda *args, **kwargs: statuses.append((args, kwargs))
         self.controller["apply_resource"] = lambda _resource: self.fail("KubeAI Model must not be created without a GPU")
@@ -533,7 +607,14 @@ class HelmAppInstanceTests(unittest.TestCase):
         self.controller["ensure_model_finalizer"] = lambda _activation: None
         self.controller["ensure_module_activation"] = lambda _module, auto=False: None
         self.controller["module_ready"] = lambda _module, _catalog: True
-        self.controller["kubeai_model_resource"] = lambda _activation, _presets: (resource, 8192)
+        runtime = {
+            "computeTarget": "nvidia-gpu",
+            "engine": "VLLM",
+            "resourceProfile": "magicstick-nvidia-gpu:1",
+            "vramMi": 8192,
+            "memoryMi": 0,
+        }
+        self.controller["kubeai_model_resource"] = lambda _activation, _presets: (resource, runtime)
         self.controller["nvidia_gpu_capacity"] = lambda: 1
         self.controller["crd_exists"] = lambda _name: True
         self.controller["apply_resource"] = lambda _resource: resource
@@ -552,7 +633,10 @@ class HelmAppInstanceTests(unittest.TestCase):
             self.controller.update(originals)
 
         self.assertEqual(phase, "Starting")
-        self.assertEqual(status["message"], "Waiting for KubeAI/vLLM to become ready: 0/1 replicas ready.")
+        self.assertEqual(
+            status["message"],
+            "Waiting for KubeAI/VLLM on nvidia-gpu to become ready: 0/1 replicas ready.",
+        )
         self.assertEqual(statuses[-1][0][1], "Starting")
         self.assertEqual(statuses[-1][0][2], "WaitingForReadyReplica")
 
@@ -579,7 +663,14 @@ class HelmAppInstanceTests(unittest.TestCase):
         self.controller["ensure_model_finalizer"] = lambda _activation: None
         self.controller["ensure_module_activation"] = lambda _module, auto=False: None
         self.controller["module_ready"] = lambda _module, _catalog: True
-        self.controller["kubeai_model_resource"] = lambda _activation, _presets: (resource, 8192)
+        runtime = {
+            "computeTarget": "nvidia-gpu",
+            "engine": "VLLM",
+            "resourceProfile": "magicstick-nvidia-gpu:1",
+            "vramMi": 8192,
+            "memoryMi": 0,
+        }
+        self.controller["kubeai_model_resource"] = lambda _activation, _presets: (resource, runtime)
         self.controller["nvidia_gpu_capacity"] = lambda: 1
         self.controller["crd_exists"] = lambda _name: True
         self.controller["apply_resource"] = lambda _resource: resource
@@ -597,6 +688,70 @@ class HelmAppInstanceTests(unittest.TestCase):
 
         self.assertEqual(phase, "Ready")
         self.assertEqual(statuses[-1][0][1], "Ready")
+
+    def test_cpu_model_never_requests_or_checks_nvidia_runtime(self):
+        names = (
+            "ensure_model_finalizer",
+            "ensure_module_activation",
+            "module_ready",
+            "kubeai_model_resource",
+            "nvidia_gpu_capacity",
+            "crd_exists",
+            "apply_resource",
+            "get_resource",
+            "catalog_contains_model",
+            "patch_model_status",
+        )
+        originals = {name: self.controller[name] for name in names}
+        requested = []
+        statuses = []
+        resource = {
+            "metadata": {"name": "local-cpu", "namespace": "ai"},
+            "spec": {"minReplicas": 1},
+            "status": {"replicas": {"all": 1, "ready": 1}},
+        }
+        runtime = {
+            "computeTarget": "cpu",
+            "engine": "VLLM",
+            "resourceProfile": "magicstick-vllm-cpu:1",
+            "vramMi": 0,
+            "memoryMi": 4096,
+        }
+        self.controller["ensure_model_finalizer"] = lambda _activation: None
+        self.controller["ensure_module_activation"] = lambda module, auto=False: requested.append((module, auto))
+        self.controller["module_ready"] = lambda _module, _catalog: True
+        self.controller["kubeai_model_resource"] = lambda _activation, _presets: (resource, runtime)
+        self.controller["nvidia_gpu_capacity"] = lambda: self.fail("CPU models must not inspect NVIDIA capacity")
+        self.controller["crd_exists"] = lambda _name: True
+        self.controller["apply_resource"] = lambda _resource: resource
+        self.controller["get_resource"] = lambda *_args: resource
+        self.controller["catalog_contains_model"] = lambda *_args: True
+        self.controller["patch_model_status"] = lambda *args, **kwargs: statuses.append((args, kwargs))
+        activation = {
+            "metadata": {"name": "local-cpu", "namespace": "ai-system", "generation": 1},
+            "spec": {
+                "type": "local",
+                "targetNamespace": "ai",
+                "local": {"computeTarget": "cpu"},
+            },
+        }
+        try:
+            phase, status = self.controller["reconcile_model_activation"](
+                activation,
+                {"modules": {}},
+                {},
+            )
+        finally:
+            self.controller.update(originals)
+
+        self.assertEqual(phase, "Ready")
+        self.assertEqual(status["computeTarget"], "cpu")
+        self.assertEqual(status["memoryRequiredMi"], 4096)
+        self.assertEqual(
+            requested,
+            [("kubeai", True), ("litellm", True), ("model-catalog", True)],
+        )
+        self.assertEqual(statuses[-1][1]["compute_target"], "cpu")
 
 
 if __name__ == "__main__":

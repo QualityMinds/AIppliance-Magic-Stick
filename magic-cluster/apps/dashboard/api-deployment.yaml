@@ -21,7 +21,7 @@ spec:
         app: ai-appliance-dashboard-api
         app.kubernetes.io/component: api
       annotations:
-        appliance.magicstick.dev/dashboard-api-revision: user-management-v1
+        appliance.magicstick.dev/dashboard-api-revision: compute-targets-v1
     spec:
       serviceAccountName: ai-appliance-dashboard-api
       automountServiceAccountToken: true
@@ -58,6 +58,10 @@ spec:
               value: ai-system
             - name: MODEL_PRESETS_NAME
               value: magicstick-model-presets
+            - name: COMPUTE_TARGET_CATALOG_NAMESPACE
+              value: ai-system
+            - name: COMPUTE_TARGET_CATALOG_NAME
+              value: magicstick-compute-target-catalog
             - name: MODEL_TARGET_NAMESPACE
               value: ai
             - name: MODEL_CATALOG_NAME

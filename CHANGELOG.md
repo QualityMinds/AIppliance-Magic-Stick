@@ -25,6 +25,8 @@ formalized, release entries should group changes under:
 - An administrator-only dashboard user-management tab for local Keycloak users,
   including search, access-level assignment, enable/disable, temporary-password
   reset, and protected deletion.
+- CPU-backed local vLLM inference with a target-aware dashboard selector,
+  cross-architecture smoke preset, and an extensible compute-target catalog.
 
 ### Changed
 
@@ -38,9 +40,9 @@ formalized, release entries should group changes under:
 - `AppInstance` now uses `spec.application` and `spec.values`; the Magic Stick
   Operator creates one Flux HelmRelease per instance instead of rendering app
   workloads in controller code.
-- New appliances are GPU-neutral. GPU Operator and KubeAI are activated on
-  demand by local models, while external models run without the local GPU
-  runtime.
+- New appliances are accelerator-neutral. KubeAI is activated on demand by CPU
+  or GPU local models, the NVIDIA GPU module only by NVIDIA targets, and
+  external models run without a local inference runtime.
 
 ### Fixed
 

@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: magicstick-compute-target-catalog
+  namespace: ai-system
+  labels:
+    app.kubernetes.io/name: magicstick-operator
+    app.kubernetes.io/component: compute-target-catalog
+data:
+  targets.json: |
+    {
+      "schemaVersion": 1,
+      "targets": {
+        "cpu": {
+          "displayName": "CPU",
+          "kind": "cpu",
+          "vendor": "generic",
+          "architectures": ["amd64", "arm64"],
+          "nodeSelector": {"kubernetes.io/os": "linux"},
+          "requiredCapabilities": [],
+          "resourceNames": [],
+          "engines": ["VLLM"],
+          "defaultResourceProfile": "magicstick-vllm-cpu:1"
+        },
+        "nvidia-gpu": {
+          "displayName": "NVIDIA GPU",
+          "kind": "gpu",
+          "vendor": "nvidia",
+          "architectures": ["amd64", "arm64"],
+          "nodeSelector": {"kubernetes.io/os": "linux"},
+          "requiredCapabilities": ["compute.gpu.nvidia"],
+          "resourceNames": ["nvidia.com/gpu"],
+          "engines": ["VLLM"],
+          "defaultResourceProfile": "magicstick-nvidia-gpu:1"
+        }
+      }
+    }

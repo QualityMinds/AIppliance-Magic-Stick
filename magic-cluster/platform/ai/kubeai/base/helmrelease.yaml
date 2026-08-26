@@ -28,13 +28,14 @@ spec:
     modelServers:
       VLLM:
         images:
-          magicstick-vllm: vllm/vllm-openai:v0.23.0
+          magicstick-vllm-nvidia: vllm/vllm-openai:v0.23.0
+          magicstick-vllm-cpu: vllm/vllm-openai-cpu:v0.23.0
     modelRollouts:
       # Avoid starting an extra GPU model pod during model updates.
       surge: 0
     resourceProfiles:
       magicstick-nvidia-gpu:
-        imageName: magicstick-vllm
+        imageName: magicstick-vllm-nvidia
         requests:
           cpu: "6"
           memory: 6Gi
@@ -46,6 +47,16 @@ spec:
             operator: Equal
             value: present
             effect: NoSchedule
+      magicstick-vllm-cpu:
+        imageName: magicstick-vllm-cpu
+        nodeSelector:
+          kubernetes.io/os: linux
+        requests:
+          cpu: "1"
+          memory: 4Gi
+        limits:
+          cpu: "4"
+          memory: 6Gi
     modelServerPods:
       jsonPatches:
         - op: replace

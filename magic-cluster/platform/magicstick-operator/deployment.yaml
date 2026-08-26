@@ -28,7 +28,7 @@ spec:
         app.kubernetes.io/name: magicstick-operator
         app.kubernetes.io/component: controller
       annotations:
-        appliance.magicstick.dev/controller-config-revision: dependency-wait-preserve-v3
+        appliance.magicstick.dev/controller-config-revision: compute-targets-v1
     spec:
       serviceAccountName: magicstick-operator
       containers:
@@ -51,6 +51,14 @@ spec:
               value: ai-system
             - name: APP_CATALOG_NAME
               value: magicstick-app-catalog
+            - name: COMPUTE_TARGET_CATALOG_NAMESPACE
+              value: ai-system
+            - name: COMPUTE_TARGET_CATALOG_NAME
+              value: magicstick-compute-target-catalog
+            - name: MODEL_PRESETS_NAMESPACE
+              value: ai-system
+            - name: MODEL_PRESETS_NAME
+              value: magicstick-model-presets
             - name: FLUX_NAMESPACE
               value: flux-system
             - name: REQUEUE_SECONDS

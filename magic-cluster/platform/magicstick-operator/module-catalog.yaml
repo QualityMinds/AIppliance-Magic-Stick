@@ -92,8 +92,8 @@ data:
           ]
         },
         "gpu": {
-          "displayName": "GPU",
-          "description": "Enable the NVIDIA runtime before creating local models, or disable it when local inference is not needed. External models do not require it.",
+          "displayName": "NVIDIA GPU",
+          "description": "Installs the NVIDIA driver and Kubernetes device runtime for NVIDIA-backed local models. CPU and external models do not require it.",
           "group": "runtime",
           "activationMode": "moduleactivation",
           "activationPolicy": "local-model",
@@ -101,20 +101,21 @@ data:
           "path": "magic-cluster/platform/gpu",
           "kustomizationName": "platform-gpu",
           "requires": ["basis"],
+          "providesCapabilities": ["compute.gpu.nvidia"],
           "requiredCrds": ["clusterpolicies.nvidia.com"],
           "default": false,
           "uninstallPolicy": "keep-data"
         },
         "kubeai": {
           "displayName": "KubeAI",
-          "description": "Enable KubeAI before creating local models. It requires the GPU module; external models use LiteLLM without KubeAI.",
+          "description": "Provides local model serving for CPU and accelerator-backed models. External models use LiteLLM without KubeAI.",
           "group": "runtime",
           "activationMode": "moduleactivation",
           "activationPolicy": "local-model",
           "order": 40,
           "path": "magic-cluster/platform/ai/kubeai",
           "kustomizationName": "platform-kubeai",
-          "requires": ["basis", "gpu"],
+          "requires": ["basis"],
           "requiredCrds": ["models.kubeai.org"],
           "default": false,
           "uninstallPolicy": "keep-data"

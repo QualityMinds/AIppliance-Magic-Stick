@@ -5,8 +5,10 @@ turns selected KubeAI `Model` resources and optional external model entries
 into LiteLLM deployments, then publishes a generated `ai-model-catalog`
 ConfigMap for apps that need a stable source of model metadata.
 
-The catalog is GPU-neutral. External models work with LiteLLM alone. KubeAI and
-the NVIDIA runtime are installed only when a local `ModelActivation` is enabled.
+The catalog is accelerator-neutral. External models work with LiteLLM alone.
+Local `ModelActivation` resources use vLLM on an explicit `cpu` or
+`nvidia-gpu` compute target; KubeAI is installed for both and the NVIDIA runtime
+only for the NVIDIA target.
 
 ## Responsibilities
 
@@ -87,18 +89,32 @@ not change the vLLM context size.
 `spec.local.maxNumSeqs` is handled the same way for vLLM sequence concurrency
 and is written as `--max-num-seqs=<maxNumSeqs>`.
 
-## Bundled Local Presets
+## Compute Targets And Bundled Local Presets
 
 The dashboard reads its local model choices from
 `ConfigMap/magicstick-model-presets`; the same identifiers can be used directly
-in `ModelActivation.spec.local.preset`.
+in `ModelActivation.spec.local.preset`. Presets contain engine/compute-target
+variants. The separate `ConfigMap/magicstick-compute-target-catalog` maps the
+logical target to supported architectures, required capabilities, Kubernetes
+resource names, and a default KubeAI resource profile. This keeps future AMD,
+Intel, or additional engine support behind the same target/variant contract.
+Adding one still requires an explicit catalog entry, runtime profile or adapter,
+and extension of the validated CRD values; the dashboard flow itself stays
+target-neutral.
 
-| Preset | Model | VRAM budget | Context | Max output | Max sequences |
-|---|---|---:|---:|---:|---:|
-| `qwen3827b` | `hf://cyankiwi/Qwen3.8-27B-AWQ-INT4` | `24062Mi` | 20000 | 8192 | 1 |
-| `qwen3635b` | `hf://cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit` | `15Gi` | 8192 | default | 128 |
-| `qwen359b` | `hf://cyankiwi/Qwen3.5-9B-AWQ-4bit` | `16Gi` | 8192 | default | 32 |
-| `qwen352bvlembedding` | `hf://LifetimeMistake/Qwen3-VL-Embedding-2B-AWQ-4bit` | `5Gi` | 4096 | n/a | runtime default |
+| Preset | Target | Model | Memory budget | Context | Max output | Max sequences |
+|---|---|---|---:|---:|---:|---:|
+| `qwen2505bcpu` | CPU | `hf://Qwen/Qwen2.5-0.5B-Instruct` | 4 GiB RAM minimum; 6 GiB container limit | 2048 | 1024 | 1 |
+| `qwen3827b` | NVIDIA | `hf://cyankiwi/Qwen3.8-27B-AWQ-INT4` | `24062Mi` VRAM | 20000 | 8192 | 1 |
+| `qwen3635b` | NVIDIA | `hf://cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit` | `15Gi` VRAM | 8192 | default | 128 |
+| `qwen359b` | NVIDIA | `hf://cyankiwi/Qwen3.5-9B-AWQ-4bit` | `16Gi` VRAM | 8192 | default | 32 |
+| `qwen352bvlembedding` | NVIDIA | `hf://LifetimeMistake/Qwen3-VL-Embedding-2B-AWQ-4bit` | `5Gi` VRAM | 4096 | n/a | runtime default |
+
+`spec.local.computeTarget` is immutable; recreate the activation to move a
+model between CPU and GPU. Missing values on existing resources keep legacy
+`nvidia-gpu` behavior. The current engine enum contains only `VLLM`. CPU
+variants use an explicit `--kv-cache-memory-bytes` value; the bundled smoke
+preset uses 512 MiB so it also starts on memory-constrained local test nodes.
 
 `qwen3827b` is the validated single-GPU profile for a 24 GB-class NVIDIA GPU.
 It deliberately uses a single sequence so the 20000-token KV cache remains

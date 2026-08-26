@@ -200,7 +200,42 @@ BROWSER_API_MOCK = r"""
       });
     }
     if (url.pathname === '/api/models') {
-      return reply({ models: [], activations: [], presets: [], vram: { available: false } });
+      return reply({
+        models: [],
+        activations: [],
+        presets: {
+          qwen2505bcpu: {
+            displayName: 'Qwen 2.5 0.5B CPU',
+            variants: [{
+              computeTarget: 'cpu',
+              engine: 'VLLM',
+              url: 'hf://Qwen/Qwen2.5-0.5B-Instruct',
+              modelType: 'chat',
+              contextWindow: 2048,
+              maxNumSeqs: 1,
+              memoryRequiredMi: 4096
+            }]
+          },
+          qwen3635b: {
+            displayName: 'Qwen 3.6 35B NVIDIA',
+            variants: [{
+              computeTarget: 'nvidia-gpu',
+              engine: 'VLLM',
+              url: 'hf://example/qwen-gpu',
+              modelType: 'chat',
+              vramMi: 46000
+            }]
+          }
+        },
+        computeTargets: {
+          default: 'cpu',
+          targets: [
+            { id: 'cpu', displayName: 'CPU', engines: ['VLLM'], available: true, message: 'Ready on 1 compatible node.' },
+            { id: 'nvidia-gpu', displayName: 'NVIDIA GPU', engines: ['VLLM'], available: false, message: 'Install the NVIDIA GPU module before selecting this target.' }
+          ]
+        },
+        vram: { available: false }
+      });
     }
     if (url.pathname === '/api/status') {
       return reply({
@@ -394,6 +429,17 @@ BROWSER_ASSERTIONS = r"""
     instanceDialog.querySelector('[data-dialog-cancel]').click();
     await waitFor(() => !instanceDialog.open, 'close instance create dialog');
 
+    document.querySelector('[data-tab="models"]').click();
+    await waitFor(() => !document.getElementById('tab-models').hidden, 'Models tab');
+    const cpuTarget = document.querySelector('[data-compute-target="cpu"]');
+    const nvidiaTarget = document.querySelector('[data-compute-target="nvidia-gpu"]');
+    assert(cpuTarget && cpuTarget.getAttribute('aria-pressed') === 'true', 'CPU target was not selected by default');
+    assert(nvidiaTarget && nvidiaTarget.disabled, 'unavailable NVIDIA target must be disabled');
+    assert(document.getElementById('local-model-compute-target').value === 'cpu', 'CPU target was not stored in the form');
+    assert(document.getElementById('local-model-preset').value === 'qwen2505bcpu', 'CPU-incompatible presets were not filtered');
+    assert(!document.getElementById('cpu-runtime-summary').hidden, 'CPU runtime summary is hidden');
+    assert(document.getElementById('vram-estimate').hidden, 'VRAM controls are visible for CPU inference');
+
     const usersTab = document.getElementById('users-tab-button');
     assert(usersTab, 'Users tab is missing from the rendered DOM');
 
@@ -567,6 +613,18 @@ class DashboardUserManagementUiTests(unittest.TestCase):
         self.assertIn("button.dataset.instanceChoice = type", self.script)
         self.assertIn("form.hidden = form !== selectedForm", self.script)
         self.assertIn("selectInstanceCreateType('')", self.script)
+
+    def test_local_model_creation_uses_available_compute_targets_and_preset_variants(self):
+        self.assertIn('id="compute-target-picker"', self.source)
+        self.assertIn('id="local-model-compute-target"', self.source)
+        self.assertIn('data-compute-target-section="nvidia-gpu"', self.source)
+        self.assertIn('data-compute-target-section="cpu"', self.source)
+        self.assertIn("const renderComputeTargets = (modelPayload) =>", self.script)
+        self.assertIn("target.available !== true", self.script)
+        self.assertIn("const presetVariant = (preset, targetId) =>", self.script)
+        self.assertIn("computeTarget: computeTargetId", self.script)
+        self.assertIn("engine: 'VLLM'", self.script)
+        self.assertIn("if (computeTargetId === 'nvidia-gpu')", self.script)
 
     def test_instance_picker_exposes_unavailable_catalog_applications_safely(self):
         self.assertIn("form.dataset.instanceAvailable = installed ? 'true' : 'false'", self.script)

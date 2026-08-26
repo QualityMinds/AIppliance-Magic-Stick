@@ -183,7 +183,26 @@ spec:
   targetNamespace: ai
   local:
     preset: qwen352bvlembedding
+    computeTarget: nvidia-gpu
     vram: 5Gi
+```
+
+CPU example; no GPU module or VRAM field is required:
+
+```yaml
+apiVersion: appliance.magicstick.dev/v1alpha1
+kind: ModelActivation
+metadata:
+  name: qwen2505bcpu
+  namespace: ai-system
+spec:
+  type: local
+  enabled: true
+  targetNamespace: ai
+  local:
+    preset: qwen2505bcpu
+    computeTarget: cpu
+    engine: VLLM
 ```
 
 ```yaml
@@ -242,6 +261,9 @@ status:
       phase: Ready
       modelRef: kubeai/qwen352bvlembedding
       catalogId: qwen352bvlembedding
+      computeTarget: nvidia-gpu
+      engine: VLLM
+      resolvedResourceProfile: magicstick-nvidia-gpu:1
       vramRequiredMi: 5120
       message: Model is available in the generated model catalog.
   conditions:

@@ -248,17 +248,25 @@ kubectl -n ai logs deploy/ai-model-catalog-controller
 For schema details and model troubleshooting, see
 [model-catalog.md](model-catalog.md).
 
-## GPU And KubeAI
+## Local Inference: CPU, NVIDIA, And KubeAI
 
-These checks apply only after a local model has requested the optional GPU
-runtime. A healthy external-only appliance has no `gpu-operator` namespace,
-`platform-gpu` Flux Kustomization, or KubeAI resources.
+KubeAI is installed only after a local model requests it. CPU models do not
+install the NVIDIA module. A healthy CPU/external-only appliance therefore has
+no `gpu-operator` namespace or `platform-gpu` Flux Kustomization.
 
 ```bash
 kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.status.allocatable.nvidia\.com/gpu}{"\n"}{end}'
 kubectl -n gpu-operator get pods
 kubectl -n ai get models.kubeai.org
 kubectl -n ai get pods -l app.kubernetes.io/name=kubeai
+```
+
+For a CPU activation, inspect the resolved target/profile and vLLM logs:
+
+```bash
+kubectl -n ai-system get modelactivation qwen2505bcpu \
+  -o jsonpath='{.status.computeTarget}{" "}{.status.resolvedResourceProfile}{"\n"}'
+kubectl -n ai get model qwen2505bcpu -o yaml
 ```
 
 If model pods fail to start, check:
@@ -343,4 +351,7 @@ deploy,pods` if a command does not match the running resource name.
 | User change returns `409` | Check whether the account is external, protected, the current actor, or the last enabled local administrator. Duplicate username or email also returns `409`. |
 | GPU model never starts | Check GPU Operator, allocatable GPU resources, KubeAI model status, and vLLM logs. |
 | Local model stays in `WaitingForGPU` | The optional runtime is installed but Kubernetes reports no allocatable `nvidia.com/gpu`; verify supported hardware, driver pods, and node capacity. |
+| NVIDIA target is disabled in the dashboard | The NVIDIA module must be `Ready` and at least one Ready schedulable node must expose allocatable `nvidia.com/gpu`. CPU remains available independently. |
+| CPU model stays in `Starting` | Check the CPU model Pod for image-pull, RAM, CPU, model-download, or vLLM startup failures; no NVIDIA checks should appear. |
+| CPU vLLM reports insufficient memory for KV cache | Lower the trusted preset's `kvCacheMemoryBytes`, reduce other node memory use, or allocate more appliance RAM. Do not use `VLLM_CPU_KVCACHE_SPACE` for sub-GiB values because vLLM parses it as whole GiB. |
 | Local model stays in `Starting` | Compare `kubectl -n ai get model <name> -o jsonpath='{.status.replicas}'` with the model pod readiness and vLLM logs. The model is intentionally absent from LiteLLM until at least one replica is ready. |

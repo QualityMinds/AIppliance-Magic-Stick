@@ -100,6 +100,20 @@ data:
 
 
     def main():
+        compute_target = os.environ.get("MAGICSTICK_COMPUTE_TARGET", "nvidia-gpu").strip().lower()
+        args = strip_gpu_memory_utilization(sys.argv[1:])
+        if compute_target == "cpu":
+            command = ["python3", "-m", "vllm.entrypoints.openai.api_server", *args]
+            log(
+                "compute_target=cpu "
+                f"cpu_kvcache_space={os.environ.get('VLLM_CPU_KVCACHE_SPACE', 'unset')}"
+            )
+            log("exec python3 -m vllm.entrypoints.openai.api_server")
+            os.execvp(command[0], command)
+
+        if compute_target != "nvidia-gpu":
+            die(f"unsupported MAGICSTICK_COMPUTE_TARGET: {compute_target!r}")
+
         device = os.environ.get("MAGICSTICK_GPU_DEVICE", "0").strip() or "0"
         budget_mib = parse_mib("MAGICSTICK_VLLM_VRAM_LIMIT")
         if budget_mib is None:
@@ -115,7 +129,6 @@ data:
         raw_utilization = budget_mib / total_mib
         utilization = min(0.98, max(0.05, raw_utilization))
 
-        args = strip_gpu_memory_utilization(sys.argv[1:])
         args.append(f"--gpu-memory-utilization={utilization:.4f}")
         command = ["python3", "-m", "vllm.entrypoints.openai.api_server", *args]
 

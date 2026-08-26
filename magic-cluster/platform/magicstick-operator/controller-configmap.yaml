@@ -27,6 +27,8 @@ data:
     CATALOG_NAME = os.environ.get("MODULE_CATALOG_NAME", "magicstick-module-catalog")
     APP_CATALOG_NAMESPACE = os.environ.get("APP_CATALOG_NAMESPACE", "ai-system")
     APP_CATALOG_NAME = os.environ.get("APP_CATALOG_NAME", "magicstick-app-catalog")
+    COMPUTE_TARGET_CATALOG_NAMESPACE = os.environ.get("COMPUTE_TARGET_CATALOG_NAMESPACE", "ai-system")
+    COMPUTE_TARGET_CATALOG_NAME = os.environ.get("COMPUTE_TARGET_CATALOG_NAME", "magicstick-compute-target-catalog")
     MODEL_PRESETS_NAMESPACE = os.environ.get("MODEL_PRESETS_NAMESPACE", "ai-system")
     MODEL_PRESETS_NAME = os.environ.get("MODEL_PRESETS_NAME", "magicstick-model-presets")
     FLUX_NAMESPACE = os.environ.get("FLUX_NAMESPACE", "flux-system")
@@ -77,7 +79,7 @@ data:
         "paperclipOperator": "paperclip-operator",
     }
 
-    LOCAL_MODEL_MODULES = ["gpu", "kubeai", "litellm", "model-catalog"]
+    LOCAL_MODEL_BASE_MODULES = ["kubeai", "litellm", "model-catalog"]
     EXTERNAL_MODEL_MODULES = ["litellm", "model-catalog"]
 
     SSL_CONTEXT = ssl.create_default_context(cafile=SA_CA_PATH)
@@ -268,6 +270,17 @@ data:
         configmap = get_json(f"/api/v1/namespaces/{APP_CATALOG_NAMESPACE}/configmaps/{APP_CATALOG_NAME}")
         raw = (configmap.get("data") or {}).get("applications.json", "{}")
         return json.loads(raw)
+
+
+    def load_compute_target_catalog():
+        configmap = get_json(
+            f"/api/v1/namespaces/{COMPUTE_TARGET_CATALOG_NAMESPACE}/configmaps/{COMPUTE_TARGET_CATALOG_NAME}"
+        )
+        raw = (configmap.get("data") or {}).get("targets.json", "{\"targets\":{}}")
+        catalog = json.loads(raw)
+        if not isinstance(catalog, dict) or not isinstance(catalog.get("targets"), dict):
+            raise ValueError("compute target catalog must contain a targets object")
+        return catalog
 
 
     def load_model_presets():
@@ -946,7 +959,20 @@ data:
         }})
 
 
-    def patch_model_status(activation, phase, reason, message, model_ref="", catalog_id="", vram_mi=0, generation=0):
+    def patch_model_status(
+        activation,
+        phase,
+        reason,
+        message,
+        model_ref="",
+        catalog_id="",
+        vram_mi=0,
+        generation=0,
+        compute_target="",
+        engine="",
+        resource_profile="",
+        memory_mi=0,
+    ):
         metadata = activation.get("metadata") or {}
         path = f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{metadata.get('namespace')}/modelactivations/{metadata.get('name')}/status"
         patch_json(path, {"status": {
@@ -954,7 +980,11 @@ data:
             "phase": phase,
             "modelRef": model_ref,
             "catalogId": catalog_id,
+            "computeTarget": compute_target,
+            "engine": engine,
+            "resolvedResourceProfile": resource_profile,
             "vramRequiredMi": int(vram_mi or 0),
+            "memoryRequiredMi": int(memory_mi or 0),
             "message": message,
             "conditions": [condition("True" if phase in ("Ready", "Disabled") else "False", reason, message, generation)],
         }})
@@ -972,8 +1002,45 @@ data:
         return ready_condition(kustomization or {}).get("status") == "True"
 
 
-    def model_required_modules(model_type):
-        return LOCAL_MODEL_MODULES if model_type == "local" else EXTERNAL_MODEL_MODULES
+    def local_compute_target(activation):
+        local = ((activation.get("spec") or {}).get("local") or {})
+        return str(local.get("computeTarget") or "nvidia-gpu").strip().lower()
+
+
+    def compute_target_definition(compute_target, compute_catalog):
+        definition = ((compute_catalog or {}).get("targets") or {}).get(compute_target)
+        if not isinstance(definition, dict):
+            raise ValueError("unsupported local.computeTarget: " + str(compute_target))
+        engines = [str(engine).upper() for engine in definition.get("engines") or []]
+        if "VLLM" not in engines:
+            raise ValueError("compute target " + compute_target + " does not support VLLM")
+        return definition
+
+
+    def capability_modules(catalog, capabilities):
+        modules = (catalog or {}).get("modules") or {}
+        resolved = []
+        for capability in capabilities or []:
+            providers = [
+                name
+                for name, definition in sorted(modules.items())
+                if capability in (definition.get("providesCapabilities") or [])
+            ]
+            if not providers:
+                raise ValueError("no module provides required capability: " + str(capability))
+            resolved.append(providers[0])
+        return resolved
+
+
+    def model_required_modules(model_type, compute_target="nvidia-gpu", catalog=None, compute_catalog=None):
+        if model_type != "local":
+            return list(EXTERNAL_MODEL_MODULES)
+        if catalog is None or compute_catalog is None:
+            providers = ["gpu"] if compute_target == "nvidia-gpu" else []
+        else:
+            target = compute_target_definition(compute_target, compute_catalog)
+            providers = capability_modules(catalog, target.get("requiredCapabilities") or [])
+        return list(dict.fromkeys(providers + LOCAL_MODEL_BASE_MODULES))
 
 
     def nvidia_gpu_capacity():
@@ -989,21 +1056,66 @@ data:
         return total
 
 
-    def merged_local_model(activation, presets):
+    def cluster_architectures():
+        architectures = set()
+        for node in list_items("/api/v1/nodes"):
+            architecture = str(((node.get("status") or {}).get("nodeInfo") or {}).get("architecture") or "").strip()
+            if architecture:
+                architectures.add(architecture)
+        return architectures
+
+
+    def merged_local_model(activation, presets, compute_catalog=None):
         metadata = activation.get("metadata") or {}
         spec = activation.get("spec") or {}
         local = dict(spec.get("local") or {})
+        compute_target = str(local.get("computeTarget") or "nvidia-gpu").strip().lower()
+        engine = str(local.get("engine") or "VLLM").strip().upper()
+        if engine != "VLLM":
+            raise ValueError("only local.engine VLLM is supported")
+        target_definition = compute_target_definition(compute_target, compute_catalog) if compute_catalog else {
+            "defaultResourceProfile": "magicstick-vllm-cpu:1" if compute_target == "cpu" else "magicstick-nvidia-gpu:1"
+        }
         preset_name = local.get("preset") or metadata.get("name")
         preset = dict(presets.get(preset_name) or {})
-        merged = dict(preset)
+        if local.get("preset") and not preset:
+            raise ValueError("unknown local model preset: " + str(local.get("preset")))
+        variants = preset.get("variants") or []
+        merged = {key: value for key, value in preset.items() if key != "variants"}
+        if variants:
+            candidates = [
+                dict(variant)
+                for variant in variants
+                if str(variant.get("computeTarget") or "").lower() == compute_target
+                and str(variant.get("engine") or "VLLM").upper() == engine
+            ]
+            architectures = cluster_architectures() if compute_catalog is not None else set()
+            if architectures:
+                candidates = [
+                    variant
+                    for variant in candidates
+                    if not variant.get("architectures")
+                    or architectures.intersection(str(item) for item in variant.get("architectures") or [])
+                ]
+            if len(candidates) != 1:
+                raise ValueError(
+                    "preset " + str(preset_name) + " has no unique " + engine + "/" + compute_target + " variant for this cluster"
+                )
+            merged.update(candidates[0])
+        elif preset and compute_target != "nvidia-gpu":
+            raise ValueError("legacy preset " + str(preset_name) + " is only available for nvidia-gpu")
+
+        requested_profile = local.get("resourceProfile")
+        resolved_profile = merged.get("resourceProfile") or target_definition.get("defaultResourceProfile")
+        if requested_profile and requested_profile != resolved_profile:
+            raise ValueError("local.resourceProfile must be resolved from the selected compute target and preset")
         merged.update(local)
+        merged["computeTarget"] = compute_target
+        merged["engine"] = engine
+        merged["resourceProfile"] = resolved_profile
         if not merged.get("features"):
             model_type = merged.get("modelType") or merged.get("type") or "chat"
             merged["features"] = ["TextEmbedding"] if model_type == "embedding" else ["TextGeneration"]
-        if not merged.get("engine"):
-            merged["engine"] = "VLLM"
-        if not merged.get("resourceProfile"):
-            merged["resourceProfile"] = "magicstick-nvidia-gpu:1"
         return merged
 
 
@@ -1036,6 +1148,23 @@ data:
         return normalized
 
 
+    def model_args_with_cpu_cache(args, kv_cache_memory_bytes):
+        normalized = []
+        skip_next = False
+        for arg in [str(item) for item in (args or [])]:
+            if skip_next:
+                skip_next = False
+                continue
+            if arg in ("--kv-cache-memory-bytes", "--kv_cache_memory_bytes"):
+                skip_next = True
+                continue
+            if arg.startswith("--kv-cache-memory-bytes=") or arg.startswith("--kv_cache_memory_bytes="):
+                continue
+            normalized.append(arg)
+        normalized.append(f"--kv-cache-memory-bytes={kv_cache_memory_bytes}")
+        return normalized
+
+
     def non_negative_int(value, default):
         if value is None:
             return default
@@ -1059,18 +1188,26 @@ data:
         return ready, expected
 
 
-    def kubeai_model_resource(activation, presets):
+    def kubeai_model_resource(activation, presets, compute_catalog=None):
         metadata = activation.get("metadata") or {}
         spec = activation.get("spec") or {}
         name = metadata.get("name")
         namespace = spec.get("targetNamespace") or "ai"
-        local = merged_local_model(activation, presets)
+        local = merged_local_model(activation, presets, compute_catalog)
+        compute_target = local.get("computeTarget") or "nvidia-gpu"
+        engine = local.get("engine") or "VLLM"
+        resource_profile = local.get("resourceProfile")
         url = (local.get("url") or "").strip()
         vram_mi = local_model_vram_mi(local)
+        memory_mi = positive_int(local.get("memoryRequiredMi")) or 0
         if not url:
             raise ValueError("local.url is required for local ModelActivation")
-        if not vram_mi:
+        if not url.startswith("hf://"):
+            raise ValueError("VLLM local.url must use the hf:// scheme")
+        if compute_target == "nvidia-gpu" and not vram_mi:
             raise ValueError("local.vram or local.vramMi is required for local ModelActivation")
+        if compute_target == "cpu" and vram_mi:
+            raise ValueError("CPU ModelActivation must not define local.vram or local.vramMi")
         annotations = {}
         context_window = positive_int(local.get("contextWindow") or local.get("context_window"))
         max_output_tokens = positive_int(local.get("maxOutputTokens") or local.get("max_output_tokens"))
@@ -1080,7 +1217,13 @@ data:
         if max_output_tokens:
             annotations["ai-appliance.io/max-output-tokens"] = str(max_output_tokens)
         env = dict(local.get("env") or {})
-        env["MAGICSTICK_VLLM_VRAM_LIMIT"] = local.get("vram") or str(vram_mi)
+        env["MAGICSTICK_COMPUTE_TARGET"] = compute_target
+        if compute_target == "nvidia-gpu":
+            env["MAGICSTICK_VLLM_VRAM_LIMIT"] = local.get("vram") or str(vram_mi)
+            env.pop("VLLM_CPU_KVCACHE_SPACE", None)
+        else:
+            env.pop("MAGICSTICK_VLLM_VRAM_LIMIT", None)
+            env.pop("VLLM_CPU_KVCACHE_SPACE", None)
         for legacy_key in (
             "MAGICSTICK_VLLM_ACTIVE_THREAD_PERCENTAGE",
             "MAGICSTICK_MPS_DEVICE",
@@ -1089,6 +1232,10 @@ data:
             "CUDA_MPS_PIPE_DIRECTORY",
         ):
             env.pop(legacy_key, None)
+        args = model_args_with_runtime_limits(local.get("args") or [], context_window, max_num_seqs)
+        if compute_target == "cpu":
+            kv_cache_memory_bytes = positive_int(local.get("kvCacheMemoryBytes")) or 536870912
+            args = model_args_with_cpu_cache(args, kv_cache_memory_bytes)
         return {
             "apiVersion": "kubeai.org/v1",
             "kind": "Model",
@@ -1098,27 +1245,35 @@ data:
                 "labels": {
                     "app.kubernetes.io/managed-by": "magicstick-operator",
                     "appliance.magicstick.dev/modelactivation": name,
+                    "appliance.magicstick.dev/compute-target": compute_target,
+                    "appliance.magicstick.dev/engine": engine.lower(),
                 },
                 "annotations": annotations,
             },
             "spec": {
                 "features": local.get("features") or ["TextGeneration"],
                 "url": url,
-                "engine": local.get("engine") or "VLLM",
-                "resourceProfile": local.get("resourceProfile") or "magicstick-nvidia-gpu:1",
+                "engine": engine,
+                "resourceProfile": resource_profile,
                 "minReplicas": non_negative_int(local.get("minReplicas"), 1),
                 "maxReplicas": non_negative_int(local.get("maxReplicas"), 1),
                 "env": env,
-                "args": model_args_with_runtime_limits(local.get("args") or [], context_window, max_num_seqs),
+                "args": args,
             },
-        }, vram_mi
+        }, {
+            "computeTarget": compute_target,
+            "engine": engine,
+            "resourceProfile": resource_profile,
+            "vramMi": vram_mi,
+            "memoryMi": memory_mi,
+        }
 
 
     def delete_kubeai_model(name, namespace):
         return delete_resource("kubeai.org", "v1", "models", namespace, name)
 
 
-    def reconcile_model_activation(activation, catalog, presets):
+    def reconcile_model_activation(activation, catalog, presets, compute_catalog=None):
         metadata = activation.get("metadata") or {}
         spec = activation.get("spec") or {}
         generation = int(metadata.get("generation") or 0)
@@ -1126,84 +1281,125 @@ data:
         model_type = spec.get("type") or "local"
         namespace = spec.get("targetNamespace") or "ai"
         model_ref = ("kubeai/" + name) if model_type == "local" else ("litellm/" + name)
+        runtime = {
+            "computeTarget": local_compute_target(activation) if model_type == "local" else "external",
+            "engine": "VLLM" if model_type == "local" else "external",
+            "resourceProfile": "",
+            "vramMi": 0,
+            "memoryMi": 0,
+        }
+
+        def status_payload(phase, message, catalog_id=""):
+            return {
+                "phase": phase,
+                "modelRef": model_ref,
+                "catalogId": catalog_id,
+                "computeTarget": runtime["computeTarget"],
+                "engine": runtime["engine"],
+                "resolvedResourceProfile": runtime["resourceProfile"],
+                "vramRequiredMi": runtime["vramMi"],
+                "memoryRequiredMi": runtime["memoryMi"],
+                "message": message,
+            }
+
+        def patch_status(phase, reason, message, catalog_id=""):
+            patch_model_status(
+                activation,
+                phase,
+                reason,
+                message,
+                model_ref,
+                catalog_id,
+                runtime["vramMi"],
+                generation,
+                compute_target=runtime["computeTarget"],
+                engine=runtime["engine"],
+                resource_profile=runtime["resourceProfile"],
+                memory_mi=runtime["memoryMi"],
+            )
 
         if metadata.get("deletionTimestamp"):
-            if model_type == "local":
-                if get_resource("kubeai.org", "v1", "models", namespace, name):
-                    delete_kubeai_model(name, namespace)
-                    patch_model_status(activation, "Removing", "Removing", "ModelActivation is being deleted; KubeAI Model is being removed.", model_ref, name, generation=generation)
-                    return "Removing", {"phase": "Removing", "modelRef": model_ref, "message": "KubeAI Model is being removed."}
+            if model_type == "local" and get_resource("kubeai.org", "v1", "models", namespace, name):
+                delete_kubeai_model(name, namespace)
+                message = "ModelActivation is being deleted; KubeAI Model is being removed."
+                patch_status("Removing", "Removing", message, name)
+                return "Removing", status_payload("Removing", message, name)
             remove_model_finalizer(activation)
-            return "Disabled", {"phase": "Disabled", "modelRef": model_ref, "message": "ModelActivation deleted."}
+            return "Disabled", status_payload("Disabled", "ModelActivation deleted.")
 
         ensure_model_finalizer(activation)
         enabled = spec.get("enabled", True) is not False
-        vram_mi = 0
-        if model_type == "local":
-            try:
-                vram_mi = kubeai_model_resource(activation, presets)[1]
-            except ValueError:
-                vram_mi = 0
         if not enabled:
             if model_type == "local" and get_resource("kubeai.org", "v1", "models", namespace, name):
                 delete_kubeai_model(name, namespace)
-                patch_model_status(activation, "Removing", "Removing", "ModelActivation is disabled; KubeAI Model is being removed.", model_ref, name, vram_mi, generation)
-                return "Removing", {"phase": "Removing", "modelRef": model_ref, "vramRequiredMi": vram_mi, "message": "KubeAI Model is being removed."}
+                message = "ModelActivation is disabled; KubeAI Model is being removed."
+                patch_status("Removing", "Removing", message, name)
+                return "Removing", status_payload("Removing", message, name)
             message = "ModelActivation is disabled."
-            patch_model_status(activation, "Disabled", "Disabled", message, model_ref, name, vram_mi, generation)
-            return "Disabled", {"phase": "Disabled", "modelRef": model_ref, "vramRequiredMi": vram_mi, "message": message}
+            patch_status("Disabled", "Disabled", message, name)
+            return "Disabled", status_payload("Disabled", message, name)
 
         if model_type not in ("local", "external"):
             message = "Unsupported model type: " + str(model_type)
-            patch_model_status(activation, "Degraded", "UnsupportedType", message, model_ref, name, generation=generation)
-            return "Degraded", {"phase": "Degraded", "modelRef": model_ref, "message": message}
+            patch_status("Degraded", "UnsupportedType", message)
+            return "Degraded", status_payload("Degraded", message)
 
-        required_modules = model_required_modules(model_type)
+        resource = None
+        if model_type == "local":
+            try:
+                if compute_catalog is None:
+                    resource, runtime = kubeai_model_resource(activation, presets)
+                else:
+                    resource, runtime = kubeai_model_resource(activation, presets, compute_catalog)
+            except ValueError as error:
+                message = str(error)
+                patch_status("Degraded", "InvalidModelSpec", message)
+                return "Degraded", status_payload("Degraded", message)
+
+        try:
+            required_modules = model_required_modules(
+                model_type,
+                runtime["computeTarget"],
+                catalog,
+                compute_catalog,
+            )
+        except ValueError as error:
+            message = str(error)
+            patch_status("Degraded", "InvalidComputeTarget", message)
+            return "Degraded", status_payload("Degraded", message)
         for module in required_modules:
             ensure_module_activation(module, auto=True)
         missing_modules = [module for module in required_modules if not module_ready(module, catalog)]
         if missing_modules:
             message = "Waiting for required modules: " + ", ".join(missing_modules)
-            patch_model_status(activation, "WaitingForModules", "WaitingForModules", message, model_ref, name, vram_mi, generation)
-            return "WaitingForModules", {"phase": "WaitingForModules", "modelRef": model_ref, "vramRequiredMi": vram_mi, "message": message}
+            patch_status("WaitingForModules", "WaitingForModules", message, name)
+            return "WaitingForModules", status_payload("WaitingForModules", message, name)
 
         if model_type == "local":
-            if nvidia_gpu_capacity() < 1:
-                message = "The local model runtime is installed, but Kubernetes reports no allocatable nvidia.com/gpu resources."
-                patch_model_status(activation, "WaitingForGPU", "WaitingForGPU", message, model_ref, name, vram_mi, generation)
-                return "WaitingForGPU", {"phase": "WaitingForGPU", "modelRef": model_ref, "vramRequiredMi": vram_mi, "message": message}
+            if runtime["computeTarget"] == "nvidia-gpu" and nvidia_gpu_capacity() < 1:
+                message = "The NVIDIA runtime is installed, but Kubernetes reports no allocatable nvidia.com/gpu resources."
+                patch_status("WaitingForGPU", "WaitingForGPU", message, name)
+                return "WaitingForGPU", status_payload("WaitingForGPU", message, name)
             if not crd_exists("models.kubeai.org"):
                 message = "Waiting for required CRDs: models.kubeai.org"
-                patch_model_status(activation, "WaitingForCRDs", "WaitingForCRDs", message, model_ref, name, vram_mi, generation)
-                return "WaitingForCRDs", {"phase": "WaitingForCRDs", "modelRef": model_ref, "vramRequiredMi": vram_mi, "message": message}
-            try:
-                resource, vram_mi = kubeai_model_resource(activation, presets)
-            except ValueError as error:
-                message = str(error)
-                patch_model_status(activation, "Degraded", "InvalidModelSpec", message, model_ref, name, generation=generation)
-                return "Degraded", {"phase": "Degraded", "modelRef": model_ref, "message": message}
+                patch_status("WaitingForCRDs", "WaitingForCRDs", message, name)
+                return "WaitingForCRDs", status_payload("WaitingForCRDs", message, name)
             applied_model = apply_resource(resource)
             kubeai_model = get_resource("kubeai.org", "v1", "models", namespace, name) or applied_model
             ready_replicas, expected_replicas = kubeai_model_replica_counts(kubeai_model)
             if ready_replicas < 1:
-                message = f"Waiting for KubeAI/vLLM to become ready: {ready_replicas}/{expected_replicas} replicas ready."
-                patch_model_status(activation, "Starting", "WaitingForReadyReplica", message, model_ref, name, vram_mi, generation)
-                return "Starting", {
-                    "phase": "Starting",
-                    "modelRef": model_ref,
-                    "catalogId": name,
-                    "vramRequiredMi": vram_mi,
-                    "message": message,
-                }
+                message = f"Waiting for KubeAI/{runtime['engine']} on {runtime['computeTarget']} to become ready: {ready_replicas}/{expected_replicas} replicas ready."
+                patch_status("Starting", "WaitingForReadyReplica", message, name)
+                return "Starting", status_payload("Starting", message, name)
 
         if catalog_contains_model(namespace, name):
             message = "Model is available in the generated model catalog."
-            patch_model_status(activation, "Ready", "CatalogReady", message, model_ref, name, vram_mi, generation)
-            return "Ready", {"phase": "Ready", "modelRef": model_ref, "catalogId": name, "vramRequiredMi": vram_mi, "message": message}
+            patch_status("Ready", "CatalogReady", message, name)
+            return "Ready", status_payload("Ready", message, name)
 
         message = "Waiting for model-catalog to publish the model."
-        patch_model_status(activation, "Reconciling", "WaitingForCatalog", message, model_ref, name, vram_mi, generation)
-        return "Reconciling", {"phase": "Reconciling", "modelRef": model_ref, "catalogId": name, "vramRequiredMi": vram_mi, "message": message}
+        patch_status("Reconciling", "WaitingForCatalog", message, name)
+        return "Reconciling", status_payload("Reconciling", message, name)
 
 
     def managed_resource_name(name, suffix):
@@ -1719,6 +1915,7 @@ data:
     def reconcile_once():
         catalog = load_catalog()
         app_catalog = load_app_catalog()
+        compute_catalog = load_compute_target_catalog()
         presets = load_model_presets()
         current = appliance() or {}
         source = ((current.get("spec") or {}).get("source") or {"kind": "GitRepository", "name": "flux-system", "namespace": FLUX_NAMESPACE})
@@ -1741,7 +1938,14 @@ data:
                 continue
             if (model.get("metadata") or {}).get("deletionTimestamp"):
                 continue
-            for module in model_required_modules(spec.get("type") or "local"):
+            compute_target = local_compute_target(model) if (spec.get("type") or "local") == "local" else "external"
+            try:
+                required_model_modules = model_required_modules(
+                    spec.get("type") or "local", compute_target, catalog, compute_catalog
+                )
+            except ValueError:
+                required_model_modules = []
+            for module in required_model_modules:
                 ensure_module_activation(module, auto=True)
         for activation in list(activations.values()):
             if ((activation.get("spec") or {}).get("enabled", True) is False):
@@ -1779,7 +1983,7 @@ data:
         model_statuses = {}
         for model in models:
             name = (model.get("metadata") or {}).get("name")
-            phase, status = reconcile_model_activation(model, catalog, presets)
+            phase, status = reconcile_model_activation(model, catalog, presets, compute_catalog)
             model_statuses[name] = status
 
         patch_appliance_status(module_statuses, instance_statuses, model_statuses)

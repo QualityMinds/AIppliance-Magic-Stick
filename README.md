@@ -184,9 +184,10 @@ specialized operators, while OpenClaw, Hermes, Paperclip, and KubeOpenCode
 remain responsible for their own workloads.
 
 The default appliance is GPU-neutral: LiteLLM and the model catalog support
-external providers without NVIDIA hardware. The first enabled local model
-installs the NVIDIA GPU Operator and KubeAI on demand; it remains in
-`WaitingForGPU` until Kubernetes exposes an allocatable NVIDIA GPU.
+external providers without accelerator hardware. Local vLLM models explicitly
+select `cpu` or `nvidia-gpu`. CPU models install only KubeAI; NVIDIA models also
+request the NVIDIA GPU module and remain in `WaitingForGPU` until Kubernetes
+exposes an allocatable `nvidia.com/gpu` resource.
 
 The dashboard is the UI and API client for this model. It reads the Appliance,
 module catalog, Flux, Pod, Service, Ingress, and Event status, and creates or
