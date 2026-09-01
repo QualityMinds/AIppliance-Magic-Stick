@@ -89,6 +89,9 @@ These are presentation groups only: module actions still reconcile
 `ModuleActivation` resources and instance actions still reconcile `AppInstance`
 resources. When an entry appears in the wrong group, inspect the module catalog
 and application `requiredModules` before changing a runtime resource.
+Hardware-backed entries use the appliance hardware-provider state, not merely
+the Flux apply result. NVIDIA therefore remains `Installing` until both an
+allocatable `nvidia.com/gpu` resource and readable DCGM telemetry are available.
 
 ## Identity Pilot Checks
 
@@ -442,6 +445,7 @@ deploy,pods` if a command does not match the running resource name.
 | GPU hardware is present but provider is `Unsupported` | Confirm node architecture/Kubernetes preflight first. For AMD or Intel, the broad PCI vendor label can exist while the vendor `NodeFeatureRule` rejects that product; use the operator's supported-hardware documentation instead of adding a Magic Stick PCI allow-list. |
 | Provider is `Conflict` | A vendor CRD already existed without a Magic Stick `ModuleActivation`. Decide which installation owns the operator; do not run a second copy. |
 | Provider remains `Installing` with zero resources | The controller chart is installed but driver/device-plugin readiness is incomplete. Inspect the vendor namespace and the node's allocatable extended resources. AMD's baseline expects a working host/inbox `amdgpu` driver. |
+| NVIDIA remains `Installing` although `nvidia.com/gpu` is allocatable | The driver and device plugin are active, but the dashboard cannot read DCGM telemetry yet. Check the `nvidia-dcgm-exporter` Pod, Service, endpoints, and the dashboard API ServiceAccount's `services/proxy` permission. |
 | Provider changes to `Unknown` after reboot | NFD has temporarily lost the PCI signal. Magic Stick intentionally retains the existing operator; wait for the next 60-second NFD pass and inspect the node before taking action. |
 | Local model stays in `WaitingForGPU` | The optional runtime is installed but Kubernetes reports no allocatable `nvidia.com/gpu`; verify supported hardware, driver pods, and node capacity. |
 | Accelerator target is disabled in the dashboard | The matching vendor module must be `Ready` and a Ready schedulable node must expose `nvidia.com/gpu`, `amd.com/gpu`, `gpu.intel.com/i915`, or `gpu.intel.com/xe`. CPU remains available independently. |

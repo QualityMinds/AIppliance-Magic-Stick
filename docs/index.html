@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="MagicStick is a self-hosted AI appliance template for local models, agents, apps, Kubernetes operators, Flux, and GitOps-managed automation." />
+  <meta name="description" content="MagicStick is a self-hosted AI appliance for local and external models, managed AI services, SSO, Kubernetes operators, Flux, and GitOps-managed automation." />
   <meta name="theme-color" content="#071014" />
   <meta property="og:title" content="MagicStick" />
-  <meta property="og:description" content="A self-hosted AI appliance for local models, agents, apps, and Kubernetes-native automation." />
+  <meta property="og:description" content="A self-hosted AI appliance for local and external models, managed AI services, SSO, and Kubernetes-native automation." />
   <meta property="og:type" content="website" />
   <title>MagicStick - Self-hosted AI Appliance</title>
   <style>
@@ -687,8 +687,8 @@
       </a>
       <div class="nav-links">
         <a href="#why">Why</a>
-        <a href="#modules">Modules</a>
-        <a href="#quickstart">Quickstart</a>
+        <a href="#services">Services</a>
+        <a href="#quickstart">Install</a>
         <a href="#docs">Docs</a>
         <a class="button secondary" href="https://github.com/QualityMinds/AIppliance-Magic-Stick">GitHub</a>
       </div>
@@ -702,7 +702,7 @@
           <p class="eyebrow">Open source AI appliance template</p>
           <h1 id="hero-title">MagicStick</h1>
           <p class="hero-copy">
-            A self-hosted AI appliance for local models, agents, apps, and Kubernetes-native automation. Bootstrap a machine, let Flux converge the platform, then manage modules, model activations, app instances, domains, and ingress links from one dashboard.
+            A self-hosted AI appliance for local and external models, managed AI services, and Kubernetes-native automation. Install it on hardware, a VM, or an existing cluster, complete the protected first-run setup, then manage services, models, users, domains, and application links from one dashboard.
           </p>
           <div class="hero-actions" aria-label="Primary actions">
             <a class="button primary" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/installation/README.md">Install MagicStick</a>
@@ -712,16 +712,16 @@
           </div>
           <div class="hero-proof" aria-label="Project highlights">
             <div class="proof-item">
-              <strong>Local-first</strong>
-              <span>Run private AI workloads on your own appliance.</span>
+              <strong>Local-first, cloud-ready</strong>
+              <span>Run private models locally or connect external providers.</span>
             </div>
             <div class="proof-item">
               <strong>GitOps-ready</strong>
               <span>Flux keeps the cluster aligned with declarative state.</span>
             </div>
             <div class="proof-item">
-              <strong>Operator-led</strong>
-              <span>Modules and app instances reconcile through Kubernetes CRs.</span>
+              <strong>Secure by default</strong>
+              <span>Local SSO and role-based dashboard access protect the appliance.</span>
             </div>
           </div>
         </div>
@@ -735,16 +735,17 @@
             <aside class="sidebar" aria-label="Dashboard sections">
               <div class="sidebar-title">Dashboard</div>
               <span class="side-pill active">Overview</span>
-              <span class="side-pill">Modules</span>
-              <span class="side-pill">Instances</span>
+              <span class="side-pill">Services</span>
               <span class="side-pill">Models</span>
+              <span class="side-pill">Users</span>
+              <span class="side-pill">System Status</span>
             </aside>
             <div class="dashboard-main">
               <div class="metric-strip">
-                <div class="metric"><span>Modules</span><strong>9 ready</strong></div>
-                <div class="metric"><span>Instances</span><strong>4 apps</strong></div>
-                <div class="metric"><span>Models</span><strong>3 local</strong></div>
-                <div class="metric"><span>VRAM</span><strong>23 GiB</strong></div>
+                <div class="metric"><span>Services</span><strong>9 ready</strong></div>
+                <div class="metric"><span>Models</span><strong>3 active</strong></div>
+                <div class="metric"><span>Identity</span><strong>SSO ready</strong></div>
+                <div class="metric"><span>Compute</span><strong>CPU + GPU</strong></div>
               </div>
               <div class="module-preview-grid">
                 <article class="module-card">
@@ -753,7 +754,7 @@
                     <span class="status">Ready</span>
                   </div>
                   <div class="bar" aria-hidden="true"><span style="--value: 100%"></span></div>
-                  <p>Agent runtime with local ingress and dashboard credentials.</p>
+                  <p>Managed agent service with nested instances, routes, and credentials.</p>
                 </article>
                 <article class="module-card">
                   <div class="module-card-head">
@@ -769,7 +770,7 @@
                     <span class="status waiting">Reconciling</span>
                   </div>
                   <div class="bar" aria-hidden="true"><span style="--value: 70%"></span></div>
-                  <p>Local model activation with VRAM estimate and scheduler hints.</p>
+                  <p>vLLM or Ollama with RAM and accelerator-memory planning.</p>
                 </article>
                 <article class="module-card">
                   <div class="module-card-head">
@@ -783,7 +784,7 @@
               <div class="terminal" aria-label="Bootstrap flow">
                 <div>$ kubectl kustomize magic-cluster/flux/entrypoints/single-node</div>
                 <div>$ flux reconcile kustomization magicstick-operator</div>
-                <div>local appliance: modules ready, model catalog published</div>
+                <div>local appliance: services ready, SSO active, model catalog published</div>
               </div>
             </div>
           </div>
@@ -796,29 +797,29 @@
         <div class="section-header">
           <h2>Build a small AI platform without turning it into a platform team.</h2>
           <p>
-            MagicStick packages the boring but critical pieces of a local AI appliance: host bootstrap, K3s, Flux, GPU platform bits, model serving, app operators, ingress naming, and a dashboard that writes runtime CRs instead of hand-editing cluster state.
+            MagicStick packages the boring but critical pieces of a local AI appliance: host bootstrap, K3s, Flux, identity, model serving, optional hardware operators, app operators, predictable routes, and a dashboard that writes runtime CRs instead of hand-editing cluster state.
           </p>
         </div>
         <div class="feature-grid">
           <article class="feature">
             <h3>Dashboard-managed runtime</h3>
-            <p>Enable modules, add local or external models, create app instances, inspect progress, and open generated ingress URLs.</p>
+            <p>Manage services and their instances, add local or external models, inspect progress, and open generated application URLs.</p>
           </article>
           <article class="feature">
-            <h3>Catalog-driven modules</h3>
-            <p>The module catalog controls display names, dependencies, activation mode, parameters, and instance availability.</p>
+            <h3>Catalog-driven services</h3>
+            <p>The service catalogs control display names, dependencies, activation mode, parameters, and managed instance availability.</p>
           </article>
           <article class="feature">
             <h3>Public-safe base repo</h3>
             <p>Keep this repository reusable and generic while private deployments provide real domains, tokens, and overlays.</p>
           </article>
           <article class="feature">
-            <h3>Local model workflows</h3>
-            <p>Deploy KubeAI-backed models, surface catalog status, and estimate VRAM from HuggingFace metadata before creating activations.</p>
+            <h3>Flexible local inference</h3>
+            <p>Run vLLM on CPU, NVIDIA, AMD, or Intel hardware. Run Ollama on CPU, NVIDIA, or AMD, with only detected and ready targets offered in the dashboard.</p>
           </article>
           <article class="feature">
-            <h3>Public and mDNS ingress</h3>
-            <p>Publish apps through predictable host schemes like instance.type.domain and local `.local` names.</p>
+            <h3>SSO and user management</h3>
+            <p>Protect the dashboard and application routes with local Keycloak SSO, then manage local users and their viewer, operator, or administrator access centrally.</p>
           </article>
           <article class="feature">
             <h3>GitOps as the baseline</h3>
@@ -828,12 +829,12 @@
       </div>
     </section>
 
-    <section class="section alt" id="modules">
+    <section class="section alt" id="services">
       <div class="section-inner">
         <div class="section-header">
           <h2>One appliance, many AI surfaces.</h2>
           <p>
-            The reusable cluster base brings together model routing, local inference, and app operators. Optional modules can be activated from the dashboard or through Kubernetes resources.
+            The reusable cluster base brings together model routing, local inference, identity, and app operators. The Services page combines platform capabilities with their managed application instances, while the Models page presents only engines and hardware targets that are available on the cluster.
           </p>
         </div>
         <div class="module-grid">
@@ -844,8 +845,8 @@
           </article>
           <article class="module">
             <span class="module-tag">Models</span>
-            <h3>KubeAI and LiteLLM</h3>
-            <p>Serve local models and route OpenAI-compatible traffic to local or external providers.</p>
+            <h3>KubeAI, vLLM, Ollama, and LiteLLM</h3>
+            <p>Serve local models through vLLM or Ollama and route OpenAI-compatible traffic to local or external providers.</p>
           </article>
           <article class="module">
             <span class="module-tag">Knowledge</span>
@@ -862,6 +863,21 @@
             <h3>Hermes</h3>
             <p>Run a browser chat workspace wired to deployed chat models and local ingress hosts.</p>
           </article>
+          <article class="module">
+            <span class="module-tag">Identity</span>
+            <h3>Keycloak and Envoy Gateway</h3>
+            <p>Use one local SSO layer for the dashboard and managed application routes, with optional upstream identity brokering through Keycloak.</p>
+          </article>
+          <article class="module">
+            <span class="module-tag">Hardware</span>
+            <h3>On-demand accelerator operators</h3>
+            <p>Node discovery requests only the matching NVIDIA, AMD, or Intel operator. CPU-only appliances keep all three accelerator operators inactive.</p>
+          </article>
+          <article class="module">
+            <span class="module-tag">Enterprise option · planned</span>
+            <h3>Resource-scoped governance</h3>
+            <p>Per-service and per-instance access, group-level RBAC, and delegated administration are planned enterprise capabilities available for design discussions on request; they are not part of the current implementation.</p>
+          </article>
         </div>
       </div>
     </section>
@@ -869,34 +885,43 @@
     <section class="section" id="quickstart">
       <div class="section-inner">
         <div class="section-header">
-          <h2>Start from the public template, then layer private deployment values.</h2>
+          <h2>Four installation paths, one protected appliance.</h2>
           <p>
-            The public repo stays safe to share. Real domains, credentials, and site-specific overrides belong in runtime settings or a private GitOps repository that includes this template.
+            Start from the environment you already have. Every new installation ends in the same protected first-run setup, creates no default human password, and converges to the same GitOps-managed platform.
           </p>
         </div>
         <div class="quick-layout">
           <div class="quick-panel">
             <ol class="steps">
               <li>
-                <strong>Clone the template</strong>
-                <span>Use the public repository as the reusable base for appliance bootstrap and cluster rendering.</span>
+                <strong>Empty physical server</strong>
+                <span>Boot the USB installer to install Ubuntu, K3s, Flux, and MagicStick from scratch.</span>
               </li>
               <li>
-                <strong>Render the Flux graph</strong>
-                <span>Validate the public base or the single-node profile before applying it to a cluster.</span>
+                <strong>New cloud VM</strong>
+                <span>Use the cloud-init and autoinstall template with providers such as Hetzner or Azure.</span>
               </li>
               <li>
-                <strong>Converge the appliance</strong>
-                <span>Flux applies modules, the MagicStick Operator reconciles CRs, and the dashboard exposes runtime actions.</span>
+                <strong>Existing Ubuntu 24.04 host or VM</strong>
+                <span>Run the reviewed install script on a dedicated machine to add K3s, Flux, and MagicStick.</span>
+              </li>
+              <li>
+                <strong>Existing Kubernetes cluster</strong>
+                <span>Deploy the cluster components from Bash or PowerShell while reusing compatible Flux controllers.</span>
               </li>
             </ol>
           </div>
-          <pre><code>git clone https://github.com/QualityMinds/AIppliance-Magic-Stick
-cd AIppliance-Magic-Stick
+          <pre><code># Existing Ubuntu 24.04 host
+curl -fsSL https://raw.githubusercontent.com/QualityMinds/AIppliance-Magic-Stick/main/install-from-linux.sh \
+  -o /tmp/install-from-linux.sh
+sudo bash /tmp/install-from-linux.sh --preflight-only
+sudo bash /tmp/install-from-linux.sh
 
-kubectl kustomize magic-cluster/flux/entrypoints/base
-kubectl kustomize magic-cluster/flux/entrypoints/single-node
-kubectl kustomize magic-cluster/apps/dashboard</code></pre>
+# Existing Kubernetes cluster
+curl -fsSL https://raw.githubusercontent.com/QualityMinds/AIppliance-Magic-Stick/main/deploy-on-k8s.sh \
+  -o /tmp/deploy-on-k8s.sh
+bash /tmp/deploy-on-k8s.sh --context "$(kubectl config current-context)" --preflight-only
+bash /tmp/deploy-on-k8s.sh --context "$(kubectl config current-context)"</code></pre>
         </div>
       </div>
     </section>
@@ -906,13 +931,13 @@ kubectl kustomize magic-cluster/apps/dashboard</code></pre>
         <div class="section-header">
           <h2>Kubernetes-native from install to day two.</h2>
           <p>
-            MagicStick keeps the control plane explicit: host automation prepares the node, Flux owns the platform, the operator creates runtime resources, and app operators run the actual workloads.
+            MagicStick keeps the control plane explicit: first-run setup establishes the administrator, Keycloak and Envoy protect access, Flux owns the platform, the operator creates runtime resources, and app operators run the actual workloads.
           </p>
         </div>
         <div class="architecture" aria-label="Architecture flow">
           <div class="arch-node">
-            <strong>Installer</strong>
-            <span>Cloud-init and host defaults</span>
+            <strong>Install and setup</strong>
+            <span>Four entry paths and protected first run</span>
           </div>
           <div class="arch-node">
             <strong>K3s</strong>
@@ -923,12 +948,12 @@ kubectl kustomize magic-cluster/apps/dashboard</code></pre>
             <span>GitOps platform graph</span>
           </div>
           <div class="arch-node">
-            <strong>Operator</strong>
-            <span>Modules, models, instances</span>
+            <strong>Identity and gateway</strong>
+            <span>Keycloak SSO and Envoy routes</span>
           </div>
           <div class="arch-node">
-            <strong>Dashboard</strong>
-            <span>Runtime UI and links</span>
+            <strong>Operator and dashboard</strong>
+            <span>Services, models, users, status, and links</span>
           </div>
         </div>
       </div>
@@ -953,7 +978,7 @@ kubectl kustomize magic-cluster/apps/dashboard</code></pre>
           </a>
           <a class="doc-link" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/installation/after-installation-dashboard.md">
             <h3>Dashboard</h3>
-            <p>First login, domains, modules, models, instances, and SSO verification.</p>
+            <p>First login, domains, services, models, users, system status, and SSO verification.</p>
           </a>
           <a class="doc-link" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/modules.md">
             <h3>Modules</h3>
@@ -965,7 +990,7 @@ kubectl kustomize magic-cluster/apps/dashboard</code></pre>
           </a>
           <a class="doc-link" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/operations.md">
             <h3>Operations</h3>
-            <p>Day-two checks for Flux, K3s, apps, GPU, storage, logs, and failures.</p>
+            <p>Day-two checks for Flux, K3s, apps, CPU and GPU runtimes, storage, logs, and failures.</p>
           </a>
         </div>
       </div>

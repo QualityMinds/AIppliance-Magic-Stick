@@ -1,8 +1,9 @@
 # Magic Stick Sales Deck
 
-This folder contains the German sales deck for the AIppliance Magic Stick. It
-positions the open source appliance, its local-first operating model, and the
-optional enterprise governance package for customer and pilot conversations.
+This folder contains the German presentation and marketing material for the
+AIppliance Magic Stick. It positions the open-source appliance, its local-first
+operating model, and the planned enterprise governance package for customer,
+partner, and pilot conversations.
 
 ![Sales deck preview](preview.png)
 
@@ -10,6 +11,16 @@ optional enterprise governance package for customer and pilot conversations.
 
 - [PowerPoint](Magic-Stick-Salesdeck-Dark-DE.pptx)
 - [PDF](Magic-Stick-Salesdeck-Dark-DE.pdf)
+
+## Marketing deck
+
+The 20-slide marketing deck is the broadest presentation in this folder. It is
+designed for product introductions, partner conversations, events, and pilot
+workshops where the audience should understand both the product experience and
+the platform argument. It combines current product captures with installation,
+security, inference, application, GitOps, open-source, and enterprise themes.
+
+- [Editable PowerPoint](Magic-Stick-Marketingdeck-DE.pptx)
 
 ## Marketing onepage
 
@@ -40,17 +51,42 @@ clearly identified as a target concept rather than current functionality.
 The 13-slide deck covers:
 
 1. the integration challenge behind productive AI;
-2. one dashboard for the appliance control plane;
-3. hardware, cloud VM, existing VM, and Kubernetes installation paths;
-4. local, cloud, and hybrid model operation through LiteLLM;
-5. declarative platform layers, applications, and local-first SSO;
-6. the open core boundary and enterprise governance option;
-7. guided creation of instances, models, and users;
-8. a measurable pilot path on customer-controlled infrastructure.
+2. one dashboard for services, models, users, and system status;
+3. four entry points: USB, cloud-init, an existing Ubuntu host, or an existing
+   Kubernetes cluster;
+4. protected first-run setup without a default human password;
+5. external providers through LiteLLM and local inference through KubeAI;
+6. vLLM on CPU, NVIDIA, AMD, or Intel and Ollama on CPU, NVIDIA, or AMD;
+7. hardware-dependent accelerator operators and RAM/VRAM-aware model setup;
+8. applications and instances for knowledge, chat, agents, and coding;
+9. local Keycloak SSO with optional upstream identity brokering;
+10. the open-source boundary and the planned enterprise governance option;
+11. guided creation of instances, models, and users;
+12. a measurable pilot path on customer-controlled infrastructure.
+
+## Current product captures
+
+The presentation artifacts were refreshed on 2026-09-01 from the current test
+appliance in Google Chrome. The source images are intentionally stored as
+separate public-safe assets so they can be reused or refreshed independently:
+
+- [Dashboard overview](assets/Magic-Stick-Dashboard-Overview-Current.png)
+- [Services](assets/Magic-Stick-Dashboard-Services-Current.png)
+- [Models and compute memory](assets/Magic-Stick-Dashboard-Models-Current.png)
+- [System status and hardware operators](assets/Magic-Stick-System-Status-Current.png)
+- [Create instance](assets/Magic-Stick-Create-Instance-Current.png)
+- [Create local model](assets/Magic-Stick-Create-Model-Current.png)
+- [Create external model](assets/Magic-Stick-Create-External-Model-Current.png)
+- [Create user](assets/Magic-Stick-Create-User-Current.png)
+
+The captures contain only example domains and no personal user table data.
 
 The public repository and its focused documentation remain the technical
-source of truth. The deck is sales collateral and must not be used as an
-operational contract.
+source of truth. Resource-specific assignments of concrete users or groups,
+organizational scopes, delegated administration, and policy/audit functions
+are shown only as the planned enterprise target. They are not presented as
+current Community functionality. The deck is marketing collateral and must not
+be used as an operational contract.
 
 ## Maintenance
 

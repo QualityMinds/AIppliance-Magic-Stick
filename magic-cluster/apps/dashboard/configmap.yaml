@@ -2833,6 +2833,9 @@ data:
             if (normalized === 'ready') {
               return { value: 100, label: 'Ready', className: 'ready' };
             }
+            if (normalized === 'installing') {
+              return { value: 85, label: 'Waiting for hardware readiness', className: 'waiting' };
+            }
             if (normalized === 'waitingformodules') {
               return { value: 35, label: 'Waiting for dependencies', className: 'waiting' };
             }
@@ -2861,7 +2864,7 @@ data:
           };
 
           const phaseInProgress = (phase) => {
-            return ['requested', 'waitingformodules', 'waitingforcrds', 'waitingforgpu', 'starting', 'reconciling', 'removing'].includes(String(phase || '').toLowerCase());
+            return ['requested', 'detected', 'installing', 'waitingformodules', 'waitingforcrds', 'waitingforgpu', 'starting', 'reconciling', 'removing'].includes(String(phase || '').toLowerCase());
           };
 
           const moduleGenerationPending = (spec = {}) => {
@@ -3426,9 +3429,26 @@ data:
             });
           };
 
-          const serviceModuleState = (name, spec, catalogSpec) => {
+          const serviceHardwareOperatorState = (name, statusPayload = {}, modelPayload = {}) => {
+            const operator = (((statusPayload || {}).hardwareOperators || {})[name]) || null;
+            if (!operator) { return null; }
+            const status = { ...operator };
+            const normalized = String(status.phase || '').toLowerCase();
+            const nvidiaTelemetry = (modelPayload || {}).vram || {};
+            if (name === 'gpu' && normalized === 'ready' && nvidiaTelemetry.available !== true) {
+              status.phase = 'Installing';
+              status.message = 'The NVIDIA GPU resource is published; waiting for DCGM telemetry before reporting the service ready.';
+            }
+            return status;
+          };
+
+          const serviceModuleState = (name, spec, catalogSpec, statusPayload = {}, modelPayload = {}) => {
             const enabled = spec.enabled === true;
-            const status = spec.status || {};
+            const moduleStatus = spec.status || {};
+            const hardwareStatus = serviceHardwareOperatorState(name, statusPayload, modelPayload);
+            const status = hardwareStatus
+              ? { ...moduleStatus, ...hardwareStatus, message: hardwareStatus.message || moduleStatus.message || '' }
+              : moduleStatus;
             const activationMode = spec.activationMode || catalogSpec.activationMode || 'moduleactivation';
             const phase = status.phase || (activationMode === 'static' && enabled ? 'Ready' : (enabled ? 'Requested' : 'Disabled'));
             const pendingAction = pendingModuleActions[name];
@@ -3489,9 +3509,9 @@ data:
             return identity;
           };
 
-          const createModuleServiceRow = (module, modulePayload, statusPayload) => {
+          const createModuleServiceRow = (module, modulePayload, statusPayload, modelPayload) => {
             const { name, spec, catalogSpec, title } = module;
-            const state = serviceModuleState(name, spec, catalogSpec);
+            const state = serviceModuleState(name, spec, catalogSpec, statusPayload, modelPayload);
             const item = document.createElement('article');
             item.className = 'module-card service-module-row';
             const identity = createServiceIdentity(title, name);
@@ -3673,7 +3693,7 @@ data:
             if (activeServiceFilter === 'platform') { setPlatformServicesExpanded(true); }
           };
 
-          const renderServices = (modulePayload, instancePayload, statusPayload = {}) => {
+          const renderServices = (modulePayload, instancePayload, statusPayload = {}, modelPayload = {}) => {
             const applicationList = $('service-applications-list');
             const runtimeList = $('service-runtime-list');
             const platformList = $('service-platform-list');
@@ -3699,18 +3719,18 @@ data:
             const standaloneApplications = modules.filter(({ name, catalogSpec }) => (
               !primaryModules.has(name) && moduleGroupKey(catalogSpec) === 'apps'
             ));
-            standaloneApplications.forEach((module) => applicationList.appendChild(createModuleServiceRow(module, modulePayload, statusPayload)));
+            standaloneApplications.forEach((module) => applicationList.appendChild(createModuleServiceRow(module, modulePayload, statusPayload, modelPayload)));
 
             const runtimeModules = modules.filter(({ name, catalogSpec }) => (
               !primaryModules.has(name) && moduleGroupKey(catalogSpec) === 'runtime'
             ));
-            runtimeModules.forEach((module) => runtimeList.appendChild(createModuleServiceRow(module, modulePayload, statusPayload)));
+            runtimeModules.forEach((module) => runtimeList.appendChild(createModuleServiceRow(module, modulePayload, statusPayload, modelPayload)));
 
             const platformModules = modules.filter(({ name, catalogSpec }) => {
               const group = moduleGroupKey(catalogSpec);
               return !primaryModules.has(name) && group !== 'apps' && group !== 'runtime';
             });
-            platformModules.forEach((module) => platformList.appendChild(createModuleServiceRow(module, modulePayload, statusPayload)));
+            platformModules.forEach((module) => platformList.appendChild(createModuleServiceRow(module, modulePayload, statusPayload, modelPayload)));
 
             if (!applicationList.childElementCount) { appendServiceEmpty(applicationList, 'No application services are catalogued.'); }
             if (!runtimeList.childElementCount) { appendServiceEmpty(runtimeList, 'No shared AI runtime modules are catalogued.'); }
@@ -5177,7 +5197,7 @@ data:
               $('model-summary').textContent = installedModelIds.size + (installedModelIds.size === 1 ? ' model installed' : ' models installed');
               renderOverviewApps(modulePayload, instancePayload, status);
               renderOverviewAttention(appliance, modulePayload, instancePayload, modelPayload, status);
-              renderServices(modulePayload, instancePayload, status);
+              renderServices(modulePayload, instancePayload, status, modelPayload);
               renderComputeMemory(modelPayload);
               renderModels(modelPayload);
               renderStatus(status);

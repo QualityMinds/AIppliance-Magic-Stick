@@ -368,6 +368,12 @@ the controller's non-sensitive explanation. `NotRequired` means no matching
 hardware was found and the vendor operator consumes no cluster resources;
 `Installing` lasts until the vendor resource becomes allocatable.
 
+The Services screen uses this hardware lifecycle rather than the Flux revision
+of the operator module. For NVIDIA it keeps the service in `Installing` after
+the extended resource appears until the DCGM exporter can provide GPU telemetry.
+This prevents a successfully applied chart from being presented as an
+operational GPU before the Models screen can observe the device.
+
 Catalog-only models are read-only in the Models screen. Remove actions are shown
 only for `ModelActivation` rows that the dashboard can delete.
 

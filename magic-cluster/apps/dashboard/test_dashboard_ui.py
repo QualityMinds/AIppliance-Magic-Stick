@@ -146,6 +146,12 @@ BROWSER_API_MOCK = r"""
             activationMode: 'static',
             displayName: 'Hermes Operator',
             status: { phase: 'Ready' }
+          },
+          gpu: {
+            enabled: true,
+            activationMode: 'moduleactivation',
+            displayName: 'NVIDIA GPU Operator',
+            status: { phase: 'Ready', message: 'Applied revision: test' }
           }
         },
         catalogJson: {
@@ -156,6 +162,13 @@ BROWSER_API_MOCK = r"""
               group: 'runtime',
               order: 50,
               credentials: { provider: 'litellm' }
+            },
+            gpu: {
+              displayName: 'NVIDIA GPU Operator',
+              activationMode: 'moduleactivation',
+              activationPolicy: 'hardware-detected',
+              group: 'operators',
+              order: 30
             }
           },
           groups: {},
@@ -315,10 +328,10 @@ BROWSER_API_MOCK = r"""
         hardwareOperators: {
           gpu: {
             module: 'gpu', displayName: 'NVIDIA GPU Operator', vendor: 'nvidia',
-            operatorVersion: 'v26.3.3', driverMode: 'operator-managed', phase: 'NotRequired',
-            needed: false, operatorActive: false, managedBy: 'none', detectedNodes: [],
-            compatibleNodes: [], allocatableResources: 0,
-            message: 'No matching NVIDIA hardware was detected.'
+            operatorVersion: 'v26.3.3', driverMode: 'operator-managed', phase: 'Ready',
+            needed: true, operatorActive: true, managedBy: 'magicstick', detectedNodes: ['gpu-node'],
+            compatibleNodes: ['gpu-node'], allocatableResources: 1,
+            message: '1 allocatable GPU resource is ready.'
           },
           'amd-gpu': {
             module: 'amd-gpu', displayName: 'AMD GPU Operator', vendor: 'amd',
@@ -476,6 +489,11 @@ BROWSER_ASSERTIONS = r"""
     document.querySelector('[data-tab="services"]').click();
     await waitFor(() => !document.getElementById('tab-services').hidden, 'Services tab');
     assert(!document.getElementById('tab-services').textContent.includes('Enable and wait for:'), 'technical dependency message is visible on the Services page');
+    const nvidiaService = document.querySelector('[data-module="gpu"]') || Array.from(document.querySelectorAll('.service-module-row')).find((item) => item.textContent.includes('NVIDIA GPU Operator'));
+    assert(nvidiaService, 'NVIDIA GPU Operator service is missing');
+    assert(nvidiaService.textContent.includes('Installing'), 'NVIDIA service reports Ready before telemetry is available');
+    assert(nvidiaService.textContent.includes('waiting for DCGM telemetry'), 'NVIDIA service does not explain its pending telemetry');
+    assert(!nvidiaService.textContent.includes('Applied revision: test'), 'Flux readiness leaked into the NVIDIA service state');
     const openClawService = document.querySelector('[data-service-application="openclaw"]');
     assert(openClawService, 'OpenClaw application service is missing');
     assert(openClawService.querySelectorAll('.service-instance-card').length === 1, 'OpenClaw instance is not nested below its application');
@@ -709,10 +727,10 @@ BROWSER_ASSERTIONS = r"""
     document.querySelector('[data-tab="system"]').click();
     await waitFor(() => !document.getElementById('tab-system').hidden, 'System Status tab');
     await waitFor(() => document.querySelectorAll('[data-hardware-operator]').length === 3, 'hardware operator cards');
-    assert(document.querySelector('[data-hardware-operator="nvidia"]').textContent.includes('NotRequired'), 'NVIDIA not-required state is missing');
+    assert(document.querySelector('[data-hardware-operator="nvidia"]').textContent.includes('Ready'), 'NVIDIA hardware-resource state is missing');
     assert(document.querySelector('[data-hardware-operator="amd"]').textContent.includes('Installing'), 'AMD installing state is missing');
     assert(document.querySelector('[data-hardware-operator="intel"]').textContent.includes('1 allocatable resource'), 'Intel resource readiness is missing');
-    assert(document.getElementById('hardware-operator-summary').textContent === '1 ready / 2 active / 3 known', 'hardware operator summary is incorrect');
+    assert(document.getElementById('hardware-operator-summary').textContent === '2 ready / 3 active / 3 known', 'hardware operator summary is incorrect');
 
     const usersTab = document.getElementById('users-tab-button');
     assert(usersTab, 'Users tab is missing from the rendered DOM');
@@ -895,10 +913,12 @@ class DashboardUserManagementUiTests(unittest.TestCase):
         self.assertIn("instanceList.hidden = !expanded", self.script)
         self.assertIn("metaRow.appendChild(instanceToggle)", self.script)
         self.assertNotIn("configured instance", self.script.split("const createApplicationServiceCard =", 1)[1].split("const appendServiceEmpty =", 1)[0])
-        self.assertIn("const renderServices = (modulePayload, instancePayload, statusPayload = {}) =>", self.script)
+        self.assertIn("const renderServices = (modulePayload, instancePayload, statusPayload = {}, modelPayload = {}) =>", self.script)
+        self.assertIn("const serviceHardwareOperatorState = (name, statusPayload = {}, modelPayload = {}) =>", self.script)
+        self.assertIn("waiting for DCGM telemetry before reporting the service ready", self.script)
         self.assertIn("applicationList.appendChild(createApplicationServiceCard", self.script)
         self.assertIn("instanceList.appendChild(createInstanceServiceCard", self.script)
-        self.assertIn("renderServices(modulePayload, instancePayload, status);", self.script)
+        self.assertIn("renderServices(modulePayload, instancePayload, status, modelPayload);", self.script)
         self.assertNotIn("renderModules(modulePayload, status);", self.script)
         self.assertNotIn("renderInstances(instancePayload, status);", self.script)
         service_cards = self.script.split("const createApplicationServiceCard =", 1)[1].split("const createModuleServiceRow =", 1)[0]
