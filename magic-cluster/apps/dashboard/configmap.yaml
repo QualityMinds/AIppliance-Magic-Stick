@@ -677,11 +677,78 @@ data:
           font-size: 0.78rem;
         }
 
-        .model-create-grid {
+        .model-create-wizard {
           display: grid;
           gap: 0.85rem;
-          grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
           padding-top: 0.75rem;
+        }
+
+        .model-create-step {
+          margin: 0;
+          width: auto;
+        }
+
+        .model-create-step h3 {
+          margin: 0;
+        }
+
+        .model-create-step-label {
+          color: var(--accent);
+          font-size: 0.72rem;
+          font-weight: 700;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+        }
+
+        .model-create-step-heading {
+          align-items: flex-start;
+          display: flex;
+          gap: 0.75rem;
+          justify-content: space-between;
+        }
+
+        .model-create-step-heading > div {
+          display: grid;
+          gap: 0.2rem;
+        }
+
+        .model-choice-picker {
+          display: grid;
+          gap: 0.7rem;
+          grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        }
+
+        .model-choice {
+          appearance: none;
+          background: rgba(15, 23, 42, 0.78);
+          border: 1px solid rgba(125, 211, 252, 0.28);
+          border-radius: 12px;
+          color: var(--text);
+          cursor: pointer;
+          display: grid;
+          gap: 0.35rem;
+          min-height: 6.5rem;
+          padding: 1rem;
+          text-align: left;
+        }
+
+        .model-choice:hover,
+        .model-choice:focus-visible,
+        .model-choice[aria-pressed="true"] {
+          background: rgba(14, 116, 144, 0.24);
+          border-color: var(--accent);
+          box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.22);
+          outline: none;
+        }
+
+        .model-choice strong {
+          font-size: 1rem;
+        }
+
+        .model-choice span {
+          color: var(--muted);
+          font-size: 0.8rem;
+          line-height: 1.45;
         }
 
         .instance-create-toolbar {
@@ -805,7 +872,7 @@ data:
           display: flex;
           flex-wrap: wrap;
           gap: 0.65rem;
-          justify-content: space-between;
+          justify-content: flex-end;
         }
 
         .instance-config-heading strong {
@@ -955,6 +1022,40 @@ data:
           overflow-wrap: anywhere;
         }
 
+        .service-application-meta {
+          align-items: center;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.4rem;
+        }
+
+        .service-instances-toggle {
+          align-items: center;
+          appearance: none;
+          background: transparent;
+          border: 0;
+          border-radius: 7px;
+          color: var(--accent);
+          cursor: pointer;
+          display: inline-flex;
+          font: inherit;
+          font-size: 0.74rem;
+          gap: 0.18rem;
+          padding: 0.08rem 0.28rem;
+        }
+
+        .service-instances-toggle:hover,
+        .service-instances-toggle:focus-visible {
+          background: rgba(34, 211, 238, 0.1);
+          outline: 1px solid rgba(34, 211, 238, 0.35);
+        }
+
+        .service-instances-toggle [data-service-instances-toggle-icon] {
+          color: currentColor;
+          font-size: 0.86rem;
+          line-height: 1;
+        }
+
         .service-application-detail {
           border-top: 1px solid rgba(148, 163, 184, 0.15);
           display: grid;
@@ -1019,8 +1120,7 @@ data:
           min-height: 0;
         }
 
-        .service-platform-toggle,
-        .service-instances-toggle {
+        .service-platform-toggle {
           align-items: center;
           background: rgba(15, 23, 42, 0.48);
           border: 1px solid rgba(148, 163, 184, 0.22);
@@ -1035,22 +1135,12 @@ data:
           width: 100%;
         }
 
-        .service-instances-toggle {
-          background: rgba(15, 23, 42, 0.24);
-          border-bottom: 0;
-          border-left: 0;
-          border-radius: 0;
-          border-right: 0;
-        }
-
-        .service-platform-toggle > span:first-child,
-        .service-instances-toggle > span:first-child {
+        .service-platform-toggle > span:first-child {
           display: grid;
           gap: 0.16rem;
         }
 
         .service-platform-toggle small,
-        .service-instances-toggle small,
         .service-empty {
           color: var(--muted);
           font-size: 0.76rem;
@@ -1424,6 +1514,114 @@ data:
           accent-color: #22d3ee;
         }
 
+        .memory-capacity {
+          display: grid;
+          gap: 0.35rem;
+        }
+
+        .memory-capacity-scale {
+          min-height: 5.1rem;
+          position: relative;
+        }
+
+        .memory-capacity-available,
+        .memory-capacity-overflow {
+          border-radius: 999px;
+          height: 0.72rem;
+          position: absolute;
+          top: 2.5rem;
+        }
+
+        .memory-capacity-available {
+          background: rgba(34, 211, 238, 0.24);
+          border: 1px solid rgba(34, 211, 238, 0.5);
+          left: 0;
+          width: 100%;
+        }
+
+        .memory-capacity-overflow {
+          background: repeating-linear-gradient(
+            135deg,
+            rgba(100, 116, 139, 0.24),
+            rgba(100, 116, 139, 0.24) 7px,
+            rgba(51, 65, 85, 0.42) 7px,
+            rgba(51, 65, 85, 0.42) 14px
+          );
+          border: 1px solid rgba(148, 163, 184, 0.28);
+          right: 0;
+        }
+
+        .memory-capacity-available input[type="range"] {
+          height: 1.5rem;
+          left: 0;
+          margin: -0.42rem 0 0;
+          position: absolute;
+          top: 0;
+          width: 100%;
+          z-index: 3;
+        }
+
+        .memory-capacity-marker {
+          color: #e2e8f0;
+          font-size: 0.68rem;
+          font-weight: 650;
+          left: 0;
+          line-height: 1.15;
+          max-width: 6.5rem;
+          position: absolute;
+          text-align: center;
+          top: 0;
+          transform: translateX(-50%);
+          z-index: 2;
+        }
+
+        .memory-capacity-marker::after {
+          background: currentColor;
+          content: "";
+          height: 1.35rem;
+          left: 50%;
+          opacity: 0.72;
+          position: absolute;
+          top: 1.15rem;
+          width: 1px;
+        }
+
+        .memory-capacity-marker.recommended {
+          color: var(--accent);
+          top: 0.85rem;
+        }
+
+        .memory-capacity-marker.recommended::after {
+          height: 0.5rem;
+        }
+
+        .memory-capacity-marker.available {
+          color: #94a3b8;
+          top: 3.55rem;
+        }
+
+        .memory-capacity-marker.available::after {
+          bottom: 1rem;
+          height: 0.62rem;
+          top: auto;
+        }
+
+        .memory-capacity-marker.overflow {
+          color: #94a3b8;
+        }
+
+        .memory-capacity-axis {
+          color: var(--muted);
+          display: flex;
+          font-size: 0.72rem;
+          gap: 0.75rem;
+          justify-content: space-between;
+        }
+
+        .memory-capacity-axis span:last-child {
+          text-align: right;
+        }
+
         .segmented-control {
           display: flex;
           flex-wrap: wrap;
@@ -1712,7 +1910,6 @@ data:
                 </section>
                 <section class="instance-config-step" id="instance-config-step" aria-label="Instance configuration" hidden>
                   <div class="instance-config-heading">
-                    <button class="control-button" id="instance-create-back" type="button">Back to types</button>
                     <strong id="instance-selected-type"></strong>
                   </div>
                   <div class="instance-create-grid">
@@ -1831,67 +2028,127 @@ data:
                   </span>
                   <span class="status-pill">Create</span>
                 </summary>
-                <div class="model-create-grid">
-                  <form class="dashboard-card model-form" id="local-model-form">
-                    <h3>Local Model</h3>
+                <div class="model-create-wizard" id="model-create-wizard">
+                  <section class="dashboard-card model-create-step" id="model-source-step">
+                    <span class="model-create-step-label">Step 1</span>
+                    <h3>Where should the model run?</h3>
+                    <p class="module-message">Choose local inference on this appliance or connect an external model provider.</p>
+                    <div class="model-choice-picker" role="group" aria-label="Model source">
+                      <button class="model-choice" type="button" data-model-source="local">
+                        <strong>Local</strong>
+                        <span>Run the model with an inference engine on available appliance compute.</span>
+                      </button>
+                      <button class="model-choice" type="button" data-model-source="external">
+                        <strong>External</strong>
+                        <span>Connect a remote provider through LiteLLM without local compute.</span>
+                      </button>
+                    </div>
+                  </section>
+
+                  <section class="dashboard-card model-create-step" id="model-engine-step" hidden>
+                    <div class="model-create-step-heading">
+                      <div>
+                        <span class="model-create-step-label">Step 2</span>
+                        <h3>Choose an inference engine</h3>
+                      </div>
+                      <button class="control-button" id="model-engine-back" type="button">Back</button>
+                    </div>
+                    <p class="module-message">Only engines with at least one available compute target are shown.</p>
+                    <div class="model-choice-picker" id="inference-engine-picker" role="group" aria-label="Inference engine"></div>
+                    <p class="module-message" id="inference-engine-message" role="status"></p>
+                  </section>
+
+                  <section class="dashboard-card model-create-step" id="model-compute-step" hidden>
+                    <div class="model-create-step-heading">
+                      <div>
+                        <span class="model-create-step-label">Step 3</span>
+                        <h3>Choose available compute</h3>
+                      </div>
+                      <button class="control-button" id="model-compute-back" type="button">Back</button>
+                    </div>
                     <p class="module-message" id="local-model-requirements" role="status">Checking available compute targets.</p>
+                    <div class="compute-target-picker" id="compute-target-picker" role="group" aria-label="Available compute target"></div>
+                  </section>
+
+                  <form class="dashboard-card model-form model-create-step" id="local-model-form" hidden>
+                    <div class="model-create-step-heading">
+                      <div>
+                        <span class="model-create-step-label">Step 4</span>
+                        <h3>Configure local model</h3>
+                      </div>
+                      <button class="control-button" id="local-model-back" type="button">Back</button>
+                    </div>
+                    <p class="module-message" id="local-model-selection-summary" role="status"></p>
                     <fieldset class="model-form-fields" id="local-model-fields">
                       <input type="hidden" name="computeTarget" id="local-model-compute-target" value="" />
+                      <input type="hidden" name="engine" id="local-model-engine" value="" />
+                      <input type="hidden" name="vram" value="5Gi" />
                       <div class="form-grid">
-                        <label class="field">Inference Engine
-                          <select name="engine" id="local-model-engine">
-                            <option value="VLLM">vLLM</option>
-                            <option value="OLlama">Ollama</option>
-                          </select>
-                        </label>
-                      </div>
-                      <div class="compute-target-picker" id="compute-target-picker" role="group" aria-label="Compute target"></div>
-                      <div class="form-grid">
-                      <label class="field">Name<input name="name" value="qwen352bvlembedding" /></label>
-                      <label class="field">Preset<select name="preset" id="local-model-preset"><option value="qwen352bvlembedding">qwen352bvlembedding</option><option value="qwen3635b">qwen3635b</option><option value="qwen359b">qwen359b</option><option value="custom">Custom</option></select></label>
-                      <label class="field">Type<select name="modelType"><option value="chat">chat</option><option value="embedding">embedding</option></select></label>
-                      <label class="field" data-compute-target-section="gpu"><span id="local-model-vram-label">VRAM Limit</span><input name="vram" value="5Gi" /></label>
-                      <label class="field"><span id="local-model-url-label">Hugging Face URL</span><input id="local-model-url" name="url" placeholder="hf://example/model" /></label>
-                      <label class="field">Context Size<input name="contextWindow" value="4096" /></label>
-                      <label class="field">Max Num Seqs<input name="maxNumSeqs" placeholder="32" /></label>
+                        <label class="field">Name<input name="name" value="qwen352bvlembedding" /></label>
+                        <label class="field">Type<select name="modelType"><option value="chat">chat</option><option value="embedding">embedding</option></select></label>
+                        <label class="field">Preset<select name="preset" id="local-model-preset"><option value="qwen352bvlembedding">qwen352bvlembedding</option><option value="qwen3635b">qwen3635b</option><option value="qwen359b">qwen359b</option><option value="custom">Custom</option></select></label>
+                        <label class="field"><span id="local-model-url-label">Hugging Face URL</span><input id="local-model-url" name="url" placeholder="hf://example/model" /></label>
+                        <label class="field">Max Num Seqs<input name="maxNumSeqs" placeholder="32" /></label>
+                        <label class="field">Context Size<input name="contextWindow" value="4096" /></label>
                       </div>
                       <p class="module-message" id="cpu-runtime-summary" data-compute-target-section="cpu" hidden>CPU inference uses system RAM. The matching runtime profile is selected automatically.</p>
                       <p class="module-message" id="ollama-runtime-summary" hidden>Ollama manages model loading and accelerator memory. The declared VRAM value is used for planning; Kubernetes still assigns exactly one GPU to this model.</p>
                       <div class="vram-estimate" id="vram-estimate" data-compute-target-section="gpu">
-                      <div class="vram-estimate-header">
-                        <strong>VRAM Estimate</strong>
-                        <span id="vram-estimate-status">Waiting for model metadata</span>
-                      </div>
-                      <div class="vram-summary-grid">
-                        <div><span>Minimum</span><strong id="vram-estimate-minimum">-</strong></div>
-                        <div><span>Recommended</span><strong id="vram-estimate-recommended">-</strong></div>
-                        <div><span>Available</span><strong id="vram-estimate-maximum">-</strong></div>
-                      </div>
-                      <label class="field">VRAM Limit<input id="vram-estimate-slider" type="range" min="0" max="0" step="256" disabled /></label>
-                      <div class="vram-estimate-row">
-                        <span id="vram-estimate-selected">Selected: -</span>
-                        <span id="vram-estimate-meta">-</span>
-                      </div>
-                      <div class="segmented-control vram-choice">
-                        <button class="control-button" type="button" data-vram-use="minimum" disabled>Minimum</button>
-                        <button class="control-button primary" type="button" data-vram-use="recommended" disabled>Recommended</button>
-                        <button class="control-button" type="button" data-vram-use="maximum" disabled>Max</button>
-                      </div>
-                      <details class="vram-breakdown-details">
-                        <summary>Breakdown</summary>
-                        <div class="vram-breakdown">
-                          <div><span>Weights</span><strong id="vram-estimate-weights">-</strong></div>
-                          <div><span>KV Cache</span><strong id="vram-estimate-kv">-</strong></div>
-                          <div><span>Reserve</span><strong id="vram-estimate-reserve">-</strong></div>
+                        <div class="vram-estimate-header">
+                          <strong>VRAM allocation</strong>
+                          <span id="vram-estimate-status">Waiting for model metadata</span>
                         </div>
-                      </details>
-                      <div class="estimate-callouts" id="vram-estimate-warnings"></div>
+                        <div class="vram-summary-grid">
+                          <div><span>Minimum</span><strong id="vram-estimate-minimum">-</strong></div>
+                          <div><span>Recommended</span><strong id="vram-estimate-recommended">-</strong></div>
+                          <div><span>100% available</span><strong id="vram-estimate-maximum">-</strong></div>
+                        </div>
+                        <div class="memory-capacity" id="vram-capacity">
+                          <div class="memory-capacity-scale" id="vram-capacity-scale">
+                            <div class="memory-capacity-available" id="vram-capacity-available">
+                              <input id="vram-estimate-slider" type="range" min="0" max="0" step="256" aria-label="VRAM allocation" disabled />
+                            </div>
+                            <div class="memory-capacity-overflow" id="vram-capacity-overflow" hidden></div>
+                            <span class="memory-capacity-marker minimum" id="vram-minimum-marker" hidden><span>Minimum</span></span>
+                            <span class="memory-capacity-marker recommended" id="vram-recommended-marker" hidden><span>Recommended</span></span>
+                            <span class="memory-capacity-marker available" id="vram-available-marker" hidden><span>100% available</span></span>
+                          </div>
+                          <div class="memory-capacity-axis">
+                            <span>0</span>
+                            <span id="vram-capacity-note">Available capacity is the slider maximum.</span>
+                          </div>
+                        </div>
+                        <div class="vram-estimate-row">
+                          <span id="vram-estimate-selected">Selected: -</span>
+                          <span id="vram-estimate-meta">-</span>
+                        </div>
+                        <div class="segmented-control vram-choice">
+                          <button class="control-button" type="button" data-vram-use="minimum" disabled>Minimum</button>
+                          <button class="control-button primary" type="button" data-vram-use="recommended" disabled>Recommended</button>
+                          <button class="control-button" type="button" data-vram-use="maximum" disabled>100%</button>
+                        </div>
+                        <details class="vram-breakdown-details">
+                          <summary>Breakdown</summary>
+                          <div class="vram-breakdown">
+                            <div><span>Weights</span><strong id="vram-estimate-weights">-</strong></div>
+                            <div><span>KV Cache</span><strong id="vram-estimate-kv">-</strong></div>
+                            <div><span>Reserve</span><strong id="vram-estimate-reserve">-</strong></div>
+                          </div>
+                        </details>
+                        <div class="estimate-callouts" id="vram-estimate-warnings"></div>
                       </div>
                       <button class="control-button primary" type="submit">Add Local Model</button>
                     </fieldset>
                   </form>
-                  <form class="dashboard-card model-form" id="external-model-form">
-                    <h3>External Model</h3>
+
+                  <form class="dashboard-card model-form model-create-step" id="external-model-form" hidden>
+                    <div class="model-create-step-heading">
+                      <div>
+                        <span class="model-create-step-label">Step 2</span>
+                        <h3>Configure external model</h3>
+                      </div>
+                      <button class="control-button" id="external-model-back" type="button">Back</button>
+                    </div>
                     <p class="module-message">Uses a remote provider through LiteLLM. No local GPU driver or KubeAI installation is required.</p>
                     <div class="form-grid">
                       <label class="field">Name<input name="name" value="example-openai-gpt-4o-mini" /></label>
@@ -1930,19 +2187,9 @@ data:
                 <div class="form-grid">
                   <label class="field">Public Domain<input name="publicDomain" value="magicstick.example.com" /></label>
                   <label class="field">mDNS Domain<input name="mdnsDomain" value="magicstick.local" /></label>
-                  <label class="field">Dashboard Public Host<input name="dashboardHost" value="magicstick.example.com" /></label>
                 </div>
                 <button class="control-button primary" type="submit">Save Domains</button>
               </form>
-              <article class="dashboard-card">
-                <h3>Addresses</h3>
-                <div class="mini-list">
-                  <div class="mini-item" id="settings-dashboard-public">Dashboard public: loading</div>
-                  <div class="mini-item" id="settings-dashboard-local">Dashboard local: loading</div>
-                  <div class="mini-item" id="settings-anythingllm-public">AnythingLLM public: loading</div>
-                  <div class="mini-item" id="settings-anythingllm-local">AnythingLLM local: loading</div>
-                </div>
-              </article>
             </div>
             <p id="settings-output" class="api-output"></p>
           </section>
@@ -2149,12 +2396,13 @@ data:
           let latestModulePayload = {};
           let latestSettings = {
             publicDomain: 'magicstick.example.com',
-            dashboardHost: 'magicstick.example.com',
             mdnsDomain: 'magicstick.local',
             mdnsName: 'magicstick'
           };
           let renderedPresetSignature = '';
           let localPresetLastApplied = '';
+          let activeModelCreateSource = '';
+          let activeLocalEngine = '';
           let activeComputeTarget = '';
           const pendingModuleActions = {};
           const pendingModelDeletes = {};
@@ -2262,11 +2510,119 @@ data:
 
           const selectedLocalEngine = () => {
             const field = $('local-model-engine');
-            return normalizeLocalEngine((field || {}).value || 'VLLM');
+            return normalizeLocalEngine(activeLocalEngine || (field || {}).value || 'VLLM');
           };
 
           const targetSupportsEngine = (target, engine = selectedLocalEngine()) => (target && (target.engines || ['VLLM'])
             .map(normalizeLocalEngine).includes(normalizeLocalEngine(engine)));
+
+          const availableComputeTargets = (modelPayload = latestModelPayload, engine = selectedLocalEngine()) => computeTargets(modelPayload)
+            .filter((target) => target.available === true && targetSupportsEngine(target, engine));
+
+          const showModelCreateStep = (stepId, options = {}) => {
+            ['model-source-step', 'model-engine-step', 'model-compute-step', 'local-model-form', 'external-model-form'].forEach((id) => {
+              const node = $(id);
+              if (node) { node.hidden = id !== stepId; }
+            });
+            if (options.focus !== false) {
+              window.setTimeout(() => {
+                const step = $(stepId);
+                const focusTarget = step && step.querySelector('button:not([disabled]), input:not([type="hidden"]):not([disabled]), select:not([disabled])');
+                if (focusTarget) { focusTarget.focus(); }
+              }, 0);
+            }
+          };
+
+          const engineDefinitions = [
+            { id: 'VLLM', label: 'vLLM', description: 'High-throughput OpenAI-compatible inference for Hugging Face models.' },
+            { id: 'OLlama', label: 'Ollama', description: 'Simple local model serving with Ollama model references.' }
+          ];
+
+          const renderInferenceEngines = (modelPayload = latestModelPayload) => {
+            const picker = $('inference-engine-picker');
+            const message = $('inference-engine-message');
+            if (!picker) { return; }
+            picker.innerHTML = '';
+            const engines = engineDefinitions.filter((definition) => availableComputeTargets(modelPayload, definition.id).length > 0);
+            engines.forEach((definition) => {
+              const targets = availableComputeTargets(modelPayload, definition.id);
+              const button = document.createElement('button');
+              button.type = 'button';
+              button.className = 'model-choice';
+              button.dataset.modelEngine = definition.id;
+              button.setAttribute('aria-pressed', activeLocalEngine === definition.id ? 'true' : 'false');
+              const title = document.createElement('strong');
+              title.textContent = definition.label;
+              const description = document.createElement('span');
+              description.textContent = definition.description + ' ' + targets.length + ' compute ' + (targets.length === 1 ? 'target' : 'targets') + ' available.';
+              button.append(title, description);
+              button.addEventListener('click', () => selectLocalEngine(definition.id));
+              picker.appendChild(button);
+            });
+            if (message) {
+              message.textContent = engines.length ? '' : 'No inference engine currently has an available compute target.';
+            }
+          };
+
+          const resetLocalModelSelection = () => {
+            activeLocalEngine = '';
+            activeComputeTarget = '';
+            const engineField = $('local-model-engine');
+            const targetField = $('local-model-compute-target');
+            if (engineField) { engineField.value = ''; }
+            if (targetField) { targetField.value = ''; }
+            renderedPresetSignature = '';
+            localPresetLastApplied = '';
+            document.querySelectorAll('[data-model-engine], [data-compute-target]').forEach((button) => {
+              button.setAttribute('aria-pressed', 'false');
+            });
+          };
+
+          const resetModelCreateWizard = (options = {}) => {
+            activeModelCreateSource = '';
+            resetLocalModelSelection();
+            document.querySelectorAll('[data-model-source]').forEach((button) => {
+              button.setAttribute('aria-pressed', 'false');
+            });
+            renderInferenceEngines(latestModelPayload);
+            renderComputeTargets(latestModelPayload);
+            renderLocalModelAvailability(latestModelPayload);
+            showModelCreateStep('model-source-step', options);
+          };
+
+          const selectModelCreateSource = (source) => {
+            activeModelCreateSource = source;
+            document.querySelectorAll('[data-model-source]').forEach((button) => {
+              button.setAttribute('aria-pressed', button.dataset.modelSource === source ? 'true' : 'false');
+            });
+            if (source === 'external') {
+              showModelCreateStep('external-model-form');
+              return;
+            }
+            resetLocalModelSelection();
+            renderInferenceEngines(latestModelPayload);
+            showModelCreateStep('model-engine-step');
+          };
+
+          const selectLocalEngine = (engine) => {
+            const normalized = normalizeLocalEngine(engine);
+            if (!availableComputeTargets(latestModelPayload, normalized).length) { return false; }
+            activeLocalEngine = normalized;
+            activeComputeTarget = '';
+            const engineField = $('local-model-engine');
+            const targetField = $('local-model-compute-target');
+            if (engineField) { engineField.value = normalized; }
+            if (targetField) { targetField.value = ''; }
+            renderedPresetSignature = '';
+            localPresetLastApplied = '';
+            document.querySelectorAll('[data-model-engine]').forEach((button) => {
+              button.setAttribute('aria-pressed', button.dataset.modelEngine === normalized ? 'true' : 'false');
+            });
+            renderComputeTargets(latestModelPayload);
+            renderLocalModelAvailability(latestModelPayload);
+            showModelCreateStep('model-compute-step');
+            return true;
+          };
 
           const computeTarget = (targetId, modelPayload = latestModelPayload) => computeTargets(modelPayload)
             .find((target) => String(target.id || '') === String(targetId || ''));
@@ -2330,6 +2686,7 @@ data:
           const selectComputeTarget = (targetId, options = {}) => {
             const target = computeTarget(targetId);
             if (!target || target.available !== true || !targetSupportsEngine(target)) { return false; }
+            const targetChanged = activeComputeTarget !== targetId;
             activeComputeTarget = targetId;
             const field = $('local-model-compute-target');
             if (field) { field.value = targetId; }
@@ -2339,11 +2696,15 @@ data:
             renderComputeTargetSections(targetId);
             renderedPresetSignature = '';
             localPresetLastApplied = '';
+            const presetSelect = $('local-model-preset');
+            if (targetChanged && presetSelect) { presetSelect.value = ''; }
             renderLocalPresetOptions(latestModelPayload);
-            const select = $('local-model-preset');
-            applyLocalPresetFields(select ? select.value : '', { force: true });
+            applyLocalPresetFields(presetSelect ? presetSelect.value : '', { force: true });
             if (options.renderAvailability !== false) {
               renderLocalModelAvailability(latestModelPayload);
+            }
+            if (options.showStep !== false) {
+              showModelCreateStep('local-model-form');
             }
             return true;
           };
@@ -2352,71 +2713,67 @@ data:
             const picker = $('compute-target-picker');
             if (!picker) { return; }
             picker.innerHTML = '';
-            const targets = computeTargets(modelPayload);
+            const targets = availableComputeTargets(modelPayload, selectedLocalEngine());
             targets.forEach((target) => {
-              const supportsEngine = targetSupportsEngine(target);
               const button = document.createElement('button');
               button.type = 'button';
               button.className = 'compute-target-choice';
               button.dataset.computeTarget = target.id;
-              button.disabled = target.available !== true || !supportsEngine;
-              button.setAttribute('aria-pressed', 'false');
+              button.setAttribute('aria-pressed', activeComputeTarget === target.id ? 'true' : 'false');
               const title = document.createElement('strong');
               title.textContent = target.displayName || target.id;
               const engine = document.createElement('span');
               engine.textContent = (target.engines || ['VLLM']).join(', ');
               const detail = document.createElement('small');
-              detail.textContent = supportsEngine
-                ? (target.message || (target.available ? 'Available' : 'Unavailable'))
-                : (target.displayName || target.id) + ' does not support ' + selectedLocalEngine() + '.';
+              detail.textContent = target.message || 'Available';
               button.append(title, engine, detail);
               button.addEventListener('click', () => selectComputeTarget(target.id));
               picker.appendChild(button);
             });
             const requested = selectedComputeTarget();
-            const defaultTarget = String(((modelPayload || {}).computeTargets || {}).default || '');
             const selected = computeTarget(requested, modelPayload);
-            const next = selected && selected.available === true && targetSupportsEngine(selected)
-              ? requested
-              : String(((targets.find((target) => target.available === true && targetSupportsEngine(target)) || {}).id) || '');
-            if (next) {
-              if (activeComputeTarget !== next) {
-                renderedPresetSignature = '';
-                localPresetLastApplied = '';
-              }
-              activeComputeTarget = next;
-              const field = $('local-model-compute-target');
-              if (field) { field.value = next; }
+            if (selected && selected.available === true && targetSupportsEngine(selected)) {
               document.querySelectorAll('[data-compute-target]').forEach((button) => {
-                button.setAttribute('aria-pressed', button.dataset.computeTarget === next ? 'true' : 'false');
+                button.setAttribute('aria-pressed', button.dataset.computeTarget === requested ? 'true' : 'false');
               });
-              renderComputeTargetSections(next);
+              renderComputeTargetSections(requested);
+            } else {
+              activeComputeTarget = '';
+              const field = $('local-model-compute-target');
+              if (field) { field.value = ''; }
+              if (activeModelCreateSource === 'local' && !$('local-model-form').hidden) {
+                showModelCreateStep('model-compute-step', { focus: false });
+              }
             }
           };
 
           const renderLocalModelAvailability = (modelPayload) => {
             const fields = $('local-model-fields');
             const message = $('local-model-requirements');
+            const summary = $('local-model-selection-summary');
             const targets = computeTargets(modelPayload);
             const selected = computeTarget(selectedComputeTarget(), modelPayload);
-            const available = targets.filter((target) => target.available === true && targetSupportsEngine(target));
+            const available = availableComputeTargets(modelPayload, selectedLocalEngine());
             if (fields) {
               fields.disabled = !selected || selected.available !== true || !targetSupportsEngine(selected);
             }
-            if (!message) { return; }
+            const setMessages = (value) => {
+              if (message) { message.textContent = value; }
+              if (summary) { summary.textContent = value; }
+            };
             if (!targets.length) {
-              message.textContent = 'No compute targets are configured.';
+              setMessages('No compute targets are configured.');
               return;
             }
             if (!available.length) {
-              message.textContent = 'No compute target is currently available. Check the node and accelerator status.';
+              setMessages('No compute target for ' + selectedLocalEngine() + ' is currently available. Check the node and accelerator status.');
               return;
             }
             if (!selected || selected.available !== true || !targetSupportsEngine(selected)) {
-              message.textContent = 'Select an available compute target for ' + selectedLocalEngine() + '.';
+              setMessages('Select one of ' + available.length + ' available compute ' + (available.length === 1 ? 'target' : 'targets') + ' for ' + selectedLocalEngine() + '.');
               return;
             }
-            message.textContent = (selected.displayName || selected.id) + ' with ' + selectedLocalEngine() + ' selected. ' + (selected.message || 'Ready.');
+            setMessages((selected.displayName || selected.id) + ' with ' + selectedLocalEngine() + ' selected. ' + (selected.message || 'Ready.'));
           };
 
           const instanceForms = () => Array.from(document.querySelectorAll('.instance-form[data-instance-type]'));
@@ -2473,7 +2830,7 @@ data:
             if (!dialog || !dialog.open) { return; }
             requestAnimationFrame(() => {
               const focusTarget = selectedForm
-                ? (selectedForm.querySelector('input:not([type="hidden"]), select, button') || $('instance-create-back'))
+                ? (selectedForm.querySelector('input:not([type="hidden"]), select, button') || dialog.querySelector('[data-dialog-cancel]'))
                 : firstInstanceChoiceTarget();
               if (focusTarget) { focusTarget.focus(); }
             });
@@ -2518,7 +2875,7 @@ data:
             dialog.showModal();
             requestAnimationFrame(() => {
               const focusTarget = activeInstanceCreateType
-                ? (document.querySelector('.instance-form:not([hidden]) input, .instance-form:not([hidden]) select') || $('instance-create-back'))
+                ? (document.querySelector('.instance-form:not([hidden]) input, .instance-form:not([hidden]) select') || dialog.querySelector('[data-dialog-cancel]'))
                 : firstInstanceChoiceTarget();
               if (focusTarget) { focusTarget.focus(); }
             });
@@ -3326,10 +3683,33 @@ data:
             const main = document.createElement('div');
             main.className = 'service-application-main';
             const count = instances.length;
+            const expanded = count > 0 && expandedApplicationInstances.has(type);
             const identity = createServiceIdentity(
               definition.displayName || titleFromKey(type),
               'Module · ' + count + (count === 1 ? ' instance' : ' instances')
             );
+            if (count > 0) {
+              const meta = identity.querySelector('span');
+              const metaRow = document.createElement('div');
+              metaRow.className = 'service-application-meta';
+              if (meta) { metaRow.appendChild(meta); }
+              const instanceToggle = document.createElement('button');
+              instanceToggle.className = 'service-instances-toggle';
+              instanceToggle.type = 'button';
+              instanceToggle.dataset.serviceInstancesToggle = type;
+              instanceToggle.setAttribute('aria-expanded', String(expanded));
+              instanceToggle.setAttribute('aria-label', (expanded ? 'Hide' : 'Show') + ' ' + (definition.displayName || titleFromKey(type)) + ' instances');
+              const toggleIcon = document.createElement('span');
+              toggleIcon.dataset.serviceInstancesToggleIcon = '';
+              toggleIcon.setAttribute('aria-hidden', 'true');
+              toggleIcon.textContent = expanded ? '▾' : '▸';
+              const toggleLabel = document.createElement('span');
+              toggleLabel.dataset.serviceInstancesToggleLabel = '';
+              toggleLabel.textContent = expanded ? 'Hide' : 'Show';
+              instanceToggle.append(toggleIcon, toggleLabel);
+              metaRow.appendChild(instanceToggle);
+              identity.appendChild(metaRow);
+            }
             const actions = document.createElement('div');
             actions.className = 'action-row';
             if (ready) {
@@ -3346,12 +3726,6 @@ data:
 
             const detail = document.createElement('div');
             detail.className = 'service-application-detail';
-            if (missingModules.length) {
-              const message = document.createElement('div');
-              message.className = 'module-message';
-              message.textContent = 'Enable and wait for: ' + missingModules.map(instanceModuleDisplayName).join(', ') + '.';
-              detail.appendChild(message);
-            }
             if (state.runtimeInProgress || phaseNeedsOverviewAttention(state.phase)) {
               detail.appendChild(createProgressBox(state.progress));
             }
@@ -3361,28 +3735,12 @@ data:
             if (detail.childElementCount) { item.appendChild(detail); }
 
             if (instances.length) {
-              const expanded = expandedApplicationInstances.has(type);
-              const instanceToggle = document.createElement('button');
-              instanceToggle.className = 'service-instances-toggle';
-              instanceToggle.type = 'button';
-              instanceToggle.dataset.serviceInstancesToggle = type;
-              instanceToggle.setAttribute('aria-expanded', String(expanded));
-              const toggleSummary = document.createElement('span');
-              const toggleTitle = document.createElement('strong');
-              toggleTitle.textContent = 'Instances';
-              const toggleCount = document.createElement('small');
-              toggleCount.textContent = instances.length + (instances.length === 1 ? ' configured instance' : ' configured instances');
-              toggleSummary.append(toggleTitle, toggleCount);
-              const toggleLabel = document.createElement('span');
-              toggleLabel.dataset.serviceInstancesToggleLabel = '';
-              toggleLabel.textContent = expanded ? 'Hide' : 'Show';
-              instanceToggle.append(toggleSummary, toggleLabel);
               const instanceList = document.createElement('div');
               instanceList.className = 'service-instance-list';
               instanceList.dataset.serviceInstancesList = type;
               instanceList.hidden = !expanded;
               instances.forEach((instance) => instanceList.appendChild(createInstanceServiceCard(type, instance, statusPayload)));
-              item.append(instanceToggle, instanceList);
+              item.appendChild(instanceList);
             }
             return item;
           };
@@ -3517,6 +3875,60 @@ data:
             document.querySelectorAll('[data-vram-use]').forEach((button) => { button.disabled = !enabled; });
           };
 
+          const targetAvailableMemoryMi = (targetId = selectedComputeTarget()) => {
+            const devices = ((((latestModelPayload || {}).computeMemory || {}).devices) || [])
+              .filter((device) => String(device.computeTarget || '') === String(targetId || ''));
+            const available = devices
+              .map((device) => Number(device.unreservedMi))
+              .filter((value) => Number.isFinite(value) && value > 0);
+            return available.length ? Math.max(...available) : 0;
+          };
+
+          const positionMemoryMarker = (id, value, scaleMaximum, available) => {
+            const marker = $(id);
+            if (!marker) { return; }
+            const numeric = Number(value || 0);
+            if (!numeric || !scaleMaximum) {
+              marker.hidden = true;
+              return;
+            }
+            const percent = Math.max(0, Math.min(100, (numeric / scaleMaximum) * 100));
+            marker.hidden = false;
+            marker.style.left = percent + '%';
+            marker.style.transform = percent >= 99.5 ? 'translateX(-100%)' : (percent <= 0.5 ? 'translateX(0)' : 'translateX(-50%)');
+            marker.classList.toggle('overflow', Boolean(available) && numeric > available);
+            const label = marker.querySelector('span');
+            if (label) {
+              const prefix = id === 'vram-minimum-marker' ? 'Minimum ' : (id === 'vram-recommended-marker' ? 'Recommended ' : '100% ');
+              label.textContent = prefix + formatMi(numeric);
+            }
+          };
+
+          const renderVramCapacityScale = (minimum = 0, recommended = 0, available = 0) => {
+            const usable = Math.max(0, Number(available || 0));
+            const scaleMaximum = Math.max(1, usable, Number(minimum || 0), Number(recommended || 0));
+            const availablePercent = Math.max(0, Math.min(100, (usable / scaleMaximum) * 100));
+            const availableNode = $('vram-capacity-available');
+            const overflowNode = $('vram-capacity-overflow');
+            const note = $('vram-capacity-note');
+            if (availableNode) { availableNode.style.width = availablePercent + '%'; }
+            if (overflowNode) {
+              overflowNode.hidden = availablePercent >= 99.999;
+              overflowNode.style.left = availablePercent + '%';
+              overflowNode.style.width = Math.max(0, 100 - availablePercent) + '%';
+            }
+            positionMemoryMarker('vram-minimum-marker', minimum, scaleMaximum, usable);
+            positionMemoryMarker('vram-recommended-marker', recommended, scaleMaximum, usable);
+            positionMemoryMarker('vram-available-marker', usable, scaleMaximum, usable);
+            if (note) {
+              note.textContent = !usable
+                ? 'Available VRAM is unknown; allocation cannot be adjusted.'
+                : (availablePercent < 100
+                  ? 'The gray area is above the currently available VRAM.'
+                  : 'The slider maximum equals 100% of currently available VRAM.');
+            }
+          };
+
           const setVramUseMode = (mode) => {
             document.querySelectorAll('[data-vram-use]').forEach((button) => {
               button.classList.toggle('primary', button.dataset.vramUse === mode);
@@ -3544,6 +3956,7 @@ data:
             setEstimateText('vram-estimate-selected', 'Selected: -');
             setEstimateText('vram-estimate-meta', '-');
             renderVramEstimateWarnings([]);
+            renderVramCapacityScale();
             setVramUseMode('');
             setVramEstimateControls(false);
           };
@@ -3564,27 +3977,38 @@ data:
             }
             const minimum = Number(estimate.minimumMi || 0);
             const recommended = Number(estimate.recommendedMi || minimum);
-            const maximum = estimate.maximumMi === null || estimate.maximumMi === undefined ? 0 : Number(estimate.maximumMi || 0);
-            const effectiveMax = estimate.gpuAvailable ? Math.max(minimum, maximum) : Math.max(minimum, recommended);
-            const selected = Math.min(effectiveMax, Math.max(minimum, recommended));
+            const estimatedMaximum = estimate.maximumMi === null || estimate.maximumMi === undefined ? 0 : Number(estimate.maximumMi || 0);
+            const maximum = estimatedMaximum || targetAvailableMemoryMi();
+            const selected = maximum > 0 ? Math.min(maximum, Math.max(256, recommended)) : 0;
             setEstimateText('vram-estimate-status', estimate.confidence === 'high' ? 'High confidence' : 'Estimated');
             setEstimateText('vram-estimate-weights', formatMi(estimate.weightsMi));
             setEstimateText('vram-estimate-kv', formatMi(estimate.kvCacheMi));
             setEstimateText('vram-estimate-reserve', formatMi((estimate.reserveMi || 0) + (estimate.recommendedReserveMi || 0)));
             setEstimateText('vram-estimate-minimum', formatMi(minimum));
             setEstimateText('vram-estimate-recommended', formatMi(recommended));
-            setEstimateText('vram-estimate-maximum', estimate.gpuAvailable ? formatMi(maximum) : 'Unknown');
+            setEstimateText('vram-estimate-maximum', maximum > 0 ? formatMi(maximum) : 'Unknown');
             setEstimateText('vram-estimate-meta', 'Context ' + estimate.contextWindow + ', max seqs ' + estimate.maxNumSeqs);
-            renderVramEstimateWarnings(estimate.warnings || []);
+            const warnings = [...(estimate.warnings || [])];
+            if (maximum > 0 && minimum > maximum) {
+              warnings.push('Estimated minimum exceeds the currently available VRAM. The marker is shown in the gray overflow area.');
+            } else if (maximum > 0 && recommended > maximum) {
+              warnings.push('Recommended VRAM exceeds the currently available capacity. The marker is shown in the gray overflow area.');
+            }
+            renderVramEstimateWarnings([...new Set(warnings)]);
+            renderVramCapacityScale(minimum, recommended, maximum);
             const slider = $('vram-estimate-slider');
             if (slider) {
-              slider.min = String(minimum);
-              slider.max = String(effectiveMax);
+              slider.min = maximum > 0 ? String(Math.min(256, maximum)) : '0';
+              slider.max = String(maximum);
               slider.step = '256';
               slider.value = String(selected);
             }
-            setVramEstimateControls(true);
-            if (options.applyRecommended !== false) {
+            setVramEstimateControls(maximum > 0);
+            const minimumButton = document.querySelector('[data-vram-use="minimum"]');
+            const recommendedButton = document.querySelector('[data-vram-use="recommended"]');
+            if (minimumButton) { minimumButton.disabled = !maximum || minimum > maximum; }
+            if (recommendedButton) { recommendedButton.disabled = !maximum || recommended > maximum; }
+            if (options.applyRecommended !== false && maximum > 0) {
               applyVramLimitMi(selected, 'recommended');
             }
           };
@@ -3807,7 +4231,6 @@ data:
           const renderSettings = (settings, options = {}) => {
             latestSettings = {
               publicDomain: settings.publicDomain || 'magicstick.example.com',
-              dashboardHost: settings.dashboardHost || settings.publicDomain || 'magicstick.example.com',
               mdnsDomain: settings.mdnsDomain || 'magicstick.local',
               mdnsName: settings.mdnsName || 'magicstick'
             };
@@ -3815,13 +4238,8 @@ data:
             if (form && (options.force || form.dataset.dirty !== 'true')) {
               setFormValue(form, 'publicDomain', latestSettings.publicDomain);
               setFormValue(form, 'mdnsDomain', latestSettings.mdnsDomain);
-              setFormValue(form, 'dashboardHost', latestSettings.dashboardHost);
               form.dataset.dirty = 'false';
             }
-            setText('settings-dashboard-public', 'Dashboard public: http://' + latestSettings.dashboardHost + '/');
-            setText('settings-dashboard-local', 'Dashboard local: http://' + latestSettings.mdnsDomain + '/');
-            setText('settings-anythingllm-public', 'AnythingLLM public: http://' + appHost('anythingllm', latestSettings.publicDomain) + '/');
-            setText('settings-anythingllm-local', 'AnythingLLM local: http://' + appHost('anythingllm', latestSettings.mdnsDomain) + '/');
           };
 
           const presetArgValue = (preset, flag) => {
@@ -4668,12 +5086,13 @@ data:
               renderSettings(settings);
               latestModulePayload = modulePayload || {};
               latestModelPayload = modelPayload || {};
+              renderInferenceEngines(latestModelPayload);
               renderComputeTargets(latestModelPayload);
               renderLocalPresetOptions(latestModelPayload);
               renderInstanceForms(latestModulePayload);
               renderLocalModelAvailability(latestModelPayload);
               renderInstanceModelOptions(latestModelPayload);
-              if (!localPresetLastApplied) {
+              if (!localPresetLastApplied && selectedComputeTarget()) {
                 const presetSelect = $('local-model-preset');
                 applyLocalPresetFields(presetSelect ? presetSelect.value : '', { force: true });
               }
@@ -4789,11 +5208,6 @@ data:
             servicePlatformToggle.addEventListener('click', () => {
               setPlatformServicesExpanded(!platformServicesExpanded);
             });
-          }
-
-          const instanceCreateBack = $('instance-create-back');
-          if (instanceCreateBack) {
-            instanceCreateBack.addEventListener('click', () => selectInstanceCreateType(''));
           }
 
           const instanceCreateDialog = $('instance-create-dialog');
@@ -5006,6 +5420,10 @@ data:
             toggle.setAttribute('aria-expanded', String(expanded));
             const label = toggle.querySelector('[data-service-instances-toggle-label]');
             if (label) { label.textContent = expanded ? 'Hide' : 'Show'; }
+            const icon = toggle.querySelector('[data-service-instances-toggle-icon]');
+            if (icon) { icon.textContent = expanded ? '▾' : '▸'; }
+            const cardName = String(((toggle.closest('[data-service-application]') || {}).dataset || {}).serviceApplication || 'application');
+            toggle.setAttribute('aria-label', (expanded ? 'Hide' : 'Show') + ' ' + titleFromKey(cardName) + ' instances');
             const card = toggle.closest('[data-service-application]');
             const list = card && card.querySelector('[data-service-instances-list]');
             if (list) { list.hidden = !expanded; }
@@ -5133,21 +5551,51 @@ data:
             }
           });
 
+          document.querySelectorAll('[data-model-source]').forEach((button) => {
+            button.addEventListener('click', () => selectModelCreateSource(button.dataset.modelSource || ''));
+          });
+
+          const modelCreatePanel = document.querySelector('.model-create-panel');
+          if (modelCreatePanel) {
+            modelCreatePanel.addEventListener('toggle', () => {
+              if (modelCreatePanel.open) { resetModelCreateWizard(); }
+            });
+          }
+
+          const modelEngineBack = $('model-engine-back');
+          if (modelEngineBack) {
+            modelEngineBack.addEventListener('click', () => resetModelCreateWizard());
+          }
+
+          const modelComputeBack = $('model-compute-back');
+          if (modelComputeBack) {
+            modelComputeBack.addEventListener('click', () => {
+              activeComputeTarget = '';
+              const targetField = $('local-model-compute-target');
+              if (targetField) { targetField.value = ''; }
+              renderInferenceEngines(latestModelPayload);
+              renderComputeTargets(latestModelPayload);
+              renderLocalModelAvailability(latestModelPayload);
+              showModelCreateStep('model-engine-step');
+            });
+          }
+
+          const localModelBack = $('local-model-back');
+          if (localModelBack) {
+            localModelBack.addEventListener('click', () => {
+              renderComputeTargets(latestModelPayload);
+              renderLocalModelAvailability(latestModelPayload);
+              showModelCreateStep('model-compute-step');
+            });
+          }
+
+          const externalModelBack = $('external-model-back');
+          if (externalModelBack) {
+            externalModelBack.addEventListener('click', () => resetModelCreateWizard());
+          }
+
           const localModelForm = $('local-model-form');
           if (localModelForm) {
-            const localEngineSelect = $('local-model-engine');
-            if (localEngineSelect) {
-              localEngineSelect.addEventListener('change', () => {
-                renderedPresetSignature = '';
-                localPresetLastApplied = '';
-                renderComputeTargets(latestModelPayload);
-                renderLocalPresetOptions(latestModelPayload);
-                renderLocalModelAvailability(latestModelPayload);
-                const presetSelect = $('local-model-preset');
-                applyLocalPresetFields(presetSelect ? presetSelect.value : '', { force: true });
-                renderEngineSpecificFields();
-              });
-            }
             const localPresetSelect = $('local-model-preset');
             if (localPresetSelect) {
               localPresetSelect.addEventListener('change', () => {
@@ -5176,13 +5624,14 @@ data:
                 const mode = button.dataset.vramUse;
                 const minimum = Number(latestVramEstimate.minimumMi || 0);
                 const recommended = Number(latestVramEstimate.recommendedMi || minimum);
-                const maximum = latestVramEstimate.maximumMi === null || latestVramEstimate.maximumMi === undefined ? recommended : Number(latestVramEstimate.maximumMi || recommended);
-                const effectiveMax = latestVramEstimate.gpuAvailable ? Math.max(minimum, maximum) : Math.max(minimum, recommended);
-                const requested = mode === 'minimum' ? minimum : (mode === 'maximum' ? effectiveMax : recommended);
-                const value = Math.min(effectiveMax, Math.max(minimum, requested));
+                const estimatedMaximum = latestVramEstimate.maximumMi === null || latestVramEstimate.maximumMi === undefined ? 0 : Number(latestVramEstimate.maximumMi || 0);
+                const maximum = estimatedMaximum || targetAvailableMemoryMi();
+                if (!maximum) { return; }
+                const requested = mode === 'minimum' ? minimum : (mode === 'maximum' ? maximum : recommended);
+                const value = Math.min(maximum, Math.max(256, requested));
                 const slider = $('vram-estimate-slider');
                 if (slider) {
-                  slider.max = String(effectiveMax);
+                  slider.max = String(maximum);
                   slider.value = String(value);
                 }
                 applyVramLimitMi(value, mode);
@@ -5393,10 +5842,10 @@ data:
             settingsForm.addEventListener('submit', async (event) => {
               event.preventDefault();
               const data = new FormData(settingsForm);
+              const publicDomain = data.get('publicDomain');
               const payload = {
-                publicDomain: data.get('publicDomain'),
-                mdnsDomain: data.get('mdnsDomain'),
-                dashboardHost: data.get('dashboardHost')
+                publicDomain,
+                mdnsDomain: data.get('mdnsDomain')
               };
               try {
                 const settings = await request('/api/settings', { method: 'PATCH', body: JSON.stringify(payload) });

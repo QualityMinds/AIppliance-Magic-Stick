@@ -52,7 +52,7 @@ Paperclip, KubeOpenCode, KubeAI, LiteLLM, or direct app instance reconcilers.
 | Models | Creates/removes local and external model activations, selects CPU or an available NVIDIA/AMD/Intel target, estimates accelerator memory, and shows compact per-device memory gauges. |
 | Users | Gives administrators a paginated Keycloak user overview and local-user lifecycle controls. |
 | System Status | Shows NVIDIA, AMD, and Intel detection/operator/resource state plus Flux, Pod, Service, Ingress, and Event status. |
-| Settings | Edits appliance-wide public and mDNS domain settings. |
+| Settings | Edits appliance-wide public and mDNS domain settings. The public dashboard host is always derived from the public domain. |
 
 ## Backend API
 
@@ -70,8 +70,8 @@ checks.
 | `GET` | `/api/session` | Returns the authenticated username and local realm roles. |
 | `GET` | `/api/appliance` | Returns `Appliance/local`. |
 | `PATCH` | `/api/appliance` | Returns `405`; `Appliance/local.spec` is Git-owned. |
-| `GET` | `/api/settings` | Returns public domain, dashboard public host, mDNS domain, and derived mDNS name. |
-| `PATCH` | `/api/settings` | Validates and patches `flux-system/ai-appliance-settings` while preserving unrelated keys. |
+| `GET` | `/api/settings` | Returns public domain, its derived dashboard host, mDNS domain, and derived mDNS name. |
+| `PATCH` | `/api/settings` | Validates and patches `flux-system/ai-appliance-settings`, keeps the dashboard host synchronized with the public domain, and preserves unrelated keys. |
 | `GET` | `/api/modules` | Returns catalog metadata plus current `ModuleActivation` spec/status. |
 | `POST` | `/api/modules/{name}/enable` | Creates or patches a `ModuleActivation` with `spec.enabled: true`. |
 | `POST` | `/api/modules/{name}/disable` | Creates or patches a `ModuleActivation` with `spec.enabled: false`. |
@@ -222,8 +222,8 @@ catalog and current module status.
 type in the application catalog, such as OpenClaw, Hermes, or Paperclip. Types
 whose required modules are not Ready remain visible but disabled and identify
 the missing modules. After selecting an available type, the second step renders
-only that application's fields. `Back to types` keeps the workflow in the
-dialog without exposing the other configuration forms.
+only that application's fields. `Cancel` closes the dialog if a different type
+should be selected.
 
 Instance hostnames are derived, not user-entered:
 
@@ -271,20 +271,34 @@ companies, employee agents, or gateway credentials.
 Local and external models are runtime requests stored as `ModelActivation`
 resources in namespace `ai-system`.
 
-For local models, the dashboard first selects an inference engine and then a
-compatible compute target. vLLM accepts `hf://` model references; Ollama uses
-`ollama://` references. `cpu` is available on a compatible Ready Linux node. `nvidia-gpu`,
-`amd-gpu`, and `intel-gpu` become selectable only when the matching provider is
-`Ready` and Kubernetes reports its allocatable resource. Intel automatically
-resolves `gpu.intel.com/xe` or `gpu.intel.com/i915`. vLLM supports all four
-targets. Ollama supports CPU, NVIDIA, and AMD; the Intel target is disabled when
-Ollama is selected because no validated KubeAI/Ollama Intel profile is bundled.
+Opening **Create Model** starts with only a `Local` or `External` choice. The
+external path then shows the existing provider form. The local path is a
+four-step wizard: source, inference engine, compute target, and model
+configuration. Compute choices are filtered by the selected engine and current
+cluster capability. Unavailable CPU or accelerator targets are omitted instead
+of being presented as disabled choices.
+
+vLLM accepts `hf://` model references; Ollama uses `ollama://` references.
+`cpu` is available on a compatible Ready Linux node. `nvidia-gpu`, `amd-gpu`,
+and `intel-gpu` are shown only when the matching provider is `Ready` and
+Kubernetes reports its allocatable resource. Intel automatically resolves
+`gpu.intel.com/xe` or `gpu.intel.com/i915`. vLLM supports all four targets.
+Ollama supports CPU, NVIDIA, and AMD; Intel is absent from the Ollama choices
+because no validated KubeAI/Ollama Intel profile is bundled.
+
 The dashboard calls `POST /api/models/estimate-vram` only for vLLM accelerator
-variants. Ollama manages model loading and accelerator memory itself, while the
-entered VRAM value remains a scheduling/planning requirement. CPU variants hide
-VRAM controls and use the selected engine's system-memory profile. Live
+variants. The VRAM control uses the currently available unreserved accelerator
+memory as its 100-percent slider maximum. Minimum and recommended estimates are
+marked on the same scale. If either estimate exceeds available capacity, its
+marker remains visible in a gray overflow section to the right of the slider;
+the selected allocation itself never exceeds available capacity. The
+collapsible **Breakdown** continues to show weights, KV cache, and reserve.
+Ollama manages model loading and accelerator memory itself, while the preset
+VRAM value remains a scheduling/planning requirement. CPU variants hide VRAM
+controls and use the selected engine's system-memory profile. Live
 maximum-memory metrics currently come from NVIDIA DCGM, so AMD and Intel vLLM
-estimates show the calculated requirement without a live maximum.
+estimates show the calculated requirement without an adjustable maximum until
+their memory metrics are available.
 CPU vLLM cache size is resolved by the preset/operator and is not an arbitrary
 browser-supplied environment variable.
 

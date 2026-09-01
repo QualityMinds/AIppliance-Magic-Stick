@@ -243,7 +243,7 @@ BROWSER_API_MOCK = r"""
           default: 'cpu',
           targets: [
             { id: 'cpu', kind: 'cpu', displayName: 'CPU', engines: ['VLLM', 'OLlama'], available: true, message: 'Ready on 1 compatible node.' },
-            { id: 'nvidia-gpu', kind: 'gpu', displayName: 'NVIDIA GPU', engines: ['VLLM', 'OLlama'], available: false, message: 'Install the NVIDIA GPU module before selecting this target.' },
+            { id: 'nvidia-gpu', kind: 'gpu', displayName: 'NVIDIA GPU', engines: ['VLLM', 'OLlama'], available: true, message: '1 allocatable NVIDIA GPU resource is available.' },
             { id: 'amd-gpu', kind: 'gpu', displayName: 'AMD GPU (ROCm)', engines: ['VLLM', 'OLlama'], available: false, message: 'No AMD GPU detected.' },
             { id: 'intel-gpu', kind: 'gpu', displayName: 'Intel GPU (XPU)', engines: ['VLLM'], available: false, message: 'No Intel GPU detected.' }
           ]
@@ -327,6 +327,15 @@ BROWSER_API_MOCK = r"""
           }
         },
         events: []
+      });
+    }
+    if (url.pathname === '/api/models/estimate-vram' && method === 'POST') {
+      return reply({
+        repo: 'example/qwen-gpu', engine: 'VLLM', computeTarget: 'nvidia-gpu',
+        minimumMi: 18000, recommendedMi: 24000, maximumMi: 16384,
+        weightsMi: 14000, kvCacheMi: 2000, reserveMi: 2000, recommendedReserveMi: 6000,
+        contextWindow: body.contextWindow || 8192, maxNumSeqs: body.maxNumSeqs || 32,
+        confidence: 'high', gpuAvailable: true, warnings: []
       });
     }
     if (url.pathname === '/api/users' && method === 'GET') {
@@ -436,6 +445,7 @@ BROWSER_ASSERTIONS = r"""
     assert(!document.querySelector('[data-tab="instances"]'), 'legacy Instances tab is still visible');
     document.querySelector('[data-tab="services"]').click();
     await waitFor(() => !document.getElementById('tab-services').hidden, 'Services tab');
+    assert(!document.getElementById('tab-services').textContent.includes('Enable and wait for:'), 'technical dependency message is visible on the Services page');
     const openClawService = document.querySelector('[data-service-application="openclaw"]');
     assert(openClawService, 'OpenClaw application service is missing');
     assert(openClawService.querySelectorAll('.service-instance-card').length === 1, 'OpenClaw instance is not nested below its application');
@@ -443,11 +453,15 @@ BROWSER_ASSERTIONS = r"""
     const openClawInstancesToggle = openClawService.querySelector('[data-service-instances-toggle="openclaw"]');
     const openClawInstancesList = openClawService.querySelector('[data-service-instances-list="openclaw"]');
     assert(openClawInstancesToggle && openClawInstancesList, 'OpenClaw instance collapse controls are missing');
+    assert(openClawInstancesToggle.closest('.service-module-identity'), 'instance toggle is not beside the module instance count');
+    assert(!openClawService.textContent.includes('configured instance'), 'duplicate configured-instance summary is still visible');
     assert(openClawInstancesList.hidden, 'application instances must start collapsed');
     assert(openClawInstancesToggle.getAttribute('aria-expanded') === 'false', 'collapsed instance toggle state is incorrect');
+    assert(openClawInstancesToggle.querySelector('[data-service-instances-toggle-icon]').textContent === '▸', 'collapsed instance arrow is incorrect');
     openClawInstancesToggle.click();
     assert(!openClawInstancesList.hidden, 'instance toggle did not expand the nested instances');
     assert(openClawInstancesToggle.textContent.includes('Hide'), 'expanded instance toggle label is incorrect');
+    assert(openClawInstancesToggle.querySelector('[data-service-instances-toggle-icon]').textContent === '▾', 'expanded instance arrow is incorrect');
     await window.__dashboardRefresh();
     const refreshedOpenClawService = document.querySelector('[data-service-application="openclaw"]');
     const refreshedOpenClawInstancesToggle = refreshedOpenClawService.querySelector('[data-service-instances-toggle="openclaw"]');
@@ -515,10 +529,7 @@ BROWSER_ASSERTIONS = r"""
     assert(openClawForm.hidden, 'unselected OpenClaw form is visible');
     assert(Array.from(document.querySelectorAll('.instance-form')).filter((form) => !form.hidden).length === 1, 'more than one instance form is visible');
     assert(document.getElementById('instance-selected-type').textContent === 'Hermes configuration', 'selected type heading is incorrect');
-
-    document.getElementById('instance-create-back').click();
-    await waitFor(() => !document.getElementById('instance-type-step').hidden, 'return to instance types');
-    assert(Array.from(document.querySelectorAll('.instance-form')).every((form) => form.hidden), 'configuration form remained visible after Back');
+    assert(!document.getElementById('instance-create-back'), 'Back to types is still visible');
     instanceDialog.querySelector('[data-dialog-cancel]').click();
     await waitFor(() => !instanceDialog.open, 'close instance create dialog');
 
@@ -536,29 +547,83 @@ BROWSER_ASSERTIONS = r"""
     assert(cpuGauge.textContent.includes('12 GiB unreserved'), 'CPU unreserved value is missing');
     assert(cpuGauge.textContent.includes('16 GiB total'), 'CPU total value is missing');
     assert(cpuGauge.getAttribute('aria-label').includes('10 GiB actually free'), 'CPU accessible free-memory value is missing');
-    const cpuTarget = document.querySelector('[data-compute-target="cpu"]');
-    const nvidiaTarget = document.querySelector('[data-compute-target="nvidia-gpu"]');
-    const amdTarget = document.querySelector('[data-compute-target="amd-gpu"]');
-    const intelTarget = document.querySelector('[data-compute-target="intel-gpu"]');
-    assert(cpuTarget && cpuTarget.getAttribute('aria-pressed') === 'true', 'CPU target was not selected by default');
-    assert(nvidiaTarget && nvidiaTarget.disabled, 'unavailable NVIDIA target must be disabled');
-    assert(amdTarget && amdTarget.disabled, 'unavailable AMD target must be disabled');
-    assert(intelTarget && intelTarget.disabled, 'unavailable Intel target must be disabled');
-    assert(document.getElementById('local-model-compute-target').value === 'cpu', 'CPU target was not stored in the form');
+    const modelCreatePanel = document.querySelector('.model-create-panel');
+    modelCreatePanel.open = true;
+    await waitFor(() => !document.getElementById('model-source-step').hidden, 'model source step');
+    assert(document.getElementById('model-engine-step').hidden, 'engine step is visible before choosing Local');
+    assert(document.getElementById('local-model-form').hidden, 'local form is visible before source selection');
+    assert(document.getElementById('external-model-form').hidden, 'external form is visible before source selection');
+
+    document.querySelector('[data-model-source="local"]').click();
+    await waitFor(() => !document.getElementById('model-engine-step').hidden, 'inference engine step');
+    const engineChoices = Array.from(document.querySelectorAll('[data-model-engine]'));
+    assert(engineChoices.map((choice) => choice.dataset.modelEngine).join(',') === 'VLLM,OLlama', 'available inference engines are incorrect');
+    document.querySelector('[data-model-engine="VLLM"]').click();
+    await waitFor(() => !document.getElementById('model-compute-step').hidden, 'compute target step');
+    const computeChoices = Array.from(document.querySelectorAll('[data-compute-target]'));
+    assert(computeChoices.map((choice) => choice.dataset.computeTarget).join(',') === 'cpu,nvidia-gpu', 'compute picker must contain only available targets');
+    assert(!document.querySelector('[data-compute-target="amd-gpu"]'), 'unavailable AMD target is visible');
+    assert(!document.querySelector('[data-compute-target="intel-gpu"]'), 'unavailable Intel target is visible');
+
+    document.querySelector('[data-compute-target="nvidia-gpu"]').click();
+    await waitFor(() => !document.getElementById('local-model-form').hidden, 'local model configuration');
+    assert(document.getElementById('local-model-engine').value === 'VLLM', 'selected vLLM engine was not stored');
+    assert(document.getElementById('local-model-compute-target').value === 'nvidia-gpu', 'selected NVIDIA target was not stored');
+    assert(document.getElementById('local-model-preset').value === 'qwen3635b', 'NVIDIA-incompatible presets were not filtered');
+    await waitFor(() => callExists('POST', '/api/models/estimate-vram'), 'VRAM estimate request');
+    await waitFor(() => document.getElementById('vram-estimate-slider').max === '16384', 'VRAM capacity slider');
+    assert(!document.getElementById('vram-capacity-overflow').hidden, 'capacity overflow area is hidden');
+    assert(document.getElementById('vram-minimum-marker').classList.contains('overflow'), 'minimum marker is not in the overflow area');
+    assert(document.getElementById('vram-recommended-marker').classList.contains('overflow'), 'recommended marker is not in the overflow area');
+    assert(document.getElementById('vram-estimate-selected').textContent.includes('16 GiB'), 'slider did not clamp the allocation to available VRAM');
+    assert(document.querySelector('.vram-breakdown-details'), 'VRAM breakdown was removed');
+
+    document.getElementById('local-model-back').click();
+    await waitFor(() => !document.getElementById('model-compute-step').hidden, 'return to compute targets');
+    document.querySelector('[data-compute-target="cpu"]').click();
+    await sleep(50);
+    assert(!document.getElementById('local-model-form').hidden, 'CPU local model form did not open; target=' + document.getElementById('local-model-compute-target').value + ', computeStepHidden=' + document.getElementById('model-compute-step').hidden);
     assert(document.getElementById('local-model-preset').value === 'qwen2505bcpu', 'CPU-incompatible presets were not filtered');
     assert(!document.getElementById('cpu-runtime-summary').hidden, 'CPU runtime summary is hidden');
     assert(document.getElementById('vram-estimate').hidden, 'VRAM controls are visible for CPU inference');
-    const engineSelect = document.getElementById('local-model-engine');
-    engineSelect.value = 'OLlama';
-    engineSelect.dispatchEvent(new Event('change', { bubbles: true }));
+
+    document.getElementById('local-model-back').click();
+    document.getElementById('model-compute-back').click();
+    await waitFor(() => !document.getElementById('model-engine-step').hidden, 'return to inference engines');
+    document.querySelector('[data-model-engine="OLlama"]').click();
+    await waitFor(() => !document.getElementById('model-compute-step').hidden, 'Ollama compute target step');
+    assert(!document.querySelector('[data-compute-target="intel-gpu"]'), 'unsupported Ollama Intel target is visible');
+    document.querySelector('[data-compute-target="cpu"]').click();
     await waitFor(() => document.getElementById('local-model-url').value === 'ollama://qwen2.5:0.5b', 'Ollama preset fields');
     assert(document.getElementById('local-model-url-label').textContent === 'Ollama Model URL', 'Ollama URL label is missing');
-    assert(document.getElementById('local-model-compute-target').value === 'cpu', 'Ollama did not keep a compatible CPU target');
-    assert(document.querySelector('[data-compute-target="intel-gpu"]').disabled, 'unsupported Ollama Intel target is enabled');
+    assert(document.getElementById('local-model-engine').value === 'OLlama', 'selected Ollama engine was not stored');
     assert(document.getElementById('vram-estimate').hidden, 'vLLM estimator is visible for Ollama');
-    engineSelect.value = 'VLLM';
-    engineSelect.dispatchEvent(new Event('change', { bubbles: true }));
-    await waitFor(() => document.getElementById('local-model-url').value.startsWith('hf://'), 'vLLM preset fields restored');
+
+    document.getElementById('local-model-back').click();
+    document.getElementById('model-compute-back').click();
+    document.getElementById('model-engine-back').click();
+    await waitFor(() => !document.getElementById('model-source-step').hidden, 'return to model source');
+    document.querySelector('[data-model-source="external"]').click();
+    await waitFor(() => !document.getElementById('external-model-form').hidden, 'external model form');
+    assert(document.getElementById('local-model-form').hidden, 'local and external forms are visible together');
+    document.getElementById('external-model-back').click();
+    await waitFor(() => !document.getElementById('model-source-step').hidden, 'external form back navigation');
+
+    document.querySelector('[data-tab="settings"]').click();
+    await waitFor(() => !document.getElementById('tab-settings').hidden, 'Settings tab');
+    const settingsForm = document.getElementById('settings-form');
+    const settingsFields = Array.from(settingsForm.querySelectorAll('input')).map((input) => input.name);
+    assert(settingsFields.join(',') === 'publicDomain,mdnsDomain', 'Settings must contain only public and mDNS domains');
+    assert(!settingsForm.elements.namedItem('dashboardHost'), 'redundant dashboard host field is still present');
+    assert(!document.getElementById('settings-dashboard-public'), 'redundant Addresses card is still present');
+    settingsForm.elements.publicDomain.value = 'new.example.com';
+    settingsForm.elements.mdnsDomain.value = 'new.local';
+    settingsForm.requestSubmit();
+    await waitFor(() => callExists('PATCH', '/api/settings'), 'settings update');
+    const settingsPatch = window.__dashboardBrowserCalls.find((call) => call.method === 'PATCH' && call.path === '/api/settings');
+    assert(settingsPatch.body.publicDomain === 'new.example.com', 'public domain was not submitted');
+    assert(settingsPatch.body.mdnsDomain === 'new.local', 'mDNS domain was not submitted');
+    assert(!Object.prototype.hasOwnProperty.call(settingsPatch.body, 'dashboardHost'), 'dashboard host must not be submitted separately');
 
     document.querySelector('[data-tab="system"]').click();
     await waitFor(() => !document.getElementById('tab-system').hidden, 'System Status tab');
@@ -747,19 +812,24 @@ class DashboardUserManagementUiTests(unittest.TestCase):
         self.assertIn("instanceToggle.dataset.serviceInstancesToggle = type", self.script)
         self.assertIn("instanceList.dataset.serviceInstancesList = type", self.script)
         self.assertIn("instanceList.hidden = !expanded", self.script)
+        self.assertIn("metaRow.appendChild(instanceToggle)", self.script)
+        self.assertNotIn("configured instance", self.script.split("const createApplicationServiceCard =", 1)[1].split("const appendServiceEmpty =", 1)[0])
         self.assertIn("const renderServices = (modulePayload, instancePayload, statusPayload = {}) =>", self.script)
         self.assertIn("applicationList.appendChild(createApplicationServiceCard", self.script)
         self.assertIn("instanceList.appendChild(createInstanceServiceCard", self.script)
         self.assertIn("renderServices(modulePayload, instancePayload, status);", self.script)
         self.assertNotIn("renderModules(modulePayload, status);", self.script)
         self.assertNotIn("renderInstances(instancePayload, status);", self.script)
+        service_cards = self.script.split("const createApplicationServiceCard =", 1)[1].split("const createModuleServiceRow =", 1)[0]
+        self.assertNotIn("Enable and wait for:", service_cards)
 
     def test_instance_creation_uses_catalog_driven_two_step_dialog(self):
         self.assertIn('id="instance-create-open"', self.source)
         self.assertIn('id="instance-create-dialog"', self.source)
         self.assertIn('id="instance-type-picker"', self.source)
         self.assertIn('id="instance-config-step"', self.source)
-        self.assertIn('id="instance-create-back"', self.source)
+        self.assertNotIn('id="instance-create-back"', self.source)
+        self.assertNotIn('Back to types', self.source)
         self.assertNotIn('class="instance-create-summary"', self.source)
         self.assertIn("const renderInstanceTypeChoices = () =>", self.script)
         self.assertIn("applicationDefinitions(latestModulePayload)[type]", self.script)
@@ -767,15 +837,36 @@ class DashboardUserManagementUiTests(unittest.TestCase):
         self.assertIn("form.hidden = form !== selectedForm", self.script)
         self.assertIn("selectInstanceCreateType('')", self.script)
 
+    def test_settings_show_only_public_and_mdns_domains(self):
+        self.assertIn('id="settings-form"', self.source)
+        self.assertIn('name="publicDomain"', self.source)
+        self.assertIn('name="mdnsDomain"', self.source)
+        self.assertNotIn('Dashboard Public Host', self.source)
+        self.assertNotIn('<h3>Addresses</h3>', self.source)
+        self.assertNotIn('settings-dashboard-public', self.source)
+        self.assertNotIn('settings-anythingllm-public', self.source)
+        self.assertNotIn('dashboardHost', self.script)
+
     def test_local_model_creation_uses_available_compute_targets_and_preset_variants(self):
+        self.assertIn('id="model-source-step"', self.source)
+        self.assertIn('data-model-source="local"', self.source)
+        self.assertIn('data-model-source="external"', self.source)
+        self.assertIn('id="model-engine-step"', self.source)
+        self.assertIn('id="model-compute-step"', self.source)
         self.assertIn('id="compute-target-picker"', self.source)
         self.assertIn('id="local-model-compute-target"', self.source)
         self.assertIn('id="local-model-engine"', self.source)
-        self.assertIn('<option value="OLlama">Ollama</option>', self.source)
+        self.assertIn("{ id: 'OLlama', label: 'Ollama'", self.script)
         self.assertIn('data-compute-target-section="gpu"', self.source)
         self.assertIn('data-compute-target-section="cpu"', self.source)
+        self.assertIn('id="vram-capacity-overflow"', self.source)
+        self.assertIn('id="vram-minimum-marker"', self.source)
+        self.assertIn('id="vram-recommended-marker"', self.source)
+        self.assertIn('class="vram-breakdown-details"', self.source)
+        self.assertIn("const selectModelCreateSource = (source) =>", self.script)
+        self.assertIn("const selectLocalEngine = (engine) =>", self.script)
         self.assertIn("const renderComputeTargets = (modelPayload) =>", self.script)
-        self.assertIn("target.available !== true", self.script)
+        self.assertIn(".filter((target) => target.available === true", self.script)
         self.assertIn("const presetVariant = (preset, targetId, engine = selectedLocalEngine()) =>", self.script)
         self.assertIn("targetSupportsEngine(target, engine)", self.script)
         self.assertIn("computeTarget: computeTargetId", self.script)
@@ -917,7 +1008,7 @@ process.stdout.write(JSON.stringify({
                     "--no-first-run",
                     "--no-sandbox",
                     "--allow-file-access-from-files",
-                    "--virtual-time-budget=1000",
+                    "--virtual-time-budget=5000",
                     "--user-data-dir=" + str(profile),
                     "--dump-dom",
                     page.as_uri() + "?scenario=" + scenario,

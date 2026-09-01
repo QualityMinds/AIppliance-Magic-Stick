@@ -309,8 +309,18 @@ context, output, and concurrency values.
 The portable `qwen2505bcpu` preset can also be created with `computeTarget`
 `nvidia-gpu`, `amd-gpu`, or `intel-gpu`. Intel resolves to
 `magicstick-intel-xe-gpu:1` or `magicstick-intel-i915-gpu:1` according to the
-allocatable resource. If neither resource is present, the dashboard disables
-the Intel target and the API rejects it.
+allocatable resource. If neither resource is present, the dashboard omits the
+Intel target from the Create Model wizard and the API rejects a forged request.
+The same omission rule applies to unavailable CPU, NVIDIA, and AMD targets.
+
+In the Dashboard, open **Models > Create Model**, choose `Local`, select the
+engine, and then select one of the compute targets actually offered. A missing
+target is an availability signal, not a stale disabled option: inspect the
+hardware-operator state and allocatable resources above. For vLLM accelerator
+models, 100 percent on the VRAM slider is the currently available unreserved
+memory. Gray minimum or recommended markers to the right of that limit mean the
+model does not fit at that estimate; reduce model size, context, or concurrency
+rather than treating the gray area as allocatable capacity.
 
 With `engine: OLlama`, the same portable preset uses
 `ollama://qwen2.5:0.5b`. CPU, NVIDIA, and AMD are supported. Intel remains
