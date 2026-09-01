@@ -54,6 +54,12 @@ formalized, release entries should group changes under:
 
 ### Fixed
 
+- The bare-metal first-run code now appears on a dedicated, periodically
+  refreshed virtual console after cloud-init has finished. A centered,
+  color-coded appliance panel separates the access paths, claim code, TLS
+  fingerprint, and next steps. Boot logs remain on the first console, internal
+  CNI and virtual-interface addresses are hidden, and completion clears the
+  claim from the physical display.
 - OpenClaw instances now consume the generated LiteLLM provider catalog and
   start with the catalogued local model instead of silently falling back to the
   built-in public OpenAI provider.

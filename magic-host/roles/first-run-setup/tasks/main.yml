@@ -39,18 +39,23 @@
     content: |
       [Unit]
       Description=Display Magicstick first-run access on the local console
-      After=k3s.service network-online.target
+      After=cloud-final.service k3s.service network-online.target
       Wants=network-online.target
+      ConditionPathExists={{ setup_claim_file }}
 
       [Service]
-      Type=oneshot
-      ExecStart=/usr/local/sbin/magicstick setup show
-      StandardInput=null
+      Type=simple
+      Environment=TERM=linux
+      ExecStartPre=-/usr/bin/chvt 9
+      ExecStart=/usr/local/sbin/magicstick setup console --hold
+      ExecStopPost=-/usr/bin/chvt 1
+      StandardInput=tty-force
       StandardOutput=tty
       StandardError=tty
-      TTYPath=/dev/tty1
-      TTYReset=no
-      TTYVHangup=no
+      TTYPath=/dev/tty9
+      TTYReset=yes
+      TTYVHangup=yes
+      TTYVTDisallocate=yes
 
       [Install]
       WantedBy=multi-user.target
@@ -296,6 +301,7 @@
   ansible.builtin.systemd:
     name: magicstick-setup-console.service
     state: started
+    no_block: true
   when:
     - setup_existing_resource.stdout | trim | length == 0
     - setup_new_install.stat.exists

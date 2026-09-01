@@ -99,16 +99,30 @@ Unter Windows stehen entsprechende PowerShell-Befehle zur Verfügung:
 
 Nach dem ersten Ubuntu-Start läuft die Bereitstellung automatisch weiter. K3s,
 Flux und die Plattform benötigen abhängig von Hardware und Internetverbindung
-mehrere Minuten.
+mehrere Minuten. Währenddessen sind Installationsmeldungen auf der Konsole
+normal. Nach dem Ende von cloud-init wechselt der Bildschirm automatisch von
+der Protokollkonsole 1 auf die separate Magic-Stick-Einrichtungskonsole 9.
+Dadurch können spätere Bootmeldungen den Einrichtungscode nicht überschreiben.
+Die Anzeige erscheint als zentrierte, farblich gegliederte Appliance-Seite und
+hebt den einmaligen Code deutlich von Adressen und Zertifikatsdaten ab.
 
 ## 5. First-Run-Setup öffnen
 
 Die lokale Textkonsole zeigt nach der Bereitstellung:
 
-- die private IP-Adresse;
+- den konfigurierten `.local`-Namen;
+- genau eine primäre private LAN-IP-Adresse;
 - die Setup-Adresse auf Port `9443`;
 - den achtstelligen einmaligen Einrichtungscode;
 - den Fingerabdruck des temporären TLS-Zertifikats.
+
+Interne Kubernetes-, Container-, Loopback- und virtuelle Netzwerkadressen
+werden absichtlich ausgeblendet. Die Seite wird regelmäßig aktualisiert und
+nach erfolgreichem Abschluss erneut geleert; der Einrichtungscode bleibt dann
+nicht auf dem Bildschirm stehen.
+
+Mit `Ctrl`+`Alt`+`F1` kannst du zur Boot- und Anmeldekonsole wechseln. Mit
+`Ctrl`+`Alt`+`F9` kehrst du zur Einrichtungsseite zurück.
 
 Falls die Anzeige nicht mehr sichtbar ist, melde dich auf der Textkonsole oder
 per SSH an und führe aus:
@@ -116,6 +130,10 @@ per SSH an und führe aus:
 ```bash
 sudo magicstick setup show
 ```
+
+Dieser Befehl gibt die Informationen im aktuellen Terminal aus, ohne dessen
+Inhalt zu löschen. `sudo magicstick setup reissue` erzeugt vor Abschluss einen
+neuen Code und aktualisiert außerdem die physische Anzeige.
 
 Öffne von einem Rechner im selben privaten Netz:
 

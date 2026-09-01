@@ -101,11 +101,16 @@ partition.
 
 ## After First Boot
 
-The physical console displays the first-run setup screen after Flux and the
-identity platform are ready. Open `https://<private-node-ip>:9443/setup`; this
-IP path works without mDNS. Compare the browser certificate fingerprint with
-the console, enter the one-time claim code, and create the first administrator.
-See [first-run-setup.md](first-run-setup.md) for the complete flow.
+After cloud-init finishes, the appliance switches the physical display from
+the boot-log console to a dedicated, centered first-run appliance page. Its
+color-coded sections show only the mDNS name, the primary private LAN address,
+the TLS fingerprint, the eight-character claim code, and the next steps;
+container and cluster-internal addresses are hidden. Boot logs remain
+available on virtual console 1. Open
+`https://<private-node-ip>:9443/setup`; this IP path works without mDNS. Compare
+the browser certificate fingerprint with the console, enter the one-time claim
+code, and create the first administrator. See
+[first-run-setup.md](first-run-setup.md) for the complete flow.
 
 On the host:
 
