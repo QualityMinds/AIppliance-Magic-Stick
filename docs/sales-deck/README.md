@@ -11,6 +11,30 @@ optional enterprise governance package for customer and pilot conversations.
 - [PowerPoint](Magic-Stick-Salesdeck-Dark-DE.pptx)
 - [PDF](Magic-Stick-Salesdeck-Dark-DE.pdf)
 
+## Marketing onepage
+
+The portrait one-page version explains at a glance what Magic Stick is, what
+changes for its users, and how the open-source foundation can be extended with
+optional enterprise governance. It combines a product promise, three concrete
+outcomes, and a real dashboard capture in a single shareable page.
+
+![Magic Stick marketing onepage](Magic-Stick-Onepager-DE.png)
+
+- [Editable PowerPoint](Magic-Stick-Onepager-DE.pptx)
+- [Shareable PDF](Magic-Stick-Onepager-DE.pdf)
+
+## Long-form infographic
+
+The vertical infographic tells the longer product story: from supported
+starting points and model access to useful tools, central administration,
+gateway SSO, and the open-source/enterprise boundary. Enterprise governance is
+clearly identified as a target concept rather than current functionality.
+
+![Magic Stick long-form infographic](Magic-Stick-Infografik-DE.png)
+
+- [Editable PowerPoint](Magic-Stick-Infografik-DE.pptx)
+- [Long-format PDF](Magic-Stick-Infografik-DE.pdf)
+
 ## Storyline
 
 The 13-slide deck covers:
