@@ -645,110 +645,30 @@ data:
           gap: 0.7rem;
         }
 
-        .model-create-panel {
-          display: grid;
-          gap: 0.75rem;
-        }
-
-        .model-create-summary {
-          border: 1px solid rgba(125, 211, 252, 0.3);
-          border-radius: 10px;
-          background: rgba(15, 23, 42, 0.82);
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 0.75rem;
-          list-style: none;
-          padding: 0.7rem 0.85rem;
-        }
-
-        .model-create-summary::-webkit-details-marker {
-          display: none;
-        }
-
-        .model-create-summary span:first-child {
-          display: grid;
-          gap: 0.12rem;
-        }
-
-        .model-create-summary small {
-          color: var(--muted);
-          font-size: 0.78rem;
-        }
-
-        .model-create-wizard {
+        .model-create-flow {
           display: grid;
           gap: 0.85rem;
-          padding-top: 0.75rem;
         }
 
-        .model-create-step {
+        .model-list-heading {
+          align-items: center;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.65rem;
+        }
+
+        .model-create-selection {
           margin: 0;
           width: auto;
         }
 
-        .model-create-step h3 {
+        .model-create-selection h3 {
           margin: 0;
         }
 
-        .model-create-step-label {
-          color: var(--accent);
-          font-size: 0.72rem;
-          font-weight: 700;
-          letter-spacing: 0.08em;
-          text-transform: uppercase;
-        }
-
-        .model-create-step-heading {
-          align-items: flex-start;
-          display: flex;
-          gap: 0.75rem;
-          justify-content: space-between;
-        }
-
-        .model-create-step-heading > div {
-          display: grid;
-          gap: 0.2rem;
-        }
-
-        .model-choice-picker {
-          display: grid;
-          gap: 0.7rem;
-          grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-        }
-
-        .model-choice {
-          appearance: none;
-          background: rgba(15, 23, 42, 0.78);
-          border: 1px solid rgba(125, 211, 252, 0.28);
-          border-radius: 12px;
-          color: var(--text);
-          cursor: pointer;
-          display: grid;
-          gap: 0.35rem;
-          min-height: 6.5rem;
-          padding: 1rem;
-          text-align: left;
-        }
-
-        .model-choice:hover,
-        .model-choice:focus-visible,
-        .model-choice[aria-pressed="true"] {
-          background: rgba(14, 116, 144, 0.24);
-          border-color: var(--accent);
-          box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.22);
-          outline: none;
-        }
-
-        .model-choice strong {
-          font-size: 1rem;
-        }
-
-        .model-choice span {
-          color: var(--muted);
-          font-size: 0.8rem;
-          line-height: 1.45;
+        .model-create-selection .form-grid {
+          align-items: end;
+          margin-top: 0.75rem;
         }
 
         .instance-create-toolbar {
@@ -818,47 +738,6 @@ data:
           color: var(--muted);
           font-size: 0.78rem;
           line-height: 1.4;
-        }
-
-        .compute-target-picker {
-          display: grid;
-          gap: 0.65rem;
-          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        }
-
-        .compute-target-choice {
-          appearance: none;
-          background: rgba(15, 23, 42, 0.78);
-          border: 1px solid rgba(125, 211, 252, 0.28);
-          border-radius: 12px;
-          color: var(--text);
-          cursor: pointer;
-          display: grid;
-          gap: 0.3rem;
-          min-height: 5.4rem;
-          padding: 0.8rem;
-          text-align: left;
-        }
-
-        .compute-target-choice[aria-pressed="true"] {
-          background: rgba(14, 116, 144, 0.28);
-          border-color: var(--accent);
-          box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.28);
-        }
-
-        .compute-target-choice:disabled {
-          cursor: not-allowed;
-          opacity: 0.68;
-        }
-
-        .compute-target-choice small {
-          color: var(--muted);
-          font-size: 0.76rem;
-          line-height: 1.35;
-        }
-
-        .compute-target-choice:disabled small {
-          color: #fde68a;
         }
 
         .instance-config-step,
@@ -2020,68 +1899,50 @@ data:
 
           <section id="tab-models" class="tab-panel" hidden>
             <div class="model-workspace">
-              <details class="model-create-panel">
-                <summary class="model-create-summary">
-                  <span>
-                    <strong>Create Model</strong>
-                    <small>Local presets and external providers</small>
-                  </span>
-                  <span class="status-pill">Create</span>
-                </summary>
-                <div class="model-create-wizard" id="model-create-wizard">
-                  <section class="dashboard-card model-create-step" id="model-source-step">
-                    <span class="model-create-step-label">Step 1</span>
-                    <h3>Where should the model run?</h3>
-                    <p class="module-message">Choose local inference on this appliance or connect an external model provider.</p>
-                    <div class="model-choice-picker" role="group" aria-label="Model source">
-                      <button class="model-choice" type="button" data-model-source="local">
-                        <strong>Local</strong>
-                        <span>Run the model with an inference engine on available appliance compute.</span>
-                      </button>
-                      <button class="model-choice" type="button" data-model-source="external">
-                        <strong>External</strong>
-                        <span>Connect a remote provider through LiteLLM without local compute.</span>
-                      </button>
-                    </div>
-                  </section>
+              <section class="compute-memory-overview" aria-labelledby="compute-memory-heading">
+                <h3 id="compute-memory-heading">Compute memory</h3>
+                <div id="compute-memory-gauges" class="compute-memory-gauges" aria-live="polite"></div>
+              </section>
 
-                  <section class="dashboard-card model-create-step" id="model-engine-step" hidden>
-                    <div class="model-create-step-heading">
-                      <div>
-                        <span class="model-create-step-label">Step 2</span>
-                        <h3>Choose an inference engine</h3>
-                      </div>
-                      <button class="control-button" id="model-engine-back" type="button">Back</button>
+              <section class="model-section">
+                <div class="module-group-heading">
+                  <div class="model-list-heading">
+                    <h3>Installed Models</h3>
+                    <button class="control-button primary" id="model-create-toggle" type="button" aria-expanded="false" aria-controls="model-create-flow">Create</button>
+                  </div>
+                  <span id="model-list-count">Waiting for catalog</span>
+                </div>
+                <div class="model-create-flow" id="model-create-flow" hidden>
+                  <section class="dashboard-card model-create-selection" id="model-create-selection">
+                    <h3>Model configuration</h3>
+                    <p class="module-message">Selections remain visible. Only currently available inference engines and hardware are listed.</p>
+                    <div class="form-grid">
+                      <label class="field">Location
+                        <select id="model-source-select" aria-label="Model location">
+                          <option value="">Select Local or External</option>
+                          <option value="local">Local</option>
+                          <option value="external">External</option>
+                        </select>
+                      </label>
+                      <label class="field" id="model-engine-field" hidden>Inference Engine
+                        <select id="local-model-engine" aria-label="Inference engine">
+                          <option value="">Select an inference engine</option>
+                        </select>
+                      </label>
+                      <label class="field" id="model-compute-field" hidden>Hardware
+                        <select id="local-model-compute-target" aria-label="Available hardware">
+                          <option value="">Select available hardware</option>
+                        </select>
+                      </label>
                     </div>
-                    <p class="module-message">Only engines with at least one available compute target are shown.</p>
-                    <div class="model-choice-picker" id="inference-engine-picker" role="group" aria-label="Inference engine"></div>
                     <p class="module-message" id="inference-engine-message" role="status"></p>
+                    <p class="module-message" id="local-model-requirements" role="status" hidden></p>
                   </section>
 
-                  <section class="dashboard-card model-create-step" id="model-compute-step" hidden>
-                    <div class="model-create-step-heading">
-                      <div>
-                        <span class="model-create-step-label">Step 3</span>
-                        <h3>Choose available compute</h3>
-                      </div>
-                      <button class="control-button" id="model-compute-back" type="button">Back</button>
-                    </div>
-                    <p class="module-message" id="local-model-requirements" role="status">Checking available compute targets.</p>
-                    <div class="compute-target-picker" id="compute-target-picker" role="group" aria-label="Available compute target"></div>
-                  </section>
-
-                  <form class="dashboard-card model-form model-create-step" id="local-model-form" hidden>
-                    <div class="model-create-step-heading">
-                      <div>
-                        <span class="model-create-step-label">Step 4</span>
-                        <h3>Configure local model</h3>
-                      </div>
-                      <button class="control-button" id="local-model-back" type="button">Back</button>
-                    </div>
+                  <form class="dashboard-card model-form" id="local-model-form" hidden>
+                    <h3>Configure local model</h3>
                     <p class="module-message" id="local-model-selection-summary" role="status"></p>
                     <fieldset class="model-form-fields" id="local-model-fields">
-                      <input type="hidden" name="computeTarget" id="local-model-compute-target" value="" />
-                      <input type="hidden" name="engine" id="local-model-engine" value="" />
                       <input type="hidden" name="vram" value="5Gi" />
                       <div class="form-grid">
                         <label class="field">Name<input name="name" value="qwen352bvlembedding" /></label>
@@ -2141,14 +2002,8 @@ data:
                     </fieldset>
                   </form>
 
-                  <form class="dashboard-card model-form model-create-step" id="external-model-form" hidden>
-                    <div class="model-create-step-heading">
-                      <div>
-                        <span class="model-create-step-label">Step 2</span>
-                        <h3>Configure external model</h3>
-                      </div>
-                      <button class="control-button" id="external-model-back" type="button">Back</button>
-                    </div>
+                  <form class="dashboard-card model-form" id="external-model-form" hidden>
+                    <h3>Configure external model</h3>
                     <p class="module-message">Uses a remote provider through LiteLLM. No local GPU driver or KubeAI installation is required.</p>
                     <div class="form-grid">
                       <label class="field">Name<input name="name" value="example-openai-gpt-4o-mini" /></label>
@@ -2160,18 +2015,6 @@ data:
                     </div>
                     <button class="control-button primary" type="submit">Add External Model</button>
                   </form>
-                </div>
-              </details>
-
-              <section class="compute-memory-overview" aria-labelledby="compute-memory-heading">
-                <h3 id="compute-memory-heading">Compute memory</h3>
-                <div id="compute-memory-gauges" class="compute-memory-gauges" aria-live="polite"></div>
-              </section>
-
-              <section class="model-section">
-                <div class="module-group-heading">
-                  <h3>Installed Models</h3>
-                  <span id="model-list-count">Waiting for catalog</span>
                 </div>
                 <div id="model-list" class="module-list model-list"></div>
                 <button class="control-button danger" id="remove-local-runtime" type="button" hidden>Remove Local Inference Runtime</button>
@@ -2506,32 +2349,25 @@ data:
 
           const computeTargets = (modelPayload = latestModelPayload) => ((((modelPayload || {}).computeTargets || {}).targets) || []);
 
-          const normalizeLocalEngine = (value) => String(value || 'VLLM').trim().toUpperCase() === 'OLLAMA' ? 'OLlama' : 'VLLM';
+          const normalizeLocalEngine = (value) => {
+            const normalized = String(value || '').trim().toUpperCase();
+            if (!normalized) { return ''; }
+            return normalized === 'OLLAMA' ? 'OLlama' : 'VLLM';
+          };
 
           const selectedLocalEngine = () => {
             const field = $('local-model-engine');
-            return normalizeLocalEngine(activeLocalEngine || (field || {}).value || 'VLLM');
+            return normalizeLocalEngine(activeLocalEngine || (field || {}).value || '');
           };
 
-          const targetSupportsEngine = (target, engine = selectedLocalEngine()) => (target && (target.engines || ['VLLM'])
-            .map(normalizeLocalEngine).includes(normalizeLocalEngine(engine)));
+          const targetSupportsEngine = (target, engine = selectedLocalEngine()) => Boolean(
+            target
+            && normalizeLocalEngine(engine)
+            && (target.engines || ['VLLM']).map(normalizeLocalEngine).includes(normalizeLocalEngine(engine))
+          );
 
           const availableComputeTargets = (modelPayload = latestModelPayload, engine = selectedLocalEngine()) => computeTargets(modelPayload)
             .filter((target) => target.available === true && targetSupportsEngine(target, engine));
-
-          const showModelCreateStep = (stepId, options = {}) => {
-            ['model-source-step', 'model-engine-step', 'model-compute-step', 'local-model-form', 'external-model-form'].forEach((id) => {
-              const node = $(id);
-              if (node) { node.hidden = id !== stepId; }
-            });
-            if (options.focus !== false) {
-              window.setTimeout(() => {
-                const step = $(stepId);
-                const focusTarget = step && step.querySelector('button:not([disabled]), input:not([type="hidden"]):not([disabled]), select:not([disabled])');
-                if (focusTarget) { focusTarget.focus(); }
-              }, 0);
-            }
-          };
 
           const engineDefinitions = [
             { id: 'VLLM', label: 'vLLM', description: 'High-throughput OpenAI-compatible inference for Hugging Face models.' },
@@ -2539,28 +2375,31 @@ data:
           ];
 
           const renderInferenceEngines = (modelPayload = latestModelPayload) => {
-            const picker = $('inference-engine-picker');
+            const field = $('local-model-engine');
             const message = $('inference-engine-message');
-            if (!picker) { return; }
-            picker.innerHTML = '';
+            if (!field) { return; }
+            const requested = selectedLocalEngine();
             const engines = engineDefinitions.filter((definition) => availableComputeTargets(modelPayload, definition.id).length > 0);
+            field.replaceChildren();
+            const placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = 'Select an inference engine';
+            field.appendChild(placeholder);
             engines.forEach((definition) => {
               const targets = availableComputeTargets(modelPayload, definition.id);
-              const button = document.createElement('button');
-              button.type = 'button';
-              button.className = 'model-choice';
-              button.dataset.modelEngine = definition.id;
-              button.setAttribute('aria-pressed', activeLocalEngine === definition.id ? 'true' : 'false');
-              const title = document.createElement('strong');
-              title.textContent = definition.label;
-              const description = document.createElement('span');
-              description.textContent = definition.description + ' ' + targets.length + ' compute ' + (targets.length === 1 ? 'target' : 'targets') + ' available.';
-              button.append(title, description);
-              button.addEventListener('click', () => selectLocalEngine(definition.id));
-              picker.appendChild(button);
+              const option = document.createElement('option');
+              option.value = definition.id;
+              option.textContent = definition.label + ' (' + targets.length + ' available ' + (targets.length === 1 ? 'target' : 'targets') + ')';
+              field.appendChild(option);
             });
+            const selected = engines.some((definition) => definition.id === requested) ? requested : '';
+            activeLocalEngine = selected;
+            field.value = selected;
+            field.disabled = engines.length === 0;
             if (message) {
-              message.textContent = engines.length ? '' : 'No inference engine currently has an available compute target.';
+              message.textContent = activeModelCreateSource === 'local' && !engines.length
+                ? 'No inference engine currently has available hardware.'
+                : '';
             }
           };
 
@@ -2573,54 +2412,76 @@ data:
             if (targetField) { targetField.value = ''; }
             renderedPresetSignature = '';
             localPresetLastApplied = '';
-            document.querySelectorAll('[data-model-engine], [data-compute-target]').forEach((button) => {
-              button.setAttribute('aria-pressed', 'false');
-            });
           };
 
-          const resetModelCreateWizard = (options = {}) => {
+          const updateModelCreateVisibility = () => {
+            const local = activeModelCreateSource === 'local';
+            const external = activeModelCreateSource === 'external';
+            const engineField = $('model-engine-field');
+            const computeField = $('model-compute-field');
+            const localForm = $('local-model-form');
+            const externalForm = $('external-model-form');
+            const requirements = $('local-model-requirements');
+            if (engineField) { engineField.hidden = !local; }
+            if (computeField) { computeField.hidden = !local || !selectedLocalEngine(); }
+            if (requirements) { requirements.hidden = !local || !selectedLocalEngine(); }
+            if (localForm) { localForm.hidden = !local || !selectedComputeTarget(); }
+            if (externalForm) { externalForm.hidden = !external; }
+          };
+
+          const resetModelCreateForm = () => {
             activeModelCreateSource = '';
+            const sourceField = $('model-source-select');
+            if (sourceField) { sourceField.value = ''; }
             resetLocalModelSelection();
-            document.querySelectorAll('[data-model-source]').forEach((button) => {
-              button.setAttribute('aria-pressed', 'false');
-            });
             renderInferenceEngines(latestModelPayload);
             renderComputeTargets(latestModelPayload);
             renderLocalModelAvailability(latestModelPayload);
-            showModelCreateStep('model-source-step', options);
+            updateModelCreateVisibility();
           };
 
           const selectModelCreateSource = (source) => {
-            activeModelCreateSource = source;
-            document.querySelectorAll('[data-model-source]').forEach((button) => {
-              button.setAttribute('aria-pressed', button.dataset.modelSource === source ? 'true' : 'false');
-            });
-            if (source === 'external') {
-              showModelCreateStep('external-model-form');
-              return;
-            }
-            resetLocalModelSelection();
+            activeModelCreateSource = source === 'local' || source === 'external' ? source : '';
+            const sourceField = $('model-source-select');
+            if (sourceField) { sourceField.value = activeModelCreateSource; }
             renderInferenceEngines(latestModelPayload);
-            showModelCreateStep('model-engine-step');
+            renderComputeTargets(latestModelPayload);
+            renderLocalModelAvailability(latestModelPayload);
+            updateModelCreateVisibility();
           };
 
           const selectLocalEngine = (engine) => {
             const normalized = normalizeLocalEngine(engine);
-            if (!availableComputeTargets(latestModelPayload, normalized).length) { return false; }
+            if (!normalized || !availableComputeTargets(latestModelPayload, normalized).length) {
+              activeLocalEngine = '';
+              activeComputeTarget = '';
+              const engineField = $('local-model-engine');
+              const targetField = $('local-model-compute-target');
+              if (engineField) { engineField.value = ''; }
+              if (targetField) { targetField.value = ''; }
+              renderComputeTargets(latestModelPayload);
+              renderLocalModelAvailability(latestModelPayload);
+              updateModelCreateVisibility();
+              return false;
+            }
             activeLocalEngine = normalized;
-            activeComputeTarget = '';
             const engineField = $('local-model-engine');
             const targetField = $('local-model-compute-target');
             if (engineField) { engineField.value = normalized; }
-            if (targetField) { targetField.value = ''; }
+            const selectedTarget = computeTarget(activeComputeTarget, latestModelPayload);
+            if (!selectedTarget || selectedTarget.available !== true || !targetSupportsEngine(selectedTarget, normalized)) {
+              activeComputeTarget = '';
+              if (targetField) { targetField.value = ''; }
+            }
             renderedPresetSignature = '';
             localPresetLastApplied = '';
-            document.querySelectorAll('[data-model-engine]').forEach((button) => {
-              button.setAttribute('aria-pressed', button.dataset.modelEngine === normalized ? 'true' : 'false');
-            });
             renderComputeTargets(latestModelPayload);
-            renderLocalModelAvailability(latestModelPayload);
-            showModelCreateStep('model-compute-step');
+            if (activeComputeTarget) {
+              selectComputeTarget(activeComputeTarget);
+            } else {
+              renderLocalModelAvailability(latestModelPayload);
+              updateModelCreateVisibility();
+            }
             return true;
           };
 
@@ -2685,14 +2546,18 @@ data:
 
           const selectComputeTarget = (targetId, options = {}) => {
             const target = computeTarget(targetId);
-            if (!target || target.available !== true || !targetSupportsEngine(target)) { return false; }
+            if (!target || target.available !== true || !targetSupportsEngine(target)) {
+              activeComputeTarget = '';
+              const field = $('local-model-compute-target');
+              if (field) { field.value = ''; }
+              renderLocalModelAvailability(latestModelPayload);
+              updateModelCreateVisibility();
+              return false;
+            }
             const targetChanged = activeComputeTarget !== targetId;
             activeComputeTarget = targetId;
             const field = $('local-model-compute-target');
             if (field) { field.value = targetId; }
-            document.querySelectorAll('[data-compute-target]').forEach((button) => {
-              button.setAttribute('aria-pressed', button.dataset.computeTarget === targetId ? 'true' : 'false');
-            });
             renderComputeTargetSections(targetId);
             renderedPresetSignature = '';
             localPresetLastApplied = '';
@@ -2703,48 +2568,37 @@ data:
             if (options.renderAvailability !== false) {
               renderLocalModelAvailability(latestModelPayload);
             }
-            if (options.showStep !== false) {
-              showModelCreateStep('local-model-form');
-            }
+            updateModelCreateVisibility();
             return true;
           };
 
           const renderComputeTargets = (modelPayload) => {
-            const picker = $('compute-target-picker');
-            if (!picker) { return; }
-            picker.innerHTML = '';
+            const field = $('local-model-compute-target');
+            if (!field) { return; }
+            const requested = selectedComputeTarget();
+            field.replaceChildren();
+            const placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = 'Select available hardware';
+            field.appendChild(placeholder);
             const targets = availableComputeTargets(modelPayload, selectedLocalEngine());
             targets.forEach((target) => {
-              const button = document.createElement('button');
-              button.type = 'button';
-              button.className = 'compute-target-choice';
-              button.dataset.computeTarget = target.id;
-              button.setAttribute('aria-pressed', activeComputeTarget === target.id ? 'true' : 'false');
-              const title = document.createElement('strong');
-              title.textContent = target.displayName || target.id;
-              const engine = document.createElement('span');
-              engine.textContent = (target.engines || ['VLLM']).join(', ');
-              const detail = document.createElement('small');
-              detail.textContent = target.message || 'Available';
-              button.append(title, engine, detail);
-              button.addEventListener('click', () => selectComputeTarget(target.id));
-              picker.appendChild(button);
+              const option = document.createElement('option');
+              option.value = target.id;
+              option.textContent = target.displayName || target.id;
+              field.appendChild(option);
             });
-            const requested = selectedComputeTarget();
             const selected = computeTarget(requested, modelPayload);
             if (selected && selected.available === true && targetSupportsEngine(selected)) {
-              document.querySelectorAll('[data-compute-target]').forEach((button) => {
-                button.setAttribute('aria-pressed', button.dataset.computeTarget === requested ? 'true' : 'false');
-              });
+              activeComputeTarget = requested;
+              field.value = requested;
               renderComputeTargetSections(requested);
             } else {
               activeComputeTarget = '';
-              const field = $('local-model-compute-target');
-              if (field) { field.value = ''; }
-              if (activeModelCreateSource === 'local' && !$('local-model-form').hidden) {
-                showModelCreateStep('model-compute-step', { focus: false });
-              }
+              field.value = '';
             }
+            field.disabled = targets.length === 0;
+            updateModelCreateVisibility();
           };
 
           const renderLocalModelAvailability = (modelPayload) => {
@@ -5551,47 +5405,35 @@ data:
             }
           });
 
-          document.querySelectorAll('[data-model-source]').forEach((button) => {
-            button.addEventListener('click', () => selectModelCreateSource(button.dataset.modelSource || ''));
-          });
+          const modelSourceSelect = $('model-source-select');
+          if (modelSourceSelect) {
+            modelSourceSelect.addEventListener('change', () => selectModelCreateSource(modelSourceSelect.value));
+          }
 
-          const modelCreatePanel = document.querySelector('.model-create-panel');
-          if (modelCreatePanel) {
-            modelCreatePanel.addEventListener('toggle', () => {
-              if (modelCreatePanel.open) { resetModelCreateWizard(); }
+          const localModelEngineSelect = $('local-model-engine');
+          if (localModelEngineSelect) {
+            localModelEngineSelect.addEventListener('change', () => selectLocalEngine(localModelEngineSelect.value));
+          }
+
+          const localModelComputeSelect = $('local-model-compute-target');
+          if (localModelComputeSelect) {
+            localModelComputeSelect.addEventListener('change', () => selectComputeTarget(localModelComputeSelect.value));
+          }
+
+          const modelCreateToggle = $('model-create-toggle');
+          const modelCreateFlow = $('model-create-flow');
+          if (modelCreateToggle && modelCreateFlow) {
+            modelCreateToggle.addEventListener('click', () => {
+              const expanded = modelCreateFlow.hidden;
+              modelCreateFlow.hidden = !expanded;
+              modelCreateToggle.setAttribute('aria-expanded', String(expanded));
+              modelCreateToggle.textContent = expanded ? 'Close' : 'Create';
+              if (expanded) {
+                resetModelCreateForm();
+                const sourceField = $('model-source-select');
+                if (sourceField) { sourceField.focus(); }
+              }
             });
-          }
-
-          const modelEngineBack = $('model-engine-back');
-          if (modelEngineBack) {
-            modelEngineBack.addEventListener('click', () => resetModelCreateWizard());
-          }
-
-          const modelComputeBack = $('model-compute-back');
-          if (modelComputeBack) {
-            modelComputeBack.addEventListener('click', () => {
-              activeComputeTarget = '';
-              const targetField = $('local-model-compute-target');
-              if (targetField) { targetField.value = ''; }
-              renderInferenceEngines(latestModelPayload);
-              renderComputeTargets(latestModelPayload);
-              renderLocalModelAvailability(latestModelPayload);
-              showModelCreateStep('model-engine-step');
-            });
-          }
-
-          const localModelBack = $('local-model-back');
-          if (localModelBack) {
-            localModelBack.addEventListener('click', () => {
-              renderComputeTargets(latestModelPayload);
-              renderLocalModelAvailability(latestModelPayload);
-              showModelCreateStep('model-compute-step');
-            });
-          }
-
-          const externalModelBack = $('external-model-back');
-          if (externalModelBack) {
-            externalModelBack.addEventListener('click', () => resetModelCreateWizard());
           }
 
           const localModelForm = $('local-model-form');

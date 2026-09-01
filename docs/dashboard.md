@@ -271,12 +271,14 @@ companies, employee agents, or gateway credentials.
 Local and external models are runtime requests stored as `ModelActivation`
 resources in namespace `ai-system`.
 
-Opening **Create Model** starts with only a `Local` or `External` choice. The
-external path then shows the existing provider form. The local path is a
-four-step wizard: source, inference engine, compute target, and model
-configuration. Compute choices are filtered by the selected engine and current
-cluster capability. Unavailable CPU or accelerator targets are omitted instead
-of being presented as disabled choices.
+The **Create** button beside **Installed Models** opens the model form directly
+in that section. The form starts with a persistent location dropdown containing
+`Local` and `External`. The external choice reveals the existing provider form.
+For a local model, inference engine and hardware appear as additional dropdowns
+above the model form. Every completed selection remains visible and can be
+changed directly; there are no wizard steps or back buttons. Engine and hardware
+choices are filtered by current cluster capability. Unavailable CPU or
+accelerator targets are omitted instead of being presented as disabled choices.
 
 vLLM accepts `hf://` model references; Ollama uses `ollama://` references.
 `cpu` is available on a compatible Ready Linux node. `nvidia-gpu`, `amd-gpu`,

@@ -106,14 +106,16 @@ matching vLLM profile; Ollama is deliberately unavailable for Intel until a
 validated KubeAI/Ollama Intel image exists. Additional engines remain behind
 the same target/variant contract.
 
-The Dashboard creation wizard asks for `Local` or `External` first. For a local
-model it then asks for the engine and exposes only compute targets whose catalog
-entry supports that engine and whose live availability is `true`. The final
-form therefore cannot advertise an Intel, AMD, NVIDIA, or CPU path that the
-cluster cannot currently schedule. For vLLM accelerator models, the memory
-control caps allocations at the target's available unreserved memory while
-retaining minimum and recommended estimate markers in a gray overflow area
-when the model is larger than current capacity.
+The Dashboard uses persistent dropdowns for location, inference engine, and
+hardware. Selecting `External` reveals the provider form. Selecting `Local`
+adds engine and hardware dropdowns without hiding earlier selections. The
+hardware list contains only compute targets whose catalog entry supports the
+selected engine and whose live availability is `true`. The model form therefore
+cannot advertise an Intel, AMD, NVIDIA, or CPU path that the cluster cannot
+currently schedule. For vLLM accelerator models, the memory control caps
+allocations at the target's available unreserved memory while retaining minimum
+and recommended estimate markers in a gray overflow area when the model is
+larger than current capacity.
 
 | Preset | Engine | Target | Model | Memory budget | Context | Max output | Max sequences |
 |---|---|---|---|---:|---:|---:|---:|
