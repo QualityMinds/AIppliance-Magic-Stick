@@ -549,26 +549,40 @@ BROWSER_ASSERTIONS = r"""
     assert(cpuGauge.getAttribute('aria-label').includes('10 GiB actually free'), 'CPU accessible free-memory value is missing');
     const modelCreatePanel = document.querySelector('.model-create-panel');
     modelCreatePanel.open = true;
-    await waitFor(() => !document.getElementById('model-source-step').hidden, 'model source step');
-    assert(document.getElementById('model-engine-step').hidden, 'engine step is visible before choosing Local');
+    const sourceSelect = document.getElementById('model-source-select');
+    const engineSelect = document.getElementById('local-model-engine');
+    const computeSelect = document.getElementById('local-model-compute-target');
+    const changeSelect = (select, value) => {
+      select.value = value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    await sleep(20);
+    await waitFor(() => sourceSelect.value === '', 'model source dropdown');
+    assert(document.getElementById('model-engine-field').hidden, 'engine dropdown is visible before choosing Local');
+    assert(document.getElementById('model-compute-field').hidden, 'hardware dropdown is visible before choosing an engine');
     assert(document.getElementById('local-model-form').hidden, 'local form is visible before source selection');
     assert(document.getElementById('external-model-form').hidden, 'external form is visible before source selection');
 
-    document.querySelector('[data-model-source="local"]').click();
-    await waitFor(() => !document.getElementById('model-engine-step').hidden, 'inference engine step');
-    const engineChoices = Array.from(document.querySelectorAll('[data-model-engine]'));
-    assert(engineChoices.map((choice) => choice.dataset.modelEngine).join(',') === 'VLLM,OLlama', 'available inference engines are incorrect');
-    document.querySelector('[data-model-engine="VLLM"]').click();
-    await waitFor(() => !document.getElementById('model-compute-step').hidden, 'compute target step');
-    const computeChoices = Array.from(document.querySelectorAll('[data-compute-target]'));
-    assert(computeChoices.map((choice) => choice.dataset.computeTarget).join(',') === 'cpu,nvidia-gpu', 'compute picker must contain only available targets');
-    assert(!document.querySelector('[data-compute-target="amd-gpu"]'), 'unavailable AMD target is visible');
-    assert(!document.querySelector('[data-compute-target="intel-gpu"]'), 'unavailable Intel target is visible');
+    changeSelect(sourceSelect, 'local');
+    await waitFor(() => !document.getElementById('model-engine-field').hidden, 'inference engine dropdown');
+    assert(sourceSelect.value === 'local', 'Local source selection disappeared');
+    const engineChoices = Array.from(engineSelect.options).map((option) => option.value).filter(Boolean);
+    assert(engineChoices.join(',') === 'VLLM,OLlama', 'available inference engines are incorrect');
+    changeSelect(engineSelect, 'VLLM');
+    await waitFor(() => !document.getElementById('model-compute-field').hidden, 'hardware dropdown');
+    assert(sourceSelect.value === 'local', 'source dropdown disappeared after choosing an engine');
+    assert(engineSelect.value === 'VLLM', 'engine selection disappeared');
+    const computeChoices = Array.from(computeSelect.options).map((option) => option.value).filter(Boolean);
+    assert(computeChoices.join(',') === 'cpu,nvidia-gpu', 'hardware dropdown must contain only available targets');
+    assert(!computeChoices.includes('amd-gpu'), 'unavailable AMD target is visible');
+    assert(!computeChoices.includes('intel-gpu'), 'unavailable Intel target is visible');
 
-    document.querySelector('[data-compute-target="nvidia-gpu"]').click();
+    changeSelect(computeSelect, 'nvidia-gpu');
     await waitFor(() => !document.getElementById('local-model-form').hidden, 'local model configuration');
-    assert(document.getElementById('local-model-engine').value === 'VLLM', 'selected vLLM engine was not stored');
-    assert(document.getElementById('local-model-compute-target').value === 'nvidia-gpu', 'selected NVIDIA target was not stored');
+    assert(!document.getElementById('model-engine-field').hidden, 'engine dropdown disappeared after choosing hardware');
+    assert(!document.getElementById('model-compute-field').hidden, 'hardware dropdown disappeared after its selection');
+    assert(engineSelect.value === 'VLLM', 'selected vLLM engine was not stored');
+    assert(computeSelect.value === 'nvidia-gpu', 'selected NVIDIA target was not stored');
     assert(document.getElementById('local-model-preset').value === 'qwen3635b', 'NVIDIA-incompatible presets were not filtered');
     await waitFor(() => callExists('POST', '/api/models/estimate-vram'), 'VRAM estimate request');
     await waitFor(() => document.getElementById('vram-estimate-slider').max === '16384', 'VRAM capacity slider');
@@ -578,36 +592,30 @@ BROWSER_ASSERTIONS = r"""
     assert(document.getElementById('vram-estimate-selected').textContent.includes('16 GiB'), 'slider did not clamp the allocation to available VRAM');
     assert(document.querySelector('.vram-breakdown-details'), 'VRAM breakdown was removed');
 
-    document.getElementById('local-model-back').click();
-    await waitFor(() => !document.getElementById('model-compute-step').hidden, 'return to compute targets');
-    document.querySelector('[data-compute-target="cpu"]').click();
+    changeSelect(computeSelect, 'cpu');
     await sleep(50);
-    assert(!document.getElementById('local-model-form').hidden, 'CPU local model form did not open; target=' + document.getElementById('local-model-compute-target').value + ', computeStepHidden=' + document.getElementById('model-compute-step').hidden);
+    assert(!document.getElementById('local-model-form').hidden, 'CPU local model form did not stay open');
     assert(document.getElementById('local-model-preset').value === 'qwen2505bcpu', 'CPU-incompatible presets were not filtered');
     assert(!document.getElementById('cpu-runtime-summary').hidden, 'CPU runtime summary is hidden');
     assert(document.getElementById('vram-estimate').hidden, 'VRAM controls are visible for CPU inference');
 
-    document.getElementById('local-model-back').click();
-    document.getElementById('model-compute-back').click();
-    await waitFor(() => !document.getElementById('model-engine-step').hidden, 'return to inference engines');
-    document.querySelector('[data-model-engine="OLlama"]').click();
-    await waitFor(() => !document.getElementById('model-compute-step').hidden, 'Ollama compute target step');
-    assert(!document.querySelector('[data-compute-target="intel-gpu"]'), 'unsupported Ollama Intel target is visible');
-    document.querySelector('[data-compute-target="cpu"]').click();
+    changeSelect(engineSelect, 'OLlama');
+    await waitFor(() => engineSelect.value === 'OLlama' && computeSelect.value === 'cpu', 'persistent Ollama and CPU selection');
+    const ollamaTargets = Array.from(computeSelect.options).map((option) => option.value).filter(Boolean);
+    assert(!ollamaTargets.includes('intel-gpu'), 'unsupported Ollama Intel target is visible');
     await waitFor(() => document.getElementById('local-model-url').value === 'ollama://qwen2.5:0.5b', 'Ollama preset fields');
     assert(document.getElementById('local-model-url-label').textContent === 'Ollama Model URL', 'Ollama URL label is missing');
-    assert(document.getElementById('local-model-engine').value === 'OLlama', 'selected Ollama engine was not stored');
+    assert(engineSelect.value === 'OLlama', 'selected Ollama engine was not stored');
     assert(document.getElementById('vram-estimate').hidden, 'vLLM estimator is visible for Ollama');
 
-    document.getElementById('local-model-back').click();
-    document.getElementById('model-compute-back').click();
-    document.getElementById('model-engine-back').click();
-    await waitFor(() => !document.getElementById('model-source-step').hidden, 'return to model source');
-    document.querySelector('[data-model-source="external"]').click();
+    changeSelect(sourceSelect, 'external');
     await waitFor(() => !document.getElementById('external-model-form').hidden, 'external model form');
     assert(document.getElementById('local-model-form').hidden, 'local and external forms are visible together');
-    document.getElementById('external-model-back').click();
-    await waitFor(() => !document.getElementById('model-source-step').hidden, 'external form back navigation');
+    assert(sourceSelect.value === 'external', 'External source selection disappeared');
+    changeSelect(sourceSelect, 'local');
+    await waitFor(() => !document.getElementById('local-model-form').hidden, 'return to persistent local configuration');
+    assert(engineSelect.value === 'OLlama', 'engine selection was lost after switching source');
+    assert(computeSelect.value === 'cpu', 'hardware selection was lost after switching source');
 
     document.querySelector('[data-tab="settings"]').click();
     await waitFor(() => !document.getElementById('tab-settings').hidden, 'Settings tab');
@@ -847,15 +855,20 @@ class DashboardUserManagementUiTests(unittest.TestCase):
         self.assertNotIn('settings-anythingllm-public', self.source)
         self.assertNotIn('dashboardHost', self.script)
 
-    def test_local_model_creation_uses_available_compute_targets_and_preset_variants(self):
-        self.assertIn('id="model-source-step"', self.source)
-        self.assertIn('data-model-source="local"', self.source)
-        self.assertIn('data-model-source="external"', self.source)
-        self.assertIn('id="model-engine-step"', self.source)
-        self.assertIn('id="model-compute-step"', self.source)
-        self.assertIn('id="compute-target-picker"', self.source)
+    def test_local_model_creation_uses_persistent_dropdowns_and_available_targets(self):
+        self.assertIn('id="model-source-select"', self.source)
+        self.assertIn('<option value="local">Local</option>', self.source)
+        self.assertIn('<option value="external">External</option>', self.source)
+        self.assertIn('id="model-engine-field"', self.source)
+        self.assertIn('id="model-compute-field"', self.source)
         self.assertIn('id="local-model-compute-target"', self.source)
         self.assertIn('id="local-model-engine"', self.source)
+        self.assertNotIn('model-create-wizard', self.source)
+        self.assertNotIn('model-create-step-label', self.source)
+        self.assertNotIn('model-engine-back', self.source)
+        self.assertNotIn('model-compute-back', self.source)
+        self.assertNotIn('local-model-back', self.source)
+        self.assertNotIn('external-model-back', self.source)
         self.assertIn("{ id: 'OLlama', label: 'Ollama'", self.script)
         self.assertIn('data-compute-target-section="gpu"', self.source)
         self.assertIn('data-compute-target-section="cpu"', self.source)
@@ -866,6 +879,10 @@ class DashboardUserManagementUiTests(unittest.TestCase):
         self.assertIn("const selectModelCreateSource = (source) =>", self.script)
         self.assertIn("const selectLocalEngine = (engine) =>", self.script)
         self.assertIn("const renderComputeTargets = (modelPayload) =>", self.script)
+        self.assertIn("modelSourceSelect.addEventListener('change'", self.script)
+        self.assertIn("localModelEngineSelect.addEventListener('change'", self.script)
+        self.assertIn("localModelComputeSelect.addEventListener('change'", self.script)
+        self.assertIn("if (localForm) { localForm.hidden = !local || !selectedComputeTarget(); }", self.script)
         self.assertIn(".filter((target) => target.available === true", self.script)
         self.assertIn("const presetVariant = (preset, targetId, engine = selectedLocalEngine()) =>", self.script)
         self.assertIn("targetSupportsEngine(target, engine)", self.script)

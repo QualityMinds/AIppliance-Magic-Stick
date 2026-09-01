@@ -310,7 +310,8 @@ The portable `qwen2505bcpu` preset can also be created with `computeTarget`
 `nvidia-gpu`, `amd-gpu`, or `intel-gpu`. Intel resolves to
 `magicstick-intel-xe-gpu:1` or `magicstick-intel-i915-gpu:1` according to the
 allocatable resource. If neither resource is present, the dashboard omits the
-Intel target from the Create Model wizard and the API rejects a forged request.
+Intel target from the Create Model hardware dropdown and the API rejects a
+forged request.
 The same omission rule applies to unavailable CPU, NVIDIA, and AMD targets.
 
 In the Dashboard, open **Models > Create Model**, choose `Local`, select the

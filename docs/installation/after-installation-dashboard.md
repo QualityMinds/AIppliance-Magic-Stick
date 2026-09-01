@@ -183,13 +183,14 @@ Typische Modulauswahl:
 
 ### Lokales Modell
 
-Ein lokales Modell kann aktuell mit vLLM auf **CPU** oder **NVIDIA GPU** laufen.
-Nicht verfügbare Ziele sind deaktiviert und nennen den Grund. AMD und Intel
-werden bereits als Provider überwacht, sind aber erst nach eigenen vLLM-
-Laufzeitprofilen als Modellziel auswählbar:
+Wähle im dauerhaft sichtbaren Feld **Location** zuerst **Local**. Danach werden
+die Dropdowns **Inference Engine** und **Hardware** eingeblendet. Deine Auswahl
+bleibt oberhalb des Modellformulars sichtbar und kann dort jederzeit geändert
+werden. Es werden nur Engines und CPU-/GPU-Ziele angeboten, die der Cluster
+aktuell verwenden kann:
 
 1. Vergib einen eindeutigen Namen aus Kleinbuchstaben, Ziffern und Bindestrichen.
-2. Wähle **CPU** oder eine verfügbare **NVIDIA GPU** als Compute-Ziel.
+2. Wähle die Inference Engine und anschließend die angebotene CPU oder GPU.
 3. Wähle ein zum Ziel passendes **Preset** oder **Custom**.
 4. Wähle `chat` oder `embedding` als Typ.
 5. Prüfe für NVIDIA **VRAM Estimate**; für CPU gelten stattdessen die
@@ -205,7 +206,8 @@ oder reduziere Kontextgröße und Parallelität.
 
 ### Externes Modell
 
-Unter **External Model** kannst du einen kompatiblen API-Anbieter anbinden:
+Wähle unter **Location** den Eintrag **External**, um einen kompatiblen
+API-Anbieter anzubinden:
 
 1. Vergib einen eindeutigen lokalen Namen.
 2. Trage die Modellkennung des Anbieters unter **Provider Model** ein.
