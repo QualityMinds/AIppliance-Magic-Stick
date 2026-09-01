@@ -1019,7 +1019,8 @@ data:
           min-height: 0;
         }
 
-        .service-platform-toggle {
+        .service-platform-toggle,
+        .service-instances-toggle {
           align-items: center;
           background: rgba(15, 23, 42, 0.48);
           border: 1px solid rgba(148, 163, 184, 0.22);
@@ -1034,12 +1035,22 @@ data:
           width: 100%;
         }
 
-        .service-platform-toggle > span:first-child {
+        .service-instances-toggle {
+          background: rgba(15, 23, 42, 0.24);
+          border-bottom: 0;
+          border-left: 0;
+          border-radius: 0;
+          border-right: 0;
+        }
+
+        .service-platform-toggle > span:first-child,
+        .service-instances-toggle > span:first-child {
           display: grid;
           gap: 0.16rem;
         }
 
         .service-platform-toggle small,
+        .service-instances-toggle small,
         .service-empty {
           color: var(--muted);
           font-size: 0.76rem;
@@ -2166,6 +2177,7 @@ data:
           let activeInstanceCreateType = '';
           let activeServiceFilter = 'all';
           let platformServicesExpanded = false;
+          const expandedApplicationInstances = new Set();
           const dialogOpeners = new Map();
 
           const setApiState = (text, ok = false) => {
@@ -3349,10 +3361,28 @@ data:
             if (detail.childElementCount) { item.appendChild(detail); }
 
             if (instances.length) {
+              const expanded = expandedApplicationInstances.has(type);
+              const instanceToggle = document.createElement('button');
+              instanceToggle.className = 'service-instances-toggle';
+              instanceToggle.type = 'button';
+              instanceToggle.dataset.serviceInstancesToggle = type;
+              instanceToggle.setAttribute('aria-expanded', String(expanded));
+              const toggleSummary = document.createElement('span');
+              const toggleTitle = document.createElement('strong');
+              toggleTitle.textContent = 'Instances';
+              const toggleCount = document.createElement('small');
+              toggleCount.textContent = instances.length + (instances.length === 1 ? ' configured instance' : ' configured instances');
+              toggleSummary.append(toggleTitle, toggleCount);
+              const toggleLabel = document.createElement('span');
+              toggleLabel.dataset.serviceInstancesToggleLabel = '';
+              toggleLabel.textContent = expanded ? 'Hide' : 'Show';
+              instanceToggle.append(toggleSummary, toggleLabel);
               const instanceList = document.createElement('div');
               instanceList.className = 'service-instance-list';
+              instanceList.dataset.serviceInstancesList = type;
+              instanceList.hidden = !expanded;
               instances.forEach((instance) => instanceList.appendChild(createInstanceServiceCard(type, instance, statusPayload)));
-              item.appendChild(instanceList);
+              item.append(instanceToggle, instanceList);
             }
             return item;
           };
@@ -4961,6 +4991,24 @@ data:
             } else if (['enable', 'disable', 'delete'].includes(action)) {
               openUserConfirmation(user, action);
             }
+          });
+
+          document.addEventListener('click', async (event) => {
+            const toggle = event.target.closest('[data-service-instances-toggle]');
+            if (!toggle) { return; }
+            const type = toggle.dataset.serviceInstancesToggle || '';
+            const expanded = toggle.getAttribute('aria-expanded') !== 'true';
+            if (expanded) {
+              expandedApplicationInstances.add(type);
+            } else {
+              expandedApplicationInstances.delete(type);
+            }
+            toggle.setAttribute('aria-expanded', String(expanded));
+            const label = toggle.querySelector('[data-service-instances-toggle-label]');
+            if (label) { label.textContent = expanded ? 'Hide' : 'Show'; }
+            const card = toggle.closest('[data-service-application]');
+            const list = card && card.querySelector('[data-service-instances-list]');
+            if (list) { list.hidden = !expanded; }
           });
 
           document.addEventListener('click', async (event) => {

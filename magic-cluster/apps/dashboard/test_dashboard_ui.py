@@ -440,6 +440,22 @@ BROWSER_ASSERTIONS = r"""
     assert(openClawService, 'OpenClaw application service is missing');
     assert(openClawService.querySelectorAll('.service-instance-card').length === 1, 'OpenClaw instance is not nested below its application');
     assert(openClawService.textContent.includes('openclaw-demo'), 'nested OpenClaw instance name is missing');
+    const openClawInstancesToggle = openClawService.querySelector('[data-service-instances-toggle="openclaw"]');
+    const openClawInstancesList = openClawService.querySelector('[data-service-instances-list="openclaw"]');
+    assert(openClawInstancesToggle && openClawInstancesList, 'OpenClaw instance collapse controls are missing');
+    assert(openClawInstancesList.hidden, 'application instances must start collapsed');
+    assert(openClawInstancesToggle.getAttribute('aria-expanded') === 'false', 'collapsed instance toggle state is incorrect');
+    openClawInstancesToggle.click();
+    assert(!openClawInstancesList.hidden, 'instance toggle did not expand the nested instances');
+    assert(openClawInstancesToggle.textContent.includes('Hide'), 'expanded instance toggle label is incorrect');
+    await window.__dashboardRefresh();
+    const refreshedOpenClawService = document.querySelector('[data-service-application="openclaw"]');
+    const refreshedOpenClawInstancesToggle = refreshedOpenClawService.querySelector('[data-service-instances-toggle="openclaw"]');
+    const refreshedOpenClawInstancesList = refreshedOpenClawService.querySelector('[data-service-instances-list="openclaw"]');
+    assert(!refreshedOpenClawInstancesList.hidden, 'expanded instance state was lost during dashboard refresh');
+    refreshedOpenClawInstancesToggle.click();
+    assert(refreshedOpenClawInstancesList.hidden, 'instance toggle did not collapse the nested instances');
+    assert(refreshedOpenClawInstancesToggle.textContent.includes('Show'), 'collapsed instance toggle label is incorrect');
     assert(document.getElementById('service-platform-list').hidden, 'platform details must start collapsed');
     assert(document.getElementById('service-platform-toggle').getAttribute('aria-expanded') === 'false', 'platform toggle state is incorrect');
     document.querySelector('[data-service-filter="platform"]').click();
@@ -660,6 +676,11 @@ BROWSER_ASSERTIONS = r"""
 def instrumented_dashboard_html(source):
     html = rendered_dashboard_html(source).replace("setInterval(refresh, 30000);", "")
     html = html.replace(
+        "const refresh = async () => {",
+        "const refresh = window.__dashboardRefresh = async () => {",
+        1,
+    )
+    html = html.replace(
         "<script>",
         "<script>\n" + BROWSER_API_MOCK + "\n</script>\n<script>",
         1,
@@ -722,6 +743,10 @@ class DashboardUserManagementUiTests(unittest.TestCase):
         self.assertIn('id="service-runtime-list"', self.source)
         self.assertIn('id="service-platform-list"', self.source)
         self.assertIn('id="service-platform-toggle"', self.source)
+        self.assertIn("const expandedApplicationInstances = new Set();", self.script)
+        self.assertIn("instanceToggle.dataset.serviceInstancesToggle = type", self.script)
+        self.assertIn("instanceList.dataset.serviceInstancesList = type", self.script)
+        self.assertIn("instanceList.hidden = !expanded", self.script)
         self.assertIn("const renderServices = (modulePayload, instancePayload, statusPayload = {}) =>", self.script)
         self.assertIn("applicationList.appendChild(createApplicationServiceCard", self.script)
         self.assertIn("instanceList.appendChild(createInstanceServiceCard", self.script)

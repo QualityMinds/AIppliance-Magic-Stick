@@ -83,11 +83,12 @@ kubectl -n identity-system get httproutes,securitypolicies
 The dashboard's **Services** tab combines the former Modules and Instances
 views. Application instances appear below their parent application, shared AI
 runtime modules have their own compact section, and technical platform modules
-are collapsed by default. These are presentation groups only: module actions
-still reconcile `ModuleActivation` resources and instance actions still
-reconcile `AppInstance` resources. When an entry appears in the wrong group,
-inspect the module catalog and application `requiredModules` before changing a
-runtime resource.
+are collapsed by default. Each application's nested instances also start
+collapsed and can be expanded independently without changing runtime state.
+These are presentation groups only: module actions still reconcile
+`ModuleActivation` resources and instance actions still reconcile `AppInstance`
+resources. When an entry appears in the wrong group, inspect the module catalog
+and application `requiredModules` before changing a runtime resource.
 
 ## Identity Pilot Checks
 

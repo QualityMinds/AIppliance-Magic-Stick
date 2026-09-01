@@ -177,9 +177,12 @@ parameters.
 Application services such as OpenClaw, Hermes, and Paperclip are displayed as
 parent cards. Their existing `AppInstance` resources are nested directly below
 the matching application, so status, URLs, credentials, and removal controls
-remain together. The **New Instance** action on a parent card opens that
-application's configuration directly. The global **Create Instance** action
-keeps the two-step type picker for users who have not chosen an application yet.
+remain together. Nested instances are collapsed by default and each application
+has its own **Show**/**Hide** control; an expanded application remains expanded
+across the periodic dashboard refresh. The **New Instance** action on a parent
+card opens that application's configuration directly. The global **Create
+Instance** action keeps the two-step type picker for users who have not chosen
+an application yet.
 
 Shared AI runtime modules are rendered as compact rows in a separate section.
 Technical platform and operator modules stay collapsed by default and can be
