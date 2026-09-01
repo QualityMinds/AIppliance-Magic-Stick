@@ -1,7 +1,8 @@
-# Installation in einer bestehenden virtuellen Maschine
+# Installation auf einem bestehenden Linux-System
 
-Dieser Weg installiert Magic Stick in einer bereits laufenden Ubuntu-VM. Er ist
-für eine **dedizierte** VM gedacht. Die Installation richtet K3s, Flux,
+Dieser Weg installiert Magic Stick auf einem bereits laufenden Ubuntu-Host oder
+in einer Ubuntu-VM. Er ist für ein **dediziertes** System gedacht. Die
+Installation richtet K3s, Flux,
 Netzwerkdienste und systemd-Timer ein und übernimmt damit die Kontrolle über
 wesentliche Teile des Systems.
 
@@ -21,14 +22,59 @@ wesentliche Teile des Systems.
 Als brauchbare Ausgangsgröße empfehlen sich 4 vCPU, 16 GB RAM und 100 GB
 Speicher. Erstelle unmittelbar vor der Installation einen VM-Snapshot.
 
-## 1. Basispakete installieren
+## Empfohlener Weg: ein Installationsskript
+
+Lade das Skript herunter und prüfe zuerst ausschließlich die Voraussetzungen:
+
+```bash
+curl -fsSL \
+  https://raw.githubusercontent.com/QualityMinds/AIppliance-Magic-Stick/main/install-from-linux.sh \
+  -o /tmp/install-from-linux.sh
+
+less /tmp/install-from-linux.sh
+sudo bash /tmp/install-from-linux.sh --preflight-only
+```
+
+Wenn die Prüfung erfolgreich ist, starte die Installation:
+
+```bash
+sudo bash /tmp/install-from-linux.sh
+```
+
+Das Skript:
+
+- akzeptiert ausschließlich Ubuntu 24.04 auf `x86_64` oder ARM64;
+- verweigert bestehendes K3s, vorhandenen Magic-Stick-Status sowie belegte
+  Ports `443` und `9443`;
+- verlangt mindestens 40 GiB freien Speicher;
+- zeigt vor der Änderung noch einmal Quelle, Version und Zielverzeichnis;
+- löst die gewünschte Git-Version auf und pinnt die Installation auf den
+  konkreten Commit;
+- erzeugt den `new-install`-Marker genau einmal und startet anschließend den
+  bestehenden Ansible-Converge-Runner.
+
+Für eine veröffentlichte Version kannst du einen Tag angeben:
+
+```bash
+sudo bash /tmp/install-from-linux.sh --ref <release-tag>
+```
+
+Zusätzliche Optionen zeigt `bash /tmp/install-from-linux.sh --help`.
+
+## Manueller Fallback
+
+Die folgenden Schritte bilden denselben Ablauf ohne den vorgeschalteten
+Installations-Wrapper ab. Verwende sie zur Diagnose oder wenn du jeden Schritt
+einzeln ausführen möchtest.
+
+### 1. Basispakete installieren
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y git ansible curl ca-certificates
 ```
 
-## 2. Runtime-Einstellungen anlegen
+### 2. Runtime-Einstellungen anlegen
 
 Erstelle die Datei mit einem root-fähigen Editor:
 
@@ -59,7 +105,7 @@ sudo chown root:root /etc/default/ai-appliance-repo
 sudo chmod 0600 /etc/default/ai-appliance-repo
 ```
 
-## 3. Repository installieren
+### 3. Repository installieren
 
 ```bash
 sudo install -d -m 0755 /opt/ai-appliance
@@ -74,7 +120,7 @@ Falls das Verzeichnis bereits existiert, stoppe hier und kläre zuerst, ob diese
 VM schon einmal Magic Stick ausgeführt hat. Lösche oder überschreibe keine
 bestehende Appliance-Installation.
 
-## 4. Neuinstallation markieren
+### 4. Neuinstallation markieren
 
 Dieser Schritt aktiviert den einmaligen First-Run-Prozess. Führe ihn **nur**
 aus, wenn auf dieser VM noch nie Magic Stick installiert war:
@@ -88,7 +134,7 @@ sudo chmod 0600 /var/lib/magicstick/setup/new-install
 Erzeuge diesen Marker niemals erneut auf einer eingerichteten Appliance. Ein
 späteres erneutes Aktivieren des Setup-Modus ist kein unterstützter Reset-Weg.
 
-## 5. Installation starten
+### 5. Installation starten
 
 ```bash
 sudo bash \
@@ -98,7 +144,7 @@ sudo bash \
 Die Installation kann mehrere Minuten dauern. Der Befehl ist idempotent und
 kann nach einem technischen Fehler erneut ausgeführt werden.
 
-## 6. First-Run-Setup abschließen
+## First-Run-Setup abschließen
 
 Zeige die Zugangsdaten an:
 
@@ -116,7 +162,7 @@ Vergleiche den Zertifikatsfingerabdruck, gib den achtstelligen
 Einrichtungscode ein und lege den ersten Administrator an. Die vollständige
 Beschreibung steht unter [First-Run-Setup](../first-run-setup.md).
 
-## 7. Installation prüfen
+## Installation prüfen
 
 ```bash
 sudo systemctl status k3s --no-pager

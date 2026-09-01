@@ -38,6 +38,27 @@ Optional GitHub bootstrap keys:
 | `AI_APPLIANCE_PRIVATE_CHECKOUT` | External deployment checkout path for `github` mode. |
 | `FLUX_GITHUB_TOKEN` | Runtime token for optional GitHub bootstrap. Do not commit it. |
 
+## One-command installer options
+
+[`install-from-linux.sh`](../install-from-linux.sh) maps its options to the
+same host metadata instead of introducing a second configuration model:
+
+| Installer option | Written setting |
+|---|---|
+| `--repository` | `MAGICSTICK_PUBLIC_REPO` |
+| `--ref` | Resolved to a commit and written as `MAGICSTICK_PUBLIC_REF`; kind becomes `commit` |
+| `--domain` | `AI_APPLIANCE_DOMAIN` and `AI_APPLIANCE_DASHBOARD_HOST` |
+| `--mdns-domain` | `AI_APPLIANCE_MDNS_DOMAIN` plus the derived mDNS names |
+| `--install-dir` | `MAGICSTICK_PUBLIC_CHECKOUT` |
+
+[`deploy-on-k8s.sh`](../deploy-on-k8s.sh) and
+[`deploy-on-k8s.ps1`](../deploy-on-k8s.ps1) have no host metadata. They create
+`ConfigMap/ai-appliance-settings` and the public Flux source directly in the
+selected cluster. Their `--ref`/`-Ref`, domain, and mDNS options have the same
+meaning as the Linux installer. The default `main` ref is convenient for
+development; use a release tag or 40-character commit for controlled
+installations.
+
 ## Runtime Settings
 
 In `readonly-public` mode, Ansible renders appliance-wide settings into

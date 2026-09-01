@@ -10,6 +10,13 @@ user-oriented installation paths,
 validation, and [../docs/configuration.md](../docs/configuration.md) for the
 variables written into `/etc/default/ai-appliance-repo`.
 
+Use this directory for a new bare-metal or cloud-init machine. If Ubuntu 24.04
+already runs on a dedicated host, use
+[`../install-from-linux.sh`](../install-from-linux.sh). If Kubernetes already
+exists, use [`../deploy-on-k8s.sh`](../deploy-on-k8s.sh) or
+[`../deploy-on-k8s.ps1`](../deploy-on-k8s.ps1); those paths do not install K3s
+or host services.
+
 ## Files
 
 | File | Purpose |

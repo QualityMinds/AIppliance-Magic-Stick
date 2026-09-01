@@ -15,6 +15,9 @@ formalized, release entries should group changes under:
 
 ### Added
 
+- Fail-closed one-command installation wrappers for dedicated Ubuntu 24.04
+  hosts and existing Kubernetes clusters from Bash or PowerShell 7, including
+  read-only preflight modes and First-Run Setup initialization.
 - A local-network-only first-run wizard with physical-console claim code,
   mDNS-independent IP access, and one-time administrator provisioning.
 - `ApplianceSetup` lifecycle state and fail-closed legacy migration behavior.
