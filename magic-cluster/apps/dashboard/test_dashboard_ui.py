@@ -547,8 +547,14 @@ BROWSER_ASSERTIONS = r"""
     assert(cpuGauge.textContent.includes('12 GiB unreserved'), 'CPU unreserved value is missing');
     assert(cpuGauge.textContent.includes('16 GiB total'), 'CPU total value is missing');
     assert(cpuGauge.getAttribute('aria-label').includes('10 GiB actually free'), 'CPU accessible free-memory value is missing');
-    const modelCreatePanel = document.querySelector('.model-create-panel');
-    modelCreatePanel.open = true;
+    const modelCreateToggle = document.getElementById('model-create-toggle');
+    const modelCreateFlow = document.getElementById('model-create-flow');
+    assert(modelCreateToggle && modelCreateToggle.closest('.model-list-heading'), 'Create button is not beside Installed Models');
+    assert(modelCreateFlow.hidden, 'model creation form must start collapsed');
+    assert(!document.querySelector('.model-create-summary'), 'legacy Create Model summary is still visible');
+    modelCreateToggle.click();
+    await waitFor(() => !modelCreateFlow.hidden, 'open model creation form');
+    assert(modelCreateToggle.getAttribute('aria-expanded') === 'true', 'Create button expansion state is incorrect');
     const sourceSelect = document.getElementById('model-source-select');
     const engineSelect = document.getElementById('local-model-engine');
     const computeSelect = document.getElementById('local-model-compute-target');
@@ -556,7 +562,6 @@ BROWSER_ASSERTIONS = r"""
       select.value = value;
       select.dispatchEvent(new Event('change', { bubbles: true }));
     };
-    await sleep(20);
     await waitFor(() => sourceSelect.value === '', 'model source dropdown');
     assert(document.getElementById('model-engine-field').hidden, 'engine dropdown is visible before choosing Local');
     assert(document.getElementById('model-compute-field').hidden, 'hardware dropdown is visible before choosing an engine');
@@ -856,6 +861,11 @@ class DashboardUserManagementUiTests(unittest.TestCase):
         self.assertNotIn('dashboardHost', self.script)
 
     def test_local_model_creation_uses_persistent_dropdowns_and_available_targets(self):
+        self.assertIn('id="model-create-toggle"', self.source)
+        self.assertIn('class="model-list-heading"', self.source)
+        self.assertIn('id="model-create-flow" hidden', self.source)
+        self.assertNotIn('model-create-panel', self.source)
+        self.assertNotIn('model-create-summary', self.source)
         self.assertIn('id="model-source-select"', self.source)
         self.assertIn('<option value="local">Local</option>', self.source)
         self.assertIn('<option value="external">External</option>', self.source)
@@ -882,6 +892,7 @@ class DashboardUserManagementUiTests(unittest.TestCase):
         self.assertIn("modelSourceSelect.addEventListener('change'", self.script)
         self.assertIn("localModelEngineSelect.addEventListener('change'", self.script)
         self.assertIn("localModelComputeSelect.addEventListener('change'", self.script)
+        self.assertIn("modelCreateToggle.addEventListener('click'", self.script)
         self.assertIn("if (localForm) { localForm.hidden = !local || !selectedComputeTarget(); }", self.script)
         self.assertIn(".filter((target) => target.available === true", self.script)
         self.assertIn("const presetVariant = (preset, targetId, engine = selectedLocalEngine()) =>", self.script)

@@ -179,7 +179,7 @@ Typische Modulauswahl:
 
 ## 8. Ein Modell hinzufügen
 
-Öffne **Models** und klappe **Create Model** auf.
+Öffne **Models** und wähle **Create** direkt neben **Installed Models**.
 
 ### Lokales Modell
 

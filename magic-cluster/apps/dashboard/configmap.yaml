@@ -645,42 +645,16 @@ data:
           gap: 0.7rem;
         }
 
-        .model-create-panel {
-          display: grid;
-          gap: 0.75rem;
-        }
-
-        .model-create-summary {
-          border: 1px solid rgba(125, 211, 252, 0.3);
-          border-radius: 10px;
-          background: rgba(15, 23, 42, 0.82);
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 0.75rem;
-          list-style: none;
-          padding: 0.7rem 0.85rem;
-        }
-
-        .model-create-summary::-webkit-details-marker {
-          display: none;
-        }
-
-        .model-create-summary span:first-child {
-          display: grid;
-          gap: 0.12rem;
-        }
-
-        .model-create-summary small {
-          color: var(--muted);
-          font-size: 0.78rem;
-        }
-
         .model-create-flow {
           display: grid;
           gap: 0.85rem;
-          padding-top: 0.75rem;
+        }
+
+        .model-list-heading {
+          align-items: center;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.65rem;
         }
 
         .model-create-selection {
@@ -1925,15 +1899,20 @@ data:
 
           <section id="tab-models" class="tab-panel" hidden>
             <div class="model-workspace">
-              <details class="model-create-panel">
-                <summary class="model-create-summary">
-                  <span>
-                    <strong>Create Model</strong>
-                    <small>Local presets and external providers</small>
-                  </span>
-                  <span class="status-pill">Create</span>
-                </summary>
-                <div class="model-create-flow" id="model-create-flow">
+              <section class="compute-memory-overview" aria-labelledby="compute-memory-heading">
+                <h3 id="compute-memory-heading">Compute memory</h3>
+                <div id="compute-memory-gauges" class="compute-memory-gauges" aria-live="polite"></div>
+              </section>
+
+              <section class="model-section">
+                <div class="module-group-heading">
+                  <div class="model-list-heading">
+                    <h3>Installed Models</h3>
+                    <button class="control-button primary" id="model-create-toggle" type="button" aria-expanded="false" aria-controls="model-create-flow">Create</button>
+                  </div>
+                  <span id="model-list-count">Waiting for catalog</span>
+                </div>
+                <div class="model-create-flow" id="model-create-flow" hidden>
                   <section class="dashboard-card model-create-selection" id="model-create-selection">
                     <h3>Model configuration</h3>
                     <p class="module-message">Selections remain visible. Only currently available inference engines and hardware are listed.</p>
@@ -2036,18 +2015,6 @@ data:
                     </div>
                     <button class="control-button primary" type="submit">Add External Model</button>
                   </form>
-                </div>
-              </details>
-
-              <section class="compute-memory-overview" aria-labelledby="compute-memory-heading">
-                <h3 id="compute-memory-heading">Compute memory</h3>
-                <div id="compute-memory-gauges" class="compute-memory-gauges" aria-live="polite"></div>
-              </section>
-
-              <section class="model-section">
-                <div class="module-group-heading">
-                  <h3>Installed Models</h3>
-                  <span id="model-list-count">Waiting for catalog</span>
                 </div>
                 <div id="model-list" class="module-list model-list"></div>
                 <button class="control-button danger" id="remove-local-runtime" type="button" hidden>Remove Local Inference Runtime</button>
@@ -5453,10 +5420,19 @@ data:
             localModelComputeSelect.addEventListener('change', () => selectComputeTarget(localModelComputeSelect.value));
           }
 
-          const modelCreatePanel = document.querySelector('.model-create-panel');
-          if (modelCreatePanel) {
-            modelCreatePanel.addEventListener('toggle', () => {
-              if (modelCreatePanel.open) { resetModelCreateForm(); }
+          const modelCreateToggle = $('model-create-toggle');
+          const modelCreateFlow = $('model-create-flow');
+          if (modelCreateToggle && modelCreateFlow) {
+            modelCreateToggle.addEventListener('click', () => {
+              const expanded = modelCreateFlow.hidden;
+              modelCreateFlow.hidden = !expanded;
+              modelCreateToggle.setAttribute('aria-expanded', String(expanded));
+              modelCreateToggle.textContent = expanded ? 'Close' : 'Create';
+              if (expanded) {
+                resetModelCreateForm();
+                const sourceField = $('model-source-select');
+                if (sourceField) { sourceField.focus(); }
+              }
             });
           }
 
