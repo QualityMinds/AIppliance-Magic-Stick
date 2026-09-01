@@ -10,6 +10,7 @@
       - curl
       - git
       - ca-certificates
+      - kbd
       - htop
       - jq
       - unzip

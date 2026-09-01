@@ -7,6 +7,9 @@ STATE_DIR={{ setup_state_directory | quote }}
 CLAIM_FILE={{ setup_claim_file | quote }}
 CLAIM_LENGTH={{ setup_claim_length | quote }}
 CLAIM_ALPHABET={{ setup_claim_alphabet | quote }}
+CONSOLE_SERVICE=magicstick-setup-console.service
+CONSOLE_WAIT_SECONDS=60
+CONSOLE_REFRESH_SECONDS=30
 
 phase() {
   "${KUBECTL[@]}" -n "$NAMESPACE" get appliancesetup {{ setup_resource_name | quote }} \
@@ -20,47 +23,312 @@ require_root() {
   fi
 }
 
-show_setup() {
-  require_root
-  local current token mdns fingerprint
-  current="$(phase)"
-  echo "Magicstick First-Run-Setup"
-  echo "Status: ${current:-nicht initialisiert}"
-  if [[ "$current" == "Completed" || "$current" == "CompletedLegacy" ]]; then
-    echo "Die Einrichtung ist abgeschlossen. Das Dashboard verwendet jetzt SSO."
-    exit 0
-  fi
-  if [[ ! -s "$CLAIM_FILE" ]]; then
-    echo "Kein aktiver Einrichtungscode vorhanden. Verwende: magicstick setup reissue" >&2
-    exit 1
-  fi
-  token="$(tr -d '[:space:]' < "$CLAIM_FILE")"
-  mdns="$("${KUBECTL[@]}" -n flux-system get configmap ai-appliance-settings -o jsonpath='{.data.AI_APPLIANCE_MDNS_DOMAIN}' 2>/dev/null || true)"
-  mdns="${mdns:-magicstick.local}"
-  fingerprint="$("${KUBECTL[@]}" -n "$NAMESPACE" get secret magicstick-setup-tls -o jsonpath='{.data.tls\.crt}' 2>/dev/null | base64 -d 2>/dev/null | openssl x509 -noout -fingerprint -sha256 2>/dev/null | cut -d= -f2 || true)"
-  echo
-  echo "Lokaler Zugriff:"
-  echo "  https://${mdns}/"
-  while read -r ip; do
-    [[ -n "$ip" ]] || continue
-    display_ip="$ip"
-    [[ "$ip" == *:* ]] && display_ip="[$ip]"
-    echo "  https://${display_ip}:9443/setup (ohne mDNS)"
-  done < <(
-    ip -o addr show | awk '{split($4,a,"/"); print a[1]}' |
-      python3 -c 'import ipaddress,sys
+mdns_domain() {
+  local value
+  value="$("${KUBECTL[@]}" -n flux-system get configmap ai-appliance-settings \
+    -o jsonpath='{.data.AI_APPLIANCE_MDNS_DOMAIN}' 2>/dev/null || true)"
+  printf '%s\n' "${value:-magicstick.local}"
+}
+
+tls_fingerprint() {
+  "${KUBECTL[@]}" -n "$NAMESPACE" get secret magicstick-setup-tls \
+    -o jsonpath='{.data.tls\.crt}' 2>/dev/null |
+    base64 -d 2>/dev/null |
+    openssl x509 -noout -fingerprint -sha256 2>/dev/null |
+    cut -d= -f2 || true
+}
+
+primary_private_ipv4() {
+  {
+    ip -4 route get 1.1.1.1 2>/dev/null |
+      awk '{for (i=1; i<=NF; i++) if ($i == "src") print $(i+1)}' || true
+    ip -o -4 addr show scope global 2>/dev/null |
+      awk '$2 !~ /^(lo|cni[0-9]*|flannel([.][0-9]+)?|veth.*|docker.*|br-[0-9a-f]+|virbr[0-9]*|kube-ipvs0)$/ {
+        split($4, address, "/"); print address[1]
+      }' || true
+  } | python3 -c 'import ipaddress, sys
+addresses = []
 for raw in sys.stdin:
     try:
         address = ipaddress.ip_address(raw.strip())
     except ValueError:
         continue
-    if address.is_private or address.is_link_local:
-        print(address)' |
-      sort -u
-  )
-  echo
-  echo "TLS SHA-256: ${fingerprint:-wird noch erzeugt}"
-  echo "Einrichtungscode: $token"
+    if address.version != 4 or address.is_loopback:
+        continue
+    if address not in addresses:
+        addresses.append(address)
+rfc1918 = tuple(ipaddress.ip_network(network) for network in (
+    "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"
+))
+for address in addresses:
+    if any(address in network for network in rfc1918):
+        print(address)
+        raise SystemExit
+for address in addresses:
+    if address.is_link_local:
+        print(address)
+        raise SystemExit'
+}
+
+primary_private_ipv6() {
+  {
+    ip -6 route get 2001:4860:4860::8888 2>/dev/null |
+      awk '{for (i=1; i<=NF; i++) if ($i == "src") print $(i+1)}' || true
+    ip -o -6 addr show scope global 2>/dev/null |
+      awk '$2 !~ /^(lo|cni[0-9]*|flannel([.][0-9]+)?|veth.*|docker.*|br-[0-9a-f]+|virbr[0-9]*|kube-ipvs0)$/ {
+        split($4, address, "/"); print address[1]
+      }' || true
+  } | python3 -c 'import ipaddress, sys
+ula = ipaddress.ip_network("fc00::/7")
+seen = set()
+for raw in sys.stdin:
+    try:
+        address = ipaddress.ip_address(raw.strip())
+    except ValueError:
+        continue
+    if address.version == 6 and address in ula and address not in seen:
+        print(address)
+        raise SystemExit
+    seen.add(address)'
+}
+
+primary_private_ip() {
+  local address
+  address="$(primary_private_ipv4)"
+  if [[ -n "$address" ]]; then
+    printf '%s\n' "$address"
+    return
+  fi
+  primary_private_ipv6
+}
+
+restart_console() {
+  systemctl restart --no-block "$CONSOLE_SERVICE" >/dev/null 2>&1 || true
+}
+
+render_setup() {
+  require_root
+  local current token mdns fingerprint address display_address
+  current="$(phase)"
+  mdns="$(mdns_domain)"
+  fingerprint="$(tls_fingerprint)"
+  address="$(primary_private_ip)"
+
+  printf '%s\n' "============================================================"
+  printf '%s\n' "                         MAGIC STICK"
+  printf '%s\n' "============================================================"
+  printf '\n'
+
+  if [[ "$current" == "Completed" || "$current" == "CompletedLegacy" ]]; then
+    printf '%s\n' "Einrichtung abgeschlossen"
+    printf '\n'
+    printf '%s\n' "Das Dashboard ist durch SSO geschützt:"
+    printf '  https://%s/\n' "$mdns"
+    return
+  fi
+
+  printf '%s\n' "Installation abgeschlossen - Ersteinrichtung erforderlich"
+  printf 'Status: %s\n' "${current:-nicht initialisiert}"
+  printf '\n'
+
+  if [[ ! -s "$CLAIM_FILE" ]]; then
+    printf '%s\n' "Kein aktiver Einrichtungscode vorhanden."
+    printf '%s\n' "Erzeuge als Administrator einen neuen Code mit:"
+    printf '  sudo magicstick setup reissue\n'
+    return 1
+  fi
+
+  token="$(tr -d '[:space:]' < "$CLAIM_FILE")"
+  printf '%s\n' "Öffne auf einem Gerät im lokalen Netzwerk:"
+  printf '  https://%s/\n' "$mdns"
+  if [[ -n "$address" ]]; then
+    display_address="$address"
+    [[ "$address" == *:* ]] && display_address="[$address]"
+    printf '\n'
+    printf '%s\n' "Falls mDNS nicht funktioniert:"
+    printf '  https://%s:9443/setup\n' "$display_address"
+  else
+    printf '\n'
+    printf '%s\n' "Noch keine private LAN-IP erkannt."
+  fi
+
+  printf '\n'
+  printf '%s\n' "-------------------- EINRICHTUNGSCODE --------------------"
+  printf '\n'
+  printf '                         %s\n' "$token"
+  printf '\n'
+  printf '%s\n' "------------------------------------------------------------"
+  printf '\n'
+  printf '%s\n' "TLS SHA-256:"
+  printf '  %s\n' "${fingerprint:-wird noch erzeugt}"
+  printf '\n'
+  printf '%s\n' "Erneut anzeigen: sudo magicstick setup show"
+}
+
+show_setup() {
+  render_setup
+}
+
+console_dimensions() {
+  local size
+  size="$(stty size 2>/dev/null || true)"
+  CONSOLE_ROWS="${size%% *}"
+  CONSOLE_COLUMNS="${size##* }"
+  [[ "$CONSOLE_ROWS" =~ ^[0-9]+$ ]] || CONSOLE_ROWS=25
+  [[ "$CONSOLE_COLUMNS" =~ ^[0-9]+$ ]] || CONSOLE_COLUMNS=80
+
+  if (( CONSOLE_COLUMNS >= 64 )); then
+    CONSOLE_PANEL_WIDTH=$((CONSOLE_COLUMNS - 4))
+  else
+    CONSOLE_PANEL_WIDTH=$CONSOLE_COLUMNS
+  fi
+  (( CONSOLE_PANEL_WIDTH > 104 )) && CONSOLE_PANEL_WIDTH=104
+  CONSOLE_OUTER_PADDING=$(((CONSOLE_COLUMNS - CONSOLE_PANEL_WIDTH) / 2))
+  (( CONSOLE_OUTER_PADDING < 0 )) && CONSOLE_OUTER_PADDING=0
+}
+
+console_write_line() {
+  local line="$1" color="${2:-$'\033[97m'}"
+  printf '%*s%b%s%b\n' "$CONSOLE_OUTER_PADDING" '' "$color" "$line" $'\033[0m'
+}
+
+console_rule() {
+  local fill
+  printf -v fill '%*s' "$((CONSOLE_PANEL_WIDTH - 2))" ''
+  fill="${fill// /-}"
+  console_write_line "+${fill}+" $'\033[96m'
+}
+
+console_panel_center() {
+  local text="$1" color="${2:-$'\033[97m'}" inner left right line text_length
+  inner=$((CONSOLE_PANEL_WIDTH - 2))
+  text_length="$(printf '%s' "$text" | wc -m | tr -d '[:space:]')"
+  if (( text_length > inner )); then
+    text="${text:0:$((inner - 3))}..."
+    text_length=$inner
+  fi
+  left=$(((inner - text_length) / 2))
+  right=$((inner - text_length - left))
+  printf -v line '|%*s%s%*s|' "$left" '' "$text" "$right" ''
+  console_write_line "$line" "$color"
+}
+
+console_panel_left() {
+  local text="$1" color="${2:-$'\033[97m'}" available line text_length
+  available=$((CONSOLE_PANEL_WIDTH - 4))
+  text_length="$(printf '%s' "$text" | wc -m | tr -d '[:space:]')"
+  if (( text_length > available )); then
+    text="${text:0:$((available - 3))}..."
+  fi
+  printf -v line '|  %-*s|' "$available" "$text"
+  console_write_line "$line" "$color"
+}
+
+console_vertical_padding() {
+  local content_lines="$1" padding index
+  padding=$(((CONSOLE_ROWS - content_lines) / 2))
+  (( padding < 0 )) && padding=0
+  for ((index = 0; index < padding; index++)); do
+    printf '\n'
+  done
+}
+
+render_console_setup() {
+  require_root
+  local current token mdns fingerprint fingerprint_compact address display_address
+  current="$(phase)"
+  mdns="$(mdns_domain)"
+  fingerprint="$(tls_fingerprint)"
+  fingerprint_compact="${fingerprint//:/}"
+  address="$(primary_private_ip)"
+  display_address="$address"
+  [[ "$address" == *:* ]] && display_address="[$address]"
+
+  console_dimensions
+
+  if [[ "$current" == "Completed" || "$current" == "CompletedLegacy" ]]; then
+    console_vertical_padding 15
+    console_rule
+    console_panel_center ''
+    console_panel_center 'M A G I C  S T I C K' $'\033[1;95m'
+    console_panel_center 'SICHERE LOKALE AI-APPLIANCE' $'\033[96m'
+    console_panel_center ''
+    console_panel_center '[ EINRICHTUNG ABGESCHLOSSEN ]' $'\033[1;92m'
+    console_panel_center ''
+    console_panel_center "https://${mdns}/" $'\033[1;96m'
+    console_panel_center ''
+    console_panel_center 'Der einmalige Einrichtungscode wurde entfernt.' $'\033[90m'
+    console_panel_center ''
+    console_panel_center 'Das Dashboard ist jetzt durch SSO geschützt.' $'\033[97m'
+    console_panel_center ''
+    console_rule
+    return
+  fi
+
+  console_vertical_padding 21
+  console_rule
+  console_panel_center ''
+  console_panel_center 'M A G I C  S T I C K' $'\033[1;95m'
+  console_panel_center 'SICHERE ERSTEINRICHTUNG' $'\033[1;96m'
+  console_panel_center '[ BEREIT FÜR DIE ERSTEINRICHTUNG ]' $'\033[1;92m'
+  console_panel_center ''
+  console_rule
+  console_panel_left "LOKAL       https://${mdns}/" $'\033[1;96m'
+  if [[ -n "$display_address" ]]; then
+    console_panel_left "OHNE mDNS   https://${display_address}:9443/setup" $'\033[1;96m'
+  else
+    console_panel_left 'OHNE mDNS   Private LAN-IP wird noch ermittelt ...' $'\033[1;93m'
+  fi
+  console_panel_center ''
+  console_rule
+  console_panel_center 'DEIN EINMALIGER EINRICHTUNGSCODE' $'\033[90m'
+  if [[ -s "$CLAIM_FILE" ]]; then
+    token="$(tr -d '[:space:]' < "$CLAIM_FILE")"
+    console_panel_center "$token" $'\033[1;93m'
+    console_panel_center '8 Zeichen - exakt wie angezeigt eingeben' $'\033[90m'
+  else
+    console_panel_center 'KEIN AKTIVER CODE' $'\033[1;91m'
+    console_panel_center 'sudo magicstick setup reissue' $'\033[90m'
+  fi
+  console_rule
+  console_panel_left 'TLS-ZERTIFIKAT - SHA-256' $'\033[90m'
+  console_panel_left "${fingerprint_compact:-wird noch erzeugt}" $'\033[97m'
+  console_panel_center ''
+  console_panel_center 'Adresse öffnen  >  Zertifikat prüfen  >  Code eingeben' $'\033[97m'
+  console_panel_center 'Ctrl+Alt+F1: System  |  Ctrl+Alt+F9: Einrichtung' $'\033[90m'
+  console_rule
+}
+
+console_restore_cursor() {
+  printf '\033[?25h'
+}
+
+console_setup() {
+  require_root
+  local waited=0 current fingerprint
+  trap console_restore_cursor EXIT INT TERM
+  while (( waited < CONSOLE_WAIT_SECONDS )); do
+    current="$(phase)"
+    fingerprint="$(tls_fingerprint)"
+    if [[ "$current" == "Completed" || "$current" == "CompletedLegacy" || -n "$fingerprint" ]]; then
+      break
+    fi
+    sleep 2
+    waited=$((waited + 2))
+  done
+
+  printf '\033[2J\033[H\033[?25l'
+  render_console_setup || true
+
+  if [[ "${1:-}" == "--hold" ]]; then
+    current="$(phase)"
+    while [[ "$current" != "Completed" && "$current" != "CompletedLegacy" ]]; do
+      sleep "$CONSOLE_REFRESH_SECONDS"
+      printf '\033[2J\033[H\033[?25l'
+      render_console_setup || true
+      current="$(phase)"
+    done
+  fi
 }
 
 reissue_setup() {
@@ -81,24 +349,30 @@ reissue_setup() {
   "${KUBECTL[@]}" -n "$NAMESPACE" delete secret magicstick-setup-session --ignore-not-found >/dev/null
   "${KUBECTL[@]}" -n "$NAMESPACE" patch appliancesetup {{ setup_resource_name | quote }} --subresource=status \
     --type=merge -p '{"status":{"phase":"Pending","claimedAt":null,"lastErrorCode":""}}' >/dev/null
+  restart_console
   show_setup
 }
 
 cleanup_setup() {
   require_root
-  local current
+  local current timezone had_claim=false
   current="$(phase)"
   if [[ "$current" == "Completed" || "$current" == "CompletedLegacy" ]]; then
+    [[ -e "$CLAIM_FILE" ]] && had_claim=true
     rm -f "$CLAIM_FILE"
     timezone="$("${KUBECTL[@]}" -n flux-system get configmap ai-appliance-settings -o jsonpath='{.data.AI_APPLIANCE_TIMEZONE}' 2>/dev/null || true)"
     if [[ -n "$timezone" ]] && timedatectl list-timezones | grep -Fxq "$timezone"; then
       timedatectl set-timezone "$timezone"
+    fi
+    if $had_claim; then
+      restart_console
     fi
   fi
 }
 
 case "${1:-} ${2:-}" in
   "setup show") show_setup ;;
+  "setup console") console_setup "${3:-}" ;;
   "setup reissue") reissue_setup ;;
   "setup cleanup") cleanup_setup ;;
   *) echo "Verwendung: magicstick setup {show|reissue}" >&2; exit 2 ;;

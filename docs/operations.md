@@ -119,6 +119,21 @@ Temporary setup resources exist only in `Pending`, `Claimed`, `Applying`, or
 `sudo magicstick setup reissue` before completion when a browser claim was
 abandoned. See [first-run-setup.md](first-run-setup.md).
 
+On appliance hosts, the physical first-run page is managed by
+`magicstick-setup-console.service`. It starts only after `cloud-final.service`,
+switches the display to dedicated virtual console 9, shows one primary private
+LAN address in a centered, color-coded appliance panel, and refreshes
+periodically. Boot and login output remains on virtual console 1. When the
+service stops it returns the physical display to console 1. Inspect the service
+without printing the claim into a remote log:
+
+```bash
+sudo systemctl status magicstick-setup-console.service --no-pager
+```
+
+Use `sudo magicstick setup show` only in a trusted local or SSH session because
+it prints the active claim before setup completion.
+
 Common public hostnames use `AI_APPLIANCE_DOMAIN`:
 
 | Service | Default public host pattern |

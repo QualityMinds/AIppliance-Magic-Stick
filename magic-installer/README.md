@@ -127,5 +127,9 @@ The public template uses `example-host-01` as a safe hostname. Real hostnames be
 At first boot, cloud-init writes a one-time new-install marker before the first
 converge. Host automation consumes that marker to generate the root-only setup
 claim and `Pending` state. The generated human password is never placed on the
-installer media or in Kubernetes. Continue with
+installer media or in Kubernetes. After cloud-init completes, the physical
+display switches from the boot-log console to a dedicated virtual console with
+a centered, color-coded setup page containing only the usable local access
+paths, TLS fingerprint, prominent claim code, and immediate next steps.
+Continue with
 [../docs/first-run-setup.md](../docs/first-run-setup.md).

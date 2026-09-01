@@ -93,3 +93,12 @@ sudo magicstick setup reissue
 The installer marker creates `Pending`; an existing host without that marker
 is initialized as `CompletedLegacy`. This fail-closed rule prevents a repository
 upgrade from exposing the setup route on an already running appliance.
+
+On a new installation, `magicstick-setup-console.service` waits for
+`cloud-final.service`, switches the physical display to virtual console 9, and
+maintains a concise appliance page without touching the installation log on
+virtual console 1. Its centered, color-coded panel shows the configured mDNS
+name, one primary private LAN address, the prominent claim, the TLS fingerprint,
+and the next steps while filtering loopback, CNI, bridge, and virtual Ethernet
+addresses. The page refreshes after claim reissue and completion; `setup show`
+remains a non-clearing shell command.

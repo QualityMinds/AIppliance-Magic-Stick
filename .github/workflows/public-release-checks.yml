@@ -48,6 +48,9 @@ jobs:
           ANSIBLE_ROLES_PATH: magic-host/roles
         run: ansible-playbook --syntax-check magic-host/playbooks/local.yml
 
+      - name: Check first-run appliance console
+        run: python3 -m unittest discover -s magic-host/roles/first-run-setup/tests -p 'test_*.py'
+
       - name: Run identity, dashboard, operator, model catalog and AI route unit tests
         run: |
           python3 -m unittest discover -s magic-cluster/platform/identity/tests -p 'test_*.py'
