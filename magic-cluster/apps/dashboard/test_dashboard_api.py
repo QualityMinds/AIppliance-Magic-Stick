@@ -40,6 +40,10 @@ class LocalRuntimeTests(unittest.TestCase):
             "summarized_modules": self.server["summarized_modules"],
             "compute_target_catalog": self.server["compute_target_catalog"],
             "ready_schedulable_nodes": self.server["ready_schedulable_nodes"],
+            "hf_metadata": self.server["hf_metadata"],
+            "ollama_metadata": self.server["ollama_metadata"],
+            "vram_summary": self.server["vram_summary"],
+            "fetch_public_json": self.server["fetch_public_json"],
         }
         self.server["compute_target_catalog"] = lambda: {
             "schemaVersion": 1,
@@ -425,16 +429,98 @@ class LocalRuntimeTests(unittest.TestCase):
         self.assertEqual(raised.exception.status, 409)
         self.assertIn("does not support OLlama", str(raised.exception))
 
-    def test_vram_estimate_rejects_ollama_without_calling_huggingface(self):
+    def test_vllm_memory_estimate_supports_every_compute_target(self):
+        self.server["hf_metadata"] = lambda repo: {
+            "repo": repo,
+            "config": {
+                "num_hidden_layers": 4,
+                "hidden_size": 16,
+                "num_attention_heads": 4,
+                "num_key_value_heads": 2,
+                "vocab_size": 128,
+                "torch_dtype": "float16",
+            },
+            "safetensorsIndex": {"metadata": {"total_size": 1024 * 1024 * 1024}},
+            "modelApi": {},
+        }
+        self.server["vram_summary"] = lambda _activations: {"available": False}
+        self.server["model_activations"] = lambda: []
+
+        for target in ("cpu", "nvidia-gpu", "amd-gpu", "intel-gpu"):
+            with self.subTest(target=target):
+                estimate = self.server["estimate_model_memory"]({
+                    "engine": "VLLM",
+                    "computeTarget": target,
+                    "url": "hf://example/model",
+                    "contextWindow": 4096,
+                    "maxNumSeqs": 2,
+                    "modelType": "chat",
+                })
+
+                self.assertEqual(estimate["computeTarget"], target)
+                self.assertEqual(estimate["memoryKind"], "ram" if target == "cpu" else "vram")
+                self.assertEqual(estimate["calculationSource"], "huggingface-model-metadata")
+                self.assertGreater(estimate["minimumMi"], estimate["weightsMi"])
+                self.assertGreater(estimate["recommendedMi"], estimate["minimumMi"])
+
+    def test_ollama_memory_estimate_supports_cpu_nvidia_and_amd_without_huggingface(self):
+        self.server["hf_metadata"] = lambda _repo: self.fail("Ollama estimation must not call HuggingFace")
+        self.server["ollama_metadata"] = lambda reference: {
+            "reference": reference,
+            "modelBytes": 384 * 1024 * 1024,
+        }
+        self.server["vram_summary"] = lambda _activations: {"available": False}
+        self.server["model_activations"] = lambda: []
+
+        for target in ("cpu", "nvidia-gpu", "amd-gpu"):
+            with self.subTest(target=target):
+                estimate = self.server["estimate_model_memory"]({
+                    "engine": "OLlama",
+                    "computeTarget": target,
+                    "url": "ollama://qwen2.5:0.5b",
+                    "contextWindow": 2048,
+                    "maxNumSeqs": 1,
+                    "modelType": "chat",
+                })
+
+                self.assertEqual(estimate["repo"], "library/qwen2.5:0.5b")
+                self.assertEqual(estimate["calculationSource"], "ollama-registry-manifest")
+                self.assertEqual(estimate["weightsMi"], 384)
+                self.assertGreater(estimate["minimumMi"], estimate["weightsMi"])
+                self.assertGreater(estimate["recommendedMi"], estimate["minimumMi"])
+
+    def test_ollama_memory_estimate_rejects_unsupported_intel_target(self):
         with self.assertRaises(self.server["RequestError"]) as raised:
-            self.server["estimate_model_vram"]({
+            self.server["estimate_model_memory"]({
                 "engine": "OLlama",
-                "computeTarget": "nvidia-gpu",
+                "computeTarget": "intel-gpu",
                 "url": "ollama://qwen2.5:0.5b",
             })
 
         self.assertEqual(raised.exception.status, 400)
-        self.assertIn("vLLM models only", str(raised.exception))
+        self.assertIn("not supported", str(raised.exception))
+
+    def test_ollama_registry_manifest_counts_only_runtime_model_layers(self):
+        self.server["OLLAMA_METADATA_CACHE"].clear()
+        requested = []
+
+        def fake_fetch(url, required=True):
+            requested.append(url)
+            return {
+                "layers": [
+                    {"mediaType": "application/vnd.ollama.image.model", "size": 300},
+                    {"mediaType": "application/vnd.ollama.image.adapter", "size": 50},
+                    {"mediaType": "application/vnd.ollama.image.license", "size": 9999},
+                ]
+            }
+
+        self.server["fetch_public_json"] = fake_fetch
+        reference = self.server["ollama_model_reference"]("ollama://team/model:v1")
+        metadata = self.server["ollama_metadata"](reference)
+
+        self.assertEqual(reference["reference"], "team/model:v1")
+        self.assertEqual(metadata["modelBytes"], 350)
+        self.assertEqual(requested, ["https://registry.ollama.ai/v2/team/model/manifests/v1"])
 
     def test_dashboard_renders_starting_model_phase_as_progress(self):
         source = (ROOT / "configmap.yaml").read_text(encoding="utf-8")

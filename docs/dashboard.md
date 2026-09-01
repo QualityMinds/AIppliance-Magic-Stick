@@ -83,7 +83,8 @@ checks.
 | `GET` | `/api/models` | Returns model catalog entries, variant-aware presets, compute-target availability, `ModelActivation` resources, AnythingLLM status, the estimator-compatible VRAM summary, and a `computeMemory.devices` list for the CPU and every discoverable GPU resource. |
 | `GET` | `/api/models/compute-targets` | Returns CPU/NVIDIA/AMD/Intel availability, supported engines, resolved resource/profile, and a non-sensitive reason when a target is unavailable. |
 | `GET` | `/api/status` | Returns runtime objects and the catalogued NVIDIA/AMD/Intel operator lifecycle from `Appliance.status.hardwareOperators`. |
-| `POST` | `/api/models/estimate-vram` | Estimates VRAM for public HuggingFace model metadata, context size, and max sequence count. |
+| `POST` | `/api/models/estimate-memory` | Estimates minimum and recommended RAM or accelerator memory for every supported local engine/compute-target combination. |
+| `POST` | `/api/models/estimate-vram` | Backward-compatible alias for `/api/models/estimate-memory`. |
 | `POST` | `/api/models/local` | Adds or replaces a local KubeAI-backed `ModelActivation`. |
 | `POST` | `/api/models/external` | Adds or replaces an external LiteLLM-backed `ModelActivation`; Dashboard-entered API keys are stored as Secrets. |
 | `POST` | `/api/models/local-runtime/remove` | Removes model-created runtime activations after all local models have been removed; a hardware-detected GPU operator is preserved. |
@@ -288,24 +289,30 @@ Kubernetes reports its allocatable resource. Intel automatically resolves
 Ollama supports CPU, NVIDIA, and AMD; Intel is absent from the Ollama choices
 because no validated KubeAI/Ollama Intel profile is bundled.
 
-The dashboard calls `POST /api/models/estimate-vram` only for vLLM accelerator
-variants. The VRAM control uses the unreserved accelerator memory (`total memory
-- active model reservations`) as its 100-percent slider maximum. The separate
-live free-memory value does not change that planning limit. Minimum and
-recommended estimates are marked on the same scale. If either estimate exceeds
-unreserved capacity, its marker remains visible in a gray overflow section to
-the right of the slider; the selected allocation itself never exceeds
-unreserved capacity. The
-collapsible **Breakdown** continues to show weights, KV cache, and reserve.
-Ollama manages model loading and accelerator memory itself, while the preset
-VRAM value remains a scheduling/planning requirement. CPU variants replace the
-VRAM estimator with a **RAM reservation** slider for both vLLM and Ollama. Its
-100-percent maximum is the CPU's unreserved memory, and the selected value is
-stored as `spec.local.memoryRequiredMi`. The operator rounds it up to a 16 MiB
-unit and turns it into the model pod's Kubernetes `requests.memory`; preset
-defaults are 4 GiB for vLLM and 2 GiB for Ollama. Live memory metrics currently
-come from NVIDIA DCGM, so AMD and Intel vLLM estimates show the calculated
-requirement without an adjustable maximum until their memory metrics are
+The dashboard calls `POST /api/models/estimate-memory` for every supported local
+combination: vLLM on CPU, NVIDIA, AMD, and Intel, plus Ollama on CPU, NVIDIA,
+and AMD. vLLM estimates use public HuggingFace weight and model-configuration
+metadata. Ollama estimates use the exact runtime-layer byte total from the
+public Ollama registry manifest; because that manifest does not expose all GGUF
+attention dimensions, its KV-cache component is a conservative estimate based
+on model size, context, and parallel sequences and is labelled **Estimated**.
+
+Both the RAM and VRAM controls use unreserved memory (`total memory - active
+model reservations`) as their 100-percent slider maximum. The separate live
+free-memory value does not change that planning limit. Minimum and recommended
+values are marked on the same scale. If either estimate exceeds unreserved
+capacity, its marker remains visible in a gray overflow section to the right of
+the slider; the selected allocation itself never exceeds unreserved capacity.
+The collapsible **Breakdown** shows weights, KV cache, and reserve for every
+engine and target.
+
+For CPU targets, the selected value is stored as
+`spec.local.memoryRequiredMi`. The operator rounds it up to a 16 MiB unit and
+turns it into the model pod's Kubernetes `requests.memory`. For accelerator
+targets, the selected VRAM remains scheduling/planning metadata; Ollama still
+decides the actual GPU offload at runtime. Live memory metrics currently come
+from NVIDIA DCGM, so AMD and Intel estimates can show minimum, recommendation,
+and breakdown without an adjustable maximum until matching memory metrics are
 available.
 CPU vLLM cache size is resolved by the preset/operator and is not an arbitrary
 browser-supplied environment variable.

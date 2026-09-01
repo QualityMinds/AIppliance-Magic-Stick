@@ -332,7 +332,7 @@ The same omission rule applies to unavailable CPU, NVIDIA, and AMD targets.
 In the Dashboard, open **Models > Create Model**, choose `Local`, select the
 engine, and then select one of the compute targets actually offered. A missing
 target is an availability signal, not a stale disabled option: inspect the
-hardware-operator state and allocatable resources above. For vLLM accelerator
+hardware-operator state and allocatable resources above. For accelerator
 models, 100 percent on the VRAM slider is the unreserved memory (`total memory -
 active model reservations`), not the separate live free-memory value. Gray
 minimum or recommended markers to the right of that limit mean the model does
@@ -346,10 +346,18 @@ reservation can therefore still fail during model loading when weights,
 activations, and the minimum KV cache do not fit, but it is never increased
 silently.
 
-For a CPU target, the form shows a RAM reservation slider for vLLM and Ollama.
-Its maximum is the CPU's unreserved memory. The selected value becomes the
-model pod's Kubernetes memory request in 16 MiB units. The bundled defaults are
-4 GiB for vLLM and 2 GiB for Ollama. Check the requested value after creation:
+For every supported local engine/target pair, the form calculates minimum and
+recommended memory before creation. vLLM supports CPU, NVIDIA, AMD, and Intel;
+Ollama supports CPU, NVIDIA, and AMD. The CPU RAM slider and accelerator VRAM
+slider both end at the target's unreserved memory. Values beyond that capacity
+remain visible only as minimum/recommended markers in the gray overflow area.
+The breakdown identifies weights, KV cache, and reserve. Ollama's registry
+manifest provides exact model-layer bytes, while its KV-cache component remains
+a conservative estimate because full GGUF dimensions are not present in the
+manifest.
+
+For a CPU target, the selected value becomes the model pod's Kubernetes memory
+request in 16 MiB units. Check the requested value after creation:
 
 ```bash
 kubectl -n ai get pods -l app.kubernetes.io/name=kubeai \

@@ -1957,20 +1957,48 @@ data:
                       <div class="vram-estimate" id="ram-reservation" data-compute-target-section="cpu" hidden>
                         <div class="vram-estimate-header">
                           <strong>RAM reservation</strong>
-                          <span>Kubernetes requests.memory</span>
+                          <span id="ram-estimate-status">Waiting for model metadata</span>
                         </div>
                         <div class="vram-summary-grid">
-                          <div><span>Preset</span><strong id="ram-reservation-preset">-</strong></div>
+                          <div><span>Minimum</span><strong id="ram-estimate-minimum">-</strong></div>
+                          <div><span>Recommended</span><strong id="ram-estimate-recommended">-</strong></div>
                           <div><span>100% unreserved</span><strong id="ram-reservation-maximum">-</strong></div>
                         </div>
-                        <input id="ram-reservation-slider" type="range" min="16" max="16" step="16" aria-label="RAM reservation" disabled />
+                        <div class="memory-capacity" id="ram-capacity">
+                          <div class="memory-capacity-scale" id="ram-capacity-scale">
+                            <div class="memory-capacity-available" id="ram-capacity-available">
+                              <input id="ram-reservation-slider" type="range" min="16" max="16" step="16" aria-label="RAM reservation" disabled />
+                            </div>
+                            <div class="memory-capacity-overflow" id="ram-capacity-overflow" hidden></div>
+                            <span class="memory-capacity-marker minimum" id="ram-minimum-marker" hidden><span>Minimum</span></span>
+                            <span class="memory-capacity-marker recommended" id="ram-recommended-marker" hidden><span>Recommended</span></span>
+                            <span class="memory-capacity-marker available" id="ram-available-marker" hidden><span>100% unreserved</span></span>
+                          </div>
+                          <div class="memory-capacity-axis">
+                            <span>0</span>
+                            <span id="ram-capacity-note">Unreserved RAM is the slider maximum.</span>
+                          </div>
+                        </div>
                         <div class="vram-estimate-row">
                           <span id="ram-reservation-selected">Reserved: -</span>
-                          <span>Applied to the model pod</span>
+                          <span id="ram-estimate-meta">Kubernetes requests.memory</span>
                         </div>
+                        <div class="segmented-control vram-choice">
+                          <button class="control-button" type="button" data-ram-use="minimum" disabled>Minimum</button>
+                          <button class="control-button primary" type="button" data-ram-use="recommended" disabled>Recommended</button>
+                          <button class="control-button" type="button" data-ram-use="maximum" disabled>100%</button>
+                        </div>
+                        <details class="vram-breakdown-details">
+                          <summary>Breakdown</summary>
+                          <div class="vram-breakdown">
+                            <div><span>Weights</span><strong id="ram-estimate-weights">-</strong></div>
+                            <div><span>KV Cache</span><strong id="ram-estimate-kv">-</strong></div>
+                            <div><span>Reserve</span><strong id="ram-estimate-reserve">-</strong></div>
+                          </div>
+                        </details>
                         <div class="estimate-callouts" id="ram-reservation-warnings"></div>
                       </div>
-                      <p class="module-message" id="ollama-runtime-summary" hidden>Ollama manages model loading and accelerator memory. The declared VRAM value is used for planning; Kubernetes still assigns exactly one GPU to this model.</p>
+                      <p class="module-message" id="ollama-runtime-summary" hidden>Ollama manages model loading and accelerator offload. The displayed minimum and recommendation are planning estimates based on the public model artifact, context, and parallel sequences.</p>
                       <div class="vram-estimate" id="vram-estimate" data-compute-target-section="gpu">
                         <div class="vram-estimate-header">
                           <strong>VRAM allocation</strong>
@@ -2541,11 +2569,11 @@ data:
             if (url) { url.placeholder = isOllama ? 'ollama://model:tag' : 'hf://organization/model'; }
             if (urlLabel) { urlLabel.textContent = isOllama ? 'Ollama Model URL' : 'Hugging Face URL'; }
             if (vramLabel) { vramLabel.textContent = isOllama ? 'Required VRAM' : 'VRAM Limit'; }
-            if (estimator) { estimator.hidden = targetKind !== 'gpu' || isOllama; }
+            if (estimator) { estimator.hidden = targetKind !== 'gpu'; }
             if (ollamaSummary) { ollamaSummary.hidden = !isOllama || targetKind !== 'gpu'; }
-            if (isOllama || targetKind !== 'gpu') {
+            if (targetKind !== 'gpu') {
               latestVramEstimateSignature = '';
-              renderEmptyVramEstimate(isOllama ? 'Ollama manages accelerator memory' : 'VRAM is not used for CPU inference');
+              renderEmptyVramEstimate('VRAM is not used for CPU inference');
             }
           };
 
@@ -3759,6 +3787,30 @@ data:
 
           const defaultCpuMemoryReservationMi = () => selectedLocalEngine() === 'OLlama' ? 2048 : 4096;
 
+          const setRamUseMode = (mode) => {
+            document.querySelectorAll('[data-ram-use]').forEach((button) => {
+              button.classList.toggle('primary', button.dataset.ramUse === mode);
+            });
+          };
+
+          const setRamEstimateControls = (enabled) => {
+            const slider = $('ram-reservation-slider');
+            if (slider) { slider.disabled = !enabled; }
+            document.querySelectorAll('[data-ram-use]').forEach((button) => { button.disabled = !enabled; });
+          };
+
+          const renderRamEstimateWarnings = (warnings) => {
+            const node = $('ram-reservation-warnings');
+            if (!node) { return; }
+            node.replaceChildren();
+            (warnings || []).forEach((warning) => {
+              const item = document.createElement('div');
+              item.className = 'estimate-callout ' + (/exceeds|unavailable|not available|could not/i.test(warning) ? 'warning' : '');
+              item.textContent = warning;
+              node.appendChild(item);
+            });
+          };
+
           const applyCpuMemoryReservationMi = (value) => {
             const form = $('local-model-form');
             if (!form) { return; }
@@ -3771,6 +3823,7 @@ data:
           };
 
           const renderCpuMemoryReservation = (presetMi = 0, options = {}) => {
+            latestVramEstimate = null;
             const unreserved = targetUnreservedMemoryMi('cpu');
             const maximum = unreserved === null
               ? 0
@@ -3783,8 +3836,14 @@ data:
             const current = form ? formNumber(form, 'memoryRequiredMi') : 0;
             const requested = options.applyPreset === false && current ? current : recommended;
             const selected = maximum > 0 ? Math.min(maximum, requested) : requested;
-            setEstimateText('ram-reservation-preset', formatMi(recommended));
+            setEstimateText('ram-estimate-status', 'Waiting for model metadata');
+            setEstimateText('ram-estimate-minimum', '-');
+            setEstimateText('ram-estimate-recommended', formatMi(recommended));
             setEstimateText('ram-reservation-maximum', maximum > 0 ? formatMi(maximum) : 'Unknown');
+            setEstimateText('ram-estimate-weights', '-');
+            setEstimateText('ram-estimate-kv', '-');
+            setEstimateText('ram-estimate-reserve', '-');
+            setEstimateText('ram-estimate-meta', 'Preset fallback · Kubernetes requests.memory');
             applyCpuMemoryReservationMi(selected);
             const slider = $('ram-reservation-slider');
             if (slider) {
@@ -3794,22 +3853,73 @@ data:
               slider.value = String(selected);
               slider.disabled = maximum <= 0;
             }
-            const warnings = $('ram-reservation-warnings');
-            if (warnings) {
-              warnings.replaceChildren();
-              const message = maximum <= 0
+            renderRamCapacityScale(0, recommended, maximum);
+            setRamUseMode('recommended');
+            setRamEstimateControls(maximum > 0);
+            const minimumButton = document.querySelector('[data-ram-use="minimum"]');
+            if (minimumButton) { minimumButton.disabled = true; }
+            renderRamEstimateWarnings([
+              maximum <= 0
                 ? 'Unreserved system RAM is unknown; the preset reservation will be used.'
                 : (recommended > maximum
                   ? 'The preset exceeds unreserved system RAM. The reservation was capped at the available planning capacity.'
-                  : 'The selected value becomes the model pod memory request.');
-              const item = document.createElement('div');
-              item.className = 'estimate-callout' + (recommended > maximum && maximum > 0 ? ' warning' : '');
-              item.textContent = message;
-              warnings.appendChild(item);
-            }
+                  : 'Calculating minimum and recommended RAM from model metadata.')
+            ]);
           };
 
-          const positionMemoryMarker = (id, value, scaleMaximum, available) => {
+          const renderCpuMemoryEstimate = (estimate, options = {}) => {
+            latestVramEstimate = estimate || null;
+            if (!estimate) {
+              renderCpuMemoryReservation(defaultCpuMemoryReservationMi(), { applyPreset: false });
+              return;
+            }
+            const roundToReservationStep = (value) => Math.max(
+              CPU_MEMORY_RESERVATION_STEP_MI,
+              Math.ceil(Number(value || 0) / CPU_MEMORY_RESERVATION_STEP_MI) * CPU_MEMORY_RESERVATION_STEP_MI
+            );
+            const minimum = roundToReservationStep(estimate.minimumMi);
+            const recommended = roundToReservationStep(estimate.recommendedMi || minimum);
+            const unreserved = targetUnreservedMemoryMi('cpu');
+            const maximum = unreserved === null
+              ? 0
+              : Math.floor(unreserved / CPU_MEMORY_RESERVATION_STEP_MI) * CPU_MEMORY_RESERVATION_STEP_MI;
+            const form = $('local-model-form');
+            const current = form ? formNumber(form, 'memoryRequiredMi') : 0;
+            const requested = options.applyRecommended === false && current ? current : recommended;
+            const selected = maximum > 0 ? Math.min(maximum, requested) : requested;
+            setEstimateText('ram-estimate-status', estimate.confidence === 'high' ? 'High confidence' : 'Estimated');
+            setEstimateText('ram-estimate-minimum', formatMi(minimum));
+            setEstimateText('ram-estimate-recommended', formatMi(recommended));
+            setEstimateText('ram-reservation-maximum', maximum > 0 ? formatMi(maximum) : 'Unknown');
+            setEstimateText('ram-estimate-weights', formatMi(estimate.weightsMi));
+            setEstimateText('ram-estimate-kv', formatMi(estimate.kvCacheMi));
+            setEstimateText('ram-estimate-reserve', formatMi((estimate.reserveMi || 0) + (estimate.recommendedReserveMi || 0)));
+            setEstimateText('ram-estimate-meta', 'Context ' + estimate.contextWindow + ', max seqs ' + estimate.maxNumSeqs);
+            applyCpuMemoryReservationMi(selected);
+            const slider = $('ram-reservation-slider');
+            if (slider) {
+              slider.min = String(CPU_MEMORY_RESERVATION_STEP_MI);
+              slider.max = String(Math.max(CPU_MEMORY_RESERVATION_STEP_MI, maximum || selected));
+              slider.step = String(CPU_MEMORY_RESERVATION_STEP_MI);
+              slider.value = String(selected);
+            }
+            const warnings = [...(estimate.warnings || [])];
+            if (maximum > 0 && minimum > maximum) {
+              warnings.push('Estimated minimum exceeds the unreserved RAM. The marker is shown in the gray overflow area.');
+            } else if (maximum > 0 && recommended > maximum) {
+              warnings.push('Recommended RAM exceeds the unreserved RAM. The marker is shown in the gray overflow area.');
+            }
+            renderRamEstimateWarnings([...new Set(warnings)]);
+            renderRamCapacityScale(minimum, recommended, maximum);
+            setRamEstimateControls(maximum > 0);
+            const minimumButton = document.querySelector('[data-ram-use="minimum"]');
+            const recommendedButton = document.querySelector('[data-ram-use="recommended"]');
+            if (minimumButton) { minimumButton.disabled = !maximum || minimum > maximum; }
+            if (recommendedButton) { recommendedButton.disabled = !maximum || recommended > maximum; }
+            setRamUseMode(options.applyRecommended === false ? '' : 'recommended');
+          };
+
+          const positionMemoryMarker = (id, labelPrefix, value, scaleMaximum, available) => {
             const marker = $(id);
             if (!marker) { return; }
             const numeric = Number(value || 0);
@@ -3824,34 +3934,41 @@ data:
             marker.classList.toggle('overflow', Boolean(available) && numeric > available);
             const label = marker.querySelector('span');
             if (label) {
-              const prefix = id === 'vram-minimum-marker' ? 'Minimum ' : (id === 'vram-recommended-marker' ? 'Recommended ' : '100% unreserved ');
-              label.textContent = prefix + formatMi(numeric);
+              label.textContent = labelPrefix + ' ' + formatMi(numeric);
             }
           };
 
-          const renderVramCapacityScale = (minimum = 0, recommended = 0, available = 0) => {
+          const renderMemoryCapacityScale = (prefix, memoryLabel, minimum = 0, recommended = 0, available = 0) => {
             const usable = Math.max(0, Number(available || 0));
             const scaleMaximum = Math.max(1, usable, Number(minimum || 0), Number(recommended || 0));
             const availablePercent = Math.max(0, Math.min(100, (usable / scaleMaximum) * 100));
-            const availableNode = $('vram-capacity-available');
-            const overflowNode = $('vram-capacity-overflow');
-            const note = $('vram-capacity-note');
+            const availableNode = $(prefix + '-capacity-available');
+            const overflowNode = $(prefix + '-capacity-overflow');
+            const note = $(prefix + '-capacity-note');
             if (availableNode) { availableNode.style.width = availablePercent + '%'; }
             if (overflowNode) {
               overflowNode.hidden = availablePercent >= 99.999;
               overflowNode.style.left = availablePercent + '%';
               overflowNode.style.width = Math.max(0, 100 - availablePercent) + '%';
             }
-            positionMemoryMarker('vram-minimum-marker', minimum, scaleMaximum, usable);
-            positionMemoryMarker('vram-recommended-marker', recommended, scaleMaximum, usable);
-            positionMemoryMarker('vram-available-marker', usable, scaleMaximum, usable);
+            positionMemoryMarker(prefix + '-minimum-marker', 'Minimum', minimum, scaleMaximum, usable);
+            positionMemoryMarker(prefix + '-recommended-marker', 'Recommended', recommended, scaleMaximum, usable);
+            positionMemoryMarker(prefix + '-available-marker', '100% unreserved', usable, scaleMaximum, usable);
             if (note) {
               note.textContent = !usable
-                ? 'Unreserved VRAM is unknown; allocation cannot be adjusted.'
+                ? 'Unreserved ' + memoryLabel + ' is unknown; allocation cannot be adjusted.'
                 : (availablePercent < 100
-                  ? 'The gray area exceeds the unreserved VRAM.'
-                  : 'The slider maximum equals 100% of unreserved VRAM.');
+                  ? 'The gray area exceeds the unreserved ' + memoryLabel + '.'
+                  : 'The slider maximum equals 100% of unreserved ' + memoryLabel + '.');
             }
+          };
+
+          const renderVramCapacityScale = (minimum = 0, recommended = 0, available = 0) => {
+            renderMemoryCapacityScale('vram', 'VRAM', minimum, recommended, available);
+          };
+
+          const renderRamCapacityScale = (minimum = 0, recommended = 0, available = 0) => {
+            renderMemoryCapacityScale('ram', 'RAM', minimum, recommended, available);
           };
 
           const setVramUseMode = (mode) => {
@@ -3942,41 +4059,58 @@ data:
           const runVramEstimate = async () => {
             const form = $('local-model-form');
             if (!form) { return; }
-            if (selectedLocalEngine() !== 'VLLM') {
-              latestVramEstimateSignature = '';
-              renderEmptyVramEstimate('Ollama manages accelerator memory');
-              return;
-            }
-            if (computeTargetKind() !== 'gpu') {
-              latestVramEstimateSignature = '';
-              renderEmptyVramEstimate('VRAM is not used for CPU inference');
-              return;
-            }
+            const targetKind = computeTargetKind();
             const payload = vramEstimatePayload(form);
             if (!payload.url) {
               latestVramEstimateSignature = '';
-              renderEmptyVramEstimate('Waiting for HF URL');
+              const message = selectedLocalEngine() === 'OLlama' ? 'Waiting for Ollama URL' : 'Waiting for HF URL';
+              if (targetKind === 'cpu') {
+                renderCpuMemoryReservation(formNumber(form, 'memoryRequiredMi') || defaultCpuMemoryReservationMi(), { applyPreset: false });
+                setEstimateText('ram-estimate-status', message);
+              } else {
+                renderEmptyVramEstimate(message);
+              }
               return;
             }
             const signature = JSON.stringify(payload);
             if (signature === latestVramEstimateSignature && latestVramEstimate) {
-              renderVramEstimate(latestVramEstimate, { applyRecommended: false });
+              if (targetKind === 'cpu') {
+                renderCpuMemoryEstimate(latestVramEstimate, { applyRecommended: false });
+              } else {
+                renderVramEstimate(latestVramEstimate, { applyRecommended: false });
+              }
               return;
             }
             const requestId = ++vramEstimateRequest;
-            setEstimateText('vram-estimate-status', 'Estimating');
-            renderVramEstimateWarnings([]);
-            setVramEstimateControls(false);
+            if (targetKind === 'cpu') {
+              setEstimateText('ram-estimate-status', 'Estimating');
+              renderRamEstimateWarnings([]);
+              setRamEstimateControls(false);
+            } else {
+              setEstimateText('vram-estimate-status', 'Estimating');
+              renderVramEstimateWarnings([]);
+              setVramEstimateControls(false);
+            }
             try {
-              const estimate = await request('/api/models/estimate-vram', { method: 'POST', body: JSON.stringify(payload) });
+              const estimate = await request('/api/models/estimate-memory', { method: 'POST', body: JSON.stringify(payload) });
               if (requestId !== vramEstimateRequest) { return; }
               latestVramEstimateSignature = signature;
-              renderVramEstimate(estimate);
+              if (targetKind === 'cpu') {
+                renderCpuMemoryEstimate(estimate);
+              } else {
+                renderVramEstimate(estimate);
+              }
             } catch (error) {
               if (requestId !== vramEstimateRequest) { return; }
               latestVramEstimateSignature = '';
-              renderEmptyVramEstimate('Estimate unavailable');
-              renderVramEstimateWarnings([error.message || 'Could not estimate VRAM.']);
+              if (targetKind === 'cpu') {
+                renderCpuMemoryReservation(formNumber(form, 'memoryRequiredMi') || defaultCpuMemoryReservationMi(), { applyPreset: false });
+                setEstimateText('ram-estimate-status', 'Estimate unavailable');
+                renderRamEstimateWarnings([error.message || 'Could not estimate RAM.']);
+              } else {
+                renderEmptyVramEstimate('Estimate unavailable');
+                renderVramEstimateWarnings([error.message || 'Could not estimate VRAM.']);
+              }
             }
           };
 
@@ -4193,6 +4327,7 @@ data:
               if (computeTargetKind() === 'cpu') {
                 renderCpuMemoryReservation(formNumber(form, 'memoryRequiredMi') || defaultCpuMemoryReservationMi(), { applyPreset: false });
               }
+              scheduleVramEstimate();
               return;
             }
             const preset = presetVariant(
@@ -4224,12 +4359,8 @@ data:
             localPresetLastApplied = marker;
             if (computeTargetKind() === 'cpu') {
               renderCpuMemoryReservation(preset.memoryRequiredMi || defaultCpuMemoryReservationMi());
-            } else if (selectedLocalEngine() === 'VLLM') {
-              scheduleVramEstimate();
-            } else {
-              latestVramEstimateSignature = '';
-              renderEmptyVramEstimate(selectedLocalEngine() === 'OLlama' ? 'Ollama manages accelerator memory' : 'VRAM is not used for CPU inference');
             }
+            scheduleVramEstimate();
           };
 
           const memoryNumber = (value) => {
@@ -5532,7 +5663,7 @@ data:
             if (localPresetSelect) {
               localPresetSelect.addEventListener('change', () => {
                 applyLocalPresetFields(localPresetSelect.value, { force: true });
-                if (localPresetSelect.value === 'custom' && selectedLocalEngine() === 'VLLM') {
+                if (localPresetSelect.value === 'custom') {
                   scheduleVramEstimate();
                 }
               });
@@ -5554,8 +5685,34 @@ data:
             if (ramSlider) {
               ramSlider.addEventListener('input', () => {
                 applyCpuMemoryReservationMi(Number(ramSlider.value || 0));
+                setRamUseMode('');
               });
             }
+            document.querySelectorAll('[data-ram-use]').forEach((button) => {
+              button.addEventListener('click', () => {
+                if (!latestVramEstimate || computeTargetKind() !== 'cpu') { return; }
+                const mode = button.dataset.ramUse;
+                const minimum = Number(latestVramEstimate.minimumMi || 0);
+                const recommended = Number(latestVramEstimate.recommendedMi || minimum);
+                const unreserved = targetUnreservedMemoryMi('cpu');
+                const maximum = unreserved === null
+                  ? 0
+                  : Math.floor(unreserved / CPU_MEMORY_RESERVATION_STEP_MI) * CPU_MEMORY_RESERVATION_STEP_MI;
+                if (!maximum) { return; }
+                const requested = mode === 'minimum' ? minimum : (mode === 'maximum' ? maximum : recommended);
+                const value = Math.min(
+                  maximum,
+                  Math.max(CPU_MEMORY_RESERVATION_STEP_MI, Math.ceil(requested / CPU_MEMORY_RESERVATION_STEP_MI) * CPU_MEMORY_RESERVATION_STEP_MI)
+                );
+                const slider = $('ram-reservation-slider');
+                if (slider) {
+                  slider.max = String(maximum);
+                  slider.value = String(value);
+                }
+                applyCpuMemoryReservationMi(value);
+                setRamUseMode(mode);
+              });
+            });
             document.querySelectorAll('[data-vram-use]').forEach((button) => {
               button.addEventListener('click', () => {
                 if (!latestVramEstimate) { return; }

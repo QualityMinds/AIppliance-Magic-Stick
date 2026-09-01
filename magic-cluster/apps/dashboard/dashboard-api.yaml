@@ -59,6 +59,7 @@ data:
     PUBLIC_SSL_CONTEXT = ssl.create_default_context()
     HF_CACHE_TTL_SECONDS = 900
     HF_METADATA_CACHE = {}
+    OLLAMA_METADATA_CACHE = {}
     OIDC_USERINFO_URL = os.environ.get(
         "OIDC_USERINFO_URL",
         "http://keycloak.identity-system.svc.cluster.local:8080/realms/magicstick/protocol/openid-connect/userinfo",
@@ -2111,6 +2112,84 @@ data:
         return cached
 
 
+    def ollama_model_reference(value):
+        raw = str(value or "").strip()
+        if not raw:
+            raise ValueError("Ollama Model URL is required")
+        if not raw.startswith("ollama://"):
+            raise ValueError("Ollama Model URL must use ollama://model:tag")
+        reference = raw[len("ollama://"):].strip("/")
+        if not reference or "?" in reference or "#" in reference:
+            raise ValueError("Ollama Model URL must use ollama://model:tag")
+        parts = reference.split("/")
+        if len(parts) == 1:
+            namespace = "library"
+            model_and_tag = parts[0]
+        elif len(parts) == 2:
+            namespace, model_and_tag = parts
+        else:
+            raise ValueError("Ollama Model URL must contain at most namespace/model:tag")
+        if ":" in model_and_tag:
+            model, tag = model_and_tag.rsplit(":", 1)
+        else:
+            model, tag = model_and_tag, "latest"
+        component = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+        if not component.fullmatch(namespace) or not component.fullmatch(model) or not component.fullmatch(tag):
+            raise ValueError("Ollama Model URL contains unsupported registry characters")
+        return {
+            "namespace": namespace,
+            "model": model,
+            "tag": tag,
+            "reference": namespace + "/" + model + ":" + tag,
+        }
+
+
+    def ollama_manifest_url(reference):
+        return (
+            "https://registry.ollama.ai/v2/"
+            + urllib.parse.quote(reference["namespace"])
+            + "/"
+            + urllib.parse.quote(reference["model"])
+            + "/manifests/"
+            + urllib.parse.quote(reference["tag"])
+        )
+
+
+    def ollama_metadata(reference):
+        cache_key = reference["reference"]
+        now = time.time()
+        cached = OLLAMA_METADATA_CACHE.get(cache_key)
+        if cached and now - cached.get("fetchedAt", 0) < HF_CACHE_TTL_SECONDS:
+            return cached
+        try:
+            manifest = fetch_public_json(ollama_manifest_url(reference))
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError) as error:
+            raise ValueError("public Ollama registry metadata is not available for this model") from error
+        layers = (manifest or {}).get("layers") or []
+        model_media_types = {
+            "application/vnd.ollama.image.model",
+            "application/vnd.ollama.image.adapter",
+            "application/vnd.ollama.image.projector",
+            "application/vnd.ollama.image.draft",
+            "application/vnd.ollama.image.tensor",
+        }
+        model_bytes = sum(
+            positive_int((layer or {}).get("size")) or 0
+            for layer in layers
+            if str((layer or {}).get("mediaType") or "") in model_media_types
+        )
+        if model_bytes <= 0:
+            raise ValueError("Ollama registry manifest does not contain model layers")
+        cached = {
+            "reference": reference,
+            "manifest": manifest,
+            "modelBytes": model_bytes,
+            "fetchedAt": now,
+        }
+        OLLAMA_METADATA_CACHE[cache_key] = cached
+        return cached
+
+
     def has_model_dimensions(config):
         config = config or {}
         has_layers = any(positive_int(config.get(key)) for key in ("num_hidden_layers", "n_layer", "num_layers"))
@@ -2235,12 +2314,7 @@ data:
         return ceil_mib(bytes_value)
 
 
-    def estimate_model_vram(payload):
-        payload = payload or {}
-        engine = normalize_local_engine(payload.get("engine"))
-        if engine != "VLLM":
-            raise RequestError(400, "VRAM estimation is currently available for vLLM models only")
-        compute_target = str(payload.get("computeTarget") or "nvidia-gpu").strip().lower()
+    def estimate_vllm_memory(payload, compute_target):
         repo = hf_repo_id(payload.get("url"))
         metadata = hf_metadata(repo)
         config = metadata.get("config") or {}
@@ -2254,7 +2328,6 @@ data:
         if not max_num_seqs:
             max_num_seqs = 8 if model_type == "embedding" else 32
             warnings.append("Max Num Seqs was missing; using " + str(max_num_seqs) + " for the estimate.")
-
         weights_mi = safetensors_weight_mi(metadata.get("safetensorsIndex"))
         confidence = "high"
         if not weights_mi:
@@ -2279,9 +2352,78 @@ data:
             kv_layers, total_layers = kv_cache_layer_count(dimensions)
             if kv_layers and total_layers and kv_layers < total_layers:
                 warnings.append("Detected hybrid attention; KV cache uses " + str(kv_layers) + " full-attention layers out of " + str(total_layers) + ".")
-        runtime_mi = max(2048, int((weights_mi + kv_mi) * 0.08))
+        return {
+            "repo": repo,
+            "sourceUrl": "https://huggingface.co/" + repo,
+            "weightsMi": int(weights_mi),
+            "kvCacheMi": int(kv_mi),
+            "runtimeReserveMi": max(2048, int((weights_mi + kv_mi) * 0.08)),
+            "contextWindow": int(context_window),
+            "maxNumSeqs": int(max_num_seqs),
+            "confidence": confidence,
+            "warnings": warnings,
+            "calculationSource": "huggingface-model-metadata",
+        }
+
+
+    def estimate_ollama_memory(payload, compute_target):
+        reference = ollama_model_reference(payload.get("url"))
+        metadata = ollama_metadata(reference)
+        model_type = str(payload.get("modelType") or "chat").lower()
+        context_window = positive_int(payload.get("contextWindow")) or 4096
+        max_num_seqs = positive_int(payload.get("maxNumSeqs")) or (8 if model_type == "embedding" else 32)
+        warnings = []
+        if not positive_int(payload.get("contextWindow")):
+            warnings.append("Context Size was missing; using a 4096 token fallback.")
+        if not positive_int(payload.get("maxNumSeqs")):
+            warnings.append("Max Num Seqs was missing; using " + str(max_num_seqs) + " for the estimate.")
+        weights_mi = ceil_mib(metadata.get("modelBytes"))
+        # Public Ollama manifests expose exact model-layer bytes, but not the
+        # complete GGUF attention dimensions. Keep the context component
+        # deliberately conservative and label the result as an estimate.
+        context_factor = max(1.0, float(context_window) / 4096.0)
+        kv_mi = max(256, int(weights_mi * 0.08 * context_factor * max_num_seqs))
+        runtime_mi = max(512, int((weights_mi + kv_mi) * 0.10))
+        source_path = reference["namespace"] + "/" + reference["model"] + ":" + reference["tag"]
+        return {
+            "repo": reference["reference"],
+            "sourceUrl": "https://ollama.com/" + source_path,
+            "weightsMi": int(weights_mi),
+            "kvCacheMi": int(kv_mi),
+            "runtimeReserveMi": int(runtime_mi),
+            "contextWindow": int(context_window),
+            "maxNumSeqs": int(max_num_seqs),
+            "confidence": "estimated",
+            "warnings": warnings + [
+                "Ollama model-layer size comes from the public registry manifest; KV cache is estimated from model size, context, and parallel sequences."
+            ],
+            "calculationSource": "ollama-registry-manifest",
+        }
+
+
+    def estimate_model_memory(payload):
+        payload = payload or {}
+        engine = normalize_local_engine(payload.get("engine"))
+        compute_target = str(payload.get("computeTarget") or "nvidia-gpu").strip().lower()
+        supported_targets = {
+            "VLLM": {"cpu", "nvidia-gpu", "amd-gpu", "intel-gpu"},
+            "OLlama": {"cpu", "nvidia-gpu", "amd-gpu"},
+        }
+        if compute_target not in supported_targets.get(engine, set()):
+            raise RequestError(400, engine + " memory estimation is not supported for " + compute_target)
+        if engine == "VLLM":
+            estimate = estimate_vllm_memory(payload, compute_target)
+        else:
+            estimate = estimate_ollama_memory(payload, compute_target)
+        warnings = list(estimate.get("warnings") or [])
+        context_window = int(estimate.get("contextWindow") or 4096)
+        max_num_seqs = int(estimate.get("maxNumSeqs") or 1)
+        weights_mi = int(estimate.get("weightsMi") or 0)
+        kv_mi = int(estimate.get("kvCacheMi") or 0)
+        runtime_mi = int(estimate.get("runtimeReserveMi") or 0)
         minimum_mi = weights_mi + kv_mi + runtime_mi
-        reserve_mi = max(2048, int(minimum_mi * 0.15))
+        recommended_floor = 2048 if engine == "VLLM" else 512
+        reserve_mi = max(recommended_floor, int(minimum_mi * 0.15))
         recommended_mi = minimum_mi + reserve_mi
 
         vram = vram_summary(model_activations()) if compute_target == "nvidia-gpu" else {"available": False}
@@ -2289,16 +2431,15 @@ data:
         if maximum_mi is None:
             if compute_target == "nvidia-gpu":
                 warnings.append("Live GPU availability unavailable; max available cannot be verified.")
-            else:
-                warnings.append("Live accelerator memory metrics are not available for " + compute_target + "; max available cannot be verified.")
         elif maximum_mi < minimum_mi:
             warnings.append("Estimated minimum exceeds unreserved VRAM.")
 
         return {
-            "repo": repo,
+            "repo": estimate.get("repo"),
             "engine": engine,
             "computeTarget": compute_target,
-            "sourceUrl": "https://huggingface.co/" + repo,
+            "memoryKind": "ram" if compute_target == "cpu" else "vram",
+            "sourceUrl": estimate.get("sourceUrl"),
             "minimumMi": int(minimum_mi),
             "recommendedMi": int(recommended_mi),
             "maximumMi": None if maximum_mi is None else int(maximum_mi),
@@ -2308,10 +2449,16 @@ data:
             "recommendedReserveMi": int(reserve_mi),
             "contextWindow": int(context_window),
             "maxNumSeqs": int(max_num_seqs),
-            "confidence": confidence,
+            "confidence": estimate.get("confidence") or "estimated",
+            "calculationSource": estimate.get("calculationSource"),
             "gpuAvailable": bool(vram.get("available")),
             "warnings": warnings,
         }
+
+
+    def estimate_model_vram(payload):
+        """Backward-compatible alias for clients using the former endpoint."""
+        return estimate_model_memory(payload)
 
 
     def provider_secret_name(model_name):
@@ -3194,9 +3341,9 @@ data:
                     self.send_json(create_or_patch(collection, item, resource, {"spec": resource["spec"], "metadata": {"labels": resource["metadata"]["labels"]}}))
                     return
 
-                if len(parts) == 3 and parts[:2] == ["api", "models"] and parts[2] == "estimate-vram":
+                if len(parts) == 3 and parts[:2] == ["api", "models"] and parts[2] in {"estimate-memory", "estimate-vram"}:
                     self.require_access("viewer")
-                    self.send_json(estimate_model_vram(read_body(self)))
+                    self.send_json(estimate_model_memory(read_body(self)))
                     return
 
                 if len(parts) == 4 and parts[:3] == ["api", "models", "local-runtime"] and parts[3] == "remove":
