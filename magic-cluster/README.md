@@ -20,12 +20,13 @@ runtime checks.
 | `platform/first-run-setup` | Early identity namespace and ApplianceSetup CRD bootstrap |
 | `platform/gateway/envoy-gateway` | Primary Envoy Gateway control plane and Gateway API CRDs |
 | `platform/identity` | Local Keycloak/PostgreSQL identity broker and protected OIDC pilot route |
+| `platform/hardware-discovery` | Shared Node Feature Discovery with periodic PCI vendor relabeling |
 | `platform/magicstick-operator` | Appliance CRDs, module catalog, model presets, operator RBAC, live controller, and public examples |
 | `platform/ai/kubeai` | Optional KubeAI model-serving module enabled before creating local models |
 | `platform/ai/openclaw-operator` | OpenClaw CRD operator base for `openclaw.rocks/v1alpha1` instances |
 | `platform/ai/hermes-operator` | Hermes CRD operator base for `hermes.agent/v1` instances |
 | `platform/ai/paperclip-operator` | Paperclip CRD operator base for `paperclip.inc/v1alpha1` instances |
-| `platform/gpu` | Optional NVIDIA GPU Operator enabled before creating local models |
+| `platform/gpu` | Hardware-triggered NVIDIA, AMD, and Intel provider modules; vendor charts reuse shared NFD |
 | `apps/dashboard` | Dashboard app, route discovery surface, and Appliance CR UI/API client |
 | `apps/ai/litellm/base` | LiteLLM API and model-routing module with shared SSO routes |
 | `apps/ai/model-catalog` | Controller that syncs KubeAI `Model` CRs and optional external models into LiteLLM and publishes the generated `ai-model-catalog` ConfigMap |
@@ -61,6 +62,7 @@ kubectl kustomize magic-cluster/platform/basis
 kubectl kustomize magic-cluster/platform/first-run-setup
 kubectl kustomize magic-cluster/platform/gateway/envoy-gateway
 kubectl kustomize magic-cluster/platform/identity
+kubectl kustomize magic-cluster/platform/hardware-discovery
 kubectl kustomize magic-cluster/platform/gpu
 kubectl kustomize magic-cluster/platform/ai/kubeai
 kubectl kustomize magic-cluster/platform/ai/openclaw-operator
@@ -86,7 +88,12 @@ downstream consumers.
 
 The base installation is GPU-neutral. External `ModelActivation` resources use
 LiteLLM and the model catalog without creating GPU or KubeAI module
-activations. A local model request enables those two modules automatically.
+activations. A CPU local-model request enables KubeAI; NVIDIA, AMD, and Intel
+requests also depend on their matching provider. Separately, NFD causes the
+controller to request only the operator whose compatible hardware is present.
+Each ready provider is selectable through its compatible runtime profiles.
+vLLM supports CPU, NVIDIA, AMD, and Intel; Ollama supports CPU, NVIDIA, and AMD.
+Intel resolves `xe` or `i915` automatically and remains vLLM-only.
 
 See [../docs/model-catalog.md](../docs/model-catalog.md) for the full contract,
 external model schema, generated ConfigMap keys, and troubleshooting commands.

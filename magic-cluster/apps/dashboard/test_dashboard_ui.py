@@ -153,6 +153,7 @@ BROWSER_API_MOCK = r"""
             litellm: {
               displayName: 'LiteLLM',
               activationMode: 'moduleactivation',
+              group: 'runtime',
               order: 50,
               credentials: { provider: 'litellm' }
             }
@@ -206,15 +207,26 @@ BROWSER_API_MOCK = r"""
         presets: {
           qwen2505bcpu: {
             displayName: 'Qwen 2.5 0.5B CPU',
-            variants: [{
-              computeTarget: 'cpu',
-              engine: 'VLLM',
-              url: 'hf://Qwen/Qwen2.5-0.5B-Instruct',
-              modelType: 'chat',
-              contextWindow: 2048,
-              maxNumSeqs: 1,
-              memoryRequiredMi: 4096
-            }]
+            variants: [
+              {
+                computeTarget: 'cpu',
+                engine: 'VLLM',
+                url: 'hf://Qwen/Qwen2.5-0.5B-Instruct',
+                modelType: 'chat',
+                contextWindow: 2048,
+                maxNumSeqs: 1,
+                memoryRequiredMi: 4096
+              },
+              {
+                computeTarget: 'cpu',
+                engine: 'OLlama',
+                url: 'ollama://qwen2.5:0.5b',
+                modelType: 'chat',
+                contextWindow: 2048,
+                maxNumSeqs: 1,
+                memoryRequiredMi: 2048
+              }
+            ]
           },
           qwen3635b: {
             displayName: 'Qwen 3.6 35B NVIDIA',
@@ -230,11 +242,29 @@ BROWSER_API_MOCK = r"""
         computeTargets: {
           default: 'cpu',
           targets: [
-            { id: 'cpu', displayName: 'CPU', engines: ['VLLM'], available: true, message: 'Ready on 1 compatible node.' },
-            { id: 'nvidia-gpu', displayName: 'NVIDIA GPU', engines: ['VLLM'], available: false, message: 'Install the NVIDIA GPU module before selecting this target.' }
+            { id: 'cpu', kind: 'cpu', displayName: 'CPU', engines: ['VLLM', 'OLlama'], available: true, message: 'Ready on 1 compatible node.' },
+            { id: 'nvidia-gpu', kind: 'gpu', displayName: 'NVIDIA GPU', engines: ['VLLM', 'OLlama'], available: false, message: 'Install the NVIDIA GPU module before selecting this target.' },
+            { id: 'amd-gpu', kind: 'gpu', displayName: 'AMD GPU (ROCm)', engines: ['VLLM', 'OLlama'], available: false, message: 'No AMD GPU detected.' },
+            { id: 'intel-gpu', kind: 'gpu', displayName: 'Intel GPU (XPU)', engines: ['VLLM'], available: false, message: 'No Intel GPU detected.' }
           ]
         },
-        vram: { available: false }
+        vram: { available: false },
+        computeMemory: {
+          deviceCount: 2,
+          metricsComplete: true,
+          devices: [
+            {
+              id: 'cpu', kind: 'cpu', vendor: 'generic', name: 'CPU',
+              totalMi: 16384, reservedMi: 4096, unreservedMi: 12288,
+              freeMi: 10240, metricsAvailable: true, metricsSource: 'kubelet'
+            },
+            {
+              id: 'nvidia-GPU-1', kind: 'gpu', vendor: 'nvidia', name: 'NVIDIA Test GPU',
+              totalMi: 24576, reservedMi: 8192, unreservedMi: 16384,
+              freeMi: 18432, metricsAvailable: true, metricsSource: 'dcgm'
+            }
+          ]
+        }
       });
     }
     if (url.pathname === '/api/status') {
@@ -273,6 +303,29 @@ BROWSER_API_MOCK = r"""
             accepted: false
           }
         ],
+        hardwareOperators: {
+          gpu: {
+            module: 'gpu', displayName: 'NVIDIA GPU Operator', vendor: 'nvidia',
+            operatorVersion: 'v26.3.3', driverMode: 'operator-managed', phase: 'NotRequired',
+            needed: false, operatorActive: false, managedBy: 'none', detectedNodes: [],
+            compatibleNodes: [], allocatableResources: 0,
+            message: 'No matching NVIDIA hardware was detected.'
+          },
+          'amd-gpu': {
+            module: 'amd-gpu', displayName: 'AMD GPU Operator', vendor: 'amd',
+            operatorVersion: 'v1.5.1', driverMode: 'host-driver', phase: 'Installing',
+            needed: true, operatorActive: true, managedBy: 'magicstick', detectedNodes: ['amd-node'],
+            compatibleNodes: ['amd-node'], allocatableResources: 0,
+            message: 'The driver and device plugin are starting.'
+          },
+          'intel-gpu': {
+            module: 'intel-gpu', displayName: 'Intel GPU Operator', vendor: 'intel',
+            operatorVersion: '0.36.0', driverMode: 'kernel-driver', phase: 'Ready',
+            needed: true, operatorActive: true, managedBy: 'magicstick', detectedNodes: ['intel-node'],
+            compatibleNodes: ['intel-node'], allocatableResources: 1,
+            message: '1 allocatable GPU resource is ready.'
+          }
+        },
         events: []
       });
     }
@@ -379,8 +432,24 @@ BROWSER_ASSERTIONS = r"""
     assert(!overviewUrls.includes('https://pending.magicstick.example.com'), 'unaccepted HTTPRoute was shown');
     assert(document.getElementById('overview-app-count').textContent === '2 URLs', 'overview URL count is incorrect');
 
-    document.querySelector('[data-tab="modules"]').click();
-    await waitFor(() => !document.getElementById('tab-modules').hidden, 'Modules tab');
+    assert(!document.querySelector('[data-tab="modules"]'), 'legacy Modules tab is still visible');
+    assert(!document.querySelector('[data-tab="instances"]'), 'legacy Instances tab is still visible');
+    document.querySelector('[data-tab="services"]').click();
+    await waitFor(() => !document.getElementById('tab-services').hidden, 'Services tab');
+    const openClawService = document.querySelector('[data-service-application="openclaw"]');
+    assert(openClawService, 'OpenClaw application service is missing');
+    assert(openClawService.querySelectorAll('.service-instance-card').length === 1, 'OpenClaw instance is not nested below its application');
+    assert(openClawService.textContent.includes('openclaw-demo'), 'nested OpenClaw instance name is missing');
+    assert(document.getElementById('service-platform-list').hidden, 'platform details must start collapsed');
+    assert(document.getElementById('service-platform-toggle').getAttribute('aria-expanded') === 'false', 'platform toggle state is incorrect');
+    document.querySelector('[data-service-filter="platform"]').click();
+    assert(document.querySelector('[data-service-section="applications"]').hidden, 'application section remained visible under platform filter');
+    assert(!document.querySelector('[data-service-section="platform"]').hidden, 'platform section is hidden under platform filter');
+    assert(!document.getElementById('service-platform-list').hidden, 'platform filter did not expand technical modules');
+    document.getElementById('service-platform-toggle').click();
+    assert(document.getElementById('service-platform-list').hidden, 'platform toggle did not collapse technical modules');
+    document.querySelector('[data-service-filter="all"]').click();
+    assert(!document.querySelector('[data-service-section="applications"]').hidden, 'application section did not return under All filter');
     const moduleCredentials = document.querySelector('[data-module-credentials="litellm"]');
     const canReadCredentials = ['admin', 'operator', 'unavailable'].includes(scenario);
     if (canReadCredentials) {
@@ -396,8 +465,16 @@ BROWSER_ASSERTIONS = r"""
       assert(!callExists('GET', '/api/modules/litellm/credentials'), 'hidden LiteLLM credentials were requested');
     }
 
-    document.querySelector('[data-tab="instances"]').click();
-    await waitFor(() => !document.getElementById('tab-instances').hidden, 'Instances tab');
+    const directHermesCreate = document.querySelector('[data-service-application="hermes"] [data-instance-create="hermes"]');
+    assert(directHermesCreate, 'direct Hermes create action is missing');
+    directHermesCreate.click();
+    const directDialog = document.getElementById('instance-create-dialog');
+    await waitFor(() => directDialog.open && !document.getElementById('instance-config-step').hidden, 'direct Hermes configuration');
+    assert(!document.querySelector('.instance-form[data-instance-type="hermes"]').hidden, 'direct create did not select Hermes');
+    assert(document.getElementById('instance-type-step').hidden, 'type picker remained visible for direct create');
+    directDialog.querySelector('[data-dialog-cancel]').click();
+    await waitFor(() => !directDialog.open, 'close direct create dialog');
+
     const createInstance = document.getElementById('instance-create-open');
     assert(createInstance && !createInstance.hidden && !createInstance.closest('[hidden]'), 'Create Instance button is not visible');
     createInstance.click();
@@ -431,14 +508,49 @@ BROWSER_ASSERTIONS = r"""
 
     document.querySelector('[data-tab="models"]').click();
     await waitFor(() => !document.getElementById('tab-models').hidden, 'Models tab');
+    await waitFor(() => document.querySelectorAll('.memory-gauge').length === 2, 'compute memory gauges');
+    assert(!document.getElementById('vram-summary'), 'legacy NVIDIA VRAM summary is still present');
+    assert(!document.getElementById('vram-list'), 'legacy NVIDIA VRAM list is still present');
+    const cpuGauge = document.querySelector('[data-memory-device="cpu"]');
+    const gpuGauge = document.querySelector('[data-memory-device="nvidia-GPU-1"]');
+    assert(cpuGauge && cpuGauge.textContent.includes('CPU'), 'CPU memory gauge is missing');
+    assert(gpuGauge && gpuGauge.textContent.includes('NVIDIA Test GPU'), 'per-GPU memory gauge is missing');
+    assert(cpuGauge.querySelector('[data-memory-role="unreserved"]').dataset.percent === '75', 'CPU unreserved ring is incorrect');
+    assert(cpuGauge.querySelector('[data-memory-role="free"]').dataset.percent === '62.5', 'CPU actually-free ring is incorrect');
+    assert(cpuGauge.textContent.includes('12 GiB unreserved'), 'CPU unreserved value is missing');
+    assert(cpuGauge.textContent.includes('16 GiB total'), 'CPU total value is missing');
+    assert(cpuGauge.getAttribute('aria-label').includes('10 GiB actually free'), 'CPU accessible free-memory value is missing');
     const cpuTarget = document.querySelector('[data-compute-target="cpu"]');
     const nvidiaTarget = document.querySelector('[data-compute-target="nvidia-gpu"]');
+    const amdTarget = document.querySelector('[data-compute-target="amd-gpu"]');
+    const intelTarget = document.querySelector('[data-compute-target="intel-gpu"]');
     assert(cpuTarget && cpuTarget.getAttribute('aria-pressed') === 'true', 'CPU target was not selected by default');
     assert(nvidiaTarget && nvidiaTarget.disabled, 'unavailable NVIDIA target must be disabled');
+    assert(amdTarget && amdTarget.disabled, 'unavailable AMD target must be disabled');
+    assert(intelTarget && intelTarget.disabled, 'unavailable Intel target must be disabled');
     assert(document.getElementById('local-model-compute-target').value === 'cpu', 'CPU target was not stored in the form');
     assert(document.getElementById('local-model-preset').value === 'qwen2505bcpu', 'CPU-incompatible presets were not filtered');
     assert(!document.getElementById('cpu-runtime-summary').hidden, 'CPU runtime summary is hidden');
     assert(document.getElementById('vram-estimate').hidden, 'VRAM controls are visible for CPU inference');
+    const engineSelect = document.getElementById('local-model-engine');
+    engineSelect.value = 'OLlama';
+    engineSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    await waitFor(() => document.getElementById('local-model-url').value === 'ollama://qwen2.5:0.5b', 'Ollama preset fields');
+    assert(document.getElementById('local-model-url-label').textContent === 'Ollama Model URL', 'Ollama URL label is missing');
+    assert(document.getElementById('local-model-compute-target').value === 'cpu', 'Ollama did not keep a compatible CPU target');
+    assert(document.querySelector('[data-compute-target="intel-gpu"]').disabled, 'unsupported Ollama Intel target is enabled');
+    assert(document.getElementById('vram-estimate').hidden, 'vLLM estimator is visible for Ollama');
+    engineSelect.value = 'VLLM';
+    engineSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    await waitFor(() => document.getElementById('local-model-url').value.startsWith('hf://'), 'vLLM preset fields restored');
+
+    document.querySelector('[data-tab="system"]').click();
+    await waitFor(() => !document.getElementById('tab-system').hidden, 'System Status tab');
+    await waitFor(() => document.querySelectorAll('[data-hardware-operator]').length === 3, 'hardware operator cards');
+    assert(document.querySelector('[data-hardware-operator="nvidia"]').textContent.includes('NotRequired'), 'NVIDIA not-required state is missing');
+    assert(document.querySelector('[data-hardware-operator="amd"]').textContent.includes('Installing'), 'AMD installing state is missing');
+    assert(document.querySelector('[data-hardware-operator="intel"]').textContent.includes('1 allocatable resource'), 'Intel resource readiness is missing');
+    assert(document.getElementById('hardware-operator-summary').textContent === '1 ready / 2 active / 3 known', 'hardware operator summary is incorrect');
 
     const usersTab = document.getElementById('users-tab-button');
     assert(usersTab, 'Users tab is missing from the rendered DOM');
@@ -601,6 +713,22 @@ class DashboardUserManagementUiTests(unittest.TestCase):
         self.assertIn("roles.includes('magicstick-admin')", self.script)
         self.assertIn("showCredentials(card, payload)", self.script)
 
+    def test_services_tab_combines_modules_and_instances(self):
+        self.assertIn('data-tab="services"', self.source)
+        self.assertIn('id="tab-services"', self.source)
+        self.assertNotIn('data-tab="modules"', self.source)
+        self.assertNotIn('data-tab="instances"', self.source)
+        self.assertIn('id="service-applications-list"', self.source)
+        self.assertIn('id="service-runtime-list"', self.source)
+        self.assertIn('id="service-platform-list"', self.source)
+        self.assertIn('id="service-platform-toggle"', self.source)
+        self.assertIn("const renderServices = (modulePayload, instancePayload, statusPayload = {}) =>", self.script)
+        self.assertIn("applicationList.appendChild(createApplicationServiceCard", self.script)
+        self.assertIn("instanceList.appendChild(createInstanceServiceCard", self.script)
+        self.assertIn("renderServices(modulePayload, instancePayload, status);", self.script)
+        self.assertNotIn("renderModules(modulePayload, status);", self.script)
+        self.assertNotIn("renderInstances(instancePayload, status);", self.script)
+
     def test_instance_creation_uses_catalog_driven_two_step_dialog(self):
         self.assertIn('id="instance-create-open"', self.source)
         self.assertIn('id="instance-create-dialog"', self.source)
@@ -617,14 +745,26 @@ class DashboardUserManagementUiTests(unittest.TestCase):
     def test_local_model_creation_uses_available_compute_targets_and_preset_variants(self):
         self.assertIn('id="compute-target-picker"', self.source)
         self.assertIn('id="local-model-compute-target"', self.source)
-        self.assertIn('data-compute-target-section="nvidia-gpu"', self.source)
+        self.assertIn('id="local-model-engine"', self.source)
+        self.assertIn('<option value="OLlama">Ollama</option>', self.source)
+        self.assertIn('data-compute-target-section="gpu"', self.source)
         self.assertIn('data-compute-target-section="cpu"', self.source)
         self.assertIn("const renderComputeTargets = (modelPayload) =>", self.script)
         self.assertIn("target.available !== true", self.script)
-        self.assertIn("const presetVariant = (preset, targetId) =>", self.script)
+        self.assertIn("const presetVariant = (preset, targetId, engine = selectedLocalEngine()) =>", self.script)
+        self.assertIn("targetSupportsEngine(target, engine)", self.script)
         self.assertIn("computeTarget: computeTargetId", self.script)
-        self.assertIn("engine: 'VLLM'", self.script)
-        self.assertIn("if (computeTargetId === 'nvidia-gpu')", self.script)
+        self.assertIn("const engine = selectedLocalEngine()", self.script)
+        self.assertIn("engine\n", self.script)
+        self.assertIn("if (computeTargetKind(computeTargetId) === 'gpu')", self.script)
+
+    def test_system_status_shows_all_hardware_operator_lifecycle_states(self):
+        self.assertIn("<h3>GPU Operators</h3>", self.source)
+        self.assertIn('id="hardware-operator-list"', self.source)
+        self.assertIn("(status || {}).hardwareOperators", self.script)
+        self.assertIn("operator.operatorVersion", self.script)
+        self.assertIn("operator.allocatableResources", self.script)
+        self.assertIn("ready + ' ready / ' + active + ' active / ' + operators.length + ' known'", self.script)
 
     def test_instance_picker_exposes_unavailable_catalog_applications_safely(self):
         self.assertIn("form.dataset.instanceAvailable = installed ? 'true' : 'false'", self.script)

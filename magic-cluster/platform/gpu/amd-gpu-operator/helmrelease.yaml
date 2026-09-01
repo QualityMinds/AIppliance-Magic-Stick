@@ -1,0 +1,56 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: amd-gpu-operator
+  namespace: flux-system
+spec:
+  interval: 10m0s
+  targetNamespace: amd-gpu-operator
+  chart:
+    spec:
+      chart: gpu-operator-charts
+      version: v1.5.1
+      sourceRef:
+        kind: HelmRepository
+        name: amd-gpu-operator
+        namespace: flux-system
+  install:
+    createNamespace: false
+  values:
+    # Hardware discovery is cluster-wide and shared by all vendors.
+    node-feature-discovery:
+      enabled: false
+    # The first portable profile uses the host/inbox amdgpu driver. Out-of-tree
+    # driver builds require an explicit image repository and can reboot nodes;
+    # they must never be started merely because a PCI device appeared.
+    kmm:
+      enabled: false
+      watch: false
+    remediation:
+      enabled: false
+      installCRDs: false
+    installdefaultNFDRule: true
+    draDriver:
+      deviceClass:
+        create: false
+    controllerManager:
+      manager:
+        imagePullPolicy: IfNotPresent
+    deviceConfig:
+      spec:
+        selector:
+          feature.node.kubernetes.io/amd-gpu: "true"
+        driver:
+          enable: false
+          blacklist: false
+        devicePlugin:
+          enableDevicePlugin: true
+          enableNodeLabeller: true
+        metricsExporter:
+          enable: false
+        testRunner:
+          enable: false
+        configManager:
+          enable: false
+        draDriver:
+          enable: false

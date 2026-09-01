@@ -52,7 +52,11 @@ class LocalRuntimeTests(unittest.TestCase):
                     "nodeSelector": {"kubernetes.io/os": "linux"},
                     "requiredCapabilities": [],
                     "resourceNames": [],
-                    "engines": ["VLLM"],
+                    "engines": ["VLLM", "OLlama"],
+                    "engineProfiles": {
+                        "VLLM": {"defaultResourceProfile": "magicstick-vllm-cpu:1"},
+                        "OLlama": {"defaultResourceProfile": "magicstick-ollama-cpu:1"},
+                    },
                     "defaultResourceProfile": "magicstick-vllm-cpu:1",
                 },
                 "nvidia-gpu": {
@@ -63,8 +67,58 @@ class LocalRuntimeTests(unittest.TestCase):
                     "nodeSelector": {"kubernetes.io/os": "linux"},
                     "requiredCapabilities": ["compute.gpu.nvidia"],
                     "resourceNames": ["nvidia.com/gpu"],
-                    "engines": ["VLLM"],
+                    "engines": ["VLLM", "OLlama"],
+                    "engineProfiles": {
+                        "VLLM": {"defaultResourceProfile": "magicstick-nvidia-gpu:1"},
+                        "OLlama": {"defaultResourceProfile": "magicstick-ollama-nvidia-gpu:1"},
+                    },
                     "defaultResourceProfile": "magicstick-nvidia-gpu:1",
+                },
+                "amd-gpu": {
+                    "displayName": "AMD GPU (ROCm)",
+                    "kind": "gpu",
+                    "vendor": "amd",
+                    "architectures": ["amd64"],
+                    "nodeSelector": {"kubernetes.io/os": "linux"},
+                    "requiredCapabilities": ["compute.gpu.amd"],
+                    "resourceNames": ["amd.com/gpu"],
+                    "resourceProfilesByResource": {"amd.com/gpu": "magicstick-amd-gpu:1"},
+                    "engines": ["VLLM", "OLlama"],
+                    "engineProfiles": {
+                        "VLLM": {
+                            "defaultResourceProfile": "magicstick-amd-gpu:1",
+                            "resourceProfilesByResource": {"amd.com/gpu": "magicstick-amd-gpu:1"},
+                        },
+                        "OLlama": {
+                            "defaultResourceProfile": "magicstick-ollama-amd-gpu:1",
+                            "resourceProfilesByResource": {"amd.com/gpu": "magicstick-ollama-amd-gpu:1"},
+                        },
+                    },
+                    "defaultResourceProfile": "magicstick-amd-gpu:1",
+                },
+                "intel-gpu": {
+                    "displayName": "Intel GPU (XPU)",
+                    "kind": "gpu",
+                    "vendor": "intel",
+                    "architectures": ["amd64"],
+                    "nodeSelector": {"kubernetes.io/os": "linux"},
+                    "requiredCapabilities": ["compute.gpu.intel"],
+                    "resourceNames": ["gpu.intel.com/xe", "gpu.intel.com/i915"],
+                    "resourceProfilesByResource": {
+                        "gpu.intel.com/xe": "magicstick-intel-xe-gpu:1",
+                        "gpu.intel.com/i915": "magicstick-intel-i915-gpu:1",
+                    },
+                    "engines": ["VLLM"],
+                    "engineProfiles": {
+                        "VLLM": {
+                            "defaultResourceProfile": "magicstick-intel-i915-gpu:1",
+                            "resourceProfilesByResource": {
+                                "gpu.intel.com/xe": "magicstick-intel-xe-gpu:1",
+                                "gpu.intel.com/i915": "magicstick-intel-i915-gpu:1",
+                            },
+                        },
+                    },
+                    "defaultResourceProfile": "magicstick-intel-i915-gpu:1",
                 },
             },
         }
@@ -121,6 +175,28 @@ class LocalRuntimeTests(unittest.TestCase):
         result = self.server["remove_local_model_runtime"]()
 
         self.assertEqual(result, {"removed": [], "skipped": ["kubeai", "gpu"]})
+
+    def test_remove_local_runtime_preserves_hardware_detected_gpu_operator(self):
+        deleted = []
+        self.server["model_activations"] = lambda: []
+        self.server["module_activation"] = lambda name: {
+            "metadata": {
+                "name": name,
+                "annotations": {
+                    "appliance.magicstick.dev/auto-enabled": "true",
+                    "appliance.magicstick.dev/activation-source": (
+                        "hardware-detection" if name == "gpu" else ""
+                    ),
+                },
+            }
+        }
+        self.server["delete_json"] = lambda path: deleted.append(path) or {}
+
+        result = self.server["remove_local_model_runtime"]()
+
+        self.assertEqual(result, {"removed": ["kubeai"], "skipped": ["gpu"]})
+        self.assertEqual(len(deleted), 1)
+        self.assertTrue(deleted[0].endswith("/moduleactivations/kubeai"))
 
     def test_manual_gpu_activation_is_marked_user_managed(self):
         resource = self.server["module_activation_payload"]("gpu", True)
@@ -201,6 +277,47 @@ class LocalRuntimeTests(unittest.TestCase):
         self.assertTrue(targets["nvidia-gpu"]["available"])
         self.assertEqual(targets["nvidia-gpu"]["reason"], "ready")
 
+    def test_amd_and_intel_targets_require_vendor_resources_and_resolve_profile(self):
+        modules = {
+            "modules": {
+                "amd-gpu": {
+                    "enabled": True,
+                    "displayName": "AMD GPU Operator",
+                    "status": {"phase": "Ready"},
+                    "catalog": {"providesCapabilities": ["compute.gpu.amd"]},
+                },
+                "intel-gpu": {
+                    "enabled": True,
+                    "displayName": "Intel GPU Operator",
+                    "status": {"phase": "Ready"},
+                    "catalog": {"providesCapabilities": ["compute.gpu.intel"]},
+                },
+            }
+        }
+        self.server["ready_schedulable_nodes"] = lambda: [{
+            "metadata": {"labels": {"kubernetes.io/os": "linux"}},
+            "status": {
+                "nodeInfo": {"architecture": "amd64"},
+                "allocatable": {"amd.com/gpu": "1", "gpu.intel.com/xe": "2"},
+            },
+        }]
+
+        targets = {
+            target["id"]: target
+            for target in self.server["compute_target_availability"](modules)["targets"]
+        }
+
+        self.assertTrue(targets["amd-gpu"]["available"])
+        self.assertEqual(targets["amd-gpu"]["selectedResourceName"], "amd.com/gpu")
+        self.assertEqual(targets["amd-gpu"]["resolvedResourceProfile"], "magicstick-amd-gpu:1")
+        self.assertEqual(
+            targets["amd-gpu"]["resolvedResourceProfiles"]["OLlama"],
+            "magicstick-ollama-amd-gpu:1",
+        )
+        self.assertTrue(targets["intel-gpu"]["available"])
+        self.assertEqual(targets["intel-gpu"]["selectedResourceName"], "gpu.intel.com/xe")
+        self.assertEqual(targets["intel-gpu"]["resolvedResourceProfile"], "magicstick-intel-xe-gpu:1")
+
     def test_unavailable_nvidia_target_returns_conflict(self):
         self.server["summarized_modules"] = lambda: {
             "modules": {
@@ -235,7 +352,7 @@ class LocalRuntimeTests(unittest.TestCase):
 
         local = resource["spec"]["local"]
         self.assertEqual(local["computeTarget"], "cpu")
-        self.assertEqual(local["engine"], "VLLM")
+        self.assertEqual(local["engine"], "OLlama")
         self.assertEqual(local["preset"], "qwen2505bcpu")
         for forbidden in ("vram", "vramMi", "resourceProfile", "args", "env"):
             self.assertNotIn(forbidden, local)
@@ -243,6 +360,53 @@ class LocalRuntimeTests(unittest.TestCase):
             resource["metadata"]["labels"]["appliance.magicstick.dev/compute-target"],
             "cpu",
         )
+        self.assertEqual(resource["metadata"]["labels"]["appliance.magicstick.dev/engine"], "ollama")
+
+    def test_unknown_local_engine_is_rejected(self):
+        with self.assertRaises(self.server["RequestError"]) as raised:
+            self.server["model_activation_payload"]("local", {
+                "name": "invalid-engine",
+                "local": {"computeTarget": "cpu", "engine": "future-engine"},
+            })
+
+        self.assertEqual(raised.exception.status, 400)
+
+    def test_intel_target_rejects_ollama_until_an_official_profile_exists(self):
+        modules = {
+            "modules": {
+                "intel-gpu": {
+                    "enabled": True,
+                    "displayName": "Intel GPU Operator",
+                    "status": {"phase": "Ready"},
+                    "catalog": {"providesCapabilities": ["compute.gpu.intel"]},
+                },
+            }
+        }
+        self.server["summarized_modules"] = lambda: modules
+        self.server["ready_schedulable_nodes"] = lambda: [{
+            "metadata": {"labels": {"kubernetes.io/os": "linux"}},
+            "status": {
+                "nodeInfo": {"architecture": "amd64"},
+                "allocatable": {"gpu.intel.com/i915": "1"},
+            },
+        }]
+
+        with self.assertRaises(self.server["RequestError"]) as raised:
+            self.server["require_compute_target_available"]("intel-gpu", "OLlama")
+
+        self.assertEqual(raised.exception.status, 409)
+        self.assertIn("does not support OLlama", str(raised.exception))
+
+    def test_vram_estimate_rejects_ollama_without_calling_huggingface(self):
+        with self.assertRaises(self.server["RequestError"]) as raised:
+            self.server["estimate_model_vram"]({
+                "engine": "OLlama",
+                "computeTarget": "nvidia-gpu",
+                "url": "ollama://qwen2.5:0.5b",
+            })
+
+        self.assertEqual(raised.exception.status, 400)
+        self.assertIn("vLLM models only", str(raised.exception))
 
     def test_dashboard_renders_starting_model_phase_as_progress(self):
         source = (ROOT / "configmap.yaml").read_text(encoding="utf-8")
@@ -250,6 +414,189 @@ class LocalRuntimeTests(unittest.TestCase):
         self.assertIn("normalized === 'starting'", source)
         self.assertIn("label: 'Starting model runtime'", source)
         self.assertIn("'starting', 'reconciling'", source)
+
+    def test_status_payload_exposes_hardware_operator_state(self):
+        originals = {
+            "appliance": self.server["appliance"],
+            "list_resource": self.server["list_resource"],
+        }
+        self.server["appliance"] = lambda: {
+            "metadata": {"namespace": "ai-system", "name": "local"},
+            "spec": {},
+            "status": {
+                "hardwareOperators": {
+                    "gpu": {
+                        "displayName": "NVIDIA GPU Operator",
+                        "phase": "NotRequired",
+                        "operatorActive": False,
+                    }
+                }
+            },
+        }
+        self.server["list_resource"] = lambda _path: []
+        try:
+            payload = self.server["status_payload"]()
+        finally:
+            self.server.update(originals)
+
+        self.assertEqual(
+            payload["hardwareOperators"]["gpu"]["phase"],
+            "NotRequired",
+        )
+
+
+class ComputeMemoryTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.server = load_server()
+
+    def setUp(self):
+        names = (
+            "ready_schedulable_nodes",
+            "request_json",
+            "list_resource",
+            "compute_target_catalog",
+        )
+        self.originals = {name: self.server[name] for name in names}
+
+    def tearDown(self):
+        self.server.update(self.originals)
+
+    @staticmethod
+    def node(memory="16Gi", gpu_capacity=None):
+        capacity = {"memory": memory}
+        capacity.update(gpu_capacity or {})
+        return {
+            "metadata": {"name": "node-a", "labels": {"kubernetes.io/os": "linux"}},
+            "status": {
+                "capacity": capacity,
+                "allocatable": capacity,
+                "nodeInfo": {"architecture": "amd64"},
+            },
+        }
+
+    def test_cpu_gauge_uses_total_reserved_and_kubelet_available_memory(self):
+        self.server["ready_schedulable_nodes"] = lambda: [self.node()]
+        self.server["request_json"] = lambda _method, path, *_args, **_kwargs: {
+            "node": {"memory": {"availableBytes": 10 * 1024 * 1024 * 1024}}
+        } if path.endswith("/proxy/stats/summary") else {}
+        self.server["compute_target_catalog"] = lambda: {"targets": {}}
+        activations = [{
+            "metadata": {"name": "cpu-chat"},
+            "spec": {"type": "local", "enabled": True, "local": {"computeTarget": "cpu"}},
+            "status": {"memoryRequiredMi": 4096},
+        }]
+
+        result = self.server["compute_memory_summary"](
+            activations,
+            {"available": False, "gpus": []},
+        )
+
+        self.assertEqual(result["deviceCount"], 1)
+        cpu = result["devices"][0]
+        self.assertEqual(cpu["name"], "CPU")
+        self.assertEqual(cpu["totalMi"], 16384)
+        self.assertEqual(cpu["reservedMi"], 4096)
+        self.assertEqual(cpu["unreservedMi"], 12288)
+        self.assertEqual(cpu["freeMi"], 10240)
+        self.assertTrue(cpu["metricsAvailable"])
+        self.assertEqual(cpu["metricsSource"], "kubelet")
+
+    def test_cpu_gauge_falls_back_to_metrics_api_working_set(self):
+        self.server["ready_schedulable_nodes"] = lambda: [self.node()]
+
+        def deny_proxy(_method, path, *_args, **_kwargs):
+            if path.endswith("/proxy/stats/summary"):
+                raise urllib.error.HTTPError(path, 403, "Forbidden", None, None)
+            return {}
+
+        self.server["request_json"] = deny_proxy
+        self.server["list_resource"] = lambda path: [{
+            "metadata": {"name": "node-a"},
+            "usage": {"memory": "6Gi"},
+        }] if path == "/apis/metrics.k8s.io/v1beta1/nodes" else []
+        self.server["compute_target_catalog"] = lambda: {"targets": {}}
+
+        result = self.server["compute_memory_summary"]([], {"available": False, "gpus": []})
+
+        cpu = result["devices"][0]
+        self.assertEqual(cpu["freeMi"], 10240)
+        self.assertEqual(cpu["metricsSource"], "metrics-api-estimate")
+
+    def test_nvidia_gauge_is_per_device_and_applies_model_reservation(self):
+        self.server["ready_schedulable_nodes"] = lambda: []
+        self.server["compute_target_catalog"] = lambda: {"targets": {}}
+        activations = [{
+            "metadata": {"name": "gpu-chat"},
+            "spec": {
+                "type": "local",
+                "enabled": True,
+                "local": {"computeTarget": "nvidia-gpu", "vram": "8Gi"},
+            },
+            "status": {"vramRequiredMi": 8192},
+        }]
+        nvidia = {
+            "available": True,
+            "gpus": [{
+                "id": "0",
+                "uuid": "GPU-1",
+                "modelName": "NVIDIA Test GPU",
+                "hostname": "gpu-node",
+                "totalMi": 24576,
+                "freeMi": 18432,
+                "usedMi": 6144,
+            }],
+        }
+
+        result = self.server["compute_memory_summary"](activations, nvidia)
+
+        self.assertEqual(result["deviceCount"], 1)
+        gpu = result["devices"][0]
+        self.assertEqual(gpu["name"], "NVIDIA Test GPU")
+        self.assertEqual(gpu["reservedMi"], 8192)
+        self.assertEqual(gpu["unreservedMi"], 16384)
+        self.assertEqual(gpu["freeMi"], 18432)
+        self.assertEqual(gpu["metricsSource"], "dcgm")
+
+    def test_gpu_without_vendor_memory_exporter_is_visible_without_fake_values(self):
+        nodes = [self.node(gpu_capacity={"amd.com/gpu": "1"})]
+        catalog = {
+            "targets": {
+                "amd-gpu": {
+                    "displayName": "AMD GPU (ROCm)",
+                    "kind": "gpu",
+                    "vendor": "amd",
+                    "resourceNames": ["amd.com/gpu"],
+                }
+            }
+        }
+        placeholders = self.server["gpu_resource_placeholders"](nodes, catalog, [])
+        devices = self.server["assign_gpu_reservations"](placeholders, {
+            "amd-gpu": [{"model": "amd-chat", "reservedMi": 4096}],
+        })
+
+        self.assertEqual(len(devices), 1)
+        self.assertEqual(devices[0]["name"], "AMD GPU (ROCm)")
+        self.assertFalse(devices[0]["metricsAvailable"])
+        self.assertIsNone(devices[0]["freeMi"])
+        self.assertIsNone(devices[0]["unreservedMi"])
+        self.assertEqual(devices[0]["reservedMi"], 4096)
+
+    def test_dashboard_rbac_allows_read_only_node_memory_sources(self):
+        role = yaml.safe_load((ROOT / "clusterrole.yaml").read_text(encoding="utf-8"))
+        rules = role["rules"]
+        self.assertTrue(any(
+            rule.get("apiGroups") == [""]
+            and "nodes/proxy" in rule.get("resources", [])
+            and rule.get("verbs") == ["get"]
+            for rule in rules
+        ))
+        self.assertTrue(any(
+            rule.get("apiGroups") == ["metrics.k8s.io"]
+            and "nodes" in rule.get("resources", [])
+            and set(rule.get("verbs", [])) == {"get", "list"}
+            for rule in rules
+        ))
 
 
 class ModuleCredentialTests(unittest.TestCase):

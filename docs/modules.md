@@ -32,6 +32,8 @@ Each module definition may contain:
 | `requiredCrds` | CRDs that must exist before dependent instances are created. |
 | `default` | Whether the module is seeded by the default GPU-neutral appliance. |
 | `activationPolicy` | Optional lifecycle hint. `local-model` modules are requested automatically by local models and can also be managed explicitly in the dashboard. |
+| `hardware` | Optional vendor-detection contract: NFD label, supported architectures, Kubernetes floor, vendor support label, allocatable resource names, operator version, and driver mode. |
+| `waitForReady` | Makes the generated Flux Kustomization wait for the vendor HelmRelease and operands instead of accepting CRD creation as readiness. |
 | `uninstallPolicy` | Public metadata for data-retention choices. |
 | `postBuildSubstitution` | Whether to include `ai-appliance-settings` as Flux post-build substitution. |
 | `parameters` | Optional dashboard fields stored in `ModuleActivation.spec.parameters`; each field may declare its Flux `substitution` variable. |
@@ -51,7 +53,7 @@ authorized user explicitly opens the panel.
 modules. Existing `ModuleActivation` resources remain authoritative, so setting
 `spec.enabled: false` on a seeded module keeps it disabled.
 
-Modules with `activationMode: static`, currently `basis` and `dashboard`, are
+Modules with `activationMode: static`, currently `basis`, `hardware-discovery`, and `dashboard`, are
 shown as status-only modules in the dashboard. They are reconciled by the static
 Flux graph and cannot be toggled through `ModuleActivation`.
 
@@ -73,20 +75,56 @@ spec:
 
 ## On-Demand Local Model Runtime
 
-`gpu` and `kubeai` use `activationPolicy: local-model` and are not part of a
-fresh installation. Every local model requires KubeAI, while only the
-`nvidia-gpu` compute target resolves capability `compute.gpu.nvidia` to the
-`gpu` module. A CPU activation therefore installs KubeAI without installing an
-NVIDIA driver. External `ModelActivation` resources require only `litellm` and
-`model-catalog`.
+`kubeai` uses `activationPolicy: local-model` and is not part of a fresh
+installation. Every local model requires KubeAI. Accelerator targets resolve a
+vendor capability: `nvidia-gpu` to `compute.gpu.nvidia`, `amd-gpu` to
+`compute.gpu.amd`, and `intel-gpu` to `compute.gpu.intel`. A CPU activation
+therefore installs KubeAI without installing a GPU driver. External
+`ModelActivation` resources require only `litellm` and `model-catalog`. A model
+dependency never creates a hardware-detected vendor operator on a node where
+the corresponding GPU signal is absent.
 
-Both modules also expose normal **Enable** and **Disable** actions in the
+These runtime and provider modules also expose normal **Enable** and **Disable** actions in the
 dashboard. A manual action removes any automatic-activation marker and makes
 the module user-managed. For backward compatibility, the operator can still
 reconcile automatic markers on model activations created outside the dashboard.
 After every local model has been removed, **Remove Local Inference Runtime**
-deletes only automatically created KubeAI and GPU activations; manually managed
-activations are preserved.
+deletes only model-created runtime activations. Manually managed activations
+and vendor activations owned by hardware detection are preserved; deletion of
+an unmarked legacy NVIDIA activation exists only for upgrade compatibility.
+
+## Hardware-Driven GPU Operators
+
+One static Node Feature Discovery (NFD) installation scans every node and
+refreshes its labels every 60 seconds. Vendor charts never install their own NFD
+copy. Magic Stick watches the display/3D-controller vendor labels and creates an
+auto-enabled vendor `ModuleActivation` only when compatible hardware is present.
+
+| Module | Detection | Vendor support gate | Allocatable resource | Driver behavior |
+|---|---|---|---|---|
+| `gpu` | `feature.node.kubernetes.io/pci-10de.present` | same label; NVIDIA validates through ClusterPolicy | `nvidia.com/gpu` | NVIDIA GPU Operator managed |
+| `amd-gpu` | `feature.node.kubernetes.io/pci-1002.present` | `feature.node.kubernetes.io/amd-gpu` from AMD's NFD rule | `amd.com/gpu` | portable baseline uses the host/inbox `amdgpu` driver |
+| `intel-gpu` | `feature.node.kubernetes.io/pci-8086.present` | `intel.feature.node.kubernetes.io/gpu` from Intel's NFD rule | `gpu.intel.com/i915` or `gpu.intel.com/xe` | Linux kernel driver plus Intel device plugin |
+
+Detection is deliberately broader than the vendor support gate. Magic Stick
+does not maintain a product-ID allow-list; AMD and Intel decide whether a
+detected GPU is supported through their shipped `NodeFeatureRule`. Before
+activation the controller also requires Linux, a supported architecture, and
+the catalogued Kubernetes minimum. If the vendor CRD already exists without a
+Magic Stick activation, installation stops with `Conflict` rather than creating
+a second operator.
+
+Temporary label loss during reboot does not uninstall an existing operator.
+The status becomes `Unknown` and the activation is retained. An explicitly
+disabled activation is also authoritative and is never re-enabled by hardware
+detection. A provider reaches `Ready` only after Kubernetes publishes at least
+one allocatable vendor resource.
+
+The model form exposes `cpu`, `nvidia-gpu`, `amd-gpu`, and `intel-gpu`. A target
+is selectable only after its provider is `Ready` and the corresponding
+allocatable resource exists. Intel remains one user-facing target while the
+runtime resolves `gpu.intel.com/xe` or `gpu.intel.com/i915` to a matching KubeAI
+resource profile.
 
 ## Generated Flux Kustomization
 

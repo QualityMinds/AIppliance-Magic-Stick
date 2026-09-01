@@ -83,7 +83,7 @@ spec:
                       default: ai-system
                 local:
                   type: object
-                  description: Local KubeAI/vLLM model settings.
+                  description: Local KubeAI model settings for vLLM or Ollama.
                   x-kubernetes-preserve-unknown-fields: true
                   properties:
                     preset:
@@ -101,6 +101,7 @@ spec:
                       default: VLLM
                       enum:
                         - VLLM
+                        - OLlama
                     computeTarget:
                       type: string
                       description: Logical compute backend. Missing values on legacy resources are interpreted as nvidia-gpu.
@@ -108,6 +109,8 @@ spec:
                       enum:
                         - cpu
                         - nvidia-gpu
+                        - amd-gpu
+                        - intel-gpu
                       x-kubernetes-validations:
                         - rule: self == oldSelf
                           message: computeTarget is immutable; recreate the ModelActivation to change it

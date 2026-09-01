@@ -213,7 +213,7 @@ data:
             return token_file.read().strip()
 
 
-    def request_json(method, path, body=None, content_type="application/json"):
+    def request_json(method, path, body=None, content_type="application/json", timeout=20):
         data = None
         headers = {
             "Accept": "application/json",
@@ -223,7 +223,7 @@ data:
             data = json.dumps(body).encode("utf-8")
             headers["Content-Type"] = content_type
         request = urllib.request.Request(KUBE_API + path, data=data, headers=headers, method=method)
-        with urllib.request.urlopen(request, timeout=20, context=SSL_CONTEXT) as response:
+        with urllib.request.urlopen(request, timeout=timeout, context=SSL_CONTEXT) as response:
             payload = response.read().decode("utf-8")
             return json.loads(payload) if payload else {}
 
@@ -1415,6 +1415,9 @@ data:
             if str(annotations.get("appliance.magicstick.dev/auto-enabled") or "").lower() != "true":
                 skipped.append(module)
                 continue
+            if str(annotations.get("appliance.magicstick.dev/activation-source") or "") == "hardware-detection":
+                skipped.append(module)
+                continue
             delete_json(f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/moduleactivations/{module}")
             removed.append(module)
         return {"removed": removed, "skipped": skipped}
@@ -1705,6 +1708,28 @@ data:
         return payload if isinstance(payload, dict) else {"targets": {}}
 
 
+    def normalize_local_engine(value):
+        normalized = str(value or "VLLM").strip().upper()
+        if normalized == "VLLM":
+            return "VLLM"
+        if normalized == "OLLAMA":
+            return "OLlama"
+        raise RequestError(400, "unsupported local engine: " + str(value))
+
+
+    def target_engine_profile(definition, engine):
+        engine = normalize_local_engine(engine)
+        profile = (definition.get("engineProfiles") or {}).get(engine)
+        if isinstance(profile, dict):
+            return profile
+        if engine == "VLLM":
+            return {
+                "defaultResourceProfile": definition.get("defaultResourceProfile"),
+                "resourceProfilesByResource": definition.get("resourceProfilesByResource") or {},
+            }
+        return {}
+
+
     def ready_schedulable_nodes():
         result = []
         for node in list_resource("/api/v1/nodes"):
@@ -1762,6 +1787,9 @@ data:
             ]
             required_capabilities = [str(item) for item in (definition.get("requiredCapabilities") or [])]
             resource_names = [str(item) for item in (definition.get("resourceNames") or [])]
+            engines = [normalize_local_engine(item) for item in (definition.get("engines") or [])]
+            selected_resource_name = ""
+            resolved_resource_profile = str(definition.get("defaultResourceProfile") or "")
             available = bool(matching_nodes)
             reason = "ready" if available else "no-compatible-node"
             message = "Ready on " + str(len(matching_nodes)) + " compatible node(s)." if available else "No Ready, schedulable node has a supported architecture."
@@ -1793,10 +1821,17 @@ data:
                     break
 
             if available and resource_names:
-                capacity = 0
-                for node in matching_nodes:
-                    allocatable = (node.get("status") or {}).get("allocatable") or {}
-                    capacity += sum(resource_quantity(allocatable.get(resource_name)) for resource_name in resource_names)
+                capacities = {}
+                for resource_name in resource_names:
+                    capacities[resource_name] = sum(
+                        resource_quantity(((node.get("status") or {}).get("allocatable") or {}).get(resource_name))
+                        for node in matching_nodes
+                    )
+                selected_resource_name = next(
+                    (resource_name for resource_name in resource_names if capacities.get(resource_name, 0) >= 1),
+                    "",
+                )
+                capacity = capacities.get(selected_resource_name, 0)
                 if capacity < 1:
                     available = False
                     reason = "no-allocatable-resource"
@@ -1807,17 +1842,31 @@ data:
                     reason = "ready"
                     message = str(int(capacity)) + " allocatable " + str(definition.get("displayName") or target_id) + " resource(s) available."
 
+            resolved_resource_profiles = {}
+            for engine in engines:
+                engine_profile = target_engine_profile(definition, engine)
+                per_resource = engine_profile.get("resourceProfilesByResource") or {}
+                resolved_resource_profiles[engine] = str(
+                    per_resource.get(selected_resource_name)
+                    or engine_profile.get("defaultResourceProfile")
+                    or ""
+                )
+            resolved_resource_profile = resolved_resource_profiles.get("VLLM", resolved_resource_profile)
+
             result.append({
                 "id": target_id,
                 "displayName": str(definition.get("displayName") or target_id),
                 "kind": str(definition.get("kind") or ""),
                 "vendor": str(definition.get("vendor") or ""),
-                "engines": [str(item) for item in (definition.get("engines") or [])],
+                "engines": engines,
                 "architectures": sorted(architectures),
                 "nodeSelector": node_selector,
                 "requiredCapabilities": required_capabilities,
                 "resourceNames": resource_names,
+                "selectedResourceName": selected_resource_name,
                 "defaultResourceProfile": str(definition.get("defaultResourceProfile") or ""),
+                "resolvedResourceProfile": resolved_resource_profile,
+                "resolvedResourceProfiles": resolved_resource_profiles,
                 "available": available,
                 "reason": reason,
                 "message": message,
@@ -1825,14 +1874,25 @@ data:
             })
         result.sort(key=lambda item: (0 if item["id"] == "cpu" else 1, item["displayName"]))
         default_target = next((item["id"] for item in result if item["available"]), "")
-        return {"schemaVersion": catalog.get("schemaVersion", 1), "default": default_target, "targets": result}
+        return {
+            "schemaVersion": catalog.get("schemaVersion", 1),
+            "default": default_target,
+            "defaultEngine": "VLLM",
+            "engineCatalog": catalog.get("engines") or {
+                "VLLM": {"displayName": "vLLM", "urlScheme": "hf://", "supportsVramEstimate": True}
+            },
+            "targets": result,
+        }
 
 
-    def require_compute_target_available(compute_target):
+    def require_compute_target_available(compute_target, engine="VLLM"):
+        engine = normalize_local_engine(engine)
         availability = compute_target_availability()
         target = next((item for item in availability["targets"] if item["id"] == compute_target), None)
         if not target:
             raise RequestError(400, "unsupported compute target: " + str(compute_target))
+        if engine not in target.get("engines", []):
+            raise RequestError(409, str(target.get("displayName") or compute_target) + " does not support " + engine + ".")
         if not target["available"]:
             raise RequestError(409, target["message"])
         return target
@@ -2181,6 +2241,10 @@ data:
 
     def estimate_model_vram(payload):
         payload = payload or {}
+        engine = normalize_local_engine(payload.get("engine"))
+        if engine != "VLLM":
+            raise RequestError(400, "VRAM estimation is currently available for vLLM models only")
+        compute_target = str(payload.get("computeTarget") or "nvidia-gpu").strip().lower()
         repo = hf_repo_id(payload.get("url"))
         metadata = hf_metadata(repo)
         config = metadata.get("config") or {}
@@ -2224,15 +2288,20 @@ data:
         reserve_mi = max(2048, int(minimum_mi * 0.15))
         recommended_mi = minimum_mi + reserve_mi
 
-        vram = vram_summary(model_activations())
+        vram = vram_summary(model_activations()) if compute_target == "nvidia-gpu" else {"available": False}
         maximum_mi = vram.get("plannedRemainingMi") if vram.get("available") else None
         if maximum_mi is None:
-            warnings.append("Live GPU availability unavailable; max available cannot be verified.")
+            if compute_target == "nvidia-gpu":
+                warnings.append("Live GPU availability unavailable; max available cannot be verified.")
+            else:
+                warnings.append("Live accelerator memory metrics are not available for " + compute_target + "; max available cannot be verified.")
         elif maximum_mi < minimum_mi:
             warnings.append("Estimated minimum exceeds currently available unplanned VRAM.")
 
         return {
             "repo": repo,
+            "engine": engine,
+            "computeTarget": compute_target,
             "sourceUrl": "https://huggingface.co/" + repo,
             "minimumMi": int(minimum_mi),
             "recommendedMi": int(recommended_mi),
@@ -2301,7 +2370,7 @@ data:
                 raise ValueError("local must be an object")
             local = {}
             allowed = {
-                "preset", "url", "modelType", "computeTarget", "vram", "vramMi",
+                "preset", "url", "modelType", "engine", "computeTarget", "vram", "vramMi",
                 "contextWindow", "maxOutputTokens", "maxNumSeqs", "minReplicas", "maxReplicas",
             }
             for key in allowed:
@@ -2311,13 +2380,15 @@ data:
                 if key in payload and key not in local:
                     local[key] = payload[key]
             compute_target = str(local.get("computeTarget") or "nvidia-gpu").strip().lower()
+            engine = normalize_local_engine(local.get("engine"))
             local["computeTarget"] = compute_target
-            local["engine"] = "VLLM"
-            if compute_target == "cpu":
+            local["engine"] = engine
+            target_definition = ((compute_target_catalog().get("targets") or {}).get(compute_target) or {})
+            if target_definition.get("kind") == "cpu" or compute_target == "cpu":
                 local.pop("vram", None)
                 local.pop("vramMi", None)
             labels["appliance.magicstick.dev/compute-target"] = compute_target
-            labels["appliance.magicstick.dev/engine"] = "vllm"
+            labels["appliance.magicstick.dev/engine"] = engine.lower()
             spec["local"] = local
         else:
             external = dict(payload.get("external") or {})
@@ -2519,6 +2590,267 @@ data:
             }
 
 
+    def quantity_mi(value):
+        """Convert a Kubernetes memory quantity to whole MiB without rounding up."""
+        bytes_value = resource_quantity(value)
+        if not bytes_value or bytes_value < 0:
+            return 0
+        return int(bytes_value) // (1024 * 1024)
+
+
+    def active_model_memory_reservations(activations):
+        reservations = {}
+        for activation in activations:
+            metadata = activation.get("metadata") or {}
+            spec = activation.get("spec") or {}
+            if spec.get("type") != "local" or spec.get("enabled", True) is False:
+                continue
+            status = activation.get("status") or {}
+            local = spec.get("local") or {}
+            compute_target = str(
+                local.get("computeTarget")
+                or status.get("computeTarget")
+                or "nvidia-gpu"
+            ).strip().lower()
+            if compute_target == "cpu":
+                reserved_mi = (
+                    positive_int(status.get("memoryRequiredMi"))
+                    or positive_int(local.get("memoryRequiredMi"))
+                    or 0
+                )
+            else:
+                reserved_mi = (
+                    positive_int(status.get("vramRequiredMi"))
+                    or parse_mib(local.get("vram"))
+                    or positive_int(local.get("vramMi"))
+                    or 0
+                )
+            if not reserved_mi:
+                continue
+            reservations.setdefault(compute_target, []).append({
+                "model": str(metadata.get("name") or "local-model"),
+                "reservedMi": int(reserved_mi),
+            })
+        for items in reservations.values():
+            items.sort(key=lambda item: item["model"])
+        return reservations
+
+
+    def node_memory_samples(nodes):
+        samples = {}
+        missing = []
+        for node in nodes:
+            name = str((node.get("metadata") or {}).get("name") or "")
+            if not name:
+                continue
+            try:
+                summary = request_json(
+                    "GET",
+                    "/api/v1/nodes/"
+                    + urllib.parse.quote(name, safe="")
+                    + "/proxy/stats/summary",
+                    timeout=3,
+                )
+                available_bytes = (((summary.get("node") or {}).get("memory") or {}).get("availableBytes"))
+                if isinstance(available_bytes, (int, float)) and not isinstance(available_bytes, bool) and available_bytes >= 0:
+                    samples[name] = {
+                        "availableMi": int(available_bytes) // (1024 * 1024),
+                        "source": "kubelet",
+                    }
+                    continue
+            except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, ValueError, TypeError):
+                pass
+            missing.append(name)
+
+        if missing:
+            try:
+                metrics = {
+                    str((item.get("metadata") or {}).get("name") or ""): item
+                    for item in list_resource("/apis/metrics.k8s.io/v1beta1/nodes")
+                }
+            except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, ValueError, TypeError):
+                metrics = {}
+            nodes_by_name = {
+                str((node.get("metadata") or {}).get("name") or ""): node
+                for node in nodes
+            }
+            for name in missing:
+                total_mi = quantity_mi(
+                    (((nodes_by_name.get(name) or {}).get("status") or {}).get("capacity") or {}).get("memory")
+                )
+                used_mi = quantity_mi(((metrics.get(name) or {}).get("usage") or {}).get("memory"))
+                if total_mi and metrics.get(name):
+                    samples[name] = {
+                        "availableMi": max(0, total_mi - used_mi),
+                        "source": "metrics-api-estimate",
+                    }
+        return samples
+
+
+    def cpu_memory_device(nodes, reservations):
+        if not nodes:
+            return None
+        total_mi = sum(
+            quantity_mi((((node.get("status") or {}).get("capacity") or {}).get("memory")))
+            for node in nodes
+        )
+        reserved_models = reservations.get("cpu") or []
+        reserved_mi = sum(int(item.get("reservedMi") or 0) for item in reserved_models)
+        samples = node_memory_samples(nodes)
+        node_names = [
+            str((node.get("metadata") or {}).get("name") or "")
+            for node in nodes
+            if (node.get("metadata") or {}).get("name")
+        ]
+        metrics_available = bool(node_names) and all(name in samples for name in node_names)
+        available_mi = (
+            sum(int(samples[name]["availableMi"]) for name in node_names)
+            if metrics_available
+            else None
+        )
+        sources = sorted({samples[name]["source"] for name in node_names if name in samples})
+        return {
+            "id": "cpu",
+            "kind": "cpu",
+            "vendor": "generic",
+            "computeTarget": "cpu",
+            "name": "CPU",
+            "nodes": node_names,
+            "totalMi": total_mi,
+            "reservedMi": reserved_mi,
+            "unreservedMi": max(0, total_mi - reserved_mi) if total_mi else None,
+            "freeMi": available_mi,
+            "metricsAvailable": metrics_available,
+            "metricsSource": sources[0] if len(sources) == 1 else ("mixed" if sources else ""),
+            "reservations": reserved_models,
+        }
+
+
+    def gpu_resource_placeholders(nodes, compute_catalog, measured_devices):
+        measured_targets = {
+            str(device.get("computeTarget") or "")
+            for device in measured_devices
+            if device.get("metricsAvailable")
+        }
+        devices = []
+        definitions = (compute_catalog.get("targets") or {}) if isinstance(compute_catalog, dict) else {}
+        for target_id, definition in definitions.items():
+            if not isinstance(definition, dict) or str(definition.get("kind") or "") != "gpu":
+                continue
+            if target_id in measured_targets:
+                continue
+            resource_names = [str(item) for item in (definition.get("resourceNames") or [])]
+            vendor = str(definition.get("vendor") or "gpu")
+            display_name = str(definition.get("displayName") or "GPU")
+            slot = 0
+            for node in nodes:
+                status = node.get("status") or {}
+                capacity = status.get("capacity") or status.get("allocatable") or {}
+                count = int(sum(resource_quantity(capacity.get(name)) for name in resource_names))
+                node_name = str((node.get("metadata") or {}).get("name") or "")
+                for _index in range(max(0, min(count, 32))):
+                    slot += 1
+                    devices.append({
+                        "id": target_id + "-" + str(slot),
+                        "kind": "gpu",
+                        "vendor": vendor,
+                        "computeTarget": target_id,
+                        "name": display_name + (" " + str(slot) if count > 1 else ""),
+                        "nodes": [node_name] if node_name else [],
+                        "totalMi": 0,
+                        "reservedMi": 0,
+                        "unreservedMi": None,
+                        "freeMi": None,
+                        "metricsAvailable": False,
+                        "metricsSource": "",
+                        "reservations": [],
+                    })
+        return devices
+
+
+    def assign_gpu_reservations(devices, reservations):
+        by_target = {}
+        for device in devices:
+            device["reservedMi"] = int(device.get("reservedMi") or 0)
+            device["reservations"] = list(device.get("reservations") or [])
+            by_target.setdefault(str(device.get("computeTarget") or ""), []).append(device)
+
+        for target, items in reservations.items():
+            if target == "cpu":
+                continue
+            candidates = by_target.get(target) or []
+            for reservation in items:
+                if not candidates:
+                    continue
+                amount = int(reservation.get("reservedMi") or 0)
+                known = [device for device in candidates if int(device.get("totalMi") or 0) > 0]
+                fitting = [
+                    device for device in known
+                    if int(device.get("totalMi") or 0) - int(device.get("reservedMi") or 0) >= amount
+                ]
+                if fitting:
+                    selected = min(
+                        fitting,
+                        key=lambda device: int(device.get("totalMi") or 0) - int(device.get("reservedMi") or 0),
+                    )
+                elif known:
+                    selected = max(
+                        known,
+                        key=lambda device: int(device.get("totalMi") or 0) - int(device.get("reservedMi") or 0),
+                    )
+                else:
+                    selected = min(candidates, key=lambda device: len(device.get("reservations") or []))
+                selected["reservedMi"] += amount
+                selected["reservations"].append(reservation)
+
+        for device in devices:
+            total_mi = int(device.get("totalMi") or 0)
+            device["unreservedMi"] = max(0, total_mi - device["reservedMi"]) if total_mi else None
+        return devices
+
+
+    def compute_memory_summary(activations, nvidia_vram=None):
+        nodes = ready_schedulable_nodes()
+        reservations = active_model_memory_reservations(activations)
+        devices = []
+        cpu = cpu_memory_device(nodes, reservations)
+        if cpu:
+            devices.append(cpu)
+
+        nvidia_vram = nvidia_vram if isinstance(nvidia_vram, dict) else vram_summary(activations)
+        nvidia_gpus = (nvidia_vram.get("gpus") or []) if nvidia_vram.get("available") else []
+        for index, gpu in enumerate(nvidia_gpus, start=1):
+            model_name = str(gpu.get("modelName") or "").strip()
+            device_name = str(gpu.get("device") or gpu.get("id") or index).strip()
+            devices.append({
+                "id": "nvidia-" + str(gpu.get("uuid") or gpu.get("id") or index),
+                "kind": "gpu",
+                "vendor": "nvidia",
+                "computeTarget": "nvidia-gpu",
+                "name": model_name or ("NVIDIA GPU " + device_name),
+                "nodes": [str(gpu.get("hostname"))] if gpu.get("hostname") else [],
+                "totalMi": int(gpu.get("totalMi") or 0),
+                "reservedMi": 0,
+                "unreservedMi": None,
+                "freeMi": int(gpu.get("freeMi") or 0),
+                "metricsAvailable": bool(int(gpu.get("totalMi") or 0)),
+                "metricsSource": "dcgm",
+                "reservations": [],
+            })
+
+        devices.extend(gpu_resource_placeholders(nodes, compute_target_catalog(), devices))
+        gpu_devices = assign_gpu_reservations(
+            [device for device in devices if device.get("kind") == "gpu"],
+            reservations,
+        )
+        devices = ([cpu] if cpu else []) + gpu_devices
+        return {
+            "devices": devices,
+            "deviceCount": len(devices),
+            "metricsComplete": bool(devices) and all(device.get("metricsAvailable") for device in devices),
+        }
+
+
     def module_state(modules_payload, name):
         return ((modules_payload or {}).get("modules") or {}).get(name) or {}
 
@@ -2544,6 +2876,7 @@ data:
         }
         anything = dict(stack.get("anything-llm") or {})
         anything["url"] = first_ingress_url(MODEL_TARGET_NAMESPACE, "anything-llm")
+        vram = vram_summary(activations)
         return {
             "catalog": generated_model_catalog(),
             "models": (generated_model_catalog().get("models") or []),
@@ -2551,13 +2884,15 @@ data:
             "presets": model_presets(),
             "modules": stack,
             "anythingLlm": anything,
-            "vram": vram_summary(activations),
+            "vram": vram,
+            "computeMemory": compute_memory_summary(activations, vram),
             "computeTargets": compute_target_availability(modules_payload),
         }
 
 
     def status_payload():
         current = appliance()
+        appliance_status = current.get("status") or {}
         flux = list_resource("/apis/kustomize.toolkit.fluxcd.io/v1/namespaces/flux-system/kustomizations")
         pods = list_resource("/api/v1/pods")
         services = list_resource("/api/v1/services")
@@ -2576,6 +2911,7 @@ data:
             "services": summarize_objects(services),
             "ingresses": summarize_ingresses(ingresses),
             "httpRoutes": summarize_http_routes(http_routes),
+            "hardwareOperators": appliance_status.get("hardwareOperators") or {},
         }
 
 
@@ -2873,7 +3209,10 @@ data:
                         compute_target = str(
                             local.get("computeTarget") or payload.get("computeTarget") or "nvidia-gpu"
                         ).strip().lower()
-                        require_compute_target_available(compute_target)
+                        engine = normalize_local_engine(
+                            local.get("engine") or payload.get("engine") or "VLLM"
+                        )
+                        require_compute_target_available(compute_target, engine)
                     else:
                         payload = read_body(self)
                     resource = model_activation_payload(model_type, payload)

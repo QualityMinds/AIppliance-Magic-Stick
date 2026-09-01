@@ -26,6 +26,10 @@ digest, or chart version.
 | `ghcr.io/berriai/litellm:v1.84.0` | https://github.com/BerriAI/litellm | LiteLLM | Referenced only |
 | `vllm/vllm-openai:v0.23.0` | https://github.com/vllm-project/vllm | NVIDIA-backed local vLLM model serving through KubeAI | Referenced only |
 | `vllm/vllm-openai-cpu:v0.23.0` | https://github.com/vllm-project/vllm | CPU-backed local vLLM model serving through KubeAI | Referenced only |
+| `vllm/vllm-openai-rocm:v0.26.0` | https://github.com/vllm-project/vllm | AMD ROCm-backed local vLLM model serving through KubeAI | Referenced only |
+| `vllm/vllm-openai-xpu:v0.26.0` | https://github.com/vllm-project/vllm | Intel XPU-backed local vLLM model serving through KubeAI | Referenced only |
+| `ollama/ollama:0.11.11` | https://github.com/ollama/ollama | CPU- and NVIDIA-backed local Ollama model serving through KubeAI | Referenced only |
+| `ollama/ollama:0.11.11-rocm` | https://github.com/ollama/ollama | AMD ROCm-backed local Ollama model serving through KubeAI | Referenced only |
 | `mintplexlabs/anythingllm:1.12.1` | https://github.com/Mintplex-Labs/anything-llm | AnythingLLM | Referenced only |
 | `qdrant/qdrant:v1.13.6` | https://github.com/qdrant/qdrant | Qdrant vector database | Referenced only |
 | `ghcr.io/paperclipai/paperclip:sha-df0e5bd` | https://github.com/paperclipai/paperclip | Paperclip `v2026.707.0` compatible runtime build | Referenced only |
@@ -47,7 +51,10 @@ digest, or chart version.
 | `kubernetes-secret-generator` | https://helm.mittwald.de | `3.4.1` | Generated Kubernetes secrets |
 | `reloader` | https://stakater.github.io/stakater-charts | Unpinned | Config and secret reloads |
 | `kdns` | `oci://ghcr.io/lab42/charts` | `0.2.3` | Local DNS integration; chart remains upstream while the workload image temporarily uses the repository-built Gateway API contribution |
-| `gpu-operator` | https://helm.ngc.nvidia.com/nvidia | Unpinned | Optional NVIDIA GPU support installed only for NVIDIA compute targets |
+| `node-feature-discovery` | https://kubernetes-sigs.github.io/node-feature-discovery/charts | `0.18.3` | Shared node hardware detection and 60-second relabeling for all accelerator vendors |
+| NVIDIA `gpu-operator` | https://helm.ngc.nvidia.com/nvidia | `v26.3.3` | Hardware-triggered NVIDIA driver and device-plugin lifecycle; bundled NFD disabled |
+| AMD `gpu-operator-charts` | https://rocm.github.io/gpu-operator | `v1.5.1` | Hardware-triggered AMD device configuration and device plugin with host/inbox driver baseline; bundled NFD disabled |
+| Intel `intel-device-plugins-operator` and `intel-device-plugins-gpu` | https://intel.github.io/helm-charts/ | `0.36.0` | Hardware-triggered Intel GPU device-plugin lifecycle with shared NFD |
 | `kubeai` | https://www.kubeai.org | `0.23.2` | Optional CPU- or accelerator-backed local AI model serving platform |
 | `hermes-operator` | `oci://ghcr.io/paperclipinc/charts` | `0.1.18` | Hermes runtime orchestration and long-lived gateway runtime |
 | `openclaw-operator` | `oci://ghcr.io/paperclipinc/charts` | `0.36.4` | OpenClaw runtime orchestration |

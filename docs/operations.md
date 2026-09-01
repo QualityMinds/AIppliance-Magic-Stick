@@ -80,6 +80,15 @@ kubectl -n identity-system get httproute,securitypolicy
 kubectl -n identity-system get httproutes,securitypolicies
 ```
 
+The dashboard's **Services** tab combines the former Modules and Instances
+views. Application instances appear below their parent application, shared AI
+runtime modules have their own compact section, and technical platform modules
+are collapsed by default. These are presentation groups only: module actions
+still reconcile `ModuleActivation` resources and instance actions still
+reconcile `AppInstance` resources. When an entry appears in the wrong group,
+inspect the module catalog and application `requiredModules` before changing a
+runtime resource.
+
 ## Identity Pilot Checks
 
 ```bash
@@ -248,33 +257,43 @@ kubectl -n ai logs deploy/ai-model-catalog-controller
 For schema details and model troubleshooting, see
 [model-catalog.md](model-catalog.md).
 
-## Local Inference: CPU, NVIDIA, And KubeAI
+## Local Inference And Hardware-Driven GPU Operators
 
-KubeAI is installed only after a local model requests it. CPU models do not
-install the NVIDIA module. A healthy CPU/external-only appliance therefore has
-no `gpu-operator` namespace or `platform-gpu` Flux Kustomization.
+KubeAI is installed only after a local model requests it. NFD is always present,
+but a healthy CPU/external-only appliance has no NVIDIA, AMD, or Intel
+`ModuleActivation` and no vendor operator workloads.
 
 ```bash
-kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.status.allocatable.nvidia\.com/gpu}{"\n"}{end}'
+kubectl -n node-feature-discovery get pods
+kubectl get nodes --show-labels
+kubectl -n ai-system get appliance local \
+  -o jsonpath='{.status.hardwareOperators}{"\n"}'
+kubectl -n ai-system get moduleactivations
+kubectl get nodes -o custom-columns='NODE:.metadata.name,NVIDIA:.status.allocatable.nvidia\.com/gpu,AMD:.status.allocatable.amd\.com/gpu,INTEL_I915:.status.allocatable.gpu\.intel\.com/i915,INTEL_XE:.status.allocatable.gpu\.intel\.com/xe'
 kubectl -n gpu-operator get pods
+kubectl -n amd-gpu-operator get pods
+kubectl -n inteldeviceplugins-system get pods
 kubectl -n ai get models.kubeai.org
 kubectl -n ai get pods -l app.kubernetes.io/name=kubeai
 ```
 
-For a CPU activation, inspect the resolved target/profile and vLLM logs:
+For any local activation, inspect the resolved engine, target, profile, and
+model-server logs:
 
 ```bash
 kubectl -n ai-system get modelactivation qwen2505bcpu \
-  -o jsonpath='{.status.computeTarget}{" "}{.status.resolvedResourceProfile}{"\n"}'
+  -o jsonpath='{.status.engine}{" "}{.status.computeTarget}{" "}{.status.resolvedResourceProfile}{"\n"}'
 kubectl -n ai get model qwen2505bcpu -o yaml
+kubectl -n ai logs -l model=qwen2505bcpu --tail=200
 ```
 
 If model pods fail to start, check:
 
-- NVIDIA GPU Operator pods
-- node GPU allocatable resources
+- the provider phase and message in `status.hardwareOperators`
+- the matching NFD detection label and, for AMD/Intel, the vendor support label
+- vendor operator pods and node GPU allocatable resources
 - KubeAI `Model` status
-- vLLM model pod logs
+- vLLM or Ollama model pod logs
 - model cache space under the host cache path
 
 The bundled `qwen3827b` preset reserves `24062Mi` and targets a single 24
@@ -285,6 +304,18 @@ physical tokens as safety headroom for compaction and tool-turn overhead. If
 the vLLM wrapper reports that this budget is larger than the physical GPU
 memory, choose a smaller preset or create a custom activation with lower VRAM,
 context, output, and concurrency values.
+
+The portable `qwen2505bcpu` preset can also be created with `computeTarget`
+`nvidia-gpu`, `amd-gpu`, or `intel-gpu`. Intel resolves to
+`magicstick-intel-xe-gpu:1` or `magicstick-intel-i915-gpu:1` according to the
+allocatable resource. If neither resource is present, the dashboard disables
+the Intel target and the API rejects it.
+
+With `engine: OLlama`, the same portable preset uses
+`ollama://qwen2.5:0.5b`. CPU, NVIDIA, and AMD are supported. Intel remains
+unavailable for Ollama until a validated image/profile is added. Ollama model
+blobs persist below `/root/.ollama` on the appliance host, so a model-pod
+restart does not normally download the complete model again.
 
 ## Storage
 
@@ -349,9 +380,15 @@ deploy,pods` if a command does not match the running resource name.
 | Users tab is missing for an administrator | Confirm the session contains `magicstick-admin` and the installation uses local Keycloak rather than the direct-external-provider escape hatch. Refresh the browser after role changes. |
 | Users tab reports that Keycloak is unavailable | Check Keycloak readiness, the dashboard API logs, the existence of `magicstick-user-admin-client`, and its exact-name Secret Role. Do not decode the Secret. |
 | User change returns `409` | Check whether the account is external, protected, the current actor, or the last enabled local administrator. Duplicate username or email also returns `409`. |
-| GPU model never starts | Check GPU Operator, allocatable GPU resources, KubeAI model status, and vLLM logs. |
+| GPU model never starts | Check the vendor GPU operator, allocatable GPU resources, KubeAI model status, and the selected vLLM/Ollama server logs. |
+| GPU hardware is present but provider is `Unsupported` | Confirm node architecture/Kubernetes preflight first. For AMD or Intel, the broad PCI vendor label can exist while the vendor `NodeFeatureRule` rejects that product; use the operator's supported-hardware documentation instead of adding a Magic Stick PCI allow-list. |
+| Provider is `Conflict` | A vendor CRD already existed without a Magic Stick `ModuleActivation`. Decide which installation owns the operator; do not run a second copy. |
+| Provider remains `Installing` with zero resources | The controller chart is installed but driver/device-plugin readiness is incomplete. Inspect the vendor namespace and the node's allocatable extended resources. AMD's baseline expects a working host/inbox `amdgpu` driver. |
+| Provider changes to `Unknown` after reboot | NFD has temporarily lost the PCI signal. Magic Stick intentionally retains the existing operator; wait for the next 60-second NFD pass and inspect the node before taking action. |
 | Local model stays in `WaitingForGPU` | The optional runtime is installed but Kubernetes reports no allocatable `nvidia.com/gpu`; verify supported hardware, driver pods, and node capacity. |
-| NVIDIA target is disabled in the dashboard | The NVIDIA module must be `Ready` and at least one Ready schedulable node must expose allocatable `nvidia.com/gpu`. CPU remains available independently. |
+| Accelerator target is disabled in the dashboard | The matching vendor module must be `Ready` and a Ready schedulable node must expose `nvidia.com/gpu`, `amd.com/gpu`, `gpu.intel.com/i915`, or `gpu.intel.com/xe`. CPU remains available independently. |
+| A Compute memory gauge shows `metrics unavailable` | CPU first checks the Kubelet node summary and then `metrics.k8s.io`; verify the dashboard API ServiceAccount can read `nodes/proxy` and node metrics. NVIDIA requires the DCGM exporter. AMD and Intel are still listed but intentionally show no percentage until a compatible vendor memory exporter is installed. |
+| Intel model stays in `WaitingForGPU` | Confirm whether the node publishes `gpu.intel.com/xe` or `gpu.intel.com/i915`; the resolved profile in `ModelActivation.status` must match that resource. |
 | CPU model stays in `Starting` | Check the CPU model Pod for image-pull, RAM, CPU, model-download, or vLLM startup failures; no NVIDIA checks should appear. |
 | CPU vLLM reports insufficient memory for KV cache | Lower the trusted preset's `kvCacheMemoryBytes`, reduce other node memory use, or allocate more appliance RAM. Do not use `VLLM_CPU_KVCACHE_SPACE` for sub-GiB values because vLLM parses it as whole GiB. |
-| Local model stays in `Starting` | Compare `kubectl -n ai get model <name> -o jsonpath='{.status.replicas}'` with the model pod readiness and vLLM logs. The model is intentionally absent from LiteLLM until at least one replica is ready. |
+| Local model stays in `Starting` | Compare `kubectl -n ai get model <name> -o jsonpath='{.status.replicas}'` with the model pod readiness and selected engine logs. The model is intentionally absent from LiteLLM until at least one replica is ready. |

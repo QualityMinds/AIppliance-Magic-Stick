@@ -27,6 +27,14 @@ formalized, release entries should group changes under:
   reset, and protected deletion.
 - CPU-backed local vLLM inference with a target-aware dashboard selector,
   cross-architecture smoke preset, and an extensible compute-target catalog.
+- Shared 60-second Node Feature Discovery plus hardware-triggered, pinned
+  NVIDIA, AMD, and Intel GPU operators with preflight, conflict protection,
+  retained restart state, allocatable-resource readiness, and dashboard status.
+- AMD ROCm and Intel XPU vLLM targets with vendor-specific KubeAI profiles,
+  automatic Intel `xe`/`i915` resolution, and availability-gated model controls.
+- Ollama as a second KubeAI inference engine with engine-aware dashboard
+  controls, CPU/NVIDIA/AMD profiles, a portable Qwen2.5 smoke preset, persistent
+  model cache, and target compatibility enforcement.
 
 ### Changed
 
@@ -65,7 +73,7 @@ formalized, release entries should group changes under:
 - LiteLLM's SSO policy no longer replaces its `Bearer sk-...` virtual-key
   header with the Keycloak access token on UI and API requests.
 - The enabled LiteLLM module again exposes its generated UI and API credentials
-  to authorized operators and administrators from the dashboard Modules tab.
+  to authorized operators and administrators from the dashboard Services tab.
 - The Envoy Gateway now redirects appliance HTTP URLs, including LiteLLM UI
   paths, to the equivalent HTTPS URL instead of refusing port 80 connections.
 

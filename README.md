@@ -184,10 +184,20 @@ specialized operators, while OpenClaw, Hermes, Paperclip, and KubeOpenCode
 remain responsible for their own workloads.
 
 The default appliance is GPU-neutral: LiteLLM and the model catalog support
-external providers without accelerator hardware. Local vLLM models explicitly
-select `cpu` or `nvidia-gpu`. CPU models install only KubeAI; NVIDIA models also
-request the NVIDIA GPU module and remain in `WaitingForGPU` until Kubernetes
-exposes an allocatable `nvidia.com/gpu` resource.
+external providers without accelerator hardware. Local models choose vLLM or
+Ollama and then a compatible compute target. vLLM supports `cpu`,
+`nvidia-gpu`, `amd-gpu`, and `intel-gpu`; Ollama supports CPU, NVIDIA, and AMD.
+CPU models install only KubeAI; accelerator models also require their matching
+provider and remain in `WaitingForGPU` until Kubernetes exposes the vendor
+resource.
+
+One shared Node Feature Discovery installation continuously classifies cluster
+nodes. Matching NVIDIA, AMD, or Intel hardware requests only that vendor's
+pinned operator; CPU-only clusters run none of them. The dashboard System Status
+page always shows all three providers as `NotRequired`, `Installing`, `Ready`,
+or with a concrete failure reason. The Models screen enables only providers
+that are `Ready`; Intel automatically selects its `xe` or `i915` resource
+profile.
 
 The dashboard is the UI and API client for this model. It reads the Appliance,
 module catalog, Flux, Pod, Service, Ingress, and Event status, and creates or
@@ -214,6 +224,7 @@ kubectl kustomize magic-cluster/flux/entrypoints/single-node
 kubectl kustomize magic-cluster/apps/dashboard
 kubectl kustomize magic-cluster/platform/magicstick-operator
 kubectl kustomize magic-cluster/platform/basis
+kubectl kustomize magic-cluster/platform/hardware-discovery
 kubectl kustomize magic-cluster/platform/gpu
 kubectl kustomize magic-cluster/platform/ai/kubeai
 kubectl kustomize magic-cluster/platform/ai/hermes-operator

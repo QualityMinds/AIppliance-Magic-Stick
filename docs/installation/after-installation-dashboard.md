@@ -118,6 +118,9 @@ müssen separat eingerichtet sein.
 - **Flux**: alle erforderlichen Kustomizations sollten `Ready` sein;
 - **Pods**: die laufenden Pods sollten sich nach der Startphase stabilisieren;
 - **Gateway Routes**: verwendete Routen sollten `Accepted` melden.
+- **GPU Operators**: NVIDIA, AMD und Intel zeigen `NotRequired`, solange keine
+  passende Hardware erkannt wurde; ein benötigter Anbieter durchläuft
+  `Detected`, `Installing` und schließlich `Ready`.
 
 Kurzzeitige Zustände während der Installation sind normal. Bleibt ein Zustand
 länger als einige Minuten unverändert oder wird `Degraded` angezeigt, verwende
@@ -131,17 +134,20 @@ verwenden möchtest.
 
 ### Rechner mit unterstützter NVIDIA-GPU
 
-Füge unter **Models → Local Model** ein lokales Modell hinzu. Beim ersten
-lokalen Modell installiert der Operator automatisch **GPU** und **KubeAI**.
-Das Modell bleibt währenddessen in `WaitingForModules` und anschließend
-gegebenenfalls in `WaitingForGPU`. Sobald Kubernetes eine NVIDIA-GPU meldet,
-wird das KubeAI-Modell erstellt.
+NFD erkennt die GPU und der Magic Stick installiert automatisch den passenden
+NVIDIA Operator. Warte unter **System Status**, bis der Anbieter `Ready` meldet.
+Füge dann unter **Models → Local Model** ein lokales Modell hinzu und wähle
+**NVIDIA GPU**. KubeAI wird dabei automatisch ergänzt. Das Modell bleibt
+während des Starts gegebenenfalls in `WaitingForModules` oder `WaitingForGPU`.
 
 ### Rechner ohne unterstützte NVIDIA-GPU
 
-Verwende ein externes Modell. Eine neue Installation enthält weder den NVIDIA
-GPU Operator noch KubeAI. **LiteLLM** und **Model Catalog** bleiben aktiv; sie
-werden für externe Modelle und viele Anwendungen benötigt.
+Wähle für ein kleines, passendes lokales Preset **CPU**. Dabei wird KubeAI ohne
+GPU-Treiber installiert; ausreichend RAM und CPU-Leistung bleiben erforderlich.
+Alternativ verwende ein externes Modell. **LiteLLM** und **Model Catalog** sind
+in beiden Fällen verfügbar. Ohne passende Hardware bleiben NVIDIA, AMD und
+Intel in **System Status** auf `NotRequired` und verbrauchen keine
+Vendor-Operator-Ressourcen.
 
 ## 7. Module installieren
 
@@ -164,7 +170,8 @@ Typische Modulauswahl:
 | Ziel | Benötigte Module |
 |---|---|
 | Externe Modelle | LiteLLM, Model Catalog |
-| Lokale Modelle | GPU und KubeAI werden automatisch ergänzt; LiteLLM und Model Catalog sind bereits vorhanden |
+| Lokales CPU-Modell | KubeAI wird automatisch ergänzt; kein GPU-Operator erforderlich |
+| Lokales NVIDIA-Modell | KubeAI und der durch Hardware-Erkennung angeforderte NVIDIA Operator müssen `Ready` sein |
 | AnythingLLM | AnythingLLM, LiteLLM, Model Catalog |
 | OpenClaw-Instanz | OpenClaw Operator, LiteLLM, Model Catalog |
 | Hermes-Instanz | Hermes Operator, LiteLLM, Model Catalog |
@@ -178,22 +185,25 @@ Typische Modulauswahl:
 
 ### Lokales Modell
 
-Verwende **Local Model** nur auf einem Rechner mit unterstützter NVIDIA-GPU.
-Das Anlegen des ersten lokalen Modells installiert den GPU Operator und KubeAI
-automatisch:
+Ein lokales Modell kann aktuell mit vLLM auf **CPU** oder **NVIDIA GPU** laufen.
+Nicht verfügbare Ziele sind deaktiviert und nennen den Grund. AMD und Intel
+werden bereits als Provider überwacht, sind aber erst nach eigenen vLLM-
+Laufzeitprofilen als Modellziel auswählbar:
 
 1. Vergib einen eindeutigen Namen aus Kleinbuchstaben, Ziffern und Bindestrichen.
-2. Wähle ein vorhandenes **Preset** oder **Custom**.
-3. Wähle `chat` oder `embedding` als Typ.
-4. Prüfe **VRAM Estimate** und verwende möglichst **Recommended**.
-5. Prüfe bei einem eigenen Modell die öffentliche HuggingFace-Adresse, die
+2. Wähle **CPU** oder eine verfügbare **NVIDIA GPU** als Compute-Ziel.
+3. Wähle ein zum Ziel passendes **Preset** oder **Custom**.
+4. Wähle `chat` oder `embedding` als Typ.
+5. Prüfe für NVIDIA **VRAM Estimate**; für CPU gelten stattdessen die
+   RAM-Angaben des Presets.
+6. Prüfe bei einem eigenen Modell die öffentliche HuggingFace-Adresse, die
    Kontextgröße und die maximale Zahl paralleler Sequenzen.
-6. Wähle **Add Local Model**.
-7. Warte unter **Installed Models**, bis das Modell `Ready` ist.
+7. Wähle **Add Local Model**.
+8. Warte unter **Installed Models**, bis das Modell `Ready` ist.
 
-Ein zu großes Modell kann nicht durch eine kleinere VRAM-Grenze lauffähig
-gemacht werden. Wähle in diesem Fall ein kleineres Modell oder reduziere
-Kontextgröße und Parallelität.
+Ein zu großes Modell kann weder durch eine kleinere VRAM-Grenze noch durch ein
+CPU-Ziel mit zu wenig RAM lauffähig gemacht werden. Wähle ein kleineres Modell
+oder reduziere Kontextgröße und Parallelität.
 
 ### Externes Modell
 

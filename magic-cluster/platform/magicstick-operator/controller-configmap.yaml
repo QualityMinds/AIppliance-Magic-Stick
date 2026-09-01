@@ -11,6 +11,7 @@ data:
     #!/usr/bin/env python3
     import json
     import os
+    import re
     import ssl
     import time
     import traceback
@@ -68,6 +69,7 @@ data:
 
     STATIC_DEPENDENCIES = {
         "basis": "infrastructure-basis",
+        "hardware-discovery": "hardware-discovery",
         "dashboard": "apps",
     }
 
@@ -77,6 +79,10 @@ data:
         "openclawOperator": "openclaw-operator",
         "hermesOperator": "hermes-operator",
         "paperclipOperator": "paperclip-operator",
+        "nvidia-gpu": "gpu",
+        "nvidia-gpu-operator": "gpu",
+        "amd-gpu-operator": "amd-gpu",
+        "intel-gpu-operator": "intel-gpu",
     }
 
     LOCAL_MODEL_BASE_MODULES = ["kubeai", "litellm", "model-catalog"]
@@ -676,9 +682,9 @@ data:
         return get_resource(APPLIANCE_GROUP, APPLIANCE_VERSION, "moduleactivations", APPLIANCE_NAMESPACE, canonical_module(module))
 
 
-    def ensure_module_activation(module, auto=False):
+    def ensure_module_activation(module, auto=False, activation_source=""):
         module = canonical_module(module)
-        if module in ("basis", "dashboard"):
+        if module in STATIC_DEPENDENCIES:
             return
         existing = get_module_activation(module)
         if auto and existing:
@@ -709,7 +715,10 @@ data:
             },
         }
         if auto:
-            activation["metadata"].setdefault("annotations", {})["appliance.magicstick.dev/auto-enabled"] = "true"
+            annotations = activation["metadata"].setdefault("annotations", {})
+            annotations["appliance.magicstick.dev/auto-enabled"] = "true"
+            if activation_source:
+                annotations["appliance.magicstick.dev/activation-source"] = str(activation_source)
         apply_resource(activation)
 
 
@@ -717,7 +726,7 @@ data:
         catalog_modules = catalog.get("modules") or {}
         for module, spec in ((current.get("spec") or {}).get("modules") or {}).items():
             module = canonical_module(module)
-            if module in ("basis", "dashboard") or module not in catalog_modules:
+            if module in STATIC_DEPENDENCIES or module not in catalog_modules:
                 continue
             if module in activations:
                 continue
@@ -768,7 +777,7 @@ data:
                 "name": (source.get("name") or "flux-system"),
             },
             "suspend": not enabled,
-            "wait": False,
+            "wait": bool(module_spec.get("waitForReady", False)),
         }
         if depends_on:
             spec["dependsOn"] = depends_on
@@ -871,7 +880,7 @@ data:
 
         for dependency in module_spec.get("requires") or []:
             dep = canonical_module(dependency)
-            if dep not in ("basis", "dashboard"):
+            if dep not in STATIC_DEPENDENCIES:
                 ensure_module_activation(dep, auto=True)
 
         parameters = (activation.get("spec") or {}).get("parameters") or {}
@@ -1007,14 +1016,43 @@ data:
         return str(local.get("computeTarget") or "nvidia-gpu").strip().lower()
 
 
-    def compute_target_definition(compute_target, compute_catalog):
+    def normalize_local_engine(value):
+        normalized = str(value or "VLLM").strip().upper()
+        if normalized == "VLLM":
+            return "VLLM"
+        if normalized == "OLLAMA":
+            return "OLlama"
+        raise ValueError("unsupported local.engine: " + str(value))
+
+
+    def local_engine(activation):
+        local = ((activation.get("spec") or {}).get("local") or {})
+        return normalize_local_engine(local.get("engine"))
+
+
+    def compute_target_definition(compute_target, compute_catalog, engine="VLLM"):
         definition = ((compute_catalog or {}).get("targets") or {}).get(compute_target)
         if not isinstance(definition, dict):
             raise ValueError("unsupported local.computeTarget: " + str(compute_target))
-        engines = [str(engine).upper() for engine in definition.get("engines") or []]
-        if "VLLM" not in engines:
-            raise ValueError("compute target " + compute_target + " does not support VLLM")
+        requested_engine = normalize_local_engine(engine)
+        engines = [normalize_local_engine(item) for item in definition.get("engines") or []]
+        if requested_engine not in engines:
+            raise ValueError("compute target " + compute_target + " does not support " + requested_engine)
         return definition
+
+
+    def compute_target_engine_profile(definition, engine):
+        requested_engine = normalize_local_engine(engine)
+        profiles = definition.get("engineProfiles") or {}
+        profile = profiles.get(requested_engine)
+        if isinstance(profile, dict):
+            return profile
+        if requested_engine == "VLLM":
+            return {
+                "defaultResourceProfile": definition.get("defaultResourceProfile"),
+                "resourceProfilesByResource": definition.get("resourceProfilesByResource") or {},
+            }
+        raise ValueError("compute target has no resource profile for " + requested_engine)
 
 
     def capability_modules(catalog, capabilities):
@@ -1032,15 +1070,34 @@ data:
         return resolved
 
 
-    def model_required_modules(model_type, compute_target="nvidia-gpu", catalog=None, compute_catalog=None):
+    def model_required_modules(
+        model_type,
+        compute_target="nvidia-gpu",
+        engine="VLLM",
+        catalog=None,
+        compute_catalog=None,
+    ):
         if model_type != "local":
             return list(EXTERNAL_MODEL_MODULES)
         if catalog is None or compute_catalog is None:
-            providers = ["gpu"] if compute_target == "nvidia-gpu" else []
+            provider = {
+                "nvidia-gpu": "gpu",
+                "amd-gpu": "amd-gpu",
+                "intel-gpu": "intel-gpu",
+            }.get(compute_target)
+            providers = [provider] if provider else []
         else:
-            target = compute_target_definition(compute_target, compute_catalog)
+            target = compute_target_definition(compute_target, compute_catalog, engine)
             providers = capability_modules(catalog, target.get("requiredCapabilities") or [])
         return list(dict.fromkeys(providers + LOCAL_MODEL_BASE_MODULES))
+
+
+    def ensure_model_module_activations(required_modules, catalog):
+        for module in required_modules:
+            module_definition = ((catalog or {}).get("modules") or {}).get(module) or {}
+            if module_definition.get("activationPolicy") == "hardware-detected":
+                continue
+            ensure_module_activation(module, auto=True)
 
 
     def nvidia_gpu_capacity():
@@ -1065,16 +1122,280 @@ data:
         return architectures
 
 
+    def semantic_version(value):
+        match = re.search(r"v?(\d+)\.(\d+)(?:\.(\d+))?", str(value or ""))
+        if not match:
+            return ()
+        return tuple(int(part or 0) for part in match.groups())
+
+
+    def version_at_least(value, minimum):
+        current = semantic_version(value)
+        required = semantic_version(minimum)
+        return bool(current and required and current >= required)
+
+
+    def node_name(node):
+        return str((node.get("metadata") or {}).get("name") or "unknown")
+
+
+    def node_labels(node):
+        return (node.get("metadata") or {}).get("labels") or {}
+
+
+    def node_ready(node):
+        return any(
+            item.get("type") == "Ready" and item.get("status") == "True"
+            for item in ((node.get("status") or {}).get("conditions") or [])
+        )
+
+
+    def label_is_true(labels, name):
+        return str((labels or {}).get(name) or "").strip().lower() == "true"
+
+
+    def extended_resource_capacity(nodes, resource_names):
+        total = 0
+        for node in nodes or []:
+            resources = (node.get("status") or {}).get("allocatable") or {}
+            for resource_name in resource_names or []:
+                raw = str(resources.get(resource_name) or "0").strip()
+                if raw.isdigit():
+                    total += int(raw)
+        return total
+
+
+    def compute_target_nodes(definition):
+        architectures = {str(item) for item in definition.get("architectures") or []}
+        selector = {str(key): str(value) for key, value in (definition.get("nodeSelector") or {}).items()}
+        result = []
+        for node in list_items("/api/v1/nodes"):
+            if not node_ready(node) or (node.get("spec") or {}).get("unschedulable") is True:
+                continue
+            labels = node_labels(node)
+            node_info = (node.get("status") or {}).get("nodeInfo") or {}
+            architecture = str(node_info.get("architecture") or labels.get("kubernetes.io/arch") or "")
+            if architectures and architecture not in architectures:
+                continue
+            if not all(str(labels.get(key) or "") == value for key, value in selector.items()):
+                continue
+            result.append(node)
+        return result
+
+
+    def compute_target_resource_selection(definition, engine="VLLM"):
+        resource_names = [str(item) for item in definition.get("resourceNames") or []]
+        engine_profile = compute_target_engine_profile(definition, engine)
+        profiles = {
+            str(key): str(value)
+            for key, value in (engine_profile.get("resourceProfilesByResource") or {}).items()
+        }
+        nodes = compute_target_nodes(definition)
+        for resource_name in resource_names:
+            capacity = extended_resource_capacity(nodes, [resource_name])
+            if capacity > 0:
+                return resource_name, profiles.get(resource_name) or engine_profile.get("defaultResourceProfile"), capacity
+        return "", engine_profile.get("defaultResourceProfile"), 0
+
+
+    def resolve_compute_target_profile(definition, engine="VLLM"):
+        engine_profile = compute_target_engine_profile(definition, engine)
+        profiles = engine_profile.get("resourceProfilesByResource") or {}
+        if len(profiles) <= 1:
+            return next(iter(profiles.values()), None) or engine_profile.get("defaultResourceProfile")
+        _resource_name, profile, _capacity = compute_target_resource_selection(definition, engine)
+        return profile or engine_profile.get("defaultResourceProfile")
+
+
+    def compute_target_capacity(compute_target, definition):
+        if compute_target == "nvidia-gpu":
+            return nvidia_gpu_capacity()
+        _resource_name, _profile, capacity = compute_target_resource_selection(definition)
+        return capacity
+
+
+    def existing_crd_names():
+        return {
+            str((item.get("metadata") or {}).get("name") or "")
+            for item in list_items("/apis/apiextensions.k8s.io/v1/customresourcedefinitions")
+        }
+
+
+    def hardware_node_preflight(node, hardware):
+        labels = node_labels(node)
+        node_info = (node.get("status") or {}).get("nodeInfo") or {}
+        architecture = str(node_info.get("architecture") or labels.get("kubernetes.io/arch") or "")
+        operating_system = str(node_info.get("operatingSystem") or labels.get("kubernetes.io/os") or "")
+        kubelet_version = str(node_info.get("kubeletVersion") or "")
+        supported_architectures = {str(item) for item in hardware.get("architectures") or []}
+        minimum_kubernetes = str(hardware.get("minimumKubernetes") or "")
+        issues = []
+        if operating_system != "linux":
+            issues.append("operating system must be linux")
+        if supported_architectures and architecture not in supported_architectures:
+            issues.append("architecture " + (architecture or "unknown") + " is unsupported")
+        if minimum_kubernetes and not version_at_least(kubelet_version, minimum_kubernetes):
+            issues.append(
+                "kubelet " + (kubelet_version or "unknown") + " is below " + minimum_kubernetes
+            )
+        return issues
+
+
+    def hardware_operator_statuses(
+        catalog,
+        activations,
+        module_statuses=None,
+        nodes=None,
+        crd_names=None,
+        activate=False,
+    ):
+        module_statuses = module_statuses or {}
+        nodes = list_items("/api/v1/nodes") if nodes is None else list(nodes)
+        crd_names = existing_crd_names() if crd_names is None else set(crd_names)
+        statuses = {}
+        for module, definition in sorted((catalog.get("modules") or {}).items()):
+            hardware = definition.get("hardware") or {}
+            detection_label = str(hardware.get("detectionLabel") or "")
+            if not detection_label:
+                continue
+            supported_label = str(hardware.get("supportedLabel") or detection_label)
+            detected = [node for node in nodes if label_is_true(node_labels(node), detection_label)]
+            incompatible = {}
+            compatible = []
+            for node in detected:
+                issues = hardware_node_preflight(node, hardware)
+                if issues:
+                    incompatible[node_name(node)] = issues
+                else:
+                    compatible.append(node)
+            supported = [
+                node for node in compatible
+                if label_is_true(node_labels(node), supported_label)
+            ]
+            resource_names = [str(item) for item in hardware.get("resourceNames") or []]
+            allocatable = extended_resource_capacity(compatible, resource_names)
+            activation = activations.get(module)
+            activation_spec = (activation or {}).get("spec") or {}
+            activation_metadata = (activation or {}).get("metadata") or {}
+            enabled = bool(activation) and activation_spec.get("enabled", True) is not False and not activation_metadata.get("deletionTimestamp")
+            module_phase = str(
+                (module_statuses.get(module) or {}).get("phase")
+                or ((activation or {}).get("status") or {}).get("phase")
+                or ""
+            )
+            required_crds = {str(item) for item in definition.get("requiredCrds") or []}
+            externally_managed = not activation and bool(required_crds.intersection(crd_names))
+            managed_by = "external" if externally_managed else ("magicstick" if activation else "none")
+            phase = "NotRequired"
+            message = "No matching " + str(definition.get("displayName") or module) + " hardware was detected."
+
+            if not detected and not enabled and not externally_managed:
+                pass
+            elif detected and not compatible:
+                phase = "Unsupported"
+                message = "Matching PCI hardware was detected, but no node passed the platform preflight."
+            elif not detected and enabled:
+                phase = "Unknown"
+                message = "The hardware signal is currently absent; the existing operator is retained and is not removed automatically."
+            elif not detected and externally_managed:
+                phase = "Unknown"
+                message = "An externally managed operator is present, but matching hardware is not currently detected."
+            elif detected and activation and not enabled:
+                phase = "Disabled"
+                message = "Matching hardware is present, but the operator was explicitly disabled. Automatic detection will not override that choice."
+            elif detected and externally_managed:
+                if allocatable > 0:
+                    phase = "Ready"
+                    message = "An externally managed operator publishes allocatable GPU resources."
+                else:
+                    phase = "Conflict"
+                    message = "The vendor CRD already exists outside Magic Stick, so automatic installation was blocked to avoid a second operator."
+            elif detected and not enabled:
+                phase = "Detected"
+                message = "Compatible hardware detected; the vendor operator is being requested."
+                if activate:
+                    ensure_module_activation(module, auto=True, activation_source="hardware-detection")
+            elif module_phase.lower() == "degraded":
+                phase = "Degraded"
+                message = (module_statuses.get(module) or {}).get("message") or "The vendor operator failed to reconcile."
+            elif module_phase.lower() != "ready":
+                phase = "Installing"
+                message = "The vendor operator is " + (module_phase or "being installed") + "."
+            elif supported_label != detection_label and not supported:
+                phase = "Unsupported"
+                message = "The vendor operator is running, but its support rule did not accept the detected GPU."
+            elif allocatable < 1:
+                phase = "Installing"
+                message = "The operator is running, but its driver and device plugin have not published an allocatable GPU resource yet."
+            else:
+                phase = "Ready"
+                message = str(allocatable) + " allocatable GPU resource(s) are ready."
+
+            operator_status = "True" if phase == "Ready" else ("False" if phase in ("Degraded", "Unsupported", "Conflict", "Disabled") else "Unknown")
+            resource_status = "True" if allocatable > 0 else ("False" if detected else "Unknown")
+            statuses[module] = {
+                "module": module,
+                "displayName": str(definition.get("displayName") or module),
+                "vendor": str(hardware.get("vendor") or ""),
+                "operatorVersion": str(hardware.get("operatorVersion") or ""),
+                "driverMode": str(hardware.get("driverMode") or ""),
+                "phase": phase,
+                "needed": bool(detected),
+                "operatorActive": bool(enabled or externally_managed),
+                "managedBy": managed_by,
+                "modulePhase": module_phase,
+                "detectionLabel": detection_label,
+                "supportedLabel": supported_label,
+                "detectedNodes": [node_name(node) for node in detected],
+                "compatibleNodes": [node_name(node) for node in compatible],
+                "supportedNodes": [node_name(node) for node in supported],
+                "incompatibleNodes": incompatible,
+                "resourceNames": resource_names,
+                "allocatableResources": allocatable,
+                "message": message,
+                "checks": [
+                    {
+                        "name": "hardware-detected",
+                        "status": "True" if detected else "False",
+                        "message": str(len(detected)) + " matching node(s).",
+                    },
+                    {
+                        "name": "platform-preflight",
+                        "status": "True" if compatible else ("False" if detected else "Unknown"),
+                        "message": str(len(compatible)) + " compatible node(s).",
+                    },
+                    {
+                        "name": "operator-ready",
+                        "status": operator_status,
+                        "message": module_phase or phase,
+                    },
+                    {
+                        "name": "allocatable-resource",
+                        "status": resource_status,
+                        "message": str(allocatable) + " resource(s).",
+                    },
+                ],
+            }
+        return statuses
+
+
     def merged_local_model(activation, presets, compute_catalog=None):
         metadata = activation.get("metadata") or {}
         spec = activation.get("spec") or {}
         local = dict(spec.get("local") or {})
         compute_target = str(local.get("computeTarget") or "nvidia-gpu").strip().lower()
-        engine = str(local.get("engine") or "VLLM").strip().upper()
-        if engine != "VLLM":
-            raise ValueError("only local.engine VLLM is supported")
-        target_definition = compute_target_definition(compute_target, compute_catalog) if compute_catalog else {
-            "defaultResourceProfile": "magicstick-vllm-cpu:1" if compute_target == "cpu" else "magicstick-nvidia-gpu:1"
+        engine = normalize_local_engine(local.get("engine"))
+        target_definition = compute_target_definition(compute_target, compute_catalog, engine) if compute_catalog else {
+            "engines": [engine],
+            "engineProfiles": {
+                engine: {
+                    "defaultResourceProfile": (
+                        ("magicstick-ollama-cpu:1" if compute_target == "cpu" else "magicstick-ollama-nvidia-gpu:1")
+                        if engine == "OLlama"
+                        else ("magicstick-vllm-cpu:1" if compute_target == "cpu" else "magicstick-nvidia-gpu:1")
+                    )
+                }
+            },
         }
         preset_name = local.get("preset") or metadata.get("name")
         preset = dict(presets.get(preset_name) or {})
@@ -1087,7 +1408,7 @@ data:
                 dict(variant)
                 for variant in variants
                 if str(variant.get("computeTarget") or "").lower() == compute_target
-                and str(variant.get("engine") or "VLLM").upper() == engine
+                and normalize_local_engine(variant.get("engine")) == engine
             ]
             architectures = cluster_architectures() if compute_catalog is not None else set()
             if architectures:
@@ -1106,7 +1427,11 @@ data:
             raise ValueError("legacy preset " + str(preset_name) + " is only available for nvidia-gpu")
 
         requested_profile = local.get("resourceProfile")
-        resolved_profile = merged.get("resourceProfile") or target_definition.get("defaultResourceProfile")
+        resolved_profile = (
+            merged.get("resourceProfile")
+            or resolve_compute_target_profile(target_definition, engine)
+            or compute_target_engine_profile(target_definition, engine).get("defaultResourceProfile")
+        )
         if requested_profile and requested_profile != resolved_profile:
             raise ValueError("local.resourceProfile must be resolved from the selected compute target and preset")
         merged.update(local)
@@ -1197,16 +1522,22 @@ data:
         compute_target = local.get("computeTarget") or "nvidia-gpu"
         engine = local.get("engine") or "VLLM"
         resource_profile = local.get("resourceProfile")
+        target_definition = compute_target_definition(compute_target, compute_catalog, engine) if compute_catalog else {
+            "kind": "cpu" if compute_target == "cpu" else "gpu"
+        }
+        accelerator_backed = target_definition.get("kind") == "gpu"
         url = (local.get("url") or "").strip()
         vram_mi = local_model_vram_mi(local)
         memory_mi = positive_int(local.get("memoryRequiredMi")) or 0
         if not url:
             raise ValueError("local.url is required for local ModelActivation")
-        if not url.startswith("hf://"):
+        if engine == "VLLM" and not url.startswith("hf://"):
             raise ValueError("VLLM local.url must use the hf:// scheme")
-        if compute_target == "nvidia-gpu" and not vram_mi:
+        if engine == "OLlama" and not url.startswith("ollama://"):
+            raise ValueError("OLlama local.url must use the ollama:// scheme")
+        if accelerator_backed and not vram_mi:
             raise ValueError("local.vram or local.vramMi is required for local ModelActivation")
-        if compute_target == "cpu" and vram_mi:
+        if not accelerator_backed and vram_mi:
             raise ValueError("CPU ModelActivation must not define local.vram or local.vramMi")
         annotations = {}
         context_window = positive_int(local.get("contextWindow") or local.get("context_window"))
@@ -1218,12 +1549,7 @@ data:
             annotations["ai-appliance.io/max-output-tokens"] = str(max_output_tokens)
         env = dict(local.get("env") or {})
         env["MAGICSTICK_COMPUTE_TARGET"] = compute_target
-        if compute_target == "nvidia-gpu":
-            env["MAGICSTICK_VLLM_VRAM_LIMIT"] = local.get("vram") or str(vram_mi)
-            env.pop("VLLM_CPU_KVCACHE_SPACE", None)
-        else:
-            env.pop("MAGICSTICK_VLLM_VRAM_LIMIT", None)
-            env.pop("VLLM_CPU_KVCACHE_SPACE", None)
+        env["MAGICSTICK_ENGINE"] = engine
         for legacy_key in (
             "MAGICSTICK_VLLM_ACTIVE_THREAD_PERCENTAGE",
             "MAGICSTICK_MPS_DEVICE",
@@ -1232,10 +1558,37 @@ data:
             "CUDA_MPS_PIPE_DIRECTORY",
         ):
             env.pop(legacy_key, None)
-        args = model_args_with_runtime_limits(local.get("args") or [], context_window, max_num_seqs)
-        if compute_target == "cpu":
-            kv_cache_memory_bytes = positive_int(local.get("kvCacheMemoryBytes")) or 536870912
-            args = model_args_with_cpu_cache(args, kv_cache_memory_bytes)
+        if engine == "VLLM":
+            wrapper_path = "/opt/magicstick/vllm-wrapper"
+            inherited_python_path = str(env.get("PYTHONPATH") or "").strip()
+            env["PYTHONPATH"] = wrapper_path + ((":" + inherited_python_path) if inherited_python_path else "")
+            env["MAGICSTICK_VLLM_WRAPPER_ENABLED"] = "true"
+            if accelerator_backed:
+                env["MAGICSTICK_VLLM_VRAM_LIMIT"] = local.get("vram") or str(vram_mi)
+                env.pop("VLLM_CPU_KVCACHE_SPACE", None)
+            else:
+                env.pop("MAGICSTICK_VLLM_VRAM_LIMIT", None)
+                env.pop("VLLM_CPU_KVCACHE_SPACE", None)
+            args = model_args_with_runtime_limits(local.get("args") or [], context_window, max_num_seqs)
+            if compute_target == "cpu":
+                kv_cache_memory_bytes = positive_int(local.get("kvCacheMemoryBytes")) or 536870912
+                args = model_args_with_cpu_cache(args, kv_cache_memory_bytes)
+        else:
+            if local.get("args"):
+                raise ValueError("OLlama local.args is not supported; use contextWindow and maxNumSeqs")
+            for key in (
+                "MAGICSTICK_VLLM_WRAPPER_ENABLED",
+                "MAGICSTICK_VLLM_VRAM_LIMIT",
+                "VLLM_CPU_KVCACHE_SPACE",
+            ):
+                env.pop(key, None)
+            env["OLLAMA_MAX_LOADED_MODELS"] = "1"
+            env["OLLAMA_SCHED_SPREAD"] = "false"
+            if context_window:
+                env["OLLAMA_CONTEXT_LENGTH"] = str(context_window)
+            if max_num_seqs:
+                env["OLLAMA_NUM_PARALLEL"] = str(max_num_seqs)
+            args = []
         return {
             "apiVersion": "kubeai.org/v1",
             "kind": "Model",
@@ -1283,7 +1636,7 @@ data:
         model_ref = ("kubeai/" + name) if model_type == "local" else ("litellm/" + name)
         runtime = {
             "computeTarget": local_compute_target(activation) if model_type == "local" else "external",
-            "engine": "VLLM" if model_type == "local" else "external",
+            "engine": str(((spec.get("local") or {}).get("engine") or "VLLM")) if model_type == "local" else "external",
             "resourceProfile": "",
             "vramMi": 0,
             "memoryMi": 0,
@@ -1360,6 +1713,7 @@ data:
             required_modules = model_required_modules(
                 model_type,
                 runtime["computeTarget"],
+                runtime["engine"],
                 catalog,
                 compute_catalog,
             )
@@ -1367,8 +1721,7 @@ data:
             message = str(error)
             patch_status("Degraded", "InvalidComputeTarget", message)
             return "Degraded", status_payload("Degraded", message)
-        for module in required_modules:
-            ensure_module_activation(module, auto=True)
+        ensure_model_module_activations(required_modules, catalog)
         missing_modules = [module for module in required_modules if not module_ready(module, catalog)]
         if missing_modules:
             message = "Waiting for required modules: " + ", ".join(missing_modules)
@@ -1376,8 +1729,19 @@ data:
             return "WaitingForModules", status_payload("WaitingForModules", message, name)
 
         if model_type == "local":
-            if runtime["computeTarget"] == "nvidia-gpu" and nvidia_gpu_capacity() < 1:
-                message = "The NVIDIA runtime is installed, but Kubernetes reports no allocatable nvidia.com/gpu resources."
+            target_definition = compute_target_definition(
+                runtime["computeTarget"], compute_catalog, runtime["engine"]
+            ) if compute_catalog else {
+                "displayName": "NVIDIA GPU",
+                "resourceNames": ["nvidia.com/gpu"] if runtime["computeTarget"] == "nvidia-gpu" else [],
+            }
+            resource_names = [str(item) for item in target_definition.get("resourceNames") or []]
+            if resource_names and compute_target_capacity(runtime["computeTarget"], target_definition) < 1:
+                label = str(target_definition.get("displayName") or runtime["computeTarget"])
+                message = (
+                    "The " + label + " runtime is installed, but Kubernetes reports no allocatable "
+                    + ", ".join(resource_names) + " resources."
+                )
                 patch_status("WaitingForGPU", "WaitingForGPU", message, name)
                 return "WaitingForGPU", status_payload("WaitingForGPU", message, name)
             if not crd_exists("models.kubeai.org"):
@@ -1890,15 +2254,24 @@ data:
         return reconcile_helm_app_instance(instance, definition, source)
 
 
-    def patch_appliance_status(module_statuses, instance_statuses, model_statuses):
+    def patch_appliance_status(module_statuses, instance_statuses, model_statuses, hardware_statuses=None):
         current = appliance()
         if not current:
             return
+        hardware_statuses = hardware_statuses or {}
         degraded = any(item.get("phase") == "Degraded" for item in module_statuses.values())
         waiting = any(item.get("phase") not in ("Ready", "Suspended", "Disabled") for item in module_statuses.values())
         waiting = waiting or any(item.get("phase") not in ("Ready", "Suspended", "Disabled") for group in instance_statuses.values() for item in group.values())
         degraded = degraded or any(item.get("phase") == "Degraded" for item in model_statuses.values())
         waiting = waiting or any(item.get("phase") not in ("Ready", "Disabled") for item in model_statuses.values())
+        degraded = degraded or any(
+            item.get("phase") in ("Degraded", "Unsupported", "Conflict", "Disabled") and item.get("needed") is True
+            for item in hardware_statuses.values()
+        )
+        waiting = waiting or any(
+            item.get("phase") in ("Detected", "Installing")
+            for item in hardware_statuses.values()
+        )
         phase = "Degraded" if degraded else ("Reconciling" if waiting else "Ready")
         message = "Runtime CRs reconciled through ModuleActivation, AppInstance, and ModelActivation resources."
         path = f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/appliances/{APPLIANCE_NAME}/status"
@@ -1908,6 +2281,7 @@ data:
             "modules": module_statuses,
             "instances": instance_statuses,
             "models": model_statuses,
+            "hardwareOperators": hardware_statuses,
             "conditions": [condition("True" if phase == "Ready" else "False", phase, message)],
         }})
 
@@ -1922,8 +2296,18 @@ data:
         activations = module_activations()
         instances = app_instances()
         models = model_activations()
+        nodes = list_items("/api/v1/nodes")
+        crd_names = existing_crd_names()
 
         seed_appliance_modules(current, catalog, activations)
+        activations = module_activations()
+        hardware_operator_statuses(
+            catalog,
+            activations,
+            nodes=nodes,
+            crd_names=crd_names,
+            activate=True,
+        )
         activations = module_activations()
 
         for instance in instances:
@@ -1938,15 +2322,16 @@ data:
                 continue
             if (model.get("metadata") or {}).get("deletionTimestamp"):
                 continue
-            compute_target = local_compute_target(model) if (spec.get("type") or "local") == "local" else "external"
+            model_type = spec.get("type") or "local"
+            compute_target = local_compute_target(model) if model_type == "local" else "external"
             try:
+                engine = local_engine(model) if model_type == "local" else "external"
                 required_model_modules = model_required_modules(
-                    spec.get("type") or "local", compute_target, catalog, compute_catalog
+                    model_type, compute_target, engine, catalog, compute_catalog
                 )
             except ValueError:
                 required_model_modules = []
-            for module in required_model_modules:
-                ensure_module_activation(module, auto=True)
+            ensure_model_module_activations(required_model_modules, catalog)
         for activation in list(activations.values()):
             if ((activation.get("spec") or {}).get("enabled", True) is False):
                 continue
@@ -1954,7 +2339,7 @@ data:
             module_spec = (catalog.get("modules") or {}).get(module) or {}
             for dependency in module_spec.get("requires") or []:
                 dep = canonical_module(dependency)
-                if dep not in ("basis", "dashboard"):
+                if dep not in STATIC_DEPENDENCIES:
                     ensure_module_activation(dep, auto=True)
 
         activations = module_activations()
@@ -1986,7 +2371,14 @@ data:
             phase, status = reconcile_model_activation(model, catalog, presets, compute_catalog)
             model_statuses[name] = status
 
-        patch_appliance_status(module_statuses, instance_statuses, model_statuses)
+        hardware_statuses = hardware_operator_statuses(
+            catalog,
+            activations,
+            module_statuses=module_statuses,
+            nodes=nodes,
+            crd_names=crd_names,
+        )
+        patch_appliance_status(module_statuses, instance_statuses, model_statuses, hardware_statuses)
         print(f"reconciled modules={len(module_statuses)} instances={len(instances)} models={len(models)}", flush=True)
 
 

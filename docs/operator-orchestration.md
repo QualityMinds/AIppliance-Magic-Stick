@@ -12,6 +12,10 @@ The dashboard is also not an operator. It reads status and creates or patches
 |---|---|
 | Magic Stick Operator | Watches `ModuleActivation`, `ModelActivation`, and `AppInstance`, enables modules with Flux, creates one Flux HelmRelease plus authenticated Gateway resources per app instance, creates KubeAI model resources, and reports aggregate `Appliance.status`. |
 | Magic Stick Dashboard | Reads `Appliance`, module catalog, Flux, Pod, Service, Ingress, HTTPRoute, and Event status; creates or patches runtime CRs only. |
+| Node Feature Discovery | Re-detects node hardware every 60 seconds and publishes the shared PCI-vendor and platform labels. |
+| NVIDIA GPU Operator | Owns NVIDIA driver, device-plugin, and `nvidia.com/gpu` publication after matching hardware is detected. |
+| AMD GPU Operator | Owns AMD device configuration and device-plugin publication; the portable baseline consumes the host/inbox `amdgpu` driver. |
+| Intel Device Plugins Operator | Owns Intel GPU device-plugin resources on supported Intel GPU nodes; the kernel provides the host driver. |
 | OpenClaw Operator | Owns lifecycle of `OpenClawInstance` resources. |
 | Hermes Operator | Owns lifecycle of `HermesInstance` resources. |
 | Paperclip Operator | Owns lifecycle of Paperclip `Instance` resources. |
@@ -27,6 +31,10 @@ The dashboard is also not an operator. It reads status and creates or patches
 - Normalize user-facing module keys to canonical catalog names.
 - Seed missing `ModuleActivation` resources from enabled
   `Appliance.spec.modules` entries.
+- Read NFD labels, run the platform preflight, and request only the NVIDIA, AMD,
+  or Intel operator whose hardware is present.
+- Refuse a second vendor operator when its CRD already exists outside a Magic
+  Stick activation, and retain existing operators across transient label loss.
 - Add explicitly enabled runtime modules to the desired set.
 - Add required modules for every enabled instance.
 - Add required model-serving modules for every enabled model.
@@ -48,7 +56,7 @@ The dashboard is also not an operator. It reads status and creates or patches
   disable Envoy's total request timeout for long-lived streams, while the exact
   callback routes retain the bounded default.
 - Remove generated routes and policies when an instance is suspended or deleted.
-- Update module, instance, and condition status.
+- Update module, instance, hardware-operator, and condition status.
 
 The static Flux `magicstick-operator` Kustomization must not wait on
 `Appliance/local.status`: that status is a runtime dashboard read model and may
@@ -101,8 +109,8 @@ For v1alpha1, examples use these defaults:
   `model-catalog`; it does not enable GPU or KubeAI
 - enabled external models require only `litellm` and `model-catalog`
 - an enabled CPU model auto-enables `kubeai`, `litellm`, and `model-catalog`
-- an enabled NVIDIA model additionally resolves `compute.gpu.nvidia` to the
-  `gpu` module
+- an enabled accelerator model additionally resolves its vendor capability to
+  `gpu`, `amd-gpu`, or `intel-gpu`
 - missing default module activations are seeded once; existing
   `ModuleActivation` resources, including disabled ones, take precedence
 - instance target namespace defaults to `ai`
@@ -113,8 +121,9 @@ For v1alpha1, examples use these defaults:
 - generated Flux interval is `10m0s`
 - generated Flux prune is `true`
 - generated Flux deletion policy is `Delete`
-- generated Flux wait is `false`; module readiness uses explicit health checks
-  such as required CRDs
+- generated Flux wait is `false` by default; hardware-provider modules set
+  `waitForReady: true` so driver and device-plugin rollout participates in
+  readiness in addition to required-CRD health checks
 - generated Flux source comes from `Appliance.spec.source`
 
 ## Failure And Status Behavior
@@ -130,15 +139,23 @@ ready, the module remains in `WaitingForModules`; the operator removes any stale
 generated Flux Kustomization for that module to avoid Flux `dependsOn` errors
 for missing dependencies.
 
-After the local runtime modules are ready, only an `nvidia-gpu` model can enter
-`WaitingForGPU`, until Kubernetes reports at least one allocatable
-`nvidia.com/gpu` resource. CPU and external models never inspect NVIDIA
-capacity.
+After the local runtime modules are ready, an accelerator-backed model can
+enter `WaitingForGPU` until Kubernetes reports at least one allocatable target
+resource: `nvidia.com/gpu`, `amd.com/gpu`, `gpu.intel.com/xe`, or
+`gpu.intel.com/i915`. CPU and external models never inspect accelerator
+capacity. For Intel, the controller also resolves the actual resource to the
+matching `xe` or `i915` KubeAI profile before creating the model.
+
+`Appliance.status.hardwareOperators` always contains NVIDIA, AMD, and Intel.
+Normal phases are `NotRequired`, `Detected`, `Installing`, `Ready`, and
+`Unknown`; actionable failures are `Disabled`, `Unsupported`, `Conflict`, and
+`Degraded`. A provider is not `Ready` merely because its controller Deployment
+exists: an allocatable extended resource must be present on a compatible node.
 
 After the KubeAI `Model` is created, its `ModelActivation` remains in
 `Starting` while `status.replicas.ready` is zero. The operator reports the
-current ready-replica count in the status message. It changes the activation to
-`Ready` only after KubeAI has a ready vLLM replica and the model catalog has
+current ready-replica count and selected engine in the status message. It changes the activation to
+`Ready` only after KubeAI has a ready vLLM or Ollama replica and the model catalog has
 published the model. If the replica later becomes unavailable, the activation
 returns to `Starting` and the model catalog withdraws the LiteLLM route until
 the runtime is healthy again. External model readiness remains catalog-based.

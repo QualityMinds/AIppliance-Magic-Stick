@@ -9,6 +9,7 @@ spec:
   chart:
     spec:
       chart: gpu-operator
+      version: v26.3.3
       sourceRef:
         kind: HelmRepository
         name: nvidia
@@ -16,6 +17,10 @@ spec:
   install:
     createNamespace: false
   values:
+    # Magic Stick operates one shared NFD installation for every accelerator
+    # vendor. Never let a vendor chart install a competing NFD stack.
+    nfd:
+      enabled: false
     toolkit:
       env:
       - name: CONTAINERD_SOCKET

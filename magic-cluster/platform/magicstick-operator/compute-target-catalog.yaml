@@ -9,7 +9,19 @@ metadata:
 data:
   targets.json: |
     {
-      "schemaVersion": 1,
+      "schemaVersion": 2,
+      "engines": {
+        "VLLM": {
+          "displayName": "vLLM",
+          "urlScheme": "hf://",
+          "supportsVramEstimate": true
+        },
+        "OLlama": {
+          "displayName": "Ollama",
+          "urlScheme": "ollama://",
+          "supportsVramEstimate": false
+        }
+      },
       "targets": {
         "cpu": {
           "displayName": "CPU",
@@ -19,7 +31,15 @@ data:
           "nodeSelector": {"kubernetes.io/os": "linux"},
           "requiredCapabilities": [],
           "resourceNames": [],
-          "engines": ["VLLM"],
+          "engines": ["VLLM", "OLlama"],
+          "engineProfiles": {
+            "VLLM": {
+              "defaultResourceProfile": "magicstick-vllm-cpu:1"
+            },
+            "OLlama": {
+              "defaultResourceProfile": "magicstick-ollama-cpu:1"
+            }
+          },
           "defaultResourceProfile": "magicstick-vllm-cpu:1"
         },
         "nvidia-gpu": {
@@ -30,8 +50,77 @@ data:
           "nodeSelector": {"kubernetes.io/os": "linux"},
           "requiredCapabilities": ["compute.gpu.nvidia"],
           "resourceNames": ["nvidia.com/gpu"],
-          "engines": ["VLLM"],
+          "resourceProfilesByResource": {
+            "nvidia.com/gpu": "magicstick-nvidia-gpu:1"
+          },
+          "engines": ["VLLM", "OLlama"],
+          "engineProfiles": {
+            "VLLM": {
+              "defaultResourceProfile": "magicstick-nvidia-gpu:1",
+              "resourceProfilesByResource": {
+                "nvidia.com/gpu": "magicstick-nvidia-gpu:1"
+              }
+            },
+            "OLlama": {
+              "defaultResourceProfile": "magicstick-ollama-nvidia-gpu:1",
+              "resourceProfilesByResource": {
+                "nvidia.com/gpu": "magicstick-ollama-nvidia-gpu:1"
+              }
+            }
+          },
           "defaultResourceProfile": "magicstick-nvidia-gpu:1"
+        },
+        "amd-gpu": {
+          "displayName": "AMD GPU (ROCm)",
+          "kind": "gpu",
+          "vendor": "amd",
+          "architectures": ["amd64"],
+          "nodeSelector": {"kubernetes.io/os": "linux"},
+          "requiredCapabilities": ["compute.gpu.amd"],
+          "resourceNames": ["amd.com/gpu"],
+          "resourceProfilesByResource": {
+            "amd.com/gpu": "magicstick-amd-gpu:1"
+          },
+          "engines": ["VLLM", "OLlama"],
+          "engineProfiles": {
+            "VLLM": {
+              "defaultResourceProfile": "magicstick-amd-gpu:1",
+              "resourceProfilesByResource": {
+                "amd.com/gpu": "magicstick-amd-gpu:1"
+              }
+            },
+            "OLlama": {
+              "defaultResourceProfile": "magicstick-ollama-amd-gpu:1",
+              "resourceProfilesByResource": {
+                "amd.com/gpu": "magicstick-ollama-amd-gpu:1"
+              }
+            }
+          },
+          "defaultResourceProfile": "magicstick-amd-gpu:1"
+        },
+        "intel-gpu": {
+          "displayName": "Intel GPU (XPU)",
+          "kind": "gpu",
+          "vendor": "intel",
+          "architectures": ["amd64"],
+          "nodeSelector": {"kubernetes.io/os": "linux"},
+          "requiredCapabilities": ["compute.gpu.intel"],
+          "resourceNames": ["gpu.intel.com/xe", "gpu.intel.com/i915"],
+          "resourceProfilesByResource": {
+            "gpu.intel.com/xe": "magicstick-intel-xe-gpu:1",
+            "gpu.intel.com/i915": "magicstick-intel-i915-gpu:1"
+          },
+          "engines": ["VLLM"],
+          "engineProfiles": {
+            "VLLM": {
+              "defaultResourceProfile": "magicstick-intel-i915-gpu:1",
+              "resourceProfilesByResource": {
+                "gpu.intel.com/xe": "magicstick-intel-xe-gpu:1",
+                "gpu.intel.com/i915": "magicstick-intel-i915-gpu:1"
+              }
+            }
+          },
+          "defaultResourceProfile": "magicstick-intel-i915-gpu:1"
         }
       }
     }

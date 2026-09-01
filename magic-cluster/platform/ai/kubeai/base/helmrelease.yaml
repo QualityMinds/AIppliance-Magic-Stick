@@ -30,6 +30,14 @@ spec:
         images:
           magicstick-vllm-nvidia: vllm/vllm-openai:v0.23.0
           magicstick-vllm-cpu: vllm/vllm-openai-cpu:v0.23.0
+          # Stable vendor images introduced upstream for the v0.26 release.
+          magicstick-vllm-amd: vllm/vllm-openai-rocm:v0.26.0
+          magicstick-vllm-intel: vllm/vllm-openai-xpu:v0.26.0
+      OLlama:
+        images:
+          magicstick-ollama-cpu: ollama/ollama:0.11.11
+          magicstick-ollama-nvidia: ollama/ollama:0.11.11
+          magicstick-ollama-amd: ollama/ollama:0.11.11-rocm
     modelRollouts:
       # Avoid starting an extra GPU model pod during model updates.
       surge: 0
@@ -57,6 +65,83 @@ spec:
         limits:
           cpu: "4"
           memory: 6Gi
+      magicstick-ollama-cpu:
+        imageName: magicstick-ollama-cpu
+        nodeSelector:
+          kubernetes.io/os: linux
+        requests:
+          cpu: "1"
+          memory: 2Gi
+        limits:
+          cpu: "4"
+          memory: 6Gi
+      magicstick-ollama-nvidia-gpu:
+        imageName: magicstick-ollama-nvidia
+        requests:
+          cpu: "2"
+          memory: 4Gi
+          nvidia.com/gpu: "1"
+        limits:
+          nvidia.com/gpu: "1"
+        tolerations:
+          - key: nvidia.com/gpu
+            operator: Equal
+            value: present
+            effect: NoSchedule
+      magicstick-ollama-amd-gpu:
+        imageName: magicstick-ollama-amd
+        nodeSelector:
+          kubernetes.io/os: linux
+          feature.node.kubernetes.io/amd-gpu: "true"
+        requests:
+          cpu: "2"
+          memory: 4Gi
+          amd.com/gpu: "1"
+        limits:
+          amd.com/gpu: "1"
+        tolerations:
+          - key: amd.com/gpu
+            operator: Equal
+            value: present
+            effect: NoSchedule
+      magicstick-amd-gpu:
+        imageName: magicstick-vllm-amd
+        nodeSelector:
+          kubernetes.io/os: linux
+          feature.node.kubernetes.io/amd-gpu: "true"
+        requests:
+          cpu: "6"
+          memory: 8Gi
+          amd.com/gpu: "1"
+        limits:
+          amd.com/gpu: "1"
+        tolerations:
+          - key: amd.com/gpu
+            operator: Equal
+            value: present
+            effect: NoSchedule
+      magicstick-intel-i915-gpu:
+        imageName: magicstick-vllm-intel
+        nodeSelector:
+          kubernetes.io/os: linux
+          intel.feature.node.kubernetes.io/gpu: "true"
+        requests:
+          cpu: "6"
+          memory: 8Gi
+          gpu.intel.com/i915: "1"
+        limits:
+          gpu.intel.com/i915: "1"
+      magicstick-intel-xe-gpu:
+        imageName: magicstick-vllm-intel
+        nodeSelector:
+          kubernetes.io/os: linux
+          intel.feature.node.kubernetes.io/gpu: "true"
+        requests:
+          cpu: "6"
+          memory: 8Gi
+          gpu.intel.com/xe: "1"
+        limits:
+          gpu.intel.com/xe: "1"
     modelServerPods:
       jsonPatches:
         - op: replace
@@ -65,11 +150,6 @@ spec:
             name: dshm
             emptyDir:
               medium: Memory
-        - op: replace
-          path: /spec/containers/0/command
-          value:
-            - python3
-            - /opt/magicstick/vllm-wrapper/wrapper.py
         - op: add
           path: /spec/volumes/-
           value:
@@ -84,6 +164,13 @@ spec:
             configMap:
               name: magicstick-vllm-wrapper
         - op: add
+          path: /spec/volumes/-
+          value:
+            name: ollama-model-cache
+            hostPath:
+              path: /root/.ollama
+              type: DirectoryOrCreate
+        - op: add
           path: /spec/containers/0/volumeMounts/-
           value:
             name: model-cache
@@ -94,3 +181,8 @@ spec:
             name: magicstick-vllm-wrapper
             mountPath: /opt/magicstick/vllm-wrapper
             readOnly: true
+        - op: add
+          path: /spec/containers/0/volumeMounts/-
+          value:
+            name: ollama-model-cache
+            mountPath: /root/.ollama
