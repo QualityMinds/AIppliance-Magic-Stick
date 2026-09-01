@@ -112,19 +112,27 @@ adds engine and hardware dropdowns without hiding earlier selections. The
 hardware list contains only compute targets whose catalog entry supports the
 selected engine and whose live availability is `true`. The model form therefore
 cannot advertise an Intel, AMD, NVIDIA, or CPU path that the cluster cannot
-currently schedule. For vLLM accelerator models, the memory control caps
-allocations at the target's unreserved memory (`total memory - active model
-reservations`), independent of the separate live free-memory measurement, while
-retaining minimum and recommended estimate markers in a gray overflow area when
-the model is larger than unreserved capacity.
+currently schedule. Every supported local variant receives a minimum and
+recommended memory estimate: vLLM on CPU/NVIDIA/AMD/Intel and Ollama on
+CPU/NVIDIA/AMD. The memory control caps allocations at the target's unreserved
+memory (`total memory - active model reservations`), independent of the separate
+live free-memory measurement, while retaining minimum and recommended markers
+in a gray overflow area when the model is larger than unreserved capacity.
 
-CPU-backed vLLM and Ollama variants use a RAM reservation slider instead of the
-VRAM estimator. The slider is capped at unreserved system memory and writes
-`spec.local.memoryRequiredMi`. The operator represents the value with a KubeAI
-resource-profile multiplier whose unit is 16 MiB. KubeAI therefore applies the
-chosen reservation as the generated model pod's `resources.requests.memory`.
-Values that do not align to 16 MiB are rounded up. The legacy fixed CPU profiles
-remain available so existing KubeAI Model resources can finish their migration.
+vLLM calculations use public HuggingFace weight and architecture metadata.
+Ollama calculations use the exact model-layer bytes from the public registry
+manifest and a conservative KV-cache estimate derived from artifact size,
+context, and parallel sequences. That lower-confidence result is visibly marked
+as estimated. Both RAM and VRAM views preserve the weights, KV-cache, and
+reserve breakdown.
+
+CPU-backed variants use a RAM reservation slider. The slider is capped at
+unreserved system memory and writes `spec.local.memoryRequiredMi`. The operator
+represents the value with a KubeAI resource-profile multiplier whose unit is 16
+MiB. KubeAI therefore applies the chosen reservation as the generated model
+pod's `resources.requests.memory`. Values that do not align to 16 MiB are
+rounded up. The legacy fixed CPU profiles remain available so existing KubeAI
+Model resources can finish their migration.
 
 | Preset | Engine | Target | Model | Memory budget | Context | Max output | Max sequences |
 |---|---|---|---|---:|---:|---:|---:|
@@ -155,9 +163,11 @@ runtime overhead cannot consume the entire device.
 
 Ollama variants use `ollama://` registry references, keep one model loaded per
 pod, map context and parallelism to supported Ollama environment variables,
-and persist the Ollama model store on the appliance host. On GPU targets the
-declared VRAM value is planning metadata; Kubernetes exposes exactly one GPU to
-the model pod and Ollama manages loading and any CPU offload itself.
+and persist the Ollama model store on the appliance host. The dashboard resolves
+the same public registry manifest before creation so CPU and accelerator
+variants receive comparable minimum and recommended planning values. On GPU
+targets the declared VRAM value is planning metadata; Kubernetes exposes exactly
+one GPU to the model pod and Ollama manages loading and any CPU offload itself.
 
 `qwen3827b` is the validated single-GPU profile for a 24 GB-class NVIDIA GPU.
 It deliberately uses a single sequence so the 20000-token KV cache remains
