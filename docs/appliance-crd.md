@@ -190,7 +190,9 @@ spec:
     vram: 5Gi
 ```
 
-CPU example; no GPU module or VRAM field is required:
+CPU example; no GPU module or VRAM field is required. `memoryRequiredMi` is the
+RAM reserved for the generated model pod through Kubernetes
+`resources.requests.memory`:
 
 ```yaml
 apiVersion: appliance.magicstick.dev/v1alpha1
@@ -206,7 +208,14 @@ spec:
     preset: qwen2505bcpu
     computeTarget: cpu
     engine: VLLM
+    memoryRequiredMi: 4096
 ```
+
+The same field is used for `engine: OLlama`; its bundled default is 2048 MiB.
+The API accepts positive values from 16 MiB. The operator rounds custom values
+up to a 16 MiB resource-profile unit before creating the KubeAI `Model`. If the
+field is absent on an existing activation, the operator uses the engine default
+(4096 MiB for vLLM or 2048 MiB for Ollama).
 
 The same portable preset can target AMD ROCm or Intel XPU when the dashboard
 reports that provider as available:
@@ -239,6 +248,7 @@ spec:
     preset: qwen2505bcpu
     computeTarget: cpu # alternatively nvidia-gpu or amd-gpu
     engine: OLlama
+    memoryRequiredMi: 2048
 ```
 
 Intel is currently a vLLM-only target. An Ollama/Intel activation is rejected

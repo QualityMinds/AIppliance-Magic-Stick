@@ -343,6 +343,7 @@ class LocalRuntimeTests(unittest.TestCase):
                 "computeTarget": "cpu",
                 "preset": "qwen2505bcpu",
                 "vram": "99Gi",
+                "memoryRequiredMi": 3072,
                 "engine": "OLLAMA",
                 "resourceProfile": "attacker-profile:1",
                 "args": ["--trust-remote-code"],
@@ -354,6 +355,7 @@ class LocalRuntimeTests(unittest.TestCase):
         self.assertEqual(local["computeTarget"], "cpu")
         self.assertEqual(local["engine"], "OLlama")
         self.assertEqual(local["preset"], "qwen2505bcpu")
+        self.assertEqual(local["memoryRequiredMi"], 3072)
         for forbidden in ("vram", "vramMi", "resourceProfile", "args", "env"):
             self.assertNotIn(forbidden, local)
         self.assertEqual(
@@ -361,6 +363,32 @@ class LocalRuntimeTests(unittest.TestCase):
             "cpu",
         )
         self.assertEqual(resource["metadata"]["labels"]["appliance.magicstick.dev/engine"], "ollama")
+
+    def test_gpu_model_payload_drops_cpu_memory_reservation(self):
+        resource = self.server["model_activation_payload"]("local", {
+            "name": "gpu-chat",
+            "local": {
+                "computeTarget": "nvidia-gpu",
+                "vram": "8Gi",
+                "memoryRequiredMi": 32768,
+            },
+        })
+
+        self.assertNotIn("memoryRequiredMi", resource["spec"]["local"])
+
+    def test_cpu_model_payload_rejects_memory_reservations_below_one_unit(self):
+        for value in (0, 15, True, "invalid"):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError) as raised:
+                    self.server["model_activation_payload"]("local", {
+                        "name": "cpu-chat",
+                        "local": {
+                            "computeTarget": "cpu",
+                            "memoryRequiredMi": value,
+                        },
+                    })
+
+                self.assertIn("at least 16 MiB", str(raised.exception))
 
     def test_unknown_local_engine_is_rejected(self):
         with self.assertRaises(self.server["RequestError"]) as raised:
@@ -454,6 +482,7 @@ class ComputeMemoryTests(unittest.TestCase):
         names = (
             "ready_schedulable_nodes",
             "request_json",
+            "request_text",
             "list_resource",
             "compute_target_catalog",
         )
@@ -557,6 +586,27 @@ class ComputeMemoryTests(unittest.TestCase):
         self.assertEqual(gpu["unreservedMi"], 16384)
         self.assertEqual(gpu["freeMi"], 18432)
         self.assertEqual(gpu["metricsSource"], "dcgm")
+
+    def test_nvidia_unreserved_memory_uses_total_minus_model_reservations(self):
+        self.server["request_text"] = lambda *_args, **_kwargs: "\n".join((
+            'DCGM_FI_DEV_FB_FREE{gpu="0",UUID="GPU-1"} 18432',
+            'DCGM_FI_DEV_FB_USED{gpu="0",UUID="GPU-1"} 6144',
+        ))
+        activations = [{
+            "metadata": {"name": "gpu-chat"},
+            "spec": {
+                "type": "local",
+                "enabled": True,
+                "local": {"computeTarget": "nvidia-gpu", "vram": "8Gi"},
+            },
+        }]
+
+        result = self.server["vram_summary"](activations)
+
+        self.assertEqual(result["totalMi"], 24576)
+        self.assertEqual(result["freeMi"], 18432)
+        self.assertEqual(result["plannedMi"], 8192)
+        self.assertEqual(result["plannedRemainingMi"], 16384)
 
     def test_gpu_without_vendor_memory_exporter_is_visible_without_fake_values(self):
         nodes = [self.node(gpu_capacity={"amd.com/gpu": "1"})]

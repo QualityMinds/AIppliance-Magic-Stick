@@ -2292,7 +2292,7 @@ data:
             else:
                 warnings.append("Live accelerator memory metrics are not available for " + compute_target + "; max available cannot be verified.")
         elif maximum_mi < minimum_mi:
-            warnings.append("Estimated minimum exceeds currently available unplanned VRAM.")
+            warnings.append("Estimated minimum exceeds unreserved VRAM.")
 
         return {
             "repo": repo,
@@ -2367,6 +2367,7 @@ data:
             local = {}
             allowed = {
                 "preset", "url", "modelType", "engine", "computeTarget", "vram", "vramMi",
+                "memoryRequiredMi",
                 "contextWindow", "maxOutputTokens", "maxNumSeqs", "minReplicas", "maxReplicas",
             }
             for key in allowed:
@@ -2383,6 +2384,13 @@ data:
             if target_definition.get("kind") == "cpu" or compute_target == "cpu":
                 local.pop("vram", None)
                 local.pop("vramMi", None)
+                if "memoryRequiredMi" in local:
+                    memory_required_mi = positive_int(local.get("memoryRequiredMi"))
+                    if not memory_required_mi or memory_required_mi < 16:
+                        raise ValueError("local.memoryRequiredMi must be an integer of at least 16 MiB")
+                    local["memoryRequiredMi"] = memory_required_mi
+            else:
+                local.pop("memoryRequiredMi", None)
             labels["appliance.magicstick.dev/compute-target"] = compute_target
             labels["appliance.magicstick.dev/engine"] = engine.lower()
             spec["local"] = local
@@ -2571,7 +2579,7 @@ data:
                 "usedMi": used,
                 "totalMi": total,
                 "plannedMi": planned,
-                "plannedRemainingMi": max(0, free - planned),
+                "plannedRemainingMi": max(0, total - planned),
             }
         except Exception as error:
             return {

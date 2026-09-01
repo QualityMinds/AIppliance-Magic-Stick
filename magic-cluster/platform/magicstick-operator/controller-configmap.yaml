@@ -54,6 +54,9 @@ data:
     MODULE_FINALIZER = "appliance.magicstick.dev/module-cleanup"
     APPINSTANCE_FINALIZER = "appliance.magicstick.dev/appinstance-cleanup"
     MODEL_FINALIZER = "appliance.magicstick.dev/model-cleanup"
+    CPU_MEMORY_PROFILE_UNIT_MI = 16
+    DEFAULT_VLLM_CPU_MEMORY_MI = 4096
+    DEFAULT_OLLAMA_CPU_MEMORY_MI = 2048
     PLURALS = {
         ("appliance.magicstick.dev", "ModuleActivation"): "moduleactivations",
         ("appliance.magicstick.dev", "AppInstance"): "appinstances",
@@ -1390,9 +1393,9 @@ data:
             "engineProfiles": {
                 engine: {
                     "defaultResourceProfile": (
-                        ("magicstick-ollama-cpu:1" if compute_target == "cpu" else "magicstick-ollama-nvidia-gpu:1")
+                        ("magicstick-ollama-cpu-memory:128" if compute_target == "cpu" else "magicstick-ollama-nvidia-gpu:1")
                         if engine == "OLlama"
-                        else ("magicstick-vllm-cpu:1" if compute_target == "cpu" else "magicstick-nvidia-gpu:1")
+                        else ("magicstick-vllm-cpu-memory:256" if compute_target == "cpu" else "magicstick-nvidia-gpu:1")
                     )
                 }
             },
@@ -1446,6 +1449,21 @@ data:
 
     def local_model_vram_mi(local):
         return parse_mib(local.get("vram")) or positive_int(local.get("vramMi")) or 0
+
+
+    def cpu_memory_resource_profile(resource_profile, memory_mi):
+        requested_mi = positive_int(memory_mi) or 0
+        if not requested_mi:
+            raise ValueError("local.memoryRequiredMi is required for CPU ModelActivation")
+        profile = str(resource_profile or "").strip()
+        if not profile or ":" not in profile:
+            raise ValueError("CPU resource profile must use the <name>:<multiple> format")
+        profile_name, _separator, _multiple = profile.rpartition(":")
+        if not profile_name:
+            raise ValueError("CPU resource profile name is empty")
+        units = max(1, (requested_mi + CPU_MEMORY_PROFILE_UNIT_MI - 1) // CPU_MEMORY_PROFILE_UNIT_MI)
+        normalized_mi = units * CPU_MEMORY_PROFILE_UNIT_MI
+        return profile_name + ":" + str(units), normalized_mi
 
 
     def model_args_with_runtime_limits(args, context_window, max_num_seqs):
@@ -1539,6 +1557,11 @@ data:
             raise ValueError("local.vram or local.vramMi is required for local ModelActivation")
         if not accelerator_backed and vram_mi:
             raise ValueError("CPU ModelActivation must not define local.vram or local.vramMi")
+        if not accelerator_backed:
+            memory_mi = memory_mi or (
+                DEFAULT_OLLAMA_CPU_MEMORY_MI if engine == "OLlama" else DEFAULT_VLLM_CPU_MEMORY_MI
+            )
+            resource_profile, memory_mi = cpu_memory_resource_profile(resource_profile, memory_mi)
         annotations = {}
         context_window = positive_int(local.get("contextWindow") or local.get("context_window"))
         max_output_tokens = positive_int(local.get("maxOutputTokens") or local.get("max_output_tokens"))
