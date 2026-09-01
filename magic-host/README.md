@@ -12,6 +12,12 @@ End-user installation steps are collected in
 
 ## Entry Point
 
+End users with an existing dedicated Ubuntu 24.04 system should start with the
+repository-level [`install-from-linux.sh`](../install-from-linux.sh). It checks
+that the host is new, writes `/etc/default/ai-appliance-repo`, creates the
+first-run marker, and then calls the converge runner documented below. It does
+not duplicate the Ansible roles.
+
 Install the versioned collection dependencies when using a minimal
 `ansible-core` environment. The Ubuntu `ansible` package already includes the
 community collections, but running this command is safe and keeps development

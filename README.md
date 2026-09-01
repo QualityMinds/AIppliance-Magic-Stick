@@ -7,6 +7,68 @@ defaults, render-only examples, and placeholders. Real deployment values are
 supplied at install time, through runtime settings, or through runtime CRs
 created by the dashboard.
 
+## Installation
+
+Choose the path that matches the starting point. All new installations end in
+the same protected First-Run Setup; no default human password is generated.
+
+| Starting point | Entry point | What it installs |
+|---|---|---|
+| Empty physical server | [Build and boot the USB installer](docs/installation/bare-metal.md) | Ubuntu, K3s, Flux, and Magic Stick |
+| New cloud VM | [Use the cloud-init/autoinstall template](docs/installation/cloud-init-vm.md) | Ubuntu host automation, K3s, Flux, and Magic Stick |
+| Existing dedicated Ubuntu 24.04 host or VM | [`install-from-linux.sh`](install-from-linux.sh) | K3s, Flux, and Magic Stick on the host |
+| Existing Kubernetes cluster | [`deploy-on-k8s.sh`](deploy-on-k8s.sh) or [`deploy-on-k8s.ps1`](deploy-on-k8s.ps1) | Flux-managed Magic Stick cluster components only |
+
+### Existing Ubuntu 24.04 host
+
+Download the script first so it can be reviewed, then run its fail-closed
+preflight and installation. The host must be dedicated to Magic Stick.
+
+```bash
+curl -fsSL \
+  https://raw.githubusercontent.com/QualityMinds/AIppliance-Magic-Stick/main/install-from-linux.sh \
+  -o /tmp/install-from-linux.sh
+
+sudo bash /tmp/install-from-linux.sh --preflight-only
+sudo bash /tmp/install-from-linux.sh
+```
+
+The script resolves the selected branch or tag to a commit and pins both the
+host checkout and Flux source to that commit. For a released version, add
+`--ref <release-tag>`.
+
+### Existing Kubernetes cluster
+
+Run this from an administrator workstation with `kubectl`, `helm`, `flux`, and
+Python 3. The script shows the selected context and asks before creating any
+cluster-wide resources.
+
+```bash
+curl -fsSL \
+  https://raw.githubusercontent.com/QualityMinds/AIppliance-Magic-Stick/main/deploy-on-k8s.sh \
+  -o /tmp/deploy-on-k8s.sh
+
+bash /tmp/deploy-on-k8s.sh --context "$(kubectl config current-context)" --preflight-only
+bash /tmp/deploy-on-k8s.sh --context "$(kubectl config current-context)"
+```
+
+On Windows with PowerShell 7:
+
+```powershell
+Invoke-WebRequest `
+  https://raw.githubusercontent.com/QualityMinds/AIppliance-Magic-Stick/main/deploy-on-k8s.ps1 `
+  -OutFile $env:TEMP\deploy-on-k8s.ps1
+
+pwsh $env:TEMP\deploy-on-k8s.ps1 -Context (kubectl config current-context) -PreflightOnly
+pwsh $env:TEMP\deploy-on-k8s.ps1 -Context (kubectl config current-context)
+```
+
+The cluster installer reuses compatible existing Flux controllers but refuses
+to replace another `flux-system` source, another Magic Stick installation, or
+an existing First-Run state. See the complete
+[installation guide](docs/installation/README.md) for prerequisites, manual
+fallback steps, setup access, and operational checks.
+
 ## Layout
 
 ```text
@@ -14,6 +76,9 @@ created by the dashboard.
 ├── magic-installer/            # reusable cloud-init/autoinstall template
 ├── magic-host/                 # reusable Ansible playbooks and roles
 ├── magic-cluster/              # reusable Kubernetes, app, platform and Flux bases
+├── install-from-linux.sh       # one-command bootstrap for dedicated Ubuntu hosts
+├── deploy-on-k8s.sh            # existing-cluster bootstrap for Bash
+├── deploy-on-k8s.ps1           # existing-cluster bootstrap for PowerShell 7
 ├── examples/demo/              # render-only public overlay using example.local values
 ├── .codex/skills/              # optional repo-local Codex skill sources
 ├── docs/

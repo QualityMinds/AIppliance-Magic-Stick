@@ -8,8 +8,8 @@ Wähle den Weg, der zu deiner Ausgangslage passt:
 |---|---|---|
 | Dedizierter PC oder Server | [Echte Hardware](bare-metal.md) | Der einfachste und vollständigste Appliance-Weg |
 | Neue Cloud-VM mit Cloud-Init | [Neue virtuelle Maschine](cloud-init-vm.md) | Für Hetzner Cloud, Azure und vergleichbare Anbieter |
-| Bereits installierte Ubuntu-VM | [Bestehende virtuelle Maschine](existing-vm.md) | Wenn Ubuntu schon läuft und die VM ausschließlich Magic Stick verwenden soll |
-| Bereits vorhandener Kubernetes-Cluster | [Bestehender Kubernetes-Cluster](existing-kubernetes.md) | Für erfahrene Cluster-Administratoren |
+| Bereits installiertes Ubuntu 24.04 | [Bestehendes Linux](existing-vm.md) | Ein Skript prüft den dedizierten Host und installiert K3s, Flux und Magic Stick |
+| Bereits vorhandener Kubernetes-Cluster | [Bestehender Kubernetes-Cluster](existing-kubernetes.md) | Ein Bash- oder PowerShell-Skript installiert nur die Cluster-Komponenten |
 | Installation und First-Run-Setup abgeschlossen | [Einrichtung im Dashboard](after-installation-dashboard.md) | Domains, Module, Modelle, Instanzen und SSO prüfen |
 
 ## Was bei allen Varianten gleich ist
@@ -46,6 +46,42 @@ gesamte System und sollte deshalb nur auf einer dedizierten VM erfolgen.
 Die Installation in einem [bestehenden Kubernetes-Cluster](existing-kubernetes.md)
 installiert ausschließlich die Cluster-Komponenten. Host-Automatisierung,
 Textkonsole und K3s werden dabei nicht eingerichtet.
+
+## Direkte Installationsbefehle
+
+Für ein bereits installiertes, dediziertes Ubuntu-24.04-System:
+
+```bash
+curl -fsSL \
+  https://raw.githubusercontent.com/QualityMinds/AIppliance-Magic-Stick/main/install-from-linux.sh \
+  -o /tmp/install-from-linux.sh
+sudo bash /tmp/install-from-linux.sh --preflight-only
+sudo bash /tmp/install-from-linux.sh
+```
+
+Für ein bestehendes Kubernetes-Cluster mit Bash:
+
+```bash
+curl -fsSL \
+  https://raw.githubusercontent.com/QualityMinds/AIppliance-Magic-Stick/main/deploy-on-k8s.sh \
+  -o /tmp/deploy-on-k8s.sh
+bash /tmp/deploy-on-k8s.sh --context "$(kubectl config current-context)" --preflight-only
+bash /tmp/deploy-on-k8s.sh --context "$(kubectl config current-context)"
+```
+
+Für ein bestehendes Kubernetes-Cluster mit PowerShell 7:
+
+```powershell
+Invoke-WebRequest `
+  https://raw.githubusercontent.com/QualityMinds/AIppliance-Magic-Stick/main/deploy-on-k8s.ps1 `
+  -OutFile $env:TEMP\deploy-on-k8s.ps1
+pwsh $env:TEMP\deploy-on-k8s.ps1 -Context (kubectl config current-context) -PreflightOnly
+pwsh $env:TEMP\deploy-on-k8s.ps1 -Context (kubectl config current-context)
+```
+
+Die Skripte laden bewusst nicht direkt in eine privilegierte Shell. Dadurch
+kannst du die Datei vor der Ausführung prüfen. Nutze für reproduzierbare
+Installationen `--ref <release-tag>` beziehungsweise `-Ref <release-tag>`.
 
 ## Nach der Installation
 

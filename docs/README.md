@@ -8,7 +8,7 @@ bootstrap plus runtime configuration through the dashboard and runtime CRs.
 
 | Document | Use it for |
 |---|---|
-| [installation/README.md](installation/README.md) | User-oriented installation guides for physical hardware, cloud-init VMs, existing VMs, and existing Kubernetes clusters. |
+| [installation/README.md](installation/README.md) | User-oriented installation guides for physical hardware, cloud-init VMs, existing Linux, and existing Kubernetes, including the one-command wrappers. |
 | [installation/after-installation-dashboard.md](installation/after-installation-dashboard.md) | First login, domain checks, module and model installation, application instances, and SSO verification through the dashboard. |
 | [getting-started.md](getting-started.md) | First local checkout, render checks, and public read-only installer workflow. |
 | [architecture.md](architecture.md) | Repository layers, bootstrap flow, Flux graph, and cluster component overview. |

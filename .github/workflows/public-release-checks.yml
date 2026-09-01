@@ -51,6 +51,12 @@ jobs:
       - name: Check first-run appliance console
         run: python3 -m unittest discover -s magic-host/roles/first-run-setup/tests -p 'test_*.py'
 
+      - name: Check one-command installer entrypoints
+        run: |
+          bash -n install-from-linux.sh
+          bash -n deploy-on-k8s.sh
+          python3 -m unittest tests/test_install_entrypoints.py
+
       - name: Run identity, dashboard, operator, model catalog and AI route unit tests
         run: |
           python3 -m unittest discover -s magic-cluster/platform/identity/tests -p 'test_*.py'

@@ -70,6 +70,26 @@ ANSIBLE_ROLES_PATH=magic-host/roles \
 The default installer mode uses this public repository directly and does not
 need a GitHub token.
 
+For an existing dedicated Ubuntu 24.04 system, the repository-level wrapper
+performs the host checks, writes the public metadata, pins the resolved commit,
+and starts the same Ansible playbook:
+
+```bash
+curl -fsSL \
+  https://raw.githubusercontent.com/QualityMinds/AIppliance-Magic-Stick/main/install-from-linux.sh \
+  -o /tmp/install-from-linux.sh
+sudo bash /tmp/install-from-linux.sh --preflight-only
+sudo bash /tmp/install-from-linux.sh
+```
+
+For an existing Kubernetes cluster, use `deploy-on-k8s.sh` or
+`deploy-on-k8s.ps1`. Those wrappers install no host services and stop when the
+selected context already owns another `flux-system` source or Magic Stick
+state. The complete decision tree is in
+[installation/README.md](installation/README.md).
+
+To build new bare-metal installation media instead, use:
+
 ```bash
 magic-installer/build-installer-image.sh \
   --hostname example-host-01 \

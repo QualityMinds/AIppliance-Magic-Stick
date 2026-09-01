@@ -11,6 +11,8 @@ Du benötigst:
 
 - einen funktionierenden Cluster und eine `cluster-admin`-Kubeconfig;
 - `kubectl`, `helm` und die [Flux CLI](https://fluxcd.io/flux/installation/);
+- unter Linux oder macOS zusätzlich Bash und Python 3, unter Windows
+  PowerShell 7;
 - eine Standard-StorageClass für persistente Volumes;
 - eine LoadBalancer-Implementierung, die Envoy eine erreichbare private Adresse
   zuweisen kann;
@@ -28,7 +30,71 @@ diese Installation; stelle stattdessen eine eigene LoadBalancer-Adresse bereit.
 > bestehenden Cluster. Sie ist kein Factory-Reset für eine bereits eingerichtete
 > Installation.
 
-## 1. Cluster prüfen
+## Empfohlener Weg: ein Installationsskript
+
+Das Skript prüft zuerst Kontext, API-Erreichbarkeit, `cluster-admin`, eine
+Standard-StorageClass und bestehende Magic-Stick- beziehungsweise
+`flux-system`-Ressourcen. Es zeigt den API-Server vor der Bestätigung an und
+überschreibt weder eine bestehende Appliance noch einen fremden Flux-Quellbaum.
+
+Mit Bash:
+
+```bash
+curl -fsSL \
+  https://raw.githubusercontent.com/QualityMinds/AIppliance-Magic-Stick/main/deploy-on-k8s.sh \
+  -o /tmp/deploy-on-k8s.sh
+
+less /tmp/deploy-on-k8s.sh
+bash /tmp/deploy-on-k8s.sh \
+  --context "$(kubectl config current-context)" \
+  --preflight-only
+bash /tmp/deploy-on-k8s.sh \
+  --context "$(kubectl config current-context)"
+```
+
+Mit PowerShell 7:
+
+```powershell
+Invoke-WebRequest `
+  https://raw.githubusercontent.com/QualityMinds/AIppliance-Magic-Stick/main/deploy-on-k8s.ps1 `
+  -OutFile $env:TEMP\deploy-on-k8s.ps1
+
+Get-Content $env:TEMP\deploy-on-k8s.ps1
+pwsh $env:TEMP\deploy-on-k8s.ps1 `
+  -Context (kubectl config current-context) `
+  -PreflightOnly
+pwsh $env:TEMP\deploy-on-k8s.ps1 `
+  -Context (kubectl config current-context)
+```
+
+Für reproduzierbare Installationen gibst du zusätzlich einen Release-Tag an:
+
+```bash
+bash /tmp/deploy-on-k8s.sh --context <context> --ref <release-tag>
+```
+
+```powershell
+pwsh $env:TEMP\deploy-on-k8s.ps1 -Context <context> -Ref <release-tag>
+```
+
+Nach dem Flux-Abgleich erzeugt das Skript den achtstelligen Einrichtungscode,
+gibt ihn genau einmal aus und speichert in Kubernetes nur seinen SHA-256-Hash.
+Die Option `--yes` beziehungsweise `-Yes` ist ausschließlich für bereits
+geprüfte, nicht interaktive Automatisierung vorgesehen.
+
+Wird die Installation technisch unterbrochen, bleibt ausschließlich ein nicht
+sensibler Status-`ConfigMap` zurück. Starte denselben Befehl mit denselben
+Repository- und Versionsoptionen erneut; der Wrapper setzt den Bootstrap mit
+derselben Installations-ID fort. Nach erfolgreicher Initialisierung wird dieser
+Status automatisch entfernt.
+
+## Manueller Fallback
+
+Die folgenden Schritte dokumentieren den gleichen Ablauf einzeln. Sie sind für
+Diagnose und Plattformen gedacht, auf denen der Wrapper nicht eingesetzt
+werden kann.
+
+### 1. Cluster prüfen
 
 ```bash
 kubectl cluster-info
@@ -40,7 +106,7 @@ kubectl get service --all-namespaces
 Prüfe vor allem, ob bereits ein Dienst die gewünschte externe Adresse und Port
 `443` verwendet.
 
-## 2. Gateway- und Envoy-CRDs installieren
+### 2. Gateway- und Envoy-CRDs installieren
 
 Envoy Gateway verwendet standardisierte Gateway-API-Ressourcen und eigene
 Erweiterungen wie `SecurityPolicy` und `EnvoyProxy`. Magic Stick überspringt die
@@ -64,20 +130,26 @@ helm show crds oci://docker.io/envoyproxy/gateway-helm \
   --version v1.8.2 | kubectl apply --server-side -f -
 ```
 
-Wenn dein Cluster die Standard-Gateway-API bereits selbst verwaltet, installiere
-nur die fehlenden Envoy-Erweiterungen:
+Wenn dein Cluster die Standard-Gateway-API bereits selbst verwaltet, verwende
+denselben serverseitigen Apply ohne `--force-conflicts`:
 
 ```bash
 helm show crds oci://docker.io/envoyproxy/gateway-helm \
-  --version v1.8.2 | \
-  awk 'BEGIN { RS="---"; ORS="" } /name: [a-z0-9-]+\.gateway\.envoyproxy\.io/ { print "---" $0 }' | \
-  kubectl apply --server-side -f -
+  --version v1.8.2 | kubectl apply \
+  --server-side \
+  --field-manager=magicstick-installer \
+  -f -
 ```
+
+Bei einer inkompatiblen oder anders verwalteten CRD stoppt Kubernetes mit
+einem Feldkonflikt, statt die vorhandene Eigentümerschaft zu erzwingen. Kläre
+diesen Konflikt mit dem Plattformverantwortlichen; verwende hier nicht
+`--force-conflicts`.
 
 Ändere die Version nicht unabhängig vom Repository. Sie muss zur Version in
 `magic-cluster/platform/gateway/envoy-gateway/oci-repository.yaml` passen.
 
-## 3. Flux installieren
+### 3. Flux installieren
 
 ```bash
 flux check --pre
@@ -98,7 +170,7 @@ kubectl -n flux-system create configmap ai-appliance-settings \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-## 4. Öffentliche Magic-Stick-Quelle synchronisieren
+### 4. Öffentliche Magic-Stick-Quelle synchronisieren
 
 ```bash
 flux create source git flux-system \
@@ -129,7 +201,7 @@ kubectl get pods --all-namespaces
 Warte, bis insbesondere `infrastructure-basis`, `envoy-gateway` und
 `identity-pilot` bereit sind.
 
-## 5. Einmaligen Einrichtungscode erzeugen
+### 5. Einmaligen Einrichtungscode erzeugen
 
 Auf einem Appliance-Host erledigt dies die lokale Host-Automatisierung. In
 einem bestehenden Cluster führst du den folgenden Bootstrap einmalig von einem
@@ -199,7 +271,7 @@ echo "Neuer Einrichtungscode: $claim"
 unset claim claim_hash phase
 ```
 
-## 6. Setup-Adresse ermitteln
+## Setup-Adresse ermitteln
 
 Der Setup-Dienst erzeugt jetzt dynamisch einen separaten privaten Gateway:
 
@@ -229,7 +301,7 @@ kubectl -n identity-system get secret magicstick-setup-tls \
 Vergleiche ihn mit dem vom Browser angezeigten Zertifikat, gib den
 Einrichtungscode ein und lege den ersten Administrator an.
 
-## 7. Abschluss prüfen
+## Abschluss prüfen
 
 ```bash
 kubectl -n identity-system get appliancesetup local
