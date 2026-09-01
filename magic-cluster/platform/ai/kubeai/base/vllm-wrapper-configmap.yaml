@@ -4,6 +4,20 @@ metadata:
   name: magicstick-vllm-wrapper
   namespace: ai
 data:
+  sitecustomize.py: |-
+    import os
+
+    if (
+        os.environ.get("MAGICSTICK_VLLM_WRAPPER_ENABLED", "").strip().lower() == "true"
+        and os.environ.get("MAGICSTICK_VLLM_WRAPPER_APPLIED", "").strip().lower() != "true"
+    ):
+        # KubeAI starts the model server as the container's first Python
+        # process. Mark the environment before importing the wrapper so every
+        # multiprocessing child inherits the guard and keeps its own argv.
+        os.environ["MAGICSTICK_VLLM_WRAPPER_APPLIED"] = "true"
+        import wrapper
+
+        wrapper.configure_argv()
   wrapper.py: |-
     import os
     import re
@@ -53,7 +67,7 @@ data:
         return int(amount * factors[unit])
 
 
-    def gpu_total_mib(device):
+    def nvidia_gpu_total_mib(device):
         command = [
             "nvidia-smi",
             "-i",
@@ -76,11 +90,61 @@ data:
         except subprocess.TimeoutExpired:
             die("nvidia-smi timed out")
 
-        first_line = result.stdout.strip().splitlines()[0].strip()
+        lines = result.stdout.strip().splitlines()
+        if not lines:
+            die("nvidia-smi returned no GPU memory value")
+        first_line = lines[0].strip()
         try:
             return int(first_line)
         except ValueError:
             die(f"could not parse GPU memory from nvidia-smi output: {first_line!r}")
+
+
+    def python_gpu_total_mib(compute_target, device):
+        if compute_target == "amd-gpu":
+            backend = "cuda"
+        elif compute_target == "intel-gpu":
+            backend = "xpu"
+        else:
+            die(f"unsupported GPU memory backend for {compute_target!r}")
+        script = (
+            "import sys, torch; "
+            f"props=torch.{backend}.get_device_properties(int(sys.argv[1])); "
+            "print(int(props.total_memory)//1048576)"
+        )
+        try:
+            child_env = dict(os.environ)
+            child_env["MAGICSTICK_VLLM_WRAPPER_ENABLED"] = "false"
+            result = subprocess.run(
+                ["python3", "-c", script, device],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                env=child_env,
+            )
+        except FileNotFoundError:
+            die("python3 is not available in the vLLM container")
+        except subprocess.CalledProcessError as exc:
+            details = (exc.stderr or exc.stdout or "").strip()
+            die(f"{compute_target} memory detection failed: {details or 'no diagnostic output'}")
+        except subprocess.TimeoutExpired:
+            die(f"{compute_target} memory detection timed out")
+
+        lines = result.stdout.strip().splitlines()
+        if not lines:
+            die(f"{compute_target} runtime returned no GPU memory value")
+        first_line = lines[0].strip()
+        try:
+            return int(first_line)
+        except ValueError:
+            die(f"could not parse {compute_target} memory from runtime output: {first_line!r}")
+
+
+    def gpu_total_mib(compute_target, device):
+        if compute_target == "nvidia-gpu":
+            return nvidia_gpu_total_mib(device)
+        return python_gpu_total_mib(compute_target, device)
 
 
     def strip_gpu_memory_utilization(args):
@@ -99,13 +163,26 @@ data:
         return filtered
 
 
-    def main():
+    def configure_argv():
+        compute_target = os.environ.get("MAGICSTICK_COMPUTE_TARGET", "nvidia-gpu").strip().lower()
+        args = strip_gpu_memory_utilization(sys.argv[1:])
+        if compute_target == "cpu":
+            sys.argv[:] = [sys.argv[0], *args]
+            log(
+                "compute_target=cpu "
+                f"cpu_kvcache_space={os.environ.get('VLLM_CPU_KVCACHE_SPACE', 'unset')}"
+            )
+            return
+
+        if compute_target not in ("nvidia-gpu", "amd-gpu", "intel-gpu"):
+            die(f"unsupported MAGICSTICK_COMPUTE_TARGET: {compute_target!r}")
+
         device = os.environ.get("MAGICSTICK_GPU_DEVICE", "0").strip() or "0"
         budget_mib = parse_mib("MAGICSTICK_VLLM_VRAM_LIMIT")
         if budget_mib is None:
             die("MAGICSTICK_VLLM_VRAM_LIMIT is required for MagicStick GPU vLLM models")
 
-        total_mib = gpu_total_mib(device)
+        total_mib = gpu_total_mib(compute_target, device)
         if budget_mib > total_mib:
             die(
                 "MAGICSTICK_VLLM_VRAM_LIMIT "
@@ -115,17 +192,19 @@ data:
         raw_utilization = budget_mib / total_mib
         utilization = min(0.98, max(0.05, raw_utilization))
 
-        args = strip_gpu_memory_utilization(sys.argv[1:])
         args.append(f"--gpu-memory-utilization={utilization:.4f}")
-        command = ["python3", "-m", "vllm.entrypoints.openai.api_server", *args]
+        sys.argv[:] = [sys.argv[0], *args]
 
         log(
-            "physical_gpu_mib="
+            f"compute_target={compute_target} physical_gpu_mib="
             f"{total_mib} budget_mib={budget_mib} "
             f"gpu_memory_utilization={utilization:.4f}"
         )
-        log("exec python3 -m vllm.entrypoints.openai.api_server")
-        os.execvp(command[0], command)
+        log("configured vLLM arguments")
+
+
+    def main():
+        configure_argv()
 
 
     if __name__ == "__main__":

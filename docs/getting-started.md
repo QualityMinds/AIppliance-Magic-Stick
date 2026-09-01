@@ -21,13 +21,16 @@ For installer image creation:
 - enough disk space for the Ubuntu Server ISO and generated installer image
 - a target machine that can boot the generated USB image
 
-Only for local GPU model serving:
+For local model serving:
 
-- NVIDIA GPU hardware
-- a host compatible with K3s, the NVIDIA GPU Operator, and the configured GPU
-  sharing mode
+- enough CPU RAM for the selected CPU preset, or a supported NVIDIA, AMD, or
+  Intel GPU with its host driver prerequisites
+- for NVIDIA, a host compatible with K3s, the NVIDIA GPU Operator, and the
+  configured GPU sharing mode; AMD uses ROCm and Intel uses the XPU runtime
 
-External LiteLLM-backed providers do not require NVIDIA hardware or drivers.
+External LiteLLM-backed providers and CPU inference do not require GPU hardware
+or drivers. AMD and Intel targets appear only after their operator and
+allocatable Kubernetes resource are ready.
 
 ## Clone And Validate
 
@@ -48,6 +51,7 @@ Render key cluster bases:
 
 ```bash
 kubectl kustomize magic-cluster/platform/basis
+kubectl kustomize magic-cluster/platform/hardware-discovery
 kubectl kustomize magic-cluster/platform/magicstick-operator
 kubectl kustomize magic-cluster/platform/ai/kubeai
 kubectl kustomize magic-cluster/apps/dashboard
@@ -140,6 +144,9 @@ resources. `Appliance/local.spec` remains Git-owned and should not be edited for
 normal runtime changes.
 
 A fresh installation is GPU-neutral. External models use the default LiteLLM
-and model-catalog modules. Before adding a local model, enable the NVIDIA GPU
-Operator and KubeAI on the dashboard's Modules page and wait until both report
-`Ready`.
+and model-catalog modules. Add a local model from the dashboard and choose an
+available compute target. A CPU target requests KubeAI without a GPU driver; an
+NVIDIA, AMD, or Intel target becomes selectable only after detected hardware,
+its operator, and the matching allocatable resource are ready. **System
+Status** shows the NVIDIA, AMD, and Intel provider lifecycle even when a
+provider is not required.

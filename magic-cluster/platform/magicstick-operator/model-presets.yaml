@@ -9,85 +9,192 @@ metadata:
 data:
   presets.json: |
     {
+      "schemaVersion": 2,
       "presets": {
+        "qwen2505bcpu": {
+          "title": "Qwen2.5 0.5B Instruct (portable)",
+          "type": "chat",
+          "variants": [
+            {
+              "id": "vllm-cpu",
+              "engine": "VLLM",
+              "computeTarget": "cpu",
+              "architectures": ["amd64", "arm64"],
+              "url": "hf://Qwen/Qwen2.5-0.5B-Instruct",
+              "features": ["TextGeneration"],
+              "resourceProfile": "magicstick-vllm-cpu:1",
+              "memoryRequiredMi": 4096,
+              "kvCacheMemoryBytes": 536870912,
+              "contextWindow": 2048,
+              "maxOutputTokens": 1024,
+              "maxNumSeqs": 1,
+              "args": ["--max-model-len=2048", "--max-num-seqs=1", "--kv-cache-memory-bytes=536870912"]
+            },
+            {
+              "id": "ollama-cpu",
+              "engine": "OLlama",
+              "computeTarget": "cpu",
+              "architectures": ["amd64", "arm64"],
+              "url": "ollama://qwen2.5:0.5b",
+              "features": ["TextGeneration"],
+              "resourceProfile": "magicstick-ollama-cpu:1",
+              "memoryRequiredMi": 2048,
+              "contextWindow": 2048,
+              "maxOutputTokens": 1024,
+              "maxNumSeqs": 1
+            },
+            {
+              "id": "vllm-nvidia",
+              "engine": "VLLM",
+              "computeTarget": "nvidia-gpu",
+              "architectures": ["amd64", "arm64"],
+              "url": "hf://Qwen/Qwen2.5-0.5B-Instruct",
+              "features": ["TextGeneration"],
+              "resourceProfile": "magicstick-nvidia-gpu:1",
+              "vram": "4Gi",
+              "vramMi": 4096,
+              "contextWindow": 2048,
+              "maxOutputTokens": 1024,
+              "maxNumSeqs": 1,
+              "args": ["--tensor-parallel-size=1", "--max-model-len=2048", "--max-num-seqs=1"]
+            },
+            {
+              "id": "ollama-nvidia",
+              "engine": "OLlama",
+              "computeTarget": "nvidia-gpu",
+              "architectures": ["amd64", "arm64"],
+              "url": "ollama://qwen2.5:0.5b",
+              "features": ["TextGeneration"],
+              "resourceProfile": "magicstick-ollama-nvidia-gpu:1",
+              "vram": "2Gi",
+              "vramMi": 2048,
+              "contextWindow": 2048,
+              "maxOutputTokens": 1024,
+              "maxNumSeqs": 1
+            },
+            {
+              "id": "vllm-amd",
+              "engine": "VLLM",
+              "computeTarget": "amd-gpu",
+              "architectures": ["amd64"],
+              "url": "hf://Qwen/Qwen2.5-0.5B-Instruct",
+              "features": ["TextGeneration"],
+              "resourceProfile": "magicstick-amd-gpu:1",
+              "vram": "4Gi",
+              "vramMi": 4096,
+              "contextWindow": 2048,
+              "maxOutputTokens": 1024,
+              "maxNumSeqs": 1,
+              "args": ["--tensor-parallel-size=1", "--max-model-len=2048", "--max-num-seqs=1"]
+            },
+            {
+              "id": "ollama-amd",
+              "engine": "OLlama",
+              "computeTarget": "amd-gpu",
+              "architectures": ["amd64"],
+              "url": "ollama://qwen2.5:0.5b",
+              "features": ["TextGeneration"],
+              "resourceProfile": "magicstick-ollama-amd-gpu:1",
+              "vram": "2Gi",
+              "vramMi": 2048,
+              "contextWindow": 2048,
+              "maxOutputTokens": 1024,
+              "maxNumSeqs": 1
+            },
+            {
+              "id": "vllm-intel",
+              "engine": "VLLM",
+              "computeTarget": "intel-gpu",
+              "architectures": ["amd64"],
+              "url": "hf://Qwen/Qwen2.5-0.5B-Instruct",
+              "features": ["TextGeneration"],
+              "vram": "4Gi",
+              "vramMi": 4096,
+              "contextWindow": 2048,
+              "maxOutputTokens": 1024,
+              "maxNumSeqs": 1,
+              "args": ["--tensor-parallel-size=1", "--max-model-len=2048", "--max-num-seqs=1"]
+            }
+          ]
+        },
         "qwen3827b": {
           "title": "Qwen3.8 27B AWQ INT4",
           "type": "chat",
-          "url": "hf://cyankiwi/Qwen3.8-27B-AWQ-INT4",
-          "features": ["TextGeneration"],
-          "engine": "VLLM",
-          "resourceProfile": "magicstick-nvidia-gpu:1",
-          "vram": "24062Mi",
-          "vramMi": 24062,
-          "contextWindow": 20000,
-          "maxOutputTokens": 8192,
-          "maxNumSeqs": 1,
-          "args": [
-            "--tensor-parallel-size=1",
-            "--max-model-len=20000",
-            "--max-num-seqs=1",
-            "--reasoning-parser=qwen3",
-            "--enable-auto-tool-choice",
-            "--tool-call-parser=qwen3_coder"
+          "variants": [
+            {
+              "id": "vllm-nvidia",
+              "engine": "VLLM",
+              "computeTarget": "nvidia-gpu",
+              "architectures": ["amd64", "arm64"],
+              "url": "hf://cyankiwi/Qwen3.8-27B-AWQ-INT4",
+              "features": ["TextGeneration"],
+              "resourceProfile": "magicstick-nvidia-gpu:1",
+              "vram": "24062Mi",
+              "vramMi": 24062,
+              "contextWindow": 20000,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": ["--tensor-parallel-size=1", "--max-model-len=20000", "--max-num-seqs=1", "--reasoning-parser=qwen3", "--enable-auto-tool-choice", "--tool-call-parser=qwen3_coder"]
+            }
           ]
         },
         "qwen3635b": {
           "title": "Qwen3.6 35B A3B AWQ",
           "type": "chat",
-          "url": "hf://cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit",
-          "features": ["TextGeneration"],
-          "engine": "VLLM",
-          "resourceProfile": "magicstick-nvidia-gpu:1",
-          "vram": "15Gi",
-          "vramMi": 15360,
-          "contextWindow": 8192,
-          "maxNumSeqs": 128,
-          "args": [
-            "--tensor-parallel-size=1",
-            "--max-model-len=8192",
-            "--max-num-seqs=128",
-            "--reasoning-parser=qwen3",
-            "--enable-auto-tool-choice",
-            "--tool-call-parser=qwen3_coder"
+          "variants": [
+            {
+              "id": "vllm-nvidia",
+              "engine": "VLLM",
+              "computeTarget": "nvidia-gpu",
+              "architectures": ["amd64", "arm64"],
+              "url": "hf://cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit",
+              "features": ["TextGeneration"],
+              "resourceProfile": "magicstick-nvidia-gpu:1",
+              "vram": "15Gi",
+              "vramMi": 15360,
+              "contextWindow": 8192,
+              "maxNumSeqs": 128,
+              "args": ["--tensor-parallel-size=1", "--max-model-len=8192", "--max-num-seqs=128", "--reasoning-parser=qwen3", "--enable-auto-tool-choice", "--tool-call-parser=qwen3_coder"]
+            }
           ]
         },
         "qwen359b": {
           "title": "Qwen3.5 9B AWQ",
           "type": "chat",
-          "url": "hf://cyankiwi/Qwen3.5-9B-AWQ-4bit",
-          "features": ["TextGeneration"],
-          "engine": "VLLM",
-          "resourceProfile": "magicstick-nvidia-gpu:1",
-          "vram": "16Gi",
-          "vramMi": 16384,
-          "contextWindow": 8192,
-          "maxNumSeqs": 32,
-          "args": [
-            "--tensor-parallel-size=1",
-            "--max-num-seqs=32",
-            "--reasoning-parser=qwen3",
-            "--enable-auto-tool-choice",
-            "--tool-call-parser=qwen3_coder"
+          "variants": [
+            {
+              "id": "vllm-nvidia",
+              "engine": "VLLM",
+              "computeTarget": "nvidia-gpu",
+              "architectures": ["amd64"],
+              "url": "hf://cyankiwi/Qwen3.5-9B-AWQ-4bit",
+              "features": ["TextGeneration"],
+              "resourceProfile": "magicstick-nvidia-gpu:1",
+              "vram": "16Gi",
+              "vramMi": 16384,
+              "contextWindow": 8192,
+              "maxNumSeqs": 32,
+              "args": ["--tensor-parallel-size=1", "--max-num-seqs=32", "--reasoning-parser=qwen3", "--enable-auto-tool-choice", "--tool-call-parser=qwen3_coder"]
+            }
           ]
         },
         "qwen352bvlembedding": {
           "title": "Qwen3 VL Embedding 2B AWQ",
           "type": "embedding",
-          "url": "hf://LifetimeMistake/Qwen3-VL-Embedding-2B-AWQ-4bit",
-          "features": ["TextEmbedding"],
-          "engine": "VLLM",
-          "resourceProfile": "magicstick-nvidia-gpu:1",
-          "vram": "5Gi",
-          "vramMi": 5120,
-          "contextWindow": 4096,
-          "args": [
-            "--runner=pooling",
-            "--convert=embed",
-            "--trust-remote-code",
-            "--quantization=compressed-tensors",
-            "--limit-mm-per-prompt",
-            "{\"image\":1}",
-            "--max-model-len=4096"
+          "variants": [
+            {
+              "id": "vllm-nvidia",
+              "engine": "VLLM",
+              "computeTarget": "nvidia-gpu",
+              "architectures": ["amd64"],
+              "url": "hf://LifetimeMistake/Qwen3-VL-Embedding-2B-AWQ-4bit",
+              "features": ["TextEmbedding"],
+              "resourceProfile": "magicstick-nvidia-gpu:1",
+              "vram": "5Gi",
+              "vramMi": 5120,
+              "contextWindow": 4096,
+              "args": ["--runner=pooling", "--convert=embed", "--trust-remote-code", "--quantization=compressed-tensors", "--limit-mm-per-prompt", "{\"image\":1}", "--max-model-len=4096"]
+            }
           ]
         }
       }

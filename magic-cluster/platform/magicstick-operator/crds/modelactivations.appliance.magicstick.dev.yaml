@@ -83,7 +83,7 @@ spec:
                       default: ai-system
                 local:
                   type: object
-                  description: Local KubeAI/vLLM model settings.
+                  description: Local KubeAI model settings for vLLM or Ollama.
                   x-kubernetes-preserve-unknown-fields: true
                   properties:
                     preset:
@@ -99,9 +99,23 @@ spec:
                     engine:
                       type: string
                       default: VLLM
+                      enum:
+                        - VLLM
+                        - OLlama
+                    computeTarget:
+                      type: string
+                      description: Logical compute backend. Missing values on legacy resources are interpreted as nvidia-gpu.
+                      default: nvidia-gpu
+                      enum:
+                        - cpu
+                        - nvidia-gpu
+                        - amd-gpu
+                        - intel-gpu
+                      x-kubernetes-validations:
+                        - rule: self == oldSelf
+                          message: computeTarget is immutable; recreate the ModelActivation to change it
                     resourceProfile:
                       type: string
-                      default: magicstick-nvidia-gpu:1
                     vram:
                       type: string
                     vramMi:
@@ -116,6 +130,9 @@ spec:
                     maxNumSeqs:
                       type: integer
                       minimum: 1
+                    kvCacheMemoryBytes:
+                      type: integer
+                      minimum: 67108864
                     args:
                       type: array
                       items:
@@ -177,7 +194,16 @@ spec:
                   type: string
                 catalogId:
                   type: string
+                computeTarget:
+                  type: string
+                engine:
+                  type: string
+                resolvedResourceProfile:
+                  type: string
                 vramRequiredMi:
+                  type: integer
+                  minimum: 0
+                memoryRequiredMi:
                   type: integer
                   minimum: 0
                 message:

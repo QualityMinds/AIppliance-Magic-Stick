@@ -5,6 +5,7 @@ import yaml
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+CLUSTER_ROOT = ROOT.parents[1]
 
 
 def load_controller():
@@ -332,13 +333,316 @@ class HelmAppInstanceTests(unittest.TestCase):
             },
         )
 
-    def test_gpu_modules_are_on_demand_in_catalog(self):
+    def test_accelerator_operators_are_hardware_detected_and_kubeai_stays_on_demand(self):
         manifest = yaml.safe_load((ROOT / "module-catalog.yaml").read_text(encoding="utf-8"))
         catalog = yaml.safe_load(manifest["data"]["modules.json"])
 
-        for name in ("gpu", "kubeai"):
+        for name in ("gpu", "amd-gpu", "intel-gpu"):
             self.assertFalse(catalog["modules"][name]["default"])
-            self.assertEqual(catalog["modules"][name]["activationPolicy"], "local-model")
+            self.assertEqual(catalog["modules"][name]["activationPolicy"], "hardware-detected")
+            self.assertIn("hardware-discovery", catalog["modules"][name]["requires"])
+            self.assertTrue(catalog["modules"][name]["waitForReady"])
+
+        self.assertFalse(catalog["modules"]["kubeai"]["default"])
+        self.assertEqual(catalog["modules"]["kubeai"]["activationPolicy"], "local-model")
+        self.assertEqual(catalog["modules"]["hardware-discovery"]["activationMode"], "static")
+
+    def test_hardware_catalog_uses_standard_vendor_labels_and_resources(self):
+        manifest = yaml.safe_load((ROOT / "module-catalog.yaml").read_text(encoding="utf-8"))
+        catalog = yaml.safe_load(manifest["data"]["modules.json"])["modules"]
+
+        self.assertEqual(
+            {
+                name: (
+                    spec["hardware"]["detectionLabel"],
+                    spec["hardware"]["resourceNames"],
+                )
+                for name, spec in catalog.items()
+                if spec.get("hardware")
+            },
+            {
+                "gpu": (
+                    "feature.node.kubernetes.io/pci-10de.present",
+                    ["nvidia.com/gpu"],
+                ),
+                "amd-gpu": (
+                    "feature.node.kubernetes.io/pci-1002.present",
+                    ["amd.com/gpu"],
+                ),
+                "intel-gpu": (
+                    "feature.node.kubernetes.io/pci-8086.present",
+                    ["gpu.intel.com/i915", "gpu.intel.com/xe"],
+                ),
+            },
+        )
+
+    def test_hardware_discovery_does_not_install_vendor_operators_without_gpus(self):
+        manifest = yaml.safe_load((ROOT / "module-catalog.yaml").read_text(encoding="utf-8"))
+        catalog = yaml.safe_load(manifest["data"]["modules.json"])
+        original = self.controller["ensure_module_activation"]
+        self.controller["ensure_module_activation"] = lambda *_args, **_kwargs: self.fail(
+            "vendor operators must not be activated without detected hardware"
+        )
+        nodes = [{
+            "metadata": {
+                "name": "cpu-only",
+                "labels": {"kubernetes.io/os": "linux", "kubernetes.io/arch": "arm64"},
+            },
+            "status": {
+                "nodeInfo": {
+                    "architecture": "arm64",
+                    "operatingSystem": "linux",
+                    "kubeletVersion": "v1.36.3+k3s1",
+                },
+                "conditions": [{"type": "Ready", "status": "True"}],
+                "allocatable": {},
+            },
+        }]
+        try:
+            statuses = self.controller["hardware_operator_statuses"](
+                catalog,
+                {},
+                nodes=nodes,
+                crd_names=set(),
+                activate=True,
+            )
+        finally:
+            self.controller["ensure_module_activation"] = original
+
+        self.assertEqual(set(statuses), {"gpu", "amd-gpu", "intel-gpu"})
+        self.assertTrue(all(item["phase"] == "NotRequired" for item in statuses.values()))
+        self.assertTrue(all(item["operatorActive"] is False for item in statuses.values()))
+
+    def test_detected_nvidia_gpu_requests_operator_and_becomes_ready_after_resource(self):
+        manifest = yaml.safe_load((ROOT / "module-catalog.yaml").read_text(encoding="utf-8"))
+        catalog = yaml.safe_load(manifest["data"]["modules.json"])
+        requested = []
+        original = self.controller["ensure_module_activation"]
+        self.controller["ensure_module_activation"] = lambda *args, **kwargs: requested.append((args, kwargs))
+        node = {
+            "metadata": {
+                "name": "gpu-node",
+                "labels": {
+                    "kubernetes.io/os": "linux",
+                    "kubernetes.io/arch": "amd64",
+                    "feature.node.kubernetes.io/pci-10de.present": "true",
+                },
+            },
+            "status": {
+                "nodeInfo": {
+                    "architecture": "amd64",
+                    "operatingSystem": "linux",
+                    "kubeletVersion": "v1.36.3+k3s1",
+                },
+                "conditions": [{"type": "Ready", "status": "True"}],
+                "allocatable": {},
+            },
+        }
+        try:
+            initial = self.controller["hardware_operator_statuses"](
+                catalog,
+                {},
+                nodes=[node],
+                crd_names=set(),
+                activate=True,
+            )["gpu"]
+        finally:
+            self.controller["ensure_module_activation"] = original
+
+        self.assertEqual(initial["phase"], "Detected")
+        self.assertEqual(
+            requested,
+            [(('gpu',), {"auto": True, "activation_source": "hardware-detection"})],
+        )
+
+        node["status"]["allocatable"]["nvidia.com/gpu"] = "1"
+        activation = {"metadata": {"name": "gpu"}, "spec": {"module": "gpu", "enabled": True}}
+        ready = self.controller["hardware_operator_statuses"](
+            catalog,
+            {"gpu": activation},
+            module_statuses={"gpu": {"phase": "Ready"}},
+            nodes=[node],
+            crd_names={"clusterpolicies.nvidia.com"},
+        )["gpu"]
+
+        self.assertEqual(ready["phase"], "Ready")
+        self.assertEqual(ready["allocatableResources"], 1)
+        self.assertEqual(ready["managedBy"], "magicstick")
+
+    def test_detected_amd_and_intel_gpus_each_request_and_reach_ready(self):
+        manifest = yaml.safe_load((ROOT / "module-catalog.yaml").read_text(encoding="utf-8"))
+        catalog = yaml.safe_load(manifest["data"]["modules.json"])
+        providers = {
+            "amd-gpu": {
+                "detectionLabel": "feature.node.kubernetes.io/pci-1002.present",
+                "supportedLabel": "feature.node.kubernetes.io/amd-gpu",
+                "resource": "amd.com/gpu",
+                "crd": "deviceconfigs.amd.com",
+            },
+            "intel-gpu": {
+                "detectionLabel": "feature.node.kubernetes.io/pci-8086.present",
+                "supportedLabel": "intel.feature.node.kubernetes.io/gpu",
+                "resource": "gpu.intel.com/i915",
+                "crd": "gpudeviceplugins.deviceplugin.intel.com",
+            },
+        }
+
+        for module_name, provider in providers.items():
+            with self.subTest(module=module_name):
+                requested = []
+                original = self.controller["ensure_module_activation"]
+                self.controller["ensure_module_activation"] = (
+                    lambda *args, **kwargs: requested.append((args, kwargs))
+                )
+                node = {
+                    "metadata": {
+                        "name": module_name + "-node",
+                        "labels": {
+                            "kubernetes.io/os": "linux",
+                            "kubernetes.io/arch": "amd64",
+                            provider["detectionLabel"]: "true",
+                            provider["supportedLabel"]: "true",
+                        },
+                    },
+                    "status": {
+                        "nodeInfo": {
+                            "architecture": "amd64",
+                            "operatingSystem": "linux",
+                            "kubeletVersion": "v1.36.3+k3s1",
+                        },
+                        "conditions": [{"type": "Ready", "status": "True"}],
+                        "allocatable": {},
+                    },
+                }
+                try:
+                    initial = self.controller["hardware_operator_statuses"](
+                        catalog,
+                        {},
+                        nodes=[node],
+                        crd_names=set(),
+                        activate=True,
+                    )[module_name]
+                finally:
+                    self.controller["ensure_module_activation"] = original
+
+                self.assertEqual(initial["phase"], "Detected")
+                self.assertEqual(
+                    requested,
+                    [
+                        (
+                            (module_name,),
+                            {"auto": True, "activation_source": "hardware-detection"},
+                        )
+                    ],
+                )
+
+                node["status"]["allocatable"][provider["resource"]] = "2"
+                activation = {
+                    "metadata": {"name": module_name},
+                    "spec": {"module": module_name, "enabled": True},
+                }
+                ready = self.controller["hardware_operator_statuses"](
+                    catalog,
+                    {module_name: activation},
+                    module_statuses={module_name: {"phase": "Ready"}},
+                    nodes=[node],
+                    crd_names={provider["crd"]},
+                )[module_name]
+
+                self.assertEqual(ready["phase"], "Ready")
+                self.assertEqual(ready["allocatableResources"], 2)
+                self.assertEqual(ready["managedBy"], "magicstick")
+
+    def test_missing_hardware_signal_retains_an_existing_operator(self):
+        manifest = yaml.safe_load((ROOT / "module-catalog.yaml").read_text(encoding="utf-8"))
+        catalog = yaml.safe_load(manifest["data"]["modules.json"])
+        activation = {
+            "metadata": {
+                "name": "gpu",
+                "annotations": {"appliance.magicstick.dev/auto-enabled": "true"},
+            },
+            "spec": {"module": "gpu", "enabled": True},
+        }
+
+        status = self.controller["hardware_operator_statuses"](
+            catalog,
+            {"gpu": activation},
+            module_statuses={"gpu": {"phase": "Ready"}},
+            nodes=[],
+            crd_names={"clusterpolicies.nvidia.com"},
+        )["gpu"]
+
+        self.assertEqual(status["phase"], "Unknown")
+        self.assertTrue(status["operatorActive"])
+        self.assertIn("retained", status["message"])
+
+    def test_vendor_support_rule_can_reject_a_detected_amd_gpu(self):
+        manifest = yaml.safe_load((ROOT / "module-catalog.yaml").read_text(encoding="utf-8"))
+        catalog = yaml.safe_load(manifest["data"]["modules.json"])
+        node = {
+            "metadata": {
+                "name": "amd-node",
+                "labels": {
+                    "kubernetes.io/os": "linux",
+                    "kubernetes.io/arch": "amd64",
+                    "feature.node.kubernetes.io/pci-1002.present": "true",
+                },
+            },
+            "status": {
+                "nodeInfo": {
+                    "architecture": "amd64",
+                    "operatingSystem": "linux",
+                    "kubeletVersion": "v1.36.3",
+                },
+                "conditions": [{"type": "Ready", "status": "True"}],
+                "allocatable": {},
+            },
+        }
+        activation = {"metadata": {"name": "amd-gpu"}, "spec": {"enabled": True}}
+
+        status = self.controller["hardware_operator_statuses"](
+            catalog,
+            {"amd-gpu": activation},
+            module_statuses={"amd-gpu": {"phase": "Ready"}},
+            nodes=[node],
+            crd_names={"deviceconfigs.amd.com"},
+        )["amd-gpu"]
+
+        self.assertEqual(status["phase"], "Unsupported")
+        self.assertIn("support rule", status["message"])
+
+    def test_existing_vendor_crd_blocks_a_second_operator_install(self):
+        manifest = yaml.safe_load((ROOT / "module-catalog.yaml").read_text(encoding="utf-8"))
+        catalog = yaml.safe_load(manifest["data"]["modules.json"])
+        node = {
+            "metadata": {
+                "name": "intel-node",
+                "labels": {
+                    "kubernetes.io/os": "linux",
+                    "kubernetes.io/arch": "amd64",
+                    "feature.node.kubernetes.io/pci-8086.present": "true",
+                },
+            },
+            "status": {
+                "nodeInfo": {
+                    "architecture": "amd64",
+                    "operatingSystem": "linux",
+                    "kubeletVersion": "v1.36.3",
+                },
+                "conditions": [{"type": "Ready", "status": "True"}],
+                "allocatable": {},
+            },
+        }
+
+        status = self.controller["hardware_operator_statuses"](
+            catalog,
+            {},
+            nodes=[node],
+            crd_names={"gpudeviceplugins.deviceplugin.intel.com"},
+        )["intel-gpu"]
+
+        self.assertEqual(status["phase"], "Conflict")
+        self.assertEqual(status["managedBy"], "external")
 
     def test_waiting_module_suspends_kustomization_without_deleting_resources(self):
         names = (
@@ -396,12 +700,45 @@ class HelmAppInstanceTests(unittest.TestCase):
         required = self.controller["model_required_modules"]
 
         self.assertEqual(required("external"), ["litellm", "model-catalog"])
-        self.assertEqual(required("local"), ["gpu", "kubeai", "litellm", "model-catalog"])
+        self.assertEqual(
+            required("local", "nvidia-gpu"),
+            ["gpu", "kubeai", "litellm", "model-catalog"],
+        )
+        self.assertEqual(
+            required("local", "cpu"),
+            ["kubeai", "litellm", "model-catalog"],
+        )
+        self.assertEqual(
+            required("local", "amd-gpu"),
+            ["amd-gpu", "kubeai", "litellm", "model-catalog"],
+        )
+        self.assertEqual(
+            required("local", "intel-gpu"),
+            ["intel-gpu", "kubeai", "litellm", "model-catalog"],
+        )
+
+    def test_model_contract_exposes_vllm_and_ollama_with_explicit_target_matrix(self):
+        crd = yaml.safe_load(
+            (ROOT / "crds/modelactivations.appliance.magicstick.dev.yaml").read_text(encoding="utf-8")
+        )
+        local_schema = (
+            crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]
+            ["properties"]["local"]
+        )
+        self.assertEqual(local_schema["properties"]["engine"]["enum"], ["VLLM", "OLlama"])
+
+        manifest = yaml.safe_load((ROOT / "compute-target-catalog.yaml").read_text(encoding="utf-8"))
+        catalog = yaml.safe_load(manifest["data"]["targets.json"])
+        self.assertEqual(catalog["schemaVersion"], 2)
+        self.assertEqual(catalog["targets"]["cpu"]["engines"], ["VLLM", "OLlama"])
+        self.assertEqual(catalog["targets"]["nvidia-gpu"]["engines"], ["VLLM", "OLlama"])
+        self.assertEqual(catalog["targets"]["amd-gpu"]["engines"], ["VLLM", "OLlama"])
+        self.assertEqual(catalog["targets"]["intel-gpu"]["engines"], ["VLLM"])
 
     def test_qwen38_preset_generates_validated_single_gpu_runtime(self):
         manifest = yaml.safe_load((ROOT / "model-presets.yaml").read_text(encoding="utf-8"))
         presets = yaml.safe_load(manifest["data"]["presets.json"])["presets"]
-        preset = presets["qwen3827b"]
+        preset = presets["qwen3827b"]["variants"][0]
         activation = {
             "metadata": {"name": "qwen3827b"},
             "spec": {
@@ -410,11 +747,14 @@ class HelmAppInstanceTests(unittest.TestCase):
             },
         }
 
-        resource, vram_mi = self.controller["kubeai_model_resource"](activation, presets)
+        resource, runtime = self.controller["kubeai_model_resource"](activation, presets)
 
         self.assertEqual(preset["url"], "hf://cyankiwi/Qwen3.8-27B-AWQ-INT4")
         self.assertEqual(preset["maxOutputTokens"], 8192)
-        self.assertEqual(vram_mi, 24062)
+        self.assertEqual(runtime["vramMi"], 24062)
+        self.assertEqual(runtime["computeTarget"], "nvidia-gpu")
+        self.assertEqual(runtime["engine"], "VLLM")
+        self.assertEqual(runtime["resourceProfile"], "magicstick-nvidia-gpu:1")
         self.assertEqual(resource["metadata"]["annotations"]["ai-appliance.io/context-window"], "20000")
         self.assertEqual(resource["metadata"]["annotations"]["ai-appliance.io/max-output-tokens"], "8192")
         self.assertEqual(resource["spec"]["env"]["MAGICSTICK_VLLM_VRAM_LIMIT"], "24062Mi")
@@ -429,6 +769,231 @@ class HelmAppInstanceTests(unittest.TestCase):
                 "--max-num-seqs=1",
             ],
         )
+
+    def test_cpu_preset_generates_cpu_runtime_without_gpu_requirements(self):
+        manifest = yaml.safe_load((ROOT / "model-presets.yaml").read_text(encoding="utf-8"))
+        presets = yaml.safe_load(manifest["data"]["presets.json"])["presets"]
+        catalog_manifest = yaml.safe_load((ROOT / "compute-target-catalog.yaml").read_text(encoding="utf-8"))
+        compute_catalog = yaml.safe_load(catalog_manifest["data"]["targets.json"])
+        activation = {
+            "metadata": {"name": "qwen2505bcpu"},
+            "spec": {
+                "targetNamespace": "ai",
+                "local": {"preset": "qwen2505bcpu", "computeTarget": "cpu"},
+            },
+        }
+        original = self.controller["cluster_architectures"]
+        self.controller["cluster_architectures"] = lambda: {"arm64"}
+        try:
+            resource, runtime = self.controller["kubeai_model_resource"](
+                activation,
+                presets,
+                compute_catalog,
+            )
+        finally:
+            self.controller["cluster_architectures"] = original
+
+        self.assertEqual(runtime["computeTarget"], "cpu")
+        self.assertEqual(runtime["resourceProfile"], "magicstick-vllm-cpu:1")
+        self.assertEqual(runtime["memoryMi"], 4096)
+        self.assertEqual(runtime["vramMi"], 0)
+        self.assertEqual(resource["spec"]["engine"], "VLLM")
+        self.assertEqual(resource["spec"]["env"]["MAGICSTICK_COMPUTE_TARGET"], "cpu")
+        self.assertEqual(resource["spec"]["env"]["MAGICSTICK_VLLM_WRAPPER_ENABLED"], "true")
+        self.assertTrue(resource["spec"]["env"]["PYTHONPATH"].startswith("/opt/magicstick/vllm-wrapper"))
+        self.assertNotIn("VLLM_CPU_KVCACHE_SPACE", resource["spec"]["env"])
+        self.assertNotIn("MAGICSTICK_VLLM_VRAM_LIMIT", resource["spec"]["env"])
+        self.assertIn("--kv-cache-memory-bytes=536870912", resource["spec"]["args"])
+        self.assertEqual(
+            resource["metadata"]["labels"]["appliance.magicstick.dev/compute-target"],
+            "cpu",
+        )
+
+    def test_ollama_cpu_preset_generates_native_kubeai_ollama_runtime(self):
+        manifest = yaml.safe_load((ROOT / "model-presets.yaml").read_text(encoding="utf-8"))
+        presets = yaml.safe_load(manifest["data"]["presets.json"])["presets"]
+        catalog_manifest = yaml.safe_load((ROOT / "compute-target-catalog.yaml").read_text(encoding="utf-8"))
+        compute_catalog = yaml.safe_load(catalog_manifest["data"]["targets.json"])
+        activation = {
+            "metadata": {"name": "qwen2505b-ollama-cpu"},
+            "spec": {
+                "targetNamespace": "ai",
+                "local": {
+                    "preset": "qwen2505bcpu",
+                    "engine": "OLlama",
+                    "computeTarget": "cpu",
+                },
+            },
+        }
+        original = self.controller["cluster_architectures"]
+        self.controller["cluster_architectures"] = lambda: {"arm64"}
+        try:
+            resource, runtime = self.controller["kubeai_model_resource"](
+                activation,
+                presets,
+                compute_catalog,
+            )
+        finally:
+            self.controller["cluster_architectures"] = original
+
+        self.assertEqual(runtime["engine"], "OLlama")
+        self.assertEqual(runtime["computeTarget"], "cpu")
+        self.assertEqual(runtime["resourceProfile"], "magicstick-ollama-cpu:1")
+        self.assertEqual(runtime["memoryMi"], 2048)
+        self.assertEqual(resource["spec"]["engine"], "OLlama")
+        self.assertEqual(resource["spec"]["url"], "ollama://qwen2.5:0.5b")
+        self.assertEqual(resource["spec"]["args"], [])
+        self.assertEqual(resource["spec"]["env"]["OLLAMA_CONTEXT_LENGTH"], "2048")
+        self.assertEqual(resource["spec"]["env"]["OLLAMA_NUM_PARALLEL"], "1")
+        self.assertEqual(resource["spec"]["env"]["OLLAMA_MAX_LOADED_MODELS"], "1")
+        self.assertNotIn("MAGICSTICK_VLLM_WRAPPER_ENABLED", resource["spec"]["env"])
+        self.assertNotIn("MAGICSTICK_VLLM_VRAM_LIMIT", resource["spec"]["env"])
+
+    def test_ollama_selects_vendor_specific_gpu_profiles_but_not_intel(self):
+        manifest = yaml.safe_load((ROOT / "model-presets.yaml").read_text(encoding="utf-8"))
+        presets = yaml.safe_load(manifest["data"]["presets.json"])["presets"]
+        catalog_manifest = yaml.safe_load((ROOT / "compute-target-catalog.yaml").read_text(encoding="utf-8"))
+        compute_catalog = yaml.safe_load(catalog_manifest["data"]["targets.json"])
+        originals = {
+            "cluster_architectures": self.controller["cluster_architectures"],
+            "list_items": self.controller["list_items"],
+        }
+        self.controller["cluster_architectures"] = lambda: {"amd64"}
+        self.controller["list_items"] = lambda path: [{
+            "metadata": {"labels": {"kubernetes.io/os": "linux"}},
+            "spec": {},
+            "status": {
+                "nodeInfo": {"architecture": "amd64"},
+                "conditions": [{"type": "Ready", "status": "True"}],
+                "allocatable": {"amd.com/gpu": "1", "nvidia.com/gpu": "1"},
+            },
+        }] if path == "/api/v1/nodes" else []
+        try:
+            for target, expected_profile in (
+                ("nvidia-gpu", "magicstick-ollama-nvidia-gpu:1"),
+                ("amd-gpu", "magicstick-ollama-amd-gpu:1"),
+            ):
+                with self.subTest(target=target):
+                    activation = {
+                        "metadata": {"name": "ollama-" + target},
+                        "spec": {
+                            "targetNamespace": "ai",
+                            "local": {
+                                "preset": "qwen2505bcpu",
+                                "engine": "OLlama",
+                                "computeTarget": target,
+                            },
+                        },
+                    }
+                    resource, runtime = self.controller["kubeai_model_resource"](
+                        activation,
+                        presets,
+                        compute_catalog,
+                    )
+                    self.assertEqual(runtime["resourceProfile"], expected_profile)
+                    self.assertEqual(resource["spec"]["engine"], "OLlama")
+                    self.assertEqual(resource["spec"]["env"]["MAGICSTICK_ENGINE"], "OLlama")
+
+            with self.assertRaisesRegex(ValueError, "intel-gpu does not support OLlama"):
+                self.controller["kubeai_model_resource"]({
+                    "metadata": {"name": "ollama-intel"},
+                    "spec": {
+                        "targetNamespace": "ai",
+                        "local": {
+                            "preset": "qwen2505bcpu",
+                            "engine": "OLlama",
+                            "computeTarget": "intel-gpu",
+                        },
+                    },
+                }, presets, compute_catalog)
+        finally:
+            self.controller.update(originals)
+
+    def test_ollama_rejects_vllm_url_and_raw_server_arguments(self):
+        base = {
+            "metadata": {"name": "invalid-ollama"},
+            "spec": {
+                "targetNamespace": "ai",
+                "local": {
+                    "engine": "OLlama",
+                    "computeTarget": "cpu",
+                    "url": "hf://example/model",
+                },
+            },
+        }
+        with self.assertRaisesRegex(ValueError, "must use the ollama:// scheme"):
+            self.controller["kubeai_model_resource"](base, {})
+
+        base["spec"]["local"]["url"] = "ollama://qwen2.5:0.5b"
+        base["spec"]["local"]["args"] = ["serve"]
+        with self.assertRaisesRegex(ValueError, "local.args is not supported"):
+            self.controller["kubeai_model_resource"](base, {})
+
+    def test_portable_preset_generates_amd_and_intel_gpu_runtimes(self):
+        manifest = yaml.safe_load((ROOT / "model-presets.yaml").read_text(encoding="utf-8"))
+        presets = yaml.safe_load(manifest["data"]["presets.json"])["presets"]
+        catalog_manifest = yaml.safe_load((ROOT / "compute-target-catalog.yaml").read_text(encoding="utf-8"))
+        compute_catalog = yaml.safe_load(catalog_manifest["data"]["targets.json"])
+        originals = {
+            "cluster_architectures": self.controller["cluster_architectures"],
+            "list_items": self.controller["list_items"],
+        }
+        self.controller["cluster_architectures"] = lambda: {"amd64"}
+        self.controller["list_items"] = lambda path: [{
+            "metadata": {"labels": {"kubernetes.io/os": "linux"}},
+            "spec": {},
+            "status": {
+                "nodeInfo": {"architecture": "amd64"},
+                "conditions": [{"type": "Ready", "status": "True"}],
+                "allocatable": {"amd.com/gpu": "1", "gpu.intel.com/xe": "1"},
+            },
+        }] if path == "/api/v1/nodes" else []
+        try:
+            for target, profile in (
+                ("amd-gpu", "magicstick-amd-gpu:1"),
+                ("intel-gpu", "magicstick-intel-xe-gpu:1"),
+            ):
+                with self.subTest(target=target):
+                    activation = {
+                        "metadata": {"name": "portable-" + target},
+                        "spec": {
+                            "targetNamespace": "ai",
+                            "local": {"preset": "qwen2505bcpu", "computeTarget": target},
+                        },
+                    }
+                    resource, runtime = self.controller["kubeai_model_resource"](
+                        activation,
+                        presets,
+                        compute_catalog,
+                    )
+                    self.assertEqual(runtime["computeTarget"], target)
+                    self.assertEqual(runtime["resourceProfile"], profile)
+                    self.assertEqual(runtime["vramMi"], 4096)
+                    self.assertEqual(resource["spec"]["env"]["MAGICSTICK_COMPUTE_TARGET"], target)
+                    self.assertEqual(resource["spec"]["env"]["MAGICSTICK_VLLM_VRAM_LIMIT"], "4Gi")
+                    self.assertNotIn("--kv-cache-memory-bytes=536870912", resource["spec"]["args"])
+        finally:
+            self.controller.update(originals)
+
+    def test_preset_variant_must_support_selected_compute_target(self):
+        manifest = yaml.safe_load((ROOT / "model-presets.yaml").read_text(encoding="utf-8"))
+        presets = yaml.safe_load(manifest["data"]["presets.json"])["presets"]
+        catalog_manifest = yaml.safe_load((ROOT / "compute-target-catalog.yaml").read_text(encoding="utf-8"))
+        compute_catalog = yaml.safe_load(catalog_manifest["data"]["targets.json"])
+        activation = {
+            "metadata": {"name": "qwen3827b"},
+            "spec": {
+                "targetNamespace": "ai",
+                "local": {"preset": "qwen3827b", "computeTarget": "cpu"},
+            },
+        }
+        original = self.controller["cluster_architectures"]
+        self.controller["cluster_architectures"] = lambda: {"arm64"}
+        try:
+            with self.assertRaisesRegex(ValueError, "has no unique VLLM/cpu variant"):
+                self.controller["kubeai_model_resource"](activation, presets, compute_catalog)
+        finally:
+            self.controller["cluster_architectures"] = original
 
     def test_nvidia_capacity_uses_allocatable_resources(self):
         original = self.controller["list_items"]
@@ -489,7 +1054,14 @@ class HelmAppInstanceTests(unittest.TestCase):
         self.controller["ensure_model_finalizer"] = lambda _activation: None
         self.controller["ensure_module_activation"] = lambda module, auto=False: requested.append((module, auto))
         self.controller["module_ready"] = lambda _module, _catalog: True
-        self.controller["kubeai_model_resource"] = lambda _activation, _presets: ({}, 8192)
+        runtime = {
+            "computeTarget": "nvidia-gpu",
+            "engine": "VLLM",
+            "resourceProfile": "magicstick-nvidia-gpu:1",
+            "vramMi": 8192,
+            "memoryMi": 0,
+        }
+        self.controller["kubeai_model_resource"] = lambda _activation, _presets: ({}, runtime)
         self.controller["nvidia_gpu_capacity"] = lambda: 0
         self.controller["patch_model_status"] = lambda *args, **kwargs: statuses.append((args, kwargs))
         self.controller["apply_resource"] = lambda _resource: self.fail("KubeAI Model must not be created without a GPU")
@@ -498,7 +1070,11 @@ class HelmAppInstanceTests(unittest.TestCase):
             "spec": {"type": "local", "targetNamespace": "ai", "local": {}},
         }
         try:
-            phase, status = self.controller["reconcile_model_activation"](activation, {"modules": {}}, {})
+            phase, status = self.controller["reconcile_model_activation"](
+                activation,
+                {"modules": {"gpu": {"activationPolicy": "hardware-detected"}}},
+                {},
+            )
         finally:
             self.controller.update(originals)
 
@@ -506,7 +1082,7 @@ class HelmAppInstanceTests(unittest.TestCase):
         self.assertEqual(status["vramRequiredMi"], 8192)
         self.assertEqual(
             requested,
-            [("gpu", True), ("kubeai", True), ("litellm", True), ("model-catalog", True)],
+            [("kubeai", True), ("litellm", True), ("model-catalog", True)],
         )
         self.assertEqual(statuses[-1][0][1], "WaitingForGPU")
 
@@ -533,7 +1109,14 @@ class HelmAppInstanceTests(unittest.TestCase):
         self.controller["ensure_model_finalizer"] = lambda _activation: None
         self.controller["ensure_module_activation"] = lambda _module, auto=False: None
         self.controller["module_ready"] = lambda _module, _catalog: True
-        self.controller["kubeai_model_resource"] = lambda _activation, _presets: (resource, 8192)
+        runtime = {
+            "computeTarget": "nvidia-gpu",
+            "engine": "VLLM",
+            "resourceProfile": "magicstick-nvidia-gpu:1",
+            "vramMi": 8192,
+            "memoryMi": 0,
+        }
+        self.controller["kubeai_model_resource"] = lambda _activation, _presets: (resource, runtime)
         self.controller["nvidia_gpu_capacity"] = lambda: 1
         self.controller["crd_exists"] = lambda _name: True
         self.controller["apply_resource"] = lambda _resource: resource
@@ -552,7 +1135,10 @@ class HelmAppInstanceTests(unittest.TestCase):
             self.controller.update(originals)
 
         self.assertEqual(phase, "Starting")
-        self.assertEqual(status["message"], "Waiting for KubeAI/vLLM to become ready: 0/1 replicas ready.")
+        self.assertEqual(
+            status["message"],
+            "Waiting for KubeAI/VLLM on nvidia-gpu to become ready: 0/1 replicas ready.",
+        )
         self.assertEqual(statuses[-1][0][1], "Starting")
         self.assertEqual(statuses[-1][0][2], "WaitingForReadyReplica")
 
@@ -579,7 +1165,14 @@ class HelmAppInstanceTests(unittest.TestCase):
         self.controller["ensure_model_finalizer"] = lambda _activation: None
         self.controller["ensure_module_activation"] = lambda _module, auto=False: None
         self.controller["module_ready"] = lambda _module, _catalog: True
-        self.controller["kubeai_model_resource"] = lambda _activation, _presets: (resource, 8192)
+        runtime = {
+            "computeTarget": "nvidia-gpu",
+            "engine": "VLLM",
+            "resourceProfile": "magicstick-nvidia-gpu:1",
+            "vramMi": 8192,
+            "memoryMi": 0,
+        }
+        self.controller["kubeai_model_resource"] = lambda _activation, _presets: (resource, runtime)
         self.controller["nvidia_gpu_capacity"] = lambda: 1
         self.controller["crd_exists"] = lambda _name: True
         self.controller["apply_resource"] = lambda _resource: resource
@@ -597,6 +1190,119 @@ class HelmAppInstanceTests(unittest.TestCase):
 
         self.assertEqual(phase, "Ready")
         self.assertEqual(statuses[-1][0][1], "Ready")
+
+    def test_cpu_model_never_requests_or_checks_nvidia_runtime(self):
+        names = (
+            "ensure_model_finalizer",
+            "ensure_module_activation",
+            "module_ready",
+            "kubeai_model_resource",
+            "nvidia_gpu_capacity",
+            "crd_exists",
+            "apply_resource",
+            "get_resource",
+            "catalog_contains_model",
+            "patch_model_status",
+        )
+        originals = {name: self.controller[name] for name in names}
+        requested = []
+        statuses = []
+        resource = {
+            "metadata": {"name": "local-cpu", "namespace": "ai"},
+            "spec": {"minReplicas": 1},
+            "status": {"replicas": {"all": 1, "ready": 1}},
+        }
+        runtime = {
+            "computeTarget": "cpu",
+            "engine": "VLLM",
+            "resourceProfile": "magicstick-vllm-cpu:1",
+            "vramMi": 0,
+            "memoryMi": 4096,
+        }
+        self.controller["ensure_model_finalizer"] = lambda _activation: None
+        self.controller["ensure_module_activation"] = lambda module, auto=False: requested.append((module, auto))
+        self.controller["module_ready"] = lambda _module, _catalog: True
+        self.controller["kubeai_model_resource"] = lambda _activation, _presets: (resource, runtime)
+        self.controller["nvidia_gpu_capacity"] = lambda: self.fail("CPU models must not inspect NVIDIA capacity")
+        self.controller["crd_exists"] = lambda _name: True
+        self.controller["apply_resource"] = lambda _resource: resource
+        self.controller["get_resource"] = lambda *_args: resource
+        self.controller["catalog_contains_model"] = lambda *_args: True
+        self.controller["patch_model_status"] = lambda *args, **kwargs: statuses.append((args, kwargs))
+        activation = {
+            "metadata": {"name": "local-cpu", "namespace": "ai-system", "generation": 1},
+            "spec": {
+                "type": "local",
+                "targetNamespace": "ai",
+                "local": {"computeTarget": "cpu"},
+            },
+        }
+        try:
+            phase, status = self.controller["reconcile_model_activation"](
+                activation,
+                {"modules": {}},
+                {},
+            )
+        finally:
+            self.controller.update(originals)
+
+        self.assertEqual(phase, "Ready")
+        self.assertEqual(status["computeTarget"], "cpu")
+        self.assertEqual(status["memoryRequiredMi"], 4096)
+        self.assertEqual(
+            requested,
+            [("kubeai", True), ("litellm", True), ("model-catalog", True)],
+        )
+        self.assertEqual(statuses[-1][1]["compute_target"], "cpu")
+
+
+class HardwareOperatorManifestTests(unittest.TestCase):
+    def load(self, path):
+        return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+    def test_shared_nfd_is_pinned_and_relabels_every_sixty_seconds(self):
+        release = self.load(CLUSTER_ROOT / "platform/hardware-discovery/helmrelease.yaml")
+        chart = release["spec"]["chart"]["spec"]
+        worker = release["spec"]["values"]["worker"]["config"]
+
+        self.assertEqual(chart["chart"], "node-feature-discovery")
+        self.assertEqual(str(chart["version"]), "0.18.3")
+        self.assertEqual(worker["core"]["sleepInterval"], "60s")
+        self.assertEqual(worker["sources"]["pci"]["deviceClassWhitelist"], ["03"])
+        self.assertEqual(worker["sources"]["pci"]["deviceLabelFields"], ["vendor"])
+
+    def test_vendor_charts_are_pinned_and_do_not_duplicate_nfd(self):
+        gpu_root = CLUSTER_ROOT / "platform/gpu"
+        nvidia = self.load(gpu_root / "nvidia-gpu-operator/helmrelease.yaml")
+        amd = self.load(gpu_root / "amd-gpu-operator/helmrelease.yaml")
+        intel_operator = self.load(gpu_root / "intel-gpu-operator/operator-helmrelease.yaml")
+        intel_plugin = self.load(gpu_root / "intel-gpu-operator/gpu-plugin-helmrelease.yaml")
+
+        self.assertEqual(str(nvidia["spec"]["chart"]["spec"]["version"]), "v26.3.3")
+        self.assertFalse(nvidia["spec"]["values"]["nfd"]["enabled"])
+        self.assertEqual(str(amd["spec"]["chart"]["spec"]["version"]), "v1.5.1")
+        self.assertFalse(amd["spec"]["values"]["node-feature-discovery"]["enabled"])
+        self.assertFalse(amd["spec"]["values"]["kmm"]["enabled"])
+        self.assertFalse(amd["spec"]["values"]["deviceConfig"]["spec"]["driver"]["enable"])
+        self.assertTrue(amd["spec"]["values"]["installdefaultNFDRule"])
+        self.assertEqual(str(intel_operator["spec"]["chart"]["spec"]["version"]), "0.36.0")
+        self.assertEqual(str(intel_plugin["spec"]["chart"]["spec"]["version"]), "0.36.0")
+        self.assertEqual(
+            intel_plugin["spec"]["dependsOn"],
+            [{"name": "intel-device-plugins-operator"}],
+        )
+        self.assertTrue(intel_plugin["spec"]["values"]["nodeFeatureRule"])
+
+    def test_flux_starts_shared_discovery_before_magicstick_operator(self):
+        graph = CLUSTER_ROOT / "flux/graph/base"
+        graph_kustomization = self.load(graph / "kustomization.yaml")
+        controller = self.load(graph / "15-magicstick-operator.yaml")
+
+        self.assertIn("03-hardware-discovery.yaml", graph_kustomization["resources"])
+        self.assertIn(
+            {"name": "hardware-discovery"},
+            controller["spec"]["dependsOn"],
+        )
 
 
 if __name__ == "__main__":

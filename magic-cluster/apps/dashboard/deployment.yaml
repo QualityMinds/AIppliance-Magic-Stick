@@ -17,7 +17,7 @@ spec:
       labels:
         app: ai-appliance-dashboard
       annotations:
-        appliance.magicstick.dev/dashboard-config-revision: user-management-v1
+        appliance.magicstick.dev/dashboard-config-revision: compute-targets-v1
     spec:
       serviceAccountName: default
       automountServiceAccountToken: false

@@ -29,6 +29,7 @@ Installer image
   -> Flux
   -> Flux graph under magic-cluster/flux/graph/base
   -> First-run namespace and ApplianceSetup CRD
+  -> Shared Node Feature Discovery
   -> Magic Stick Operator CRD, module catalog, and default Appliance
   -> platform and app Kustomize bases
 ```
@@ -53,13 +54,14 @@ The base graph is defined under `magic-cluster/flux/graph/base`.
 |---|---|---|---|
 | 00 | `infrastructure-basis` | `magic-cluster/platform/basis` | none |
 | 02 | `first-run-bootstrap` | `magic-cluster/platform/first-run-setup` | none |
+| 03 | `hardware-discovery` | `magic-cluster/platform/hardware-discovery` | `infrastructure-basis` |
 | 05 | `envoy-gateway` | `magic-cluster/platform/gateway/envoy-gateway` | `infrastructure-basis` |
 | 10 | `identity-pilot` | `magic-cluster/platform/identity` | `first-run-bootstrap`, `envoy-gateway` |
-| 15 | `magicstick-operator` | `magic-cluster/platform/magicstick-operator` | `infrastructure-basis` |
+| 15 | `magicstick-operator` | `magic-cluster/platform/magicstick-operator` | `infrastructure-basis`, `hardware-discovery` |
 | 30 | `apps` | `magic-cluster/apps/dashboard` | `infrastructure-basis`, `identity-pilot` |
 
-Optional AI, GPU, and instance resources are no longer applied by
-the static graph. The Magic Stick Operator creates generated Flux
+The shared, lightweight NFD service is part of the static graph. Optional AI,
+vendor GPU, and instance resources are not. The Magic Stick Operator creates generated Flux
 `Kustomization` resources from `ModuleActivation`, native KubeAI resources from
 `ModelActivation`, and Flux `HelmRelease` resources from `AppInstance` CRs.
 
@@ -83,9 +85,15 @@ selection happens through `ModuleActivation`, `ModelActivation`, and
 
 The default `ai-workstation` profile is GPU-neutral. It seeds `litellm` and
 `model-catalog` so external providers work immediately, but it does not install
-the NVIDIA GPU Operator or KubeAI. The first enabled local `ModelActivation`
-requests `gpu` and `kubeai` automatically. Existing runtime activations remain
-authoritative during upgrades.
+KubeAI or a vendor GPU operator. A CPU-backed local `ModelActivation` requests
+only KubeAI, while an accelerator-backed model additionally requires the
+matching NVIDIA, AMD, or Intel provider module. vLLM maps all four compute
+targets to a vendor-specific image and Kubernetes resource profile. Ollama maps
+CPU, NVIDIA, and AMD to its corresponding KubeAI runtime profiles; Intel remains
+vLLM-only. Intel dynamically chooses its `xe` or `i915` vLLM profile.
+Independently, NFD detection can request the
+matching provider module. Existing runtime activations and explicit disables
+remain authoritative during upgrades and temporary hardware-label loss.
 
 The Magic Stick Operator is a meta-operator. It enables modules by generating
 Flux `Kustomization` resources and creates one Flux `HelmRelease` per instance
@@ -104,10 +112,11 @@ directly.
 | Area | Components |
 |---|---|
 | Basis | Namespaces, cert-manager, generated secrets, reloader, and Gateway-aware kdns. |
+| Hardware discovery | One shared Node Feature Discovery deployment with periodic PCI relabeling. |
 | Identity and human access | Envoy Gateway, local Keycloak identity broker, PostgreSQL, and route-level OIDC policies. |
 | Appliance control plane | Appliance CRDs, module catalog, model presets, operator RBAC, and live controller. |
-| AI modules | NVIDIA GPU support, KubeAI, Hermes operator, OpenClaw operator, and Paperclip operator. |
-| GPU | NVIDIA GPU Operator and time-slicing GPU sharing. |
+| AI modules | KubeAI, Hermes operator, OpenClaw operator, and Paperclip operator. |
+| GPU providers | Hardware-triggered NVIDIA GPU Operator, AMD GPU Operator, and Intel Device Plugins Operator; NVIDIA also provides time-slicing. |
 
 ## Application Components
 

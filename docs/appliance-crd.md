@@ -47,8 +47,11 @@ The CRD is namespaced, with plural `appliances` and short names `msapp` and
 
 The default public install uses the GPU-neutral profile `ai-workstation` and
 `spec.source.name: flux-system` because readonly-public mode creates that Git
-source. It seeds LiteLLM and the model catalog for external providers. GPU and
-KubeAI are requested only when an enabled local `ModelActivation` exists.
+source. It seeds LiteLLM and the model catalog for external providers. KubeAI
+is requested only when an enabled local `ModelActivation` exists. An
+accelerator-backed model additionally depends on the matching NVIDIA, AMD, or
+Intel module. Independently, the shared NFD module is static and vendor
+operator activations are created when their hardware is detected.
 External GitOps repositories that include this public repo can use
 `magicstick-public`.
 
@@ -183,8 +186,63 @@ spec:
   targetNamespace: ai
   local:
     preset: qwen352bvlembedding
+    computeTarget: nvidia-gpu
     vram: 5Gi
 ```
+
+CPU example; no GPU module or VRAM field is required:
+
+```yaml
+apiVersion: appliance.magicstick.dev/v1alpha1
+kind: ModelActivation
+metadata:
+  name: qwen2505bcpu
+  namespace: ai-system
+spec:
+  type: local
+  enabled: true
+  targetNamespace: ai
+  local:
+    preset: qwen2505bcpu
+    computeTarget: cpu
+    engine: VLLM
+```
+
+The same portable preset can target AMD ROCm or Intel XPU when the dashboard
+reports that provider as available:
+
+```yaml
+spec:
+  type: local
+  enabled: true
+  targetNamespace: ai
+  local:
+    preset: qwen2505bcpu
+    computeTarget: amd-gpu # alternatively intel-gpu or nvidia-gpu
+    engine: VLLM
+    vram: 4Gi
+```
+
+The API and operator resolve the KubeAI resource profile; clients cannot choose
+an arbitrary profile. For Intel this selects the `xe` or `i915` profile from
+the resource actually published by Kubernetes.
+
+Ollama uses the exact KubeAI engine value `OLlama` and an `ollama://` model
+reference. The bundled portable preset supports CPU, NVIDIA, and AMD ROCm:
+
+```yaml
+spec:
+  type: local
+  enabled: true
+  targetNamespace: ai
+  local:
+    preset: qwen2505bcpu
+    computeTarget: cpu # alternatively nvidia-gpu or amd-gpu
+    engine: OLlama
+```
+
+Intel is currently a vLLM-only target. An Ollama/Intel activation is rejected
+until a validated KubeAI image and resource profile are added.
 
 ```yaml
 apiVersion: appliance.magicstick.dev/v1alpha1
@@ -207,7 +265,7 @@ spec:
 
 For a local activation, `status.phase: Starting` means that its KubeAI `Model`
 exists but `status.replicas.ready` is still zero. The local activation becomes
-`Ready` only after at least one vLLM replica is ready and the generated model
+`Ready` only after at least one vLLM or Ollama replica is ready and the generated model
 catalog contains the model. If the ready replica disappears, the phase returns
 to `Starting` and the model is withdrawn from the routable catalog. External
 activations keep their catalog-based readiness behavior.
@@ -242,8 +300,38 @@ status:
       phase: Ready
       modelRef: kubeai/qwen352bvlembedding
       catalogId: qwen352bvlembedding
+      computeTarget: nvidia-gpu
+      engine: VLLM
+      resolvedResourceProfile: magicstick-nvidia-gpu:1
       vramRequiredMi: 5120
       message: Model is available in the generated model catalog.
+  hardwareOperators:
+    gpu:
+      displayName: NVIDIA GPU Operator
+      phase: Ready
+      needed: true
+      operatorActive: true
+      managedBy: magicstick
+      operatorVersion: v26.3.3
+      detectedNodes: [worker-gpu-1]
+      compatibleNodes: [worker-gpu-1]
+      allocatableResources: 1
+      resourceNames: [nvidia.com/gpu]
+      message: 1 allocatable GPU resource(s) are ready.
+    amd-gpu:
+      displayName: AMD GPU Operator
+      phase: NotRequired
+      needed: false
+      operatorActive: false
+      managedBy: none
+      allocatableResources: 0
+    intel-gpu:
+      displayName: Intel GPU Operator
+      phase: NotRequired
+      needed: false
+      operatorActive: false
+      managedBy: none
+      allocatableResources: 0
   conditions:
     - type: Ready
       status: "False"

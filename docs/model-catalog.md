@@ -5,8 +5,11 @@ turns selected KubeAI `Model` resources and optional external model entries
 into LiteLLM deployments, then publishes a generated `ai-model-catalog`
 ConfigMap for apps that need a stable source of model metadata.
 
-The catalog is GPU-neutral. External models work with LiteLLM alone. KubeAI and
-the NVIDIA runtime are installed only when a local `ModelActivation` is enabled.
+The catalog is accelerator-neutral. External models work with LiteLLM alone.
+Local `ModelActivation` resources use vLLM on an explicit `cpu`, `nvidia-gpu`,
+`amd-gpu`, or `intel-gpu` compute target. KubeAI is installed for every local
+target, while the matching vendor provider is required only for an accelerator
+target.
 
 ## Responsibilities
 
@@ -76,29 +79,62 @@ or `--max-model-len=<value>` in `spec.args`.
 The optional OpenCode output limit is read from
 `metadata.annotations["ai-appliance.io/max-output-tokens"]`. The generated
 OpenCode configuration always clamps its output limit to the model context
-window, so a consumer cannot request more output tokens than vLLM accepts.
+window, so a consumer cannot request more output tokens than the selected
+runtime accepts.
 
 For Dashboard-created local `ModelActivation` resources, the Magic Stick
-Operator treats `spec.local.contextWindow` as the desired vLLM context size and
-writes it into the generated KubeAI `Model.spec.args` as
-`--max-model-len=<contextWindow>`.
+Operator treats `spec.local.contextWindow` as the desired runtime context size.
+For vLLM it writes `--max-model-len=<contextWindow>` into the generated KubeAI
+`Model.spec.args`; for Ollama it writes `OLLAMA_CONTEXT_LENGTH` into
+`Model.spec.env`.
 `spec.local.maxOutputTokens` is published as OpenCode consumer metadata but does
-not change the vLLM context size.
-`spec.local.maxNumSeqs` is handled the same way for vLLM sequence concurrency
-and is written as `--max-num-seqs=<maxNumSeqs>`.
+not change the server context size. `spec.local.maxNumSeqs` becomes
+`--max-num-seqs=<maxNumSeqs>` for vLLM and `OLLAMA_NUM_PARALLEL` for Ollama.
 
-## Bundled Local Presets
+## Compute Targets And Bundled Local Presets
 
 The dashboard reads its local model choices from
 `ConfigMap/magicstick-model-presets`; the same identifiers can be used directly
-in `ModelActivation.spec.local.preset`.
+in `ModelActivation.spec.local.preset`. Presets contain engine/compute-target
+variants. The separate `ConfigMap/magicstick-compute-target-catalog` maps the
+logical target to supported architectures, required capabilities, Kubernetes
+resource names, supported engines, and engine-specific KubeAI resource
+profiles. vLLM uses CUDA, ROCm, XPU, or CPU images. Ollama uses its standard
+CPU/NVIDIA image or its ROCm image. Intel maps
+the resource actually published by its device plugin (`xe` or `i915`) to the
+matching vLLM profile; Ollama is deliberately unavailable for Intel until a
+validated KubeAI/Ollama Intel image exists. Additional engines remain behind
+the same target/variant contract.
 
-| Preset | Model | VRAM budget | Context | Max output | Max sequences |
-|---|---|---:|---:|---:|---:|
-| `qwen3827b` | `hf://cyankiwi/Qwen3.8-27B-AWQ-INT4` | `24062Mi` | 20000 | 8192 | 1 |
-| `qwen3635b` | `hf://cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit` | `15Gi` | 8192 | default | 128 |
-| `qwen359b` | `hf://cyankiwi/Qwen3.5-9B-AWQ-4bit` | `16Gi` | 8192 | default | 32 |
-| `qwen352bvlembedding` | `hf://LifetimeMistake/Qwen3-VL-Embedding-2B-AWQ-4bit` | `5Gi` | 4096 | n/a | runtime default |
+| Preset | Engine | Target | Model | Memory budget | Context | Max output | Max sequences |
+|---|---|---|---|---:|---:|---:|---:|
+| `qwen2505bcpu` | vLLM | CPU | `hf://Qwen/Qwen2.5-0.5B-Instruct` | 4 GiB RAM minimum; 6 GiB container limit | 2048 | 1024 | 1 |
+| `qwen2505bcpu` | vLLM | NVIDIA | `hf://Qwen/Qwen2.5-0.5B-Instruct` | `4Gi` VRAM | 2048 | 1024 | 1 |
+| `qwen2505bcpu` | vLLM | AMD ROCm | `hf://Qwen/Qwen2.5-0.5B-Instruct` | `4Gi` VRAM | 2048 | 1024 | 1 |
+| `qwen2505bcpu` | vLLM | Intel XPU | `hf://Qwen/Qwen2.5-0.5B-Instruct` | `4Gi` accelerator memory | 2048 | 1024 | 1 |
+| `qwen2505bcpu` | Ollama | CPU | `ollama://qwen2.5:0.5b` | 2 GiB RAM minimum; 6 GiB container limit | 2048 | 1024 | 1 |
+| `qwen2505bcpu` | Ollama | NVIDIA | `ollama://qwen2.5:0.5b` | `2Gi` planning requirement | 2048 | 1024 | 1 |
+| `qwen2505bcpu` | Ollama | AMD ROCm | `ollama://qwen2.5:0.5b` | `2Gi` planning requirement | 2048 | 1024 | 1 |
+| `qwen3827b` | vLLM | NVIDIA | `hf://cyankiwi/Qwen3.8-27B-AWQ-INT4` | `24062Mi` VRAM | 20000 | 8192 | 1 |
+| `qwen3635b` | vLLM | NVIDIA | `hf://cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit` | `15Gi` VRAM | 8192 | default | 128 |
+| `qwen359b` | vLLM | NVIDIA | `hf://cyankiwi/Qwen3.5-9B-AWQ-4bit` | `16Gi` VRAM | 8192 | default | 32 |
+| `qwen352bvlembedding` | vLLM | NVIDIA | `hf://LifetimeMistake/Qwen3-VL-Embedding-2B-AWQ-4bit` | `5Gi` VRAM | 4096 | n/a | runtime default |
+
+`spec.local.computeTarget` is immutable; recreate the activation to move a
+model between CPU and an accelerator, or between accelerator vendors. Missing
+values on existing resources keep legacy `nvidia-gpu` and `VLLM` behavior. The
+engine enum contains `VLLM` and KubeAI's exact `OLlama` value. CPU vLLM
+variants use an explicit
+`--kv-cache-memory-bytes` value; the bundled smoke preset uses 512 MiB so it
+also starts on memory-constrained local test nodes. Accelerator variants use a
+VRAM budget that the runtime converts to vLLM's memory-utilization limit after
+reading physical memory from the CUDA, ROCm, or XPU runtime.
+
+Ollama variants use `ollama://` registry references, keep one model loaded per
+pod, map context and parallelism to supported Ollama environment variables,
+and persist the Ollama model store on the appliance host. On GPU targets the
+declared VRAM value is planning metadata; Kubernetes exposes exactly one GPU to
+the model pod and Ollama manages loading and any CPU offload itself.
 
 `qwen3827b` is the validated single-GPU profile for a 24 GB-class NVIDIA GPU.
 It deliberately uses a single sequence so the 20000-token KV cache remains

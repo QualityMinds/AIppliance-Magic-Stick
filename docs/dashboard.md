@@ -48,11 +48,10 @@ Paperclip, KubeOpenCode, KubeAI, LiteLLM, or direct app instance reconcilers.
 | Area | Purpose |
 |---|---|
 | Overview | Shows appliance health, module/instance/model counts, and the complete local, public, or direct URLs discovered for modules and app instances from Ingress, Gateway API `HTTPRoute`, and instance status. |
-| Modules | Renders grouped module cards from the module catalog and writes `ModuleActivation` intent. |
-| Instances | Shows instance cards and opens a two-step create dialog for installed/supported operators: choose the instance type, then configure only that type. |
-| Models | Creates/removes local and external model activations and estimates local model VRAM. |
+| Services | Combines modules and instances: application cards contain their instances, shared AI runtime services stay compact, and technical platform modules are collapsed by default. The create dialog first selects an application and then shows only its configuration. |
+| Models | Creates/removes local and external model activations, selects CPU or an available NVIDIA/AMD/Intel target, estimates accelerator memory, and shows compact per-device memory gauges. |
 | Users | Gives administrators a paginated Keycloak user overview and local-user lifecycle controls. |
-| System Status | Shows Flux, Pod, Service, Ingress, and Event status. |
+| System Status | Shows NVIDIA, AMD, and Intel detection/operator/resource state plus Flux, Pod, Service, Ingress, and Event status. |
 | Settings | Edits appliance-wide public and mDNS domain settings. |
 
 ## Backend API
@@ -81,11 +80,13 @@ checks.
 | `GET` | `/api/instances/{name}/credentials` | Returns supported generated credentials for an instance, currently OpenClaw. |
 | `POST` | `/api/instances/{type}` | Adds or replaces an `AppInstance` for supported types such as `openclaw`, `hermes`, `odysseus`, `paperclip`, or `kubeopencode`. |
 | `DELETE` | `/api/instances/{name}` | Deletes the `AppInstance`; its finalizer removes the generated HelmRelease and Helm cleans the application resources. |
-| `GET` | `/api/models` | Returns model catalog entries, model presets, `ModelActivation` resources, AnythingLLM status, and VRAM summary. |
+| `GET` | `/api/models` | Returns model catalog entries, variant-aware presets, compute-target availability, `ModelActivation` resources, AnythingLLM status, the estimator-compatible VRAM summary, and a `computeMemory.devices` list for the CPU and every discoverable GPU resource. |
+| `GET` | `/api/models/compute-targets` | Returns CPU/NVIDIA/AMD/Intel availability, supported engines, resolved resource/profile, and a non-sensitive reason when a target is unavailable. |
+| `GET` | `/api/status` | Returns runtime objects and the catalogued NVIDIA/AMD/Intel operator lifecycle from `Appliance.status.hardwareOperators`. |
 | `POST` | `/api/models/estimate-vram` | Estimates VRAM for public HuggingFace model metadata, context size, and max sequence count. |
 | `POST` | `/api/models/local` | Adds or replaces a local KubeAI-backed `ModelActivation`. |
 | `POST` | `/api/models/external` | Adds or replaces an external LiteLLM-backed `ModelActivation`; Dashboard-entered API keys are stored as Secrets. |
-| `POST` | `/api/models/local-runtime/remove` | Removes automatically enabled KubeAI and GPU module activations after all local models have been removed. |
+| `POST` | `/api/models/local-runtime/remove` | Removes model-created runtime activations after all local models have been removed; a hardware-detected GPU operator is preserved. |
 | `DELETE` | `/api/models/{name}` | Deletes the `ModelActivation` and a Dashboard-created provider Secret when present. |
 | `GET` | `/api/status` | Returns Appliance, Flux, Pod, Service, and Ingress status summaries. |
 | `GET` | `/api/events` | Returns core and `events.k8s.io` event summaries. |
@@ -165,12 +166,28 @@ user-administration API itself performs a live actor lookup, so a disabled or
 demoted administrator loses that API access immediately even while an older
 edge token still exists.
 
-## Module Controls
+## Services, Modules, And Instances
 
-The Modules screen is catalog-driven. It uses
+The **Services** screen replaces the former separate Modules and Instances
+screens. It is catalog-driven and uses
 `ConfigMap/magicstick-module-catalog.data["modules.json"]` for display names,
 groups, activation mode, aliases, ordering, dependencies, and optional advanced
 parameters.
+
+Application services such as OpenClaw, Hermes, and Paperclip are displayed as
+parent cards. Their existing `AppInstance` resources are nested directly below
+the matching application, so status, URLs, credentials, and removal controls
+remain together. Nested instances are collapsed by default and each application
+has its own **Show**/**Hide** control; an expanded application remains expanded
+across the periodic dashboard refresh. The **New Instance** action on a parent
+card opens that application's configuration directly. The global **Create
+Instance** action keeps the two-step type picker for users who have not chosen
+an application yet.
+
+Shared AI runtime modules are rendered as compact rows in a separate section.
+Technical platform and operator modules stay collapsed by default and can be
+expanded explicitly. Filters switch between Applications, AI Runtime, and
+Platform without changing any backend resource or lifecycle behavior.
 
 Modules with `activationMode: static` are displayed as status cards but cannot
 be enabled or disabled from the dashboard. Modules with
@@ -185,18 +202,16 @@ password, API authorization value, and local/public API URLs. The API reads
 only the fixed `ai/litellm-masterkey-secret`; catalog data cannot redirect it to
 another Secret. Credential responses use `Cache-Control: no-store`.
 
-This includes the optional `gpu` and `kubeai` modules. They stay disabled on a
-fresh installation, may be enabled automatically by a local model, and may also
-be enabled or disabled manually. A manual action takes ownership away from the
-automatic local-model cleanup flow. KubeAI reports `WaitingForModules` until
-its GPU dependency is enabled and ready.
+This includes the optional vendor GPU and `kubeai` modules. KubeAI stays
+disabled until a local model requests it. Vendor GPU modules are requested when
+NFD detects matching hardware; a manually disabled provider is not
+automatically re-enabled. CPU models require KubeAI but not the NVIDIA module.
+A manual action takes ownership away from automatic lifecycle cleanup.
 
 Progress is phase-based. The dashboard maps existing status phases such as
 `Disabled`, `WaitingForModules`, `Starting`, `Reconciling`, `Removing`, `Ready`, and
 `Degraded` to visual progress states. These percentages are orientation hints,
 not scheduler- or operator-reported completion percentages.
-
-## Instance Controls
 
 Instances are runtime requests stored as `AppInstance` resources in namespace
 `ai-system`. The dashboard shows create controls only for instance types whose
@@ -256,31 +271,78 @@ companies, employee agents, or gateway credentials.
 Local and external models are runtime requests stored as `ModelActivation`
 resources in namespace `ai-system`.
 
-For local HuggingFace-backed models, the dashboard can call
-`POST /api/models/estimate-vram` to fetch public metadata, estimate model
-weights and KV cache, and suggest minimum and recommended VRAM values. The value
-stored in `spec.local.vram` remains the actual request passed to KubeAI/vLLM.
+For local models, the dashboard first selects an inference engine and then a
+compatible compute target. vLLM accepts `hf://` model references; Ollama uses
+`ollama://` references. `cpu` is available on a compatible Ready Linux node. `nvidia-gpu`,
+`amd-gpu`, and `intel-gpu` become selectable only when the matching provider is
+`Ready` and Kubernetes reports its allocatable resource. Intel automatically
+resolves `gpu.intel.com/xe` or `gpu.intel.com/i915`. vLLM supports all four
+targets. Ollama supports CPU, NVIDIA, and AMD; the Intel target is disabled when
+Ollama is selected because no validated KubeAI/Ollama Intel profile is bundled.
+The dashboard calls `POST /api/models/estimate-vram` only for vLLM accelerator
+variants. Ollama manages model loading and accelerator memory itself, while the
+entered VRAM value remains a scheduling/planning requirement. CPU variants hide
+VRAM controls and use the selected engine's system-memory profile. Live
+maximum-memory metrics currently come from NVIDIA DCGM, so AMD and Intel vLLM
+estimates show the calculated requirement without a live maximum.
+CPU vLLM cache size is resolved by the preset/operator and is not an arbitrary
+browser-supplied environment variable.
+
+Above the installed-model list, the Models screen renders only a small
+**Compute memory** heading and one semicircular gauge per compute device. The
+full gray arc is 100 percent of that device's memory. The outer violet ring is
+unreserved memory (`total - active model reservations`); the inner cyan ring is
+memory currently available to the system. The center names the CPU or GPU and
+shows its currently available value. CPU totals are aggregated across Ready,
+schedulable appliance nodes, reservations come from active CPU
+`ModelActivation.status.memoryRequiredMi` values, and current availability
+comes from the Kubelet node summary. The metrics API working-set value is used
+only as a fallback when a cluster does not permit the Kubelet summary.
+
+NVIDIA gauges use one DCGM record per physical GPU. Kubernetes exposes the
+whole-GPU request but not the chosen GPU UUID on the `ModelActivation`, so the
+dashboard packs planned `vramRequiredMi` reservations deterministically across
+the detected devices; the actually-free inner ring always comes directly from
+DCGM. AMD and Intel device-plugin resources are also listed individually. Until their installed
+operator supplies a compatible memory exporter, those gauges explicitly show
+that memory metrics are unavailable and do not invent a total, percentage, or
+free value. This preserves an honest UI while keeping the response contract
+ready for additional vendor metric adapters.
+
 The preset selector is populated from `ConfigMap/magicstick-model-presets` and
-includes the `qwen3827b` profile for
-`hf://cyankiwi/Qwen3.8-27B-AWQ-INT4`. Selecting a preset fills its tested VRAM,
-context, output-token, and concurrency values before the activation is
-submitted. The model catalog propagates those limits into managed KubeOpenCode
-templates.
+shows only variants compatible with the selected engine and target.
+`qwen2505bcpu` is the portable smoke preset for vLLM on CPU, NVIDIA, AMD, and
+Intel and for Ollama on CPU, NVIDIA, and AMD; its identifier remains unchanged
+for compatibility. `qwen3827b` remains the validated
+single-NVIDIA-GPU preset. Selecting a preset fills its target-specific context,
+output-token, concurrency, memory, and runtime values before the activation is
+submitted. The model catalog propagates consumer limits into managed
+KubeOpenCode templates.
 
 The default dashboard is GPU-neutral. External models do not require or activate
-GPU or KubeAI modules. The local-model form stays disabled until both the GPU and
-KubeAI modules are enabled and report `Ready`; it names every missing or pending
-module and directs the operator to the Modules screen. The API enforces the same
-precondition and returns HTTP `409` if a client attempts to bypass the UI.
+GPU or KubeAI modules. CPU model creation remains available without any GPU
+driver and lets the operator install KubeAI on demand. An unavailable target is
+disabled with a concrete reason. The API enforces the same live availability
+check and engine/target compatibility matrix and returns HTTP `409` if a client
+attempts to bypass the UI. It resolves the engine-specific resource profile
+server-side instead of accepting arbitrary args, environment values, or profile
+names from the browser.
 
-The Models screen treats missing DCGM metrics as a neutral state while the local
-runtime is not installed and exposes runtime removal only when no local model
-still depends on it.
+The Models screen treats unavailable device metrics as a neutral, per-device
+state. Runtime removal remains outside the memory display and is exposed only
+when no local model still depends on the automatically enabled runtime.
+
+The System Status screen renders all three GPU providers even on a CPU-only
+appliance. Each card shows the pinned operator version, driver mode, detected
+and compatible nodes, management owner, allocatable resource count, phase, and
+the controller's non-sensitive explanation. `NotRequired` means no matching
+hardware was found and the vendor operator consumes no cluster resources;
+`Installing` lasts until the vendor resource becomes allocatable.
 
 Catalog-only models are read-only in the Models screen. Remove actions are shown
 only for `ModelActivation` rows that the dashboard can delete.
 
-A local model is shown as `Starting` until KubeAI reports a ready vLLM replica.
+A local model is shown as `Starting` until KubeAI reports a ready vLLM or Ollama replica.
 The status message includes the ready-replica count, for example `0/1 replicas
 ready`. `Ready` therefore means both that the local runtime is serving its
 health endpoint and that the generated catalog has published the model.
@@ -298,7 +360,9 @@ narrow:
 - read, create, patch, update, and delete `modelactivations.appliance.magicstick.dev`
 - read OpenClaw instances for generated credential discovery
 - read Flux Kustomizations
-- read Pods, Services, Ingresses, HTTPRoutes, ConfigMaps, and Events
+- read Nodes, Pods, Services, Ingresses, HTTPRoutes, ConfigMaps, and Events
+- read the Kubelet node-summary memory value through `nodes/proxy`, with
+  read-only `metrics.k8s.io/nodes` access as a fallback
 - read the DCGM exporter service proxy for live VRAM metrics
 - patch only `flux-system/ai-appliance-settings`
 - manage only Dashboard-created provider credential Secrets in namespace `ai`

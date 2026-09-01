@@ -21,6 +21,11 @@ kubectl kustomize magic-cluster/flux/entrypoints/single-node
 kubectl kustomize examples/demo/infra-cluster/flux-bootstrap
 ```
 
+The neutral graph always starts one shared Node Feature Discovery deployment
+before the Magic Stick Operator. NVIDIA, AMD, and Intel operator bases stay out
+of the static graph and are requested through hardware-driven
+`ModuleActivation` resources only when matching nodes are detected.
+
 ## Optional Repository Include Pattern
 
 Advanced deployments should include this repository into their Flux source

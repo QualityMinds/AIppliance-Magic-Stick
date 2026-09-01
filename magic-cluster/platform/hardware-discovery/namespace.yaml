@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: node-feature-discovery
+  labels:
+    app.kubernetes.io/name: node-feature-discovery
+    app.kubernetes.io/part-of: magicstick
