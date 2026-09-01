@@ -1172,8 +1172,7 @@ data:
             data["AI_APPLIANCE_MDNS_NAME"] = mdns_name_from_domain(data["AI_APPLIANCE_MDNS_DOMAIN"])
         if not raw_data.get("AI_APPLIANCE_DASHBOARD_MDNS_NAME"):
             data["AI_APPLIANCE_DASHBOARD_MDNS_NAME"] = data["AI_APPLIANCE_MDNS_NAME"]
-        if not raw_data.get("AI_APPLIANCE_DASHBOARD_HOST"):
-            data["AI_APPLIANCE_DASHBOARD_HOST"] = data["AI_APPLIANCE_DOMAIN"]
+        data["AI_APPLIANCE_DASHBOARD_HOST"] = data["AI_APPLIANCE_DOMAIN"]
         return {
             "namespace": SETTINGS_NAMESPACE,
             "name": SETTINGS_CONFIGMAP_NAME,
@@ -1201,10 +1200,7 @@ data:
         )
         if not mdns_domain.endswith(".local"):
             raise ValueError("mDNS domain must end with .local")
-        dashboard_host = normalize_hostname(
-            payload.get("dashboardHost") or payload.get("AI_APPLIANCE_DASHBOARD_HOST") or current_settings.get("dashboardHost") or public_domain,
-            "dashboard host",
-        )
+        dashboard_host = public_domain
         mdns_name = mdns_name_from_domain(mdns_domain)
         patch = {
             "metadata": {"labels": SETTINGS_WATCH_LABELS},

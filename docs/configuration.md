@@ -47,7 +47,7 @@ Kustomizations use it through `postBuild.substituteFrom`.
 | Setting | Default | Used by |
 |---|---|---|
 | `AI_APPLIANCE_DOMAIN` | `magicstick.example.com` | Public app and derived instance hostnames. |
-| `AI_APPLIANCE_DASHBOARD_HOST` | `magicstick.example.com` | Dashboard public ingress hostname. |
+| `AI_APPLIANCE_DASHBOARD_HOST` | `magicstick.example.com` | Compatibility key for the public dashboard ingress; the Dashboard API keeps it synchronized with `AI_APPLIANCE_DOMAIN`. |
 | `AI_APPLIANCE_MDNS_DOMAIN` | `magicstick.local` | Local mDNS domain used for dashboard, app, and derived instance hostnames. |
 | `AI_APPLIANCE_MDNS_NAME` | `magicstick` | Local mDNS name suffix used in mDNS annotations. |
 | `AI_APPLIANCE_DASHBOARD_MDNS_NAME` | `magicstick` | Legacy dashboard mDNS name, kept for compatibility. |

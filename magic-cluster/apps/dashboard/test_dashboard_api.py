@@ -599,6 +599,72 @@ class ComputeMemoryTests(unittest.TestCase):
         ))
 
 
+class SettingsTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.server = load_server()
+
+    def setUp(self):
+        self.originals = {
+            "settings_configmap": self.server["settings_configmap"],
+            "request_json": self.server["request_json"],
+        }
+
+    def tearDown(self):
+        self.server.update(self.originals)
+
+    def test_settings_response_derives_dashboard_host_from_public_domain(self):
+        result = self.server["settings_response"]({
+            "data": {
+                "AI_APPLIANCE_DOMAIN": "appliance.example.com",
+                "AI_APPLIANCE_DASHBOARD_HOST": "legacy-dashboard.example.com",
+                "AI_APPLIANCE_MDNS_DOMAIN": "appliance.local",
+            }
+        })
+
+        self.assertEqual(result["publicDomain"], "appliance.example.com")
+        self.assertEqual(result["dashboardHost"], "appliance.example.com")
+        self.assertEqual(
+            result["data"]["AI_APPLIANCE_DASHBOARD_HOST"],
+            "appliance.example.com",
+        )
+
+    def test_settings_patch_keeps_dashboard_host_equal_to_public_domain(self):
+        existing = {
+            "data": {
+                "AI_APPLIANCE_DOMAIN": "old.example.com",
+                "AI_APPLIANCE_DASHBOARD_HOST": "legacy.example.com",
+                "AI_APPLIANCE_MDNS_DOMAIN": "old.local",
+            }
+        }
+        captured = {}
+        self.server["settings_configmap"] = lambda: existing
+
+        def request_json(method, path, payload, content_type):
+            captured.update({
+                "method": method,
+                "path": path,
+                "payload": payload,
+                "contentType": content_type,
+            })
+            return {"data": payload["data"]}
+
+        self.server["request_json"] = request_json
+
+        result = self.server["settings_patch"]({
+            "publicDomain": "new.example.com",
+            "mdnsDomain": "new.local",
+            "dashboardHost": "ignored.example.com",
+        })
+
+        self.assertEqual(captured["method"], "PATCH")
+        self.assertEqual(
+            captured["payload"]["data"]["AI_APPLIANCE_DASHBOARD_HOST"],
+            "new.example.com",
+        )
+        self.assertEqual(result["dashboardHost"], "new.example.com")
+
+
 class ModuleCredentialTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

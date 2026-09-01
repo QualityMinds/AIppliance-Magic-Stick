@@ -98,18 +98,16 @@ nächsten davon abhängigen Schritt startest.
 - **Public Domain**: gemeinsame Basis für öffentlich auflösbare
   Anwendungsnamen;
 - **mDNS Domain**: lokale Dashboard-Adresse, normalerweise
-  `magicstick.local`;
-- **Dashboard Public Host**: öffentlicher DNS-Name des Dashboards.
+  `magicstick.local`.
 
 Ändere nur Werte, deren DNS- beziehungsweise mDNS-Auflösung du auch bereitstellen
 kannst. Speichere mit **Save Domains**. Die Routen werden anschließend neu
 erzeugt. Bei einer Änderung der mDNS-Domain musst du das Dashboard danach unter
-dem neuen Namen öffnen.
-
-Der Bereich **Addresses** zeigt die daraus abgeleiteten Dashboard- und
-Anwendungsadressen. Eine öffentliche Domain allein macht die Appliance nicht
-automatisch aus dem Internet erreichbar; DNS, Firewall und Netzwerkzugang
-müssen separat eingerichtet sein.
+dem neuen Namen öffnen. Das Dashboard ist immer direkt unter der Public Domain
+und der mDNS Domain erreichbar; ein separater Dashboard-Hostname ist nicht
+erforderlich. Eine öffentliche Domain allein macht die Appliance nicht automatisch
+aus dem Internet erreichbar; DNS, Firewall und Netzwerkzugang müssen separat
+eingerichtet sein.
 
 ## 5. Systemzustand prüfen
 
