@@ -254,12 +254,12 @@ BROWSER_API_MOCK = r"""
           metricsComplete: true,
           devices: [
             {
-              id: 'cpu', kind: 'cpu', vendor: 'generic', name: 'CPU',
+              id: 'cpu', kind: 'cpu', vendor: 'generic', computeTarget: 'cpu', name: 'CPU',
               totalMi: 16384, reservedMi: 4096, unreservedMi: 12288,
               freeMi: 10240, metricsAvailable: true, metricsSource: 'kubelet'
             },
             {
-              id: 'nvidia-GPU-1', kind: 'gpu', vendor: 'nvidia', name: 'NVIDIA Test GPU',
+              id: 'nvidia-GPU-1', kind: 'gpu', vendor: 'nvidia', computeTarget: 'nvidia-gpu', name: 'NVIDIA Test GPU',
               totalMi: 24576, reservedMi: 8192, unreservedMi: 16384,
               freeMi: 18432, metricsAvailable: true, metricsSource: 'dcgm'
             }
@@ -332,11 +332,17 @@ BROWSER_API_MOCK = r"""
     if (url.pathname === '/api/models/estimate-vram' && method === 'POST') {
       return reply({
         repo: 'example/qwen-gpu', engine: 'VLLM', computeTarget: 'nvidia-gpu',
-        minimumMi: 18000, recommendedMi: 24000, maximumMi: 16384,
+        minimumMi: 18000, recommendedMi: 24000, maximumMi: 12288,
         weightsMi: 14000, kvCacheMi: 2000, reserveMi: 2000, recommendedReserveMi: 6000,
         contextWindow: body.contextWindow || 8192, maxNumSeqs: body.maxNumSeqs || 32,
         confidence: 'high', gpuAvailable: true, warnings: []
       });
+    }
+    if (url.pathname === '/api/models/local' && method === 'POST') {
+      return reply({ requested: body.name, type: 'local' });
+    }
+    if (url.pathname === '/api/models/external' && method === 'POST') {
+      return reply({ requested: body.name, type: 'external' });
     }
     if (url.pathname === '/api/users' && method === 'GET') {
       return reply({ users: mockUser ? [mockUser] : [], total: mockUser ? 1 : 0, first: 0, max: 25 });
@@ -591,11 +597,15 @@ BROWSER_ASSERTIONS = r"""
     assert(document.getElementById('local-model-preset').value === 'qwen3635b', 'NVIDIA-incompatible presets were not filtered');
     await waitFor(() => callExists('POST', '/api/models/estimate-vram'), 'VRAM estimate request');
     await waitFor(() => document.getElementById('vram-estimate-slider').max === '16384', 'VRAM capacity slider');
+    assert(document.getElementById('vram-estimate-maximum').textContent === '16 GiB', '100% does not use unreserved GPU memory');
+    assert(document.getElementById('vram-available-marker').textContent.includes('100% unreserved'), 'unreserved maximum marker is missing');
+    assert(document.getElementById('vram-capacity-note').textContent.includes('unreserved VRAM'), 'unreserved maximum explanation is missing');
     assert(!document.getElementById('vram-capacity-overflow').hidden, 'capacity overflow area is hidden');
     assert(document.getElementById('vram-minimum-marker').classList.contains('overflow'), 'minimum marker is not in the overflow area');
     assert(document.getElementById('vram-recommended-marker').classList.contains('overflow'), 'recommended marker is not in the overflow area');
     assert(document.getElementById('vram-estimate-selected').textContent.includes('16 GiB'), 'slider did not clamp the allocation to available VRAM');
     assert(document.querySelector('.vram-breakdown-details'), 'VRAM breakdown was removed');
+    assert(document.getElementById('ram-reservation').hidden, 'CPU RAM reservation is visible for GPU inference');
 
     changeSelect(computeSelect, 'cpu');
     await sleep(50);
@@ -603,6 +613,13 @@ BROWSER_ASSERTIONS = r"""
     assert(document.getElementById('local-model-preset').value === 'qwen2505bcpu', 'CPU-incompatible presets were not filtered');
     assert(!document.getElementById('cpu-runtime-summary').hidden, 'CPU runtime summary is hidden');
     assert(document.getElementById('vram-estimate').hidden, 'VRAM controls are visible for CPU inference');
+    assert(!document.getElementById('ram-reservation').hidden, 'CPU RAM reservation is hidden');
+    assert(document.getElementById('ram-reservation-slider').max === '12288', 'CPU reservation maximum is not unreserved RAM');
+    assert(document.getElementById('ram-reservation-selected').textContent.includes('4.0 GiB'), 'vLLM CPU preset reservation is incorrect');
+    const ramSlider = document.getElementById('ram-reservation-slider');
+    ramSlider.value = '6144';
+    ramSlider.dispatchEvent(new Event('input', { bubbles: true }));
+    assert(document.getElementById('local-model-form').elements.memoryRequiredMi.value === '6144', 'CPU RAM reservation slider did not update the model form');
 
     changeSelect(engineSelect, 'OLlama');
     await waitFor(() => engineSelect.value === 'OLlama' && computeSelect.value === 'cpu', 'persistent Ollama and CPU selection');
@@ -612,6 +629,8 @@ BROWSER_ASSERTIONS = r"""
     assert(document.getElementById('local-model-url-label').textContent === 'Ollama Model URL', 'Ollama URL label is missing');
     assert(engineSelect.value === 'OLlama', 'selected Ollama engine was not stored');
     assert(document.getElementById('vram-estimate').hidden, 'vLLM estimator is visible for Ollama');
+    assert(!document.getElementById('ram-reservation').hidden, 'Ollama CPU RAM reservation is hidden');
+    assert(document.getElementById('ram-reservation-selected').textContent.includes('2.0 GiB'), 'Ollama CPU preset reservation is incorrect');
 
     changeSelect(sourceSelect, 'external');
     await waitFor(() => !document.getElementById('external-model-form').hidden, 'external model form');
@@ -621,6 +640,15 @@ BROWSER_ASSERTIONS = r"""
     await waitFor(() => !document.getElementById('local-model-form').hidden, 'return to persistent local configuration');
     assert(engineSelect.value === 'OLlama', 'engine selection was lost after switching source');
     assert(computeSelect.value === 'cpu', 'hardware selection was lost after switching source');
+    ramSlider.value = '4096';
+    ramSlider.dispatchEvent(new Event('input', { bubbles: true }));
+    document.getElementById('local-model-form').requestSubmit();
+    await waitFor(() => callExists('POST', '/api/models/local'), 'local model creation');
+    const localModelCall = window.__dashboardBrowserCalls.find((call) => call.method === 'POST' && call.path === '/api/models/local');
+    assert(localModelCall.body.local.memoryRequiredMi === 4096, 'Ollama CPU memory reservation was not submitted');
+    await waitFor(() => modelCreateFlow.hidden, 'close model creation form after submit');
+    assert(modelCreateToggle.getAttribute('aria-expanded') === 'false', 'Create button expansion state stayed open after submit');
+    assert(modelCreateToggle.textContent === 'Create', 'Create button label was not restored after submit');
 
     document.querySelector('[data-tab="settings"]').click();
     await waitFor(() => !document.getElementById('tab-settings').hidden, 'Settings tab');
@@ -886,6 +914,13 @@ class DashboardUserManagementUiTests(unittest.TestCase):
         self.assertIn('id="vram-minimum-marker"', self.source)
         self.assertIn('id="vram-recommended-marker"', self.source)
         self.assertIn('class="vram-breakdown-details"', self.source)
+        self.assertIn('id="ram-reservation-slider"', self.source)
+        self.assertIn('name="memoryRequiredMi"', self.source)
+        self.assertIn('100% unreserved', self.source)
+        self.assertNotIn('100% available', self.source)
+        self.assertIn('const targetUnreservedMemoryMi =', self.script)
+        self.assertIn('payload.local.memoryRequiredMi = Number', self.script)
+        self.assertIn('const maximum = unreservedMaximum === null ? estimatedMaximum : unreservedMaximum;', self.script)
         self.assertIn("const selectModelCreateSource = (source) =>", self.script)
         self.assertIn("const selectLocalEngine = (engine) =>", self.script)
         self.assertIn("const renderComputeTargets = (modelPayload) =>", self.script)
@@ -893,6 +928,8 @@ class DashboardUserManagementUiTests(unittest.TestCase):
         self.assertIn("localModelEngineSelect.addEventListener('change'", self.script)
         self.assertIn("localModelComputeSelect.addEventListener('change'", self.script)
         self.assertIn("modelCreateToggle.addEventListener('click'", self.script)
+        self.assertIn("const closeModelCreateFlow = () =>", self.script)
+        self.assertEqual(self.script.count("closeModelCreateFlow();"), 2)
         self.assertIn("if (localForm) { localForm.hidden = !local || !selectedComputeTarget(); }", self.script)
         self.assertIn(".filter((target) => target.available === true", self.script)
         self.assertIn("const presetVariant = (preset, targetId, engine = selectedLocalEngine()) =>", self.script)

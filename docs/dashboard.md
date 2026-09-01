@@ -289,18 +289,24 @@ Ollama supports CPU, NVIDIA, and AMD; Intel is absent from the Ollama choices
 because no validated KubeAI/Ollama Intel profile is bundled.
 
 The dashboard calls `POST /api/models/estimate-vram` only for vLLM accelerator
-variants. The VRAM control uses the currently available unreserved accelerator
-memory as its 100-percent slider maximum. Minimum and recommended estimates are
-marked on the same scale. If either estimate exceeds available capacity, its
-marker remains visible in a gray overflow section to the right of the slider;
-the selected allocation itself never exceeds available capacity. The
+variants. The VRAM control uses the unreserved accelerator memory (`total memory
+- active model reservations`) as its 100-percent slider maximum. The separate
+live free-memory value does not change that planning limit. Minimum and
+recommended estimates are marked on the same scale. If either estimate exceeds
+unreserved capacity, its marker remains visible in a gray overflow section to
+the right of the slider; the selected allocation itself never exceeds
+unreserved capacity. The
 collapsible **Breakdown** continues to show weights, KV cache, and reserve.
 Ollama manages model loading and accelerator memory itself, while the preset
-VRAM value remains a scheduling/planning requirement. CPU variants hide VRAM
-controls and use the selected engine's system-memory profile. Live
-maximum-memory metrics currently come from NVIDIA DCGM, so AMD and Intel vLLM
-estimates show the calculated requirement without an adjustable maximum until
-their memory metrics are available.
+VRAM value remains a scheduling/planning requirement. CPU variants replace the
+VRAM estimator with a **RAM reservation** slider for both vLLM and Ollama. Its
+100-percent maximum is the CPU's unreserved memory, and the selected value is
+stored as `spec.local.memoryRequiredMi`. The operator rounds it up to a 16 MiB
+unit and turns it into the model pod's Kubernetes `requests.memory`; preset
+defaults are 4 GiB for vLLM and 2 GiB for Ollama. Live memory metrics currently
+come from NVIDIA DCGM, so AMD and Intel vLLM estimates show the calculated
+requirement without an adjustable maximum until their memory metrics are
+available.
 CPU vLLM cache size is resolved by the preset/operator and is not an arbitrary
 browser-supplied environment variable.
 

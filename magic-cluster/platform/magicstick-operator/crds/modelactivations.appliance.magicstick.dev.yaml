@@ -121,6 +121,10 @@ spec:
                     vramMi:
                       type: integer
                       minimum: 1
+                    memoryRequiredMi:
+                      type: integer
+                      minimum: 16
+                      description: Kubernetes memory request for CPU-backed model pods, in MiB.
                     contextWindow:
                       type: integer
                       minimum: 1

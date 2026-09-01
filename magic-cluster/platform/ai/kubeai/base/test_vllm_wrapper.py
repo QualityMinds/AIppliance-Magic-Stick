@@ -57,6 +57,30 @@ class VllmWrapperTests(unittest.TestCase):
         self.assertIn("--gpu-memory-utilization=0.5000", self.wrapper["sys"].argv)
         self.assertIn("--max-model-len=4096", self.wrapper["sys"].argv)
 
+    def test_small_nvidia_budget_is_not_raised_to_five_percent(self):
+        self.wrapper["os"].environ.update({
+            "MAGICSTICK_COMPUTE_TARGET": "nvidia-gpu",
+            "MAGICSTICK_VLLM_VRAM_LIMIT": "512Mi",
+        })
+        self.wrapper["sys"].argv[:] = ["wrapper.py"]
+        self.wrapper["gpu_total_mib"] = lambda _target, _device: 24564
+
+        self.wrapper["configure_argv"]()
+
+        self.assertIn("--gpu-memory-utilization=0.0208", self.wrapper["sys"].argv)
+        self.assertNotIn("--gpu-memory-utilization=0.0500", self.wrapper["sys"].argv)
+
+    def test_zero_gpu_budget_is_rejected(self):
+        self.wrapper["os"].environ.update({
+            "MAGICSTICK_COMPUTE_TARGET": "nvidia-gpu",
+            "MAGICSTICK_VLLM_VRAM_LIMIT": "0Mi",
+        })
+
+        with self.assertRaises(SystemExit) as raised:
+            self.wrapper["configure_argv"]()
+
+        self.assertEqual(raised.exception.code, 2)
+
     def test_amd_and_intel_targets_use_their_runtime_memory_capacity(self):
         for target in ("amd-gpu", "intel-gpu"):
             with self.subTest(target=target):
@@ -97,6 +121,10 @@ class VllmWrapperTests(unittest.TestCase):
         self.assertEqual(ollama_images["magicstick-ollama-amd"], "ollama/ollama:0.11.11-rocm")
         self.assertNotIn("nvidia.com/gpu", profiles["magicstick-vllm-cpu"]["requests"])
         self.assertNotIn("nvidia.com/gpu", profiles["magicstick-vllm-cpu"]["limits"])
+        self.assertEqual(profiles["magicstick-vllm-cpu-memory"]["requests"]["memory"], "16Mi")
+        self.assertEqual(profiles["magicstick-vllm-cpu-memory"]["requests"]["cpu"], "4m")
+        self.assertEqual(profiles["magicstick-ollama-cpu-memory"]["requests"]["memory"], "16Mi")
+        self.assertEqual(profiles["magicstick-ollama-cpu-memory"]["requests"]["cpu"], "8m")
         self.assertEqual(profiles["magicstick-nvidia-gpu"]["limits"]["nvidia.com/gpu"], "1")
         self.assertEqual(profiles["magicstick-amd-gpu"]["limits"]["amd.com/gpu"], "1")
         self.assertEqual(profiles["magicstick-intel-i915-gpu"]["limits"]["gpu.intel.com/i915"], "1")

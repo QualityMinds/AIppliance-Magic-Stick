@@ -181,6 +181,8 @@ data:
         budget_mib = parse_mib("MAGICSTICK_VLLM_VRAM_LIMIT")
         if budget_mib is None:
             die("MAGICSTICK_VLLM_VRAM_LIMIT is required for MagicStick GPU vLLM models")
+        if budget_mib <= 0:
+            die("MAGICSTICK_VLLM_VRAM_LIMIT must be greater than zero")
 
         total_mib = gpu_total_mib(compute_target, device)
         if budget_mib > total_mib:
@@ -190,7 +192,11 @@ data:
             )
 
         raw_utilization = budget_mib / total_mib
-        utilization = min(0.98, max(0.05, raw_utilization))
+        # Keep small user-selected budgets exact. vLLM accepts utilization
+        # ratios below five percent; silently increasing them would violate the
+        # reservation configured in the dashboard. Retain only the upper
+        # safety cap so a full-device budget still leaves runtime headroom.
+        utilization = min(0.98, raw_utilization)
 
         args.append(f"--gpu-memory-utilization={utilization:.4f}")
         sys.argv[:] = [sys.argv[0], *args]

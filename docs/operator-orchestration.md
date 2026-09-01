@@ -49,6 +49,10 @@ The dashboard is also not an operator. It reads status and creates or patches
   `ModuleActivation`.
 - Wait for required CRDs.
 - Create or patch KubeAI model resources and one generated HelmRelease per app instance.
+- For CPU-backed vLLM and Ollama models, translate
+  `spec.local.memoryRequiredMi` into the engine-specific KubeAI resource-profile
+  multiplier. Each multiplier unit represents 16 MiB, so KubeAI writes the
+  reservation to the model pod's `resources.requests.memory`.
 - Resolve each instance backend from the app catalog and create derived local
   and optional public HTTPRoutes, exact callback routes on the shared dashboard
   hosts, the cross-namespace ReferenceGrant, and an Envoy SecurityPolicy for
@@ -109,6 +113,8 @@ For v1alpha1, examples use these defaults:
   `model-catalog`; it does not enable GPU or KubeAI
 - enabled external models require only `litellm` and `model-catalog`
 - an enabled CPU model auto-enables `kubeai`, `litellm`, and `model-catalog`
+- CPU models without an explicit memory reservation default to 4096 MiB for
+  vLLM and 2048 MiB for Ollama
 - an enabled accelerator model additionally resolves its vendor capability to
   `gpu`, `amd-gpu`, or `intel-gpu`
 - missing default module activations are seeded once; existing

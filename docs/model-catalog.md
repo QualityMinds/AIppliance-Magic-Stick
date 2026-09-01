@@ -113,17 +113,26 @@ hardware list contains only compute targets whose catalog entry supports the
 selected engine and whose live availability is `true`. The model form therefore
 cannot advertise an Intel, AMD, NVIDIA, or CPU path that the cluster cannot
 currently schedule. For vLLM accelerator models, the memory control caps
-allocations at the target's available unreserved memory while retaining minimum
-and recommended estimate markers in a gray overflow area when the model is
-larger than current capacity.
+allocations at the target's unreserved memory (`total memory - active model
+reservations`), independent of the separate live free-memory measurement, while
+retaining minimum and recommended estimate markers in a gray overflow area when
+the model is larger than unreserved capacity.
+
+CPU-backed vLLM and Ollama variants use a RAM reservation slider instead of the
+VRAM estimator. The slider is capped at unreserved system memory and writes
+`spec.local.memoryRequiredMi`. The operator represents the value with a KubeAI
+resource-profile multiplier whose unit is 16 MiB. KubeAI therefore applies the
+chosen reservation as the generated model pod's `resources.requests.memory`.
+Values that do not align to 16 MiB are rounded up. The legacy fixed CPU profiles
+remain available so existing KubeAI Model resources can finish their migration.
 
 | Preset | Engine | Target | Model | Memory budget | Context | Max output | Max sequences |
 |---|---|---|---|---:|---:|---:|---:|
-| `qwen2505bcpu` | vLLM | CPU | `hf://Qwen/Qwen2.5-0.5B-Instruct` | 4 GiB RAM minimum; 6 GiB container limit | 2048 | 1024 | 1 |
+| `qwen2505bcpu` | vLLM | CPU | `hf://Qwen/Qwen2.5-0.5B-Instruct` | 4 GiB default RAM request; configurable in 16 MiB steps | 2048 | 1024 | 1 |
 | `qwen2505bcpu` | vLLM | NVIDIA | `hf://Qwen/Qwen2.5-0.5B-Instruct` | `4Gi` VRAM | 2048 | 1024 | 1 |
 | `qwen2505bcpu` | vLLM | AMD ROCm | `hf://Qwen/Qwen2.5-0.5B-Instruct` | `4Gi` VRAM | 2048 | 1024 | 1 |
 | `qwen2505bcpu` | vLLM | Intel XPU | `hf://Qwen/Qwen2.5-0.5B-Instruct` | `4Gi` accelerator memory | 2048 | 1024 | 1 |
-| `qwen2505bcpu` | Ollama | CPU | `ollama://qwen2.5:0.5b` | 2 GiB RAM minimum; 6 GiB container limit | 2048 | 1024 | 1 |
+| `qwen2505bcpu` | Ollama | CPU | `ollama://qwen2.5:0.5b` | 2 GiB default RAM request; configurable in 16 MiB steps | 2048 | 1024 | 1 |
 | `qwen2505bcpu` | Ollama | NVIDIA | `ollama://qwen2.5:0.5b` | `2Gi` planning requirement | 2048 | 1024 | 1 |
 | `qwen2505bcpu` | Ollama | AMD ROCm | `ollama://qwen2.5:0.5b` | `2Gi` planning requirement | 2048 | 1024 | 1 |
 | `qwen3827b` | vLLM | NVIDIA | `hf://cyankiwi/Qwen3.8-27B-AWQ-INT4` | `24062Mi` VRAM | 20000 | 8192 | 1 |
@@ -139,7 +148,10 @@ variants use an explicit
 `--kv-cache-memory-bytes` value; the bundled smoke preset uses 512 MiB so it
 also starts on memory-constrained local test nodes. Accelerator variants use a
 VRAM budget that the runtime converts to vLLM's memory-utilization limit after
-reading physical memory from the CUDA, ROCm, or XPU runtime.
+reading physical memory from the CUDA, ROCm, or XPU runtime. Small allocations
+use the exact budget-to-physical-memory ratio; the wrapper does not silently
+raise them to a five-percent minimum. A 98-percent upper safety cap remains so
+runtime overhead cannot consume the entire device.
 
 Ollama variants use `ollama://` registry references, keep one model loaded per
 pod, map context and parallelism to supported Ollama environment variables,

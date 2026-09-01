@@ -318,10 +318,33 @@ In the Dashboard, open **Models > Create Model**, choose `Local`, select the
 engine, and then select one of the compute targets actually offered. A missing
 target is an availability signal, not a stale disabled option: inspect the
 hardware-operator state and allocatable resources above. For vLLM accelerator
-models, 100 percent on the VRAM slider is the currently available unreserved
-memory. Gray minimum or recommended markers to the right of that limit mean the
-model does not fit at that estimate; reduce model size, context, or concurrency
-rather than treating the gray area as allocatable capacity.
+models, 100 percent on the VRAM slider is the unreserved memory (`total memory -
+active model reservations`), not the separate live free-memory value. Gray
+minimum or recommended markers to the right of that limit mean the model does
+not fit at that estimate; reduce model size, context, or concurrency rather than
+treating the gray area as allocatable capacity.
+
+For accelerator-backed vLLM models, the wrapper converts the selected MiB value
+directly into `selected / physical GPU memory`. It does not impose a hidden
+five-percent minimum; only the 98-percent upper safety cap remains. A very small
+reservation can therefore still fail during model loading when weights,
+activations, and the minimum KV cache do not fit, but it is never increased
+silently.
+
+For a CPU target, the form shows a RAM reservation slider for vLLM and Ollama.
+Its maximum is the CPU's unreserved memory. The selected value becomes the
+model pod's Kubernetes memory request in 16 MiB units. The bundled defaults are
+4 GiB for vLLM and 2 GiB for Ollama. Check the requested value after creation:
+
+```bash
+kubectl -n ai get pods -l app.kubernetes.io/name=kubeai \
+  -o custom-columns='POD:.metadata.name,MEMORY-REQUEST:.spec.containers[*].resources.requests.memory'
+```
+
+If the reservation exceeds memory schedulable on any eligible node, Kubernetes
+keeps the model pod Pending. Reduce the reservation or make capacity available;
+do not remove the request because it protects other appliance workloads from an
+unbounded inference process.
 
 With `engine: OLlama`, the same portable preset uses
 `ollama://qwen2.5:0.5b`. CPU, NVIDIA, and AMD are supported. Intel remains

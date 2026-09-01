@@ -794,7 +794,7 @@ class HelmAppInstanceTests(unittest.TestCase):
             self.controller["cluster_architectures"] = original
 
         self.assertEqual(runtime["computeTarget"], "cpu")
-        self.assertEqual(runtime["resourceProfile"], "magicstick-vllm-cpu:1")
+        self.assertEqual(runtime["resourceProfile"], "magicstick-vllm-cpu-memory:256")
         self.assertEqual(runtime["memoryMi"], 4096)
         self.assertEqual(runtime["vramMi"], 0)
         self.assertEqual(resource["spec"]["engine"], "VLLM")
@@ -808,6 +808,15 @@ class HelmAppInstanceTests(unittest.TestCase):
             resource["metadata"]["labels"]["appliance.magicstick.dev/compute-target"],
             "cpu",
         )
+
+        release = yaml.safe_load(
+            (CLUSTER_ROOT / "platform/ai/kubeai/base/helmrelease.yaml").read_text(encoding="utf-8")
+        )
+        profile_name, multiple = runtime["resourceProfile"].split(":", 1)
+        profile = release["spec"]["values"]["resourceProfiles"][profile_name]
+        self.assertEqual(profile["requests"]["memory"], "16Mi")
+        self.assertEqual(int(multiple) * 16, runtime["memoryMi"])
+        self.assertEqual(int(multiple) * 4, 1024)
 
     def test_ollama_cpu_preset_generates_native_kubeai_ollama_runtime(self):
         manifest = yaml.safe_load((ROOT / "model-presets.yaml").read_text(encoding="utf-8"))
@@ -838,7 +847,7 @@ class HelmAppInstanceTests(unittest.TestCase):
 
         self.assertEqual(runtime["engine"], "OLlama")
         self.assertEqual(runtime["computeTarget"], "cpu")
-        self.assertEqual(runtime["resourceProfile"], "magicstick-ollama-cpu:1")
+        self.assertEqual(runtime["resourceProfile"], "magicstick-ollama-cpu-memory:128")
         self.assertEqual(runtime["memoryMi"], 2048)
         self.assertEqual(resource["spec"]["engine"], "OLlama")
         self.assertEqual(resource["spec"]["url"], "ollama://qwen2.5:0.5b")
@@ -848,6 +857,67 @@ class HelmAppInstanceTests(unittest.TestCase):
         self.assertEqual(resource["spec"]["env"]["OLLAMA_MAX_LOADED_MODELS"], "1")
         self.assertNotIn("MAGICSTICK_VLLM_WRAPPER_ENABLED", resource["spec"]["env"])
         self.assertNotIn("MAGICSTICK_VLLM_VRAM_LIMIT", resource["spec"]["env"])
+
+        release = yaml.safe_load(
+            (CLUSTER_ROOT / "platform/ai/kubeai/base/helmrelease.yaml").read_text(encoding="utf-8")
+        )
+        profile_name, multiple = runtime["resourceProfile"].split(":", 1)
+        profile = release["spec"]["values"]["resourceProfiles"][profile_name]
+        self.assertEqual(profile["requests"]["memory"], "16Mi")
+        self.assertEqual(int(multiple) * 16, runtime["memoryMi"])
+        self.assertEqual(int(multiple) * 8, 1024)
+
+    def test_cpu_memory_override_changes_kubeai_resource_profile_multiplier_for_both_engines(self):
+        manifest = yaml.safe_load((ROOT / "model-presets.yaml").read_text(encoding="utf-8"))
+        presets = yaml.safe_load(manifest["data"]["presets.json"])["presets"]
+        catalog_manifest = yaml.safe_load((ROOT / "compute-target-catalog.yaml").read_text(encoding="utf-8"))
+        compute_catalog = yaml.safe_load(catalog_manifest["data"]["targets.json"])
+        original = self.controller["cluster_architectures"]
+        self.controller["cluster_architectures"] = lambda: {"amd64"}
+        try:
+            for engine, profile_name in (
+                ("VLLM", "magicstick-vllm-cpu-memory"),
+                ("OLlama", "magicstick-ollama-cpu-memory"),
+            ):
+                with self.subTest(engine=engine):
+                    activation = {
+                        "metadata": {"name": "cpu-custom-memory-" + engine.lower()},
+                        "spec": {
+                            "targetNamespace": "ai",
+                            "local": {
+                                "preset": "qwen2505bcpu",
+                                "engine": engine,
+                                "computeTarget": "cpu",
+                                "memoryRequiredMi": 6145,
+                            },
+                        },
+                    }
+                    resource, runtime = self.controller["kubeai_model_resource"](
+                        activation,
+                        presets,
+                        compute_catalog,
+                    )
+
+                    # The request is rounded up to the 16 MiB resource-profile
+                    # unit and reaches the generated KubeAI Model for both
+                    # supported CPU inference engines.
+                    self.assertEqual(runtime["memoryMi"], 6160)
+                    self.assertEqual(runtime["resourceProfile"], profile_name + ":385")
+                    self.assertEqual(resource["spec"]["resourceProfile"], profile_name + ":385")
+        finally:
+            self.controller["cluster_architectures"] = original
+
+    def test_modelactivation_crd_exposes_cpu_memory_reservation(self):
+        manifest = yaml.safe_load(
+            (ROOT / "crds/modelactivations.appliance.magicstick.dev.yaml").read_text(encoding="utf-8")
+        )
+        local_properties = (
+            manifest["spec"]["versions"][0]["schema"]["openAPIV3Schema"]
+            ["properties"]["spec"]["properties"]["local"]["properties"]
+        )
+
+        self.assertEqual(local_properties["memoryRequiredMi"]["type"], "integer")
+        self.assertEqual(local_properties["memoryRequiredMi"]["minimum"], 16)
 
     def test_ollama_selects_vendor_specific_gpu_profiles_but_not_intel(self):
         manifest = yaml.safe_load((ROOT / "model-presets.yaml").read_text(encoding="utf-8"))

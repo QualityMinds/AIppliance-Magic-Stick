@@ -34,13 +34,13 @@ data:
           "engines": ["VLLM", "OLlama"],
           "engineProfiles": {
             "VLLM": {
-              "defaultResourceProfile": "magicstick-vllm-cpu:1"
+              "defaultResourceProfile": "magicstick-vllm-cpu-memory:256"
             },
             "OLlama": {
-              "defaultResourceProfile": "magicstick-ollama-cpu:1"
+              "defaultResourceProfile": "magicstick-ollama-cpu-memory:128"
             }
           },
-          "defaultResourceProfile": "magicstick-vllm-cpu:1"
+          "defaultResourceProfile": "magicstick-vllm-cpu-memory:256"
         },
         "nvidia-gpu": {
           "displayName": "NVIDIA GPU",
