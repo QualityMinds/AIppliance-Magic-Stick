@@ -59,6 +59,8 @@ data:
     SSL_CONTEXT = ssl.create_default_context(cafile=SA_CA_PATH)
     PUBLIC_SSL_CONTEXT = ssl.create_default_context()
     HF_CACHE_TTL_SECONDS = 900
+    MEMORY_RESERVATION_STEP_MI = 100
+    MIB_BYTES = 1024 * 1024
     HF_METADATA_CACHE = {}
     OLLAMA_METADATA_CACHE = {}
     OIDC_USERINFO_URL = os.environ.get(
@@ -2637,7 +2639,13 @@ data:
 
 
     def ceil_mib(bytes_value):
-        return int((int(bytes_value or 0) + 1024 * 1024 - 1) // (1024 * 1024))
+        return int((int(bytes_value or 0) + MIB_BYTES - 1) // MIB_BYTES)
+
+
+    def round_up_mib(value, step=MEMORY_RESERVATION_STEP_MI):
+        numeric = max(0, int(value or 0))
+        unit = max(1, int(step or 1))
+        return ((numeric + unit - 1) // unit) * unit
 
 
     def hf_repo_id(value):
@@ -2677,6 +2685,17 @@ data:
         return "https://huggingface.co/api/models/" + urllib.parse.quote(namespace) + "/" + urllib.parse.quote(name)
 
 
+    def hf_model_tree_url(repo):
+        namespace, name = repo.split("/", 1)
+        return (
+            "https://huggingface.co/api/models/"
+            + urllib.parse.quote(namespace)
+            + "/"
+            + urllib.parse.quote(name)
+            + "/tree/main?recursive=true"
+        )
+
+
     def fetch_public_json(url, required=True):
         request = urllib.request.Request(url, headers={
             "Accept": "application/json",
@@ -2707,10 +2726,12 @@ data:
         if not config:
             raise ValueError("public HuggingFace config.json is not available for this model")
         safetensors_index = fetch_public_json(hf_resolve_url(repo, "model.safetensors.index.json"), required=False)
+        model_tree = fetch_public_json(hf_model_tree_url(repo), required=False)
         cached = {
             "repo": repo,
             "config": config or {},
             "safetensorsIndex": safetensors_index or {},
+            "modelTree": model_tree if isinstance(model_tree, list) else [],
             "modelApi": model_api or {},
             "fetchedAt": now,
         }
@@ -2835,8 +2856,13 @@ data:
             return 4
         if quant.get("load_in_8bit") is True:
             return 8
+        for group in (quant.get("config_groups") or {}).values():
+            weights = (group or {}).get("weights") or {}
+            value = positive_int(weights.get("num_bits") or weights.get("bits"))
+            if value:
+                return value
         method = str(quant.get("quant_method") or quant.get("quantization_method") or "").lower()
-        if method in {"awq", "gptq", "aqlm"}:
+        if method in {"awq", "gptq", "aqlm", "compressed-tensors"}:
             return 4
         return None
 
@@ -2855,16 +2881,56 @@ data:
         return 2
 
 
+    def activation_dtype_bytes(config):
+        raw = str((config or {}).get("torch_dtype") or (config or {}).get("dtype") or "").lower()
+        if "float32" in raw or "fp32" in raw:
+            return 4
+        if "float8" in raw or "fp8" in raw or "int8" in raw:
+            return 1
+        return 2
+
+
     def safetensors_weight_mi(index):
         metadata = (index or {}).get("metadata") or {}
         total_size = positive_int(metadata.get("total_size"))
         return ceil_mib(total_size) if total_size else None
 
 
+    def tree_safetensors_weight_mi(model_tree):
+        total_size = sum(
+            positive_int((entry or {}).get("size")) or 0
+            for entry in (model_tree or [])
+            if str((entry or {}).get("type") or "") == "file"
+            and str((entry or {}).get("path") or "").endswith(".safetensors")
+        )
+        return ceil_mib(total_size) if total_size else None
+
+
     def api_safetensors_weight_mi(model_api):
         safetensors = (model_api or {}).get("safetensors") or {}
-        total_size = positive_int(safetensors.get("total"))
+        dtype_sizes = {
+            "BOOL": 1,
+            "U8": 1,
+            "I8": 1,
+            "F8_E4M3": 1,
+            "F8_E5M2": 1,
+            "I16": 2,
+            "F16": 2,
+            "BF16": 2,
+            "I32": 4,
+            "F32": 4,
+            "I64": 8,
+            "F64": 8,
+        }
+        total_size = sum(
+            (positive_int(count) or 0) * dtype_sizes.get(str(dtype).upper(), 0)
+            for dtype, count in (safetensors.get("parameters") or {}).items()
+        )
         return ceil_mib(total_size) if total_size else None
+
+
+    def api_safetensors_parameter_count(model_api):
+        return positive_int((((model_api or {}).get("safetensors") or {}).get("total")))
 
 
     def estimated_parameter_count(config):
@@ -2897,6 +2963,19 @@ data:
         return ceil_mib(params * dtype_bytes(config) * overhead)
 
 
+    def runtime_parameter_mi(config, model_api):
+        params = api_safetensors_parameter_count(model_api) or estimated_parameter_count(config)
+        if not params:
+            return None
+        return ceil_mib(params * activation_dtype_bytes(config))
+
+
+    def is_multimodal_config(config):
+        return any(isinstance((config or {}).get(key), dict) for key in (
+            "vision_config", "audio_config", "multimodal_config",
+        ))
+
+
     def kv_cache_layer_count(config):
         layers = config_int(config, "num_hidden_layers", "n_layer", "num_layers")
         layer_types = (config or {}).get("layer_types")
@@ -2920,6 +2999,40 @@ data:
         return ceil_mib(bytes_value)
 
 
+    def vllm_kv_cache_mi(config, context_window, max_num_seqs, compute_target):
+        theoretical_mi = kv_cache_mi(config, context_window, max_num_seqs)
+        if theoretical_mi is None:
+            return None, 1
+        layers, total_layers = kv_cache_layer_count(config)
+        compatibility_factor = 1
+        if (
+            compute_target == "cpu"
+            and layers
+            and total_layers
+            and layers < total_layers
+        ):
+            # vLLM currently groups and pads hybrid attention/state-cache
+            # layouts. Budgeting one theoretical full-attention cache is too
+            # optimistic for Qwen 3.5-style models, so use the total/full layer
+            # ratio as a conservative compatibility envelope.
+            compatibility_factor = max(1, (total_layers + layers - 1) // layers)
+        return int(theoretical_mi * compatibility_factor), compatibility_factor
+
+
+    def vllm_runtime_reserve_mi(config, model_api, weights_mi, compute_target):
+        if compute_target != "cpu":
+            return max(2048, int(weights_mi * 0.08)), {}
+        runtime_weights_mi = runtime_parameter_mi(config, model_api) or weights_mi
+        compile_mi = max(2048, int(max(weights_mi, runtime_weights_mi) * 0.35))
+        multimodal_mi = 4096 if is_multimodal_config(config) else 0
+        unpack_mi = max(weights_mi, runtime_weights_mi) if quantization_bits(config) else 0
+        return int(unpack_mi + compile_mi + multimodal_mi), {
+            "runtimeWeightsMi": int(runtime_weights_mi),
+            "compileReserveMi": int(compile_mi),
+            "multimodalReserveMi": int(multimodal_mi),
+        }
+
+
     def estimate_vllm_memory(payload, compute_target):
         repo = hf_repo_id(payload.get("url"))
         metadata = hf_metadata(repo)
@@ -2927,7 +3040,15 @@ data:
         dimensions = model_dimension_config(config)
         warnings = []
         model_type = str(payload.get("modelType") or dimensions.get("model_type") or config.get("model_type") or "chat").lower()
-        context_window = positive_int(payload.get("contextWindow")) or config_int(dimensions, "max_position_embeddings", "model_max_length") or 4096
+        requested_context = positive_int(payload.get("contextWindow"))
+        model_max_context = config_int(dimensions, "max_position_embeddings", "model_max_length")
+        context_window = requested_context or model_max_context or 4096
+        if requested_context and model_max_context and requested_context > model_max_context:
+            raise RequestError(
+                400,
+                "Context Size " + str(requested_context)
+                + " exceeds the model maximum of " + str(model_max_context) + " tokens.",
+            )
         if not positive_int(payload.get("contextWindow")):
             warnings.append("Context Size was missing; using model config or 4096 token fallback.")
         max_num_seqs = positive_int(payload.get("maxNumSeqs"))
@@ -2937,19 +3058,26 @@ data:
         weights_mi = safetensors_weight_mi(metadata.get("safetensorsIndex"))
         confidence = "high"
         if not weights_mi:
-            weights_mi = api_safetensors_weight_mi(metadata.get("modelApi"))
+            weights_mi = tree_safetensors_weight_mi(metadata.get("modelTree"))
             if weights_mi:
-                warnings.append("Safetensors index metadata unavailable; used HuggingFace model API safetensors total.")
+                warnings.append("Safetensors index size unavailable; summed public checkpoint file sizes.")
             else:
-                weights_mi = fallback_weight_mi(dimensions)
-                confidence = "estimated"
-                warnings.append("Safetensors index not available; estimated model weights from config.")
+                weights_mi = api_safetensors_weight_mi(metadata.get("modelApi"))
+                if weights_mi:
+                    confidence = "estimated"
+                    warnings.append("Checkpoint file sizes unavailable; estimated tensor bytes from HuggingFace dtype metadata.")
+                else:
+                    weights_mi = fallback_weight_mi(dimensions)
+                    confidence = "estimated"
+                    warnings.append("Safetensors metadata unavailable; estimated model weights from config.")
         if not weights_mi:
             weights_mi = 0
             confidence = "fallback"
             warnings.append("Could not estimate model weight size from HuggingFace metadata.")
 
-        kv_mi = kv_cache_mi(dimensions, context_window, max_num_seqs)
+        kv_mi, kv_compatibility_factor = vllm_kv_cache_mi(
+            dimensions, context_window, max_num_seqs, compute_target
+        )
         if kv_mi is None:
             kv_mi = 0
             confidence = "fallback"
@@ -2958,12 +3086,29 @@ data:
             kv_layers, total_layers = kv_cache_layer_count(dimensions)
             if kv_layers and total_layers and kv_layers < total_layers:
                 warnings.append("Detected hybrid attention; KV cache uses " + str(kv_layers) + " full-attention layers out of " + str(total_layers) + ".")
+                if kv_compatibility_factor > 1:
+                    confidence = "estimated"
+                    warnings.append(
+                        "CPU vLLM hybrid-cache allocation is budgeted with a conservative "
+                        + str(kv_compatibility_factor) + "x compatibility factor."
+                    )
+        runtime_mi, runtime_details = vllm_runtime_reserve_mi(
+            dimensions, metadata.get("modelApi") or {}, weights_mi, compute_target
+        )
+        if compute_target == "cpu":
+            warnings.append(
+                "CPU vLLM reserve includes model working tensors and compile/warm-up headroom"
+                + (" plus the multimodal processor cache." if runtime_details.get("multimodalReserveMi") else ".")
+            )
         return {
             "repo": repo,
             "sourceUrl": "https://huggingface.co/" + repo,
             "weightsMi": int(weights_mi),
             "kvCacheMi": int(kv_mi),
-            "runtimeReserveMi": max(2048, int((weights_mi + kv_mi) * 0.08)),
+            "runtimeReserveMi": int(runtime_mi),
+            "runtimeDetails": runtime_details,
+            "kvCompatibilityFactor": int(kv_compatibility_factor),
+            "modelMaxContext": int(model_max_context or 0),
             "contextWindow": int(context_window),
             "maxNumSeqs": int(max_num_seqs),
             "confidence": confidence,
@@ -3051,8 +3196,16 @@ data:
             "maximumMi": None if maximum_mi is None else int(maximum_mi),
             "weightsMi": int(weights_mi),
             "kvCacheMi": int(kv_mi),
+            "configuredKvCacheMi": (
+                round_up_mib(kv_mi)
+                if engine == "VLLM" and compute_target == "cpu" and kv_mi > 0
+                else None
+            ),
             "reserveMi": int(runtime_mi),
             "recommendedReserveMi": int(reserve_mi),
+            "runtimeDetails": estimate.get("runtimeDetails") or {},
+            "kvCompatibilityFactor": int(estimate.get("kvCompatibilityFactor") or 1),
+            "modelMaxContext": int(estimate.get("modelMaxContext") or 0),
             "contextWindow": int(context_window),
             "maxNumSeqs": int(max_num_seqs),
             "confidence": estimate.get("confidence") or "estimated",
@@ -3137,11 +3290,25 @@ data:
             if target_definition.get("kind") == "cpu" or compute_target == "cpu":
                 local.pop("vram", None)
                 local.pop("vramMi", None)
+                memory_required_mi = None
                 if "memoryRequiredMi" in local:
                     memory_required_mi = positive_int(local.get("memoryRequiredMi"))
                     if not memory_required_mi or memory_required_mi < 16:
                         raise ValueError("local.memoryRequiredMi must be an integer of at least 16 MiB")
                     local["memoryRequiredMi"] = memory_required_mi
+                if engine == "VLLM" and local.get("url"):
+                    estimate = estimate_model_memory(local)
+                    minimum_mi = round_up_mib(estimate.get("minimumMi"))
+                    kv_cache_mi = max(
+                        MEMORY_RESERVATION_STEP_MI,
+                        round_up_mib(estimate.get("kvCacheMi")),
+                    )
+                    local["kvCacheMemoryBytes"] = kv_cache_mi * MIB_BYTES
+                    if memory_required_mi and memory_required_mi < minimum_mi:
+                        raise ValueError(
+                            "local.memoryRequiredMi must be at least " + str(minimum_mi)
+                            + " MiB for this model, context, and CPU vLLM cache."
+                        )
             else:
                 local.pop("memoryRequiredMi", None)
             labels["appliance.magicstick.dev/compute-target"] = compute_target

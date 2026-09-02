@@ -429,7 +429,10 @@ recommended memory before creation. vLLM supports CPU, NVIDIA, AMD, and Intel;
 Ollama supports CPU, NVIDIA, and AMD. The CPU RAM slider and accelerator VRAM
 slider both end at the target's unreserved memory. Values beyond that capacity
 remain visible only as minimum/recommended markers in the gray overflow area.
-The breakdown identifies weights, KV cache, and reserve. Ollama's registry
+Displayed requirements and selections use 100 MiB planning increments. Values
+round upward; the safe unreserved ceiling rounds downward so a selectable value
+never exceeds planning capacity. The breakdown identifies weights, KV cache,
+and reserve. Ollama's registry
 manifest provides exact model-layer bytes, while its KV-cache component remains
 a conservative estimate because full GGUF dimensions are not present in the
 manifest.
@@ -447,11 +450,13 @@ keeps the model pod Pending. Reduce the reservation or make capacity available;
 do not remove the request because it protects other appliance workloads from an
 unbounded inference process.
 
-With `engine: OLlama`, the same portable preset uses
-`ollama://qwen2.5:0.5b`. CPU, NVIDIA, and AMD are supported. Intel remains
-unavailable for Ollama until a validated image/profile is added. Ollama model
-blobs persist below `/root/.ollama` on the appliance host, so a model-pod
-restart does not normally download the complete model again.
+With `engine: OLlama`, portable presets use explicit registry tags such as
+`ollama://qwen3.5:9b-q4_K_M`; CPU, NVIDIA, and AMD are supported. Intel remains
+unavailable for Ollama until a validated image/profile is added. The server
+images are pinned to the same upstream Ollama release for standard and ROCm
+runtimes. Ollama model blobs persist below `/root/.ollama` on the appliance
+host, so a model-pod restart does not normally download the complete model
+again.
 
 ## Storage
 
@@ -535,5 +540,6 @@ deploy,pods` if a command does not match the running resource name.
 | Intel model stays in `WaitingForGPU` | Confirm whether the node publishes `gpu.intel.com/xe` or `gpu.intel.com/i915`; the resolved profile in `ModelActivation.status` must match that resource. |
 | A GPU appears in Compute memory but not in the model hardware selector | Confirm the vendor module is enabled and inspect the node's allocatable resource (`nvidia.com/gpu`, `amd.com/gpu`, `gpu.intel.com/xe`, or `gpu.intel.com/i915`). A transient Flux `Reconciling` phase no longer blocks selection once that resource exists; without it, the driver or device plugin is not ready. |
 | CPU model stays in `Starting` | Check the CPU model Pod for image-pull, RAM, CPU, model-download, or vLLM startup failures; no NVIDIA checks should appear. |
-| CPU vLLM reports insufficient memory for KV cache | Lower the trusted preset's `kvCacheMemoryBytes`, reduce other node memory use, or allocate more appliance RAM. Do not use `VLLM_CPU_KVCACHE_SPACE` for sub-GiB values because vLLM parses it as whole GiB. |
+| CPU vLLM reports insufficient memory for KV cache | Recreate the model through the current dashboard so `spec.local.kvCacheMemoryBytes` is derived from model architecture, context, and maximum sequences. Older or directly created resources without that field retain the 512 MiB compatibility fallback. Reduce context or concurrency when the derived minimum exceeds unreserved RAM; do not bypass the server-side minimum check. |
+| CPU vLLM is OOM-killed while loading or warming a quantized or multimodal model | The current estimator includes checkpoint bytes, a possible runtime working-weight copy, compile/warm-up headroom, the multimodal processor cache, and a conservative hybrid-cache factor. Confirm that the `ModelActivation` contains both `memoryRequiredMi` and `kvCacheMemoryBytes`, then compare the Pod limit and cgroup peak. If the recommendation is larger than the node, reduce context or choose a smaller model instead of raising only the timeout. |
 | Local model stays in `Starting` | Compare `kubectl -n ai get model <name> -o jsonpath='{.status.replicas}'` with the model pod readiness and selected engine logs. The model is intentionally absent from LiteLLM until at least one replica is ready. |

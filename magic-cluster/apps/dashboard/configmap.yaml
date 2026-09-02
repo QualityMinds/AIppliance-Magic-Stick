@@ -2069,8 +2069,8 @@ data:
                         <label class="field">Type<select name="modelType"><option value="chat">chat</option><option value="embedding">embedding</option></select></label>
                         <label class="field">Preset<select name="preset" id="local-model-preset"><option value="qwen352bvlembedding">qwen352bvlembedding</option><option value="qwen3635b">qwen3635b</option><option value="qwen359b">qwen359b</option><option value="custom">Custom</option></select></label>
                         <label class="field"><span id="local-model-url-label">Hugging Face URL</span><input id="local-model-url" name="url" placeholder="hf://example/model" /></label>
-                        <label class="field">Max Num Seqs<input name="maxNumSeqs" placeholder="32" /></label>
-                        <label class="field">Context Size<input name="contextWindow" value="4096" /></label>
+                        <label class="field">Max Num Seqs<input name="maxNumSeqs" type="number" min="1" placeholder="32" /></label>
+                        <label class="field">Context Size<input name="contextWindow" type="number" min="1" value="4096" /></label>
                       </div>
                       <p class="module-message" id="cpu-runtime-summary" data-compute-target-section="cpu" hidden>CPU inference reserves the selected system RAM as the Kubernetes memory request for the model pod.</p>
                       <div class="vram-estimate" id="ram-reservation" data-compute-target-section="cpu" hidden>
@@ -2086,7 +2086,7 @@ data:
                         <div class="memory-capacity" id="ram-capacity">
                           <div class="memory-capacity-scale" id="ram-capacity-scale">
                             <div class="memory-capacity-available" id="ram-capacity-available">
-                              <input id="ram-reservation-slider" type="range" min="16" max="16" step="16" aria-label="RAM reservation" disabled />
+                              <input id="ram-reservation-slider" type="range" min="100" max="100" step="100" aria-label="RAM reservation" disabled />
                             </div>
                             <div class="memory-capacity-overflow" id="ram-capacity-overflow" hidden></div>
                             <span class="memory-capacity-marker minimum" id="ram-minimum-marker" hidden><span>Minimum</span></span>
@@ -2131,7 +2131,7 @@ data:
                         <div class="memory-capacity" id="vram-capacity">
                           <div class="memory-capacity-scale" id="vram-capacity-scale">
                             <div class="memory-capacity-available" id="vram-capacity-available">
-                              <input id="vram-estimate-slider" type="range" min="0" max="0" step="256" aria-label="VRAM allocation" disabled />
+                              <input id="vram-estimate-slider" type="range" min="0" max="0" step="100" aria-label="VRAM allocation" disabled />
                             </div>
                             <div class="memory-capacity-overflow" id="vram-capacity-overflow" hidden></div>
                             <span class="memory-capacity-marker minimum" id="vram-minimum-marker" hidden><span>Minimum</span></span>
@@ -4056,6 +4056,15 @@ data:
             return number + ' MiB';
           };
 
+          const formatPlanningMi = (value) => {
+            const number = Math.max(0, Number(value || 0));
+            const rounded = number ? Math.ceil(number / 100) * 100 : 0;
+            if (rounded >= 1024) {
+              return (rounded / 1024).toFixed(1) + ' GiB';
+            }
+            return rounded + ' MiB';
+          };
+
           const formatVramInput = (value) => {
             const number = Math.max(0, Math.round(Number(value || 0)));
             return number % 1024 === 0 ? (number / 1024) + 'Gi' : number + 'Mi';
@@ -4090,6 +4099,27 @@ data:
             if (node) { node.textContent = value; }
           };
 
+          const applyModelContextLimit = (estimate) => {
+            const form = $('local-model-form');
+            const field = form && form.elements.contextWindow;
+            if (!field) { return; }
+            const maximum = Number((estimate || {}).modelMaxContext || 0);
+            if (maximum > 0) {
+              field.max = String(maximum);
+              field.title = 'Model maximum: ' + maximum + ' tokens';
+            } else {
+              field.removeAttribute('max');
+              field.removeAttribute('title');
+            }
+          };
+
+          const modelEstimateMeta = (estimate) => {
+            const maximum = Number((estimate || {}).modelMaxContext || 0);
+            return 'Context ' + estimate.contextWindow
+              + (maximum ? ' / max ' + maximum : '')
+              + ', max seqs ' + estimate.maxNumSeqs;
+          };
+
           const setVramEstimateControls = (enabled) => {
             const slider = $('vram-estimate-slider');
             if (slider) { slider.disabled = !enabled; }
@@ -4105,7 +4135,7 @@ data:
             return unreserved.length ? Math.max(...unreserved) : null;
           };
 
-          const CPU_MEMORY_RESERVATION_STEP_MI = 16;
+          const MEMORY_RESERVATION_STEP_MI = 100;
 
           const defaultCpuMemoryReservationMi = () => selectedLocalEngine() === 'OLlama' ? 2048 : 4096;
 
@@ -4137,11 +4167,11 @@ data:
             const form = $('local-model-form');
             if (!form) { return; }
             const normalized = Math.max(
-              CPU_MEMORY_RESERVATION_STEP_MI,
-              Math.ceil(Number(value || 0) / CPU_MEMORY_RESERVATION_STEP_MI) * CPU_MEMORY_RESERVATION_STEP_MI
+              MEMORY_RESERVATION_STEP_MI,
+              Math.ceil(Number(value || 0) / MEMORY_RESERVATION_STEP_MI) * MEMORY_RESERVATION_STEP_MI
             );
             setFormValue(form, 'memoryRequiredMi', normalized);
-            setEstimateText('ram-reservation-selected', 'Reserved: ' + formatMi(normalized));
+            setEstimateText('ram-reservation-selected', 'Reserved: ' + formatPlanningMi(normalized));
           };
 
           const renderCpuMemoryReservation = (presetMi = 0, options = {}) => {
@@ -4149,10 +4179,10 @@ data:
             const unreserved = targetUnreservedMemoryMi('cpu');
             const maximum = unreserved === null
               ? 0
-              : Math.floor(unreserved / CPU_MEMORY_RESERVATION_STEP_MI) * CPU_MEMORY_RESERVATION_STEP_MI;
+              : Math.floor(unreserved / MEMORY_RESERVATION_STEP_MI) * MEMORY_RESERVATION_STEP_MI;
             const recommended = Math.max(
-              CPU_MEMORY_RESERVATION_STEP_MI,
-              Number(presetMi || defaultCpuMemoryReservationMi())
+              MEMORY_RESERVATION_STEP_MI,
+              Math.ceil(Number(presetMi || defaultCpuMemoryReservationMi()) / MEMORY_RESERVATION_STEP_MI) * MEMORY_RESERVATION_STEP_MI
             );
             const form = $('local-model-form');
             const current = form ? formNumber(form, 'memoryRequiredMi') : 0;
@@ -4160,8 +4190,8 @@ data:
             const selected = maximum > 0 ? Math.min(maximum, requested) : requested;
             setEstimateText('ram-estimate-status', 'Waiting for model metadata');
             setEstimateText('ram-estimate-minimum', '-');
-            setEstimateText('ram-estimate-recommended', formatMi(recommended));
-            setEstimateText('ram-reservation-maximum', maximum > 0 ? formatMi(maximum) : 'Unknown');
+            setEstimateText('ram-estimate-recommended', formatPlanningMi(recommended));
+            setEstimateText('ram-reservation-maximum', maximum > 0 ? formatPlanningMi(maximum) : 'Unknown');
             setEstimateText('ram-estimate-weights', '-');
             setEstimateText('ram-estimate-kv', '-');
             setEstimateText('ram-estimate-reserve', '-');
@@ -4169,9 +4199,9 @@ data:
             applyCpuMemoryReservationMi(selected);
             const slider = $('ram-reservation-slider');
             if (slider) {
-              slider.min = String(CPU_MEMORY_RESERVATION_STEP_MI);
-              slider.max = String(Math.max(CPU_MEMORY_RESERVATION_STEP_MI, maximum || selected));
-              slider.step = String(CPU_MEMORY_RESERVATION_STEP_MI);
+              slider.min = String(MEMORY_RESERVATION_STEP_MI);
+              slider.max = String(Math.max(MEMORY_RESERVATION_STEP_MI, maximum || selected));
+              slider.step = String(MEMORY_RESERVATION_STEP_MI);
               slider.value = String(selected);
               slider.disabled = maximum <= 0;
             }
@@ -4196,33 +4226,34 @@ data:
               return;
             }
             const roundToReservationStep = (value) => Math.max(
-              CPU_MEMORY_RESERVATION_STEP_MI,
-              Math.ceil(Number(value || 0) / CPU_MEMORY_RESERVATION_STEP_MI) * CPU_MEMORY_RESERVATION_STEP_MI
+              MEMORY_RESERVATION_STEP_MI,
+              Math.ceil(Number(value || 0) / MEMORY_RESERVATION_STEP_MI) * MEMORY_RESERVATION_STEP_MI
             );
             const minimum = roundToReservationStep(estimate.minimumMi);
             const recommended = roundToReservationStep(estimate.recommendedMi || minimum);
             const unreserved = targetUnreservedMemoryMi('cpu');
             const maximum = unreserved === null
               ? 0
-              : Math.floor(unreserved / CPU_MEMORY_RESERVATION_STEP_MI) * CPU_MEMORY_RESERVATION_STEP_MI;
+              : Math.floor(unreserved / MEMORY_RESERVATION_STEP_MI) * MEMORY_RESERVATION_STEP_MI;
             const form = $('local-model-form');
             const current = form ? formNumber(form, 'memoryRequiredMi') : 0;
             const requested = options.applyRecommended === false && current ? current : recommended;
             const selected = maximum > 0 ? Math.min(maximum, requested) : requested;
             setEstimateText('ram-estimate-status', estimate.confidence === 'high' ? 'High confidence' : 'Estimated');
-            setEstimateText('ram-estimate-minimum', formatMi(minimum));
-            setEstimateText('ram-estimate-recommended', formatMi(recommended));
-            setEstimateText('ram-reservation-maximum', maximum > 0 ? formatMi(maximum) : 'Unknown');
-            setEstimateText('ram-estimate-weights', formatMi(estimate.weightsMi));
-            setEstimateText('ram-estimate-kv', formatMi(estimate.kvCacheMi));
-            setEstimateText('ram-estimate-reserve', formatMi((estimate.reserveMi || 0) + (estimate.recommendedReserveMi || 0)));
-            setEstimateText('ram-estimate-meta', 'Context ' + estimate.contextWindow + ', max seqs ' + estimate.maxNumSeqs);
+            setEstimateText('ram-estimate-minimum', formatPlanningMi(minimum));
+            setEstimateText('ram-estimate-recommended', formatPlanningMi(recommended));
+            setEstimateText('ram-reservation-maximum', maximum > 0 ? formatPlanningMi(maximum) : 'Unknown');
+            setEstimateText('ram-estimate-weights', formatPlanningMi(estimate.weightsMi));
+            setEstimateText('ram-estimate-kv', formatPlanningMi(estimate.kvCacheMi));
+            setEstimateText('ram-estimate-reserve', formatPlanningMi((estimate.reserveMi || 0) + (estimate.recommendedReserveMi || 0)));
+            setEstimateText('ram-estimate-meta', modelEstimateMeta(estimate));
+            applyModelContextLimit(estimate);
             applyCpuMemoryReservationMi(selected);
             const slider = $('ram-reservation-slider');
             if (slider) {
-              slider.min = String(CPU_MEMORY_RESERVATION_STEP_MI);
-              slider.max = String(Math.max(CPU_MEMORY_RESERVATION_STEP_MI, maximum || selected));
-              slider.step = String(CPU_MEMORY_RESERVATION_STEP_MI);
+              slider.min = String(MEMORY_RESERVATION_STEP_MI);
+              slider.max = String(Math.max(MEMORY_RESERVATION_STEP_MI, maximum || selected));
+              slider.step = String(MEMORY_RESERVATION_STEP_MI);
               slider.value = String(selected);
             }
             const warnings = [...(estimate.warnings || [])];
@@ -4256,7 +4287,7 @@ data:
             marker.classList.toggle('overflow', Boolean(available) && numeric > available);
             const label = marker.querySelector('span');
             if (label) {
-              label.textContent = labelPrefix + ' ' + formatMi(numeric);
+              label.textContent = labelPrefix + ' ' + formatPlanningMi(numeric);
             }
           };
 
@@ -4328,8 +4359,12 @@ data:
           const applyVramLimitMi = (value, mode = '') => {
             const form = $('local-model-form');
             if (!form) { return; }
-            setFormValue(form, 'vram', formatVramInput(value));
-            setEstimateText('vram-estimate-selected', 'Selected: ' + formatMi(value));
+            const normalized = Math.max(
+              MEMORY_RESERVATION_STEP_MI,
+              Math.ceil(Number(value || 0) / MEMORY_RESERVATION_STEP_MI) * MEMORY_RESERVATION_STEP_MI
+            );
+            setFormValue(form, 'vram', formatVramInput(normalized));
+            setEstimateText('vram-estimate-selected', 'Selected: ' + formatPlanningMi(normalized));
             setVramUseMode(mode);
           };
 
@@ -4339,20 +4374,28 @@ data:
               renderEmptyVramEstimate('Waiting for model metadata');
               return;
             }
-            const minimum = Number(estimate.minimumMi || 0);
-            const recommended = Number(estimate.recommendedMi || minimum);
+            const minimum = Math.max(
+              MEMORY_RESERVATION_STEP_MI,
+              Math.ceil(Number(estimate.minimumMi || 0) / MEMORY_RESERVATION_STEP_MI) * MEMORY_RESERVATION_STEP_MI
+            );
+            const recommended = Math.max(
+              minimum,
+              Math.ceil(Number(estimate.recommendedMi || minimum) / MEMORY_RESERVATION_STEP_MI) * MEMORY_RESERVATION_STEP_MI
+            );
             const estimatedMaximum = estimate.maximumMi === null || estimate.maximumMi === undefined ? 0 : Number(estimate.maximumMi || 0);
             const unreservedMaximum = targetUnreservedMemoryMi();
-            const maximum = unreservedMaximum === null ? estimatedMaximum : unreservedMaximum;
-            const selected = maximum > 0 ? Math.min(maximum, Math.max(256, recommended)) : 0;
+            const rawMaximum = unreservedMaximum === null ? estimatedMaximum : unreservedMaximum;
+            const maximum = Math.floor(rawMaximum / MEMORY_RESERVATION_STEP_MI) * MEMORY_RESERVATION_STEP_MI;
+            const selected = maximum > 0 ? Math.min(maximum, Math.max(MEMORY_RESERVATION_STEP_MI, recommended)) : 0;
             setEstimateText('vram-estimate-status', estimate.confidence === 'high' ? 'High confidence' : 'Estimated');
-            setEstimateText('vram-estimate-weights', formatMi(estimate.weightsMi));
-            setEstimateText('vram-estimate-kv', formatMi(estimate.kvCacheMi));
-            setEstimateText('vram-estimate-reserve', formatMi((estimate.reserveMi || 0) + (estimate.recommendedReserveMi || 0)));
-            setEstimateText('vram-estimate-minimum', formatMi(minimum));
-            setEstimateText('vram-estimate-recommended', formatMi(recommended));
-            setEstimateText('vram-estimate-maximum', maximum > 0 ? formatMi(maximum) : 'Unknown');
-            setEstimateText('vram-estimate-meta', 'Context ' + estimate.contextWindow + ', max seqs ' + estimate.maxNumSeqs);
+            setEstimateText('vram-estimate-weights', formatPlanningMi(estimate.weightsMi));
+            setEstimateText('vram-estimate-kv', formatPlanningMi(estimate.kvCacheMi));
+            setEstimateText('vram-estimate-reserve', formatPlanningMi((estimate.reserveMi || 0) + (estimate.recommendedReserveMi || 0)));
+            setEstimateText('vram-estimate-minimum', formatPlanningMi(minimum));
+            setEstimateText('vram-estimate-recommended', formatPlanningMi(recommended));
+            setEstimateText('vram-estimate-maximum', maximum > 0 ? formatPlanningMi(maximum) : 'Unknown');
+            setEstimateText('vram-estimate-meta', modelEstimateMeta(estimate));
+            applyModelContextLimit(estimate);
             const warnings = [...(estimate.warnings || [])];
             if (maximum > 0 && minimum > maximum) {
               warnings.push('Estimated minimum exceeds the unreserved VRAM. The marker is shown in the gray overflow area.');
@@ -4363,9 +4406,9 @@ data:
             renderVramCapacityScale(minimum, recommended, maximum);
             const slider = $('vram-estimate-slider');
             if (slider) {
-              slider.min = maximum > 0 ? String(Math.min(256, maximum)) : '0';
+              slider.min = maximum > 0 ? String(Math.min(MEMORY_RESERVATION_STEP_MI, maximum)) : '0';
               slider.max = String(maximum);
-              slider.step = '256';
+              slider.step = String(MEMORY_RESERVATION_STEP_MI);
               slider.value = String(selected);
             }
             setVramEstimateControls(maximum > 0);
@@ -4385,6 +4428,7 @@ data:
             const payload = vramEstimatePayload(form);
             if (!payload.url) {
               latestVramEstimateSignature = '';
+              applyModelContextLimit(null);
               const message = selectedLocalEngine() === 'OLlama' ? 'Waiting for Ollama URL' : 'Waiting for HF URL';
               if (targetKind === 'cpu') {
                 renderCpuMemoryReservation(formNumber(form, 'memoryRequiredMi') || defaultCpuMemoryReservationMi(), { applyPreset: false });
@@ -4466,7 +4510,7 @@ data:
             keys.forEach((key) => {
               const option = document.createElement('option');
               option.value = key;
-              option.textContent = key;
+              option.textContent = String(((presets[key] || {}).title || key));
               select.appendChild(option);
             });
             const custom = document.createElement('option');
@@ -6653,12 +6697,12 @@ data:
                 const unreserved = targetUnreservedMemoryMi('cpu');
                 const maximum = unreserved === null
                   ? 0
-                  : Math.floor(unreserved / CPU_MEMORY_RESERVATION_STEP_MI) * CPU_MEMORY_RESERVATION_STEP_MI;
+                  : Math.floor(unreserved / MEMORY_RESERVATION_STEP_MI) * MEMORY_RESERVATION_STEP_MI;
                 if (!maximum) { return; }
                 const requested = mode === 'minimum' ? minimum : (mode === 'maximum' ? maximum : recommended);
                 const value = Math.min(
                   maximum,
-                  Math.max(CPU_MEMORY_RESERVATION_STEP_MI, Math.ceil(requested / CPU_MEMORY_RESERVATION_STEP_MI) * CPU_MEMORY_RESERVATION_STEP_MI)
+                  Math.max(MEMORY_RESERVATION_STEP_MI, Math.ceil(requested / MEMORY_RESERVATION_STEP_MI) * MEMORY_RESERVATION_STEP_MI)
                 );
                 const slider = $('ram-reservation-slider');
                 if (slider) {
@@ -6677,10 +6721,14 @@ data:
                 const recommended = Number(latestVramEstimate.recommendedMi || minimum);
                 const estimatedMaximum = latestVramEstimate.maximumMi === null || latestVramEstimate.maximumMi === undefined ? 0 : Number(latestVramEstimate.maximumMi || 0);
                 const unreservedMaximum = targetUnreservedMemoryMi();
-                const maximum = unreservedMaximum === null ? estimatedMaximum : unreservedMaximum;
+                const rawMaximum = unreservedMaximum === null ? estimatedMaximum : unreservedMaximum;
+                const maximum = Math.floor(rawMaximum / MEMORY_RESERVATION_STEP_MI) * MEMORY_RESERVATION_STEP_MI;
                 if (!maximum) { return; }
                 const requested = mode === 'minimum' ? minimum : (mode === 'maximum' ? maximum : recommended);
-                const value = Math.min(maximum, Math.max(256, requested));
+                const value = Math.min(
+                  maximum,
+                  Math.max(MEMORY_RESERVATION_STEP_MI, Math.ceil(requested / MEMORY_RESERVATION_STEP_MI) * MEMORY_RESERVATION_STEP_MI)
+                );
                 const slider = $('vram-estimate-slider');
                 if (slider) {
                   slider.max = String(maximum);

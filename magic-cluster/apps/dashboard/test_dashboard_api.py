@@ -513,6 +513,120 @@ class LocalRuntimeTests(unittest.TestCase):
                 self.assertGreater(estimate["minimumMi"], estimate["weightsMi"])
                 self.assertGreater(estimate["recommendedMi"], estimate["minimumMi"])
 
+    def test_cpu_vllm_hybrid_estimate_includes_startup_and_compatibility_reserves(self):
+        mib = 1024 * 1024
+        self.server["hf_metadata"] = lambda repo: {
+            "repo": repo,
+            "config": {
+                "model_type": "hybrid_test",
+                "quantization_config": {
+                    "quant_method": "compressed-tensors",
+                    "config_groups": {
+                        "group_0": {"weights": {"num_bits": 4}},
+                    },
+                },
+                "text_config": {
+                    "num_hidden_layers": 4,
+                    "hidden_size": 64,
+                    "num_attention_heads": 4,
+                    "num_key_value_heads": 2,
+                    "head_dim": 16,
+                    "intermediate_size": 128,
+                    "vocab_size": 256,
+                    "dtype": "bfloat16",
+                    "max_position_embeddings": 8192,
+                    "layer_types": [
+                        "linear_attention", "linear_attention",
+                        "linear_attention", "full_attention",
+                    ],
+                },
+                "vision_config": {"hidden_size": 64},
+            },
+            "safetensorsIndex": {"metadata": {}},
+            "modelTree": [
+                {"type": "file", "path": "model-1.safetensors", "size": 600 * mib},
+                {"type": "file", "path": "model-2.safetensors", "size": 200 * mib},
+            ],
+            "modelApi": {"safetensors": {"total": 1_000_000_000}},
+        }
+
+        estimate = self.server["estimate_model_memory"]({
+            "engine": "VLLM",
+            "computeTarget": "cpu",
+            "url": "hf://example/hybrid",
+            "contextWindow": 8192,
+            "maxNumSeqs": 1,
+            "modelType": "chat",
+        })
+
+        self.assertEqual(estimate["weightsMi"], 800)
+        self.assertEqual(estimate["kvCacheMi"], 4)
+        self.assertEqual(estimate["reserveMi"], 8052)
+        self.assertEqual(estimate["minimumMi"], 8856)
+        self.assertEqual(estimate["recommendedMi"], 10904)
+        self.assertEqual(estimate["confidence"], "estimated")
+        self.assertTrue(any("4x compatibility factor" in item for item in estimate["warnings"]))
+
+    def test_vllm_memory_estimate_rejects_context_above_model_limit(self):
+        self.server["hf_metadata"] = lambda repo: {
+            "repo": repo,
+            "config": {
+                "num_hidden_layers": 4,
+                "hidden_size": 16,
+                "num_attention_heads": 4,
+                "max_position_embeddings": 8192,
+            },
+            "safetensorsIndex": {"metadata": {"total_size": 1024 * 1024}},
+            "modelApi": {},
+        }
+
+        with self.assertRaises(self.server["RequestError"]) as raised:
+            self.server["estimate_model_memory"]({
+                "engine": "VLLM",
+                "computeTarget": "cpu",
+                "url": "hf://example/model",
+                "contextWindow": 8193,
+                "maxNumSeqs": 1,
+            })
+
+        self.assertEqual(raised.exception.status, 400)
+        self.assertIn("model maximum of 8192", str(raised.exception))
+
+    def test_cpu_vllm_payload_derives_cache_server_side_and_enforces_minimum(self):
+        mib = 1024 * 1024
+        self.server["hf_metadata"] = lambda repo: {
+            "repo": repo,
+            "config": {
+                "num_hidden_layers": 2,
+                "hidden_size": 16,
+                "num_attention_heads": 4,
+                "num_key_value_heads": 2,
+                "max_position_embeddings": 4096,
+                "torch_dtype": "float16",
+            },
+            "safetensorsIndex": {"metadata": {"total_size": 1024 * mib}},
+            "modelApi": {},
+        }
+        payload = {
+            "name": "cpu-vllm",
+            "local": {
+                "computeTarget": "cpu",
+                "engine": "VLLM",
+                "url": "hf://example/model",
+                "memoryRequiredMi": 5200,
+                "contextWindow": 4096,
+                "maxNumSeqs": 1,
+            },
+        }
+
+        resource = self.server["model_activation_payload"]("local", payload)
+
+        self.assertEqual(resource["spec"]["local"]["kvCacheMemoryBytes"], 100 * mib)
+        payload["local"]["memoryRequiredMi"] = 3000
+        with self.assertRaises(ValueError) as raised:
+            self.server["model_activation_payload"]("local", payload)
+        self.assertIn("must be at least", str(raised.exception))
+
     def test_ollama_memory_estimate_supports_cpu_nvidia_and_amd_without_huggingface(self):
         self.server["hf_metadata"] = lambda _repo: self.fail("Ollama estimation must not call HuggingFace")
         self.server["ollama_metadata"] = lambda reference: {

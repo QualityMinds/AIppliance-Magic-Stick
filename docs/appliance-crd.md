@@ -209,6 +209,7 @@ spec:
     computeTarget: cpu
     engine: VLLM
     memoryRequiredMi: 4096
+    kvCacheMemoryBytes: 536870912
 ```
 
 The same field is used for `engine: OLlama`; its bundled default is 2048 MiB.
@@ -216,6 +217,10 @@ The API accepts positive values from 16 MiB. The operator rounds custom values
 up to a 16 MiB resource-profile unit before creating the KubeAI `Model`. If the
 field is absent on an existing activation, the operator uses the engine default
 (4096 MiB for vLLM or 2048 MiB for Ollama).
+For CPU vLLM models created through the dashboard, `kvCacheMemoryBytes` is
+derived server-side from HuggingFace architecture metadata, context size, and
+maximum sequences. Direct and legacy resources may omit it and receive the
+operator's 512 MiB compatibility fallback.
 
 The same portable preset can target AMD ROCm or Intel XPU when the dashboard
 reports that provider as available:

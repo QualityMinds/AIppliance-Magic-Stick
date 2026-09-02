@@ -393,6 +393,7 @@ BROWSER_API_MOCK = r"""
         kvCacheMi: ollama ? 256 : 2000,
         reserveMi: ollama ? 480 : 2000,
         recommendedReserveMi: ollama ? 512 : 6000,
+        modelMaxContext: ollama ? 0 : 262144,
         contextWindow: body.contextWindow || 8192, maxNumSeqs: body.maxNumSeqs || 32,
         confidence: ollama ? 'estimated' : 'high', gpuAvailable: !cpu, warnings: []
       });
@@ -723,14 +724,14 @@ BROWSER_ASSERTIONS = r"""
     assert(computeSelect.value === 'nvidia-gpu', 'selected NVIDIA target was not stored');
     assert(document.getElementById('local-model-preset').value === 'qwen3635b', 'NVIDIA-incompatible presets were not filtered');
     await waitFor(() => memoryEstimateCallExists('VLLM', 'nvidia-gpu'), 'vLLM NVIDIA memory estimate request');
-    await waitFor(() => document.getElementById('vram-estimate-slider').max === '16384', 'VRAM capacity slider');
-    assert(document.getElementById('vram-estimate-maximum').textContent === '16 GiB', '100% does not use unreserved GPU memory');
+    await waitFor(() => document.getElementById('vram-estimate-slider').max === '16300', 'VRAM capacity slider');
+    assert(document.getElementById('vram-estimate-maximum').textContent === '15.9 GiB', '100% does not use the safe 100 MiB-rounded GPU capacity');
     assert(document.getElementById('vram-available-marker').textContent.includes('100% unreserved'), 'unreserved maximum marker is missing');
     assert(document.getElementById('vram-capacity-note').textContent.includes('unreserved VRAM'), 'unreserved maximum explanation is missing');
     assert(!document.getElementById('vram-capacity-overflow').hidden, 'capacity overflow area is hidden');
     assert(document.getElementById('vram-minimum-marker').classList.contains('overflow'), 'minimum marker is not in the overflow area');
     assert(document.getElementById('vram-recommended-marker').classList.contains('overflow'), 'recommended marker is not in the overflow area');
-    assert(document.getElementById('vram-estimate-selected').textContent.includes('16 GiB'), 'slider did not clamp the allocation to available VRAM');
+    assert(document.getElementById('vram-estimate-selected').textContent.includes('15.9 GiB'), 'slider did not clamp the allocation to available VRAM');
     assert(document.querySelector('.vram-breakdown-details'), 'VRAM breakdown was removed');
     assert(document.getElementById('ram-reservation').hidden, 'CPU RAM reservation is visible for GPU inference');
 
@@ -742,16 +743,17 @@ BROWSER_ASSERTIONS = r"""
     assert(!document.getElementById('cpu-runtime-summary').hidden, 'CPU runtime summary is hidden');
     assert(document.getElementById('vram-estimate').hidden, 'VRAM controls are visible for CPU inference');
     assert(!document.getElementById('ram-reservation').hidden, 'CPU RAM reservation is hidden');
-    assert(document.getElementById('ram-reservation-slider').max === '12288', 'CPU reservation maximum is not unreserved RAM');
+    assert(document.getElementById('ram-reservation-slider').max === '12200', 'CPU reservation maximum is not the safe 100 MiB-rounded unreserved RAM');
     assert(document.getElementById('ram-estimate-minimum').textContent === '3.0 GiB', 'vLLM CPU minimum RAM is missing');
     assert(document.getElementById('ram-reservation-selected').textContent.includes('4.0 GiB'), 'vLLM CPU recommended reservation is incorrect');
+    assert(document.getElementById('local-model-form').elements.contextWindow.max === '262144', 'model context maximum was not applied to the form');
     assert(document.getElementById('ram-available-marker').textContent.includes('100% unreserved'), 'CPU unreserved marker is missing');
     assert(document.getElementById('ram-capacity-note').textContent.includes('unreserved RAM'), 'CPU unreserved explanation is missing');
     assert(document.querySelector('#ram-reservation .vram-breakdown-details'), 'CPU memory breakdown is missing');
     const ramSlider = document.getElementById('ram-reservation-slider');
-    ramSlider.value = '6144';
+    ramSlider.value = '6200';
     ramSlider.dispatchEvent(new Event('input', { bubbles: true }));
-    assert(document.getElementById('local-model-form').elements.memoryRequiredMi.value === '6144', 'CPU RAM reservation slider did not update the model form');
+    assert(document.getElementById('local-model-form').elements.memoryRequiredMi.value === '6200', 'CPU RAM reservation slider did not keep its 100 MiB planning step');
 
     changeSelect(engineSelect, 'OLlama');
     await waitFor(() => engineSelect.value === 'OLlama' && computeSelect.value === 'cpu', 'persistent Ollama and CPU selection');
@@ -762,16 +764,16 @@ BROWSER_ASSERTIONS = r"""
     assert(engineSelect.value === 'OLlama', 'selected Ollama engine was not stored');
     assert(!document.getElementById('ram-reservation').hidden, 'Ollama CPU RAM reservation is hidden');
     await waitFor(() => memoryEstimateCallExists('OLlama', 'cpu'), 'Ollama CPU memory estimate request');
-    await waitFor(() => document.getElementById('ram-estimate-recommended').textContent === '1.6 GiB', 'Ollama CPU recommended RAM');
-    assert(document.getElementById('ram-estimate-minimum').textContent === '1.1 GiB', 'Ollama CPU minimum RAM is missing');
-    assert(document.getElementById('ram-reservation-selected').textContent.includes('1.6 GiB'), 'Ollama CPU recommended reservation is incorrect');
+    await waitFor(() => document.getElementById('ram-estimate-recommended').textContent === '1.7 GiB', 'Ollama CPU recommended RAM');
+    assert(document.getElementById('ram-estimate-minimum').textContent === '1.2 GiB', 'Ollama CPU minimum RAM is missing');
+    assert(document.getElementById('ram-reservation-selected').textContent.includes('1.7 GiB'), 'Ollama CPU recommended reservation is incorrect');
 
     changeSelect(computeSelect, 'nvidia-gpu');
     await waitFor(() => memoryEstimateCallExists('OLlama', 'nvidia-gpu'), 'Ollama NVIDIA memory estimate request');
     await waitFor(() => !document.getElementById('vram-estimate').hidden, 'Ollama GPU memory estimate');
     assert(!document.getElementById('ollama-runtime-summary').hidden, 'Ollama estimate explanation is hidden');
-    assert(document.getElementById('vram-estimate-recommended').textContent === '1.6 GiB', 'Ollama NVIDIA recommended VRAM is missing');
-    assert(document.getElementById('vram-estimate-selected').textContent.includes('1.6 GiB'), 'Ollama NVIDIA recommendation was not selected');
+    assert(document.getElementById('vram-estimate-recommended').textContent === '1.7 GiB', 'Ollama NVIDIA recommended VRAM is missing');
+    assert(document.getElementById('vram-estimate-selected').textContent.includes('1.7 GiB'), 'Ollama NVIDIA recommendation was not selected');
     changeSelect(computeSelect, 'cpu');
     await waitFor(() => !document.getElementById('ram-reservation').hidden, 'return to Ollama CPU reservation');
 
@@ -788,7 +790,7 @@ BROWSER_ASSERTIONS = r"""
     document.getElementById('local-model-form').requestSubmit();
     await waitFor(() => callExists('POST', '/api/models/local'), 'local model creation');
     const localModelCall = window.__dashboardBrowserCalls.find((call) => call.method === 'POST' && call.path === '/api/models/local');
-    assert(localModelCall.body.local.memoryRequiredMi === 4096, 'Ollama CPU memory reservation was not submitted');
+    assert(localModelCall.body.local.memoryRequiredMi === 4100, 'Ollama CPU memory reservation was not submitted in 100 MiB increments');
     await waitFor(() => modelCreateFlow.hidden, 'close model creation form after submit');
     assert(modelCreateToggle.getAttribute('aria-expanded') === 'false', 'Create button expansion state stayed open after submit');
     assert(modelCreateToggle.textContent === 'Create', 'Create button label was not restored after submit');
@@ -1186,7 +1188,8 @@ class DashboardUserManagementUiTests(unittest.TestCase):
         self.assertNotIn('100% available', self.source)
         self.assertIn('const targetUnreservedMemoryMi =', self.script)
         self.assertIn('payload.local.memoryRequiredMi = Number', self.script)
-        self.assertIn('const maximum = unreservedMaximum === null ? estimatedMaximum : unreservedMaximum;', self.script)
+        self.assertIn('const rawMaximum = unreservedMaximum === null ? estimatedMaximum : unreservedMaximum;', self.script)
+        self.assertIn('const MEMORY_RESERVATION_STEP_MI = 100;', self.script)
         self.assertIn("request('/api/models/estimate-memory'", self.script)
         self.assertIn('renderCpuMemoryEstimate', self.script)
         self.assertIn("const selectModelCreateSource = (source) =>", self.script)
@@ -1312,6 +1315,9 @@ process.stdout.write(JSON.stringify({
         self.assertNotIn("innerHTML", user_code)
         self.assertIn("textContent", user_code)
         self.assertIn("list.replaceChildren()", user_code)
+
+    def test_model_preset_dropdown_uses_catalog_titles(self):
+        self.assertIn("option.textContent = String(((presets[key] || {}).title || key));", self.script)
 
     def test_password_inputs_are_temporary_and_scrubbed(self):
         self.assertGreaterEqual(self.source.count('autocomplete="new-password"'), 4)

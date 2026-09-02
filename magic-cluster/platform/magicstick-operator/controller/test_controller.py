@@ -818,6 +818,38 @@ class HelmAppInstanceTests(unittest.TestCase):
         self.assertEqual(int(multiple) * 16, runtime["memoryMi"])
         self.assertEqual(int(multiple) * 4, 1024)
 
+    def test_cpu_vllm_uses_dashboard_derived_kv_cache_budget(self):
+        catalog_manifest = yaml.safe_load((ROOT / "compute-target-catalog.yaml").read_text(encoding="utf-8"))
+        compute_catalog = yaml.safe_load(catalog_manifest["data"]["targets.json"])
+        activation = {
+            "metadata": {"name": "cpu-derived-cache"},
+            "spec": {
+                "targetNamespace": "ai",
+                "local": {
+                    "engine": "VLLM",
+                    "computeTarget": "cpu",
+                    "url": "hf://example/model",
+                    "memoryRequiredMi": 5200,
+                    "contextWindow": 4096,
+                    "maxNumSeqs": 1,
+                    "kvCacheMemoryBytes": 104857600,
+                },
+            },
+        }
+        original = self.controller["cluster_architectures"]
+        self.controller["cluster_architectures"] = lambda: {"amd64"}
+        try:
+            resource, _runtime = self.controller["kubeai_model_resource"](
+                activation,
+                {},
+                compute_catalog,
+            )
+        finally:
+            self.controller["cluster_architectures"] = original
+
+        self.assertIn("--kv-cache-memory-bytes=104857600", resource["spec"]["args"])
+        self.assertNotIn("--kv-cache-memory-bytes=536870912", resource["spec"]["args"])
+
     def test_ollama_cpu_preset_generates_native_kubeai_ollama_runtime(self):
         manifest = yaml.safe_load((ROOT / "model-presets.yaml").read_text(encoding="utf-8"))
         presets = yaml.safe_load(manifest["data"]["presets.json"])["presets"]
@@ -1045,16 +1077,96 @@ class HelmAppInstanceTests(unittest.TestCase):
         finally:
             self.controller.update(originals)
 
+    def test_all_qwen_chat_presets_generate_every_supported_runtime_variant(self):
+        manifest = yaml.safe_load((ROOT / "model-presets.yaml").read_text(encoding="utf-8"))
+        presets = yaml.safe_load(manifest["data"]["presets.json"])["presets"]
+        catalog_manifest = yaml.safe_load((ROOT / "compute-target-catalog.yaml").read_text(encoding="utf-8"))
+        compute_catalog = yaml.safe_load(catalog_manifest["data"]["targets.json"])
+        preset_ids = (
+            "qwen3508b",
+            "qwen352b",
+            "qwen354b",
+            "qwen359b",
+            "qwen3527b",
+            "qwen3535b",
+            "qwen3627b",
+            "qwen3635b",
+            "qwen3827b",
+        )
+        matrix = (
+            ("VLLM", "cpu"),
+            ("OLlama", "cpu"),
+            ("VLLM", "nvidia-gpu"),
+            ("OLlama", "nvidia-gpu"),
+            ("VLLM", "amd-gpu"),
+            ("OLlama", "amd-gpu"),
+            ("VLLM", "intel-gpu"),
+        )
+        originals = {
+            "cluster_architectures": self.controller["cluster_architectures"],
+            "list_items": self.controller["list_items"],
+        }
+        self.controller["cluster_architectures"] = lambda: {"amd64"}
+        self.controller["list_items"] = lambda path: [{
+            "metadata": {
+                "labels": {
+                    "kubernetes.io/os": "linux",
+                    "feature.node.kubernetes.io/amd-gpu": "true",
+                    "intel.feature.node.kubernetes.io/gpu": "true",
+                },
+            },
+            "spec": {},
+            "status": {
+                "nodeInfo": {"architecture": "amd64"},
+                "conditions": [{"type": "Ready", "status": "True"}],
+                "allocatable": {
+                    "nvidia.com/gpu": "1",
+                    "amd.com/gpu": "1",
+                    "gpu.intel.com/xe": "1",
+                },
+            },
+        }] if path == "/api/v1/nodes" else []
+        try:
+            for preset_id in preset_ids:
+                for engine, target in matrix:
+                    with self.subTest(preset=preset_id, engine=engine, target=target):
+                        activation = {
+                            "metadata": {"name": f"{preset_id}-{engine.lower()}-{target}"},
+                            "spec": {
+                                "targetNamespace": "ai",
+                                "local": {
+                                    "preset": preset_id,
+                                    "engine": engine,
+                                    "computeTarget": target,
+                                },
+                            },
+                        }
+                        resource, runtime = self.controller["kubeai_model_resource"](
+                            activation,
+                            presets,
+                            compute_catalog,
+                        )
+                        self.assertEqual(runtime["engine"], engine)
+                        self.assertEqual(runtime["computeTarget"], target)
+                        self.assertEqual(resource["spec"]["engine"], engine)
+                        if engine == "VLLM":
+                            self.assertTrue(resource["spec"]["url"].startswith("hf://"))
+                        else:
+                            self.assertTrue(resource["spec"]["url"].startswith("ollama://"))
+                            self.assertEqual(resource["spec"]["args"], [])
+        finally:
+            self.controller.update(originals)
+
     def test_preset_variant_must_support_selected_compute_target(self):
         manifest = yaml.safe_load((ROOT / "model-presets.yaml").read_text(encoding="utf-8"))
         presets = yaml.safe_load(manifest["data"]["presets.json"])["presets"]
         catalog_manifest = yaml.safe_load((ROOT / "compute-target-catalog.yaml").read_text(encoding="utf-8"))
         compute_catalog = yaml.safe_load(catalog_manifest["data"]["targets.json"])
         activation = {
-            "metadata": {"name": "qwen3827b"},
+            "metadata": {"name": "qwen352bvlembedding"},
             "spec": {
                 "targetNamespace": "ai",
-                "local": {"preset": "qwen3827b", "computeTarget": "cpu"},
+                "local": {"preset": "qwen352bvlembedding", "computeTarget": "cpu"},
             },
         }
         original = self.controller["cluster_architectures"]

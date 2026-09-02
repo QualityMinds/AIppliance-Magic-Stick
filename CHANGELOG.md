@@ -38,11 +38,17 @@ formalized, release entries should group changes under:
 - Ollama as a second KubeAI inference engine with engine-aware dashboard
   controls, CPU/NVIDIA/AMD profiles, a portable Qwen2.5 smoke preset, persistent
   model cache, and target compatibility enforcement.
+- Portable, backend-optimized Qwen3.5, Qwen3.6, and Qwen3.8 model presets with
+  pinned Ollama Q4/Q8 tags, supported vLLM BF16/FP8/GPTQ/AWQ artifacts, and a
+  Qwen3.5 4B capacity tier between the 2B and 9B models.
 - Administrator-managed, SSO-bound Kubernetes access with Viewer, narrow
   Magic-Stick Operator, and explicit Cluster Administrator levels, plus
   token-free OIDC kubeconfig downloads for local or brokered Keycloak users.
 
 ### Changed
+
+- The pinned Ollama CPU/NVIDIA and ROCm server images now use release `0.33.2`
+  so the bundled runtime can parse the Qwen3.5, Qwen3.6, and Qwen3.8 formats.
 
 - Instance creation in the dashboard now uses a two-step dialog that lists all
   catalogued types, explains missing modules for unavailable types, and then

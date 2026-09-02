@@ -35,9 +35,11 @@ spec:
           magicstick-vllm-intel: vllm/vllm-openai-xpu:v0.26.0
       OLlama:
         images:
-          magicstick-ollama-cpu: ollama/ollama:0.11.11
-          magicstick-ollama-nvidia: ollama/ollama:0.11.11
-          magicstick-ollama-amd: ollama/ollama:0.11.11-rocm
+          # Qwen3.5/3.6/3.8 require a current Ollama model parser. Keep the
+          # standard and ROCm images on the same pinned upstream release.
+          magicstick-ollama-cpu: ollama/ollama:0.33.2
+          magicstick-ollama-nvidia: ollama/ollama:0.33.2
+          magicstick-ollama-amd: ollama/ollama:0.33.2-rocm
     modelRollouts:
       # Avoid starting an extra GPU model pod during model updates.
       surge: 0

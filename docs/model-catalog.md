@@ -131,30 +131,57 @@ unreserved system memory and writes `spec.local.memoryRequiredMi`. The operator
 represents the value with a KubeAI resource-profile multiplier whose unit is 16
 MiB. KubeAI therefore applies the chosen reservation as the generated model
 pod's `resources.requests.memory`. Values that do not align to 16 MiB are
-rounded up. The legacy fixed CPU profiles remain available so existing KubeAI
+rounded up. Dashboard requirements and selections use safe 100 MiB planning
+increments: values round upward, while the unreserved slider ceiling rounds
+downward. The legacy fixed CPU profiles remain available so existing KubeAI
 Model resources can finish their migration.
 
-| Preset | Engine | Target | Model | Memory budget | Context | Max output | Max sequences |
-|---|---|---|---|---:|---:|---:|---:|
-| `qwen2505bcpu` | vLLM | CPU | `hf://Qwen/Qwen2.5-0.5B-Instruct` | 4 GiB default RAM request; configurable in 16 MiB steps | 2048 | 1024 | 1 |
-| `qwen2505bcpu` | vLLM | NVIDIA | `hf://Qwen/Qwen2.5-0.5B-Instruct` | `4Gi` VRAM | 2048 | 1024 | 1 |
-| `qwen2505bcpu` | vLLM | AMD ROCm | `hf://Qwen/Qwen2.5-0.5B-Instruct` | `4Gi` VRAM | 2048 | 1024 | 1 |
-| `qwen2505bcpu` | vLLM | Intel XPU | `hf://Qwen/Qwen2.5-0.5B-Instruct` | `4Gi` accelerator memory | 2048 | 1024 | 1 |
-| `qwen2505bcpu` | Ollama | CPU | `ollama://qwen2.5:0.5b` | 2 GiB default RAM request; configurable in 16 MiB steps | 2048 | 1024 | 1 |
-| `qwen2505bcpu` | Ollama | NVIDIA | `ollama://qwen2.5:0.5b` | `2Gi` planning requirement | 2048 | 1024 | 1 |
-| `qwen2505bcpu` | Ollama | AMD ROCm | `ollama://qwen2.5:0.5b` | `2Gi` planning requirement | 2048 | 1024 | 1 |
-| `qwen3827b` | vLLM | NVIDIA | `hf://cyankiwi/Qwen3.8-27B-AWQ-INT4` | `24062Mi` VRAM | 20000 | 8192 | 1 |
-| `qwen3635b` | vLLM | NVIDIA | `hf://cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit` | `15Gi` VRAM | 8192 | default | 128 |
-| `qwen359b` | vLLM | NVIDIA | `hf://cyankiwi/Qwen3.5-9B-AWQ-4bit` | `16Gi` VRAM | 8192 | default | 32 |
-| `qwen352bvlembedding` | vLLM | NVIDIA | `hf://LifetimeMistake/Qwen3-VL-Embedding-2B-AWQ-4bit` | `5Gi` VRAM | 4096 | n/a | runtime default |
+Every portable Qwen preset exposes vLLM on CPU, NVIDIA, AMD, and Intel plus
+Ollama on CPU, NVIDIA, and AMD. The artifact is deliberately target-specific:
+portable BF16 checkpoints cover the broad vLLM matrix, while a verified
+FP8/GPTQ/AWQ checkpoint replaces BF16 on selected accelerators and an explicit
+Q4/Q8 Ollama tag supplies the llama.cpp-based runtime. This avoids pretending
+that one quantization kernel works on every vendor.
+
+| Preset | Model family | vLLM artifact policy | Ollama artifact | Default planning budget | Context |
+|---|---|---|---|---|---:|
+| `qwen2505bcpu` | Qwen2.5 0.5B Instruct | official BF16 on CPU/NVIDIA/AMD/Intel | `qwen2.5:0.5b` on CPU/NVIDIA/AMD | 4 GiB vLLM; 2 GiB Ollama | 2048 |
+| `qwen3508b` | [Qwen3.5 0.8B](https://huggingface.co/Qwen/Qwen3.5-0.8B) | official BF16 on CPU/NVIDIA/AMD/Intel | `qwen3.5:0.8b-q8_0` | 4 GiB vLLM; 3 GiB Ollama | 32768 |
+| `qwen352b` | [Qwen3.5 2B](https://huggingface.co/Qwen/Qwen3.5-2B) | official BF16 on CPU/NVIDIA/AMD/Intel | `qwen3.5:2b-q4_K_M` | 8 GiB vLLM; 4 GiB Ollama | 32768 |
+| `qwen354b` | [Qwen3.5 4B](https://huggingface.co/Qwen/Qwen3.5-4B) | official BF16 on CPU/NVIDIA/AMD/Intel | `qwen3.5:4b-q4_K_M` | 14 GiB vLLM; 6 GiB Ollama | 32768 |
+| `qwen359b` | [Qwen3.5 9B](https://huggingface.co/Qwen/Qwen3.5-9B) | official BF16; existing AWQ 4-bit on NVIDIA | `qwen3.5:9b-q4_K_M` | 25 GiB BF16; 16 GiB NVIDIA AWQ; 10 GiB Ollama | 32768 |
+| `qwen3527b` | [Qwen3.5 27B](https://huggingface.co/Qwen/Qwen3.5-27B) | official BF16; official GPTQ Int4 on NVIDIA/Intel | `qwen3.5:27b-q4_K_M` | 64 GiB BF16; 40 GiB GPTQ; 24 GiB Ollama | 16384 |
+| `qwen3535b` | [Qwen3.5 35B A3B](https://huggingface.co/Qwen/Qwen3.5-35B-A3B) | official BF16; official GPTQ Int4 on NVIDIA/Intel | `qwen3.5:35b-a3b-q4_K_M` | 80 GiB BF16; 32 GiB GPTQ; 30 GiB Ollama | 16384 |
+| `qwen3627b` | [Qwen3.6 27B](https://huggingface.co/Qwen/Qwen3.6-27B) | official BF16; official FP8 on NVIDIA | `qwen3.6:27b-q4_K_M` | 64 GiB BF16; 40 GiB FP8; 24 GiB Ollama | 16384 |
+| `qwen3635b` | [Qwen3.6 35B A3B](https://huggingface.co/Qwen/Qwen3.6-35B-A3B) | official BF16; existing AWQ 4-bit on NVIDIA | `qwen3.6:35b-a3b-q4_K_M` | 80 GiB BF16; 15 GiB NVIDIA AWQ; 30 GiB Ollama | 16384 |
+| `qwen3827b` | [Qwen3.8 27B](https://huggingface.co/Qwen/Qwen3.8-27B) | official BF16; validated AWQ Int4 on NVIDIA | `qwen3.8:27b-q4_K_M` | 64 GiB BF16; 24062 MiB NVIDIA AWQ; 24 GiB Ollama | 20000 |
+| `qwen352bvlembedding` | Qwen3 VL Embedding 2B | NVIDIA AWQ 4-bit embedding runtime only | n/a | 5 GiB | 4096 |
+
+The catalog uses explicit Ollama quantization tags rather than mutable aliases.
+The bundled Ollama runtime is pinned to `0.33.2` (and `0.33.2-rocm`) so it can
+parse the Qwen3.5, Qwen3.6, and Qwen3.8 model formats. The native Qwen context
+windows are larger than the safe defaults above; users can raise context after
+the dashboard recalculates weights, KV cache, runtime reserve, and available
+memory for the selected target.
+
+[Qwen3.8 Flash Next](https://huggingface.co/Qwen/Qwen3.8-Flash-Next) is
+intentionally not selectable yet. Its official
+vLLM recipe requires a dedicated Qwen3.8-Flash-Next image and a multi-GPU
+deployment, while the current Magic Stick contract assigns one whole GPU to a
+model and does not shard a model across devices. The Ollama registry likewise
+offers no portable CPU/AMD Q4/Q8 artifact for this model. Add it only together
+with an explicit multi-GPU runtime design, capability detection, license review,
+and end-to-end acceptance.
 
 `spec.local.computeTarget` is immutable; recreate the activation to move a
 model between CPU and an accelerator, or between accelerator vendors. Missing
 values on existing resources keep legacy `nvidia-gpu` and `VLLM` behavior. The
 engine enum contains `VLLM` and KubeAI's exact `OLlama` value. CPU vLLM
-variants use an explicit
-`--kv-cache-memory-bytes` value; the bundled smoke preset uses 512 MiB so it
-also starts on memory-constrained local test nodes. Accelerator variants use a
+variants use an explicit `--kv-cache-memory-bytes` value. For models created
+through the dashboard, the API derives `spec.local.kvCacheMemoryBytes` from
+architecture, context, and maximum sequences; the operator passes it through
+unchanged. The bundled smoke preset and legacy resources retain 512 MiB only as
+a fallback. Accelerator variants use a
 VRAM budget that the runtime converts to vLLM's memory-utilization limit after
 reading physical memory from the CUDA, ROCm, or XPU runtime. Small allocations
 use the exact budget-to-physical-memory ratio; the wrapper does not silently
@@ -169,11 +196,12 @@ variants receive comparable minimum and recommended planning values. On GPU
 targets the declared VRAM value is planning metadata; Kubernetes exposes exactly
 one GPU to the model pod and Ollama manages loading and any CPU offload itself.
 
-`qwen3827b` is the validated single-GPU profile for a 24 GB-class NVIDIA GPU.
-It deliberately uses a single sequence so the 20000-token KV cache remains
-inside the available memory. The vLLM wrapper rejects the activation if the
-configured VRAM budget is larger than the memory reported by the GPU; in that
-case use a smaller model or create a custom activation with lower limits.
+`qwen3827b` retains its validated single-GPU NVIDIA AWQ profile for a 24 GB-class
+GPU and now adds portable alternatives for the other supported targets. Every
+new chat variant defaults to one sequence. The vLLM wrapper rejects an
+activation if its configured VRAM budget is larger than the memory reported by
+the selected GPU; in that case choose a smaller or more strongly quantized
+model, reduce context, or use a target with more memory.
 
 ## External Models
 

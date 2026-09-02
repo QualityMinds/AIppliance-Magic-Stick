@@ -391,7 +391,9 @@ values are marked on the same scale. If either estimate exceeds unreserved
 capacity, its marker remains visible in a gray overflow section to the right of
 the slider; the selected allocation itself never exceeds unreserved capacity.
 The collapsible **Breakdown** shows weights, KV cache, and reserve for every
-engine and target.
+engine and target. Every displayed recommendation and selectable reservation is
+rounded upward to a 100 MiB planning step. The safe slider maximum is rounded
+down to the same step so the UI never offers more than the unreserved capacity.
 
 For CPU targets, the selected value is stored as
 `spec.local.memoryRequiredMi`. The operator rounds it up to a 16 MiB unit and
@@ -401,8 +403,21 @@ decides the actual GPU offload at runtime. Live memory metrics currently come
 from NVIDIA DCGM, so AMD and Intel estimates can show minimum, recommendation,
 and breakdown without an adjustable maximum until matching memory metrics are
 available.
-CPU vLLM cache size is resolved by the preset/operator and is not an arbitrary
-browser-supplied environment variable.
+For CPU vLLM, the dashboard API derives `spec.local.kvCacheMemoryBytes`
+server-side from public model architecture metadata, context size, and maximum
+parallel sequences. The browser cannot supply an arbitrary runtime value. The
+operator passes that value to vLLM as `--kv-cache-memory-bytes`; 512 MiB remains
+only as a compatibility fallback for older or directly created resources that
+do not contain the derived field.
+
+The estimator prefers exact public Safetensors file sizes, checks the requested
+context against the model's advertised maximum, and adds a CPU-specific
+start-up envelope for working tensors, compilation/warm-up, and the default
+multimodal processor cache. Hybrid attention models are labelled **Estimated**
+and receive a conservative cache compatibility factor because current vLLM
+hybrid cache grouping can allocate more memory than the pure full-attention
+formula suggests. A selected CPU reservation below the computed minimum is
+rejected before Kubernetes starts a CrashLooping pod.
 
 Accelerator availability uses the Ready, schedulable node's allocatable vendor
 resource as the final runtime signal. An enabled vendor operator that is
@@ -433,13 +448,15 @@ ready for additional vendor metric adapters.
 
 The preset selector is populated from `ConfigMap/magicstick-model-presets` and
 shows only variants compatible with the selected engine and target.
-`qwen2505bcpu` is the portable smoke preset for vLLM on CPU, NVIDIA, AMD, and
-Intel and for Ollama on CPU, NVIDIA, and AMD; its identifier remains unchanged
-for compatibility. `qwen3827b` remains the validated
-single-NVIDIA-GPU preset. Selecting a preset fills its target-specific context,
-output-token, concurrency, memory, and runtime values before the activation is
-submitted. The model catalog propagates consumer limits into managed
-KubeOpenCode templates.
+`qwen2505bcpu` remains the portable smoke preset. The expanded Qwen3.5,
+Qwen3.6, and Qwen3.8 catalog uses official Hugging Face checkpoints plus
+target-specific FP8/GPTQ/AWQ artifacts where the runtime supports them, and
+explicit Q4/Q8 Ollama tags on CPU, NVIDIA, and AMD. Qwen3.5 4B fills the useful
+capacity gap between the 2B and 9B presets. `qwen3827b` retains its validated
+single-NVIDIA-GPU AWQ variant. Selecting a preset fills its target-specific
+context, output-token, concurrency, memory, and runtime values before the
+activation is submitted. The model catalog propagates consumer limits into
+managed KubeOpenCode templates.
 
 The default dashboard is GPU-neutral. External models do not require or activate
 GPU or KubeAI modules. CPU model creation remains available without any GPU
