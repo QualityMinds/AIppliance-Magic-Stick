@@ -1,0 +1,143 @@
+---
+- name: Read the effective appliance domain settings
+  ansible.builtin.command:
+    argv:
+      - "{{ kubernetes_oidc_k3s_binary }}"
+      - kubectl
+      - --kubeconfig
+      - "{{ kubernetes_oidc_kubeconfig }}"
+      - --namespace
+      - flux-system
+      - get
+      - configmap
+      - ai-appliance-settings
+      - -o
+      - json
+  register: kubernetes_oidc_settings
+  changed_when: false
+
+- name: Use the effective mDNS domain for Kubernetes OIDC
+  ansible.builtin.set_fact:
+    kubernetes_oidc_mdns_domain: >-
+      {{
+        (kubernetes_oidc_settings.stdout | from_json).data.AI_APPLIANCE_MDNS_DOMAIN
+        | default(ai_appliance_mdns_domain | default('magicstick.local', true), true)
+      }}
+
+- name: Wait for the appliance identity CA
+  ansible.builtin.command:
+    argv:
+      - "{{ kubernetes_oidc_k3s_binary }}"
+      - kubectl
+      - --kubeconfig
+      - "{{ kubernetes_oidc_kubeconfig }}"
+      - --namespace
+      - "{{ kubernetes_oidc_ca_secret_namespace }}"
+      - get
+      - secret
+      - "{{ kubernetes_oidc_ca_secret_name }}"
+      - -o
+      - json
+  register: kubernetes_oidc_ca_secret
+  changed_when: false
+  retries: "{{ kubernetes_oidc_ready_retries | int }}"
+  delay: "{{ kubernetes_oidc_ready_delay_seconds | int }}"
+  until: kubernetes_oidc_ca_secret.rc == 0
+
+- name: Validate the identity CA payload
+  ansible.builtin.assert:
+    that:
+      - (kubernetes_oidc_ca_secret.stdout | from_json).data['tls.crt'] is defined
+      - ((kubernetes_oidc_ca_secret.stdout | from_json).data['tls.crt'] | b64decode) is search('BEGIN CERTIFICATE')
+    fail_msg: The appliance identity CA is incomplete.
+
+- name: Install the public identity CA for the K3s API server
+  ansible.builtin.copy:
+    dest: "{{ kubernetes_oidc_ca_file }}"
+    content: "{{ (kubernetes_oidc_ca_secret.stdout | from_json).data['tls.crt'] | b64decode }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart k3s
+
+- name: Keep the local Keycloak issuer resolvable from the API server host
+  ansible.builtin.blockinfile:
+    path: /etc/hosts
+    marker: "# {mark} MAGICSTICK KUBERNETES OIDC"
+    block: |
+      {{ kubernetes_oidc_gateway_address }} id.{{ kubernetes_oidc_mdns_domain }}
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Verify the trusted Keycloak discovery endpoint
+  ansible.builtin.command:
+    argv:
+      - curl
+      - --fail
+      - --silent
+      - --show-error
+      - --max-time
+      - "5"
+      - --cacert
+      - "{{ kubernetes_oidc_ca_file }}"
+      - "{{ kubernetes_oidc_issuer_url }}/.well-known/openid-configuration"
+  register: kubernetes_oidc_discovery
+  changed_when: false
+  retries: "{{ kubernetes_oidc_ready_retries | int }}"
+  delay: "{{ kubernetes_oidc_ready_delay_seconds | int }}"
+  until: >-
+    kubernetes_oidc_discovery.rc == 0
+    and (kubernetes_oidc_discovery.stdout | from_json).issuer == kubernetes_oidc_issuer_url
+
+- name: Re-render K3s with OIDC authentication enabled
+  ansible.builtin.include_role:
+    name: k3s
+    tasks_from: configure
+  vars:
+    k3s_oidc_ca_file: "{{ kubernetes_oidc_ca_file }}"
+    k3s_oidc_client_id: "{{ kubernetes_oidc_client_id }}"
+    k3s_oidc_issuer_url: "{{ kubernetes_oidc_issuer_url }}"
+    k3s_tls_sans:
+      - "{{ kubernetes_oidc_mdns_domain }}"
+
+- name: Restart K3s when its OIDC trust changed
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for the OIDC-enabled Kubernetes API server
+  ansible.builtin.command:
+    argv:
+      - "{{ kubernetes_oidc_k3s_binary }}"
+      - kubectl
+      - --kubeconfig
+      - "{{ kubernetes_oidc_kubeconfig }}"
+      - get
+      - --raw=/readyz
+  register: kubernetes_oidc_api_ready
+  changed_when: false
+  retries: "{{ kubernetes_oidc_ready_retries | int }}"
+  delay: "{{ kubernetes_oidc_ready_delay_seconds | int }}"
+  until: kubernetes_oidc_api_ready.rc == 0
+
+- name: Render the public Kubernetes access discovery information
+  ansible.builtin.template:
+    src: access-info.yaml.j2
+    dest: "{{ kubernetes_oidc_info_manifest }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Publish Kubernetes access discovery information
+  ansible.builtin.command:
+    argv:
+      - "{{ kubernetes_oidc_k3s_binary }}"
+      - kubectl
+      - --kubeconfig
+      - "{{ kubernetes_oidc_kubeconfig }}"
+      - apply
+      - -f
+      - "{{ kubernetes_oidc_info_manifest }}"
+  register: kubernetes_oidc_info_apply
+  changed_when: >-
+    ('created' in kubernetes_oidc_info_apply.stdout)
+    or ('configured' in kubernetes_oidc_info_apply.stdout)

@@ -19,6 +19,12 @@ Browser
         -> local user database (offline)
         -> optional upstream Entra ID, Google, AWS, or another OIDC/SAML IdP
      -> authenticated request to dashboard or application
+
+kubectl
+  -> OIDC exec credential plugin
+     -> the same local Keycloak login and optional upstream broker
+     -> short-lived ID token with direct Magic Stick Kubernetes groups
+  -> Kubernetes API server OIDC authentication and RBAC
 ```
 
 Applications trust one stable local issuer. External enterprise identity
@@ -68,7 +74,9 @@ filter validates that token and authorizes the selected minimum
 `realm_access.roles` value before forwarding to the application. A route can be
 made unauthenticated only with explicit `spec.access.authentication: none`.
 
-Human browser sessions use OIDC Authorization Code Flow. Machine clients must
+Human browser sessions use OIDC Authorization Code Flow. Human `kubectl`
+sessions use a separate public PKCE client and an exec credential plugin; they
+must not reuse browser cookies. Other machine clients must
 use separate clients and policies (service accounts, JWT validation, mTLS, or a
 combination); they must not reuse browser cookies or the human gateway client.
 
@@ -86,7 +94,8 @@ The current implementation provides:
 - a separate `magicstick-user-admin` service account for dashboard user
   administration; it has user-query and user-management roles but no client,
   realm, impersonation, or identity-provider administration role
-- a self-signed pilot certificate for local `.local` hostnames
+- an appliance-local identity CA and a CA-signed certificate for local
+  `.local` hostnames; the public CA can be embedded in OIDC kubeconfigs
 - an unprotected Keycloak route and a protected `auth-pilot` test route
 - protected local and public dashboard `HTTPRoute` resources
 - operator-generated local and public AppInstance `HTTPRoute` resources with
@@ -105,6 +114,43 @@ The current implementation provides:
   its UI and API retain their own virtual-key `Authorization` header
 - removal of the bundled dashboard and AI application `Ingress` resources
 - no human default password on new installations
+- a public PKCE client `magicstick-kubernetes`, a `groups` token mapper, and
+  direct Viewer/Operator/Administrator groups for human Kubernetes access
+
+## Kubernetes SSO Access
+
+Kubernetes access uses the local Keycloak realm as the stable issuer. The
+public `magicstick-kubernetes` client permits only authorization-code flow with
+PKCE S256 and the kubelogin loopback callbacks on ports `8000` and `18000`. It
+has no client secret, direct-password grant, service account, or implicit flow.
+The group-membership mapper emits absolute Keycloak group paths in the `groups`
+claim. Keeping the leading `/` prevents an identically named nested group from
+matching a root-level Kubernetes grant.
+
+The appliance-owned K3s API server trusts:
+
+- issuer `https://id.<mdns-domain>/realms/magicstick`
+- client ID `magicstick-kubernetes`
+- username claim `preferred_username` with prefix `oidc:`
+- groups claim `groups` with prefix `oidc:`
+- the public appliance identity CA installed at
+  `/etc/rancher/k3s/magicstick-oidc-ca.crt`
+
+RBAC binds only `oidc:/magicstick-kubernetes-viewer`,
+`oidc:/magicstick-kubernetes-operator`, and
+`oidc:/magicstick-kubernetes-admin`. The Operator role can mutate only Magic
+Stick runtime intent CRs in `ai-system` and cannot create arbitrary Deployments
+or read Secrets. Cluster Administrator maps to `cluster-admin` and therefore
+requires an explicit high-risk choice.
+
+The dashboard generates a kubeconfig only after the host has confirmed this
+API-server configuration in the non-secret
+`identity-system/magicstick-kubernetes-access-info` ConfigMap. The file uses
+`kubectl oidc-login get-token` with keyring-backed token caching. It embeds
+public CAs but never credentials. Revoking the direct Keycloak group prevents
+new tokens from carrying the Kubernetes group; an already issued token remains
+usable until its short expiry, so emergency revocation may additionally require
+API-server or realm-session incident procedures.
 
 ## Dashboard User Lifecycle
 

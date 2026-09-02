@@ -70,6 +70,17 @@ BROWSER_API_MOCK = r"""
     admin: ['magicstick-user', 'magicstick-admin']
   };
   let mockUser = null;
+  let mockKubernetesUser = {
+    id: 'kube-user-1',
+    username: 'cluster-user',
+    displayName: 'Cluster User',
+    email: 'cluster.user@example.com',
+    enabled: true,
+    source: 'brokered',
+    provider: 'entra',
+    accessLevel: 'viewer',
+    protected: false
+  };
   let mockApiKeys = [{
     id: 'a'.repeat(64),
     name: 'Existing integration',
@@ -413,6 +424,32 @@ BROWSER_API_MOCK = r"""
       const id = decodeURIComponent(url.pathname.split('/').pop());
       mockApiKeys = mockApiKeys.filter((item) => item.id !== id);
       return reply({ deleted: id });
+    }
+    if (url.pathname === '/api/kubernetes-access' && method === 'GET') {
+      return reply({
+        users: [mockKubernetesUser],
+        total: 1,
+        first: 0,
+        max: 100,
+        configuration: {
+          configured: true,
+          issuerUrl: 'https://id.magicstick.local/realms/magicstick',
+          clientId: 'magicstick-kubernetes',
+          apiServer: 'https://magicstick.local:6443',
+          credentialPlugin: 'kubectl oidc-login'
+        }
+      });
+    }
+    if (url.pathname === '/api/kubernetes-access/kube-user-1' && method === 'PUT') {
+      mockKubernetesUser = { ...mockKubernetesUser, accessLevel: body.accessLevel };
+      return reply(mockKubernetesUser);
+    }
+    if (url.pathname === '/api/kubernetes-access/kube-user-1/kubeconfig' && method === 'GET') {
+      return reply({
+        filename: 'magicstick-cluster-user.kubeconfig',
+        accessLevel: mockKubernetesUser.accessLevel,
+        content: 'apiVersion: v1\nkind: Config\nusers: []\n'
+      });
     }
     if (url.pathname === '/api/users' && method === 'GET') {
       return reply({ users: mockUser ? [mockUser] : [], total: mockUser ? 1 : 0, first: 0, max: 25 });
@@ -775,12 +812,16 @@ BROWSER_ASSERTIONS = r"""
     assert(usersTab, 'Users tab is missing from the rendered DOM');
     const apiAccessTab = document.getElementById('api-access-tab-button');
     assert(apiAccessTab, 'API Access tab is missing from the rendered DOM');
+    const kubernetesAccessTab = document.getElementById('kubernetes-access-tab-button');
+    assert(kubernetesAccessTab, 'Kubernetes Access tab is missing from the rendered DOM');
     const canManageApiAccess = scenario === 'admin' || scenario === 'unavailable';
     assert(apiAccessTab.hidden === !canManageApiAccess, scenario + ' API Access visibility is incorrect');
+    assert(kubernetesAccessTab.hidden === (scenario !== 'admin'), scenario + ' Kubernetes Access visibility is incorrect');
 
     if (scenario !== 'admin') {
       assert(usersTab.hidden, scenario + ' must not see the Users tab');
       assert(!window.__dashboardBrowserCalls.some((call) => call.path.startsWith('/api/users')), 'hidden tab must not load users');
+      assert(!window.__dashboardBrowserCalls.some((call) => call.path.startsWith('/api/kubernetes-access')), 'hidden tab must not load Kubernetes access');
       result.dataset.status = 'passed';
       result.textContent = 'passed:' + scenario;
       return;
@@ -907,6 +948,29 @@ BROWSER_ASSERTIONS = r"""
     assert(apiMutations.every((call) => call.headers['X-MagicStick-CSRF'] === 'dashboard'), 'an API access mutation omitted the CSRF header');
     assert(apiMutations.find((call) => call.method === 'POST').body.name === 'CI pipeline', 'API access name was not submitted');
 
+    kubernetesAccessTab.click();
+    await waitFor(() => callExists('GET', '/api/kubernetes-access'), 'lazy Kubernetes access list request');
+    await waitFor(() => document.getElementById('kubernetes-access-list').textContent.includes('cluster-user'), 'Kubernetes user row');
+    assert(document.getElementById('kubernetes-access-configuration').textContent.includes('contains no token'), 'token-free kubeconfig explanation is missing');
+    const kubeRow = document.querySelector('#kubernetes-access-list tr');
+    const editKubernetesAccess = kubeRow.querySelector('[data-kubernetes-access-action="edit"]');
+    editKubernetesAccess.click();
+    const kubernetesDialog = document.getElementById('kubernetes-access-dialog');
+    await waitFor(() => kubernetesDialog.open, 'Kubernetes access dialog');
+    const kubernetesForm = document.getElementById('kubernetes-access-form');
+    kubernetesForm.elements.accessLevel.value = 'operator';
+    kubernetesForm.elements.accessLevel.dispatchEvent(new Event('change', { bubbles: true }));
+    assert(document.getElementById('kubernetes-access-level-note').textContent.includes('cannot create arbitrary workloads'), 'operator boundary is missing');
+    kubernetesForm.requestSubmit();
+    await waitFor(() => callExists('PUT', '/api/kubernetes-access/kube-user-1') && !kubernetesDialog.open, 'Kubernetes access update');
+    await waitFor(() => document.getElementById('kubernetes-access-list').textContent.includes('Operator'), 'updated Kubernetes access');
+    document.querySelector('[data-kubernetes-access-action="download"]').click();
+    await waitFor(() => callExists('GET', '/api/kubernetes-access/kube-user-1/kubeconfig'), 'Kubernetes kubeconfig download');
+    const kubernetesMutations = window.__dashboardBrowserCalls.filter((call) => call.path.startsWith('/api/kubernetes-access') && !['GET', 'HEAD'].includes(call.method));
+    assert(kubernetesMutations.length === 1, 'Kubernetes access mutation is missing');
+    assert(kubernetesMutations[0].body.accessLevel === 'operator', 'Kubernetes access level was not submitted');
+    assert(kubernetesMutations[0].headers['X-MagicStick-CSRF'] === 'dashboard', 'Kubernetes access mutation omitted the CSRF header');
+
     result.dataset.status = 'passed';
     result.textContent = 'passed:' + scenario;
   })().catch((error) => {
@@ -974,6 +1038,21 @@ class DashboardUserManagementUiTests(unittest.TestCase):
         api_code = self.script.split("const sessionCanManageApiAccess", 1)[1].split("const renderStatus", 1)[0]
         self.assertNotIn("innerHTML", api_code)
         self.assertIn("textContent", api_code)
+
+    def test_kubernetes_access_tab_is_admin_gated_and_uses_oidc_kubeconfigs(self):
+        self.assertIn('id="kubernetes-access-tab-button"', self.source)
+        self.assertIn(
+            'id="kubernetes-access-tab-button" type="button" aria-selected="false" data-tab="kubernetes-access" hidden',
+            self.source,
+        )
+        self.assertIn("const sessionCanManageKubernetesAccess", self.script)
+        self.assertIn("await dashboardRequest('/api/kubernetes-access?'", self.script)
+        self.assertIn("'/kubeconfig'", self.script)
+        self.assertIn("method: 'PUT'", self.script)
+        kubernetes_code = self.script.split("const kubernetesAccessLabel", 1)[1].split("const renderStatus", 1)[0]
+        self.assertNotIn("innerHTML", kubernetes_code)
+        self.assertIn("textContent", kubernetes_code)
+        self.assertIn("contains no token", kubernetes_code)
 
     def test_overview_shows_full_module_and_instance_urls_from_http_routes(self):
         self.assertIn("<h3>Available URLs</h3>", self.source)
@@ -1169,10 +1248,13 @@ process.stdout.write(JSON.stringify({
         refresh = self.script.split("const refresh = async () => {", 1)[1].split("document.querySelectorAll('.tab-button')", 1)[0]
         self.assertNotIn("/api/users", refresh)
         self.assertNotIn("/api/api-access", refresh)
+        self.assertNotIn("/api/kubernetes-access", refresh)
         self.assertIn("if (button.dataset.tab === 'users')", self.script)
         self.assertIn("await loadUsers(false)", self.script)
         self.assertIn("if (button.dataset.tab === 'api-access')", self.script)
         self.assertIn("await loadApiAccess(false)", self.script)
+        self.assertIn("if (button.dataset.tab === 'kubernetes-access')", self.script)
+        self.assertIn("await loadKubernetesAccess(false)", self.script)
 
     def test_user_api_contract_and_csrf_header_are_present(self):
         for endpoint in (

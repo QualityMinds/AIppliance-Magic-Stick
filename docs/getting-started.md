@@ -153,6 +153,14 @@ kubectl -n ai get pods
 
 Continue with [operations.md](operations.md) for runtime checks.
 
+After the first administrator can sign in, the admin-only **Kubernetes Access**
+tab can assign Viewer, Operator, or Cluster Administrator access to an existing
+local or brokered Keycloak user. Appliance-owned K3s configures this OIDC path
+during host convergence. Install `kubectl oidc-login` on the administrator
+workstation before using a downloaded kubeconfig. Existing or managed clusters
+require the platform-specific API-server step in
+[installation/existing-kubernetes.md](installation/existing-kubernetes.md).
+
 ## Select Optional Capabilities
 
 The installer brings up the base appliance. Optional modules and app instances

@@ -108,3 +108,11 @@ name, one primary private LAN address, the prominent claim, the TLS fingerprint,
 and the next steps while filtering loopback, CNI, bridge, and virtual Ethernet
 addresses. The page refreshes after claim reissue and completion; `setup show`
 remains a non-clearing shell command.
+
+Before the first-run console is shown, the `kubernetes-oidc` role waits for the
+Flux-managed identity CA, installs only its public certificate on the host,
+restarts K3s with the Keycloak issuer/client/group claim contract, and publishes
+non-secret readiness metadata for the dashboard's **Kubernetes Access** tab.
+This stage never writes a human token, password, client secret, or private CA
+key. See [../docs/authentication.md](../docs/authentication.md) for the access
+levels and kubeconfig flow.

@@ -7,6 +7,7 @@ resources:
   - crds/appinstances.appliance.magicstick.dev.yaml
   - crds/modelactivations.appliance.magicstick.dev.yaml
   - rbac.yaml
+  - kubernetes-access-rbac.yaml
   - module-catalog.yaml
   - compute-target-catalog.yaml
   - app-catalog.yaml

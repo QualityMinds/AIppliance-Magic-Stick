@@ -92,6 +92,18 @@ data:
         "KEYCLOAK_USER_ADMIN_SECRET_NAME",
         "magicstick-user-admin-client",
     )
+    KUBERNETES_ACCESS_INFO_NAMESPACE = os.environ.get(
+        "KUBERNETES_ACCESS_INFO_NAMESPACE",
+        "identity-system",
+    )
+    KUBERNETES_ACCESS_INFO_NAME = os.environ.get(
+        "KUBERNETES_ACCESS_INFO_NAME",
+        "magicstick-kubernetes-access-info",
+    )
+    KUBERNETES_OIDC_CLIENT_ID = os.environ.get(
+        "KUBERNETES_OIDC_CLIENT_ID",
+        "magicstick-kubernetes",
+    )
     IDENTITY_MANAGEMENT_MODE = os.environ.get("IDENTITY_MANAGEMENT_MODE", "keycloak").strip().lower()
     DASHBOARD_ALLOWED_ORIGINS = {
         origin.strip().rstrip("/")
@@ -106,6 +118,12 @@ data:
     }
     RECOVERY_GROUP_NAME = "magicstick-recovery"
     RECOVERY_GROUP_PATH = "/magicstick-recovery"
+    KUBERNETES_ACCESS_GROUPS = {
+        "viewer": "magicstick-kubernetes-viewer",
+        "operator": "magicstick-kubernetes-operator",
+        "admin": "magicstick-kubernetes-admin",
+    }
+    KUBERNETES_ACCESS_LEVELS = {"none", *KUBERNETES_ACCESS_GROUPS}
     ACCESS_LEVEL_ROLES = {
         "user": {"magicstick-user"},
         "viewer": {"magicstick-user", "magicstick-viewer"},
@@ -124,6 +142,7 @@ data:
     API_ACCESS_METADATA_SOURCE = "magicstick-dashboard"
     API_ACCESS_ID = re.compile(r"^[A-Za-z0-9._:-]{16,256}$")
     USER_MUTATION_LOCK = threading.RLock()
+    KUBERNETES_ACCESS_LOCK = threading.RLock()
     API_ACCESS_LOCK = threading.RLock()
     KEYCLOAK_TOKEN_LOCK = threading.Lock()
     KEYCLOAK_TOKEN_CACHE = {"access_token": "", "expires_at": 0.0}
@@ -687,6 +706,317 @@ data:
             "total": _keycloak_user_count(search),
             "first": first,
             "max": maximum,
+        }
+
+
+    def _kubernetes_access_group(name):
+        if name not in KUBERNETES_ACCESS_GROUPS.values():
+            raise RequestError(400, "unsupported Kubernetes access group")
+        query = urllib.parse.urlencode({
+            "search": name,
+            "exact": "true",
+            "briefRepresentation": "true",
+        })
+        groups, _ = keycloak_admin_request("GET", _realm_path("/groups?") + query)
+        matches = [
+            group for group in (groups if isinstance(groups, list) else [])
+            if isinstance(group, dict)
+            and str(group.get("name") or "") == name
+            and str(group.get("path") or "") == "/" + name
+            and group.get("id")
+        ]
+        if len(matches) != 1:
+            raise RequestError(503, "Kubernetes access groups are not configured")
+        return matches[0]
+
+
+    def _direct_kubernetes_groups(user_id):
+        managed = set(KUBERNETES_ACCESS_GROUPS.values())
+        return {
+            str(group.get("name")): group
+            for group in keycloak_user_groups(user_id)
+            if isinstance(group, dict)
+            and str(group.get("name") or "") in managed
+            and str(group.get("path") or "") == "/" + str(group.get("name") or "")
+        }
+
+
+    def kubernetes_access_level(groups):
+        names = set(groups)
+        for level in ("admin", "operator", "viewer"):
+            if KUBERNETES_ACCESS_GROUPS[level] in names:
+                return level
+        return "none"
+
+
+    def _kubernetes_user_summary(user):
+        user_id = str(user.get("id") or "")
+        if not user_id or is_service_account_user(user):
+            raise RequestError(404, "user not found")
+        groups = _direct_kubernetes_groups(user_id)
+        source, provider = identity_source(user)
+        first_name = str(user.get("firstName") or "")
+        last_name = str(user.get("lastName") or "")
+        display_name = " ".join(part for part in (first_name, last_name) if part).strip()
+        return {
+            "id": user_id,
+            "username": str(user.get("username") or ""),
+            "displayName": display_name or str(user.get("username") or ""),
+            "email": str(user.get("email") or ""),
+            "enabled": bool(user.get("enabled", False)),
+            "source": source,
+            "provider": provider,
+            "accessLevel": kubernetes_access_level(groups),
+            "protected": protected_user(user),
+        }
+
+
+    def _safe_https_endpoint(value):
+        if not value or any(ord(character) <= 32 or ord(character) == 127 for character in value):
+            return False
+        parsed = urllib.parse.urlsplit(value)
+        try:
+            parsed.port
+        except ValueError:
+            return False
+        return (
+            parsed.scheme == "https"
+            and bool(parsed.hostname)
+            and parsed.username is None
+            and parsed.password is None
+            and parsed.path in ("", "/")
+            and not parsed.query
+            and not parsed.fragment
+        )
+
+
+    def kubernetes_access_info(required=False):
+        path = (
+            f"/api/v1/namespaces/{urllib.parse.quote(KUBERNETES_ACCESS_INFO_NAMESPACE, safe='')}"
+            f"/configmaps/{urllib.parse.quote(KUBERNETES_ACCESS_INFO_NAME, safe='')}"
+        )
+        try:
+            resource = request_json("GET", path)
+        except urllib.error.HTTPError as error:
+            if error.code == 404 and not required:
+                return {"configured": False}
+            if error.code == 404:
+                raise RequestError(409, "Kubernetes SSO access is not configured on this cluster") from error
+            raise
+        data = resource.get("data") or {}
+        enabled = str(data.get("enabled") or "").lower() == "true"
+        issuer_url = str(data.get("issuer-url") or "").strip().rstrip("/")
+        client_id = str(data.get("client-id") or "").strip()
+        api_server = str(data.get("api-server") or "").strip().rstrip("/")
+        oidc_ca = str(data.get("oidc-ca.crt") or "").strip() + "\n"
+        try:
+            current_mdns_domain = normalize_hostname(
+                settings_response().get("mdnsDomain") or DEFAULT_MDNS_DOMAIN,
+                "mDNS domain",
+            )
+        except ValueError:
+            current_mdns_domain = ""
+        expected_issuer_url = f"https://id.{current_mdns_domain}/realms/magicstick"
+        valid = (
+            enabled
+            and current_mdns_domain.endswith(".local")
+            and issuer_url == expected_issuer_url
+            and client_id == KUBERNETES_OIDC_CLIENT_ID
+            and _safe_https_endpoint(api_server)
+            and "-----BEGIN CERTIFICATE-----" in oidc_ca
+            and "PRIVATE KEY" not in oidc_ca
+        )
+        if not valid:
+            if required:
+                raise RequestError(409, "Kubernetes SSO access is not configured on this cluster")
+            return {"configured": False}
+        return {
+            "configured": True,
+            "issuerUrl": issuer_url,
+            "clientId": client_id,
+            "apiServer": api_server,
+            "oidcCa": oidc_ca,
+        }
+
+
+    def list_kubernetes_access(principal, query):
+        live_admin_actor(principal)
+        first, maximum, search = parse_user_list_query(query)
+        users = _keycloak_user_page(first, maximum, search)
+        info = kubernetes_access_info(required=False)
+        return {
+            "users": [_kubernetes_user_summary(user) for user in users],
+            "total": _keycloak_user_count(search),
+            "first": first,
+            "max": maximum,
+            "configuration": {
+                "configured": bool(info.get("configured")),
+                "issuerUrl": str(info.get("issuerUrl") or ""),
+                "clientId": str(info.get("clientId") or KUBERNETES_OIDC_CLIENT_ID),
+                "apiServer": str(info.get("apiServer") or ""),
+                "credentialPlugin": "kubectl oidc-login",
+            },
+        }
+
+
+    def _replace_kubernetes_access_groups(user_id, desired_level):
+        if desired_level not in KUBERNETES_ACCESS_LEVELS:
+            raise RequestError(400, "accessLevel must be none, viewer, operator, or admin")
+        original = _direct_kubernetes_groups(user_id)
+        desired_name = KUBERNETES_ACCESS_GROUPS.get(desired_level)
+        desired_group = _kubernetes_access_group(desired_name) if desired_name else None
+        desired = {str(desired_group["name"]): desired_group} if desired_group else {}
+        try:
+            for name, group in original.items():
+                if name not in desired:
+                    keycloak_admin_request("DELETE", _user_path(user_id, "/groups/" + urllib.parse.quote(str(group["id"]), safe="")))
+            for name, group in desired.items():
+                if name not in original:
+                    keycloak_admin_request("PUT", _user_path(user_id, "/groups/" + urllib.parse.quote(str(group["id"]), safe="")), {})
+            assigned = _direct_kubernetes_groups(user_id)
+            if set(assigned) != set(desired):
+                raise RequestError(503, "Kubernetes access update could not be verified")
+        except Exception:
+            try:
+                current = _direct_kubernetes_groups(user_id)
+                for name, group in current.items():
+                    if name not in original:
+                        keycloak_admin_request("DELETE", _user_path(user_id, "/groups/" + urllib.parse.quote(str(group["id"]), safe="")))
+                for name, group in original.items():
+                    if name not in current:
+                        keycloak_admin_request("PUT", _user_path(user_id, "/groups/" + urllib.parse.quote(str(group["id"]), safe="")), {})
+            except Exception:
+                pass
+            raise
+
+
+    def audit_kubernetes_access(principal, action, target, result, request_id, status=None):
+        event = {
+            "event": "magicstick.kubernetes-access",
+            "requestId": str(request_id or "")[:128],
+            "actorId": str((principal or {}).get("subject") or "")[:160],
+            "actorUsername": str((principal or {}).get("username") or "")[:128],
+            "target": str(target or "")[:160],
+            "action": str(action or "")[:64],
+            "result": result,
+        }
+        if status is not None:
+            event["status"] = int(status)
+        print(json.dumps(event, separators=(",", ":"), sort_keys=True), flush=True)
+
+
+    def update_kubernetes_access(principal, user_id, payload, request_id=""):
+        _reject_unknown_fields(payload, {"accessLevel"})
+        level = _clean_text(payload, "accessLevel", 16, required=True)
+        if level not in KUBERNETES_ACCESS_LEVELS:
+            raise RequestError(400, "accessLevel must be none, viewer, operator, or admin")
+        with KUBERNETES_ACCESS_LOCK:
+            live_admin_actor(principal)
+            try:
+                target = keycloak_user(user_id)
+                if protected_user(target):
+                    raise RequestError(409, "protected recovery access cannot be changed")
+                if level != "none" and not target.get("enabled"):
+                    raise RequestError(409, "enable the user before granting Kubernetes access")
+                before = kubernetes_access_level(_direct_kubernetes_groups(user_id))
+                _replace_kubernetes_access_groups(user_id, level)
+                if before != level:
+                    _logout_user(user_id)
+                result = _kubernetes_user_summary(keycloak_user(user_id))
+            except Exception as error:
+                audit_kubernetes_access(
+                    principal,
+                    "update-access",
+                    user_id,
+                    "failure",
+                    request_id,
+                    getattr(error, "status", 500),
+                )
+                raise
+            audit_kubernetes_access(principal, "update-access", user_id, "success", request_id, 200)
+            return result
+
+
+    def _base64_file(path):
+        try:
+            with open(path, "rb") as source:
+                content = source.read()
+        except OSError as error:
+            raise RequestError(503, "Kubernetes cluster CA is unavailable") from error
+        if not content:
+            raise RequestError(503, "Kubernetes cluster CA is unavailable")
+        return base64.b64encode(content).decode("ascii")
+
+
+    def _yaml_scalar(value):
+        return json.dumps(str(value), ensure_ascii=False)
+
+
+    def kubernetes_access_kubeconfig(principal, user_id, request_id=""):
+        live_admin_actor(principal)
+        try:
+            target = keycloak_user(user_id)
+            summary = _kubernetes_user_summary(target)
+            if not summary["enabled"]:
+                raise RequestError(409, "disabled users cannot receive a kubeconfig")
+            if summary["accessLevel"] == "none":
+                raise RequestError(409, "grant Kubernetes access before downloading a kubeconfig")
+            info = kubernetes_access_info(required=True)
+            username = summary["username"] or "user"
+            safe_username = re.sub(r"[^A-Za-z0-9._-]+", "-", username).strip("-._") or "user"
+            cluster_name = "magicstick"
+            user_name = safe_username + "@magicstick"
+            context_name = user_name + "@" + cluster_name
+            oidc_ca_data = base64.b64encode(info["oidcCa"].encode("utf-8")).decode("ascii")
+            content = "\n".join([
+                "apiVersion: v1",
+                "kind: Config",
+                "preferences: {}",
+                "clusters:",
+                "  - name: " + _yaml_scalar(cluster_name),
+                "    cluster:",
+                "      server: " + _yaml_scalar(info["apiServer"]),
+                "      certificate-authority-data: " + _yaml_scalar(_base64_file(SA_CA_PATH)),
+                "users:",
+                "  - name: " + _yaml_scalar(user_name),
+                "    user:",
+                "      exec:",
+                "        apiVersion: client.authentication.k8s.io/v1",
+                "        command: kubectl",
+                "        interactiveMode: IfAvailable",
+                "        provideClusterInfo: false",
+                "        installHint: Install kubelogin from https://github.com/int128/kubelogin and ensure kubectl-oidc_login is on PATH.",
+                "        args:",
+                "          - oidc-login",
+                "          - get-token",
+                "          - --oidc-issuer-url=" + info["issuerUrl"],
+                "          - --oidc-client-id=" + info["clientId"],
+                "          - --oidc-pkce-method=S256",
+                "          - --certificate-authority-data=" + oidc_ca_data,
+                "          - --token-cache-storage=keyring",
+                "contexts:",
+                "  - name: " + _yaml_scalar(context_name),
+                "    context:",
+                "      cluster: " + _yaml_scalar(cluster_name),
+                "      user: " + _yaml_scalar(user_name),
+                "current-context: " + _yaml_scalar(context_name),
+                "",
+            ])
+        except Exception as error:
+            audit_kubernetes_access(
+                principal,
+                "download-kubeconfig",
+                user_id,
+                "failure",
+                request_id,
+                getattr(error, "status", 500),
+            )
+            raise
+        audit_kubernetes_access(principal, "download-kubeconfig", user_id, "success", request_id, 200)
+        return {
+            "filename": "magicstick-" + safe_username + ".kubeconfig",
+            "content": content,
+            "accessLevel": summary["accessLevel"],
         }
 
 
@@ -3325,7 +3655,7 @@ data:
 
 
     def required_get_access(parts):
-        if len(parts) >= 2 and parts[:2] == ["api", "api-access"]:
+        if len(parts) >= 2 and parts[:2] in (["api", "api-access"], ["api", "kubernetes-access"]):
             return "admin"
         credential_route = (
             len(parts) == 4
@@ -3337,7 +3667,7 @@ data:
 
 
     class Handler(BaseHTTPRequestHandler):
-        server_version = "MagicStickDashboardAPI/0.5"
+        server_version = "MagicStickDashboardAPI/0.6"
 
         def log_message(self, format, *args):
             print("%s - %s" % (self.address_string(), format % args), flush=True)
@@ -3386,6 +3716,18 @@ data:
                 parts = path.strip("/").split("/")
                 if path == "/healthz":
                     self.send_json({"ok": True})
+                    return
+                if path == "/api/kubernetes-access":
+                    principal = self.require_access("admin")
+                    query = urllib.parse.parse_qs(
+                        urllib.parse.urlparse(self.path).query,
+                        keep_blank_values=True,
+                    )
+                    self.send_json(list_kubernetes_access(principal, query))
+                    return
+                if len(parts) == 4 and parts[:2] == ["api", "kubernetes-access"] and parts[3] == "kubeconfig":
+                    principal = self.require_access("admin")
+                    self.send_json(kubernetes_access_kubeconfig(principal, parts[2], self.request_id()))
                     return
                 if path == "/api/users" or (len(parts) == 3 and parts[:2] == ["api", "users"]):
                     principal = self.require_access("admin")
@@ -3442,14 +3784,18 @@ data:
             except ValueError as error:
                 self.send_error_json(400, str(error))
             except urllib.error.HTTPError as error:
-                if self.route().startswith("/api/api-access"):
+                if self.route().startswith("/api/kubernetes-access"):
+                    self.send_error_json(503, "Kubernetes access management is unavailable")
+                elif self.route().startswith("/api/api-access"):
                     self.send_error_json(503, "API access management is unavailable")
                 elif self.route().startswith("/api/users"):
                     self.send_error_json(503, "identity administration is unavailable")
                 else:
                     self.send_error_json(error.code, error.read().decode("utf-8", errors="replace"))
             except Exception as error:
-                if self.route().startswith("/api/api-access"):
+                if self.route().startswith("/api/kubernetes-access"):
+                    self.send_error_json(500, "Kubernetes access management failed")
+                elif self.route().startswith("/api/api-access"):
                     self.send_error_json(500, "API access management failed")
                 elif self.route().startswith("/api/users"):
                     self.send_error_json(500, "user administration failed")
@@ -3613,6 +3959,18 @@ data:
             try:
                 path = self.route()
                 parts = path.strip("/").split("/")
+                if len(parts) == 3 and parts[:2] == ["api", "kubernetes-access"]:
+                    principal = self.require_access("admin")
+                    validate_dashboard_mutation_request(self)
+                    self.send_json(
+                        update_kubernetes_access(
+                            principal,
+                            parts[2],
+                            read_body(self),
+                            self.request_id(),
+                        )
+                    )
+                    return
                 if len(parts) != 4 or parts[:2] != ["api", "users"]:
                     self.send_error_json(404, "not found")
                     return
@@ -3631,7 +3989,10 @@ data:
             except RequestError as error:
                 self.send_error_json(error.status, str(error))
             except Exception:
-                self.send_error_json(500, "user administration failed")
+                if self.route().startswith("/api/kubernetes-access"):
+                    self.send_error_json(500, "Kubernetes access management failed")
+                else:
+                    self.send_error_json(500, "user administration failed")
 
         def do_DELETE(self):
             try:

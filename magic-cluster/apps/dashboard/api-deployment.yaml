@@ -88,6 +88,12 @@ spec:
               value: identity-system
             - name: KEYCLOAK_USER_ADMIN_SECRET_NAME
               value: magicstick-user-admin-client
+            - name: KUBERNETES_ACCESS_INFO_NAMESPACE
+              value: identity-system
+            - name: KUBERNETES_ACCESS_INFO_NAME
+              value: magicstick-kubernetes-access-info
+            - name: KUBERNETES_OIDC_CLIENT_ID
+              value: magicstick-kubernetes
             - name: DASHBOARD_ALLOWED_ORIGINS
               value: "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local},https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"
             - name: PYTHONDONTWRITEBYTECODE

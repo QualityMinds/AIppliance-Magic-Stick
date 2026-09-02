@@ -75,6 +75,26 @@ Die Appliance verhindert, dass du dich selbst deaktivierst, löschst oder deine
 eigene Administratorrolle entfernst. Außerdem bleiben der geschützte
 Recovery-Benutzer und mindestens ein aktiver lokaler Administrator erhalten.
 
+### Optional: Kubernetes-Zugriff für Benutzer
+
+Öffne als Administrator **Kubernetes Access**, wenn ein Benutzer zusätzlich
+mit `kubectl` auf den Cluster zugreifen soll. Wähle **Edit Access** und vergib
+den kleinsten passenden Umfang:
+
+- **Viewer** liest Cluster-Ressourcen, aber keine Secrets;
+- **Operator** darf zusätzlich Magic-Stick-Module, -Modelle und -Instanzen
+  verwalten, jedoch keine beliebigen Workloads erzeugen;
+- **Cluster Administrator** hat uneingeschränkten Zugriff und sollte nur für
+  echte Cluster-Administration vergeben werden.
+
+Nach dem Speichern wird die Keycloak-Sitzung des Benutzers beendet, damit die
+neue Gruppenzuordnung beim nächsten Login sicher neu ausgestellt wird. Wähle
+danach **Download Kubeconfig**. Die Datei enthält keine Zugangsdaten; sie öffnet
+beim ersten `kubectl`-Aufruf den normalen Keycloak- beziehungsweise
+Enterprise-SSO-Login über `kubectl oidc-login`. Ist der Download deaktiviert,
+ist entweder der Benutzer deaktiviert, noch kein Zugriff vergeben oder der
+Kubernetes API Server noch nicht für OIDC bestätigt.
+
 ## 3. Übersicht kontrollieren
 
 Öffne **Overview**. Die vier Karten zeigen den Zustand der Appliance sowie die

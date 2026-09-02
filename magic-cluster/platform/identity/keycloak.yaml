@@ -121,6 +121,106 @@ spec:
                           --format csv \
                           --noquotes 2>/dev/null | tail -n 1 | tr -d '\r'
                       }
+                      group_uuid() {
+                        /opt/keycloak/bin/kcadm.sh get groups \
+                          --config "$config" \
+                          --realm magicstick \
+                          --query "search=$1" \
+                          --query exact=true \
+                          --fields id,name \
+                          --format csv \
+                          --noquotes 2>/dev/null \
+                          | awk -F, -v expected="$1" '$2 == expected { print $1; exit }' \
+                          | tr -d '\r'
+                      }
+                      ensure_group() {
+                        [ -n "$(group_uuid "$1")" ] && return 0
+                        /opt/keycloak/bin/kcadm.sh create groups \
+                          --config "$config" \
+                          --realm magicstick \
+                          -s "name=$1" >/dev/null 2>&1
+                      }
+                      sync_kubernetes_client_and_groups() {
+                        for group in \
+                          magicstick-kubernetes-viewer \
+                          magicstick-kubernetes-operator \
+                          magicstick-kubernetes-admin; do
+                          ensure_group "$group" || return 1
+                        done
+
+                        kubernetes_client_uuid="$(client_uuid magicstick-kubernetes)"
+                        if [ -z "$kubernetes_client_uuid" ]; then
+                          /opt/keycloak/bin/kcadm.sh create clients \
+                            --config "$config" \
+                            --realm magicstick \
+                            -s clientId=magicstick-kubernetes \
+                            -s name='Magic Stick Kubernetes CLI' \
+                            -s enabled=true \
+                            -s standardFlowEnabled=true \
+                            -s implicitFlowEnabled=false \
+                            -s directAccessGrantsEnabled=false \
+                            -s serviceAccountsEnabled=false \
+                            -s publicClient=true \
+                            -s 'redirectUris=["http://localhost:8000","http://localhost:18000"]' \
+                            -s 'webOrigins=[]' \
+                            -s 'attributes."pkce.code.challenge.method"=S256' \
+                            -s protocol=openid-connect >/dev/null 2>&1 || true
+                          kubernetes_client_uuid="$(client_uuid magicstick-kubernetes)"
+                        fi
+                        [ -n "$kubernetes_client_uuid" ] || return 1
+                        /opt/keycloak/bin/kcadm.sh update "clients/$kubernetes_client_uuid" \
+                          --config "$config" \
+                          --realm magicstick \
+                          -s name='Magic Stick Kubernetes CLI' \
+                          -s enabled=true \
+                          -s standardFlowEnabled=true \
+                          -s implicitFlowEnabled=false \
+                          -s directAccessGrantsEnabled=false \
+                          -s serviceAccountsEnabled=false \
+                          -s publicClient=true \
+                          -s 'redirectUris=["http://localhost:8000","http://localhost:18000"]' \
+                          -s 'webOrigins=[]' \
+                          -s 'attributes."pkce.code.challenge.method"=S256' \
+                          -s protocol=openid-connect >/dev/null 2>&1 || return 1
+
+                        kubernetes_mapper_uuid="$(
+                          /opt/keycloak/bin/kcadm.sh get "clients/$kubernetes_client_uuid/protocol-mappers/models" \
+                            --config "$config" \
+                            --realm magicstick \
+                            --fields id,name \
+                            --format csv \
+                            --noquotes 2>/dev/null \
+                            | awk -F, '$2 == "Kubernetes groups" { print $1; exit }' \
+                            | tr -d '\r'
+                        )"
+                        if [ -z "$kubernetes_mapper_uuid" ]; then
+                          /opt/keycloak/bin/kcadm.sh create "clients/$kubernetes_client_uuid/protocol-mappers/models" \
+                            --config "$config" \
+                            --realm magicstick \
+                            -s name='Kubernetes groups' \
+                            -s protocol=openid-connect \
+                            -s protocolMapper=oidc-group-membership-mapper \
+                            -s consentRequired=false \
+                            -s 'config."claim.name"=groups' \
+                            -s 'config."full.path"=true' \
+                            -s 'config."id.token.claim"=true' \
+                            -s 'config."access.token.claim"=true' \
+                            -s 'config."userinfo.token.claim"=true' >/dev/null 2>&1 || return 1
+                        else
+                          /opt/keycloak/bin/kcadm.sh update "clients/$kubernetes_client_uuid/protocol-mappers/models/$kubernetes_mapper_uuid" \
+                            --config "$config" \
+                            --realm magicstick \
+                            -s name='Kubernetes groups' \
+                            -s protocol=openid-connect \
+                            -s protocolMapper=oidc-group-membership-mapper \
+                            -s consentRequired=false \
+                            -s 'config."claim.name"=groups' \
+                            -s 'config."full.path"=true' \
+                            -s 'config."id.token.claim"=true' \
+                            -s 'config."access.token.claim"=true' \
+                            -s 'config."userinfo.token.claim"=true' >/dev/null 2>&1 || return 1
+                        fi
+                      }
                       direct_user_admin_roles() {
                         user_admin_role_output="$(/opt/keycloak/bin/kcadm.sh get \
                           "users/$user_admin_service_account_uuid/role-mappings/clients/$realm_management_client_uuid" \
@@ -228,6 +328,7 @@ spec:
                           -s 'webOrigins=["https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"]' \
                           -s 'attributes."post.logout.redirect.uris"=https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/##https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/' >/dev/null 2>&1
                         sync_user_admin_client
+                        sync_kubernetes_client_and_groups
                       }
                       attempt=0
                       # Match the ten-minute startup-probe budget. First-start

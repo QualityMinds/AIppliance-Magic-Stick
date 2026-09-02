@@ -1,0 +1,16 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ kubernetes_oidc_info_name }}
+  namespace: {{ kubernetes_oidc_info_namespace }}
+  labels:
+    app.kubernetes.io/part-of: magicstick
+    app.kubernetes.io/component: kubernetes-access
+data:
+  enabled: "true"
+  issuer-url: {{ kubernetes_oidc_issuer_url | to_json }}
+  client-id: {{ kubernetes_oidc_client_id | to_json }}
+  api-server: {{ kubernetes_oidc_api_server | to_json }}
+  oidc-ca.crt: |
+{{ ((kubernetes_oidc_ca_secret.stdout | from_json).data['tls.crt'] | b64decode) | indent(4, true) }}

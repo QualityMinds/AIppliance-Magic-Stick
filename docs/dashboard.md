@@ -20,6 +20,8 @@ Dashboard UI
         -> Keycloak Admin REST API
      -> LiteLLM key-management API
         -> named virtual API keys in LiteLLM PostgreSQL
+     -> Keycloak Kubernetes access groups
+        -> OIDC-authenticated Kubernetes API and RBAC
 ```
 
 ## Role
@@ -43,6 +45,8 @@ The dashboard may:
   `magicstick-admin`
 - create, list, and revoke Dashboard-managed named LiteLLM virtual keys when
   the signed-in actor has `magicstick-admin`
+- assign SSO-bound Kubernetes access to existing Keycloak users and generate
+  token-free OIDC kubeconfigs when the signed-in actor has `magicstick-admin`
 
 The dashboard must not replace the Magic Stick Operator, Flux, OpenClaw, Hermes,
 Paperclip, KubeOpenCode, KubeAI, LiteLLM, or direct app instance reconcilers.
@@ -56,6 +60,7 @@ Paperclip, KubeOpenCode, KubeAI, LiteLLM, or direct app instance reconcilers.
 | Models | Creates/removes local and external model activations, selects CPU or an available NVIDIA/AMD/Intel target, estimates accelerator memory, and shows compact per-device memory gauges. |
 | Users | Gives administrators a paginated Keycloak user overview and local-user lifecycle controls. |
 | API Access | Lets administrators create multiple named LiteLLM API keys, view their non-secret metadata, and revoke individual keys. |
+| Kubernetes Access | Lets administrators assign Viewer, Operator, or Cluster Administrator access to existing SSO identities and download token-free OIDC kubeconfigs. |
 | System Status | Shows NVIDIA, AMD, and Intel detection/operator/resource state plus Flux, Pod, Service, Ingress, and Event status. |
 | Settings | Edits appliance-wide public and mDNS domain settings. The public dashboard host is always derived from the public domain. |
 
@@ -108,6 +113,9 @@ checks.
 | `GET` | `/api/api-access` | Lists only named LiteLLM virtual keys created through this dashboard plus the local/public API bases; raw key values are never returned. |
 | `POST` | `/api/api-access` | Creates a named LiteLLM virtual key and returns its raw value exactly once. |
 | `DELETE` | `/api/api-access/{id}` | Verifies dashboard ownership and revokes one named LiteLLM virtual key. |
+| `GET` | `/api/kubernetes-access?search=&first=&max=` | Lists human Keycloak users, their direct Kubernetes access group, and non-secret cluster OIDC readiness. |
+| `PUT` | `/api/kubernetes-access/{id}` | Replaces only the user's direct Magic Stick Kubernetes group and requests a Keycloak logout. |
+| `GET` | `/api/kubernetes-access/{id}/kubeconfig` | Returns a user-labelled kubeconfig with cluster/identity CAs and an OIDC exec plugin, but no token, password, or client secret. |
 
 All read endpoints require `magicstick-viewer`, `magicstick-operator`, or
 `magicstick-admin`. Instance credential reads and runtime mutations require
@@ -119,6 +127,10 @@ flags. User mutations also require same-origin browser metadata and the
 `X-MagicStick-CSRF` request marker used by the dashboard UI.
 All `/api/api-access` endpoints require `magicstick-admin`; create and revoke
 requests use the same same-origin and CSRF checks.
+All `/api/kubernetes-access` endpoints require `magicstick-admin` and a live
+Keycloak administrator check. Mutations use the same same-origin and CSRF
+checks. Kubeconfig download additionally requires an enabled target user, a
+non-empty grant, and a cluster-published OIDC readiness marker.
 
 ## User Controls
 
@@ -200,6 +212,39 @@ LiteLLM, so the tab cannot modify keys provisioned by another tool. New keys
 are restricted to LiteLLM's LLM API routes and currently receive access to all
 model groups published by LiteLLM. Per-key model restrictions, budgets,
 expiry, and team ownership are not exposed by this first dashboard contract.
+
+## Kubernetes Access Controls
+
+The **Kubernetes Access** tab is visible only to a live
+`magicstick-admin` session while local Keycloak identity management is
+available. It assigns one direct top-level Keycloak group to an existing human
+identity:
+
+| Dashboard level | Keycloak group | Kubernetes authorization |
+|---|---|---|
+| Viewer | `magicstick-kubernetes-viewer` | Built-in cluster-wide `view`; Secrets remain excluded by Kubernetes. |
+| Operator | `magicstick-kubernetes-operator` | Built-in `view` plus CRUD in `ai-system` only for `ModuleActivation`, `ModelActivation`, and `AppInstance`. |
+| Cluster Administrator | `magicstick-kubernetes-admin` | Built-in `cluster-admin`; the UI presents an explicit warning. |
+
+Only one of these groups is retained as direct membership. Removing access
+removes all three. Protected recovery identities cannot be changed, and a
+disabled identity cannot receive a new grant. Every change requests a Keycloak
+logout and emits a structured `magicstick.kubernetes-access` audit line without
+credentials or request bodies.
+
+The downloaded kubeconfig contains the Kubernetes cluster CA, the public local
+identity CA, issuer/client metadata, and a `client.authentication.k8s.io/v1`
+exec stanza for `kubectl oidc-login get-token`. It deliberately contains no
+bearer token, refresh token, password, or OAuth client secret. On first use the
+plugin starts the Keycloak authorization-code/PKCE login in a browser. This is
+the same local Keycloak login for both local users and users brokered from
+Entra ID, Google, AWS, or another configured upstream provider.
+
+Kubeconfig download remains disabled until the Kubernetes API server has OIDC
+enabled and the host or platform administrator has published the non-secret
+`identity-system/magicstick-kubernetes-access-info` ConfigMap. Assignment and
+download lists are loaded lazily rather than during the dashboard's periodic
+refresh.
 
 ## Services, Modules, And Instances
 
@@ -437,6 +482,8 @@ narrow:
 - manage only Dashboard-created provider credential Secrets in namespace `ai`
 - read only `Secret/magicstick-user-admin-client` in `identity-system` for the
   dedicated Keycloak client-credentials flow
+- read the non-secret `ConfigMap/magicstick-kubernetes-access-info` and the
+  ServiceAccount-mounted Kubernetes CA to assemble token-free kubeconfigs
 
 The API ServiceAccount does not have cluster-admin and does not have permission
 to create workloads directly. It cannot list identity Secrets and cannot read
