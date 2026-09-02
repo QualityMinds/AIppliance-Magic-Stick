@@ -91,6 +91,13 @@ For vLLM it writes `--max-model-len=<contextWindow>` into the generated KubeAI
 not change the server context size. `spec.local.maxNumSeqs` becomes
 `--max-num-seqs=<maxNumSeqs>` for vLLM and `OLLAMA_NUM_PARALLEL` for Ollama.
 
+For Ollama, the registry source tag and the Kubernetes model name are separate
+identities. Before the generated catalog exposes the Kubernetes name, the
+operator confirms the source tag has finished downloading and ensures the same
+name exists as an Ollama alias on every Ready model pod. This prevents a
+KubeAI-ready pod from publishing a LiteLLM entry that still returns `404 model
+not found`.
+
 ## Compute Targets And Bundled Local Presets
 
 The dashboard reads its local model choices from

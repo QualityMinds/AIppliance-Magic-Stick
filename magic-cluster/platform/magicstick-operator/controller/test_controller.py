@@ -309,9 +309,13 @@ class HelmAppInstanceTests(unittest.TestCase):
             if rule["apiGroups"] == ["networking.k8s.io"]
             and rule["resources"] == ["networkpolicies"]
         )
+        pod_rule = next(
+            rule for rule in rules if rule["apiGroups"] == [""] and rule["resources"] == ["pods"]
+        )
         self.assertEqual(namespace_rule["verbs"], ["get", "list", "watch"])
         self.assertEqual(quota_rule["verbs"], ["get", "create", "update", "patch"])
         self.assertEqual(policy_rule["verbs"], ["get", "create", "update", "patch", "delete"])
+        self.assertEqual(pod_rule["verbs"], ["get", "list", "watch"])
 
     def test_default_appliance_is_gpu_neutral(self):
         appliance = yaml.safe_load((ROOT / "default-appliance.yaml").read_text(encoding="utf-8"))
@@ -1485,6 +1489,161 @@ class HelmAppInstanceTests(unittest.TestCase):
         )
         self.assertEqual(statuses[-1][0][1], "Starting")
         self.assertEqual(statuses[-1][0][2], "WaitingForReadyReplica")
+
+    def test_ollama_alias_is_created_after_source_download_finishes(self):
+        names = ("list_items", "ollama_request_json")
+        originals = {name: self.controller[name] for name in names}
+        calls = []
+        tag_responses = iter([
+            {"models": [{"name": "qwen3.8:27b-q4_K_M"}]},
+            {
+                "models": [
+                    {"name": "qwen3.8:27b-q4_K_M"},
+                    {"name": "qwen3827b:latest"},
+                ]
+            },
+        ])
+        self.controller["list_items"] = lambda _path: [{
+            "metadata": {
+                "name": "model-qwen3827b-example",
+                "annotations": {"model-pod-port": "8000"},
+            },
+            "status": {
+                "podIP": "10.42.0.10",
+                "conditions": [{"type": "Ready", "status": "True"}],
+            },
+        }]
+
+        def request(endpoint, method, path, body=None):
+            calls.append((endpoint, method, path, body))
+            if path == "/api/tags":
+                return next(tag_responses)
+            return {}
+
+        self.controller["ollama_request_json"] = request
+        try:
+            ready, message = self.controller["ensure_ollama_model_alias"](
+                "ai",
+                "qwen3827b",
+                "ollama://qwen3.8:27b-q4_K_M",
+            )
+        finally:
+            self.controller.update(originals)
+
+        self.assertTrue(ready)
+        self.assertIn("every ready model pod", message)
+        self.assertEqual(
+            calls,
+            [
+                ("http://10.42.0.10:8000", "GET", "/api/tags", None),
+                (
+                    "http://10.42.0.10:8000",
+                    "POST",
+                    "/api/copy",
+                    {"source": "qwen3.8:27b-q4_K_M", "destination": "qwen3827b"},
+                ),
+                ("http://10.42.0.10:8000", "GET", "/api/tags", None),
+            ],
+        )
+
+    def test_ollama_alias_waits_without_copying_while_source_is_downloading(self):
+        names = ("list_items", "ollama_request_json")
+        originals = {name: self.controller[name] for name in names}
+        calls = []
+        self.controller["list_items"] = lambda _path: [{
+            "metadata": {"name": "model-qwen3827b-example"},
+            "status": {
+                "podIP": "fd00::10",
+                "conditions": [{"type": "Ready", "status": "True"}],
+            },
+        }]
+
+        def request(endpoint, method, path, body=None):
+            calls.append((endpoint, method, path, body))
+            return {"models": []}
+
+        self.controller["ollama_request_json"] = request
+        try:
+            ready, message = self.controller["ensure_ollama_model_alias"](
+                "ai",
+                "qwen3827b",
+                "ollama://qwen3.8:27b-q4_K_M",
+            )
+        finally:
+            self.controller.update(originals)
+
+        self.assertFalse(ready)
+        self.assertIn("finish downloading", message)
+        self.assertEqual(calls, [("http://[fd00::10]:8000", "GET", "/api/tags", None)])
+
+    def test_ollama_model_stays_starting_until_runtime_alias_is_available(self):
+        names = (
+            "ensure_model_finalizer",
+            "ensure_module_activation",
+            "module_ready",
+            "kubeai_model_resource",
+            "crd_exists",
+            "apply_resource",
+            "get_resource",
+            "ensure_ollama_model_alias",
+            "catalog_contains_model",
+            "patch_model_status",
+        )
+        originals = {name: self.controller[name] for name in names}
+        statuses = []
+        resource = {
+            "metadata": {"name": "qwen3827b", "namespace": "ai"},
+            "spec": {
+                "url": "ollama://qwen3.8:27b-q4_K_M",
+                "minReplicas": 1,
+            },
+            "status": {"replicas": {"all": 1, "ready": 1}},
+        }
+        runtime = {
+            "computeTarget": "cpu",
+            "engine": "OLlama",
+            "artifact": "q4-k-m",
+            "precision": "int4",
+            "quantization": "q4_k_m",
+            "resourceProfile": "magicstick-ollama-cpu-memory:1913",
+            "vramMi": 0,
+            "memoryMi": 30608,
+        }
+        self.controller["ensure_model_finalizer"] = lambda _activation: None
+        self.controller["ensure_module_activation"] = lambda _module, auto=False: None
+        self.controller["module_ready"] = lambda _module, _catalog: True
+        self.controller["kubeai_model_resource"] = lambda _activation, _presets: (resource, runtime)
+        self.controller["crd_exists"] = lambda _name: True
+        self.controller["apply_resource"] = lambda _resource: resource
+        self.controller["get_resource"] = lambda *_args: resource
+        self.controller["ensure_ollama_model_alias"] = lambda *_args: (
+            False,
+            "Waiting for Ollama to finish downloading source model qwen3.8:27b-q4_K_M.",
+        )
+        self.controller["catalog_contains_model"] = lambda *_args: self.fail(
+            "an Ollama model without its runtime alias must not enter the catalog"
+        )
+        self.controller["patch_model_status"] = lambda *args, **kwargs: statuses.append((args, kwargs))
+        activation = {
+            "metadata": {"name": "qwen3827b", "namespace": "ai-system", "generation": 1},
+            "spec": {
+                "type": "local",
+                "targetNamespace": "ai",
+                "local": {"computeTarget": "cpu", "engine": "OLlama"},
+            },
+        }
+        try:
+            phase, status = self.controller["reconcile_model_activation"](
+                activation,
+                {"modules": {}},
+                {},
+            )
+        finally:
+            self.controller.update(originals)
+
+        self.assertEqual(phase, "Starting")
+        self.assertIn("finish downloading", status["message"])
+        self.assertEqual(statuses[-1][0][2], "WaitingForOllamaAlias")
 
     def test_local_model_is_ready_only_after_kubeai_and_catalog_are_ready(self):
         names = (

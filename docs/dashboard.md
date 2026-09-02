@@ -380,6 +380,13 @@ Kubernetes reports its allocatable resource. Intel automatically resolves
 Ollama supports CPU, NVIDIA, and AMD; Intel is absent from the Ollama choices
 because no validated KubeAI/Ollama Intel profile is bundled.
 
+An Ollama pod is not sufficient by itself for a Ready model. KubeAI addresses
+the runtime with the `ModelActivation` name, while the downloaded registry tag
+can have a different name. The Magic Stick Operator therefore waits for the
+source download and verifies or repairs that runtime alias before the model is
+published to LiteLLM. During this phase the installed-model status remains
+`Starting` instead of exposing a route that would return `404 model not found`.
+
 The dashboard calls `POST /api/models/estimate-memory` for every supported local
 combination: vLLM on CPU, NVIDIA, AMD, and Intel, plus Ollama on CPU, NVIDIA,
 and AMD. vLLM estimates use public HuggingFace weight and model-configuration

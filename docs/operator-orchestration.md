@@ -160,11 +160,17 @@ exists: an allocatable extended resource must be present on a compatible node.
 
 After the KubeAI `Model` is created, its `ModelActivation` remains in
 `Starting` while `status.replicas.ready` is zero. The operator reports the
-current ready-replica count and selected engine in the status message. It changes the activation to
-`Ready` only after KubeAI has a ready vLLM or Ollama replica and the model catalog has
-published the model. If the replica later becomes unavailable, the activation
-returns to `Starting` and the model catalog withdraws the LiteLLM route until
-the runtime is healthy again. External model readiness remains catalog-based.
+current ready-replica count and selected engine in the status message. Ollama
+receives an additional runtime check: the operator reads `/api/tags` from every
+Ready model pod, waits until the registry source tag is present, and
+idempotently creates the KubeAI model-name alias through `/api/copy` when the
+upstream bootstrap did not do so. The activation remains `Starting` with reason
+`WaitingForOllamaAlias` until that alias is visible on every Ready pod. It
+changes to `Ready` only after these engine-specific checks pass and the model
+catalog has published the model. If a replica or Ollama alias later becomes
+unavailable, the activation returns to `Starting` and the model catalog
+withdraws the LiteLLM route until the runtime is healthy again. External model
+readiness remains catalog-based.
 
 The controller sets an instance to `Ready` when its generated HelmRelease is
 ready. Native application readiness remains the responsibility of the chart and

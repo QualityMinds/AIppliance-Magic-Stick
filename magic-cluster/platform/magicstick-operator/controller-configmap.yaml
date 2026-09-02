@@ -57,6 +57,7 @@ data:
     CPU_MEMORY_PROFILE_UNIT_MI = 16
     DEFAULT_VLLM_CPU_MEMORY_MI = 4096
     DEFAULT_OLLAMA_CPU_MEMORY_MI = 2048
+    OLLAMA_MODEL_API_TIMEOUT_SECONDS = 5
     PLURALS = {
         ("appliance.magicstick.dev", "ModuleActivation"): "moduleactivations",
         ("appliance.magicstick.dev", "AppInstance"): "appinstances",
@@ -1598,6 +1599,117 @@ data:
         return ready, expected
 
 
+    def pod_is_ready(pod):
+        return any(
+            condition.get("type") == "Ready" and condition.get("status") == "True"
+            for condition in ((pod.get("status") or {}).get("conditions") or [])
+        )
+
+
+    def model_pod_endpoints(namespace, model_name):
+        selector = urllib.parse.urlencode({"labelSelector": "app=model,model=" + model_name})
+        pods = list_items(f"/api/v1/namespaces/{namespace}/pods?{selector}")
+        endpoints = []
+        for pod in pods:
+            metadata = pod.get("metadata") or {}
+            status = pod.get("status") or {}
+            if metadata.get("deletionTimestamp") or not pod_is_ready(pod):
+                continue
+            pod_ip = str(status.get("podIP") or "").strip()
+            if not pod_ip:
+                continue
+            annotations = metadata.get("annotations") or {}
+            port = positive_int(annotations.get("model-pod-port")) or 8000
+            if port > 65535:
+                continue
+            host = "[" + pod_ip + "]" if ":" in pod_ip else pod_ip
+            endpoints.append("http://" + host + ":" + str(port))
+        return endpoints
+
+
+    def ollama_request_json(endpoint, method, path, body=None):
+        data = None
+        headers = {"Accept": "application/json"}
+        if body is not None:
+            data = json.dumps(body).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        request = urllib.request.Request(endpoint + path, data=data, headers=headers, method=method)
+        with urllib.request.urlopen(request, timeout=OLLAMA_MODEL_API_TIMEOUT_SECONDS) as response:
+            payload = response.read().decode("utf-8")
+            return json.loads(payload) if payload else {}
+
+
+    def ollama_model_names(payload):
+        names = set()
+        for model in (payload or {}).get("models") or []:
+            for key in ("name", "model"):
+                value = str((model or {}).get(key) or "").strip()
+                if value:
+                    names.add(value)
+        return names
+
+
+    def ollama_name_is_available(names, expected):
+        expected = str(expected or "").strip()
+        if not expected:
+            return False
+        candidates = {expected}
+        if ":" not in expected.rsplit("/", 1)[-1]:
+            candidates.add(expected + ":latest")
+        return bool(candidates.intersection(names))
+
+
+    def ensure_ollama_model_alias(namespace, model_name, model_url):
+        source_name = str(model_url or "").removeprefix("ollama://").strip("/")
+        if not source_name:
+            return False, "Waiting for a valid Ollama source model reference."
+        endpoints = model_pod_endpoints(namespace, model_name)
+        if not endpoints:
+            return False, "Waiting for a ready Ollama model pod."
+
+        waiting_for_source = False
+        unavailable_api = False
+        alias_failures = []
+        for endpoint in endpoints:
+            try:
+                names = ollama_model_names(ollama_request_json(endpoint, "GET", "/api/tags"))
+            except (OSError, ValueError, urllib.error.URLError, urllib.error.HTTPError):
+                unavailable_api = True
+                continue
+            if ollama_name_is_available(names, model_name):
+                continue
+            if not ollama_name_is_available(names, source_name):
+                waiting_for_source = True
+                continue
+            try:
+                ollama_request_json(
+                    endpoint,
+                    "POST",
+                    "/api/copy",
+                    {"source": source_name, "destination": model_name},
+                )
+                names = ollama_model_names(ollama_request_json(endpoint, "GET", "/api/tags"))
+            except urllib.error.HTTPError as error:
+                alias_failures.append("HTTP " + str(error.code))
+                continue
+            except (OSError, ValueError, urllib.error.URLError):
+                alias_failures.append("model API error")
+                continue
+            if not ollama_name_is_available(names, model_name):
+                alias_failures.append("alias is still absent")
+
+        if alias_failures:
+            return False, (
+                "Ollama downloaded the source model, but could not publish alias "
+                + model_name + ": " + ", ".join(sorted(set(alias_failures))) + "."
+            )
+        if waiting_for_source:
+            return False, "Waiting for Ollama to finish downloading source model " + source_name + "."
+        if unavailable_api:
+            return False, "Waiting for the Ollama model API to become reachable."
+        return True, "Ollama alias " + model_name + " is available on every ready model pod."
+
+
     def kubeai_model_resource(activation, presets, compute_catalog=None):
         metadata = activation.get("metadata") or {}
         spec = activation.get("spec") or {}
@@ -1857,6 +1969,15 @@ data:
                 message = f"Waiting for KubeAI/{runtime['engine']} on {runtime['computeTarget']} to become ready: {ready_replicas}/{expected_replicas} replicas ready."
                 patch_status("Starting", "WaitingForReadyReplica", message, name)
                 return "Starting", status_payload("Starting", message, name)
+            if runtime["engine"] == "OLlama":
+                alias_ready, message = ensure_ollama_model_alias(
+                    namespace,
+                    name,
+                    (resource.get("spec") or {}).get("url"),
+                )
+                if not alias_ready:
+                    patch_status("Starting", "WaitingForOllamaAlias", message, name)
+                    return "Starting", status_payload("Starting", message, name)
 
         if catalog_contains_model(namespace, name):
             message = "Model is available in the generated model catalog."
