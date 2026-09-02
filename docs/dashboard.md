@@ -18,6 +18,8 @@ Dashboard UI
         -> Flux Kustomizations, HelmReleases, and native KubeAI Model resources
      -> dedicated Keycloak user-administration client
         -> Keycloak Admin REST API
+     -> LiteLLM key-management API
+        -> named virtual API keys in LiteLLM PostgreSQL
 ```
 
 ## Role
@@ -39,6 +41,8 @@ The dashboard may:
 - read OpenClaw instance credentials when the generated instance exposes them
 - list and administer human Keycloak users when the signed-in actor has
   `magicstick-admin`
+- create, list, and revoke Dashboard-managed named LiteLLM virtual keys when
+  the signed-in actor has `magicstick-admin`
 
 The dashboard must not replace the Magic Stick Operator, Flux, OpenClaw, Hermes,
 Paperclip, KubeOpenCode, KubeAI, LiteLLM, or direct app instance reconcilers.
@@ -51,6 +55,7 @@ Paperclip, KubeOpenCode, KubeAI, LiteLLM, or direct app instance reconcilers.
 | Services | Combines modules and instances: application cards contain their instances, shared AI runtime services stay compact, and technical platform modules are collapsed by default. The create dialog first selects an application and then shows only its configuration. |
 | Models | Creates/removes local and external model activations, selects CPU or an available NVIDIA/AMD/Intel target, estimates accelerator memory, and shows compact per-device memory gauges. |
 | Users | Gives administrators a paginated Keycloak user overview and local-user lifecycle controls. |
+| API Access | Lets administrators create multiple named LiteLLM API keys, view their non-secret metadata, and revoke individual keys. |
 | System Status | Shows NVIDIA, AMD, and Intel detection/operator/resource state plus Flux, Pod, Service, Ingress, and Event status. |
 | Settings | Edits appliance-wide public and mDNS domain settings. The public dashboard host is always derived from the public domain. |
 
@@ -100,6 +105,9 @@ checks.
 | `POST` | `/api/users/{id}/disable` | Disables the account and requests a Keycloak logout. |
 | `PUT` | `/api/users/{id}/password` | Sets a temporary local password and requests a Keycloak logout. |
 | `DELETE` | `/api/users/{id}` | Deletes an eligible local account. |
+| `GET` | `/api/api-access` | Lists only named LiteLLM virtual keys created through this dashboard plus the local/public API bases; raw key values are never returned. |
+| `POST` | `/api/api-access` | Creates a named LiteLLM virtual key and returns its raw value exactly once. |
+| `DELETE` | `/api/api-access/{id}` | Verifies dashboard ownership and revokes one named LiteLLM virtual key. |
 
 All read endpoints require `magicstick-viewer`, `magicstick-operator`, or
 `magicstick-admin`. Instance credential reads and runtime mutations require
@@ -109,6 +117,8 @@ does not authorize a configuration change. All `/api/users` endpoints require
 administrator in Keycloak, and return only sanitized fields and capability
 flags. User mutations also require same-origin browser metadata and the
 `X-MagicStick-CSRF` request marker used by the dashboard UI.
+All `/api/api-access` endpoints require `magicstick-admin`; create and revoke
+requests use the same same-origin and CSRF checks.
 
 ## User Controls
 
@@ -166,6 +176,30 @@ remain valid at Envoy's local JWT filter until that token expires. The
 user-administration API itself performs a live actor lookup, so a disabled or
 demoted administrator loses that API access immediately even while an older
 edge token still exists.
+
+## API Access Controls
+
+The **API Access** tab is visible only when `/api/session` contains
+`magicstick-admin`. It is independent of the Keycloak user-administration mode,
+but LiteLLM and its PostgreSQL database must be available. Like the Users tab,
+its list is loaded only when opened or refreshed and is not part of the regular
+30-second dashboard refresh.
+
+Each access has a user-provided display name and an internal random LiteLLM key
+alias. The table shows only the name, a shortened hash identifier, creation
+time, status, and revoke action. The raw `sk-...` value is returned by the
+backend only in the successful create response, displayed in a dedicated
+one-time dialog, and cleared from the page when that dialog closes. LiteLLM
+stores the key record in its PostgreSQL database; the dashboard does not create
+a Kubernetes Secret for these user-facing keys and cannot recover an old raw
+value. If a key is lost, revoke it and create a replacement.
+
+Dashboard-created keys carry private ownership metadata. Listing filters out
+all other LiteLLM keys, and deletion verifies this metadata before calling
+LiteLLM, so the tab cannot modify keys provisioned by another tool. New keys
+are restricted to LiteLLM's LLM API routes and currently receive access to all
+model groups published by LiteLLM. Per-key model restrictions, budgets,
+expiry, and team ownership are not exposed by this first dashboard contract.
 
 ## Services, Modules, And Instances
 
