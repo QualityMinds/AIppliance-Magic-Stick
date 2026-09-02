@@ -62,14 +62,28 @@ runcmd:
     MAGICSTICK_PUBLIC_REF="${MAGICSTICK_PUBLIC_REF:-main}" &&
     MAGICSTICK_PUBLIC_REF_KIND="${MAGICSTICK_PUBLIC_REF_KIND:-branch}" &&
     MAGICSTICK_PUBLIC_CHECKOUT="${MAGICSTICK_PUBLIC_CHECKOUT:-/opt/ai-appliance/magicstick}" &&
+    export GIT_TERMINAL_PROMPT=0 &&
+    git_with_http11_fallback() {
+      if git "$@"; then return 0; fi;
+      echo "[magicstick] Git transport failed; retrying with HTTP/1.1." >&2;
+      git -c http.version=HTTP/1.1 "$@";
+    } &&
+    git_clone_with_http11_fallback() {
+      local repo_url="$1";
+      local checkout_dir="$2";
+      if git clone --no-checkout "$repo_url" "$checkout_dir"; then return 0; fi;
+      echo "[magicstick] Git clone failed; retrying with HTTP/1.1." >&2;
+      rm -rf "$checkout_dir";
+      git -c http.version=HTTP/1.1 clone --no-checkout "$repo_url" "$checkout_dir";
+    } &&
     mkdir -p "$(dirname "$MAGICSTICK_PUBLIC_CHECKOUT")" &&
     if [ -d "$MAGICSTICK_PUBLIC_CHECKOUT/.git" ]; then
-      git -C "$MAGICSTICK_PUBLIC_CHECKOUT" fetch --tags --prune origin;
+      git -C "$MAGICSTICK_PUBLIC_CHECKOUT" remote set-url origin "$MAGICSTICK_PUBLIC_REPO";
     else
       rm -rf "$MAGICSTICK_PUBLIC_CHECKOUT" &&
-      git clone --no-checkout "$MAGICSTICK_PUBLIC_REPO" "$MAGICSTICK_PUBLIC_CHECKOUT";
+      git_clone_with_http11_fallback "$MAGICSTICK_PUBLIC_REPO" "$MAGICSTICK_PUBLIC_CHECKOUT";
     fi &&
-    git -C "$MAGICSTICK_PUBLIC_CHECKOUT" fetch --tags --prune origin &&
+    git_with_http11_fallback -C "$MAGICSTICK_PUBLIC_CHECKOUT" fetch --tags --prune origin &&
     if [ "$MAGICSTICK_PUBLIC_REF_KIND" = branch ] && git -C "$MAGICSTICK_PUBLIC_CHECKOUT" show-ref --verify --quiet "refs/remotes/origin/$MAGICSTICK_PUBLIC_REF"; then
       git -C "$MAGICSTICK_PUBLIC_CHECKOUT" checkout --force -B "$MAGICSTICK_PUBLIC_REF" "origin/$MAGICSTICK_PUBLIC_REF";
     else
@@ -81,6 +95,11 @@ runcmd:
 Ersetze `magicstick.example.com`, wenn du bereits eine öffentliche Domain
 kennst. Lass den Wert andernfalls unverändert und setze ihn später im
 First-Run-Setup. Lege keine Passwörter oder Tokens in der Cloud-Init-Datei ab.
+
+Der Bootstrap versucht Git zunächst mit dem vom System ausgehandelten
+HTTPS-Protokoll. Schlägt dieser Transport fehl, erfolgt automatisch ein zweiter
+Versuch über HTTP/1.1. Interaktive Passwortabfragen sind beim öffentlichen
+Bootstrap deaktiviert, damit Cloud-init nicht unbemerkt hängen bleibt.
 
 > Der Marker `new-install` ist absichtlich Teil dieser Konfiguration. Er darf
 > nur beim erstmaligen Aufbau einer neuen VM erzeugt werden.

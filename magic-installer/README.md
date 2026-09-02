@@ -30,6 +30,11 @@ The default installer uses `readonly-public` mode and reads only the public
 Magic-Stick repository. GitHub deployment values are only required when
 `FLUX_BOOTSTRAP_MODE=github`.
 
+Repository access first uses Git's negotiated HTTPS transport. If that attempt
+fails, bootstrap and later converge runs retry once with HTTP/1.1. Public
+bootstrap disables terminal credential prompts, so a transport failure cannot
+leave cloud-init waiting for a username or password.
+
 Default `readonly-public` metadata:
 
 | Variable | Description |

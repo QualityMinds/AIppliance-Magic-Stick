@@ -43,6 +43,15 @@ fail() {
   exit 1
 }
 
+git_with_http11_fallback() {
+  if GIT_TERMINAL_PROMPT=0 git "$@"; then
+    return 0
+  fi
+
+  log "Git transport failed; retrying with HTTP/1.1."
+  GIT_TERMINAL_PROMPT=0 git -c http.version=HTTP/1.1 "$@"
+}
+
 on_error() {
   local exit_code=$?
   printf '[magicstick] Installation stopped near line %s (exit %s).\n' "${BASH_LINENO[0]:-unknown}" "$exit_code" >&2
@@ -191,7 +200,7 @@ checkout_repository() {
   install -d -m 0755 "$(dirname "$INSTALL_DIRECTORY")"
   git init --quiet "$INSTALL_DIRECTORY"
   git -C "$INSTALL_DIRECTORY" remote add origin "$REPOSITORY_URL"
-  if ! git -C "$INSTALL_DIRECTORY" fetch --depth=1 origin "$REQUESTED_REF"; then
+  if ! git_with_http11_fallback -C "$INSTALL_DIRECTORY" fetch --depth=1 origin "$REQUESTED_REF"; then
     fail "Could not fetch ref '$REQUESTED_REF' from $REPOSITORY_URL."
   fi
   git -C "$INSTALL_DIRECTORY" checkout --quiet --detach FETCH_HEAD
