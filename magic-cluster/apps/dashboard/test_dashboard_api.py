@@ -1044,6 +1044,216 @@ class ApiAccessManagementTests(unittest.TestCase):
         self.assertEqual(calls[-1], ("POST", "/key/delete", {"keys": [managed_token]}))
 
 
+class KubernetesAccessTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.server = load_server()
+
+    def setUp(self):
+        names = (
+            "live_admin_actor",
+            "keycloak_user",
+            "keycloak_user_groups",
+            "keycloak_admin_request",
+            "identity_source",
+            "protected_user",
+            "_keycloak_user_page",
+            "_keycloak_user_count",
+            "_kubernetes_user_summary",
+            "_direct_kubernetes_groups",
+            "_kubernetes_access_group",
+            "_replace_kubernetes_access_groups",
+            "_logout_user",
+            "kubernetes_access_info",
+            "_base64_file",
+            "request_json",
+            "settings_response",
+            "_safe_https_endpoint",
+        )
+        self.originals = {name: self.server[name] for name in names}
+        self.principal = {"subject": "admin-id", "username": "admin", "roles": ["magicstick-admin"]}
+        self.user = {
+            "id": "user-id",
+            "username": "alice",
+            "firstName": "Alice",
+            "lastName": "Admin",
+            "email": "alice@example.com",
+            "enabled": True,
+        }
+        self.server["live_admin_actor"] = lambda _principal: {"id": "admin-id", "enabled": True}
+        self.server["keycloak_user"] = lambda _user_id: dict(self.user)
+        self.server["identity_source"] = lambda _user: ("local", "local")
+        self.server["protected_user"] = lambda _user: False
+
+    def tearDown(self):
+        self.server.update(self.originals)
+
+    def test_routes_require_appliance_administrator(self):
+        for parts in (
+            ["api", "kubernetes-access"],
+            ["api", "kubernetes-access", "user-id", "kubeconfig"],
+        ):
+            self.assertEqual(self.server["required_get_access"](parts), "admin")
+
+    def test_list_is_user_bound_and_reports_cluster_configuration(self):
+        self.server["_keycloak_user_page"] = lambda first, maximum, search: [dict(self.user)]
+        self.server["_keycloak_user_count"] = lambda search: 1
+        self.server["_kubernetes_user_summary"] = lambda user: {
+            "id": user["id"],
+            "username": user["username"],
+            "enabled": True,
+            "accessLevel": "viewer",
+        }
+        self.server["kubernetes_access_info"] = lambda required=False: {
+            "configured": True,
+            "issuerUrl": "https://id.magicstick.local/realms/magicstick",
+            "clientId": "magicstick-kubernetes",
+            "apiServer": "https://magicstick.local:6443",
+        }
+
+        result = self.server["list_kubernetes_access"](
+            self.principal,
+            {"first": ["0"], "max": ["25"], "search": ["alice"]},
+        )
+
+        self.assertEqual(result["users"][0]["accessLevel"], "viewer")
+        self.assertTrue(result["configuration"]["configured"])
+        self.assertEqual(result["configuration"]["credentialPlugin"], "kubectl oidc-login")
+        self.assertNotIn("token", repr(result).lower())
+        self.assertNotIn("password", repr(result).lower())
+
+    def test_cluster_configuration_is_rejected_after_mdns_domain_changes(self):
+        self.server["request_json"] = lambda method, path: {
+            "data": {
+                "enabled": "true",
+                "issuer-url": "https://id.magicstick.local/realms/magicstick",
+                "client-id": "magicstick-kubernetes",
+                "api-server": "https://magicstick.local:6443",
+                "oidc-ca.crt": "-----BEGIN CERTIFICATE-----\nCA\n-----END CERTIFICATE-----",
+            }
+        }
+        self.server["settings_response"] = lambda: {"mdnsDomain": "renamed.local"}
+        self.server["kubernetes_access_info"] = self.originals["kubernetes_access_info"]
+
+        self.assertEqual(self.server["kubernetes_access_info"](), {"configured": False})
+        with self.assertRaises(self.server["RequestError"]) as raised:
+            self.server["kubernetes_access_info"](required=True)
+        self.assertEqual(raised.exception.status, 409)
+
+    def test_cluster_configuration_rejects_unsafe_endpoint_and_private_key_material(self):
+        self.server["request_json"] = lambda method, path: {
+            "data": {
+                "enabled": "true",
+                "issuer-url": "https://id.magicstick.local/realms/magicstick",
+                "client-id": "magicstick-kubernetes",
+                "api-server": "https://user@example.com:6443",
+                "oidc-ca.crt": "-----BEGIN CERTIFICATE-----\n" + "PRIVATE" + " KEY\nNOPE",
+            }
+        }
+        self.server["settings_response"] = lambda: {"mdnsDomain": "magicstick.local"}
+        self.server["kubernetes_access_info"] = self.originals["kubernetes_access_info"]
+
+        self.assertEqual(self.server["kubernetes_access_info"](), {"configured": False})
+
+    def test_group_replacement_removes_other_levels_and_is_reversible(self):
+        ids = {
+            "magicstick-kubernetes-viewer": "viewer-id",
+            "magicstick-kubernetes-operator": "operator-id",
+            "magicstick-kubernetes-admin": "admin-id",
+        }
+        memberships = {"magicstick-kubernetes-viewer"}
+        self.server["_kubernetes_access_group"] = lambda name: {
+            "id": ids[name],
+            "name": name,
+            "path": "/" + name,
+        }
+        self.server["keycloak_user_groups"] = lambda _user_id: [
+            {"id": ids[name], "name": name, "path": "/" + name}
+            for name in sorted(memberships)
+        ]
+
+        def request(method, path, body=None):
+            group_id = path.rsplit("/", 1)[-1]
+            name = next(name for name, candidate in ids.items() if candidate == group_id)
+            if method == "PUT":
+                memberships.add(name)
+            elif method == "DELETE":
+                memberships.discard(name)
+            return {}, {}
+
+        self.server["keycloak_admin_request"] = request
+        self.server["_replace_kubernetes_access_groups"] = self.originals["_replace_kubernetes_access_groups"]
+
+        self.server["_replace_kubernetes_access_groups"]("user-id", "operator")
+        self.assertEqual(memberships, {"magicstick-kubernetes-operator"})
+        self.server["_replace_kubernetes_access_groups"]("user-id", "none")
+        self.assertEqual(memberships, set())
+
+    def test_update_logs_out_changed_user_and_rejects_disabled_grants(self):
+        replacements = []
+        logouts = []
+        self.server["_direct_kubernetes_groups"] = lambda _user_id: {
+            "magicstick-kubernetes-viewer": {"id": "viewer-id"}
+        }
+        self.server["_replace_kubernetes_access_groups"] = lambda user_id, level: replacements.append((user_id, level))
+        self.server["_logout_user"] = lambda user_id: logouts.append(user_id)
+        self.server["_kubernetes_user_summary"] = lambda _user: {
+            "id": "user-id", "username": "alice", "enabled": True, "accessLevel": "operator"
+        }
+
+        result = self.server["update_kubernetes_access"](
+            self.principal,
+            "user-id",
+            {"accessLevel": "operator"},
+            "request-id",
+        )
+
+        self.assertEqual(result["accessLevel"], "operator")
+        self.assertEqual(replacements, [("user-id", "operator")])
+        self.assertEqual(logouts, ["user-id"])
+
+        self.user["enabled"] = False
+        with self.assertRaises(self.server["RequestError"]) as raised:
+            self.server["update_kubernetes_access"](
+                self.principal,
+                "user-id",
+                {"accessLevel": "viewer"},
+            )
+        self.assertEqual(raised.exception.status, 409)
+
+    def test_downloaded_kubeconfig_has_oidc_exec_but_no_credential(self):
+        self.server["_kubernetes_user_summary"] = lambda _user: {
+            "id": "user-id", "username": "alice", "enabled": True, "accessLevel": "operator"
+        }
+        self.server["kubernetes_access_info"] = lambda required=False: {
+            "configured": True,
+            "issuerUrl": "https://id.magicstick.local/realms/magicstick",
+            "clientId": "magicstick-kubernetes",
+            "apiServer": "https://magicstick.local:6443",
+            "oidcCa": "-----BEGIN CERTIFICATE-----\nOIDC-CA\n-----END CERTIFICATE-----\n",
+        }
+        self.server["_base64_file"] = lambda _path: "S1VCRVJORVRFUy1DQQ=="
+
+        result = self.server["kubernetes_access_kubeconfig"](self.principal, "user-id")
+        content = result["content"]
+
+        self.assertEqual(result["filename"], "magicstick-alice.kubeconfig")
+        self.assertIn("client.authentication.k8s.io/v1", content)
+        self.assertIn("kubectl", content)
+        self.assertIn("oidc-login", content)
+        self.assertIn("--oidc-client-id=magicstick-kubernetes", content)
+        self.assertIn("--oidc-pkce-method=S256", content)
+        self.assertIn("--token-cache-storage=keyring", content)
+        self.assertIn("certificate-authority-data", content)
+        self.assertNotIn("client-secret", content)
+        self.assertNotIn("password", content.lower())
+        self.assertNotIn("bearer", content.lower())
+        parsed = yaml.safe_load(content)
+        self.assertEqual(parsed["current-context"], "alice@magicstick@magicstick")
+        self.assertEqual(content.count("      server: "), 1)
+        self.assertEqual(parsed["users"][0]["user"]["exec"]["interactiveMode"], "IfAvailable")
+
+
 class UserAdministrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

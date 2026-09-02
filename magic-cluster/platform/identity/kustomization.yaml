@@ -6,6 +6,7 @@ resources:
   - keycloak-realm.yaml
   - keycloak.yaml
   - pilot-certificate.yaml
+  - kubernetes-access-rbac.yaml
   - gateway.yaml
   - routes.yaml
   - security-policy.yaml

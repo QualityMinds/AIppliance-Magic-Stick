@@ -38,6 +38,9 @@ formalized, release entries should group changes under:
 - Ollama as a second KubeAI inference engine with engine-aware dashboard
   controls, CPU/NVIDIA/AMD profiles, a portable Qwen2.5 smoke preset, persistent
   model cache, and target compatibility enforcement.
+- Administrator-managed, SSO-bound Kubernetes access with Viewer, narrow
+  Magic-Stick Operator, and explicit Cluster Administrator levels, plus
+  token-free OIDC kubeconfig downloads for local or brokered Keycloak users.
 
 ### Changed
 
@@ -98,3 +101,6 @@ formalized, release entries should group changes under:
 - Dashboard user administration uses a dedicated scoped Keycloak service
   account, exact-name Kubernetes Secret RBAC, live administrator checks,
   same-origin mutation protection, and last-local-administrator safeguards.
+- Human Kubernetes access uses short-lived OIDC credentials, PKCE, direct
+  Keycloak group membership, least-privilege RBAC, public CA material, and no
+  static bearer token or password in generated kubeconfigs.

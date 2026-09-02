@@ -11,6 +11,12 @@ IDENTITY_DIR = pathlib.Path(__file__).parents[1]
 CLIENT_ID = "magicstick-user-admin"
 CLIENT_SECRET_NAME = "magicstick-user-admin-client"
 HUMAN_GATEWAY_CLIENT_ID = "magicstick-human-gateway-local"
+KUBERNETES_CLIENT_ID = "magicstick-kubernetes"
+KUBERNETES_GROUPS = {
+    "magicstick-kubernetes-viewer",
+    "magicstick-kubernetes-operator",
+    "magicstick-kubernetes-admin",
+}
 EXPECTED_POST_LOGOUT_REDIRECT_URIS = (
     "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/##"
     "https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/"
@@ -136,6 +142,72 @@ class UserAdminIdentityTests(unittest.TestCase):
         self.assertEqual(groups, [{"name": "magicstick-recovery"}])
         self.assertNotIn("magicstick-recovery", roles)
 
+    def test_fresh_realm_import_defines_public_pkce_kubernetes_client_and_groups(self):
+        realm = realm_import()
+        client = next(client for client in realm["clients"] if client["clientId"] == KUBERNETES_CLIENT_ID)
+        groups = {group["name"] for group in realm["groups"]}
+
+        self.assertTrue(KUBERNETES_GROUPS.issubset(groups))
+        self.assertTrue(client["publicClient"])
+        self.assertTrue(client["standardFlowEnabled"])
+        self.assertFalse(client["implicitFlowEnabled"])
+        self.assertFalse(client["directAccessGrantsEnabled"])
+        self.assertFalse(client["serviceAccountsEnabled"])
+        self.assertEqual(
+            client["redirectUris"],
+            ["http://localhost:8000", "http://localhost:18000"],
+        )
+        self.assertEqual(client["attributes"], {"pkce.code.challenge.method": "S256"})
+        mapper = next(mapper for mapper in client["protocolMappers"] if mapper["name"] == "Kubernetes groups")
+        self.assertEqual(mapper["protocolMapper"], "oidc-group-membership-mapper")
+        self.assertEqual(mapper["config"]["claim.name"], "groups")
+        self.assertEqual(mapper["config"]["full.path"], "true")
+
+    def test_identity_leaf_is_signed_by_a_dedicated_ca(self):
+        documents = [document for document in load_documents("pilot-certificate.yaml") if document]
+        certificates = {document["metadata"]["name"]: document for document in documents if document["kind"] == "Certificate"}
+        issuers = {document["metadata"]["name"]: document for document in documents if document["kind"] == "Issuer"}
+
+        self.assertTrue(certificates["identity-pilot-ca"]["spec"]["isCA"])
+        self.assertEqual(certificates["identity-pilot-ca"]["spec"]["secretName"], "identity-pilot-ca")
+        self.assertEqual(issuers["identity-pilot-ca"]["spec"]["ca"]["secretName"], "identity-pilot-ca")
+        self.assertEqual(certificates["identity-pilot"]["spec"]["issuerRef"]["name"], "identity-pilot-ca")
+
+    def test_kubernetes_group_bindings_have_distinct_least_privilege_levels(self):
+        documents = [document for document in load_documents("kubernetes-access-rbac.yaml") if document]
+        bindings = {document["metadata"]["name"]: document for document in documents if document["kind"] == "ClusterRoleBinding"}
+        operator_documents = list(
+            yaml.safe_load_all(
+                (
+                    IDENTITY_DIR.parent
+                    / "magicstick-operator"
+                    / "kubernetes-access-rbac.yaml"
+                ).read_text(encoding="utf-8")
+            )
+        )
+        roles = {document["metadata"]["name"]: document for document in operator_documents if document["kind"] == "Role"}
+        role_bindings = {document["metadata"]["name"]: document for document in operator_documents if document["kind"] == "RoleBinding"}
+        operator_kustomization = yaml.safe_load(
+            (IDENTITY_DIR.parent / "magicstick-operator" / "kustomization.yaml").read_text(encoding="utf-8")
+        )
+
+        self.assertEqual(bindings["magicstick-kubernetes-viewer"]["roleRef"]["name"], "view")
+        self.assertEqual(bindings["magicstick-kubernetes-admin"]["roleRef"]["name"], "cluster-admin")
+        self.assertIn("kubernetes-access-rbac.yaml", operator_kustomization["resources"])
+        operator = roles["magicstick-kubernetes-operator"]
+        self.assertEqual(operator["rules"][0]["apiGroups"], ["appliance.magicstick.dev"])
+        self.assertEqual(
+            set(operator["rules"][0]["resources"]),
+            {"moduleactivations", "modelactivations", "appinstances"},
+        )
+        self.assertFalse(any("secrets" in rule.get("resources", []) for rule in operator["rules"]))
+        self.assertEqual(
+            role_bindings["magicstick-kubernetes-operator-runtime"]["subjects"][0]["name"],
+            "oidc:/magicstick-kubernetes-operator",
+        )
+        self.assertEqual(operator["metadata"]["namespace"], "ai-system")
+        self.assertEqual(role_bindings["magicstick-kubernetes-operator-runtime"]["metadata"]["namespace"], "ai-system")
+
     def test_secret_is_generated_at_runtime_and_flux_does_not_prune_it(self):
         secret = next(
             document
@@ -198,6 +270,19 @@ class UserAdminIdentityTests(unittest.TestCase):
         )
         self.assertNotIn("user_admin_denied_roles", script)
         self.assertIn("kcadm.sh remove-roles", script)
+
+    def test_upgrade_reconciliation_maintains_kubernetes_client_groups_and_mapper(self):
+        script = keycloak_container()["lifecycle"]["postStart"]["exec"]["command"][-1]
+
+        self.assertIn("sync_kubernetes_client_and_groups()", script)
+        self.assertIn("client_uuid magicstick-kubernetes", script)
+        self.assertIn("publicClient=true", script)
+        self.assertIn("pkce.code.challenge.method", script)
+        self.assertIn("oidc-group-membership-mapper", script)
+        self.assertIn("Kubernetes groups", script)
+        self.assertIn('config."full.path"=true', script)
+        for group in KUBERNETES_GROUPS:
+            self.assertIn(group, script)
 
     def test_upgrade_reconciliation_sets_exact_dashboard_logout_redirects(self):
         script = keycloak_container()["lifecycle"]["postStart"]["exec"]["command"][-1]

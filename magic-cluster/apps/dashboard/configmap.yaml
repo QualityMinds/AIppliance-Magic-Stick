@@ -245,6 +245,35 @@ data:
           margin-top: 0.3rem;
         }
 
+        .kubernetes-access-levels {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 0.75rem;
+          margin: 0.15rem 0;
+        }
+
+        .kubernetes-access-level {
+          background: rgba(15, 23, 42, 0.58);
+          border: 1px solid rgba(125, 211, 252, 0.22);
+          border-radius: 10px;
+          padding: 0.8rem;
+        }
+
+        .kubernetes-access-level strong,
+        .kubernetes-access-level span {
+          display: block;
+        }
+
+        .kubernetes-access-level span {
+          color: var(--muted);
+          font-size: 0.8rem;
+          margin-top: 0.3rem;
+        }
+
+        .kubernetes-access-warning {
+          border-color: rgba(251, 113, 133, 0.55);
+        }
+
         .api-access-endpoints {
           display: grid;
           gap: 0.55rem;
@@ -1698,6 +1727,10 @@ data:
             grid-template-columns: 1fr;
           }
 
+          .kubernetes-access-levels {
+            grid-template-columns: 1fr;
+          }
+
           .users-table {
             display: block;
             min-width: 0;
@@ -1783,6 +1816,7 @@ data:
             <button class="tab-button" type="button" aria-selected="false" data-tab="settings">Settings</button>
             <button class="tab-button" id="users-tab-button" type="button" aria-selected="false" data-tab="users" hidden>Users</button>
             <button class="tab-button" id="api-access-tab-button" type="button" aria-selected="false" data-tab="api-access" hidden>API Access</button>
+            <button class="tab-button" id="kubernetes-access-tab-button" type="button" aria-selected="false" data-tab="kubernetes-access" hidden>Kubernetes Access</button>
             <button class="tab-button" type="button" aria-selected="false" data-tab="system">System Status</button>
           </nav>
 
@@ -2266,6 +2300,49 @@ data:
             </div>
           </section>
 
+          <section id="tab-kubernetes-access" class="tab-panel" hidden aria-labelledby="kubernetes-access-tab-button">
+            <div class="api-access-workspace">
+              <div class="api-access-toolbar">
+                <div>
+                  <h3>Kubernetes Access</h3>
+                  <p>Grant named users short-lived, SSO-bound access to this appliance cluster.</p>
+                </div>
+                <button class="control-button" id="kubernetes-access-refresh" type="button">Refresh</button>
+              </div>
+              <div class="kubernetes-access-levels" aria-label="Kubernetes access levels">
+                <div class="kubernetes-access-level"><strong>Viewer</strong><span>Read cluster resources. Kubernetes Secrets remain hidden.</span></div>
+                <div class="kubernetes-access-level"><strong>Operator</strong><span>Viewer access plus lifecycle control for Magic Stick modules, models, and instances.</span></div>
+                <div class="kubernetes-access-level kubernetes-access-warning"><strong>Cluster Administrator</strong><span>Unrestricted cluster-admin access. Grant only when operationally necessary.</span></div>
+              </div>
+              <p id="kubernetes-access-configuration" class="api-output" role="status">Checking the cluster OIDC configuration…</p>
+              <form id="kubernetes-access-search-form" role="search" class="users-toolbar">
+                <label class="field user-search-field">Search users
+                  <input id="kubernetes-access-search" name="search" type="search" autocomplete="off" placeholder="Username, name, or email" />
+                </label>
+                <button class="control-button" type="submit">Search</button>
+              </form>
+              <p id="kubernetes-access-output" class="api-output" role="status" aria-live="polite">Open this page to load Kubernetes access.</p>
+              <div id="kubernetes-access-loading" class="user-empty-state" role="status" hidden>Loading Kubernetes access…</div>
+              <div id="kubernetes-access-error" class="user-empty-state" role="alert" hidden></div>
+              <div id="kubernetes-access-empty" class="user-empty-state" hidden>No users match the current search.</div>
+              <div id="kubernetes-access-table-wrap" class="users-table-wrap" hidden>
+                <table class="users-table">
+                  <caption class="sr-only">SSO-bound Kubernetes access assignments</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">User</th>
+                      <th scope="col">Source</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">Kubernetes Access</th>
+                      <th scope="col">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="kubernetes-access-list"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
           <section id="tab-system" class="tab-panel" hidden>
             <div class="dashboard-grid">
               <article class="dashboard-card hardware-operator-panel">
@@ -2454,6 +2531,29 @@ data:
           </div>
         </form>
       </dialog>
+
+      <dialog class="dashboard-dialog" id="kubernetes-access-dialog" aria-labelledby="kubernetes-access-title">
+        <form class="dialog-form" id="kubernetes-access-form">
+          <div class="dialog-heading">
+            <h3 id="kubernetes-access-title">Change Kubernetes access</h3>
+            <p id="kubernetes-access-description"></p>
+          </div>
+          <label class="field">Access level
+            <select name="accessLevel">
+              <option value="none">No Kubernetes access</option>
+              <option value="viewer">Viewer</option>
+              <option value="operator">Operator</option>
+              <option value="admin">Cluster Administrator</option>
+            </select>
+          </label>
+          <p class="dialog-helper" id="kubernetes-access-level-note"></p>
+          <p class="dialog-error" id="kubernetes-access-dialog-error" role="alert" aria-live="assertive"></p>
+          <div class="dialog-actions">
+            <button class="control-button" type="button" data-dialog-cancel>Cancel</button>
+            <button class="control-button primary" type="submit">Save Kubernetes Access</button>
+          </div>
+        </form>
+      </dialog>
       <script>
         (() => {
           const $ = (id) => document.getElementById(id);
@@ -2487,6 +2587,11 @@ data:
           let apiAccessLoaded = false;
           let apiAccessLoading = false;
           let apiAccessItems = [];
+          let kubernetesAccessLoaded = false;
+          let kubernetesAccessLoading = false;
+          let kubernetesAccessItems = [];
+          let kubernetesAccessConfiguration = {};
+          let activeKubernetesAccessUser = null;
           let activeUserEditor = null;
           let activeUserRoles = null;
           let activeUserPassword = null;
@@ -4857,6 +4962,11 @@ data:
             return roles.includes('magicstick-admin');
           };
 
+          const sessionCanManageKubernetesAccess = (session) => {
+            const roles = Array.isArray((session || {}).roles) ? session.roles : [];
+            return roles.includes('magicstick-admin') && (session || {}).identityManagementAvailable !== false;
+          };
+
           const setUsersTabAccess = (session) => {
             const button = $('users-tab-button');
             const allowed = sessionIsUserAdmin(session);
@@ -4873,6 +4983,17 @@ data:
           const setApiAccessTabAccess = (session) => {
             const button = $('api-access-tab-button');
             const allowed = sessionCanManageApiAccess(session);
+            if (!button) { return; }
+            button.hidden = !allowed;
+            if (!allowed && button.getAttribute('aria-selected') === 'true') {
+              const overview = document.querySelector('.tab-button[data-tab="overview"]');
+              if (overview) { overview.click(); }
+            }
+          };
+
+          const setKubernetesAccessTabAccess = (session) => {
+            const button = $('kubernetes-access-tab-button');
+            const allowed = sessionCanManageKubernetesAccess(session);
             if (!button) { return; }
             button.hidden = !allowed;
             if (!allowed && button.getAttribute('aria-selected') === 'true') {
@@ -5446,6 +5567,217 @@ data:
             if (output && apiAccessLoaded) { output.textContent = message; }
           };
 
+          const kubernetesAccessLabel = (level) => ({
+            none: 'No access',
+            viewer: 'Viewer',
+            operator: 'Operator',
+            admin: 'Cluster Administrator'
+          })[String(level || 'none')] || 'No access';
+
+          const kubernetesAccessById = (id) => kubernetesAccessItems.find((item) => String(item.id) === String(id));
+
+          const renderKubernetesAccessConfiguration = () => {
+            const node = $('kubernetes-access-configuration');
+            if (!node) { return; }
+            if (kubernetesAccessConfiguration.configured === true) {
+              node.textContent = 'SSO is active for ' + String(kubernetesAccessConfiguration.apiServer || 'this cluster')
+                + '. Downloaded kubeconfigs use ' + String(kubernetesAccessConfiguration.credentialPlugin || 'kubectl oidc-login') + '. The kubeconfig contains no token.';
+              node.className = 'api-output success';
+            } else {
+              node.textContent = 'Kubernetes SSO is not confirmed by this cluster. Access can be assigned, but kubeconfig downloads remain disabled until the API server OIDC configuration is published.';
+              node.className = 'api-output error';
+            }
+          };
+
+          const renderKubernetesAccess = () => {
+            const list = $('kubernetes-access-list');
+            if (!list) { return; }
+            list.replaceChildren();
+            kubernetesAccessItems.forEach((user) => {
+              const row = document.createElement('tr');
+
+              const userCell = document.createElement('td');
+              userCell.dataset.label = 'User';
+              const identity = document.createElement('div');
+              identity.className = 'user-identity';
+              const name = document.createElement('strong');
+              name.textContent = String(user.displayName || user.username || 'User');
+              const username = document.createElement('span');
+              username.textContent = String(user.username || '');
+              identity.append(name, username);
+              if (user.email) {
+                const email = document.createElement('span');
+                email.textContent = String(user.email);
+                identity.appendChild(email);
+              }
+              userCell.appendChild(identity);
+
+              const sourceCell = document.createElement('td');
+              sourceCell.dataset.label = 'Source';
+              sourceCell.textContent = userSource(user);
+
+              const statusCell = document.createElement('td');
+              statusCell.dataset.label = 'Status';
+              const status = document.createElement('span');
+              status.className = 'status-pill ' + (user.enabled ? 'ready' : 'disabled');
+              status.textContent = user.enabled ? 'Enabled' : 'Disabled';
+              statusCell.appendChild(status);
+
+              const accessCell = document.createElement('td');
+              accessCell.dataset.label = 'Kubernetes Access';
+              const access = document.createElement('span');
+              const level = String(user.accessLevel || 'none');
+              access.className = 'status-pill ' + (level === 'none' ? 'disabled' : (level === 'admin' ? 'degraded' : 'ready'));
+              access.textContent = kubernetesAccessLabel(level);
+              accessCell.appendChild(access);
+
+              const actionsCell = document.createElement('td');
+              actionsCell.dataset.label = 'Actions';
+              const actions = document.createElement('div');
+              actions.className = 'user-actions';
+              const edit = document.createElement('button');
+              edit.className = 'control-button';
+              edit.type = 'button';
+              edit.dataset.kubernetesAccessAction = 'edit';
+              edit.dataset.kubernetesAccessId = String(user.id || '');
+              edit.textContent = 'Edit Access';
+              edit.disabled = Boolean(user.protected) || (!user.enabled && level === 'none');
+              edit.title = user.protected
+                ? 'Protected recovery access cannot be changed.'
+                : ((!user.enabled && level === 'none') ? 'Enable the user before granting Kubernetes access.' : '');
+              const download = document.createElement('button');
+              download.className = 'control-button primary';
+              download.type = 'button';
+              download.dataset.kubernetesAccessAction = 'download';
+              download.dataset.kubernetesAccessId = String(user.id || '');
+              download.textContent = 'Download Kubeconfig';
+              download.disabled = kubernetesAccessConfiguration.configured !== true || !user.enabled || level === 'none';
+              download.title = kubernetesAccessConfiguration.configured !== true
+                ? 'The Kubernetes API server has not confirmed its OIDC configuration.'
+                : (!user.enabled ? 'The user is disabled.' : (level === 'none' ? 'Grant access first.' : ''));
+              actions.append(edit, download);
+              actionsCell.appendChild(actions);
+              row.append(userCell, sourceCell, statusCell, accessCell, actionsCell);
+              list.appendChild(row);
+            });
+            const table = $('kubernetes-access-table-wrap');
+            const empty = $('kubernetes-access-empty');
+            if (table) { table.hidden = kubernetesAccessItems.length === 0; }
+            if (empty) { empty.hidden = kubernetesAccessItems.length !== 0; }
+            const output = $('kubernetes-access-output');
+            if (output) {
+              output.textContent = kubernetesAccessItems.length + (kubernetesAccessItems.length === 1 ? ' user shown.' : ' users shown.');
+            }
+            renderKubernetesAccessConfiguration();
+          };
+
+          const setKubernetesAccessLoading = (loading) => {
+            kubernetesAccessLoading = loading;
+            const loadingNode = $('kubernetes-access-loading');
+            const errorNode = $('kubernetes-access-error');
+            if (loadingNode) { loadingNode.hidden = !loading; }
+            if (loading && errorNode) { errorNode.hidden = true; }
+            const refreshButton = $('kubernetes-access-refresh');
+            if (refreshButton) { refreshButton.disabled = loading; }
+            if (loading) {
+              const table = $('kubernetes-access-table-wrap');
+              const empty = $('kubernetes-access-empty');
+              if (table) { table.hidden = true; }
+              if (empty) { empty.hidden = true; }
+            }
+          };
+
+          const loadKubernetesAccess = async (force = false) => {
+            if (!sessionCanManageKubernetesAccess(latestSession) || kubernetesAccessLoading || (kubernetesAccessLoaded && !force)) { return; }
+            setKubernetesAccessLoading(true);
+            const output = $('kubernetes-access-output');
+            if (output) { output.textContent = 'Loading SSO-bound Kubernetes access…'; }
+            const search = String(($('kubernetes-access-search') || {}).value || '').trim();
+            const query = new URLSearchParams({ first: '0', max: '100' });
+            if (search) { query.set('search', search); }
+            try {
+              const payload = await dashboardRequest('/api/kubernetes-access?' + query.toString());
+              kubernetesAccessItems = Array.isArray((payload || {}).users) ? payload.users : [];
+              kubernetesAccessConfiguration = (payload || {}).configuration || {};
+              kubernetesAccessLoaded = true;
+              const errorNode = $('kubernetes-access-error');
+              if (errorNode) { errorNode.hidden = true; errorNode.textContent = ''; }
+              renderKubernetesAccess();
+            } catch (error) {
+              kubernetesAccessLoaded = false;
+              kubernetesAccessItems = [];
+              kubernetesAccessConfiguration = {};
+              const errorNode = $('kubernetes-access-error');
+              if (errorNode) {
+                errorNode.textContent = 'Kubernetes access could not be loaded: ' + (error.message || 'identity administration is unavailable.');
+                errorNode.hidden = false;
+              }
+              const table = $('kubernetes-access-table-wrap');
+              const empty = $('kubernetes-access-empty');
+              if (table) { table.hidden = true; }
+              if (empty) { empty.hidden = true; }
+              if (output) { output.textContent = 'Use Refresh to retry.'; }
+              renderKubernetesAccessConfiguration();
+            } finally {
+              setKubernetesAccessLoading(false);
+            }
+          };
+
+          const updateKubernetesAccessNote = () => {
+            const form = $('kubernetes-access-form');
+            const note = $('kubernetes-access-level-note');
+            if (!form || !note) { return; }
+            const level = String(form.elements.accessLevel.value || 'none');
+            note.textContent = level === 'admin'
+              ? 'Warning: Cluster Administrator grants unrestricted control over workloads, RBAC, Secrets, and the appliance itself.'
+              : (level === 'operator'
+                ? 'Operator can read the cluster and manage Magic Stick modules, models, and instances. It cannot create arbitrary workloads or read Secrets.'
+                : (level === 'viewer'
+                  ? 'Viewer can inspect cluster resources but cannot read Kubernetes Secrets or make changes.'
+                  : 'Existing Kubernetes group membership is removed.'));
+            note.className = 'dialog-helper' + (level === 'admin' ? ' kubernetes-access-warning' : '');
+          };
+
+          const openKubernetesAccessEditor = (user) => {
+            const dialog = $('kubernetes-access-dialog');
+            const form = $('kubernetes-access-form');
+            if (!dialog || !form || !user) { return; }
+            activeKubernetesAccessUser = user;
+            form.reset();
+            form.elements.accessLevel.value = String(user.accessLevel || 'none');
+            $('kubernetes-access-title').textContent = 'Kubernetes access for ' + String(user.username || 'user');
+            $('kubernetes-access-description').textContent = 'Access is bound to this Keycloak identity and is revoked by removing the group membership.';
+            $('kubernetes-access-dialog-error').textContent = '';
+            updateKubernetesAccessNote();
+            showUserDialog(dialog, 'select[name="accessLevel"]');
+          };
+
+          const downloadKubernetesKubeconfig = async (user) => {
+            const output = $('kubernetes-access-output');
+            try {
+              const payload = await dashboardRequest('/api/kubernetes-access/' + encodeURIComponent(user.id) + '/kubeconfig');
+              const blob = new Blob([String(payload.content || '')], { type: 'application/yaml;charset=utf-8' });
+              const url = URL.createObjectURL(blob);
+              const link = document.createElement('a');
+              link.href = url;
+              link.download = String(payload.filename || 'magicstick.kubeconfig');
+              document.body.appendChild(link);
+              link.click();
+              link.remove();
+              URL.revokeObjectURL(url);
+              if (output) { output.textContent = 'Kubeconfig downloaded for ' + String(user.username || 'user') + '. It contains no token or password.'; }
+            } catch (error) {
+              if (output) { output.textContent = 'Kubeconfig download failed: ' + (error.message || 'Kubernetes SSO is unavailable.'); }
+            }
+          };
+
+          const refreshKubernetesAccessAfterMutation = async (message) => {
+            kubernetesAccessLoaded = false;
+            await loadKubernetesAccess(true);
+            const output = $('kubernetes-access-output');
+            if (output && kubernetesAccessLoaded) { output.textContent = message; }
+          };
+
           const renderStatus = (status) => {
             const hardwareList = $('hardware-operator-list');
             const hardwareSummary = $('hardware-operator-summary');
@@ -5541,6 +5873,7 @@ data:
               latestSession = session || {};
               setUsersTabAccess(latestSession);
               setApiAccessTabAccess(latestSession);
+              setKubernetesAccessTabAccess(latestSession);
               const settings = await request('/api/settings');
               const appliance = await request('/api/appliance');
               const modulePayload = await request('/api/modules');
@@ -5593,8 +5926,54 @@ data:
               if (button.dataset.tab === 'api-access') {
                 await loadApiAccess(false);
               }
+              if (button.dataset.tab === 'kubernetes-access') {
+                await loadKubernetesAccess(false);
+              }
             });
           });
+
+          const kubernetesAccessRefresh = $('kubernetes-access-refresh');
+          if (kubernetesAccessRefresh) {
+            kubernetesAccessRefresh.addEventListener('click', async () => {
+              kubernetesAccessLoaded = false;
+              await loadKubernetesAccess(true);
+            });
+          }
+
+          const kubernetesAccessSearchForm = $('kubernetes-access-search-form');
+          if (kubernetesAccessSearchForm) {
+            kubernetesAccessSearchForm.addEventListener('submit', async (event) => {
+              event.preventDefault();
+              kubernetesAccessLoaded = false;
+              await loadKubernetesAccess(true);
+            });
+          }
+
+          const kubernetesAccessForm = $('kubernetes-access-form');
+          if (kubernetesAccessForm) {
+            kubernetesAccessForm.elements.accessLevel.addEventListener('change', updateKubernetesAccessNote);
+            kubernetesAccessForm.addEventListener('submit', async (event) => {
+              event.preventDefault();
+              if (!activeKubernetesAccessUser) { return; }
+              const user = activeKubernetesAccessUser;
+              const errorNode = $('kubernetes-access-dialog-error');
+              errorNode.textContent = '';
+              setDialogBusy(kubernetesAccessForm, true);
+              try {
+                const level = String(kubernetesAccessForm.elements.accessLevel.value || 'none');
+                await dashboardRequest('/api/kubernetes-access/' + encodeURIComponent(user.id), {
+                  method: 'PUT',
+                  body: JSON.stringify({ accessLevel: level })
+                });
+                closeUserDialog($('kubernetes-access-dialog'));
+                await refreshKubernetesAccessAfterMutation('Kubernetes access updated for ' + String(user.username || 'user') + '. Existing Keycloak sessions were signed out.');
+              } catch (error) {
+                errorNode.textContent = error.message || 'Kubernetes access could not be updated.';
+              } finally {
+                setDialogBusy(kubernetesAccessForm, false);
+              }
+            });
+          }
 
           const apiAccessCreate = $('api-access-create');
           if (apiAccessCreate) {
@@ -5717,6 +6096,9 @@ data:
               if (dialog.id === 'api-access-revoke-dialog') {
                 activeApiAccessRevocation = null;
               }
+              if (dialog.id === 'kubernetes-access-dialog') {
+                activeKubernetesAccessUser = null;
+              }
               restoreDialogOpener(dialog);
             });
           });
@@ -5803,6 +6185,22 @@ data:
             }
             if (actionButton.dataset.apiAccessAction === 'revoke') {
               openApiAccessRevocation(item);
+            }
+          });
+
+          document.addEventListener('click', async (event) => {
+            const actionButton = event.target.closest('[data-kubernetes-access-action]');
+            if (!actionButton || actionButton.disabled) { return; }
+            const user = kubernetesAccessById(actionButton.dataset.kubernetesAccessId);
+            if (!user) {
+              const output = $('kubernetes-access-output');
+              if (output) { output.textContent = 'The selected user is no longer available. Refresh the list.'; }
+              return;
+            }
+            if (actionButton.dataset.kubernetesAccessAction === 'edit') {
+              openKubernetesAccessEditor(user);
+            } else if (actionButton.dataset.kubernetesAccessAction === 'download') {
+              await downloadKubernetesKubeconfig(user);
             }
           });
 

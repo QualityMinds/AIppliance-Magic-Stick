@@ -1,0 +1,47 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: magicstick-kubernetes-viewer
+  labels:
+    app.kubernetes.io/part-of: magicstick
+    app.kubernetes.io/component: kubernetes-access
+subjects:
+  - kind: Group
+    name: oidc:/magicstick-kubernetes-viewer
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: magicstick-kubernetes-operator-view
+  labels:
+    app.kubernetes.io/part-of: magicstick
+    app.kubernetes.io/component: kubernetes-access
+subjects:
+  - kind: Group
+    name: oidc:/magicstick-kubernetes-operator
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: magicstick-kubernetes-admin
+  labels:
+    app.kubernetes.io/part-of: magicstick
+    app.kubernetes.io/component: kubernetes-access
+subjects:
+  - kind: Group
+    name: oidc:/magicstick-kubernetes-admin
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin

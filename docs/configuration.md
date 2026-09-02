@@ -164,3 +164,12 @@ approved external secret management flow.
 New installations do not generate a human administrator Secret. The first-run
 claim is stored as a root-only host file, while Kubernetes stores only its
 SHA-256 hash. Human and recovery passwords are written directly to Keycloak.
+
+Human Kubernetes access also stores no static credential. Direct membership in
+one of the `magicstick-kubernetes-*` Keycloak groups is the authorization
+source. The optional
+`identity-system/magicstick-kubernetes-access-info` ConfigMap contains only the
+public API endpoint, OIDC issuer/client ID, a public CA certificate, and an
+`enabled` marker. Downloaded kubeconfigs contain the same public trust material
+and an OIDC exec-plugin declaration, never a token, password, private key, or
+OAuth client secret.

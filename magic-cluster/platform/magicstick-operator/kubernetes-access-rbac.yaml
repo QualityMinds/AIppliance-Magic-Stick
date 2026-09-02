@@ -1,0 +1,29 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: magicstick-kubernetes-operator
+  namespace: ai-system
+  labels:
+    app.kubernetes.io/part-of: magicstick
+    app.kubernetes.io/component: kubernetes-access
+rules:
+  - apiGroups: ["appliance.magicstick.dev"]
+    resources: ["moduleactivations", "modelactivations", "appinstances"]
+    verbs: ["get", "list", "watch", "create", "patch", "update", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: magicstick-kubernetes-operator-runtime
+  namespace: ai-system
+  labels:
+    app.kubernetes.io/part-of: magicstick
+    app.kubernetes.io/component: kubernetes-access
+subjects:
+  - kind: Group
+    name: oidc:/magicstick-kubernetes-operator
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: magicstick-kubernetes-operator

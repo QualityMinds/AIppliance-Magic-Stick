@@ -41,6 +41,9 @@ class UserAdminDeploymentTests(unittest.TestCase):
         self.assertEqual(env["KEYCLOAK_REALM"], "magicstick")
         self.assertEqual(env["KEYCLOAK_USER_ADMIN_SECRET_NAMESPACE"], "identity-system")
         self.assertEqual(env["KEYCLOAK_USER_ADMIN_SECRET_NAME"], "magicstick-user-admin-client")
+        self.assertEqual(env["KUBERNETES_ACCESS_INFO_NAMESPACE"], "identity-system")
+        self.assertEqual(env["KUBERNETES_ACCESS_INFO_NAME"], "magicstick-kubernetes-access-info")
+        self.assertEqual(env["KUBERNETES_OIDC_CLIENT_ID"], "magicstick-kubernetes")
         self.assertEqual(
             env["DASHBOARD_ALLOWED_ORIGINS"],
             "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local},"

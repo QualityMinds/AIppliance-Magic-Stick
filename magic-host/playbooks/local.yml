@@ -170,5 +170,6 @@
     - k3s
     - ansible-pull-timer
     - flux-bootstrap
+    - kubernetes-oidc
     - first-run-setup
     

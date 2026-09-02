@@ -271,6 +271,52 @@ it from Kubernetes or logs. A `403` means the actor is not an administrator or
 the same-origin mutation check failed. A `503` means the LiteLLM service,
 master-key configuration, or PostgreSQL-backed key management is unavailable.
 
+## Kubernetes SSO Access Checks
+
+The dashboard **Kubernetes Access** tab is available only to a live
+`magicstick-admin` session while local Keycloak identity management is enabled.
+User assignment may be prepared before host OIDC is ready, but kubeconfig
+download stays disabled until the cluster publishes its verified configuration.
+
+Check the non-secret contract without decoding any client Secret:
+
+```bash
+kubectl -n identity-system get configmap magicstick-kubernetes-access-info -o yaml
+kubectl -n identity-system get certificate identity-pilot-ca identity-pilot
+kubectl get clusterrolebinding \
+  magicstick-kubernetes-viewer \
+  magicstick-kubernetes-operator-view \
+  magicstick-kubernetes-admin
+kubectl -n ai-system get rolebinding magicstick-kubernetes-operator-runtime
+kubectl -n ai-system get role magicstick-kubernetes-operator -o yaml
+kubectl -n identity-system logs deploy/ai-appliance-dashboard-api -c api --tail=200
+```
+
+On an appliance-owned K3s host, confirm the arguments without printing any
+credentials:
+
+```bash
+sudo grep '^  - "oidc-' /etc/rancher/k3s/config.yaml
+sudo test -r /etc/rancher/k3s/magicstick-oidc-ca.crt
+sudo k3s kubectl get --raw=/readyz
+```
+
+On the administrator workstation, install
+[`kubelogin`](https://github.com/int128/kubelogin), place the downloaded file at
+a protected path, and test it:
+
+```bash
+chmod 0600 ./magicstick-USER.kubeconfig
+KUBECONFIG=./magicstick-USER.kubeconfig kubectl auth whoami
+KUBECONFIG=./magicstick-USER.kubeconfig kubectl auth can-i list pods --all-namespaces
+KUBECONFIG=./magicstick-USER.kubeconfig kubectl auth can-i get secrets --all-namespaces
+```
+
+The last command must return `no` for Viewer and Operator. Operator may mutate
+only the three Magic Stick runtime CR kinds in `ai-system`. Every assignment and download
+emits a `magicstick.kubernetes-access` audit event without a token, password,
+kubeconfig body, or client secret.
+
 ## AppInstance Gateway Access
 
 The operator publishes enabled instances through Envoy Gateway and removes the
@@ -470,6 +516,10 @@ deploy,pods` if a command does not match the running resource name.
 | User change returns `409` | Check whether the account is external, protected, the current actor, or the last enabled local administrator. Duplicate username or email also returns `409`. |
 | API Access tab is missing | Confirm the current session contains `magicstick-admin`, then refresh after any role change. Unlike Users, this tab does not depend on local Keycloak user-administration mode. |
 | API Access reports LiteLLM key management unavailable | Check the LiteLLM Pod and Service, PostgreSQL readiness, and the existence of `ai/litellm-masterkey-secret` without decoding it. Lost raw keys cannot be recovered; create a replacement and revoke the old named access. |
+| Kubernetes Access tab is missing | Confirm the current session contains `magicstick-admin`, local Keycloak identity management is active, and refresh after any role change. |
+| Kubernetes kubeconfig download is disabled | Check `identity-system/magicstick-kubernetes-access-info`. On appliance K3s, rerun the host converge so the identity CA is installed and the API server is restarted with OIDC. On an existing cluster, complete the platform-specific API-server configuration and publish the marker as documented. |
+| `kubectl oidc-login` cannot open or complete login | Install the kubelogin plugin, verify `id.<mdns-domain>` resolves from the workstation, trust only the CA embedded in the kubeconfig, and ensure loopback ports `8000` or `18000` are available. |
+| Kubernetes login succeeds but RBAC is denied | Confirm the user has exactly one direct `magicstick-kubernetes-*` group, obtain a fresh token after the group change, and inspect the `oidc:` Group subjects in the ClusterRoleBindings. |
 | GPU model never starts | Check the vendor GPU operator, allocatable GPU resources, KubeAI model status, and the selected vLLM/Ollama server logs. |
 | GPU hardware is present but provider is `Unsupported` | Confirm node architecture/Kubernetes preflight first. For AMD or Intel, the broad PCI vendor label can exist while the vendor `NodeFeatureRule` rejects that product; use the operator's supported-hardware documentation instead of adding a Magic Stick PCI allow-list. |
 | Provider is `Conflict` | A vendor CRD already existed without a Magic Stick `ModuleActivation`. Decide which installation owns the operator; do not run a second copy. |

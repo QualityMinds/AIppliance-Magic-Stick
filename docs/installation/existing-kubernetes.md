@@ -201,7 +201,75 @@ kubectl get pods --all-namespaces
 Warte, bis insbesondere `infrastructure-basis`, `envoy-gateway` und
 `identity-pilot` bereit sind.
 
-### 5. Einmaligen Einrichtungscode erzeugen
+### 5. Optional: Kubernetes-Zugriff über Magic-Stick-SSO aktivieren
+
+Flux installiert den Keycloak-Client, die drei Zugriffsgruppen und die
+Kubernetes-RBAC-Bindings. Ein vorhandener oder verwalteter Cluster ändert seine
+API-Server-Konfiguration jedoch absichtlich nicht aus einem Workload heraus.
+Dieser Schritt muss deshalb durch den Plattformadministrator erfolgen. Ohne ihn
+bleibt nur der Kubeconfig-Download im Dashboard deaktiviert; alle anderen
+Magic-Stick-Funktionen arbeiten weiter.
+
+Voraussetzungen:
+
+- `https://id.<mdns-domain>/realms/magicstick` ist vom Control Plane und vom
+  Administrator-Rechner erreichbar;
+- das lokale Identity-CA-Zertifikat ist als vertrauenswürdige OIDC-CA
+  hinterlegt;
+- der Kubernetes-Endpunkt ist vom Administrator-Rechner erreichbar und sein
+  Zertifikat passt zum veröffentlichten Endpunkt;
+- dein Kubernetes-Anbieter unterstützt die entsprechenden OIDC-API-Server-
+  Optionen. Bei verwalteten Diensten verwendest du ausschließlich den dafür
+  vorgesehenen Provider-Mechanismus.
+
+Konfiguriere den API Server äquivalent zu:
+
+```text
+--oidc-issuer-url=https://id.<mdns-domain>/realms/magicstick
+--oidc-client-id=magicstick-kubernetes
+--oidc-username-claim=preferred_username
+--oidc-username-prefix=oidc:
+--oidc-groups-claim=groups
+--oidc-groups-prefix=oidc:
+--oidc-ca-file=<path-to-public-identity-ca>
+```
+
+Das CA-Zertifikat ist öffentlich; lies ausschließlich `tls.crt`, niemals
+`tls.key`:
+
+```bash
+kubectl -n identity-system get secret identity-pilot-ca \
+  -o jsonpath='{.data.tls\.crt}' | openssl base64 -d -A > identity-pilot-ca.crt
+
+curl --fail --cacert identity-pilot-ca.crt \
+  https://id.magicstick.local/realms/magicstick/.well-known/openid-configuration
+```
+
+Erst nachdem ein Neustart beziehungsweise Rollout des API Servers erfolgreich
+war und seine Readiness geprüft wurde, veröffentlichst du die nicht sensible
+Bestätigung für das Dashboard. Ersetze die beiden Endpunkte durch deine
+effektiven Werte:
+
+```bash
+KUBERNETES_API_SERVER='https://kubernetes-api.example.com:6443'
+OIDC_ISSUER='https://id.magicstick.local/realms/magicstick'
+
+kubectl -n identity-system create configmap magicstick-kubernetes-access-info \
+  --from-literal=enabled=true \
+  --from-literal="issuer-url=${OIDC_ISSUER}" \
+  --from-literal=client-id=magicstick-kubernetes \
+  --from-literal="api-server=${KUBERNETES_API_SERVER}" \
+  --from-file=oidc-ca.crt=identity-pilot-ca.crt \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+Die Dashboard-Kubeconfig enthält später nur öffentliche CAs und den
+`kubectl oidc-login`-Aufruf. Sie enthält weder Passwort noch Token oder
+Client-Secret. Kann dein Control Plane den lokalen Issuer nicht zuverlässig
+erreichen, erstelle die Bestätigungs-ConfigMap nicht und lasse den Download
+deaktiviert, bis ein passender DNS-/Netzwerkpfad geplant ist.
+
+### 6. Einmaligen Einrichtungscode erzeugen
 
 Auf einem Appliance-Host erledigt dies die lokale Host-Automatisierung. In
 einem bestehenden Cluster führst du den folgenden Bootstrap einmalig von einem
