@@ -1067,8 +1067,10 @@ class KubernetesAccessTests(unittest.TestCase):
             "kubernetes_access_info",
             "_base64_file",
             "request_json",
+            "list_resource",
             "settings_response",
             "_safe_https_endpoint",
+            "_appliance_api_server_endpoint",
         )
         self.originals = {name: self.server[name] for name in names}
         self.principal = {"subject": "admin-id", "username": "admin", "roles": ["magicstick-admin"]}
@@ -1139,6 +1141,51 @@ class KubernetesAccessTests(unittest.TestCase):
         with self.assertRaises(self.server["RequestError"]) as raised:
             self.server["kubernetes_access_info"](required=True)
         self.assertEqual(raised.exception.status, 409)
+
+    def test_cluster_configuration_rewrites_appliance_mdns_endpoint_to_control_plane_ip(self):
+        self.server["request_json"] = lambda method, path: {
+            "data": {
+                "enabled": "true",
+                "issuer-url": "https://id.magicstick.local/realms/magicstick",
+                "client-id": "magicstick-kubernetes",
+                "api-server": "https://magicstick.local:6443",
+                "oidc-ca.crt": "-----BEGIN CERTIFICATE-----\nCA\n-----END CERTIFICATE-----",
+            }
+        }
+        self.server["list_resource"] = lambda path: [{
+            "metadata": {
+                "name": "appliance",
+                "labels": {"node-role.kubernetes.io/control-plane": "true"},
+            },
+            "status": {
+                "conditions": [{"type": "Ready", "status": "True"}],
+                "addresses": [{"type": "InternalIP", "address": "192.0.2.44"}],
+            },
+        }]
+        self.server["settings_response"] = lambda: {"mdnsDomain": "magicstick.local"}
+        self.server["kubernetes_access_info"] = self.originals["kubernetes_access_info"]
+
+        result = self.server["kubernetes_access_info"](required=True)
+
+        self.assertEqual(result["apiServer"], "https://192.0.2.44:6443")
+
+    def test_cluster_configuration_preserves_platform_managed_api_endpoint(self):
+        self.server["request_json"] = lambda method, path: {
+            "data": {
+                "enabled": "true",
+                "issuer-url": "https://id.magicstick.local/realms/magicstick",
+                "client-id": "magicstick-kubernetes",
+                "api-server": "https://kubernetes-api.example.com:6443",
+                "oidc-ca.crt": "-----BEGIN CERTIFICATE-----\nCA\n-----END CERTIFICATE-----",
+            }
+        }
+        self.server["list_resource"] = lambda path: self.fail("managed endpoints must not inspect nodes")
+        self.server["settings_response"] = lambda: {"mdnsDomain": "magicstick.local"}
+        self.server["kubernetes_access_info"] = self.originals["kubernetes_access_info"]
+
+        result = self.server["kubernetes_access_info"](required=True)
+
+        self.assertEqual(result["apiServer"], "https://kubernetes-api.example.com:6443")
 
     def test_cluster_configuration_rejects_unsafe_endpoint_and_private_key_material(self):
         self.server["request_json"] = lambda method, path: {
@@ -1229,7 +1276,7 @@ class KubernetesAccessTests(unittest.TestCase):
             "configured": True,
             "issuerUrl": "https://id.magicstick.local/realms/magicstick",
             "clientId": "magicstick-kubernetes",
-            "apiServer": "https://magicstick.local:6443",
+            "apiServer": "https://192.0.2.44:6443",
             "oidcCa": "-----BEGIN CERTIFICATE-----\nOIDC-CA\n-----END CERTIFICATE-----\n",
         }
         self.server["_base64_file"] = lambda _path: "S1VCRVJORVRFUy1DQQ=="
@@ -1250,6 +1297,7 @@ class KubernetesAccessTests(unittest.TestCase):
         self.assertNotIn("bearer", content.lower())
         parsed = yaml.safe_load(content)
         self.assertEqual(parsed["current-context"], "alice@magicstick@magicstick")
+        self.assertEqual(parsed["clusters"][0]["cluster"]["server"], "https://192.0.2.44:6443")
         self.assertEqual(content.count("      server: "), 1)
         self.assertEqual(parsed["users"][0]["user"]["exec"]["interactiveMode"], "IfAvailable")
 

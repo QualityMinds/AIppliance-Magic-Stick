@@ -173,3 +173,9 @@ public API endpoint, OIDC issuer/client ID, a public CA certificate, and an
 `enabled` marker. Downloaded kubeconfigs contain the same public trust material
 and an OIDC exec-plugin declaration, never a token, password, private key, or
 OAuth client secret.
+
+Appliance K3s publishes its current private host IP as the API endpoint. The
+dashboard also upgrades a legacy marker that still names the appliance mDNS
+host to the current Ready control-plane `InternalIP` at download time. A
+platform-managed endpoint such as a control-plane load balancer or public-safe
+DNS name is preserved exactly as published.

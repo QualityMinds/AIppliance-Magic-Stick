@@ -248,7 +248,9 @@ curl --fail --cacert identity-pilot-ca.crt \
 Erst nachdem ein Neustart beziehungsweise Rollout des API Servers erfolgreich
 war und seine Readiness geprüft wurde, veröffentlichst du die nicht sensible
 Bestätigung für das Dashboard. Ersetze die beiden Endpunkte durch deine
-effektiven Werte:
+effektiven Werte. Der API-Endpunkt muss vom Arbeitsplatz und von GUI-Proxys wie
+OpenLens direkt auflösbar sein und im API-Server-Zertifikat stehen; verwende
+keinen nur per mDNS erreichbaren `.local`-Namen:
 
 ```bash
 KUBERNETES_API_SERVER='https://kubernetes-api.example.com:6443'

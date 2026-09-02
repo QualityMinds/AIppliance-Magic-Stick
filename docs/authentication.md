@@ -152,6 +152,13 @@ new tokens from carrying the Kubernetes group; an already issued token remains
 usable until its short expiry, so emergency revocation may additionally require
 API-server or realm-session incident procedures.
 
+For appliance-owned K3s, the kubeconfig uses the current private control-plane
+IP for `clusters[].cluster.server`. This is intentional: OpenLens and some
+other GUI clients resolve names inside their own proxy and may send `.local` to
+unicast DNS instead of mDNS. The Keycloak issuer remains the stable
+`https://id.<mdns-domain>/realms/magicstick` URL. After a DHCP address change,
+download a fresh kubeconfig; the API certificate includes the selected host IP.
+
 ## Dashboard User Lifecycle
 
 Administrators manage human identities from the dashboard **Users** tab. The

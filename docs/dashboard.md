@@ -240,6 +240,13 @@ plugin starts the Keycloak authorization-code/PKCE login in a browser. This is
 the same local Keycloak login for both local users and users brokered from
 Entra ID, Google, AWS, or another configured upstream provider.
 
+On appliance K3s, `clusters[].cluster.server` uses the current private
+control-plane IP rather than the `.local` hostname. This works in OpenLens and
+other clients whose proxy does not use the operating system mDNS resolver. The
+OIDC issuer continues to use `id.<mdns-domain>` and its embedded public CA.
+Download the kubeconfig again after the appliance receives a different DHCP
+address.
+
 Kubeconfig download remains disabled until the Kubernetes API server has OIDC
 enabled and the host or platform administrator has published the non-secret
 `identity-system/magicstick-kubernetes-access-info` ConfigMap. Assignment and
