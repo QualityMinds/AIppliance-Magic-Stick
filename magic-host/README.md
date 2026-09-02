@@ -114,5 +114,8 @@ Flux-managed identity CA, installs only its public certificate on the host,
 restarts K3s with the Keycloak issuer/client/group claim contract, and publishes
 non-secret readiness metadata for the dashboard's **Kubernetes Access** tab.
 This stage never writes a human token, password, client secret, or private CA
-key. See [../docs/authentication.md](../docs/authentication.md) for the access
-levels and kubeconfig flow.
+key. The readiness metadata uses the current private host IP for the Kubernetes
+API endpoint while retaining the mDNS-based Keycloak issuer. This avoids
+OpenLens proxy failures caused by clients that do not use the macOS mDNS
+resolver. See [../docs/authentication.md](../docs/authentication.md) for the
+access levels and kubeconfig flow.

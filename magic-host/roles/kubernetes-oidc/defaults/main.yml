@@ -10,7 +10,8 @@ kubernetes_oidc_ca_file: /etc/rancher/k3s/magicstick-oidc-ca.crt
 kubernetes_oidc_client_id: magicstick-kubernetes
 kubernetes_oidc_mdns_domain: "{{ ai_appliance_mdns_domain | default('magicstick.local', true) }}"
 kubernetes_oidc_issuer_url: "https://id.{{ kubernetes_oidc_mdns_domain }}/realms/magicstick"
-kubernetes_oidc_api_server: "https://{{ kubernetes_oidc_mdns_domain }}:6443"
-kubernetes_oidc_gateway_address: "{{ ansible_default_ipv4.address | default('127.0.0.1') }}"
+kubernetes_oidc_host_address: "{{ ansible_default_ipv4.address | default('127.0.0.1', true) }}"
+kubernetes_oidc_api_server: "https://{{ kubernetes_oidc_host_address }}:6443"
+kubernetes_oidc_gateway_address: "{{ kubernetes_oidc_host_address }}"
 kubernetes_oidc_ready_retries: 180
 kubernetes_oidc_ready_delay_seconds: 5

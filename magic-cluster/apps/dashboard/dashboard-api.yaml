@@ -11,6 +11,7 @@ data:
     #!/usr/bin/env python3
     import base64
     import hashlib
+    import ipaddress
     import json
     import os
     import re
@@ -790,6 +791,58 @@ data:
         )
 
 
+    def _appliance_api_server_endpoint(api_server, current_mdns_domain):
+        """Prefer a current control-plane IP when the marker still uses mDNS."""
+        if not _safe_https_endpoint(api_server):
+            return api_server
+        parsed = urllib.parse.urlsplit(api_server)
+        if parsed.hostname != current_mdns_domain:
+            return api_server
+        try:
+            nodes = list_resource("/api/v1/nodes")
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, TypeError, ValueError):
+            return api_server
+
+        def node_rank(node):
+            metadata = node.get("metadata") or {}
+            labels = metadata.get("labels") or {}
+            control_plane = any(
+                key in labels
+                for key in ("node-role.kubernetes.io/control-plane", "node-role.kubernetes.io/master")
+            )
+            ready = any(
+                condition.get("type") == "Ready" and condition.get("status") == "True"
+                for condition in ((node.get("status") or {}).get("conditions") or [])
+            )
+            return (0 if control_plane else 1, 0 if ready else 1, str(metadata.get("name") or ""))
+
+        for node in sorted(nodes, key=node_rank):
+            ready = any(
+                condition.get("type") == "Ready" and condition.get("status") == "True"
+                for condition in ((node.get("status") or {}).get("conditions") or [])
+            )
+            if not ready:
+                continue
+            for address in ((node.get("status") or {}).get("addresses") or []):
+                if address.get("type") != "InternalIP":
+                    continue
+                try:
+                    candidate = ipaddress.ip_address(str(address.get("address") or ""))
+                except ValueError:
+                    continue
+                if (
+                    not candidate.is_private
+                    or candidate.is_link_local
+                    or candidate.is_loopback
+                    or candidate.is_multicast
+                    or candidate.is_unspecified
+                ):
+                    continue
+                host = "[" + candidate.compressed + "]" if candidate.version == 6 else candidate.compressed
+                return "https://" + host + ":" + str(parsed.port or 443)
+        return api_server
+
+
     def kubernetes_access_info(required=False):
         path = (
             f"/api/v1/namespaces/{urllib.parse.quote(KUBERNETES_ACCESS_INFO_NAMESPACE, safe='')}"
@@ -817,6 +870,7 @@ data:
         except ValueError:
             current_mdns_domain = ""
         expected_issuer_url = f"https://id.{current_mdns_domain}/realms/magicstick"
+        api_server = _appliance_api_server_endpoint(api_server, current_mdns_domain)
         valid = (
             enabled
             and current_mdns_domain.endswith(".local")

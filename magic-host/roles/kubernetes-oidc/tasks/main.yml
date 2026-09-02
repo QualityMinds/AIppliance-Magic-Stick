@@ -100,6 +100,7 @@
     k3s_oidc_issuer_url: "{{ kubernetes_oidc_issuer_url }}"
     k3s_tls_sans:
       - "{{ kubernetes_oidc_mdns_domain }}"
+      - "{{ kubernetes_oidc_host_address }}"
 
 - name: Restart K3s when its OIDC trust changed
   ansible.builtin.meta: flush_handlers

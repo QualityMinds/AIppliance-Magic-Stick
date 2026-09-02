@@ -157,8 +157,10 @@ After the first administrator can sign in, the admin-only **Kubernetes Access**
 tab can assign Viewer, Operator, or Cluster Administrator access to an existing
 local or brokered Keycloak user. Appliance-owned K3s configures this OIDC path
 during host convergence. Install `kubectl oidc-login` on the administrator
-workstation before using a downloaded kubeconfig. Existing or managed clusters
-require the platform-specific API-server step in
+workstation before using a downloaded kubeconfig. Appliance kubeconfigs use the
+current private host IP for the Kubernetes API so OpenLens does not depend on
+mDNS; download the file again after a DHCP address change. Existing or managed
+clusters require the platform-specific API-server step in
 [installation/existing-kubernetes.md](installation/existing-kubernetes.md).
 
 ## Select Optional Capabilities

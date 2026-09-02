@@ -60,6 +60,10 @@ formalized, release entries should group changes under:
 
 ### Fixed
 
+- Downloaded Kubernetes SSO kubeconfigs now use the appliance's current private
+  control-plane IP instead of its mDNS name for the API endpoint, allowing
+  OpenLens and other proxying GUI clients to connect without `.local` DNS
+  support while preserving the stable Keycloak issuer.
 - The bare-metal first-run code now appears on a dedicated, periodically
   refreshed virtual console after cloud-init has finished. A centered,
   color-coded appliance panel separates the access paths, claim code, TLS
