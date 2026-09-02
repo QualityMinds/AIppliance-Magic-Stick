@@ -2301,6 +2301,60 @@ data:
         raise RequestError(400, "unsupported local engine: " + str(value))
 
 
+    def resolve_local_preset_artifact(local):
+        preset_name = str((local or {}).get("preset") or "").strip()
+        requested_artifact = str((local or {}).get("artifact") or "").strip()
+        if not preset_name:
+            if requested_artifact:
+                raise ValueError("local.artifact requires local.preset")
+            return None
+        preset = (model_presets().get(preset_name) or {})
+        if not preset:
+            raise ValueError("unknown local model preset: " + preset_name)
+        variants = preset.get("variants") or []
+        if not variants:
+            if requested_artifact:
+                raise ValueError("unknown local model artifact " + requested_artifact + " for legacy preset " + preset_name)
+            return None
+        engine = normalize_local_engine(local.get("engine"))
+        compute_target = str(local.get("computeTarget") or "nvidia-gpu").strip().lower()
+        candidates = [
+            variant for variant in variants
+            if str(variant.get("computeTarget") or "").strip().lower() == compute_target
+            and normalize_local_engine(variant.get("engine")) == engine
+        ]
+        if len(candidates) != 1:
+            raise ValueError(
+                "preset " + preset_name + " has no unique " + engine + "/" + compute_target + " variant"
+            )
+        variant = candidates[0]
+        artifacts = variant.get("artifacts") or []
+        if not artifacts:
+            if requested_artifact:
+                raise ValueError("unknown local model artifact " + requested_artifact + " for legacy preset " + preset_name)
+            return None
+        artifact_definitions = {
+            str(artifact.get("id") or "").strip(): artifact
+            for artifact in artifacts
+            if isinstance(artifact, dict) and str(artifact.get("id") or "").strip()
+        }
+        selected_id = requested_artifact or str(variant.get("defaultArtifact") or "").strip()
+        selected = artifact_definitions.get(selected_id)
+        if not selected:
+            raise ValueError(
+                "unknown local model artifact " + str(selected_id or "<none>")
+                + " for preset " + preset_name + " " + engine + "/" + compute_target
+            )
+        expected_url = str(selected.get("url") or "").strip()
+        legacy_variant_url = str(variant.get("url") or "").strip()
+        supplied_url = str(local.get("url") or "").strip()
+        if supplied_url and supplied_url not in {expected_url, legacy_variant_url}:
+            raise ValueError("local.url is controlled by the selected preset artifact")
+        local["artifact"] = selected_id
+        local.pop("url", None)
+        return selected
+
+
     def target_engine_profile(definition, engine):
         engine = normalize_local_engine(engine)
         profile = (definition.get("engineProfiles") or {}).get(engine)
@@ -3272,7 +3326,7 @@ data:
                 raise ValueError("local must be an object")
             local = {}
             allowed = {
-                "preset", "url", "modelType", "engine", "computeTarget", "vram", "vramMi",
+                "preset", "artifact", "url", "modelType", "engine", "computeTarget", "vram", "vramMi",
                 "memoryRequiredMi",
                 "contextWindow", "maxOutputTokens", "maxNumSeqs", "minReplicas", "maxReplicas",
             }
@@ -3286,6 +3340,8 @@ data:
             engine = normalize_local_engine(local.get("engine"))
             local["computeTarget"] = compute_target
             local["engine"] = engine
+            selected_artifact = resolve_local_preset_artifact(local)
+            resolved_model_url = str((selected_artifact or {}).get("url") or local.get("url") or "").strip()
             target_definition = ((compute_target_catalog().get("targets") or {}).get(compute_target) or {})
             if target_definition.get("kind") == "cpu" or compute_target == "cpu":
                 local.pop("vram", None)
@@ -3296,8 +3352,8 @@ data:
                     if not memory_required_mi or memory_required_mi < 16:
                         raise ValueError("local.memoryRequiredMi must be an integer of at least 16 MiB")
                     local["memoryRequiredMi"] = memory_required_mi
-                if engine == "VLLM" and local.get("url"):
-                    estimate = estimate_model_memory(local)
+                if engine == "VLLM" and resolved_model_url:
+                    estimate = estimate_model_memory({**local, "url": resolved_model_url})
                     minimum_mi = round_up_mib(estimate.get("minimumMi"))
                     kv_cache_mi = max(
                         MEMORY_RESERVATION_STEP_MI,

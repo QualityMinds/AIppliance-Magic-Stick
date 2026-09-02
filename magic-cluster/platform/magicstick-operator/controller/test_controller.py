@@ -726,6 +726,14 @@ class HelmAppInstanceTests(unittest.TestCase):
             ["properties"]["local"]
         )
         self.assertEqual(local_schema["properties"]["engine"]["enum"], ["VLLM", "OLlama"])
+        self.assertEqual(local_schema["properties"]["artifact"]["type"], "string")
+        status_schema = (
+            crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]
+            ["status"]["properties"]
+        )
+        self.assertEqual(status_schema["artifact"]["type"], "string")
+        self.assertEqual(status_schema["precision"]["type"], "string")
+        self.assertEqual(status_schema["quantization"]["type"], "string")
 
         manifest = yaml.safe_load((ROOT / "compute-target-catalog.yaml").read_text(encoding="utf-8"))
         catalog = yaml.safe_load(manifest["data"]["targets.json"])
@@ -734,6 +742,154 @@ class HelmAppInstanceTests(unittest.TestCase):
         self.assertEqual(catalog["targets"]["nvidia-gpu"]["engines"], ["VLLM", "OLlama"])
         self.assertEqual(catalog["targets"]["amd-gpu"]["engines"], ["VLLM", "OLlama"])
         self.assertEqual(catalog["targets"]["intel-gpu"]["engines"], ["VLLM"])
+
+    def artifact_preset(self):
+        return {
+            "artifact-demo": {
+                "title": "Artifact demo",
+                "modelType": "chat",
+                "features": ["TextGeneration"],
+                "contextWindow": 2048,
+                "variants": [
+                    {
+                        "id": "vllm-nvidia",
+                        "engine": "VLLM",
+                        "computeTarget": "nvidia-gpu",
+                        "resourceProfile": "magicstick-nvidia-gpu:1",
+                        "maxNumSeqs": 1,
+                        "defaultArtifact": "awq-int4",
+                        "artifacts": [
+                            {
+                                "id": "awq-int4",
+                                "title": "AWQ INT4",
+                                "precision": "INT4",
+                                "quantization": "AWQ",
+                                "url": "hf://example/demo-awq-int4",
+                                "vram": "8Gi",
+                                "vramMi": 8192,
+                            },
+                            {
+                                "id": "fp8",
+                                "title": "FP8",
+                                "precision": "FP8",
+                                "quantization": "FP8",
+                                "url": "hf://example/demo-fp8",
+                                "vram": "12Gi",
+                                "vramMi": 12288,
+                            },
+                        ],
+                    }
+                ],
+            }
+        }
+
+    def test_preset_variant_uses_default_artifact_and_then_allowed_local_overrides(self):
+        activation = {
+            "metadata": {"name": "artifact-default"},
+            "spec": {
+                "local": {
+                    "preset": "artifact-demo",
+                    "contextWindow": 4096,
+                    "url": "hf://attacker/forged-checkpoint",
+                    "unsupportedOverride": "must-not-leak",
+                }
+            },
+        }
+
+        resolved = self.controller["merged_local_model"](activation, self.artifact_preset())
+
+        self.assertEqual(resolved["artifact"], "awq-int4")
+        self.assertEqual(resolved["url"], "hf://example/demo-awq-int4")
+        self.assertEqual(resolved["precision"], "INT4")
+        self.assertEqual(resolved["quantization"], "AWQ")
+        self.assertEqual(resolved["vramMi"], 8192)
+        self.assertEqual(resolved["contextWindow"], 4096)
+        self.assertNotIn("artifacts", resolved)
+        self.assertNotIn("unsupportedOverride", resolved)
+
+    def test_preset_variant_resolves_explicit_artifact_from_allowlist(self):
+        activation = {
+            "metadata": {"name": "artifact-explicit"},
+            "spec": {"local": {"preset": "artifact-demo", "artifact": "fp8"}},
+        }
+
+        resolved = self.controller["merged_local_model"](activation, self.artifact_preset())
+
+        self.assertEqual(resolved["artifact"], "fp8")
+        self.assertEqual(resolved["url"], "hf://example/demo-fp8")
+        self.assertEqual(resolved["precision"], "FP8")
+        self.assertEqual(resolved["quantization"], "FP8")
+        self.assertEqual(resolved["vramMi"], 12288)
+        _resource, runtime = self.controller["kubeai_model_resource"](
+            activation,
+            self.artifact_preset(),
+        )
+        self.assertEqual(runtime["artifact"], "fp8")
+        self.assertEqual(runtime["precision"], "FP8")
+        self.assertEqual(runtime["quantization"], "FP8")
+
+    def test_model_status_persists_resolved_artifact_metadata(self):
+        patches = []
+        original = self.controller["patch_json"]
+        self.controller["patch_json"] = lambda path, payload: patches.append((path, payload))
+        try:
+            self.controller["patch_model_status"](
+                {"metadata": {"name": "artifact-status", "namespace": "ai-system"}},
+                "Ready",
+                "CatalogReady",
+                "ready",
+                artifact="awq-int4",
+                precision="INT4",
+                quantization="AWQ",
+            )
+        finally:
+            self.controller["patch_json"] = original
+
+        status = patches[0][1]["status"]
+        self.assertEqual(status["artifact"], "awq-int4")
+        self.assertEqual(status["precision"], "INT4")
+        self.assertEqual(status["quantization"], "AWQ")
+
+    def test_preset_variant_rejects_unknown_artifact(self):
+        activation = {
+            "metadata": {"name": "artifact-unknown"},
+            "spec": {"local": {"preset": "artifact-demo", "artifact": "not-allowed"}},
+        }
+
+        with self.assertRaisesRegex(ValueError, "unknown local model artifact not-allowed"):
+            self.controller["merged_local_model"](activation, self.artifact_preset())
+
+    def test_legacy_preset_variant_without_artifacts_remains_compatible(self):
+        presets = {
+            "legacy-demo": {
+                "modelType": "chat",
+                "variants": [
+                    {
+                        "id": "vllm-nvidia",
+                        "engine": "VLLM",
+                        "computeTarget": "nvidia-gpu",
+                        "url": "hf://example/legacy",
+                        "vram": "4Gi",
+                        "vramMi": 4096,
+                    }
+                ],
+            }
+        }
+        activation = {
+            "metadata": {"name": "legacy-compatible"},
+            "spec": {"local": {"preset": "legacy-demo"}},
+        }
+
+        resolved = self.controller["merged_local_model"](activation, presets)
+
+        self.assertEqual(resolved["url"], "hf://example/legacy")
+        self.assertNotIn("artifact", resolved)
+        activation["spec"]["local"]["url"] = "hf://example/legacy-override"
+        resolved = self.controller["merged_local_model"](activation, presets)
+        self.assertEqual(resolved["url"], "hf://example/legacy-override")
+        activation["spec"]["local"]["artifact"] = "fp8"
+        with self.assertRaisesRegex(ValueError, "unknown local model artifact fp8 for legacy preset"):
+            self.controller["merged_local_model"](activation, presets)
 
     def test_qwen38_preset_generates_validated_single_gpu_runtime(self):
         manifest = yaml.safe_load((ROOT / "model-presets.yaml").read_text(encoding="utf-8"))
@@ -754,6 +910,9 @@ class HelmAppInstanceTests(unittest.TestCase):
         self.assertEqual(runtime["vramMi"], 24062)
         self.assertEqual(runtime["computeTarget"], "nvidia-gpu")
         self.assertEqual(runtime["engine"], "VLLM")
+        self.assertEqual(runtime["artifact"], "awq-int4")
+        self.assertEqual(runtime["precision"], "int4")
+        self.assertEqual(runtime["quantization"], "awq")
         self.assertEqual(runtime["resourceProfile"], "magicstick-nvidia-gpu:1")
         self.assertEqual(resource["metadata"]["annotations"]["ai-appliance.io/context-window"], "20000")
         self.assertEqual(resource["metadata"]["annotations"]["ai-appliance.io/max-output-tokens"], "8192")
@@ -882,7 +1041,10 @@ class HelmAppInstanceTests(unittest.TestCase):
         self.assertEqual(runtime["resourceProfile"], "magicstick-ollama-cpu-memory:128")
         self.assertEqual(runtime["memoryMi"], 2048)
         self.assertEqual(resource["spec"]["engine"], "OLlama")
-        self.assertEqual(resource["spec"]["url"], "ollama://qwen2.5:0.5b")
+        self.assertEqual(resource["spec"]["url"], "ollama://qwen2.5:0.5b-instruct-q4_K_M")
+        self.assertEqual(runtime["artifact"], "q4-k-m")
+        self.assertEqual(runtime["precision"], "int4")
+        self.assertEqual(runtime["quantization"], "q4_k_m")
         self.assertEqual(resource["spec"]["args"], [])
         self.assertEqual(resource["spec"]["env"]["OLLAMA_CONTEXT_LENGTH"], "2048")
         self.assertEqual(resource["spec"]["env"]["OLLAMA_NUM_PARALLEL"], "1")

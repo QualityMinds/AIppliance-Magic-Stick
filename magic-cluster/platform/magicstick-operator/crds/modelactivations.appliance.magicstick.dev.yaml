@@ -88,6 +88,10 @@ spec:
                   properties:
                     preset:
                       type: string
+                    artifact:
+                      type: string
+                      minLength: 1
+                      description: Artifact ID selected from the resolved preset variant. When omitted, the variant defaultArtifact is used.
                     url:
                       type: string
                     modelType:
@@ -201,6 +205,12 @@ spec:
                 computeTarget:
                   type: string
                 engine:
+                  type: string
+                artifact:
+                  type: string
+                precision:
+                  type: string
+                quantization:
                   type: string
                 resolvedResourceProfile:
                   type: string

@@ -984,6 +984,9 @@ data:
         engine="",
         resource_profile="",
         memory_mi=0,
+        artifact="",
+        precision="",
+        quantization="",
     ):
         metadata = activation.get("metadata") or {}
         path = f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{metadata.get('namespace')}/modelactivations/{metadata.get('name')}/status"
@@ -994,6 +997,9 @@ data:
             "catalogId": catalog_id,
             "computeTarget": compute_target,
             "engine": engine,
+            "artifact": artifact,
+            "precision": precision,
+            "quantization": quantization,
             "resolvedResourceProfile": resource_profile,
             "vramRequiredMi": int(vram_mi or 0),
             "memoryRequiredMi": int(memory_mi or 0),
@@ -1405,6 +1411,8 @@ data:
         if local.get("preset") and not preset:
             raise ValueError("unknown local model preset: " + str(local.get("preset")))
         variants = preset.get("variants") or []
+        requested_artifact = str(local.get("artifact") or "").strip()
+        artifact_controls_url = False
         merged = {key: value for key, value in preset.items() if key != "variants"}
         if variants:
             candidates = [
@@ -1425,7 +1433,44 @@ data:
                 raise ValueError(
                     "preset " + str(preset_name) + " has no unique " + engine + "/" + compute_target + " variant for this cluster"
                 )
-            merged.update(candidates[0])
+            variant = candidates[0]
+            artifacts = variant.get("artifacts") or []
+            merged.update({key: value for key, value in variant.items() if key != "artifacts"})
+            if artifacts:
+                artifact_definitions = {}
+                for artifact_definition in artifacts:
+                    if not isinstance(artifact_definition, dict):
+                        raise ValueError(
+                            "preset " + str(preset_name) + " has an invalid artifact definition for "
+                            + engine + "/" + compute_target
+                        )
+                    artifact_id = str(artifact_definition.get("id") or "").strip()
+                    if not artifact_id or artifact_id in artifact_definitions:
+                        raise ValueError(
+                            "preset " + str(preset_name) + " has invalid or duplicate artifact IDs for "
+                            + engine + "/" + compute_target
+                        )
+                    artifact_definitions[artifact_id] = artifact_definition
+                selected_artifact_id = requested_artifact or str(variant.get("defaultArtifact") or "").strip()
+                selected_artifact = artifact_definitions.get(selected_artifact_id)
+                if not selected_artifact:
+                    raise ValueError(
+                        "unknown local model artifact " + str(selected_artifact_id or "<none>")
+                        + " for preset " + str(preset_name) + " " + engine + "/" + compute_target
+                    )
+                merged.update({key: value for key, value in selected_artifact.items() if key != "id"})
+                merged["artifact"] = selected_artifact_id
+                artifact_controls_url = True
+            elif requested_artifact:
+                raise ValueError(
+                    "unknown local model artifact " + requested_artifact + " for legacy preset "
+                    + str(preset_name) + " " + engine + "/" + compute_target
+                )
+        elif requested_artifact:
+            raise ValueError(
+                "unknown local model artifact " + requested_artifact + " for preset "
+                + str(preset_name) + " " + engine + "/" + compute_target
+            )
         elif preset and compute_target != "nvidia-gpu":
             raise ValueError("legacy preset " + str(preset_name) + " is only available for nvidia-gpu")
 
@@ -1437,7 +1482,29 @@ data:
         )
         if requested_profile and requested_profile != resolved_profile:
             raise ValueError("local.resourceProfile must be resolved from the selected compute target and preset")
-        merged.update(local)
+        local_override_fields = (
+            "modelType",
+            "features",
+            "vram",
+            "vramMi",
+            "memoryRequiredMi",
+            "contextWindow",
+            "context_window",
+            "maxOutputTokens",
+            "max_output_tokens",
+            "maxNumSeqs",
+            "max_num_seqs",
+            "kvCacheMemoryBytes",
+            "args",
+            "minReplicas",
+            "maxReplicas",
+            "env",
+        )
+        if not artifact_controls_url:
+            local_override_fields = ("url",) + local_override_fields
+        merged.update({key: local[key] for key in local_override_fields if key in local})
+        if local.get("preset"):
+            merged["preset"] = local.get("preset")
         merged["computeTarget"] = compute_target
         merged["engine"] = engine
         merged["resourceProfile"] = resolved_profile
@@ -1639,6 +1706,9 @@ data:
         }, {
             "computeTarget": compute_target,
             "engine": engine,
+            "artifact": str(local.get("artifact") or ""),
+            "precision": str(local.get("precision") or ""),
+            "quantization": str(local.get("quantization") or ""),
             "resourceProfile": resource_profile,
             "vramMi": vram_mi,
             "memoryMi": memory_mi,
@@ -1660,6 +1730,9 @@ data:
         runtime = {
             "computeTarget": local_compute_target(activation) if model_type == "local" else "external",
             "engine": str(((spec.get("local") or {}).get("engine") or "VLLM")) if model_type == "local" else "external",
+            "artifact": str(((spec.get("local") or {}).get("artifact") or "")) if model_type == "local" else "",
+            "precision": "",
+            "quantization": "",
             "resourceProfile": "",
             "vramMi": 0,
             "memoryMi": 0,
@@ -1672,6 +1745,9 @@ data:
                 "catalogId": catalog_id,
                 "computeTarget": runtime["computeTarget"],
                 "engine": runtime["engine"],
+                "artifact": runtime.get("artifact", ""),
+                "precision": runtime.get("precision", ""),
+                "quantization": runtime.get("quantization", ""),
                 "resolvedResourceProfile": runtime["resourceProfile"],
                 "vramRequiredMi": runtime["vramMi"],
                 "memoryRequiredMi": runtime["memoryMi"],
@@ -1692,6 +1768,9 @@ data:
                 engine=runtime["engine"],
                 resource_profile=runtime["resourceProfile"],
                 memory_mi=runtime["memoryMi"],
+                artifact=runtime.get("artifact", ""),
+                precision=runtime.get("precision", ""),
+                quantization=runtime.get("quantization", ""),
             )
 
         if metadata.get("deletionTimestamp"):

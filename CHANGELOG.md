@@ -41,6 +41,10 @@ formalized, release entries should group changes under:
 - Portable, backend-optimized Qwen3.5, Qwen3.6, and Qwen3.8 model presets with
   pinned Ollama Q4/Q8 tags, supported vLLM BF16/FP8/GPTQ/AWQ artifacts, and a
   Qwen3.5 4B capacity tier between the 2B and 9B models.
+- Catalog-controlled precision and quantization choices per inference engine
+  and compute target. The dashboard selects only allowlisted artifacts, applies
+  their checkpoint and memory plan, and reports the resolved artifact in model
+  status and installed-model cards.
 - Administrator-managed, SSO-bound Kubernetes access with Viewer, narrow
   Magic-Stick Operator, and explicit Cluster Administrator levels, plus
   token-free OIDC kubeconfig downloads for local or brokered Keycloak users.
@@ -49,6 +53,9 @@ formalized, release entries should group changes under:
 
 - The pinned Ollama CPU/NVIDIA and ROCm server images now use release `0.33.2`
   so the bundled runtime can parse the Qwen3.5, Qwen3.6, and Qwen3.8 formats.
+- Existing local `ModelActivation` resources remain compatible: when
+  `spec.local.artifact` is absent, the selected preset variant resolves its
+  declared `defaultArtifact`. Unknown artifact IDs fail closed.
 
 - Instance creation in the dashboard now uses a two-step dialog that lists all
   catalogued types, explains missing modules for unavailable types, and then

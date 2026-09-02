@@ -39,6 +39,7 @@ class LocalRuntimeTests(unittest.TestCase):
             "delete_json": self.server["delete_json"],
             "summarized_modules": self.server["summarized_modules"],
             "compute_target_catalog": self.server["compute_target_catalog"],
+            "model_presets": self.server["model_presets"],
             "ready_schedulable_nodes": self.server["ready_schedulable_nodes"],
             "hf_metadata": self.server["hf_metadata"],
             "ollama_metadata": self.server["ollama_metadata"],
@@ -125,6 +126,26 @@ class LocalRuntimeTests(unittest.TestCase):
                     "defaultResourceProfile": "magicstick-intel-i915-gpu:1",
                 },
             },
+        }
+        self.server["model_presets"] = lambda: {
+            "qwen2505bcpu": {
+                "variants": [
+                    {
+                        "engine": "OLlama",
+                        "computeTarget": "cpu",
+                        "url": "ollama://qwen2.5:0.5b",
+                        "defaultArtifact": "q4-k-m",
+                        "artifacts": [
+                            {
+                                "id": "q4-k-m",
+                                "url": "ollama://qwen2.5:0.5b-instruct-q4_K_M",
+                                "precision": "int4",
+                                "quantization": "q4_k_m",
+                            }
+                        ],
+                    }
+                ]
+            }
         }
         self.server["ready_schedulable_nodes"] = lambda: [{
             "metadata": {"labels": {"kubernetes.io/os": "linux"}},
@@ -396,12 +417,15 @@ class LocalRuntimeTests(unittest.TestCase):
             "local": {
                 "computeTarget": "cpu",
                 "preset": "qwen2505bcpu",
+                "artifact": "q4-k-m",
                 "vram": "99Gi",
                 "memoryRequiredMi": 3072,
                 "engine": "OLLAMA",
                 "resourceProfile": "attacker-profile:1",
                 "args": ["--trust-remote-code"],
                 "env": {"DANGEROUS": "true"},
+                "precision": "forged",
+                "quantization": "forged",
             },
         })
 
@@ -409,14 +433,62 @@ class LocalRuntimeTests(unittest.TestCase):
         self.assertEqual(local["computeTarget"], "cpu")
         self.assertEqual(local["engine"], "OLlama")
         self.assertEqual(local["preset"], "qwen2505bcpu")
+        self.assertEqual(local["artifact"], "q4-k-m")
         self.assertEqual(local["memoryRequiredMi"], 3072)
-        for forbidden in ("vram", "vramMi", "resourceProfile", "args", "env"):
+        self.assertNotIn("url", local)
+        for forbidden in ("vram", "vramMi", "resourceProfile", "args", "env", "precision", "quantization"):
             self.assertNotIn(forbidden, local)
         self.assertEqual(
             resource["metadata"]["labels"]["appliance.magicstick.dev/compute-target"],
             "cpu",
         )
         self.assertEqual(resource["metadata"]["labels"]["appliance.magicstick.dev/engine"], "ollama")
+
+    def test_local_model_payload_resolves_default_artifact_server_side(self):
+        resource = self.server["model_activation_payload"]("local", {
+            "name": "cpu-chat",
+            "local": {
+                "computeTarget": "cpu",
+                "preset": "qwen2505bcpu",
+                "memoryRequiredMi": 3072,
+                "engine": "OLlama",
+            },
+        })
+
+        self.assertEqual(resource["spec"]["local"]["artifact"], "q4-k-m")
+        self.assertNotIn("url", resource["spec"]["local"])
+
+        resource = self.server["model_activation_payload"]("local", {
+            "name": "cpu-chat",
+            "local": {
+                "computeTarget": "cpu",
+                "preset": "qwen2505bcpu",
+                "memoryRequiredMi": 3072,
+                "engine": "OLlama",
+                "url": "ollama://qwen2.5:0.5b",
+            },
+        })
+        self.assertEqual(resource["spec"]["local"]["artifact"], "q4-k-m")
+        self.assertNotIn("url", resource["spec"]["local"])
+
+    def test_local_model_payload_rejects_unknown_or_mismatched_artifact(self):
+        base = {
+            "name": "cpu-chat",
+            "local": {
+                "computeTarget": "cpu",
+                "preset": "qwen2505bcpu",
+                "memoryRequiredMi": 3072,
+                "engine": "OLlama",
+            },
+        }
+        base["local"]["artifact"] = "not-allowed"
+        with self.assertRaisesRegex(ValueError, "unknown local model artifact not-allowed"):
+            self.server["model_activation_payload"]("local", base)
+
+        base["local"]["artifact"] = "q4-k-m"
+        base["local"]["url"] = "ollama://attacker/forged"
+        with self.assertRaisesRegex(ValueError, "local.url is controlled"):
+            self.server["model_activation_payload"]("local", base)
 
     def test_gpu_model_payload_drops_cpu_memory_reservation(self):
         resource = self.server["model_activation_payload"]("local", {

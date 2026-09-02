@@ -51,7 +51,7 @@ class ModelPresetContractTests(unittest.TestCase):
         cls.presets = cls.catalog["presets"]
 
     def test_schema_and_requested_families_are_present(self):
-        self.assertEqual(self.catalog["schemaVersion"], 2)
+        self.assertEqual(self.catalog["schemaVersion"], 3)
         self.assertTrue(PORTABLE_PRESETS.issubset(self.presets))
         self.assertNotIn("qwen38flashnext", self.presets)
 
@@ -63,7 +63,14 @@ class ModelPresetContractTests(unittest.TestCase):
                 self.assertEqual(actual, PORTABLE_MATRIX)
                 self.assertEqual(len(actual), len(variants))
 
-    def test_variants_follow_runtime_url_and_memory_contracts(self):
+    def test_every_preset_keeps_one_variant_per_engine_and_compute_target(self):
+        for preset_id, preset in self.presets.items():
+            with self.subTest(preset=preset_id):
+                variants = preset["variants"]
+                keys = [(variant["engine"], variant["computeTarget"]) for variant in variants]
+                self.assertEqual(len(keys), len(set(keys)))
+
+    def test_variants_expose_valid_defaulted_artifact_allowlists(self):
         for preset_id, preset in self.presets.items():
             self.assertRegex(preset_id, r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
             for variant in preset["variants"]:
@@ -73,20 +80,47 @@ class ModelPresetContractTests(unittest.TestCase):
                     self.assertGreater(variant.get("contextWindow", 0), 0)
                     if "TextGeneration" in variant.get("features", []):
                         self.assertGreater(variant.get("maxNumSeqs", 0), 0)
-                    if engine == "VLLM":
-                        self.assertTrue(variant["url"].startswith("hf://"))
-                    else:
-                        self.assertEqual(engine, "OLlama")
-                        self.assertTrue(variant["url"].startswith("ollama://"))
-                        self.assertNotIn("args", variant)
-                        self.assertNotEqual(target, "intel-gpu")
-                    if target == "cpu":
-                        self.assertNotIn("vram", variant)
-                        self.assertNotIn("vramMi", variant)
-                        self.assertGreater(variant["memoryRequiredMi"], 0)
-                    else:
-                        self.assertGreater(variant["vramMi"], 0)
-                        self.assertEqual(memory_to_mib(variant["vram"]), variant["vramMi"])
+                    artifacts = variant["artifacts"]
+                    artifact_ids = [artifact["id"] for artifact in artifacts]
+                    self.assertTrue(artifacts)
+                    self.assertEqual(len(artifact_ids), len(set(artifact_ids)))
+                    self.assertIn(variant["defaultArtifact"], artifact_ids)
+                    for artifact in artifacts:
+                        with self.subTest(artifact=artifact["id"]):
+                            self.assertTrue(artifact.get("title"))
+                            self.assertTrue(artifact.get("precision"))
+                            if artifact.get("id") == "fp8":
+                                self.assertTrue(artifact.get("compatibilityNote"))
+                            if engine == "VLLM":
+                                self.assertTrue(artifact["url"].startswith("hf://"))
+                                self.assertEqual(artifact["format"], "safetensors")
+                            else:
+                                self.assertEqual(engine, "OLlama")
+                                self.assertTrue(artifact["url"].startswith("ollama://"))
+                                self.assertEqual(artifact["format"], "GGUF")
+                                self.assertNotIn("args", variant)
+                                self.assertNotEqual(target, "intel-gpu")
+                            if target == "cpu":
+                                self.assertNotIn("vram", artifact)
+                                self.assertNotIn("vramMi", artifact)
+                                self.assertGreater(artifact["memoryRequiredMi"], 0)
+                            else:
+                                self.assertGreater(artifact["vramMi"], 0)
+                                self.assertEqual(memory_to_mib(artifact["vram"]), artifact["vramMi"])
+
+    def test_ollama_quantization_metadata_names_the_real_gguf_quantizer(self):
+        for preset_id, preset in self.presets.items():
+            for variant in preset["variants"]:
+                if variant["engine"] != "OLlama":
+                    continue
+                for artifact in variant["artifacts"]:
+                    with self.subTest(preset=preset_id, target=variant["computeTarget"], artifact=artifact["id"]):
+                        if artifact["id"] == "q4-k-m":
+                            self.assertEqual(artifact["quantization"], "q4_k_m")
+                        elif artifact["id"] == "q8-0":
+                            self.assertEqual(artifact["quantization"], "q8_0")
+                        else:
+                            self.assertNotIn("quantization", artifact)
 
     def test_backend_specific_quantized_artifacts_are_explicitly_pinned(self):
         expected = {
@@ -103,7 +137,11 @@ class ModelPresetContractTests(unittest.TestCase):
         for preset_id, url in expected.items():
             with self.subTest(preset=preset_id):
                 ollama_urls = {
-                    variant["url"]
+                    next(
+                        artifact["url"]
+                        for artifact in variant["artifacts"]
+                        if artifact["id"] == variant["defaultArtifact"]
+                    )
                     for variant in self.presets[preset_id]["variants"]
                     if variant["engine"] == "OLlama"
                 }
@@ -112,11 +150,13 @@ class ModelPresetContractTests(unittest.TestCase):
         variants_35_27 = self.presets["qwen3527b"]["variants"]
         for target in ("nvidia-gpu", "intel-gpu"):
             variant = next(item for item in variants_35_27 if item["engine"] == "VLLM" and item["computeTarget"] == target)
-            self.assertEqual(variant["url"], "hf://Qwen/Qwen3.5-27B-GPTQ-Int4")
+            artifact = next(item for item in variant["artifacts"] if item["id"] == "gptq-int4")
+            self.assertEqual(artifact["url"], "hf://Qwen/Qwen3.5-27B-GPTQ-Int4")
 
         variants_36_27 = self.presets["qwen3627b"]["variants"]
         nvidia = next(item for item in variants_36_27 if item["engine"] == "VLLM" and item["computeTarget"] == "nvidia-gpu")
-        self.assertEqual(nvidia["url"], "hf://Qwen/Qwen3.6-27B-FP8")
+        artifact = next(item for item in nvidia["artifacts"] if item["id"] == "fp8")
+        self.assertEqual(artifact["url"], "hf://Qwen/Qwen3.6-27B-FP8")
 
     def test_official_huggingface_sources_cover_every_requested_base_model(self):
         expected = {
@@ -131,10 +171,11 @@ class ModelPresetContractTests(unittest.TestCase):
             "hf://Qwen/Qwen3.5-35B-A3B",
         }
         actual = {
-            variant["url"]
+            artifact["url"]
             for preset_id in PORTABLE_PRESETS
             for variant in self.presets[preset_id]["variants"]
-            if variant["url"].startswith("hf://Qwen/")
+            for artifact in variant["artifacts"]
+            if artifact["url"].startswith("hf://Qwen/")
         }
         self.assertTrue(expected.issubset(actual))
 

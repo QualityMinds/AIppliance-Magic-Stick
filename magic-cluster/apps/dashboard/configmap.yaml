@@ -2068,10 +2068,12 @@ data:
                         <label class="field">Name<input name="name" value="qwen352bvlembedding" /></label>
                         <label class="field">Type<select name="modelType"><option value="chat">chat</option><option value="embedding">embedding</option></select></label>
                         <label class="field">Preset<select name="preset" id="local-model-preset"><option value="qwen352bvlembedding">qwen352bvlembedding</option><option value="qwen3635b">qwen3635b</option><option value="qwen359b">qwen359b</option><option value="custom">Custom</option></select></label>
+                        <label class="field">Precision / Quantization<select name="artifact" id="local-model-artifact" aria-label="Precision / Quantization" disabled><option value="">Preset default</option></select></label>
                         <label class="field"><span id="local-model-url-label">Hugging Face URL</span><input id="local-model-url" name="url" placeholder="hf://example/model" /></label>
                         <label class="field">Max Num Seqs<input name="maxNumSeqs" type="number" min="1" placeholder="32" /></label>
                         <label class="field">Context Size<input name="contextWindow" type="number" min="1" value="4096" /></label>
                       </div>
+                      <p class="module-message" id="local-model-artifact-note" role="status" hidden></p>
                       <p class="module-message" id="cpu-runtime-summary" data-compute-target-section="cpu" hidden>CPU inference reserves the selected system RAM as the Kubernetes memory request for the model pod.</p>
                       <div class="vram-estimate" id="ram-reservation" data-compute-target-section="cpu" hidden>
                         <div class="vram-estimate-header">
@@ -2742,8 +2744,22 @@ data:
             activeComputeTarget = '';
             const engineField = $('local-model-engine');
             const targetField = $('local-model-compute-target');
+            const artifactField = $('local-model-artifact');
             if (engineField) { engineField.value = ''; }
             if (targetField) { targetField.value = ''; }
+            if (artifactField) {
+              artifactField.replaceChildren();
+              const option = document.createElement('option');
+              option.value = '';
+              option.textContent = 'Preset default';
+              artifactField.appendChild(option);
+              artifactField.disabled = true;
+            }
+            const artifactNote = $('local-model-artifact-note');
+            if (artifactNote) {
+              artifactNote.textContent = '';
+              artifactNote.hidden = true;
+            }
             renderedPresetSignature = '';
             localPresetLastApplied = '';
           };
@@ -2844,6 +2860,72 @@ data:
               && normalizeLocalEngine(item.engine || 'VLLM') === normalizeLocalEngine(engine)
             ));
             return variant ? { ...base, ...variant } : null;
+          };
+
+          const presetArtifacts = (variant) => Array.isArray((variant || {}).artifacts)
+            ? variant.artifacts.filter((artifact) => artifact && String(artifact.id || '').trim())
+            : [];
+
+          const resolvedPresetArtifact = (variant, artifactId = '') => {
+            if (!variant) { return { preset: null, artifact: null }; }
+            const artifacts = presetArtifacts(variant);
+            if (!artifacts.length) { return { preset: variant, artifact: null }; }
+            const requested = String(artifactId || variant.defaultArtifact || '').trim();
+            const artifact = artifacts.find((item) => String(item.id || '') === requested) || artifacts[0];
+            return {
+              preset: {
+                ...variant,
+                ...artifact,
+                engine: variant.engine,
+                computeTarget: variant.computeTarget,
+                artifact: String(artifact.id)
+              },
+              artifact
+            };
+          };
+
+          const selectedLocalArtifact = () => String((($('local-model-artifact') || {}).value) || '').trim();
+
+          const renderLocalArtifactNote = (artifact) => {
+            const note = $('local-model-artifact-note');
+            if (!note) { return; }
+            const message = String((artifact || {}).compatibilityNote || '').trim();
+            note.textContent = message;
+            note.hidden = !message;
+          };
+
+          const renderLocalArtifactOptions = (variant, requestedArtifact = '') => {
+            const select = $('local-model-artifact');
+            if (!select) { return ''; }
+            const artifacts = presetArtifacts(variant);
+            select.replaceChildren();
+            if (!artifacts.length) {
+              const option = document.createElement('option');
+              option.value = '';
+              option.textContent = 'Preset default';
+              select.appendChild(option);
+              select.value = '';
+              select.disabled = true;
+              renderLocalArtifactNote(null);
+              return '';
+            }
+            artifacts.forEach((artifact) => {
+              const option = document.createElement('option');
+              option.value = String(artifact.id);
+              option.textContent = String(artifact.title || artifact.id);
+              if (artifact.compatibilityNote) {
+                option.title = String(artifact.compatibilityNote);
+              }
+              select.appendChild(option);
+            });
+            const requested = String(requestedArtifact || variant.defaultArtifact || '').trim();
+            const selected = artifacts.some((artifact) => String(artifact.id) === requested)
+              ? requested
+              : String(artifacts[0].id);
+            select.disabled = false;
+            select.value = selected;
+            renderLocalArtifactNote(artifacts.find((artifact) => String(artifact.id) === selected));
+            return selected;
           };
 
           const renderEngineSpecificFields = () => {
@@ -4078,7 +4160,8 @@ data:
           const localPreset = (form) => {
             const presetName = String((form.elements.preset || {}).value || '').trim();
             const preset = ((latestModelPayload || {}).presets || {})[presetName] || {};
-            return presetVariant(preset, selectedComputeTarget(), selectedLocalEngine()) || {};
+            const variant = presetVariant(preset, selectedComputeTarget(), selectedLocalEngine());
+            return (resolvedPresetArtifact(variant, selectedLocalArtifact()).preset) || {};
           };
 
           const vramEstimatePayload = (form) => {
@@ -4087,6 +4170,7 @@ data:
             return {
               engine: selectedLocalEngine(),
               computeTarget: selectedComputeTarget(),
+              artifact: selectedLocalArtifact() || null,
               url: String((form.elements.url || {}).value || preset.url || '').trim(),
               contextWindow: formNumber(form, 'contextWindow') || Number(preset.contextWindow || 0) || null,
               maxNumSeqs: formNumber(form, 'maxNumSeqs') || Number(presetMaxNumSeqs(preset) || 0) || (modelTypeValue === 'embedding' ? 8 : 32),
@@ -4690,22 +4774,38 @@ data:
             const form = $('local-model-form');
             if (!form || !presetName) { return; }
             if (presetName === 'custom') {
+              renderLocalArtifactOptions(null);
+              if (form.elements.url) {
+                form.elements.url.readOnly = false;
+                form.elements.url.removeAttribute('title');
+              }
               if (computeTargetKind() === 'cpu') {
                 renderCpuMemoryReservation(formNumber(form, 'memoryRequiredMi') || defaultCpuMemoryReservationMi(), { applyPreset: false });
               }
               scheduleVramEstimate();
               return;
             }
-            const preset = presetVariant(
+            const variant = presetVariant(
               ((latestModelPayload || {}).presets || {})[presetName],
               selectedComputeTarget(),
               selectedLocalEngine()
             );
-            if (!preset) { return; }
+            if (!variant) {
+              renderLocalArtifactOptions(null);
+              return;
+            }
+            const requestedArtifact = options.preserveArtifact ? selectedLocalArtifact() : String(options.artifactId || '');
+            const artifactId = renderLocalArtifactOptions(variant, requestedArtifact);
+            const preset = resolvedPresetArtifact(variant, artifactId).preset;
+            if (form.elements.url) {
+              form.elements.url.readOnly = true;
+              form.elements.url.title = 'Controlled by the selected preset artifact.';
+            }
             const marker = [
               selectedLocalEngine(),
               selectedComputeTarget(),
               presetName,
+              artifactId,
               preset.vram || '',
               preset.vramMi || '',
               preset.memoryRequiredMi || '',
@@ -4715,6 +4815,17 @@ data:
               preset.type || preset.modelType || ''
             ].join('|');
             if (!options.force && localPresetLastApplied === marker) { return; }
+            if (options.artifactOnly) {
+              setFormValue(form, 'vram', preset.vram || (preset.vramMi ? preset.vramMi + 'Mi' : ''));
+              setFormValue(form, 'memoryRequiredMi', preset.memoryRequiredMi || defaultCpuMemoryReservationMi());
+              setFormValue(form, 'url', preset.url);
+              localPresetLastApplied = marker;
+              if (computeTargetKind() === 'cpu') {
+                renderCpuMemoryReservation(preset.memoryRequiredMi || defaultCpuMemoryReservationMi());
+              }
+              scheduleVramEstimate();
+              return;
+            }
             setFormValue(form, 'name', presetName);
             setFormValue(form, 'modelType', preset.type || preset.modelType);
             setFormValue(form, 'vram', preset.vram || (preset.vramMi ? preset.vramMi + 'Mi' : ''));
@@ -4866,6 +4977,36 @@ data:
             container.appendChild(item);
           };
 
+          const modelArtifactMetadata = (local, status, modelPayload) => {
+            const presetName = String((local || {}).preset || '').trim();
+            const preset = (((modelPayload || {}).presets || {})[presetName]) || {};
+            const targetId = String((status || {}).computeTarget || (local || {}).computeTarget || '').trim();
+            const engine = (status || {}).engine || (local || {}).engine || 'VLLM';
+            const variant = presetVariant(preset, targetId, engine);
+            const artifacts = presetArtifacts(variant);
+            const requestedId = String(
+              (status || {}).artifact
+              || (local || {}).artifact
+              || ((variant || {}).defaultArtifact)
+              || ''
+            ).trim();
+            const artifact = artifacts.find((item) => String(item.id || '') === requestedId) || {};
+            return {
+              id: requestedId,
+              format: (status || {}).format || (local || {}).format || artifact.format || '',
+              precision: (status || {}).precision || (local || {}).precision || artifact.precision || '',
+              quantization: (status || {}).quantization || (local || {}).quantization || artifact.quantization || '',
+              bits: (status || {}).bits || (local || {}).bits || artifact.bits || ''
+            };
+          };
+
+          const quantizationLabel = (artifact) => {
+            const quantization = String((artifact || {}).quantization || '').trim();
+            const bits = Number((artifact || {}).bits || 0);
+            if (!quantization) { return bits ? bits + '-bit' : ''; }
+            return quantization + (bits && !quantization.includes(String(bits)) ? ' / ' + bits + '-bit' : '');
+          };
+
           const renderModels = (modelPayload) => {
             const list = $('model-list');
             if (!list) { return; }
@@ -4919,8 +5060,13 @@ data:
                 const meta = document.createElement('div');
                 meta.className = 'model-meta';
                 const computeTargetId = status.computeTarget || local.computeTarget || (spec.type === 'local' ? 'nvidia-gpu' : 'external');
+                const artifact = modelArtifactMetadata(local, status, modelPayload);
                 appendModelMeta(meta, 'Compute', computeTargetId);
                 appendModelMeta(meta, 'Engine', status.engine || local.engine || (spec.type === 'local' ? 'VLLM' : ''));
+                appendModelMeta(meta, 'Artifact', artifact.id);
+                appendModelMeta(meta, 'Format', artifact.format);
+                appendModelMeta(meta, 'Precision', artifact.precision);
+                appendModelMeta(meta, 'Quantization', quantizationLabel(artifact));
                 if (computeTargetId === 'cpu') {
                   appendModelMeta(meta, 'RAM', status.memoryRequiredMi
                     ? formatMi(status.memoryRequiredMi)
@@ -6668,6 +6814,16 @@ data:
                 }
               });
             }
+            const localArtifactSelect = $('local-model-artifact');
+            if (localArtifactSelect) {
+              localArtifactSelect.addEventListener('change', () => {
+                applyLocalPresetFields(localPresetSelect ? localPresetSelect.value : '', {
+                  force: true,
+                  preserveArtifact: true,
+                  artifactOnly: true
+                });
+              });
+            }
             ['url', 'contextWindow', 'maxNumSeqs', 'modelType'].forEach((name) => {
               const field = localModelForm.elements[name];
               if (field) {
@@ -6769,8 +6925,11 @@ data:
               }
               if (preset !== 'custom') {
                 payload.local.preset = preset;
+                if ((data.get('artifact') || '').trim()) {
+                  payload.local.artifact = data.get('artifact').trim();
+                }
               }
-              if ((data.get('url') || '').trim()) {
+              if (preset === 'custom' && (data.get('url') || '').trim()) {
                 payload.local.url = data.get('url').trim();
               }
               if ((data.get('contextWindow') || '').trim()) {

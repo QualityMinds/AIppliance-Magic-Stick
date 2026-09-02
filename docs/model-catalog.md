@@ -110,14 +110,16 @@ The Dashboard uses persistent dropdowns for location, inference engine, and
 hardware. Selecting `External` reveals the provider form. Selecting `Local`
 adds engine and hardware dropdowns without hiding earlier selections. The
 hardware list contains only compute targets whose catalog entry supports the
-selected engine and whose live availability is `true`. The model form therefore
-cannot advertise an Intel, AMD, NVIDIA, or CPU path that the cluster cannot
-currently schedule. Every supported local variant receives a minimum and
-recommended memory estimate: vLLM on CPU/NVIDIA/AMD/Intel and Ollama on
-CPU/NVIDIA/AMD. The memory control caps allocations at the target's unreserved
-memory (`total memory - active model reservations`), independent of the separate
-live free-memory measurement, while retaining minimum and recommended markers
-in a gray overflow area when the model is larger than unreserved capacity.
+selected engine and whose live availability is `true`. After a preset is
+selected, **Precision / Quantization** lists only the artifacts declared by that
+engine/target variant. Selecting an artifact changes the checkpoint or Ollama
+tag and recalculates memory; it does not quantize a model during pod start.
+Every supported local artifact receives a minimum and recommended memory
+estimate: vLLM on CPU/NVIDIA/AMD/Intel and Ollama on CPU/NVIDIA/AMD. The memory
+control caps allocations at the target's unreserved memory (`total memory -
+active model reservations`), independent of the separate live free-memory
+measurement, while retaining minimum and recommended markers in a gray
+overflow area when the model is larger than unreserved capacity.
 
 vLLM calculations use public HuggingFace weight and architecture metadata.
 Ollama calculations use the exact model-layer bytes from the public registry
@@ -137,27 +139,37 @@ downward. The legacy fixed CPU profiles remain available so existing KubeAI
 Model resources can finish their migration.
 
 Every portable Qwen preset exposes vLLM on CPU, NVIDIA, AMD, and Intel plus
-Ollama on CPU, NVIDIA, and AMD. The artifact is deliberately target-specific:
-portable BF16 checkpoints cover the broad vLLM matrix, while a verified
-FP8/GPTQ/AWQ checkpoint replaces BF16 on selected accelerators and an explicit
-Q4/Q8 Ollama tag supplies the llama.cpp-based runtime. This avoids pretending
-that one quantization kernel works on every vendor.
+Ollama on CPU, NVIDIA, and AMD. Each engine/target variant now contains an
+allowlisted artifact set and one `defaultArtifact`. Portable BF16 checkpoints
+cover the broad vLLM matrix; FP8, GPTQ, or AWQ is offered only on target classes
+supported by the runtime. Ollama uses explicit GGUF Q4/Q8/full-precision tags.
+Existing `ModelActivation` resources that omit `spec.local.artifact` continue
+to resolve the former artifact through `defaultArtifact`.
 
-| Preset | Model family | vLLM artifact policy | Ollama artifact | Default planning budget | Context |
-|---|---|---|---|---|---:|
-| `qwen2505bcpu` | Qwen2.5 0.5B Instruct | official BF16 on CPU/NVIDIA/AMD/Intel | `qwen2.5:0.5b` on CPU/NVIDIA/AMD | 4 GiB vLLM; 2 GiB Ollama | 2048 |
-| `qwen3508b` | [Qwen3.5 0.8B](https://huggingface.co/Qwen/Qwen3.5-0.8B) | official BF16 on CPU/NVIDIA/AMD/Intel | `qwen3.5:0.8b-q8_0` | 4 GiB vLLM; 3 GiB Ollama | 32768 |
-| `qwen352b` | [Qwen3.5 2B](https://huggingface.co/Qwen/Qwen3.5-2B) | official BF16 on CPU/NVIDIA/AMD/Intel | `qwen3.5:2b-q4_K_M` | 8 GiB vLLM; 4 GiB Ollama | 32768 |
-| `qwen354b` | [Qwen3.5 4B](https://huggingface.co/Qwen/Qwen3.5-4B) | official BF16 on CPU/NVIDIA/AMD/Intel | `qwen3.5:4b-q4_K_M` | 14 GiB vLLM; 6 GiB Ollama | 32768 |
-| `qwen359b` | [Qwen3.5 9B](https://huggingface.co/Qwen/Qwen3.5-9B) | official BF16; existing AWQ 4-bit on NVIDIA | `qwen3.5:9b-q4_K_M` | 25 GiB BF16; 16 GiB NVIDIA AWQ; 10 GiB Ollama | 32768 |
-| `qwen3527b` | [Qwen3.5 27B](https://huggingface.co/Qwen/Qwen3.5-27B) | official BF16; official GPTQ Int4 on NVIDIA/Intel | `qwen3.5:27b-q4_K_M` | 64 GiB BF16; 40 GiB GPTQ; 24 GiB Ollama | 16384 |
-| `qwen3535b` | [Qwen3.5 35B A3B](https://huggingface.co/Qwen/Qwen3.5-35B-A3B) | official BF16; official GPTQ Int4 on NVIDIA/Intel | `qwen3.5:35b-a3b-q4_K_M` | 80 GiB BF16; 32 GiB GPTQ; 30 GiB Ollama | 16384 |
-| `qwen3627b` | [Qwen3.6 27B](https://huggingface.co/Qwen/Qwen3.6-27B) | official BF16; official FP8 on NVIDIA | `qwen3.6:27b-q4_K_M` | 64 GiB BF16; 40 GiB FP8; 24 GiB Ollama | 16384 |
-| `qwen3635b` | [Qwen3.6 35B A3B](https://huggingface.co/Qwen/Qwen3.6-35B-A3B) | official BF16; existing AWQ 4-bit on NVIDIA | `qwen3.6:35b-a3b-q4_K_M` | 80 GiB BF16; 15 GiB NVIDIA AWQ; 30 GiB Ollama | 16384 |
-| `qwen3827b` | [Qwen3.8 27B](https://huggingface.co/Qwen/Qwen3.8-27B) | official BF16; validated AWQ Int4 on NVIDIA | `qwen3.8:27b-q4_K_M` | 64 GiB BF16; 24062 MiB NVIDIA AWQ; 24 GiB Ollama | 20000 |
-| `qwen352bvlembedding` | Qwen3 VL Embedding 2B | NVIDIA AWQ 4-bit embedding runtime only | n/a | 5 GiB | 4096 |
+| Preset | Model family | Selectable vLLM artifacts | Selectable Ollama artifacts | Context |
+|---|---|---|---|---:|
+| `qwen2505bcpu` | Qwen2.5 0.5B Instruct | BF16; NVIDIA AWQ Int4/GPTQ Int4/GPTQ Int8; Intel GPTQ Int4/Int8 | Q4_K_M, Q8_0, FP16 | 2048 |
+| `qwen3508b` | [Qwen3.5 0.8B](https://huggingface.co/Qwen/Qwen3.5-0.8B) | BF16 | Q8_0, BF16 | 32768 |
+| `qwen352b` | [Qwen3.5 2B](https://huggingface.co/Qwen/Qwen3.5-2B) | BF16 | Q4_K_M, Q8_0, BF16 | 32768 |
+| `qwen354b` | [Qwen3.5 4B](https://huggingface.co/Qwen/Qwen3.5-4B) | BF16 | Q4_K_M, Q8_0, BF16 | 32768 |
+| `qwen359b` | [Qwen3.5 9B](https://huggingface.co/Qwen/Qwen3.5-9B) | BF16; NVIDIA AWQ Int4 | Q4_K_M, Q8_0, BF16 | 32768 |
+| `qwen3527b` | [Qwen3.5 27B](https://huggingface.co/Qwen/Qwen3.5-27B) | BF16; NVIDIA GPTQ Int4/FP8; AMD FP8; Intel GPTQ Int4 | Q4_K_M, Q8_0, BF16 | 16384 |
+| `qwen3535b` | [Qwen3.5 35B A3B](https://huggingface.co/Qwen/Qwen3.5-35B-A3B) | BF16; NVIDIA GPTQ Int4/FP8; AMD FP8; Intel GPTQ Int4 | Q4_K_M, Q8_0, BF16 | 16384 |
+| `qwen3627b` | [Qwen3.6 27B](https://huggingface.co/Qwen/Qwen3.6-27B) | BF16; NVIDIA/AMD FP8 | Q4_K_M, Q8_0, BF16 | 16384 |
+| `qwen3635b` | [Qwen3.6 35B A3B](https://huggingface.co/Qwen/Qwen3.6-35B-A3B) | BF16; NVIDIA AWQ Int4/FP8; AMD FP8 | Q4_K_M, Q8_0, BF16 | 16384 |
+| `qwen3827b` | [Qwen3.8 27B](https://huggingface.co/Qwen/Qwen3.8-27B) | BF16; NVIDIA AWQ Int4/FP8; AMD FP8 | Q4_K_M, Q8_0, BF16 | 20000 |
+| `qwen352bvlembedding` | Qwen3 VL Embedding 2B | NVIDIA AWQ Int4 | n/a | 4096 |
 
 The catalog uses explicit Ollama quantization tags rather than mutable aliases.
+Q4_K_M is the default where available; Q8_0 trades more memory for higher
+fidelity, while BF16/FP16 retains full precision. The 0.8B Qwen3.5 registry set
+has no Q4_K_M tag, so Q8_0 remains its default.
+Shared vLLM CPU variants deliberately remain BF16 because the same preset must
+run on both `amd64` and `arm64`, while vLLM's integer-quantization support is
+architecture-specific. CPU users who need a smaller quantized artifact can
+choose the Ollama engine and its pinned GGUF Q4_K_M or Q8_0 artifact. A future
+vLLM CPU quantized variant must be split and accepted per architecture rather
+than advertised as portable.
 The bundled Ollama runtime is pinned to `0.33.2` (and `0.33.2-rocm`) so it can
 parse the Qwen3.5, Qwen3.6, and Qwen3.8 model formats. The native Qwen context
 windows are larger than the safe defaults above; users can raise context after
@@ -176,7 +188,12 @@ and end-to-end acceptance.
 `spec.local.computeTarget` is immutable; recreate the activation to move a
 model between CPU and an accelerator, or between accelerator vendors. Missing
 values on existing resources keep legacy `nvidia-gpu` and `VLLM` behavior. The
-engine enum contains `VLLM` and KubeAI's exact `OLlama` value. CPU vLLM
+engine enum contains `VLLM` and KubeAI's exact `OLlama` value.
+`spec.local.artifact` selects one ID from the resolved preset variant. Omitting
+it selects `defaultArtifact`; an unknown ID is rejected by the operator. The
+resolved artifact URL remains catalog-controlled. Its artifact ID, precision,
+quantization, and resolved memory requirement are reported in
+`ModelActivation.status`. CPU vLLM
 variants use an explicit `--kv-cache-memory-bytes` value. For models created
 through the dashboard, the API derives `spec.local.kvCacheMemoryBytes` from
 architecture, context, and maximum sequences; the operator passes it through
@@ -197,7 +214,11 @@ targets the declared VRAM value is planning metadata; Kubernetes exposes exactly
 one GPU to the model pod and Ollama manages loading and any CPU offload itself.
 
 `qwen3827b` retains its validated single-GPU NVIDIA AWQ profile for a 24 GB-class
-GPU and now adds portable alternatives for the other supported targets. Every
+GPU and now also offers the official FP8 and BF16 checkpoints. NVIDIA FP8
+requires a compatible accelerator generation; AMD FP8 requires a compatible
+GPU/ROCm runtime. These choices therefore carry an explicit compatibility note
+and remain alternatives rather than changing a conservative BF16 default on
+AMD. Every
 new chat variant defaults to one sequence. The vLLM wrapper rejects an
 activation if its configured VRAM budget is larger than the memory reported by
 the selected GPU; in that case choose a smaller or more strongly quantized

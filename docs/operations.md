@@ -417,6 +417,22 @@ minimum or recommended markers to the right of that limit mean the model does
 not fit at that estimate; reduce model size, context, or concurrency rather than
 treating the gray area as allocatable capacity.
 
+After choosing a preset, use **Precision / Quantization** to select one of the
+artifacts allowed for that exact engine and compute target. The selection
+changes the checkpoint or Ollama tag and recalculates the memory plan; Magic
+Stick does not quantize a full-precision checkpoint while the model starts.
+For example, a Q4 Ollama artifact is a pinned GGUF registry tag, while a vLLM
+AWQ, GPTQ, or FP8 entry points at a separately published Hugging Face artifact.
+The selected artifact ID is stored in `spec.local.artifact` and appears in the
+installed-model card and `ModelActivation.status`.
+
+Do not copy artifact IDs between hardware targets. The operator checks the
+artifact against the selected preset variant and rejects unknown combinations.
+FP8 entries additionally require a GPU generation and runtime with FP8 support;
+the presence of a vendor device alone does not prove this capability. If an FP8
+model fails during loading, select the target's BF16 or supported integer
+artifact, or use hardware with the required FP8 support.
+
 For accelerator-backed vLLM models, the wrapper converts the selected MiB value
 directly into `selected / physical GPU memory`. It does not impose a hidden
 five-percent minimum; only the 98-percent upper safety cap remains. A very small

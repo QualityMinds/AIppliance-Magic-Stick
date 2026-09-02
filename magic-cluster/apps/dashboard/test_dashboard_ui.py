@@ -244,7 +244,25 @@ BROWSER_API_MOCK = r"""
     if (url.pathname === '/api/models') {
       return reply({
         models: [],
-        activations: [],
+        activations: [{
+          metadata: { name: 'installed-awq' },
+          spec: {
+            type: 'local',
+            enabled: true,
+            targetNamespace: 'ai',
+            local: {
+              preset: 'qwen3635b',
+              artifact: 'awq-int4',
+              computeTarget: 'nvidia-gpu',
+              engine: 'VLLM',
+              modelType: 'chat',
+              vramMi: 18000,
+              contextWindow: 32768,
+              maxNumSeqs: 4
+            }
+          },
+          status: { phase: 'Ready', computeTarget: 'nvidia-gpu', engine: 'VLLM' }
+        }],
         presets: {
           qwen2505bcpu: {
             displayName: 'Qwen 2.5 0.5B CPU',
@@ -256,7 +274,18 @@ BROWSER_API_MOCK = r"""
                 modelType: 'chat',
                 contextWindow: 2048,
                 maxNumSeqs: 1,
-                memoryRequiredMi: 4096
+                memoryRequiredMi: 4096,
+                defaultArtifact: 'int8',
+                artifacts: [
+                  {
+                    id: 'bf16', title: 'BF16', precision: 'BF16', format: 'safetensors',
+                    url: 'hf://Qwen/Qwen2.5-0.5B-Instruct', memoryRequiredMi: 4096
+                  },
+                  {
+                    id: 'int8', title: 'INT8', precision: 'INT8', quantization: 'INT8', bits: 8,
+                    format: 'safetensors', url: 'hf://example/qwen-cpu-int8', memoryRequiredMi: 2500
+                  }
+                ]
               },
               {
                 computeTarget: 'cpu',
@@ -265,7 +294,18 @@ BROWSER_API_MOCK = r"""
                 modelType: 'chat',
                 contextWindow: 2048,
                 maxNumSeqs: 1,
-                memoryRequiredMi: 2048
+                memoryRequiredMi: 2048,
+                defaultArtifact: 'q4-k-m',
+                artifacts: [
+                  {
+                    id: 'q4-k-m', title: 'GGUF Q4_K_M', precision: 'INT4', quantization: 'Q4_K_M', bits: 4,
+                    format: 'GGUF', url: 'ollama://qwen2.5:0.5b', memoryRequiredMi: 2048
+                  },
+                  {
+                    id: 'q8-0', title: 'GGUF Q8_0', precision: 'INT8', quantization: 'Q8_0', bits: 8,
+                    format: 'GGUF', url: 'ollama://qwen2.5:0.5b-instruct-q8_0', memoryRequiredMi: 2600
+                  }
+                ]
               },
               {
                 computeTarget: 'nvidia-gpu',
@@ -285,7 +325,19 @@ BROWSER_API_MOCK = r"""
               engine: 'VLLM',
               url: 'hf://example/qwen-gpu',
               modelType: 'chat',
-              vramMi: 46000
+              vramMi: 46000,
+              defaultArtifact: 'awq-int4',
+              artifacts: [
+                {
+                  id: 'bf16', title: 'BF16', precision: 'BF16', format: 'safetensors',
+                  url: 'hf://example/qwen-gpu-bf16', vramMi: 46000
+                },
+                {
+                  id: 'awq-int4', title: 'AWQ INT4', precision: 'INT4', quantization: 'AWQ', bits: 4,
+                  format: 'safetensors', url: 'hf://example/qwen-gpu-awq', vramMi: 18000,
+                  compatibilityNote: 'Requires compatible accelerator instructions.'
+                }
+              ]
             }]
           }
         },
@@ -681,6 +733,12 @@ BROWSER_ASSERTIONS = r"""
     assert(cpuGauge.textContent.includes('12 GiB unreserved'), 'CPU unreserved value is missing');
     assert(cpuGauge.textContent.includes('16 GiB total'), 'CPU total value is missing');
     assert(cpuGauge.getAttribute('aria-label').includes('10 GiB actually free'), 'CPU accessible free-memory value is missing');
+    const installedModelCard = Array.from(document.querySelectorAll('#model-list .module-card')).find((card) => card.textContent.includes('installed-awq'));
+    assert(installedModelCard, 'installed quantized model is missing');
+    assert(installedModelCard.textContent.includes('Artifact: awq-int4'), 'installed model artifact is missing');
+    assert(installedModelCard.textContent.includes('Format: safetensors'), 'installed model format is missing');
+    assert(installedModelCard.textContent.includes('Precision: INT4'), 'installed model precision is missing');
+    assert(installedModelCard.textContent.includes('Quantization: AWQ / 4-bit'), 'installed model quantization is missing');
     const modelCreateToggle = document.getElementById('model-create-toggle');
     const modelCreateFlow = document.getElementById('model-create-flow');
     assert(modelCreateToggle && modelCreateToggle.closest('.model-list-heading'), 'Create button is not beside Installed Models');
@@ -692,6 +750,7 @@ BROWSER_ASSERTIONS = r"""
     const sourceSelect = document.getElementById('model-source-select');
     const engineSelect = document.getElementById('local-model-engine');
     const computeSelect = document.getElementById('local-model-compute-target');
+    const artifactSelect = document.getElementById('local-model-artifact');
     const changeSelect = (select, value) => {
       select.value = value;
       select.dispatchEvent(new Event('change', { bubbles: true }));
@@ -723,7 +782,27 @@ BROWSER_ASSERTIONS = r"""
     assert(engineSelect.value === 'VLLM', 'selected vLLM engine was not stored');
     assert(computeSelect.value === 'nvidia-gpu', 'selected NVIDIA target was not stored');
     assert(document.getElementById('local-model-preset').value === 'qwen3635b', 'NVIDIA-incompatible presets were not filtered');
+    assert(artifactSelect.value === 'awq-int4', 'default NVIDIA artifact was not selected');
+    assert(Array.from(artifactSelect.options).map((option) => option.textContent).join(',') === 'BF16,AWQ INT4', 'artifact titles are not shown');
+    assert(document.getElementById('local-model-url').value === 'hf://example/qwen-gpu-awq', 'default artifact URL was not applied');
+    assert(document.getElementById('local-model-url').readOnly, 'catalog artifact URL must be read only');
+    assert(document.getElementById('local-model-artifact-note').textContent.includes('compatible accelerator'), 'artifact compatibility note is missing');
     await waitFor(() => memoryEstimateCallExists('VLLM', 'nvidia-gpu'), 'vLLM NVIDIA memory estimate request');
+    document.getElementById('local-model-form').elements.name.value = 'my-custom-name';
+    document.getElementById('local-model-form').elements.contextWindow.value = '12345';
+    document.getElementById('local-model-form').elements.maxNumSeqs.value = '3';
+    changeSelect(artifactSelect, 'bf16');
+    await waitFor(() => document.getElementById('local-model-url').value === 'hf://example/qwen-gpu-bf16', 'changed artifact URL');
+    assert(document.getElementById('local-model-form').elements.name.value === 'my-custom-name', 'artifact change reset the model name');
+    assert(document.getElementById('local-model-form').elements.contextWindow.value === '12345', 'artifact change reset context size');
+    assert(document.getElementById('local-model-form').elements.maxNumSeqs.value === '3', 'artifact change reset max sequences');
+    assert(document.getElementById('local-model-artifact-note').hidden, 'stale artifact compatibility note remained visible');
+    await waitFor(() => window.__dashboardBrowserCalls.some((call) => (
+      call.method === 'POST'
+      && call.path.split('?')[0] === '/api/models/estimate-memory'
+      && call.body.artifact === 'bf16'
+      && call.body.url === 'hf://example/qwen-gpu-bf16'
+    )), 'memory estimate for changed artifact');
     await waitFor(() => document.getElementById('vram-estimate-slider').max === '16300', 'VRAM capacity slider');
     assert(document.getElementById('vram-estimate-maximum').textContent === '15.9 GiB', '100% does not use the safe 100 MiB-rounded GPU capacity');
     assert(document.getElementById('vram-available-marker').textContent.includes('100% unreserved'), 'unreserved maximum marker is missing');
@@ -740,6 +819,8 @@ BROWSER_ASSERTIONS = r"""
     await waitFor(() => document.getElementById('ram-estimate-recommended').textContent === '4.0 GiB', 'vLLM CPU recommended RAM');
     assert(!document.getElementById('local-model-form').hidden, 'CPU local model form did not stay open');
     assert(document.getElementById('local-model-preset').value === 'qwen2505bcpu', 'CPU-incompatible presets were not filtered');
+    assert(artifactSelect.value === 'int8', 'default CPU artifact was not selected');
+    assert(document.getElementById('local-model-url').value === 'hf://example/qwen-cpu-int8', 'CPU artifact URL was not applied');
     assert(!document.getElementById('cpu-runtime-summary').hidden, 'CPU runtime summary is hidden');
     assert(document.getElementById('vram-estimate').hidden, 'VRAM controls are visible for CPU inference');
     assert(!document.getElementById('ram-reservation').hidden, 'CPU RAM reservation is hidden');
@@ -760,6 +841,7 @@ BROWSER_ASSERTIONS = r"""
     const ollamaTargets = Array.from(computeSelect.options).map((option) => option.value).filter(Boolean);
     assert(!ollamaTargets.includes('intel-gpu'), 'unsupported Ollama Intel target is visible');
     await waitFor(() => document.getElementById('local-model-url').value === 'ollama://qwen2.5:0.5b', 'Ollama preset fields');
+    assert(artifactSelect.value === 'q4-k-m', 'default Ollama artifact was not selected');
     assert(document.getElementById('local-model-url-label').textContent === 'Ollama Model URL', 'Ollama URL label is missing');
     assert(engineSelect.value === 'OLlama', 'selected Ollama engine was not stored');
     assert(!document.getElementById('ram-reservation').hidden, 'Ollama CPU RAM reservation is hidden');
@@ -771,11 +853,13 @@ BROWSER_ASSERTIONS = r"""
     changeSelect(computeSelect, 'nvidia-gpu');
     await waitFor(() => memoryEstimateCallExists('OLlama', 'nvidia-gpu'), 'Ollama NVIDIA memory estimate request');
     await waitFor(() => !document.getElementById('vram-estimate').hidden, 'Ollama GPU memory estimate');
+    assert(artifactSelect.disabled && artifactSelect.value === '', 'legacy preset variant without artifacts is not backward compatible');
     assert(!document.getElementById('ollama-runtime-summary').hidden, 'Ollama estimate explanation is hidden');
     assert(document.getElementById('vram-estimate-recommended').textContent === '1.7 GiB', 'Ollama NVIDIA recommended VRAM is missing');
     assert(document.getElementById('vram-estimate-selected').textContent.includes('1.7 GiB'), 'Ollama NVIDIA recommendation was not selected');
     changeSelect(computeSelect, 'cpu');
     await waitFor(() => !document.getElementById('ram-reservation').hidden, 'return to Ollama CPU reservation');
+    assert(!artifactSelect.disabled && artifactSelect.value === 'q4-k-m', 'artifact selection did not return for the CPU variant');
 
     changeSelect(sourceSelect, 'external');
     await waitFor(() => !document.getElementById('external-model-form').hidden, 'external model form');
@@ -785,12 +869,16 @@ BROWSER_ASSERTIONS = r"""
     await waitFor(() => !document.getElementById('local-model-form').hidden, 'return to persistent local configuration');
     assert(engineSelect.value === 'OLlama', 'engine selection was lost after switching source');
     assert(computeSelect.value === 'cpu', 'hardware selection was lost after switching source');
+    changeSelect(artifactSelect, 'q8-0');
+    await waitFor(() => document.getElementById('local-model-url').value === 'ollama://qwen2.5:0.5b-instruct-q8_0', 'selected Ollama artifact URL');
     ramSlider.value = '4096';
     ramSlider.dispatchEvent(new Event('input', { bubbles: true }));
     document.getElementById('local-model-form').requestSubmit();
     await waitFor(() => callExists('POST', '/api/models/local'), 'local model creation');
     const localModelCall = window.__dashboardBrowserCalls.find((call) => call.method === 'POST' && call.path === '/api/models/local');
     assert(localModelCall.body.local.memoryRequiredMi === 4100, 'Ollama CPU memory reservation was not submitted in 100 MiB increments');
+    assert(localModelCall.body.local.artifact === 'q8-0', 'selected artifact was not submitted');
+    assert(!Object.prototype.hasOwnProperty.call(localModelCall.body.local, 'url'), 'catalog artifact URL must not be duplicated in the activation');
     await waitFor(() => modelCreateFlow.hidden, 'close model creation form after submit');
     assert(modelCreateToggle.getAttribute('aria-expanded') === 'false', 'Create button expansion state stayed open after submit');
     assert(modelCreateToggle.textContent === 'Create', 'Create button label was not restored after submit');
@@ -1163,6 +1251,8 @@ class DashboardUserManagementUiTests(unittest.TestCase):
         self.assertIn('id="model-compute-field"', self.source)
         self.assertIn('id="local-model-compute-target"', self.source)
         self.assertIn('id="local-model-engine"', self.source)
+        self.assertIn('id="local-model-artifact"', self.source)
+        self.assertIn('Precision / Quantization', self.source)
         self.assertNotIn('model-create-wizard', self.source)
         self.assertNotIn('model-create-step-label', self.source)
         self.assertNotIn('model-engine-back', self.source)
@@ -1204,11 +1294,24 @@ class DashboardUserManagementUiTests(unittest.TestCase):
         self.assertIn("if (localForm) { localForm.hidden = !local || !selectedComputeTarget(); }", self.script)
         self.assertIn(".filter((target) => target.available === true", self.script)
         self.assertIn("const presetVariant = (preset, targetId, engine = selectedLocalEngine()) =>", self.script)
+        self.assertIn("const presetArtifacts = (variant) =>", self.script)
+        self.assertIn("const resolvedPresetArtifact = (variant, artifactId = '') =>", self.script)
+        self.assertIn("const renderLocalArtifactOptions = (variant, requestedArtifact = '') =>", self.script)
+        self.assertIn("localArtifactSelect.addEventListener('change'", self.script)
+        self.assertIn("artifact: selectedLocalArtifact() || null", self.script)
+        self.assertIn("payload.local.artifact = data.get('artifact').trim();", self.script)
         self.assertIn("targetSupportsEngine(target, engine)", self.script)
         self.assertIn("computeTarget: computeTargetId", self.script)
         self.assertIn("const engine = selectedLocalEngine()", self.script)
         self.assertIn("engine\n", self.script)
         self.assertIn("if (computeTargetKind(computeTargetId) === 'gpu')", self.script)
+
+    def test_installed_models_render_artifact_precision_and_quantization(self):
+        self.assertIn("const modelArtifactMetadata = (local, status, modelPayload) =>", self.script)
+        self.assertIn("appendModelMeta(meta, 'Artifact', artifact.id);", self.script)
+        self.assertIn("appendModelMeta(meta, 'Format', artifact.format);", self.script)
+        self.assertIn("appendModelMeta(meta, 'Precision', artifact.precision);", self.script)
+        self.assertIn("appendModelMeta(meta, 'Quantization', quantizationLabel(artifact));", self.script)
 
     def test_system_status_shows_all_hardware_operator_lifecycle_states(self):
         self.assertIn("<h3>GPU Operators</h3>", self.source)

@@ -363,10 +363,14 @@ The **Create** button beside **Installed Models** opens the model form directly
 in that section. The form starts with a persistent location dropdown containing
 `Local` and `External`. The external choice reveals the existing provider form.
 For a local model, inference engine and hardware appear as additional dropdowns
-above the model form. Every completed selection remains visible and can be
-changed directly; there are no wizard steps or back buttons. Engine and hardware
-choices are filtered by current cluster capability. Unavailable CPU or
-accelerator targets are omitted instead of being presented as disabled choices.
+above the model form. The model form keeps the preset and **Precision /
+Quantization** dropdowns visible. Quantization options are populated from the
+selected preset's engine/hardware artifact allowlist; changing the selection
+updates the URL and memory estimate. Every completed selection remains visible
+and can be changed directly; there are no wizard steps or back buttons. Engine
+and hardware choices are filtered by current cluster capability. Unavailable
+CPU or accelerator targets are omitted instead of being presented as disabled
+choices.
 
 vLLM accepts `hf://` model references; Ollama uses `ollama://` references.
 `cpu` is available on a compatible Ready Linux node. `nvidia-gpu`, `amd-gpu`,
@@ -447,16 +451,25 @@ free value. This preserves an honest UI while keeping the response contract
 ready for additional vendor metric adapters.
 
 The preset selector is populated from `ConfigMap/magicstick-model-presets` and
-shows only variants compatible with the selected engine and target.
+shows only variants compatible with the selected engine and target. Each
+variant may declare `defaultArtifact` and `artifacts[]`; the artifact entries
+carry their own checkpoint/tag, precision, quantization method, and planning
+budget. The selected ID is stored in `spec.local.artifact` and displayed on the
+installed-model card. Existing resources without that field continue to use the
+variant default. For catalog presets, the URL is derived from the artifact and
+remains read-only; selecting `Custom` is the explicit path for a user-supplied
+URL. An artifact `compatibilityNote`, for example an FP8 hardware requirement,
+is shown directly below the dropdown. Such a note is a warning rather than a
+replacement for accelerator-generation acceptance testing.
 `qwen2505bcpu` remains the portable smoke preset. The expanded Qwen3.5,
 Qwen3.6, and Qwen3.8 catalog uses official Hugging Face checkpoints plus
 target-specific FP8/GPTQ/AWQ artifacts where the runtime supports them, and
-explicit Q4/Q8 Ollama tags on CPU, NVIDIA, and AMD. Qwen3.5 4B fills the useful
+explicit Q4_K_M/Q8_0/BF16 Ollama tags on CPU, NVIDIA, and AMD. Qwen3.5 4B fills the useful
 capacity gap between the 2B and 9B presets. `qwen3827b` retains its validated
-single-NVIDIA-GPU AWQ variant. Selecting a preset fills its target-specific
-context, output-token, concurrency, memory, and runtime values before the
-activation is submitted. The model catalog propagates consumer limits into
-managed KubeOpenCode templates.
+single-NVIDIA-GPU AWQ default and adds official FP8 and BF16 alternatives.
+Selecting a preset and artifact fills its target-specific context, output-token,
+concurrency, memory, and runtime values before the activation is submitted. The
+model catalog propagates consumer limits into managed KubeOpenCode templates.
 
 The default dashboard is GPU-neutral. External models do not require or activate
 GPU or KubeAI modules. CPU model creation remains available without any GPU

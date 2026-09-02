@@ -186,6 +186,7 @@ spec:
   targetNamespace: ai
   local:
     preset: qwen352bvlembedding
+    artifact: awq-int4
     computeTarget: nvidia-gpu
     vram: 5Gi
 ```
@@ -206,6 +207,7 @@ spec:
   targetNamespace: ai
   local:
     preset: qwen2505bcpu
+    artifact: bf16
     computeTarget: cpu
     engine: VLLM
     memoryRequiredMi: 4096
@@ -222,6 +224,15 @@ derived server-side from HuggingFace architecture metadata, context size, and
 maximum sequences. Direct and legacy resources may omit it and receive the
 operator's 512 MiB compatibility fallback.
 
+`local.artifact` is an ID from the preset variant selected by `engine` and
+`computeTarget`. For example, Qwen presets can expose `bf16`, `fp8`,
+`awq-int4`, `gptq-int4`, `q4-k-m`, or `q8-0` where the runtime and target are
+compatible. Every variant declares one `defaultArtifact`, so the field remains
+optional for resources created before artifact selection existed. Unknown IDs
+are rejected. The operator resolves the artifact URL and its precision,
+quantization, and memory defaults from the Git-owned catalog rather than
+accepting arbitrary runtime flags.
+
 The same portable preset can target AMD ROCm or Intel XPU when the dashboard
 reports that provider as available:
 
@@ -232,6 +243,7 @@ spec:
   targetNamespace: ai
   local:
     preset: qwen2505bcpu
+    artifact: bf16
     computeTarget: amd-gpu # alternatively intel-gpu or nvidia-gpu
     engine: VLLM
     vram: 4Gi
@@ -251,6 +263,7 @@ spec:
   targetNamespace: ai
   local:
     preset: qwen2505bcpu
+    artifact: q4-k-m # alternatively q8-0 or fp16 for this preset
     computeTarget: cpu # alternatively nvidia-gpu or amd-gpu
     engine: OLlama
     memoryRequiredMi: 2048
