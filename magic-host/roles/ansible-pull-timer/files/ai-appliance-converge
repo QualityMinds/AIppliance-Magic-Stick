@@ -74,6 +74,12 @@ if [[ "$FLUX_BOOTSTRAP_MODE" == "github" ]]; then
 fi
 ASKPASS_FILE=""
 
+# Public bootstrap must never stop to request credentials. Some Git/libcurl
+# combinations receive an invalid authentication response while reusing an
+# HTTP/2 connection to an otherwise reachable public repository. Keep the
+# default transport as the first attempt and retry once with HTTP/1.1.
+export GIT_TERMINAL_PROMPT=0
+
 cleanup() {
   if [[ -n "$ASKPASS_FILE" && -f "$ASKPASS_FILE" ]]; then
     rm -f "$ASKPASS_FILE"
@@ -98,8 +104,29 @@ case "$1" in
 esac
 EOF
   export GIT_ASKPASS="$ASKPASS_FILE"
-  export GIT_TERMINAL_PROMPT=0
 fi
+
+git_with_http11_fallback() {
+  if git "$@"; then
+    return 0
+  fi
+
+  echo "[magicstick] Git transport failed; retrying with HTTP/1.1." >&2
+  git -c http.version=HTTP/1.1 "$@"
+}
+
+git_clone_with_http11_fallback() {
+  local repo_url="$1"
+  local checkout_dir="$2"
+
+  if git clone --no-checkout "$repo_url" "$checkout_dir"; then
+    return 0
+  fi
+
+  echo "[magicstick] Git clone failed; retrying with HTTP/1.1." >&2
+  rm -rf "$checkout_dir"
+  git -c http.version=HTTP/1.1 clone --no-checkout "$repo_url" "$checkout_dir"
+}
 
 sync_repo() {
   local repo_url="$1"
@@ -112,10 +139,10 @@ sync_repo() {
     git -C "$checkout_dir" remote set-url origin "$repo_url"
   else
     rm -rf "$checkout_dir"
-    git clone --no-checkout "$repo_url" "$checkout_dir"
+    git_clone_with_http11_fallback "$repo_url" "$checkout_dir"
   fi
 
-  git -C "$checkout_dir" fetch --tags --prune origin
+  git_with_http11_fallback -C "$checkout_dir" fetch --tags --prune origin
 
   if git -C "$checkout_dir" show-ref --verify --quiet "refs/remotes/origin/${ref}"; then
     git -C "$checkout_dir" checkout --force -B "$ref" "origin/${ref}"
