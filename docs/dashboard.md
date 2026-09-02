@@ -60,7 +60,7 @@ Paperclip, KubeOpenCode, KubeAI, LiteLLM, or direct app instance reconcilers.
 | Models | Creates/removes local and external model activations, selects CPU or an available NVIDIA/AMD/Intel target, estimates accelerator memory, and shows compact per-device memory gauges. |
 | Users | Gives administrators a paginated Keycloak user overview and local-user lifecycle controls. |
 | API Access | Lets administrators create multiple named LiteLLM API keys, view their non-secret metadata, and revoke individual keys. |
-| Kubernetes Access | Lets administrators assign Viewer, Operator, or Cluster Administrator access to existing SSO identities and download token-free OIDC kubeconfigs. |
+| Kubernetes Access | Lets administrators assign Viewer, Operator, or Cluster Administrator access to existing SSO identities and download or copy token-free OIDC kubeconfigs. |
 | System Status | Shows NVIDIA, AMD, and Intel detection/operator/resource state plus Flux, Pod, Service, Ingress, and Event status. |
 | Settings | Edits appliance-wide public and mDNS domain settings. The public dashboard host is always derived from the public domain. |
 
@@ -230,9 +230,10 @@ Only one of these groups is retained as direct membership. Removing access
 removes all three. Protected recovery identities cannot be changed, and a
 disabled identity cannot receive a new grant. Every change requests a Keycloak
 logout and emits a structured `magicstick.kubernetes-access` audit line without
-credentials or request bodies.
+credentials or request bodies. Download and clipboard copy use the same audited,
+read-only kubeconfig retrieval endpoint.
 
-The downloaded kubeconfig contains the Kubernetes cluster CA, the public local
+The downloaded or copied kubeconfig contains the Kubernetes cluster CA, the public local
 identity CA, issuer/client metadata, and a `client.authentication.k8s.io/v1`
 exec stanza for `kubectl oidc-login get-token`. It deliberately contains no
 bearer token, refresh token, password, or OAuth client secret. On first use the
@@ -247,7 +248,7 @@ OIDC issuer continues to use `id.<mdns-domain>` and its embedded public CA.
 Download the kubeconfig again after the appliance receives a different DHCP
 address.
 
-Kubeconfig download remains disabled until the Kubernetes API server has OIDC
+Kubeconfig download and clipboard copy remain disabled until the Kubernetes API server has OIDC
 enabled and the host or platform administrator has published the non-secret
 `identity-system/magicstick-kubernetes-access-info` ConfigMap. Assignment and
 download lists are loaded lazily rather than during the dashboard's periodic
@@ -402,6 +403,12 @@ and breakdown without an adjustable maximum until matching memory metrics are
 available.
 CPU vLLM cache size is resolved by the preset/operator and is not an arbitrary
 browser-supplied environment variable.
+
+Accelerator availability uses the Ready, schedulable node's allocatable vendor
+resource as the final runtime signal. An enabled vendor operator that is
+temporarily reported as `Reconciling` by Flux therefore does not hide NVIDIA,
+AMD, or Intel once Kubernetes already publishes the matching GPU resource. If
+the resource is still absent, the operator phase remains the blocking reason.
 
 Above the installed-model list, the Models screen renders only a small
 **Compute memory** heading and one semicircular gauge per compute device. The

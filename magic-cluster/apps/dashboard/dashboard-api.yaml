@@ -2375,6 +2375,7 @@ data:
             available = bool(matching_nodes)
             reason = "ready" if available else "no-compatible-node"
             message = "Ready on " + str(len(matching_nodes)) + " compatible node(s)." if available else "No Ready, schedulable node has a supported architecture."
+            pending_provider = None
 
             for capability in required_capabilities:
                 providers = sorted(
@@ -2397,10 +2398,23 @@ data:
                     message = "Install the " + str(provider.get("displayName") or provider_name) + " module before selecting this target."
                     break
                 if provider_phase.lower() != "ready":
-                    available = False
-                    reason = "capability-module-not-ready"
-                    message = "The " + str(provider.get("displayName") or provider_name) + " module is " + (provider_phase or "Pending") + ". Wait until it is Ready."
-                    break
+                    # Flux can temporarily report Reconciling while the vendor
+                    # device plugin already publishes a schedulable resource.
+                    # Keep the phase as a diagnostic fallback and let the
+                    # allocatable resource below be the authoritative runtime
+                    # readiness signal for accelerator-backed targets.
+                    pending_provider = {
+                        "displayName": str(provider.get("displayName") or provider_name),
+                        "phase": provider_phase or "Pending",
+                    }
+
+            if available and pending_provider and not resource_names:
+                available = False
+                reason = "capability-module-not-ready"
+                message = (
+                    "The " + pending_provider["displayName"] + " module is "
+                    + pending_provider["phase"] + ". Wait until it is Ready."
+                )
 
             if available and resource_names:
                 capacities = {}
@@ -2416,9 +2430,16 @@ data:
                 capacity = capacities.get(selected_resource_name, 0)
                 if capacity < 1:
                     available = False
-                    reason = "no-allocatable-resource"
-                    label = str(definition.get("displayName") or target_id)
-                    message = "Kubernetes reports no allocatable resource for " + label + ". Check the hardware, driver, and device plugin."
+                    if pending_provider:
+                        reason = "capability-module-not-ready"
+                        message = (
+                            "The " + pending_provider["displayName"] + " module is "
+                            + pending_provider["phase"] + " and Kubernetes reports no allocatable resource yet."
+                        )
+                    else:
+                        reason = "no-allocatable-resource"
+                        label = str(definition.get("displayName") or target_id)
+                        message = "Kubernetes reports no allocatable resource for " + label + ". Check the hardware, driver, and device plugin."
                 else:
                     available = True
                     reason = "ready"

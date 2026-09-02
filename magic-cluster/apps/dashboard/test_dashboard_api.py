@@ -248,7 +248,7 @@ class LocalRuntimeTests(unittest.TestCase):
         self.assertEqual(targets["nvidia-gpu"]["reason"], "capability-module-disabled")
         self.assertEqual(availability["default"], "cpu")
 
-    def test_nvidia_requires_ready_module_and_allocatable_gpu(self):
+    def test_nvidia_requires_enabled_module_and_allocatable_gpu(self):
         modules = {
             "modules": {
                 "gpu": {
@@ -280,6 +280,56 @@ class LocalRuntimeTests(unittest.TestCase):
         }
         self.assertTrue(targets["nvidia-gpu"]["available"])
         self.assertEqual(targets["nvidia-gpu"]["reason"], "ready")
+
+    def test_nvidia_is_available_while_flux_reconciles_when_resource_is_allocatable(self):
+        modules = {
+            "modules": {
+                "gpu": {
+                    "enabled": True,
+                    "displayName": "NVIDIA GPU",
+                    "status": {"phase": "Reconciling"},
+                    "catalog": {"providesCapabilities": ["compute.gpu.nvidia"]},
+                },
+            }
+        }
+        self.server["ready_schedulable_nodes"] = lambda: [{
+            "metadata": {"labels": {"kubernetes.io/os": "linux"}},
+            "status": {
+                "nodeInfo": {"architecture": "amd64"},
+                "allocatable": {"nvidia.com/gpu": "2"},
+            },
+        }]
+
+        targets = {
+            target["id"]: target
+            for target in self.server["compute_target_availability"](modules)["targets"]
+        }
+
+        self.assertTrue(targets["nvidia-gpu"]["available"])
+        self.assertEqual(targets["nvidia-gpu"]["reason"], "ready")
+        self.assertEqual(targets["nvidia-gpu"]["selectedResourceName"], "nvidia.com/gpu")
+        self.assertIn("2 allocatable", targets["nvidia-gpu"]["message"])
+
+    def test_nvidia_waits_for_reconciling_module_without_allocatable_resource(self):
+        modules = {
+            "modules": {
+                "gpu": {
+                    "enabled": True,
+                    "displayName": "NVIDIA GPU",
+                    "status": {"phase": "Reconciling"},
+                    "catalog": {"providesCapabilities": ["compute.gpu.nvidia"]},
+                },
+            }
+        }
+
+        targets = {
+            target["id"]: target
+            for target in self.server["compute_target_availability"](modules)["targets"]
+        }
+
+        self.assertFalse(targets["nvidia-gpu"]["available"])
+        self.assertEqual(targets["nvidia-gpu"]["reason"], "capability-module-not-ready")
+        self.assertIn("no allocatable resource yet", targets["nvidia-gpu"]["message"])
 
     def test_amd_and_intel_targets_require_vendor_resources_and_resolve_profile(self):
         modules = {

@@ -90,6 +90,15 @@ BROWSER_API_MOCK = r"""
     status: 'active'
   }];
   window.__dashboardBrowserCalls = [];
+  window.__dashboardClipboardWrites = [];
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: {
+      writeText: async (value) => {
+        window.__dashboardClipboardWrites.push(String(value));
+      }
+    }
+  });
   window.setInterval = () => 0;
 
   const capabilities = (enabled = true) => ({
@@ -966,6 +975,21 @@ BROWSER_ASSERTIONS = r"""
     await waitFor(() => document.getElementById('kubernetes-access-list').textContent.includes('Operator'), 'updated Kubernetes access');
     document.querySelector('[data-kubernetes-access-action="download"]').click();
     await waitFor(() => callExists('GET', '/api/kubernetes-access/kube-user-1/kubeconfig'), 'Kubernetes kubeconfig download');
+    const kubeconfigCallsBeforeCopy = window.__dashboardBrowserCalls.filter(
+      (call) => call.method === 'GET' && call.path.split('?')[0] === '/api/kubernetes-access/kube-user-1/kubeconfig'
+    ).length;
+    const copyKubernetesAccess = document.querySelector('[data-kubernetes-access-action="copy"]');
+    assert(copyKubernetesAccess && copyKubernetesAccess.textContent === 'Copy to Clipboard', 'Kubernetes kubeconfig copy action is missing');
+    copyKubernetesAccess.click();
+    await waitFor(
+      () => window.__dashboardBrowserCalls.filter(
+        (call) => call.method === 'GET' && call.path.split('?')[0] === '/api/kubernetes-access/kube-user-1/kubeconfig'
+      ).length > kubeconfigCallsBeforeCopy,
+      'Kubernetes kubeconfig copy request'
+    );
+    await waitFor(() => window.__dashboardClipboardWrites.length === 1, 'Kubernetes kubeconfig clipboard write');
+    assert(window.__dashboardClipboardWrites[0].includes('apiVersion: v1'), 'clipboard did not receive the kubeconfig');
+    assert(document.getElementById('kubernetes-access-output').textContent.includes('Kubeconfig copied'), 'Kubernetes kubeconfig copy confirmation is missing');
     const kubernetesMutations = window.__dashboardBrowserCalls.filter((call) => call.path.startsWith('/api/kubernetes-access') && !['GET', 'HEAD'].includes(call.method));
     assert(kubernetesMutations.length === 1, 'Kubernetes access mutation is missing');
     assert(kubernetesMutations[0].body.accessLevel === 'operator', 'Kubernetes access level was not submitted');
@@ -1048,6 +1072,9 @@ class DashboardUserManagementUiTests(unittest.TestCase):
         self.assertIn("const sessionCanManageKubernetesAccess", self.script)
         self.assertIn("await dashboardRequest('/api/kubernetes-access?'", self.script)
         self.assertIn("'/kubeconfig'", self.script)
+        self.assertIn("copy.textContent = 'Copy to Clipboard'", self.script)
+        self.assertIn("const copyKubernetesKubeconfig", self.script)
+        self.assertIn("await copyText(content)", self.script)
         self.assertIn("method: 'PUT'", self.script)
         kubernetes_code = self.script.split("const kubernetesAccessLabel", 1)[1].split("const renderStatus", 1)[0]
         self.assertNotIn("innerHTML", kubernetes_code)

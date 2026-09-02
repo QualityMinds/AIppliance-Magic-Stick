@@ -276,7 +276,8 @@ master-key configuration, or PostgreSQL-backed key management is unavailable.
 The dashboard **Kubernetes Access** tab is available only to a live
 `magicstick-admin` session while local Keycloak identity management is enabled.
 User assignment may be prepared before host OIDC is ready, but kubeconfig
-download stays disabled until the cluster publishes its verified configuration.
+download and clipboard copy stay disabled until the cluster publishes its
+verified configuration.
 
 Check the non-secret contract without decoding any client Secret:
 
@@ -302,8 +303,8 @@ sudo k3s kubectl get --raw=/readyz
 ```
 
 On the administrator workstation, install
-[`kubelogin`](https://github.com/int128/kubelogin), place the downloaded file at
-a protected path, and test it:
+[`kubelogin`](https://github.com/int128/kubelogin). Download the kubeconfig or
+copy it from the dashboard into a protected local file, then test it:
 
 ```bash
 chmod 0600 ./magicstick-USER.kubeconfig
@@ -313,9 +314,10 @@ KUBECONFIG=./magicstick-USER.kubeconfig kubectl auth can-i get secrets --all-nam
 ```
 
 The last command must return `no` for Viewer and Operator. Operator may mutate
-only the three Magic Stick runtime CR kinds in `ai-system`. Every assignment and download
-emits a `magicstick.kubernetes-access` audit event without a token, password,
-kubeconfig body, or client secret.
+only the three Magic Stick runtime CR kinds in `ai-system`. Every assignment and
+kubeconfig retrieval, whether downloaded or copied, emits a
+`magicstick.kubernetes-access` audit event without a token, password, kubeconfig
+body, or client secret.
 
 ## AppInstance Gateway Access
 
@@ -531,6 +533,7 @@ deploy,pods` if a command does not match the running resource name.
 | Accelerator target is disabled in the dashboard | The matching vendor module must be `Ready` and a Ready schedulable node must expose `nvidia.com/gpu`, `amd.com/gpu`, `gpu.intel.com/i915`, or `gpu.intel.com/xe`. CPU remains available independently. |
 | A Compute memory gauge shows `metrics unavailable` | CPU first checks the Kubelet node summary and then `metrics.k8s.io`; verify the dashboard API ServiceAccount can read `nodes/proxy` and node metrics. NVIDIA requires the DCGM exporter. AMD and Intel are still listed but intentionally show no percentage until a compatible vendor memory exporter is installed. |
 | Intel model stays in `WaitingForGPU` | Confirm whether the node publishes `gpu.intel.com/xe` or `gpu.intel.com/i915`; the resolved profile in `ModelActivation.status` must match that resource. |
+| A GPU appears in Compute memory but not in the model hardware selector | Confirm the vendor module is enabled and inspect the node's allocatable resource (`nvidia.com/gpu`, `amd.com/gpu`, `gpu.intel.com/xe`, or `gpu.intel.com/i915`). A transient Flux `Reconciling` phase no longer blocks selection once that resource exists; without it, the driver or device plugin is not ready. |
 | CPU model stays in `Starting` | Check the CPU model Pod for image-pull, RAM, CPU, model-download, or vLLM startup failures; no NVIDIA checks should appear. |
 | CPU vLLM reports insufficient memory for KV cache | Lower the trusted preset's `kvCacheMemoryBytes`, reduce other node memory use, or allocate more appliance RAM. Do not use `VLLM_CPU_KVCACHE_SPACE` for sub-GiB values because vLLM parses it as whole GiB. |
 | Local model stays in `Starting` | Compare `kubectl -n ai get model <name> -o jsonpath='{.status.replicas}'` with the model pod readiness and selected engine logs. The model is intentionally absent from LiteLLM until at least one replica is ready. |

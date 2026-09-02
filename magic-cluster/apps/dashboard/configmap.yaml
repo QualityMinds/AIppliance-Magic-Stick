@@ -3470,7 +3470,20 @@ data:
               input.select();
               return document.execCommand && document.execCommand('copy');
             }
-            return false;
+            const temporaryInput = document.createElement('textarea');
+            temporaryInput.value = value;
+            temporaryInput.setAttribute('readonly', '');
+            temporaryInput.style.position = 'fixed';
+            temporaryInput.style.opacity = '0';
+            temporaryInput.style.pointerEvents = 'none';
+            document.body.appendChild(temporaryInput);
+            temporaryInput.focus();
+            temporaryInput.select();
+            try {
+              return Boolean(document.execCommand && document.execCommand('copy'));
+            } finally {
+              temporaryInput.remove();
+            }
           };
 
           const showCredentials = (card, payload) => {
@@ -5655,7 +5668,15 @@ data:
               download.title = kubernetesAccessConfiguration.configured !== true
                 ? 'The Kubernetes API server has not confirmed its OIDC configuration.'
                 : (!user.enabled ? 'The user is disabled.' : (level === 'none' ? 'Grant access first.' : ''));
-              actions.append(edit, download);
+              const copy = document.createElement('button');
+              copy.className = 'control-button';
+              copy.type = 'button';
+              copy.dataset.kubernetesAccessAction = 'copy';
+              copy.dataset.kubernetesAccessId = String(user.id || '');
+              copy.textContent = 'Copy to Clipboard';
+              copy.disabled = download.disabled;
+              copy.title = download.title || 'Copy the token-free kubeconfig to the clipboard.';
+              actions.append(edit, download, copy);
               actionsCell.appendChild(actions);
               row.append(userCell, sourceCell, statusCell, accessCell, actionsCell);
               list.appendChild(row);
@@ -5768,6 +5789,29 @@ data:
               if (output) { output.textContent = 'Kubeconfig downloaded for ' + String(user.username || 'user') + '. It contains no token or password.'; }
             } catch (error) {
               if (output) { output.textContent = 'Kubeconfig download failed: ' + (error.message || 'Kubernetes SSO is unavailable.'); }
+            }
+          };
+
+          const copyKubernetesKubeconfig = async (user, button) => {
+            const output = $('kubernetes-access-output');
+            const originalLabel = button ? button.textContent : 'Copy to Clipboard';
+            if (button) {
+              button.disabled = true;
+              button.textContent = 'Copying...';
+            }
+            try {
+              const payload = await dashboardRequest('/api/kubernetes-access/' + encodeURIComponent(user.id) + '/kubeconfig');
+              const content = String(payload.content || '');
+              if (!content.trim()) { throw new Error('The kubeconfig is empty.'); }
+              if (!await copyText(content)) { throw new Error('Clipboard access is unavailable.'); }
+              if (output) { output.textContent = 'Kubeconfig copied for ' + String(user.username || 'user') + '. It contains no token or password.'; }
+            } catch (error) {
+              if (output) { output.textContent = 'Kubeconfig copy failed: ' + (error.message || 'Clipboard access is unavailable.'); }
+            } finally {
+              if (button) {
+                button.disabled = false;
+                button.textContent = originalLabel;
+              }
             }
           };
 
@@ -6201,6 +6245,8 @@ data:
               openKubernetesAccessEditor(user);
             } else if (actionButton.dataset.kubernetesAccessAction === 'download') {
               await downloadKubernetesKubeconfig(user);
+            } else if (actionButton.dataset.kubernetesAccessAction === 'copy') {
+              await copyKubernetesKubeconfig(user, actionButton);
             }
           });
 
