@@ -221,6 +221,86 @@ data:
           gap: 0.85rem;
         }
 
+        .api-access-workspace {
+          display: grid;
+          gap: 0.85rem;
+        }
+
+        .api-access-toolbar {
+          align-items: center;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.75rem;
+          justify-content: space-between;
+        }
+
+        .api-access-toolbar h3,
+        .api-access-toolbar p {
+          margin: 0;
+        }
+
+        .api-access-toolbar p {
+          color: var(--muted);
+          font-size: 0.86rem;
+          margin-top: 0.3rem;
+        }
+
+        .api-access-endpoints {
+          display: grid;
+          gap: 0.55rem;
+          grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        }
+
+        .api-access-endpoint {
+          background: rgba(15, 23, 42, 0.58);
+          border: 1px solid rgba(125, 211, 252, 0.22);
+          border-radius: 10px;
+          display: grid;
+          gap: 0.25rem;
+          padding: 0.7rem;
+        }
+
+        .api-access-endpoint span {
+          color: var(--muted);
+          font-size: 0.72rem;
+          font-weight: 700;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+        }
+
+        .api-access-endpoint code,
+        .api-key-hint,
+        .api-key-once input {
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        }
+
+        .api-access-endpoint code {
+          color: var(--accent);
+          overflow-wrap: anywhere;
+        }
+
+        .api-key-once {
+          background: rgba(14, 116, 144, 0.13);
+          border: 1px solid rgba(125, 211, 252, 0.35);
+          border-radius: 12px;
+          display: grid;
+          gap: 0.7rem;
+          padding: 0.85rem;
+        }
+
+        .api-key-once p {
+          color: #fde68a;
+          font-size: 0.82rem;
+          margin: 0;
+        }
+
+        .api-key-copy-row {
+          align-items: stretch;
+          display: grid;
+          gap: 0.55rem;
+          grid-template-columns: minmax(0, 1fr) auto;
+        }
+
         .users-toolbar,
         .users-toolbar form,
         .users-pagination {
@@ -1614,6 +1694,10 @@ data:
             margin-left: 2rem;
           }
 
+          .api-key-copy-row {
+            grid-template-columns: 1fr;
+          }
+
           .users-table {
             display: block;
             min-width: 0;
@@ -1698,6 +1782,7 @@ data:
             <button class="tab-button" type="button" aria-selected="false" data-tab="models">Models</button>
             <button class="tab-button" type="button" aria-selected="false" data-tab="settings">Settings</button>
             <button class="tab-button" id="users-tab-button" type="button" aria-selected="false" data-tab="users" hidden>Users</button>
+            <button class="tab-button" id="api-access-tab-button" type="button" aria-selected="false" data-tab="api-access" hidden>API Access</button>
             <button class="tab-button" type="button" aria-selected="false" data-tab="system">System Status</button>
           </nav>
 
@@ -2146,6 +2231,41 @@ data:
             </div>
           </section>
 
+          <section id="tab-api-access" class="tab-panel" hidden aria-labelledby="api-access-tab-button">
+            <div class="api-access-workspace">
+              <div class="api-access-toolbar">
+                <div>
+                  <h3>API Access</h3>
+                  <p>Create named keys for OpenAI-compatible access through LiteLLM.</p>
+                </div>
+                <div class="action-row">
+                  <button class="control-button" id="api-access-refresh" type="button">Refresh</button>
+                  <button class="control-button primary" id="api-access-create" type="button">Create API Key</button>
+                </div>
+              </div>
+              <div id="api-access-endpoints" class="api-access-endpoints" aria-label="API endpoints"></div>
+              <p id="api-access-output" class="api-output" role="status" aria-live="polite">Open this page to load API access.</p>
+              <div id="api-access-loading" class="user-empty-state" role="status" hidden>Loading API access…</div>
+              <div id="api-access-error" class="user-empty-state" role="alert" hidden></div>
+              <div id="api-access-empty" class="user-empty-state" hidden>No API keys have been created from the dashboard.</div>
+              <div id="api-access-table-wrap" class="users-table-wrap" hidden>
+                <table class="users-table api-access-table">
+                  <caption class="sr-only">Named LiteLLM API keys managed by this appliance</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Name</th>
+                      <th scope="col">Key ID</th>
+                      <th scope="col">Created</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="api-access-list"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
           <section id="tab-system" class="tab-panel" hidden>
             <div class="dashboard-grid">
               <article class="dashboard-card hardware-operator-panel">
@@ -2276,6 +2396,64 @@ data:
           </div>
         </form>
       </dialog>
+
+      <dialog class="dashboard-dialog" id="api-access-create-dialog" aria-labelledby="api-access-create-title">
+        <form class="dialog-form" id="api-access-create-form">
+          <div class="dialog-heading">
+            <h3 id="api-access-create-title">Create API key</h3>
+            <p>Give the access a recognizable name, such as the application or integration that will use it.</p>
+          </div>
+          <label class="field">Name
+            <input name="name" autocomplete="off" maxlength="64" required placeholder="CI pipeline" />
+          </label>
+          <p class="dialog-error" id="api-access-create-error" role="alert" aria-live="assertive"></p>
+          <div class="dialog-actions">
+            <button class="control-button" type="button" data-dialog-cancel>Cancel</button>
+            <button class="control-button primary" type="submit">Create API Key</button>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog class="dashboard-dialog" id="api-access-created-dialog" aria-labelledby="api-access-created-title">
+        <div class="dialog-form">
+          <div class="dialog-heading">
+            <h3 id="api-access-created-title">API key created</h3>
+            <p id="api-access-created-description"></p>
+          </div>
+          <div class="api-key-once">
+            <label class="field">API key
+              <span class="api-key-copy-row">
+                <input id="api-access-created-key" type="text" readonly autocomplete="off" spellcheck="false" />
+                <button class="control-button primary" id="api-access-copy" type="button">Copy</button>
+              </span>
+            </label>
+            <p>This value is shown only once. Store it now; it cannot be recovered later.</p>
+          </div>
+          <div class="api-access-endpoint" id="api-access-created-endpoint" hidden>
+            <span>API base</span>
+            <code id="api-access-created-api-base"></code>
+          </div>
+          <p class="api-output" id="api-access-copy-output" role="status" aria-live="polite"></p>
+          <div class="dialog-actions">
+            <button class="control-button primary" type="button" data-dialog-cancel>Done</button>
+          </div>
+        </div>
+      </dialog>
+
+      <dialog class="dashboard-dialog" id="api-access-revoke-dialog" aria-labelledby="api-access-revoke-title">
+        <form class="dialog-form" id="api-access-revoke-form">
+          <div class="dialog-heading">
+            <h3 id="api-access-revoke-title">Revoke API key</h3>
+            <p id="api-access-revoke-description"></p>
+          </div>
+          <p class="dialog-helper">Applications using this key will lose access immediately.</p>
+          <p class="dialog-error" id="api-access-revoke-error" role="alert" aria-live="assertive"></p>
+          <div class="dialog-actions">
+            <button class="control-button" type="button" data-dialog-cancel>Cancel</button>
+            <button class="control-button danger" type="submit">Revoke API Key</button>
+          </div>
+        </form>
+      </dialog>
       <script>
         (() => {
           const $ = (id) => document.getElementById(id);
@@ -2306,10 +2484,14 @@ data:
           let usersPageSize = 25;
           let usersTotal = 0;
           let usersPageItems = [];
+          let apiAccessLoaded = false;
+          let apiAccessLoading = false;
+          let apiAccessItems = [];
           let activeUserEditor = null;
           let activeUserRoles = null;
           let activeUserPassword = null;
           let activeUserConfirmation = null;
+          let activeApiAccessRevocation = null;
           let activeInstanceCreateType = '';
           let activeServiceFilter = 'all';
           let platformServicesExpanded = false;
@@ -2334,7 +2516,7 @@ data:
             return payload;
           };
 
-          const userRequest = (path, options = {}) => {
+          const dashboardRequest = (path, options = {}) => {
             const method = String(options.method || 'GET').toUpperCase();
             const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
             if (method !== 'GET' && method !== 'HEAD') {
@@ -2342,6 +2524,8 @@ data:
             }
             return request(path, { ...options, headers });
           };
+
+          const userRequest = (path, options = {}) => dashboardRequest(path, options);
 
           const titleFromKey = (name) => String(name || '')
             .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
@@ -4668,6 +4852,11 @@ data:
             return roles.includes('magicstick-admin') && (session || {}).identityManagementAvailable !== false;
           };
 
+          const sessionCanManageApiAccess = (session) => {
+            const roles = Array.isArray((session || {}).roles) ? session.roles : [];
+            return roles.includes('magicstick-admin');
+          };
+
           const setUsersTabAccess = (session) => {
             const button = $('users-tab-button');
             const allowed = sessionIsUserAdmin(session);
@@ -4678,6 +4867,17 @@ data:
               if (overview) {
                 overview.click();
               }
+            }
+          };
+
+          const setApiAccessTabAccess = (session) => {
+            const button = $('api-access-tab-button');
+            const allowed = sessionCanManageApiAccess(session);
+            if (!button) { return; }
+            button.hidden = !allowed;
+            if (!allowed && button.getAttribute('aria-selected') === 'true') {
+              const overview = document.querySelector('.tab-button[data-tab="overview"]');
+              if (overview) { overview.click(); }
             }
           };
 
@@ -5072,6 +5272,180 @@ data:
             if (output && usersLoaded) { output.textContent = message; }
           };
 
+          const apiAccessById = (id) => apiAccessItems.find((item) => String(item.id) === String(id));
+
+          const renderApiAccessEndpoints = (bases) => {
+            const container = $('api-access-endpoints');
+            if (!container) { return; }
+            container.replaceChildren();
+            (Array.isArray(bases) ? bases : []).forEach((base) => {
+              if (!base || !base.url) { return; }
+              const item = document.createElement('div');
+              item.className = 'api-access-endpoint';
+              const label = document.createElement('span');
+              label.textContent = titleFromKey(base.scope || 'API') + ' API base';
+              const value = document.createElement('code');
+              value.textContent = String(base.url);
+              item.append(label, value);
+              container.appendChild(item);
+            });
+          };
+
+          const renderApiAccess = () => {
+            const list = $('api-access-list');
+            if (!list) { return; }
+            list.replaceChildren();
+            apiAccessItems.forEach((item) => {
+              const row = document.createElement('tr');
+
+              const nameCell = document.createElement('td');
+              nameCell.dataset.label = 'Name';
+              const name = document.createElement('strong');
+              name.textContent = String(item.name || 'API access');
+              nameCell.appendChild(name);
+
+              const keyCell = document.createElement('td');
+              keyCell.dataset.label = 'Key ID';
+              const hint = document.createElement('code');
+              hint.className = 'api-key-hint';
+              hint.textContent = String(item.keyHint || 'Unavailable');
+              keyCell.appendChild(hint);
+
+              const createdCell = document.createElement('td');
+              createdCell.dataset.label = 'Created';
+              createdCell.textContent = formatUserDate(item.createdAt);
+
+              const statusCell = document.createElement('td');
+              statusCell.dataset.label = 'Status';
+              const status = document.createElement('span');
+              const active = String(item.status || 'active').toLowerCase() === 'active';
+              status.className = 'status-pill ' + (active ? 'ready' : 'disabled');
+              status.textContent = active ? 'Active' : titleFromKey(item.status || 'Unavailable');
+              statusCell.appendChild(status);
+
+              const actionsCell = document.createElement('td');
+              actionsCell.dataset.label = 'Actions';
+              const actions = document.createElement('div');
+              actions.className = 'user-actions';
+              const revoke = document.createElement('button');
+              revoke.className = 'control-button danger';
+              revoke.type = 'button';
+              revoke.dataset.apiAccessAction = 'revoke';
+              revoke.dataset.apiAccessId = String(item.id || '');
+              revoke.textContent = 'Revoke';
+              revoke.disabled = !active;
+              actions.appendChild(revoke);
+              actionsCell.appendChild(actions);
+
+              row.append(nameCell, keyCell, createdCell, statusCell, actionsCell);
+              list.appendChild(row);
+            });
+            const table = $('api-access-table-wrap');
+            const empty = $('api-access-empty');
+            if (table) { table.hidden = apiAccessItems.length === 0; }
+            if (empty) { empty.hidden = apiAccessItems.length !== 0; }
+            const output = $('api-access-output');
+            if (output) {
+              output.textContent = apiAccessItems.length + (apiAccessItems.length === 1 ? ' named API key.' : ' named API keys.');
+            }
+          };
+
+          const setApiAccessLoading = (loading) => {
+            apiAccessLoading = loading;
+            const loadingNode = $('api-access-loading');
+            const errorNode = $('api-access-error');
+            if (loadingNode) { loadingNode.hidden = !loading; }
+            if (loading && errorNode) { errorNode.hidden = true; }
+            ['api-access-refresh', 'api-access-create'].forEach((id) => {
+              const node = $(id);
+              if (node) { node.disabled = loading; }
+            });
+            if (loading) {
+              const table = $('api-access-table-wrap');
+              const empty = $('api-access-empty');
+              if (table) { table.hidden = true; }
+              if (empty) { empty.hidden = true; }
+            }
+          };
+
+          const loadApiAccess = async (force = false) => {
+            if (!sessionCanManageApiAccess(latestSession) || apiAccessLoading || (apiAccessLoaded && !force)) { return; }
+            setApiAccessLoading(true);
+            const output = $('api-access-output');
+            if (output) { output.textContent = 'Loading named API keys from LiteLLM…'; }
+            try {
+              const payload = await dashboardRequest('/api/api-access');
+              const items = (payload || {}).items;
+              apiAccessItems = Array.isArray(items) ? items.filter((item) => item && item.id && item.name) : [];
+              apiAccessLoaded = true;
+              renderApiAccessEndpoints((payload || {}).apiBases);
+              const errorNode = $('api-access-error');
+              if (errorNode) { errorNode.hidden = true; errorNode.textContent = ''; }
+              renderApiAccess();
+            } catch (error) {
+              apiAccessLoaded = false;
+              apiAccessItems = [];
+              const errorNode = $('api-access-error');
+              if (errorNode) {
+                errorNode.textContent = 'API access could not be loaded: ' + (error.message || 'LiteLLM is unavailable.');
+                errorNode.hidden = false;
+              }
+              const table = $('api-access-table-wrap');
+              const empty = $('api-access-empty');
+              if (table) { table.hidden = true; }
+              if (empty) { empty.hidden = true; }
+              if (output) { output.textContent = 'Use Refresh to retry.'; }
+            } finally {
+              setApiAccessLoading(false);
+            }
+          };
+
+          const openApiAccessCreate = () => {
+            const dialog = $('api-access-create-dialog');
+            const form = $('api-access-create-form');
+            if (!dialog || !form) { return; }
+            form.reset();
+            $('api-access-create-error').textContent = '';
+            showUserDialog(dialog, 'input[name="name"]');
+          };
+
+          const showCreatedApiAccess = (payload) => {
+            const dialog = $('api-access-created-dialog');
+            const keyInput = $('api-access-created-key');
+            if (!dialog || !keyInput) { return; }
+            const item = (payload || {}).item || {};
+            keyInput.value = String((payload || {}).key || '');
+            $('api-access-created-description').textContent = 'The key for ' + String(item.name || 'this access') + ' is ready.';
+            $('api-access-copy-output').textContent = '';
+            const bases = Array.isArray((payload || {}).apiBases) ? payload.apiBases : [];
+            const preferred = bases.find((base) => base && base.scope === 'local') || bases[0];
+            const endpoint = $('api-access-created-endpoint');
+            const endpointValue = $('api-access-created-api-base');
+            if (endpoint && endpointValue) {
+              endpoint.hidden = !(preferred && preferred.url);
+              endpointValue.textContent = preferred && preferred.url ? String(preferred.url) : '';
+            }
+            showUserDialog(dialog, '#api-access-copy');
+          };
+
+          const openApiAccessRevocation = (item) => {
+            const dialog = $('api-access-revoke-dialog');
+            const form = $('api-access-revoke-form');
+            if (!dialog || !form || !item) { return; }
+            activeApiAccessRevocation = item;
+            form.reset();
+            $('api-access-revoke-description').textContent = 'Revoke ' + String(item.name || 'this API key') + '?';
+            $('api-access-revoke-error').textContent = '';
+            showUserDialog(dialog, 'button[type="submit"]');
+          };
+
+          const refreshApiAccessAfterMutation = async (message) => {
+            apiAccessLoaded = false;
+            await loadApiAccess(true);
+            const output = $('api-access-output');
+            if (output && apiAccessLoaded) { output.textContent = message; }
+          };
+
           const renderStatus = (status) => {
             const hardwareList = $('hardware-operator-list');
             const hardwareSummary = $('hardware-operator-summary');
@@ -5166,6 +5540,7 @@ data:
               const session = await request('/api/session');
               latestSession = session || {};
               setUsersTabAccess(latestSession);
+              setApiAccessTabAccess(latestSession);
               const settings = await request('/api/settings');
               const appliance = await request('/api/appliance');
               const modulePayload = await request('/api/modules');
@@ -5215,8 +5590,24 @@ data:
               if (button.dataset.tab === 'users') {
                 await loadUsers(false);
               }
+              if (button.dataset.tab === 'api-access') {
+                await loadApiAccess(false);
+              }
             });
           });
+
+          const apiAccessCreate = $('api-access-create');
+          if (apiAccessCreate) {
+            apiAccessCreate.addEventListener('click', openApiAccessCreate);
+          }
+
+          const apiAccessRefresh = $('api-access-refresh');
+          if (apiAccessRefresh) {
+            apiAccessRefresh.addEventListener('click', async () => {
+              apiAccessLoaded = false;
+              await loadApiAccess(true);
+            });
+          }
 
           const userCreate = $('user-create');
           if (userCreate) {
@@ -5277,7 +5668,14 @@ data:
           }
 
           document.querySelectorAll('[data-dialog-cancel]').forEach((button) => {
-            button.addEventListener('click', () => closeUserDialog(button.closest('dialog')));
+            button.addEventListener('click', () => {
+              const dialog = button.closest('dialog');
+              if (dialog && dialog.id === 'api-access-created-dialog') {
+                const keyInput = $('api-access-created-key');
+                if (keyInput) { keyInput.value = ''; }
+              }
+              closeUserDialog(dialog);
+            });
           });
 
           const instanceCreateOpen = $('instance-create-open');
@@ -5310,8 +5708,102 @@ data:
           document.querySelectorAll('.dashboard-dialog').forEach((dialog) => {
             dialog.addEventListener('close', () => {
               clearPasswordInputs(dialog.querySelector('form'));
+              if (dialog.id === 'api-access-created-dialog') {
+                const keyInput = $('api-access-created-key');
+                if (keyInput) { keyInput.value = ''; }
+                const copyOutput = $('api-access-copy-output');
+                if (copyOutput) { copyOutput.textContent = ''; }
+              }
+              if (dialog.id === 'api-access-revoke-dialog') {
+                activeApiAccessRevocation = null;
+              }
               restoreDialogOpener(dialog);
             });
+          });
+
+          const apiAccessCreateForm = $('api-access-create-form');
+          if (apiAccessCreateForm) {
+            apiAccessCreateForm.addEventListener('submit', async (event) => {
+              event.preventDefault();
+              const errorNode = $('api-access-create-error');
+              errorNode.textContent = '';
+              const data = new FormData(apiAccessCreateForm);
+              const name = String(data.get('name') || '').trim();
+              setDialogBusy(apiAccessCreateForm, true);
+              try {
+                const payload = await dashboardRequest('/api/api-access', {
+                  method: 'POST',
+                  body: JSON.stringify({ name })
+                });
+                closeUserDialog($('api-access-create-dialog'));
+                showCreatedApiAccess(payload);
+                await refreshApiAccessAfterMutation('API key created. Its secret was shown once.');
+              } catch (error) {
+                errorNode.textContent = error.message || 'The API key could not be created.';
+              } finally {
+                setDialogBusy(apiAccessCreateForm, false);
+              }
+            });
+          }
+
+          const apiAccessCopy = $('api-access-copy');
+          if (apiAccessCopy) {
+            apiAccessCopy.addEventListener('click', async () => {
+              const keyInput = $('api-access-created-key');
+              const output = $('api-access-copy-output');
+              if (!keyInput || !keyInput.value) { return; }
+              try {
+                if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+                  await navigator.clipboard.writeText(keyInput.value);
+                } else {
+                  keyInput.focus();
+                  keyInput.select();
+                  if (!document.execCommand('copy')) { throw new Error('Copy is not available'); }
+                  keyInput.setSelectionRange(keyInput.value.length, keyInput.value.length);
+                }
+                if (output) { output.textContent = 'API key copied.'; }
+              } catch (error) {
+                if (output) { output.textContent = 'Copy failed. Select and copy the key manually.'; }
+              }
+            });
+          }
+
+          const apiAccessRevokeForm = $('api-access-revoke-form');
+          if (apiAccessRevokeForm) {
+            apiAccessRevokeForm.addEventListener('submit', async (event) => {
+              event.preventDefault();
+              if (!activeApiAccessRevocation) { return; }
+              const item = activeApiAccessRevocation;
+              const errorNode = $('api-access-revoke-error');
+              errorNode.textContent = '';
+              setDialogBusy(apiAccessRevokeForm, true);
+              try {
+                await dashboardRequest('/api/api-access/' + encodeURIComponent(item.id), {
+                  method: 'DELETE',
+                  body: '{}'
+                });
+                closeUserDialog($('api-access-revoke-dialog'));
+                await refreshApiAccessAfterMutation('API key revoked.');
+              } catch (error) {
+                errorNode.textContent = error.message || 'The API key could not be revoked.';
+              } finally {
+                setDialogBusy(apiAccessRevokeForm, false);
+              }
+            });
+          }
+
+          document.addEventListener('click', (event) => {
+            const actionButton = event.target.closest('[data-api-access-action]');
+            if (!actionButton || actionButton.disabled) { return; }
+            const item = apiAccessById(actionButton.dataset.apiAccessId);
+            if (!item) {
+              const output = $('api-access-output');
+              if (output) { output.textContent = 'The selected API key is no longer available. Refresh the list.'; }
+              return;
+            }
+            if (actionButton.dataset.apiAccessAction === 'revoke') {
+              openApiAccessRevocation(item);
+            }
           });
 
           const userEditorForm = $('user-editor-form');

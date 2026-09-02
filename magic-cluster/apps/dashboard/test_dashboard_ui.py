@@ -70,6 +70,14 @@ BROWSER_API_MOCK = r"""
     admin: ['magicstick-user', 'magicstick-admin']
   };
   let mockUser = null;
+  let mockApiKeys = [{
+    id: 'a'.repeat(64),
+    name: 'Existing integration',
+    keyHint: 'aaaaaaaaaa...aaaaaa',
+    createdAt: '2026-09-02T10:00:00Z',
+    expiresAt: '',
+    status: 'active'
+  }];
   window.__dashboardBrowserCalls = [];
   window.setInterval = () => 0;
 
@@ -374,6 +382,37 @@ BROWSER_API_MOCK = r"""
     }
     if (url.pathname === '/api/models/external' && method === 'POST') {
       return reply({ requested: body.name, type: 'external' });
+    }
+    if (url.pathname === '/api/api-access' && method === 'GET') {
+      return reply({
+        items: mockApiKeys,
+        total: mockApiKeys.length,
+        apiBases: [
+          { scope: 'local', url: 'https://litellm.magicstick.local/v1' },
+          { scope: 'public', url: 'https://litellm.magicstick.example.com/v1' }
+        ]
+      });
+    }
+    if (url.pathname === '/api/api-access' && method === 'POST') {
+      const item = {
+        id: 'b'.repeat(64),
+        name: body.name,
+        keyHint: 'bbbbbbbbbb...bbbbbb',
+        createdAt: '2026-09-02T10:15:00Z',
+        expiresAt: '',
+        status: 'active'
+      };
+      mockApiKeys = [item, ...mockApiKeys];
+      return reply({
+        item,
+        key: 'sk-BROWSER-ONE-TIME-CHANGEME',
+        apiBases: [{ scope: 'local', url: 'https://litellm.magicstick.local/v1' }]
+      }, 201);
+    }
+    if (url.pathname.startsWith('/api/api-access/') && method === 'DELETE') {
+      const id = decodeURIComponent(url.pathname.split('/').pop());
+      mockApiKeys = mockApiKeys.filter((item) => item.id !== id);
+      return reply({ deleted: id });
     }
     if (url.pathname === '/api/users' && method === 'GET') {
       return reply({ users: mockUser ? [mockUser] : [], total: mockUser ? 1 : 0, first: 0, max: 25 });
@@ -734,6 +773,10 @@ BROWSER_ASSERTIONS = r"""
 
     const usersTab = document.getElementById('users-tab-button');
     assert(usersTab, 'Users tab is missing from the rendered DOM');
+    const apiAccessTab = document.getElementById('api-access-tab-button');
+    assert(apiAccessTab, 'API Access tab is missing from the rendered DOM');
+    const canManageApiAccess = scenario === 'admin' || scenario === 'unavailable';
+    assert(apiAccessTab.hidden === !canManageApiAccess, scenario + ' API Access visibility is incorrect');
 
     if (scenario !== 'admin') {
       assert(usersTab.hidden, scenario + ' must not see the Users tab');
@@ -808,6 +851,39 @@ BROWSER_ASSERTIONS = r"""
     confirmForm.requestSubmit();
     await waitFor(() => callExists('DELETE', '/api/users/u-1') && !confirmDialog.open, 'delete request');
 
+    apiAccessTab.click();
+    await waitFor(() => callExists('GET', '/api/api-access'), 'lazy API access list request');
+    await waitFor(() => document.getElementById('api-access-list').textContent.includes('Existing integration'), 'initial API key row');
+    assert(!document.getElementById('api-access-list').textContent.includes('sk-'), 'API key secret leaked into the list');
+    assert(document.getElementById('api-access-endpoints').textContent.includes('https://litellm.magicstick.local/v1'), 'local API base is missing');
+
+    document.getElementById('api-access-create').click();
+    const apiCreateDialog = document.getElementById('api-access-create-dialog');
+    await waitFor(() => apiCreateDialog.open, 'Create API key dialog');
+    const apiCreateForm = document.getElementById('api-access-create-form');
+    apiCreateForm.elements.name.value = 'CI pipeline';
+    apiCreateForm.requestSubmit();
+    const apiCreatedDialog = document.getElementById('api-access-created-dialog');
+    await waitFor(() => callExists('POST', '/api/api-access') && apiCreatedDialog.open, 'API key creation');
+    assert(document.getElementById('api-access-created-key').value === 'sk-BROWSER-ONE-TIME-CHANGEME', 'new API key was not shown once');
+    await waitFor(() => document.getElementById('api-access-list').textContent.includes('CI pipeline'), 'created API key row');
+    const doneButton = apiCreatedDialog.querySelector('[data-dialog-cancel]');
+    doneButton.click();
+    await waitFor(() => !apiCreatedDialog.open, 'close created API key dialog');
+    assert(document.getElementById('api-access-created-key').value === '', 'one-time API key was not cleared after closing');
+
+    const createdApiRow = Array.from(document.querySelectorAll('#api-access-list tr'))
+      .find((row) => row.textContent.includes('CI pipeline'));
+    assert(createdApiRow, 'created API key row is missing');
+    createdApiRow.querySelector('[data-api-access-action="revoke"]').click();
+    const revokeDialog = document.getElementById('api-access-revoke-dialog');
+    await waitFor(() => revokeDialog.open, 'API key revoke confirmation');
+    document.getElementById('api-access-revoke-form').requestSubmit();
+    await waitFor(
+      () => window.__dashboardBrowserCalls.some((call) => call.method === 'DELETE' && call.path.startsWith('/api/api-access/')) && !revokeDialog.open,
+      'API key revocation'
+    );
+
     const expectedCalls = [
       ['POST', '/api/users'],
       ['GET', '/api/users/u-1'],
@@ -826,6 +902,10 @@ BROWSER_ASSERTIONS = r"""
     assert(roleUpdate && roleUpdate.body.accessLevel === 'operator', 'role update did not preserve the selected access level');
     const deletion = mutations.find((call) => call.method === 'DELETE');
     assert(deletion && deletion.body.usernameConfirmation === 'browser-user', 'delete confirmation body is missing');
+    const apiMutations = window.__dashboardBrowserCalls.filter((call) => call.path.startsWith('/api/api-access') && !['GET', 'HEAD'].includes(call.method));
+    assert(apiMutations.length === 2, 'API access create/revoke calls are incomplete');
+    assert(apiMutations.every((call) => call.headers['X-MagicStick-CSRF'] === 'dashboard'), 'an API access mutation omitted the CSRF header');
+    assert(apiMutations.find((call) => call.method === 'POST').body.name === 'CI pipeline', 'API access name was not submitted');
 
     result.dataset.status = 'passed';
     result.textContent = 'passed:' + scenario;
@@ -880,6 +960,20 @@ class DashboardUserManagementUiTests(unittest.TestCase):
         self.assertIn('id="user-create" type="button">Create User</button>', self.source)
         self.assertIn("roles.includes('magicstick-admin')", self.script)
         self.assertIn("identityManagementAvailable !== false", self.script)
+
+    def test_api_access_tab_is_admin_gated_and_uses_one_time_keys(self):
+        self.assertIn('id="api-access-tab-button"', self.source)
+        self.assertIn('id="api-access-tab-button" type="button" aria-selected="false" data-tab="api-access" hidden', self.source)
+        self.assertIn('id="api-access-create" type="button">Create API Key</button>', self.source)
+        self.assertIn('id="api-access-created-key" type="text" readonly', self.source)
+        self.assertIn("const sessionCanManageApiAccess", self.script)
+        self.assertIn("await dashboardRequest('/api/api-access')", self.script)
+        self.assertIn("method: 'POST'", self.script)
+        self.assertIn("method: 'DELETE'", self.script)
+        self.assertIn("keyInput.value = '';", self.script)
+        api_code = self.script.split("const sessionCanManageApiAccess", 1)[1].split("const renderStatus", 1)[0]
+        self.assertNotIn("innerHTML", api_code)
+        self.assertIn("textContent", api_code)
 
     def test_overview_shows_full_module_and_instance_urls_from_http_routes(self):
         self.assertIn("<h3>Available URLs</h3>", self.source)
@@ -1074,8 +1168,11 @@ process.stdout.write(JSON.stringify({
     def test_users_are_lazy_loaded_outside_the_global_refresh(self):
         refresh = self.script.split("const refresh = async () => {", 1)[1].split("document.querySelectorAll('.tab-button')", 1)[0]
         self.assertNotIn("/api/users", refresh)
+        self.assertNotIn("/api/api-access", refresh)
         self.assertIn("if (button.dataset.tab === 'users')", self.script)
         self.assertIn("await loadUsers(false)", self.script)
+        self.assertIn("if (button.dataset.tab === 'api-access')", self.script)
+        self.assertIn("await loadApiAccess(false)", self.script)
 
     def test_user_api_contract_and_csrf_header_are_present(self):
         for endpoint in (

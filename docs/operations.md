@@ -244,6 +244,33 @@ troubleshoot by printing or decoding the client Secret. If a deployment uses
 the direct external-provider escape-hatch overlay instead of local Keycloak,
 identity management is unavailable and the **Users** tab stays hidden.
 
+## API Access Checks
+
+The dashboard **API Access** tab is available only to `magicstick-admin`. It
+uses LiteLLM's virtual-key API and the existing generated master key to create
+multiple named client keys. The raw client key is shown once after creation;
+only its name and hashed identifier remain visible later.
+
+Check the participating services without decoding either the master key or any
+client key:
+
+```bash
+kubectl -n identity-system get deploy,service ai-appliance-dashboard-api
+kubectl -n ai get deploy,service litellm
+kubectl -n ai get pods -l app=litellm
+kubectl -n ai get secret litellm-masterkey-secret
+kubectl -n identity-system logs deploy/ai-appliance-dashboard-api -c api --tail=200
+kubectl -n ai logs deploy/litellm --tail=200
+```
+
+The dashboard list contains only keys marked as created by the Magic Stick
+dashboard. Keys provisioned directly through LiteLLM or another automation are
+intentionally neither listed nor revocable there. If a raw key was not saved,
+create a replacement and revoke the old named access; do not attempt to recover
+it from Kubernetes or logs. A `403` means the actor is not an administrator or
+the same-origin mutation check failed. A `503` means the LiteLLM service,
+master-key configuration, or PostgreSQL-backed key management is unavailable.
+
 ## AppInstance Gateway Access
 
 The operator publishes enabled instances through Envoy Gateway and removes the
@@ -441,6 +468,8 @@ deploy,pods` if a command does not match the running resource name.
 | Users tab is missing for an administrator | Confirm the session contains `magicstick-admin` and the installation uses local Keycloak rather than the direct-external-provider escape hatch. Refresh the browser after role changes. |
 | Users tab reports that Keycloak is unavailable | Check Keycloak readiness, the dashboard API logs, the existence of `magicstick-user-admin-client`, and its exact-name Secret Role. Do not decode the Secret. |
 | User change returns `409` | Check whether the account is external, protected, the current actor, or the last enabled local administrator. Duplicate username or email also returns `409`. |
+| API Access tab is missing | Confirm the current session contains `magicstick-admin`, then refresh after any role change. Unlike Users, this tab does not depend on local Keycloak user-administration mode. |
+| API Access reports LiteLLM key management unavailable | Check the LiteLLM Pod and Service, PostgreSQL readiness, and the existence of `ai/litellm-masterkey-secret` without decoding it. Lost raw keys cannot be recovered; create a replacement and revoke the old named access. |
 | GPU model never starts | Check the vendor GPU operator, allocatable GPU resources, KubeAI model status, and the selected vLLM/Ollama server logs. |
 | GPU hardware is present but provider is `Unsupported` | Confirm node architecture/Kubernetes preflight first. For AMD or Intel, the broad PCI vendor label can exist while the vendor `NodeFeatureRule` rejects that product; use the operator's supported-hardware documentation instead of adding a Magic Stick PCI allow-list. |
 | Provider is `Conflict` | A vendor CRD already existed without a Magic Stick `ModuleActivation`. Decide which installation owns the operator; do not run a second copy. |

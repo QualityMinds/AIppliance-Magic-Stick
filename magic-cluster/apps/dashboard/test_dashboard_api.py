@@ -894,6 +894,156 @@ class ModuleCredentialTests(unittest.TestCase):
         )
 
 
+class ApiAccessManagementTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.server = load_server()
+
+    def setUp(self):
+        names = (
+            "litellm_admin_request",
+            "litellm_api_bases",
+        )
+        self.originals = {name: self.server[name] for name in names}
+        self.server["litellm_api_bases"] = lambda settings=None: [
+            {"scope": "local", "url": "https://litellm.magicstick.local/v1"},
+            {"scope": "public", "url": "https://litellm.magicstick.example.com/v1"},
+        ]
+
+    def tearDown(self):
+        self.server.update(self.originals)
+
+    def test_api_access_requires_admin_access(self):
+        self.assertEqual(
+            self.server["required_get_access"](["api", "api-access"]),
+            "admin",
+        )
+        self.assertEqual(
+            self.server["required_get_access"](["api", "api-access", "key-id"]),
+            "admin",
+        )
+
+    def test_list_filters_unmanaged_keys_and_never_returns_raw_secrets(self):
+        managed_token = "a" * 64
+
+        def request(method, path, body=None):
+            self.assertEqual(method, "GET")
+            self.assertTrue(path.startswith("/key/list?"))
+            self.assertIsNone(body)
+            return {
+                "keys": [
+                    {
+                        "token": managed_token,
+                        "key_alias": "magicstick-ci",
+                        "metadata": {
+                            "magicstick_source": "magicstick-dashboard",
+                            "magicstick_name": "CI pipeline",
+                        },
+                        "created_at": "2026-09-02T10:00:00Z",
+                    },
+                    {
+                        "token": "b" * 64,
+                        "key_alias": "outside-dashboard",
+                        "metadata": {"owner": "external"},
+                    },
+                    {
+                        "key": "sk-MUST-NOT-LEAK",
+                        "metadata": {"magicstick_source": "other"},
+                    },
+                ],
+                "total_pages": 1,
+            }
+
+        self.server["litellm_admin_request"] = request
+
+        result = self.server["list_api_access"]()
+
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["items"][0]["id"], managed_token)
+        self.assertEqual(result["items"][0]["name"], "CI pipeline")
+        self.assertNotIn("sk-MUST-NOT-LEAK", repr(result))
+        self.assertEqual(result["apiBases"][0]["scope"], "local")
+
+    def test_create_uses_named_dashboard_metadata_and_returns_secret_once(self):
+        captured = {}
+        token_id = "c" * 64
+
+        def request(method, path, body=None):
+            captured.update({"method": method, "path": path, "body": body})
+            return {
+                "key": "sk-ONE-TIME-CHANGEME",
+                "token": token_id,
+                "created_at": "2026-09-02T10:15:00Z",
+            }
+
+        self.server["litellm_admin_request"] = request
+
+        result = self.server["create_api_access"]({"name": "Build Bot"})
+
+        self.assertEqual(captured["method"], "POST")
+        self.assertEqual(captured["path"], "/key/generate")
+        self.assertEqual(captured["body"]["models"], [])
+        self.assertEqual(captured["body"]["key_type"], "llm_api")
+        self.assertEqual(captured["body"]["metadata"], {
+            "magicstick_source": "magicstick-dashboard",
+            "magicstick_name": "Build Bot",
+        })
+        self.assertTrue(captured["body"]["key_alias"].startswith("magicstick-build-bot-"))
+        self.assertEqual(result["key"], "sk-ONE-TIME-CHANGEME")
+        self.assertEqual(result["item"]["id"], token_id)
+        self.assertNotIn("key", result["item"])
+
+    def test_delete_rejects_keys_not_created_by_the_dashboard(self):
+        unmanaged_token = "d" * 64
+        calls = []
+
+        def request(method, path, body=None):
+            calls.append((method, path, body))
+            if method == "GET":
+                return {
+                    "keys": [{
+                        "token": unmanaged_token,
+                        "metadata": {"owner": "external"},
+                    }],
+                    "total_pages": 1,
+                }
+            self.fail("an unmanaged key must never be deleted")
+
+        self.server["litellm_admin_request"] = request
+
+        with self.assertRaises(self.server["RequestError"]) as raised:
+            self.server["delete_api_access"](unmanaged_token)
+
+        self.assertEqual(raised.exception.status, 404)
+        self.assertEqual([call[0] for call in calls], ["GET"])
+
+    def test_delete_verifies_ownership_before_revoking(self):
+        managed_token = "e" * 64
+        calls = []
+
+        def request(method, path, body=None):
+            calls.append((method, path, body))
+            if method == "GET":
+                return {
+                    "keys": [{
+                        "token": managed_token,
+                        "metadata": {
+                            "magicstick_source": "magicstick-dashboard",
+                            "magicstick_name": "Automation",
+                        },
+                    }],
+                    "total_pages": 1,
+                }
+            return {"deleted_keys": [managed_token]}
+
+        self.server["litellm_admin_request"] = request
+
+        result = self.server["delete_api_access"](managed_token)
+
+        self.assertEqual(result, {"deleted": managed_token, "name": "Automation"})
+        self.assertEqual(calls[-1], ("POST", "/key/delete", {"keys": [managed_token]}))
+
+
 class UserAdministrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

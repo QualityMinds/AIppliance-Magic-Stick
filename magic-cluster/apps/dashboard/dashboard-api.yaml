@@ -118,7 +118,13 @@ data:
     MAX_REQUEST_BODY_BYTES = 64 * 1024
     MAX_USERS_PAGE_SIZE = 100
     MAX_USER_SEARCH_LENGTH = 128
+    MAX_API_ACCESS_NAME_LENGTH = 64
+    API_ACCESS_PAGE_SIZE = 100
+    API_ACCESS_MAX_PAGES = 100
+    API_ACCESS_METADATA_SOURCE = "magicstick-dashboard"
+    API_ACCESS_ID = re.compile(r"^[A-Za-z0-9._:-]{16,256}$")
     USER_MUTATION_LOCK = threading.RLock()
+    API_ACCESS_LOCK = threading.RLock()
     KEYCLOAK_TOKEN_LOCK = threading.Lock()
     KEYCLOAK_TOKEN_CACHE = {"access_token": "", "expires_at": 0.0}
 
@@ -1063,7 +1069,7 @@ data:
             return {"deleted": user_id}
 
 
-    def validate_user_mutation_request(handler):
+    def validate_dashboard_mutation_request(handler):
         csrf_header = str(handler.headers.get("X-MagicStick-CSRF", "") or "").strip()
         if csrf_header != "dashboard":
             raise AuthError(403, "CSRF protection header is missing or invalid")
@@ -1085,6 +1091,10 @@ data:
             allowed.add(f"{proto}://{host}".rstrip("/"))
         if origin not in allowed:
             raise AuthError(403, "request origin is not allowed")
+
+
+    def validate_user_mutation_request(handler):
+        validate_dashboard_mutation_request(handler)
 
 
     def appliance_path():
@@ -1632,7 +1642,7 @@ data:
         raise ValueError("credentials are not available for " + str(instance_type or "unknown") + " instances")
 
 
-    def litellm_credentials():
+    def litellm_master_key():
         secret = read_secret(
             MODEL_TARGET_NAMESPACE,
             LITELLM_MASTER_KEY_SECRET_NAME,
@@ -1643,6 +1653,23 @@ data:
         )
         if not master_key:
             raise LookupError("LiteLLM master key is not available yet")
+        return master_key
+
+
+    def litellm_api_bases(settings=None):
+        settings = settings or settings_response()
+        mdns_domain = settings.get("mdnsDomain") or DEFAULT_MDNS_DOMAIN
+        public_domain = settings.get("publicDomain") or DEFAULT_PUBLIC_DOMAIN
+        local_url = "https://litellm." + mdns_domain
+        public_url = "https://litellm." + public_domain
+        bases = [{"scope": "local", "url": local_url + "/v1"}]
+        if public_url != local_url:
+            bases.append({"scope": "public", "url": public_url + "/v1"})
+        return bases
+
+
+    def litellm_credentials():
+        master_key = litellm_master_key()
 
         settings = settings_response()
         mdns_domain = settings.get("mdnsDomain") or DEFAULT_MDNS_DOMAIN
@@ -1671,6 +1698,180 @@ data:
             "secretName": LITELLM_MASTER_KEY_SECRET_NAME,
             "credentials": fields,
         }
+
+
+    def litellm_admin_request(method, path, body=None):
+        data = None
+        headers = {
+            "Accept": "application/json",
+            "Authorization": "Bearer " + litellm_master_key(),
+        }
+        if body is not None:
+            data = json.dumps(body, separators=(",", ":")).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        request = urllib.request.Request(
+            LITELLM_SERVICE_URL + path,
+            data=data,
+            headers=headers,
+            method=method,
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                raw = response.read().decode("utf-8")
+        except urllib.error.HTTPError as error:
+            error.read()
+            if error.code in {400, 422}:
+                raise RequestError(400, "LiteLLM rejected the API access request") from error
+            if error.code == 404:
+                raise RequestError(404, "API access not found") from error
+            if error.code == 409:
+                raise RequestError(409, "API access already exists") from error
+            if error.code in {401, 403}:
+                raise RequestError(503, "LiteLLM key management is not configured") from error
+            raise RequestError(503, "LiteLLM key management is temporarily unavailable") from error
+        except (urllib.error.URLError, TimeoutError) as error:
+            raise RequestError(503, "LiteLLM key management is temporarily unavailable") from error
+        try:
+            payload = json.loads(raw) if raw.strip() else {}
+        except json.JSONDecodeError as error:
+            raise RequestError(503, "LiteLLM key management returned an invalid response") from error
+        if not isinstance(payload, (dict, list)):
+            raise RequestError(503, "LiteLLM key management returned an invalid response")
+        return payload
+
+
+    def api_access_metadata(value):
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, str) and value.strip():
+            try:
+                decoded = json.loads(value)
+            except json.JSONDecodeError:
+                return {}
+            return decoded if isinstance(decoded, dict) else {}
+        return {}
+
+
+    def api_access_item(value):
+        if not isinstance(value, dict):
+            return None
+        metadata = api_access_metadata(value.get("metadata"))
+        if metadata.get("magicstick_source") != API_ACCESS_METADATA_SOURCE:
+            return None
+        token_id = str(value.get("token") or value.get("token_id") or "").strip()
+        raw_key = str(value.get("key") or "").strip()
+        if not token_id and raw_key:
+            token_id = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
+        if token_id.startswith("sk-"):
+            token_id = hashlib.sha256(token_id.encode("utf-8")).hexdigest()
+        if not token_id or not API_ACCESS_ID.fullmatch(token_id):
+            return None
+        name = str(metadata.get("magicstick_name") or value.get("key_alias") or "API access").strip()
+        if not name:
+            name = "API access"
+        created_at = str(value.get("created_at") or value.get("createdAt") or "").strip()
+        expires_at = str(
+            value.get("expires")
+            or value.get("expires_at")
+            or value.get("key_expiry")
+            or ""
+        ).strip()
+        return {
+            "id": token_id,
+            "name": name[:MAX_API_ACCESS_NAME_LENGTH],
+            "keyHint": token_id[:10] + "..." + token_id[-6:],
+            "createdAt": created_at,
+            "expiresAt": expires_at,
+            "status": "revoked" if bool(value.get("blocked")) else "active",
+        }
+
+
+    def list_api_access():
+        items = []
+        page = 1
+        while page <= API_ACCESS_MAX_PAGES:
+            query = urllib.parse.urlencode({
+                "return_full_object": "true",
+                "page": page,
+                "size": API_ACCESS_PAGE_SIZE,
+            })
+            payload = litellm_admin_request("GET", "/key/list?" + query)
+            if not isinstance(payload, dict):
+                raise RequestError(503, "LiteLLM key management returned an invalid response")
+            page_items = payload.get("keys") or []
+            if not isinstance(page_items, list):
+                raise RequestError(503, "LiteLLM key management returned an invalid response")
+            for value in page_items:
+                item = api_access_item(value)
+                if item:
+                    items.append(item)
+            try:
+                total_pages = max(1, int(payload.get("total_pages") or 1))
+            except (TypeError, ValueError):
+                total_pages = 1
+            if page >= total_pages or len(page_items) < API_ACCESS_PAGE_SIZE:
+                break
+            page += 1
+        items.sort(key=lambda item: (item.get("createdAt") or "", item.get("name") or ""), reverse=True)
+        return {
+            "items": items,
+            "total": len(items),
+            "apiBases": litellm_api_bases(),
+        }
+
+
+    def create_api_access(payload):
+        _reject_unknown_fields(payload, {"name"})
+        name = _clean_text(payload, "name", MAX_API_ACCESS_NAME_LENGTH, required=True)
+        alias = "magicstick-" + dns_label_part(name, "access")[:40] + "-" + secrets.token_hex(4)
+        request_body = {
+            "key_alias": alias,
+            "key_type": "llm_api",
+            "models": [],
+            "metadata": {
+                "magicstick_source": API_ACCESS_METADATA_SOURCE,
+                "magicstick_name": name,
+            },
+        }
+        with API_ACCESS_LOCK:
+            result = litellm_admin_request("POST", "/key/generate", request_body)
+        if not isinstance(result, dict):
+            raise RequestError(503, "LiteLLM key management returned an invalid response")
+        key = str(result.get("key") or "").strip()
+        if not key.startswith("sk-"):
+            raise RequestError(503, "LiteLLM did not return a usable API key")
+        normalized = dict(result)
+        normalized.setdefault("key_alias", alias)
+        normalized.setdefault("metadata", request_body["metadata"])
+        item = api_access_item(normalized)
+        if not item:
+            token_id = hashlib.sha256(key.encode("utf-8")).hexdigest()
+            item = {
+                "id": token_id,
+                "name": name,
+                "keyHint": token_id[:10] + "..." + token_id[-6:],
+                "createdAt": str(result.get("created_at") or result.get("createdAt") or ""),
+                "expiresAt": "",
+                "status": "active",
+            }
+        return {
+            "item": item,
+            "key": key,
+            "apiBases": litellm_api_bases(),
+        }
+
+
+    def delete_api_access(token_id):
+        token_id = urllib.parse.unquote(str(token_id or "")).strip()
+        if not API_ACCESS_ID.fullmatch(token_id):
+            raise RequestError(400, "API access id is invalid")
+        current = list_api_access().get("items") or []
+        item = next((candidate for candidate in current if candidate.get("id") == token_id), None)
+        if not item:
+            raise RequestError(404, "API access not found")
+        with API_ACCESS_LOCK:
+            litellm_admin_request("POST", "/key/delete", {"keys": [token_id]})
+        return {"deleted": token_id, "name": item.get("name") or "API access"}
 
 
     def module_credentials(name):
@@ -3124,6 +3325,8 @@ data:
 
 
     def required_get_access(parts):
+        if len(parts) >= 2 and parts[:2] == ["api", "api-access"]:
+            return "admin"
         credential_route = (
             len(parts) == 4
             and parts[0] == "api"
@@ -3134,7 +3337,7 @@ data:
 
 
     class Handler(BaseHTTPRequestHandler):
-        server_version = "MagicStickDashboardAPI/0.4"
+        server_version = "MagicStickDashboardAPI/0.5"
 
         def log_message(self, format, *args):
             print("%s - %s" % (self.address_string(), format % args), flush=True)
@@ -3195,6 +3398,10 @@ data:
                     else:
                         self.send_json(get_user(principal, parts[2]))
                     return
+                if path == "/api/api-access":
+                    self.require_access("admin")
+                    self.send_json(list_api_access())
+                    return
                 required_access = required_get_access(parts)
                 principal = self.require_access(required_access)
                 if path == "/api/session":
@@ -3235,12 +3442,16 @@ data:
             except ValueError as error:
                 self.send_error_json(400, str(error))
             except urllib.error.HTTPError as error:
-                if self.route().startswith("/api/users"):
+                if self.route().startswith("/api/api-access"):
+                    self.send_error_json(503, "API access management is unavailable")
+                elif self.route().startswith("/api/users"):
                     self.send_error_json(503, "identity administration is unavailable")
                 else:
                     self.send_error_json(error.code, error.read().decode("utf-8", errors="replace"))
             except Exception as error:
-                if self.route().startswith("/api/users"):
+                if self.route().startswith("/api/api-access"):
+                    self.send_error_json(500, "API access management failed")
+                elif self.route().startswith("/api/users"):
                     self.send_error_json(500, "user administration failed")
                 else:
                     self.send_error_json(500, str(error))
@@ -3289,6 +3500,11 @@ data:
             try:
                 path = self.route()
                 parts = path.strip("/").split("/")
+                if path == "/api/api-access":
+                    self.require_access("admin")
+                    validate_dashboard_mutation_request(self)
+                    self.send_json(create_api_access(read_body(self)), 201)
+                    return
                 if path == "/api/users":
                     principal = self.require_access("admin")
                     validate_user_mutation_request(self)
@@ -3379,12 +3595,16 @@ data:
             except RequestError as error:
                 self.send_error_json(error.status, str(error))
             except urllib.error.HTTPError as error:
-                if self.route().startswith("/api/users"):
+                if self.route().startswith("/api/api-access"):
+                    self.send_error_json(503, "API access management is unavailable")
+                elif self.route().startswith("/api/users"):
                     self.send_error_json(503, "identity administration is unavailable")
                 else:
                     self.send_error_json(error.code, error.read().decode("utf-8", errors="replace"))
             except Exception as error:
-                if self.route().startswith("/api/users"):
+                if self.route().startswith("/api/api-access"):
+                    self.send_error_json(500, "API access management failed")
+                elif self.route().startswith("/api/users"):
                     self.send_error_json(500, "user administration failed")
                 else:
                     self.send_error_json(400, str(error))
@@ -3417,6 +3637,13 @@ data:
             try:
                 path = self.route()
                 parts = path.strip("/").split("/")
+                if len(parts) == 3 and parts[:2] == ["api", "api-access"]:
+                    self.require_access("admin")
+                    validate_dashboard_mutation_request(self)
+                    payload = read_body(self)
+                    _reject_unknown_fields(payload, set())
+                    self.send_json(delete_api_access(parts[2]))
+                    return
                 if len(parts) == 3 and parts[:2] == ["api", "users"]:
                     principal = self.require_access("admin")
                     validate_user_mutation_request(self)
@@ -3457,12 +3684,16 @@ data:
             except RequestError as error:
                 self.send_error_json(error.status, str(error))
             except urllib.error.HTTPError as error:
-                if self.route().startswith("/api/users"):
+                if self.route().startswith("/api/api-access"):
+                    self.send_error_json(503, "API access management is unavailable")
+                elif self.route().startswith("/api/users"):
                     self.send_error_json(503, "identity administration is unavailable")
                 else:
                     self.send_error_json(error.code, error.read().decode("utf-8", errors="replace"))
             except Exception as error:
-                if self.route().startswith("/api/users"):
+                if self.route().startswith("/api/api-access"):
+                    self.send_error_json(500, "API access management failed")
+                elif self.route().startswith("/api/users"):
                     self.send_error_json(500, "user administration failed")
                 else:
                     self.send_error_json(400, str(error))
