@@ -91,6 +91,7 @@ fallback steps, setup access, and operational checks.
 │   ├── configuration.md
 │   ├── dashboard.md
 │   ├── development.md
+│   ├── features.md
 │   ├── getting-started.md
 │   ├── gitops-overlays.md
 │   ├── legal-notice.html
@@ -126,6 +127,7 @@ site.
 
 | Topic | Document |
 |---|---|
+| Complete feature overview with current product screenshots | [docs/features.md](docs/features.md) |
 | Installation on hardware, VMs, or Kubernetes | [docs/installation/README.md](docs/installation/README.md) |
 | Configuration after installation | [docs/installation/after-installation-dashboard.md](docs/installation/after-installation-dashboard.md) |
 | First checkout and installer flow | [docs/getting-started.md](docs/getting-started.md) |
