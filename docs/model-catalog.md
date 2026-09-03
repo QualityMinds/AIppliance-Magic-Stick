@@ -124,9 +124,10 @@ preset, or a direct `hf://` repository. The search accepts names and prefixes,
 normalizes human input such as `Qwen 3.6`, and returns paginated public model
 repositories. Selecting a model loads the original repository plus related
 quantized repositories into a second, vertically stacked dropdown. The
-shortcut row is populated from Hugging Face's live `trendingScore` result, so
-popular models are not maintained in the Magic Stick source. A candidate must
-declare a direct `quantized` or `quantization` relationship to the exact selected model.
+first shortcut row keeps stable family searches for Qwen, DeepSeek, GLM, Llama,
+and Gemma. A separate row is populated from Hugging Face's live
+`trendingScore` result. A candidate must declare a direct `quantized` or
+`quantization` relationship to the exact selected model.
 Name-only matches and `adapter`, `finetune`, or `merge` relationships are not
 selectable. Private, gated, and disabled repositories are excluded because
 this release has no Hugging Face token flow. Model type and Hub pipeline must

@@ -375,9 +375,10 @@ For vLLM, **Model source** offers three persistent choices:
 
 - **Hugging Face search** accepts a model name or prefix and provides normal
   full-width dropdowns, one below the other, for the matching model and its
-  original or quantized artifacts. The shortcut row comes from Hugging Face's
-  live `trendingScore` order rather than a maintained family list. Additional
-  result pages can be loaded without losing the current selection.
+  original or quantized artifacts. A stable model-family row provides Qwen,
+  DeepSeek, GLM, Llama, and Gemma searches, while a second row comes from
+  Hugging Face's live `trendingScore` order. Additional result pages can be
+  loaded without losing the current selection.
 - **Tested preset** retains the allowlisted catalog flow and its **Precision /
   Quantization** dropdown.
 - **Direct Hugging Face URL** retains the existing `hf://` escape hatch.

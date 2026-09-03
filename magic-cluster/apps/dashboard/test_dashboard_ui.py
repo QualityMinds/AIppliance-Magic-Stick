@@ -908,6 +908,8 @@ BROWSER_ASSERTIONS = r"""
     assert(document.getElementById('local-model-url').readOnly, 'discovered Hugging Face URL must be read only');
     assert(document.getElementById('local-model-form').elements.maxNumSeqs.value === '1', 'new models must start with one sequence');
     await waitFor(() => callExists('GET', '/api/model-discovery/popular'), 'Hugging Face trending models');
+    const familyButtons = Array.from(document.querySelectorAll('#huggingface-model-families [data-huggingface-query]'));
+    assert(familyButtons.map((button) => button.dataset.huggingfaceQuery).join(',') === 'Qwen,DeepSeek,GLM,Llama,Gemma', 'model family shortcuts are incorrect');
     await waitFor(() => document.querySelectorAll('#huggingface-popular-models [data-huggingface-query]').length === 2, 'dynamic Hugging Face trending buttons');
     assert(document.getElementById('huggingface-popular-models').textContent.includes('GLM-5.3'), 'trending model metadata is missing');
     assert(document.getElementById('huggingface-popular-models').textContent.includes('Qwen3.8-27B'), 'second trending model is missing');
@@ -915,9 +917,10 @@ BROWSER_ASSERTIONS = r"""
     const quantizationField = huggingFaceArtifacts.closest('.model-discovery-field').getBoundingClientRect();
     assert(quantizationField.top >= matchingModelField.bottom, 'model and quantization dropdowns are not stacked vertically');
 
+    const exactSearchCalls = window.__dashboardBrowserCalls.filter((call) => call.path.startsWith('/api/model-discovery/search?')).length;
     huggingFaceQuery.value = 'Qwen 3.6';
     document.getElementById('huggingface-model-search').click();
-    await waitFor(() => callExists('GET', '/api/model-discovery/search'), 'Hugging Face model search');
+    await waitFor(() => window.__dashboardBrowserCalls.filter((call) => call.path.startsWith('/api/model-discovery/search?')).length > exactSearchCalls, 'Hugging Face model search');
     await waitFor(() => !huggingFaceResults.disabled && huggingFaceResults.options.length === 3, 'compatible Hugging Face results');
     const searchCall = window.__dashboardBrowserCalls.find((call) => call.path.startsWith('/api/model-discovery/search?'));
     assert(searchCall.path.includes('provider=huggingface'), 'Hugging Face provider is missing from search');
@@ -932,7 +935,7 @@ BROWSER_ASSERTIONS = r"""
     changeSelect(huggingFaceResults, 'Qwen/Qwen3.6-27B');
     await waitFor(() => callExists('GET', '/api/model-discovery/artifacts'), 'Hugging Face quantization lookup');
     await waitFor(() => !huggingFaceArtifacts.disabled && huggingFaceArtifacts.options.length === 2, 'Hugging Face artifact options');
-    const artifactCall = window.__dashboardBrowserCalls.find((call) => call.path.startsWith('/api/model-discovery/artifacts?'));
+    const artifactCall = window.__dashboardBrowserCalls.filter((call) => call.path.startsWith('/api/model-discovery/artifacts?')).at(-1);
     assert(artifactCall.path.includes('modelType=chat'), 'selected model type is missing from quantization lookup');
     assert(huggingFaceArtifacts.value === 'Qwen/Qwen3.6-27B', 'original Hugging Face artifact is not selected');
     assert(document.getElementById('local-model-url').value === 'hf://Qwen/Qwen3.6-27B', 'selected Hugging Face URL was not applied');
@@ -957,9 +960,10 @@ BROWSER_ASSERTIONS = r"""
     const artifactLoadMore = document.getElementById('huggingface-artifact-load-more');
     assert(!modelLoadMore.hidden && !modelLoadMore.disabled, 'model pagination action is unavailable despite nextCursor');
     assert(!artifactLoadMore.hidden && !artifactLoadMore.disabled, 'artifact pagination action is unavailable despite nextCursor');
+    const artifactCallsBeforeMore = window.__dashboardBrowserCalls.filter((call) => call.path.startsWith('/api/model-discovery/artifacts?')).length;
     artifactLoadMore.click();
     await waitFor(
-      () => window.__dashboardBrowserCalls.filter((call) => call.path.startsWith('/api/model-discovery/artifacts?')).length === 2,
+      () => window.__dashboardBrowserCalls.filter((call) => call.path.startsWith('/api/model-discovery/artifacts?')).length > artifactCallsBeforeMore,
       'second Hugging Face artifact page'
     );
     await waitFor(() => huggingFaceArtifacts.options.length === 3, 'deduplicated appended quantizations');
@@ -967,9 +971,10 @@ BROWSER_ASSERTIONS = r"""
     assert(Array.from(huggingFaceArtifacts.options).some((option) => option.value === 'community/Qwen3.6-27B-GPTQ'), 'new quantization was not appended');
     assert(artifactLoadMore.hidden, 'artifact pagination action stayed visible after the final page');
     assert(document.getElementById('huggingface-model-status').textContent.includes('3 artifact candidates loaded from 3 discovered'), 'artifact progress is incorrect');
+    const modelCallsBeforeMore = window.__dashboardBrowserCalls.filter((call) => call.path.startsWith('/api/model-discovery/search?')).length;
     modelLoadMore.click();
     await waitFor(
-      () => window.__dashboardBrowserCalls.filter((call) => call.path.startsWith('/api/model-discovery/search?')).length === 2,
+      () => window.__dashboardBrowserCalls.filter((call) => call.path.startsWith('/api/model-discovery/search?')).length > modelCallsBeforeMore,
       'second Hugging Face model page'
     );
     await waitFor(() => huggingFaceResults.options.length === 4, 'deduplicated appended model results');
@@ -978,15 +983,17 @@ BROWSER_ASSERTIONS = r"""
     assert(Array.from(huggingFaceResults.options).some((option) => option.value === 'Qwen/Qwen3.6-35B-A3B'), 'new model was not appended');
     assert(modelLoadMore.hidden, 'model pagination action stayed visible after the final page');
     assert(document.getElementById('huggingface-model-status').textContent.includes('3 model candidates loaded from 4 discovered'), 'model progress is incorrect');
+    const searchCallsBeforeModelType = window.__dashboardBrowserCalls.filter((call) => call.path.startsWith('/api/model-discovery/search?')).length;
+    const artifactCallsBeforeModelType = window.__dashboardBrowserCalls.filter((call) => call.path.startsWith('/api/model-discovery/artifacts?')).length;
     changeSelect(document.getElementById('local-model-form').elements.modelType, 'embedding');
     await waitFor(
-      () => window.__dashboardBrowserCalls.filter((call) => call.path.startsWith('/api/model-discovery/search?')).length === 3,
+      () => window.__dashboardBrowserCalls.filter((call) => call.path.startsWith('/api/model-discovery/search?')).length > searchCallsBeforeModelType,
       'Hugging Face compatibility refresh after model type change'
     );
     const refreshedSearchCall = window.__dashboardBrowserCalls.filter((call) => call.path.startsWith('/api/model-discovery/search?')).at(-1);
     assert(refreshedSearchCall.path.includes('modelType=embedding'), 'changed model type is missing from refreshed search');
     await waitFor(
-      () => window.__dashboardBrowserCalls.filter((call) => call.path.startsWith('/api/model-discovery/artifacts?')).length === 3,
+      () => window.__dashboardBrowserCalls.filter((call) => call.path.startsWith('/api/model-discovery/artifacts?')).length > artifactCallsBeforeModelType,
       'quantization revalidation after model type change'
     );
     const refreshedArtifactCall = window.__dashboardBrowserCalls.filter((call) => call.path.startsWith('/api/model-discovery/artifacts?')).at(-1);
@@ -1471,9 +1478,15 @@ class DashboardUserManagementUiTests(unittest.TestCase):
         self.assertIn('<option value="preset">Tested preset</option>', self.source)
         self.assertIn('<option value="direct">Direct model URL</option>', self.source)
         self.assertIn('id="huggingface-model-query"', self.source)
+        self.assertIn('id="huggingface-model-families"', self.source)
+        self.assertIn('Model families', self.source)
+        self.assertIn('data-huggingface-query="Qwen"', self.source)
+        self.assertIn('data-huggingface-query="DeepSeek"', self.source)
+        self.assertIn('data-huggingface-query="GLM"', self.source)
+        self.assertIn('data-huggingface-query="Llama"', self.source)
+        self.assertIn('data-huggingface-query="Gemma"', self.source)
         self.assertIn('id="huggingface-popular-models"', self.source)
         self.assertIn('Trending on Hugging Face', self.source)
-        self.assertNotIn('data-huggingface-query="Qwen"', self.source)
         self.assertIn('id="huggingface-model-results"', self.source)
         self.assertIn('id="huggingface-model-artifacts"', self.source)
         self.assertIn('id="huggingface-model-load-more"', self.source)
@@ -1527,6 +1540,7 @@ class DashboardUserManagementUiTests(unittest.TestCase):
         self.assertIn("localArtifactSelect.addEventListener('change'", self.script)
         self.assertIn("request('/api/model-discovery/search?'", self.script)
         self.assertIn("request('/api/model-discovery/popular?'", self.script)
+        self.assertIn("document.querySelectorAll('#huggingface-model-families [data-huggingface-query]')", self.script)
         self.assertIn("request('/api/model-discovery/artifacts?'", self.script)
         self.assertIn("const searchHuggingFaceModels = async (rawQuery, options = {}) =>", self.script)
         self.assertIn("const selectedLocalModelType = () =>", self.script)

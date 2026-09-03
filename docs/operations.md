@@ -414,9 +414,10 @@ hardware-operator state and allocatable resources above.
 
 For vLLM, choose **Hugging Face search** to search a model name or prefix. Pick
 the repository from the first full-width dropdown and then the original or
-quantized artifact from the dropdown below it. The shortcut row lists live
-Hugging Face trending models. Use **More models** or **More quantizations** when
-the API reports another page. Review the displayed publisher, format, revision,
+quantized artifact from the dropdown below it. The first shortcut row searches
+stable model families; the second lists live Hugging Face trending models. Use
+**More models** or **More quantizations** when the API reports another page.
+Review the displayed publisher, format, revision,
 trust, conditional download size, context, and compatibility note before
 creation. The advertised model context is used as the initial **Context Size**;
 reduce it when the corresponding memory estimate exceeds the selected target.

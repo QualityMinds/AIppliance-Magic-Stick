@@ -931,6 +931,10 @@ data:
           gap: 0.4rem;
         }
 
+        .model-discovery-popular + .model-discovery-popular {
+          margin-top: 0.45rem;
+        }
+
         .model-discovery-popular > span {
           color: var(--muted);
           font-size: 0.75rem;
@@ -2191,11 +2195,19 @@ data:
                             </label>
                             <button class="control-button primary" id="huggingface-model-search" type="button">Search</button>
                           </div>
+                          <div class="model-discovery-popular" id="huggingface-model-families" aria-label="Popular model families">
+                            <span>Model families</span>
+                            <button class="control-button" type="button" data-huggingface-query="Qwen">Qwen</button>
+                            <button class="control-button" type="button" data-huggingface-query="DeepSeek">DeepSeek</button>
+                            <button class="control-button" type="button" data-huggingface-query="GLM">GLM</button>
+                            <button class="control-button" type="button" data-huggingface-query="Llama">Llama</button>
+                            <button class="control-button" type="button" data-huggingface-query="Gemma">Gemma</button>
+                          </div>
                           <div class="model-discovery-popular" id="huggingface-popular-models" aria-label="Trending Hugging Face models">
                             <span>Trending on Hugging Face</span>
                             <span id="huggingface-popular-status">Loading…</span>
                           </div>
-                          <p class="model-discovery-status" id="huggingface-model-status" role="status" aria-live="polite">Enter at least two characters or choose a popular search.</p>
+                          <p class="model-discovery-status" id="huggingface-model-status" role="status" aria-live="polite">Enter at least two characters or choose a model family or trending model.</p>
                           <div class="model-discovery-selection">
                             <div class="model-discovery-field">
                               <label class="field">Matching models
@@ -3546,7 +3558,7 @@ data:
           const searchHuggingFaceModels = async (rawQuery, options = {}) => {
             const queryValue = String(rawQuery || '').trim();
             if (queryValue.length < 2) {
-              setHuggingFaceStatus('Enter at least two characters or choose a popular search.', 'error');
+              setHuggingFaceStatus('Enter at least two characters or choose a model family or trending model.', 'error');
               return false;
             }
             const append = options.append === true;
@@ -3652,7 +3664,7 @@ data:
             updateDiscoveryLoadMore('huggingface-artifact-load-more', null);
             renderHuggingFacePopular([], 'Loading…');
             renderHuggingFaceMetadata(null);
-            setHuggingFaceStatus('Enter at least two characters or choose a popular search.');
+            setHuggingFaceStatus('Enter at least two characters or choose a model family or trending model.');
             const form = $('local-model-form');
             if (form) {
               setFormValue(form, 'name', '');
@@ -7639,6 +7651,14 @@ data:
           if (huggingFaceModelSearch) {
             huggingFaceModelSearch.addEventListener('click', () => searchHuggingFaceModels((huggingFaceModelQuery || {}).value));
           }
+          document.querySelectorAll('#huggingface-model-families [data-huggingface-query]').forEach((button) => {
+            button.addEventListener('click', () => {
+              if (huggingFaceModelQuery) {
+                huggingFaceModelQuery.value = button.dataset.huggingfaceQuery || '';
+              }
+              searchHuggingFaceModels((huggingFaceModelQuery || {}).value);
+            });
+          });
           const huggingFaceModelLoadMore = $('huggingface-model-load-more');
           if (huggingFaceModelLoadMore) {
             huggingFaceModelLoadMore.addEventListener('click', () => {
