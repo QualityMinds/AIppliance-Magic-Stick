@@ -93,7 +93,8 @@ checks.
 | `GET` | `/api/models` | Returns model catalog entries, variant-aware presets, compute-target availability, `ModelActivation` resources, AnythingLLM status, the estimator-compatible VRAM summary, and a `computeMemory.devices` list for the CPU and every discoverable GPU resource. |
 | `GET` | `/api/models/compute-targets` | Returns CPU/NVIDIA/AMD/Intel availability, supported engines, resolved resource/profile, and a non-sensitive reason when a target is unavailable. |
 | `GET` | `/api/model-discovery/search?provider=huggingface&q=&cursor=&limit=` | Searches public, non-gated Hugging Face repositories by name or prefix and returns bounded, sortable model metadata plus a continuation cursor. |
-| `GET` | `/api/model-discovery/artifacts?provider=huggingface&repo=&cursor=&limit=` | Resolves the selected repository and related quantized artifacts using declared base-model relations with a conservative name-based fallback. |
+| `GET` | `/api/model-discovery/popular?provider=huggingface&limit=` | Returns currently trending public Hugging Face models compatible with the selected model type, engine, and compute target. |
+| `GET` | `/api/model-discovery/artifacts?provider=huggingface&repo=&cursor=&limit=` | Resolves the selected repository and only directly related quantized artifacts declared by Hugging Face metadata. |
 | `GET` | `/api/status` | Returns runtime objects and the catalogued NVIDIA/AMD/Intel operator lifecycle from `Appliance.status.hardwareOperators`. |
 | `POST` | `/api/models/estimate-memory` | Estimates minimum and recommended RAM or accelerator memory for every supported local engine/compute-target combination. |
 | `POST` | `/api/models/estimate-vram` | Backward-compatible alias for `/api/models/estimate-memory`. |
@@ -373,9 +374,10 @@ accelerator targets are omitted instead of being presented as disabled choices.
 For vLLM, **Model source** offers three persistent choices:
 
 - **Hugging Face search** accepts a model name or prefix and provides normal
-  dropdowns for the matching model and its original or quantized artifacts.
-  Popular-family shortcuts prefill common searches. Additional result pages can
-  be loaded without losing the current selection.
+  full-width dropdowns, one below the other, for the matching model and its
+  original or quantized artifacts. The shortcut row comes from Hugging Face's
+  live `trendingScore` order rather than a maintained family list. Additional
+  result pages can be loaded without losing the current selection.
 - **Tested preset** retains the allowlisted catalog flow and its **Precision /
   Quantization** dropdown.
 - **Direct Hugging Face URL** retains the existing `hf://` escape hatch.
@@ -383,12 +385,17 @@ For vLLM, **Model source** offers three persistent choices:
 The discovery backend returns only public, non-gated, non-disabled repositories.
 Quantizations must declare a direct `quantized` relationship to the exact
 selected model; name similarity, adapter, fine-tune, and merge relationships do
-not qualify. Publisher, formats, parameter/weight metadata, revision, trust
+not qualify. Publisher, formats, parameter metadata, revision, trust
 classification, and runtime-compatibility guidance remain visible after
-selection. A dynamic result is labelled experimental until the chosen runtime
-has loaded it; the dashboard does not claim that arbitrary community artifacts
-are validated. Selecting an artifact writes its `hf://` repository to a custom
-activation and reuses the same server-side memory estimator as a direct URL.
+selection. When Hugging Face publishes `usedStorage`, the dashboard also shows
+the repository download size. The estimator reads the selected repository's
+`config.json`; when it advertises a maximum context, that value becomes the
+initial **Context Size** while remaining editable. A new dynamic model starts
+with **Max Num Seqs = 1**. A dynamic result is labelled experimental until the
+chosen runtime has loaded it; the dashboard does not claim that arbitrary
+community artifacts are validated. Selecting an artifact writes its `hf://`
+repository to a custom activation and reuses the same server-side memory
+estimator as a direct URL.
 GGUF and MLX repositories are excluded from the current vLLM selection because
 that path cannot select the required GGUF file/plugin and does not run MLX.
 

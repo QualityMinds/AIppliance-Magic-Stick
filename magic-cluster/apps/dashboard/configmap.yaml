@@ -939,13 +939,17 @@ data:
 
         .model-discovery-popular .control-button {
           font-size: 0.75rem;
+          max-width: min(16rem, 100%);
+          overflow: hidden;
           padding: 0.28rem 0.52rem;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
 
         .model-discovery-selection {
           display: grid;
           gap: 0.65rem;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
+          grid-template-columns: minmax(0, 1fr);
         }
 
         .model-discovery-field {
@@ -2187,13 +2191,9 @@ data:
                             </label>
                             <button class="control-button primary" id="huggingface-model-search" type="button">Search</button>
                           </div>
-                          <div class="model-discovery-popular" aria-label="Popular model searches">
-                            <span>Popular</span>
-                            <button class="control-button" type="button" data-huggingface-query="Qwen">Qwen</button>
-                            <button class="control-button" type="button" data-huggingface-query="DeepSeek">DeepSeek</button>
-                            <button class="control-button" type="button" data-huggingface-query="GLM">GLM</button>
-                            <button class="control-button" type="button" data-huggingface-query="Llama">Llama</button>
-                            <button class="control-button" type="button" data-huggingface-query="Gemma">Gemma</button>
+                          <div class="model-discovery-popular" id="huggingface-popular-models" aria-label="Trending Hugging Face models">
+                            <span>Trending on Hugging Face</span>
+                            <span id="huggingface-popular-status">Loading…</span>
                           </div>
                           <p class="model-discovery-status" id="huggingface-model-status" role="status" aria-live="polite">Enter at least two characters or choose a popular search.</p>
                           <div class="model-discovery-selection">
@@ -2221,7 +2221,7 @@ data:
                         <label class="field">Name<input name="name" placeholder="my-model" /></label>
                         <label class="field">Type<select name="modelType"><option value="chat">chat</option><option value="embedding">embedding</option></select></label>
                         <label class="field"><span id="local-model-url-label">Hugging Face URL</span><input id="local-model-url" name="url" placeholder="hf://example/model" /></label>
-                        <label class="field">Max Num Seqs<input name="maxNumSeqs" type="number" min="1" placeholder="32" /></label>
+                        <label class="field">Max Num Seqs<input name="maxNumSeqs" type="number" min="1" value="1" /></label>
                         <label class="field">Context Size<input name="contextWindow" type="number" min="1" value="4096" /></label>
                       </div>
                       <p class="module-message" id="local-model-artifact-note" role="status" hidden></p>
@@ -2731,6 +2731,10 @@ data:
           let selectedHuggingFaceModel = null;
           let selectedHuggingFaceArtifact = null;
           let modelDiscoveryAutoName = '';
+          let modelDiscoveryContextDirty = false;
+          let modelDiscoveryAutoContext = '4096';
+          let huggingFacePopularRequest = 0;
+          let huggingFacePopularSignature = '';
           let huggingFaceSearchRequest = 0;
           let huggingFaceArtifactRequest = 0;
           let huggingFaceSearchTimer = null;
@@ -3114,6 +3118,68 @@ data:
             }
           };
 
+          const renderHuggingFacePopular = (items, state = '') => {
+            const container = $('huggingface-popular-models');
+            if (!container) { return; }
+            container.replaceChildren();
+            const label = document.createElement('span');
+            label.textContent = 'Trending on Hugging Face';
+            container.appendChild(label);
+            const models = compatibleDiscoveryItems(items).slice(0, 5);
+            if (!models.length) {
+              const status = document.createElement('span');
+              status.id = 'huggingface-popular-status';
+              status.textContent = state || 'Unavailable';
+              container.appendChild(status);
+              return;
+            }
+            models.forEach((model) => {
+              const repo = discoveryRepo(model);
+              const button = document.createElement('button');
+              button.className = 'control-button';
+              button.type = 'button';
+              button.dataset.huggingfaceQuery = repo;
+              button.textContent = String((model || {}).name || repo.split('/').pop() || repo);
+              button.title = repo;
+              button.addEventListener('click', () => {
+                const query = $('huggingface-model-query');
+                if (query) { query.value = repo; }
+                searchHuggingFaceModels(repo);
+              });
+              container.appendChild(button);
+            });
+          };
+
+          const loadHuggingFacePopular = async (options = {}) => {
+            if (activeLocalModelSource !== 'huggingface' || !selectedLocalEngine() || !selectedComputeTarget()) {
+              return false;
+            }
+            const signature = [selectedLocalEngine(), selectedComputeTarget(), selectedLocalModelType()].join('|');
+            if (options.force !== true && signature === huggingFacePopularSignature) { return true; }
+            const requestId = ++huggingFacePopularRequest;
+            renderHuggingFacePopular([], 'Loading…');
+            const query = new URLSearchParams({
+              provider: 'huggingface',
+              limit: '5',
+              cursor: '0',
+              engine: selectedLocalEngine(),
+              computeTarget: selectedComputeTarget(),
+              modelType: selectedLocalModelType()
+            });
+            try {
+              const payload = await request('/api/model-discovery/popular?' + query.toString());
+              if (requestId !== huggingFacePopularRequest) { return false; }
+              huggingFacePopularSignature = signature;
+              renderHuggingFacePopular((payload || {}).results || []);
+              return true;
+            } catch (_error) {
+              if (requestId !== huggingFacePopularRequest) { return false; }
+              huggingFacePopularSignature = '';
+              renderHuggingFacePopular([], 'Trending unavailable');
+              return false;
+            }
+          };
+
           const setDiscoverySelectPlaceholder = (select, message) => {
             if (!select) { return; }
             select.replaceChildren();
@@ -3206,6 +3272,12 @@ data:
             return count >= 1e9 ? (count / 1e9).toFixed(count >= 10e9 ? 0 : 1) + 'B params' : Math.round(count / 1e6) + 'M params';
           };
 
+          const formatDiscoveryContext = (value) => {
+            const tokens = Number(value || 0);
+            if (!Number.isFinite(tokens) || tokens <= 0) { return ''; }
+            return Math.round(tokens).toLocaleString('en-US') + ' tokens';
+          };
+
           const discoveryRepo = (item) => String((item || {}).repo || (item || {}).id || '').trim();
 
           const discoveryOptionLabel = (item, options = {}) => {
@@ -3244,13 +3316,41 @@ data:
             appendDiscoveryMetadata(container, 'Publisher', (item || {}).author || discoveryRepo(item).split('/')[0]);
             appendDiscoveryMetadata(container, 'Format', discoveryFormats(item).join(', '));
             appendDiscoveryMetadata(container, 'Quantization', discoveryQuantization(item) || 'Original precision');
-            appendDiscoveryMetadata(container, 'Size', formatDiscoveryBytes((item || {}).weightBytes));
+            appendDiscoveryMetadata(container, 'Download', formatDiscoveryBytes((item || {}).downloadBytes || (item || {}).weightBytes));
             appendDiscoveryMetadata(container, 'Parameters', formatDiscoveryParameters((item || {}).parameterCount));
+            appendDiscoveryMetadata(container, 'Model context', formatDiscoveryContext((item || {}).modelMaxContext || (item || {}).contextWindow));
             appendDiscoveryMetadata(container, 'Trust', discoveryTrust(item));
             appendDiscoveryMetadata(container, 'Runtime', discoveryCompatibility(item));
             if ((item || {}).revision) {
               appendDiscoveryMetadata(container, 'Revision', String(item.revision).slice(0, 12));
             }
+          };
+
+          const syncHuggingFaceEstimateMetadata = (estimate) => {
+            const form = $('local-model-form');
+            if (
+              activeLocalModelSource !== 'huggingface'
+              || !selectedHuggingFaceArtifact
+              || !form
+              || discoveryRepo(selectedHuggingFaceArtifact) !== String((estimate || {}).repo || '')
+            ) {
+              return false;
+            }
+            const downloadBytes = Number((estimate || {}).downloadBytes || 0);
+            const modelMaxContext = Number((estimate || {}).modelMaxContext || 0);
+            if (downloadBytes > 0) { selectedHuggingFaceArtifact.downloadBytes = downloadBytes; }
+            if (modelMaxContext > 0) { selectedHuggingFaceArtifact.modelMaxContext = modelMaxContext; }
+            renderHuggingFaceMetadata(selectedHuggingFaceArtifact);
+            const contextField = form.elements.contextWindow;
+            if (!contextField || modelDiscoveryContextDirty || modelMaxContext <= 0) { return false; }
+            const desired = String(Math.round(modelMaxContext));
+            if (String(contextField.value || '') === desired) {
+              modelDiscoveryAutoContext = desired;
+              return false;
+            }
+            setFormValue(form, 'contextWindow', desired);
+            modelDiscoveryAutoContext = desired;
+            return true;
           };
 
           const modelActivationName = (item) => {
@@ -3284,8 +3384,10 @@ data:
             if (pipelineTag === 'feature-extraction' || pipelineTag === 'sentence-similarity') {
               setFormValue(form, 'modelType', 'embedding');
             }
-            if (artifact.contextWindow || artifact.modelMaxContext) {
-              setFormValue(form, 'contextWindow', artifact.contextWindow || artifact.modelMaxContext);
+            if (!modelDiscoveryContextDirty && (artifact.contextWindow || artifact.modelMaxContext)) {
+              const context = String(artifact.contextWindow || artifact.modelMaxContext);
+              setFormValue(form, 'contextWindow', context);
+              modelDiscoveryAutoContext = context;
             }
             if (form.elements.url) {
               form.elements.url.value = url;
@@ -3387,6 +3489,13 @@ data:
               return false;
             }
             selectedHuggingFaceModel = selected;
+            modelDiscoveryContextDirty = false;
+            modelDiscoveryAutoContext = '4096';
+            const form = $('local-model-form');
+            if (form) {
+              setFormValue(form, 'contextWindow', modelDiscoveryAutoContext);
+              applyModelContextLimit(null);
+            }
             renderHuggingFaceMetadata(selected);
             loadHuggingFaceArtifacts(selected);
             return true;
@@ -3506,12 +3615,14 @@ data:
 
           const refreshHuggingFaceModelType = () => {
             if (activeLocalModelSource !== 'huggingface') { return; }
+            loadHuggingFacePopular({ force: true });
             const field = $('huggingface-model-query');
             const value = String(huggingFaceSearchQuery || (field || {}).value || '').trim();
             if (value.length >= 2) { searchHuggingFaceModels(value); }
           };
 
           const resetHuggingFaceDiscovery = () => {
+            huggingFacePopularRequest += 1;
             huggingFaceSearchRequest += 1;
             huggingFaceArtifactRequest += 1;
             if (huggingFaceSearchTimer) { window.clearTimeout(huggingFaceSearchTimer); }
@@ -3527,6 +3638,9 @@ data:
             huggingFaceArtifactTotal = 0;
             huggingFaceArtifactRepo = '';
             modelDiscoveryAutoName = '';
+            modelDiscoveryContextDirty = false;
+            modelDiscoveryAutoContext = '4096';
+            huggingFacePopularSignature = '';
             directLocalModelUrl = '';
             localPresetSourceValue = '';
             activeLocalModelSource = '';
@@ -3536,12 +3650,16 @@ data:
             setDiscoverySelectPlaceholder($('huggingface-model-artifacts'), 'Select a model first');
             updateDiscoveryLoadMore('huggingface-model-load-more', null);
             updateDiscoveryLoadMore('huggingface-artifact-load-more', null);
+            renderHuggingFacePopular([], 'Loading…');
             renderHuggingFaceMetadata(null);
             setHuggingFaceStatus('Enter at least two characters or choose a popular search.');
             const form = $('local-model-form');
             if (form) {
               setFormValue(form, 'name', '');
               setFormValue(form, 'url', '');
+              setFormValue(form, 'maxNumSeqs', 1);
+              setFormValue(form, 'contextWindow', modelDiscoveryAutoContext);
+              applyModelContextLimit(null);
               if (form.elements.url) {
                 form.elements.url.readOnly = false;
                 form.elements.url.removeAttribute('title');
@@ -3596,6 +3714,7 @@ data:
                   ? String(selectedHuggingFaceArtifact.url || 'hf://' + discoveryRepo(selectedHuggingFaceArtifact))
                   : '';
                 renderHuggingFaceMetadata(selectedHuggingFaceArtifact || selectedHuggingFaceModel);
+                loadHuggingFacePopular();
               } else {
                 form.elements.url.readOnly = false;
                 form.elements.url.removeAttribute('title');
@@ -5260,6 +5379,11 @@ data:
             try {
               const estimate = await request('/api/models/estimate-memory', { method: 'POST', body: JSON.stringify(payload) });
               if (requestId !== vramEstimateRequest) { return; }
+              if (syncHuggingFaceEstimateMetadata(estimate)) {
+                latestVramEstimateSignature = '';
+                scheduleVramEstimate();
+                return;
+              }
               latestVramEstimateSignature = signature;
               if (targetKind === 'cpu') {
                 renderCpuMemoryEstimate(estimate);
@@ -7521,14 +7645,6 @@ data:
               searchHuggingFaceModels(huggingFaceSearchQuery || (huggingFaceModelQuery || {}).value, { append: true });
             });
           }
-          document.querySelectorAll('[data-huggingface-query]').forEach((button) => {
-            button.addEventListener('click', () => {
-              if (huggingFaceModelQuery) {
-                huggingFaceModelQuery.value = button.dataset.huggingfaceQuery || '';
-              }
-              searchHuggingFaceModels((huggingFaceModelQuery || {}).value);
-            });
-          });
           const huggingFaceModelResults = $('huggingface-model-results');
           if (huggingFaceModelResults) {
             huggingFaceModelResults.addEventListener('change', () => selectHuggingFaceModel(huggingFaceModelResults.value));
@@ -7604,6 +7720,13 @@ data:
                   field.addEventListener('input', () => {
                     if (activeLocalModelSource === 'direct' && !field.readOnly) {
                       directLocalModelUrl = String(field.value || '').trim();
+                    }
+                  });
+                }
+                if (name === 'contextWindow') {
+                  field.addEventListener('input', () => {
+                    if (activeLocalModelSource === 'huggingface') {
+                      modelDiscoveryContextDirty = true;
                     }
                   });
                 }
