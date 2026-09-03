@@ -59,9 +59,20 @@ data:
     SSL_CONTEXT = ssl.create_default_context(cafile=SA_CA_PATH)
     PUBLIC_SSL_CONTEXT = ssl.create_default_context()
     HF_CACHE_TTL_SECONDS = 900
+    HF_DISCOVERY_CACHE_TTL_SECONDS = 300
+    HF_DISCOVERY_TIMEOUT_SECONDS = 8
+    HF_DISCOVERY_MAX_RESPONSE_BYTES = 4 * 1024 * 1024
+    HF_DISCOVERY_MAX_QUERY_LENGTH = 120
+    HF_DISCOVERY_MAX_PAGE_SIZE = 50
+    HF_DISCOVERY_MAX_CURSOR = 500
+    HF_DISCOVERY_MAX_RESULTS = 200
+    HF_DISCOVERY_UPSTREAM_LIMIT = 50
+    HF_DISCOVERY_MAX_CACHE_ENTRIES = 128
     MEMORY_RESERVATION_STEP_MI = 100
     MIB_BYTES = 1024 * 1024
     HF_METADATA_CACHE = {}
+    HF_DISCOVERY_CACHE = {}
+    HF_DISCOVERY_CACHE_LOCK = threading.RLock()
     OLLAMA_METADATA_CACHE = {}
     OIDC_USERINFO_URL = os.environ.get(
         "OIDC_USERINFO_URL",
@@ -2739,6 +2750,10 @@ data:
         return "https://huggingface.co/api/models/" + urllib.parse.quote(namespace) + "/" + urllib.parse.quote(name)
 
 
+    def hf_model_detail_api_url(repo):
+        return hf_model_api_url(repo) + "?" + urllib.parse.urlencode({"blobs": "true"})
+
+
     def hf_model_tree_url(repo):
         namespace, name = repo.split("/", 1)
         return (
@@ -2791,6 +2806,740 @@ data:
         }
         HF_METADATA_CACHE[repo] = cached
         return cached
+
+
+    def hf_discovery_cache_get(key):
+        now = time.time()
+        with HF_DISCOVERY_CACHE_LOCK:
+            cached = HF_DISCOVERY_CACHE.get(key)
+            if not cached:
+                return None
+            if now - float(cached.get("fetchedAt", 0)) >= HF_DISCOVERY_CACHE_TTL_SECONDS:
+                HF_DISCOVERY_CACHE.pop(key, None)
+                return None
+            return cached.get("value")
+
+
+    def hf_discovery_cache_set(key, value):
+        now = time.time()
+        with HF_DISCOVERY_CACHE_LOCK:
+            expired = [
+                item_key
+                for item_key, item in HF_DISCOVERY_CACHE.items()
+                if now - float(item.get("fetchedAt", 0)) >= HF_DISCOVERY_CACHE_TTL_SECONDS
+            ]
+            for item_key in expired:
+                HF_DISCOVERY_CACHE.pop(item_key, None)
+            while len(HF_DISCOVERY_CACHE) >= HF_DISCOVERY_MAX_CACHE_ENTRIES:
+                oldest_key = min(
+                    HF_DISCOVERY_CACHE,
+                    key=lambda item_key: float(HF_DISCOVERY_CACHE[item_key].get("fetchedAt", 0)),
+                )
+                HF_DISCOVERY_CACHE.pop(oldest_key, None)
+            HF_DISCOVERY_CACHE[key] = {"fetchedAt": now, "value": value}
+        return value
+
+
+    def fetch_hf_discovery_json(url, required=True):
+        parsed = urllib.parse.urlparse(str(url or ""))
+        if (
+            parsed.scheme != "https"
+            or parsed.hostname != "huggingface.co"
+            or parsed.username
+            or parsed.password
+            or parsed.port not in {None, 443}
+            or not parsed.path.startswith("/api/models")
+            or parsed.fragment
+        ):
+            raise ValueError("Hugging Face discovery only permits the public models API")
+        request = urllib.request.Request(url, headers={
+            "Accept": "application/json",
+            "User-Agent": "magicstick-dashboard/0.1",
+        })
+        try:
+            with urllib.request.urlopen(
+                request,
+                timeout=HF_DISCOVERY_TIMEOUT_SECONDS,
+                context=PUBLIC_SSL_CONTEXT,
+            ) as response:
+                declared_size = positive_int(response.headers.get("Content-Length"))
+                if declared_size and declared_size > HF_DISCOVERY_MAX_RESPONSE_BYTES:
+                    raise RequestError(502, "Hugging Face discovery response is too large")
+                raw = response.read(HF_DISCOVERY_MAX_RESPONSE_BYTES + 1)
+                if len(raw) > HF_DISCOVERY_MAX_RESPONSE_BYTES:
+                    raise RequestError(502, "Hugging Face discovery response is too large")
+                return json.loads(raw.decode("utf-8"))
+        except urllib.error.HTTPError as error:
+            if error.code == 404 and not required:
+                return None
+            if error.code in {401, 403, 404}:
+                raise RequestError(404, "public Hugging Face model metadata is unavailable") from error
+            if error.code == 429:
+                raise RequestError(503, "Hugging Face discovery is rate limited; retry later") from error
+            raise RequestError(502, "Hugging Face discovery request failed") from error
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, UnicodeDecodeError) as error:
+            raise RequestError(503, "Hugging Face discovery is temporarily unavailable") from error
+
+
+    def hf_discovery_search_url(search=None, base_model=None, sort="relevance"):
+        params = [
+            ("limit", str(HF_DISCOVERY_UPSTREAM_LIMIT)),
+            ("full", "true"),
+            ("config", "true"),
+            ("cardData", "true"),
+            ("apps", "vllm"),
+        ]
+        if search:
+            params.append(("search", search))
+        if base_model:
+            params.append(("filter", "base_model:" + base_model))
+        sort_fields = {
+            "downloads": "downloads",
+            "likes": "likes",
+            "updated": "lastModified",
+        }
+        if sort in sort_fields:
+            params.extend((("sort", sort_fields[sort]), ("direction", "-1")))
+        return "https://huggingface.co/api/models?" + urllib.parse.urlencode(params)
+
+
+    def hf_search_variants(value):
+        query = re.sub(r"\s+", " ", str(value or "").strip())
+        if not query:
+            raise RequestError(400, "q is required")
+        if len(query) > HF_DISCOVERY_MAX_QUERY_LENGTH:
+            raise RequestError(400, "q is too long")
+        if any(ord(character) < 32 or ord(character) == 127 for character in query):
+            raise RequestError(400, "q contains unsupported control characters")
+        tokens = query.split(" ")
+        compact_family = "".join(tokens[:2])
+        if len(tokens) > 2:
+            compact_family += "-" + "-".join(tokens[2:])
+        variants = []
+        for candidate in (
+            query,
+            compact_family,
+            re.sub(r"\s+", "-", query),
+        ):
+            if candidate and candidate.casefold() not in {item.casefold() for item in variants}:
+                variants.append(candidate)
+        return variants
+
+
+    def hf_discovery_query_value(query, name, default="", maximum=80):
+        value = str((query.get(name) or [default])[0] or "").strip()
+        if len(value) > maximum:
+            raise RequestError(400, name + " is too long")
+        if any(ord(character) < 32 or ord(character) == 127 for character in value):
+            raise RequestError(400, name + " contains unsupported control characters")
+        return value
+
+
+    def hf_discovery_page(query):
+        def integer(name, default, minimum, maximum):
+            raw = str((query.get(name) or [str(default)])[0] or "").strip()
+            try:
+                value = int(raw)
+            except ValueError as error:
+                raise RequestError(400, name + " must be an integer") from error
+            if value < minimum or value > maximum:
+                raise RequestError(
+                    400,
+                    name + " must be between " + str(minimum) + " and " + str(maximum),
+                )
+            return value
+
+        return (
+            integer("cursor", 0, 0, HF_DISCOVERY_MAX_CURSOR),
+            integer("limit", 20, 1, HF_DISCOVERY_MAX_PAGE_SIZE),
+        )
+
+
+    def hf_discovery_context(query):
+        provider = hf_discovery_query_value(query, "provider", "huggingface").lower()
+        if provider != "huggingface":
+            raise RequestError(400, "provider must be huggingface")
+        sort = hf_discovery_query_value(query, "sort", "relevance").lower()
+        if sort not in {"relevance", "downloads", "likes", "updated"}:
+            raise RequestError(400, "sort must be relevance, downloads, likes, or updated")
+        engine = hf_discovery_query_value(query, "engine", "").lower()
+        if engine and engine not in {"vllm", "ollama"}:
+            raise RequestError(400, "engine must be VLLM or OLlama")
+        compute_target = hf_discovery_query_value(query, "computeTarget", "").lower()
+        if compute_target and compute_target not in {"cpu", "nvidia-gpu", "amd-gpu", "intel-gpu"}:
+            raise RequestError(400, "computeTarget is unsupported")
+        model_type = hf_discovery_query_value(query, "modelType", "").lower()
+        if model_type and model_type not in {"chat", "embedding"}:
+            raise RequestError(400, "modelType must be chat or embedding")
+        return {
+            "provider": provider,
+            "sort": sort,
+            "engine": engine,
+            "computeTarget": compute_target,
+            "modelType": model_type,
+            "filters": {
+                name: hf_discovery_query_value(query, name, "")
+                for name in ("author", "pipeline", "library", "quantization", "format")
+            },
+        }
+
+
+    def hf_model_base_relations(model):
+        relations = []
+
+        def append(value, relation=""):
+            if isinstance(value, dict):
+                relation = str(
+                    value.get("relation")
+                    or value.get("relationType")
+                    or value.get("base_model_relation")
+                    or relation
+                    or ""
+                ).strip().lower()
+                value = value.get("repo") or value.get("repoId") or value.get("modelId") or value.get("id")
+            try:
+                repo = hf_repo_id(value)
+            except ValueError:
+                return
+            existing = next(
+                (item for item in relations if item["repo"].casefold() == repo.casefold()),
+                None,
+            )
+            if existing:
+                if relation and not existing.get("relation"):
+                    existing["relation"] = relation
+                return
+            relations.append({"repo": repo, "relation": relation})
+
+        raw_relations = (model or {}).get("baseModels") or []
+        if isinstance(raw_relations, (str, dict)):
+            raw_relations = [raw_relations]
+        for raw_relation in raw_relations:
+            if isinstance(raw_relation, dict) and isinstance(raw_relation.get("models"), list):
+                relation = str(
+                    raw_relation.get("relation")
+                    or raw_relation.get("relationType")
+                    or ""
+                ).strip().lower()
+                for related_model in raw_relation["models"]:
+                    append(related_model, relation)
+            else:
+                append(raw_relation)
+        card_data = (model or {}).get("cardData") or (model or {}).get("card_data") or {}
+        if isinstance(card_data, dict):
+            relation = card_data.get("base_model_relation") or ""
+            base_models = card_data.get("base_model") or []
+            if isinstance(base_models, (str, dict)):
+                base_models = [base_models]
+            for base_model in base_models:
+                append(base_model, relation)
+        for raw_tag in (model or {}).get("tags") or []:
+            tag = str(raw_tag or "")
+            if not tag.startswith("base_model:"):
+                continue
+            parts = tag.split(":", 2)
+            if len(parts) == 3:
+                append(parts[2], parts[1])
+            elif len(parts) == 2:
+                append(parts[1], "")
+        return relations
+
+
+    def hf_weight_files(model):
+        siblings = (model or {}).get("siblings") or []
+        files = []
+        for sibling in siblings:
+            if not isinstance(sibling, dict):
+                continue
+            name = str(sibling.get("rfilename") or sibling.get("path") or "")
+            if not name.lower().endswith((".safetensors", ".gguf", ".bin")):
+                continue
+            size = positive_int(sibling.get("size"))
+            if not size and isinstance(sibling.get("lfs"), dict):
+                size = positive_int(sibling["lfs"].get("size"))
+            file_metadata = {"name": name, "sizeBytes": size}
+            if name.lower().endswith(".gguf"):
+                match = re.search(r"(?i)(?:^|[-_.])q([2-8])(?:[_-]([a-z0-9_]+))?(?=\.gguf$|[-_.])", name)
+                if match:
+                    scheme = "q" + match.group(1) + ("_" + match.group(2).lower() if match.group(2) else "")
+                    file_metadata["quantization"] = {
+                        "method": "gguf",
+                        "bits": int(match.group(1)),
+                        "scheme": scheme,
+                        "label": "GGUF " + scheme.upper(),
+                    }
+            files.append(file_metadata)
+            if len(files) >= 100:
+                break
+        return files
+
+
+    def hf_formats(model, files):
+        formats = []
+        tags = {str(tag).strip().lower() for tag in ((model or {}).get("tags") or [])}
+        library_name = str(
+            (model or {}).get("library_name") or (model or {}).get("libraryName") or ""
+        ).strip().lower()
+        filenames = [str(item.get("name") or "").lower() for item in files]
+        if "safetensors" in tags or any(name.endswith(".safetensors") for name in filenames):
+            formats.append("safetensors")
+        if "gguf" in tags or any(name.endswith(".gguf") for name in filenames):
+            formats.append("gguf")
+        if any(name.endswith(".bin") for name in filenames):
+            formats.append("pytorch")
+        if "mlx" in tags or library_name == "mlx":
+            formats.append("mlx")
+        return formats
+
+
+    def hf_quantization(model, files=None):
+        config = (model or {}).get("config") or {}
+        quant_config = config.get("quantization_config") or {}
+        raw_method = str(
+            quant_config.get("quant_method")
+            or quant_config.get("quantization_method")
+            or ""
+        ).strip().lower()
+        searchable = " ".join(
+            [str((model or {}).get("id") or (model or {}).get("modelId") or "")]
+            + [str(tag) for tag in ((model or {}).get("tags") or [])]
+            + [str(item.get("name") or "") for item in (files or [])]
+        ).lower()
+        methods = (
+            ("awq", ("awq",)),
+            ("gptq", ("gptq",)),
+            ("compressed-tensors", ("compressed-tensors", "compressed_tensors")),
+            ("bitsandbytes", ("bitsandbytes", "bnb-4bit", "bnb_4bit", "nf4")),
+            ("fp8", ("fp8", "float8")),
+            ("gguf", ("gguf",)),
+            ("int8", ("int8", "8-bit", "8bit")),
+            ("int4", ("int4", "4-bit", "4bit")),
+        )
+        method = raw_method
+        if not method:
+            for candidate, needles in methods:
+                if any(re.search(r"(^|[^a-z0-9])" + re.escape(needle) + r"([^a-z0-9]|$)", searchable) for needle in needles):
+                    method = candidate
+                    break
+        gguf_quantizations = [
+            item["quantization"]
+            for item in (files or [])
+            if isinstance(item.get("quantization"), dict)
+        ]
+        if method == "gguf" and gguf_quantizations:
+            unique_schemes = {item.get("scheme") for item in gguf_quantizations}
+            if len(unique_schemes) == 1:
+                return dict(gguf_quantizations[0])
+            return {"method": "gguf", "bits": None, "label": "GGUF (multiple)"}
+        bits = quantization_bits(config)
+        if not bits:
+            match = re.search(r"(?:^|[^a-z0-9])(?:q|int|w|bnb[-_]?)([234568])(?:[^0-9]|$)", searchable)
+            if match:
+                bits = int(match.group(1))
+            elif method in {"awq", "gptq", "bitsandbytes", "int4"}:
+                bits = 4
+            elif method in {"fp8", "int8"}:
+                bits = 8
+        if not method:
+            return None
+        names = {
+            "awq": "AWQ",
+            "gptq": "GPTQ",
+            "compressed-tensors": "Compressed tensors",
+            "bitsandbytes": "BitsAndBytes",
+            "fp8": "FP8",
+            "gguf": "GGUF",
+            "int8": "INT8",
+            "int4": "INT4",
+        }
+        label = names.get(method, method.upper())
+        if bits and str(bits) not in label:
+            label += " " + str(bits) + "-bit"
+        return {"method": method, "bits": bits, "label": label}
+
+
+    def hf_trust_status(model):
+        author_data = (model or {}).get("authorData") or (model or {}).get("author_data") or {}
+        organization = (model or {}).get("organization") or {}
+        if (
+            (model or {}).get("verified") is True
+            or (isinstance(author_data, dict) and author_data.get("verified") is True)
+            or (isinstance(organization, dict) and organization.get("verified") is True)
+        ):
+            return "official"
+        if (model or {}).get("cardData") or (model or {}).get("card_data") or (model or {}).get("author"):
+            return "community"
+        return "unverified"
+
+
+    def hf_compatibility(
+        formats,
+        quantization,
+        engine="",
+        compute_target="",
+        pipeline_tag="",
+        model_type="",
+    ):
+        available_formats = set(formats or [])
+        quantization_method = str((quantization or {}).get("method") or "")
+        if "mlx" in available_formats:
+            return "incompatible", "MLX artifacts are not supported by the current Kubernetes inference runtimes."
+        normalized_pipeline = str(pipeline_tag or "").strip().lower()
+        chat_pipelines = {"text-generation", "text2text-generation", "image-text-to-text", "conversational"}
+        embedding_pipelines = {"feature-extraction", "sentence-similarity"}
+        if model_type == "chat" and normalized_pipeline and normalized_pipeline not in chat_pipelines:
+            return "incompatible", "The selected Hub model does not expose a supported chat-generation pipeline."
+        if model_type == "embedding" and normalized_pipeline and normalized_pipeline not in embedding_pipelines:
+            return "incompatible", "The selected Hub model does not expose a supported embedding pipeline."
+        if engine == "ollama":
+            return "incompatible", "The current Ollama runtime accepts ollama:// registry models, not Hugging Face artifacts."
+        if engine == "vllm":
+            if "gguf" in available_formats or quantization_method == "gguf":
+                return "incompatible", "The current vLLM path cannot select the required GGUF file or runtime plugin."
+            if available_formats and "safetensors" not in available_formats and "pytorch" not in available_formats:
+                return "incompatible", "No vLLM checkpoint format was discovered."
+            if compute_target in {"amd-gpu", "intel-gpu", "cpu"} and quantization_method in {"awq", "gptq", "fp8"}:
+                return "experimental", "This quantization and compute-target combination requires runtime validation."
+        return "experimental", "Dynamic Hub artifacts require a runtime compatibility check."
+
+
+    def hf_model_summary(model, engine="", compute_target="", model_type=""):
+        if not isinstance(model, dict):
+            return None
+        identifier = str(model.get("id") or model.get("modelId") or "").strip()
+        try:
+            repo = hf_repo_id(identifier)
+        except ValueError:
+            return None
+        gated_raw = model.get("gated")
+        gated = gated_raw not in (None, False, "", "false", "False")
+        private = model.get("private") is True
+        files = hf_weight_files(model)
+        formats = hf_formats(model, files)
+        quantization = hf_quantization(model, files)
+        pipeline_tag = str(model.get("pipeline_tag") or model.get("pipelineTag") or "")
+        compatibility, compatibility_reason = hf_compatibility(
+            formats,
+            quantization,
+            engine,
+            compute_target,
+            pipeline_tag,
+            model_type,
+        )
+        author, name = repo.split("/", 1)
+        safetensors = model.get("safetensors") or {}
+        weight_files = [item for item in files if item.get("sizeBytes")]
+        if len([item for item in files if item["name"].lower().endswith(".gguf")]) > 1:
+            # One GGUF repository often contains several complete quantizations;
+            # summing them would overstate the size of a selectable artifact.
+            non_gguf = [item for item in weight_files if not item["name"].lower().endswith(".gguf")]
+            weight_bytes = sum(item["sizeBytes"] for item in non_gguf) or None
+        else:
+            weight_bytes = sum(item["sizeBytes"] for item in weight_files) or None
+        parameter_count = positive_int(safetensors.get("total"))
+        return {
+            "id": repo,
+            "repo": repo,
+            "label": name,
+            "url": "hf://" + repo,
+            "author": str(model.get("author") or author),
+            "name": name,
+            "revision": str(model.get("sha") or ""),
+            "pipelineTag": pipeline_tag,
+            "libraryName": str(model.get("library_name") or model.get("libraryName") or ""),
+            "tags": sorted({str(tag) for tag in (model.get("tags") or [])})[:100],
+            "downloads": positive_int(model.get("downloads")) or 0,
+            "likes": positive_int(model.get("likes")) or 0,
+            "lastModified": str(model.get("lastModified") or model.get("last_modified") or ""),
+            "private": private,
+            "gated": gated,
+            "disabled": model.get("disabled") is True,
+            "formats": formats,
+            "parameterCount": parameter_count,
+            "weightBytes": weight_bytes,
+            "files": files,
+            "quantization": quantization,
+            "baseModels": hf_model_base_relations(model),
+            "trustStatus": hf_trust_status(model),
+            "compatibility": compatibility,
+            "compatibilityReason": compatibility_reason,
+        }
+
+
+    def hf_public_model(model):
+        summary = hf_model_summary(model)
+        return bool(
+            summary
+            and not summary["private"]
+            and not summary["gated"]
+            and not summary["disabled"]
+        )
+
+
+    def hf_search_models(search=None, base_model=None, sort="relevance"):
+        key = ("hf-search", str(search or ""), str(base_model or ""), sort)
+        cached = hf_discovery_cache_get(key)
+        if cached is not None:
+            return cached
+        payload = fetch_hf_discovery_json(
+            hf_discovery_search_url(search=search, base_model=base_model, sort=sort)
+        )
+        if not isinstance(payload, list):
+            raise RequestError(503, "Hugging Face discovery returned an invalid model list")
+        result = [item for item in payload[:HF_DISCOVERY_UPSTREAM_LIMIT] if isinstance(item, dict)]
+        return hf_discovery_cache_set(key, result)
+
+
+    def hf_summary_matches(summary, filters):
+        if filters.get("author") and filters["author"].casefold() not in summary["author"].casefold():
+            return False
+        if filters.get("pipeline") and filters["pipeline"].casefold() != summary["pipelineTag"].casefold():
+            return False
+        if filters.get("library") and filters["library"].casefold() != summary["libraryName"].casefold():
+            return False
+        if filters.get("format") and filters["format"].casefold() not in {
+            value.casefold() for value in summary["formats"]
+        }:
+            return False
+        if filters.get("quantization"):
+            quantization = summary.get("quantization") or {}
+            needle = filters["quantization"].casefold()
+            haystack = " ".join((
+                str(quantization.get("method") or ""),
+                str(quantization.get("label") or ""),
+                str(quantization.get("bits") or ""),
+            )).casefold()
+            if needle not in haystack:
+                return False
+        return True
+
+
+    def hf_relevance(summary, variants):
+        identifier = summary["repo"].casefold()
+        name = summary["name"].casefold()
+        normalized_name = re.sub(r"[^a-z0-9]", "", name)
+        score = 0
+        for index, variant in enumerate(variants):
+            needle = variant.casefold()
+            normalized = re.sub(r"[^a-z0-9]", "", needle)
+            if name == needle:
+                score = max(score, 1000 - index)
+            elif name.startswith(needle):
+                score = max(score, 900 - index)
+            elif normalized and normalized_name.startswith(normalized):
+                score = max(score, 850 - index)
+            elif needle in identifier:
+                score = max(score, 700 - index)
+            elif normalized and normalized in re.sub(r"[^a-z0-9]", "", identifier):
+                score = max(score, 650 - index)
+        return score
+
+
+    def hf_sort_summaries(summaries, sort, variants=()):
+        if sort == "downloads":
+            return sorted(summaries, key=lambda item: (-item["downloads"], -item["likes"], item["repo"].casefold()))
+        if sort == "likes":
+            return sorted(summaries, key=lambda item: (-item["likes"], -item["downloads"], item["repo"].casefold()))
+        if sort == "updated":
+            return sorted(summaries, key=lambda item: (item["lastModified"], item["repo"].casefold()), reverse=True)
+        return sorted(
+            summaries,
+            key=lambda item: (-hf_relevance(item, variants), -item["downloads"], item["repo"].casefold()),
+        )
+
+
+    def hf_paginated(items, cursor, limit):
+        page = items[cursor:cursor + limit]
+        next_cursor = cursor + len(page)
+        return page, str(next_cursor) if next_cursor < len(items) else None
+
+
+    def model_discovery_search(query):
+        context = hf_discovery_context(query)
+        cursor, limit = hf_discovery_page(query)
+        search = hf_discovery_query_value(query, "q", "", HF_DISCOVERY_MAX_QUERY_LENGTH)
+        variants = hf_search_variants(search)
+        merged = {}
+        upstream_truncated = False
+        required_results = min(HF_DISCOVERY_MAX_RESULTS, cursor + limit)
+        for variant in variants:
+            models = hf_search_models(search=variant, sort=context["sort"])
+            upstream_truncated = upstream_truncated or len(models) >= HF_DISCOVERY_UPSTREAM_LIMIT
+            for model in models:
+                summary = hf_model_summary(
+                    model,
+                    context["engine"],
+                    context["computeTarget"],
+                    context["modelType"],
+                )
+                if (
+                    not summary
+                    or summary["private"]
+                    or summary["gated"]
+                    or summary["disabled"]
+                ):
+                    continue
+                existing = merged.get(summary["repo"].casefold())
+                if not existing or len(summary["files"]) > len(existing["files"]):
+                    merged[summary["repo"].casefold()] = summary
+                if len(merged) >= HF_DISCOVERY_MAX_RESULTS:
+                    break
+            eligible_count = sum(
+                1
+                for summary in merged.values()
+                if hf_summary_matches(summary, context["filters"])
+            )
+            if eligible_count >= required_results or len(merged) >= HF_DISCOVERY_MAX_RESULTS:
+                break
+        results = [
+            summary for summary in merged.values()
+            if hf_summary_matches(summary, context["filters"])
+        ][:HF_DISCOVERY_MAX_RESULTS]
+        results = hf_sort_summaries(results, context["sort"], variants)
+        page, next_cursor = hf_paginated(results, cursor, limit)
+        return {
+            "provider": "huggingface",
+            "query": search,
+            "normalizedQueries": variants,
+            "filters": context["filters"],
+            "sort": context["sort"],
+            "results": page,
+            "total": len(results),
+            "cursor": str(cursor),
+            "nextCursor": next_cursor,
+            "truncated": upstream_truncated,
+        }
+
+
+    def hf_relation_to(summary, repo):
+        return any(
+            relation["repo"].casefold() == repo.casefold()
+            and relation.get("relation") in {"quantized", "quantization"}
+            for relation in summary.get("baseModels") or []
+        )
+
+
+    def model_discovery_artifacts(query):
+        context = hf_discovery_context(query)
+        cursor, limit = hf_discovery_page(query)
+        repo_value = hf_discovery_query_value(query, "repo", "", HF_DISCOVERY_MAX_QUERY_LENGTH)
+        try:
+            selected_repo = hf_repo_id(repo_value)
+        except ValueError as error:
+            raise RequestError(400, str(error)) from error
+
+        cache_key = (
+            "hf-artifacts",
+            selected_repo.casefold(),
+            context["sort"],
+            context["engine"],
+            context["computeTarget"],
+            context["modelType"],
+        )
+        cached = hf_discovery_cache_get(cache_key)
+        if cached is None:
+            selected_raw = fetch_hf_discovery_json(hf_model_detail_api_url(selected_repo), required=False)
+            selected = hf_model_summary(
+                selected_raw,
+                context["engine"],
+                context["computeTarget"],
+                context["modelType"],
+            )
+            if (
+                not selected
+                or selected["private"]
+                or selected["gated"]
+                or selected["disabled"]
+            ):
+                raise RequestError(404, "public Hugging Face model metadata is unavailable")
+            selected_relations = selected.get("baseModels") or []
+            quantized_bases = [
+                item["repo"]
+                for item in selected_relations
+                if item.get("relation") in {"quantized", "quantization"}
+            ]
+            base_repo = quantized_bases[0] if quantized_bases else selected_repo
+            if base_repo.casefold() == selected_repo.casefold():
+                base_model = dict(selected)
+            else:
+                base_raw = fetch_hf_discovery_json(hf_model_detail_api_url(base_repo), required=False)
+                base_model = hf_model_summary(
+                    base_raw,
+                    context["engine"],
+                    context["computeTarget"],
+                    context["modelType"],
+                )
+                if (
+                    not base_model
+                    or base_model["private"]
+                    or base_model["gated"]
+                    or base_model["disabled"]
+                ):
+                    base_model = {
+                        "id": base_repo,
+                        "repo": base_repo,
+                        "label": base_repo.split("/", 1)[1],
+                        "url": "hf://" + base_repo,
+                    }
+
+            artifacts = []
+            selected_artifact = dict(selected)
+            selected_artifact.update({
+                "relation": "selected",
+                "discoverySource": "selected",
+                "original": True,
+            })
+            artifacts.append(selected_artifact)
+            seen = {selected_repo.casefold()}
+
+            related_raw = hf_search_models(base_model=base_repo, sort=context["sort"])
+            for model in related_raw:
+                summary = hf_model_summary(
+                    model,
+                    context["engine"],
+                    context["computeTarget"],
+                    context["modelType"],
+                )
+                if (
+                    not summary
+                    or summary["private"]
+                    or summary["gated"]
+                    or summary["disabled"]
+                    or summary["repo"].casefold() in seen
+                    or not hf_relation_to(summary, base_repo)
+                ):
+                    continue
+                artifact = dict(summary)
+                artifact.update({
+                    "relation": "quantized",
+                    "discoverySource": "base-model",
+                    "original": False,
+                })
+                artifacts.append(artifact)
+                seen.add(summary["repo"].casefold())
+
+            selected_item = artifacts[0]
+            related_items = hf_sort_summaries(artifacts[1:], context["sort"], [base_model["label"]])
+            cached = hf_discovery_cache_set(cache_key, {
+                "baseModel": base_model,
+                "artifacts": [selected_item] + related_items,
+            })
+
+        artifacts = [cached["artifacts"][0]] + [
+            item for item in cached["artifacts"][1:]
+            if hf_summary_matches(item, context["filters"])
+        ]
+        page, next_cursor = hf_paginated(artifacts, cursor, limit)
+        return {
+            "provider": "huggingface",
+            "baseModel": cached["baseModel"],
+            "artifacts": page,
+            "filters": context["filters"],
+            "sort": context["sort"],
+            "total": len(artifacts),
+            "cursor": str(cursor),
+            "nextCursor": next_cursor,
+        }
 
 
     def ollama_model_reference(value):
@@ -4063,6 +4812,18 @@ data:
                     self.send_json(summarized_models())
                 elif path == "/api/models/compute-targets":
                     self.send_json(compute_target_availability())
+                elif path == "/api/model-discovery/search":
+                    query = urllib.parse.parse_qs(
+                        urllib.parse.urlparse(self.path).query,
+                        keep_blank_values=True,
+                    )
+                    self.send_json(model_discovery_search(query))
+                elif path == "/api/model-discovery/artifacts":
+                    query = urllib.parse.parse_qs(
+                        urllib.parse.urlparse(self.path).query,
+                        keep_blank_values=True,
+                    )
+                    self.send_json(model_discovery_artifacts(query))
                 elif path == "/api/status":
                     self.send_json(status_payload())
                 elif path == "/api/settings":

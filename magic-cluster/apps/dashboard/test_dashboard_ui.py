@@ -369,6 +369,99 @@ BROWSER_API_MOCK = r"""
         }
       });
     }
+    if (url.pathname === '/api/model-discovery/search' && method === 'GET') {
+      const query = url.searchParams.get('q') || '';
+      const cursor = url.searchParams.get('cursor') || '0';
+      const firstPage = cursor === '0';
+      return reply({
+        provider: 'huggingface',
+        query,
+        normalizedQueries: [query, query.replace(/\s+/g, '')],
+        results: firstPage ? [
+          {
+            id: 'Qwen/Qwen3.6-27B', repo: 'Qwen/Qwen3.6-27B', label: 'Qwen 3.6 27B',
+            url: 'hf://Qwen/Qwen3.6-27B', author: 'Qwen', name: 'Qwen3.6-27B', revision: 'a'.repeat(40),
+            pipelineTag: 'text-generation', libraryName: 'transformers', formats: ['safetensors'],
+            parameterCount: 27000000000, weightBytes: 54000000000, quantization: null,
+            trustStatus: 'official', compatibility: 'compatible', baseModels: []
+          },
+          {
+            id: 'Qwen/Qwen3.6-9B', repo: 'Qwen/Qwen3.6-9B', label: 'Qwen 3.6 9B',
+            url: 'hf://Qwen/Qwen3.6-9B', author: 'Qwen', name: 'Qwen3.6-9B', revision: 'b'.repeat(40),
+            pipelineTag: 'text-generation', libraryName: 'transformers', formats: ['safetensors'],
+            parameterCount: 9000000000, weightBytes: 18000000000, quantization: null,
+            trustStatus: 'official', compatibility: 'experimental', baseModels: []
+          },
+          {
+            id: 'example/Qwen3.6-27B-GGUF', repo: 'example/Qwen3.6-27B-GGUF', label: 'Qwen 3.6 27B GGUF',
+            url: 'hf://example/Qwen3.6-27B-GGUF', author: 'example', name: 'Qwen3.6-27B-GGUF',
+            pipelineTag: 'text-generation', formats: ['gguf'], weightBytes: 15000000000,
+            quantization: { method: 'Q4_K_M', bits: 4, label: 'GGUF Q4_K_M' },
+            trustStatus: 'community', compatibility: 'incompatible', baseModels: ['Qwen/Qwen3.6-27B']
+          }
+        ] : [
+          {
+            id: 'Qwen/Qwen3.6-9B', repo: 'Qwen/Qwen3.6-9B', label: 'Qwen 3.6 9B duplicate',
+            url: 'hf://Qwen/Qwen3.6-9B', author: 'Qwen', name: 'Qwen3.6-9B',
+            pipelineTag: 'text-generation', formats: ['safetensors'], parameterCount: 9000000000,
+            trustStatus: 'official', compatibility: 'experimental', baseModels: []
+          },
+          {
+            id: 'Qwen/Qwen3.6-35B-A3B', repo: 'Qwen/Qwen3.6-35B-A3B', label: 'Qwen 3.6 35B A3B',
+            url: 'hf://Qwen/Qwen3.6-35B-A3B', author: 'Qwen', name: 'Qwen3.6-35B-A3B',
+            pipelineTag: 'text-generation', formats: ['safetensors'], parameterCount: 35000000000,
+            weightBytes: 70000000000, trustStatus: 'official', compatibility: 'compatible', baseModels: []
+          }
+        ],
+        total: 4,
+        cursor,
+        nextCursor: firstPage ? '3' : null
+      });
+    }
+    if (url.pathname === '/api/model-discovery/artifacts' && method === 'GET') {
+      const repo = url.searchParams.get('repo') || '';
+      const cursor = url.searchParams.get('cursor') || '0';
+      const firstPage = cursor === '0';
+      return reply({
+        provider: 'huggingface',
+        baseModel: repo,
+        artifacts: firstPage ? [
+          {
+            id: repo, repo, label: 'Original BF16', url: 'hf://' + repo, author: repo.split('/')[0],
+            name: repo.split('/').pop(), revision: 'a'.repeat(40), pipelineTag: 'text-generation',
+            formats: ['safetensors'], parameterCount: 27000000000, weightBytes: 54000000000,
+            quantization: null, trustStatus: 'official', compatibility: 'compatible',
+            relation: 'selected', discoverySource: 'selected', original: true
+          },
+          {
+            id: 'community/Qwen3.6-27B-AWQ', repo: 'community/Qwen3.6-27B-AWQ', label: 'AWQ INT4',
+            url: 'hf://community/Qwen3.6-27B-AWQ', author: 'community', name: 'Qwen3.6-27B-AWQ',
+            revision: 'c'.repeat(40), pipelineTag: 'text-generation', formats: ['safetensors'],
+            parameterCount: 27000000000, weightBytes: 15000000000,
+            quantization: { method: 'AWQ', bits: 4, label: 'AWQ' },
+            trustStatus: 'community', compatibility: 'compatible', baseModels: [repo],
+            relation: 'quantized', discoverySource: 'base-model', original: false
+          }
+        ] : [
+          {
+            id: 'community/Qwen3.6-27B-AWQ', repo: 'community/Qwen3.6-27B-AWQ', label: 'AWQ duplicate',
+            url: 'hf://community/Qwen3.6-27B-AWQ', author: 'community', name: 'Qwen3.6-27B-AWQ',
+            formats: ['safetensors'], quantization: { method: 'AWQ', bits: 4, label: 'AWQ' },
+            trustStatus: 'community', compatibility: 'compatible', baseModels: [repo], original: false
+          },
+          {
+            id: 'community/Qwen3.6-27B-GPTQ', repo: 'community/Qwen3.6-27B-GPTQ', label: 'GPTQ INT4',
+            url: 'hf://community/Qwen3.6-27B-GPTQ', author: 'community', name: 'Qwen3.6-27B-GPTQ',
+            formats: ['safetensors'], weightBytes: 14500000000,
+            quantization: { method: 'GPTQ', bits: 4, label: 'GPTQ' },
+            trustStatus: 'community', compatibility: 'experimental', baseModels: [repo], original: false
+          }
+        ],
+        total: 3,
+        cursor,
+        nextCursor: firstPage ? '2' : null
+      });
+    }
     if (url.pathname === '/api/status') {
       return reply({
         fluxKustomizations: [],
@@ -750,7 +843,11 @@ BROWSER_ASSERTIONS = r"""
     const sourceSelect = document.getElementById('model-source-select');
     const engineSelect = document.getElementById('local-model-engine');
     const computeSelect = document.getElementById('local-model-compute-target');
+    const localModelSource = document.getElementById('local-model-source');
     const artifactSelect = document.getElementById('local-model-artifact');
+    const huggingFaceQuery = document.getElementById('huggingface-model-query');
+    const huggingFaceResults = document.getElementById('huggingface-model-results');
+    const huggingFaceArtifacts = document.getElementById('huggingface-model-artifacts');
     const changeSelect = (select, value) => {
       select.value = value;
       select.dispatchEvent(new Event('change', { bubbles: true }));
@@ -781,27 +878,96 @@ BROWSER_ASSERTIONS = r"""
     assert(!document.getElementById('model-compute-field').hidden, 'hardware dropdown disappeared after its selection');
     assert(engineSelect.value === 'VLLM', 'selected vLLM engine was not stored');
     assert(computeSelect.value === 'nvidia-gpu', 'selected NVIDIA target was not stored');
-    assert(document.getElementById('local-model-preset').value === 'qwen3635b', 'NVIDIA-incompatible presets were not filtered');
-    assert(artifactSelect.value === 'awq-int4', 'default NVIDIA artifact was not selected');
-    assert(Array.from(artifactSelect.options).map((option) => option.textContent).join(',') === 'BF16,AWQ INT4', 'artifact titles are not shown');
-    assert(document.getElementById('local-model-url').value === 'hf://example/qwen-gpu-awq', 'default artifact URL was not applied');
-    assert(document.getElementById('local-model-url').readOnly, 'catalog artifact URL must be read only');
-    assert(document.getElementById('local-model-artifact-note').textContent.includes('compatible accelerator'), 'artifact compatibility note is missing');
+    assert(localModelSource.value === 'huggingface', 'Hugging Face search is not the default vLLM source');
+    assert(Array.from(localModelSource.options).map((option) => option.value).join(',') === 'huggingface,preset,direct', 'vLLM model sources are incorrect');
+    assert(!document.getElementById('huggingface-model-discovery').hidden, 'Hugging Face discovery is hidden');
+    assert(document.getElementById('local-model-preset-fields').hidden, 'preset fields are visible during Hugging Face search');
+    assert(document.getElementById('local-model-url').readOnly, 'discovered Hugging Face URL must be read only');
+
+    huggingFaceQuery.value = 'Qwen 3.6';
+    document.getElementById('huggingface-model-search').click();
+    await waitFor(() => callExists('GET', '/api/model-discovery/search'), 'Hugging Face model search');
+    await waitFor(() => !huggingFaceResults.disabled && huggingFaceResults.options.length === 3, 'compatible Hugging Face results');
+    const searchCall = window.__dashboardBrowserCalls.find((call) => call.path.startsWith('/api/model-discovery/search?'));
+    assert(searchCall.path.includes('provider=huggingface'), 'Hugging Face provider is missing from search');
+    assert(searchCall.path.includes('engine=VLLM'), 'selected engine is missing from search');
+    assert(searchCall.path.includes('computeTarget=nvidia-gpu'), 'selected hardware is missing from search');
+    assert(searchCall.path.includes('modelType=chat'), 'selected model type is missing from search');
+    assert(!Array.from(huggingFaceResults.options).some((option) => option.value.includes('GGUF')), 'incompatible search result is visible');
+    assert(huggingFaceResults.options[1].textContent.includes('safetensors'), 'result format metadata is missing');
+    assert(huggingFaceResults.options[1].textContent.includes('Official'), 'result trust metadata is missing');
+    assert(huggingFaceResults.options[1].textContent.includes('Compatible'), 'result compatibility metadata is missing');
+
+    changeSelect(huggingFaceResults, 'Qwen/Qwen3.6-27B');
+    await waitFor(() => callExists('GET', '/api/model-discovery/artifacts'), 'Hugging Face quantization lookup');
+    await waitFor(() => !huggingFaceArtifacts.disabled && huggingFaceArtifacts.options.length === 2, 'Hugging Face artifact options');
+    const artifactCall = window.__dashboardBrowserCalls.find((call) => call.path.startsWith('/api/model-discovery/artifacts?'));
+    assert(artifactCall.path.includes('modelType=chat'), 'selected model type is missing from quantization lookup');
+    assert(huggingFaceArtifacts.value === 'Qwen/Qwen3.6-27B', 'original Hugging Face artifact is not selected');
+    assert(document.getElementById('local-model-url').value === 'hf://Qwen/Qwen3.6-27B', 'selected Hugging Face URL was not applied');
+    assert(document.getElementById('huggingface-model-metadata').textContent.includes('Trust: Official'), 'selected model trust is missing');
+    assert(document.getElementById('huggingface-model-metadata').textContent.includes('Format: safetensors'), 'selected model format is missing');
     await waitFor(() => memoryEstimateCallExists('VLLM', 'nvidia-gpu'), 'vLLM NVIDIA memory estimate request');
     document.getElementById('local-model-form').elements.name.value = 'my-custom-name';
     document.getElementById('local-model-form').elements.contextWindow.value = '12345';
     document.getElementById('local-model-form').elements.maxNumSeqs.value = '3';
-    changeSelect(artifactSelect, 'bf16');
-    await waitFor(() => document.getElementById('local-model-url').value === 'hf://example/qwen-gpu-bf16', 'changed artifact URL');
+    changeSelect(huggingFaceArtifacts, 'community/Qwen3.6-27B-AWQ');
+    await waitFor(() => document.getElementById('local-model-url').value === 'hf://community/Qwen3.6-27B-AWQ', 'changed Hugging Face artifact URL');
     assert(document.getElementById('local-model-form').elements.name.value === 'my-custom-name', 'artifact change reset the model name');
     assert(document.getElementById('local-model-form').elements.contextWindow.value === '12345', 'artifact change reset context size');
     assert(document.getElementById('local-model-form').elements.maxNumSeqs.value === '3', 'artifact change reset max sequences');
-    assert(document.getElementById('local-model-artifact-note').hidden, 'stale artifact compatibility note remained visible');
+    assert(document.getElementById('huggingface-model-metadata').textContent.includes('Quantization: AWQ / 4-bit'), 'selected quantization metadata is missing');
+    assert(document.getElementById('huggingface-model-metadata').textContent.includes('Trust: Community'), 'community trust metadata is missing');
+    const modelLoadMore = document.getElementById('huggingface-model-load-more');
+    const artifactLoadMore = document.getElementById('huggingface-artifact-load-more');
+    assert(!modelLoadMore.hidden && !modelLoadMore.disabled, 'model pagination action is unavailable despite nextCursor');
+    assert(!artifactLoadMore.hidden && !artifactLoadMore.disabled, 'artifact pagination action is unavailable despite nextCursor');
+    artifactLoadMore.click();
+    await waitFor(
+      () => window.__dashboardBrowserCalls.filter((call) => call.path.startsWith('/api/model-discovery/artifacts?')).length === 2,
+      'second Hugging Face artifact page'
+    );
+    await waitFor(() => huggingFaceArtifacts.options.length === 3, 'deduplicated appended quantizations');
+    assert(huggingFaceArtifacts.value === 'community/Qwen3.6-27B-AWQ', 'quantization selection was lost while loading more');
+    assert(Array.from(huggingFaceArtifacts.options).some((option) => option.value === 'community/Qwen3.6-27B-GPTQ'), 'new quantization was not appended');
+    assert(artifactLoadMore.hidden, 'artifact pagination action stayed visible after the final page');
+    assert(document.getElementById('huggingface-model-status').textContent.includes('3 artifact candidates loaded from 3 discovered'), 'artifact progress is incorrect');
+    modelLoadMore.click();
+    await waitFor(
+      () => window.__dashboardBrowserCalls.filter((call) => call.path.startsWith('/api/model-discovery/search?')).length === 2,
+      'second Hugging Face model page'
+    );
+    await waitFor(() => huggingFaceResults.options.length === 4, 'deduplicated appended model results');
+    assert(huggingFaceResults.value === 'Qwen/Qwen3.6-27B', 'model selection was lost while loading more');
+    assert(huggingFaceArtifacts.value === 'community/Qwen3.6-27B-AWQ', 'artifact selection was lost while loading more models');
+    assert(Array.from(huggingFaceResults.options).some((option) => option.value === 'Qwen/Qwen3.6-35B-A3B'), 'new model was not appended');
+    assert(modelLoadMore.hidden, 'model pagination action stayed visible after the final page');
+    assert(document.getElementById('huggingface-model-status').textContent.includes('3 model candidates loaded from 4 discovered'), 'model progress is incorrect');
+    changeSelect(document.getElementById('local-model-form').elements.modelType, 'embedding');
+    await waitFor(
+      () => window.__dashboardBrowserCalls.filter((call) => call.path.startsWith('/api/model-discovery/search?')).length === 3,
+      'Hugging Face compatibility refresh after model type change'
+    );
+    const refreshedSearchCall = window.__dashboardBrowserCalls.filter((call) => call.path.startsWith('/api/model-discovery/search?')).at(-1);
+    assert(refreshedSearchCall.path.includes('modelType=embedding'), 'changed model type is missing from refreshed search');
+    await waitFor(
+      () => window.__dashboardBrowserCalls.filter((call) => call.path.startsWith('/api/model-discovery/artifacts?')).length === 3,
+      'quantization revalidation after model type change'
+    );
+    const refreshedArtifactCall = window.__dashboardBrowserCalls.filter((call) => call.path.startsWith('/api/model-discovery/artifacts?')).at(-1);
+    assert(refreshedArtifactCall.path.includes('modelType=embedding'), 'changed model type is missing from refreshed quantization lookup');
+    assert(sourceSelect.value === 'local', 'top-level source disappeared after model type change');
+    assert(engineSelect.value === 'VLLM', 'engine selection disappeared after model type change');
+    assert(computeSelect.value === 'nvidia-gpu', 'hardware selection disappeared after model type change');
+    assert(localModelSource.value === 'huggingface', 'model source disappeared after model type change');
+    assert(huggingFaceQuery.value === 'Qwen 3.6', 'Hugging Face query disappeared after model type change');
+    assert(huggingFaceResults.value === 'Qwen/Qwen3.6-27B', 'model selection disappeared after compatible model type change');
+    assert(huggingFaceArtifacts.value === 'community/Qwen3.6-27B-AWQ', 'quantization selection disappeared after compatible model type change');
     await waitFor(() => window.__dashboardBrowserCalls.some((call) => (
       call.method === 'POST'
       && call.path.split('?')[0] === '/api/models/estimate-memory'
-      && call.body.artifact === 'bf16'
-      && call.body.url === 'hf://example/qwen-gpu-bf16'
+      && call.body.artifact === null
+      && call.body.url === 'hf://community/Qwen3.6-27B-AWQ'
     )), 'memory estimate for changed artifact');
     await waitFor(() => document.getElementById('vram-estimate-slider').max === '16300', 'VRAM capacity slider');
     assert(document.getElementById('vram-estimate-maximum').textContent === '15.9 GiB', '100% does not use the safe 100 MiB-rounded GPU capacity');
@@ -814,13 +980,23 @@ BROWSER_ASSERTIONS = r"""
     assert(document.querySelector('.vram-breakdown-details'), 'VRAM breakdown was removed');
     assert(document.getElementById('ram-reservation').hidden, 'CPU RAM reservation is visible for GPU inference');
 
+    changeSelect(localModelSource, 'preset');
+    assert(!document.getElementById('local-model-preset-fields').hidden, 'tested preset fallback is hidden');
+    assert(document.getElementById('huggingface-model-discovery').hidden, 'Hugging Face results remained visible for preset source');
+    assert(document.getElementById('local-model-preset').value === 'qwen3635b', 'NVIDIA preset fallback is incorrect');
+    assert(artifactSelect.value === 'awq-int4', 'preset artifact fallback is incorrect');
+    assert(document.getElementById('local-model-url').value === 'hf://example/qwen-gpu-awq', 'preset artifact URL was not applied');
+    changeSelect(localModelSource, 'huggingface');
+    assert(huggingFaceResults.value === 'Qwen/Qwen3.6-27B', 'Hugging Face result selection disappeared after source switch');
+    assert(huggingFaceArtifacts.value === 'community/Qwen3.6-27B-AWQ', 'quantization selection disappeared after source switch');
+    assert(document.getElementById('local-model-url').value === 'hf://community/Qwen3.6-27B-AWQ', 'selected quantization URL was not restored');
+
     changeSelect(computeSelect, 'cpu');
     await waitFor(() => memoryEstimateCallExists('VLLM', 'cpu'), 'vLLM CPU memory estimate request');
     await waitFor(() => document.getElementById('ram-estimate-recommended').textContent === '4.0 GiB', 'vLLM CPU recommended RAM');
     assert(!document.getElementById('local-model-form').hidden, 'CPU local model form did not stay open');
-    assert(document.getElementById('local-model-preset').value === 'qwen2505bcpu', 'CPU-incompatible presets were not filtered');
-    assert(artifactSelect.value === 'int8', 'default CPU artifact was not selected');
-    assert(document.getElementById('local-model-url').value === 'hf://example/qwen-cpu-int8', 'CPU artifact URL was not applied');
+    assert(localModelSource.value === 'huggingface', 'Hugging Face source disappeared after hardware switch');
+    assert(huggingFaceQuery.value === 'Qwen 3.6', 'Hugging Face query disappeared after hardware switch');
     assert(!document.getElementById('cpu-runtime-summary').hidden, 'CPU runtime summary is hidden');
     assert(document.getElementById('vram-estimate').hidden, 'VRAM controls are visible for CPU inference');
     assert(!document.getElementById('ram-reservation').hidden, 'CPU RAM reservation is hidden');
@@ -836,10 +1012,18 @@ BROWSER_ASSERTIONS = r"""
     ramSlider.dispatchEvent(new Event('input', { bubbles: true }));
     assert(document.getElementById('local-model-form').elements.memoryRequiredMi.value === '6200', 'CPU RAM reservation slider did not keep its 100 MiB planning step');
 
+    changeSelect(localModelSource, 'preset');
+    assert(document.getElementById('local-model-preset').value === 'qwen2505bcpu', 'CPU preset fallback is incorrect');
+    assert(artifactSelect.value === 'int8', 'CPU preset quantization is incorrect');
+    changeSelect(localModelSource, 'huggingface');
+
     changeSelect(engineSelect, 'OLlama');
     await waitFor(() => engineSelect.value === 'OLlama' && computeSelect.value === 'cpu', 'persistent Ollama and CPU selection');
     const ollamaTargets = Array.from(computeSelect.options).map((option) => option.value).filter(Boolean);
     assert(!ollamaTargets.includes('intel-gpu'), 'unsupported Ollama Intel target is visible');
+    assert(Array.from(localModelSource.options).map((option) => option.value).join(',') === 'preset,direct', 'Ollama sources must not include Hugging Face search');
+    assert(localModelSource.value === 'preset', 'Ollama did not fall back to a tested preset');
+    assert(document.getElementById('huggingface-model-discovery').hidden, 'Hugging Face search is visible for Ollama');
     await waitFor(() => document.getElementById('local-model-url').value === 'ollama://qwen2.5:0.5b', 'Ollama preset fields');
     assert(artifactSelect.value === 'q4-k-m', 'default Ollama artifact was not selected');
     assert(document.getElementById('local-model-url-label').textContent === 'Ollama Model URL', 'Ollama URL label is missing');
@@ -850,17 +1034,6 @@ BROWSER_ASSERTIONS = r"""
     assert(document.getElementById('ram-estimate-minimum').textContent === '1.2 GiB', 'Ollama CPU minimum RAM is missing');
     assert(document.getElementById('ram-reservation-selected').textContent.includes('1.7 GiB'), 'Ollama CPU recommended reservation is incorrect');
 
-    changeSelect(computeSelect, 'nvidia-gpu');
-    await waitFor(() => memoryEstimateCallExists('OLlama', 'nvidia-gpu'), 'Ollama NVIDIA memory estimate request');
-    await waitFor(() => !document.getElementById('vram-estimate').hidden, 'Ollama GPU memory estimate');
-    assert(artifactSelect.disabled && artifactSelect.value === '', 'legacy preset variant without artifacts is not backward compatible');
-    assert(!document.getElementById('ollama-runtime-summary').hidden, 'Ollama estimate explanation is hidden');
-    assert(document.getElementById('vram-estimate-recommended').textContent === '1.7 GiB', 'Ollama NVIDIA recommended VRAM is missing');
-    assert(document.getElementById('vram-estimate-selected').textContent.includes('1.7 GiB'), 'Ollama NVIDIA recommendation was not selected');
-    changeSelect(computeSelect, 'cpu');
-    await waitFor(() => !document.getElementById('ram-reservation').hidden, 'return to Ollama CPU reservation');
-    assert(!artifactSelect.disabled && artifactSelect.value === 'q4-k-m', 'artifact selection did not return for the CPU variant');
-
     changeSelect(sourceSelect, 'external');
     await waitFor(() => !document.getElementById('external-model-form').hidden, 'external model form');
     assert(document.getElementById('local-model-form').hidden, 'local and external forms are visible together');
@@ -869,16 +1042,21 @@ BROWSER_ASSERTIONS = r"""
     await waitFor(() => !document.getElementById('local-model-form').hidden, 'return to persistent local configuration');
     assert(engineSelect.value === 'OLlama', 'engine selection was lost after switching source');
     assert(computeSelect.value === 'cpu', 'hardware selection was lost after switching source');
-    changeSelect(artifactSelect, 'q8-0');
-    await waitFor(() => document.getElementById('local-model-url').value === 'ollama://qwen2.5:0.5b-instruct-q8_0', 'selected Ollama artifact URL');
+    assert(localModelSource.value === 'preset', 'Ollama model source was lost after switching location');
+    changeSelect(localModelSource, 'direct');
+    assert(document.getElementById('local-model-preset-fields').hidden, 'preset fields are visible for a direct model URL');
+    const localUrl = document.getElementById('local-model-url');
+    assert(!localUrl.readOnly, 'direct Ollama model reference is read only');
+    localUrl.value = 'ollama://qwen3:8b';
+    localUrl.dispatchEvent(new Event('input', { bubbles: true }));
     ramSlider.value = '4096';
     ramSlider.dispatchEvent(new Event('input', { bubbles: true }));
     document.getElementById('local-model-form').requestSubmit();
     await waitFor(() => callExists('POST', '/api/models/local'), 'local model creation');
     const localModelCall = window.__dashboardBrowserCalls.find((call) => call.method === 'POST' && call.path === '/api/models/local');
     assert(localModelCall.body.local.memoryRequiredMi === 4100, 'Ollama CPU memory reservation was not submitted in 100 MiB increments');
-    assert(localModelCall.body.local.artifact === 'q8-0', 'selected artifact was not submitted');
-    assert(!Object.prototype.hasOwnProperty.call(localModelCall.body.local, 'url'), 'catalog artifact URL must not be duplicated in the activation');
+    assert(localModelCall.body.local.url === 'ollama://qwen3:8b', 'direct Ollama model reference was not submitted');
+    assert(!Object.prototype.hasOwnProperty.call(localModelCall.body.local, 'artifact'), 'stale preset artifact was submitted for direct source');
     await waitFor(() => modelCreateFlow.hidden, 'close model creation form after submit');
     assert(modelCreateToggle.getAttribute('aria-expanded') === 'false', 'Create button expansion state stayed open after submit');
     assert(modelCreateToggle.textContent === 'Create', 'Create button label was not restored after submit');
@@ -1253,6 +1431,20 @@ class DashboardUserManagementUiTests(unittest.TestCase):
         self.assertIn('id="local-model-engine"', self.source)
         self.assertIn('id="local-model-artifact"', self.source)
         self.assertIn('Precision / Quantization', self.source)
+        self.assertIn('id="local-model-source"', self.source)
+        self.assertIn('<option value="huggingface">Hugging Face search</option>', self.source)
+        self.assertIn('<option value="preset">Tested preset</option>', self.source)
+        self.assertIn('<option value="direct">Direct model URL</option>', self.source)
+        self.assertIn('id="huggingface-model-query"', self.source)
+        self.assertIn('data-huggingface-query="Qwen"', self.source)
+        self.assertIn('data-huggingface-query="DeepSeek"', self.source)
+        self.assertIn('data-huggingface-query="GLM"', self.source)
+        self.assertIn('id="huggingface-model-results"', self.source)
+        self.assertIn('id="huggingface-model-artifacts"', self.source)
+        self.assertIn('id="huggingface-model-load-more"', self.source)
+        self.assertIn('id="huggingface-artifact-load-more"', self.source)
+        self.assertNotIn('id="huggingface-model-results" size=', self.source)
+        self.assertNotIn('id="huggingface-model-artifacts" size=', self.source)
         self.assertNotIn('model-create-wizard', self.source)
         self.assertNotIn('model-create-step-label', self.source)
         self.assertNotIn('model-engine-back', self.source)
@@ -1298,6 +1490,22 @@ class DashboardUserManagementUiTests(unittest.TestCase):
         self.assertIn("const resolvedPresetArtifact = (variant, artifactId = '') =>", self.script)
         self.assertIn("const renderLocalArtifactOptions = (variant, requestedArtifact = '') =>", self.script)
         self.assertIn("localArtifactSelect.addEventListener('change'", self.script)
+        self.assertIn("request('/api/model-discovery/search?'", self.script)
+        self.assertIn("request('/api/model-discovery/artifacts?'", self.script)
+        self.assertIn("const searchHuggingFaceModels = async (rawQuery, options = {}) =>", self.script)
+        self.assertIn("const selectedLocalModelType = () =>", self.script)
+        self.assertIn("modelType: selectedLocalModelType()", self.script)
+        self.assertIn("const refreshHuggingFaceModelType = () =>", self.script)
+        self.assertIn("const compatibleDiscoveryItems = (items) =>", self.script)
+        self.assertIn("const mergeDiscoveryItems = (...collections) =>", self.script)
+        self.assertIn("const updateDiscoveryLoadMore = (id, nextCursor, loading = false) =>", self.script)
+        self.assertIn("options.append === true", self.script)
+        self.assertIn("huggingFaceSearchNextCursor = (payload || {}).nextCursor", self.script)
+        self.assertIn("huggingFaceArtifactNextCursor = (payload || {}).nextCursor", self.script)
+        self.assertIn("{ append: true }", self.script)
+        self.assertIn("const renderHuggingFaceMetadata = (item) =>", self.script)
+        self.assertIn("const selectLocalModelSource = (source) =>", self.script)
+        self.assertIn("engine === 'VLLM' ? ['huggingface', 'preset', 'direct'] : ['preset', 'direct']", self.script)
         self.assertIn("artifact: selectedLocalArtifact() || null", self.script)
         self.assertIn("payload.local.artifact = data.get('artifact').trim();", self.script)
         self.assertIn("targetSupportsEngine(target, engine)", self.script)

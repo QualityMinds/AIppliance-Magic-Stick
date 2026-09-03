@@ -410,12 +410,24 @@ The same omission rule applies to unavailable CPU, NVIDIA, and AMD targets.
 In the Dashboard, open **Models > Create Model**, choose `Local`, select the
 engine, and then select one of the compute targets actually offered. A missing
 target is an availability signal, not a stale disabled option: inspect the
-hardware-operator state and allocatable resources above. For accelerator
-models, 100 percent on the VRAM slider is the unreserved memory (`total memory -
-active model reservations`), not the separate live free-memory value. Gray
-minimum or recommended markers to the right of that limit mean the model does
-not fit at that estimate; reduce model size, context, or concurrency rather than
-treating the gray area as allocatable capacity.
+hardware-operator state and allocatable resources above.
+
+For vLLM, choose **Hugging Face search** to search a model name or prefix. Pick
+the repository from the first dropdown and then the original or quantized
+artifact from the second. Use **More models** or **More quantizations** when the
+API reports another page. Review the displayed publisher, format, revision,
+trust, size, and compatibility note before creation. Community quantizations
+are discovery candidates rather than Magic Stick-tested presets. Use **Tested
+preset** when a validated engine/target combination is required, or **Direct
+Hugging Face URL** when the repository is already known. Ollama keeps its tested
+preset and direct `ollama://` flows because arbitrary Hugging Face GGUF import
+is not implemented.
+
+For accelerator models, 100 percent on the VRAM slider is the unreserved memory
+(`total memory - active model reservations`), not the separate live free-memory
+value. Gray minimum or recommended markers to the right of that limit mean the
+model does not fit at that estimate; reduce model size, context, or concurrency
+rather than treating the gray area as allocatable capacity.
 
 After choosing a preset, use **Precision / Quantization** to select one of the
 artifacts allowed for that exact engine and compute target. The selection
@@ -558,6 +570,8 @@ deploy,pods` if a command does not match the running resource name.
 | CPU model stays in `Starting` | Check the CPU model Pod for image-pull, RAM, CPU, model-download, or vLLM startup failures; no NVIDIA checks should appear. |
 | CPU vLLM reports insufficient memory for KV cache | Recreate the model through the current dashboard so `spec.local.kvCacheMemoryBytes` is derived from model architecture, context, and maximum sequences. Older or directly created resources without that field retain the 512 MiB compatibility fallback. Reduce context or concurrency when the derived minimum exceeds unreserved RAM; do not bypass the server-side minimum check. |
 | CPU vLLM is OOM-killed while loading or warming a quantized or multimodal model | The current estimator includes checkpoint bytes, a possible runtime working-weight copy, compile/warm-up headroom, the multimodal processor cache, and a conservative hybrid-cache factor. Confirm that the `ModelActivation` contains both `memoryRequiredMi` and `kvCacheMemoryBytes`, then compare the Pod limit and cgroup peak. If the recommendation is larger than the node, reduce context or choose a smaller model instead of raising only the timeout. |
+| Hugging Face model search is unavailable or rate-limited | Retry after the short-lived discovery cache can refresh, narrow a broad prefix, and inspect the dashboard API log without printing credentials. Model discovery uses only the public Hugging Face API. Tested presets and direct `hf://` references remain available and do not depend on the search endpoint. |
+| A selected Hugging Face quantization fails during model loading | Treat dynamic community artifacts as experimental. Confirm the repository format and quantization are supported by the selected vLLM image and CPU/GPU generation, compare the memory estimate with the actual node, and try the original repository or a tested preset. Magic Stick discovers artifacts; it does not convert or validate every third-party quantization. |
 | Local model stays in `Starting` | Compare `kubectl -n ai get model <name> -o jsonpath='{.status.replicas}'` with the model pod readiness and selected engine logs. The model is intentionally absent from LiteLLM until at least one replica is ready. |
 | Ollama model stays in `Starting` with `WaitingForOllamaAlias` | The source tag is still downloading, the model API is unreachable, or the KubeAI-name alias is absent. Check `ollama list` in the model pod and the `ModelActivation.status.message`. The operator creates the alias automatically as soon as the source tag is complete; do not publish a manual LiteLLM route around this guard. |
 | LiteLLM returns `404 model '<name>' not found` for an Ollama model | Confirm the `ModelActivation` is `Ready` under the current operator revision. Older revisions trusted KubeAI replica readiness before the Ollama alias existed. Reconcile or restart the Magic Stick Operator after updating; it verifies the alias through `/api/tags` and repairs it through `/api/copy`. |

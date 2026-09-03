@@ -117,10 +117,41 @@ The Dashboard uses persistent dropdowns for location, inference engine, and
 hardware. Selecting `External` reveals the provider form. Selecting `Local`
 adds engine and hardware dropdowns without hiding earlier selections. The
 hardware list contains only compute targets whose catalog entry supports the
-selected engine and whose live availability is `true`. After a preset is
-selected, **Precision / Quantization** lists only the artifacts declared by that
-engine/target variant. Selecting an artifact changes the checkpoint or Ollama
-tag and recalculates memory; it does not quantize a model during pod start.
+selected engine and whose live availability is `true`.
+
+For vLLM, the model source can be a dynamic Hugging Face search, a tested
+preset, or a direct `hf://` repository. The search accepts names and prefixes,
+normalizes human input such as `Qwen 3.6`, and returns paginated public model
+repositories. Selecting a model loads the original repository plus related
+quantized repositories into a second dropdown. A candidate must declare a
+direct `quantized` or `quantization` relationship to the exact selected model.
+Name-only matches and `adapter`, `finetune`, or `merge` relationships are not
+selectable. Private, gated, and disabled repositories are excluded because
+this release has no Hugging Face token flow. Model type and Hub pipeline must
+also agree; unrelated image, audio, and classification pipelines are rejected.
+
+Discovery metadata is advisory, not a new compatibility promise. Dynamic
+artifacts are marked experimental until runtime validation, and clearly
+incompatible formats are filtered out for the selected engine/compute target.
+The current vLLM path excludes MLX and GGUF: MLX is not a Kubernetes vLLM
+checkpoint, while a GGUF repository often contains multiple files and the
+runtime contract has neither a concrete GGUF-file selector nor the required
+plugin lifecycle.
+The backend uses bounded Hugging Face requests, short-lived caching, response
+size limits, fixed public API hosts, and continuation cursors. If discovery is
+unavailable or rate-limited, tested presets and direct references remain usable.
+The selected dynamic repository becomes a custom `ModelActivation` URL and is
+then handled by the existing estimator, operator, KubeAI, and readiness gates.
+
+Ollama deliberately exposes only tested presets and direct `ollama://`
+references. Although Hugging Face contains GGUF files, the current Ollama
+integration cannot select one GGUF file from a repository and register it as an
+Ollama model; that requires a separate import or Modelfile lifecycle.
+
+After a preset is selected, **Precision / Quantization** lists only the
+artifacts declared by that engine/target variant. Selecting an artifact changes
+the checkpoint or Ollama tag and recalculates memory; it does not quantize a
+model during pod start.
 Every supported local artifact receives a minimum and recommended memory
 estimate: vLLM on CPU/NVIDIA/AMD/Intel and Ollama on CPU/NVIDIA/AMD. The memory
 control caps allocations at the target's unreserved memory (`total memory -

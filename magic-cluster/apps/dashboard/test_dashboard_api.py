@@ -971,6 +971,424 @@ class ComputeMemoryTests(unittest.TestCase):
         ))
 
 
+class HuggingFaceDiscoveryTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.server = load_server()
+
+    def setUp(self):
+        self.original_fetch = self.server["fetch_hf_discovery_json"]
+        self.server["HF_DISCOVERY_CACHE"].clear()
+        mib = 1024 * 1024
+        self.base = {
+            "id": "Qwen/Qwen3.6-27B",
+            "author": "Qwen",
+            "sha": "base-revision",
+            "pipeline_tag": "text-generation",
+            "library_name": "transformers",
+            "tags": ["safetensors", "text-generation"],
+            "downloads": 5000,
+            "likes": 100,
+            "lastModified": "2026-08-30T10:00:00.000Z",
+            "config": {"model_type": "qwen", "torch_dtype": "bfloat16"},
+            "safetensors": {"total": 27_000_000_000},
+            "siblings": [
+                {"rfilename": "model-00001-of-00002.safetensors", "size": 14_000 * mib},
+                {"rfilename": "model-00002-of-00002.safetensors", "size": 13_000 * mib},
+            ],
+            "cardData": {"license": "apache-2.0"},
+            "verified": True,
+        }
+        self.awq = {
+            "id": "community/Qwen3.6-27B-AWQ",
+            "author": "community",
+            "sha": "awq-revision",
+            "pipeline_tag": "text-generation",
+            "library_name": "transformers",
+            "tags": ["safetensors", "awq", "text-generation"],
+            "downloads": 900,
+            "likes": 30,
+            "lastModified": "2026-09-01T10:00:00.000Z",
+            "config": {
+                "quantization_config": {"quant_method": "awq", "bits": 4},
+            },
+            "siblings": [{"rfilename": "model.safetensors", "size": 14_000 * mib}],
+            "baseModels": [
+                {"modelId": "Qwen/Qwen3.6-27B", "relationType": "quantized"},
+            ],
+            "cardData": {"license": "apache-2.0"},
+        }
+        self.gptq = {
+            "id": "quantizer/Qwen3.6-27B-GPTQ-Int4",
+            "author": "quantizer",
+            "sha": "gptq-revision",
+            "pipeline_tag": "text-generation",
+            "library_name": "transformers",
+            "tags": ["safetensors", "gptq"],
+            "downloads": 300,
+            "likes": 5,
+            "config": {},
+            "siblings": [{"rfilename": "model.safetensors", "lfs": {"size": 13_000 * mib}}],
+        }
+
+    def tearDown(self):
+        self.server["fetch_hf_discovery_json"] = self.original_fetch
+        self.server["HF_DISCOVERY_CACHE"].clear()
+
+    def test_search_normalizes_query_filters_private_models_and_paginates(self):
+        calls = []
+        private = {**self.gptq, "id": "private/Qwen3.6-secret-AWQ", "private": True}
+        gated = {**self.gptq, "id": "gated/Qwen3.6-gated-AWQ", "gated": "manual"}
+        disabled = {**self.gptq, "id": "disabled/Qwen3.6-disabled-AWQ", "disabled": True}
+
+        def fake_fetch(url, required=True):
+            calls.append((url, required))
+            return [self.awq, self.base, private, gated, disabled]
+
+        self.server["fetch_hf_discovery_json"] = fake_fetch
+        result = self.server["model_discovery_search"]({
+            "provider": ["huggingface"],
+            "q": [" Qwen 3.6 "],
+            "limit": ["1"],
+            "cursor": ["0"],
+            "sort": ["downloads"],
+        })
+
+        self.assertEqual(result["normalizedQueries"], ["Qwen 3.6", "Qwen3.6", "Qwen-3.6"])
+        self.assertEqual(result["total"], 2)
+        self.assertEqual([item["repo"] for item in result["results"]], ["Qwen/Qwen3.6-27B"])
+        self.assertEqual(result["nextCursor"], "1")
+        self.assertEqual(result["results"][0]["weightBytes"], 27_000 * 1024 * 1024)
+        self.assertEqual(result["results"][0]["trustStatus"], "official")
+        self.assertTrue(all("/api/models?" in url for url, _required in calls))
+        self.assertTrue(all("/resolve/" not in url for url, _required in calls))
+        query = self.server["urllib"].parse.parse_qs(
+            self.server["urllib"].parse.urlparse(calls[0][0]).query
+        )
+        self.assertEqual(query["apps"], ["vllm"])
+        self.assertEqual(query["limit"], [str(self.server["HF_DISCOVERY_UPSTREAM_LIMIT"])])
+
+        second = self.server["model_discovery_search"]({
+            "q": ["Qwen 3.6"],
+            "limit": ["1"],
+            "cursor": ["1"],
+            "sort": ["downloads"],
+        })
+        self.assertEqual([item["repo"] for item in second["results"]], ["community/Qwen3.6-27B-AWQ"])
+        self.assertIsNone(second["nextCursor"])
+        self.assertEqual(len(calls), 1, "enough first-variant results must avoid extra Hub requests")
+
+    def test_search_applies_metadata_filters_and_engine_compatibility(self):
+        self.server["fetch_hf_discovery_json"] = lambda *_args, **_kwargs: [self.base, self.awq]
+
+        result = self.server["model_discovery_search"]({
+            "q": ["Qwen3.6"],
+            "author": ["community"],
+            "pipeline": ["text-generation"],
+            "library": ["transformers"],
+            "format": ["safetensors"],
+            "quantization": ["AWQ"],
+            "engine": ["OLlama"],
+            "computeTarget": ["cpu"],
+        })
+
+        self.assertEqual([item["repo"] for item in result["results"]], ["community/Qwen3.6-27B-AWQ"])
+        artifact = result["results"][0]
+        self.assertEqual(artifact["quantization"], {"method": "awq", "bits": 4, "label": "AWQ 4-bit"})
+        self.assertEqual(artifact["compatibility"], "incompatible")
+        self.assertIn("ollama://", artifact["compatibilityReason"])
+
+    def test_search_fetches_normalized_variants_only_until_page_is_filled(self):
+        calls = []
+        second_model = {
+            **self.base,
+            "id": "Qwen/Qwen3.6-9B",
+            "sha": "second-revision",
+            "downloads": 100,
+        }
+
+        def fake_fetch(url, required=True):
+            query = self.server["urllib"].parse.parse_qs(
+                self.server["urllib"].parse.urlparse(url).query
+            )
+            calls.append(query.get("search", [""])[0])
+            if query.get("search") == ["Qwen 3.6"]:
+                return [self.base]
+            if query.get("search") == ["Qwen3.6"]:
+                return [second_model]
+            self.fail("third normalized variant must not be requested")
+
+        self.server["fetch_hf_discovery_json"] = fake_fetch
+        result = self.server["model_discovery_search"]({
+            "q": ["Qwen 3.6"],
+            "limit": ["2"],
+        })
+
+        self.assertEqual(result["normalizedQueries"], ["Qwen 3.6", "Qwen3.6", "Qwen-3.6"])
+        self.assertEqual({item["repo"] for item in result["results"]}, {
+            "Qwen/Qwen3.6-27B",
+            "Qwen/Qwen3.6-9B",
+        })
+        self.assertEqual(calls, ["Qwen 3.6", "Qwen3.6"])
+
+    def test_artifacts_include_only_direct_quantized_base_model_relations(self):
+        calls = []
+        grouped_awq = {
+            **self.awq,
+            "baseModels": [{
+                "relation": "quantized",
+                "models": [{"id": "Qwen/Qwen3.6-27B"}],
+            }],
+        }
+        adapter = {
+            **self.gptq,
+            "id": "community/Qwen3.6-27B-Adapter-GPTQ",
+            "baseModels": [{"modelId": "Qwen/Qwen3.6-27B", "relationType": "adapter"}],
+        }
+        finetune = {
+            **self.gptq,
+            "id": "community/Qwen3.6-27B-Finetune-GPTQ",
+            "tags": ["safetensors", "gptq", "base_model:finetune:Qwen/Qwen3.6-27B"],
+        }
+        merge = {
+            **self.gptq,
+            "id": "community/Qwen3.6-27B-Merge-GPTQ",
+            "cardData": {
+                "base_model": "Qwen/Qwen3.6-27B",
+                "base_model_relation": "merge",
+            },
+        }
+        disabled = {**grouped_awq, "id": "community/Qwen3.6-27B-disabled-AWQ", "disabled": True}
+
+        def fake_fetch(url, required=True):
+            calls.append(url)
+            parsed = self.server["urllib"].parse.urlparse(url)
+            query = self.server["urllib"].parse.parse_qs(parsed.query)
+            if parsed.path == "/api/models/Qwen/Qwen3.6-27B":
+                return self.base
+            if query.get("filter") == ["base_model:Qwen/Qwen3.6-27B"]:
+                return [grouped_awq, self.gptq, adapter, finetune, merge, disabled]
+            return []
+
+        self.server["fetch_hf_discovery_json"] = fake_fetch
+        first = self.server["model_discovery_artifacts"]({
+            "repo": ["Qwen/Qwen3.6-27B"],
+            "limit": ["2"],
+            "cursor": ["0"],
+            "sort": ["downloads"],
+            "engine": ["VLLM"],
+            "computeTarget": ["nvidia-gpu"],
+        })
+
+        self.assertEqual(first["baseModel"]["repo"], "Qwen/Qwen3.6-27B")
+        self.assertEqual([item["repo"] for item in first["artifacts"]], [
+            "Qwen/Qwen3.6-27B",
+            "community/Qwen3.6-27B-AWQ",
+        ])
+        self.assertEqual(first["artifacts"][0]["relation"], "selected")
+        self.assertEqual(first["artifacts"][1]["discoverySource"], "base-model")
+        self.assertIsNone(first["nextCursor"])
+
+        second = self.server["model_discovery_artifacts"]({
+            "repo": ["Qwen/Qwen3.6-27B"],
+            "limit": ["2"],
+            "cursor": ["2"],
+            "sort": ["downloads"],
+            "engine": ["VLLM"],
+            "computeTarget": ["nvidia-gpu"],
+        })
+        self.assertEqual(second["artifacts"], [])
+        self.assertEqual(len(calls), 2, "artifact discovery must use only detail and base-model filter requests")
+        self.assertFalse(any("search=" in url for url in calls))
+
+    def test_quantized_selection_resolves_its_declared_base_model(self):
+        selected = {
+            **self.awq,
+            "baseModels": [],
+            "cardData": {
+                "base_model": "Qwen/Qwen3.6-27B",
+                "base_model_relation": "quantized",
+            },
+        }
+
+        def fake_fetch(url, required=True):
+            parsed = self.server["urllib"].parse.urlparse(url)
+            query = self.server["urllib"].parse.parse_qs(parsed.query)
+            if parsed.path.endswith("/community/Qwen3.6-27B-AWQ"):
+                return selected
+            if parsed.path.endswith("/Qwen/Qwen3.6-27B"):
+                return self.base
+            if query.get("filter") == ["base_model:Qwen/Qwen3.6-27B"]:
+                return [selected]
+            return []
+
+        self.server["fetch_hf_discovery_json"] = fake_fetch
+        result = self.server["model_discovery_artifacts"]({
+            "repo": ["community/Qwen3.6-27B-AWQ"],
+        })
+
+        self.assertEqual(result["baseModel"]["repo"], "Qwen/Qwen3.6-27B")
+        self.assertEqual(result["artifacts"][0]["repo"], "community/Qwen3.6-27B-AWQ")
+        self.assertEqual(result["artifacts"][0]["quantization"]["method"], "awq")
+
+    def test_multiple_gguf_files_are_exposed_without_summing_complete_variants(self):
+        model = {
+            "id": "community/Qwen3.6-9B-GGUF",
+            "tags": ["gguf"],
+            "siblings": [
+                {"rfilename": "qwen-q4_k_m.gguf", "size": 5_000},
+                {"rfilename": "qwen-q8_0.gguf", "size": 9_000},
+            ],
+        }
+
+        summary = self.server["hf_model_summary"](model, "vllm", "cpu", "chat")
+
+        self.assertEqual(summary["formats"], ["gguf"])
+        self.assertIsNone(summary["weightBytes"])
+        self.assertEqual(len(summary["files"]), 2)
+        self.assertEqual(summary["quantization"]["method"], "gguf")
+        self.assertEqual(summary["compatibility"], "incompatible")
+        self.assertIn("GGUF", summary["compatibilityReason"])
+
+    def test_mlx_and_pipeline_mismatches_are_incompatible(self):
+        mlx = {
+            **self.base,
+            "id": "community/Qwen3.6-27B-MLX",
+            "library_name": "mlx",
+            "tags": ["mlx", "safetensors"],
+        }
+        mlx_summary = self.server["hf_model_summary"](mlx, "vllm", "cpu", "chat")
+        self.assertEqual(mlx_summary["compatibility"], "incompatible")
+        self.assertIn("MLX", mlx_summary["compatibilityReason"])
+
+        chat_as_embedding = self.server["hf_model_summary"](
+            self.base,
+            "vllm",
+            "cpu",
+            "embedding",
+        )
+        self.assertEqual(chat_as_embedding["compatibility"], "incompatible")
+        self.assertIn("embedding pipeline", chat_as_embedding["compatibilityReason"])
+
+        embedding = {
+            **self.base,
+            "id": "community/Qwen3.6-Embedding",
+            "pipeline_tag": "feature-extraction",
+        }
+        embedding_as_chat = self.server["hf_model_summary"](
+            embedding,
+            "vllm",
+            "cpu",
+            "chat",
+        )
+        self.assertEqual(embedding_as_chat["compatibility"], "incompatible")
+        self.assertIn("chat-generation pipeline", embedding_as_chat["compatibilityReason"])
+
+        classifier = {
+            **self.base,
+            "id": "community/Qwen3.6-Classifier",
+            "pipeline_tag": "image-classification",
+        }
+        classifier_as_chat = self.server["hf_model_summary"](
+            classifier,
+            "vllm",
+            "cpu",
+            "chat",
+        )
+        self.assertEqual(classifier_as_chat["compatibility"], "incompatible")
+        self.assertIn("chat-generation pipeline", classifier_as_chat["compatibilityReason"])
+
+    def test_discovery_rejects_invalid_queries_before_network_access(self):
+        self.server["fetch_hf_discovery_json"] = lambda *_args, **_kwargs: self.fail("network must not be used")
+        invalid_searches = (
+            {},
+            {"q": ["Qwen"], "provider": ["ollama"]},
+            {"q": ["Qwen"], "sort": ["stars"]},
+            {"q": ["Qwen"], "limit": ["51"]},
+            {"q": ["Qwen"], "modelType": ["vision"]},
+            {"q": ["Qwen\nInjected"]},
+        )
+        for query in invalid_searches:
+            with self.subTest(query=query), self.assertRaises(self.server["RequestError"]):
+                self.server["model_discovery_search"](query)
+
+        with self.assertRaises(self.server["RequestError"]):
+            self.server["model_discovery_artifacts"]({"repo": ["https://attacker.example/model"]})
+
+    def test_fetcher_allows_only_bounded_huggingface_model_api_responses(self):
+        original_urlopen = self.server["urllib"].request.urlopen
+        calls = []
+
+        class Response:
+            def __init__(self, body, content_length=None):
+                self.body = body
+                self.headers = {"Content-Length": str(content_length)} if content_length else {}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self, maximum):
+                return self.body[:maximum]
+
+        def fake_urlopen(request, timeout, context):
+            calls.append((request.full_url, timeout, context))
+            return Response(b'{"id":"Qwen/model"}')
+
+        self.server["urllib"].request.urlopen = fake_urlopen
+        try:
+            payload = self.server["fetch_hf_discovery_json"](
+                "https://huggingface.co/api/models/Qwen/model"
+            )
+            self.assertEqual(payload["id"], "Qwen/model")
+            self.assertEqual(calls[0][1], self.server["HF_DISCOVERY_TIMEOUT_SECONDS"])
+
+            with self.assertRaises(ValueError):
+                self.server["fetch_hf_discovery_json"](
+                    "https://attacker.example/api/models/Qwen/model"
+                )
+
+            self.server["urllib"].request.urlopen = lambda *_args, **_kwargs: Response(
+                b"{}",
+                self.server["HF_DISCOVERY_MAX_RESPONSE_BYTES"] + 1,
+            )
+            with self.assertRaises(self.server["RequestError"]) as raised:
+                self.server["fetch_hf_discovery_json"](
+                    "https://huggingface.co/api/models/Qwen/model"
+                )
+            self.assertEqual(raised.exception.status, 502)
+        finally:
+            self.server["urllib"].request.urlopen = original_urlopen
+
+    def test_discovery_get_routes_require_viewer_access(self):
+        originals = {
+            "model_discovery_search": self.server["model_discovery_search"],
+            "model_discovery_artifacts": self.server["model_discovery_artifacts"],
+        }
+        requested_access = []
+        responses = []
+        try:
+            self.server["model_discovery_search"] = lambda query: {
+                "query": query["q"][0],
+            }
+            handler = self.server["Handler"].__new__(self.server["Handler"])
+            handler.path = "/api/model-discovery/search?provider=huggingface&q=Qwen3.6"
+            handler.headers = {}
+            handler.require_access = lambda access: requested_access.append(access) or {}
+            handler.send_json = lambda payload, status=200: responses.append((payload, status))
+            handler.send_auth_error = self.fail
+            handler.send_error_json = lambda status, message: self.fail(f"{status}: {message}")
+
+            handler.do_GET()
+
+            self.assertEqual(requested_access, ["viewer"])
+            self.assertEqual(responses, [({"query": "Qwen3.6"}, 200)])
+        finally:
+            self.server.update(originals)
+
+
 class SettingsTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

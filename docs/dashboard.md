@@ -57,7 +57,7 @@ Paperclip, KubeOpenCode, KubeAI, LiteLLM, or direct app instance reconcilers.
 |---|---|
 | Overview | Shows appliance health, module/instance/model counts, and the complete local, public, or direct URLs discovered for modules and app instances from Ingress, Gateway API `HTTPRoute`, and instance status. |
 | Services | Combines modules and instances: application cards contain their instances, shared AI runtime services stay compact, and technical platform modules are collapsed by default. The create dialog first selects an application and then shows only its configuration. |
-| Models | Creates/removes local and external model activations, selects CPU or an available NVIDIA/AMD/Intel target, estimates accelerator memory, and shows compact per-device memory gauges. |
+| Models | Creates/removes local and external model activations, discovers public Hugging Face models and their quantized artifacts, retains tested presets and direct references, selects CPU or an available NVIDIA/AMD/Intel target, estimates memory, and shows compact per-device memory gauges. |
 | Users | Gives administrators a paginated Keycloak user overview and local-user lifecycle controls. |
 | API Access | Lets administrators create multiple named LiteLLM API keys, view their non-secret metadata, and revoke individual keys. |
 | Kubernetes Access | Lets administrators assign Viewer, Operator, or Cluster Administrator access to existing SSO identities and download or copy token-free OIDC kubeconfigs. |
@@ -92,6 +92,8 @@ checks.
 | `DELETE` | `/api/instances/{name}` | Deletes the `AppInstance`; its finalizer removes the generated HelmRelease and Helm cleans the application resources. |
 | `GET` | `/api/models` | Returns model catalog entries, variant-aware presets, compute-target availability, `ModelActivation` resources, AnythingLLM status, the estimator-compatible VRAM summary, and a `computeMemory.devices` list for the CPU and every discoverable GPU resource. |
 | `GET` | `/api/models/compute-targets` | Returns CPU/NVIDIA/AMD/Intel availability, supported engines, resolved resource/profile, and a non-sensitive reason when a target is unavailable. |
+| `GET` | `/api/model-discovery/search?provider=huggingface&q=&cursor=&limit=` | Searches public, non-gated Hugging Face repositories by name or prefix and returns bounded, sortable model metadata plus a continuation cursor. |
+| `GET` | `/api/model-discovery/artifacts?provider=huggingface&repo=&cursor=&limit=` | Resolves the selected repository and related quantized artifacts using declared base-model relations with a conservative name-based fallback. |
 | `GET` | `/api/status` | Returns runtime objects and the catalogued NVIDIA/AMD/Intel operator lifecycle from `Appliance.status.hardwareOperators`. |
 | `POST` | `/api/models/estimate-memory` | Estimates minimum and recommended RAM or accelerator memory for every supported local engine/compute-target combination. |
 | `POST` | `/api/models/estimate-vram` | Backward-compatible alias for `/api/models/estimate-memory`. |
@@ -363,14 +365,37 @@ The **Create** button beside **Installed Models** opens the model form directly
 in that section. The form starts with a persistent location dropdown containing
 `Local` and `External`. The external choice reveals the existing provider form.
 For a local model, inference engine and hardware appear as additional dropdowns
-above the model form. The model form keeps the preset and **Precision /
-Quantization** dropdowns visible. Quantization options are populated from the
-selected preset's engine/hardware artifact allowlist; changing the selection
-updates the URL and memory estimate. Every completed selection remains visible
-and can be changed directly; there are no wizard steps or back buttons. Engine
-and hardware choices are filtered by current cluster capability. Unavailable
-CPU or accelerator targets are omitted instead of being presented as disabled
-choices.
+above the model form. Every completed selection remains visible and can be
+changed directly; there are no wizard steps or back buttons. Engine and hardware
+choices are filtered by current cluster capability. Unavailable CPU or
+accelerator targets are omitted instead of being presented as disabled choices.
+
+For vLLM, **Model source** offers three persistent choices:
+
+- **Hugging Face search** accepts a model name or prefix and provides normal
+  dropdowns for the matching model and its original or quantized artifacts.
+  Popular-family shortcuts prefill common searches. Additional result pages can
+  be loaded without losing the current selection.
+- **Tested preset** retains the allowlisted catalog flow and its **Precision /
+  Quantization** dropdown.
+- **Direct Hugging Face URL** retains the existing `hf://` escape hatch.
+
+The discovery backend returns only public, non-gated, non-disabled repositories.
+Quantizations must declare a direct `quantized` relationship to the exact
+selected model; name similarity, adapter, fine-tune, and merge relationships do
+not qualify. Publisher, formats, parameter/weight metadata, revision, trust
+classification, and runtime-compatibility guidance remain visible after
+selection. A dynamic result is labelled experimental until the chosen runtime
+has loaded it; the dashboard does not claim that arbitrary community artifacts
+are validated. Selecting an artifact writes its `hf://` repository to a custom
+activation and reuses the same server-side memory estimator as a direct URL.
+GGUF and MLX repositories are excluded from the current vLLM selection because
+that path cannot select the required GGUF file/plugin and does not run MLX.
+
+Ollama continues to offer **Tested preset** and **Direct Ollama model reference**.
+Hugging Face discovery is intentionally absent there because the current
+runtime contract pulls `ollama://` registry models and cannot import an arbitrary
+Hugging Face GGUF repository automatically.
 
 vLLM accepts `hf://` model references; Ollama uses `ollama://` references.
 `cpu` is available on a compatible Ready Linux node. `nvidia-gpu`, `amd-gpu`,

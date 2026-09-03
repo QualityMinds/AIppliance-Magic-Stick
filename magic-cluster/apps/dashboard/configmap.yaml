@@ -888,6 +888,101 @@ data:
           opacity: 0.58;
         }
 
+        .model-discovery {
+          background: rgba(2, 6, 23, 0.34);
+          border: 1px solid rgba(125, 211, 252, 0.18);
+          border-radius: 12px;
+          display: grid;
+          gap: 0.75rem;
+          padding: 0.8rem;
+        }
+
+        .model-discovery-heading {
+          display: grid;
+          gap: 0.22rem;
+        }
+
+        .model-discovery-heading h4,
+        .model-discovery-heading p {
+          margin: 0;
+        }
+
+        .model-discovery-heading h4 {
+          font-size: 0.92rem;
+        }
+
+        .model-discovery-heading p,
+        .model-discovery-status {
+          color: var(--muted);
+          font-size: 0.78rem;
+        }
+
+        .model-discovery-search {
+          align-items: end;
+          display: grid;
+          gap: 0.55rem;
+          grid-template-columns: minmax(0, 1fr) auto;
+        }
+
+        .model-discovery-popular {
+          align-items: center;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.4rem;
+        }
+
+        .model-discovery-popular > span {
+          color: var(--muted);
+          font-size: 0.75rem;
+          margin-right: 0.1rem;
+        }
+
+        .model-discovery-popular .control-button {
+          font-size: 0.75rem;
+          padding: 0.28rem 0.52rem;
+        }
+
+        .model-discovery-selection {
+          display: grid;
+          gap: 0.65rem;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .model-discovery-field {
+          display: grid;
+          gap: 0.4rem;
+          min-width: 0;
+        }
+
+        .model-discovery-load-more {
+          background: transparent;
+          font-size: 0.75rem;
+          justify-self: start;
+          padding: 0.28rem 0.5rem;
+        }
+
+        .model-discovery-status {
+          min-height: 1.05rem;
+          overflow-wrap: anywhere;
+        }
+
+        .model-discovery-status[data-state="error"] {
+          color: #fecaca;
+        }
+
+        .model-discovery-metadata {
+          align-items: center;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.4rem;
+          min-height: 1.6rem;
+        }
+
+        #huggingface-model-discovery {
+          display: grid;
+          gap: 0.65rem;
+        }
+
         .model-meta {
           display: flex;
           flex-wrap: wrap;
@@ -1731,6 +1826,11 @@ data:
             grid-template-columns: 1fr;
           }
 
+          .model-discovery-search,
+          .model-discovery-selection {
+            grid-template-columns: 1fr;
+          }
+
           .users-table {
             display: block;
             min-width: 0;
@@ -2064,11 +2164,62 @@ data:
                     <fieldset class="model-form-fields" id="local-model-fields">
                       <input type="hidden" name="vram" value="5Gi" />
                       <input type="hidden" name="memoryRequiredMi" value="4096" />
+                      <section class="model-discovery" aria-labelledby="local-model-source-heading">
+                        <div class="model-discovery-heading">
+                          <h4 id="local-model-source-heading">Model source</h4>
+                          <p>Search Hugging Face or enter a model URL directly. Engine and hardware selections remain visible above.</p>
+                        </div>
+                        <label class="field">Source
+                          <select id="local-model-source" aria-label="Local model source">
+                            <option value="huggingface">Hugging Face search</option>
+                            <option value="preset">Tested preset</option>
+                            <option value="direct">Direct model URL</option>
+                          </select>
+                        </label>
+                        <div class="form-grid" id="local-model-preset-fields" hidden>
+                          <label class="field">Preset<select name="preset" id="local-model-preset"><option value="custom">Custom</option></select></label>
+                          <label class="field">Precision / Quantization<select name="artifact" id="local-model-artifact" aria-label="Preset precision / quantization" disabled><option value="">Preset default</option></select></label>
+                        </div>
+                        <div id="huggingface-model-discovery">
+                          <div class="model-discovery-search" role="search">
+                            <label class="field">Search Hugging Face
+                              <input id="huggingface-model-query" type="search" autocomplete="off" placeholder="Qwen 3.6" />
+                            </label>
+                            <button class="control-button primary" id="huggingface-model-search" type="button">Search</button>
+                          </div>
+                          <div class="model-discovery-popular" aria-label="Popular model searches">
+                            <span>Popular</span>
+                            <button class="control-button" type="button" data-huggingface-query="Qwen">Qwen</button>
+                            <button class="control-button" type="button" data-huggingface-query="DeepSeek">DeepSeek</button>
+                            <button class="control-button" type="button" data-huggingface-query="GLM">GLM</button>
+                            <button class="control-button" type="button" data-huggingface-query="Llama">Llama</button>
+                            <button class="control-button" type="button" data-huggingface-query="Gemma">Gemma</button>
+                          </div>
+                          <p class="model-discovery-status" id="huggingface-model-status" role="status" aria-live="polite">Enter at least two characters or choose a popular search.</p>
+                          <div class="model-discovery-selection">
+                            <div class="model-discovery-field">
+                              <label class="field">Matching models
+                                <select id="huggingface-model-results" aria-label="Matching Hugging Face models" disabled>
+                                  <option value="">Search to list models</option>
+                                </select>
+                              </label>
+                              <button class="control-button model-discovery-load-more" id="huggingface-model-load-more" type="button" hidden>Load more models</button>
+                            </div>
+                            <div class="model-discovery-field">
+                              <label class="field">Quantization / artifact
+                                <select id="huggingface-model-artifacts" aria-label="Hugging Face quantizations" disabled>
+                                  <option value="">Select a model first</option>
+                                </select>
+                              </label>
+                              <button class="control-button model-discovery-load-more" id="huggingface-artifact-load-more" type="button" hidden>Load more quantizations</button>
+                            </div>
+                          </div>
+                          <div class="model-discovery-metadata model-meta" id="huggingface-model-metadata" aria-live="polite"></div>
+                        </div>
+                      </section>
                       <div class="form-grid">
-                        <label class="field">Name<input name="name" value="qwen352bvlembedding" /></label>
+                        <label class="field">Name<input name="name" placeholder="my-model" /></label>
                         <label class="field">Type<select name="modelType"><option value="chat">chat</option><option value="embedding">embedding</option></select></label>
-                        <label class="field">Preset<select name="preset" id="local-model-preset"><option value="qwen352bvlembedding">qwen352bvlembedding</option><option value="qwen3635b">qwen3635b</option><option value="qwen359b">qwen359b</option><option value="custom">Custom</option></select></label>
-                        <label class="field">Precision / Quantization<select name="artifact" id="local-model-artifact" aria-label="Precision / Quantization" disabled><option value="">Preset default</option></select></label>
                         <label class="field"><span id="local-model-url-label">Hugging Face URL</span><input id="local-model-url" name="url" placeholder="hf://example/model" /></label>
                         <label class="field">Max Num Seqs<input name="maxNumSeqs" type="number" min="1" placeholder="32" /></label>
                         <label class="field">Context Size<input name="contextWindow" type="number" min="1" value="4096" /></label>
@@ -2572,6 +2723,23 @@ data:
           let activeModelCreateSource = '';
           let activeLocalEngine = '';
           let activeComputeTarget = '';
+          let activeLocalModelSource = '';
+          let directLocalModelUrl = '';
+          let localPresetSourceValue = '';
+          let huggingFaceSearchResults = [];
+          let huggingFaceArtifacts = [];
+          let selectedHuggingFaceModel = null;
+          let selectedHuggingFaceArtifact = null;
+          let modelDiscoveryAutoName = '';
+          let huggingFaceSearchRequest = 0;
+          let huggingFaceArtifactRequest = 0;
+          let huggingFaceSearchTimer = null;
+          let huggingFaceSearchNextCursor = null;
+          let huggingFaceSearchTotal = 0;
+          let huggingFaceSearchQuery = '';
+          let huggingFaceArtifactNextCursor = null;
+          let huggingFaceArtifactTotal = 0;
+          let huggingFaceArtifactRepo = '';
           const pendingModuleActions = {};
           const pendingModelDeletes = {};
           let vramEstimateTimer = null;
@@ -2696,6 +2864,12 @@ data:
             return normalizeLocalEngine(activeLocalEngine || (field || {}).value || '');
           };
 
+          const selectedLocalModelType = () => {
+            const form = $('local-model-form');
+            const value = String((((form || {}).elements || {}).modelType || {}).value || 'chat').trim().toLowerCase();
+            return value || 'chat';
+          };
+
           const targetSupportsEngine = (target, engine = selectedLocalEngine()) => Boolean(
             target
             && normalizeLocalEngine(engine)
@@ -2762,6 +2936,7 @@ data:
             }
             renderedPresetSignature = '';
             localPresetLastApplied = '';
+            resetHuggingFaceDiscovery();
           };
 
           const updateModelCreateVisibility = () => {
@@ -2928,6 +3103,536 @@ data:
             return selected;
           };
 
+          const setHuggingFaceStatus = (message, state = '') => {
+            const node = $('huggingface-model-status');
+            if (!node) { return; }
+            node.textContent = message;
+            if (state) {
+              node.dataset.state = state;
+            } else {
+              node.removeAttribute('data-state');
+            }
+          };
+
+          const setDiscoverySelectPlaceholder = (select, message) => {
+            if (!select) { return; }
+            select.replaceChildren();
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = message;
+            select.appendChild(option);
+            select.value = '';
+            select.disabled = true;
+          };
+
+          const discoveryFormats = (item) => {
+            const values = Array.isArray((item || {}).formats)
+              ? item.formats
+              : ((item || {}).format ? [(item || {}).format] : []);
+            return values.map((value) => String(value || '').trim()).filter(Boolean);
+          };
+
+          const discoveryQuantization = (item) => {
+            const quantization = (item || {}).quantization;
+            if (quantization && typeof quantization === 'object') {
+              const label = String(quantization.label || quantization.method || '').trim();
+              const bits = Number(quantization.bits || 0);
+              return label + (bits && !label.includes(String(bits)) ? ' / ' + bits + '-bit' : '');
+            }
+            return String(quantization || (item || {}).precision || '').trim();
+          };
+
+          const discoveryCompatibility = (item) => {
+            const value = (item || {}).compatibility;
+            const normalized = String(value && typeof value === 'object' ? value.status : value || 'experimental').trim().toLowerCase();
+            if (normalized === 'compatible') { return 'Compatible'; }
+            if (normalized === 'incompatible') { return 'Incompatible'; }
+            return 'Experimental';
+          };
+
+          const discoveryTrust = (item) => {
+            const value = (item || {}).trustStatus;
+            const normalized = String(value && typeof value === 'object' ? value.status : value || 'unverified').trim().toLowerCase();
+            if (normalized === 'official') { return 'Official'; }
+            if (normalized === 'community') { return 'Community'; }
+            return (item || {}).gated ? 'Gated' : 'Unverified';
+          };
+
+          const compatibleDiscoveryItems = (items) => (Array.isArray(items) ? items : [])
+            .filter((item) => item && discoveryCompatibility(item) !== 'Incompatible');
+
+          const mergeDiscoveryItems = (...collections) => {
+            const merged = [];
+            const seen = new Set();
+            collections.flat().forEach((item) => {
+              const repo = discoveryRepo(item).toLowerCase();
+              if (!repo || seen.has(repo)) { return; }
+              seen.add(repo);
+              merged.push(item);
+            });
+            return merged;
+          };
+
+          const updateDiscoveryLoadMore = (id, nextCursor, loading = false) => {
+            const button = $(id);
+            if (!button) { return; }
+            const available = nextCursor !== null && nextCursor !== undefined && String(nextCursor) !== '';
+            button.hidden = !available;
+            button.disabled = !available || loading;
+            if (id === 'huggingface-model-load-more') {
+              button.textContent = loading ? 'Loading models' : 'Load more models';
+            } else {
+              button.textContent = loading ? 'Loading quantizations' : 'Load more quantizations';
+            }
+          };
+
+          const discoveryProgress = (loaded, total, noun) => {
+            const safeLoaded = Math.max(0, Number(loaded || 0));
+            const safeTotal = Math.max(safeLoaded, Number(total || 0));
+            const candidateLabel = noun + (safeLoaded === 1 ? ' candidate' : ' candidates');
+            return safeLoaded + ' ' + candidateLabel + ' loaded from ' + safeTotal + ' discovered.';
+          };
+
+          const formatDiscoveryBytes = (value) => {
+            const bytes = Number(value || 0);
+            if (!Number.isFinite(bytes) || bytes <= 0) { return ''; }
+            const gib = bytes / (1024 * 1024 * 1024);
+            return gib >= 10 ? gib.toFixed(0) + ' GiB' : gib.toFixed(1) + ' GiB';
+          };
+
+          const formatDiscoveryParameters = (value) => {
+            const count = Number(value || 0);
+            if (!Number.isFinite(count) || count <= 0) { return ''; }
+            return count >= 1e9 ? (count / 1e9).toFixed(count >= 10e9 ? 0 : 1) + 'B params' : Math.round(count / 1e6) + 'M params';
+          };
+
+          const discoveryRepo = (item) => String((item || {}).repo || (item || {}).id || '').trim();
+
+          const discoveryOptionLabel = (item, options = {}) => {
+            const repo = discoveryRepo(item) || String((item || {}).label || 'Unknown model');
+            const details = [];
+            const quantization = discoveryQuantization(item);
+            const formats = discoveryFormats(item);
+            const size = formatDiscoveryBytes((item || {}).weightBytes);
+            const parameters = formatDiscoveryParameters((item || {}).parameterCount);
+            if (options.artifact && (item || {}).original) { details.push('Original'); }
+            if (quantization) { details.push(quantization); }
+            if (formats.length) { details.push(formats.join('/')); }
+            if (parameters) { details.push(parameters); }
+            if (size) { details.push(size); }
+            details.push(discoveryTrust(item));
+            details.push(discoveryCompatibility(item));
+            return repo + (details.length ? ' — ' + details.join(' · ') : '');
+          };
+
+          const appendDiscoveryMetadata = (container, label, value) => {
+            const text = String(value || '').trim();
+            if (!container || !text) { return; }
+            const item = document.createElement('span');
+            item.className = 'model-meta-item';
+            const strong = document.createElement('strong');
+            strong.textContent = label + ': ';
+            item.append(strong, text);
+            container.appendChild(item);
+          };
+
+          const renderHuggingFaceMetadata = (item) => {
+            const container = $('huggingface-model-metadata');
+            if (!container) { return; }
+            container.replaceChildren();
+            if (!item) { return; }
+            appendDiscoveryMetadata(container, 'Publisher', (item || {}).author || discoveryRepo(item).split('/')[0]);
+            appendDiscoveryMetadata(container, 'Format', discoveryFormats(item).join(', '));
+            appendDiscoveryMetadata(container, 'Quantization', discoveryQuantization(item) || 'Original precision');
+            appendDiscoveryMetadata(container, 'Size', formatDiscoveryBytes((item || {}).weightBytes));
+            appendDiscoveryMetadata(container, 'Parameters', formatDiscoveryParameters((item || {}).parameterCount));
+            appendDiscoveryMetadata(container, 'Trust', discoveryTrust(item));
+            appendDiscoveryMetadata(container, 'Runtime', discoveryCompatibility(item));
+            if ((item || {}).revision) {
+              appendDiscoveryMetadata(container, 'Revision', String(item.revision).slice(0, 12));
+            }
+          };
+
+          const modelActivationName = (item) => {
+            const repo = discoveryRepo(item);
+            const candidate = String((item || {}).name || repo.split('/').pop() || 'model')
+              .trim()
+              .toLowerCase()
+              .replace(/[^a-z0-9-]+/g, '-')
+              .replace(/^-+|-+$/g, '')
+              .replace(/--+/g, '-');
+            return (candidate || 'model').slice(0, 63).replace(/-+$/, '') || 'model';
+          };
+
+          const applyHuggingFaceArtifact = (artifact) => {
+            const form = $('local-model-form');
+            if (!form || !artifact) { return false; }
+            const repo = discoveryRepo(artifact);
+            if (!repo) { return false; }
+            selectedHuggingFaceArtifact = artifact;
+            const url = String(artifact.url || 'hf://' + repo).trim();
+            const presetSelect = $('local-model-preset');
+            if (presetSelect) { presetSelect.value = 'custom'; }
+            renderLocalArtifactOptions(null);
+            const nameField = form.elements.name;
+            const generatedName = modelActivationName(artifact);
+            if (nameField && (!String(nameField.value || '').trim() || nameField.value === modelDiscoveryAutoName)) {
+              nameField.value = generatedName;
+              modelDiscoveryAutoName = generatedName;
+            }
+            const pipelineTag = String(artifact.pipelineTag || '').toLowerCase();
+            if (pipelineTag === 'feature-extraction' || pipelineTag === 'sentence-similarity') {
+              setFormValue(form, 'modelType', 'embedding');
+            }
+            if (artifact.contextWindow || artifact.modelMaxContext) {
+              setFormValue(form, 'contextWindow', artifact.contextWindow || artifact.modelMaxContext);
+            }
+            if (form.elements.url) {
+              form.elements.url.value = url;
+              form.elements.url.readOnly = true;
+              form.elements.url.title = 'Resolved from the selected Hugging Face artifact.';
+            }
+            renderHuggingFaceMetadata(artifact);
+            renderLocalArtifactNote({
+              compatibilityNote: discoveryTrust(artifact) + ' Hugging Face artifact · ' + discoveryCompatibility(artifact) + ' for the selected runtime.'
+            });
+            scheduleVramEstimate();
+            return true;
+          };
+
+          const renderHuggingFaceArtifacts = (items, requestedRepo = '') => {
+            const select = $('huggingface-model-artifacts');
+            if (!select) { return; }
+            huggingFaceArtifacts = compatibleDiscoveryItems(items);
+            select.replaceChildren();
+            if (!huggingFaceArtifacts.length) {
+              setDiscoverySelectPlaceholder(select, 'No compatible artifacts found');
+              selectedHuggingFaceArtifact = null;
+              return;
+            }
+            huggingFaceArtifacts.forEach((artifact) => {
+              const option = document.createElement('option');
+              option.value = discoveryRepo(artifact);
+              option.textContent = discoveryOptionLabel(artifact, { artifact: true });
+              select.appendChild(option);
+            });
+            const preferred = huggingFaceArtifacts.find((artifact) => discoveryRepo(artifact) === requestedRepo)
+              || huggingFaceArtifacts.find((artifact) => artifact.original)
+              || huggingFaceArtifacts[0];
+            select.disabled = false;
+            select.value = discoveryRepo(preferred);
+            applyHuggingFaceArtifact(preferred);
+          };
+
+          const loadHuggingFaceArtifacts = async (model, options = {}) => {
+            const repo = discoveryRepo(model);
+            if (!repo) { return; }
+            const append = options.append === true;
+            if (append && (huggingFaceArtifactNextCursor === null || huggingFaceArtifactNextCursor === undefined)) { return; }
+            const requestId = ++huggingFaceArtifactRequest;
+            const select = $('huggingface-model-artifacts');
+            const requestedRepo = options.requestedRepo || discoveryRepo(selectedHuggingFaceArtifact);
+            const cursor = append ? String(huggingFaceArtifactNextCursor) : '0';
+            if (!append) {
+              huggingFaceArtifactRepo = repo;
+              huggingFaceArtifactNextCursor = null;
+              huggingFaceArtifactTotal = 0;
+              if (select) { select.disabled = true; }
+            }
+            updateDiscoveryLoadMore('huggingface-artifact-load-more', append ? cursor : null, append);
+            setHuggingFaceStatus((append ? 'Loading more quantizations for ' : 'Finding original and quantized artifacts for ') + repo + '...');
+            const query = new URLSearchParams({
+              provider: 'huggingface',
+              repo,
+              limit: '20',
+              cursor,
+              engine: selectedLocalEngine(),
+              computeTarget: selectedComputeTarget(),
+              modelType: selectedLocalModelType()
+            });
+            try {
+              const payload = await request('/api/model-discovery/artifacts?' + query.toString());
+              if (requestId !== huggingFaceArtifactRequest) { return; }
+              const page = compatibleDiscoveryItems((payload || {}).artifacts || []);
+              const artifacts = append ? mergeDiscoveryItems(huggingFaceArtifacts, page) : page;
+              huggingFaceArtifactNextCursor = (payload || {}).nextCursor;
+              huggingFaceArtifactTotal = Math.max(artifacts.length, Number((payload || {}).total || 0));
+              renderHuggingFaceArtifacts(artifacts, requestedRepo);
+              updateDiscoveryLoadMore('huggingface-artifact-load-more', huggingFaceArtifactNextCursor);
+              setHuggingFaceStatus(
+                artifacts.length
+                  ? discoveryProgress(artifacts.length, huggingFaceArtifactTotal, 'artifact')
+                  : 'No compatible artifact was returned for the selected runtime.',
+                artifacts.length ? '' : 'error'
+              );
+            } catch (error) {
+              if (requestId !== huggingFaceArtifactRequest) { return; }
+              if (!append) {
+                huggingFaceArtifactNextCursor = null;
+                huggingFaceArtifactTotal = 1;
+                renderHuggingFaceArtifacts([{ ...model, original: true, relation: 'selected' }], repo);
+              }
+              updateDiscoveryLoadMore('huggingface-artifact-load-more', huggingFaceArtifactNextCursor);
+              setHuggingFaceStatus('Quantization lookup failed. Existing selections remain available: ' + (error.message || 'unknown error'), 'error');
+            }
+          };
+
+          const selectHuggingFaceModel = (repo) => {
+            const selected = huggingFaceSearchResults.find((item) => discoveryRepo(item) === String(repo || ''));
+            if (!selected) {
+              selectedHuggingFaceModel = null;
+              selectedHuggingFaceArtifact = null;
+              setDiscoverySelectPlaceholder($('huggingface-model-artifacts'), 'Select a model first');
+              renderHuggingFaceMetadata(null);
+              return false;
+            }
+            selectedHuggingFaceModel = selected;
+            renderHuggingFaceMetadata(selected);
+            loadHuggingFaceArtifacts(selected);
+            return true;
+          };
+
+          const renderHuggingFaceSearchResults = (items, requestedRepo = '', options = {}) => {
+            const select = $('huggingface-model-results');
+            if (!select) { return; }
+            huggingFaceSearchResults = compatibleDiscoveryItems(items);
+            select.replaceChildren();
+            if (!huggingFaceSearchResults.length) {
+              setDiscoverySelectPlaceholder(select, 'No compatible models found');
+              setDiscoverySelectPlaceholder($('huggingface-model-artifacts'), 'Select a model first');
+              selectedHuggingFaceModel = null;
+              selectedHuggingFaceArtifact = null;
+              renderHuggingFaceMetadata(null);
+              return;
+            }
+            const placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = 'Select a model';
+            select.appendChild(placeholder);
+            huggingFaceSearchResults.forEach((model) => {
+              const option = document.createElement('option');
+              option.value = discoveryRepo(model);
+              option.textContent = discoveryOptionLabel(model);
+              select.appendChild(option);
+            });
+            select.disabled = false;
+            const preserved = huggingFaceSearchResults.find((item) => discoveryRepo(item) === requestedRepo);
+            if (preserved) {
+              select.value = discoveryRepo(preserved);
+              selectedHuggingFaceModel = preserved;
+              if (options.reloadArtifacts !== false) {
+                loadHuggingFaceArtifacts(preserved, { requestedRepo: discoveryRepo(selectedHuggingFaceArtifact) });
+              } else {
+                renderHuggingFaceMetadata(selectedHuggingFaceArtifact || preserved);
+              }
+            } else {
+              select.value = '';
+              setDiscoverySelectPlaceholder($('huggingface-model-artifacts'), 'Select a model first');
+              selectedHuggingFaceModel = null;
+              selectedHuggingFaceArtifact = null;
+              renderHuggingFaceMetadata(null);
+            }
+          };
+
+          const searchHuggingFaceModels = async (rawQuery, options = {}) => {
+            const queryValue = String(rawQuery || '').trim();
+            if (queryValue.length < 2) {
+              setHuggingFaceStatus('Enter at least two characters or choose a popular search.', 'error');
+              return false;
+            }
+            const append = options.append === true;
+            if (append && (huggingFaceSearchNextCursor === null || huggingFaceSearchNextCursor === undefined)) { return false; }
+            const requestId = ++huggingFaceSearchRequest;
+            const previousRepo = discoveryRepo(selectedHuggingFaceModel);
+            const button = $('huggingface-model-search');
+            const cursor = append ? String(huggingFaceSearchNextCursor) : '0';
+            if (!append) {
+              huggingFaceSearchQuery = queryValue;
+              huggingFaceSearchNextCursor = null;
+              huggingFaceSearchTotal = 0;
+            }
+            if (button && !append) {
+              button.disabled = true;
+              button.textContent = 'Searching';
+            }
+            updateDiscoveryLoadMore('huggingface-model-load-more', append ? cursor : null, append);
+            setHuggingFaceStatus((append ? 'Loading more Hugging Face results for "' : 'Searching Hugging Face for "') + queryValue + '"...');
+            const query = new URLSearchParams({
+              provider: 'huggingface',
+              q: queryValue,
+              limit: '20',
+              cursor,
+              sort: 'downloads',
+              engine: selectedLocalEngine(),
+              computeTarget: selectedComputeTarget(),
+              modelType: selectedLocalModelType()
+            });
+            try {
+              const payload = await request('/api/model-discovery/search?' + query.toString());
+              if (requestId !== huggingFaceSearchRequest) { return false; }
+              const page = compatibleDiscoveryItems((payload || {}).results || []);
+              const results = append ? mergeDiscoveryItems(huggingFaceSearchResults, page) : page;
+              huggingFaceSearchNextCursor = (payload || {}).nextCursor;
+              huggingFaceSearchTotal = Math.max(results.length, Number((payload || {}).total || 0));
+              renderHuggingFaceSearchResults(results, previousRepo, { reloadArtifacts: !append });
+              updateDiscoveryLoadMore('huggingface-model-load-more', huggingFaceSearchNextCursor);
+              setHuggingFaceStatus(
+                results.length
+                  ? discoveryProgress(results.length, huggingFaceSearchTotal, 'model') + ' Select one to load quantizations.'
+                  : 'No compatible Hugging Face models matched "' + queryValue + '".',
+                results.length ? '' : 'error'
+              );
+              return true;
+            } catch (error) {
+              if (requestId !== huggingFaceSearchRequest) { return false; }
+              updateDiscoveryLoadMore('huggingface-model-load-more', huggingFaceSearchNextCursor);
+              setHuggingFaceStatus(error.message || 'Hugging Face search failed.', 'error');
+              return false;
+            } finally {
+              if (requestId === huggingFaceSearchRequest && button && !append) {
+                button.disabled = false;
+                button.textContent = 'Search';
+              }
+            }
+          };
+
+          const scheduleHuggingFaceSearch = () => {
+            if (huggingFaceSearchTimer) { window.clearTimeout(huggingFaceSearchTimer); }
+            const field = $('huggingface-model-query');
+            const value = String((field || {}).value || '').trim();
+            if (value.length < 2 || activeLocalModelSource !== 'huggingface') { return; }
+            huggingFaceSearchTimer = window.setTimeout(() => searchHuggingFaceModels(value), 450);
+          };
+
+          const refreshHuggingFaceModelType = () => {
+            if (activeLocalModelSource !== 'huggingface') { return; }
+            const field = $('huggingface-model-query');
+            const value = String(huggingFaceSearchQuery || (field || {}).value || '').trim();
+            if (value.length >= 2) { searchHuggingFaceModels(value); }
+          };
+
+          const resetHuggingFaceDiscovery = () => {
+            huggingFaceSearchRequest += 1;
+            huggingFaceArtifactRequest += 1;
+            if (huggingFaceSearchTimer) { window.clearTimeout(huggingFaceSearchTimer); }
+            huggingFaceSearchTimer = null;
+            huggingFaceSearchResults = [];
+            huggingFaceArtifacts = [];
+            selectedHuggingFaceModel = null;
+            selectedHuggingFaceArtifact = null;
+            huggingFaceSearchNextCursor = null;
+            huggingFaceSearchTotal = 0;
+            huggingFaceSearchQuery = '';
+            huggingFaceArtifactNextCursor = null;
+            huggingFaceArtifactTotal = 0;
+            huggingFaceArtifactRepo = '';
+            modelDiscoveryAutoName = '';
+            directLocalModelUrl = '';
+            localPresetSourceValue = '';
+            activeLocalModelSource = '';
+            const query = $('huggingface-model-query');
+            if (query) { query.value = ''; }
+            setDiscoverySelectPlaceholder($('huggingface-model-results'), 'Search to list models');
+            setDiscoverySelectPlaceholder($('huggingface-model-artifacts'), 'Select a model first');
+            updateDiscoveryLoadMore('huggingface-model-load-more', null);
+            updateDiscoveryLoadMore('huggingface-artifact-load-more', null);
+            renderHuggingFaceMetadata(null);
+            setHuggingFaceStatus('Enter at least two characters or choose a popular search.');
+            const form = $('local-model-form');
+            if (form) {
+              setFormValue(form, 'name', '');
+              setFormValue(form, 'url', '');
+              if (form.elements.url) {
+                form.elements.url.readOnly = false;
+                form.elements.url.removeAttribute('title');
+              }
+            }
+          };
+
+          const selectLocalModelSource = (source) => {
+            const engine = selectedLocalEngine();
+            const allowed = engine === 'VLLM' ? ['huggingface', 'preset', 'direct'] : ['preset', 'direct'];
+            const selected = allowed.includes(source) ? source : allowed[0];
+            const form = $('local-model-form');
+            const field = $('local-model-source');
+            const discovery = $('huggingface-model-discovery');
+            const presetFields = $('local-model-preset-fields');
+            const preset = $('local-model-preset');
+            if (activeLocalModelSource === 'direct' && form && form.elements.url && !form.elements.url.readOnly) {
+              directLocalModelUrl = String(form.elements.url.value || '').trim();
+            }
+            if (activeLocalModelSource === 'preset' && preset && preset.value && preset.value !== 'custom') {
+              localPresetSourceValue = preset.value;
+            }
+            activeLocalModelSource = selected;
+            if (field) { field.value = selected; }
+            if (discovery) { discovery.hidden = selected !== 'huggingface'; }
+            if (presetFields) { presetFields.hidden = selected !== 'preset'; }
+            if (selected === 'preset') {
+              renderLocalPresetOptions(latestModelPayload);
+              if (preset) {
+                const options = Array.from(preset.options);
+                const remembered = options.some((option) => option.value === localPresetSourceValue)
+                  ? localPresetSourceValue
+                  : '';
+                if (remembered) {
+                  preset.value = remembered;
+                } else if (!preset.value || preset.value === 'custom') {
+                  const firstCatalogPreset = options.find((option) => option.value && option.value !== 'custom');
+                  preset.value = firstCatalogPreset ? firstCatalogPreset.value : 'custom';
+                }
+              }
+              applyLocalPresetFields(preset ? preset.value : '', { force: true });
+              renderEngineSpecificFields();
+              return selected;
+            }
+            if (preset) { preset.value = 'custom'; }
+            renderLocalArtifactOptions(null);
+            if (form && form.elements.url) {
+              if (selected === 'huggingface') {
+                form.elements.url.readOnly = true;
+                form.elements.url.title = 'Resolved from the selected Hugging Face artifact.';
+                form.elements.url.value = selectedHuggingFaceArtifact
+                  ? String(selectedHuggingFaceArtifact.url || 'hf://' + discoveryRepo(selectedHuggingFaceArtifact))
+                  : '';
+                renderHuggingFaceMetadata(selectedHuggingFaceArtifact || selectedHuggingFaceModel);
+              } else {
+                form.elements.url.readOnly = false;
+                form.elements.url.removeAttribute('title');
+                form.elements.url.value = directLocalModelUrl;
+                renderLocalArtifactNote(null);
+              }
+            }
+            renderEngineSpecificFields();
+            scheduleVramEstimate();
+            return selected;
+          };
+
+          const renderLocalModelSourceOptions = () => {
+            const field = $('local-model-source');
+            if (!field) { return; }
+            const engine = selectedLocalEngine();
+            const choices = engine === 'VLLM'
+              ? [
+                  { value: 'huggingface', label: 'Hugging Face search' },
+                  { value: 'preset', label: 'Tested preset' },
+                  { value: 'direct', label: 'Direct Hugging Face URL' }
+                ]
+              : [
+                  { value: 'preset', label: 'Tested preset' },
+                  { value: 'direct', label: 'Direct Ollama model reference' }
+                ];
+            const requested = activeLocalModelSource;
+            field.replaceChildren();
+            choices.forEach((choice) => {
+              const option = document.createElement('option');
+              option.value = choice.value;
+              option.textContent = choice.label;
+              field.appendChild(option);
+            });
+            selectLocalModelSource(choices.some((choice) => choice.value === requested) ? requested : choices[0].value);
+          };
+
           const renderEngineSpecificFields = () => {
             const engine = selectedLocalEngine();
             const targetKind = computeTargetKind();
@@ -2938,7 +3643,11 @@ data:
             const estimator = $('vram-estimate');
             const ollamaSummary = $('ollama-runtime-summary');
             if (url) { url.placeholder = isOllama ? 'ollama://model:tag' : 'hf://organization/model'; }
-            if (urlLabel) { urlLabel.textContent = isOllama ? 'Ollama Model URL' : 'Hugging Face URL'; }
+            if (urlLabel) {
+              urlLabel.textContent = isOllama
+                ? 'Ollama Model URL'
+                : (activeLocalModelSource === 'huggingface' ? 'Selected Hugging Face URL' : 'Hugging Face URL');
+            }
             if (vramLabel) { vramLabel.textContent = isOllama ? 'Required VRAM' : 'VRAM Limit'; }
             if (estimator) { estimator.hidden = targetKind !== 'gpu'; }
             if (ollamaSummary) { ollamaSummary.hidden = !isOllama || targetKind !== 'gpu'; }
@@ -2978,9 +3687,16 @@ data:
             renderedPresetSignature = '';
             localPresetLastApplied = '';
             const presetSelect = $('local-model-preset');
-            if (targetChanged && presetSelect) { presetSelect.value = ''; }
+            if (targetChanged && activeLocalModelSource === 'preset' && presetSelect && presetSelect.value && presetSelect.value !== 'custom') {
+              localPresetSourceValue = presetSelect.value;
+            }
             renderLocalPresetOptions(latestModelPayload);
             applyLocalPresetFields(presetSelect ? presetSelect.value : '', { force: true });
+            renderLocalModelSourceOptions();
+            const discoveryQuery = String((($('huggingface-model-query') || {}).value) || '').trim();
+            if (targetChanged && activeLocalModelSource === 'huggingface' && discoveryQuery.length >= 2) {
+              searchHuggingFaceModels(discoveryQuery);
+            }
             if (options.renderAvailability !== false) {
               renderLocalModelAvailability(latestModelPayload);
             }
@@ -6781,6 +7497,60 @@ data:
             localModelComputeSelect.addEventListener('change', () => selectComputeTarget(localModelComputeSelect.value));
           }
 
+          const localModelSourceSelect = $('local-model-source');
+          if (localModelSourceSelect) {
+            localModelSourceSelect.addEventListener('change', () => selectLocalModelSource(localModelSourceSelect.value));
+          }
+
+          const huggingFaceModelQuery = $('huggingface-model-query');
+          const huggingFaceModelSearch = $('huggingface-model-search');
+          if (huggingFaceModelQuery) {
+            huggingFaceModelQuery.addEventListener('input', scheduleHuggingFaceSearch);
+            huggingFaceModelQuery.addEventListener('keydown', (event) => {
+              if (event.key !== 'Enter') { return; }
+              event.preventDefault();
+              searchHuggingFaceModels(huggingFaceModelQuery.value);
+            });
+          }
+          if (huggingFaceModelSearch) {
+            huggingFaceModelSearch.addEventListener('click', () => searchHuggingFaceModels((huggingFaceModelQuery || {}).value));
+          }
+          const huggingFaceModelLoadMore = $('huggingface-model-load-more');
+          if (huggingFaceModelLoadMore) {
+            huggingFaceModelLoadMore.addEventListener('click', () => {
+              searchHuggingFaceModels(huggingFaceSearchQuery || (huggingFaceModelQuery || {}).value, { append: true });
+            });
+          }
+          document.querySelectorAll('[data-huggingface-query]').forEach((button) => {
+            button.addEventListener('click', () => {
+              if (huggingFaceModelQuery) {
+                huggingFaceModelQuery.value = button.dataset.huggingfaceQuery || '';
+              }
+              searchHuggingFaceModels((huggingFaceModelQuery || {}).value);
+            });
+          });
+          const huggingFaceModelResults = $('huggingface-model-results');
+          if (huggingFaceModelResults) {
+            huggingFaceModelResults.addEventListener('change', () => selectHuggingFaceModel(huggingFaceModelResults.value));
+          }
+          const huggingFaceModelArtifacts = $('huggingface-model-artifacts');
+          if (huggingFaceModelArtifacts) {
+            huggingFaceModelArtifacts.addEventListener('change', () => {
+              const artifact = huggingFaceArtifacts.find((item) => discoveryRepo(item) === huggingFaceModelArtifacts.value);
+              applyHuggingFaceArtifact(artifact);
+            });
+          }
+          const huggingFaceArtifactLoadMore = $('huggingface-artifact-load-more');
+          if (huggingFaceArtifactLoadMore) {
+            huggingFaceArtifactLoadMore.addEventListener('click', () => {
+              if (!selectedHuggingFaceModel || discoveryRepo(selectedHuggingFaceModel) !== huggingFaceArtifactRepo) { return; }
+              loadHuggingFaceArtifacts(selectedHuggingFaceModel, {
+                append: true,
+                requestedRepo: discoveryRepo(selectedHuggingFaceArtifact)
+              });
+            });
+          }
+
           const modelCreateToggle = $('model-create-toggle');
           const modelCreateFlow = $('model-create-flow');
           const closeModelCreateFlow = () => {
@@ -6808,6 +7578,9 @@ data:
             const localPresetSelect = $('local-model-preset');
             if (localPresetSelect) {
               localPresetSelect.addEventListener('change', () => {
+                if (activeLocalModelSource === 'preset' && localPresetSelect.value !== 'custom') {
+                  localPresetSourceValue = localPresetSelect.value;
+                }
                 applyLocalPresetFields(localPresetSelect.value, { force: true });
                 if (localPresetSelect.value === 'custom') {
                   scheduleVramEstimate();
@@ -6827,8 +7600,18 @@ data:
             ['url', 'contextWindow', 'maxNumSeqs', 'modelType'].forEach((name) => {
               const field = localModelForm.elements[name];
               if (field) {
+                if (name === 'url') {
+                  field.addEventListener('input', () => {
+                    if (activeLocalModelSource === 'direct' && !field.readOnly) {
+                      directLocalModelUrl = String(field.value || '').trim();
+                    }
+                  });
+                }
                 field.addEventListener('input', scheduleVramEstimate);
                 field.addEventListener('change', scheduleVramEstimate);
+                if (name === 'modelType') {
+                  field.addEventListener('change', refreshHuggingFaceModelType);
+                }
               }
             });
             const vramSlider = $('vram-estimate-slider');
@@ -6908,8 +7691,22 @@ data:
               }
               const data = new FormData(localModelForm);
               const preset = data.get('preset') || 'custom';
+              const modelUrl = String(data.get('url') || '').trim();
+              if (activeLocalModelSource === 'huggingface' && !selectedHuggingFaceArtifact) {
+                $('model-output').textContent = 'Select a Hugging Face model and quantization before adding it.';
+                return;
+              }
+              if (activeLocalModelSource === 'direct' && !modelUrl) {
+                $('model-output').textContent = engine === 'OLlama'
+                  ? 'Enter an Ollama model reference.'
+                  : 'Enter a Hugging Face model URL.';
+                return;
+              }
+              const fallbackName = modelActivationName({
+                name: modelUrl.replace(/^[a-z]+:\/\//i, '').split('/').pop()
+              });
               const payload = {
-                name: data.get('name') || preset,
+                name: data.get('name') || (preset !== 'custom' ? preset : fallbackName),
                 enabled: true,
                 targetNamespace: 'ai',
                 local: {
@@ -6929,8 +7726,8 @@ data:
                   payload.local.artifact = data.get('artifact').trim();
                 }
               }
-              if (preset === 'custom' && (data.get('url') || '').trim()) {
-                payload.local.url = data.get('url').trim();
+              if (preset === 'custom' && modelUrl) {
+                payload.local.url = modelUrl;
               }
               if ((data.get('contextWindow') || '').trim()) {
                 payload.local.contextWindow = Number(data.get('contextWindow'));
