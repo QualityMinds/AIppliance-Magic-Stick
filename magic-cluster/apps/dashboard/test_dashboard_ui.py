@@ -418,6 +418,27 @@ BROWSER_API_MOCK = r"""
         nextCursor: firstPage ? '3' : null
       });
     }
+    if (url.pathname === '/api/model-discovery/popular' && method === 'GET') {
+      return reply({
+        provider: 'huggingface',
+        source: 'trendingScore',
+        results: [
+          {
+            id: 'zai-org/GLM-5.3', repo: 'zai-org/GLM-5.3', author: 'zai-org', name: 'GLM-5.3',
+            pipelineTag: 'text-generation', formats: ['safetensors'], trendingScore: 500,
+            trustStatus: 'community', compatibility: 'experimental'
+          },
+          {
+            id: 'Qwen/Qwen3.8-27B', repo: 'Qwen/Qwen3.8-27B', author: 'Qwen', name: 'Qwen3.8-27B',
+            pipelineTag: 'image-text-to-text', formats: ['safetensors'], trendingScore: 450,
+            trustStatus: 'official', compatibility: 'experimental'
+          }
+        ],
+        total: 2,
+        cursor: '0',
+        nextCursor: null
+      });
+    }
     if (url.pathname === '/api/model-discovery/artifacts' && method === 'GET') {
       const repo = url.searchParams.get('repo') || '';
       const cursor = url.searchParams.get('cursor') || '0';
@@ -530,11 +551,13 @@ BROWSER_API_MOCK = r"""
       const minimumMi = cpu ? (ollama ? 1120 : 3072) : (ollama ? 1120 : 18000);
       const recommendedMi = cpu ? (ollama ? 1632 : 4096) : (ollama ? 1632 : 24000);
       return reply({
-        repo: ollama ? 'library/qwen2.5:0.5b' : 'example/qwen-gpu',
+        repo: ollama ? 'library/qwen2.5:0.5b' : String(body.url || '').replace(/^hf:\/\//, ''),
         engine: body.engine, computeTarget: body.computeTarget,
         memoryKind: cpu ? 'ram' : 'vram',
         minimumMi, recommendedMi, maximumMi: cpu ? null : 12288,
         weightsMi: ollama ? 384 : 14000,
+        downloadBytes: ollama ? 0 : 15000000000,
+        downloadSizeSource: ollama ? '' : 'huggingface-used-storage',
         kvCacheMi: ollama ? 256 : 2000,
         reserveMi: ollama ? 480 : 2000,
         recommendedReserveMi: ollama ? 512 : 6000,
@@ -883,6 +906,14 @@ BROWSER_ASSERTIONS = r"""
     assert(!document.getElementById('huggingface-model-discovery').hidden, 'Hugging Face discovery is hidden');
     assert(document.getElementById('local-model-preset-fields').hidden, 'preset fields are visible during Hugging Face search');
     assert(document.getElementById('local-model-url').readOnly, 'discovered Hugging Face URL must be read only');
+    assert(document.getElementById('local-model-form').elements.maxNumSeqs.value === '1', 'new models must start with one sequence');
+    await waitFor(() => callExists('GET', '/api/model-discovery/popular'), 'Hugging Face trending models');
+    await waitFor(() => document.querySelectorAll('#huggingface-popular-models [data-huggingface-query]').length === 2, 'dynamic Hugging Face trending buttons');
+    assert(document.getElementById('huggingface-popular-models').textContent.includes('GLM-5.3'), 'trending model metadata is missing');
+    assert(document.getElementById('huggingface-popular-models').textContent.includes('Qwen3.8-27B'), 'second trending model is missing');
+    const matchingModelField = huggingFaceResults.closest('.model-discovery-field').getBoundingClientRect();
+    const quantizationField = huggingFaceArtifacts.closest('.model-discovery-field').getBoundingClientRect();
+    assert(quantizationField.top >= matchingModelField.bottom, 'model and quantization dropdowns are not stacked vertically');
 
     huggingFaceQuery.value = 'Qwen 3.6';
     document.getElementById('huggingface-model-search').click();
@@ -908,8 +939,12 @@ BROWSER_ASSERTIONS = r"""
     assert(document.getElementById('huggingface-model-metadata').textContent.includes('Trust: Official'), 'selected model trust is missing');
     assert(document.getElementById('huggingface-model-metadata').textContent.includes('Format: safetensors'), 'selected model format is missing');
     await waitFor(() => memoryEstimateCallExists('VLLM', 'nvidia-gpu'), 'vLLM NVIDIA memory estimate request');
+    await waitFor(() => document.getElementById('local-model-form').elements.contextWindow.value === '262144', 'model context from Hugging Face config');
+    await waitFor(() => document.getElementById('huggingface-model-metadata').textContent.includes('Download: 14 GiB'), 'Hugging Face download size');
+    assert(document.getElementById('huggingface-model-metadata').textContent.includes('Model context: 262,144 tokens'), 'Hugging Face context metadata is missing');
     document.getElementById('local-model-form').elements.name.value = 'my-custom-name';
     document.getElementById('local-model-form').elements.contextWindow.value = '12345';
+    document.getElementById('local-model-form').elements.contextWindow.dispatchEvent(new Event('input', { bubbles: true }));
     document.getElementById('local-model-form').elements.maxNumSeqs.value = '3';
     changeSelect(huggingFaceArtifacts, 'community/Qwen3.6-27B-AWQ');
     await waitFor(() => document.getElementById('local-model-url').value === 'hf://community/Qwen3.6-27B-AWQ', 'changed Hugging Face artifact URL');
@@ -1436,9 +1471,9 @@ class DashboardUserManagementUiTests(unittest.TestCase):
         self.assertIn('<option value="preset">Tested preset</option>', self.source)
         self.assertIn('<option value="direct">Direct model URL</option>', self.source)
         self.assertIn('id="huggingface-model-query"', self.source)
-        self.assertIn('data-huggingface-query="Qwen"', self.source)
-        self.assertIn('data-huggingface-query="DeepSeek"', self.source)
-        self.assertIn('data-huggingface-query="GLM"', self.source)
+        self.assertIn('id="huggingface-popular-models"', self.source)
+        self.assertIn('Trending on Hugging Face', self.source)
+        self.assertNotIn('data-huggingface-query="Qwen"', self.source)
         self.assertIn('id="huggingface-model-results"', self.source)
         self.assertIn('id="huggingface-model-artifacts"', self.source)
         self.assertIn('id="huggingface-model-load-more"', self.source)
@@ -1491,6 +1526,7 @@ class DashboardUserManagementUiTests(unittest.TestCase):
         self.assertIn("const renderLocalArtifactOptions = (variant, requestedArtifact = '') =>", self.script)
         self.assertIn("localArtifactSelect.addEventListener('change'", self.script)
         self.assertIn("request('/api/model-discovery/search?'", self.script)
+        self.assertIn("request('/api/model-discovery/popular?'", self.script)
         self.assertIn("request('/api/model-discovery/artifacts?'", self.script)
         self.assertIn("const searchHuggingFaceModels = async (rawQuery, options = {}) =>", self.script)
         self.assertIn("const selectedLocalModelType = () =>", self.script)
@@ -1504,6 +1540,9 @@ class DashboardUserManagementUiTests(unittest.TestCase):
         self.assertIn("huggingFaceArtifactNextCursor = (payload || {}).nextCursor", self.script)
         self.assertIn("{ append: true }", self.script)
         self.assertIn("const renderHuggingFaceMetadata = (item) =>", self.script)
+        self.assertIn("const syncHuggingFaceEstimateMetadata = (estimate) =>", self.script)
+        self.assertIn("const loadHuggingFacePopular = async (options = {}) =>", self.script)
+        self.assertIn("setFormValue(form, 'maxNumSeqs', 1);", self.script)
         self.assertIn("const selectLocalModelSource = (source) =>", self.script)
         self.assertIn("engine === 'VLLM' ? ['huggingface', 'preset', 'direct'] : ['preset', 'direct']", self.script)
         self.assertIn("artifact: selectedLocalArtifact() || null", self.script)

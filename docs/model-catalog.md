@@ -123,8 +123,10 @@ For vLLM, the model source can be a dynamic Hugging Face search, a tested
 preset, or a direct `hf://` repository. The search accepts names and prefixes,
 normalizes human input such as `Qwen 3.6`, and returns paginated public model
 repositories. Selecting a model loads the original repository plus related
-quantized repositories into a second dropdown. A candidate must declare a
-direct `quantized` or `quantization` relationship to the exact selected model.
+quantized repositories into a second, vertically stacked dropdown. The
+shortcut row is populated from Hugging Face's live `trendingScore` result, so
+popular models are not maintained in the Magic Stick source. A candidate must
+declare a direct `quantized` or `quantization` relationship to the exact selected model.
 Name-only matches and `adapter`, `finetune`, or `merge` relationships are not
 selectable. Private, gated, and disabled repositories are excluded because
 this release has no Hugging Face token flow. Model type and Hub pipeline must
@@ -142,6 +144,10 @@ size limits, fixed public API hosts, and continuation cursors. If discovery is
 unavailable or rate-limited, tested presets and direct references remain usable.
 The selected dynamic repository becomes a custom `ModelActivation` URL and is
 then handled by the existing estimator, operator, KubeAI, and readiness gates.
+When available, Hugging Face `usedStorage` is displayed as the download size.
+The selected repository's public `config.json` supplies its advertised maximum
+context as the initial editable context value. Newly configured dynamic models
+start conservatively with one parallel sequence.
 
 Ollama deliberately exposes only tested presets and direct `ollama://`
 references. Although Hugging Face contains GGUF files, the current Ollama

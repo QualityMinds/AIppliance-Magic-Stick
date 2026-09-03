@@ -563,7 +563,7 @@ class LocalRuntimeTests(unittest.TestCase):
                 "torch_dtype": "float16",
             },
             "safetensorsIndex": {"metadata": {"total_size": 1024 * 1024 * 1024}},
-            "modelApi": {},
+            "modelApi": {"usedStorage": 1_100_000_000},
         }
         self.server["vram_summary"] = lambda _activations: {"available": False}
         self.server["model_activations"] = lambda: []
@@ -582,6 +582,8 @@ class LocalRuntimeTests(unittest.TestCase):
                 self.assertEqual(estimate["computeTarget"], target)
                 self.assertEqual(estimate["memoryKind"], "ram" if target == "cpu" else "vram")
                 self.assertEqual(estimate["calculationSource"], "huggingface-model-metadata")
+                self.assertEqual(estimate["downloadBytes"], 1_100_000_000)
+                self.assertEqual(estimate["downloadSizeSource"], "huggingface-used-storage")
                 self.assertGreater(estimate["minimumMi"], estimate["weightsMi"])
                 self.assertGreater(estimate["recommendedMi"], estimate["minimumMi"])
 
@@ -989,8 +991,19 @@ class HuggingFaceDiscoveryTests(unittest.TestCase):
             "tags": ["safetensors", "text-generation"],
             "downloads": 5000,
             "likes": 100,
+            "trendingScore": 240,
             "lastModified": "2026-08-30T10:00:00.000Z",
-            "config": {"model_type": "qwen", "torch_dtype": "bfloat16"},
+            "usedStorage": 28_000 * mib,
+            "config": {
+                "model_type": "qwen",
+                "torch_dtype": "bfloat16",
+                "text_config": {
+                    "num_hidden_layers": 4,
+                    "hidden_size": 16,
+                    "num_attention_heads": 4,
+                    "max_position_embeddings": 262144,
+                },
+            },
             "safetensors": {"total": 27_000_000_000},
             "siblings": [
                 {"rfilename": "model-00001-of-00002.safetensors", "size": 14_000 * mib},
@@ -1059,6 +1072,8 @@ class HuggingFaceDiscoveryTests(unittest.TestCase):
         self.assertEqual([item["repo"] for item in result["results"]], ["Qwen/Qwen3.6-27B"])
         self.assertEqual(result["nextCursor"], "1")
         self.assertEqual(result["results"][0]["weightBytes"], 27_000 * 1024 * 1024)
+        self.assertEqual(result["results"][0]["downloadBytes"], 28_000 * 1024 * 1024)
+        self.assertEqual(result["results"][0]["modelMaxContext"], 262144)
         self.assertEqual(result["results"][0]["trustStatus"], "official")
         self.assertTrue(all("/api/models?" in url for url, _required in calls))
         self.assertTrue(all("/resolve/" not in url for url, _required in calls))
@@ -1077,6 +1092,33 @@ class HuggingFaceDiscoveryTests(unittest.TestCase):
         self.assertEqual([item["repo"] for item in second["results"]], ["community/Qwen3.6-27B-AWQ"])
         self.assertIsNone(second["nextCursor"])
         self.assertEqual(len(calls), 1, "enough first-variant results must avoid extra Hub requests")
+
+    def test_popular_models_come_from_huggingface_trending_score(self):
+        calls = []
+        trending_awq = {**self.awq, "trendingScore": 400}
+
+        def fake_fetch(url, required=True):
+            calls.append((url, required))
+            return [self.base, trending_awq]
+
+        self.server["fetch_hf_discovery_json"] = fake_fetch
+        result = self.server["model_discovery_popular"]({
+            "provider": ["huggingface"],
+            "limit": ["1"],
+            "engine": ["VLLM"],
+            "computeTarget": ["nvidia-gpu"],
+            "modelType": ["chat"],
+        })
+
+        self.assertEqual(result["source"], "trendingScore")
+        self.assertEqual([item["repo"] for item in result["results"]], ["community/Qwen3.6-27B-AWQ"])
+        self.assertEqual(result["nextCursor"], "1")
+        query = self.server["urllib"].parse.parse_qs(
+            self.server["urllib"].parse.urlparse(calls[0][0]).query
+        )
+        self.assertEqual(query["sort"], ["trendingScore"])
+        self.assertEqual(query["direction"], ["-1"])
+        self.assertEqual(query["apps"], ["vllm"])
 
     def test_search_applies_metadata_filters_and_engine_compatibility(self):
         self.server["fetch_hf_discovery_json"] = lambda *_args, **_kwargs: [self.base, self.awq]
@@ -1365,6 +1407,7 @@ class HuggingFaceDiscoveryTests(unittest.TestCase):
     def test_discovery_get_routes_require_viewer_access(self):
         originals = {
             "model_discovery_search": self.server["model_discovery_search"],
+            "model_discovery_popular": self.server["model_discovery_popular"],
             "model_discovery_artifacts": self.server["model_discovery_artifacts"],
         }
         requested_access = []
@@ -1385,6 +1428,15 @@ class HuggingFaceDiscoveryTests(unittest.TestCase):
 
             self.assertEqual(requested_access, ["viewer"])
             self.assertEqual(responses, [({"query": "Qwen3.6"}, 200)])
+
+            self.server["model_discovery_popular"] = lambda query: {
+                "limit": query["limit"][0],
+            }
+            handler.path = "/api/model-discovery/popular?provider=huggingface&limit=5"
+            handler.do_GET()
+
+            self.assertEqual(requested_access, ["viewer", "viewer"])
+            self.assertEqual(responses[-1], ({"limit": "5"}, 200))
         finally:
             self.server.update(originals)
 

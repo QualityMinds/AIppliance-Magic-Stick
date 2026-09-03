@@ -2897,6 +2897,7 @@ data:
             "downloads": "downloads",
             "likes": "likes",
             "updated": "lastModified",
+            "trending": "trendingScore",
         }
         if sort in sort_fields:
             params.extend((("sort", sort_fields[sort]), ("direction", "-1")))
@@ -2960,8 +2961,8 @@ data:
         if provider != "huggingface":
             raise RequestError(400, "provider must be huggingface")
         sort = hf_discovery_query_value(query, "sort", "relevance").lower()
-        if sort not in {"relevance", "downloads", "likes", "updated"}:
-            raise RequestError(400, "sort must be relevance, downloads, likes, or updated")
+        if sort not in {"relevance", "downloads", "likes", "updated", "trending"}:
+            raise RequestError(400, "sort must be relevance, downloads, likes, updated, or trending")
         engine = hf_discovery_query_value(query, "engine", "").lower()
         if engine and engine not in {"vllm", "ollama"}:
             raise RequestError(400, "engine must be VLLM or OLlama")
@@ -3228,6 +3229,7 @@ data:
         )
         author, name = repo.split("/", 1)
         safetensors = model.get("safetensors") or {}
+        dimensions = model_dimension_config(model.get("config") or {})
         weight_files = [item for item in files if item.get("sizeBytes")]
         if len([item for item in files if item["name"].lower().endswith(".gguf")]) > 1:
             # One GGUF repository often contains several complete quantizations;
@@ -3250,6 +3252,7 @@ data:
             "tags": sorted({str(tag) for tag in (model.get("tags") or [])})[:100],
             "downloads": positive_int(model.get("downloads")) or 0,
             "likes": positive_int(model.get("likes")) or 0,
+            "trendingScore": positive_int(model.get("trendingScore") or model.get("trending_score")) or 0,
             "lastModified": str(model.get("lastModified") or model.get("last_modified") or ""),
             "private": private,
             "gated": gated,
@@ -3257,6 +3260,8 @@ data:
             "formats": formats,
             "parameterCount": parameter_count,
             "weightBytes": weight_bytes,
+            "downloadBytes": positive_int(model.get("usedStorage") or model.get("used_storage")) or weight_bytes,
+            "modelMaxContext": config_int(dimensions, "max_position_embeddings", "model_max_length") or 0,
             "files": files,
             "quantization": quantization,
             "baseModels": hf_model_base_relations(model),
@@ -3342,6 +3347,11 @@ data:
             return sorted(summaries, key=lambda item: (-item["likes"], -item["downloads"], item["repo"].casefold()))
         if sort == "updated":
             return sorted(summaries, key=lambda item: (item["lastModified"], item["repo"].casefold()), reverse=True)
+        if sort == "trending":
+            return sorted(
+                summaries,
+                key=lambda item: (-item["trendingScore"], -item["downloads"], item["repo"].casefold()),
+            )
         return sorted(
             summaries,
             key=lambda item: (-hf_relevance(item, variants), -item["downloads"], item["repo"].casefold()),
@@ -3408,6 +3418,40 @@ data:
             "cursor": str(cursor),
             "nextCursor": next_cursor,
             "truncated": upstream_truncated,
+        }
+
+
+    def model_discovery_popular(query):
+        context = hf_discovery_context(query)
+        cursor, limit = hf_discovery_page(query)
+        models = hf_search_models(sort="trending")
+        results = []
+        for model in models:
+            summary = hf_model_summary(
+                model,
+                context["engine"],
+                context["computeTarget"],
+                context["modelType"],
+            )
+            if (
+                not summary
+                or summary["private"]
+                or summary["gated"]
+                or summary["disabled"]
+                or summary["compatibility"] == "incompatible"
+                or not hf_summary_matches(summary, context["filters"])
+            ):
+                continue
+            results.append(summary)
+        results = hf_sort_summaries(results, "trending")[:HF_DISCOVERY_MAX_RESULTS]
+        page, next_cursor = hf_paginated(results, cursor, limit)
+        return {
+            "provider": "huggingface",
+            "source": "trendingScore",
+            "results": page,
+            "total": len(results),
+            "cursor": str(cursor),
+            "nextCursor": next_cursor,
         }
 
 
@@ -3859,18 +3903,22 @@ data:
             max_num_seqs = 8 if model_type == "embedding" else 32
             warnings.append("Max Num Seqs was missing; using " + str(max_num_seqs) + " for the estimate.")
         weights_mi = safetensors_weight_mi(metadata.get("safetensorsIndex"))
+        weight_size_source = "safetensors-index" if weights_mi else ""
         confidence = "high"
         if not weights_mi:
             weights_mi = tree_safetensors_weight_mi(metadata.get("modelTree"))
             if weights_mi:
+                weight_size_source = "repository-files"
                 warnings.append("Safetensors index size unavailable; summed public checkpoint file sizes.")
             else:
                 weights_mi = api_safetensors_weight_mi(metadata.get("modelApi"))
                 if weights_mi:
+                    weight_size_source = "parameter-metadata"
                     confidence = "estimated"
                     warnings.append("Checkpoint file sizes unavailable; estimated tensor bytes from HuggingFace dtype metadata.")
                 else:
                     weights_mi = fallback_weight_mi(dimensions)
+                    weight_size_source = "model-config" if weights_mi else ""
                     confidence = "estimated"
                     warnings.append("Safetensors metadata unavailable; estimated model weights from config.")
         if not weights_mi:
@@ -3898,6 +3946,13 @@ data:
         runtime_mi, runtime_details = vllm_runtime_reserve_mi(
             dimensions, metadata.get("modelApi") or {}, weights_mi, compute_target
         )
+        model_api = metadata.get("modelApi") or {}
+        repository_bytes = positive_int(model_api.get("usedStorage") or model_api.get("used_storage")) or 0
+        download_bytes = repository_bytes
+        download_size_source = "huggingface-used-storage" if repository_bytes else ""
+        if not download_bytes and weight_size_source in {"safetensors-index", "repository-files"}:
+            download_bytes = int(weights_mi * MIB_BYTES)
+            download_size_source = weight_size_source
         if compute_target == "cpu":
             warnings.append(
                 "CPU vLLM reserve includes model working tensors and compile/warm-up headroom"
@@ -3907,6 +3962,8 @@ data:
             "repo": repo,
             "sourceUrl": "https://huggingface.co/" + repo,
             "weightsMi": int(weights_mi),
+            "downloadBytes": int(download_bytes),
+            "downloadSizeSource": download_size_source,
             "kvCacheMi": int(kv_mi),
             "runtimeReserveMi": int(runtime_mi),
             "runtimeDetails": runtime_details,
@@ -3943,6 +4000,8 @@ data:
             "repo": reference["reference"],
             "sourceUrl": "https://ollama.com/" + source_path,
             "weightsMi": int(weights_mi),
+            "downloadBytes": int(metadata.get("modelBytes") or 0),
+            "downloadSizeSource": "ollama-manifest",
             "kvCacheMi": int(kv_mi),
             "runtimeReserveMi": int(runtime_mi),
             "contextWindow": int(context_window),
@@ -3998,6 +4057,8 @@ data:
             "recommendedMi": int(recommended_mi),
             "maximumMi": None if maximum_mi is None else int(maximum_mi),
             "weightsMi": int(weights_mi),
+            "downloadBytes": int(estimate.get("downloadBytes") or 0),
+            "downloadSizeSource": str(estimate.get("downloadSizeSource") or ""),
             "kvCacheMi": int(kv_mi),
             "configuredKvCacheMi": (
                 round_up_mib(kv_mi)
@@ -4818,6 +4879,12 @@ data:
                         keep_blank_values=True,
                     )
                     self.send_json(model_discovery_search(query))
+                elif path == "/api/model-discovery/popular":
+                    query = urllib.parse.parse_qs(
+                        urllib.parse.urlparse(self.path).query,
+                        keep_blank_values=True,
+                    )
+                    self.send_json(model_discovery_popular(query))
                 elif path == "/api/model-discovery/artifacts":
                     query = urllib.parse.parse_qs(
                         urllib.parse.urlparse(self.path).query,
