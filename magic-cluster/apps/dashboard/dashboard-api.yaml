@@ -11,6 +11,7 @@ data:
     #!/usr/bin/env python3
     import base64
     import hashlib
+    import html
     import ipaddress
     import json
     import os
@@ -22,6 +23,7 @@ data:
     import urllib.error
     import urllib.parse
     import urllib.request
+    from decimal import Decimal, InvalidOperation
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
     APPLIANCE_GROUP = "appliance.magicstick.dev"
@@ -68,6 +70,9 @@ data:
     HF_DISCOVERY_MAX_RESULTS = 200
     HF_DISCOVERY_UPSTREAM_LIMIT = 50
     HF_DISCOVERY_MAX_CACHE_ENTRIES = 128
+    OLLAMA_DISCOVERY_TIMEOUT_SECONDS = 8
+    OLLAMA_DISCOVERY_MAX_RESPONSE_BYTES = 4 * 1024 * 1024
+    OLLAMA_DISCOVERY_MAX_PAGES = 10
     MEMORY_RESERVATION_STEP_MI = 100
     MIB_BYTES = 1024 * 1024
     HF_METADATA_CACHE = {}
@@ -3365,6 +3370,9 @@ data:
 
 
     def model_discovery_search(query):
+        provider = hf_discovery_query_value(query, "provider", "huggingface").lower()
+        if provider == "ollama":
+            return ollama_discovery_search(query)
         context = hf_discovery_context(query)
         cursor, limit = hf_discovery_page(query)
         search = hf_discovery_query_value(query, "q", "", HF_DISCOVERY_MAX_QUERY_LENGTH)
@@ -3422,6 +3430,9 @@ data:
 
 
     def model_discovery_popular(query):
+        provider = hf_discovery_query_value(query, "provider", "huggingface").lower()
+        if provider == "ollama":
+            return ollama_discovery_popular(query)
         context = hf_discovery_context(query)
         cursor, limit = hf_discovery_page(query)
         models = hf_search_models(sort="trending")
@@ -3464,6 +3475,9 @@ data:
 
 
     def model_discovery_artifacts(query):
+        provider = hf_discovery_query_value(query, "provider", "huggingface").lower()
+        if provider == "ollama":
+            return ollama_discovery_artifacts(query)
         context = hf_discovery_context(query)
         cursor, limit = hf_discovery_page(query)
         repo_value = hf_discovery_query_value(query, "repo", "", HF_DISCOVERY_MAX_QUERY_LENGTH)
@@ -3586,6 +3600,444 @@ data:
         }
 
 
+    def ollama_discovery_context(query):
+        provider = hf_discovery_query_value(query, "provider", "ollama").lower()
+        if provider != "ollama":
+            raise RequestError(400, "provider must be ollama")
+        engine = hf_discovery_query_value(query, "engine", "OLlama").lower()
+        if engine != "ollama":
+            raise RequestError(400, "Ollama Library discovery requires engine OLlama")
+        compute_target = hf_discovery_query_value(query, "computeTarget", "").lower()
+        if compute_target and compute_target not in {"cpu", "nvidia-gpu", "amd-gpu"}:
+            raise RequestError(400, "computeTarget is unsupported for OLlama")
+        model_type = hf_discovery_query_value(query, "modelType", "chat").lower()
+        if model_type not in {"chat", "embedding"}:
+            raise RequestError(400, "modelType must be chat or embedding")
+        return {
+            "provider": provider,
+            "engine": engine,
+            "computeTarget": compute_target,
+            "modelType": model_type,
+        }
+
+
+    def ollama_library_model(value):
+        raw = urllib.parse.unquote(str(value or "")).strip().strip("/")
+        if raw.startswith("ollama://"):
+            raw = raw[len("ollama://"):]
+        if ":" in raw:
+            raw = raw.rsplit(":", 1)[0]
+        parts = raw.split("/") if raw else []
+        component = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+        if len(parts) not in {1, 2} or any(not component.fullmatch(part) for part in parts):
+            raise RequestError(400, "repo must be an Ollama library model name")
+        return "/".join(parts)
+
+
+    def ollama_discovery_url(path, query=None):
+        encoded_path = "/".join(urllib.parse.quote(part) for part in path.strip("/").split("/"))
+        url = "https://ollama.com/" + encoded_path
+        if query:
+            url += "?" + urllib.parse.urlencode(query)
+        return url
+
+
+    def validate_ollama_discovery_url(url):
+        parsed = urllib.parse.urlparse(str(url or ""))
+        if (
+            parsed.scheme != "https"
+            or parsed.hostname != "ollama.com"
+            or parsed.username
+            or parsed.password
+            or parsed.port not in {None, 443}
+            or parsed.fragment
+            or not re.fullmatch(
+                r"/(?:search|library(?:/[A-Za-z0-9][A-Za-z0-9_.%-]*){0,2}(?:/tags)?)",
+                parsed.path,
+            )
+        ):
+            raise ValueError("Ollama discovery only permits public Ollama Library pages")
+        query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+        if set(query) - {"q", "sort", "page"}:
+            raise ValueError("Ollama discovery URL contains unsupported query parameters")
+        return parsed
+
+
+    def fetch_ollama_discovery_html(url):
+        validate_ollama_discovery_url(url)
+        request = urllib.request.Request(url, headers={
+            "Accept": "text/html",
+            "User-Agent": "magicstick-dashboard/0.1",
+        })
+        try:
+            with urllib.request.urlopen(
+                request,
+                timeout=OLLAMA_DISCOVERY_TIMEOUT_SECONDS,
+                context=PUBLIC_SSL_CONTEXT,
+            ) as response:
+                validate_ollama_discovery_url(response.geturl())
+                declared_size = positive_int(response.headers.get("Content-Length"))
+                if declared_size and declared_size > OLLAMA_DISCOVERY_MAX_RESPONSE_BYTES:
+                    raise RequestError(502, "Ollama Library response is too large")
+                raw = response.read(OLLAMA_DISCOVERY_MAX_RESPONSE_BYTES + 1)
+                if len(raw) > OLLAMA_DISCOVERY_MAX_RESPONSE_BYTES:
+                    raise RequestError(502, "Ollama Library response is too large")
+                return raw.decode("utf-8")
+        except urllib.error.HTTPError as error:
+            if error.code == 404:
+                raise RequestError(404, "Ollama Library model metadata is unavailable") from error
+            if error.code == 429:
+                raise RequestError(503, "Ollama Library is rate limited; retry later") from error
+            raise RequestError(502, "Ollama Library request failed") from error
+        except (urllib.error.URLError, TimeoutError, UnicodeDecodeError) as error:
+            raise RequestError(503, "Ollama Library is temporarily unavailable") from error
+
+
+    def ollama_html_text(value):
+        without_tags = re.sub(r"<[^>]+>", " ", str(value or ""))
+        return re.sub(r"\s+", " ", html.unescape(without_tags)).strip()
+
+
+    def ollama_human_count(value):
+        match = re.fullmatch(r"\s*(\d+(?:[.,]\d+)?)\s*([KMB])?\s*", str(value or ""), re.IGNORECASE)
+        if not match:
+            return 0
+        multiplier = {"": 1, "K": 1_000, "M": 1_000_000, "B": 1_000_000_000}
+        try:
+            return int(Decimal(match.group(1).replace(",", ".")) * multiplier[(match.group(2) or "").upper()])
+        except InvalidOperation:
+            return 0
+
+
+    def ollama_size_bytes(value):
+        match = re.fullmatch(r"\s*(\d+(?:[.,]\d+)?)\s*(KB|MB|GB|TB)\s*", str(value or ""), re.IGNORECASE)
+        if not match:
+            return 0
+        multiplier = {"KB": 1_000, "MB": 1_000_000, "GB": 1_000_000_000, "TB": 1_000_000_000_000}
+        try:
+            return int(Decimal(match.group(1).replace(",", ".")) * multiplier[match.group(2).upper()])
+        except InvalidOperation:
+            return 0
+
+
+    def ollama_context_tokens(value):
+        match = re.fullmatch(r"\s*(\d+(?:[.,]\d+)?)\s*([KMB])?\s*", str(value or ""), re.IGNORECASE)
+        if not match:
+            return 0
+        multiplier = {"": 1, "K": 1024, "M": 1024 * 1024, "B": 1024 * 1024 * 1024}
+        try:
+            return int(Decimal(match.group(1).replace(",", ".")) * multiplier[(match.group(2) or "").upper()])
+        except InvalidOperation:
+            return 0
+
+
+    def ollama_quantization_from_tag(tag):
+        match = re.search(r"(?:^|-)(q[2-8](?:_[A-Za-z0-9]+)*|bf16|fp(?:8|16|32))(?:-|$)", str(tag or ""), re.IGNORECASE)
+        if not match:
+            return None
+        scheme = match.group(1).upper()
+        bit_match = re.search(r"(\d+)", scheme)
+        bits = int(bit_match.group(1)) if bit_match else None
+        if scheme.startswith("Q"):
+            return {"method": "gguf", "bits": bits, "scheme": scheme.lower(), "label": "GGUF " + scheme}
+        return {"method": scheme.lower(), "bits": bits, "scheme": scheme.lower(), "label": scheme}
+
+
+    def ollama_parameter_count_from_tag(tag):
+        match = re.search(r"(?:^|-)(\d+(?:\.\d+)?)([BM])(?:-|$)", str(tag or ""), re.IGNORECASE)
+        if not match:
+            return None
+        multiplier = 1_000_000_000 if match.group(2).upper() == "B" else 1_000_000
+        try:
+            return int(Decimal(match.group(1)) * multiplier)
+        except InvalidOperation:
+            return None
+
+
+    def ollama_model_compatibility(model, model_type):
+        embedding = "embed" in model.casefold()
+        if model_type == "embedding" and not embedding:
+            return "incompatible", "This Ollama Library entry is not identified as an embedding model."
+        if model_type == "chat" and embedding:
+            return "incompatible", "This Ollama Library entry is identified as an embedding model."
+        return "compatible", "Published in the Ollama Library for the selected OLlama runtime."
+
+
+    def ollama_parse_model_cards(document, model_type="chat"):
+        results = []
+        seen = set()
+        pattern = re.compile(
+            r"<a\b[^>]*href=[\"']/library/([^\"'?#:]+)[\"'][^>]*>(.*?)</a>",
+            re.IGNORECASE | re.DOTALL,
+        )
+        for match in pattern.finditer(document or ""):
+            try:
+                model = ollama_library_model(match.group(1))
+            except RequestError:
+                continue
+            key = model.casefold()
+            if key in seen or model.endswith("/tags"):
+                continue
+            seen.add(key)
+            body = match.group(2)
+            text = ollama_html_text(body)
+            description_match = re.search(r"<p\b[^>]*>(.*?)</p>", body, re.IGNORECASE | re.DOTALL)
+            pulls_match = re.search(r"([\d.,]+\s*[KMB]?)\s*Pulls\b", text, re.IGNORECASE)
+            tags_match = re.search(r"([\d.,]+\s*[KMB]?)\s*Tags\b", text, re.IGNORECASE)
+            badges = []
+            for span in re.findall(r"<span\b[^>]*>(.*?)</span>", body, re.IGNORECASE | re.DOTALL):
+                value = ollama_html_text(span)
+                if re.fullmatch(r"(?:vision|tools|thinking|cloud|\d+(?:\.\d+)?[BM])", value, re.IGNORECASE):
+                    badges.append(value.lower())
+            compatibility, compatibility_reason = ollama_model_compatibility(model, model_type)
+            official = len(model.split("/")) == 1
+            results.append({
+                "id": model,
+                "repo": model,
+                "label": model.split("/")[-1],
+                "name": model.split("/")[-1],
+                "url": "ollama://" + model + ":latest",
+                "author": "Ollama Library" if official else model.split("/", 1)[0],
+                "description": ollama_html_text(description_match.group(1)) if description_match else "",
+                "tags": sorted(set(badges)),
+                "pulls": ollama_human_count(pulls_match.group(1)) if pulls_match else 0,
+                "tagCount": ollama_human_count(tags_match.group(1)) if tags_match else 0,
+                "pipelineTag": "feature-extraction" if "embed" in model.casefold() else "text-generation",
+                "formats": ["gguf"],
+                "trustStatus": "official" if official else "community",
+                "compatibility": compatibility,
+                "compatibilityReason": compatibility_reason,
+            })
+            if len(results) >= HF_DISCOVERY_MAX_RESULTS:
+                break
+        return results
+
+
+    def ollama_next_search_page(document, current_page):
+        pages = [
+            int(value)
+            for value in re.findall(r"(?:\?|&amp;|&)page=(\d+)", document or "", re.IGNORECASE)
+            if int(value) > current_page
+        ]
+        return min(pages) if pages else None
+
+
+    def ollama_search_page(search, page=1):
+        cache_key = ("ollama-search-page", search.casefold(), int(page))
+        cached = hf_discovery_cache_get(cache_key)
+        if cached is not None:
+            return cached
+        query = {"q": search, "sort": "popular"}
+        if page > 1:
+            query["page"] = str(page)
+        document = fetch_ollama_discovery_html(ollama_discovery_url("search", query))
+        return hf_discovery_cache_set(cache_key, {
+            "models": ollama_parse_model_cards(document),
+            "nextPage": ollama_next_search_page(document, page),
+        })
+
+
+    def ollama_search_models(search, required_results, model_type="chat"):
+        results = []
+        seen = set()
+        page = 1
+        has_more = False
+        for _ in range(OLLAMA_DISCOVERY_MAX_PAGES):
+            payload = ollama_search_page(search, page)
+            for raw_model in payload["models"]:
+                model = dict(raw_model)
+                compatibility, reason = ollama_model_compatibility(model["repo"], model_type)
+                model["compatibility"] = compatibility
+                model["compatibilityReason"] = reason
+                key = model["repo"].casefold()
+                if key in seen:
+                    continue
+                seen.add(key)
+                results.append(model)
+            next_page = payload.get("nextPage")
+            has_more = next_page is not None
+            prefix_count = sum(1 for model in results if ollama_prefix_score(model, search) > 0)
+            eligible_count = sum(
+                1
+                for model in results
+                if ollama_prefix_score(model, search) > 0 and model["compatibility"] != "incompatible"
+            )
+            # Ollama orders its HTML search by relevance. Once a page already
+            # contains non-prefix results, later pages cannot improve this
+            # deliberately prefix-only dashboard view. Avoid walking broad
+            # result sets and keep interactive searches bounded to one request.
+            if prefix_count < len(results):
+                has_more = False
+                break
+            if eligible_count >= required_results or not next_page:
+                break
+            page = next_page
+        return results[:HF_DISCOVERY_MAX_RESULTS], has_more
+
+
+    def ollama_prefix_score(model, query):
+        normalized_query = re.sub(r"[^a-z0-9]", "", query.casefold())
+        normalized_name = re.sub(r"[^a-z0-9]", "", model["name"].casefold())
+        if normalized_name == normalized_query:
+            return 2
+        if normalized_name.startswith(normalized_query):
+            return 1
+        return 0
+
+
+    def ollama_discovery_search(query):
+        context = ollama_discovery_context(query)
+        cursor, limit = hf_discovery_page(query)
+        search = hf_discovery_query_value(query, "q", "", HF_DISCOVERY_MAX_QUERY_LENGTH)
+        if len(search) < 2:
+            raise RequestError(400, "q must contain at least two characters")
+        if any(ord(character) < 32 or ord(character) == 127 for character in search):
+            raise RequestError(400, "q contains unsupported control characters")
+        required = min(HF_DISCOVERY_MAX_RESULTS, cursor + limit)
+        models, has_more = ollama_search_models(search, required, context["modelType"])
+        prefixed = [model for model in models if ollama_prefix_score(model, search) > 0]
+        prefixed.sort(key=lambda item: (-ollama_prefix_score(item, search), -item["pulls"], item["repo"].casefold()))
+        compatible = [item for item in prefixed if item["compatibility"] != "incompatible"]
+        page = compatible[cursor:cursor + limit]
+        local_more = cursor + len(page) < len(compatible)
+        next_cursor = str(cursor + len(page)) if page and (local_more or has_more) else None
+        total = len(compatible) + (1 if has_more and not local_more else 0)
+        return {
+            "provider": "ollama",
+            "source": "ollama-library-search",
+            "query": search,
+            "normalizedQueries": [search, re.sub(r"\s+", "", search)],
+            "results": page,
+            "total": total,
+            "cursor": str(cursor),
+            "nextCursor": next_cursor,
+            "truncated": has_more,
+        }
+
+
+    def ollama_discovery_popular(query):
+        context = ollama_discovery_context(query)
+        cursor, limit = hf_discovery_page(query)
+        cache_key = ("ollama-popular", context["modelType"])
+        models = hf_discovery_cache_get(cache_key)
+        if models is None:
+            document = fetch_ollama_discovery_html(
+                ollama_discovery_url("library", {"sort": "popular"})
+            )
+            models = [
+                item for item in ollama_parse_model_cards(document, context["modelType"])
+                if item["compatibility"] != "incompatible"
+            ]
+            models = hf_discovery_cache_set(cache_key, models)
+        page, next_cursor = hf_paginated(models[:HF_DISCOVERY_MAX_RESULTS], cursor, limit)
+        return {
+            "provider": "ollama",
+            "source": "ollama-library-popular",
+            "results": page,
+            "total": len(models),
+            "cursor": str(cursor),
+            "nextCursor": next_cursor,
+        }
+
+
+    def ollama_parse_tags(document, selected_model, model_type="chat"):
+        artifacts = []
+        seen = set()
+        pattern = re.compile(
+            r"<a\b[^>]*href=[\"']/library/([^\"'?#]+:[^\"'?#]+)[\"'][^>]*>(.*?)</a>",
+            re.IGNORECASE | re.DOTALL,
+        )
+        for match in pattern.finditer(document or ""):
+            raw_reference = urllib.parse.unquote(match.group(1)).strip("/")
+            try:
+                reference = ollama_model_reference("ollama://" + raw_reference)
+            except ValueError:
+                continue
+            model = reference["model"] if reference["namespace"] == "library" else reference["namespace"] + "/" + reference["model"]
+            if model.casefold() != selected_model.casefold():
+                continue
+            tag = reference["tag"]
+            if "cloud" in tag.casefold() or reference["reference"].casefold() in seen:
+                continue
+            text = ollama_html_text(match.group(2))
+            size_match = re.search(r"\b(\d+(?:[.,]\d+)?\s*(?:KB|MB|GB|TB))\b", text, re.IGNORECASE)
+            if not size_match:
+                continue
+            context_match = re.search(r"\b(\d+(?:[.,]\d+)?\s*[KMB]?)\s+context window\b", text, re.IGNORECASE)
+            digest_match = re.search(r"\b([a-f0-9]{12,64})\b", text, re.IGNORECASE)
+            size_label = re.sub(r"\s+", "", size_match.group(1)).upper()
+            size_bytes = ollama_size_bytes(size_label)
+            model_context = ollama_context_tokens(context_match.group(1)) if context_match else 0
+            quantization = ollama_quantization_from_tag(tag)
+            compatibility, compatibility_reason = ollama_model_compatibility(selected_model, model_type)
+            artifact_repo = selected_model + ":" + tag
+            seen.add(reference["reference"].casefold())
+            artifacts.append({
+                "id": artifact_repo,
+                "repo": artifact_repo,
+                "label": tag,
+                "name": artifact_repo,
+                "url": "ollama://" + artifact_repo,
+                "author": "Ollama Library" if len(selected_model.split("/")) == 1 else selected_model.split("/", 1)[0],
+                "revision": digest_match.group(1) if digest_match else "",
+                "pipelineTag": "feature-extraction" if "embed" in selected_model.casefold() else "text-generation",
+                "formats": ["gguf"],
+                "parameterCount": ollama_parameter_count_from_tag(tag),
+                "weightBytes": size_bytes,
+                "downloadBytes": size_bytes,
+                "sizeLabel": size_label,
+                "modelMaxContext": model_context,
+                "contextWindow": model_context,
+                "quantization": quantization,
+                "trustStatus": "official" if len(selected_model.split("/")) == 1 else "community",
+                "compatibility": compatibility,
+                "compatibilityReason": compatibility_reason,
+                "relation": "tag",
+                "discoverySource": "ollama-library-tags",
+                "original": tag.casefold() == "latest",
+            })
+            if len(artifacts) >= HF_DISCOVERY_MAX_RESULTS:
+                break
+        return artifacts
+
+
+    def ollama_discovery_artifacts(query):
+        context = ollama_discovery_context(query)
+        cursor, limit = hf_discovery_page(query)
+        model = ollama_library_model(
+            hf_discovery_query_value(query, "repo", "", HF_DISCOVERY_MAX_QUERY_LENGTH)
+        )
+        cache_key = ("ollama-tags", model.casefold(), context["modelType"])
+        artifacts = hf_discovery_cache_get(cache_key)
+        if artifacts is None:
+            document = fetch_ollama_discovery_html(
+                ollama_discovery_url("library/" + model + "/tags")
+            )
+            artifacts = ollama_parse_tags(document, model, context["modelType"])
+            if not artifacts:
+                raise RequestError(404, "No locally runnable Ollama tags were found for this model")
+            artifacts = hf_discovery_cache_set(cache_key, artifacts)
+        page, next_cursor = hf_paginated(artifacts, cursor, limit)
+        compatibility, compatibility_reason = ollama_model_compatibility(model, context["modelType"])
+        return {
+            "provider": "ollama",
+            "baseModel": {
+                "id": model,
+                "repo": model,
+                "name": model.split("/")[-1],
+                "url": "ollama://" + model + ":latest",
+                "formats": ["gguf"],
+                "trustStatus": "official" if len(model.split("/")) == 1 else "community",
+                "compatibility": compatibility,
+                "compatibilityReason": compatibility_reason,
+            },
+            "artifacts": page,
+            "total": len(artifacts),
+            "cursor": str(cursor),
+            "nextCursor": next_cursor,
+        }
+
+
     def ollama_model_reference(value):
         raw = str(value or "").strip()
         if not raw:
@@ -3654,10 +4106,16 @@ data:
         )
         if model_bytes <= 0:
             raise ValueError("Ollama registry manifest does not contain model layers")
+        quantization = None
+        for layer in layers:
+            quantization = ollama_quantization_from_tag((layer or {}).get("from"))
+            if quantization:
+                break
         cached = {
             "reference": reference,
             "manifest": manifest,
             "modelBytes": model_bytes,
+            "quantization": quantization,
             "fetchedAt": now,
         }
         OLLAMA_METADATA_CACHE[cache_key] = cached
@@ -4002,6 +4460,7 @@ data:
             "weightsMi": int(weights_mi),
             "downloadBytes": int(metadata.get("modelBytes") or 0),
             "downloadSizeSource": "ollama-manifest",
+            "quantization": metadata.get("quantization"),
             "kvCacheMi": int(kv_mi),
             "runtimeReserveMi": int(runtime_mi),
             "contextWindow": int(context_window),
@@ -4059,6 +4518,7 @@ data:
             "weightsMi": int(weights_mi),
             "downloadBytes": int(estimate.get("downloadBytes") or 0),
             "downloadSizeSource": str(estimate.get("downloadSizeSource") or ""),
+            "quantization": estimate.get("quantization"),
             "kvCacheMi": int(kv_mi),
             "configuredKvCacheMi": (
                 round_up_mib(kv_mi)

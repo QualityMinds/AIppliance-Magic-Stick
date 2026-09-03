@@ -424,9 +424,17 @@ reduce it when the corresponding memory estimate exceeds the selected target.
 New models begin with **Max Num Seqs = 1**. Community quantizations
 are discovery candidates rather than Magic Stick-tested presets. Use **Tested
 preset** when a validated engine/target combination is required, or **Direct
-Hugging Face URL** when the repository is already known. Ollama keeps its tested
-preset and direct `ollama://` flows because arbitrary Hugging Face GGUF import
-is not implemented.
+Hugging Face URL** when the repository is already known.
+
+For Ollama, choose **Ollama Library** to search a model-name prefix, use the
+stable family shortcuts, or start from the live popular row. Select the model
+and then its tag/quantization in the dropdown below. The dashboard copies the
+tag's advertised download size and context into the form, starts with one
+parallel sequence, and excludes cloud-only tags. Once selected, the registry
+manifest refines the size and, where declared, quantization used by the memory
+estimate. **Tested preset** and **Direct Ollama model reference** remain
+available if public discovery is unavailable. This does not import arbitrary
+Hugging Face GGUF artifacts into Ollama.
 
 For accelerator models, 100 percent on the VRAM slider is the unreserved memory
 (`total memory - active model reservations`), not the separate live free-memory
@@ -576,6 +584,7 @@ deploy,pods` if a command does not match the running resource name.
 | CPU vLLM reports insufficient memory for KV cache | Recreate the model through the current dashboard so `spec.local.kvCacheMemoryBytes` is derived from model architecture, context, and maximum sequences. Older or directly created resources without that field retain the 512 MiB compatibility fallback. Reduce context or concurrency when the derived minimum exceeds unreserved RAM; do not bypass the server-side minimum check. |
 | CPU vLLM is OOM-killed while loading or warming a quantized or multimodal model | The current estimator includes checkpoint bytes, a possible runtime working-weight copy, compile/warm-up headroom, the multimodal processor cache, and a conservative hybrid-cache factor. Confirm that the `ModelActivation` contains both `memoryRequiredMi` and `kvCacheMemoryBytes`, then compare the Pod limit and cgroup peak. If the recommendation is larger than the node, reduce context or choose a smaller model instead of raising only the timeout. |
 | Hugging Face model search is unavailable or rate-limited | Retry after the short-lived discovery cache can refresh, narrow a broad prefix, and inspect the dashboard API log without printing credentials. Model discovery uses only the public Hugging Face API. Tested presets and direct `hf://` references remain available and do not depend on the search endpoint. |
+| Ollama Library search or tag lookup is unavailable | Retry after the short-lived discovery cache can refresh and inspect the dashboard API log. Discovery reads only bounded public `ollama.com` pages because Ollama does not document a remote catalog API. Tested presets and direct `ollama://` references remain available; model creation is not coupled to Library discovery. |
 | A selected Hugging Face quantization fails during model loading | Treat dynamic community artifacts as experimental. Confirm the repository format and quantization are supported by the selected vLLM image and CPU/GPU generation, compare the memory estimate with the actual node, and try the original repository or a tested preset. Magic Stick discovers artifacts; it does not convert or validate every third-party quantization. |
 | Local model stays in `Starting` | Compare `kubectl -n ai get model <name> -o jsonpath='{.status.replicas}'` with the model pod readiness and selected engine logs. The model is intentionally absent from LiteLLM until at least one replica is ready. |
 | Ollama model stays in `Starting` with `WaitingForOllamaAlias` | The source tag is still downloading, the model API is unreachable, or the KubeAI-name alias is absent. Check `ollama list` in the model pod and the `ModelActivation.status.message`. The operator creates the alias automatically as soon as the source tag is complete; do not publish a manual LiteLLM route around this guard. |

@@ -986,7 +986,8 @@ data:
           min-height: 1.6rem;
         }
 
-        #huggingface-model-discovery {
+        #huggingface-model-discovery,
+        #ollama-model-discovery {
           display: grid;
           gap: 0.65rem;
         }
@@ -2175,7 +2176,7 @@ data:
                       <section class="model-discovery" aria-labelledby="local-model-source-heading">
                         <div class="model-discovery-heading">
                           <h4 id="local-model-source-heading">Model source</h4>
-                          <p>Search Hugging Face or enter a model URL directly. Engine and hardware selections remain visible above.</p>
+                          <p id="local-model-source-description">Search Hugging Face or enter a model URL directly. Engine and hardware selections remain visible above.</p>
                         </div>
                         <label class="field">Source
                           <select id="local-model-source" aria-label="Local model source">
@@ -2227,6 +2228,47 @@ data:
                             </div>
                           </div>
                           <div class="model-discovery-metadata model-meta" id="huggingface-model-metadata" aria-live="polite"></div>
+                        </div>
+                        <div id="ollama-model-discovery" hidden>
+                          <div class="model-discovery-search" role="search">
+                            <label class="field">Search Ollama Library
+                              <input id="ollama-model-query" type="search" autocomplete="off" placeholder="Qwen 3.6" />
+                            </label>
+                            <button class="control-button primary" id="ollama-model-search" type="button">Search</button>
+                          </div>
+                          <div class="model-discovery-popular" id="ollama-model-families" aria-label="Popular Ollama model families">
+                            <span>Model families</span>
+                            <button class="control-button" type="button" data-ollama-query="Qwen">Qwen</button>
+                            <button class="control-button" type="button" data-ollama-query="DeepSeek">DeepSeek</button>
+                            <button class="control-button" type="button" data-ollama-query="GLM">GLM</button>
+                            <button class="control-button" type="button" data-ollama-query="Llama">Llama</button>
+                            <button class="control-button" type="button" data-ollama-query="Gemma">Gemma</button>
+                            <button class="control-button" type="button" data-ollama-query="Mistral">Mistral</button>
+                          </div>
+                          <div class="model-discovery-popular" id="ollama-popular-models" aria-label="Popular Ollama Library models">
+                            <span>Popular on Ollama</span>
+                            <span id="ollama-popular-status">Loading…</span>
+                          </div>
+                          <p class="model-discovery-status" id="ollama-model-status" role="status" aria-live="polite">Enter at least two characters or choose a model family or popular model.</p>
+                          <div class="model-discovery-selection">
+                            <div class="model-discovery-field">
+                              <label class="field">Matching models
+                                <select id="ollama-model-results" aria-label="Matching Ollama Library models" disabled>
+                                  <option value="">Search to list models</option>
+                                </select>
+                              </label>
+                              <button class="control-button model-discovery-load-more" id="ollama-model-load-more" type="button" hidden>Load more models</button>
+                            </div>
+                            <div class="model-discovery-field">
+                              <label class="field">Tag / quantization
+                                <select id="ollama-model-artifacts" aria-label="Ollama tags and quantizations" disabled>
+                                  <option value="">Select a model first</option>
+                                </select>
+                              </label>
+                              <button class="control-button model-discovery-load-more" id="ollama-artifact-load-more" type="button" hidden>Load more tags</button>
+                            </div>
+                          </div>
+                          <div class="model-discovery-metadata model-meta" id="ollama-model-metadata" aria-live="polite"></div>
                         </div>
                       </section>
                       <div class="form-grid">
@@ -2756,6 +2798,21 @@ data:
           let huggingFaceArtifactNextCursor = null;
           let huggingFaceArtifactTotal = 0;
           let huggingFaceArtifactRepo = '';
+          let ollamaSearchResults = [];
+          let ollamaArtifacts = [];
+          let selectedOllamaModel = null;
+          let selectedOllamaArtifact = null;
+          let ollamaPopularRequest = 0;
+          let ollamaPopularSignature = '';
+          let ollamaSearchRequest = 0;
+          let ollamaArtifactRequest = 0;
+          let ollamaSearchTimer = null;
+          let ollamaSearchNextCursor = null;
+          let ollamaSearchTotal = 0;
+          let ollamaSearchQuery = '';
+          let ollamaArtifactNextCursor = null;
+          let ollamaArtifactTotal = 0;
+          let ollamaArtifactRepo = '';
           const pendingModuleActions = {};
           const pendingModelDeletes = {};
           let vramEstimateTimer = null;
@@ -3257,8 +3314,10 @@ data:
             const available = nextCursor !== null && nextCursor !== undefined && String(nextCursor) !== '';
             button.hidden = !available;
             button.disabled = !available || loading;
-            if (id === 'huggingface-model-load-more') {
+            if (id.endsWith('-model-load-more')) {
               button.textContent = loading ? 'Loading models' : 'Load more models';
+            } else if (id === 'ollama-artifact-load-more') {
+              button.textContent = loading ? 'Loading tags' : 'Load more tags';
             } else {
               button.textContent = loading ? 'Loading quantizations' : 'Load more quantizations';
             }
@@ -3297,7 +3356,7 @@ data:
             const details = [];
             const quantization = discoveryQuantization(item);
             const formats = discoveryFormats(item);
-            const size = formatDiscoveryBytes((item || {}).weightBytes);
+            const size = String((item || {}).sizeLabel || '').trim() || formatDiscoveryBytes((item || {}).weightBytes);
             const parameters = formatDiscoveryParameters((item || {}).parameterCount);
             if (options.artifact && (item || {}).original) { details.push('Original'); }
             if (quantization) { details.push(quantization); }
@@ -3665,6 +3724,31 @@ data:
             renderHuggingFacePopular([], 'Loading…');
             renderHuggingFaceMetadata(null);
             setHuggingFaceStatus('Enter at least two characters or choose a model family or trending model.');
+            ollamaPopularRequest += 1;
+            ollamaSearchRequest += 1;
+            ollamaArtifactRequest += 1;
+            if (ollamaSearchTimer) { window.clearTimeout(ollamaSearchTimer); }
+            ollamaSearchTimer = null;
+            ollamaSearchResults = [];
+            ollamaArtifacts = [];
+            selectedOllamaModel = null;
+            selectedOllamaArtifact = null;
+            ollamaSearchNextCursor = null;
+            ollamaSearchTotal = 0;
+            ollamaSearchQuery = '';
+            ollamaArtifactNextCursor = null;
+            ollamaArtifactTotal = 0;
+            ollamaArtifactRepo = '';
+            ollamaPopularSignature = '';
+            const ollamaQuery = $('ollama-model-query');
+            if (ollamaQuery) { ollamaQuery.value = ''; }
+            setDiscoverySelectPlaceholder($('ollama-model-results'), 'Search to list models');
+            setDiscoverySelectPlaceholder($('ollama-model-artifacts'), 'Select a model first');
+            updateDiscoveryLoadMore('ollama-model-load-more', null);
+            updateDiscoveryLoadMore('ollama-artifact-load-more', null);
+            renderOllamaPopular([], 'Loading…');
+            renderOllamaMetadata(null);
+            setOllamaStatus('Enter at least two characters or choose a model family or popular model.');
             const form = $('local-model-form');
             if (form) {
               setFormValue(form, 'name', '');
@@ -3679,13 +3763,370 @@ data:
             }
           };
 
+          const setOllamaStatus = (message, state = '') => {
+            const node = $('ollama-model-status');
+            if (!node) { return; }
+            node.textContent = message;
+            if (state) {
+              node.dataset.state = state;
+            } else {
+              node.removeAttribute('data-state');
+            }
+          };
+
+          const renderOllamaPopular = (items, state = '') => {
+            const container = $('ollama-popular-models');
+            if (!container) { return; }
+            container.replaceChildren();
+            const label = document.createElement('span');
+            label.textContent = 'Popular on Ollama';
+            container.appendChild(label);
+            const models = compatibleDiscoveryItems(items).slice(0, 5);
+            if (!models.length) {
+              const status = document.createElement('span');
+              status.id = 'ollama-popular-status';
+              status.textContent = state || 'Unavailable';
+              container.appendChild(status);
+              return;
+            }
+            models.forEach((model) => {
+              const repo = discoveryRepo(model);
+              const button = document.createElement('button');
+              button.className = 'control-button';
+              button.type = 'button';
+              button.dataset.ollamaQuery = repo;
+              button.textContent = String((model || {}).name || repo.split('/').pop() || repo);
+              button.title = repo;
+              button.addEventListener('click', () => {
+                const query = $('ollama-model-query');
+                if (query) { query.value = repo; }
+                searchOllamaModels(repo);
+              });
+              container.appendChild(button);
+            });
+          };
+
+          const loadOllamaPopular = async (options = {}) => {
+            if (activeLocalModelSource !== 'ollama' || selectedLocalEngine() !== 'OLlama' || !selectedComputeTarget()) {
+              return false;
+            }
+            const signature = [selectedComputeTarget(), selectedLocalModelType()].join('|');
+            if (options.force !== true && signature === ollamaPopularSignature) { return true; }
+            const requestId = ++ollamaPopularRequest;
+            renderOllamaPopular([], 'Loading…');
+            const query = new URLSearchParams({
+              provider: 'ollama',
+              limit: '5',
+              cursor: '0',
+              engine: 'OLlama',
+              computeTarget: selectedComputeTarget(),
+              modelType: selectedLocalModelType()
+            });
+            try {
+              const payload = await request('/api/model-discovery/popular?' + query.toString());
+              if (requestId !== ollamaPopularRequest) { return false; }
+              ollamaPopularSignature = signature;
+              renderOllamaPopular((payload || {}).results || []);
+              return true;
+            } catch (_error) {
+              if (requestId !== ollamaPopularRequest) { return false; }
+              ollamaPopularSignature = '';
+              renderOllamaPopular([], 'Library unavailable');
+              return false;
+            }
+          };
+
+          const renderOllamaMetadata = (item) => {
+            const container = $('ollama-model-metadata');
+            if (!container) { return; }
+            container.replaceChildren();
+            if (!item) { return; }
+            appendDiscoveryMetadata(container, 'Source', (item || {}).author || 'Ollama Library');
+            appendDiscoveryMetadata(container, 'Format', discoveryFormats(item).join(', '));
+            appendDiscoveryMetadata(container, 'Quantization', discoveryQuantization(item) || 'Default tag');
+            appendDiscoveryMetadata(container, 'Download', String((item || {}).sizeLabel || '').trim() || formatDiscoveryBytes((item || {}).downloadBytes || (item || {}).weightBytes));
+            appendDiscoveryMetadata(container, 'Parameters', formatDiscoveryParameters((item || {}).parameterCount));
+            appendDiscoveryMetadata(container, 'Model context', formatDiscoveryContext((item || {}).modelMaxContext || (item || {}).contextWindow));
+            appendDiscoveryMetadata(container, 'Runtime', discoveryCompatibility(item));
+            if ((item || {}).revision) {
+              appendDiscoveryMetadata(container, 'Digest', String(item.revision).slice(0, 12));
+            }
+          };
+
+          const syncOllamaEstimateMetadata = (estimate) => {
+            if (activeLocalModelSource !== 'ollama' || !selectedOllamaArtifact) { return false; }
+            const selected = discoveryRepo(selectedOllamaArtifact).replace(/^library\//, '');
+            const estimated = String((estimate || {}).repo || '').replace(/^library\//, '');
+            if (!selected || selected !== estimated) { return false; }
+            const downloadBytes = Number((estimate || {}).downloadBytes || 0);
+            if ((estimate || {}).quantization) {
+              selectedOllamaArtifact.quantization = estimate.quantization;
+            }
+            if (downloadBytes > 0) {
+              selectedOllamaArtifact.downloadBytes = downloadBytes;
+              selectedOllamaArtifact.weightBytes = downloadBytes;
+              selectedOllamaArtifact.sizeLabel = '';
+            }
+            renderOllamaMetadata(selectedOllamaArtifact);
+            return false;
+          };
+
+          const applyOllamaArtifact = (artifact) => {
+            const form = $('local-model-form');
+            if (!form || !artifact) { return false; }
+            const repo = discoveryRepo(artifact);
+            if (!repo) { return false; }
+            selectedOllamaArtifact = artifact;
+            const presetSelect = $('local-model-preset');
+            if (presetSelect) { presetSelect.value = 'custom'; }
+            renderLocalArtifactOptions(null);
+            const nameField = form.elements.name;
+            const generatedName = modelActivationName(artifact);
+            if (nameField && (!String(nameField.value || '').trim() || nameField.value === modelDiscoveryAutoName)) {
+              nameField.value = generatedName;
+              modelDiscoveryAutoName = generatedName;
+            }
+            if (!modelDiscoveryContextDirty && (artifact.contextWindow || artifact.modelMaxContext)) {
+              const context = String(artifact.contextWindow || artifact.modelMaxContext);
+              setFormValue(form, 'contextWindow', context);
+              modelDiscoveryAutoContext = context;
+            }
+            setFormValue(form, 'maxNumSeqs', 1);
+            if (form.elements.url) {
+              form.elements.url.value = String(artifact.url || 'ollama://' + repo);
+              form.elements.url.readOnly = true;
+              form.elements.url.title = 'Resolved from the selected Ollama Library tag.';
+            }
+            renderOllamaMetadata(artifact);
+            renderLocalArtifactNote({
+              compatibilityNote: 'Ollama Library tag · ' + discoveryCompatibility(artifact) + ' for the selected runtime.'
+            });
+            scheduleVramEstimate();
+            return true;
+          };
+
+          const renderOllamaArtifacts = (items, requestedRepo = '') => {
+            const select = $('ollama-model-artifacts');
+            if (!select) { return; }
+            ollamaArtifacts = compatibleDiscoveryItems(items);
+            select.replaceChildren();
+            if (!ollamaArtifacts.length) {
+              setDiscoverySelectPlaceholder(select, 'No local tags found');
+              selectedOllamaArtifact = null;
+              return;
+            }
+            ollamaArtifacts.forEach((artifact) => {
+              const option = document.createElement('option');
+              option.value = discoveryRepo(artifact);
+              option.textContent = discoveryOptionLabel(artifact, { artifact: true });
+              select.appendChild(option);
+            });
+            const preferred = ollamaArtifacts.find((artifact) => discoveryRepo(artifact) === requestedRepo)
+              || ollamaArtifacts.find((artifact) => artifact.original)
+              || ollamaArtifacts[0];
+            select.disabled = false;
+            select.value = discoveryRepo(preferred);
+            applyOllamaArtifact(preferred);
+          };
+
+          const loadOllamaArtifacts = async (model, options = {}) => {
+            const repo = discoveryRepo(model);
+            if (!repo) { return; }
+            const append = options.append === true;
+            if (append && (ollamaArtifactNextCursor === null || ollamaArtifactNextCursor === undefined)) { return; }
+            const requestId = ++ollamaArtifactRequest;
+            const select = $('ollama-model-artifacts');
+            const requestedRepo = options.requestedRepo || discoveryRepo(selectedOllamaArtifact);
+            const cursor = append ? String(ollamaArtifactNextCursor) : '0';
+            if (!append) {
+              ollamaArtifactRepo = repo;
+              ollamaArtifactNextCursor = null;
+              ollamaArtifactTotal = 0;
+              if (select) { select.disabled = true; }
+            }
+            updateDiscoveryLoadMore('ollama-artifact-load-more', append ? cursor : null, append);
+            setOllamaStatus((append ? 'Loading more tags for ' : 'Loading tags and quantizations for ') + repo + '...');
+            const query = new URLSearchParams({
+              provider: 'ollama',
+              repo,
+              limit: '20',
+              cursor,
+              engine: 'OLlama',
+              computeTarget: selectedComputeTarget(),
+              modelType: selectedLocalModelType()
+            });
+            try {
+              const payload = await request('/api/model-discovery/artifacts?' + query.toString());
+              if (requestId !== ollamaArtifactRequest) { return; }
+              const page = compatibleDiscoveryItems((payload || {}).artifacts || []);
+              const artifacts = append ? mergeDiscoveryItems(ollamaArtifacts, page) : page;
+              ollamaArtifactNextCursor = (payload || {}).nextCursor;
+              ollamaArtifactTotal = Math.max(artifacts.length, Number((payload || {}).total || 0));
+              renderOllamaArtifacts(artifacts, requestedRepo);
+              updateDiscoveryLoadMore('ollama-artifact-load-more', ollamaArtifactNextCursor);
+              setOllamaStatus(
+                artifacts.length
+                  ? discoveryProgress(artifacts.length, ollamaArtifactTotal, 'tag')
+                  : 'No locally runnable tag was returned for this model.',
+                artifacts.length ? '' : 'error'
+              );
+            } catch (error) {
+              if (requestId !== ollamaArtifactRequest) { return; }
+              updateDiscoveryLoadMore('ollama-artifact-load-more', ollamaArtifactNextCursor);
+              setOllamaStatus((error.message || 'Ollama tag lookup failed.') + ' Tested presets and direct references remain available.', 'error');
+            }
+          };
+
+          const selectOllamaModel = (repo) => {
+            const selected = ollamaSearchResults.find((item) => discoveryRepo(item) === String(repo || ''));
+            if (!selected) {
+              selectedOllamaModel = null;
+              selectedOllamaArtifact = null;
+              setDiscoverySelectPlaceholder($('ollama-model-artifacts'), 'Select a model first');
+              renderOllamaMetadata(null);
+              return false;
+            }
+            selectedOllamaModel = selected;
+            modelDiscoveryContextDirty = false;
+            modelDiscoveryAutoContext = '4096';
+            const form = $('local-model-form');
+            if (form) {
+              setFormValue(form, 'contextWindow', modelDiscoveryAutoContext);
+              setFormValue(form, 'maxNumSeqs', 1);
+              applyModelContextLimit(null);
+            }
+            renderOllamaMetadata(selected);
+            loadOllamaArtifacts(selected);
+            return true;
+          };
+
+          const renderOllamaSearchResults = (items, requestedRepo = '', options = {}) => {
+            const select = $('ollama-model-results');
+            if (!select) { return; }
+            ollamaSearchResults = compatibleDiscoveryItems(items);
+            select.replaceChildren();
+            if (!ollamaSearchResults.length) {
+              setDiscoverySelectPlaceholder(select, 'No compatible models found');
+              setDiscoverySelectPlaceholder($('ollama-model-artifacts'), 'Select a model first');
+              selectedOllamaModel = null;
+              selectedOllamaArtifact = null;
+              renderOllamaMetadata(null);
+              return;
+            }
+            const placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = 'Select a model';
+            select.appendChild(placeholder);
+            ollamaSearchResults.forEach((model) => {
+              const option = document.createElement('option');
+              option.value = discoveryRepo(model);
+              option.textContent = discoveryOptionLabel(model);
+              select.appendChild(option);
+            });
+            select.disabled = false;
+            const preserved = ollamaSearchResults.find((item) => discoveryRepo(item) === requestedRepo);
+            if (preserved) {
+              select.value = discoveryRepo(preserved);
+              selectedOllamaModel = preserved;
+              if (options.reloadArtifacts !== false) {
+                loadOllamaArtifacts(preserved, { requestedRepo: discoveryRepo(selectedOllamaArtifact) });
+              } else {
+                renderOllamaMetadata(selectedOllamaArtifact || preserved);
+              }
+            } else {
+              select.value = '';
+              setDiscoverySelectPlaceholder($('ollama-model-artifacts'), 'Select a model first');
+              selectedOllamaModel = null;
+              selectedOllamaArtifact = null;
+              renderOllamaMetadata(null);
+            }
+          };
+
+          const searchOllamaModels = async (rawQuery, options = {}) => {
+            const queryValue = String(rawQuery || '').trim();
+            if (queryValue.length < 2) {
+              setOllamaStatus('Enter at least two characters or choose a model family or popular model.', 'error');
+              return false;
+            }
+            const append = options.append === true;
+            if (append && (ollamaSearchNextCursor === null || ollamaSearchNextCursor === undefined)) { return false; }
+            const requestId = ++ollamaSearchRequest;
+            const previousRepo = discoveryRepo(selectedOllamaModel);
+            const button = $('ollama-model-search');
+            const cursor = append ? String(ollamaSearchNextCursor) : '0';
+            if (!append) {
+              ollamaSearchQuery = queryValue;
+              ollamaSearchNextCursor = null;
+              ollamaSearchTotal = 0;
+            }
+            if (button && !append) {
+              button.disabled = true;
+              button.textContent = 'Searching';
+            }
+            updateDiscoveryLoadMore('ollama-model-load-more', append ? cursor : null, append);
+            setOllamaStatus((append ? 'Loading more Ollama models for "' : 'Searching Ollama Library for "') + queryValue + '"...');
+            const query = new URLSearchParams({
+              provider: 'ollama',
+              q: queryValue,
+              limit: '20',
+              cursor,
+              engine: 'OLlama',
+              computeTarget: selectedComputeTarget(),
+              modelType: selectedLocalModelType()
+            });
+            try {
+              const payload = await request('/api/model-discovery/search?' + query.toString());
+              if (requestId !== ollamaSearchRequest) { return false; }
+              const page = compatibleDiscoveryItems((payload || {}).results || []);
+              const results = append ? mergeDiscoveryItems(ollamaSearchResults, page) : page;
+              ollamaSearchNextCursor = (payload || {}).nextCursor;
+              ollamaSearchTotal = Math.max(results.length, Number((payload || {}).total || 0));
+              renderOllamaSearchResults(results, previousRepo, { reloadArtifacts: !append });
+              updateDiscoveryLoadMore('ollama-model-load-more', ollamaSearchNextCursor);
+              setOllamaStatus(
+                results.length
+                  ? discoveryProgress(results.length, ollamaSearchTotal, 'model') + ' Select one to load tags.'
+                  : 'No compatible Ollama models matched "' + queryValue + '".',
+                results.length ? '' : 'error'
+              );
+              return true;
+            } catch (error) {
+              if (requestId !== ollamaSearchRequest) { return false; }
+              updateDiscoveryLoadMore('ollama-model-load-more', ollamaSearchNextCursor);
+              setOllamaStatus((error.message || 'Ollama Library search failed.') + ' Tested presets and direct references remain available.', 'error');
+              return false;
+            } finally {
+              if (requestId === ollamaSearchRequest && button && !append) {
+                button.disabled = false;
+                button.textContent = 'Search';
+              }
+            }
+          };
+
+          const scheduleOllamaSearch = () => {
+            if (ollamaSearchTimer) { window.clearTimeout(ollamaSearchTimer); }
+            const field = $('ollama-model-query');
+            const value = String((field || {}).value || '').trim();
+            if (value.length < 2 || activeLocalModelSource !== 'ollama') { return; }
+            ollamaSearchTimer = window.setTimeout(() => searchOllamaModels(value), 450);
+          };
+
+          const refreshOllamaModelType = () => {
+            if (activeLocalModelSource !== 'ollama') { return; }
+            loadOllamaPopular({ force: true });
+            const field = $('ollama-model-query');
+            const value = String(ollamaSearchQuery || (field || {}).value || '').trim();
+            if (value.length >= 2) { searchOllamaModels(value); }
+          };
+
           const selectLocalModelSource = (source) => {
             const engine = selectedLocalEngine();
-            const allowed = engine === 'VLLM' ? ['huggingface', 'preset', 'direct'] : ['preset', 'direct'];
+            const allowed = engine === 'VLLM' ? ['huggingface', 'preset', 'direct'] : ['ollama', 'preset', 'direct'];
             const selected = allowed.includes(source) ? source : allowed[0];
             const form = $('local-model-form');
             const field = $('local-model-source');
             const discovery = $('huggingface-model-discovery');
+            const ollamaDiscovery = $('ollama-model-discovery');
             const presetFields = $('local-model-preset-fields');
             const preset = $('local-model-preset');
             if (activeLocalModelSource === 'direct' && form && form.elements.url && !form.elements.url.readOnly) {
@@ -3697,6 +4138,7 @@ data:
             activeLocalModelSource = selected;
             if (field) { field.value = selected; }
             if (discovery) { discovery.hidden = selected !== 'huggingface'; }
+            if (ollamaDiscovery) { ollamaDiscovery.hidden = selected !== 'ollama'; }
             if (presetFields) { presetFields.hidden = selected !== 'preset'; }
             if (selected === 'preset') {
               renderLocalPresetOptions(latestModelPayload);
@@ -3727,6 +4169,14 @@ data:
                   : '';
                 renderHuggingFaceMetadata(selectedHuggingFaceArtifact || selectedHuggingFaceModel);
                 loadHuggingFacePopular();
+              } else if (selected === 'ollama') {
+                form.elements.url.readOnly = true;
+                form.elements.url.title = 'Resolved from the selected Ollama Library tag.';
+                form.elements.url.value = selectedOllamaArtifact
+                  ? String(selectedOllamaArtifact.url || 'ollama://' + discoveryRepo(selectedOllamaArtifact))
+                  : '';
+                renderOllamaMetadata(selectedOllamaArtifact || selectedOllamaModel);
+                loadOllamaPopular();
               } else {
                 form.elements.url.readOnly = false;
                 form.elements.url.removeAttribute('title');
@@ -3750,6 +4200,7 @@ data:
                   { value: 'direct', label: 'Direct Hugging Face URL' }
                 ]
               : [
+                  { value: 'ollama', label: 'Ollama Library' },
                   { value: 'preset', label: 'Tested preset' },
                   { value: 'direct', label: 'Direct Ollama model reference' }
                 ];
@@ -3776,8 +4227,14 @@ data:
             if (url) { url.placeholder = isOllama ? 'ollama://model:tag' : 'hf://organization/model'; }
             if (urlLabel) {
               urlLabel.textContent = isOllama
-                ? 'Ollama Model URL'
+                ? (activeLocalModelSource === 'ollama' ? 'Selected Ollama Model' : 'Ollama Model URL')
                 : (activeLocalModelSource === 'huggingface' ? 'Selected Hugging Face URL' : 'Hugging Face URL');
+            }
+            const sourceDescription = $('local-model-source-description');
+            if (sourceDescription) {
+              sourceDescription.textContent = isOllama
+                ? 'Search the Ollama Library, use a tested preset, or enter an ollama:// reference directly. Engine and hardware selections remain visible above.'
+                : 'Search Hugging Face or enter a model URL directly. Engine and hardware selections remain visible above.';
             }
             if (vramLabel) { vramLabel.textContent = isOllama ? 'Required VRAM' : 'VRAM Limit'; }
             if (estimator) { estimator.hidden = targetKind !== 'gpu'; }
@@ -5396,6 +5853,7 @@ data:
                 scheduleVramEstimate();
                 return;
               }
+              syncOllamaEstimateMetadata(estimate);
               latestVramEstimateSignature = signature;
               if (targetKind === 'cpu') {
                 renderCpuMemoryEstimate(estimate);
@@ -7687,6 +8145,55 @@ data:
             });
           }
 
+          const ollamaModelQuery = $('ollama-model-query');
+          const ollamaModelSearch = $('ollama-model-search');
+          if (ollamaModelQuery) {
+            ollamaModelQuery.addEventListener('input', scheduleOllamaSearch);
+            ollamaModelQuery.addEventListener('keydown', (event) => {
+              if (event.key !== 'Enter') { return; }
+              event.preventDefault();
+              searchOllamaModels(ollamaModelQuery.value);
+            });
+          }
+          if (ollamaModelSearch) {
+            ollamaModelSearch.addEventListener('click', () => searchOllamaModels((ollamaModelQuery || {}).value));
+          }
+          document.querySelectorAll('#ollama-model-families [data-ollama-query]').forEach((button) => {
+            button.addEventListener('click', () => {
+              if (ollamaModelQuery) {
+                ollamaModelQuery.value = button.dataset.ollamaQuery || '';
+              }
+              searchOllamaModels((ollamaModelQuery || {}).value);
+            });
+          });
+          const ollamaModelLoadMore = $('ollama-model-load-more');
+          if (ollamaModelLoadMore) {
+            ollamaModelLoadMore.addEventListener('click', () => {
+              searchOllamaModels(ollamaSearchQuery || (ollamaModelQuery || {}).value, { append: true });
+            });
+          }
+          const ollamaModelResults = $('ollama-model-results');
+          if (ollamaModelResults) {
+            ollamaModelResults.addEventListener('change', () => selectOllamaModel(ollamaModelResults.value));
+          }
+          const ollamaModelArtifacts = $('ollama-model-artifacts');
+          if (ollamaModelArtifacts) {
+            ollamaModelArtifacts.addEventListener('change', () => {
+              const artifact = ollamaArtifacts.find((item) => discoveryRepo(item) === ollamaModelArtifacts.value);
+              applyOllamaArtifact(artifact);
+            });
+          }
+          const ollamaArtifactLoadMore = $('ollama-artifact-load-more');
+          if (ollamaArtifactLoadMore) {
+            ollamaArtifactLoadMore.addEventListener('click', () => {
+              if (!selectedOllamaModel || discoveryRepo(selectedOllamaModel) !== ollamaArtifactRepo) { return; }
+              loadOllamaArtifacts(selectedOllamaModel, {
+                append: true,
+                requestedRepo: discoveryRepo(selectedOllamaArtifact)
+              });
+            });
+          }
+
           const modelCreateToggle = $('model-create-toggle');
           const modelCreateFlow = $('model-create-flow');
           const closeModelCreateFlow = () => {
@@ -7745,7 +8252,7 @@ data:
                 }
                 if (name === 'contextWindow') {
                   field.addEventListener('input', () => {
-                    if (activeLocalModelSource === 'huggingface') {
+                    if (activeLocalModelSource === 'huggingface' || activeLocalModelSource === 'ollama') {
                       modelDiscoveryContextDirty = true;
                     }
                   });
@@ -7754,6 +8261,7 @@ data:
                 field.addEventListener('change', scheduleVramEstimate);
                 if (name === 'modelType') {
                   field.addEventListener('change', refreshHuggingFaceModelType);
+                  field.addEventListener('change', refreshOllamaModelType);
                 }
               }
             });
@@ -7837,6 +8345,10 @@ data:
               const modelUrl = String(data.get('url') || '').trim();
               if (activeLocalModelSource === 'huggingface' && !selectedHuggingFaceArtifact) {
                 $('model-output').textContent = 'Select a Hugging Face model and quantization before adding it.';
+                return;
+              }
+              if (activeLocalModelSource === 'ollama' && !selectedOllamaArtifact) {
+                $('model-output').textContent = 'Select an Ollama model and tag before adding it.';
                 return;
               }
               if (activeLocalModelSource === 'direct' && !modelUrl) {

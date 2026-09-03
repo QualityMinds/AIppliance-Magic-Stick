@@ -57,7 +57,7 @@ Paperclip, KubeOpenCode, KubeAI, LiteLLM, or direct app instance reconcilers.
 |---|---|
 | Overview | Shows appliance health, module/instance/model counts, and the complete local, public, or direct URLs discovered for modules and app instances from Ingress, Gateway API `HTTPRoute`, and instance status. |
 | Services | Combines modules and instances: application cards contain their instances, shared AI runtime services stay compact, and technical platform modules are collapsed by default. The create dialog first selects an application and then shows only its configuration. |
-| Models | Creates/removes local and external model activations, discovers public Hugging Face models and their quantized artifacts, retains tested presets and direct references, selects CPU or an available NVIDIA/AMD/Intel target, estimates memory, and shows compact per-device memory gauges. |
+| Models | Creates/removes local and external model activations, discovers public Hugging Face repositories or Ollama Library models and their selectable artifacts/tags, retains tested presets and direct references, selects CPU or an available NVIDIA/AMD/Intel target, estimates memory, and shows compact per-device memory gauges. |
 | Users | Gives administrators a paginated Keycloak user overview and local-user lifecycle controls. |
 | API Access | Lets administrators create multiple named LiteLLM API keys, view their non-secret metadata, and revoke individual keys. |
 | Kubernetes Access | Lets administrators assign Viewer, Operator, or Cluster Administrator access to existing SSO identities and download or copy token-free OIDC kubeconfigs. |
@@ -92,9 +92,9 @@ checks.
 | `DELETE` | `/api/instances/{name}` | Deletes the `AppInstance`; its finalizer removes the generated HelmRelease and Helm cleans the application resources. |
 | `GET` | `/api/models` | Returns model catalog entries, variant-aware presets, compute-target availability, `ModelActivation` resources, AnythingLLM status, the estimator-compatible VRAM summary, and a `computeMemory.devices` list for the CPU and every discoverable GPU resource. |
 | `GET` | `/api/models/compute-targets` | Returns CPU/NVIDIA/AMD/Intel availability, supported engines, resolved resource/profile, and a non-sensitive reason when a target is unavailable. |
-| `GET` | `/api/model-discovery/search?provider=huggingface&q=&cursor=&limit=` | Searches public, non-gated Hugging Face repositories by name or prefix and returns bounded, sortable model metadata plus a continuation cursor. |
-| `GET` | `/api/model-discovery/popular?provider=huggingface&limit=` | Returns currently trending public Hugging Face models compatible with the selected model type, engine, and compute target. |
-| `GET` | `/api/model-discovery/artifacts?provider=huggingface&repo=&cursor=&limit=` | Resolves the selected repository and only directly related quantized artifacts declared by Hugging Face metadata. |
+| `GET` | `/api/model-discovery/search?provider={huggingface,ollama}&q=&cursor=&limit=` | Searches public Hugging Face repositories or prefix-matching Ollama Library model names and returns bounded metadata plus a continuation cursor. |
+| `GET` | `/api/model-discovery/popular?provider={huggingface,ollama}&limit=` | Returns Hugging Face trending models or Ollama's public popularity order, filtered for the selected model type, engine, and compute target. |
+| `GET` | `/api/model-discovery/artifacts?provider={huggingface,ollama}&repo=&cursor=&limit=` | Resolves directly related Hugging Face quantizations or the selected Ollama model's locally runnable tags. |
 | `GET` | `/api/status` | Returns runtime objects and the catalogued NVIDIA/AMD/Intel operator lifecycle from `Appliance.status.hardwareOperators`. |
 | `POST` | `/api/models/estimate-memory` | Estimates minimum and recommended RAM or accelerator memory for every supported local engine/compute-target combination. |
 | `POST` | `/api/models/estimate-vram` | Backward-compatible alias for `/api/models/estimate-memory`. |
@@ -400,10 +400,23 @@ estimator as a direct URL.
 GGUF and MLX repositories are excluded from the current vLLM selection because
 that path cannot select the required GGUF file/plugin and does not run MLX.
 
-Ollama continues to offer **Tested preset** and **Direct Ollama model reference**.
-Hugging Face discovery is intentionally absent there because the current
-runtime contract pulls `ollama://` registry models and cannot import an arbitrary
-Hugging Face GGUF repository automatically.
+For Ollama, **Model source** offers three persistent choices:
+
+- **Ollama Library** provides stable Qwen, DeepSeek, GLM, Llama, Gemma, and
+  Mistral family shortcuts, a live popular-model row, prefix search, and two
+  full-width dropdowns for model and tag/quantization.
+- **Tested preset** retains the validated catalog variants.
+- **Direct Ollama model reference** retains the `ollama://model:tag` escape hatch.
+
+The tag selection displays the download size and advertised context from the
+public Ollama tag page and starts with **Max Num Seqs = 1**. After selection, the
+registry manifest supplies exact model-layer bytes to the memory estimator and
+can refine the quantization from its source metadata. Cloud-only tags are not
+offered. The public Ollama Library is an HTML interface rather than a documented
+catalog API, so the backend uses a bounded, cached adapter and leaves presets and
+direct references available when discovery fails. Hugging Face discovery remains
+separate because the current runtime contract pulls `ollama://` registry models
+and cannot import an arbitrary Hugging Face GGUF repository automatically.
 
 vLLM accepts `hf://` model references; Ollama uses `ollama://` references.
 `cpu` is available on a compatible Ready Linux node. `nvidia-gpu`, `amd-gpu`,

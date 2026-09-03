@@ -373,6 +373,21 @@ BROWSER_API_MOCK = r"""
       const query = url.searchParams.get('q') || '';
       const cursor = url.searchParams.get('cursor') || '0';
       const firstPage = cursor === '0';
+      if (url.searchParams.get('provider') === 'ollama') {
+        return reply({
+          provider: 'ollama', source: 'ollama-library-search', query,
+          normalizedQueries: [query, query.replace(/\s+/g, '')],
+          results: [
+            {
+              id: 'qwen3.6', repo: 'qwen3.6', label: 'qwen3.6', name: 'qwen3.6',
+              url: 'ollama://qwen3.6:latest', author: 'Ollama Library', formats: ['gguf'],
+              pulls: 1400000, tagCount: 12, pipelineTag: 'text-generation',
+              trustStatus: 'official', compatibility: 'compatible'
+            }
+          ],
+          total: 1, cursor, nextCursor: null, truncated: false
+        });
+      }
       return reply({
         provider: 'huggingface',
         query,
@@ -419,6 +434,24 @@ BROWSER_API_MOCK = r"""
       });
     }
     if (url.pathname === '/api/model-discovery/popular' && method === 'GET') {
+      if (url.searchParams.get('provider') === 'ollama') {
+        return reply({
+          provider: 'ollama', source: 'ollama-library-popular',
+          results: [
+            {
+              id: 'llama3.1', repo: 'llama3.1', name: 'llama3.1',
+              url: 'ollama://llama3.1:latest', author: 'Ollama Library', formats: ['gguf'],
+              pulls: 119100000, trustStatus: 'official', compatibility: 'compatible'
+            },
+            {
+              id: 'qwen3.6', repo: 'qwen3.6', name: 'qwen3.6',
+              url: 'ollama://qwen3.6:latest', author: 'Ollama Library', formats: ['gguf'],
+              pulls: 1400000, trustStatus: 'official', compatibility: 'compatible'
+            }
+          ],
+          total: 2, cursor: '0', nextCursor: null
+        });
+      }
       return reply({
         provider: 'huggingface',
         source: 'trendingScore',
@@ -443,6 +476,29 @@ BROWSER_API_MOCK = r"""
       const repo = url.searchParams.get('repo') || '';
       const cursor = url.searchParams.get('cursor') || '0';
       const firstPage = cursor === '0';
+      if (url.searchParams.get('provider') === 'ollama') {
+        return reply({
+          provider: 'ollama', baseModel: repo,
+          artifacts: [
+            {
+              id: repo + ':latest', repo: repo + ':latest', label: 'latest', name: repo + ':latest',
+              url: 'ollama://' + repo + ':latest', author: 'Ollama Library', revision: '6488c96fa5fa',
+              pipelineTag: 'text-generation', formats: ['gguf'], weightBytes: 6600000000,
+              downloadBytes: 6600000000, sizeLabel: '6.6GB', modelMaxContext: 262144,
+              quantization: null, trustStatus: 'official', compatibility: 'compatible', original: true
+            },
+            {
+              id: repo + ':9b-q4_K_M', repo: repo + ':9b-q4_K_M', label: '9b-q4_K_M', name: repo + ':9b-q4_K_M',
+              url: 'ollama://' + repo + ':9b-q4_K_M', author: 'Ollama Library', revision: '0123456789ab',
+              pipelineTag: 'text-generation', formats: ['gguf'], parameterCount: 9000000000,
+              weightBytes: 5800000000, downloadBytes: 5800000000, sizeLabel: '5.8GB', modelMaxContext: 262144,
+              quantization: { method: 'gguf', bits: 4, scheme: 'q4_k_m', label: 'GGUF Q4_K_M' },
+              trustStatus: 'official', compatibility: 'compatible', original: false
+            }
+          ],
+          total: 2, cursor, nextCursor: null
+        });
+      }
       return reply({
         provider: 'huggingface',
         baseModel: repo,
@@ -551,13 +607,14 @@ BROWSER_API_MOCK = r"""
       const minimumMi = cpu ? (ollama ? 1120 : 3072) : (ollama ? 1120 : 18000);
       const recommendedMi = cpu ? (ollama ? 1632 : 4096) : (ollama ? 1632 : 24000);
       return reply({
-        repo: ollama ? 'library/qwen2.5:0.5b' : String(body.url || '').replace(/^hf:\/\//, ''),
+        repo: ollama ? 'library/' + String(body.url || '').replace(/^ollama:\/\//, '') : String(body.url || '').replace(/^hf:\/\//, ''),
         engine: body.engine, computeTarget: body.computeTarget,
         memoryKind: cpu ? 'ram' : 'vram',
         minimumMi, recommendedMi, maximumMi: cpu ? null : 12288,
         weightsMi: ollama ? 384 : 14000,
-        downloadBytes: ollama ? 0 : 15000000000,
-        downloadSizeSource: ollama ? '' : 'huggingface-used-storage',
+        downloadBytes: ollama ? 5800000000 : 15000000000,
+        downloadSizeSource: ollama ? 'ollama-manifest' : 'huggingface-used-storage',
+        quantization: ollama ? { method: 'gguf', bits: 4, scheme: 'q4_k_m', label: 'GGUF Q4_K_M' } : null,
         kvCacheMi: ollama ? 256 : 2000,
         reserveMi: ollama ? 480 : 2000,
         recommendedReserveMi: ollama ? 512 : 6000,
@@ -1059,13 +1116,41 @@ BROWSER_ASSERTIONS = r"""
     assert(artifactSelect.value === 'int8', 'CPU preset quantization is incorrect');
     changeSelect(localModelSource, 'huggingface');
 
+    changeSelect(document.getElementById('local-model-form').elements.modelType, 'chat');
     changeSelect(engineSelect, 'OLlama');
     await waitFor(() => engineSelect.value === 'OLlama' && computeSelect.value === 'cpu', 'persistent Ollama and CPU selection');
     const ollamaTargets = Array.from(computeSelect.options).map((option) => option.value).filter(Boolean);
     assert(!ollamaTargets.includes('intel-gpu'), 'unsupported Ollama Intel target is visible');
-    assert(Array.from(localModelSource.options).map((option) => option.value).join(',') === 'preset,direct', 'Ollama sources must not include Hugging Face search');
-    assert(localModelSource.value === 'preset', 'Ollama did not fall back to a tested preset');
+    assert(Array.from(localModelSource.options).map((option) => option.value).join(',') === 'ollama,preset,direct', 'Ollama Library source is missing');
+    assert(localModelSource.value === 'ollama', 'Ollama Library is not the default Ollama source');
     assert(document.getElementById('huggingface-model-discovery').hidden, 'Hugging Face search is visible for Ollama');
+    assert(!document.getElementById('ollama-model-discovery').hidden, 'Ollama Library search is hidden');
+    await waitFor(() => document.querySelectorAll('#ollama-popular-models button').length === 2, 'popular Ollama models');
+    const ollamaQuery = document.getElementById('ollama-model-query');
+    const ollamaResults = document.getElementById('ollama-model-results');
+    const ollamaTags = document.getElementById('ollama-model-artifacts');
+    ollamaQuery.value = 'Qwen 3.6';
+    document.getElementById('ollama-model-search').click();
+    await waitFor(() => !ollamaResults.disabled && ollamaResults.options.length === 2, 'Ollama Library results');
+    const ollamaSearchCall = window.__dashboardBrowserCalls.filter((call) => call.path.startsWith('/api/model-discovery/search?provider=ollama')).at(-1);
+    assert(ollamaSearchCall.path.includes('engine=OLlama'), 'Ollama engine is missing from Library search');
+    assert(ollamaSearchCall.path.includes('computeTarget=cpu'), 'Ollama hardware is missing from Library search');
+    changeSelect(ollamaResults, 'qwen3.6');
+    await waitFor(() => !ollamaTags.disabled && ollamaTags.options.length === 2, 'Ollama tag options');
+    const ollamaArtifactCall = window.__dashboardBrowserCalls.filter((call) => call.path.startsWith('/api/model-discovery/artifacts?provider=ollama')).at(-1);
+    assert(ollamaArtifactCall.path.includes('repo=qwen3.6'), 'selected Ollama model is missing from tag lookup');
+    assert(ollamaTags.value === 'qwen3.6:latest', 'Ollama latest tag is not selected by default');
+    assert(document.getElementById('local-model-url').value === 'ollama://qwen3.6:latest', 'selected Ollama tag was not applied');
+    assert(document.getElementById('local-model-form').elements.contextWindow.value === '262144', 'Ollama context was not applied from the tag page');
+    assert(document.getElementById('local-model-form').elements.maxNumSeqs.value === '1', 'Ollama Library model did not start with one sequence');
+    assert(document.getElementById('ollama-model-metadata').textContent.includes('Download: 6.6GB'), 'Ollama Library download size is missing');
+    changeSelect(ollamaTags, 'qwen3.6:9b-q4_K_M');
+    assert(document.getElementById('local-model-url').value === 'ollama://qwen3.6:9b-q4_K_M', 'selected Ollama quantization was not applied');
+    assert(document.getElementById('ollama-model-metadata').textContent.includes('Quantization: GGUF Q4_K_M'), 'Ollama quantization metadata is missing');
+    assert(document.getElementById('ollama-model-metadata').textContent.includes('Parameters: 9.0B params'), 'Ollama parameter metadata is missing');
+    assert(document.getElementById('local-model-url-label').textContent === 'Selected Ollama Model', 'selected Ollama URL label is missing');
+    changeSelect(localModelSource, 'preset');
+    assert(document.getElementById('ollama-model-discovery').hidden, 'Ollama Library results remained visible for preset source');
     await waitFor(() => document.getElementById('local-model-url').value === 'ollama://qwen2.5:0.5b', 'Ollama preset fields');
     assert(artifactSelect.value === 'q4-k-m', 'default Ollama artifact was not selected');
     assert(document.getElementById('local-model-url-label').textContent === 'Ollama Model URL', 'Ollama URL label is missing');
@@ -1493,6 +1578,20 @@ class DashboardUserManagementUiTests(unittest.TestCase):
         self.assertIn('id="huggingface-artifact-load-more"', self.source)
         self.assertNotIn('id="huggingface-model-results" size=', self.source)
         self.assertNotIn('id="huggingface-model-artifacts" size=', self.source)
+        self.assertIn('id="ollama-model-discovery" hidden', self.source)
+        self.assertIn('id="ollama-model-query"', self.source)
+        self.assertIn('id="ollama-model-families"', self.source)
+        self.assertIn('data-ollama-query="Qwen"', self.source)
+        self.assertIn('data-ollama-query="DeepSeek"', self.source)
+        self.assertIn('data-ollama-query="GLM"', self.source)
+        self.assertIn('data-ollama-query="Llama"', self.source)
+        self.assertIn('data-ollama-query="Gemma"', self.source)
+        self.assertIn('data-ollama-query="Mistral"', self.source)
+        self.assertIn('id="ollama-popular-models"', self.source)
+        self.assertIn('Popular on Ollama', self.source)
+        self.assertIn('id="ollama-model-results"', self.source)
+        self.assertIn('id="ollama-model-artifacts"', self.source)
+        self.assertIn('Tag / quantization', self.source)
         self.assertNotIn('model-create-wizard', self.source)
         self.assertNotIn('model-create-step-label', self.source)
         self.assertNotIn('model-engine-back', self.source)
@@ -1556,9 +1655,13 @@ class DashboardUserManagementUiTests(unittest.TestCase):
         self.assertIn("const renderHuggingFaceMetadata = (item) =>", self.script)
         self.assertIn("const syncHuggingFaceEstimateMetadata = (estimate) =>", self.script)
         self.assertIn("const loadHuggingFacePopular = async (options = {}) =>", self.script)
+        self.assertIn("const searchOllamaModels = async (rawQuery, options = {}) =>", self.script)
+        self.assertIn("const loadOllamaPopular = async (options = {}) =>", self.script)
+        self.assertIn("const loadOllamaArtifacts = async (model, options = {}) =>", self.script)
+        self.assertIn("document.querySelectorAll('#ollama-model-families [data-ollama-query]')", self.script)
         self.assertIn("setFormValue(form, 'maxNumSeqs', 1);", self.script)
         self.assertIn("const selectLocalModelSource = (source) =>", self.script)
-        self.assertIn("engine === 'VLLM' ? ['huggingface', 'preset', 'direct'] : ['preset', 'direct']", self.script)
+        self.assertIn("engine === 'VLLM' ? ['huggingface', 'preset', 'direct'] : ['ollama', 'preset', 'direct']", self.script)
         self.assertIn("artifact: selectedLocalArtifact() || null", self.script)
         self.assertIn("payload.local.artifact = data.get('artifact').trim();", self.script)
         self.assertIn("targetSupportsEngine(target, engine)", self.script)

@@ -150,10 +150,24 @@ The selected repository's public `config.json` supplies its advertised maximum
 context as the initial editable context value. Newly configured dynamic models
 start conservatively with one parallel sequence.
 
-Ollama deliberately exposes only tested presets and direct `ollama://`
-references. Although Hugging Face contains GGUF files, the current Ollama
-integration cannot select one GGUF file from a repository and register it as an
-Ollama model; that requires a separate import or Modelfile lifecycle.
+Ollama adds an **Ollama Library** source beside tested presets and direct
+`ollama://` references. It provides the same compact model-family shortcuts as
+the Hugging Face flow plus a live list from Ollama's popularity order. Search is
+prefix-oriented. Selecting a model loads its public tags; each locally runnable
+tag becomes a selectable artifact with its advertised download size, context,
+parameter count when encoded in the tag, and quantization when encoded in the
+tag. Cloud-only tags are excluded because they are not local model artifacts.
+
+The Ollama website does not publish a documented remote catalog API. The
+dashboard therefore reads only the public `ollama.com` search, library, and tag
+pages through a bounded server-side adapter with a short-lived cache, fixed host
+allowlist, response limit, and timeout. If that presentation changes or the
+service is unavailable, tested presets and direct references remain usable.
+After tag selection, the existing registry-manifest lookup replaces the
+advertised size with exact model-layer bytes and also refines the quantization
+when the manifest's source metadata declares it. This is discovery of published
+Ollama tags, not an import of arbitrary Hugging Face GGUF files; the latter still
+requires a separate import or Modelfile lifecycle.
 
 After a preset is selected, **Precision / Quantization** lists only the
 artifacts declared by that engine/target variant. Selecting an artifact changes

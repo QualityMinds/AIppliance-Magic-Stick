@@ -706,6 +706,7 @@ class LocalRuntimeTests(unittest.TestCase):
         self.server["ollama_metadata"] = lambda reference: {
             "reference": reference,
             "modelBytes": 384 * 1024 * 1024,
+            "quantization": {"method": "gguf", "bits": 4, "label": "GGUF Q4_K_M"},
         }
         self.server["vram_summary"] = lambda _activations: {"available": False}
         self.server["model_activations"] = lambda: []
@@ -724,6 +725,7 @@ class LocalRuntimeTests(unittest.TestCase):
                 self.assertEqual(estimate["repo"], "library/qwen2.5:0.5b")
                 self.assertEqual(estimate["calculationSource"], "ollama-registry-manifest")
                 self.assertEqual(estimate["weightsMi"], 384)
+                self.assertEqual(estimate["quantization"]["label"], "GGUF Q4_K_M")
                 self.assertGreater(estimate["minimumMi"], estimate["weightsMi"])
                 self.assertGreater(estimate["recommendedMi"], estimate["minimumMi"])
 
@@ -746,7 +748,7 @@ class LocalRuntimeTests(unittest.TestCase):
             requested.append(url)
             return {
                 "layers": [
-                    {"mediaType": "application/vnd.ollama.image.model", "size": 300},
+                    {"mediaType": "application/vnd.ollama.image.model", "size": 300, "from": "source:model-q4_K_M"},
                     {"mediaType": "application/vnd.ollama.image.adapter", "size": 50},
                     {"mediaType": "application/vnd.ollama.image.license", "size": 9999},
                 ]
@@ -758,6 +760,7 @@ class LocalRuntimeTests(unittest.TestCase):
 
         self.assertEqual(reference["reference"], "team/model:v1")
         self.assertEqual(metadata["modelBytes"], 350)
+        self.assertEqual(metadata["quantization"]["label"], "GGUF Q4_K_M")
         self.assertEqual(requested, ["https://registry.ollama.ai/v2/team/model/manifests/v1"])
 
     def test_dashboard_renders_starting_model_phase_as_progress(self):
@@ -1344,7 +1347,7 @@ class HuggingFaceDiscoveryTests(unittest.TestCase):
         self.server["fetch_hf_discovery_json"] = lambda *_args, **_kwargs: self.fail("network must not be used")
         invalid_searches = (
             {},
-            {"q": ["Qwen"], "provider": ["ollama"]},
+            {"q": ["Qwen"], "provider": ["unknown"]},
             {"q": ["Qwen"], "sort": ["stars"]},
             {"q": ["Qwen"], "limit": ["51"]},
             {"q": ["Qwen"], "modelType": ["vision"]},
@@ -1439,6 +1442,194 @@ class HuggingFaceDiscoveryTests(unittest.TestCase):
             self.assertEqual(responses[-1], ({"limit": "5"}, 200))
         finally:
             self.server.update(originals)
+
+
+class OllamaDiscoveryTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.server = load_server()
+
+    def setUp(self):
+        self.original_fetch = self.server["fetch_ollama_discovery_html"]
+        self.server["HF_DISCOVERY_CACHE"].clear()
+        self.search_html = """
+        <ul>
+          <li><a href="/library/qwen3.6"><h2><span>qwen3.6</span></h2>
+            <p>Qwen 3.6 model family.</p><span>vision</span><span>27b</span>
+            <span>1.4M</span><span>Pulls</span><span>12</span><span>Tags</span></a></li>
+          <li><a href="/library/not-qwen"><h2>not-qwen</h2>
+            <p>Contains the word but is not a prefix.</p><span>5M</span><span>Pulls</span></a></li>
+          <li><a href="/library/qwen3-embedding"><h2>qwen3-embedding</h2>
+            <p>Embedding model.</p><span>20K</span><span>Pulls</span></a></li>
+        </ul>
+        <li hx-get="/search?page=2&amp;q=qwen"></li>
+        """
+        self.tags_html = """
+        <div><a href="/library/qwen3.6:latest"><span>qwen3.6:latest</span>
+          <span>6488c96fa5fa</span> • 18GB • 256K context window • Text input</a></div>
+        <div><a href="/library/qwen3.6:27b-q4_K_M"><span>qwen3.6:27b-q4_K_M</span>
+          <span>0123456789ab</span> • 16.4GB • 256K context window • Text input</a></div>
+        <div><a href="/library/qwen3.6:27b-q4_K_M"><span>duplicate desktop row</span>
+          <span>0123456789ab</span> • 16.4GB • 256K context window • Text input</a></div>
+        <div><a href="/library/qwen3.6:cloud"><span>qwen3.6:cloud</span> • Medium Usage • 256K context window</a></div>
+        """
+
+    def tearDown(self):
+        self.server["fetch_ollama_discovery_html"] = self.original_fetch
+        self.server["HF_DISCOVERY_CACHE"].clear()
+
+    def test_prefix_search_parses_library_cards_and_filters_model_type(self):
+        calls = []
+
+        def fake_fetch(url):
+            calls.append(url)
+            return self.search_html
+
+        self.server["fetch_ollama_discovery_html"] = fake_fetch
+        result = self.server["model_discovery_search"]({
+            "provider": ["ollama"],
+            "q": ["Qwen 3.6"],
+            "engine": ["OLlama"],
+            "computeTarget": ["cpu"],
+            "modelType": ["chat"],
+            "limit": ["20"],
+        })
+
+        self.assertEqual([item["repo"] for item in result["results"]], ["qwen3.6"])
+        self.assertEqual(result["results"][0]["pulls"], 1_400_000)
+        self.assertEqual(result["results"][0]["tagCount"], 12)
+        self.assertEqual(result["results"][0]["formats"], ["gguf"])
+        self.assertEqual(result["results"][0]["compatibility"], "compatible")
+        self.assertEqual(result["source"], "ollama-library-search")
+        self.assertFalse(result["truncated"])
+        self.assertEqual(len(calls), 1)
+        self.assertIn("https://ollama.com/search?", calls[0])
+        self.assertIn("q=Qwen+3.6", calls[0])
+
+    def test_embedding_search_excludes_chat_models(self):
+        self.server["fetch_ollama_discovery_html"] = lambda _url: self.search_html.replace(
+            "page=2&amp;q=qwen", "q=qwen"
+        )
+        result = self.server["model_discovery_search"]({
+            "provider": ["ollama"],
+            "q": ["Qwen"],
+            "engine": ["OLlama"],
+            "modelType": ["embedding"],
+        })
+
+        self.assertEqual([item["repo"] for item in result["results"]], ["qwen3-embedding"])
+
+    def test_popular_models_are_read_from_ollama_library(self):
+        self.server["fetch_ollama_discovery_html"] = lambda url: self.search_html
+        result = self.server["model_discovery_popular"]({
+            "provider": ["ollama"],
+            "engine": ["OLlama"],
+            "computeTarget": ["nvidia-gpu"],
+            "modelType": ["chat"],
+            "limit": ["1"],
+        })
+
+        self.assertEqual(result["source"], "ollama-library-popular")
+        self.assertEqual(result["results"][0]["repo"], "qwen3.6")
+        self.assertEqual(result["nextCursor"], "1")
+
+    def test_tag_discovery_exposes_size_context_and_quantization(self):
+        self.server["fetch_ollama_discovery_html"] = lambda _url: self.tags_html
+        result = self.server["model_discovery_artifacts"]({
+            "provider": ["ollama"],
+            "repo": ["qwen3.6"],
+            "engine": ["OLlama"],
+            "computeTarget": ["amd-gpu"],
+            "modelType": ["chat"],
+        })
+
+        self.assertEqual(result["total"], 2)
+        self.assertEqual([item["repo"] for item in result["artifacts"]], [
+            "qwen3.6:latest",
+            "qwen3.6:27b-q4_K_M",
+        ])
+        artifact = result["artifacts"][1]
+        self.assertEqual(artifact["url"], "ollama://qwen3.6:27b-q4_K_M")
+        self.assertEqual(artifact["downloadBytes"], 16_400_000_000)
+        self.assertEqual(artifact["sizeLabel"], "16.4GB")
+        self.assertEqual(artifact["modelMaxContext"], 262144)
+        self.assertEqual(artifact["parameterCount"], 27_000_000_000)
+        self.assertEqual(artifact["quantization"], {
+            "method": "gguf",
+            "bits": 4,
+            "scheme": "q4_k_m",
+            "label": "GGUF Q4_K_M",
+        })
+        self.assertEqual(artifact["revision"], "0123456789ab")
+
+    def test_ollama_discovery_rejects_unsupported_runtime_and_urls(self):
+        self.server["fetch_ollama_discovery_html"] = lambda _url: self.fail("network must not be used")
+        invalid = (
+            {"provider": ["ollama"], "q": ["Q"], "engine": ["OLlama"]},
+            {"provider": ["ollama"], "q": ["Qwen"], "engine": ["VLLM"]},
+            {"provider": ["ollama"], "q": ["Qwen"], "engine": ["OLlama"], "computeTarget": ["intel-gpu"]},
+        )
+        for query in invalid:
+            with self.subTest(query=query), self.assertRaises(self.server["RequestError"]):
+                self.server["model_discovery_search"](query)
+
+        with self.assertRaises(ValueError):
+            self.server["validate_ollama_discovery_url"]("https://attacker.example/search?q=qwen")
+        with self.assertRaises(ValueError):
+            self.server["validate_ollama_discovery_url"]("https://ollama.com/api/private")
+        with self.assertRaises(ValueError):
+            self.server["validate_ollama_discovery_url"]("https://ollama.com/search?redirect=https://attacker.example")
+
+    def test_ollama_fetcher_is_host_pinned_redirect_safe_and_bounded(self):
+        original_urlopen = self.server["urllib"].request.urlopen
+        calls = []
+
+        class Response:
+            def __init__(self, body, final_url="https://ollama.com/search?q=qwen", content_length=None):
+                self.body = body
+                self.final_url = final_url
+                self.headers = {"Content-Length": str(content_length)} if content_length else {}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def geturl(self):
+                return self.final_url
+
+            def read(self, maximum):
+                return self.body[:maximum]
+
+        def fake_urlopen(request, timeout, context):
+            calls.append((request.full_url, timeout, context))
+            return Response(b"<html>models</html>")
+
+        self.server["urllib"].request.urlopen = fake_urlopen
+        try:
+            document = self.server["fetch_ollama_discovery_html"](
+                "https://ollama.com/search?q=qwen"
+            )
+            self.assertEqual(document, "<html>models</html>")
+            self.assertEqual(calls[0][1], self.server["OLLAMA_DISCOVERY_TIMEOUT_SECONDS"])
+
+            self.server["urllib"].request.urlopen = lambda *_args, **_kwargs: Response(
+                b"<html></html>",
+                final_url="https://attacker.example/search?q=qwen",
+            )
+            with self.assertRaises(ValueError):
+                self.server["fetch_ollama_discovery_html"]("https://ollama.com/search?q=qwen")
+
+            self.server["urllib"].request.urlopen = lambda *_args, **_kwargs: Response(
+                b"<html></html>",
+                content_length=self.server["OLLAMA_DISCOVERY_MAX_RESPONSE_BYTES"] + 1,
+            )
+            with self.assertRaises(self.server["RequestError"]) as raised:
+                self.server["fetch_ollama_discovery_html"]("https://ollama.com/search?q=qwen")
+            self.assertEqual(raised.exception.status, 502)
+        finally:
+            self.server["urllib"].request.urlopen = original_urlopen
 
 
 class SettingsTests(unittest.TestCase):
