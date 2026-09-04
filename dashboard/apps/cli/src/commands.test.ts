@@ -52,4 +52,62 @@ describe('runCli', () => {
 
     expect(launch).toHaveBeenCalledWith(expect.anything(), {color: false, refreshSeconds: 20});
   });
+
+  it('uses device login before opening the appliance console when no session exists', async () => {
+    const output = io();
+    const launch = vi.fn(async () => undefined);
+    const session = vi.fn()
+      .mockRejectedValueOnce(new Error('Not signed in. Run `magicstick login` first.'))
+      .mockResolvedValue({subject: '1', username: 'tova', roles: ['magicstick-admin']});
+    const consoleRuntime = runtime({session} as Partial<MagicStickApi>);
+    consoleRuntime.login = vi.fn(async (_openBrowser, prompt) => prompt?.({
+      verificationUri: 'https://id.magicstick.local/device',
+      userCode: 'ABCD-EFGH',
+    }));
+
+    await runCli(['console'], output.supplied, {
+      createRuntime: async () => consoleRuntime,
+      runTui: launch,
+    });
+
+    expect(consoleRuntime.logout).toHaveBeenCalledOnce();
+    expect(consoleRuntime.login).toHaveBeenCalledWith(false, expect.any(Function));
+    expect(output.stdout()).toContain('ABCD-EFGH');
+    expect(output.stdout()).toContain('Angemeldet als tova');
+    expect(launch).toHaveBeenCalledOnce();
+  });
+
+  it('does not replace a network failure with a new console login', async () => {
+    const output = io();
+    const consoleRuntime = runtime({session: vi.fn(async () => { throw new Error('network unavailable'); })} as Partial<MagicStickApi>);
+
+    await expect(runCli(['console'], output.supplied, {
+      createRuntime: async () => consoleRuntime,
+      runTui: vi.fn(async () => undefined),
+    })).rejects.toThrow('network unavailable');
+
+    expect(consoleRuntime.login).not.toHaveBeenCalled();
+    expect(consoleRuntime.logout).not.toHaveBeenCalled();
+  });
+
+  it('passes an explicit appliance CA to the runtime', async () => {
+    const output = io();
+    const modules = vi.fn(async () => ({modules: {}}));
+    const createRuntime = vi.fn(async () => runtime({modules} as Partial<MagicStickApi>));
+
+    await runCli(['--ca-file', '/tmp/magicstick-ca.crt', 'service', 'list'], output.supplied, {createRuntime});
+
+    expect(createRuntime).toHaveBeenCalledWith(expect.objectContaining({caFile: '/tmp/magicstick-ca.crt'}));
+  });
+
+  it('requires an explicit warning when TLS verification is disabled', async () => {
+    const output = io();
+    const modules = vi.fn(async () => ({modules: {}}));
+    const createRuntime = vi.fn(async () => runtime({modules} as Partial<MagicStickApi>));
+
+    await runCli(['--insecure', 'service', 'list'], output.supplied, {createRuntime});
+
+    expect(output.stderr()).toContain('TLS certificate verification is disabled');
+    expect(createRuntime).toHaveBeenCalledWith(expect.objectContaining({insecure: true}));
+  });
 });

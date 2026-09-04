@@ -84,6 +84,7 @@ class FirstRunConsoleTests(unittest.TestCase):
             "{{ setup_claim_length | quote }}": shlex.quote("8"),
             "{{ setup_claim_alphabet | quote }}": shlex.quote("0123456789abcdefghjkmnpqrstvwxyz"),
             "{{ setup_resource_name | quote }}": shlex.quote("local"),
+            "{{ setup_dashboard_console_service | quote }}": shlex.quote("magicstick-dashboard-console.service"),
         }
         for source, target in replacements.items():
             rendered = rendered.replace(source, target)
@@ -160,6 +161,7 @@ class FirstRunConsoleTests(unittest.TestCase):
     def test_systemd_console_is_deferred_until_cloud_final(self):
         tasks = TASKS.read_text(encoding="utf-8")
         self.assertIn("After=cloud-final.service k3s.service network-online.target", tasks)
+        self.assertIn("Conflicts={{ setup_dashboard_console_service }}", tasks)
         self.assertIn("ConditionPathExists={{ setup_claim_file }}", tasks)
         self.assertIn("ExecStartPre=-/usr/bin/chvt 9", tasks)
         self.assertIn("ExecStart=/usr/local/sbin/magicstick setup console --hold", tasks)
@@ -177,6 +179,8 @@ class FirstRunConsoleTests(unittest.TestCase):
         self.assertIn("CONSOLE_REFRESH_SECONDS=30", template)
         self.assertIn("render_console_setup || true", template)
         self.assertIn("SICHERE ERSTEINRICHTUNG", template)
+        self.assertIn('systemctl start --no-block "$SETUP_CLEANUP_SERVICE"', template)
+        self.assertIn('systemctl start --no-block "$DASHBOARD_CONSOLE_SERVICE"', template)
 
 
 if __name__ == "__main__":

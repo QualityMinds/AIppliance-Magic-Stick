@@ -145,10 +145,17 @@ catalog-backed instance payloads, model estimation and lifecycle, settings,
 the complete local-user lifecycle, named API keys, and Kubernetes access and
 kubeconfig generation.
 
-The interactive `magicstick tui` command is deliberately a read/monitor view.
-It exposes the same role-filtered areas as the React application, refreshes the
-shared snapshot automatically, and keeps state changes in auditable CLI
-commands rather than assigning actions to single key presses.
+The interactive `magicstick tui` command exposes the same role-filtered areas
+as the React application and refreshes the shared snapshot automatically. It is
+also a lifecycle client: operators can enable or disable catalog services and
+create or remove local and external models; administrators can perform the
+local-user lifecycle, create and revoke named API keys, and assign or revoke
+SSO-backed Kubernetes access. The TUI calls the same authenticated API client
+as the explicit CLI commands, preserves API authorization checks, confirms
+destructive actions, masks passwords, and shows API-key secrets only once.
+Token-free kubeconfigs can be copied with the terminal's OSC 52 clipboard
+protocol. Instance creation remains available in the browser or through the
+complete JSON-payload CLI command.
 
 The default endpoints are:
 
@@ -176,14 +183,44 @@ pnpm build
 pnpm cli --help
 pnpm cli login
 pnpm tui
+pnpm cli console
 ```
 
 Use `MAGICSTICK_API_URL`, `MAGICSTICK_ISSUER`, and
 `MAGICSTICK_CLIENT_ID` for a non-default deployment. A caller may provide an
 existing short-lived token through `MAGICSTICK_ACCESS_TOKEN`; it is not cached.
-For the appliance-local CA, make Node trust an exported CA with
-`NODE_EXTRA_CA_CERTS=/path/to/magicstick-ca.pem`. Do not disable TLS
-verification.
+The CLI also uses CAs trusted by the operating system. If the appliance-local
+CA has not been installed there, pass its public certificate once with
+`pnpm cli --ca-file /path/to/magicstick-oidc-ca.crt login`. The path is saved
+in the private CLI configuration for later CLI and TUI calls. Alternatively,
+set `MAGICSTICK_CA_FILE` or
+`NODE_EXTRA_CA_CERTS=/path/to/magicstick-oidc-ca.crt`. For a disposable test
+appliance on a trusted network, `--insecure` is an explicit escape hatch: it
+disables TLS verification only for that CLI process, prints a warning, and is
+never saved. Prefer the CA-based path for normal use.
+
+### Physical appliance console
+
+Bare-metal and Linux-host installations automatically display the TUI on the
+attached monitor after first-run setup is complete. The setup claim page and
+the operational TUI share virtual terminal 9 but never run concurrently:
+
+1. `magicstick-setup-console.service` owns terminal 9 while the one-time claim
+   exists.
+2. Successful setup removes the claim and starts
+   `magicstick-dashboard-console.service`.
+3. The console requests a Keycloak device login if it has no usable cached SSO
+   session, then starts `magicstick console`.
+
+The terminal client is packaged into a dedicated Node.js CLI runtime image and
+executed in a dedicated runtime Deployment with no Service, no ingress and no
+Kubernetes service-account token. API and token polling traffic uses cluster-internal
+transport while the token issuer and browser verification address remain the
+canonical `id.<mDNS-domain>` URL. The persistent session directory is mounted
+only into that runtime and stores mode-`0600` token data; no password or client
+secret is provisioned. Press `x` in the TUI to remove the local session and
+authorize a different user. Pressing `q` exits the current process, after which
+the appliance service restores the TUI automatically.
 
 | Method | Path | Behavior |
 |---|---|---|
@@ -521,8 +558,9 @@ For Ollama, **Model source** offers three persistent choices:
 
 The tag selection displays the download size and advertised context from the
 public Ollama tag page and starts with **Max Num Seqs = 1**. After selection, the
-registry manifest supplies exact model-layer bytes to the memory estimator and
-can refine the quantization from its source metadata. Cloud-only tags are not
+registry manifest supplies exact model-layer bytes and the estimator reads only
+a bounded GGUF-header range for architecture dimensions. It can also refine the
+quantization from source metadata. Cloud-only tags are not
 offered. The public Ollama Library is an HTML interface rather than a documented
 catalog API, so the backend uses a bounded, cached adapter and leaves presets and
 direct references available when discovery fails. Hugging Face discovery remains
@@ -548,9 +586,11 @@ The dashboard calls `POST /api/models/estimate-memory` for every supported local
 combination: vLLM on CPU, NVIDIA, AMD, and Intel, plus Ollama on CPU, NVIDIA,
 and AMD. vLLM estimates use public HuggingFace weight and model-configuration
 metadata. Ollama estimates use the exact runtime-layer byte total from the
-public Ollama registry manifest; because that manifest does not expose all GGUF
-attention dimensions, its KV-cache component is a conservative estimate based
-on model size, context, and parallel sequences and is labelled **Estimated**.
+public registry manifest and attention, recurrent-state, GQA, hybrid-layer, and
+context dimensions from the GGUF header. Only the first bounded header range is
+requested; model tensors are not downloaded by the estimator. If a registry
+proxy cannot serve that range, the API retains the conservative manifest-only
+calculation and reports that fallback explicitly.
 
 Both the RAM and VRAM controls use unreserved memory (`total memory - active
 model reservations`) as their 100-percent slider maximum. The separate live
@@ -559,11 +599,12 @@ values are marked on the same scale. If either estimate exceeds unreserved
 capacity, its marker remains visible in a gray overflow section to the right of
 the slider; the selected allocation itself never exceeds unreserved capacity.
 The React dashboard's collapsible **Breakdown** separates model weights, the base KV-cache
-estimate, hybrid-allocator safety, engine runtime components, recommendation
-headroom, and download size. For vLLM hybrid models, the UI labels the
+estimate, recurrent state where applicable, hybrid-allocator safety, engine
+runtime components, recommendation headroom, and download size. For vLLM hybrid models, the UI labels the
 architecture-derived KV value as **Theoretical KV cache** and shows the extra
 compatibility budget independently instead of presenting their sum as physical
-cache use. CPU vLLM runtime reserve is split into compile/warm-up headroom, the
+cache use. Ollama hybrid models show attention KV and their context-independent
+recurrent state separately. CPU vLLM runtime reserve is split into compile/warm-up headroom, the
 multimodal processor cache, and a quantization working copy when applicable.
 Download size is storage/network information and is explicitly not included in
 the memory total. Every displayed recommendation and selectable reservation is

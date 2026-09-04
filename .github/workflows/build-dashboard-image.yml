@@ -80,6 +80,21 @@ jobs:
             org.opencontainers.image.licenses=Apache-2.0
             org.opencontainers.image.revision=${{ github.sha }}
 
+      - name: Generate CLI runtime image metadata
+        id: cli-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=cli-sha-,format=long
+            type=raw,value=console
+          labels: |
+            org.opencontainers.image.title=MagicStick CLI and TUI runtime
+            org.opencontainers.image.description=Private runtime image for the physical MagicStick console
+            org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick
+            org.opencontainers.image.licenses=Apache-2.0
+            org.opencontainers.image.revision=${{ github.sha }}
+
       - name: Build and push multi-architecture image
         uses: docker/build-push-action@v6
         with:
@@ -91,5 +106,19 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=magicstick-dashboard
           cache-to: type=gha,mode=max,scope=magicstick-dashboard
+          provenance: mode=max
+          sbom: true
+
+      - name: Build and push multi-architecture CLI runtime image
+        uses: docker/build-push-action@v6
+        with:
+          context: dashboard
+          file: dashboard/apps/cli/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.cli-meta.outputs.tags }}
+          labels: ${{ steps.cli-meta.outputs.labels }}
+          cache-from: type=gha,scope=magicstick-dashboard-cli
+          cache-to: type=gha,mode=max,scope=magicstick-dashboard-cli
           provenance: mode=max
           sbom: true

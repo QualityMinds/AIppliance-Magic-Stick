@@ -134,6 +134,38 @@ without printing the claim into a remote log:
 sudo systemctl status magicstick-setup-console.service --no-pager
 ```
 
+After the first-run state becomes `Completed`, the cleanup service removes the
+claim and hands the same virtual terminal to the operational TUI:
+
+```bash
+sudo systemctl status magicstick-dashboard-console.service --no-pager
+sudo k3s kubectl -n identity-system get deployment,pod \
+  -l app.kubernetes.io/name=magicstick-dashboard-console
+```
+
+The monitor shows a one-time Keycloak device-login code when no usable console
+session exists. Authorize it from a browser on the local network; the TUI then
+loads automatically. The console stores only the resulting SSO token state in
+`/var/lib/magicstick/dashboard-console` with private permissions. It does not
+store the user's password. `Ctrl+Alt+F1` opens the normal system console and
+`Ctrl+Alt+F9` returns to Magic Stick. Inside the TUI, `x` signs out and starts a
+new device login; `q` exits the current TUI process, which the service starts
+again after a short delay.
+
+If terminal 9 remains on the setup page after completion, inspect both handoff
+units and trigger the idempotent cleanup once:
+
+```bash
+sudo systemctl start magicstick-setup-cleanup.service
+sudo systemctl restart magicstick-dashboard-console.service
+```
+
+If the waiting page reports that the runtime is not ready, verify that the
+current CLI runtime image contains `/usr/local/bin/magicstick-dashboard`. The
+runtime liveness probe restarts an outdated container so `imagePullPolicy:
+Always` can pick up the current image without exposing the runtime on the
+network.
+
 Use `sudo magicstick setup show` only in a trusted local or SSH session because
 it prints the active claim before setup completion.
 
@@ -240,9 +272,14 @@ URL and one-time code. It does not ask for the Keycloak password in the shell.
 Configuration and the renewable session are stored below
 `$XDG_CONFIG_HOME/magicstick`, or `~/.config/magicstick` when that variable is
 unset; the session file is mode `0600`.
-Run `pnpm cli logout` to remove it. If Node does not trust the appliance-local
-CA, export that CA and run with
-`NODE_EXTRA_CA_CERTS=/path/to/magicstick-ca.pem`; never use a TLS-disable flag.
+Run `pnpm cli logout` to remove it. The CLI includes the operating system trust
+store. If the appliance-local CA is not installed there, export its public
+certificate and run the first login with
+`pnpm cli --ca-file /path/to/magicstick-oidc-ca.crt login`; the CLI saves the
+path for later calls. `MAGICSTICK_CA_FILE` and `NODE_EXTRA_CA_CERTS` are also
+supported. On a disposable appliance in a trusted test network, `--insecure`
+disables TLS verification for the current process only, emits a warning, and
+is not persisted. Do not use it for production access.
 
 The primary command groups are `service`, `instance`, `model`, `settings`,
 `user`, `api-key`, and `kubernetes-access`. Destructive and configuration
@@ -251,6 +288,16 @@ creation accept a JSON payload with `--file`, allowing the same complete API
 contract as the React forms without a second set of client-side reconciliation
 rules. User passwords are accepted only through `--password-file` or
 `--password-stdin`.
+
+Inside `magicstick tui`, left/right or `h`/`l` changes tabs and up/down or
+`k`/`j` selects a row. The footer lists only the actions available on the
+current role and tab. `a` enables or creates, `d` disables, removes, or revokes,
+and `e`/Enter opens user or Kubernetes access management. TUI forms use Tab or
+Enter to advance, arrow keys to change a choice, Ctrl+S to submit, Ctrl+U to
+clear the active value, and Escape to cancel. Password fields are masked.
+New API-key values are displayed only in the completion dialog and can be
+copied with `c`; Kubernetes kubeconfigs use `c` directly on the selected user.
+Clipboard transfer uses OSC 52 and therefore depends on terminal support.
 
 Check the cluster-side terminal access path with:
 
@@ -584,9 +631,11 @@ never exceeds planning capacity. The React dashboard breakdown separates weights
 or estimated KV cache, hybrid-allocator safety, compile/warm-up headroom,
 multimodal processor cache, quantization working copy, generic engine reserve,
 and recommendation headroom. Download size is shown as storage/network context
-and is not added to the memory requirement. Ollama's registry manifest provides
-exact model-layer bytes, while its KV-cache component remains a conservative
-estimate because full GGUF dimensions are not present in the manifest.
+and is not added to the memory requirement. For Ollama, exact model-layer bytes
+come from the registry manifest and cache dimensions come from a bounded range
+of the GGUF header. Hybrid models show attention KV and recurrent state
+separately. If a registry proxy blocks ranged blob reads, the API reports and
+uses the conservative manifest-only fallback.
 
 For a CPU target, the selected value becomes the model pod's Kubernetes memory
 request in 16 MiB units. Check the requested value after creation:
@@ -671,7 +720,7 @@ deploy,pods` if a command does not match the running resource name.
 | Dashboard returns `403` after login | Confirm the user has `magicstick-viewer`, `magicstick-operator`, or `magicstick-admin`; configuration changes need operator or admin as documented in `authentication.md`. |
 | `magicstick login` cannot resolve `api.magicstick.local` | Confirm `dashboard-api-local` is accepted, carries `lab42.io/mdns.enabled: "true"`, the Gateway has an address, and kdns has published the route. Override `MAGICSTICK_API_URL` only for the actual appliance hostname. |
 | `magicstick login` reports that no device endpoint is advertised | Confirm the `magicstick-cli` client exists in the `magicstick` realm with Device Authorization Grant enabled, and let the Keycloak post-start reconciliation complete. |
-| CLI/TUI reports a local certificate verification error | Export and trust the Magic Stick local CA with `NODE_EXTRA_CA_CERTS`. Do not set `NODE_TLS_REJECT_UNAUTHORIZED=0`. |
+| CLI/TUI reports a local certificate verification error | Trust the public Magic Stick CA in the operating system or run the first login with `--ca-file /path/to/magicstick-oidc-ca.crt`. `MAGICSTICK_CA_FILE` and `NODE_EXTRA_CA_CERTS` are also supported. For a disposable system on a trusted test network only, use `--insecure`; it is process-local and prints a warning. |
 | CLI receives `401 access token client is not trusted` | Confirm the dashboard API Deployment uses `OIDC_EXPECTED_CLIENT_IDS=magicstick-human-gateway-local,magicstick-cli`, then log in again so the token has `azp=magicstick-cli`. |
 | Users tab is missing for an administrator | Confirm the session contains `magicstick-admin` and the installation uses local Keycloak rather than the direct-external-provider escape hatch. Refresh the browser after role changes. |
 | Users tab reports that Keycloak is unavailable | Check Keycloak readiness, the dashboard API logs, the existence of `magicstick-user-admin-client`, and its exact-name Secret Role. Do not decode the Secret. |

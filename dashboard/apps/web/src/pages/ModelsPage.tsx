@@ -39,6 +39,9 @@ const EstimateBreakdown = ({estimate}: {estimate: MemoryEstimate}) => {
   const hasTheoreticalKv = estimate.theoreticalKvCacheMi !== null && estimate.theoreticalKvCacheMi !== undefined;
   const baseKvMi = Number(hasTheoreticalKv ? estimate.theoreticalKvCacheMi : kvBudgetMi);
   const hybridSafetyMi = Number(estimate.hybridAllocatorSafetyMi ?? Math.max(0, kvBudgetMi - baseKvMi));
+  const attentionKvMi = Number(runtime.attentionKvCacheMi ?? 0);
+  const recurrentStateMi = Number(runtime.recurrentStateMi ?? 0);
+  const hasDetailedOllamaCache = attentionKvMi > 0 || recurrentStateMi > 0;
   const runtimeParts = [
     {label: 'Compile / warm-up', value: Number(runtime.compileReserveMi ?? 0)},
     {label: 'Multimodal processor cache', value: Number(runtime.multimodalReserveMi ?? 0)},
@@ -49,7 +52,12 @@ const EstimateBreakdown = ({estimate}: {estimate: MemoryEstimate}) => {
   const otherRuntimeMi = Math.max(0, Number(estimate.reserveMi ?? 0) - explainedRuntimeMi);
   const cards = [
     {label: 'Weights', value: formatMi(estimate.weightsMi)},
-    {label: hasTheoreticalKv ? 'Theoretical KV cache' : 'Estimated KV cache', value: formatMi(baseKvMi)},
+    ...(hasDetailedOllamaCache
+      ? [
+          {label: 'Attention KV cache', value: formatMi(attentionKvMi)},
+          ...(recurrentStateMi > 0 ? [{label: 'Recurrent state cache', value: formatMi(recurrentStateMi)}] : []),
+        ]
+      : [{label: hasTheoreticalKv ? 'Theoretical KV cache' : 'Estimated KV cache', value: formatMi(baseKvMi)}]),
     ...(hybridSafetyMi > 0 ? [{label: 'Hybrid allocator safety', value: formatMi(hybridSafetyMi)}] : []),
     ...runtimeParts.map((item) => ({label: item.label, value: formatMi(item.value)})),
     ...(otherRuntimeMi > 0 ? [{label: 'Other runtime reserve', value: formatMi(otherRuntimeMi)}] : []),

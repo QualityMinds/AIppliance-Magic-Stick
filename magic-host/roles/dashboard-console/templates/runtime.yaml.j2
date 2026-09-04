@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ dashboard_console_deployment }}
+  namespace: {{ dashboard_console_namespace }}
+  labels:
+    app.kubernetes.io/name: magicstick-dashboard-console
+    app.kubernetes.io/component: local-console-runtime
+    app.kubernetes.io/managed-by: magicstick-host
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: magicstick-dashboard-console
+      app.kubernetes.io/component: local-console-runtime
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: magicstick-dashboard-console
+        app.kubernetes.io/component: local-console-runtime
+    spec:
+      nodeName: {{ dashboard_console_node_name }}
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: {{ dashboard_console_runtime_uid }}
+        runAsGroup: {{ dashboard_console_runtime_gid }}
+        fsGroup: {{ dashboard_console_runtime_gid }}
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: runtime
+          image: {{ dashboard_console_image }}
+          imagePullPolicy: Always
+          command:
+            - /bin/sh
+            - -ec
+          args:
+            - while true; do sleep 3600; done
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -ec
+                - test -x /usr/local/bin/magicstick-dashboard && /usr/local/bin/node --version >/dev/null
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 12
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -ec
+                - test -x /usr/local/bin/magicstick-dashboard && /usr/local/bin/node --version >/dev/null
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 5m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: state
+              mountPath: /var/lib/magicstick-console
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: state
+          hostPath:
+            path: {{ dashboard_console_state_directory }}
+            type: Directory
+        - name: tmp
+          emptyDir: {}

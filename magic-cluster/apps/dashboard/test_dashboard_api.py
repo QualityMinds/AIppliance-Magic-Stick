@@ -1,6 +1,7 @@
 import base64
 import io
 import pathlib
+import struct
 import threading
 import time
 import unittest
@@ -10,6 +11,32 @@ import yaml
 
 
 ROOT = pathlib.Path(__file__).resolve().parent
+
+
+def gguf_metadata_document(entries):
+    def string(value):
+        encoded = value.encode("utf-8")
+        return struct.pack("<Q", len(encoded)) + encoded
+
+    def value(item):
+        if isinstance(item, str):
+            return 8, string(item)
+        if isinstance(item, bool):
+            return 7, struct.pack("<?", item)
+        if isinstance(item, list):
+            subtype = 7 if all(isinstance(element, bool) for element in item) else 4
+            payload = b"".join(
+                struct.pack("<?", element) if subtype == 7 else struct.pack("<I", element)
+                for element in item
+            )
+            return 9, struct.pack("<IQ", subtype, len(item)) + payload
+        return 4, struct.pack("<I", item)
+
+    body = b""
+    for key, item in entries:
+        value_type, payload = value(item)
+        body += string(key) + struct.pack("<I", value_type) + payload
+    return b"GGUF" + struct.pack("<IQQ", 3, 0, len(entries)) + body
 
 
 def load_server():
@@ -45,6 +72,7 @@ class LocalRuntimeTests(unittest.TestCase):
             "ollama_metadata": self.server["ollama_metadata"],
             "vram_summary": self.server["vram_summary"],
             "fetch_public_json": self.server["fetch_public_json"],
+            "fetch_public_bytes_range": self.server["fetch_public_bytes_range"],
         }
         self.server["compute_target_catalog"] = lambda: {
             "schemaVersion": 1,
@@ -746,7 +774,7 @@ class LocalRuntimeTests(unittest.TestCase):
                 })
 
                 self.assertEqual(estimate["repo"], "library/qwen2.5:0.5b")
-                self.assertEqual(estimate["calculationSource"], "ollama-registry-manifest")
+                self.assertEqual(estimate["calculationSource"], "ollama-registry-manifest-fallback")
                 self.assertEqual(estimate["weightsMi"], 384)
                 self.assertEqual(estimate["quantization"]["label"], "GGUF Q4_K_M")
                 self.assertGreater(estimate["minimumMi"], estimate["weightsMi"])
@@ -755,6 +783,75 @@ class LocalRuntimeTests(unittest.TestCase):
                     estimate["runtimeDetails"]["engineRuntimeReserveMi"],
                     estimate["reserveMi"],
                 )
+
+    def test_ollama_memory_estimate_uses_hybrid_gguf_cache_dimensions(self):
+        mib = 1024 * 1024
+        self.server["ollama_metadata"] = lambda reference: {
+            "reference": reference,
+            "modelBytes": 22621302688,
+            "quantization": {"method": "gguf", "bits": 4, "label": "GGUF Q4_K_M"},
+            "ggufMetadata": {
+                "general.architecture": "qwen35moe",
+                "qwen35moe.attention.head_count": 16,
+                "qwen35moe.attention.head_count_kv": 2,
+                "qwen35moe.attention.key_length": 256,
+                "qwen35moe.attention.value_length": 256,
+                "qwen35moe.block_count": 41,
+                "qwen35moe.context_length": 262144,
+                "qwen35moe.embedding_length": 2048,
+                "qwen35moe.full_attention_interval": 4,
+                "qwen35moe.nextn_predict_layers": 1,
+                "qwen35moe.ssm.conv_kernel": 4,
+                "qwen35moe.ssm.group_count": 16,
+                "qwen35moe.ssm.inner_size": 4096,
+                "qwen35moe.ssm.state_size": 128,
+            },
+        }
+        self.server["vram_summary"] = lambda _activations: {"available": False}
+        self.server["model_activations"] = lambda: []
+
+        estimate = self.server["estimate_model_memory"]({
+            "engine": "OLlama",
+            "computeTarget": "nvidia-gpu",
+            "url": "ollama://qwen3.6:latest",
+            "contextWindow": 262144,
+            "maxNumSeqs": 1,
+            "modelType": "chat",
+        })
+
+        self.assertEqual(estimate["calculationSource"], "ollama-gguf-metadata")
+        self.assertEqual(estimate["modelMaxContext"], 262144)
+        self.assertEqual(estimate["weightsMi"], (22621302688 + mib - 1) // mib)
+        self.assertEqual(estimate["kvCacheMi"], 5183)
+        self.assertEqual(estimate["theoreticalKvCacheMi"], 5183)
+        self.assertEqual(estimate["runtimeDetails"]["attentionKvCacheMi"], 5120)
+        self.assertEqual(estimate["runtimeDetails"]["recurrentStateMi"], 63)
+        self.assertEqual(estimate["runtimeDetails"]["fullAttentionLayers"], 10)
+        self.assertEqual(estimate["runtimeDetails"]["recurrentLayers"], 30)
+        self.assertLess(estimate["kvCacheMi"], 6 * 1024)
+        self.assertTrue(any("10 full-attention" in item for item in estimate["warnings"]))
+
+    def test_ollama_memory_estimate_rejects_context_above_gguf_limit(self):
+        self.server["ollama_metadata"] = lambda reference: {
+            "reference": reference,
+            "modelBytes": 1024 * 1024,
+            "ggufMetadata": {
+                "general.architecture": "llama",
+                "llama.context_length": 8192,
+            },
+        }
+
+        with self.assertRaises(self.server["RequestError"]) as raised:
+            self.server["estimate_model_memory"]({
+                "engine": "OLlama",
+                "computeTarget": "cpu",
+                "url": "ollama://llama3.2:latest",
+                "contextWindow": 8193,
+                "maxNumSeqs": 1,
+            })
+
+        self.assertEqual(raised.exception.status, 400)
+        self.assertIn("model maximum of 8192", str(raised.exception))
 
     def test_ollama_memory_estimate_rejects_unsupported_intel_target(self):
         with self.assertRaises(self.server["RequestError"]) as raised:
@@ -789,6 +886,44 @@ class LocalRuntimeTests(unittest.TestCase):
         self.assertEqual(metadata["modelBytes"], 350)
         self.assertEqual(metadata["quantization"]["label"], "GGUF Q4_K_M")
         self.assertEqual(requested, ["https://registry.ollama.ai/v2/team/model/manifests/v1"])
+
+    def test_ollama_registry_reads_bounded_gguf_architecture_metadata(self):
+        self.server["OLLAMA_METADATA_CACHE"].clear()
+        document = gguf_metadata_document([
+            ("general.architecture", "qwen35moe"),
+            ("qwen35moe.block_count", 41),
+            ("qwen35moe.embedding_length", 2048),
+            ("qwen35moe.context_length", 262144),
+            ("qwen35moe.attention.head_count", 16),
+            ("qwen35moe.attention.head_count_kv", 2),
+            ("qwen35moe.attention.recurrent_layers", [True, True, True, False]),
+            ("qwen35moe.ssm.state_size", 128),
+            ("tokenizer.ggml.tokens", [1] * 16),
+        ])
+        range_requests = []
+        self.server["fetch_public_json"] = lambda _url, required=True: {
+            "layers": [{
+                "mediaType": "application/vnd.ollama.image.model",
+                "digest": "sha256:" + "a" * 64,
+                "size": 4096,
+            }]
+        }
+        self.server["fetch_public_bytes_range"] = lambda url, maximum: (
+            range_requests.append((url, maximum)) or document
+        )
+
+        reference = self.server["ollama_model_reference"]("ollama://qwen3.6:latest")
+        metadata = self.server["ollama_metadata"](reference)
+
+        self.assertEqual(metadata["ggufMetadata"]["general.architecture"], "qwen35moe")
+        self.assertEqual(metadata["ggufMetadata"]["qwen35moe.block_count"], 41)
+        self.assertEqual(
+            metadata["ggufMetadata"]["qwen35moe.attention.recurrent_layers"],
+            [True, True, True, False],
+        )
+        self.assertEqual(len(range_requests), 1)
+        self.assertEqual(range_requests[0][1], 1024 * 1024)
+        self.assertIn("/blobs/sha256:", range_requests[0][0])
 
     def test_dashboard_renders_starting_model_phase_as_progress(self):
         source = (ROOT / "configmap.yaml").read_text(encoding="utf-8")

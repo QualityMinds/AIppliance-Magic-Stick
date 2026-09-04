@@ -181,11 +181,20 @@ measurement, while retaining minimum and recommended markers in a gray
 overflow area when the model is larger than unreserved capacity.
 
 vLLM calculations use public HuggingFace weight and architecture metadata.
-Ollama calculations use the exact model-layer bytes from the public registry
-manifest and a conservative KV-cache estimate derived from artifact size,
-context, and parallel sequences. That lower-confidence result is visibly marked
-as estimated. Both RAM and VRAM views preserve the weights, KV-cache, and
-reserve breakdown.
+Ollama calculations use exact model-layer bytes from the public registry
+manifest and read a bounded GGUF-header range for attention, recurrent-state,
+GQA, hybrid-layer, and context dimensions. If that range is unavailable, the
+estimator reports and uses its conservative manifest-only fallback. Both RAM
+and VRAM views preserve the weights, KV-cache, and reserve breakdown.
+
+The terminal UI can create the same local and external activation types without
+a JSON file. A local TUI form lists only live engine/compute-target pairs,
+accepts a direct `hf://` or `ollama://` reference, obtains the normal server-side
+memory estimate, and rounds an automatic recommendation upward to the same
+100 MiB planning increment as the browser. An explicit reservation remains
+possible. Dynamic catalog search and tested-preset browsing remain richer in
+the browser; the non-interactive CLI continues to accept the complete API
+payload with `model create-local --file`.
 
 CPU-backed variants use a RAM reservation slider. The slider is capped at
 unreserved system memory and writes `spec.local.memoryRequiredMi`. The operator
@@ -267,8 +276,10 @@ runtime overhead cannot consume the entire device.
 Ollama variants use `ollama://` registry references, keep one model loaded per
 pod, map context and parallelism to supported Ollama environment variables,
 and persist the Ollama model store on the appliance host. The dashboard resolves
-the same public registry manifest before creation so CPU and accelerator
-variants receive comparable minimum and recommended planning values. On GPU
+the public registry manifest plus a bounded GGUF-header range before creation.
+It derives attention KV and recurrent-state memory from the actual architecture,
+so CPU and accelerator variants receive comparable minimum and recommended
+planning values. On GPU
 targets the declared VRAM value is planning metadata; Kubernetes exposes exactly
 one GPU to the model pod and Ollama manages loading and any CPU offload itself.
 

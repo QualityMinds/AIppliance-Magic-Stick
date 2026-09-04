@@ -1,6 +1,6 @@
 import {promises as fs} from 'node:fs';
 import {flattenInstances, formatBytes, formatMi, titleFromKey} from '@magicstick/dashboard-core';
-import type {MagicStickApi} from '@magicstick/dashboard-api-client';
+import {ApiError, type MagicStickApi} from '@magicstick/dashboard-api-client';
 import {parseArguments, option, optionValues, type ParsedArguments} from './args';
 import {phase, stringify, table, truncate} from './output';
 import {createRuntime, type Runtime, type RuntimeOptions} from './runtime';
@@ -35,6 +35,15 @@ const HELP = `Magic Stick CLI and TUI
 Usage:
   magicstick [global options] <command>
   magicstick tui
+  magicstick console
+
+Interactive TUI:
+  Browse with arrow keys or h/j/k/l. Operators can enable/disable services and
+  create/remove models. Administrators can additionally manage users, named API
+  keys, and SSO-backed Kubernetes access. Forms and destructive confirmations
+  use the same authenticated control API as the commands below.
+  console is the appliance-monitor mode: it requests a device-flow login when
+  necessary and then opens the same TUI without storing a password.
 
 Authentication:
   login [--no-open]                    Sign in with the Keycloak device flow
@@ -83,6 +92,8 @@ Global options:
   --api-url URL        Default: https://api.magicstick.local
   --issuer URL         Default: derived id.<domain>/realms/magicstick
   --client-id ID       Default: magicstick-cli
+  --ca-file PATH       Trust this public appliance CA; saved after login
+  --insecure           Disable TLS verification for this process (test only)
   --json               Machine-readable JSON output
   --no-color           Disable ANSI colors in the TUI
   --refresh SECONDS    TUI refresh interval; minimum 5, default 15
@@ -90,7 +101,7 @@ Global options:
   -V, --version        Show the CLI version
 
 Environment:
-  MAGICSTICK_API_URL, MAGICSTICK_ISSUER, MAGICSTICK_CLIENT_ID
+  MAGICSTICK_API_URL, MAGICSTICK_ISSUER, MAGICSTICK_CLIENT_ID, MAGICSTICK_CA_FILE
   MAGICSTICK_ACCESS_TOKEN (non-persistent automation token)
   MAGICSTICK_CONFIG_HOME, NODE_EXTRA_CA_CERTS
 `;
@@ -129,6 +140,37 @@ const readPassword = async (parsed: ParsedArguments, io: CliIo) => {
 const output = (io: CliIo, parsed: ParsedArguments, value: unknown, human: () => string) => {
   io.stdout(option(parsed, 'json') ? stringify(value) : `${human()}\n`);
 };
+
+export const consoleLoginRequired = (error: unknown) => {
+  if (error instanceof ApiError && error.status === 401) return true;
+  const messages: string[] = [];
+  let current: unknown = error;
+  for (let depth = 0; depth < 6 && current && typeof current === 'object'; depth += 1) {
+    messages.push(current instanceof Error ? current.message : String(current));
+    current = (current as {cause?: unknown}).cause;
+  }
+  return /not signed in|saved login has expired|invalid or expired access token|invalid_grant|token is not active|session not active|refresh token/i.test(messages.join(' '));
+};
+
+const consoleLoginScreen = ({verificationUri, userCode}: {verificationUri: string; userCode: string}) => [
+  '\x1b[2J\x1b[H',
+  '============================================================',
+  '                         MAGIC STICK',
+  '============================================================',
+  '',
+  'Anmeldung fuer die lokale Bedienoberflaeche',
+  '',
+  '1. Oeffne diese Adresse auf einem Geraet im lokalen Netzwerk:',
+  `   ${verificationUri}`,
+  '',
+  '2. Gib dort diesen einmaligen Code ein:',
+  '',
+  `                         ${userCode}`,
+  '',
+  'Die TUI startet automatisch nach erfolgreicher Anmeldung.',
+  'Es wird kein Passwort auf dem Magic Stick gespeichert.',
+  '',
+].join('\n');
 
 const summary = async (api: MagicStickApi, parsed: ParsedArguments, io: CliIo) => {
   const snapshot = await loadSnapshot(api);
@@ -354,8 +396,14 @@ export const runCli = async (argv: string[], suppliedIo: Partial<CliIo> = {}, de
     return 0;
   }
   const runtimeFactory = dependencies.createRuntime ?? createRuntime;
+  const insecure = option(parsed, 'insecure') === true;
+  if (insecure) {
+    io.stderr('WARNING: TLS certificate verification is disabled for this process (--insecure). Use only on a trusted test network.\n');
+  }
   const runtime = await runtimeFactory({
     apiUrl: textOption(parsed, 'api-url'), issuer: textOption(parsed, 'issuer'), clientId: textOption(parsed, 'client-id'),
+    caFile: textOption(parsed, 'ca-file'),
+    insecure,
   });
   const [command = '', action = '', argument, extra] = parsed.positionals;
   if (command === 'login') {
@@ -383,6 +431,21 @@ export const runCli = async (argv: string[], suppliedIo: Partial<CliIo> = {}, de
     color: !option(parsed, 'no-color'),
     refreshSeconds: integerOption(parsed, 'refresh', 15),
   });
+  else if (command === 'console') {
+    try {
+      await runtime.api.session();
+    } catch (error) {
+      if (!consoleLoginRequired(error)) throw error;
+      await runtime.logout();
+      await runtime.login(false, (details) => io.stdout(consoleLoginScreen(details)));
+      const session = await runtime.api.session();
+      io.stdout(`\nAngemeldet als ${session.username}. TUI wird geladen ...\n`);
+    }
+    await (dependencies.runTui ?? runTui)(runtime, {
+      color: !option(parsed, 'no-color'),
+      refreshSeconds: integerOption(parsed, 'refresh', 15),
+    });
+  }
   else throw new Error(`Unknown command: ${command}. Run \`magicstick --help\` for usage.`);
   return 0;
 };

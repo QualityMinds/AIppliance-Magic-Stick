@@ -32,6 +32,7 @@ The build creates the browser bundle and the standalone executable
 pnpm cli --help
 pnpm cli login
 pnpm tui
+pnpm cli console
 ```
 
 Or copy the generated executable to a directory on `PATH`:
@@ -51,11 +52,30 @@ ordinary command-line arguments. Set `MAGICSTICK_API_URL`,
 non-persistent automation, `MAGICSTICK_ACCESS_TOKEN` supplies an existing
 short-lived access token without writing it to disk.
 
-The TUI is a read/monitor view with the same role-filtered areas as the browser:
-Overview, Services, Models, Settings, Users, API Access, Kubernetes, and System.
-Use arrow keys or `h`/`l` to change page, `r` to refresh, and `q` to quit. All
-mutations are explicit CLI commands; run `magicstick --help` for the complete
-surface and JSON payload commands.
+The CLI includes the operating-system CA store. If the appliance CA is not
+trusted there, use `--ca-file /path/to/magicstick-oidc-ca.crt` for the first
+login; that public CA path is saved for later calls. On a disposable appliance
+in a trusted test network, `--insecure` bypasses certificate verification only
+for the current process, prints a warning, and is never persisted.
+
+The TUI has the same role-filtered areas as the browser: Overview, Services,
+Models, Settings, Users, API Access, Kubernetes, and System. Use left/right or
+`h`/`l` to change page, up/down or `k`/`j` to select an item, `r` to refresh,
+and `q` to quit. Operators can enable and disable catalog services and add or
+remove local and external models. Administrators can additionally create,
+edit, enable, disable, reset, and delete local users; create and revoke named
+API keys; assign and revoke Kubernetes roles; and copy token-free kubeconfigs
+through OSC 52 when the terminal supports it. Every destructive operation is
+confirmed, passwords are masked, and a newly created API-key secret remains on
+screen only until its result dialog is closed. The explicit CLI commands remain
+available for scripts and complete JSON instance payloads.
+
+`magicstick console` is the persistent appliance-monitor entry point. It checks
+the cached SSO session, renders a Keycloak device-login code when authentication
+is required, and opens the same interactive TUI. It never stores a password.
+The host installer runs this mode automatically on virtual terminal 9 after the
+first-run claim has been completed. Press `x` to remove the local session and
+authorize another user.
 
 The web app always calls relative `/api/*` paths. Vite proxies those paths to
 `https://magicstick.local` during local development; set

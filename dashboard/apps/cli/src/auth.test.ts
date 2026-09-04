@@ -54,4 +54,9 @@ describe('OIDC device authentication', () => {
   it('adds an actionable hint for a local certificate trust failure', () => {
     expect(certificateHint(new Error('self-signed certificate'))).toContain('NODE_EXTRA_CA_CERTS');
   });
+
+  it('surfaces the nested Node leaf-signature error hidden by fetch', () => {
+    const cause = Object.assign(new Error('verification failed'), {code: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE'});
+    expect(certificateHint(new TypeError('fetch failed', {cause}))).toContain('--ca-file');
+  });
 });

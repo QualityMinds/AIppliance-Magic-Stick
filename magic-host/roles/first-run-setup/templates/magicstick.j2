@@ -8,6 +8,8 @@ CLAIM_FILE={{ setup_claim_file | quote }}
 CLAIM_LENGTH={{ setup_claim_length | quote }}
 CLAIM_ALPHABET={{ setup_claim_alphabet | quote }}
 CONSOLE_SERVICE=magicstick-setup-console.service
+DASHBOARD_CONSOLE_SERVICE={{ setup_dashboard_console_service | quote }}
+SETUP_CLEANUP_SERVICE=magicstick-setup-cleanup.service
 CONSOLE_WAIT_SECONDS=60
 CONSOLE_REFRESH_SECONDS=30
 
@@ -328,6 +330,9 @@ console_setup() {
       render_console_setup || true
       current="$(phase)"
     done
+    if [[ "$current" == "Completed" || "$current" == "CompletedLegacy" ]]; then
+      systemctl start --no-block "$SETUP_CLEANUP_SERVICE" >/dev/null 2>&1 || true
+    fi
   fi
 }
 
@@ -355,18 +360,16 @@ reissue_setup() {
 
 cleanup_setup() {
   require_root
-  local current timezone had_claim=false
+  local current timezone
   current="$(phase)"
   if [[ "$current" == "Completed" || "$current" == "CompletedLegacy" ]]; then
-    [[ -e "$CLAIM_FILE" ]] && had_claim=true
     rm -f "$CLAIM_FILE"
     timezone="$("${KUBECTL[@]}" -n flux-system get configmap ai-appliance-settings -o jsonpath='{.data.AI_APPLIANCE_TIMEZONE}' 2>/dev/null || true)"
     if [[ -n "$timezone" ]] && timedatectl list-timezones | grep -Fxq "$timezone"; then
       timedatectl set-timezone "$timezone"
     fi
-    if $had_claim; then
-      restart_console
-    fi
+    systemctl stop "$CONSOLE_SERVICE" >/dev/null 2>&1 || true
+    systemctl start --no-block "$DASHBOARD_CONSOLE_SERVICE" >/dev/null 2>&1 || true
   fi
 }
 

@@ -48,8 +48,10 @@ jobs:
           ANSIBLE_ROLES_PATH: magic-host/roles
         run: ansible-playbook --syntax-check magic-host/playbooks/local.yml
 
-      - name: Check first-run appliance console
-        run: python3 -m unittest discover -s magic-host/roles/first-run-setup/tests -p 'test_*.py'
+      - name: Check appliance consoles
+        run: |
+          python3 -m unittest discover -s magic-host/roles/first-run-setup/tests -p 'test_*.py'
+          python3 -m unittest discover -s magic-host/roles/dashboard-console/tests -p 'test_*.py'
 
       - name: Check one-command installer entrypoints
         run: |

@@ -7,6 +7,7 @@ export interface CliConfig {
   apiUrl?: string;
   issuer?: string;
   clientId?: string;
+  caFile?: string;
 }
 
 export interface StoredSession {

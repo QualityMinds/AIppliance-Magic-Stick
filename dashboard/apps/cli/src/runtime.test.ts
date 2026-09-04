@@ -1,7 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import {afterEach, describe, expect, it, vi} from 'vitest';
-import {createRuntime} from './runtime';
+import {createOidcNetworkFetch, createRuntime} from './runtime';
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -9,6 +9,25 @@ afterEach(() => {
 });
 
 describe('CLI runtime transport', () => {
+  it('routes only issuer traffic through the private console-network endpoint', async () => {
+    const fetchMock = vi.fn(async () => new Response('{}')) as unknown as typeof fetch;
+    const routedFetch = createOidcNetworkFetch(
+      'https://id.magicstick.local/realms/magicstick',
+      'http://keycloak.identity-system.svc.cluster.local:8080/realms/magicstick/',
+      fetchMock,
+    );
+
+    await routedFetch('https://id.magicstick.local/realms/magicstick/.well-known/openid-configuration');
+    await routedFetch('https://api.magicstick.local/api/session');
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'http://keycloak.identity-system.svc.cluster.local:8080/realms/magicstick/.well-known/openid-configuration',
+      undefined,
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(2, 'https://api.magicstick.local/api/session', undefined);
+  });
+
   it('sends the device-session token and mutation marker through the shared API client', async () => {
     vi.stubEnv('MAGICSTICK_CONFIG_HOME', path.join(os.tmpdir(), `magicstick-cli-missing-${process.pid}`));
     const fetchMock = vi.fn(async (input: string | URL | Request, _init?: RequestInit) => {

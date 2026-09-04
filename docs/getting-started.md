@@ -132,6 +132,11 @@ the browser certificate fingerprint with the console, enter the one-time claim
 code, and create the first administrator. See
 [first-run-setup.md](first-run-setup.md) for the complete flow.
 
+After completion, virtual console 9 changes automatically from the claim page
+to the operational Magic Stick TUI. Authorize its one-time SSO device code from
+a browser; no password is stored on the appliance. Use `Ctrl+Alt+F1` for the
+system console and `Ctrl+Alt+F9` for the TUI.
+
 On the host:
 
 ```bash

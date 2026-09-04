@@ -20,7 +20,12 @@ describe('CLI configuration', () => {
     const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'magicstick-cli-'));
     temporaryDirectories.push(directory);
     const paths = configPaths({MAGICSTICK_CONFIG_HOME: directory});
-    const config = {apiUrl: 'https://api.magicstick.local', issuer: 'https://id.magicstick.local/realms/magicstick', clientId: 'magicstick-cli'};
+    const config = {
+      apiUrl: 'https://api.magicstick.local',
+      issuer: 'https://id.magicstick.local/realms/magicstick',
+      clientId: 'magicstick-cli',
+      caFile: '/tmp/magicstick-ca.crt',
+    };
     const session = {accessToken: 'access', refreshToken: 'refresh', expiresAt: Date.now() + 60_000};
 
     await writeConfig(config, paths);

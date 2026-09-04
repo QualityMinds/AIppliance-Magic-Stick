@@ -68,7 +68,7 @@ const payload = (path: string, method: string) => {
   if (path === '/api/users') return users;
   if (path === '/api/api-access' && method === 'GET') return {items: [{id: 'hash', name: 'CI pipeline', keyHint: 'abc...123', createdAt: '2026-09-01T10:00:00Z', status: 'active'}], total: 1, apiBases: [{scope: 'local', url: 'https://litellm.magicstick.local/v1'}]};
   if (path === '/api/api-access' && method === 'POST') return {item: {id: 'new', name: 'Demo'}, key: 'sk-secret-once', apiBases: [{scope: 'local', url: 'https://litellm.magicstick.local/v1'}]};
-  if (path === '/api/kubernetes-access') return {users: [{id: 'local', username: 'local-user', displayName: 'Local User', email: 'local@example.com', enabled: true, source: 'Local', accessLevel: 'viewer'}], total: 1, first: 0, max: 100, configuration: {configured: true, apiServer: 'https://192.168.1.166:6443', issuerUrl: 'https://id.magicstick.local/realms/magicstick', credentialPlugin: 'kubectl oidc-login'}};
+  if (path === '/api/kubernetes-access') return {users: [{id: 'local', username: 'local-user', displayName: 'Local User', email: 'local@example.com', enabled: true, source: 'Local', accessLevel: 'viewer'}], total: 1, first: 0, max: 100, configuration: {configured: true, apiServer: 'https://192.0.2.44:6443', issuerUrl: 'https://id.magicstick.local/realms/magicstick', credentialPlugin: 'kubectl oidc-login'}};
   if (path === '/api/model-discovery/popular') return {provider: 'huggingface', results: [{id: 'Qwen/Qwen3.5-9B', repo: 'Qwen/Qwen3.5-9B', name: 'Qwen3.5-9B'}], total: 1};
   if (path === '/api/models/estimate-memory') return {
     minimumMi: 5500,
@@ -180,7 +180,7 @@ describe('legacy dashboard feature parity', () => {
 
   it('Kubernetes Access restores level guidance, OIDC readiness and edit/export actions', async () => {
     renderPage(<KubernetesAccessPage />);
-    expect(await screen.findByText(/SSO is active for https:\/\/192.168.1.166:6443/)).toBeInTheDocument();
+    expect(await screen.findByText(/SSO is active for https:\/\/192.0.2.44:6443/)).toBeInTheDocument();
     expect(screen.getByText('Cluster Administrator')).toBeInTheDocument();
     expect(screen.getByRole('button', {name: 'Download Kubeconfig'})).toBeEnabled();
     await userEvent.click(screen.getByRole('button', {name: 'Edit Access'}));

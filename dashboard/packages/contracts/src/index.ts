@@ -248,6 +248,10 @@ export interface MemoryEstimate {
     multimodalReserveMi?: number;
     unpackReserveMi?: number;
     engineRuntimeReserveMi?: number;
+    attentionKvCacheMi?: number;
+    recurrentStateMi?: number;
+    fullAttentionLayers?: number;
+    recurrentLayers?: number;
   };
   contextWindow?: number;
   modelMaxContext?: number;

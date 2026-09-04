@@ -172,4 +172,5 @@
     - flux-bootstrap
     - kubernetes-oidc
     - first-run-setup
+    - dashboard-console
     

@@ -172,7 +172,8 @@ sudo k3s kubectl -n identity-system get appliancesetup local
 ```
 
 Nach dem Abschluss muss `ApplianceSetup/local` den Status `Completed` besitzen.
-Das Dashboard leitet danach zum Keycloak-Login weiter. Fahre anschließend mit
+Das Dashboard leitet danach zum Keycloak-Login weiter; auf Konsole 9 startet
+nach einem einmaligen SSO-Geräte-Login zusätzlich die lokale TUI. Fahre anschließend mit
 [Magic Stick im Dashboard einrichten](after-installation-dashboard.md) fort.
 
 ## Bestehende Magic-Stick-Installation aktualisieren

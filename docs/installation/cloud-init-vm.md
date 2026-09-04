@@ -156,7 +156,8 @@ https://<private-IP>:9443/setup
 ```
 
 Schließe das [First-Run-Setup](../first-run-setup.md) ab. Danach wird der
-temporäre Setup-Zugang entfernt und das Dashboard ist über SSO geschützt.
+temporäre Setup-Zugang entfernt, das Dashboard ist über SSO geschützt und die
+lokale TUI übernimmt nach einem einmaligen SSO-Geräte-Login Konsole 9.
 Fahre anschließend mit
 [Magic Stick im Dashboard einrichten](after-installation-dashboard.md) fort.
 

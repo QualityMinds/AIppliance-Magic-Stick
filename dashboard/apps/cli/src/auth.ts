@@ -126,9 +126,19 @@ export const refreshSession = async (
 
 export const certificateHint = (error: unknown) => {
   const message = error instanceof Error ? error.message : String(error);
-  const code = String((error as {cause?: {code?: string}})?.cause?.code ?? '');
-  if (/certificate|self[- ]signed|unable to verify/i.test(message) || /CERT|SELF_SIGNED/i.test(code)) {
-    return `${message}\nTrust the Magic Stick local CA for Node.js or set NODE_EXTRA_CA_CERTS to the exported CA certificate.`;
+  if (/--ca-file|MAGICSTICK_CA_FILE|NODE_EXTRA_CA_CERTS/.test(message)) return message;
+  const causes: unknown[] = [];
+  let current: unknown = error;
+  for (let depth = 0; depth < 6 && current && typeof current === 'object'; depth += 1) {
+    causes.push(current);
+    current = (current as {cause?: unknown}).cause;
+  }
+  const details = causes.map((item) => {
+    const value = item as {message?: string; code?: string};
+    return `${value.message ?? ''} ${value.code ?? ''}`;
+  }).join(' ');
+  if (/certificate|self[- ]signed|unable to verify|UNABLE_TO_VERIFY_LEAF_SIGNATURE|CERT_/i.test(details)) {
+    return `${message}\nThe appliance CA is not trusted by Node.js. Trust it in the operating system, use --ca-file /path/to/magicstick-oidc-ca.crt, set MAGICSTICK_CA_FILE, or set NODE_EXTRA_CA_CERTS. For a disposable test system only, --insecure bypasses verification.`;
   }
   return message;
 };

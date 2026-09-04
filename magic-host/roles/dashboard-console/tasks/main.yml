@@ -1,0 +1,107 @@
+---
+- name: Create protected dashboard console state directory
+  ansible.builtin.file:
+    path: "{{ dashboard_console_state_directory }}"
+    state: directory
+    owner: "{{ dashboard_console_runtime_uid }}"
+    group: "{{ dashboard_console_runtime_gid }}"
+    mode: "0700"
+
+- name: Install dashboard console launcher
+  ansible.builtin.template:
+    src: launcher.j2
+    dest: "{{ dashboard_console_launcher }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Render dashboard console runtime
+  ansible.builtin.template:
+    src: runtime.yaml.j2
+    dest: "{{ dashboard_console_runtime_manifest }}"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Reconcile dashboard console runtime
+  ansible.builtin.command:
+    argv:
+      - "{{ dashboard_console_k3s_binary }}"
+      - kubectl
+      - --kubeconfig
+      - "{{ dashboard_console_kubeconfig }}"
+      - apply
+      - -f
+      - "{{ dashboard_console_runtime_manifest }}"
+  register: dashboard_console_runtime_apply
+  changed_when: >-
+    ('created' in dashboard_console_runtime_apply.stdout)
+    or ('configured' in dashboard_console_runtime_apply.stdout)
+
+- name: Install physical dashboard console service
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ dashboard_console_service }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Display the Magic Stick TUI on the physical monitor
+      After=cloud-final.service k3s.service network-online.target magicstick-setup-console.service
+      Wants=network-online.target
+      Conflicts=magicstick-setup-console.service
+      ConditionPathExists={{ dashboard_console_tty_path }}
+      ConditionPathExists=!{{ dashboard_console_setup_claim_file }}
+
+      [Service]
+      Type=simple
+      Environment=TERM=linux
+      ExecStartPre=-/usr/bin/chvt {{ dashboard_console_virtual_terminal }}
+      ExecStart={{ dashboard_console_launcher }}
+      ExecStopPost=-/usr/bin/chvt 1
+      Restart=always
+      RestartSec={{ dashboard_console_retry_seconds }}
+      StandardInput=tty-force
+      StandardOutput=tty
+      StandardError=tty
+      TTYPath={{ dashboard_console_tty_path }}
+      TTYReset=yes
+      TTYVHangup=yes
+      TTYVTDisallocate=yes
+
+      [Install]
+      WantedBy=multi-user.target
+  notify: Reload systemd for dashboard console
+
+- name: Enable physical dashboard console service
+  ansible.builtin.systemd:
+    name: "{{ dashboard_console_service }}"
+    enabled: true
+    daemon_reload: true
+
+- name: Read first-run completion phase for dashboard console
+  ansible.builtin.command:
+    argv:
+      - "{{ dashboard_console_k3s_binary }}"
+      - kubectl
+      - --kubeconfig
+      - "{{ dashboard_console_kubeconfig }}"
+      - --namespace
+      - "{{ dashboard_console_setup_namespace }}"
+      - get
+      - appliancesetup
+      - "{{ dashboard_console_setup_resource }}"
+      - -o
+      - "jsonpath={.status.phase}"
+  register: dashboard_console_setup_phase
+  changed_when: false
+  failed_when: false
+
+- name: Show dashboard TUI after completed first-run setup
+  ansible.builtin.systemd:
+    name: "{{ dashboard_console_service }}"
+    state: started
+    no_block: true
+  when:
+    - dashboard_console_setup_phase.rc == 0
+    - (dashboard_console_setup_phase.stdout | trim) in ['Completed', 'CompletedLegacy']

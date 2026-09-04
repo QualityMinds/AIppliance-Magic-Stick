@@ -4,7 +4,7 @@ export interface ParsedArguments {
 }
 
 const booleanOptions = new Set([
-  'help', 'version', 'json', 'no-color', 'no-open', 'password-stdin', 'permanent',
+  'help', 'version', 'json', 'no-color', 'no-open', 'password-stdin', 'permanent', 'insecure',
 ]);
 
 const aliases: Record<string, string> = {h: 'help', V: 'version', o: 'output'};

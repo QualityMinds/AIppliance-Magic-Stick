@@ -89,4 +89,5 @@ Führe das [First-Run-Setup](../first-run-setup.md) aus. Richte anschließend mi
 der Anleitung [Nach der Installation: Magic Stick im Dashboard einrichten](after-installation-dashboard.md)
 Domains, Module, Modelle und Anwendungsinstanzen ein. Für technische
 Statusprüfungen steht zusätzlich die [Betriebsanleitung](../operations.md) zur
-Verfügung.
+Verfügung. Auf Host-Installationen übernimmt die lokale TUI nach dem Setup
+automatisch virtuelle Konsole 9 und fordert bei Bedarf einen SSO-Geräte-Login an.

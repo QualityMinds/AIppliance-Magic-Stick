@@ -18,6 +18,7 @@ data:
     import re
     import secrets
     import ssl
+    import struct
     import threading
     import time
     import urllib.error
@@ -73,6 +74,8 @@ data:
     OLLAMA_DISCOVERY_TIMEOUT_SECONDS = 8
     OLLAMA_DISCOVERY_MAX_RESPONSE_BYTES = 4 * 1024 * 1024
     OLLAMA_DISCOVERY_MAX_PAGES = 10
+    OLLAMA_GGUF_METADATA_MAX_BYTES = 1024 * 1024
+    OLLAMA_GGUF_MAX_ARRAY_VALUES = 1024
     MEMORY_RESERVATION_STEP_MI = 100
     MIB_BYTES = 1024 * 1024
     HF_METADATA_CACHE = {}
@@ -4087,6 +4090,129 @@ data:
         )
 
 
+    def ollama_blob_url(reference, digest):
+        digest = str(digest or "").strip().lower()
+        if not re.fullmatch(r"sha256:[a-f0-9]{64}", digest):
+            raise ValueError("Ollama model blob digest is invalid")
+        return (
+            "https://registry.ollama.ai/v2/"
+            + urllib.parse.quote(reference["namespace"])
+            + "/"
+            + urllib.parse.quote(reference["model"])
+            + "/blobs/"
+            + urllib.parse.quote(digest, safe=":")
+        )
+
+
+    def fetch_public_bytes_range(url, maximum_bytes):
+        maximum_bytes = max(1, int(maximum_bytes))
+        request = urllib.request.Request(url, headers={
+            "Accept": "application/octet-stream",
+            "Range": "bytes=0-" + str(maximum_bytes - 1),
+            "User-Agent": "magicstick-dashboard/0.1",
+        })
+        with urllib.request.urlopen(request, timeout=12, context=PUBLIC_SSL_CONTEXT) as response:
+            # Some HTTP servers ignore Range. Bound the read either way so a
+            # model blob can never be downloaded in full by the estimator.
+            return response.read(maximum_bytes + 1)[:maximum_bytes]
+
+
+    def parse_gguf_metadata(data):
+        """Decode bounded architecture metadata without reading model tensors."""
+        if not isinstance(data, (bytes, bytearray, memoryview)):
+            raise ValueError("GGUF header must be bytes")
+        document = memoryview(data)
+        offset = 0
+
+        def take(size):
+            nonlocal offset
+            size = int(size)
+            if size < 0 or offset + size > len(document):
+                raise EOFError("GGUF metadata exceeds the bounded header response")
+            value = document[offset:offset + size]
+            offset += size
+            return value
+
+        magic = bytes(take(4))
+        if magic == b"GGUF":
+            byte_order = "<"
+        elif magic == b"FUGG":
+            byte_order = ">"
+        else:
+            raise ValueError("Ollama model layer is not a GGUF file")
+
+        def unpack(format_string):
+            size = struct.calcsize(byte_order + format_string)
+            return struct.unpack(byte_order + format_string, take(size))[0]
+
+        def read_string(collect=True):
+            length = unpack("Q")
+            raw = bytes(take(length))
+            return raw.decode("utf-8", "replace") if collect else None
+
+        scalar_formats = {
+            0: "B", 1: "b", 2: "H", 3: "h", 4: "I", 5: "i",
+            6: "f", 7: "?", 10: "Q", 11: "q", 12: "d",
+        }
+
+        def read_value(value_type, collect=True):
+            if value_type in scalar_formats:
+                value = unpack(scalar_formats[value_type])
+                return value if collect else None
+            if value_type == 8:
+                return read_string(collect)
+            if value_type == 9:
+                subtype = unpack("I")
+                length = unpack("Q")
+                if length > OLLAMA_GGUF_MAX_ARRAY_VALUES:
+                    raise ValueError("GGUF architecture metadata array is unexpectedly large")
+                values = [read_value(subtype, collect) for _ in range(length)]
+                return values if collect else None
+            raise ValueError("GGUF metadata contains an unsupported value type")
+
+        version = unpack("I")
+        if version not in {2, 3}:
+            raise ValueError("unsupported GGUF version")
+        _tensor_count = unpack("Q")
+        metadata_count = unpack("Q")
+        if metadata_count > 65536:
+            raise ValueError("GGUF metadata entry count is unexpectedly large")
+
+        wanted_suffixes = {
+            "attention.head_count",
+            "attention.head_count_kv",
+            "attention.key_length",
+            "attention.recurrent_layers",
+            "attention.value_length",
+            "block_count",
+            "context_length",
+            "embedding_length",
+            "full_attention_interval",
+            "nextn_predict_layers",
+            "ssm.conv_kernel",
+            "ssm.group_count",
+            "ssm.inner_size",
+            "ssm.state_size",
+            "ssm.time_step_rank",
+        }
+        metadata = {"gguf.version": version}
+        for _ in range(metadata_count):
+            key = read_string()
+            # Architecture values conventionally precede tokenizer tables.
+            # Stop before the large token string array so the bounded range is
+            # sufficient even for very large vocabularies.
+            if key.startswith("tokenizer."):
+                break
+            value_type = unpack("I")
+            wanted = key == "general.architecture" or any(
+                key.endswith("." + suffix) for suffix in wanted_suffixes
+            )
+            value = read_value(value_type, wanted)
+            if wanted:
+                metadata[key] = value
+        return metadata
+
+
     def ollama_metadata(reference):
         cache_key = reference["reference"]
         now = time.time()
@@ -4112,6 +4238,36 @@ data:
         )
         if model_bytes <= 0:
             raise ValueError("Ollama registry manifest does not contain model layers")
+        model_layer = next(
+            (
+                layer for layer in layers
+                if str((layer or {}).get("mediaType") or "") == "application/vnd.ollama.image.model"
+            ),
+            None,
+        )
+        gguf_metadata = {}
+        gguf_metadata_error = ""
+        try:
+            if not model_layer:
+                raise ValueError("Ollama registry manifest does not contain a GGUF model layer")
+            header = fetch_public_bytes_range(
+                ollama_blob_url(reference, model_layer.get("digest")),
+                OLLAMA_GGUF_METADATA_MAX_BYTES,
+            )
+            gguf_metadata = parse_gguf_metadata(header)
+        except (
+            EOFError,
+            OSError,
+            TimeoutError,
+            ValueError,
+            struct.error,
+            urllib.error.HTTPError,
+            urllib.error.URLError,
+        ) as error:
+            # The exact architecture calculation is an enhancement over the
+            # existing manifest-only estimator. Keep discovery usable when a
+            # registry proxy does not support range requests.
+            gguf_metadata_error = str(error) or error.__class__.__name__
         quantization = None
         for layer in layers:
             quantization = ollama_quantization_from_tag((layer or {}).get("from"))
@@ -4122,6 +4278,8 @@ data:
             "manifest": manifest,
             "modelBytes": model_bytes,
             "quantization": quantization,
+            "ggufMetadata": gguf_metadata,
+            "ggufMetadataError": gguf_metadata_error,
             "fetchedAt": now,
         }
         OLLAMA_METADATA_CACHE[cache_key] = cached
@@ -4446,25 +4604,197 @@ data:
         }
 
 
+    def ollama_gguf_value(gguf_metadata, suffix):
+        architecture = str((gguf_metadata or {}).get("general.architecture") or "").strip()
+        if not architecture:
+            return None
+        return (gguf_metadata or {}).get(architecture + "." + suffix)
+
+
+    def ollama_gguf_uint_values(value):
+        values = value if isinstance(value, list) else [value]
+        return [positive_int(item) or 0 for item in values]
+
+
+    def ollama_layer_value(values, layer, default=0):
+        if not values:
+            return int(default or 0)
+        if layer < len(values):
+            return int(values[layer] or 0)
+        if len(values) == 1:
+            return int(values[0] or 0)
+        return int(default or 0)
+
+
+    def ollama_gguf_cache_estimate(gguf_metadata, context_window, max_num_seqs):
+        """Mirror llama.cpp cache dimensions from a public GGUF header."""
+        architecture = str((gguf_metadata or {}).get("general.architecture") or "").strip()
+        block_count = positive_int(ollama_gguf_value(gguf_metadata, "block_count"))
+        embedding_length = positive_int(ollama_gguf_value(gguf_metadata, "embedding_length"))
+        if not architecture or not block_count or not embedding_length:
+            return None
+
+        nextn_layers = positive_int(ollama_gguf_value(gguf_metadata, "nextn_predict_layers")) or 0
+        runtime_layers = max(0, block_count - min(block_count, nextn_layers))
+        if runtime_layers <= 0:
+            return None
+
+        head_counts = ollama_gguf_uint_values(
+            ollama_gguf_value(gguf_metadata, "attention.head_count")
+        )
+        kv_head_counts = ollama_gguf_uint_values(
+            ollama_gguf_value(gguf_metadata, "attention.head_count_kv")
+        )
+        if not any(head_counts) or not any(kv_head_counts):
+            return None
+
+        recurrent_flags = ollama_gguf_value(gguf_metadata, "attention.recurrent_layers")
+        full_attention_interval = positive_int(
+            ollama_gguf_value(gguf_metadata, "full_attention_interval")
+        )
+        if isinstance(recurrent_flags, list) and len(recurrent_flags) >= runtime_layers:
+            full_attention_layers = [
+                layer for layer in range(runtime_layers)
+                if not bool(recurrent_flags[layer])
+            ]
+        elif full_attention_interval:
+            full_attention_layers = [
+                layer for layer in range(runtime_layers)
+                if (layer + 1) % full_attention_interval == 0
+            ]
+        elif len(head_counts) > 1 or len(kv_head_counts) > 1:
+            full_attention_layers = [
+                layer for layer in range(runtime_layers)
+                if ollama_layer_value(head_counts, layer) > 0
+                and ollama_layer_value(kv_head_counts, layer) > 0
+            ]
+        else:
+            full_attention_layers = list(range(runtime_layers))
+        if not full_attention_layers:
+            return None
+
+        maximum_heads = max(head_counts)
+        default_head_length = embedding_length // maximum_heads if maximum_heads else 0
+        key_lengths = ollama_gguf_uint_values(
+            ollama_gguf_value(gguf_metadata, "attention.key_length")
+        )
+        value_lengths = ollama_gguf_uint_values(
+            ollama_gguf_value(gguf_metadata, "attention.value_length")
+        )
+        key_lengths = key_lengths if any(key_lengths) else [default_head_length]
+        value_lengths = value_lengths if any(value_lengths) else [default_head_length]
+        if not any(key_lengths) or not any(value_lengths):
+            return None
+
+        attention_elements_per_token = 0
+        for layer in full_attention_layers:
+            kv_heads = ollama_layer_value(kv_head_counts, layer, max(kv_head_counts))
+            key_length = ollama_layer_value(key_lengths, layer, max(key_lengths))
+            value_length = ollama_layer_value(value_lengths, layer, max(value_lengths))
+            if kv_heads <= 0 or key_length <= 0 or value_length <= 0:
+                return None
+            attention_elements_per_token += kv_heads * (key_length + value_length)
+
+        # Magic Stick does not override OLLAMA_KV_CACHE_TYPE, so Ollama uses
+        # its f16 default for the attention cache. Recurrent state is f32 in
+        # llama.cpp regardless of the attention-cache precision.
+        attention_bytes = (
+            attention_elements_per_token
+            * int(context_window)
+            * int(max_num_seqs)
+            * 2
+        )
+        recurrent_layer_count = runtime_layers - len(full_attention_layers)
+        recurrent_bytes = 0
+        if recurrent_layer_count > 0:
+            ssm_conv = positive_int(ollama_gguf_value(gguf_metadata, "ssm.conv_kernel"))
+            ssm_inner = positive_int(ollama_gguf_value(gguf_metadata, "ssm.inner_size"))
+            ssm_state = positive_int(ollama_gguf_value(gguf_metadata, "ssm.state_size"))
+            ssm_groups = positive_int(ollama_gguf_value(gguf_metadata, "ssm.group_count"))
+            if not ssm_conv or not ssm_inner or not ssm_state or not ssm_groups:
+                return None
+            rolling_state = (ssm_conv - 1) * (ssm_inner + 2 * ssm_groups * ssm_state)
+            recurrent_state = ssm_state * ssm_inner
+            recurrent_bytes = (
+                recurrent_layer_count
+                * (rolling_state + recurrent_state)
+                * int(max_num_seqs)
+                * 4
+            )
+
+        return {
+            "architecture": architecture,
+            "runtimeLayers": int(runtime_layers),
+            "fullAttentionLayers": int(len(full_attention_layers)),
+            "recurrentLayers": int(recurrent_layer_count),
+            "attentionKvCacheMi": int(ceil_mib(attention_bytes)),
+            "recurrentStateMi": int(ceil_mib(recurrent_bytes)),
+            "totalMi": int(ceil_mib(attention_bytes + recurrent_bytes)),
+            "modelMaxContext": int(
+                positive_int(ollama_gguf_value(gguf_metadata, "context_length")) or 0
+            ),
+        }
+
+
     def estimate_ollama_memory(payload, compute_target):
         reference = ollama_model_reference(payload.get("url"))
         metadata = ollama_metadata(reference)
         model_type = str(payload.get("modelType") or "chat").lower()
-        context_window = positive_int(payload.get("contextWindow")) or 4096
+        gguf_metadata = metadata.get("ggufMetadata") or {}
+        model_max_context = positive_int(ollama_gguf_value(gguf_metadata, "context_length")) or 0
+        requested_context = positive_int(payload.get("contextWindow"))
+        context_window = requested_context or model_max_context or 4096
+        if requested_context and model_max_context and requested_context > model_max_context:
+            raise RequestError(
+                400,
+                "Context Size " + str(requested_context)
+                + " exceeds the model maximum of " + str(model_max_context) + " tokens.",
+            )
         max_num_seqs = positive_int(payload.get("maxNumSeqs")) or (8 if model_type == "embedding" else 32)
         warnings = []
         if not positive_int(payload.get("contextWindow")):
-            warnings.append("Context Size was missing; using a 4096 token fallback.")
+            warnings.append(
+                "Context Size was missing; using " + str(context_window)
+                + (" from GGUF metadata." if model_max_context else " as a fallback.")
+            )
         if not positive_int(payload.get("maxNumSeqs")):
             warnings.append("Max Num Seqs was missing; using " + str(max_num_seqs) + " for the estimate.")
         weights_mi = ceil_mib(metadata.get("modelBytes"))
-        # Public Ollama manifests expose exact model-layer bytes, but not the
-        # complete GGUF attention dimensions. Keep the context component
-        # deliberately conservative and label the result as an estimate.
-        context_factor = max(1.0, float(context_window) / 4096.0)
-        kv_mi = max(256, int(weights_mi * 0.08 * context_factor * max_num_seqs))
+        cache_estimate = ollama_gguf_cache_estimate(
+            gguf_metadata, context_window, max_num_seqs
+        )
+        if cache_estimate:
+            kv_mi = int(cache_estimate["totalMi"])
+            model_max_context = int(cache_estimate.get("modelMaxContext") or model_max_context)
+            calculation_source = "ollama-gguf-metadata"
+            warnings.append(
+                "KV cache calculated from public GGUF architecture metadata: "
+                + str(cache_estimate["fullAttentionLayers"])
+                + " full-attention layer(s) and "
+                + str(cache_estimate["recurrentLayers"])
+                + " recurrent layer(s) out of "
+                + str(cache_estimate["runtimeLayers"])
+                + " runtime layer(s)."
+            )
+        else:
+            # Retain the previous bounded estimate only when the registry or a
+            # proxy cannot provide a usable GGUF header.
+            context_factor = max(1.0, float(context_window) / 4096.0)
+            kv_mi = max(256, int(weights_mi * 0.08 * context_factor * max_num_seqs))
+            calculation_source = "ollama-registry-manifest-fallback"
+            warnings.append(
+                "GGUF architecture metadata was unavailable; KV cache uses the conservative manifest-only fallback."
+            )
         runtime_mi = max(512, int((weights_mi + kv_mi) * 0.10))
         source_path = reference["namespace"] + "/" + reference["model"] + ":" + reference["tag"]
+        runtime_details = {"engineRuntimeReserveMi": int(runtime_mi)}
+        if cache_estimate:
+            runtime_details.update({
+                "attentionKvCacheMi": int(cache_estimate["attentionKvCacheMi"]),
+                "recurrentStateMi": int(cache_estimate["recurrentStateMi"]),
+                "fullAttentionLayers": int(cache_estimate["fullAttentionLayers"]),
+                "recurrentLayers": int(cache_estimate["recurrentLayers"]),
+            })
         return {
             "repo": reference["reference"],
             "sourceUrl": "https://ollama.com/" + source_path,
@@ -4473,15 +4803,15 @@ data:
             "downloadSizeSource": "ollama-manifest",
             "quantization": metadata.get("quantization"),
             "kvCacheMi": int(kv_mi),
+            "theoreticalKvCacheMi": int(kv_mi) if cache_estimate else None,
             "runtimeReserveMi": int(runtime_mi),
-            "runtimeDetails": {"engineRuntimeReserveMi": int(runtime_mi)},
+            "runtimeDetails": runtime_details,
+            "modelMaxContext": int(model_max_context),
             "contextWindow": int(context_window),
             "maxNumSeqs": int(max_num_seqs),
             "confidence": "estimated",
-            "warnings": warnings + [
-                "Ollama model-layer size comes from the public registry manifest; KV cache is estimated from model size, context, and parallel sequences."
-            ],
-            "calculationSource": "ollama-registry-manifest",
+            "warnings": warnings,
+            "calculationSource": calculation_source,
         }
 
 

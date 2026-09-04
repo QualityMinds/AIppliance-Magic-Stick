@@ -41,6 +41,7 @@
       Description=Display Magicstick first-run access on the local console
       After=cloud-final.service k3s.service network-online.target
       Wants=network-online.target
+      Conflicts={{ setup_dashboard_console_service }}
       ConditionPathExists={{ setup_claim_file }}
 
       [Service]

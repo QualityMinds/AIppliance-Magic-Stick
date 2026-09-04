@@ -29,6 +29,7 @@ Installer image
   -> Flux
   -> Flux graph under magic-cluster/flux/graph/base
   -> First-run namespace and ApplianceSetup CRD
+  -> Physical console handoff from claim page to authenticated TUI
   -> Shared Node Feature Discovery
   -> Magic Stick Operator CRD, module catalog, and default Appliance
   -> platform and app Kustomize bases

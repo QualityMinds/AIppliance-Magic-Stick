@@ -1,0 +1,24 @@
+---
+dashboard_console_state_directory: /var/lib/magicstick/dashboard-console
+dashboard_console_runtime_manifest: /var/lib/magicstick/dashboard-console-runtime.yaml
+dashboard_console_launcher: /usr/local/sbin/magicstick-dashboard-console
+dashboard_console_service: magicstick-dashboard-console.service
+dashboard_console_setup_claim_file: /var/lib/magicstick/setup/claim
+dashboard_console_kubeconfig: /etc/rancher/k3s/k3s.yaml
+dashboard_console_k3s_binary: /usr/local/bin/k3s
+dashboard_console_namespace: identity-system
+dashboard_console_deployment: magicstick-dashboard-console-runtime
+dashboard_console_label: app.kubernetes.io/name=magicstick-dashboard-console
+dashboard_console_image: ghcr.io/qualityminds/magicstick-dashboard:console
+dashboard_console_api_url: http://ai-appliance-dashboard-api.identity-system.svc.cluster.local:8080
+dashboard_console_oidc_network_url: http://keycloak.identity-system.svc.cluster.local:8080/realms/magicstick
+dashboard_console_default_mdns_domain: "{{ ai_appliance_mdns_domain | default('magicstick.local', true) }}"
+dashboard_console_tty_path: /dev/tty9
+dashboard_console_virtual_terminal: 9
+dashboard_console_runtime_uid: 65532
+dashboard_console_runtime_gid: 65532
+dashboard_console_node_name: "{{ ansible_facts['hostname'] }}"
+dashboard_console_refresh_seconds: 15
+dashboard_console_retry_seconds: 5
+dashboard_console_setup_namespace: identity-system
+dashboard_console_setup_resource: local
