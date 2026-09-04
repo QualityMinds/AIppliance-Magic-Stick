@@ -1,4 +1,4 @@
-name: Build MagicStick React dashboard image
+name: Build MagicStick dashboard clients
 
 on:
   push:
@@ -37,13 +37,20 @@ jobs:
       - name: Enable pnpm
         run: corepack enable
 
-      - name: Verify React workspace
+      - name: Verify dashboard clients
         working-directory: dashboard
         run: |
           pnpm install --frozen-lockfile
           pnpm typecheck
           pnpm test
           pnpm build
+
+      - name: Upload standalone Magic Stick CLI
+        uses: actions/upload-artifact@v4
+        with:
+          name: magicstick-cli-${{ github.sha }}
+          path: dashboard/apps/cli/dist/magicstick.js
+          if-no-files-found: error
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3

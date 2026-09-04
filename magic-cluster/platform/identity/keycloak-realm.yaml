@@ -116,6 +116,22 @@ data:
               }
             }
           ]
+        },
+        {
+          "clientId": "magicstick-cli",
+          "name": "Magic Stick CLI and TUI",
+          "enabled": true,
+          "standardFlowEnabled": false,
+          "implicitFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "serviceAccountsEnabled": false,
+          "publicClient": true,
+          "redirectUris": [],
+          "webOrigins": [],
+          "attributes": {
+            "oauth2.device.authorization.grant.enabled": "true"
+          },
+          "protocol": "openid-connect"
         }
       ],
       "users": [

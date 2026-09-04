@@ -12,6 +12,7 @@ CLIENT_ID = "magicstick-user-admin"
 CLIENT_SECRET_NAME = "magicstick-user-admin-client"
 HUMAN_GATEWAY_CLIENT_ID = "magicstick-human-gateway-local"
 KUBERNETES_CLIENT_ID = "magicstick-kubernetes"
+CLI_CLIENT_ID = "magicstick-cli"
 KUBERNETES_GROUPS = {
     "magicstick-kubernetes-viewer",
     "magicstick-kubernetes-operator",
@@ -164,6 +165,21 @@ class UserAdminIdentityTests(unittest.TestCase):
         self.assertEqual(mapper["config"]["claim.name"], "groups")
         self.assertEqual(mapper["config"]["full.path"], "true")
 
+    def test_fresh_realm_import_defines_public_device_flow_cli_client(self):
+        realm = realm_import()
+        client = next(client for client in realm["clients"] if client["clientId"] == CLI_CLIENT_ID)
+
+        self.assertTrue(client["publicClient"])
+        self.assertFalse(client["standardFlowEnabled"])
+        self.assertFalse(client["implicitFlowEnabled"])
+        self.assertFalse(client["directAccessGrantsEnabled"])
+        self.assertFalse(client["serviceAccountsEnabled"])
+        self.assertEqual(client["redirectUris"], [])
+        self.assertEqual(
+            client["attributes"],
+            {"oauth2.device.authorization.grant.enabled": "true"},
+        )
+
     def test_identity_leaf_is_signed_by_a_dedicated_ca(self):
         documents = [document for document in load_documents("pilot-certificate.yaml") if document]
         certificates = {document["metadata"]["name"]: document for document in documents if document["kind"] == "Certificate"}
@@ -175,6 +191,10 @@ class UserAdminIdentityTests(unittest.TestCase):
         self.assertEqual(certificates["identity-pilot"]["spec"]["issuerRef"]["name"], "identity-pilot-ca")
         self.assertIn(
             "dashboard2.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}",
+            certificates["identity-pilot"]["spec"]["dnsNames"],
+        )
+        self.assertIn(
+            "api.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}",
             certificates["identity-pilot"]["spec"]["dnsNames"],
         )
 
@@ -289,6 +309,15 @@ class UserAdminIdentityTests(unittest.TestCase):
         self.assertNotIn("awk", script)
         for group in KUBERNETES_GROUPS:
             self.assertIn(group, script)
+
+    def test_upgrade_reconciliation_maintains_device_flow_cli_client(self):
+        script = keycloak_container()["lifecycle"]["postStart"]["exec"]["command"][-1]
+
+        self.assertIn("sync_dashboard_cli_client()", script)
+        self.assertIn("client_uuid magicstick-cli", script)
+        self.assertIn("publicClient=true", script)
+        self.assertIn("oauth2.device.authorization.grant.enabled", script)
+        self.assertIn("sync_dashboard_cli_client\n", script)
 
     def test_upgrade_reconciliation_sets_exact_dashboard_logout_redirects(self):
         script = keycloak_container()["lifecycle"]["postStart"]["exec"]["command"][-1]

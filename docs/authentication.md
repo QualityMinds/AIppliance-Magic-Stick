@@ -25,6 +25,13 @@ kubectl
      -> the same local Keycloak login and optional upstream broker
      -> short-lived ID token with direct Magic Stick Kubernetes groups
   -> Kubernetes API server OIDC authentication and RBAC
+
+magicstick CLI or TUI
+  -> public Keycloak device-flow client
+     -> browser verification or a URL plus one-time code
+     -> short-lived access token with the same Magic Stick realm roles
+  -> Envoy JWT policy on api.<mDNS-domain>
+  -> dashboard control-plane API authorization
 ```
 
 Applications trust one stable local issuer. External enterprise identity
@@ -75,10 +82,13 @@ filter validates that token and authorizes the selected minimum
 made unauthenticated only with explicit `spec.access.authentication: none`.
 
 Human browser sessions use OIDC Authorization Code Flow. Human `kubectl`
-sessions use a separate public PKCE client and an exec credential plugin; they
-must not reuse browser cookies. Other machine clients must
-use separate clients and policies (service accounts, JWT validation, mTLS, or a
-combination); they must not reuse browser cookies or the human gateway client.
+sessions use a separate public PKCE client and an exec credential plugin. The
+Magic Stick CLI and TUI use a third public client with Device Authorization
+Flow and send its Bearer access token to the dedicated control-plane API route.
+None of these clients reuse browser cookies, client secrets, or each other's
+client ID. Unattended machine integrations still need their own policy and
+credential lifecycle; a renewable human device session is not a service
+account.
 
 ## Implemented Scope
 
@@ -108,6 +118,8 @@ The current implementation provides:
 - a non-blocking Keycloak startup reconciliation that adds the callback path
   patterns needed by existing installations
 - dashboard API token validation and viewer/operator/admin authorization
+- a public `magicstick-cli` device-flow client and the JWT-protected,
+  mDNS-published `api.<mDNS-domain>` route used by the CLI and TUI
 - protected local and public routes for LiteLLM, AnythingLLM, and KubeOpenCode
   with a minimum `magicstick-user` role
 - LiteLLM-specific OIDC token forwarding disabled after edge authorization, so
@@ -116,6 +128,12 @@ The current implementation provides:
 - no human default password on new installations
 - a public PKCE client `magicstick-kubernetes`, a `groups` token mapper, and
   direct Viewer/Operator/Administrator groups for human Kubernetes access
+
+The dashboard API accepts access tokens only when their `azp` is the browser
+gateway client or `magicstick-cli`, their issuer matches the local realm, they
+are unexpired, Keycloak still accepts them through `userinfo`, and the required
+realm role is present. The edge JWT policy is an additional validation layer,
+not a replacement for API authorization.
 
 ## Kubernetes SSO Access
 

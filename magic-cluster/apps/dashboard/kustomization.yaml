@@ -18,4 +18,5 @@ resources:
   - react-deployment.yaml
   - react-service.yaml
   - react-gateway.yaml
+  - cli-gateway.yaml
   - gateway.yaml

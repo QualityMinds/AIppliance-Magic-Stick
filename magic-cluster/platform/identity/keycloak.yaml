@@ -231,6 +231,42 @@ spec:
                             -s 'config."userinfo.token.claim"=true' >/dev/null 2>&1 || return 1
                         fi
                       }
+                      sync_dashboard_cli_client() {
+                        dashboard_cli_client_uuid="$(client_uuid magicstick-cli)"
+                        if [ -z "$dashboard_cli_client_uuid" ]; then
+                          /opt/keycloak/bin/kcadm.sh create clients \
+                            --config "$config" \
+                            --realm magicstick \
+                            -s clientId=magicstick-cli \
+                            -s name='Magic Stick CLI and TUI' \
+                            -s enabled=true \
+                            -s standardFlowEnabled=false \
+                            -s implicitFlowEnabled=false \
+                            -s directAccessGrantsEnabled=false \
+                            -s serviceAccountsEnabled=false \
+                            -s publicClient=true \
+                            -s 'redirectUris=[]' \
+                            -s 'webOrigins=[]' \
+                            -s 'attributes."oauth2.device.authorization.grant.enabled"=true' \
+                            -s protocol=openid-connect >/dev/null 2>&1 || true
+                          dashboard_cli_client_uuid="$(client_uuid magicstick-cli)"
+                        fi
+                        [ -n "$dashboard_cli_client_uuid" ] || return 1
+                        /opt/keycloak/bin/kcadm.sh update "clients/$dashboard_cli_client_uuid" \
+                          --config "$config" \
+                          --realm magicstick \
+                          -s name='Magic Stick CLI and TUI' \
+                          -s enabled=true \
+                          -s standardFlowEnabled=false \
+                          -s implicitFlowEnabled=false \
+                          -s directAccessGrantsEnabled=false \
+                          -s serviceAccountsEnabled=false \
+                          -s publicClient=true \
+                          -s 'redirectUris=[]' \
+                          -s 'webOrigins=[]' \
+                          -s 'attributes."oauth2.device.authorization.grant.enabled"=true' \
+                          -s protocol=openid-connect >/dev/null 2>&1 || return 1
+                      }
                       direct_user_admin_roles() {
                         user_admin_role_output="$(/opt/keycloak/bin/kcadm.sh get \
                           "users/$user_admin_service_account_uuid/role-mappings/clients/$realm_management_client_uuid" \
@@ -339,6 +375,7 @@ spec:
                           -s 'attributes."post.logout.redirect.uris"=https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/##https://dashboard2.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/##https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/' >/dev/null 2>&1
                         sync_user_admin_client
                         sync_kubernetes_client_and_groups
+                        sync_dashboard_cli_client
                       }
                       attempt=0
                       # Match the ten-minute startup-probe budget. First-start

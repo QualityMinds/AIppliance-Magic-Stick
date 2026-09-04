@@ -134,7 +134,7 @@ site.
 | Repository and cluster architecture | [docs/architecture.md](docs/architecture.md) |
 | Local authentication and enterprise SSO | [docs/authentication.md](docs/authentication.md) |
 | Appliance CRD | [docs/appliance-crd.md](docs/appliance-crd.md) |
-| Dashboard UI/API | [docs/dashboard.md](docs/dashboard.md) |
+| Dashboard, CLI, TUI, and control API | [docs/dashboard.md](docs/dashboard.md) |
 | Module catalog | [docs/modules.md](docs/modules.md) |
 | Operator orchestration | [docs/operator-orchestration.md](docs/operator-orchestration.md) |
 | Runtime variables and secrets | [docs/configuration.md](docs/configuration.md) |

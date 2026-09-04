@@ -7,10 +7,12 @@
     "node": ">=24"
   },
   "scripts": {
-    "build": "pnpm --filter @magicstick/dashboard-web build",
+    "build": "pnpm --filter @magicstick/dashboard-web build && pnpm --filter @magicstick/dashboard-cli build",
+    "cli": "node apps/cli/dist/magicstick.js",
     "dev": "pnpm --filter @magicstick/dashboard-web dev",
-    "test": "pnpm --filter @magicstick/dashboard-web test",
+    "test": "pnpm --filter @magicstick/dashboard-web test && pnpm --filter @magicstick/dashboard-cli test",
     "test:browser": "pnpm --filter @magicstick/dashboard-web test:browser",
-    "typecheck": "pnpm --filter @magicstick/dashboard-web typecheck"
+    "tui": "node apps/cli/dist/magicstick.js tui",
+    "typecheck": "pnpm --filter @magicstick/dashboard-web typecheck && pnpm --filter @magicstick/dashboard-cli typecheck"
   }
 }

@@ -144,8 +144,9 @@ that dashboard workflow. Keep dashboard examples limited to `example.local`,
 `example.com`, `CHANGEME`, or documented variables.
 
 The current ConfigMap renderer remains in `magic-cluster/apps/dashboard` while
-the replacement React frontend is developed under `dashboard/` and deployed in
-parallel. Install and verify it with the pinned workspace lockfile:
+the replacement React frontend and terminal clients are developed under
+`dashboard/`. They share framework-neutral contracts, transport, and core
+logic. Install and verify all clients with the pinned workspace lockfile:
 
 ```bash
 cd dashboard
@@ -156,17 +157,28 @@ pnpm test
 pnpm build
 ```
 
-Build its production image from the workspace root:
+`pnpm build` creates both the React bundle and the standalone
+`apps/cli/dist/magicstick.js` executable. Smoke-test the CLI without a live
+server:
+
+```bash
+pnpm cli --version
+pnpm cli --help
+```
+
+Build the browser production image from the workspace root:
 
 ```bash
 docker build -f apps/web/Dockerfile -t magicstick-dashboard:local .
 ```
 
-The browser app may import only `packages/api-client`, `packages/contracts`, and
-`packages/core` for control-plane behavior. Keep DOM and React dependencies out
-of those packages so the same code can be reused by a terminal UI. New API
-capabilities must be implemented and authorized in the shared dashboard API,
-not directly against Kubernetes from either frontend.
+The browser and terminal apps may import only `packages/api-client`,
+`packages/contracts`, and `packages/core` for control-plane behavior. Keep DOM,
+React, ANSI, filesystem, and process dependencies out of those packages. New
+API capabilities must be implemented and authorized in the shared dashboard
+API, not directly against Kubernetes from any client. CLI mutations should use
+explicit commands; the TUI remains a role-filtered read/monitor surface unless
+a separately tested confirmation model is introduced.
 
 ## Release Validation
 

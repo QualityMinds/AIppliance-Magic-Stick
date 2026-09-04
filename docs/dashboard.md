@@ -9,8 +9,12 @@ For the step-by-step end-user workflow after first-run setup, see
 [installation/after-installation-dashboard.md](installation/after-installation-dashboard.md).
 
 ```text
-Dashboard UI (current or React preview)
-  -> Envoy Gateway OIDC login
+Browser dashboard (current or React preview)
+  -> Envoy Gateway OIDC login and forwarded access token
+Terminal client (CLI or TUI)
+  -> Keycloak Device Authorization Flow
+  -> Envoy Gateway JWT validation on api.<mDNS-domain>
+Both
   -> Dashboard Backend API
      -> Kubernetes API
         -> ModuleActivation, AppInstance, and ModelActivation CRs
@@ -66,7 +70,7 @@ Paperclip, KubeOpenCode, KubeAI, LiteLLM, or direct app instance reconcilers.
 
 ## Backend API
 
-Both frontend Deployments are presentation-only and do not receive a Kubernetes
+Both browser frontend Deployments are presentation-only and do not receive a Kubernetes
 ServiceAccount token. The current dashboard contains nginx plus the HTML
 renderer. The parallel React preview contains a pre-built static bundle in a
 dedicated image. Both nginx frontends proxy `/api/*` to the
@@ -74,7 +78,9 @@ dedicated `identity-system/ai-appliance-dashboard-api` Service. That API runs in
 its own single-replica Deployment and uses
 `ConfigMap/ai-appliance-dashboard-api`. Envoy Gateway requires a Keycloak login
 for both the local and public dashboard hostnames and forwards the access token.
-The API validates the token against Keycloak before applying its own role
+The terminal API route requires a Keycloak Bearer token and validates its JWT at
+the edge. The API then validates every browser or terminal token against
+Keycloak, trusts only the browser and CLI client IDs, and applies its own role
 checks.
 
 ## React Dashboard Preview
@@ -84,16 +90,16 @@ The replacement frontend is developed as a pnpm workspace under `dashboard/`:
 ```text
 dashboard/
   apps/web                 React browser application and nginx image
+  apps/cli                 standalone command line client and terminal UI
   packages/contracts       typed API contracts and response validation
-  packages/api-client      transport shared by browser and future CLI clients
+  packages/api-client      authenticated transport shared by all clients
   packages/core            role, formatting, catalog, and selection logic
 ```
 
 It deliberately uses the existing backend API and runtime resources. It does
 not duplicate Kubernetes access, Keycloak administration, model discovery, or
-reconciliation logic in the browser. This boundary allows a later terminal UI
-to reuse the same contracts, API client, and core rules without importing
-React.
+reconciliation logic in a client. The CLI and TUI reuse the same contracts, API
+client, and core rules without importing React.
 
 During migration the current dashboard remains the primary UI at
 `https://<mDNS-domain>/`. The React preview is independently deployed as
@@ -127,6 +133,57 @@ The React implementation is checked tab by tab against the current dashboard:
 `dashboard/apps/web/src/FeatureParity.test.tsx` protects these user-visible
 contracts independently of the smaller application-shell tests. Catalog and
 API behavior remain covered by the existing Python dashboard tests.
+
+## CLI and TUI
+
+`dashboard/apps/cli` builds one self-contained Node.js executable named
+`magicstick`. It provides human-readable tables by default and JSON with
+`--json`. Read commands cover the appliance overview, services, instances,
+models and model discovery, settings, users, API keys, Kubernetes access, and
+system status. Explicit mutation commands cover module lifecycle, arbitrary
+catalog-backed instance payloads, model estimation and lifecycle, settings,
+the complete local-user lifecycle, named API keys, and Kubernetes access and
+kubeconfig generation.
+
+The interactive `magicstick tui` command is deliberately a read/monitor view.
+It exposes the same role-filtered areas as the React application, refreshes the
+shared snapshot automatically, and keeps state changes in auditable CLI
+commands rather than assigning actions to single key presses.
+
+The default endpoints are:
+
+- control-plane API: `https://api.magicstick.local`
+- issuer: `https://id.magicstick.local/realms/magicstick`
+- public OIDC client: `magicstick-cli`
+
+`api.<mDNS-domain>` is an mDNS-published `HTTPRoute`. Its Envoy
+`SecurityPolicy` validates Keycloak JWTs before forwarding the request. The
+public CLI client enables only Device Authorization Flow: it has no secret,
+redirect URI, password grant, implicit flow, or service account. The CLI opens
+the verification page when possible and prints the URL and one-time user code,
+so login also works in a remote shell. Access and refresh tokens are stored in a
+mode-`0600` session file below the XDG configuration directory; `logout` removes
+that local session. Password operations accept a protected file or stdin and
+never a command-line password value.
+
+Build and use the terminal client with:
+
+```bash
+cd dashboard
+corepack enable
+pnpm install --frozen-lockfile
+pnpm build
+pnpm cli --help
+pnpm cli login
+pnpm tui
+```
+
+Use `MAGICSTICK_API_URL`, `MAGICSTICK_ISSUER`, and
+`MAGICSTICK_CLIENT_ID` for a non-default deployment. A caller may provide an
+existing short-lived token through `MAGICSTICK_ACCESS_TOKEN`; it is not cached.
+For the appliance-local CA, make Node trust an exported CA with
+`NODE_EXTRA_CA_CERTS=/path/to/magicstick-ca.pem`. Do not disable TLS
+verification.
 
 | Method | Path | Behavior |
 |---|---|---|
@@ -179,8 +236,9 @@ operator or admin. Settings changes require admin. Envoy authentication alone
 does not authorize a configuration change. All `/api/users` endpoints require
 `magicstick-admin`, re-check that the actor is still enabled and still an
 administrator in Keycloak, and return only sanitized fields and capability
-flags. User mutations also require same-origin browser metadata and the
-`X-MagicStick-CSRF` request marker used by the dashboard UI.
+flags. Mutations require the `X-MagicStick-CSRF` request marker. Browser
+mutations additionally require valid same-origin metadata; a Bearer-authenticated
+terminal client sends no browser `Origin` or `Sec-Fetch-Site` headers.
 All `/api/api-access` endpoints require `magicstick-admin`; create and revoke
 requests use the same same-origin and CSRF checks.
 All `/api/kubernetes-access` endpoints require `magicstick-admin` and a live

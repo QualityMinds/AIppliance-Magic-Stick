@@ -1,0 +1,26 @@
+{
+  "name": "@magicstick/dashboard-cli",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "magicstick": "./dist/magicstick.js"
+  },
+  "scripts": {
+    "build": "vite build",
+    "start": "node dist/magicstick.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@magicstick/dashboard-api-client": "workspace:*",
+    "@magicstick/dashboard-contracts": "workspace:*",
+    "@magicstick/dashboard-core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "26.4.1",
+    "typescript": "catalog:",
+    "vite": "8.2.2",
+    "vitest": "5.0.0"
+  }
+}

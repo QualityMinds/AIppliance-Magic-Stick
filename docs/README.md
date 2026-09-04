@@ -16,7 +16,7 @@ bootstrap plus runtime configuration through the dashboard and runtime CRs.
 | [authentication.md](authentication.md) | Local-first SSO architecture, Envoy/Keycloak pilot, roles, and migration plan. |
 | [first-run-setup.md](first-run-setup.md) | Secure appliance claim, local/IP setup access, first administrator, and console recovery. |
 | [appliance-crd.md](appliance-crd.md) | `Appliance` API, spec, status, and public examples. |
-| [dashboard.md](dashboard.md) | Dashboard UI/API contract for managing the `Appliance` CR. |
+| [dashboard.md](dashboard.md) | Browser, CLI, TUI, and API contract for the appliance control plane. |
 | [modules.md](modules.md) | Magic Stick module catalog and generated Flux Kustomization contract. |
 | [operator-orchestration.md](operator-orchestration.md) | Meta-operator responsibilities and specialized operator handoff. |
 | [configuration.md](configuration.md) | Bootstrap variables, appliance-wide settings, module parameters, Flux post-build substitution, and secret handling. |

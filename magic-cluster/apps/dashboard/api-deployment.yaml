@@ -76,8 +76,8 @@ spec:
               value: http://keycloak.identity-system.svc.cluster.local:8080/realms/magicstick/protocol/openid-connect/userinfo
             - name: OIDC_EXPECTED_ISSUER
               value: "https://id.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/realms/magicstick"
-            - name: OIDC_EXPECTED_CLIENT_ID
-              value: magicstick-human-gateway-local
+            - name: OIDC_EXPECTED_CLIENT_IDS
+              value: magicstick-human-gateway-local,magicstick-cli
             - name: IDENTITY_MANAGEMENT_MODE
               value: keycloak
             - name: KEYCLOAK_ADMIN_URL

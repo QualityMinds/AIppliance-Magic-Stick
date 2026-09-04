@@ -159,7 +159,8 @@ AppInstance hostnames include the instance name:
 Local mDNS hostnames use `AI_APPLIANCE_MDNS_DOMAIN`, for example
 `magicstick.local` for the dashboard and `anythingllm.magicstick.local` for
 AnythingLLM. Instance-local hostnames use the same instance-name pattern with
-the mDNS domain.
+the mDNS domain. The terminal control-plane client uses
+`api.<mDNS-domain>`, for example `api.magicstick.local`.
 
 While the React migration is in preview, `dashboard2.<mDNS-domain>` is published
 as an additional mDNS hostname. With the defaults, open
@@ -211,6 +212,62 @@ pnpm typecheck
 pnpm test
 pnpm build
 ```
+
+### CLI and terminal UI
+
+The same workspace produces a standalone Node.js CLI/TUI bundle. Build it and
+inspect its offline help without an appliance connection:
+
+```bash
+cd dashboard
+pnpm build
+pnpm cli --version
+pnpm cli --help
+```
+
+On a machine that can resolve and reach the appliance, authenticate through the
+Keycloak Device Authorization Flow and then start the terminal UI:
+
+```bash
+pnpm cli login
+pnpm cli whoami
+pnpm cli overview
+pnpm tui
+```
+
+The login command opens Keycloak when possible and always prints a verification
+URL and one-time code. It does not ask for the Keycloak password in the shell.
+Configuration and the renewable session are stored below
+`$XDG_CONFIG_HOME/magicstick`, or `~/.config/magicstick` when that variable is
+unset; the session file is mode `0600`.
+Run `pnpm cli logout` to remove it. If Node does not trust the appliance-local
+CA, export that CA and run with
+`NODE_EXTRA_CA_CERTS=/path/to/magicstick-ca.pem`; never use a TLS-disable flag.
+
+The primary command groups are `service`, `instance`, `model`, `settings`,
+`user`, `api-key`, and `kubernetes-access`. Destructive and configuration
+operations retain the API's viewer/operator/admin checks. Model and instance
+creation accept a JSON payload with `--file`, allowing the same complete API
+contract as the React forms without a second set of client-side reconciliation
+rules. User passwords are accepted only through `--password-file` or
+`--password-stdin`.
+
+Check the cluster-side terminal access path with:
+
+```bash
+kubectl -n identity-system get httproute dashboard-api-local
+kubectl -n identity-system get securitypolicy dashboard-api-local-jwt
+kubectl -n identity-system get certificate identity-pilot
+kubectl -n identity-system get pods -l app=keycloak
+```
+
+The route must report `Accepted=True`, `api.<mDNS-domain>` must resolve to the
+Gateway address, and Keycloak discovery must advertise a
+`device_authorization_endpoint`. A release live pass should verify one viewer
+read, one authorized operator mutation with cleanup, one denied mutation, an
+admin-only list, token refresh, logout, and TUI quit/refresh behavior. These are
+live acceptance checks and cannot be replaced by local unit tests while the
+appliance is offline.
 
 Gateway-backed names are published only when their `HTTPRoute` has
 `lab42.io/mdns.enabled: "true"`, the selected parent reports `Accepted=True`,
@@ -612,6 +669,10 @@ deploy,pods` if a command does not match the running resource name.
 | AppInstance route returns `403` after SSO | Compare `spec.access.role` with the user's `magicstick-user`, `magicstick-viewer`, `magicstick-operator`, or `magicstick-admin` realm roles. |
 | Static AI route returns `403` after SSO | AI routes require at least `magicstick-user`. Check the user's realm roles and the corresponding static `SecurityPolicy`. |
 | Dashboard returns `403` after login | Confirm the user has `magicstick-viewer`, `magicstick-operator`, or `magicstick-admin`; configuration changes need operator or admin as documented in `authentication.md`. |
+| `magicstick login` cannot resolve `api.magicstick.local` | Confirm `dashboard-api-local` is accepted, carries `lab42.io/mdns.enabled: "true"`, the Gateway has an address, and kdns has published the route. Override `MAGICSTICK_API_URL` only for the actual appliance hostname. |
+| `magicstick login` reports that no device endpoint is advertised | Confirm the `magicstick-cli` client exists in the `magicstick` realm with Device Authorization Grant enabled, and let the Keycloak post-start reconciliation complete. |
+| CLI/TUI reports a local certificate verification error | Export and trust the Magic Stick local CA with `NODE_EXTRA_CA_CERTS`. Do not set `NODE_TLS_REJECT_UNAUTHORIZED=0`. |
+| CLI receives `401 access token client is not trusted` | Confirm the dashboard API Deployment uses `OIDC_EXPECTED_CLIENT_IDS=magicstick-human-gateway-local,magicstick-cli`, then log in again so the token has `azp=magicstick-cli`. |
 | Users tab is missing for an administrator | Confirm the session contains `magicstick-admin` and the installation uses local Keycloak rather than the direct-external-provider escape hatch. Refresh the browser after role changes. |
 | Users tab reports that Keycloak is unavailable | Check Keycloak readiness, the dashboard API logs, the existence of `magicstick-user-admin-client`, and its exact-name Secret Role. Do not decode the Secret. |
 | User change returns `409` | Check whether the account is external, protected, the current actor, or the last enabled local administrator. Duplicate username or email also returns `409`. |

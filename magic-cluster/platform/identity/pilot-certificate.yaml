@@ -41,6 +41,7 @@ spec:
     - "auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
     - "${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
     - "dashboard2.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
+    - "api.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
     - "${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"
   issuerRef:
     kind: Issuer

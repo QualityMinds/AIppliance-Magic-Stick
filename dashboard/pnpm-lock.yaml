@@ -23,6 +23,31 @@ importers:
 
   .: {}
 
+  apps/cli:
+    dependencies:
+      '@magicstick/dashboard-api-client':
+        specifier: workspace:*
+        version: link:../../packages/api-client
+      '@magicstick/dashboard-contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@magicstick/dashboard-core':
+        specifier: workspace:*
+        version: link:../../packages/core
+    devDependencies:
+      '@types/node':
+        specifier: 26.4.1
+        version: 26.4.1
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vite:
+        specifier: 8.2.2
+        version: 8.2.2(@types/node@26.4.1)
+      vitest:
+        specifier: 5.0.0
+        version: 5.0.0(@types/node@26.4.1)(jsdom@30.0.1)(vite@8.2.2(@types/node@26.4.1))
+
   apps/web:
     dependencies:
       '@magicstick/dashboard-api-client':

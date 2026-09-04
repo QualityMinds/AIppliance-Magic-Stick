@@ -158,6 +158,12 @@ class LocalRuntimeTests(unittest.TestCase):
     def tearDown(self):
         self.server.update(self.originals)
 
+    def test_dashboard_and_cli_oidc_clients_are_trusted(self):
+        self.assertEqual(
+            self.server["OIDC_EXPECTED_CLIENT_IDS"],
+            {"magicstick-human-gateway-local", "magicstick-cli"},
+        )
+
     def test_remove_local_runtime_deletes_only_auto_enabled_modules(self):
         deleted = []
         self.server["model_activations"] = lambda: []

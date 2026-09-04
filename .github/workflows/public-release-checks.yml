@@ -76,7 +76,7 @@ jobs:
           test -s /tmp/magicstick-dashboard.js
           node --check /tmp/magicstick-dashboard.js
 
-      - name: Check React dashboard preview
+      - name: Check dashboard clients
         working-directory: dashboard
         run: |
           corepack enable

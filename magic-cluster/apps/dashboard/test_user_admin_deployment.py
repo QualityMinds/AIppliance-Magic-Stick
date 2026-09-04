@@ -74,12 +74,33 @@ class UserAdminDeploymentTests(unittest.TestCase):
         self.assertEqual(env["KUBERNETES_ACCESS_INFO_NAME"], "magicstick-kubernetes-access-info")
         self.assertEqual(env["KUBERNETES_OIDC_CLIENT_ID"], "magicstick-kubernetes")
         self.assertEqual(
+            env["OIDC_EXPECTED_CLIENT_IDS"],
+            "magicstick-human-gateway-local,magicstick-cli",
+        )
+        self.assertEqual(
             env["DASHBOARD_ALLOWED_ORIGINS"],
             "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local},"
             "https://dashboard2.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local},"
             "https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}",
         )
         self.assertNotIn("KEYCLOAK_USER_ADMIN_CLIENT_SECRET", env)
+
+    def test_cli_api_has_an_mdns_jwt_route(self):
+        route, policy = load_documents("cli-gateway.yaml")
+
+        self.assertEqual(route["metadata"]["namespace"], "identity-system")
+        self.assertEqual(route["metadata"]["annotations"]["lab42.io/mdns.enabled"], "true")
+        self.assertEqual(
+            route["spec"]["hostnames"],
+            ["api.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"],
+        )
+        self.assertEqual(route["spec"]["rules"][0]["backendRefs"][0], {
+            "name": "ai-appliance-dashboard-api",
+            "port": 8080,
+        })
+        self.assertEqual(policy["spec"]["jwt"]["providers"][0]["name"], "keycloak")
+        claims = policy["spec"]["authorization"]["rules"][0]["principal"]["jwt"]["claims"]
+        self.assertIn("magicstick-admin", claims[0]["values"])
 
     def test_api_configmap_and_service_share_the_identity_namespace(self):
         configmap = load_documents("dashboard-api.yaml")[0]
@@ -174,6 +195,7 @@ class UserAdminDeploymentTests(unittest.TestCase):
             "react-deployment.yaml",
             "react-service.yaml",
             "react-gateway.yaml",
+            "cli-gateway.yaml",
         ):
             self.assertIn(resource, kustomization["resources"])
 

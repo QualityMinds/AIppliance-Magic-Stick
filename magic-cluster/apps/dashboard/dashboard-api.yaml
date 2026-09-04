@@ -87,10 +87,16 @@ data:
         "OIDC_EXPECTED_ISSUER",
         "https://id.magicstick.local/realms/magicstick",
     ).rstrip("/")
-    OIDC_EXPECTED_CLIENT_ID = os.environ.get(
-        "OIDC_EXPECTED_CLIENT_ID",
-        "magicstick-human-gateway-local",
+    OIDC_EXPECTED_CLIENT_IDS_RAW = (
+        os.environ.get("OIDC_EXPECTED_CLIENT_IDS")
+        or os.environ.get("OIDC_EXPECTED_CLIENT_ID")
+        or "magicstick-human-gateway-local,magicstick-cli"
     )
+    OIDC_EXPECTED_CLIENT_IDS = {
+        value.strip()
+        for value in OIDC_EXPECTED_CLIENT_IDS_RAW.split(",")
+        if value.strip()
+    }
     AUTH_CACHE_TTL_SECONDS = 30
     AUTH_CACHE = {}
     ROLE_ACCESS = {
@@ -219,7 +225,7 @@ data:
         claims = jwt_payload(access_token)
         if str(claims.get("iss") or "").rstrip("/") != OIDC_EXPECTED_ISSUER:
             raise AuthError(401, "access token issuer is not trusted")
-        if str(claims.get("azp") or "") != OIDC_EXPECTED_CLIENT_ID:
+        if str(claims.get("azp") or "") not in OIDC_EXPECTED_CLIENT_IDS:
             raise AuthError(401, "access token client is not trusted")
         try:
             if float(claims.get("exp", 0)) <= now:
