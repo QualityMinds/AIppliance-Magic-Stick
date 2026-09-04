@@ -4307,7 +4307,7 @@ data:
     def vllm_kv_cache_mi(config, context_window, max_num_seqs, compute_target):
         theoretical_mi = kv_cache_mi(config, context_window, max_num_seqs)
         if theoretical_mi is None:
-            return None, 1
+            return None, 1, None
         layers, total_layers = kv_cache_layer_count(config)
         compatibility_factor = 1
         if (
@@ -4321,12 +4321,13 @@ data:
             # optimistic for Qwen 3.5-style models, so use the total/full layer
             # ratio as a conservative compatibility envelope.
             compatibility_factor = max(1, (total_layers + layers - 1) // layers)
-        return int(theoretical_mi * compatibility_factor), compatibility_factor
+        return int(theoretical_mi * compatibility_factor), compatibility_factor, int(theoretical_mi)
 
 
     def vllm_runtime_reserve_mi(config, model_api, weights_mi, compute_target):
         if compute_target != "cpu":
-            return max(2048, int(weights_mi * 0.08)), {}
+            reserve_mi = max(2048, int(weights_mi * 0.08))
+            return reserve_mi, {"engineRuntimeReserveMi": int(reserve_mi)}
         runtime_weights_mi = runtime_parameter_mi(config, model_api) or weights_mi
         compile_mi = max(2048, int(max(weights_mi, runtime_weights_mi) * 0.35))
         multimodal_mi = 4096 if is_multimodal_config(config) else 0
@@ -4335,6 +4336,7 @@ data:
             "runtimeWeightsMi": int(runtime_weights_mi),
             "compileReserveMi": int(compile_mi),
             "multimodalReserveMi": int(multimodal_mi),
+            "unpackReserveMi": int(unpack_mi),
         }
 
 
@@ -4384,11 +4386,12 @@ data:
             confidence = "fallback"
             warnings.append("Could not estimate model weight size from HuggingFace metadata.")
 
-        kv_mi, kv_compatibility_factor = vllm_kv_cache_mi(
+        kv_mi, kv_compatibility_factor, theoretical_kv_mi = vllm_kv_cache_mi(
             dimensions, context_window, max_num_seqs, compute_target
         )
         if kv_mi is None:
             kv_mi = 0
+            theoretical_kv_mi = 0
             confidence = "fallback"
             warnings.append("Could not estimate KV cache from model config.")
         else:
@@ -4423,6 +4426,8 @@ data:
             "downloadBytes": int(download_bytes),
             "downloadSizeSource": download_size_source,
             "kvCacheMi": int(kv_mi),
+            "theoreticalKvCacheMi": int(theoretical_kv_mi or 0),
+            "hybridAllocatorSafetyMi": max(0, int(kv_mi) - int(theoretical_kv_mi or 0)),
             "runtimeReserveMi": int(runtime_mi),
             "runtimeDetails": runtime_details,
             "kvCompatibilityFactor": int(kv_compatibility_factor),
@@ -4463,6 +4468,7 @@ data:
             "quantization": metadata.get("quantization"),
             "kvCacheMi": int(kv_mi),
             "runtimeReserveMi": int(runtime_mi),
+            "runtimeDetails": {"engineRuntimeReserveMi": int(runtime_mi)},
             "contextWindow": int(context_window),
             "maxNumSeqs": int(max_num_seqs),
             "confidence": "estimated",
@@ -4520,6 +4526,12 @@ data:
             "downloadSizeSource": str(estimate.get("downloadSizeSource") or ""),
             "quantization": estimate.get("quantization"),
             "kvCacheMi": int(kv_mi),
+            "theoreticalKvCacheMi": (
+                int(estimate.get("theoreticalKvCacheMi"))
+                if estimate.get("theoreticalKvCacheMi") is not None
+                else None
+            ),
+            "hybridAllocatorSafetyMi": int(estimate.get("hybridAllocatorSafetyMi") or 0),
             "configuredKvCacheMi": (
                 round_up_mib(kv_mi)
                 if engine == "VLLM" and compute_target == "cpu" and kv_mi > 0

@@ -24,6 +24,35 @@ class UserAdminDeploymentTests(unittest.TestCase):
         )
         self.assertNotIn("api", {volume["name"] for volume in pod["volumes"]})
 
+    def test_react_preview_is_a_separate_unprivileged_frontend(self):
+        deployment = load_documents("react-deployment.yaml")[0]
+        pod = deployment["spec"]["template"]["spec"]
+
+        self.assertEqual(deployment["metadata"]["name"], "ai-appliance-dashboard-next")
+        self.assertFalse(pod["automountServiceAccountToken"])
+        self.assertEqual(pod["serviceAccountName"], "default")
+        self.assertEqual([container["name"] for container in pod["containers"]], ["web"])
+        self.assertTrue(pod["containers"][0]["securityContext"]["readOnlyRootFilesystem"])
+        self.assertEqual(pod["containers"][0]["ports"][0]["containerPort"], 8080)
+
+    def test_react_preview_has_an_mdns_oidc_route(self):
+        grant, route, policy = load_documents("react-gateway.yaml")
+
+        self.assertEqual(grant["kind"], "ReferenceGrant")
+        self.assertEqual(grant["metadata"]["name"], "allow-identity-dashboard-next")
+        self.assertEqual(grant["spec"]["to"][0]["name"], "ai-appliance-dashboard-next")
+        self.assertEqual(route["kind"], "HTTPRoute")
+        self.assertEqual(route["metadata"]["annotations"]["lab42.io/mdns.enabled"], "true")
+        self.assertEqual(
+            route["spec"]["hostnames"],
+            ["dashboard2.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"],
+        )
+        self.assertEqual(
+            route["spec"]["rules"][0]["backendRefs"][0]["name"],
+            "ai-appliance-dashboard-next",
+        )
+        self.assertEqual(policy["spec"]["oidc"]["cookieNames"]["accessToken"], "MagicStickPreviewAccessToken")
+
     def test_api_has_a_dedicated_single_pod_identity_boundary(self):
         deployment = load_documents("api-deployment.yaml")[0]
         pod = deployment["spec"]["template"]["spec"]
@@ -47,6 +76,7 @@ class UserAdminDeploymentTests(unittest.TestCase):
         self.assertEqual(
             env["DASHBOARD_ALLOWED_ORIGINS"],
             "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local},"
+            "https://dashboard2.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local},"
             "https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}",
         )
         self.assertNotIn("KEYCLOAK_USER_ADMIN_CLIENT_SECRET", env)
@@ -141,6 +171,9 @@ class UserAdminDeploymentTests(unittest.TestCase):
             "dashboard-api.yaml",
             "api-deployment.yaml",
             "api-service.yaml",
+            "react-deployment.yaml",
+            "react-service.yaml",
+            "react-gateway.yaml",
         ):
             self.assertIn(resource, kustomization["resources"])
 

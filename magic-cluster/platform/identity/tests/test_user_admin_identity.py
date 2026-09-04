@@ -19,6 +19,7 @@ KUBERNETES_GROUPS = {
 }
 EXPECTED_POST_LOGOUT_REDIRECT_URIS = (
     "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/##"
+    "https://dashboard2.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/##"
     "https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/"
 )
 EXPECTED_ADMIN_ROLES = {
@@ -172,6 +173,10 @@ class UserAdminIdentityTests(unittest.TestCase):
         self.assertEqual(certificates["identity-pilot-ca"]["spec"]["secretName"], "identity-pilot-ca")
         self.assertEqual(issuers["identity-pilot-ca"]["spec"]["ca"]["secretName"], "identity-pilot-ca")
         self.assertEqual(certificates["identity-pilot"]["spec"]["issuerRef"]["name"], "identity-pilot-ca")
+        self.assertIn(
+            "dashboard2.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}",
+            certificates["identity-pilot"]["spec"]["dnsNames"],
+        )
 
     def test_kubernetes_group_bindings_have_distinct_least_privilege_levels(self):
         documents = [document for document in load_documents("kubernetes-access-rbac.yaml") if document]
@@ -281,6 +286,7 @@ class UserAdminIdentityTests(unittest.TestCase):
         self.assertIn("oidc-group-membership-mapper", script)
         self.assertIn("Kubernetes groups", script)
         self.assertIn('config."full.path"=true', script)
+        self.assertNotIn("awk", script)
         for group in KUBERNETES_GROUPS:
             self.assertIn(group, script)
 

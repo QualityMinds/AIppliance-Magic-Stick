@@ -76,6 +76,15 @@ jobs:
           test -s /tmp/magicstick-dashboard.js
           node --check /tmp/magicstick-dashboard.js
 
+      - name: Check React dashboard preview
+        working-directory: dashboard
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm typecheck
+          pnpm test
+          pnpm build
+
       - name: Render public Kustomize targets
         run: |
           targets=(

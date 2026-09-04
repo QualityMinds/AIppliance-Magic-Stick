@@ -15,4 +15,7 @@ resources:
   - nginx-config.yaml
   - deployment.yaml
   - service.yaml
+  - react-deployment.yaml
+  - react-service.yaml
+  - react-gateway.yaml
   - gateway.yaml

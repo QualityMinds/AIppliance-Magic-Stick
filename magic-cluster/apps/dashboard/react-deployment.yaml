@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-appliance-dashboard-next
+  namespace: dashboard
+  labels:
+    app: ai-appliance-dashboard-next
+    app.kubernetes.io/name: magicstick-dashboard
+    app.kubernetes.io/component: react-preview
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-appliance-dashboard-next
+  template:
+    metadata:
+      labels:
+        app: ai-appliance-dashboard-next
+        app.kubernetes.io/name: magicstick-dashboard
+        app.kubernetes.io/component: react-preview
+    spec:
+      serviceAccountName: default
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: web
+          image: ghcr.io/qualityminds/magicstick-dashboard:react-preview
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 24Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

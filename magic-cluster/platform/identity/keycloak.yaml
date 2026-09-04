@@ -130,7 +130,12 @@ spec:
                           --fields id,name \
                           --format csv \
                           --noquotes 2>/dev/null \
-                          | awk -F, -v expected="$1" '$2 == expected { print $1; exit }' \
+                          | while IFS=, read -r group_id group_name; do
+                              if [ "$group_name" = "$1" ]; then
+                                printf '%s\n' "$group_id"
+                                break
+                              fi
+                            done \
                           | tr -d '\r'
                       }
                       ensure_group() {
@@ -190,7 +195,12 @@ spec:
                             --fields id,name \
                             --format csv \
                             --noquotes 2>/dev/null \
-                            | awk -F, '$2 == "Kubernetes groups" { print $1; exit }' \
+                            | while IFS=, read -r mapper_id mapper_name; do
+                                if [ "$mapper_name" = "Kubernetes groups" ]; then
+                                  printf '%s\n' "$mapper_id"
+                                  break
+                                fi
+                              done \
                             | tr -d '\r'
                         )"
                         if [ -z "$kubernetes_mapper_uuid" ]; then
@@ -324,9 +334,9 @@ spec:
                         /opt/keycloak/bin/kcadm.sh update "clients/$human_gateway_client_uuid" \
                           --config "$config" \
                           --realm magicstick \
-                          -s 'redirectUris=["https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback/*","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback/*"]' \
-                          -s 'webOrigins=["https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"]' \
-                          -s 'attributes."post.logout.redirect.uris"=https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/##https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/' >/dev/null 2>&1
+                          -s 'redirectUris=["https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback/*","https://dashboard2.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback","https://dashboard2.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback/*","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback/*"]' \
+                          -s 'webOrigins=["https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://dashboard2.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"]' \
+                          -s 'attributes."post.logout.redirect.uris"=https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/##https://dashboard2.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/##https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/' >/dev/null 2>&1
                         sync_user_admin_client
                         sync_kubernetes_client_and_groups
                       }

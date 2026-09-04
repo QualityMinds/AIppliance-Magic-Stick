@@ -95,7 +95,7 @@ spec:
             - name: KUBERNETES_OIDC_CLIENT_ID
               value: magicstick-kubernetes
             - name: DASHBOARD_ALLOWED_ORIGINS
-              value: "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local},https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"
+              value: "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local},https://dashboard2.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local},https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"
             - name: PYTHONDONTWRITEBYTECODE
               value: "1"
           readinessProbe:

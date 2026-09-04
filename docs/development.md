@@ -143,6 +143,31 @@ Provider Secrets created from user-entered model credentials must stay scoped to
 that dashboard workflow. Keep dashboard examples limited to `example.local`,
 `example.com`, `CHANGEME`, or documented variables.
 
+The current ConfigMap renderer remains in `magic-cluster/apps/dashboard` while
+the replacement React frontend is developed under `dashboard/` and deployed in
+parallel. Install and verify it with the pinned workspace lockfile:
+
+```bash
+cd dashboard
+corepack enable
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm test
+pnpm build
+```
+
+Build its production image from the workspace root:
+
+```bash
+docker build -f apps/web/Dockerfile -t magicstick-dashboard:local .
+```
+
+The browser app may import only `packages/api-client`, `packages/contracts`, and
+`packages/core` for control-plane behavior. Keep DOM and React dependencies out
+of those packages so the same code can be reused by a terminal UI. New API
+capabilities must be implemented and authorized in the shared dashboard API,
+not directly against Kubernetes from either frontend.
+
 ## Release Validation
 
 Run the public release checklist before tagging a public version:

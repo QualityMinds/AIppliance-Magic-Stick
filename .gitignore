@@ -28,6 +28,7 @@ dist/
 tmp/
 *.tmp
 *.bak
+node_modules/
 
 # Kubernetes local tooling
 kubeconfig

@@ -161,6 +161,57 @@ Local mDNS hostnames use `AI_APPLIANCE_MDNS_DOMAIN`, for example
 AnythingLLM. Instance-local hostnames use the same instance-name pattern with
 the mDNS domain.
 
+While the React migration is in preview, `dashboard2.<mDNS-domain>` is published
+as an additional mDNS hostname. With the defaults, open
+`https://dashboard2.magicstick.local/`. It has a separate Deployment, Service,
+OIDC policy, and browser cookie but shares the current dashboard backend API.
+The current dashboard at `https://magicstick.local/` remains available. Check
+both frontends without reading credentials:
+
+```bash
+kubectl -n dashboard get deploy,service \
+  ai-appliance-dashboard ai-appliance-dashboard-next
+kubectl -n identity-system get httproute dashboard-local dashboard-next-local
+kubectl -n identity-system get securitypolicy \
+  dashboard-local-oidc dashboard-next-local-oidc
+```
+
+For a release acceptance pass, compare the current and React dashboards with
+the same authenticated role and live appliance state:
+
+1. **Overview:** compare counts and verify that every module and instance route
+   can be opened and copied from its grouped resource row.
+2. **Services:** exercise all three filters, expand an application and one
+   instance, inspect progress/routes, open supported credentials, and verify
+   that every application type exposes its complete create form.
+3. **Models:** compare compute gauges, search Hugging Face and Ollama, select an
+   artifact, verify context/download metadata and capacity markers, then inspect
+   an existing activation and the guarded remove controls.
+4. **Settings:** compare the loaded public and mDNS domains. Save only when a
+   controlled domain mutation is part of the test.
+5. **Users:** as an administrator, search and filter users, inspect effective
+   versus direct access, and open every lifecycle dialog without changing a
+   recovery or current account.
+6. **API Access:** verify API bases and open the create dialog. A release test
+   that creates a key must copy it from the one-time view and revoke it again.
+7. **Kubernetes Access:** verify OIDC readiness, access explanations, user
+   search, and that copy/download remain disabled until a user has a grant and
+   the cluster reports ready.
+8. **System Status:** compare operator, Flux, workload, and route summaries and
+   verify that an applied GPU operator is not called ready before its resource
+   and telemetry are active.
+
+Run the automated counterpart before the browser pass:
+
+```bash
+cd dashboard
+corepack enable
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm test
+pnpm build
+```
+
 Gateway-backed names are published only when their `HTTPRoute` has
 `lab42.io/mdns.enabled: "true"`, the selected parent reports `Accepted=True`,
 and the referenced `Gateway` has an IP address. Check discovery with:
@@ -472,11 +523,13 @@ slider both end at the target's unreserved memory. Values beyond that capacity
 remain visible only as minimum/recommended markers in the gray overflow area.
 Displayed requirements and selections use 100 MiB planning increments. Values
 round upward; the safe unreserved ceiling rounds downward so a selectable value
-never exceeds planning capacity. The breakdown identifies weights, KV cache,
-and reserve. Ollama's registry
-manifest provides exact model-layer bytes, while its KV-cache component remains
-a conservative estimate because full GGUF dimensions are not present in the
-manifest.
+never exceeds planning capacity. The React dashboard breakdown separates weights, theoretical
+or estimated KV cache, hybrid-allocator safety, compile/warm-up headroom,
+multimodal processor cache, quantization working copy, generic engine reserve,
+and recommendation headroom. Download size is shown as storage/network context
+and is not added to the memory requirement. Ollama's registry manifest provides
+exact model-layer bytes, while its KV-cache component remains a conservative
+estimate because full GGUF dimensions are not present in the manifest.
 
 For a CPU target, the selected value becomes the model pod's Kubernetes memory
 request in 16 MiB units. Check the requested value after creation:

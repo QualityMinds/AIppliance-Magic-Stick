@@ -9,7 +9,7 @@ For the step-by-step end-user workflow after first-run setup, see
 [installation/after-installation-dashboard.md](installation/after-installation-dashboard.md).
 
 ```text
-Dashboard UI
+Dashboard UI (current or React preview)
   -> Envoy Gateway OIDC login
   -> Dashboard Backend API
      -> Kubernetes API
@@ -66,14 +66,67 @@ Paperclip, KubeOpenCode, KubeAI, LiteLLM, or direct app instance reconcilers.
 
 ## Backend API
 
-The frontend Deployment contains only nginx and the HTML renderer and does not
-receive a Kubernetes ServiceAccount token. nginx proxies `/api/*` to the
+Both frontend Deployments are presentation-only and do not receive a Kubernetes
+ServiceAccount token. The current dashboard contains nginx plus the HTML
+renderer. The parallel React preview contains a pre-built static bundle in a
+dedicated image. Both nginx frontends proxy `/api/*` to the
 dedicated `identity-system/ai-appliance-dashboard-api` Service. That API runs in
 its own single-replica Deployment and uses
 `ConfigMap/ai-appliance-dashboard-api`. Envoy Gateway requires a Keycloak login
 for both the local and public dashboard hostnames and forwards the access token.
 The API validates the token against Keycloak before applying its own role
 checks.
+
+## React Dashboard Preview
+
+The replacement frontend is developed as a pnpm workspace under `dashboard/`:
+
+```text
+dashboard/
+  apps/web                 React browser application and nginx image
+  packages/contracts       typed API contracts and response validation
+  packages/api-client      transport shared by browser and future CLI clients
+  packages/core            role, formatting, catalog, and selection logic
+```
+
+It deliberately uses the existing backend API and runtime resources. It does
+not duplicate Kubernetes access, Keycloak administration, model discovery, or
+reconciliation logic in the browser. This boundary allows a later terminal UI
+to reuse the same contracts, API client, and core rules without importing
+React.
+
+During migration the current dashboard remains the primary UI at
+`https://<mDNS-domain>/`. The React preview is independently deployed as
+`dashboard/ai-appliance-dashboard-next` and is available at
+`https://dashboard2.<mDNS-domain>/`; with the defaults this is
+`https://dashboard2.magicstick.local/`. Its `HTTPRoute` carries
+`lab42.io/mdns.enabled: "true"`, so kdns publishes the hostname when the route
+is accepted and the Gateway has an address. The hostname is also present in the
+identity certificate, Keycloak callback, web-origin, and post-logout allowlists.
+The preview uses separate OIDC cookie names and therefore cannot disturb the
+current dashboard session.
+
+The preview implements the same role boundary and the Overview, Services,
+Models, Settings, Users, API Access, Kubernetes Access, and System Status areas.
+The old dashboard remains the fallback until the preview has been accepted on
+real appliances.
+
+The React implementation is checked tab by tab against the current dashboard:
+
+| Area | React parity contract |
+|---|---|
+| Overview | Appliance and object counts, discovered module and instance URLs with local/public/direct classification and copy/open actions, plus appliance, module, instance, model, removal, and Flux attention items. |
+| Services | Catalog-driven Applications, AI Runtime, and Platform groups; dependency-aware enable/disable controls; parameters; credentials; collapsible instances; progress, messages, routes, removal, and all OpenClaw, Hermes, Paperclip, KubeOpenCode, and Odysseus create options. |
+| Models | CPU and per-GPU memory gauges; preset, direct-reference, Hugging Face, and Ollama discovery; popular and family shortcuts; paginated repositories and quantizations/tags; metadata, download size, context, memory estimator, over-capacity markers, creation, progress, registered catalog models, removal, and local-runtime cleanup. |
+| Settings | Public-domain and mDNS-domain editing with the same derived-host behavior as the existing dashboard. |
+| Users | Server-side search and pagination, status/source filters, direct and effective roles, create, profile edit, access change, enable/disable, temporary-password reset, capability explanations, and guarded deletion. |
+| API Access | Endpoint display/copy, named-key creation, one-time secret display/copy, non-secret metadata, refresh, and guarded revocation. |
+| Kubernetes Access | OIDC readiness, role explanations and warnings, user search/pagination, access assignment/removal, and readiness-guarded kubeconfig download/copy. |
+| System Status | Hardware operator lifecycle and GPU-resource state, Flux details, Pod/Service/Ingress/route summaries, and discovered route URLs. |
+
+`dashboard/apps/web/src/FeatureParity.test.tsx` protects these user-visible
+contracts independently of the smaller application-shell tests. Catalog and
+API behavior remain covered by the existing Python dashboard tests.
 
 | Method | Path | Behavior |
 |---|---|---|
@@ -447,8 +500,15 @@ free-memory value does not change that planning limit. Minimum and recommended
 values are marked on the same scale. If either estimate exceeds unreserved
 capacity, its marker remains visible in a gray overflow section to the right of
 the slider; the selected allocation itself never exceeds unreserved capacity.
-The collapsible **Breakdown** shows weights, KV cache, and reserve for every
-engine and target. Every displayed recommendation and selectable reservation is
+The React dashboard's collapsible **Breakdown** separates model weights, the base KV-cache
+estimate, hybrid-allocator safety, engine runtime components, recommendation
+headroom, and download size. For vLLM hybrid models, the UI labels the
+architecture-derived KV value as **Theoretical KV cache** and shows the extra
+compatibility budget independently instead of presenting their sum as physical
+cache use. CPU vLLM runtime reserve is split into compile/warm-up headroom, the
+multimodal processor cache, and a quantization working copy when applicable.
+Download size is storage/network information and is explicitly not included in
+the memory total. Every displayed recommendation and selectable reservation is
 rounded upward to a 100 MiB planning step. The safe slider maximum is rounded
 down to the same step so the UI never offers more than the unreserved capacity.
 
@@ -473,8 +533,11 @@ start-up envelope for working tensors, compilation/warm-up, and the default
 multimodal processor cache. Hybrid attention models are labelled **Estimated**
 and receive a conservative cache compatibility factor because current vLLM
 hybrid cache grouping can allocate more memory than the pure full-attention
-formula suggests. A selected CPU reservation below the computed minimum is
-rejected before Kubernetes starts a CrashLooping pod.
+formula suggests. The shared API returns both values as
+`theoreticalKvCacheMi` and `hybridAllocatorSafetyMi`; runtime components are
+returned in `runtimeDetails`, while `recommendedReserveMi` is the separate
+recommendation headroom. A selected CPU reservation below the computed minimum
+is rejected before Kubernetes starts a CrashLooping pod.
 
 Accelerator availability uses the Ready, schedulable node's allocatable vendor
 resource as the final runtime signal. An enabled vendor operator that is

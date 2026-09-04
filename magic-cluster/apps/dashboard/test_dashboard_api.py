@@ -586,6 +586,15 @@ class LocalRuntimeTests(unittest.TestCase):
                 self.assertEqual(estimate["downloadSizeSource"], "huggingface-used-storage")
                 self.assertGreater(estimate["minimumMi"], estimate["weightsMi"])
                 self.assertGreater(estimate["recommendedMi"], estimate["minimumMi"])
+                self.assertIsNotNone(estimate["theoreticalKvCacheMi"])
+                self.assertEqual(estimate["hybridAllocatorSafetyMi"], 0)
+                if target == "cpu":
+                    self.assertGreater(estimate["runtimeDetails"]["compileReserveMi"], 0)
+                else:
+                    self.assertEqual(
+                        estimate["runtimeDetails"]["engineRuntimeReserveMi"],
+                        estimate["reserveMi"],
+                    )
 
     def test_cpu_vllm_hybrid_estimate_includes_startup_and_compatibility_reserves(self):
         mib = 1024 * 1024
@@ -635,7 +644,15 @@ class LocalRuntimeTests(unittest.TestCase):
 
         self.assertEqual(estimate["weightsMi"], 800)
         self.assertEqual(estimate["kvCacheMi"], 4)
+        self.assertEqual(estimate["theoreticalKvCacheMi"], 1)
+        self.assertEqual(estimate["hybridAllocatorSafetyMi"], 3)
         self.assertEqual(estimate["reserveMi"], 8052)
+        self.assertEqual(estimate["runtimeDetails"], {
+            "runtimeWeightsMi": 1908,
+            "compileReserveMi": 2048,
+            "multimodalReserveMi": 4096,
+            "unpackReserveMi": 1908,
+        })
         self.assertEqual(estimate["minimumMi"], 8856)
         self.assertEqual(estimate["recommendedMi"], 10904)
         self.assertEqual(estimate["confidence"], "estimated")
@@ -728,6 +745,10 @@ class LocalRuntimeTests(unittest.TestCase):
                 self.assertEqual(estimate["quantization"]["label"], "GGUF Q4_K_M")
                 self.assertGreater(estimate["minimumMi"], estimate["weightsMi"])
                 self.assertGreater(estimate["recommendedMi"], estimate["minimumMi"])
+                self.assertEqual(
+                    estimate["runtimeDetails"]["engineRuntimeReserveMi"],
+                    estimate["reserveMi"],
+                )
 
     def test_ollama_memory_estimate_rejects_unsupported_intel_target(self):
         with self.assertRaises(self.server["RequestError"]) as raised:
@@ -2853,6 +2874,7 @@ class UserAdministrationTests(unittest.TestCase):
 
         self.server["DASHBOARD_ALLOWED_ORIGINS"] = {
             "https://magicstick.local",
+            "https://dashboard2.magicstick.local",
             "https://magicstick.example.com",
         }
 

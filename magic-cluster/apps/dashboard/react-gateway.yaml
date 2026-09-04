@@ -1,0 +1,59 @@
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: allow-identity-dashboard-next
+  namespace: dashboard
+spec:
+  from:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      namespace: identity-system
+  to:
+    - group: ""
+      kind: Service
+      name: ai-appliance-dashboard-next
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: dashboard-next-local
+  namespace: identity-system
+  annotations:
+    lab42.io/mdns.enabled: "true"
+spec:
+  parentRefs:
+    - name: identity-pilot
+  hostnames:
+    - "dashboard2.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
+  rules:
+    - backendRefs:
+        - name: ai-appliance-dashboard-next
+          namespace: dashboard
+          port: 8080
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: dashboard-next-local-oidc
+  namespace: identity-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: dashboard-next-local
+  oidc:
+    provider:
+      issuer: "https://id.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/realms/magicstick"
+      authorizationEndpoint: "https://id.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/realms/magicstick/protocol/openid-connect/auth"
+      tokenEndpoint: http://keycloak.identity-system.svc.cluster.local:8080/realms/magicstick/protocol/openid-connect/token
+      endSessionEndpoint: "https://id.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/realms/magicstick/protocol/openid-connect/logout"
+    clientID: magicstick-human-gateway-local
+    clientSecret:
+      name: magicstick-human-gateway-client
+    redirectURL: "https://dashboard2.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback"
+    logoutPath: /logout
+    cookieDomain: "dashboard2.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
+    cookieNames:
+      accessToken: MagicStickPreviewAccessToken
+      idToken: MagicStickPreviewIDToken
+    forwardAccessToken: true

@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-appliance-dashboard-next
+  namespace: dashboard
+  labels:
+    app: ai-appliance-dashboard-next
+    app.kubernetes.io/name: magicstick-dashboard
+    app.kubernetes.io/component: react-preview
+spec:
+  selector:
+    app: ai-appliance-dashboard-next
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
