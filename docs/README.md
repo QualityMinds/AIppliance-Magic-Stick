@@ -17,6 +17,7 @@ bootstrap plus runtime configuration through the dashboard and runtime CRs.
 | [first-run-setup.md](first-run-setup.md) | Secure appliance claim, local/IP setup access, first administrator, and console recovery. |
 | [appliance-crd.md](appliance-crd.md) | `Appliance` API, spec, status, and public examples. |
 | [dashboard.md](dashboard.md) | Browser, CLI, TUI, and API contract for the appliance control plane. |
+| [licensing.md](licensing.md) | MIT license-management foundation: offline issuer, public trust keys, dashboard/CLI/TUI import, persistence, limits and Rancher checks. |
 | [modules.md](modules.md) | Magic Stick module catalog and generated Flux Kustomization contract. |
 | [operator-orchestration.md](operator-orchestration.md) | Meta-operator responsibilities and specialized operator handoff. |
 | [configuration.md](configuration.md) | Bootstrap variables, appliance-wide settings, module parameters, Flux post-build substitution, and secret handling. |

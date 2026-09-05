@@ -21,8 +21,9 @@ import {loadSnapshot} from './snapshot';
 import type {Runtime} from './runtime';
 import {clipTerminalLine, truncate} from './output';
 import {bannerFits, createBannerAnimation, renderBanner, type BannerFrame} from './banner';
+import {licenseLines, previewLines, readLicenseFile, saveLicenseFile} from './license';
 
-export type TuiTab = 'Overview' | 'Services' | 'Models' | 'Settings' | 'Users' | 'API Access' | 'Kubernetes' | 'System';
+export type TuiTab = 'Overview' | 'Services' | 'Models' | 'Settings' | 'Users' | 'API Access' | 'Kubernetes' | 'License' | 'System';
 
 type TuiEntity =
   | {kind: 'service'; id: string; state: ModuleState; catalog?: ModuleCatalogEntry}
@@ -139,6 +140,7 @@ export const availableTabs = (snapshot: DashboardSnapshot): TuiTab[] => {
   if (dashboardRole(snapshot.session) === 'admin') tabs.push('Settings');
   if (dashboardRole(snapshot.session) === 'admin' && snapshot.session.identityManagementAvailable !== false) tabs.push('Users');
   if (dashboardRole(snapshot.session) === 'admin') tabs.push('API Access');
+  if (dashboardRole(snapshot.session) === 'admin') tabs.push('License');
   if (dashboardRole(snapshot.session) === 'admin' && snapshot.session.identityManagementAvailable !== false) tabs.push('Kubernetes');
   tabs.push('System');
   return tabs;
@@ -272,6 +274,7 @@ export const tabLines = (tab: TuiTab, snapshot: DashboardSnapshot, selectedIndex
     case 'Users': return userLines(snapshot, selectedIndex);
     case 'API Access': return apiAccessLines(snapshot, selectedIndex);
     case 'Kubernetes': return kubernetesLines(snapshot, selectedIndex);
+    case 'License': return snapshot.license ? licenseLines(snapshot.license) : [snapshot.licenseError ?? 'No license status loaded.'];
     case 'System': return systemLines(snapshot);
     default: return overviewLines(snapshot);
   }
@@ -309,6 +312,7 @@ const browseHelp = (tab: TuiTab, snapshot: DashboardSnapshot) => {
   if (tab === 'Models' && canMutateRuntime(snapshot.session)) return `${base} · a: add · d: remove`;
   if (tab === 'Users' && canAdminister(snapshot.session)) return `${base} · a: add · e/Enter: edit · d: delete`;
   if (tab === 'API Access' && canAdminister(snapshot.session)) return `${base} · a: create · d: revoke`;
+  if (tab === 'License' && canAdminister(snapshot.session)) return `${base} · a: inspect/import · e: export`;
   if (tab === 'Kubernetes' && canAdminister(snapshot.session)) return `${base} · e/Enter: access · d: revoke · c: copy kubeconfig`;
   return base;
 };
@@ -723,7 +727,34 @@ export const runTui = async (runtime: Runtime, options: {color?: boolean; refres
     const tab = activeTab();
     const entity = selectedEntity();
     if ((tab === 'Services' || tab === 'Models') && !canMutateRuntime(snapshot.session)) return message('Read-only session', 'Operator or administrator access is required for this action.', 'error');
-    if (['Users', 'API Access', 'Kubernetes'].includes(tab) && !canAdminister(snapshot.session)) return message('Administrator access required', 'This action is restricted to Magic Stick administrators.', 'error');
+    if (['Users', 'API Access', 'Kubernetes', 'License'].includes(tab) && !canAdminister(snapshot.session)) return message('Administrator access required', 'This action is restricted to Magic Stick administrators.', 'error');
+    if (tab === 'License') {
+      if (key === 'a') openForm('Import license', 'Enter a local license file path. Validation does not replace the current license.', [
+        {id: 'file', label: 'License file', value: '', required: true},
+      ], 'inspect', async (values) => {
+        try {
+          const document = await readLicenseFile(values.file ?? '');
+          const preview = await runtime.api.inspectLicense(document);
+          if (!preview.candidate.valid) return message('License rejected', preview.candidate.message, 'error');
+          openConfirm('Activate license', [...previewLines(preview), 'Replace previous entitlements? Missing features stay unavailable.'].join('\n'), 'activate', async () => {
+            await perform('Activate license', async () => {
+              await runtime.api.importLicense(document, preview.current.revision);
+              return {lines: ['License saved persistently. Missing Enterprise features remain unavailable.']};
+            });
+          });
+        } catch (error) { message('License inspection failed', errorText(error), 'error'); }
+      });
+      else if (key === 'e') openForm('Export license', 'Choose a new file path. Existing files are never overwritten.', [
+        {id: 'file', label: 'Output file', value: '', required: true},
+      ], 'export', async (values) => {
+        await perform('Export license', async () => {
+          const result = await runtime.api.exportLicense();
+          await saveLicenseFile(values.file ?? '', result.content);
+          return {lines: ['License exported with private file permissions.']};
+        });
+      });
+      return;
+    }
     if (tab === 'Services' && entity?.kind === 'service') {
       if (key === 'a') enableService(entity);
       else if (key === 'd') disableService(entity);

@@ -12,6 +12,41 @@ export const sessionSchema = z.object({
 
 export type Session = z.infer<typeof sessionSchema>;
 
+export interface LicenseClaims {
+  version: 1;
+  product: 'magicstick';
+  issuer: 'magicstick';
+  licenseId: string;
+  customer: string;
+  issuedAt: number;
+  notBefore: number;
+  expiresAt: number;
+  features: string[];
+  installationId?: string;
+}
+
+export interface LicenseVerification {
+  state: string;
+  message: string;
+  valid: boolean;
+  claims?: LicenseClaims;
+  keyId?: string;
+}
+
+export interface LicenseStatus extends LicenseVerification {
+  installationId: string;
+  revision: string;
+  checkedAt: number;
+  trustedKeyIds: string[];
+  hasDocument: boolean;
+  features: Array<{id: string; name: string; licensed: boolean; implemented: boolean; available: boolean; reason: string}>;
+}
+
+export interface LicensePreview {
+  candidate: LicenseVerification;
+  current: LicenseStatus;
+}
+
 export const settingsSchema = z.object({
   publicDomain: z.string().default(''),
   dashboardHost: z.string().default(''),

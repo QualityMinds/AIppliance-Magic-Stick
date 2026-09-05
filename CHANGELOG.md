@@ -15,6 +15,11 @@ formalized, release entries should group changes under:
 
 ### Added
 
+- MIT-licensed offline license foundation with Ed25519-signed files, separate
+  issuer tooling, admin-only React/CLI/TUI management, Kubernetes persistence
+  and replacement conflict protection. All seven planned Enterprise business
+  capabilities remain unimplemented; Community functions are unchanged.
+
 - Fail-closed one-command installation wrappers for dedicated Ubuntu 24.04
   hosts and existing Kubernetes clusters from Bash or PowerShell 7, including
   read-only preflight modes and First-Run Setup initialization.

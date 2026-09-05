@@ -37,6 +37,7 @@ describe('React dashboard preview', () => {
     expect(await screen.findByText('magicstick.local', {exact: false})).toBeInTheDocument();
     expect(screen.getByRole('button', {name: 'Users'})).toBeInTheDocument();
     expect(screen.getByRole('button', {name: 'API Access'})).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'License & Enterprise'})).toBeInTheDocument();
     expect(screen.getByRole('button', {name: 'Kubernetes Access'})).toBeInTheDocument();
   });
 
@@ -60,10 +61,13 @@ describe('React dashboard preview', () => {
 
   it('hides administrative tabs from viewers', async () => {
     payloads['/api/session'] = {subject: '2', username: 'viewer', roles: ['magicstick-viewer']};
+    window.history.replaceState(null, '', '#/license');
     renderApp();
     await screen.findByRole('heading', {name: 'Overview'});
     expect(screen.queryByRole('button', {name: 'Users'})).not.toBeInTheDocument();
     expect(screen.queryByRole('button', {name: 'Settings'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'License & Enterprise'})).not.toBeInTheDocument();
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).startsWith('/api/license'))).toBe(false);
     payloads['/api/session'] = {subject: '1', username: 'tova', roles: ['magicstick-admin'], identityManagementAvailable: true, identityManagementMode: 'keycloak'};
   });
 });

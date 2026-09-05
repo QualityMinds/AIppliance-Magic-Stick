@@ -55,6 +55,11 @@ jobs:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
+      - name: Verify license foundation
+        run: |
+          python3 -m pip install -r dashboard/apps/api/requirements.txt pyyaml
+          python3 -m unittest discover -s dashboard/apps/api -p 'test_*.py'
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -77,7 +82,7 @@ jobs:
             org.opencontainers.image.title=MagicStick React dashboard
             org.opencontainers.image.description=Parallel React dashboard preview for MagicStick
             org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick
-            org.opencontainers.image.licenses=Apache-2.0
+            org.opencontainers.image.licenses=MIT
             org.opencontainers.image.revision=${{ github.sha }}
 
       - name: Generate CLI runtime image metadata
@@ -92,7 +97,7 @@ jobs:
             org.opencontainers.image.title=MagicStick CLI and TUI runtime
             org.opencontainers.image.description=Private runtime image for the physical MagicStick console
             org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick
-            org.opencontainers.image.licenses=Apache-2.0
+            org.opencontainers.image.licenses=MIT
             org.opencontainers.image.revision=${{ github.sha }}
 
       - name: Build and push multi-architecture image
@@ -120,5 +125,24 @@ jobs:
           labels: ${{ steps.cli-meta.outputs.labels }}
           cache-from: type=gha,scope=magicstick-dashboard-cli
           cache-to: type=gha,mode=max,scope=magicstick-dashboard-cli
+          provenance: mode=max
+          sbom: true
+
+      - name: Build and push dashboard API runtime
+        uses: docker/build-push-action@v6
+        with:
+          context: dashboard
+          file: dashboard/apps/api/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:api-sha-${{ github.sha }}
+            ${{ env.IMAGE_NAME }}:api-licensing-v1
+          labels: |
+            org.opencontainers.image.title=MagicStick dashboard API
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=magicstick-dashboard-api
+          cache-to: type=gha,mode=max,scope=magicstick-dashboard-api
           provenance: mode=max
           sbom: true

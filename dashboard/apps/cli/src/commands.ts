@@ -7,6 +7,7 @@ import {createRuntime, type Runtime, type RuntimeOptions} from './runtime';
 import {loadSnapshot} from './snapshot';
 import {runTui} from './tui';
 import {createDemoRuntime} from './demo';
+import {licenseLines, previewLines, readLicenseFile, saveLicenseFile} from './license';
 
 export const VERSION = '0.1.0';
 
@@ -46,7 +47,7 @@ Interactive TUI:
   Animation runs continuously, including in dialogs; short terminals hide it.
   Browse with arrow keys or h/j/k/l. Operators can enable/disable services and
   create/remove models. Administrators can additionally manage users, named API
-  keys, and SSO-backed Kubernetes access. Forms and destructive confirmations
+  keys, offline licenses, and SSO-backed Kubernetes access. Forms and confirmations
   use the same authenticated control API as the commands below.
   console is the appliance-monitor mode: it requests a device-flow login when
   necessary and then opens the same TUI without storing a password.
@@ -71,6 +72,9 @@ Read commands:
   api-key list
   kubernetes-access list [--search text]
   status                               Hardware and Kubernetes status
+  license status                       Offline license and capability status (admin)
+  license inspect <file>               Validate without replacing the active license
+  license export <file>                Save the active license; never overwrite a file
 
 Mutation commands:
   service enable <name> [--set key=value ...]
@@ -95,6 +99,7 @@ Mutation commands:
   api-key revoke <id>
   kubernetes-access set <id> <none|viewer|operator|admin>
   kubernetes-access kubeconfig <id> [--output path|-]
+  license import <file> --yes           Validate and atomically replace license (admin)
 
 Global options:
   --api-url URL        Default: https://api.magicstick.local
@@ -231,6 +236,28 @@ const serviceCommand = async (runtime: Runtime, parsed: ParsedArguments, io: Cli
     return;
   }
   throw new Error(`Unknown service action: ${action}`);
+};
+
+const licenseCommand = async (runtime: Runtime, parsed: ParsedArguments, io: CliIo, action: string, filename?: string) => {
+  if (!action || action === 'status') {
+    const status = await runtime.api.licenseStatus();
+    output(io, parsed, status, () => licenseLines(status).join('\n'));
+    return;
+  }
+  if (action === 'export') {
+    const result = await runtime.api.exportLicense();
+    await saveLicenseFile(required(filename, 'output filename'), result.content);
+    io.stdout('License exported with private file permissions.\n');
+    return;
+  }
+  if (!['inspect', 'import'].includes(action)) throw new Error(`Unknown license action: ${action}`);
+  const document = await readLicenseFile(required(filename, 'license filename'));
+  const preview = await runtime.api.inspectLicense(document);
+  if (action === 'inspect') { output(io, parsed, preview, () => previewLines(preview).join('\n')); return; }
+  if (!preview.candidate.valid) throw new Error(preview.candidate.message);
+  if (option(parsed, 'yes') !== true) throw new Error('Review with `license inspect <file>`, then use `license import <file> --yes` to replace the active license.');
+  const status = await runtime.api.importLicense(document, preview.current.revision);
+  output(io, parsed, status, () => ['License saved.', ...licenseLines(status)].join('\n'));
 };
 
 const instanceCommand = async (runtime: Runtime, parsed: ParsedArguments, io: CliIo, action: string, name?: string) => {
@@ -441,6 +468,7 @@ export const runCli = async (argv: string[], suppliedIo: Partial<CliIo> = {}, de
   else if (command === 'instance' || command === 'instances') await instanceCommand(runtime, parsed, io, action, argument);
   else if (command === 'model' || command === 'models') await modelCommand(runtime, parsed, io, action, argument);
   else if (command === 'settings') await settingsCommand(runtime, parsed, io, action);
+  else if (command === 'license') await licenseCommand(runtime, parsed, io, action, argument);
   else if (command === 'user' || command === 'users') await userCommand(runtime, parsed, io, action, argument, extra);
   else if (command === 'api-key' || command === 'api-keys') await apiKeyCommand(runtime, parsed, io, action, argument);
   else if (command === 'kubernetes-access' || command === 'kubernetes') await kubernetesCommand(runtime, parsed, io, action, argument, extra);

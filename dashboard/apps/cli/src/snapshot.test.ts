@@ -13,6 +13,7 @@ const api = (roles: string[]) => {
     settings: vi.fn(async () => ({publicDomain: 'example.com', dashboardHost: 'example.com', mdnsDomain: 'magicstick.local', mdnsName: 'magicstick'})),
     users: vi.fn(async () => ({users: [], total: 0, first: 0, max: 25})),
     apiAccess: vi.fn(async () => ({items: [], total: 0})),
+    licenseStatus: vi.fn(async () => ({state: 'missing', features: []})),
     kubernetesAccess: vi.fn(async () => ({users: [], total: 0, first: 0, max: 100})),
   };
   return {methods, client: methods as unknown as MagicStickApi};
@@ -26,6 +27,7 @@ describe('loadSnapshot', () => {
     expect(result.settings?.mdnsDomain).toBe('magicstick.local');
     expect(result.users?.total).toBe(0);
     expect(methods.apiAccess).toHaveBeenCalledOnce();
+    expect(methods.licenseStatus).toHaveBeenCalledOnce();
     expect(methods.kubernetesAccess).toHaveBeenCalledOnce();
   });
 
@@ -37,6 +39,7 @@ describe('loadSnapshot', () => {
     expect(result.users).toBeUndefined();
     expect(methods.settings).not.toHaveBeenCalled();
     expect(methods.apiAccess).not.toHaveBeenCalled();
+    expect(methods.licenseStatus).not.toHaveBeenCalled();
     expect(methods.kubernetesAccess).not.toHaveBeenCalled();
   });
 });

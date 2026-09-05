@@ -8,6 +8,7 @@ the React frontend is evaluated at `https://dashboard2.magicstick.local/`.
 ```text
 apps/web              React browser application and nginx image
 apps/cli              standalone CLI and interactive TUI
+apps/api              offline license verifier, issuer tooling and API runtime image
 packages/contracts    typed control-plane API contracts
 packages/api-client   authenticated HTTP transport
 packages/core         role, formatting, catalog, and selection rules
@@ -54,7 +55,7 @@ corepack pnpm tui:demo
 ```
 
 The standalone equivalent is `magicstick tui --demo`. The preview shows all
-eight tabs using synthetic sample data, clearly labeled **OFFLINE DEMO**.
+nine tabs using synthetic sample data, clearly labeled **OFFLINE DEMO**.
 Arrow keys (or `h/j/k/l`) navigate, `r` reloads the sample data, and `q` quits.
 Live actions, clipboard exports, and sign-out are disabled. It never contacts
 an API or login service, reads saved configuration or credentials, or changes
@@ -78,7 +79,7 @@ in a trusted test network, `--insecure` bypasses certificate verification only
 for the current process, prints a warning, and is never persisted.
 
 The TUI has the same role-filtered areas as the browser: Overview, Services,
-Models, Settings, Users, API Access, Kubernetes, and System. Use left/right or
+Models, Settings, Users, API Access, License, Kubernetes, and System. Use left/right or
 `h`/`l` to change page, up/down or `k`/`j` to select an item, `r` to refresh,
 and `q` to quit. Operators can enable and disable catalog services and add or
 remove local and external models. Administrators can additionally create,
@@ -88,6 +89,13 @@ through OSC 52 when the terminal supports it. Every destructive operation is
 confirmed, passwords are masked, and a newly created API-key secret remains on
 screen only until its result dialog is closed. The explicit CLI commands remain
 available for scripts and complete JSON instance payloads.
+
+Administrators can inspect, import and export signed offline licenses through
+the **License** tab (`a` to inspect/import, `e` to export). The browser uses
+**License & Enterprise**. The CLI provides `license status`, `license inspect`,
+`license import --yes` and `license export`. The original file is stored in a
+runtime Kubernetes Secret, not the client. This MIT-licensed foundation enables
+no Enterprise business capability yet. See [issuer setup and license operation](../docs/licensing.md).
 
 The seven-line, borderless ASCII banner shows a rounded USB spacecraft with
 nacelles and **AIppliance** / **Magic Stick**

@@ -4,7 +4,7 @@ metadata:
   name: ai-appliance-dashboard-api
   namespace: identity-system
   annotations:
-    configmap.reloader.stakater.com/reload: ai-appliance-dashboard-api
+    configmap.reloader.stakater.com/reload: ai-appliance-dashboard-api,magicstick-license-trust
   labels:
     app: ai-appliance-dashboard-api
     app.kubernetes.io/component: api
@@ -31,7 +31,7 @@ spec:
         runAsGroup: 65532
       containers:
         - name: api
-          image: python:3.13-alpine
+          image: ghcr.io/qualityminds/magicstick-dashboard:api-licensing-v1
           imagePullPolicy: IfNotPresent
           command:
             - python
@@ -40,6 +40,12 @@ spec:
             - containerPort: 8080
               name: api
           env:
+            - name: LICENSE_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: LICENSE_TRUST_STORE
+              value: /etc/magicstick-license/trusted-keys.json
             - name: PORT
               value: "8080"
             - name: APPLIANCE_NAMESPACE
@@ -123,6 +129,9 @@ spec:
             runAsUser: 65532
             runAsGroup: 65532
           volumeMounts:
+            - name: license-trust
+              mountPath: /etc/magicstick-license
+              readOnly: true
             - name: api
               mountPath: /app/server.py
               subPath: server.py
@@ -130,6 +139,9 @@ spec:
             - name: api-tmp
               mountPath: /tmp
       volumes:
+        - name: license-trust
+          configMap:
+            name: magicstick-license-trust
         - name: api
           configMap:
             name: ai-appliance-dashboard-api

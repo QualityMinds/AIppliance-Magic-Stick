@@ -56,6 +56,20 @@ kubectl kustomize magic-cluster/apps/ai/kubeopencode
 kubectl kustomize examples/demo/infra-cluster/flux-bootstrap
 ```
 
+## License Foundation Checks
+
+For the license foundation, also run:
+
+```bash
+python3 -m pip install -r dashboard/apps/api/requirements.txt pyyaml
+python3 -m unittest discover -s dashboard/apps/api
+```
+
+Verify that the distributed trust store is empty, no private issuer key enters
+the API image, and the deployed API tag matches the packaged verifier. The
+opt-in [Rancher test](licensing.md#reproduce-the-local-checks) must use a dedicated
+namespace and synthetic identities; it is not full Enterprise or SSO acceptance.
+
 ## Secret Checks
 
 ```bash

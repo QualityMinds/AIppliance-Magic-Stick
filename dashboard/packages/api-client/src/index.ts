@@ -11,6 +11,8 @@ import {
   type ModelsPayload,
   type ModulesPayload,
   type Session,
+  type LicenseStatus,
+  type LicensePreview,
   type Settings,
   type SystemStatusPayload,
   type User,
@@ -79,6 +81,15 @@ export class MagicStickApi {
   async session(): Promise<Session> {
     return sessionSchema.parse(await this.request<unknown>('/api/session'));
   }
+
+  licenseStatus() { return this.request<LicenseStatus>('/api/license'); }
+  inspectLicense(document: string) {
+    return this.request<LicensePreview>('/api/license/validate', {method: 'POST', body: JSON.stringify({document})});
+  }
+  importLicense(document: string, expectedRevision: string) {
+    return this.request<LicenseStatus>('/api/license', {method: 'PUT', body: JSON.stringify({document, expectedRevision})});
+  }
+  exportLicense() { return this.request<{filename: string; content: string}>('/api/license/export'); }
 
   async settings(): Promise<Settings> {
     return settingsSchema.parse(await this.request<unknown>('/api/settings'));

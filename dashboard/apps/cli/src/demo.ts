@@ -24,6 +24,7 @@ const demoSnapshot = (): DashboardSnapshot => ({
   settings: {publicDomain: 'example.com', dashboardHost: 'dashboard.example.com', mdnsDomain: 'example.local', mdnsName: 'example'},
   users: {users: [{id: 'demo', username: 'demo', enabled: true, effectiveAccessLevel: 'admin', provider: 'demo'}], total: 1, first: 0, max: 25},
   apiAccess: {items: [], total: 0, apiBases: [{scope: 'OpenAI', url: 'https://api.example.com/v1'}]},
+  license: {state: 'missing', valid: false, message: 'Community mode. Offline preview only.', installationId: 'demo', revision: '0', checkedAt: 0, hasDocument: false, trustedKeyIds: [], features: []},
   kubernetesAccess: {users: [{id: 'demo', username: 'demo', enabled: true, accessLevel: 'admin', provider: 'demo'}], total: 1, first: 0, max: 100, configuration: {configured: true}},
   status: {hardwareOperators: {
     cpu: {displayName: 'Demo hardware discovery', operatorActive: true, phase: 'Ready'},
@@ -39,7 +40,7 @@ export const createDemoRuntime = (): Runtime => {
     ['/api/modules', snapshot.modules], ['/api/instances', snapshot.instances],
     ['/api/models', snapshot.models], ['/api/settings', snapshot.settings],
     ['/api/users', snapshot.users], ['/api/api-access', snapshot.apiAccess],
-    ['/api/kubernetes-access', snapshot.kubernetesAccess], ['/api/status', snapshot.status],
+    ['/api/kubernetes-access', snapshot.kubernetesAccess], ['/api/status', snapshot.status], ['/api/license', snapshot.license],
   ]);
   const unavailable = async () => { throw new Error('Offline demo is read-only; no login, logout, or live actions are available.'); };
   return {

@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: magicstick-license-trust
+  namespace: identity-system
+  annotations:
+    # Deployment-managed public trust anchors; retain installed keys on Flux
+    # reconciliation. No test or production private signing key belongs here.
+    kustomize.toolkit.fluxcd.io/ssa: IfNotPresent
+    kustomize.toolkit.fluxcd.io/prune: disabled
+data:
+  trusted-keys.json: '{"keys":{}}'

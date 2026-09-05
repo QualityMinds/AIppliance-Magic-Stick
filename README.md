@@ -135,6 +135,7 @@ site.
 | Local authentication and enterprise SSO | [docs/authentication.md](docs/authentication.md) |
 | Appliance CRD | [docs/appliance-crd.md](docs/appliance-crd.md) |
 | Dashboard, CLI, TUI, and control API | [docs/dashboard.md](docs/dashboard.md) |
+| Offline license management and the future Enterprise boundary | [docs/licensing.md](docs/licensing.md) |
 | Module catalog | [docs/modules.md](docs/modules.md) |
 | Operator orchestration | [docs/operator-orchestration.md](docs/operator-orchestration.md) |
 | Runtime variables and secrets | [docs/configuration.md](docs/configuration.md) |

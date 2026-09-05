@@ -8,6 +8,8 @@ resources:
   - settings-rbac.yaml
   - model-secrets-rbac.yaml
   - user-admin-rbac.yaml
+  - license-rbac.yaml
+  - license-trust.yaml
   - configmap.yaml
   - dashboard-api.yaml
   - api-deployment.yaml

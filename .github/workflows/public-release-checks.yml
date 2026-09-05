@@ -61,6 +61,8 @@ jobs:
 
       - name: Run identity, dashboard, operator, model catalog and AI route unit tests
         run: |
+          python3 -m pip install -r dashboard/apps/api/requirements.txt pyyaml
+          python3 -m unittest discover -s dashboard/apps/api -p 'test_*.py'
           python3 -m unittest discover -s magic-cluster/platform/identity/tests -p 'test_*.py'
           python3 -m unittest discover -s magic-cluster/apps/dashboard -p 'test_*.py'
           python3 -m unittest discover -s magic-cluster/platform/magicstick-operator/controller -p 'test_*.py'

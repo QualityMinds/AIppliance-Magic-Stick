@@ -12,14 +12,16 @@ import {ApiAccessPage} from './pages/ApiAccessPage';
 import {KubernetesAccessPage} from './pages/KubernetesAccessPage';
 import {SettingsPage} from './pages/SettingsPage';
 import {SystemPage} from './pages/SystemPage';
+import {LicensePage} from './pages/LicensePage';
 
-type TabId = 'overview' | 'services' | 'models' | 'users' | 'api-access' | 'kubernetes-access' | 'settings' | 'system';
+type TabId = 'overview' | 'services' | 'models' | 'users' | 'api-access' | 'kubernetes-access' | 'settings' | 'license' | 'system';
 
 const tabs: Array<{id: TabId; label: string; admin?: boolean; identity?: boolean}> = [
   {id: 'overview', label: 'Overview'},
   {id: 'services', label: 'Services'},
   {id: 'models', label: 'Models'},
   {id: 'settings', label: 'Settings', admin: true},
+  {id: 'license', label: 'License & Enterprise', admin: true},
   {id: 'users', label: 'Users', admin: true, identity: true},
   {id: 'api-access', label: 'API Access', admin: true},
   {id: 'kubernetes-access', label: 'Kubernetes Access', admin: true, identity: true},
@@ -46,6 +48,7 @@ const ActivePage = ({tab, session}: {tab: TabId; session: Session}) => {
     case 'kubernetes-access': return <KubernetesAccessPage />;
     case 'settings': return <SettingsPage />;
     case 'system': return <SystemPage />;
+    case 'license': return <LicensePage />;
     default: return <OverviewPage />;
   }
 };
@@ -105,7 +108,7 @@ export const App = () => {
             </button>
           ))}
         </nav>
-        <div className="content"><ActivePage tab={tab} session={session.data} /></div>
+        <div className="content"><ActivePage tab={allowedTabs.some((item) => item.id === tab) ? tab : 'overview'} session={session.data} /></div>
       </section>
 
       <footer>Dashboard 2 preview · Same control plane, separate frontend.</footer>

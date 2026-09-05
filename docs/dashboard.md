@@ -67,6 +67,7 @@ Paperclip, KubeOpenCode, KubeAI, LiteLLM, or direct app instance reconcilers.
 | Kubernetes Access | Lets administrators assign Viewer, Operator, or Cluster Administrator access to existing SSO identities and download or copy token-free OIDC kubeconfigs. |
 | System Status | Shows NVIDIA, AMD, and Intel detection/operator/resource state plus Flux, Pod, Service, Ingress, and Event status. |
 | Settings | Edits appliance-wide public and mDNS domain settings. The public dashboard host is always derived from the public domain. |
+| License & Enterprise (React/CLI/TUI only) | Admin-only offline license preview, activation, status and export. The MIT foundation keeps all seven planned Enterprise capabilities unimplemented. |
 
 ## Backend API
 
@@ -91,6 +92,7 @@ The replacement frontend is developed as a pnpm workspace under `dashboard/`:
 dashboard/
   apps/web                 React browser application and nginx image
   apps/cli                 standalone command line client and terminal UI
+  apps/api                 license verification module, issuer and API runtime image
   packages/contracts       typed API contracts and response validation
   packages/api-client      authenticated transport shared by all clients
   packages/core            role, formatting, catalog, and selection logic
@@ -186,7 +188,7 @@ including with `--no-color`. The standalone
 [banner module](../dashboard/apps/cli/src/banner.ts) owns the artwork and timing.
 
 For a frontend-only preview, `magicstick tui --demo` (or `corepack pnpm tui:demo`
-from the built dashboard workspace) displays all eight tabs with synthetic
+from the built dashboard workspace) displays all nine tabs with synthetic
 sample data. The **OFFLINE DEMO** header distinguishes it from a real session.
 This mode makes no network requests, reads no saved configuration or credentials,
 and disables live actions, clipboard exports, and sign-out. It does not alter
@@ -318,6 +320,28 @@ All `/api/kubernetes-access` endpoints require `magicstick-admin` and a live
 Keycloak administrator check. Mutations use the same same-origin and CSRF
 checks. Kubeconfig download additionally requires an enabled target user, a
 non-empty grant, and a cluster-published OIDC readiness marker.
+
+## License Administration
+
+The React-only **License & Enterprise** tab and the CLI/TUI **License** area
+use four admin-only routes: `GET /api/license`, `POST /api/license/validate`,
+`PUT /api/license`, and `GET /api/license/export`. Mutations require the existing
+CSRF/same-origin checks. Preview does not replace the license; activation
+revalidates the signed file and the preview's expected Kubernetes revision.
+Invalid files cannot overwrite a valid license. A valid entitlement does not
+make an unimplemented feature available.
+
+The API image adds pinned verification libraries and reads a deployment-owned
+public trust ConfigMap. Its separate Role grants `get/update` on the named
+`identity-system/magicstick-enterprise-license` Secret plus namespace-scoped
+Secret creation (Kubernetes cannot restrict create by name). It cannot list or
+delete identity Secrets, edit trust keys or install workloads. The runtime
+license Secret is not Git-owned and survives API Pod replacement.
+
+See [licensing.md](licensing.md) for the complete contract, issuer commands,
+key rotation, backup, expiry, tamper-resistance limits and local Rancher tests.
+The old dashboard UI is not changed and existing Community features remain
+license-independent.
 
 ## User Controls
 

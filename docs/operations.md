@@ -2,6 +2,21 @@
 
 This page collects common day-2 checks for a running appliance.
 
+## Offline license operation
+
+Dashboard 2 administrators use **License & Enterprise**; terminal administrators
+use `magicstick license status` or the TUI's **License** tab. The MIT foundation
+supports signed-file preview, explicit replacement and export but enables no
+Enterprise business features. Existing Community operation is unchanged.
+
+Follow [licensing.md](licensing.md) to provision the issuer's public trust store,
+issue files outside the appliance, rotate keys and back up the runtime Secret.
+The private signing key must never enter the cluster. Back up both the original
+license and its installation ID; a bound file alone cannot restore a lost ID.
+After an ambiguous write failure, refresh status before retrying. Never delete
+the Secret as a routine troubleshooting step, and do not copy its contents into
+logs/issues. A Pod restart preserves it; a deleted cluster does not.
+
 ## Host Checks
 
 On the appliance host:

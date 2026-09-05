@@ -46,7 +46,7 @@ describe('terminal dashboard', () => {
   });
 
   it.each([[80, 24], [50, 19], [51, 19], [40, 18], [120, 40]])('fits a %i by %i screen and keeps the active tab visible', (width, height) => {
-    const screen = renderTui(snapshot(), 7, width, height, true);
+    const screen = renderTui(snapshot(), availableTabs(snapshot()).indexOf('System'), width, height, true);
     const plain = screen.replace(/\x1b\[[0-9;]*m/g, '');
     expect(plain.split('\n').length).toBeLessThanOrEqual(height);
     expect(plain.split('\n').every((line) => line.length < width)).toBe(true);
@@ -66,7 +66,7 @@ describe('terminal dashboard', () => {
   });
 
   it('exposes the same administrative areas to administrators', () => {
-    expect(availableTabs(snapshot())).toEqual(['Overview', 'Services', 'Models', 'Settings', 'Users', 'API Access', 'Kubernetes', 'System']);
+    expect(availableTabs(snapshot())).toEqual(['Overview', 'Services', 'Models', 'Settings', 'Users', 'API Access', 'License', 'Kubernetes', 'System']);
     expect(tabLines('Models', snapshot()).join('\n')).toContain('CPU: 49 GiB free');
     expect(renderTui(snapshot(), 0, 100, 30, false)).toContain('signed in: tova · admin');
   });

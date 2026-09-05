@@ -9,6 +9,7 @@ import type {
   Settings,
   SystemStatusPayload,
   UsersPayload,
+  LicenseStatus,
 } from '@magicstick/dashboard-contracts';
 import {canAdminister} from '@magicstick/dashboard-core';
 import type {MagicStickApi} from '@magicstick/dashboard-api-client';
@@ -24,6 +25,8 @@ export interface DashboardSnapshot {
   users?: UsersPayload;
   apiAccess?: ApiAccessPayload;
   kubernetesAccess?: KubernetesAccessPayload;
+  license?: LicenseStatus;
+  licenseError?: string;
   loadedAt: number;
 }
 
@@ -37,5 +40,11 @@ export const loadSnapshot = async (api: MagicStickApi): Promise<DashboardSnapsho
     admin ? api.apiAccess() : Promise.resolve(undefined),
     admin && session.identityManagementAvailable !== false ? api.kubernetesAccess() : Promise.resolve(undefined),
   ]);
-  return {session, appliance, modules, instances, models, status, settings, users, apiAccess, kubernetesAccess, loadedAt: Date.now()};
+  let license: LicenseStatus | undefined;
+  let licenseError: string | undefined;
+  if (admin) {
+    try { license = await api.licenseStatus(); }
+    catch { licenseError = 'License status unavailable. Community functions are unaffected.'; }
+  }
+  return {session, appliance, modules, instances, models, status, settings, users, apiAccess, kubernetesAccess, license, licenseError, loadedAt: Date.now()};
 };

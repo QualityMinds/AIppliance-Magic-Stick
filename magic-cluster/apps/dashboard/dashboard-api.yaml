@@ -1737,14 +1737,14 @@ data:
         raise ValueError("unknown module: " + module_name)
 
 
-    def read_body(handler):
+    def read_body(handler, max_bytes=MAX_REQUEST_BODY_BYTES):
         try:
             length = int(handler.headers.get("Content-Length", "0") or "0")
         except ValueError as error:
             raise RequestError(400, "invalid Content-Length") from error
         if length < 0:
             raise RequestError(400, "invalid Content-Length")
-        if length > MAX_REQUEST_BODY_BYTES:
+        if length > max_bytes:
             raise RequestError(413, "request body is too large")
         if length == 0:
             return {}
@@ -5626,7 +5626,46 @@ data:
             parsed = urllib.parse.urlparse(self.path)
             return parsed.path.rstrip("/") or "/"
 
+        def handle_license(self, action):
+            # Keep errors secret-safe, and do not make Community routes depend on licensing.
+            try:
+                self.require_access("admin")
+                if action in {"validate", "activate"}:
+                    validate_dashboard_mutation_request(self)
+                    payload = read_body(self, max_bytes=132 * 1024)
+                    allowed = {"document", "expectedRevision"} if action == "activate" else {"document"}
+                    _reject_unknown_fields(payload, allowed)
+                    if not isinstance(payload.get("document"), str):
+                        raise RequestError(400, "document must contain the license file text")
+                from licensing import LicenseService, LicenseError
+                service = LicenseService(
+                    request_json,
+                    os.environ.get("LICENSE_NAMESPACE", "identity-system"),
+                    os.environ.get("LICENSE_TRUST_STORE", "/etc/magicstick-license/trusted-keys.json"),
+                )
+                try:
+                    if action == "status":
+                        result = service.status()
+                    elif action == "export":
+                        result = service.export()
+                    elif action == "validate":
+                        result = service.inspect(payload["document"])
+                    else:
+                        result = service.activate(payload["document"], payload.get("expectedRevision"))
+                    self.send_json(result)
+                except LicenseError as error:
+                    self.send_json({"error": str(error), "code": error.code}, error.status)
+            except AuthError as error:
+                self.send_auth_error(error)
+            except RequestError as error:
+                self.send_error_json(error.status, str(error))
+            except Exception:
+                self.send_error_json(503, "License management is unavailable; no change was confirmed.")
+
         def do_GET(self):
+            if self.route() in {"/api/license", "/api/license/export"}:
+                self.handle_license("export" if self.route().endswith("/export") else "status")
+                return
             try:
                 path = self.route()
                 parts = path.strip("/").split("/")
@@ -5777,6 +5816,9 @@ data:
             self.send_error_json(404, "not found")
 
         def do_POST(self):
+            if self.route() == "/api/license/validate":
+                self.handle_license("validate")
+                return
             try:
                 path = self.route()
                 parts = path.strip("/").split("/")
@@ -5890,6 +5932,9 @@ data:
                     self.send_error_json(400, str(error))
 
         def do_PUT(self):
+            if self.route() == "/api/license":
+                self.handle_license("activate")
+                return
             try:
                 path = self.route()
                 parts = path.strip("/").split("/")

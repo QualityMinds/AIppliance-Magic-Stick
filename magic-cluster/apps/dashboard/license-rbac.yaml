@@ -1,0 +1,29 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ai-appliance-dashboard-license
+  namespace: identity-system
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["magicstick-enterprise-license"]
+    verbs: ["get", "update"]
+  # Kubernetes cannot restrict create by resourceNames. No list/delete or
+  # writes to existing unrelated secrets are granted by this role.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ai-appliance-dashboard-license
+  namespace: identity-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ai-appliance-dashboard-license
+subjects:
+  - kind: ServiceAccount
+    name: ai-appliance-dashboard-api
+    namespace: identity-system
