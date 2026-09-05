@@ -60,6 +60,7 @@ type TuiOverlay =
   | {kind: 'busy'; title: string; description?: string};
 
 interface TuiRenderState {
+  demo?: boolean;
   selectionIndex?: number;
   overlay?: TuiOverlay;
   notice?: string;
@@ -321,7 +322,8 @@ export const renderTui = (
   const tabs = availableTabs(snapshot);
   const safeIndex = Math.min(Math.max(0, tabIndex), tabs.length - 1);
   const active = tabs[safeIndex] ?? 'Overview';
-  const header = `${cyan('MAGIC STICK', color)}  ${dim(`signed in: ${snapshot.session.username} · ${dashboardRole(snapshot.session)}`, color)}`;
+  const identity = state.demo ? 'OFFLINE DEMO · read-only · sample data' : `signed in: ${snapshot.session.username} · ${dashboardRole(snapshot.session)}`;
+  const header = `${cyan('MAGIC STICK', color)}  ${dim(identity, color)}`;
   const navigation = tabs.map((tab, index) => index === safeIndex ? cyan(`[ ${tab} ]`, color) : `  ${tab}  `).join('');
   const maximumBody = Math.max(3, height - 7);
   const rawBody = state.overlay ? overlayLines(state.overlay) : tabLines(active, snapshot, state.selectionIndex);
@@ -336,7 +338,9 @@ export const renderTui = (
   const context = state.overlay
     ? state.overlay.kind === 'message' && state.overlay.tone === 'error' ? bad('Action failed', color) : cyan('Action', color)
     : dim(`Appliance ${health}`, color);
-  const footer = state.overlay ? '' : dim(browseHelp(active, snapshot), color);
+  const footer = state.overlay ? '' : dim(state.demo
+    ? '←/→ or h/l: page · ↑/↓ or k/j: select · r: reload sample data · q: quit'
+    : browseHelp(active, snapshot), color);
   const notice = state.notice ? warn(truncate(state.notice, Math.max(20, width - 2)), color) : '';
   return [header, navigation, '─'.repeat(Math.max(20, Math.min(width, 140))), `${active}  ${context}`, '', ...body, notice, footer].filter((line, index, lines) => line || index < lines.length - 2).join('\n');
 };
@@ -350,7 +354,7 @@ const userSource = (user: User) => {
 };
 const isLocalUser = (user: User) => user.local ?? ['local', 'keycloak', 'internal'].includes(userSource(user).toLowerCase());
 
-export const runTui = async (runtime: Runtime, options: {color?: boolean; refreshSeconds?: number} = {}) => {
+export const runTui = async (runtime: Runtime, options: {color?: boolean; refreshSeconds?: number; demo?: boolean} = {}) => {
   if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error('The TUI needs an interactive terminal. Use CLI commands or --json for non-interactive use.');
   let snapshot = await loadSnapshot(runtime.api);
   let tabIndex = 0;
@@ -368,6 +372,7 @@ export const runTui = async (runtime: Runtime, options: {color?: boolean; refres
   };
   const draw = () => {
     const rendered = renderTui(snapshot, tabIndex, process.stdout.columns ?? 100, process.stdout.rows ?? 30, color, {
+      demo: options.demo,
       selectionIndex: activeSelection(), overlay,
       notice: refreshError ? `Refresh failed: ${refreshError}` : '',
     });
@@ -693,6 +698,7 @@ export const runTui = async (runtime: Runtime, options: {color?: boolean; refres
   };
 
   const browseAction = (key: string) => {
+    if (options.demo) return message('Offline demo', 'This preview is read-only. Live actions require an appliance connection.');
     const tab = activeTab();
     const entity = selectedEntity();
     if ((tab === 'Services' || tab === 'Models') && !canMutateRuntime(snapshot.session)) return message('Read-only session', 'Operator or administrator access is required for this action.', 'error');
@@ -808,6 +814,7 @@ export const runTui = async (runtime: Runtime, options: {color?: boolean; refres
       return;
     }
     if (key === 'x') {
+      if (options.demo) return message('Offline demo', 'No session is stored or changed in demo mode. Press q to quit.');
       openConfirm('Sign out', 'The locally cached SSO session is removed. The appliance console will request a new device login.', 'sign out', async () => {
         await runtime.logout();
         cleanup();

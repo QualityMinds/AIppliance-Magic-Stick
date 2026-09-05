@@ -157,6 +157,14 @@ Token-free kubeconfigs can be copied with the terminal's OSC 52 clipboard
 protocol. Instance creation remains available in the browser or through the
 complete JSON-payload CLI command.
 
+For a frontend-only preview, `magicstick tui --demo` (or `corepack pnpm tui:demo`
+from the built dashboard workspace) displays all eight tabs with synthetic
+sample data. The **OFFLINE DEMO** header distinguishes it from a real session.
+This mode makes no network requests, reads no saved configuration or credentials,
+and disables live actions, clipboard exports, and sign-out. It does not alter
+the real client's role checks or supply runtime CR seeds. See the
+[offline preview instructions](../dashboard/README.md#offline-terminal-preview).
+
 The default endpoints are:
 
 - control-plane API: `https://api.magicstick.local`

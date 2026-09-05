@@ -13,6 +13,7 @@
     "test": "pnpm --filter @magicstick/dashboard-web test && pnpm --filter @magicstick/dashboard-cli test",
     "test:browser": "pnpm --filter @magicstick/dashboard-web test:browser",
     "tui": "node apps/cli/dist/magicstick.js tui",
+    "tui:demo": "node apps/cli/dist/magicstick.js tui --demo",
     "typecheck": "pnpm --filter @magicstick/dashboard-web typecheck && pnpm --filter @magicstick/dashboard-cli typecheck"
   }
 }

@@ -42,6 +42,25 @@ install -m 0755 apps/cli/dist/magicstick.js ~/.local/bin/magicstick
 magicstick --help
 ```
 
+### Offline terminal preview
+
+To explore just the terminal frontend without an appliance, DNS, or login,
+use Node.js 24+ and run from this directory:
+
+```bash
+corepack pnpm install --frozen-lockfile
+corepack pnpm --filter @magicstick/dashboard-cli build
+corepack pnpm tui:demo
+```
+
+The standalone equivalent is `magicstick tui --demo`. The preview shows all
+eight tabs using synthetic sample data, clearly labeled **OFFLINE DEMO**.
+Arrow keys (or `h/j/k/l`) navigate, `r` reloads the sample data, and `q` quits.
+Live actions, clipboard exports, and sign-out are disabled. It never contacts
+an API or login service, reads saved configuration or credentials, or changes
+the local session. The sample catalog and resource values are not deployment
+defaults. Omit `--demo` to use the normal authenticated appliance client.
+
 The CLI uses `https://api.magicstick.local` by default. `magicstick login`
 starts the Keycloak Device Authorization Flow, opens the verification page when
 possible, and stores the resulting renewable session with file mode `0600`

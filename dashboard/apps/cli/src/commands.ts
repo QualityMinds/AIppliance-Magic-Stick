@@ -6,6 +6,7 @@ import {phase, stringify, table, truncate} from './output';
 import {createRuntime, type Runtime, type RuntimeOptions} from './runtime';
 import {loadSnapshot} from './snapshot';
 import {runTui} from './tui';
+import {createDemoRuntime} from './demo';
 
 export const VERSION = '0.1.0';
 
@@ -35,6 +36,7 @@ const HELP = `Magic Stick CLI and TUI
 Usage:
   magicstick [global options] <command>
   magicstick tui
+  magicstick tui --demo
   magicstick console
 
 Interactive TUI:
@@ -44,6 +46,8 @@ Interactive TUI:
   use the same authenticated control API as the commands below.
   console is the appliance-monitor mode: it requests a device-flow login when
   necessary and then opens the same TUI without storing a password.
+  tui --demo previews all tabs with synthetic, read-only data, without a backend
+  or login. No saved configuration or credentials are accessed.
 
 Authentication:
   login [--no-open]                    Sign in with the Keycloak device flow
@@ -97,6 +101,7 @@ Global options:
   --json               Machine-readable JSON output
   --no-color           Disable ANSI colors in the TUI
   --refresh SECONDS    TUI refresh interval; minimum 5, default 15
+  --demo              Offline read-only preview (tui only)
   -h, --help           Show this help
   -V, --version        Show the CLI version
 
@@ -395,6 +400,16 @@ export const runCli = async (argv: string[], suppliedIo: Partial<CliIo> = {}, de
     io.stdout(HELP);
     return 0;
   }
+  const [command = '', action = '', argument, extra] = parsed.positionals;
+  if (option(parsed, 'demo')) {
+    if (command !== 'tui' || parsed.positionals.length !== 1) throw new Error('Offline preview is available only with `magicstick tui --demo`.');
+    await (dependencies.runTui ?? runTui)(createDemoRuntime(), {
+      demo: true,
+      color: !option(parsed, 'no-color'),
+      refreshSeconds: integerOption(parsed, 'refresh', 15),
+    });
+    return 0;
+  }
   const runtimeFactory = dependencies.createRuntime ?? createRuntime;
   const insecure = option(parsed, 'insecure') === true;
   if (insecure) {
@@ -405,7 +420,6 @@ export const runCli = async (argv: string[], suppliedIo: Partial<CliIo> = {}, de
     caFile: textOption(parsed, 'ca-file'),
     insecure,
   });
-  const [command = '', action = '', argument, extra] = parsed.positionals;
   if (command === 'login') {
     await runtime.login(!option(parsed, 'no-open'), ({verificationUri, userCode, completeUri}) => {
       io.stdout(`Open ${completeUri ?? verificationUri}\nEnter code: ${userCode}\nWaiting for authentication…\n`);

@@ -25,6 +25,22 @@ const runtime = (api: Partial<MagicStickApi>): Runtime => ({
 });
 
 describe('runCli', () => {
+  it.each([['tui', '--demo'], ['--demo', 'tui']])('starts an offline preview for %j without constructing a live runtime', async (...argv) => {
+    const createRuntime = vi.fn();
+    const launch = vi.fn(async () => undefined);
+    expect(await runCli(argv, io().supplied, {createRuntime, runTui: launch})).toBe(0);
+    expect(createRuntime).not.toHaveBeenCalled();
+    expect(launch).toHaveBeenCalledWith(expect.anything(), {demo: true, color: true, refreshSeconds: 15});
+  });
+
+  it('rejects the demo flag on live commands before accessing configuration', async () => {
+    const createRuntime = vi.fn();
+    for (const argv of [['console', '--demo'], ['service', 'enable', 'litellm', '--demo']]) {
+      await expect(runCli(argv, io().supplied, {createRuntime})).rejects.toThrow('tui --demo');
+    }
+    expect(createRuntime).not.toHaveBeenCalled();
+  });
+
   it('prints the version without constructing an authenticated runtime', async () => {
     const output = io();
     const createRuntime = vi.fn();

@@ -259,6 +259,16 @@ pnpm cli --version
 pnpm cli --help
 ```
 
+For a frontend-only terminal preview with no backend or login, run
+`corepack pnpm tui:demo` in the built dashboard workspace, or use the standalone
+`magicstick tui --demo`. All eight tabs contain synthetic sample data and show
+an **OFFLINE DEMO** banner. Navigation and sample-data refresh work; live
+actions, clipboard exports, and sign-out are disabled. No saved configuration
+or credentials are read, no network requests are made, and the local session
+is left untouched. Press `q` to exit. See the
+[CLI workspace instructions](../dashboard/README.md#offline-terminal-preview)
+for a CLI-only build.
+
 On a machine that can resolve and reach the appliance, authenticate through the
 Keycloak Device Authorization Flow and then start the terminal UI:
 
