@@ -40,6 +40,9 @@ Usage:
   magicstick console
 
 Interactive TUI:
+  A seven-line space banner shows the branded USB spacecraft powering up a PC.
+  The stick docks once and stays connected; decorative visitors keep animating.
+  Animation runs continuously, including in dialogs; short terminals hide it.
   Browse with arrow keys or h/j/k/l. Operators can enable/disable services and
   create/remove models. Administrators can additionally manage users, named API
   keys, and SSO-backed Kubernetes access. Forms and destructive confirmations

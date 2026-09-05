@@ -1,5 +1,12 @@
 const visibleLength = (value: string) => value.replace(/\x1b\[[0-9;]*m/g, '').length;
 
+// Preserve ASCII art/table spacing and SGR resets when fitting a screen row.
+export const clipTerminalLine = (value: string, columns: number) => {
+  let remaining = Math.max(0, columns);
+  return (value.match(/\x1b\[[0-9;]*m|[^\x1b]/gu) ?? [])
+    .filter((part) => part.startsWith('\x1b') || remaining-- > 0).join('');
+};
+
 export const table = (headers: string[], rows: Array<Array<string | number | undefined>>) => {
   const normalized = rows.map((row) => row.map((value) => String(value ?? '')));
   const widths = headers.map((header, column) => Math.max(

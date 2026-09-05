@@ -19,7 +19,8 @@ import type {
 import type {DashboardSnapshot} from './snapshot';
 import {loadSnapshot} from './snapshot';
 import type {Runtime} from './runtime';
-import {truncate} from './output';
+import {clipTerminalLine, truncate} from './output';
+import {bannerFits, createBannerAnimation, renderBanner, type BannerFrame} from './banner';
 
 export type TuiTab = 'Overview' | 'Services' | 'Models' | 'Settings' | 'Users' | 'API Access' | 'Kubernetes' | 'System';
 
@@ -61,6 +62,7 @@ type TuiOverlay =
 
 interface TuiRenderState {
   demo?: boolean;
+  banner?: BannerFrame;
   selectionIndex?: number;
   overlay?: TuiOverlay;
   notice?: string;
@@ -302,7 +304,7 @@ const overlayLines = (overlay: TuiOverlay) => {
 };
 
 const browseHelp = (tab: TuiTab, snapshot: DashboardSnapshot) => {
-  const base = '←/→ or h/l: page · ↑/↓ or k/j: select · r: refresh · x: sign out · q: quit';
+  const base = 'x: sign out';
   if (tab === 'Services' && canMutateRuntime(snapshot.session)) return `${base} · a: enable · d: disable`;
   if (tab === 'Models' && canMutateRuntime(snapshot.session)) return `${base} · a: add · d: remove`;
   if (tab === 'Users' && canAdminister(snapshot.session)) return `${base} · a: add · e/Enter: edit · d: delete`;
@@ -319,18 +321,30 @@ export const renderTui = (
   color = true,
   state: TuiRenderState = {},
 ) => {
+  // Leave the final terminal column unused to avoid automatic line wrapping.
+  const columns = Math.max(1, width - 1);
+  const banner = bannerFits(height) ? renderBanner(columns, state.banner?.elapsedMs, color, state.banner?.seed) : [];
   const tabs = availableTabs(snapshot);
   const safeIndex = Math.min(Math.max(0, tabIndex), tabs.length - 1);
   const active = tabs[safeIndex] ?? 'Overview';
   const identity = state.demo ? 'OFFLINE DEMO · read-only · sample data' : `signed in: ${snapshot.session.username} · ${dashboardRole(snapshot.session)}`;
-  const header = `${cyan('MAGIC STICK', color)}  ${dim(identity, color)}`;
-  const navigation = tabs.map((tab, index) => index === safeIndex ? cyan(`[ ${tab} ]`, color) : `  ${tab}  `).join('');
-  const maximumBody = Math.max(3, height - 7);
+  const header = dim(identity, color);
+  const tabLabels = tabs.map((tab, index) => index === safeIndex ? `[ ${tab} ]` : tab);
+  let firstTab = 0;
+  while (firstTab < safeIndex && tabLabels.slice(firstTab, safeIndex + 1).join('  ').length + 2 > columns) firstTab += 1;
+  const navigation = `${firstTab ? '< ' : ''}${tabLabels.slice(firstTab).map((label, index) => index + firstTab === safeIndex ? cyan(label, color) : label).join('  ')}`;
   const rawBody = state.overlay ? overlayLines(state.overlay) : tabLines(active, snapshot, state.selectionIndex);
+  const controls = columns < 72 ? 'h/l:tabs j/k:rows r:refresh q:quit'
+    : '←/→ h/l: tabs · ↑/↓ k/j: rows · r: refresh · q: quit';
+  // Keep form/confirmation instructions on-screen even when the body scrolls.
+  const help = state.overlay
+    ? state.overlay.kind === 'busy' ? [] : [rawBody.pop() ?? '']
+    : state.demo ? [controls] : [controls, browseHelp(active, snapshot)];
+  const maximumBody = Math.max(0, height - banner.length - 5 - help.length - (state.notice ? 1 : 0));
   const focus = rawBody.findIndex((line) => line.startsWith('›'));
-  const bodyStart = focus >= maximumBody ? Math.max(0, focus - maximumBody + 2) : 0;
+  const bodyStart = focus >= maximumBody ? Math.max(0, focus - maximumBody + 1) : 0;
   const body = rawBody.slice(bodyStart, bodyStart + maximumBody).map((line) => {
-    const clipped = truncate(line, Math.max(20, width - 2));
+    const clipped = clipTerminalLine(line, columns);
     if (!line.startsWith('›')) return clipped;
     return cyan(clipped, color);
   });
@@ -338,11 +352,9 @@ export const renderTui = (
   const context = state.overlay
     ? state.overlay.kind === 'message' && state.overlay.tone === 'error' ? bad('Action failed', color) : cyan('Action', color)
     : dim(`Appliance ${health}`, color);
-  const footer = state.overlay ? '' : dim(state.demo
-    ? '←/→ or h/l: page · ↑/↓ or k/j: select · r: reload sample data · q: quit'
-    : browseHelp(active, snapshot), color);
-  const notice = state.notice ? warn(truncate(state.notice, Math.max(20, width - 2)), color) : '';
-  return [header, navigation, '─'.repeat(Math.max(20, Math.min(width, 140))), `${active}  ${context}`, '', ...body, notice, footer].filter((line, index, lines) => line || index < lines.length - 2).join('\n');
+  const notice = state.notice ? [warn(state.notice, color)] : [];
+  return [...banner, header, navigation, '─'.repeat(Math.min(columns, 120)), `${active}  ${context}`, '', ...body, ...notice, ...help.map((line) => dim(line, color))]
+    .slice(0, height).map((line) => clipTerminalLine(line, columns)).join('\n');
 };
 
 const userSource = (user: User) => {
@@ -361,8 +373,14 @@ export const runTui = async (runtime: Runtime, options: {color?: boolean; refres
   let loading = false;
   let refreshError = '';
   let overlay: TuiOverlay | undefined;
+  let finished = false;
   const selection: Partial<Record<TuiTab, number>> = {};
   const color = options.color !== false;
+  const animation = createBannerAnimation((frame) => {
+    const rows = renderBanner(Math.max(1, (process.stdout.columns ?? 100) - 1), frame.elapsedMs, color, frame.seed);
+    // Only repaint the banner, not forms or the entire dashboard, on a tick.
+    process.stdout.write(`\x1b[H${rows.map((row) => `${row}\x1b[K`).join('\n')}`);
+  }, () => !finished && bannerFits(process.stdout.rows ?? 30));
 
   const activeTab = () => availableTabs(snapshot)[tabIndex] ?? 'Overview';
   const activeSelection = () => selection[activeTab()] ?? 0;
@@ -371,12 +389,14 @@ export const runTui = async (runtime: Runtime, options: {color?: boolean; refres
     for (const tab of availableTabs(snapshot)) selection[tab] = moveSelection(selection[tab] ?? 0, 0, selectableCount(tab, snapshot));
   };
   const draw = () => {
+    if (finished) return;
     const rendered = renderTui(snapshot, tabIndex, process.stdout.columns ?? 100, process.stdout.rows ?? 30, color, {
       demo: options.demo,
+      banner: animation.frame,
       selectionIndex: activeSelection(), overlay,
       notice: refreshError ? `Refresh failed: ${refreshError}` : '',
     });
-    process.stdout.write(`${CLEAR}${rendered}`);
+    process.stdout.write(`\x1b[H${rendered.split('\n').map((row) => `${row}\x1b[K`).join('\n')}\x1b[J`);
   };
   const refresh = async () => {
     if (loading || overlay) return;
@@ -698,6 +718,7 @@ export const runTui = async (runtime: Runtime, options: {color?: boolean; refres
   };
 
   const browseAction = (key: string) => {
+    if (!['a', 'd', 'e', 'c', '\r', '\n'].includes(key)) return;
     if (options.demo) return message('Offline demo', 'This preview is read-only. Live actions require an appliance connection.');
     const tab = activeTab();
     const entity = selectedEntity();
@@ -724,16 +745,19 @@ export const runTui = async (runtime: Runtime, options: {color?: boolean; refres
     }
   };
 
-  let finished = false;
   let finish: (() => void) | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
   const cleanup = () => {
     if (finished) return;
     finished = true;
     if (timer) clearInterval(timer);
+    animation.stop();
     process.stdin.off('data', onData);
     process.stdin.off('end', cleanup);
     process.stdout.off('resize', draw);
+    process.off('SIGINT', cleanup);
+    process.off('SIGTERM', cleanup);
+    process.off('SIGHUP', cleanup);
     process.stdin.setRawMode(false);
     process.stdin.pause();
     process.stdout.write(`${SHOW_CURSOR}${NORMAL_SCREEN}`);
@@ -854,13 +878,17 @@ export const runTui = async (runtime: Runtime, options: {color?: boolean; refres
     }
   };
 
-  process.stdout.write(`${ALT_SCREEN}${HIDE_CURSOR}`);
+  process.stdout.write(`${ALT_SCREEN}${HIDE_CURSOR}${CLEAR}`);
   process.stdin.setRawMode(true);
   process.stdin.resume();
   process.stdin.on('data', onData);
   process.stdin.once('end', cleanup);
   process.stdout.on('resize', draw);
+  process.once('SIGINT', cleanup);
+  process.once('SIGTERM', cleanup);
+  process.once('SIGHUP', cleanup);
   timer = setInterval(() => void refresh(), Math.max(5, options.refreshSeconds ?? 15) * 1000);
+  animation.start();
   draw();
   await new Promise<void>((resolve) => { finish = resolve; });
 };

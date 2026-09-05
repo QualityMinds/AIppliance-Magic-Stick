@@ -1,5 +1,6 @@
 import {describe, expect, it} from 'vitest';
 import type {DashboardSnapshot} from './snapshot';
+import {BANNER_HEIGHT, bannerFits} from './banner';
 import {
   availableTabs,
   buildLocalModelPayload,
@@ -34,6 +35,36 @@ const snapshot = (roles = ['magicstick-admin']): DashboardSnapshot => ({
 });
 
 describe('terminal dashboard', () => {
+  it('keeps branding on the spacecraft and session details below the banner', () => {
+    const lines = renderTui(snapshot(), 0, 100, 30, false).split('\n');
+    expect(lines[BANNER_HEIGHT]).toContain('signed in: tova');
+    expect(lines[2]).toContain('AIppliance');
+    expect(lines[3]).toContain('Magic Stick');
+    expect(lines.slice(BANNER_HEIGHT).join('\n')).not.toMatch(/AIppliance|Magic Stick/);
+    expect(lines.join('\n')).not.toMatch(/b:|pause|animate/);
+    expect(lines.join('\n')).not.toContain('\x1b');
+  });
+
+  it.each([[80, 24], [50, 19], [51, 19], [40, 18], [120, 40]])('fits a %i by %i screen and keeps the active tab visible', (width, height) => {
+    const screen = renderTui(snapshot(), 7, width, height, true);
+    const plain = screen.replace(/\x1b\[[0-9;]*m/g, '');
+    expect(plain.split('\n').length).toBeLessThanOrEqual(height);
+    expect(plain.split('\n').every((line) => line.length < width)).toBe(true);
+    expect(plain).toContain('[ System ]');
+    expect(plain).toMatch(/r:\s?refresh q:quit|r: refresh · q: quit/);
+    if (!bannerFits(height)) expect(plain.split('\n')[0]).toContain('signed in: tova');
+  });
+
+  it('keeps a selected form field and submission help visible beneath the banner', () => {
+    const rendered = renderTui(snapshot(), 4, 120, 24, false, {overlay: {
+      kind: 'form', title: 'Long form', fields: Array.from({length: 20}, (_, index) => ({id: String(index), label: `Field ${index}`, value: 'example'})),
+      active: 19, submitLabel: 'save', onSubmit: async () => undefined,
+    }});
+    expect(rendered).toContain('› Field 19: example');
+    expect(rendered).toContain('Ctrl+S: save');
+    expect(rendered.split('\n')).toHaveLength(24);
+  });
+
   it('exposes the same administrative areas to administrators', () => {
     expect(availableTabs(snapshot())).toEqual(['Overview', 'Services', 'Models', 'Settings', 'Users', 'API Access', 'Kubernetes', 'System']);
     expect(tabLines('Models', snapshot()).join('\n')).toContain('CPU: 49 GiB free');

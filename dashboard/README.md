@@ -89,6 +89,33 @@ confirmed, passwords are masked, and a newly created API-key secret remains on
 screen only until its result dialog is closed. The explicit CLI commands remain
 available for scripts and complete JSON instance payloads.
 
+The seven-line, borderless ASCII banner shows a rounded USB spacecraft with
+nacelles and **AIppliance** / **Magic Stick**
+on separate lines. Branding lives on the ship rather than in a duplicate TUI
+heading. There are no captions, PC power-status labels, or flame effects.
+Its connector slides fully into a compact,
+unlabelled PC containing a graphics card with three large animated fans enclosed in
+a separate gray shroud and a finned heatsink, without USB or GPU text labels.
+On startup the stick docks once, the PC boots, and its fans accelerate and glow
+orange. The stick then stays inserted and the PC remains powered; neither
+refreshing data nor resizing the terminal repeats startup. The connected pair
+is centered across the terminal width, leaving space on both sides on large
+screens rather than pinning the PC to the right edge.
+
+After startup, the recurring animation focuses on gray/orange visitors and a
+golden laptop. Each gets about 18 seconds on screen, with a new visit roughly
+every 40 seconds. Side stages keep them unobscured on wide terminals;
+smaller terminals use a lower flight path.
+No purple accents are used. These effects are decorative, not appliance status.
+
+Animation runs continuously, including during dialogs, with no pause/resume
+control. Terminals below 19 rows hide the banner to leave room for controls;
+the animation clock keeps advancing while hidden.
+`--no-color` retains the artwork without colors. Startup travel runs at half speed;
+the banner redraws at eight frames per second, independently of API refreshes.
+Artwork, scene timing, and animation lifecycle live in
+[apps/cli/src/banner.ts](apps/cli/src/banner.ts), separate from the TUI.
+
 `magicstick console` is the persistent appliance-monitor entry point. It checks
 the cached SSO session, renders a Keycloak device-login code when authentication
 is required, and opens the same interactive TUI. It never stores a password.
