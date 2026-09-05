@@ -85,6 +85,8 @@ views. Application instances appear below their parent application, shared AI
 runtime modules have their own compact section, and technical platform modules
 are collapsed by default. Each application's nested instances also start
 collapsed and can be expanded independently without changing runtime state.
+In the React dashboard, expand the application to see its instance URLs; the
+parent card displays only the module's own URLs to avoid duplicate links.
 These are presentation groups only: module actions still reconcile
 `ModuleActivation` resources and instance actions still reconcile `AppInstance`
 resources. When an entry appears in the wrong group, inspect the module catalog

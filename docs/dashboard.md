@@ -418,7 +418,9 @@ parent cards. Their existing `AppInstance` resources are nested directly below
 the matching application, so status, URLs, credentials, and removal controls
 remain together. Nested instances are collapsed by default and each application
 has its own **Show**/**Hide** control; an expanded application remains expanded
-across the periodic dashboard refresh. The **New Instance** action on a parent
+across the periodic dashboard refresh. In the React dashboard, instance URLs
+appear only on their instance card; the parent card keeps only the module's own
+URLs, including while its instances are collapsed. The **New Instance** action on a parent
 card opens that application's configuration directly. The global **Create
 Instance** action keeps the two-step type picker for users who have not chosen
 an application yet.

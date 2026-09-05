@@ -256,7 +256,10 @@ export const ServicesPage = ({session}: {session: Session}) => {
     const ready = !application.missing.length;
     const stateStatus = primary ? hardwareState(primaryId, primary) : {};
     const phase = ready ? 'Ready' : stateStatus.phase ?? (primary?.enabled ? 'Waiting' : 'Disabled');
-    const links = primaryId ? moduleResourceLinks(primaryId, spec, statusQuery.data) : [];
+    const instanceUrls = new Set(items.flatMap((item) => instanceResourceLinks(item.value, statusQuery.data))
+      .map((link) => link.url.replace(/\/$/, '')));
+    const links = (primaryId ? moduleResourceLinks(primaryId, spec, statusQuery.data) : [])
+      .filter((link) => !instanceUrls.has(link.url.replace(/\/$/, '')));
     return <Panel key={application.id} className="service-application" title={<span className="service-title"><span>{application.label}</span>{items.length > 0 && <Button variant="ghost" aria-expanded={isExpanded} onClick={() => setExpanded((current) => ({...current, [application.id]: !isExpanded}))}>{isExpanded ? '▾ Hide' : '▸ Show'}</Button>}</span>} meta={`Module · ${items.length} instance${items.length === 1 ? '' : 's'}`} actions={<><StatusBadge phase={phase} />{mutable && ready && deployedModels.length > 0 && <Button variant="primary" onClick={() => setCreate({open: true, type: application.id})}>New Instance</Button>}{primary && moduleControls(primaryId, primary, spec, false)}</>}>
       {application.missing.length > 0 && <p className="muted">Required services are not ready: {application.missing.map((id) => catalog[id]?.displayName ?? titleFromKey(id)).join(', ')}.</p>}
       {(phaseInProgress(phase) || phaseNeedsAttention(phase)) && <ProgressBar phase={phase} enabled={primary?.enabled} message={stateStatus.message} />}
