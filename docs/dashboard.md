@@ -157,6 +157,27 @@ Token-free kubeconfigs can be copied with the terminal's OSC 52 clipboard
 protocol. Instance creation remains available in the browser or through the
 complete JSON-payload CLI command.
 
+The seven-line, borderless ASCII space banner carries **AIppliance** and
+**Magic Stick** on two lines of a USB spacecraft, without a duplicate heading
+below it. There is no caption row or PC power-status text.
+The ship has a rounded hull and nacelles, without flame effects; its metal
+connector disappears fully inside a compact, unlabelled PC containing
+an unlabelled graphics card with three large, multi-row fans enclosed
+in a gray shroud and a finned heatsink; neither component has a text label.
+Startup inserts the stick once and triggers a decorative boot-up, accelerating
+orange-accented fans, and magic lighting. The stick remains connected and the
+PC stays on. The pair is centered across the terminal, including wide screens.
+Recurring gray/orange visitors and a golden floating laptop then take longer,
+more frequent turns, without purple accents. They occupy clear side stages
+where space permits or a lower lane on compact screens.
+Startup travel runs at half speed; the main docking sequence does not loop.
+Animation runs continuously, including during dialogs; there is no pause/resume
+control. Terminals shorter than 19 rows hide the banner to preserve working
+space, without stopping the animation clock.
+Animation is independent of API refreshes and works in live and offline modes,
+including with `--no-color`. The standalone
+[banner module](../dashboard/apps/cli/src/banner.ts) owns the artwork and timing.
+
 For a frontend-only preview, `magicstick tui --demo` (or `corepack pnpm tui:demo`
 from the built dashboard workspace) displays all eight tabs with synthetic
 sample data. The **OFFLINE DEMO** header distinguishes it from a real session.
