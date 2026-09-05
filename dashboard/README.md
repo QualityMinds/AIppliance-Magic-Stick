@@ -92,20 +92,28 @@ available for scripts and complete JSON instance payloads.
 The seven-line, borderless ASCII banner shows a rounded USB spacecraft with
 nacelles and **AIppliance** / **Magic Stick**
 on separate lines. Branding lives on the ship rather than in a duplicate TUI
-heading. There are no captions, PC power-status labels, or flame effects.
-Its connector slides fully into a compact,
-unlabelled PC containing a graphics card with three large animated fans enclosed in
+heading. There are no captions or flame effects. A denser starfield mixes white
+and muted gray stars across all seven rows, behind the foreground artwork.
+Most stay still, while a small minority drift just one column every 24 seconds.
+Twinkling is gentle rather than rapid.
+Its connector slides fully into a slightly wider but still compact PC containing
+a graphics card with three large animated fans enclosed in
 a separate gray shroud and a finned heatsink, without USB or GPU text labels.
 On startup the stick docks once, the PC boots, and its fans accelerate and glow
-orange. The stick then stays inserted and the PC remains powered; neither
+orange only inside the case, without external power sparks. A small light-gray
+readout beside the fans shows **IDLE**, **SPIN**, or **READY**, artificial usage
+%, and **TPS** (tokens per second). Values change slowly and are decorative,
+not appliance measurements, in both live and offline modes.
+The stick then stays inserted and the PC remains powered; neither
 refreshing data nor resizing the terminal repeats startup. The connected pair
 is centered across the terminal width, leaving space on both sides on large
 screens rather than pinning the PC to the right edge.
 
 After startup, the recurring animation focuses on gray/orange visitors and a
-golden laptop. Each gets about 18 seconds on screen, with a new visit roughly
-every 40 seconds. Side stages keep them unobscured on wide terminals;
-smaller terminals use a lower flight path.
+golden laptop with an outlined screen, keyboard, and touchpad. Each gets about
+18 seconds on screen, with a new visit roughly every two minutes and a long
+quiet gap. Side stages show the laptop's full open screen and base on wide
+terminals; smaller terminals use a three-row version in a lower flight path.
 No purple accents are used. These effects are decorative, not appliance status.
 
 Animation runs continuously, including during dialogs, with no pause/resume

@@ -159,17 +159,24 @@ complete JSON-payload CLI command.
 
 The seven-line, borderless ASCII space banner carries **AIppliance** and
 **Magic Stick** on two lines of a USB spacecraft, without a duplicate heading
-below it. There is no caption row or PC power-status text.
+below it. There is no caption row. The denser starfield includes dim gray stars
+across all seven rows, behind the foreground artwork. Most are stationary and
+only a small minority drift, one column every 24 seconds, with gentle twinkling.
 The ship has a rounded hull and nacelles, without flame effects; its metal
-connector disappears fully inside a compact, unlabelled PC containing
-an unlabelled graphics card with three large, multi-row fans enclosed
-in a gray shroud and a finned heatsink; neither component has a text label.
+connector disappears fully inside a slightly wider, compact PC containing
+a graphics card with three large, multi-row fans enclosed
+in a gray shroud and a finned heatsink, without USB or GPU text labels.
+Beside the fans, a small light-gray readout shows decorative **IDLE** / **SPIN** /
+**READY** status, artificial usage %, and **TPS** (tokens per second).
+These slowly changing values are not live appliance metrics, even outside demo mode.
 Startup inserts the stick once and triggers a decorative boot-up, accelerating
-orange-accented fans, and magic lighting. The stick remains connected and the
+orange-accented fans only inside the case; there are no external power sparks.
+The stick remains connected and the
 PC stays on. The pair is centered across the terminal, including wide screens.
-Recurring gray/orange visitors and a golden floating laptop then take longer,
-more frequent turns, without purple accents. They occupy clear side stages
-where space permits or a lower lane on compact screens.
+Gray/orange visitors and a golden floating laptop appear for about 18 seconds
+roughly every two minutes, with long quiet gaps and no purple accents. The laptop
+has an outlined screen, keyboard, and touchpad. Clear side stages show its full
+screen and base where space permits; compact screens use a three-row lower lane.
 Startup travel runs at half speed; the main docking sequence does not loop.
 Animation runs continuously, including during dialogs; there is no pause/resume
 control. Terminals shorter than 19 rows hide the banner to preserve working

@@ -41,7 +41,8 @@ Usage:
 
 Interactive TUI:
   A seven-line space banner shows the branded USB spacecraft powering up a PC.
-  The stick docks once and stays connected; decorative visitors keep animating.
+  The stick docks once and stays connected; decorative visitors appear rarely.
+  The PC's status, usage %, and TPS (tokens/sec) are artificial, not live data.
   Animation runs continuously, including in dialogs; short terminals hide it.
   Browse with arrow keys or h/j/k/l. Operators can enable/disable services and
   create/remove models. Administrators can additionally manage users, named API

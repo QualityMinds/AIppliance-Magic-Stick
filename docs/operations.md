@@ -312,17 +312,27 @@ copied with `c`; Kubernetes kubeconfigs use `c` directly on the selected user.
 Clipboard transfer uses OSC 52 and therefore depends on terminal support.
 
 The seven-line borderless banner puts the **AIppliance** / **Magic Stick**
-branding on the rounded USB spacecraft itself. There is no caption row or
-PC power-status text. Nacelles replace sharp fins; there are no flame effects. The connector
+branding on the rounded USB spacecraft itself. There is no caption row.
+More stars fill all seven background rows, including dim gray ones, while the
+foreground artwork masks them. Most stay still; a small minority drift one
+column every 24 seconds, with gentle twinkling.
+Nacelles replace sharp fins; there are no flame effects. The connector
 disappears inside the PC containing its graphics card, with no USB or GPU text labels.
-The card has three large animated fans enclosed in a gray shroud, orange
-powered accents, and a finned heatsink. Docking plays once at startup; the stick
+The card has three large animated fans enclosed in a gray shroud and a finned
+heatsink. Orange powered accents stay inside the case, with no external sparks.
+The slightly wider, still compact case has a light-gray readout beside the fans:
+**IDLE**, **SPIN**, or **READY**, artificial usage %, and **TPS** (tokens per
+second). These slowly changing values are decorative in both live and demo
+modes; use the dashboard's actual resource/status views for operational data.
+Docking plays once at startup; the stick
 stays inserted and the PC stays on, even after data refresh or terminal resize.
 The connected pair is centered across the full terminal width. Gray/orange
 easter eggs and a golden laptop recur in clear side stages on wide screens or
-a lower lane on smaller screens. After startup, visits last about 18 seconds and
-start roughly every 40 seconds; no purple accents are used.
-The subsequent boot-up, fan acceleration, and magic lighting are decorative:
+a lower lane on smaller screens. The laptop has an outlined screen, keyboard,
+and touchpad, with a full open screen and base on wide terminals and a three-row
+version on smaller ones. After startup, visits last about 18 seconds and
+start roughly every two minutes, separated by long quiet gaps; no purple
+accents are used. The subsequent boot-up and fan acceleration are decorative:
 they do not report appliance power or status. Session information remains below
 the banner, without a duplicate brand heading. Animation runs continuously,
 including during dialogs, with no pause/resume control. Resizing below 19

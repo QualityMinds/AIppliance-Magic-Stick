@@ -2,12 +2,23 @@ import {afterEach, describe, expect, it, vi} from 'vitest';
 import {BANNER_HEIGHT, BANNER_INTERVAL_MS, BANNER_SPEED, DOCKING_DURATION_MS, bannerFits, bannerScene, createBannerAnimation, renderBanner} from './banner';
 
 const plain = (value: string) => value.replace(/\x1b\[[0-9;]*m/g, '');
+const pcWidth = (width: number) => width < 66 ? 23 : 27;
+const styledCells = (line: string) => {
+  let tone = '';
+  return [...line.matchAll(/\x1b\[[0-9;]*m|[\x20-\x7e]/g)].flatMap(([part]) => {
+    if (part.startsWith('\x1b')) {
+      tone = part;
+      return [];
+    }
+    return [{char: part, tone}];
+  });
+};
 
 afterEach(() => vi.useRealTimers());
 
 describe('space banner', () => {
-  it.each([1, 20, 40, 65, 80, 120, 200])('keeps exactly seven borderless ASCII rows within %i columns', (width) => {
-    for (const time of [0, 9500, 13000, 17000, 37000]) {
+  it.each([1, 20, 40, 49, 65, 66, 80, 120, 200])('keeps exactly seven borderless ASCII rows within %i columns', (width) => {
+    for (const time of [0, 9500, 13000, 27000, 87000, 150000, 152000, 210000]) {
       const rows = renderBanner(width, time, false);
       expect(rows).toHaveLength(BANNER_HEIGHT);
       expect(rows).toHaveLength(7);
@@ -18,10 +29,11 @@ describe('space banner', () => {
     }
   });
 
-  it('brands the spacecraft on two lines and keeps the PC unlabelled', () => {
+  it('brands the spacecraft on two lines without USB or GPU text labels', () => {
     const initial = renderBanner(80, 0, false).join('\n');
     expect(initial).toContain('AIppliance');
     expect(initial).toContain('Magic Stick');
+    expect(initial).toContain('IDLE');
     expect(initial).not.toMatch(/\bGPU\b|USB DOCK|USB \[__\]|\( \(\) \)/);
     expect(initial).toContain('.-====-.');
     expect(initial).toContain("'-====-'");
@@ -35,7 +47,7 @@ describe('space banner', () => {
     expect(bannerScene(DOCKING_DURATION_MS / 2)).toMatchObject({phase: 'docking', progress: 0.5});
     expect(bannerScene(DOCKING_DURATION_MS)).toMatchObject({phase: 'docked', progress: 1, powered: true});
     expect(renderBanner(80, 13000, false).join('\n')).not.toBe(initial);
-    expect(renderBanner(80, 600, false)).not.toEqual(renderBanner(80, 0, false));
+    expect(renderBanner(80, DOCKING_DURATION_MS / 2, false)).not.toEqual(renderBanner(80, 0, false));
   });
 
   it('docks once and stays connected and powered even hours later', () => {
@@ -55,11 +67,11 @@ describe('space banner', () => {
   it.each([80, 120, 160, 240])('centers the connected pair on the full %i-column screen', (width) => {
     const rows = renderBanner(width, DOCKING_DURATION_MS + 2000, false);
     const shipLeft = rows[2]!.indexOf('(');
-    const pcLeft = rows[0]!.indexOf(`.${'-'.repeat(22)}.`);
-    const pcRight = pcLeft + 24;
+    const pcLeft = rows[0]!.indexOf(`.${'-'.repeat(pcWidth(width))}.`);
+    const pcRight = pcLeft + pcWidth(width) + 2;
     expect(rows.every((row) => row.length === width)).toBe(true);
     expect(Math.abs((shipLeft + pcRight) / 2 - width / 2)).toBeLessThanOrEqual(0.5);
-    expect(Math.abs(pcLeft - width / 2)).toBeLessThanOrEqual(4);
+    expect(Math.abs(pcLeft - width / 2)).toBeLessThanOrEqual(7);
     expect(width - pcRight).toBeGreaterThan(width * 0.2);
   });
 
@@ -74,7 +86,7 @@ describe('space banner', () => {
     expect(plugged[3]).toContain('Magic Stick');
     expect(plugged.join('\n')).not.toContain('USB [__]');
     expect(plugged.join('\n')).not.toContain('GPU');
-    const pcLeft = plugged[0]!.indexOf(`.${'-'.repeat(width < 66 ? 17 : 22)}.`);
+    const pcLeft = plugged[0]!.indexOf(`.${'-'.repeat(pcWidth(width))}.`);
     expect(plugged[2]!.slice(pcLeft).match(/\.-\./g)).toHaveLength(3);
     expect(plugged[3]!.slice(pcLeft).match(/\([^)]*\)/g)).toHaveLength(3);
     expect(plugged[4]!.slice(pcLeft).match(/'-'/g)).toHaveLength(3);
@@ -127,6 +139,106 @@ describe('space banner', () => {
     expect(powered[3]).toContain('\x1b[37m');
   });
 
+  it('shows more stars, mostly gray and stationary, with only a slow minority drifting', () => {
+    // Inspect clear side stages after docking and before any visitors arrive.
+    const stars = (time: number) => renderBanner(240, time).flatMap((row, y) => styledCells(row)
+      .flatMap((cell, x) => (x < 90 || x > 150) && '.+*'.includes(cell.char)
+        ? [{position: `${x}:${y}`, tone: cell.tone}] : []));
+    const initial = stars(6000);
+    const positions = initial.map((cell) => cell.position);
+    expect(initial.length).toBeGreaterThan(60); // More than the former total budget at this width.
+    expect(stars(11999).map((cell) => cell.position)).toEqual(positions);
+    const drifted = new Set(stars(12000).map((cell) => cell.position));
+    const retained = positions.filter((position) => drifted.has(position)).length;
+    expect(retained).toBeGreaterThan(positions.length * 0.7);
+    expect(retained).toBeLessThan(positions.length);
+    const grayTones = ['\x1b[38;5;240m', '\x1b[90m'];
+    for (const tone of [...grayTones, '\x1b[37m']) {
+      expect(initial.some((cell) => cell.tone === tone)).toBe(true);
+    }
+    expect(initial.filter((cell) => grayTones.includes(cell.tone)).length).toBeGreaterThan(initial.length / 2);
+  });
+
+  it.each([0, 42, 65535])('fills every background row with stars for seed %i', (seed) => {
+    for (const width of [120, 240]) {
+      const rows = renderBanner(width, 6000, false, seed);
+      const shipLeft = rows[2]!.indexOf('(');
+      const pcLeft = rows[0]!.indexOf(`.${'-'.repeat(pcWidth(width))}.`);
+      const pcRight = pcLeft + pcWidth(width) + 2;
+      expect(shipLeft).toBeGreaterThan(0);
+      expect(pcLeft).toBeGreaterThan(shipLeft);
+      for (const row of rows) {
+        // Only count the background outside the foreground artwork.
+        expect(row.slice(0, shipLeft) + row.slice(pcRight)).toMatch(/[.+*]/);
+      }
+      expect(rows[2]!.slice(shipLeft, pcLeft)).toMatch(/^\(\s+AIppliance\s+\|$/);
+      expect(rows[3]!.slice(shipLeft, pcLeft)).toMatch(/^\(\s+Magic Stick\s+\|$/);
+    }
+  });
+
+  it.each([49, 80, 120])('keeps all GPU orange inside the PC at %i columns', (width) => {
+    for (const time of [0, DOCKING_DURATION_MS - 1, DOCKING_DURATION_MS, 6000, 13000, 13100]) {
+      expect(bannerScene(time).visitor).toBeUndefined();
+      const rows = renderBanner(width, time);
+      const left = plain(rows[0]!).indexOf(`.${'-'.repeat(pcWidth(width))}.`);
+      const right = left + pcWidth(width) + 1;
+      let orangeCells = 0;
+      rows.forEach((row, y) => styledCells(row).forEach((cell, x) => {
+        if (cell.tone !== '\x1b[38;5;208m') return;
+        orangeCells += 1;
+        expect(x).toBeGreaterThan(left);
+        expect(x).toBeLessThan(right);
+        expect(y).toBeGreaterThanOrEqual(2);
+        expect(y).toBeLessThanOrEqual(4);
+      }));
+      expect(orangeCells > 0).toBe(bannerScene(time).powered);
+    }
+  });
+
+  it.each([49, 65, 66, 80, 120])('keeps light-gray status, usage, and TPS in place without SIM at %i columns', (width) => {
+    for (const time of [0, DOCKING_DURATION_MS, DOCKING_DURATION_MS + 500, 6000, 10000]) {
+      const rows = renderBanner(width, time, false);
+      const left = rows[0]!.indexOf(`.${'-'.repeat(pcWidth(width))}.`);
+      expect(left).toBeGreaterThanOrEqual(0);
+      const panel = rows.slice(1, 6).map((row) => row.slice(left + 1, left + pcWidth(width) + 1)).join('\n');
+      const {status, usagePercent, tokensPerSecond} = bannerScene(time).telemetry;
+      expect(panel).not.toContain('SIM');
+      const colored = renderBanner(width, time);
+      [status, `${usagePercent}%`, `${tokensPerSecond}TPS`].forEach((text, index) => {
+        expect(panel).toContain(text);
+        const y = index + 2;
+        const x = rows[y]!.indexOf(text, left + 1);
+        expect(x).toBeGreaterThan(left);
+        const cells = styledCells(colored[y]!).slice(x, x + text.length);
+        expect(cells.map((cell) => cell.char).join('')).toBe(text);
+        expect(cells.every((cell) => cell.tone === '\x1b[38;5;250m')).toBe(true);
+      });
+      expect(pcWidth(width) + 2).toBeLessThanOrEqual(29);
+      expect(rows[2]).toContain('AIppliance');
+      expect(rows[3]).toContain('Magic Stick');
+    }
+  });
+
+  it('keeps simulated metrics bounded, deterministic, and slower than the fans', () => {
+    expect(bannerScene(0).telemetry).toEqual({status: 'IDLE', usagePercent: 0, tokensPerSecond: 0});
+    expect(bannerScene(DOCKING_DURATION_MS).telemetry).toEqual({status: 'SPIN', usagePercent: 0, tokensPerSecond: 0});
+    expect(bannerScene(6000).telemetry.status).toBe('READY');
+    expect(bannerScene(6100).telemetry).toEqual(bannerScene(6000).telemetry);
+    expect(bannerScene(10000).telemetry).not.toEqual(bannerScene(6000).telemetry);
+    expect(bannerScene(6000, 42).telemetry).toEqual(bannerScene(6000, 42).telemetry);
+    expect(bannerScene(6000, 42).telemetry).not.toEqual(bannerScene(6000, 0).telemetry);
+    for (const seed of [0, 42, 65535]) {
+      for (let time = 0; time < 600000; time += 1000) {
+        const {usagePercent, tokensPerSecond} = bannerScene(time, seed).telemetry;
+        for (const value of [usagePercent, tokensPerSecond]) {
+          expect(Number.isInteger(value)).toBe(true);
+          expect(value).toBeGreaterThanOrEqual(0);
+          expect(value).toBeLessThanOrEqual(99);
+        }
+      }
+    }
+  });
+
   it('floats a golden laptop in clear view without covering the branding', () => {
     const time = Array.from({length: 600}, (_, index) => index * 1000)
       .find((elapsed) => bannerScene(elapsed).visitor === 'laptop');
@@ -137,52 +249,65 @@ describe('space banner', () => {
       for (const rows of [first, later]) {
         expect(rows.join('\n')).toContain('\x1b[0m\x1b[38;5;220m');
         const unstyled = rows.map(plain);
-        expect(unstyled.join('\n')).toContain(' .------. ');
-        expect(unstyled.join('\n')).toContain('/__[__]__\\');
+        expect(unstyled.join('\n')).toContain('  .--------.  ');
+        expect(unstyled.join('\n')).toContain('  |________|  ');
+        expect(unstyled.join('\n')).toContain(' /_==_[]_==_\\ ');
+        expect(unstyled.join('\n')).not.toContain('|  ..  |');
+        if (width >= 80) {
+          expect(unstyled.join('\n')).toContain('  |        |  ');
+          expect(unstyled.join('\n')).toContain(" `----------' ");
+        }
         expect(unstyled[2]).toContain('AIppliance');
         expect(unstyled[3]).toContain('Magic Stick');
         expect(unstyled).toEqual(renderBanner(width, rows === first ? time! : time! + 2000, false));
       }
-      expect(first.map(plain).find((row) => row.includes('/__[__]__\\')))
-        .not.toBe(later.map(plain).find((row) => row.includes('/__[__]__\\')));
+      const keyboardPosition = (rows: string[]) => rows.map(plain)
+        .flatMap((row, y) => row.includes('/_==_[]_==_\\') ? [[y, row.indexOf('/_==_[]_==_\\')]] : []);
+      expect(keyboardPosition(first)).not.toEqual(keyboardPosition(later));
     }
     expect(renderBanner(80, 0).join('\n')).not.toContain('\x1b[38;5;220m');
   });
 
-  it('starts with artwork and has no captions or PC power text', () => {
+  it('keeps status inside the artwork without adding captions or extra rows', () => {
     for (let time = 0; time < 60000; time += 1000) {
       const rows = renderBanner(80, time, false);
-      expect(rows[0]).toContain(`.${'-'.repeat(22)}.`);
-      expect(rows[6]).toContain(`'${'-'.repeat(22)}'`);
+      expect(rows[0]).toContain(`.${'-'.repeat(27)}.`);
+      expect(rows[6]).toContain(`'${'-'.repeat(27)}'`);
       expect(rows.join('\n')).not.toMatch(/universe|Aligning|Waking|Golden laptop|standby|BOOT|TURBO/);
       expect(bannerScene(time)).not.toHaveProperty('caption');
     }
   });
 
-  it('makes visitors brief, varied, and deterministic, rather than constantly visible', () => {
+  it('makes visitors infrequent, varied, and deterministic with long quiet gaps', () => {
     const visitors = new Set<string>();
     let visibleSeconds = 0;
+    let previousVisibleTime: number | undefined;
     for (let time = 0; time < 600000; time += 1000) {
       const scene = bannerScene(time, 0);
       if (scene.visitor) {
         visitors.add(scene.visitor);
         visibleSeconds += 1;
+        if (previousVisibleTime !== undefined && time - previousVisibleTime > 1000) {
+          expect(time - previousVisibleTime).toBeGreaterThanOrEqual(40000);
+        }
+        previousVisibleTime = time;
       }
     }
     expect(visitors).toEqual(new Set(['cat', 'ufo', 'comet', 'laptop']));
-    expect(visibleSeconds).toBeGreaterThan(240);
-    expect(visibleSeconds).toBeLessThan(290);
+    expect(visibleSeconds).toBeGreaterThan(80);
+    expect(visibleSeconds).toBeLessThan(100);
     expect(bannerScene(0).visitor).toBeUndefined();
+    expect(bannerScene(19999).visitor).toBeUndefined();
     expect(renderBanner(80, 35000, false, 42)).toEqual(renderBanner(80, 35000, false, 42));
     expect(bannerFits(18)).toBe(false);
     expect(bannerFits(19)).toBe(true);
   });
 
   it('keeps each visitor unobscured in seven rows after startup', () => {
-    const samples = Array.from({length: 120}, (_, index) => index * 1000);
+    const samples = Array.from({length: 600}, (_, index) => index * 1000);
     for (const [kind, visibleFeature] of [
       ['cat', '( o.o )'], ['ufo', '(_o_o_)'],
-      ['comet', '---===*>'], ['laptop', '/__[__]__\\'],
+      ['comet', '---===*>'], ['laptop', '/_==_[]_==_\\'],
     ]) {
       const time = samples.find((elapsed) => bannerScene(elapsed).visitor === kind);
       expect(time).toBeDefined();
