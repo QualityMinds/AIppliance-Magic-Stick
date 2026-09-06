@@ -70,6 +70,16 @@ the API image, and the deployed API tag matches the packaged verifier. The
 opt-in [Rancher test](licensing.md#reproduce-the-local-checks) must use a dedicated
 namespace and synthetic identities; it is not full Enterprise or SSO acceptance.
 
+For targeted instance sharing, also run the explicit isolated
+[real Keycloak/Envoy test](instance-sharing.md#verification), check current
+`accessGuardReady` rollout semantics, and verify a Community image excludes the
+optional package. The commercial package and combined-image notices must have
+approved terms before commercial release; a review PR carries the provisional
+notice and is not release approval. Until then CI publishes only Community.
+Check the file-scope [licensing overview](../LICENSING.md), unchanged MIT text,
+explicit Enterprise headers, offline dashboard notices and image license files.
+Do not label combined Enterprise distributions as solely MIT-licensed.
+
 ## Secret Checks
 
 ```bash

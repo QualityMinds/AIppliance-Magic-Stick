@@ -5,8 +5,12 @@ on:
     branches:
       - main
     paths:
+      - .dockerignore
       - .github/workflows/build-dashboard-image.yml
       - dashboard/**
+      - enterprise/**
+      - LICENSE
+      - LICENSING.md
   workflow_dispatch:
 
 permissions:
@@ -103,7 +107,7 @@ jobs:
       - name: Build and push multi-architecture image
         uses: docker/build-push-action@v6
         with:
-          context: dashboard
+          context: .
           file: dashboard/apps/web/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
@@ -117,7 +121,7 @@ jobs:
       - name: Build and push multi-architecture CLI runtime image
         uses: docker/build-push-action@v6
         with:
-          context: dashboard
+          context: .
           file: dashboard/apps/cli/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
@@ -131,8 +135,9 @@ jobs:
       - name: Build and push dashboard API runtime
         uses: docker/build-push-action@v6
         with:
-          context: dashboard
+          context: .
           file: dashboard/apps/api/Dockerfile
+          target: community
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |

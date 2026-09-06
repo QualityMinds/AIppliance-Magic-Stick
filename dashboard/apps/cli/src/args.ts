@@ -41,7 +41,7 @@ export const parseArguments = (argv: string[]): ParsedArguments => {
       continue;
     }
     const next = argv[index + 1];
-    if (next !== undefined && !next.startsWith('-')) {
+    if (next !== undefined && (next === '-' || !next.startsWith('-'))) {
       addOption(parsed.options, key, next);
       index += 1;
     } else addOption(parsed.options, key, true);

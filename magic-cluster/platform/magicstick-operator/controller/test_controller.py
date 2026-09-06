@@ -1,5 +1,6 @@
 import pathlib
 import unittest
+from unittest.mock import patch
 
 import yaml
 
@@ -158,7 +159,7 @@ class HelmAppInstanceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "route.requestTimeout must be 0s"):
             self.controller["app_instance_access_resources"](instance, definition)
 
-    def test_explicit_public_local_instance_omits_security_policy(self):
+    def test_explicit_public_local_instance_keeps_guard_but_omits_oidc(self):
         instance = {
             "metadata": {"name": "odysseus-demo"},
             "spec": {
@@ -173,7 +174,10 @@ class HelmAppInstanceTests(unittest.TestCase):
         resources, access = self.controller["app_instance_access_resources"](instance, definition)
 
         self.assertEqual(len([resource for resource in resources if resource["kind"] == "HTTPRoute"]), 1)
-        self.assertEqual(len([resource for resource in resources if resource["kind"] == "SecurityPolicy"]), 0)
+        policies = [resource for resource in resources if resource["kind"] == "SecurityPolicy"]
+        self.assertEqual(len(policies), 1)
+        self.assertNotIn("oidc", policies[0]["spec"])
+        self.assertFalse(policies[0]["spec"]["extAuth"]["failOpen"])
         self.assertEqual(access["authentication"], "none")
         self.assertEqual(access["publicURL"], "")
 
@@ -187,6 +191,49 @@ class HelmAppInstanceTests(unittest.TestCase):
             resource_path("helm.toolkit.fluxcd.io/v2", "HelmRelease", "ai-system", "demo"),
             "/apis/helm.toolkit.fluxcd.io/v2/namespaces/ai-system/helmreleases/demo",
         )
+
+    def test_guard_is_bound_to_instance_uid_and_checks_before_backend_is_exposed(self):
+        controller = load_controller()
+        instance = {"metadata": {"name": "hermes-example", "uid": "immutable-test-uid"},
+                    "spec": {"application": "hermes", "targetNamespace": "ai", "values": {"name": "example"}}}
+        definition = {"route": {"serviceName": "instance", "port": 9119}}
+        guard = controller["app_instance_guard"](instance)
+        self.assertEqual(guard["http"]["path"], "/internal/instance-access/hermes-example/immutable-test-uid")
+        self.assertFalse(guard["failOpen"])
+        self.assertEqual(set(guard["headersToExtAuth"]), {"Cookie", "Authorization"})
+        applied = []
+        with patch.dict(controller, {"apply_resource": lambda resource: applied.append(resource), "get_applied_resource": lambda resource: None}):
+            status = controller["sync_app_instance_access"](instance, definition)
+        self.assertFalse(status["accessGuardReady"])
+        self.assertEqual(applied[0]["kind"], "SecurityPolicy")
+        for resource in applied:
+            if resource["kind"] == "HTTPRoute":
+                self.assertTrue(all(not rule["backendRefs"] for rule in resource["spec"]["rules"]))
+
+        def accepted(resource):
+            return {"metadata": {**resource["metadata"], "generation": 3}, "status": {"ancestors": [{"conditions": [{"type": "Accepted", "status": "True", "observedGeneration": 3}]}]}}
+        applied.clear()
+        with patch.dict(controller, {"apply_resource": lambda resource: applied.append(resource), "get_applied_resource": accepted}):
+            self.assertTrue(controller["sync_app_instance_access"](instance, definition)["accessGuardReady"])
+        self.assertTrue(all(rule["backendRefs"] for resource in applied if resource["kind"] == "HTTPRoute" for rule in resource["spec"]["rules"]))
+
+        def stale(resource):
+            value = accepted(resource)
+            value["metadata"]["generation"] = 4
+            return value
+        with patch.dict(controller, {"apply_resource": lambda resource: None, "get_applied_resource": stale}):
+            self.assertFalse(controller["sync_app_instance_access"](instance, definition)["accessGuardReady"])
+
+    def test_community_does_not_probe_license_and_private_probe_fails_closed(self):
+        controller = load_controller()
+        resource_path = controller["resource_path"]
+        request = {"metadata": {"name": "hermes-example", "uid": "test-uid"}, "spec": {"access": {}}}
+        with patch.object(controller["urllib"].request, "urlopen", side_effect=OSError("unavailable")) as call:
+            self.assertTrue(controller["instance_sharing_entitled"](request))
+            call.assert_not_called()
+            request["spec"]["access"]["sharing"] = {"mode": "selected", "users": ["user-id"]}
+            self.assertFalse(controller["instance_sharing_entitled"](request))
+            self.assertTrue(call.call_args.args[0].endswith("/hermes-example/test-uid"))
         self.assertEqual(
             resource_path("gateway.networking.k8s.io/v1", "HTTPRoute", "identity-system", "demo-local"),
             "/apis/gateway.networking.k8s.io/v1/namespaces/identity-system/httproutes/demo-local",

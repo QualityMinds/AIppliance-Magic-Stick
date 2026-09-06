@@ -166,9 +166,19 @@ Set `exposure: local` to omit the public hostname. Setting
 `authentication: none` deliberately creates an unauthenticated route and must
 be an explicit review decision.
 
+Optional `spec.access.sharing` adds Enterprise instance allow-lists. Its `mode`
+is `all` or `selected`; `users` and `groups` each contain at most 100 unique,
+stable Keycloak IDs. `all` requires empty lists; `selected` requires SSO and an
+empty selection denies everyone. Omission retains Community role-based access.
+The dashboard preserves existing restrictions when an older client omits this
+field. See [instance-sharing.md](instance-sharing.md).
+
 For every enabled instance, the operator creates the required application and
 per-instance callback `HTTPRoute` objects, cross-namespace `ReferenceGrant`,
-and (for SSO) Envoy `SecurityPolicy` objects. The callback route shares the
+and Envoy `SecurityPolicy` objects with fail-closed instance guards (plus OIDC
+and role authorization for SSO). `status.accessGuardReady` becomes true only
+after the current guard policies are accepted. Until then routes have no app
+backend. The callback route shares the
 dashboard hostname but uses an exact, instance-specific path. Application
 routes for the catalogued AI workloads set `timeouts.request: "0s"` so streamed
 responses are not cut off by Envoy's 15-second default; callback routes remain

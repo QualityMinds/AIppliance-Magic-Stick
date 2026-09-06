@@ -6,8 +6,9 @@ This page collects common day-2 checks for a running appliance.
 
 Dashboard 2 administrators use **License & Enterprise**; terminal administrators
 use `magicstick license status` or the TUI's **License** tab. The MIT foundation
-supports signed-file preview, explicit replacement and export but enables no
-Enterprise business features. Existing Community operation is unchanged.
+supports signed-file preview, explicit replacement and export. An installed
+Enterprise extension plus a valid `resource-sharing` entitlement adds targeted
+instance access. Existing Community operation remains license-independent.
 
 Follow [licensing.md](licensing.md) to provision the issuer's public trust store,
 issue files outside the appliance, rotate keys and back up the runtime Secret.
@@ -16,6 +17,23 @@ license and its installation ID; a bound file alone cannot restore a lost ID.
 After an ambiguous write failure, refresh status before retrying. Never delete
 the Secret as a routine troubleshooting step, and do not copy its contents into
 logs/issues. A Pod restart preserves it; a deleted cluster does not.
+
+## Instance sharing checks
+
+Administrators configure **Dashboard 2 → Services → instance → Sharing**.
+Ordinary users receive only their granted instances. Inspect
+`AppInstance.status.accessGuardReady` and the current Envoy `SecurityPolicy`
+conditions before changing an existing instance's sharing. The operator leaves
+routes without a backend until their guard is accepted for the current generation.
+The packaged API, backend ConfigMap, CRD, controller and Envoy filter order must
+be upgraded together. An API outage fails instance edge authorization closed.
+
+If an entitled user is denied, check the live user enabled state, minimum role,
+stable selected IDs, current group membership and license/trust status. Removing
+or expiring the license pauses restricted app use; it never makes an instance
+public. Do not delete its sharing policy to silence an error. Active streams are
+not retroactively disconnected. Cluster/port-forward/workload privileges remain
+outside this browser-level sharing boundary. See [instance-sharing.md](instance-sharing.md).
 
 ## Host Checks
 

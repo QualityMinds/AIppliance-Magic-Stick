@@ -60,6 +60,11 @@ The dashboard is also not an operator. It reads status and creates or patches
   disable Envoy's total request timeout for long-lived streams, while the exact
   callback routes retain the bounded default.
 - Remove generated routes and policies when an instance is suspended or deleted.
+- Install the per-instance external-authorization guard before connecting routes
+  to their backends; report `accessGuardReady` only for accepted current policies.
+  Check the API's internal signed-entitlement probe before reconciling restricted
+  workloads. A missing entitlement retains policy/workloads but blocks private
+  app requests and new private reconciliation; it never removes the restriction.
 - Update module, instance, hardware-operator, and condition status.
 
 The static Flux `magicstick-operator` Kustomization must not wait on

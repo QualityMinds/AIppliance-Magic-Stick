@@ -155,6 +155,14 @@ footer { padding: 1.1rem; color: #8798b2; text-align: center; font-size: .8rem; 
 .check-field input { width: 18px; height: 18px; accent-color: var(--cyan); }
 .runtime-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; margin: 0; padding: 1rem; border: 1px solid var(--line); border-radius: 14px; }
 .runtime-options legend { padding: 0 .4rem; color: var(--text); font-weight: 800; }
+.sharing-fields { min-width: 0; display: grid; gap: 1rem; margin: 0; padding: 1rem; border: 1px solid var(--line); border-radius: 14px; }
+.sharing-fields legend { padding: 0 .4rem; font-weight: 800; color: var(--text); }
+.sharing-fields:disabled { opacity: .65; }
+.license-document { min-width: 0; padding: .75rem; border: 1px solid var(--line); border-radius: 10px; }
+.license-document summary { cursor: pointer; font-weight: 700; }
+.license-document pre { max-height: 24rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); font: .82rem/1.6 ui-monospace, monospace; }
+.sharing-results { display: flex; flex-wrap: wrap; gap: .5rem; max-height: 14rem; overflow-y: auto; }
+.sharing-results .button { overflow-wrap: anywhere; text-align: left; }
 .form-details { overflow: hidden; }
 .module-parameters { margin-top: .8rem; padding-top: .7rem; border-top: 1px solid var(--line); }
 .module-parameters summary { cursor: pointer; color: #d8e5f7; font-weight: 700; }
@@ -163,7 +171,7 @@ footer { padding: 1.1rem; color: #8798b2; text-align: center; font-size: .8rem; 
 .service-title { display: flex; align-items: center; gap: .6rem; }
 .service-title .button { min-height: 28px; padding: .25rem .55rem; font-size: .75rem; font-weight: 600; }
 .service-instance-list { display: grid; gap: .55rem; margin-top: .9rem; padding-top: .9rem; border-top: 1px solid var(--line); }
-.service-instance { display: grid; gap: .55rem; padding: .85rem; border: 1px solid var(--line); border-radius: 12px; background: rgb(4 11 22 / 62%); }
+.service-instance { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: .55rem; padding: .85rem; border: 1px solid var(--line); border-radius: 12px; background: rgb(4 11 22 / 62%); }
 .service-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .service-row small { margin-top: .2rem; }
 
@@ -175,10 +183,10 @@ footer { padding: 1.1rem; color: #8798b2; text-align: center; font-size: .8rem; 
 .progress-warn .progress-track span { background: linear-gradient(90deg, #8c6c20, var(--yellow)); }
 .progress-bad .progress-track span { background: linear-gradient(90deg, #99465b, var(--red)); }
 
-.resource-links { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: .7rem; }
-.resource-link { display: inline-flex; align-items: center; gap: .45rem; min-width: 0; padding: .25rem .3rem .25rem .55rem; border: 1px solid #304966; border-radius: 999px; background: #07101e; }
+.resource-links { display: flex; flex-wrap: wrap; min-width: 0; gap: .45rem; margin-top: .7rem; }
+.resource-link { display: inline-flex; align-items: center; gap: .45rem; min-width: 0; max-width: 100%; padding: .25rem .3rem .25rem .55rem; border: 1px solid #304966; border-radius: 999px; background: #07101e; }
 .resource-link a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.resource-link .button { min-height: 28px; padding: .25rem .5rem; border-radius: 999px; font-size: .72rem; }
+.resource-link .button { flex-shrink: 0; min-height: 28px; padding: .25rem .5rem; border-radius: 999px; font-size: .72rem; }
 .scope { color: var(--muted); font-size: .67rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 .scope-local { color: var(--cyan); }
 .scope-public { color: var(--violet); }

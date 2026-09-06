@@ -6,6 +6,9 @@ import {
   type DiscoveryArtifactsPayload,
   type DiscoverySearchPayload,
   type InstancesPayload,
+  type InstanceAccessState,
+  type InstanceSharing,
+  type SharingPrincipal,
   type KubernetesAccessPayload,
   type MemoryEstimate,
   type ModelsPayload,
@@ -82,6 +85,10 @@ export class MagicStickApi {
     return sessionSchema.parse(await this.request<unknown>('/api/session'));
   }
 
+  myInstances() {
+    return this.request<{items: Array<{name: string; application: string; phase: string; urls: string[]}>}>('/api/my-instances');
+  }
+
   licenseStatus() { return this.request<LicenseStatus>('/api/license'); }
   inspectLicense(document: string) {
     return this.request<LicensePreview>('/api/license/validate', {method: 'POST', body: JSON.stringify({document})});
@@ -102,6 +109,17 @@ export class MagicStickApi {
   appliance() { return this.request<Appliance>('/api/appliance'); }
   modules() { return this.request<ModulesPayload>('/api/modules'); }
   instances() { return this.request<InstancesPayload>('/api/instances'); }
+  instanceAccess(name: string) { return this.request<InstanceAccessState>(`/api/instances/${encodeURIComponent(name)}/access`); }
+  updateInstanceAccess(name: string, sharing: InstanceSharing, expectedRevision: string) {
+    return this.request<InstanceAccessState>(`/api/instances/${encodeURIComponent(name)}/access`, {
+      method: 'PUT', body: JSON.stringify({sharing, expectedRevision}),
+    });
+  }
+  instancePrincipals(kind: 'users' | 'groups', search = '', first = 0) {
+    return this.request<{kind: string; items: SharingPrincipal[]; next: number | null}>(
+      `/api/instance-principals?${new URLSearchParams({kind, search, first: String(first)})}`,
+    );
+  }
   models() { return this.request<ModelsPayload>('/api/models'); }
   status() { return this.request<SystemStatusPayload>('/api/status'); }
 

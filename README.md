@@ -7,6 +7,14 @@ defaults, render-only examples, and placeholders. Real deployment values are
 supplied at install time, through runtime settings, or through runtime CRs
 created by the dashboard.
 
+## License
+
+Magic Stick Community remains [MIT-licensed](LICENSE), including commercial use.
+Only explicitly marked Enterprise business code has separate terms. See the
+[licensing overview](LICENSING.md) and the provisional
+[Enterprise notice](enterprise/LICENSE). The latter is a review draft, not a
+completed customer agreement; existing MIT rights are unchanged.
+
 ## Installation
 
 Choose the path that matches the starting point. All new installations end in
@@ -136,6 +144,7 @@ site.
 | Appliance CRD | [docs/appliance-crd.md](docs/appliance-crd.md) |
 | Dashboard, CLI, TUI, and control API | [docs/dashboard.md](docs/dashboard.md) |
 | Offline license management and the future Enterprise boundary | [docs/licensing.md](docs/licensing.md) |
+| Targeted user/group instance access and its security boundary | [docs/instance-sharing.md](docs/instance-sharing.md) |
 | Module catalog | [docs/modules.md](docs/modules.md) |
 | Operator orchestration | [docs/operator-orchestration.md](docs/operator-orchestration.md) |
 | Runtime variables and secrets | [docs/configuration.md](docs/configuration.md) |

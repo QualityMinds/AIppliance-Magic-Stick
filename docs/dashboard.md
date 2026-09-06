@@ -67,7 +67,7 @@ Paperclip, KubeOpenCode, KubeAI, LiteLLM, or direct app instance reconcilers.
 | Kubernetes Access | Lets administrators assign Viewer, Operator, or Cluster Administrator access to existing SSO identities and download or copy token-free OIDC kubeconfigs. |
 | System Status | Shows NVIDIA, AMD, and Intel detection/operator/resource state plus Flux, Pod, Service, Ingress, and Event status. |
 | Settings | Edits appliance-wide public and mDNS domain settings. The public dashboard host is always derived from the public domain. |
-| License & Enterprise (React/CLI/TUI only) | Admin-only offline license preview, activation, status and export. The MIT foundation keeps all seven planned Enterprise capabilities unimplemented. |
+| License & Enterprise (React/CLI/TUI only) | Admin-only offline license preview, activation, status and export. The optional extension implements targeted instance sharing. React also bundles the MIT text, licensing overview and provisional Enterprise notice for offline inspection/download. |
 
 ## Backend API
 
@@ -272,6 +272,9 @@ the appliance service restores the TUI automatically.
 | `POST` | `/api/modules/{name}/disable` | Creates or patches a `ModuleActivation` with `spec.enabled: false`. |
 | `GET` | `/api/modules/{name}/credentials` | Returns credentials for an enabled catalog module with an explicitly supported provider, currently LiteLLM. |
 | `GET` | `/api/instances` | Returns `AppInstance` resources and status. |
+| `GET` | `/api/my-instances` | Minimal granted instance launchpad for any Magic Stick user. |
+| `GET` | `/api/instance-principals` | Admin + Enterprise entitlement: paginated user/group directory IDs and names. |
+| `GET` / `PUT` | `/api/instances/{name}/access` | Live admin: inspect sharing; updates also require entitlement, ready guard, CSRF and expected resource revision. |
 | `GET` | `/api/instances/{name}/credentials` | Returns supported generated credentials for an instance, currently OpenClaw. |
 | `POST` | `/api/instances/{type}` | Adds or replaces an `AppInstance` for supported types such as `openclaw`, `hermes`, `odysseus`, `paperclip`, or `kubeopencode`. |
 | `DELETE` | `/api/instances/{name}` | Deletes the `AppInstance`; its finalizer removes the generated HelmRelease and Helm cleans the application resources. |
@@ -331,6 +334,13 @@ revalidates the signed file and the preview's expected Kubernetes revision.
 Invalid files cannot overwrite a valid license. A valid entitlement does not
 make an unimplemented feature available.
 
+The React page also displays **Software licenses**, separately from technical
+entitlement activation. It embeds the source-of-truth root `LICENSE`,
+`LICENSING.md` and `enterprise/LICENSE` at build time, with offline text downloads.
+These notices remain visible if the entitlement API fails. The Enterprise
+notice is provisional; uploading a signed file is not a commercial agreement.
+See the [file-scope overview](../LICENSING.md).
+
 The API image adds pinned verification libraries and reads a deployment-owned
 public trust ConfigMap. Its separate Role grants `get/update` on the named
 `identity-system/magicstick-enterprise-license` Secret plus namespace-scoped
@@ -344,6 +354,26 @@ The old dashboard UI is not changed and existing Community features remain
 license-independent.
 
 ## User Controls
+
+### Targeted instance sharing
+
+Dashboard 2 administrators use the **Sharing** button on each instance, or the
+sharing fields in **Create Instance**, to choose selected Keycloak users/groups.
+The `resource-sharing` entitlement and optional Enterprise implementation are
+required. The existing default remains all users with the required role.
+The API filters instance lists, overview/module/status/event data and derived
+URLs for non-admins. A separate edge check enforces app and credential access;
+an admin's management visibility does not automatically grant app use. Basic
+`magicstick-user` accounts see only the **My instances** launchpad, while the
+full dashboard still requires viewer/operator/admin roles.
+
+Existing groups (including their subgroups) can be selected; group creation and
+federation management are not added here. The CLI supports `instance principals`,
+`instance access` and confirmed `instance share --file ... --yes` commands.
+See [instance-sharing.md](instance-sharing.md) for the exact contract, expiry and
+recovery behavior, rollout dependencies, limitations and local test procedure.
+
+### User administration
 
 The **Users** tab is hidden unless `/api/session` contains
 `magicstick-admin` and does not report `identityManagementAvailable: false`.

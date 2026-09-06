@@ -4,6 +4,10 @@ metadata:
   name: identity-pilot
   namespace: identity-system
 spec:
+  # Authenticate browser sessions before checking per-instance authorization.
+  filterOrder:
+    - name: envoy.filters.http.ext_authz
+      after: envoy.filters.http.jwt_authn
   provider:
     type: Kubernetes
     kubernetes:

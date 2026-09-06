@@ -3,6 +3,7 @@ import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query';
 import type {LicensePreview, LicenseVerification} from '@magicstick/dashboard-contracts';
 import {api} from '../api';
 import {Button, ErrorNotice, Field, Loading, Panel} from '../components';
+import {SoftwareLicenses} from '../SoftwareLicenses';
 
 const date = (value?: number) => value === undefined ? '—' : new Date(value * 1000).toLocaleString();
 const ClaimDetails = ({value}: {value: LicenseVerification}) => <>
@@ -38,7 +39,7 @@ export const LicensePage = () => {
     setPreview(undefined); setDocument(''); setFilename('');
     if (fileInput.current) fileInput.current.value = '';
     cache.setQueryData(['license'], result);
-    setMessage('License saved. Enterprise features remain unavailable until implemented.');
+    setMessage('License saved. Installed capabilities with a valid entitlement are now available.');
     await cache.invalidateQueries({queryKey: ['license']});
   }, onError: () => setPreview(undefined)});
   const download = useMutation({mutationFn: async () => {
@@ -60,11 +61,12 @@ export const LicensePage = () => {
       if (version === selection.current) { setDocument(content); setFilename(file.name); }
     } catch { setError(new Error('Could not read the selected file.')); }
   };
-  if (query.isPending) return <Loading />;
-  if (query.error || !query.data) return <ErrorNotice error={query.error ?? new Error('License state unavailable.')} />;
+  if (query.isPending) return <div className="stack"><Loading /><SoftwareLicenses /></div>;
+  if (query.error || !query.data) return <div className="stack"><ErrorNotice error={query.error ?? new Error('License state unavailable.')} /><SoftwareLicenses /></div>;
   const status = query.data;
   return <div className="stack">
     <div className="section-title"><div><h2>License &amp; Enterprise</h2><p>Offline-verifiable licenses. Community stays available without a license.</p></div></div>
+    <SoftwareLicenses />
     <Panel title={status.valid ? 'Valid license' : 'License status'}>
       <ClaimDetails value={status} />
       <p className="muted">Installation ID: <code>{status.installationId}</code></p>
@@ -92,7 +94,7 @@ export const LicensePage = () => {
       {message && <p role="status" className="notice notice-good">{message}</p>}
     </Panel>
     <Panel title="Enterprise capabilities">
-      <p className="muted">Licensing foundation only. All seven business capabilities below are planned, not implemented.</p>
+      <p className="muted">A capability requires both an installed implementation and a valid license entitlement. Missing or expired entitlements never make private instances public.</p>
       <div className="table-wrap"><table><thead><tr><th>Capability</th><th>License entitlement</th><th>Implementation</th></tr></thead><tbody>
         {status.features.map((feature) => <tr key={feature.id}><td>{feature.name}</td><td>{feature.licensed ? 'Licensed' : 'Not licensed'}</td><td>{feature.implemented ? 'Implemented' : 'Not implemented'}</td></tr>)}
       </tbody></table></div>

@@ -103,6 +103,7 @@ data:
     AUTH_CACHE_TTL_SECONDS = 30
     AUTH_CACHE = {}
     ROLE_ACCESS = {
+        "user": {"magicstick-user", "magicstick-viewer", "magicstick-operator", "magicstick-admin"},
         "viewer": {"magicstick-viewer", "magicstick-operator", "magicstick-admin"},
         "operator": {"magicstick-operator", "magicstick-admin"},
         "admin": {"magicstick-admin"},
@@ -2658,7 +2659,7 @@ data:
             raise ValueError("access.exposure must be local or localAndPublic")
         if role not in {"user", "viewer", "operator", "admin"}:
             raise ValueError("access.role must be user, viewer, operator, or admin")
-        return {
+        resource = {
             "apiVersion": f"{APPLIANCE_GROUP}/{APPLIANCE_VERSION}",
             "kind": "AppInstance",
             "metadata": {
@@ -2685,6 +2686,9 @@ data:
                 "values": parameters,
             },
         }
+        if "sharing" in requested_access:
+            resource["spec"]["access"]["sharing"] = requested_access["sharing"]
+        return resource
 
 
     def positive_int(value):
@@ -5094,9 +5098,10 @@ data:
         }
 
 
-    def summarized_instances():
+    def summarized_instances(items=None):
+        items = app_instances() if items is None else items
         grouped = {}
-        for instance in app_instances():
+        for instance in items:
             spec = instance.get("spec") or {}
             instance_type = spec.get("application") or "unknown"
             grouped.setdefault(instance_type, []).append({
@@ -5104,7 +5109,7 @@ data:
                 "spec": spec,
                 "status": instance.get("status") or {},
             })
-        return {"instances": grouped, "items": app_instances()}
+        return {"instances": grouped, "items": items}
 
 
     def dcgm_labels(raw):
@@ -5570,7 +5575,92 @@ data:
         return summarized
 
 
+    def instance_is_restricted(instance):
+        # MIT safety boundary: malformed or unknown policies are restricted too.
+        access = ((instance or {}).get("spec") or {}).get("access") or {}
+        if "sharing" not in access:
+            return False
+        sharing = access["sharing"]
+        return not (isinstance(sharing, dict) and sharing.get("mode") == "all"
+                    and not set(sharing) - {"mode", "users", "groups"}
+                    and sharing.get("users", []) == [] and sharing.get("groups", []) == [])
+
+
+    def instance_access_service():
+        from licensing import LicenseService
+        from instance_access import InstanceAccess
+        def identity(method, path):
+            return keycloak_admin_request(method, _realm_path(path))[0]
+        return InstanceAccess(
+            license_service=LicenseService(request_json, os.environ.get("LICENSE_NAMESPACE", "identity-system"),
+                                           os.environ.get("LICENSE_TRUST_STORE", "/etc/magicstick-license/trusted-keys.json")),
+            user=keycloak_user, groups=keycloak_user_groups,
+            roles=lambda subject: role_names(keycloak_user_roles(subject, effective=True)), identity=identity,
+            admin=live_admin_actor, request=request_json, namespace=APPLIANCE_NAMESPACE,
+        )
+
+
+    def require_instance_usage(instance, principal):
+        if not instance:
+            raise RequestError(404, "instance not found")
+        if instance_is_restricted(instance) and not instance_access_service().can_use(instance, principal):
+            raise AuthError(403, "This instance is not available to your account.")
+
+
+    def instance_scoped_response(kind, payload, principal):
+        instances = payload.get("items", []) if kind == "instances" else app_instances()
+        if not any(instance_is_restricted(instance) for instance in instances):
+            return payload
+        service = instance_access_service()
+        visible = service.visible(instances, principal)
+        visible_names = {(item.get("metadata") or {}).get("name") for item in visible}
+        hidden = [item for item in instances if (item.get("metadata") or {}).get("name") not in visible_names]
+        if "magicstick-admin" in principal.get("roles", []):
+            return payload
+        if kind == "instances":
+            payload = summarized_instances(visible)
+        if kind == "status":
+            payload["appInstances"] = visible
+        from instance_access import redact_hidden
+        payload = redact_hidden(payload, hidden)
+        # Ordinary users need to know the access mode, not who else was granted access.
+        def scrub(value):
+            if isinstance(value, dict):
+                if isinstance(value.get("sharing"), dict):
+                    value["sharing"] = {"mode": value["sharing"].get("mode", "selected")}
+                for child in value.values():
+                    scrub(child)
+            elif isinstance(value, list):
+                for child in value:
+                    scrub(child)
+        scrub(payload)
+        return payload
+
+
+    def prepare_instance_sharing(principal, resource, existing):
+        access = resource["spec"]["access"]
+        old_access = ((existing or {}).get("spec") or {}).get("access") or {}
+        if "sharing" not in access and "sharing" in old_access:
+            # Old browser/CLI clients cannot accidentally erase a restriction.
+            access["sharing"] = old_access["sharing"]
+        if "sharing" not in access and not instance_is_restricted(existing):
+            return
+        service = instance_access_service()
+        try:
+            service.require_admin(principal)
+            access["sharing"] = service.prepare(principal, access.get("sharing", {"mode": "all"}), access["authentication"])
+        except Exception as error:
+            from licensing import LicenseError
+            if isinstance(error, LicenseError):
+                raise RequestError(error.status, str(error)) from error
+            raise
+        if existing and access.get("sharing") != old_access.get("sharing") and (existing.get("status") or {}).get("accessGuardReady") is not True:
+            raise RequestError(409, "Wait for the instance access guard to become ready.")
+
+
     def required_get_access(parts):
+        if parts in (["api", "session"], ["api", "my-instances"]):
+            return "user"
         if len(parts) >= 2 and parts[:2] in (["api", "api-access"], ["api", "kubernetes-access"]):
             return "admin"
         credential_route = (
@@ -5626,6 +5716,84 @@ data:
             parsed = urllib.parse.urlparse(self.path)
             return parsed.path.rstrip("/") or "/"
 
+        def handle_instance_guard(self):
+            parts = self.route().strip("/").split("/")
+            if len(parts) < 2 or parts[:2] not in (["internal", "instance-access"], ["internal", "instance-entitlement"]):
+                return False
+            try:
+                if len(parts) < 4 or not DNS_LABEL.fullmatch(parts[2]) or not USER_ID.fullmatch(parts[3]):
+                    raise AuthError(403, "Invalid instance access request.")
+                instance = app_instance(parts[2])
+                metadata = (instance or {}).get("metadata") or {}
+                spec = (instance or {}).get("spec") or {}
+                if metadata.get("uid") != parts[3] or metadata.get("deletionTimestamp") or spec.get("enabled", True) is False:
+                    raise AuthError(403, "Instance is unavailable.")
+                if instance_is_restricted(instance):
+                    if parts[1] == "instance-entitlement":
+                        instance_access_service().require_license()
+                    else:
+                        authorization = self.headers.get("Authorization", "")
+                        if not authorization:
+                            from http.cookies import SimpleCookie
+                            cookies = SimpleCookie()
+                            cookies.load(self.headers.get("Cookie", ""))
+                            cookie = cookies.get("MagicStickAccessToken")
+                            authorization = "Bearer " + cookie.value if cookie else ""
+                        principal = authenticated_principal(authorization)
+                        access = spec.get("access") or {}
+                        role = access.get("role", "user")
+                        allowed = MANAGED_REALM_ROLES if role == "user" else ROLE_ACCESS.get(role, set())
+                        if not allowed.intersection(principal.get("roles", [])):
+                            raise AuthError(403, "Instance access denied.")
+                        require_instance_usage(instance, principal)
+                # HTTP ext_authz accepts exactly 200 OK, not arbitrary 2xx.
+                self.send_response(200)
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+            except Exception:
+                # No PII, upstream response body, credential or policy is exposed at the edge.
+                self.send_error_json(403, "Instance access denied or verification unavailable.")
+            return True
+
+        def handle_instance_sharing(self, action, name=""):
+            try:
+                principal = self.require_access("admin")
+                service = instance_access_service()
+                if action == "principals":
+                    query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query, keep_blank_values=True)
+                    self.send_json(service.principals(principal, query))
+                    return
+                if not DNS_LABEL.fullmatch(name):
+                    raise RequestError(400, "Invalid instance name.")
+                instance = app_instance(name)
+                if not instance:
+                    raise RequestError(404, "Instance not found.")
+                if action == "update":
+                    validate_dashboard_mutation_request(self)
+                    result = service.update(principal, instance, read_body(self))
+                else:
+                    result = service.describe(principal, instance)
+                self.send_json(result)
+            except AuthError as error:
+                self.send_auth_error(error)
+            except (RequestError, ValueError) as error:
+                self.send_error_json(getattr(error, "status", 400), str(error))
+            except Exception as error:
+                from licensing import LicenseError
+                if isinstance(error, LicenseError):
+                    self.send_json({"error": str(error), "code": error.code}, error.status)
+                else:
+                    self.send_error_json(503, "Instance sharing is unavailable; no change was confirmed.")
+
+        def do_HEAD(self):
+            if not self.handle_instance_guard():
+                self.send_error(405)
+
+        def do_OPTIONS(self):
+            if not self.handle_instance_guard():
+                self.send_error(405)
+
         def handle_license(self, action):
             # Keep errors secret-safe, and do not make Community routes depend on licensing.
             try:
@@ -5663,6 +5831,15 @@ data:
                 self.send_error_json(503, "License management is unavailable; no change was confirmed.")
 
         def do_GET(self):
+            if self.handle_instance_guard():
+                return
+            parts = self.route().strip("/").split("/")
+            if self.route() == "/api/instance-principals":
+                self.handle_instance_sharing("principals")
+                return
+            if len(parts) == 4 and parts[:2] == ["api", "instances"] and parts[3] == "access":
+                self.handle_instance_sharing("describe", parts[2])
+                return
             if self.route() in {"/api/license", "/api/license/export"}:
                 self.handle_license("export" if self.route().endswith("/export") else "status")
                 return
@@ -5706,13 +5883,34 @@ data:
                     session["identityManagementAvailable"] = IDENTITY_MANAGEMENT_MODE == "keycloak"
                     session["identityManagementMode"] = IDENTITY_MANAGEMENT_MODE
                     self.send_json(session)
+                elif path == "/api/my-instances":
+                    # Minimal launchpad for ordinary users; no cluster/admin data.
+                    entries = []
+                    service = None
+                    for instance in app_instances():
+                        spec = instance.get("spec") or {}
+                        access = spec.get("access") or {}
+                        if spec.get("enabled", True) is False or (instance.get("metadata") or {}).get("deletionTimestamp"):
+                            continue
+                        if not ROLE_ACCESS.get(access.get("role", "user"), set()).intersection(principal["roles"]):
+                            continue
+                        if instance_is_restricted(instance):
+                            service = service or instance_access_service()
+                            if not service.can_use(instance, principal):
+                                continue
+                        status = instance.get("status") or {}
+                        entries.append({"name": instance["metadata"]["name"], "application": spec.get("application"),
+                                        "phase": status.get("phase", "Requested"),
+                                        "urls": list(dict.fromkeys(value for value in [status.get("localURL"), status.get("publicURL"), status.get("url")] if value))})
+                    self.send_json({"items": entries})
                 elif path == "/api/appliance":
-                    self.send_json(appliance())
+                    self.send_json(instance_scoped_response("appliance", appliance(), principal))
                 elif path == "/api/modules":
-                    self.send_json(summarized_modules())
+                    self.send_json(instance_scoped_response("modules", summarized_modules(), principal))
                 elif path == "/api/instances":
-                    self.send_json(summarized_instances())
+                    self.send_json(instance_scoped_response("instances", summarized_instances(), principal))
                 elif len(parts) == 4 and parts[:2] == ["api", "instances"] and parts[3] == "credentials":
+                    require_instance_usage(app_instance(parts[2]), principal)
                     self.send_json(instance_credentials(parts[2]))
                 elif len(parts) == 4 and parts[:2] == ["api", "modules"] and parts[3] == "credentials":
                     self.send_json(module_credentials(parts[2]))
@@ -5739,13 +5937,13 @@ data:
                     )
                     self.send_json(model_discovery_artifacts(query))
                 elif path == "/api/status":
-                    self.send_json(status_payload())
+                    self.send_json(instance_scoped_response("status", status_payload(), principal))
                 elif path == "/api/settings":
                     self.send_json(settings_response())
                 elif path == "/api/events":
                     core_events = list_resource("/api/v1/events")
                     new_events = list_resource("/apis/events.k8s.io/v1/events")
-                    self.send_json({"events": summarize_objects(core_events + new_events)})
+                    self.send_json(instance_scoped_response("events", {"events": summarize_objects(core_events + new_events)}, principal))
                 else:
                     self.send_error_json(404, "not found")
             except AuthError as error:
@@ -5776,6 +5974,8 @@ data:
                     self.send_error_json(500, str(error))
 
         def do_PATCH(self):
+            if self.handle_instance_guard():
+                return
             path = self.route()
             parts = path.strip("/").split("/")
             if len(parts) == 3 and parts[:2] == ["api", "users"]:
@@ -5816,6 +6016,8 @@ data:
             self.send_error_json(404, "not found")
 
         def do_POST(self):
+            if self.handle_instance_guard():
+                return
             if self.route() == "/api/license/validate":
                 self.handle_license("validate")
                 return
@@ -5870,13 +6072,26 @@ data:
 
                 applications = app_catalog_json().get("applications") or {}
                 if len(parts) == 3 and parts[:2] == ["api", "instances"] and parts[2] in applications:
-                    self.require_access("operator")
+                    principal = self.require_access("operator")
                     instance_type = parts[2]
+                    validate_dashboard_mutation_request(self)
                     resource = app_instance_payload(instance_type, read_body(self))
                     name = resource["metadata"]["name"]
+                    existing = app_instance(name)
+                    prepare_instance_sharing(principal, resource, existing)
                     collection = f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/appinstances"
                     item = collection + "/" + name
-                    self.send_json(create_or_patch(collection, item, resource, {"spec": resource["spec"], "metadata": {"labels": resource["metadata"]["labels"]}}))
+                    if existing:
+                        # Bind this write to the policy version we just checked.
+                        # A concurrent restriction or name reuse must not be overwritten.
+                        revision = (existing.get("metadata") or {}).get("resourceVersion")
+                        if not revision:
+                            raise RequestError(409, "Instance revision is unavailable. Reload and retry.")
+                        patch = {"spec": resource["spec"], "metadata": {"labels": resource["metadata"]["labels"], "resourceVersion": revision}}
+                        self.send_json(request_json("PATCH", item, patch, "application/merge-patch+json"))
+                    else:
+                        # POST conflicts rather than replacing a concurrently created instance.
+                        self.send_json(request_json("POST", collection, resource))
                     return
 
                 if len(parts) == 3 and parts[:2] == ["api", "models"] and parts[2] in {"estimate-memory", "estimate-vram"}:
@@ -5932,6 +6147,12 @@ data:
                     self.send_error_json(400, str(error))
 
         def do_PUT(self):
+            if self.handle_instance_guard():
+                return
+            parts = self.route().strip("/").split("/")
+            if len(parts) == 4 and parts[:2] == ["api", "instances"] and parts[3] == "access":
+                self.handle_instance_sharing("update", parts[2])
+                return
             if self.route() == "/api/license":
                 self.handle_license("activate")
                 return
@@ -5974,6 +6195,8 @@ data:
                     self.send_error_json(500, "user administration failed")
 
         def do_DELETE(self):
+            if self.handle_instance_guard():
+                return
             try:
                 path = self.route()
                 parts = path.strip("/").split("/")
@@ -5990,12 +6213,15 @@ data:
                     payload = read_body(self)
                     self.send_json(delete_user(principal, parts[2], payload, self.request_id()))
                     return
-                self.require_access("operator")
+                principal = self.require_access("operator")
                 if len(parts) == 3 and parts[:2] == ["api", "instances"]:
+                    validate_dashboard_mutation_request(self)
                     name = parts[2]
                     if not DNS_LABEL.match(name):
                         self.send_error_json(400, "name must be a DNS-1123 label")
                         return
+                    if instance_is_restricted(app_instance(name)):
+                        live_admin_actor(principal)
                     delete_json(f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/appinstances/{name}")
                     self.send_json({"deleted": name})
                     return

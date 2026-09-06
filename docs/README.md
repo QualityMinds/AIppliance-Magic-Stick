@@ -18,6 +18,7 @@ bootstrap plus runtime configuration through the dashboard and runtime CRs.
 | [appliance-crd.md](appliance-crd.md) | `Appliance` API, spec, status, and public examples. |
 | [dashboard.md](dashboard.md) | Browser, CLI, TUI, and API contract for the appliance control plane. |
 | [licensing.md](licensing.md) | MIT license-management foundation: offline issuer, public trust keys, dashboard/CLI/TUI import, persistence, limits and Rancher checks. |
+| [instance-sharing.md](instance-sharing.md) | Enterprise user/group instance allow-lists, dashboard/CLI workflow, edge enforcement, expiry, rollout and isolated Rancher tests. |
 | [modules.md](modules.md) | Magic Stick module catalog and generated Flux Kustomization contract. |
 | [operator-orchestration.md](operator-orchestration.md) | Meta-operator responsibilities and specialized operator handoff. |
 | [configuration.md](configuration.md) | Bootstrap variables, appliance-wide settings, module parameters, Flux post-build substitution, and secret handling. |
@@ -34,7 +35,9 @@ Top-level community and release files:
 | File | Use it for |
 |---|---|
 | [../CONTRIBUTING.md](../CONTRIBUTING.md) | Public repository boundary, local validation, and pull request expectations. |
-| [../LICENSE](../LICENSE) | Project license. |
+| [../LICENSING.md](../LICENSING.md) | Community/Enterprise file scope, distribution notices and technical entitlements versus commercial agreements. |
+| [../LICENSE](../LICENSE) | Unchanged MIT license for the Community core. |
+| [../enterprise/LICENSE](../enterprise/LICENSE) | Provisional notice for explicitly marked Enterprise business code; customer terms remain subject to review. |
 | [../SECURITY.md](../SECURITY.md) | Private reporting guidance for vulnerabilities and leaked credentials. |
 | [../CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md) | Collaboration expectations. |
 | [../SUPPORT.md](../SUPPORT.md) | Public support boundaries and safe issue content. |

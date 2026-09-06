@@ -79,7 +79,35 @@ spec:
                 access:
                   type: object
                   description: Controls browser exposure through the shared Envoy Gateway. SSO is required unless explicitly disabled.
+                  x-kubernetes-validations:
+                    - rule: "!has(self.sharing) || self.sharing.mode != 'selected' || !has(self.authentication) || self.authentication == 'sso'"
+                      message: Selected-user sharing requires SSO.
                   properties:
+                    sharing:
+                      type: object
+                      description: Optional Enterprise sharing intent. Missing means the existing Community role-based access. Empty selected lists deny everyone.
+                      required: [mode]
+                      x-kubernetes-validations:
+                        - rule: "self.mode == 'selected' || ((!has(self.users) || size(self.users) == 0) && (!has(self.groups) || size(self.groups) == 0))"
+                          message: All-users mode must not contain selected principals.
+                      properties:
+                        mode:
+                          type: string
+                          enum: [all, selected]
+                        users:
+                          type: array
+                          maxItems: 100
+                          x-kubernetes-list-type: set
+                          items:
+                            type: string
+                            pattern: '^[A-Za-z0-9._:-]{1,160}$'
+                        groups:
+                          type: array
+                          maxItems: 100
+                          x-kubernetes-list-type: set
+                          items:
+                            type: string
+                            pattern: '^[A-Za-z0-9._:-]{1,160}$'
                     authentication:
                       type: string
                       enum:
@@ -132,6 +160,8 @@ spec:
                   type: string
                 requiredRole:
                   type: string
+                accessGuardReady:
+                  type: boolean
                 message:
                   type: string
                 conditions:
