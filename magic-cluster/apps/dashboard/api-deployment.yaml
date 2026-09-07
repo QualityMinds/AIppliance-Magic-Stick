@@ -31,7 +31,7 @@ spec:
         runAsGroup: 65532
       containers:
         - name: api
-          image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-9daa82ff3a4ef7992ad7fb28b84a650da61c1e38@sha256:62de449a81e90f8658b5598f414c3caaf88b2d3e777b40ed3d0d811a631b326c
+          image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-124db0ce2261b0fe8436b1d248b44f15cae43eec@sha256:f19073e43ebf6f35be221647ff1c17d9c214c242e51a0fcd7190c84955343a9d
           imagePullPolicy: IfNotPresent
           command:
             - python
