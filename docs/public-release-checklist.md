@@ -63,10 +63,15 @@ For the license foundation, also run:
 ```bash
 python3 -m pip install -r dashboard/apps/api/requirements.txt pyyaml
 python3 -m unittest discover -s dashboard/apps/api
+python3 dashboard/apps/api/check_license_trust.py --manifest \
+  magic-cluster/apps/dashboard/license-official-trust.yaml
 ```
 
-Verify that the distributed trust store is empty, no private issuer key enters
-the API image, and the deployed API tag matches the packaged verifier. The
+Verify the official public-key fingerprints against the approved issuer record.
+The official bundle must not be empty or contain temporary test keys. The
+optional local trust store stays empty in the base and preserves runtime keys.
+No private issuer key enters Git, a build context or the API image. The deployed
+API tag must match the verifier that reads both mounted stores. The
 opt-in [Rancher test](licensing.md#reproduce-the-local-checks) must use a dedicated
 namespace and synthetic identities; it is not full Enterprise or SSO acceptance.
 

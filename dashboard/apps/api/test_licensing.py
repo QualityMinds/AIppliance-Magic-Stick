@@ -16,8 +16,10 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 import license_issuer
+import check_license_trust
 from licensing import (FEATURES, FORMAT, TOKEN_TYPE, LicenseError, LicenseService,
-                       public_keys, strict_json, validate_claims, verify_document)
+                       combined_public_keys, official_public_keys, public_keys,
+                       strict_json, validate_claims, verify_document)
 
 
 class Store:
@@ -122,6 +124,85 @@ class LicenseTests(unittest.TestCase):
         result = self.service.status()
         self.assertEqual(result['state'], 'untrusted_key')
         self.assertNotIn('claims', result)
+
+    def official_store(self, document):
+        path = self.directory / 'official-keys.json'
+        path.write_text(json.dumps(document))
+        self.service = LicenseService(self.store.request, 'test', self.trust, path)
+        return path
+
+    def test_official_keys_work_with_unchanged_empty_legacy_store(self):
+        self.trust.write_text('{"keys":{}}')
+        self.official_store({'keys': {'test': self.pem}, 'retiredKeyIds': []})
+        status = self.service.status()
+        self.assertEqual(status['trustedKeyIds'], ['test'])
+        self.assertTrue(self.service.activate(self.document(), status['revision'])['valid'])
+        self.assertEqual(self.trust.read_text(), '{"keys":{}}')
+
+    def test_distinct_local_keys_remain_trusted_alongside_official_keys(self):
+        other = Ed25519PrivateKey.generate()
+        other_pem = other.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode()
+        self.official_store({'keys': {'official': other_pem}})
+        self.assertEqual(self.service.status()['trustedKeyIds'], ['official', 'test'])
+        self.assertTrue(self.service.inspect(self.document())['candidate']['valid'])
+        issued = self.document(key=other, headers={'typ': TOKEN_TYPE, 'kid': 'official'})
+        self.assertTrue(self.service.inspect(issued)['candidate']['valid'])
+
+    def test_duplicate_identical_keys_are_safe_but_conflicts_fail_closed(self):
+        official = self.official_store({'keys': {'test': self.pem}})
+        self.assertTrue(self.service.inspect(self.document())['candidate']['valid'])
+        other = Ed25519PrivateKey.generate()
+        pem = other.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode()
+        official.write_text(json.dumps({'keys': {'test': pem}}))
+        rejected = self.service.inspect(self.document())['candidate']
+        self.assertEqual(rejected['state'], 'trust_unavailable')
+        self.assertNotIn('claims', rejected)
+
+    def test_official_retirement_cannot_be_undone_by_legacy_copy(self):
+        path = self.official_store({'keys': {'test': self.pem}})
+        self.service.activate(self.document(), self.service.status()['revision'])
+        before = copy.deepcopy(self.store.secret)
+        path.write_text(json.dumps({'keys': {}, 'retiredKeyIds': ['test']}))
+        status = self.service.status()
+        self.assertEqual(status['state'], 'untrusted_key')
+        self.assertEqual(status['trustedKeyIds'], [])
+        self.assertEqual(before, self.store.secret)
+        self.assertIn('test', json.loads(self.trust.read_text())['keys'])
+
+    def test_configured_official_file_must_exist_and_be_valid(self):
+        path = self.official_store({'keys': {'test': self.pem}})
+        for content in ('not JSON', '{"keys":{},"keys":{}}', '{"keys":{},"extra":true}'):
+            path.write_text(content)
+            with self.subTest(content=content):
+                self.assertEqual(self.service.inspect(self.document())['candidate']['state'], 'trust_unavailable')
+        path.unlink()
+        self.assertEqual(self.service.inspect(self.document())['candidate']['state'], 'trust_unavailable')
+
+    def test_official_path_is_configured_without_changing_existing_api_callers(self):
+        path = self.official_store({'keys': {'test': self.pem}})
+        self.trust.write_text('{"keys":{}}')
+        with patch.dict('os.environ', {'LICENSE_OFFICIAL_TRUST_STORE': str(path)}):
+            existing_api = LicenseService(self.store.request, 'test', self.trust)
+            self.assertTrue(existing_api.inspect(self.document())['candidate']['valid'])
+
+    def test_official_policy_rejects_bad_retirement_lists_and_private_keys(self):
+        for retired in ('test', ['test', 'test'], [3], ['bad key'], ['test']):
+            with self.subTest(retired=retired), self.assertRaises(LicenseError):
+                official_public_keys({'keys': {'test': self.pem}, 'retiredKeyIds': retired})
+        private = self.key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()).decode()
+        with self.assertRaises(LicenseError):
+            official_public_keys({'keys': {'test': private}})
+
+    def test_release_gate_rejects_empty_or_invalid_and_accepts_public_bundle(self):
+        path = self.official_store({'keys': {'test': self.pem}, 'retiredKeyIds': []})
+        with redirect_stdout(io.StringIO()) as output:
+            check_license_trust.main([str(path)])
+        self.assertIn('test: SHA256', output.getvalue())
+        self.assertNotIn(self.pem, output.getvalue())
+        path.write_text('{"keys":{}}')
+        with self.assertRaisesRegex(ValueError, 'Official issuer public key is missing'):
+            check_license_trust.main([str(path)])
+        self.assertEqual(combined_public_keys({'keys': {}}), {})
 
     def test_untrusted_or_malformed_never_returns_claims(self):
         for document in ('garbage', '{"format":1,"format":2}', 'x' * 65537,

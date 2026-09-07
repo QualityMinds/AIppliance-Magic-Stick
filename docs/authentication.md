@@ -185,7 +185,7 @@ browser never receives that client secret or a Keycloak Admin API token. The
 dedicated API ServiceAccount
 `identity-system/ai-appliance-dashboard-api` may read only
 `Secret/magicstick-user-admin-client` and caches the short-lived admin token in
-memory until shortly before expiry. The nginx and renderer frontend Pod has no
+memory until shortly before expiry. The React/nginx frontend Pod has no
 ServiceAccount token and therefore cannot read that Secret.
 
 Local accounts can be created, edited, enabled, disabled, assigned one of the

@@ -273,6 +273,11 @@ patches only `ModuleActivation`, `ModelActivation`, and `AppInstance` CRs when
 users enable modules, add models, or request instances. `Appliance/local.spec`
 remains Git-owned.
 
+The React application in `dashboard/apps/web` is the standard browser interface
+at the local and public domain roots. It shares the existing authenticated API
+with the CLI/TUI. The ConfigMap-based frontend and separate preview hostname
+have been retired; existing installations keep their primary dashboard URL.
+
 See [docs/appliance-crd.md](docs/appliance-crd.md),
 [docs/dashboard.md](docs/dashboard.md),
 [docs/modules.md](docs/modules.md), and

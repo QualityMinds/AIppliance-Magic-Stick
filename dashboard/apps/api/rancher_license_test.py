@@ -5,6 +5,7 @@ Requires locally built magicstick-api:license-test and dashboard client bundles.
 Never uses the current kubectl context. Creates and removes only its own random
 namespace. Signing keys/tokens are ephemeral; no production credentials used.
 --serve keeps a loopback-only UI fixture open until Ctrl+C for browser testing.
+--web also deploys the standard frontend and runs Chrome against its real API proxy.
 """
 import argparse
 import functools
@@ -39,22 +40,32 @@ def kubectl(*args, document=None, allow_denial=False):
     return result.stdout
 
 
+def available_port():
+    with socket.socket() as listener:
+        listener.bind(('127.0.0.1', 0))
+        return listener.getsockname()[1]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--serve', action='store_true')
+    parser.add_argument('--web', action='store_true')
     args = parser.parse_args()
     namespace = 'magicstick-license-test-' + uuid.uuid4().hex[:8]
-    with socket.socket() as listener:
-        listener.bind(('127.0.0.1', 0))
-        api_port = listener.getsockname()[1]
+    api_port = available_port()
     api_url = f'http://127.0.0.1:{api_port}'
+    web_port = available_port() if args.web else None
+    web_url = f'http://127.0.0.1:{web_port}' if args.web else None
+    allowed_origins = ['http://127.0.0.1:18082']
+    if web_url:
+        allowed_origins.append(web_url)
     subprocess.run(['docker', '--context', CONTEXT, 'image', 'inspect', 'magicstick-api:license-test'], check=True, stdout=subprocess.DEVNULL)
     key = Ed25519PrivateKey.generate()
     now = int(time.time())
     tokens = {role: jwt.encode({'iss': 'https://id.example.local/realms/test', 'azp': 'magicstick-cli',
                               'exp': now + 3600, 'sub': role, 'realm_access': {'roles': ['magicstick-' + role]}},
                               key, algorithm='EdDSA') for role in ('admin', 'viewer')}
-    trust = json.dumps({'keys': {'ephemeral-test': key.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode()}})
+    test_public_key = key.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode()
     objects = [{'apiVersion': 'v1', 'kind': 'Namespace', 'metadata': {'name': namespace}},
                {'apiVersion': 'v1', 'kind': 'ServiceAccount', 'metadata': {'name': 'ai-appliance-dashboard-api', 'namespace': namespace}}]
     for filename in ('license-rbac.yaml', 'dashboard-api.yaml', 'api-deployment.yaml'):
@@ -68,7 +79,7 @@ def main():
                 container = pod['containers'][0]
                 container['image'] = 'magicstick-api:license-test'
                 container['imagePullPolicy'] = 'Never'
-                overrides = {'OIDC_USERINFO_URL': 'http://127.0.0.1:8082/userinfo', 'OIDC_EXPECTED_ISSUER': 'https://id.example.local/realms/test', 'DASHBOARD_ALLOWED_ORIGINS': 'http://127.0.0.1:18082', 'IDENTITY_MANAGEMENT_MODE': 'disabled'}
+                overrides = {'OIDC_USERINFO_URL': 'http://127.0.0.1:8082/userinfo', 'OIDC_EXPECTED_ISSUER': 'https://id.example.local/realms/test', 'DASHBOARD_ALLOWED_ORIGINS': ','.join(allowed_origins), 'IDENTITY_MANAGEMENT_MODE': 'disabled'}
                 for env in container['env']:
                     if env['name'] in overrides:
                         env['value'] = overrides[env['name']]
@@ -88,10 +99,26 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args): pass
 HTTPServer(('127.0.0.1', 8082), Handler).serve_forever()
 '''
-    objects += [{'apiVersion': 'v1', 'kind': 'ConfigMap', 'metadata': {'name': 'magicstick-license-trust', 'namespace': namespace}, 'data': {'trusted-keys.json': trust}},
-                {'apiVersion': 'v1', 'kind': 'Secret', 'metadata': {'name': 'ephemeral-userinfo', 'namespace': namespace}, 'stringData': {'tokens.json': json.dumps(tokens), 'idp.py': idp}}]
+    official = yaml.safe_load((BASE / 'license-official-trust.yaml').read_text())
+    official['metadata']['namespace'] = namespace
+    release_trust = json.loads(official['data']['trusted-keys.json'])
+    assert release_trust['keys'] and 'ephemeral-test' not in release_trust['keys']
+    trust = json.dumps({**release_trust, 'keys': {**release_trust['keys'], 'ephemeral-test': test_public_key}})
+    # Retain the shipped public keys, adding a signer only inside this fixture.
+    # The manufacturer's private key is never read or needed for local tests.
+    official['data']['trusted-keys.json'] = trust
+    legacy = yaml.safe_load((BASE / 'license-trust.yaml').read_text())
+    legacy['metadata']['namespace'] = namespace
+    objects += [official, {'apiVersion': 'v1', 'kind': 'Secret', 'metadata': {'name': 'ephemeral-userinfo', 'namespace': namespace}, 'stringData': {'tokens.json': json.dumps(tokens), 'idp.py': idp}}]
     forwarding = None
+    web_forwarding = None
+    created_namespace = False
     try:
+        kubectl('create', '-f', '-', document=yaml.safe_dump(objects.pop(0)))
+        created_namespace = True
+        # Simulate the persisted empty trust store from an older installation.
+        kubectl('create', '-f', '-', document=yaml.safe_dump(legacy))
+        legacy_before = json.loads(kubectl('-n', namespace, 'get', 'configmap', 'magicstick-license-trust', '-o', 'json'))
         kubectl('create', '-f', '-', document=yaml.safe_dump_all(objects))
         print('Created isolated namespace:', namespace, flush=True)
         kubectl('-n', namespace, 'rollout', 'status', 'deployment/ai-appliance-dashboard-api', '--timeout=120s')
@@ -132,6 +159,10 @@ HTTPServer(('127.0.0.1', 8082), Handler).serve_forever()
             request(method, path, body, role='viewer', expected=403)
         status = request()
         assert status['state'] == 'missing'
+        assert status['trustedKeyIds'] == sorted(json.loads(trust)['keys']), 'Shipped public keys must load without populating the existing empty local store'
+        legacy_after = json.loads(kubectl('-n', namespace, 'get', 'configmap', 'magicstick-license-trust', '-o', 'json'))
+        assert legacy_after['data'] == legacy_before['data'] and legacy_after['metadata']['uid'] == legacy_before['metadata']['uid']
+        print('PASS: shipped public keys load beside an unchanged existing empty legacy store; signing uses only an ephemeral test key', flush=True)
         claims = {'version': 1, 'product': 'magicstick', 'issuer': 'magicstick', 'licenseId': 'rancher-test', 'customer': 'Example organization',
                   'issuedAt': now - 1, 'notBefore': now - 1, 'expiresAt': now + 3600, 'features': list(FEATURES), 'installationId': status['installationId']}
         document = json.dumps({'format': FORMAT, 'token': jwt.encode(claims, key, algorithm='EdDSA', headers={'typ': TOKEN_TYPE, 'kid': 'ephemeral-test'})})
@@ -165,6 +196,77 @@ HTTPServer(('127.0.0.1', 8082), Handler).serve_forever()
                 assert run.returncode == 0, 'CLI license command failed: ' + run.stderr[:300]
         print('PASS: built CLI status, inspect and import against Rancher API', flush=True)
 
+        def wait_for_trust(predicate):
+            deadline = time.monotonic() + 150
+            while time.monotonic() < deadline:
+                current = request()
+                if predicate(current):
+                    return current
+                time.sleep(1)
+            raise RuntimeError('Mounted trust bundle did not update within 150 seconds')
+
+        # Kubelet refreshes projected files asynchronously. No reloader is needed
+        # for correctness: every API check rereads both mounted public stores.
+        pod_uid = kubectl('-n', namespace, 'get', 'pods', '-l', 'app=ai-appliance-dashboard-api', '-o', 'jsonpath={.items[0].metadata.uid}')
+        other = Ed25519PrivateKey.generate()
+        other_pem = other.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode()
+        local_trust = json.dumps({'keys': {'local-test': other_pem, 'ephemeral-test': test_public_key}})
+        kubectl('-n', namespace, 'patch', 'configmap', 'magicstick-license-trust', '--type=merge', '-p', json.dumps({'data': {'trusted-keys.json': local_trust}}))
+        wait_for_trust(lambda state: 'local-test' in state['trustedKeyIds'] and state['valid'])
+        retired = json.dumps({'keys': {'new-official-test': other_pem}, 'retiredKeyIds': ['ephemeral-test']})
+        kubectl('-n', namespace, 'patch', 'configmap', 'magicstick-license-official-trust', '--type=merge', '-p', json.dumps({'data': {'trusted-keys.json': retired}}))
+        wait_for_trust(lambda state: state['state'] == 'untrusted_key' and state['trustedKeyIds'] == ['local-test', 'new-official-test'])
+        assert request('GET', '/api/license/export')['content'] == document
+        assert kubectl('-n', namespace, 'get', 'secret', SECRET_NAME, '-o', 'jsonpath={.metadata.uid}') == uid
+        # Restore fixture trust for the optional browser check.
+        kubectl('-n', namespace, 'patch', 'configmap', 'magicstick-license-official-trust', '--type=merge', '-p', json.dumps({'data': {'trusted-keys.json': trust}}))
+        wait_for_trust(lambda state: state['valid'] and 'ephemeral-test' in state['trustedKeyIds'])
+        assert kubectl('-n', namespace, 'get', 'pods', '-l', 'app=ai-appliance-dashboard-api', '-o', 'jsonpath={.items[0].metadata.uid}') == pod_uid
+        print('PASS: mounted official-key rotation/retirement, preserved local trust and license state, no Pod restart', flush=True)
+
+        if args.web:
+            subprocess.run(['docker', '--context', CONTEXT, 'image', 'inspect', 'magicstick-web:default-test'], check=True, stdout=subprocess.DEVNULL)
+            # Keep production ports, selectors, probes and security settings. Only
+            # the namespace, local image and isolated backend DNS name differ.
+            web_objects = []
+            for filename in ('deployment.yaml', 'service.yaml'):
+                obj = yaml.safe_load((BASE / filename).read_text())
+                obj['metadata']['namespace'] = namespace
+                if obj['kind'] == 'Deployment':
+                    pod = obj['spec']['template']['spec']
+                    container = pod['containers'][0]
+                    assert [item['name'] for item in pod['containers']] == ['web']
+                    assert pod['automountServiceAccountToken'] is False
+                    container['image'] = 'magicstick-web:default-test'
+                    container['imagePullPolicy'] = 'Never'
+                    container['volumeMounts'].append({'name': 'web-config', 'mountPath': '/etc/nginx/nginx.conf', 'subPath': 'nginx.conf', 'readOnly': True})
+                    pod['volumes'].append({'name': 'web-config', 'configMap': {'name': 'web-test-config'}})
+                web_objects.append(obj)
+            nginx = (ROOT / 'dashboard/apps/web/nginx.conf').read_text()
+            upstream = 'ai-appliance-dashboard-api.identity-system.svc.cluster.local'
+            assert nginx.count(upstream) == 1
+            nginx = nginx.replace(upstream, f'ai-appliance-dashboard-api.{namespace}.svc.cluster.local')
+            web_objects += [
+                {'apiVersion': 'v1', 'kind': 'ConfigMap', 'metadata': {'name': 'web-test-config', 'namespace': namespace}, 'data': {'nginx.conf': nginx}},
+                {'apiVersion': 'v1', 'kind': 'Service', 'metadata': {'name': 'ai-appliance-dashboard-api', 'namespace': namespace},
+                 'spec': {'selector': {'app': 'ai-appliance-dashboard-api'}, 'ports': [{'port': 8080, 'targetPort': 'api'}]}},
+            ]
+            kubectl('apply', '-f', '-', document=yaml.safe_dump_all(web_objects))
+            kubectl('-n', namespace, 'rollout', 'status', 'deployment/ai-appliance-dashboard', '--timeout=120s')
+            web_forwarding = subprocess.Popen(['kubectl', '--context', CONTEXT, '-n', namespace, 'port-forward', '--address=127.0.0.1', 'service/ai-appliance-dashboard', f'{web_port}:80'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            for _ in range(100):
+                try:
+                    urllib.request.urlopen(web_url + '/healthz', timeout=1).close()
+                    break
+                except OSError:
+                    if web_forwarding.poll() is not None:
+                        raise RuntimeError('Frontend port-forward failed')
+                    time.sleep(0.1)
+            else:
+                raise RuntimeError('Frontend port-forward not ready')
+            browser_env = {**os.environ, 'MAGICSTICK_TEST_URL': web_url, 'MAGICSTICK_TEST_TOKENS': json.dumps(tokens), 'MAGICSTICK_TEST_LICENSE': document}
+            subprocess.run(['node', str(ROOT / 'dashboard/apps/web/rancher_smoke.cjs')], env=browser_env, check=True)
+
         if args.serve:
             class Preview(http.server.SimpleHTTPRequestHandler):
                 def do_GET(self):
@@ -188,10 +290,13 @@ HTTPServer(('127.0.0.1', 8082), Handler).serve_forever()
             print('Browser fixture: http://127.0.0.1:18082/#/license (synthetic admin, loopback only; Ctrl+C cleans up)', flush=True)
             server.serve_forever()
     finally:
+        if web_forwarding:
+            web_forwarding.terminate(); web_forwarding.wait(timeout=10)
         if forwarding:
             forwarding.terminate(); forwarding.wait(timeout=10)
-        kubectl('delete', 'namespace', namespace, '--wait=false', '--ignore-not-found=true')
-        print('Removed isolated test namespace:', namespace, flush=True)
+        if created_namespace:
+            kubectl('delete', 'namespace', namespace, '--wait=false', '--ignore-not-found=true')
+            print('Removed isolated test namespace:', namespace, flush=True)
 
 
 if __name__ == '__main__':

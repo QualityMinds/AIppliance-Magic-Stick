@@ -22,7 +22,7 @@ const renderApp = () => {
   return render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
 };
 
-describe('React dashboard preview', () => {
+describe('default React dashboard', () => {
   beforeEach(() => {
     window.history.replaceState(null, '', '#/overview');
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
@@ -33,7 +33,10 @@ describe('React dashboard preview', () => {
 
   it('renders live appliance data and every admin page', async () => {
     renderApp();
-    expect(await screen.findByRole('heading', {name: 'AI Appliance Dashboard 2'})).toBeInTheDocument();
+    expect(await screen.findByRole('heading', {name: 'AI Appliance Dashboard'})).toBeInTheDocument();
+    expect(screen.queryByRole('link', {name: 'Open current dashboard'})).not.toBeInTheDocument();
+    expect(screen.queryByText(/React Preview|Dashboard 2 preview/)).not.toBeInTheDocument();
+    expect(screen.getByRole('link', {name: 'Log out'})).toHaveAttribute('href', '/logout');
     expect(await screen.findByText('magicstick.local', {exact: false})).toBeInTheDocument();
     expect(screen.getByRole('button', {name: 'Users'})).toBeInTheDocument();
     expect(screen.getByRole('button', {name: 'API Access'})).toBeInTheDocument();

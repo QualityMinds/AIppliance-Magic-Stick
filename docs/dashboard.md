@@ -9,7 +9,7 @@ For the step-by-step end-user workflow after first-run setup, see
 [installation/after-installation-dashboard.md](installation/after-installation-dashboard.md).
 
 ```text
-Browser dashboard (current or React preview)
+React browser dashboard
   -> Envoy Gateway OIDC login and forwarded access token
 Terminal client (CLI or TUI)
   -> Keycloak Device Authorization Flow
@@ -67,15 +67,14 @@ Paperclip, KubeOpenCode, KubeAI, LiteLLM, or direct app instance reconcilers.
 | Kubernetes Access | Lets administrators assign Viewer, Operator, or Cluster Administrator access to existing SSO identities and download or copy token-free OIDC kubeconfigs. |
 | System Status | Shows NVIDIA, AMD, and Intel detection/operator/resource state plus Flux, Pod, Service, Ingress, and Event status. |
 | Settings | Edits appliance-wide public and mDNS domain settings. The public dashboard host is always derived from the public domain. |
-| License & Enterprise (React/CLI/TUI only) | Admin-only offline license preview, activation, status and export. The MIT foundation keeps all seven planned Enterprise capabilities unimplemented. |
+| License & Enterprise | Admin-only offline license preview, activation, status and export. Also available through CLI/TUI. The MIT foundation keeps all seven planned Enterprise capabilities unimplemented. |
 
 ## Backend API
 
-Both browser frontend Deployments are presentation-only and do not receive a Kubernetes
-ServiceAccount token. The current dashboard contains nginx plus the HTML
-renderer. The parallel React preview contains a pre-built static bundle in a
-dedicated image. Both nginx frontends proxy `/api/*` to the
-dedicated `identity-system/ai-appliance-dashboard-api` Service. That API runs in
+The single browser frontend Deployment is presentation-only and does not receive
+a Kubernetes ServiceAccount token. Its image contains the pre-built React bundle
+and nginx; no HTML renderer or frontend-code ConfigMap remains. nginx proxies
+`/api/*` to the dedicated `identity-system/ai-appliance-dashboard-api` Service. That API runs in
 its own single-replica Deployment and uses
 `ConfigMap/ai-appliance-dashboard-api`. Envoy Gateway requires a Keycloak login
 for both the local and public dashboard hostnames and forwards the access token.
@@ -84,9 +83,9 @@ the edge. The API then validates every browser or terminal token against
 Keycloak, trusts only the browser and CLI client IDs, and applies its own role
 checks.
 
-## React Dashboard Preview
+## React Dashboard
 
-The replacement frontend is developed as a pnpm workspace under `dashboard/`:
+The standard frontend is developed as a pnpm workspace under `dashboard/`:
 
 ```text
 dashboard/
@@ -103,30 +102,28 @@ not duplicate Kubernetes access, Keycloak administration, model discovery, or
 reconciliation logic in a client. The CLI and TUI reuse the same contracts, API
 client, and core rules without importing React.
 
-During migration the current dashboard remains the primary UI at
-`https://<mDNS-domain>/`. The React preview is independently deployed as
-`dashboard/ai-appliance-dashboard-next` and is available at
-`https://dashboard2.<mDNS-domain>/`; with the defaults this is
-`https://dashboard2.magicstick.local/`. Its `HTTPRoute` carries
-`lab42.io/mdns.enabled: "true"`, so kdns publishes the hostname when the route
-is accepted and the Gateway has an address. The hostname is also present in the
-identity certificate, Keycloak callback, web-origin, and post-logout allowlists.
-The preview uses separate OIDC cookie names and therefore cannot disturb the
-current dashboard session.
+The React frontend is the only browser dashboard, deployed as
+`dashboard/ai-appliance-dashboard`. Open `https://<mDNS-domain>/` (by default
+`https://magicstick.local/`) or the configured public-domain root. The existing
+Service, primary routes, OIDC callbacks and `MagicStickAccessToken` cookie names
+are retained. The local route keeps `lab42.io/mdns.enabled: "true"`, so kdns
+publishes the primary hostname when the route is accepted and the Gateway has
+an address. First-run setup and the physical CLI/TUI console keep their existing
+handoff URLs and do not require another dashboard address.
 
-The preview implements the same role boundary and the Overview, Services,
-Models, Settings, Users, API Access, Kubernetes Access, and System Status areas.
-The old dashboard remains the fallback until the preview has been accepted on
-real appliances.
+The former ConfigMap frontend and separate preview Deployment, Service, route,
+OIDC policy and mDNS hostname are removed. There is no old-UI fallback link.
+See [operations](operations.md#dashboard-upgrade-cleanup) for upgrade cleanup,
+especially for external GitOps installations that disable pruning.
 
-The React implementation is checked tab by tab against the current dashboard:
+The React implementation retains the established tab-by-tab feature contract:
 
 | Area | React parity contract |
 |---|---|
 | Overview | Appliance and object counts, discovered module and instance URLs with local/public/direct classification and copy/open actions, plus appliance, module, instance, model, removal, and Flux attention items. |
 | Services | Catalog-driven Applications, AI Runtime, and Platform groups; dependency-aware enable/disable controls; parameters; credentials; collapsible instances; progress, messages, routes, removal, and all OpenClaw, Hermes, Paperclip, KubeOpenCode, and Odysseus create options. |
 | Models | CPU and per-GPU memory gauges; preset, direct-reference, Hugging Face, and Ollama discovery; popular and family shortcuts; paginated repositories and quantizations/tags; metadata, download size, context, memory estimator, over-capacity markers, creation, progress, registered catalog models, removal, and local-runtime cleanup. |
-| Settings | Public-domain and mDNS-domain editing with the same derived-host behavior as the existing dashboard. |
+| Settings | Public-domain and mDNS-domain editing with the established derived-host behavior. |
 | Users | Server-side search and pagination, status/source filters, direct and effective roles, create, profile edit, access change, enable/disable, temporary-password reset, capability explanations, and guarded deletion. |
 | API Access | Endpoint display/copy, named-key creation, one-time secret display/copy, non-secret metadata, refresh, and guarded revocation. |
 | Kubernetes Access | OIDC readiness, role explanations and warnings, user search/pagination, access assignment/removal, and readiness-guarded kubeconfig download/copy. |
@@ -323,7 +320,7 @@ non-empty grant, and a cluster-published OIDC readiness marker.
 
 ## License Administration
 
-The React-only **License & Enterprise** tab and the CLI/TUI **License** area
+The **License & Enterprise** tab and the CLI/TUI **License** area
 use four admin-only routes: `GET /api/license`, `POST /api/license/validate`,
 `PUT /api/license`, and `GET /api/license/export`. Mutations require the existing
 CSRF/same-origin checks. Preview does not replace the license; activation
@@ -331,8 +328,13 @@ revalidates the signed file and the preview's expected Kubernetes revision.
 Invalid files cannot overwrite a valid license. A valid entitlement does not
 make an unimplemented feature available.
 
-The API image adds pinned verification libraries and reads a deployment-owned
-public trust ConfigMap. Its separate Role grants `get/update` on the named
+The API image adds pinned verification libraries and combines the release-owned
+`magicstick-license-official-trust` with the optional local
+`magicstick-license-trust` ConfigMap. Both are read-only mounts; official keys
+arrive with installation/updates, including when the preserved local store is
+empty. Customers upload only their signed license file. Conflicting key IDs
+fail closed, and retired official IDs cannot be restored by a local copy.
+Its separate Role grants `get/update` on the named
 `identity-system/magicstick-enterprise-license` Secret plus namespace-scoped
 Secret creation (Kubernetes cannot restrict create by name). It cannot list or
 delete identity Secrets, edit trust keys or install workloads. The runtime
@@ -340,8 +342,7 @@ license Secret is not Git-owned and survives API Pod replacement.
 
 See [licensing.md](licensing.md) for the complete contract, issuer commands,
 key rotation, backup, expiry, tamper-resistance limits and local Rancher tests.
-The old dashboard UI is not changed and existing Community features remain
-license-independent.
+Existing Community features remain license-independent.
 
 ## User Controls
 

@@ -4,7 +4,7 @@ metadata:
   name: ai-appliance-dashboard-api
   namespace: identity-system
   annotations:
-    configmap.reloader.stakater.com/reload: ai-appliance-dashboard-api,magicstick-license-trust
+    configmap.reloader.stakater.com/reload: ai-appliance-dashboard-api,magicstick-license-trust,magicstick-license-official-trust
   labels:
     app: ai-appliance-dashboard-api
     app.kubernetes.io/component: api
@@ -46,6 +46,8 @@ spec:
                   fieldPath: metadata.namespace
             - name: LICENSE_TRUST_STORE
               value: /etc/magicstick-license/trusted-keys.json
+            - name: LICENSE_OFFICIAL_TRUST_STORE
+              value: /etc/magicstick-license-official/trusted-keys.json
             - name: PORT
               value: "8080"
             - name: APPLIANCE_NAMESPACE
@@ -101,7 +103,7 @@ spec:
             - name: KUBERNETES_OIDC_CLIENT_ID
               value: magicstick-kubernetes
             - name: DASHBOARD_ALLOWED_ORIGINS
-              value: "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local},https://dashboard2.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local},https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"
+              value: "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local},https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"
             - name: PYTHONDONTWRITEBYTECODE
               value: "1"
           readinessProbe:
@@ -129,6 +131,9 @@ spec:
             runAsUser: 65532
             runAsGroup: 65532
           volumeMounts:
+            - name: license-official-trust
+              mountPath: /etc/magicstick-license-official
+              readOnly: true
             - name: license-trust
               mountPath: /etc/magicstick-license
               readOnly: true
@@ -139,6 +144,9 @@ spec:
             - name: api-tmp
               mountPath: /tmp
       volumes:
+        - name: license-official-trust
+          configMap:
+            name: magicstick-license-official-trust
         - name: license-trust
           configMap:
             name: magicstick-license-trust

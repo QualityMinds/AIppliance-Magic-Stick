@@ -62,6 +62,7 @@ jobs:
       - name: Run identity, dashboard, operator, model catalog and AI route unit tests
         run: |
           python3 -m pip install -r dashboard/apps/api/requirements.txt pyyaml
+          python3 dashboard/apps/api/check_license_trust.py --manifest magic-cluster/apps/dashboard/license-official-trust.yaml
           python3 -m unittest discover -s dashboard/apps/api -p 'test_*.py'
           python3 -m unittest discover -s magic-cluster/platform/identity/tests -p 'test_*.py'
           python3 -m unittest discover -s magic-cluster/apps/dashboard -p 'test_*.py'
@@ -69,16 +70,6 @@ jobs:
           python3 -m unittest discover -s magic-cluster/apps/ai/model-catalog -p 'test_*.py'
           python3 -m unittest discover -s magic-cluster/apps/ai/tests -p 'test_*.py'
           python3 -m unittest discover -s magic-cluster/apps/ai/litellm/tests -p 'test_*.py'
-
-      - name: Check embedded dashboard JavaScript syntax
-        run: |
-          awk '
-            /^[[:space:]]*<script>$/ { in_script = 1; next }
-            /^[[:space:]]*<\/script>$/ { in_script = 0 }
-            in_script { sub(/^      /, ""); print }
-          ' magic-cluster/apps/dashboard/configmap.yaml > /tmp/magicstick-dashboard.js
-          test -s /tmp/magicstick-dashboard.js
-          node --check /tmp/magicstick-dashboard.js
 
       - name: Check dashboard clients
         working-directory: dashboard

@@ -70,13 +70,13 @@ export const LicensePage = () => {
       <p className="muted">Installation ID: <code>{status.installationId}</code></p>
       <p className="muted">Checked: {date(status.checkedAt)}</p>
       <p className="muted">Trusted signing keys: {status.trustedKeyIds.join(', ') || 'None configured'}</p>
-      {!status.trustedKeyIds.length && <p className="notice">Install the issuer’s public trust store before importing a license. Never upload a private signing key.</p>}
+      {!status.trustedKeyIds.length && <p className="notice">License verification keys are unavailable. They are delivered with Magic Stick updates; contact the appliance administrator to check the installation. Never upload a private signing key.</p>}
       <Button type="button" disabled={!status.hasDocument || download.isPending} onClick={() => download.mutate()}>Export license</Button>
       <ErrorNotice error={download.error} />
     </Panel>
     <Panel title="Import or replace license">
       <Field label="License file"><input ref={fileInput} type="file" accept=".json,.license,application/json" disabled={busy} onChange={(event) => void selectFile(event.target.files?.[0])} /></Field>
-      <p className="muted">Maximum 64 KiB. Files are checked before storage. An invalid upload cannot replace the active license.</p>
+      <p className="muted">Upload only the signed license file from your provider. Verification keys are supplied with the installation. Maximum 64 KiB. An invalid upload cannot replace the active license.</p>
       {filename && <p>Selected: {filename}</p>}
       <Button type="button" disabled={!document || busy} onClick={() => inspect.mutate()}>Validate license</Button>
       <ErrorNotice error={error ?? inspect.error ?? activate.error} />

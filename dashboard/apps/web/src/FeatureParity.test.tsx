@@ -95,7 +95,7 @@ const renderPage = (node: ReactElement) => {
   return render(<QueryClientProvider client={client}>{node}</QueryClientProvider>);
 };
 
-describe('legacy dashboard feature parity', () => {
+describe('dashboard feature contracts', () => {
   beforeEach(() => {
     requestLog.length = 0;
     Object.defineProperty(navigator, 'clipboard', {configurable: true, value: {writeText: vi.fn(async () => undefined)}});

@@ -65,4 +65,12 @@ describe('license management', () => {
     await screen.findByText('License file exceeds 64 KiB.');
     expect(api.inspectLicense).not.toHaveBeenCalled();
   });
+
+  it('explains missing installation keys without asking customers to upload them', async () => {
+    vi.mocked(api.licenseStatus).mockResolvedValue({...status, trustedKeyIds: []});
+    mount();
+    await screen.findByText(/License verification keys are unavailable/);
+    expect(screen.getByText(/Verification keys are supplied with the installation/)).toBeInTheDocument();
+    expect(screen.queryByText(/Install the issuer’s public trust store/)).not.toBeInTheDocument();
+  });
 });
