@@ -114,7 +114,10 @@ handoff URLs and do not require another dashboard address.
 The former ConfigMap frontend and separate preview Deployment, Service, route,
 OIDC policy and mDNS hostname are removed. There is no old-UI fallback link.
 See [operations](operations.md#dashboard-upgrade-cleanup) for upgrade cleanup,
-especially for external GitOps installations that disable pruning.
+including old containers retained by another server-side-apply field manager
+(`FailedMount`/Flux `HealthCheckFailed`) and external GitOps installations that
+disable pruning. The opt-in administrator migration helper preserves the new
+frontend and runtime data; it does not add workload-write access to the API.
 
 The React implementation retains the established tab-by-tab feature contract:
 
