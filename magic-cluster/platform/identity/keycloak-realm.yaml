@@ -81,6 +81,19 @@ data:
           "protocol": "openid-connect"
         },
         {
+          "clientId": "magicstick-federation-admin",
+          "name": "Magic Stick dashboard federation administration",
+          "enabled": true,
+          "clientAuthenticatorType": "client-secret",
+          "secret": "$${MAGICSTICK_FEDERATION_ADMIN_CLIENT_SECRET}",
+          "standardFlowEnabled": false,
+          "implicitFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "serviceAccountsEnabled": true,
+          "publicClient": false,
+          "protocol": "openid-connect"
+        },
+        {
           "clientId": "magicstick-kubernetes",
           "name": "Magic Stick Kubernetes CLI",
           "enabled": true,
@@ -156,6 +169,18 @@ data:
               "manage-users",
               "query-users",
               "view-users",
+              "view-realm"
+            ]
+          }
+        },
+        {
+          "username": "service-account-magicstick-federation-admin",
+          "enabled": true,
+          "serviceAccountClientId": "magicstick-federation-admin",
+          "clientRoles": {
+            "realm-management": [
+              "manage-identity-providers",
+              "view-identity-providers",
               "view-realm"
             ]
           }

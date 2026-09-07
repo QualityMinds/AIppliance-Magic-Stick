@@ -93,9 +93,11 @@ Ressourcen, die Magic Stick besitzt. Das Browser-Frontend erhält dabei keinen
 Kubernetes-ServiceAccount-Token; Änderungen laufen über eine API mit eng
 begrenzten Berechtigungen.
 
-Die rollenabhängig sichtbaren Bereiche sind **Overview**, **Services**,
-**Models**, **Settings**, **Users**, **API Access**, **Kubernetes Access** und
-**System Status**.
+Die rollenabhängig sichtbaren Hauptbereiche sind **Overview**, **Services**,
+**Models**, **API Access**, **Kubernetes Access**, **Federated SSO** und
+**System**. Unter **System** liegen **Settings**, **License**, **Users** und
+**System Status** als Reiter im gleichen Auswahlstil wie die Kategorien unter
+Services. Administrative Reiter bleiben für nicht berechtigte Rollen verborgen.
 
 ### Übersicht
 
@@ -291,8 +293,10 @@ Weiterführend: [Model Catalog](model-catalog.md)
 
 Magic Stick verwendet Keycloak als lokale Identitätsplattform. Die Appliance
 kann vollständig offline mit lokalen Konten betrieben oder als Identity Broker
-mit einem vorhandenen OIDC-/SAML-Provider verbunden werden. Die konkreten
-Upstream-Provider werden in Keycloak beziehungsweise im Deployment konfiguriert.
+mit einem vorhandenen OIDC-/SAML-Provider verbunden werden. Mit einer gültigen
+Enterprise-Berechtigung werden Upstream-Provider und ihre exakten Gruppen- oder
+Claim-Zuordnungen direkt im Dashboard verwaltet; die lokale Anmeldung bleibt als
+Recovery-Weg bestehen.
 
 ### Rollen
 
@@ -325,6 +329,20 @@ Schutzregeln verhindern unter anderem das versehentliche Entfernen des letzten
 aktiven Administrators, die Selbst-Deaktivierung sowie kritische Änderungen am
 Recovery-Konto. Kennwörter werden nicht aus Keycloak ausgelesen oder im
 Kubernetes-Status gespeichert.
+
+### Federated SSO (Enterprise)
+
+Der Administrator-Tab **Federated SSO** validiert OIDC-Discovery- und
+SAML-Metadaten, zeigt die bei der Unternehmens-IdP einzutragende Callback-URL
+und verwaltet mehrere benannte Provider. Exakte Claim- oder Attributwerte werden
+auf User, Viewer, Operator oder Administrator abgebildet. Nicht passende Konten
+erhalten keine Magic-Stick-Rolle.
+
+Client-Secrets werden nur an Keycloak übergeben und nie wieder in Browser oder
+API-Antwort ausgegeben. Änderungen werden zunächst deaktiviert geschrieben und
+erst nach erfolgreicher Mapper-Erstellung freigeschaltet. Bei fehlender oder
+abgelaufener Berechtigung werden Dashboard-verwaltete Provider deaktiviert,
+nicht gelöscht; lokale Konten und der Recovery-Administrator bleiben nutzbar.
 
 ### Sitzungen und Routen
 
@@ -380,7 +398,7 @@ Cluster Administrator entspricht bewusst dem weitreichenden Kubernetes-
 
 ## Hardwareerkennung und Systemstatus
 
-Die Seite **System Status** trennt installierte Software von tatsächlich
+Der Reiter **System → System Status** trennt installierte Software von tatsächlich
 nutzbarer Hardware. Ein Hardwareprovider gilt nicht allein deshalb als bereit,
 weil sein Flux-Paket angewendet wurde: Für `Ready` muss die erwartete
 Kubernetes-GPU-Ressource veröffentlicht sein. Die NVIDIA-Karte auf der
@@ -511,7 +529,8 @@ Anfrage:
 - konkrete Benutzer oder Gruppen nur bestimmten Modulen, Instanzen oder
   Modellen zuordnen,
 - Organisationsbereiche, Mandanten und delegierte Administration,
-- Synchronisation von IdP-Gruppen in ressourcenspezifische Berechtigungen,
+- Synchronisation von IdP-Gruppen in ressourcenspezifische Berechtigungen über
+  die heute implementierten globalen Magic-Stick-Rollen hinaus,
 - zentrale Richtlinien, Freigabeprozesse und erweiterte Auditfunktionen.
 
 Die bereits vorhandenen globalen Rollen `User`, `Viewer`, `Operator` und

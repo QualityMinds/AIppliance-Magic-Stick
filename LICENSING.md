@@ -53,5 +53,6 @@ grant.
   included code; the combined image must not advertise only `MIT`.
 
 For technical activation, persistence and recovery, see
-[offline license management](docs/licensing.md). For the first optional business
-capability, see [targeted instance access](docs/instance-sharing.md).
+[offline license management](docs/licensing.md). Implemented optional business
+capabilities are documented under [targeted instance access](docs/instance-sharing.md)
+and [federated identity](docs/authentication.md#dashboard-managed-federation-enterprise).

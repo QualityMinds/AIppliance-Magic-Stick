@@ -5,6 +5,9 @@ import {
   type Appliance,
   type DiscoveryArtifactsPayload,
   type DiscoverySearchPayload,
+  type FederatedSsoStatus,
+  type FederationInput,
+  type FederationValidation,
   type InstancesPayload,
   type InstanceAccessState,
   type InstanceSharing,
@@ -97,6 +100,28 @@ export class MagicStickApi {
     return this.request<LicenseStatus>('/api/license', {method: 'PUT', body: JSON.stringify({document, expectedRevision})});
   }
   exportLicense() { return this.request<{filename: string; content: string}>('/api/license/export'); }
+
+  federatedSso() { return this.request<FederatedSsoStatus>('/api/federated-sso'); }
+  validateFederation(payload: Pick<FederationInput, 'protocol' | 'metadataUrl'>) {
+    return this.request<FederationValidation>('/api/federated-sso/validate', {
+      method: 'POST', body: JSON.stringify(payload),
+    });
+  }
+  createFederation(payload: FederationInput) {
+    return this.request<FederatedSsoStatus>('/api/federated-sso/providers', {
+      method: 'POST', body: JSON.stringify(payload),
+    });
+  }
+  updateFederation(alias: string, payload: FederationInput) {
+    return this.request<FederatedSsoStatus>(`/api/federated-sso/providers/${encodeURIComponent(alias)}`, {
+      method: 'PUT', body: JSON.stringify(payload),
+    });
+  }
+  deleteFederation(alias: string, expectedRevision: string) {
+    return this.request<{deleted: string}>(`/api/federated-sso/providers/${encodeURIComponent(alias)}`, {
+      method: 'DELETE', body: JSON.stringify({expectedRevision}),
+    });
+  }
 
   async settings(): Promise<Settings> {
     return settingsSchema.parse(await this.request<unknown>('/api/settings'));

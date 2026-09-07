@@ -47,6 +47,62 @@ export interface LicensePreview {
   current: LicenseStatus;
 }
 
+export interface EnterpriseFeatureState {
+  id: string;
+  name: string;
+  licensed: boolean;
+  implemented: boolean;
+  available: boolean;
+  reason: string;
+}
+
+export interface FederationMapping {
+  source: string;
+  value: string;
+  accessLevel: 'user' | 'viewer' | 'operator' | 'admin';
+}
+
+export interface FederationProvider {
+  alias: string;
+  displayName: string;
+  protocol: 'oidc' | 'saml';
+  metadataUrl: string;
+  clientId?: string;
+  scopes?: string;
+  enabled: boolean;
+  trustEmail: boolean;
+  secretConfigured: boolean;
+  mappings: FederationMapping[];
+  revision: string;
+}
+
+export interface FederatedSsoStatus {
+  feature: EnterpriseFeatureState;
+  issuer: string;
+  callbackUrl: string;
+  providers: FederationProvider[];
+}
+
+export interface FederationValidation {
+  protocol: 'oidc' | 'saml';
+  metadataUrl: string;
+  configuration: Record<string, string>;
+}
+
+export interface FederationInput {
+  alias: string;
+  displayName: string;
+  protocol: 'oidc' | 'saml';
+  metadataUrl: string;
+  clientId?: string;
+  clientSecret?: string;
+  scopes?: string;
+  enabled: boolean;
+  trustEmail: boolean;
+  mappings: FederationMapping[];
+  expectedRevision?: string;
+}
+
 export const settingsSchema = z.object({
   publicDomain: z.string().default(''),
   dashboardHost: z.string().default(''),

@@ -3,4 +3,4 @@
 # See enterprise/LICENSE for the scope and provisional licensing notice.
 """License-gated Enterprise implementation packaged with the shared API runtime."""
 
-CAPABILITIES = frozenset({"resource-sharing"})
+CAPABILITIES = frozenset({"resource-sharing", "federated-sso"})

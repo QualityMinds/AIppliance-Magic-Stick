@@ -84,6 +84,16 @@ Community operation remains usable. Confirm CI publishes no separate Community
 or Enterprise API variant. The commercial package and combined-image notices
 must have approved terms before commercial release; the provisional notice is
 not release approval.
+
+For dashboard-managed federation, run an isolated real-Keycloak OIDC and SAML
+acceptance pass following [the federation contract](authentication.md#dashboard-managed-federation-enterprise).
+Verify create, login, exact role mapping, update, disable, deletion and license
+expiry while a local recovery administrator remains usable. Confirm that API,
+browser, logs and support bundles contain no upstream client secret, that
+unmanaged providers/mappers remain untouched, and that the dedicated service
+account has only `manage-identity-providers`, `view-identity-providers` and
+`view-realm`.
+
 Check the file-scope [licensing overview](../LICENSING.md), unchanged MIT text,
 explicit Enterprise headers, offline dashboard notices and image license files.
 Do not label combined Enterprise distributions as solely MIT-licensed.

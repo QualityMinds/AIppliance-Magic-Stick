@@ -73,9 +73,10 @@ class LicenseTests(unittest.TestCase):
 
     def test_valid_signature_and_no_business_features_enabled(self):
         self.assertTrue(self.verify(self.document())['valid'])
-        preview = self.service.inspect(self.document())
-        self.assertEqual(preview['current']['state'], 'missing')
-        status = self.service.activate(self.document(), preview['current']['revision'])
+        with patch('licensing.installed_capabilities', return_value=set()):
+            preview = self.service.inspect(self.document())
+            self.assertEqual(preview['current']['state'], 'missing')
+            status = self.service.activate(self.document(), preview['current']['revision'])
         self.assertTrue(status['valid'])
         self.assertTrue(all(f['licensed'] for f in status['features']))
         self.assertTrue(all(not f['implemented'] and not f['available'] for f in status['features']))
@@ -95,6 +96,23 @@ class LicenseTests(unittest.TestCase):
             self.assertTrue(sharing['available'])
             self.assertTrue(all(not feature['available'] for feature in activated['features']
                                 if feature['id'] != 'resource-sharing'))
+
+    def test_federated_sso_requires_its_matching_entitlement(self):
+        claims = dict(self.claims)
+        claims['features'] = ['federated-sso']
+        with patch('licensing.installed_capabilities', return_value={'resource-sharing', 'federated-sso'}):
+            community = self.service.status()
+            federation = next(feature for feature in community['features'] if feature['id'] == 'federated-sso')
+            self.assertTrue(federation['implemented'])
+            self.assertFalse(federation['available'])
+
+            activated = self.service.activate(self.document(claims), community['revision'])
+            federation = next(feature for feature in activated['features'] if feature['id'] == 'federated-sso')
+            sharing = next(feature for feature in activated['features'] if feature['id'] == 'resource-sharing')
+            self.assertTrue(federation['licensed'])
+            self.assertTrue(federation['available'])
+            self.assertFalse(sharing['licensed'])
+            self.assertFalse(sharing['available'])
 
     def test_state_survives_service_restart_and_export_is_exact(self):
         status = self.service.status()

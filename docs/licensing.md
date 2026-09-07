@@ -14,7 +14,7 @@ GitHub at runtime. Customer terms still require review before commercial release
 
 ## Current scope
 
-`License & Enterprise` in the dashboard provides status, file selection, validation,
+`System → License` in the dashboard provides status, file selection, validation,
 an explicit replacement preview, activation and export. The maximum file size
 is 64 KiB. Uploads never supply trusted keys. A license is rechecked on activation
 and every status/capability read; there is no process-local entitlement cache.
@@ -32,18 +32,21 @@ The seven stable entitlement IDs are:
 | `k3s-multi-node` | Additional k3s multi-node management workflows |
 
 The standard API image implements `resource-sharing` for
-[targeted instance access](instance-sharing.md). Without a matching license it
-reports the capability as implemented but unavailable; the other six remain
-unimplemented. These names do not put existing GPU, k3s or SSO
-capabilities behind a paywall. Multi-GPU and multi-node support boundaries still
-need their own review. Future business code belongs behind the separately
-documented [Enterprise boundary](../enterprise/README.md).
+[targeted instance access](instance-sharing.md) and `federated-sso` for
+[dashboard-managed upstream identity providers](authentication.md#dashboard-managed-federation-enterprise).
+Without a matching entitlement each implementation is reported as installed but
+unavailable. The other five IDs remain unimplemented. Existing local Keycloak
+login, ordinary SSO-protected routes, GPU use and single-node k3s remain Community
+features; the paid federation capability is the integrated OIDC/SAML provider and
+mapping administration workflow. Multi-GPU and multi-node boundaries still need
+their own review. Future business code belongs behind the separately documented
+[Enterprise boundary](../enterprise/README.md).
 
 ## Customer workflow
 
 Official installations receive the manufacturer's public verification keys with
 Magic Stick. Customers do not generate keys or configure a trust store: they
-open **License & Enterprise**, select their signed JSON, validate it, and
+open **System → License**, select their signed JSON, validate it, and
 explicitly activate it. The issuer's private key is never part of the appliance.
 
 The release prerequisite below must be completed before shipping a license-ready
@@ -110,7 +113,7 @@ No API permission to create or patch trust ConfigMaps is added.
 
 Publish the matching API image as well as the manifests: an older verifier
 image does not read the new official store. After the release is installed,
-confirm the expected key ID in **License & Enterprise** or `magicstick license
+confirm the expected key ID in **System → License** or `magicstick license
 status`. Mounted ConfigMap propagation is asynchronous; each license check
 rereads the files, and reloader also observes both stores.
 
@@ -172,7 +175,7 @@ key URLs are rejected. Signed data is authenticated, **not encrypted**.
 
 ## 4. Import through the dashboard, CLI or TUI
 
-As an appliance administrator, open **Dashboard → License & Enterprise**.
+As an appliance administrator, open **Dashboard → System → License**.
 Select the file, choose **Validate license**, review the customer, validity,
 entitlements and current/replacement license IDs, then **Activate license**.
 Changing the file discards the preview. A concurrent change requires a fresh
@@ -259,8 +262,9 @@ policies are not deleted or made public. See the explicit
 `LicenseService.require_capability(feature, authorized=...)` is the
 server-side integration hook. It fails unless caller authorization, a verified
 entitlement and an actually implemented/available capability all permit the
-operation. The packaged Enterprise module registers `resource-sharing`; it does
-not activate the other six capabilities. Future implementations register themselves and use the
+operation. The packaged Enterprise module registers `resource-sharing` and
+`federated-sso`; it does not activate the other five capabilities. Future
+implementations register themselves and use the
 same decision in applicable API and controller mutation paths; no existing
 Community path is gated by this hook.
 

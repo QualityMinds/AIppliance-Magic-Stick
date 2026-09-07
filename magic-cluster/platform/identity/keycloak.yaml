@@ -78,6 +78,11 @@ spec:
                 secretKeyRef:
                   name: magicstick-user-admin-client
                   key: client-secret
+            - name: MAGICSTICK_FEDERATION_ADMIN_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: magicstick-federation-admin-client
+                  key: client-secret
             - name: KC_HOSTNAME
               value: "https://id.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
             - name: KC_HTTP_ENABLED
@@ -97,9 +102,11 @@ spec:
                       umask 077
                       config=/tmp/kcadm-client-sync.config
                       user_admin_config=/tmp/kcadm-user-admin-check.config
+                      federation_admin_config=/tmp/kcadm-federation-admin-check.config
                       user_admin_allowed_roles="manage-users query-users view-users view-realm"
+                      federation_admin_allowed_roles="manage-identity-providers view-identity-providers view-realm"
                       cleanup() {
-                        rm -f "$config" "$user_admin_config"
+                        rm -f "$config" "$user_admin_config" "$federation_admin_config"
                       }
                       trap cleanup EXIT
                       client_uuid() {
@@ -358,6 +365,93 @@ spec:
                           --query max=1 >/dev/null 2>&1 || return 1
                         rm -f "$user_admin_config"
                       }
+                      direct_federation_admin_roles() {
+                        federation_admin_role_output="$(/opt/keycloak/bin/kcadm.sh get \
+                          "users/$federation_admin_service_account_uuid/role-mappings/clients/$realm_management_client_uuid" \
+                          --config "$config" \
+                          --realm magicstick \
+                          --fields name \
+                          --format csv \
+                          --noquotes 2>/dev/null)" || return 1
+                        printf '%s\n' "$federation_admin_role_output" \
+                          | tr -d '\r' \
+                          | sed '/^[[:space:]]*$/d' \
+                          | LC_ALL=C sort
+                      }
+                      sync_federation_admin_client() {
+                        federation_admin_client_uuid="$(client_uuid magicstick-federation-admin)"
+                        if [ -z "$federation_admin_client_uuid" ]; then
+                          /opt/keycloak/bin/kcadm.sh create clients \
+                            --config "$config" \
+                            --realm magicstick \
+                            -s clientId=magicstick-federation-admin \
+                            -s name='Magic Stick dashboard federation administration' \
+                            -s enabled=true \
+                            -s clientAuthenticatorType=client-secret \
+                            -s "secret=$MAGICSTICK_FEDERATION_ADMIN_CLIENT_SECRET" \
+                            -s standardFlowEnabled=false \
+                            -s implicitFlowEnabled=false \
+                            -s directAccessGrantsEnabled=false \
+                            -s serviceAccountsEnabled=true \
+                            -s publicClient=false \
+                            -s protocol=openid-connect >/dev/null 2>&1 || true
+                          federation_admin_client_uuid="$(client_uuid magicstick-federation-admin)"
+                        fi
+                        [ -n "$federation_admin_client_uuid" ] || return 1
+                        /opt/keycloak/bin/kcadm.sh update "clients/$federation_admin_client_uuid" \
+                          --config "$config" \
+                          --realm magicstick \
+                          -s name='Magic Stick dashboard federation administration' \
+                          -s enabled=true \
+                          -s clientAuthenticatorType=client-secret \
+                          -s "secret=$MAGICSTICK_FEDERATION_ADMIN_CLIENT_SECRET" \
+                          -s standardFlowEnabled=false \
+                          -s implicitFlowEnabled=false \
+                          -s directAccessGrantsEnabled=false \
+                          -s serviceAccountsEnabled=true \
+                          -s publicClient=false \
+                          -s protocol=openid-connect >/dev/null 2>&1 || return 1
+                        federation_admin_service_account_uuid="$(user_uuid service-account-magicstick-federation-admin)"
+                        realm_management_client_uuid="$(client_uuid realm-management)"
+                        [ -n "$federation_admin_service_account_uuid" ] || return 1
+                        [ -n "$realm_management_client_uuid" ] || return 1
+                        current_federation_admin_roles="$(direct_federation_admin_roles)" || return 1
+                        for role in $current_federation_admin_roles; do
+                          case " $federation_admin_allowed_roles " in
+                            *" $role "*) ;;
+                            *)
+                              /opt/keycloak/bin/kcadm.sh remove-roles \
+                                --config "$config" \
+                                --target-realm magicstick \
+                                --uusername service-account-magicstick-federation-admin \
+                                --cclientid realm-management \
+                                --rolename "$role" >/dev/null 2>&1 || return 1
+                              ;;
+                          esac
+                        done
+                        for role in $federation_admin_allowed_roles; do
+                          /opt/keycloak/bin/kcadm.sh add-roles \
+                            --config "$config" \
+                            --target-realm magicstick \
+                            --uusername service-account-magicstick-federation-admin \
+                            --cclientid realm-management \
+                            --rolename "$role" >/dev/null 2>&1 || return 1
+                        done
+                        expected_federation_admin_roles="$(printf '%s\n' $federation_admin_allowed_roles | LC_ALL=C sort)"
+                        current_federation_admin_roles="$(direct_federation_admin_roles)" || return 1
+                        [ "$current_federation_admin_roles" = "$expected_federation_admin_roles" ] || return 1
+                        rm -f "$federation_admin_config"
+                        /opt/keycloak/bin/kcadm.sh config credentials \
+                          --config "$federation_admin_config" \
+                          --server http://localhost:8080 \
+                          --realm magicstick \
+                          --client magicstick-federation-admin \
+                          --secret "$MAGICSTICK_FEDERATION_ADMIN_CLIENT_SECRET" >/dev/null 2>&1 || return 1
+                        /opt/keycloak/bin/kcadm.sh get identity-provider/instances \
+                          --config "$federation_admin_config" \
+                          --realm magicstick >/dev/null 2>&1 || return 1
+                        rm -f "$federation_admin_config"
+                      }
                       sync_callbacks() {
                         /opt/keycloak/bin/kcadm.sh config credentials \
                           --config "$config" \
@@ -374,6 +468,7 @@ spec:
                           -s 'webOrigins=["https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"]' \
                           -s 'attributes."post.logout.redirect.uris"=https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/##https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/' >/dev/null 2>&1
                         sync_user_admin_client
+                        sync_federation_admin_client
                         sync_kubernetes_client_and_groups
                         sync_dashboard_cli_client
                       }

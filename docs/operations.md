@@ -4,11 +4,12 @@ This page collects common day-2 checks for a running appliance.
 
 ## Offline license operation
 
-Dashboard administrators use **License & Enterprise**; terminal administrators
+Dashboard administrators use **System → License**; terminal administrators
 use `magicstick license status` or the TUI's **License** tab. The MIT foundation
 supports signed-file preview, explicit replacement and export. The standard API
-runtime includes the Enterprise implementation; a valid `resource-sharing`
-entitlement activates targeted instance access. Existing Community operation
+runtime includes the Enterprise implementations; valid `resource-sharing` and
+`federated-sso` entitlements activate targeted instance access and dashboard-
+managed identity federation respectively. Existing Community operation
 remains license-independent.
 
 Official releases deliver the issuer's public keys automatically. Customers
@@ -259,19 +260,20 @@ appliance state with each supported authenticated role:
 3. **Models:** compare compute gauges, search Hugging Face and Ollama, select an
    artifact, verify context/download metadata and capacity markers, then inspect
    an existing activation and the guarded remove controls.
-4. **Settings:** compare the loaded public and mDNS domains. Save only when a
-   controlled domain mutation is part of the test.
-5. **Users:** as an administrator, search and filter users, inspect effective
-   versus direct access, and open every lifecycle dialog without changing a
-   recovery or current account.
-6. **API Access:** verify API bases and open the create dialog. A release test
+4. **System:** exercise all role-visible category tabs. Under **Settings**,
+   compare the loaded public and mDNS domains and save only when a controlled
+   domain mutation is part of the test. Under **Users**, as an administrator,
+   search and filter users, inspect effective versus direct access, and open
+   every lifecycle dialog without changing a recovery or current account.
+   Under **License**, verify the current entitlement summary without replacing
+   the installed file. Under **System Status**, compare operator, Flux, workload,
+   and route summaries and verify that an applied GPU operator is not called
+   ready before its resource and telemetry are active.
+5. **API Access:** verify API bases and open the create dialog. A release test
    that creates a key must copy it from the one-time view and revoke it again.
-7. **Kubernetes Access:** verify OIDC readiness, access explanations, user
+6. **Kubernetes Access:** verify OIDC readiness, access explanations, user
    search, and that copy/download remain disabled until a user has a grant and
    the cluster reports ready.
-8. **System Status:** compare operator, Flux, workload, and route summaries and
-   verify that an applied GPU operator is not called ready before its resource
-   and telemetry are active.
 
 Run the automated counterpart before the browser pass:
 
@@ -504,7 +506,7 @@ Host-local K3s appliances do not need this development bridge.
 
 ## User Administration Checks
 
-The dashboard **Users** tab is available only to `magicstick-admin` while local
+The dashboard **System → Users** tab is available only to `magicstick-admin` while local
 Keycloak identity management is enabled. Opening the tab performs a live
 Keycloak request; it is intentionally not included in the normal 30-second
 dashboard refresh.
@@ -542,7 +544,41 @@ its expiry. The user-administration API itself performs a live actor check and
 therefore immediately denies a disabled or demoted administrator. Never
 troubleshoot by printing or decoding the client Secret. If a deployment uses
 the direct external-provider escape-hatch overlay instead of local Keycloak,
-identity management is unavailable and the **Users** tab stays hidden.
+identity management is unavailable and the **System → Users** tab stays hidden.
+
+## Federated SSO checks
+
+The **Federated SSO** tab requires a live `magicstick-admin`, local Keycloak and
+a valid `federated-sso` entitlement for validation or save. Keep a tested local
+recovery administrator signed in while introducing a provider. Configure the
+displayed provider-specific callback at the upstream IdP, validate metadata,
+start with a `user` or `viewer` mapping, and verify a fresh private-browser login
+before adding an administrator mapping.
+
+Inspect components without decoding either generated client Secret:
+
+```bash
+kubectl -n identity-system get deploy keycloak ai-appliance-dashboard-api
+kubectl -n identity-system get secret magicstick-federation-admin-client
+kubectl -n identity-system get role,rolebinding ai-appliance-dashboard-federation-admin-client
+kubectl -n identity-system logs deploy/keycloak --tail=200
+kubectl -n identity-system logs deploy/ai-appliance-dashboard-api -c api --tail=200
+```
+
+The Keycloak service account must have only `manage-identity-providers`,
+`view-identity-providers` and `view-realm`. Its Kubernetes Role must grant only
+`get` on `magicstick-federation-admin-client`. The browser and API responses must
+never contain its Secret or an upstream OIDC client secret. Structured
+`magicstick.federated-sso` audit lines intentionally contain no request body.
+
+Saving stages a provider disabled and enables it only after all generated role
+mappers exist. A failed update leaves an existing provider disabled; correct the
+configuration and save again. Missing, expired, invalid or currently
+unverifiable entitlement causes the
+API's periodic enforcement to disable dashboard-managed providers within its
+next check interval, without deleting configuration or local users. Deletion is
+still available to a live administrator for recovery. Providers created outside
+the dashboard are neither listed nor changed.
 
 ## API Access Checks
 
@@ -867,8 +903,11 @@ deploy,pods` if a command does not match the running resource name.
 | `magicstick login` reports that no device endpoint is advertised | Confirm the `magicstick-cli` client exists in the `magicstick` realm with Device Authorization Grant enabled, and let the Keycloak post-start reconciliation complete. |
 | CLI/TUI reports a local certificate verification error | Trust the public Magic Stick CA in the operating system or run the first login with `--ca-file /path/to/magicstick-oidc-ca.crt`. `MAGICSTICK_CA_FILE` and `NODE_EXTRA_CA_CERTS` are also supported. For a disposable system on a trusted test network only, use `--insecure`; it is process-local and prints a warning. |
 | CLI receives `401 access token client is not trusted` | Confirm the dashboard API Deployment uses `OIDC_EXPECTED_CLIENT_IDS=magicstick-human-gateway-local,magicstick-cli`, then log in again so the token has `azp=magicstick-cli`. |
-| Users tab is missing for an administrator | Confirm the session contains `magicstick-admin` and the installation uses local Keycloak rather than the direct-external-provider escape hatch. Refresh the browser after role changes. |
-| Users tab reports that Keycloak is unavailable | Check Keycloak readiness, the dashboard API logs, the existence of `magicstick-user-admin-client`, and its exact-name Secret Role. Do not decode the Secret. |
+| System → Users is missing for an administrator | Confirm the session contains `magicstick-admin` and the installation uses local Keycloak rather than the direct-external-provider escape hatch. Refresh the browser after role changes. |
+| System → Users reports that Keycloak is unavailable | Check Keycloak readiness, the dashboard API logs, the existence of `magicstick-user-admin-client`, and its exact-name Secret Role. Do not decode the Secret. |
+| Federated SSO tab is missing or unavailable | Confirm a live `magicstick-admin`, local Keycloak mode, the `federated-sso` entitlement, `magicstick-federation-admin-client`, and its exact-name Secret Role. Wait for the Keycloak post-start client reconciliation; never grant the general user-admin client identity-provider rights. |
+| Federated metadata validation fails | Confirm the discovery/metadata URL is HTTPS, reachable from Keycloak, presents a trusted TLS certificate, and contains the required OIDC endpoints or an active SAML IdP entity, SSO service and signing certificate. The dashboard intentionally rejects expired/unsigned SAML metadata, embedded URL credentials, HTTP endpoints and raw Keycloak fields. |
+| A managed upstream login disappears after license change | Check **System → License**. Missing, invalid or expired `federated-sso` entitlement disables managed providers fail closed; restore a valid entitlement, review the provider, enter the OIDC secret again, validate metadata and explicitly save it enabled. Local recovery login remains available. |
 | User change returns `409` | Check whether the account is external, protected, the current actor, or the last enabled local administrator. Duplicate username or email also returns `409`. |
 | API Access tab is missing | Confirm the current session contains `magicstick-admin`, then refresh after any role change. Unlike Users, this tab does not depend on local Keycloak user-administration mode. |
 | API Access reports LiteLLM key management unavailable | Check the LiteLLM Pod and Service, PostgreSQL readiness, and the existence of `ai/litellm-masterkey-secret` without decoding it. Lost raw keys cannot be recovered; create a replacement and revoke the old named access. |

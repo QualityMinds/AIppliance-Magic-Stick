@@ -81,6 +81,8 @@ class UserAdminDeploymentTests(unittest.TestCase):
         self.assertEqual(env["KEYCLOAK_REALM"], "magicstick")
         self.assertEqual(env["KEYCLOAK_USER_ADMIN_SECRET_NAMESPACE"], "identity-system")
         self.assertEqual(env["KEYCLOAK_USER_ADMIN_SECRET_NAME"], "magicstick-user-admin-client")
+        self.assertEqual(env["KEYCLOAK_FEDERATION_ADMIN_SECRET_NAMESPACE"], "identity-system")
+        self.assertEqual(env["KEYCLOAK_FEDERATION_ADMIN_SECRET_NAME"], "magicstick-federation-admin-client")
         self.assertEqual(env["KUBERNETES_ACCESS_INFO_NAMESPACE"], "identity-system")
         self.assertEqual(env["KUBERNETES_ACCESS_INFO_NAME"], "magicstick-kubernetes-access-info")
         self.assertEqual(env["KUBERNETES_OIDC_CLIENT_ID"], "magicstick-kubernetes")
@@ -94,6 +96,7 @@ class UserAdminDeploymentTests(unittest.TestCase):
             "https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}",
         )
         self.assertNotIn("KEYCLOAK_USER_ADMIN_CLIENT_SECRET", env)
+        self.assertNotIn("KEYCLOAK_FEDERATION_ADMIN_CLIENT_SECRET", env)
 
     def test_cli_api_has_an_mdns_jwt_route(self):
         route, policy = load_documents("cli-gateway.yaml")
@@ -174,6 +177,7 @@ class UserAdminDeploymentTests(unittest.TestCase):
             "settings-rbac.yaml",
             "model-secrets-rbac.yaml",
             "user-admin-rbac.yaml",
+            "federation-admin-rbac.yaml",
         )
         for filename in binding_files:
             bindings = [
@@ -226,6 +230,50 @@ class UserAdminDeploymentTests(unittest.TestCase):
             for rule in cluster_role.get("rules", [])
         ))
 
+    def test_federation_uses_a_separate_minimum_privilege_client_and_secret(self):
+        role, binding = load_documents("federation-admin-rbac.yaml")
+        self.assertEqual(role["metadata"]["namespace"], "identity-system")
+        self.assertEqual(role["rules"], [{
+            "apiGroups": [""],
+            "resources": ["secrets"],
+            "resourceNames": ["magicstick-federation-admin-client"],
+            "verbs": ["get"],
+        }])
+        self.assertEqual(binding["subjects"], [{
+            "kind": "ServiceAccount",
+            "name": "ai-appliance-dashboard-api",
+            "namespace": "identity-system",
+        }])
+
+        identity_dir = DASHBOARD_DIR.parents[1] / "platform/identity"
+        secrets = list(yaml.safe_load_all((identity_dir / "secrets.yaml").read_text(encoding="utf-8")))
+        secret = next(item for item in secrets if item["metadata"]["name"] == "magicstick-federation-admin-client")
+        self.assertEqual(secret["stringData"], {"client-id": "magicstick-federation-admin"})
+        self.assertEqual(secret["metadata"]["annotations"]["secret-generator.v1.mittwald.de/autogenerate"], "client-secret")
+
+        realm_manifest = yaml.safe_load((identity_dir / "keycloak-realm.yaml").read_text(encoding="utf-8"))
+        realm = json.loads(realm_manifest["data"]["magicstick-realm.json"])
+        client = next(item for item in realm["clients"] if item["clientId"] == "magicstick-federation-admin")
+        self.assertTrue(client["serviceAccountsEnabled"])
+        self.assertFalse(client["publicClient"])
+        service_account = next(item for item in realm["users"] if item.get("serviceAccountClientId") == "magicstick-federation-admin")
+        self.assertEqual(set(service_account["clientRoles"]["realm-management"]), {
+            "manage-identity-providers", "view-identity-providers", "view-realm",
+        })
+
+        keycloak = yaml.safe_load_all((identity_dir / "keycloak.yaml").read_text(encoding="utf-8"))
+        deployment = next(item for item in keycloak if item["kind"] == "Deployment")
+        container = deployment["spec"]["template"]["spec"]["containers"][0]
+        env = {item["name"]: item for item in container["env"]}
+        self.assertEqual(env["MAGICSTICK_FEDERATION_ADMIN_CLIENT_SECRET"]["valueFrom"]["secretKeyRef"], {
+            "name": "magicstick-federation-admin-client", "key": "client-secret",
+        })
+        script = container["lifecycle"]["postStart"]["exec"]["command"][-1]
+        self.assertIn('federation_admin_allowed_roles="manage-identity-providers view-identity-providers view-realm"', script)
+        self.assertIn("sync_federation_admin_client", script)
+        for forbidden in ("manage-realm", "manage-users", "manage-clients"):
+            self.assertNotIn(f'federation_admin_allowed_roles="{forbidden}', script)
+
     def test_split_api_resources_are_part_of_the_dashboard_render(self):
         kustomization = yaml.safe_load(
             (DASHBOARD_DIR / "kustomization.yaml").read_text(encoding="utf-8")
@@ -233,6 +281,7 @@ class UserAdminDeploymentTests(unittest.TestCase):
 
         for resource in (
             "user-admin-rbac.yaml",
+            "federation-admin-rbac.yaml",
             "dashboard-api.yaml",
             "api-deployment.yaml",
             "api-service.yaml",

@@ -15,6 +15,7 @@ class ApiImageContractTests(unittest.TestCase):
         self.assertIn("COPY enterprise/magicstick_enterprise ./magicstick_enterprise", dockerfile)
         self.assertIn("COPY LICENSE /licenses/MagicStick-MIT", dockerfile)
         self.assertIn("COPY enterprise/LICENSE /licenses/MagicStick-Enterprise", dockerfile)
+        self.assertIn("dashboard/apps/api/federated_sso.py", dockerfile)
         self.assertIn('org.opencontainers.image.licenses="MIT AND LicenseRef-MagicStick-Enterprise"', dockerfile)
         self.assertNotRegex(dockerfile, r"\bAS\s+(community|enterprise)\b")
 
@@ -32,7 +33,7 @@ class ApiImageContractTests(unittest.TestCase):
                 "# SPDX-License-Identifier: LicenseRef-MagicStick-Enterprise"
             ))
         init = (package / "__init__.py").read_text(encoding="utf-8")
-        self.assertIn('CAPABILITIES = frozenset({"resource-sharing"})', init)
+        self.assertIn('CAPABILITIES = frozenset({"resource-sharing", "federated-sso"})', init)
 
 
 if __name__ == "__main__":

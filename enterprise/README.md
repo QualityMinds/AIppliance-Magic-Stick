@@ -1,7 +1,8 @@
 # Enterprise boundary
 
-This directory contains the license-gated `resource-sharing` business implementation
-in `magicstick_enterprise/`. Its source headers refer to the scoped
+This directory contains the license-gated `resource-sharing` and
+`federated-sso` business implementations in `magicstick_enterprise/`. Their
+source headers refer to the scoped
 [Enterprise licensing notice](LICENSE), identified as
 `LicenseRef-MagicStick-Enterprise`. The notice is provisional and is included
 for review, not a completed customer agreement. Commercial distribution remains

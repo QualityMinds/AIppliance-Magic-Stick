@@ -121,6 +121,14 @@ data:
         "KEYCLOAK_USER_ADMIN_SECRET_NAME",
         "magicstick-user-admin-client",
     )
+    KEYCLOAK_FEDERATION_ADMIN_SECRET_NAMESPACE = os.environ.get(
+        "KEYCLOAK_FEDERATION_ADMIN_SECRET_NAMESPACE",
+        "identity-system",
+    )
+    KEYCLOAK_FEDERATION_ADMIN_SECRET_NAME = os.environ.get(
+        "KEYCLOAK_FEDERATION_ADMIN_SECRET_NAME",
+        "magicstick-federation-admin-client",
+    )
     KUBERNETES_ACCESS_INFO_NAMESPACE = os.environ.get(
         "KUBERNETES_ACCESS_INFO_NAMESPACE",
         "identity-system",
@@ -175,6 +183,8 @@ data:
     API_ACCESS_LOCK = threading.RLock()
     KEYCLOAK_TOKEN_LOCK = threading.Lock()
     KEYCLOAK_TOKEN_CACHE = {"access_token": "", "expires_at": 0.0}
+    KEYCLOAK_FEDERATION_TOKEN_LOCK = threading.Lock()
+    KEYCLOAK_FEDERATION_TOKEN_CACHE = {"access_token": "", "expires_at": 0.0}
 
 
     class AuthError(Exception):
@@ -335,6 +345,18 @@ data:
         return decode_secret_field(secret, "client-id"), decode_secret_field(secret, "client-secret")
 
 
+    def federation_client_credentials():
+        path = (
+            f"/api/v1/namespaces/{urllib.parse.quote(KEYCLOAK_FEDERATION_ADMIN_SECRET_NAMESPACE, safe='')}"
+            f"/secrets/{urllib.parse.quote(KEYCLOAK_FEDERATION_ADMIN_SECRET_NAME, safe='')}"
+        )
+        try:
+            secret = request_json("GET", path)
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as error:
+            raise RequestError(503, "federation administration is not configured") from error
+        return decode_secret_field(secret, "client-id"), decode_secret_field(secret, "client-secret")
+
+
     def _keycloak_http_request(method, path, access_token=None, body=None, form=None):
         headers = {"Accept": "application/json"}
         data = None
@@ -430,6 +452,71 @@ data:
             except (urllib.error.URLError, TimeoutError) as error:
                 raise RequestError(503, "identity administration is unavailable") from error
         raise RequestError(503, "identity administration is unavailable")
+
+
+    def clear_federation_token_cache():
+        with KEYCLOAK_FEDERATION_TOKEN_LOCK:
+            KEYCLOAK_FEDERATION_TOKEN_CACHE["access_token"] = ""
+            KEYCLOAK_FEDERATION_TOKEN_CACHE["expires_at"] = 0.0
+
+
+    def federation_admin_token(force_refresh=False):
+        require_identity_management()
+        now = time.time()
+        with KEYCLOAK_FEDERATION_TOKEN_LOCK:
+            if (
+                not force_refresh
+                and KEYCLOAK_FEDERATION_TOKEN_CACHE["access_token"]
+                and KEYCLOAK_FEDERATION_TOKEN_CACHE["expires_at"] > now + 15
+            ):
+                return KEYCLOAK_FEDERATION_TOKEN_CACHE["access_token"]
+            client_id, client_secret = federation_client_credentials()
+            realm = urllib.parse.quote(KEYCLOAK_REALM, safe="")
+            try:
+                payload, _ = _keycloak_http_request(
+                    "POST",
+                    f"/realms/{realm}/protocol/openid-connect/token",
+                    form={
+                        "grant_type": "client_credentials",
+                        "client_id": client_id,
+                        "client_secret": client_secret,
+                    },
+                )
+            except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as error:
+                raise RequestError(503, "federation administration is unavailable") from error
+            access_token = str(payload.get("access_token") or "")
+            try:
+                expires_in = max(1, int(payload.get("expires_in", 60)))
+            except (TypeError, ValueError):
+                expires_in = 60
+            if not access_token:
+                raise RequestError(503, "federation administration is unavailable")
+            KEYCLOAK_FEDERATION_TOKEN_CACHE["access_token"] = access_token
+            KEYCLOAK_FEDERATION_TOKEN_CACHE["expires_at"] = now + expires_in
+            return access_token
+
+
+    def federation_admin_request(method, path, body=None):
+        for attempt in range(2):
+            access_token = federation_admin_token(force_refresh=attempt > 0)
+            try:
+                return _keycloak_http_request(method, path, access_token=access_token, body=body)
+            except urllib.error.HTTPError as error:
+                if error.code == 401 and attempt == 0:
+                    clear_federation_token_cache()
+                    continue
+                if error.code == 400:
+                    raise RequestError(400, "identity provider rejected the federation configuration") from error
+                if error.code == 404:
+                    raise RequestError(404, "federation provider was not found") from error
+                if error.code == 409:
+                    raise RequestError(409, "federation provider already exists") from error
+                if error.code == 429:
+                    raise RequestError(503, "federation administration is temporarily rate limited") from error
+                raise RequestError(503, "federation administration is unavailable") from error
+            except (urllib.error.URLError, TimeoutError) as error:
+                raise RequestError(503, "federation administration is unavailable") from error
+        raise RequestError(503, "federation administration is unavailable")
 
 
     def _user_path(user_id, suffix=""):
@@ -5600,6 +5687,40 @@ data:
         )
 
 
+    def license_service():
+        from licensing import LicenseService
+        return LicenseService(
+            request_json,
+            os.environ.get("LICENSE_NAMESPACE", "identity-system"),
+            os.environ.get("LICENSE_TRUST_STORE", "/etc/magicstick-license/trusted-keys.json"),
+        )
+
+
+    def audit_federated_sso(*, principal, action, target, result, request_id):
+        event = {
+            "event": "magicstick.federated-sso",
+            "requestId": str(request_id or "")[:128],
+            "actorId": str((principal or {}).get("subject") or "")[:160],
+            "actorUsername": str((principal or {}).get("username") or "")[:128],
+            "target": str(target or "")[:63],
+            "action": str(action or "")[:32],
+            "result": str(result or "")[:16],
+        }
+        print(json.dumps(event, separators=(",", ":"), sort_keys=True), flush=True)
+
+
+    def federated_sso_service():
+        from federated_sso import FederatedSso
+        return FederatedSso(
+            license_service=license_service(),
+            admin=federation_admin_request,
+            verify_admin=live_admin_actor,
+            realm=KEYCLOAK_REALM,
+            issuer=OIDC_EXPECTED_ISSUER,
+            audit=audit_federated_sso,
+        )
+
+
     def require_instance_usage(instance, principal):
         if not instance:
             raise RequestError(404, "instance not found")
@@ -5805,12 +5926,8 @@ data:
                     _reject_unknown_fields(payload, allowed)
                     if not isinstance(payload.get("document"), str):
                         raise RequestError(400, "document must contain the license file text")
-                from licensing import LicenseService, LicenseError
-                service = LicenseService(
-                    request_json,
-                    os.environ.get("LICENSE_NAMESPACE", "identity-system"),
-                    os.environ.get("LICENSE_TRUST_STORE", "/etc/magicstick-license/trusted-keys.json"),
-                )
+                from licensing import LicenseError
+                service = license_service()
                 try:
                     if action == "status":
                         result = service.status()
@@ -5830,10 +5947,52 @@ data:
             except Exception:
                 self.send_error_json(503, "License management is unavailable; no change was confirmed.")
 
+        def handle_federated_sso(self, action, alias=""):
+            try:
+                principal = self.require_access("admin")
+                if action in {"update", "delete"} and (len(alias) > 63 or not DNS_LABEL.fullmatch(alias)):
+                    raise RequestError(400, "provider alias must be a lowercase DNS label")
+                service = federated_sso_service()
+                if action == "status":
+                    result = service.status(principal)
+                else:
+                    validate_dashboard_mutation_request(self)
+                    payload = read_body(self, max_bytes=64 * 1024)
+                    if action == "validate":
+                        result = service.validate(principal, payload)
+                    elif action == "create":
+                        result = service.save(principal, payload, request_id=self.request_id())
+                    elif action == "update":
+                        result = service.save(principal, payload, alias=alias, request_id=self.request_id())
+                    else:
+                        _reject_unknown_fields(payload, {"expectedRevision"})
+                        result = service.delete(
+                            principal,
+                            alias,
+                            payload.get("expectedRevision"),
+                            request_id=self.request_id(),
+                        )
+                self.send_json(result, 201 if action == "create" else 200)
+            except AuthError as error:
+                self.send_auth_error(error)
+            except RequestError as error:
+                self.send_error_json(error.status, str(error))
+            except ValueError as error:
+                self.send_error_json(400, str(error))
+            except Exception as error:
+                from licensing import LicenseError
+                if isinstance(error, LicenseError):
+                    self.send_json({"error": str(error), "code": error.code}, error.status)
+                else:
+                    self.send_error_json(503, "Federated SSO is unavailable; no change was confirmed.")
+
         def do_GET(self):
             if self.handle_instance_guard():
                 return
             parts = self.route().strip("/").split("/")
+            if self.route() == "/api/federated-sso":
+                self.handle_federated_sso("status")
+                return
             if self.route() == "/api/instance-principals":
                 self.handle_instance_sharing("principals")
                 return
@@ -6021,6 +6180,12 @@ data:
             if self.route() == "/api/license/validate":
                 self.handle_license("validate")
                 return
+            if self.route() == "/api/federated-sso/validate":
+                self.handle_federated_sso("validate")
+                return
+            if self.route() == "/api/federated-sso/providers":
+                self.handle_federated_sso("create")
+                return
             try:
                 path = self.route()
                 parts = path.strip("/").split("/")
@@ -6150,6 +6315,9 @@ data:
             if self.handle_instance_guard():
                 return
             parts = self.route().strip("/").split("/")
+            if len(parts) == 4 and parts[:3] == ["api", "federated-sso", "providers"]:
+                self.handle_federated_sso("update", parts[3])
+                return
             if len(parts) == 4 and parts[:2] == ["api", "instances"] and parts[3] == "access":
                 self.handle_instance_sharing("update", parts[2])
                 return
@@ -6196,6 +6364,10 @@ data:
 
         def do_DELETE(self):
             if self.handle_instance_guard():
+                return
+            parts = self.route().strip("/").split("/")
+            if len(parts) == 4 and parts[:3] == ["api", "federated-sso", "providers"]:
+                self.handle_federated_sso("delete", parts[3])
                 return
             try:
                 path = self.route()
@@ -6265,6 +6437,21 @@ data:
                     self.send_error_json(400, str(error))
 
 
+    def federation_entitlement_loop():
+        while True:
+            try:
+                disabled = federated_sso_service().enforce_entitlement()
+                if disabled:
+                    print(json.dumps({"event": "magicstick.federated-sso", "action": "license-enforcement",
+                                      "result": "success", "disabledProviders": disabled}, separators=(",", ":"), sort_keys=True), flush=True)
+            except Exception:
+                # Keycloak and licensing are reconciled independently. Fail closed
+                # as soon as both are available, without making the Community API unhealthy.
+                pass
+            time.sleep(30)
+
+
     if __name__ == "__main__":
         port = int(os.environ.get("PORT", "8080"))
+        threading.Thread(target=federation_entitlement_loop, daemon=True, name="federation-entitlement").start()
         ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()

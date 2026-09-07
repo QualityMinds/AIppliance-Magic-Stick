@@ -113,6 +113,9 @@ The current implementation provides:
 - a separate `magicstick-user-admin` service account for dashboard user
   administration; it has user-query and user-management roles but no client,
   realm, impersonation, or identity-provider administration role
+- a separate `magicstick-federation-admin` service account for licensed
+  dashboard federation; it has only identity-provider view/manage plus
+  `view-realm`, and no user, client, realm-management, or impersonation role
 - an appliance-local identity CA and a CA-signed certificate for local
   `.local` hostnames; the public CA can be embedded in OIDC kubeconfigs
 - an unprotected Keycloak route and a protected `auth-pilot` test route
@@ -188,7 +191,7 @@ download a fresh kubeconfig; the API certificate includes the selected host IP.
 
 ## Dashboard User Lifecycle
 
-Administrators manage human identities from the dashboard **Users** tab. The
+Administrators manage human identities from **System → Users** in the dashboard. The
 dashboard backend uses its dedicated Keycloak client-credentials flow; the
 browser never receives that client secret or a Keycloak Admin API token. The
 dedicated API ServiceAccount
@@ -209,6 +212,34 @@ upstream profile and password as externally managed. It may administer direct
 MagicStick roles and Keycloak's local enabled state, but does not modify or
 delete the upstream directory account. Disabling is preferred to deleting a
 brokered shadow user.
+
+## Dashboard-managed federation (Enterprise)
+
+Administrators with a valid `federated-sso` entitlement configure upstream
+identity providers in **Dashboard → Federated SSO**. OIDC providers use their
+standard discovery URL and confidential client; SAML providers use active
+metadata with a signing certificate. Metadata-selected POST/Redirect bindings
+are preserved while response/assertion signature validation stays mandatory.
+Magic Stick validates metadata before save and shows the provider-specific
+callback `https://id.<domain>/realms/magicstick/broker/<alias>/endpoint`, which
+must be registered at the upstream provider.
+
+Authorization mappings are deliberately exact and deny-by-default. Each row
+matches one OIDC claim or SAML attribute value and grants exactly one of
+`magicstick-user`, `magicstick-viewer`, `magicstick-operator`, or
+`magicstick-admin`. Users without a match receive no Magic Stick realm role.
+Start with a non-administrator group and validate login and logout before adding
+an administrator mapping. Keep the protected local recovery administrator; an
+upstream outage or bad mapping must never be the only administration path.
+
+Only dashboard-owned providers marked in Keycloak are shown or mutated. The API
+does not expose client secrets, accepts no raw mapper representation and requires
+the OIDC secret again for an update. Changes are staged disabled and are enabled
+only after all fixed role mappers exist. If entitlement verification later
+fails or becomes unavailable, a periodic backend check disables managed
+upstream login without deleting the provider, users or local login. A live local
+administrator may still delete
+the provider for recovery.
 
 Every user-management request requires a current `magicstick-admin` role. The
 backend performs a live Keycloak lookup in addition to normal access-token
@@ -288,7 +319,9 @@ The remaining rollout is intentionally incremental:
 
 1. Replace the pilot certificate with the appliance certificate trust model.
 2. Add separate machine clients and JWT/mTLS policies for APIs and agents.
-3. Configure optional upstream identity providers and group-to-role mappings.
+3. Import a `federated-sso` entitlement, configure the upstream provider in the
+   dashboard, validate metadata, register the displayed callback upstream, and
+   test group-to-role mappings while a local recovery session remains available.
 
 All bundled browser surfaces are represented by Envoy `HTTPRoute` resources.
 An additional Envoy API gateway is not needed for the authentication layer.
@@ -303,5 +336,7 @@ An additional Envoy API gateway is not needed for the authentication layer.
   reviewed exception for the human gateway callback patterns and web origins.
 - Save and test the one-time recovery administrator created by first-run setup.
 - A cloud identity provider outage must not prevent local break-glass login.
-- Never grant the dashboard client `realm-admin`, `manage-clients`,
-  `manage-realm`, `impersonation`, or identity-provider administration.
+- Never grant the human dashboard client or user-administration client
+  `realm-admin`, `manage-clients`, `manage-realm`, `impersonation`, or
+  identity-provider administration. Only the dedicated federation service
+  account receives the two identity-provider roles described above.

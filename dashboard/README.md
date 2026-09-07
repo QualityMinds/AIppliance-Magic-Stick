@@ -94,7 +94,7 @@ available for scripts and complete JSON instance payloads.
 
 Administrators can inspect, import and export signed offline licenses through
 the **License** tab (`a` to inspect/import, `e` to export). The browser uses
-**License & Enterprise**. The CLI provides `license status`, `license inspect`,
+**System → License**. The CLI provides `license status`, `license inspect`,
 `license import --yes` and `license export`. The original file is stored in a
 runtime Kubernetes Secret, not the client. This MIT-licensed foundation enables
 no Enterprise business capability yet. See [issuer setup and license operation](../docs/licensing.md).

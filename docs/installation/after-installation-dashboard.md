@@ -30,7 +30,7 @@ alltägliches Administratorkonto.
 
 ## 2. Benutzer verwalten
 
-Öffne als Administrator **Users**. Dieser Tab bleibt für Viewer und Operator
+Öffne als Administrator **System → Users**. Dieser Reiter bleibt für Viewer und Operator
 unsichtbar und ist bei einer Installation ohne lokalen Keycloak nicht
 verfügbar. Die Liste wird erst beim Öffnen geladen und zeigt nur menschliche
 Benutzer, keine technischen Service Accounts.
@@ -113,7 +113,7 @@ nächsten davon abhängigen Schritt startest.
 
 ## 4. Domains und lokale Adresse prüfen
 
-Öffne **Settings**. Dort findest du:
+Öffne **System → Settings**. Dort findest du:
 
 - **Public Domain**: gemeinsame Basis für öffentlich auflösbare
   Anwendungsnamen;
@@ -131,7 +131,7 @@ eingerichtet sein.
 
 ## 5. Systemzustand prüfen
 
-Öffne **System Status** und kontrolliere:
+Öffne **System → System Status** und kontrolliere:
 
 - **Flux**: alle erforderlichen Kustomizations sollten `Ready` sein;
 - **Pods**: die laufenden Pods sollten sich nach der Startphase stabilisieren;
@@ -153,7 +153,7 @@ verwenden möchtest.
 ### Rechner mit unterstützter NVIDIA-GPU
 
 NFD erkennt die GPU und der Magic Stick installiert automatisch den passenden
-NVIDIA Operator. Warte unter **System Status**, bis der Anbieter `Ready` meldet.
+NVIDIA Operator. Warte unter **System → System Status**, bis der Anbieter `Ready` meldet.
 Füge dann unter **Models → Local Model** ein lokales Modell hinzu und wähle
 **NVIDIA GPU**. KubeAI wird dabei automatisch ergänzt. Das Modell bleibt
 während des Starts gegebenenfalls in `WaitingForModules` oder `WaitingForGPU`.
@@ -164,7 +164,7 @@ Wähle für ein kleines, passendes lokales Preset **CPU**. Dabei wird KubeAI ohn
 GPU-Treiber installiert; ausreichend RAM und CPU-Leistung bleiben erforderlich.
 Alternativ verwende ein externes Modell. **LiteLLM** und **Model Catalog** sind
 in beiden Fällen verfügbar. Ohne passende Hardware bleiben NVIDIA, AMD und
-Intel in **System Status** auf `NotRequired` und verbrauchen keine
+Intel in **System → System Status** auf `NotRequired` und verbrauchen keine
 Vendor-Operator-Ressourcen.
 
 ## 7. Module installieren
@@ -312,10 +312,10 @@ ein Backup nach deinem späteren Backup- und Restore-Konzept.
 
 ## Empfohlene Reihenfolge für eine neue Appliance
 
-1. In **Overview** und **System Status** einen stabilen Grundzustand prüfen.
-2. In **Users** weitere lokale Benutzer mit möglichst kleinen Zugriffsrechten
+1. In **Overview** und **System → System Status** einen stabilen Grundzustand prüfen.
+2. In **System → Users** weitere lokale Benutzer mit möglichst kleinen Zugriffsrechten
    anlegen und den Recovery-Benutzer unangetastet lassen.
-3. In **Settings** lokale und öffentliche Namen kontrollieren.
+3. In **System → Settings** lokale und öffentliche Namen kontrollieren.
 4. Betriebsart wählen: lokale GPU-Modelle oder externer API-Anbieter.
 5. Benötigte Module aktivieren und jeweils auf `Ready` warten.
 6. Mindestens ein Chat-Modell bereitstellen.

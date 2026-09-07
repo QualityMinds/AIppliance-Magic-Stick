@@ -96,6 +96,10 @@ spec:
               value: identity-system
             - name: KEYCLOAK_USER_ADMIN_SECRET_NAME
               value: magicstick-user-admin-client
+            - name: KEYCLOAK_FEDERATION_ADMIN_SECRET_NAMESPACE
+              value: identity-system
+            - name: KEYCLOAK_FEDERATION_ADMIN_SECRET_NAME
+              value: magicstick-federation-admin-client
             - name: KUBERNETES_ACCESS_INFO_NAMESPACE
               value: identity-system
             - name: KUBERNETES_ACCESS_INFO_NAME

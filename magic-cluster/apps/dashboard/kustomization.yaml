@@ -8,6 +8,7 @@ resources:
   - settings-rbac.yaml
   - model-secrets-rbac.yaml
   - user-admin-rbac.yaml
+  - federation-admin-rbac.yaml
   - license-rbac.yaml
   - license-trust.yaml
   - license-official-trust.yaml

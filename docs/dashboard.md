@@ -22,6 +22,8 @@ Both
         -> Flux Kustomizations, HelmReleases, and native KubeAI Model resources
      -> dedicated Keycloak user-administration client
         -> Keycloak Admin REST API
+     -> dedicated Keycloak federation-administration client
+        -> managed OIDC/SAML providers and fixed role mappers
      -> LiteLLM key-management API
         -> named virtual API keys in LiteLLM PostgreSQL
      -> Keycloak Kubernetes access groups
@@ -51,6 +53,9 @@ The dashboard may:
   the signed-in actor has `magicstick-admin`
 - assign SSO-bound Kubernetes access to existing Keycloak users and generate
   token-free OIDC kubeconfigs when the signed-in actor has `magicstick-admin`
+- validate, create, update, disable, and delete dashboard-owned upstream OIDC or
+  SAML providers and exact claim/attribute-to-role mappings when both a live
+  administrator and the `federated-sso` entitlement permit it
 
 The dashboard must not replace the Magic Stick Operator, Flux, OpenClaw, Hermes,
 Paperclip, KubeOpenCode, KubeAI, LiteLLM, or direct app instance reconcilers.
@@ -62,12 +67,10 @@ Paperclip, KubeOpenCode, KubeAI, LiteLLM, or direct app instance reconcilers.
 | Overview | Shows appliance health, module/instance/model counts, and the complete local, public, or direct URLs discovered for modules and app instances from Ingress, Gateway API `HTTPRoute`, and instance status. |
 | Services | Combines modules and instances: application cards contain their instances, shared AI runtime services stay compact, and technical platform modules are collapsed by default. The create dialog first selects an application and then shows only its configuration. |
 | Models | Creates/removes local and external model activations, discovers public Hugging Face repositories or Ollama Library models and their selectable artifacts/tags, retains tested presets and direct references, selects CPU or an available NVIDIA/AMD/Intel target, estimates memory, and shows compact per-device memory gauges. |
-| Users | Gives administrators a paginated Keycloak user overview and local-user lifecycle controls. |
 | API Access | Lets administrators create multiple named LiteLLM API keys, view their non-secret metadata, and revoke individual keys. |
 | Kubernetes Access | Lets administrators assign Viewer, Operator, or Cluster Administrator access to existing SSO identities and download or copy token-free OIDC kubeconfigs. |
-| System Status | Shows NVIDIA, AMD, and Intel detection/operator/resource state plus Flux, Pod, Service, Ingress, and Event status. |
-| Settings | Edits appliance-wide public and mDNS domain settings. The public dashboard host is always derived from the public domain. |
-| License & Enterprise | Admin-only offline license preview, activation, status and export, also available through CLI/TUI. The standard API runtime contains the license-gated targeted-sharing implementation. The dashboard also bundles the MIT text, licensing overview and provisional Enterprise notice for offline inspection/download. |
+| Federated SSO | Enterprise: validates OIDC discovery or SAML metadata, stores providers in Keycloak, and maps exact upstream claim/attribute values to fixed Magic Stick roles. |
+| System | Groups Settings, License, Users, and System Status behind one primary navigation item and presents them as category tabs like the Services filters. Settings, License, and Users retain their administrator and identity-availability restrictions; System Status remains available to every dashboard role. |
 
 ## Backend API
 
@@ -126,11 +129,10 @@ The React implementation retains the established tab-by-tab feature contract:
 | Overview | Appliance and object counts, discovered module and instance URLs with local/public/direct classification and copy/open actions, plus appliance, module, instance, model, removal, and Flux attention items. |
 | Services | Catalog-driven Applications, AI Runtime, and Platform groups; dependency-aware enable/disable controls; parameters; credentials; collapsible instances; progress, messages, routes, removal, and all OpenClaw, Hermes, Paperclip, KubeOpenCode, and Odysseus create options. |
 | Models | CPU and per-GPU memory gauges; preset, direct-reference, Hugging Face, and Ollama discovery; popular and family shortcuts; paginated repositories and quantizations/tags; metadata, download size, context, memory estimator, over-capacity markers, creation, progress, registered catalog models, removal, and local-runtime cleanup. |
-| Settings | Public-domain and mDNS-domain editing with the established derived-host behavior. |
-| Users | Server-side search and pagination, status/source filters, direct and effective roles, create, profile edit, access change, enable/disable, temporary-password reset, capability explanations, and guarded deletion. |
 | API Access | Endpoint display/copy, named-key creation, one-time secret display/copy, non-secret metadata, refresh, and guarded revocation. |
 | Kubernetes Access | OIDC readiness, role explanations and warnings, user search/pagination, access assignment/removal, and readiness-guarded kubeconfig download/copy. |
-| System Status | Hardware operator lifecycle and GPU-resource state, Flux details, Pod/Service/Ingress/route summaries, and discovered route URLs. |
+| Federated SSO | Entitlement status, stable issuer and per-provider callback, OIDC/SAML metadata validation, redacted provider state, exact role mappings, guarded save/delete, and local-recovery guidance. |
+| System | Category tabs for public/mDNS settings; offline license administration and software notices; server-side user administration; and hardware, Flux, Pod, Service, Ingress, and route status. Legacy `#/settings`, `#/license`, and `#/users` hashes resolve to their new nested System routes. |
 
 `dashboard/apps/web/src/FeatureParity.test.tsx` protects these user-visible
 contracts independently of the smaller application-shell tests. Catalog and
@@ -307,6 +309,11 @@ the appliance service restores the TUI automatically.
 | `GET` | `/api/kubernetes-access?search=&first=&max=` | Lists human Keycloak users, their direct Kubernetes access group, and non-secret cluster OIDC readiness. |
 | `PUT` | `/api/kubernetes-access/{id}` | Replaces only the user's direct Magic Stick Kubernetes group and requests a Keycloak logout. |
 | `GET` | `/api/kubernetes-access/{id}/kubeconfig` | Returns a user-labelled kubeconfig with cluster/identity CAs and an OIDC exec plugin, but no token, password, or client secret. |
+| `GET` | `/api/federated-sso` | Admin-only sanitized state for dashboard-managed providers, capability status, stable issuer and callback template. No provider secret or raw Keycloak representation is returned. |
+| `POST` | `/api/federated-sso/validate` | Entitled live admin: validates allowlisted input and asks Keycloak to import OIDC discovery or SAML metadata without saving a provider. |
+| `POST` | `/api/federated-sso/providers` | Entitled live admin: creates a provider disabled first, installs server-generated role mappers, then enables it only after the complete write succeeds. |
+| `PUT` | `/api/federated-sso/providers/{alias}` | Entitled live admin: updates an immutable alias using the expected sanitized revision; OIDC updates require the client secret again. |
+| `DELETE` | `/api/federated-sso/providers/{alias}` | Live admin: deletes a dashboard-owned provider after expected-revision confirmation. Deletion remains available without entitlement for recovery. |
 
 All read endpoints require `magicstick-viewer`, `magicstick-operator`, or
 `magicstick-admin`. Instance credential reads and runtime mutations require
@@ -326,7 +333,7 @@ non-empty grant, and a cluster-published OIDC readiness marker.
 
 ## License Administration
 
-The **License & Enterprise** tab and the CLI/TUI **License** area
+The dashboard **System → License** tab and the CLI/TUI **License** area
 use four admin-only routes: `GET /api/license`, `POST /api/license/validate`,
 `PUT /api/license`, and `GET /api/license/export`. Mutations require the existing
 CSRF/same-origin checks. Preview does not replace the license; activation
@@ -357,6 +364,38 @@ See [licensing.md](licensing.md) for the complete contract, issuer commands,
 key rotation, backup, expiry, tamper-resistance limits and local Rancher tests.
 Existing Community features remain license-independent.
 
+## Federated SSO Administration
+
+The **Federated SSO** tab is visible only to `magicstick-admin` when local
+Keycloak identity management is active. `federated-sso` is an Enterprise
+capability: listing and recovery deletion remain possible, while metadata
+validation and create/update require a currently valid entitlement and the
+packaged implementation. OIDC uses a discovery URL, client ID, client secret and
+scopes; SAML uses a metadata URL. Both protocols require one or more exact
+upstream claim/attribute mappings to `user`, `viewer`, `operator`, or `admin`.
+
+The browser cannot submit a raw Keycloak provider or mapper. The API accepts a
+bounded contract, HTTPS metadata URLs and allowlisted metadata fields, rejects
+expired or unsigned SAML metadata, preserves the discovered SAML binding, forces
+signature validation, and generates only the four fixed Magic Stick realm-role
+mappers. Client secrets are sent only on save, stored in Keycloak, redacted from
+all responses and required again for every OIDC update. Unknown providers and
+unknown mappers are not adopted or deleted.
+
+Provider changes use a sanitized expected revision and a single API-process
+lock. A provider is staged disabled; mapper failure removes a newly created
+provider or leaves an existing provider disabled. A background entitlement check
+disables (but does not delete) dashboard-managed providers after an invalid,
+missing, expired or currently unverifiable license. Local Keycloak login and the
+protected recovery administrator stay independent of upstream availability.
+
+Keycloak receives a separate confidential `magicstick-federation-admin` service
+account. It has exactly `manage-identity-providers`, `view-identity-providers`
+and `view-realm`; it has no user, client, realm, impersonation or cluster access.
+The API ServiceAccount can read only its fixed generated Secret through
+`federation-admin-rbac.yaml`. Federation audit lines contain actor, action,
+target, request ID and result, never request bodies or secrets.
+
 ## User Controls
 
 ### Targeted instance sharing
@@ -379,19 +418,19 @@ recovery behavior, rollout dependencies, limitations and local test procedure.
 
 ### User administration
 
-The **Users** tab is hidden unless `/api/session` contains
+The **System → Users** tab is hidden unless `/api/session` contains
 `magicstick-admin` and does not report `identityManagementAvailable: false`.
 This is only a presentation rule; the backend independently enforces the same
 authorization. The user list is loaded lazily when an administrator opens the
-tab and after a mutation. It is not part of the global 30-second dashboard
+sub-tab and after a mutation. It is not part of the global 30-second dashboard
 refresh. A direct-external-provider overlay has no local Keycloak administration
-surface, so it reports identity management unavailable and the tab stays hidden.
+surface, so it reports identity management unavailable and the sub-tab stays hidden.
 
 The table shows username, display name, email, enabled state, identity source,
 creation time, direct MagicStick roles, and effective access. Search is
 server-side and bounded to 10, 25, or 50 results per page. Status and identity
 source filters operate on the current page. The **Create User** button remains
-visible at the top of the tab while it is open.
+visible at the top of the sub-tab while it is open.
 
 The access selector maps to direct realm roles:
 
@@ -438,7 +477,7 @@ edge token still exists.
 
 The **API Access** tab is visible only when `/api/session` contains
 `magicstick-admin`. It is independent of the Keycloak user-administration mode,
-but LiteLLM and its PostgreSQL database must be available. Like the Users tab,
+but LiteLLM and its PostgreSQL database must be available. Like System → Users,
 its list is loaded only when opened or refreshed and is not part of the regular
 30-second dashboard refresh.
 
@@ -795,7 +834,7 @@ The Models screen treats unavailable device metrics as a neutral, per-device
 state. Runtime removal remains outside the memory display and is exposed only
 when no local model still depends on the automatically enabled runtime.
 
-The System Status screen renders all three GPU providers even on a CPU-only
+The **System → System Status** screen renders all three GPU providers even on a CPU-only
 appliance. Each card shows the pinned operator version, driver mode, detected
 and compatible nodes, management owner, allocatable resource count, phase, and
 the controller's non-sensitive explanation. `NotRequired` means no matching
@@ -837,6 +876,8 @@ narrow:
 - manage only Dashboard-created provider credential Secrets in namespace `ai`
 - read only `Secret/magicstick-user-admin-client` in `identity-system` for the
   dedicated Keycloak client-credentials flow
+- read only `Secret/magicstick-federation-admin-client` in `identity-system` for
+  the separately scoped Keycloak federation flow
 - read the non-secret `ConfigMap/magicstick-kubernetes-access-info` and the
   ServiceAccount-mounted Kubernetes CA to assemble token-free kubeconfigs
 

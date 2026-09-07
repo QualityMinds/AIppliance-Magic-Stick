@@ -23,8 +23,12 @@ formalized, release entries should group changes under:
   and replacement conflict protection. Community functions are unchanged.
 - Optional Enterprise instance sharing with stable user/group allow-lists,
   live authorization, fail-closed gateway guards, a basic-user launchpad and
-  dashboard/CLI management. The other six planned Enterprise capabilities remain
-  unimplemented. One mixed-license API image now carries the bounded implementation
+  dashboard/CLI management.
+- Optional Enterprise dashboard-managed federation for multiple OIDC or SAML
+  providers, metadata validation, exact claim/attribute-to-role mappings,
+  redacted secret handling, local-login recovery and fail-closed entitlement
+  enforcement. The other five planned Enterprise capabilities remain
+  unimplemented. One mixed-license API image carries the bounded implementations
   and both notices; live signed entitlements activate paid capabilities while
   Community operation remains available without a license.
 
@@ -64,6 +68,9 @@ formalized, release entries should group changes under:
 
 ### Changed
 
+- The browser dashboard now groups Settings, License, Users, and System Status
+  under one primary **System** navigation item, with role-aware category tabs
+  and redirects for the former direct hashes.
 - The React frontend is now the standard dashboard at the existing local and
   public root URLs, using the original Service and OIDC routes. Shared API,
   CLI/TUI, first-run handoff and runtime resources remain unchanged.
