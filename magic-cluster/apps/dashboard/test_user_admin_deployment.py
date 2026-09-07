@@ -1,3 +1,4 @@
+import json
 import pathlib
 import unittest
 
@@ -20,38 +21,48 @@ class UserAdminDeploymentTests(unittest.TestCase):
         self.assertEqual(pod["serviceAccountName"], "default")
         self.assertEqual(
             {container["name"] for container in pod["containers"]},
-            {"nginx", "renderer"},
+            {"web"},
         )
         self.assertNotIn("api", {volume["name"] for volume in pod["volumes"]})
 
-    def test_react_preview_is_a_separate_unprivileged_frontend(self):
-        deployment = load_documents("react-deployment.yaml")[0]
+    def test_react_is_the_primary_unprivileged_frontend(self):
+        deployment = load_documents("deployment.yaml")[0]
         pod = deployment["spec"]["template"]["spec"]
 
-        self.assertEqual(deployment["metadata"]["name"], "ai-appliance-dashboard-next")
+        self.assertEqual(deployment["metadata"]["name"], "ai-appliance-dashboard")
         self.assertFalse(pod["automountServiceAccountToken"])
         self.assertEqual(pod["serviceAccountName"], "default")
         self.assertEqual([container["name"] for container in pod["containers"]], ["web"])
         self.assertTrue(pod["containers"][0]["securityContext"]["readOnlyRootFilesystem"])
         self.assertEqual(pod["containers"][0]["ports"][0]["containerPort"], 8080)
+        self.assertEqual(pod["containers"][0]["readinessProbe"]["httpGet"]["path"], "/healthz")
+        service = load_documents("service.yaml")[0]
+        self.assertEqual(service["spec"]["selector"], deployment["spec"]["selector"]["matchLabels"])
+        self.assertEqual(service["spec"]["ports"][0], {"name": "http", "port": 80, "targetPort": "http"})
 
-    def test_react_preview_has_an_mdns_oidc_route(self):
-        grant, route, policy = load_documents("react-gateway.yaml")
+    def test_primary_react_dashboard_keeps_mdns_and_both_oidc_routes(self):
+        grant, route, policy, public_route, public_policy = load_documents("gateway.yaml")
 
         self.assertEqual(grant["kind"], "ReferenceGrant")
-        self.assertEqual(grant["metadata"]["name"], "allow-identity-dashboard-next")
-        self.assertEqual(grant["spec"]["to"][0]["name"], "ai-appliance-dashboard-next")
+        self.assertEqual(grant["metadata"]["name"], "allow-identity-gateway")
+        self.assertEqual(grant["spec"]["to"][0]["name"], "ai-appliance-dashboard")
         self.assertEqual(route["kind"], "HTTPRoute")
         self.assertEqual(route["metadata"]["annotations"]["lab42.io/mdns.enabled"], "true")
         self.assertEqual(
             route["spec"]["hostnames"],
-            ["dashboard2.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"],
+            ["${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"],
         )
         self.assertEqual(
             route["spec"]["rules"][0]["backendRefs"][0]["name"],
-            "ai-appliance-dashboard-next",
+            "ai-appliance-dashboard",
         )
-        self.assertEqual(policy["spec"]["oidc"]["cookieNames"]["accessToken"], "MagicStickPreviewAccessToken")
+        self.assertEqual(public_route["spec"]["hostnames"], ["${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"])
+        for protected_route, protected_policy in ((route, policy), (public_route, public_policy)):
+            self.assertEqual(protected_route["spec"]["rules"][0]["backendRefs"], [{"name": "ai-appliance-dashboard", "namespace": "dashboard", "port": 80}])
+            self.assertEqual(protected_policy["spec"]["targetRefs"][0]["name"], protected_route["metadata"]["name"])
+            self.assertEqual(protected_policy["spec"]["oidc"]["cookieNames"]["accessToken"], "MagicStickAccessToken")
+            self.assertEqual(protected_policy["spec"]["oidc"]["logoutPath"], "/logout")
+            self.assertTrue(protected_policy["spec"]["oidc"]["forwardAccessToken"])
 
     def test_api_has_a_dedicated_single_pod_identity_boundary(self):
         deployment = load_documents("api-deployment.yaml")[0]
@@ -80,7 +91,6 @@ class UserAdminDeploymentTests(unittest.TestCase):
         self.assertEqual(
             env["DASHBOARD_ALLOWED_ORIGINS"],
             "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local},"
-            "https://dashboard2.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local},"
             "https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}",
         )
         self.assertNotIn("KEYCLOAK_USER_ADMIN_CLIENT_SECRET", env)
@@ -115,14 +125,48 @@ class UserAdminDeploymentTests(unittest.TestCase):
             deployment["spec"]["selector"]["matchLabels"],
         )
 
+    def test_official_trust_is_git_updated_and_local_trust_is_preserved(self):
+        official = load_documents("license-official-trust.yaml")[0]
+        local = load_documents("license-trust.yaml")[0]
+        self.assertEqual(official["metadata"]["name"], "magicstick-license-official-trust")
+        self.assertEqual(official["metadata"]["namespace"], "identity-system")
+        self.assertNotIn("kustomize.toolkit.fluxcd.io/ssa", official["metadata"]["annotations"])
+        bundle = json.loads(official["data"]["trusted-keys.json"])
+        self.assertTrue(bundle["keys"], "Official installations must ship public verification keys")
+        self.assertFalse(set(bundle["keys"]) & set(bundle["retiredKeyIds"]))
+        self.assertEqual(local["metadata"]["annotations"]["kustomize.toolkit.fluxcd.io/ssa"], "IfNotPresent")
+        self.assertEqual(json.loads(local["data"]["trusted-keys.json"]), {"keys": {}})
+        deployment = load_documents("api-deployment.yaml")[0]
+        container = deployment["spec"]["template"]["spec"]["containers"][0]
+        env = {item["name"]: item.get("value") for item in container["env"]}
+        self.assertEqual(env["LICENSE_OFFICIAL_TRUST_STORE"], "/etc/magicstick-license-official/trusted-keys.json")
+        mounts = {mount["name"]: mount for mount in container["volumeMounts"]}
+        self.assertTrue(mounts["license-official-trust"]["readOnly"])
+        self.assertNotIn("subPath", mounts["license-official-trust"])
+        self.assertIn("magicstick-license-official-trust", deployment["metadata"]["annotations"]["configmap.reloader.stakater.com/reload"])
+        self.assertIn("license-official-trust.yaml", load_documents("kustomization.yaml")[0]["resources"])
+
     def test_nginx_proxies_to_the_api_service_instead_of_a_sidecar(self):
-        config = load_documents("nginx-config.yaml")[0]["data"]["default.conf"]
+        config = (DASHBOARD_DIR.parents[2] / "dashboard/apps/web/nginx.conf").read_text(encoding="utf-8")
 
         self.assertNotIn("127.0.0.1:8080", config)
         self.assertIn(
             "ai-appliance-dashboard-api.identity-system.svc.cluster.local:8080",
             config,
         )
+        self.assertIn("listen 8080;", config)
+        self.assertIn('add_header Cache-Control "no-store" always;', config)
+        self.assertIn("location /assets/", config)
+        self.assertIn("try_files $uri =404;", config)
+        self.assertIn("try_files $uri $uri/ /index.html;", config)
+
+    def test_removed_frontends_cannot_be_reintroduced_by_the_base(self):
+        resources = load_documents("kustomization.yaml")[0]["resources"]
+        for filename in ("configmap.yaml", "nginx-config.yaml", "react-deployment.yaml", "react-service.yaml", "react-gateway.yaml", "test_dashboard_ui.py"):
+            self.assertNotIn(filename, resources)
+            self.assertFalse((DASHBOARD_DIR / filename).exists(), filename)
+        deployments = [doc for filename in resources for doc in load_documents(filename) if doc and doc["kind"] == "Deployment"]
+        self.assertEqual({doc["metadata"]["name"] for doc in deployments}, {"ai-appliance-dashboard", "ai-appliance-dashboard-api"})
 
     def test_all_api_rbac_bindings_use_only_the_dedicated_service_account(self):
         binding_files = (
@@ -192,9 +236,9 @@ class UserAdminDeploymentTests(unittest.TestCase):
             "dashboard-api.yaml",
             "api-deployment.yaml",
             "api-service.yaml",
-            "react-deployment.yaml",
-            "react-service.yaml",
-            "react-gateway.yaml",
+            "deployment.yaml",
+            "service.yaml",
+            "gateway.yaml",
             "cli-gateway.yaml",
         ):
             self.assertIn(resource, kustomization["resources"])

@@ -10,15 +10,11 @@ resources:
   - user-admin-rbac.yaml
   - license-rbac.yaml
   - license-trust.yaml
-  - configmap.yaml
+  - license-official-trust.yaml
   - dashboard-api.yaml
   - api-deployment.yaml
   - api-service.yaml
-  - nginx-config.yaml
   - deployment.yaml
   - service.yaml
-  - react-deployment.yaml
-  - react-service.yaml
-  - react-gateway.yaml
   - cli-gateway.yaml
   - gateway.yaml

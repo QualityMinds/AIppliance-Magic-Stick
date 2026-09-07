@@ -1,9 +1,11 @@
 # Magic Stick Dashboard Clients
 
-This workspace contains the parallel React dashboard, the `magicstick` command
+This workspace contains the standard React dashboard, the `magicstick` command
 line client, its interactive terminal UI, and framework-neutral packages shared
-by all three interfaces. The existing ConfigMap-rendered UI stays active while
-the React frontend is evaluated at `https://dashboard2.magicstick.local/`.
+by all three interfaces. The React application replaces the ConfigMap-rendered
+UI and runs at `https://magicstick.local/` and the configured public-domain root.
+The separate preview installation and its hostname are retired; the backend API,
+SSO, CLI and TUI retain their existing contracts.
 
 ```text
 apps/web              React browser application and nginx image
@@ -144,9 +146,26 @@ The web app always calls relative `/api/*` paths. Vite proxies those paths to
 `MAGICSTICK_API_PROXY` to use another test appliance. The production nginx image
 proxies them to the existing in-cluster dashboard API.
 
-`apps/web/src/FeatureParity.test.tsx` mirrors the current dashboard tab by tab.
+`apps/web/src/FeatureParity.test.tsx` protects the dashboard feature contracts tab by tab.
 CLI/TUI parsing, authentication, private session storage, rendering, and command
 dispatch are covered below `apps/cli/src/*.test.ts`.
+
+To test the standard frontend image, named Service port, API proxy, cache headers,
+and admin/viewer browser behavior in an isolated Rancher Desktop namespace:
+
+```bash
+docker --context rancher-desktop build -f apps/web/Dockerfile -t magicstick-web:default-test ..
+docker --context rancher-desktop build -f apps/api/Dockerfile --target community -t magicstick-api:license-test ..
+pnpm build
+python3 apps/api/rancher_license_test.py --web
+```
+
+This opt-in check also exercises license persistence and the built CLI against
+the real API. It uses synthetic identities, not a full Keycloak/Envoy SSO login.
+Install Playwright and Chrome first, or set `PLAYWRIGHT_MODULE` to an existing
+Playwright module and optionally `PLAYWRIGHT_CHANNEL` (default: `chrome`). The
+frontend nginx configuration differs only in the isolated API Service hostname.
+The test never uses the current Kubernetes context and cleans up its namespace.
 
 No Kubernetes token, OIDC client secret, provider credential, or user password
 belongs in this workspace, frontend image, shell history, or committed fixture.

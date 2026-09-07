@@ -34,12 +34,6 @@ const initialTab = (): TabId => {
   return tabs.some((tab) => tab.id === value) ? value : 'overview';
 };
 
-const legacyDashboardUrl = () => {
-  const host = window.location.hostname.replace(/^(?:dashboard2|dashboard-next|next)\./, '');
-  const port = window.location.port ? `:${window.location.port}` : '';
-  return `${window.location.protocol}//${host}${port}/`;
-};
-
 const ActivePage = ({tab, session}: {tab: TabId; session: Session}) => {
   switch (tab) {
     case 'services': return <ServicesPage session={session} />;
@@ -86,14 +80,13 @@ export const App = () => {
     <main className="page">
       <header className="hero">
         <div>
-          <p className="eyebrow">Magic Stick · React Preview</p>
-          <h1>AI Appliance Dashboard 2</h1>
-          <p className="subtitle">The next dashboard uses the existing, role-protected appliance API.</p>
+          <p className="eyebrow">Magic Stick</p>
+          <h1>AI Appliance Dashboard</h1>
+          <p className="subtitle">Manage models, services and access in one place.</p>
         </div>
         <div className="hero-side">
           <StatusBadge phase="Connected" />
           <span className="muted">Signed in: {session.data.username}</span>
-          <a className="button button-ghost" href={legacyDashboardUrl()}>Open current dashboard</a>
           <a className="button button-ghost" href="/logout">Log out</a>
         </div>
       </header>
@@ -115,7 +108,7 @@ export const App = () => {
         <div className="content"><ActivePage tab={allowedTabs.some((item) => item.id === tab) ? tab : 'overview'} session={session.data} /></div>
       </section>
 
-      <footer>Dashboard 2 preview · Same control plane, separate frontend.</footer>
+      <footer>Magic Stick · Your AI infrastructure.</footer>
     </main>
   );
 };

@@ -3,7 +3,7 @@
 The AIMS-005 foundation is **MIT-licensed infrastructure**. Optional Enterprise
 business code uses the same signed-capability boundary. The React dashboard, CLI and TUI use the same admin-only API
 and persistent Kubernetes state. No existing Community operation requires a
-license. The old ConfigMap-rendered frontend is unchanged.
+license. The React frontend is the standard browser dashboard.
 
 Software-license scope and technical entitlement activation are different.
 See the [licensing overview](../LICENSING.md), unchanged [MIT text](../LICENSE)
@@ -13,7 +13,7 @@ GitHub at runtime. Customer terms still require review before commercial release
 
 ## Current scope
 
-`License & Enterprise` in Dashboard 2 provides status, file selection, validation,
+`License & Enterprise` in the dashboard provides status, file selection, validation,
 an explicit replacement preview, activation and export. The maximum file size
 is 64 KiB. Uploads never supply trusted keys. A license is rechecked on activation
 and every status/capability read; there is no process-local entitlement cache.
@@ -38,7 +38,24 @@ capabilities behind a paywall. Multi-GPU and multi-node support boundaries still
 need their own review. Future business code belongs behind the separately
 documented [Enterprise boundary](../enterprise/README.md).
 
-## 1. Prepare the issuer outside the appliance
+## Customer workflow
+
+Official installations receive the manufacturer's public verification keys with
+Magic Stick. Customers do not generate keys or configure a trust store: they
+open **License & Enterprise**, select their signed JSON, validate it, and
+explicitly activate it. The issuer's private key is never part of the appliance.
+
+The release prerequisite below must be completed before shipping a license-ready
+build. CI rejects an official bundle with no active public keys; temporary test
+keys are not a substitute for the approved manufacturer key.
+
+The bundled manufacturer key is `issuer-2026`, an Ed25519 public key. Its SHA-256
+fingerprint (DER SubjectPublicKeyInfo) is
+`93f4bd3b664fea576fdd0b32ad9be44525b5a98207885b6cc251919ee1878182`.
+It is public release material, not a secret. Customers need neither this file
+nor access to the manufacturer's signing workstation to activate a license.
+
+## 1. Prepare the issuer outside the appliance (manufacturer, once)
 
 Use Python 3.9+ with a virtual environment on a controlled signing workstation.
 The example variables must point **outside the checkout**. Do not put private
@@ -66,30 +83,57 @@ contains the public verification key and its `kid`. The issuer script is not
 copied into the customer API image. Assign an issuer owner and an issuance,
 renewal, backup and key-rotation process before issuing customer licenses.
 
-## 2. Install the public trust store
+## 2. Publish the public trust bundle (manufacturer)
 
-Select the intended kubeconfig context explicitly. Use the public output from
-the previous step, never the private PEM. From the repository root:
+After reviewing the public-key fingerprint and securely backing up the private
+key, put only the public `keys` mapping from `trusted-keys.json` into
+`magic-cluster/apps/dashboard/license-official-trust.yaml`. The release-owned
+bundle may additionally contain `retiredKeyIds`, an initially empty list. Key IDs
+are stable: never reuse an existing ID for a different key. Check the bundle:
 
 ```bash
-kubectl --context "$CONTEXT" -n identity-system create configmap magicstick-license-trust \
-  --from-file=trusted-keys.json=/path/to/public/trusted-keys.json \
-  --dry-run=client -o yaml | \
-  kubectl --context "$CONTEXT" apply -f -
+python dashboard/apps/api/check_license_trust.py --manifest \
+  magic-cluster/apps/dashboard/license-official-trust.yaml
 ```
 
-The base installs an empty trust store with Flux `ssa: IfNotPresent` and
-`prune: disabled`. Flux therefore does not replace an administratively installed
-trust store with the empty default. This intentionally replaces the public-key
-set: review the existing store and retain old keys during a planned rotation.
-Coordinate with any other configuration owner before changing it. The mounted
-ConfigMap is reread for each check. Kubelet propagation
-is asynchronous; the existing reloader also observes this ConfigMap. Wait until
-the new key ID appears in the status before issuing/importing a matching file.
+This check requires PyYAML for `--manifest` and prints only IDs and public-key
+fingerprints. JSON input needs no YAML dependency. The public-release and image
+build workflows run this gate before publishing artifacts.
 
-The public store is deployment configuration, not an upload option. Its default
-has **no production or test verification keys**. An empty store leaves Community
-usable and rejects license activation.
+The shared dashboard base deploys
+`identity-system/magicstick-license-official-trust` on every installation path:
+USB/cloud-init, existing Linux and existing Kubernetes. Flux owns and updates
+this separate ConfigMap; it deliberately has no `ssa: IfNotPresent` annotation.
+The API mounts it read-only and reads it via `LICENSE_OFFICIAL_TRUST_STORE`.
+No API permission to create or patch trust ConfigMaps is added.
+
+Publish the matching API image as well as the manifests: an older verifier
+image does not read the new official store. After the release is installed,
+confirm the expected key ID in **License & Enterprise** or `magicstick license
+status`. Mounted ConfigMap propagation is asynchronous; each license check
+rereads the files, and reloader also observes both stores.
+
+### Upgrades and optional local trust
+
+The original `magicstick-license-trust` ConfigMap remains the optional local
+trust store. Its `ssa: IfNotPresent` and `prune: disabled` annotations preserve
+administratively installed keys. Existing installations with an empty local
+store automatically gain the official keys by mounting the new release-owned
+store; no manual patch, migration Job, Secret reset or host reinstall is needed.
+
+The API combines the official and local key sets. Identical keys under the same
+ID are deduplicated; different keys under the same ID fail closed. An official
+`retiredKeyIds` entry also removes that ID from the effective local set, so an
+old local copy cannot silently restore a retired issuer ID. The local ConfigMap
+itself and the installed license Secret are never rewritten by this merge.
+Malformed or missing configured stores fail license verification instead of
+silently falling back to another source. Community remains available.
+
+Independent distributors may maintain their own public bundle. Cluster
+administrators may deliberately add local issuers to `magicstick-license-trust`
+using its existing `{"keys":{...}}` format; this is an advanced trust decision,
+not part of customer license activation. Never accept keys supplied inside a
+license upload and never put private signing keys into either store.
 
 ## 3. Issue a license
 
@@ -127,7 +171,7 @@ key URLs are rejected. Signed data is authenticated, **not encrypted**.
 
 ## 4. Import through the dashboard, CLI or TUI
 
-As an appliance administrator, open **Dashboard 2 → License & Enterprise**.
+As an appliance administrator, open **Dashboard → License & Enterprise**.
 Select the file, choose **Validate license**, review the customer, validity,
 entitlements and current/replacement license IDs, then **Activate license**.
 Changing the file discards the preview. A concurrent change requires a fresh
@@ -194,10 +238,14 @@ rest is an installation responsibility, not enabled by this feature.
 
 ## Rotation, expiry and security boundary
 
-For key rotation, first distribute a store containing old and new public keys,
+For key rotation, first publish the official bundle with old and new public keys,
 then issue replacement licenses with the new key ID. Remove an old key only
-after the replacement plan is complete; removing it invalidates licenses signed
-by that key on the next check. Replacing a license replaces its entire entitlement
+after the replacement plan is complete, and add its ID to `retiredKeyIds` so
+legacy local copies do not re-enable it. The update invalidates licenses signed
+under that ID on the next check after the mounted bundle changes. Keep retirement
+IDs in future releases and inspect any separately configured aliases when
+responding to a compromised signing key. Offline appliances need the update;
+this is not immediate online revocation. Replacing a license replaces its entire entitlement
 set. The first version has one active file, no scheduled replacements, online
 revocation service, billing, audit ledger or configurable grace period.
 
@@ -242,8 +290,14 @@ docker --context rancher-desktop build --target community \
 The opt-in integration test uses only context `rancher-desktop`, creates its own
 random namespace and removes that namespace afterward. It exercises the actual
 API image and Kubernetes Secret/CAS/RBAC behavior with a synthetic userinfo
-service and ephemeral signing keys. It covers authenticated import, rejection,
-export, Pod restart and the built CLI. `--serve` additionally starts a
+service and ephemeral signing keys, substituting only test public keys into the
+isolated official ConfigMap for rotation. Initially it retains the shipped public
+keys and adds an ephemeral test issuer; no manufacturer private key is used.
+It covers automatic official trust with an unchanged
+empty legacy store, local-key preservation, mounted-bundle rotation/retirement,
+authenticated import, rejection, export, Pod restart and the built CLI. `--web`
+also tests signed-file upload, preview and activation in Chrome through the
+standard frontend Service. `--serve` additionally starts a
 loopback-only built-React fixture for manual Chrome verification until Ctrl+C.
 It is not a full Keycloak/Envoy, Flux lifecycle, physical-console, multi-node or
 Enterprise-business-feature acceptance test. Abrupt termination may require

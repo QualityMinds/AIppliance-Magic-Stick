@@ -6,6 +6,7 @@ customer runtime. Kubernetes is the authoritative state; no entitlement cache.
 import base64
 import importlib
 import json
+import os
 import re
 import time
 import urllib.error
@@ -79,6 +80,35 @@ def public_keys(document):
         raise LicenseError("trust_unavailable", "License verification keys are invalid.", 503) from error
 
 
+def official_public_keys(document):
+    """Release-owned public keys and retired IDs; never supplied by a license file."""
+    if not isinstance(document, dict) or "keys" not in document or set(document) - {"keys", "retiredKeyIds"}:
+        raise LicenseError("trust_unavailable", "Official license verification keys are invalid.", 503)
+    keys = public_keys({"keys": document["keys"]})
+    retired = document.get("retiredKeyIds", [])
+    if (not isinstance(retired, list) or len(retired) > 256
+            or any(not isinstance(kid, str) or not IDENTIFIER.fullmatch(kid) for kid in retired)
+            or len(set(retired)) != len(retired) or set(retired) & set(keys)):
+        raise LicenseError("trust_unavailable", "Official license key retirement policy is invalid.", 503)
+    return keys, set(retired)
+
+
+def combined_public_keys(local_document, official_document=None):
+    """Preserve local trust without permitting it to override an official key ID."""
+    local = public_keys(local_document)
+    if official_document is None:
+        return local
+    official, retired = official_public_keys(official_document)
+    result = {kid: key for kid, key in local.items() if kid not in retired}
+    for kid, key in official.items():
+        if kid in result:
+            raw = lambda value: value.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+            if raw(result[kid]) != raw(key):
+                raise LicenseError("trust_unavailable", "Local and official license verification keys conflict.", 503)
+        result[kid] = key
+    return result
+
+
 def validate_claims(claims):
     required = {"version", "product", "issuer", "licenseId", "customer", "issuedAt", "notBefore", "expiresAt", "features"}
     if not isinstance(claims, dict) or not required <= set(claims) or set(claims) - required - {"installationId"}:
@@ -142,12 +172,16 @@ def verify_document(document, keys, installation_id, now=None):
 
 
 class LicenseService:
-    def __init__(self, request, namespace, trust_path):
+    def __init__(self, request, namespace, trust_path, official_trust_path=None):
         self.request = request
         self.collection = f"/api/v1/namespaces/{namespace}/secrets"
         self.path = self.collection + "/" + SECRET_NAME
         self.namespace = namespace
         self.trust_path = Path(trust_path)
+        # Older deployments/issuer tests can still supply only the local store.
+        # New official installs always configure the separate release-owned file.
+        official_trust_path = official_trust_path or os.environ.get("LICENSE_OFFICIAL_TRUST_STORE")
+        self.official_trust_path = Path(official_trust_path) if official_trust_path else None
 
     def _request(self, method, path, body=None):
         try:
@@ -186,7 +220,9 @@ class LicenseService:
 
     def keys(self):
         try:
-            return public_keys(strict_json(self.trust_path.read_text(encoding="utf-8")))
+            local = strict_json(self.trust_path.read_text(encoding="utf-8"))
+            official = strict_json(self.official_trust_path.read_text(encoding="utf-8")) if self.official_trust_path else None
+            return combined_public_keys(local, official)
         except (OSError, ValueError, RecursionError) as error:
             raise LicenseError("trust_unavailable", "License verification keys are unavailable.", 503) from error
 

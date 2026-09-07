@@ -925,13 +925,6 @@ class LocalRuntimeTests(unittest.TestCase):
         self.assertEqual(range_requests[0][1], 1024 * 1024)
         self.assertIn("/blobs/sha256:", range_requests[0][0])
 
-    def test_dashboard_renders_starting_model_phase_as_progress(self):
-        source = (ROOT / "configmap.yaml").read_text(encoding="utf-8")
-
-        self.assertIn("normalized === 'starting'", source)
-        self.assertIn("label: 'Starting model runtime'", source)
-        self.assertIn("'starting', 'reconciling'", source)
-
     def test_status_payload_exposes_hardware_operator_state(self):
         originals = {
             "appliance": self.server["appliance"],
@@ -3015,7 +3008,6 @@ class UserAdministrationTests(unittest.TestCase):
 
         self.server["DASHBOARD_ALLOWED_ORIGINS"] = {
             "https://magicstick.local",
-            "https://dashboard2.magicstick.local",
             "https://magicstick.example.com",
         }
 

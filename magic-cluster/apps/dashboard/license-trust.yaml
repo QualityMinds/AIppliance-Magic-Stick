@@ -4,8 +4,9 @@ metadata:
   name: magicstick-license-trust
   namespace: identity-system
   annotations:
-    # Deployment-managed public trust anchors; retain installed keys on Flux
-    # reconciliation. No test or production private signing key belongs here.
+    # Optional deployment-managed/legacy public trust anchors. Official keys
+    # ship separately, so upgrades preserve administratively installed keys.
+    # No private signing key belongs in either ConfigMap.
     kustomize.toolkit.fluxcd.io/ssa: IfNotPresent
     kustomize.toolkit.fluxcd.io/prune: disabled
 data:

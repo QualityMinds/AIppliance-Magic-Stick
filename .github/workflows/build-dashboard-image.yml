@@ -62,6 +62,7 @@ jobs:
       - name: Verify license foundation
         run: |
           python3 -m pip install -r dashboard/apps/api/requirements.txt pyyaml
+          python3 dashboard/apps/api/check_license_trust.py --manifest magic-cluster/apps/dashboard/license-official-trust.yaml
           python3 -m unittest discover -s dashboard/apps/api -p 'test_*.py'
 
       - name: Set up Docker Buildx
@@ -79,12 +80,14 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.IMAGE_NAME }}
+          # Keep the preview alias only for appliances upgrading to the default UI.
           tags: |
             type=sha,prefix=sha-,format=long
-            type=raw,value=react-preview
+            type=raw,value=web,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=react-preview,enable=${{ github.ref == 'refs/heads/main' }}
           labels: |
             org.opencontainers.image.title=MagicStick React dashboard
-            org.opencontainers.image.description=Parallel React dashboard preview for MagicStick
+            org.opencontainers.image.description=Default React dashboard for MagicStick
             org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick
             org.opencontainers.image.licenses=MIT
             org.opencontainers.image.revision=${{ github.sha }}
@@ -96,11 +99,24 @@ jobs:
           images: ${{ env.IMAGE_NAME }}
           tags: |
             type=sha,prefix=cli-sha-,format=long
-            type=raw,value=console
+            type=raw,value=console,enable=${{ github.ref == 'refs/heads/main' }}
           labels: |
             org.opencontainers.image.title=MagicStick CLI and TUI runtime
             org.opencontainers.image.description=Private runtime image for the physical MagicStick console
             org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Generate API runtime image metadata
+        id: api-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=api-sha-,format=long
+            type=raw,value=api-licensing-v1,enable=${{ github.ref == 'refs/heads/main' }}
+          labels: |
+            org.opencontainers.image.title=MagicStick dashboard API
             org.opencontainers.image.licenses=MIT
             org.opencontainers.image.revision=${{ github.sha }}
 
@@ -140,13 +156,8 @@ jobs:
           target: community
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ${{ env.IMAGE_NAME }}:api-sha-${{ github.sha }}
-            ${{ env.IMAGE_NAME }}:api-licensing-v1
-          labels: |
-            org.opencontainers.image.title=MagicStick dashboard API
-            org.opencontainers.image.licenses=MIT
-            org.opencontainers.image.revision=${{ github.sha }}
+          tags: ${{ steps.api-meta.outputs.tags }}
+          labels: ${{ steps.api-meta.outputs.labels }}
           cache-from: type=gha,scope=magicstick-dashboard-api
           cache-to: type=gha,mode=max,scope=magicstick-dashboard-api
           provenance: mode=max

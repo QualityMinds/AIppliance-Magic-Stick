@@ -15,10 +15,17 @@ formalized, release entries should group changes under:
 
 ### Added
 
+- Release-owned public license trust distribution alongside preserved local
+  issuers, automatic support for upgrades from an empty legacy store,
+  conflict/retirement checks and a nonempty-public-key release gate.
 - MIT-licensed offline license foundation with Ed25519-signed files, separate
   issuer tooling, admin-only React/CLI/TUI management, Kubernetes persistence
-  and replacement conflict protection. All seven planned Enterprise business
-  capabilities remain unimplemented; Community functions are unchanged.
+  and replacement conflict protection. Community functions are unchanged.
+- Optional Enterprise instance sharing with stable user/group allow-lists,
+  live authorization, fail-closed gateway guards, a basic-user launchpad and
+  dashboard/CLI management. The other six planned Enterprise capabilities remain
+  unimplemented. Default published API images stay Community-only pending
+  approval of the provisional Enterprise terms; offline notices explain the scope.
 
 - Fail-closed one-command installation wrappers for dedicated Ubuntu 24.04
   hosts and existing Kubernetes clusters from Bash or PowerShell 7, including
@@ -56,6 +63,9 @@ formalized, release entries should group changes under:
 
 ### Changed
 
+- The React frontend is now the standard dashboard at the existing local and
+  public root URLs, using the original Service and OIDC routes. Shared API,
+  CLI/TUI, first-run handoff and runtime resources remain unchanged.
 - The pinned Ollama CPU/NVIDIA and ROCm server images now use release `0.33.2`
   so the bundled runtime can parse the Qwen3.5, Qwen3.6, and Qwen3.8 formats.
 - Existing local `ModelActivation` resources remain compatible: when
@@ -113,6 +123,8 @@ formalized, release entries should group changes under:
 
 ### Removed
 
+- The ConfigMap-rendered HTML/JavaScript dashboard, renderer sidecar, obsolete
+  UI tests, and separate preview Deployment, Service, mDNS route and SSO entries.
 - Human default passwords and the generated `keycloak-local-admin` Secret from
   new installations.
 - Application-specific manifest builders, cleanup lists, and direct workload

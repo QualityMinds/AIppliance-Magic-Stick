@@ -45,6 +45,11 @@ Never commit:
 Use runtime secrets, optional external overlays, or an approved secret manager
 integration for real credentials.
 
+Approved manufacturer **public** license-verification keys are release assets,
+not credentials, and may be committed in the official trust bundle after
+fingerprint review. The corresponding private signing key and its password
+must remain outside the repository, build contexts and customer installations.
+
 ## Supported Scope
 
 Security review covers the reusable template files in this repository. Private

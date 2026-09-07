@@ -9,7 +9,7 @@ This increment does not add module ACLs, team delegation or resource budgets.
 
 1. Install the optional Enterprise API implementation and provision/import a
    valid signed license containing `resource-sharing`; see [licensing](licensing.md).
-2. In **Dashboard 2 → Services**, expand an application's instances and select
+2. In **Dashboard → Services**, expand an application's instances and select
    **Sharing**. Administrators can also select sharing while creating an instance.
 3. Keep **All users with the required role**, or select **Selected users or groups**.
 4. Search the Keycloak directory, add existing users/groups, review the selection
@@ -107,14 +107,16 @@ sharing changes return `409` while it is false. Update the packaged API image
 (including `instance_access.py`), backend ConfigMap, gateway filter order, CRD
 and controller together. Merely changing the frontend cannot enable this feature.
 
-**Review-branch release gate:** the existing deployment image pin has not been
-advanced by this change. Before merging/deploying these integration changes,
-build and verify the matching API runtime, update its immutable image reference,
-and validate the coordinated rollout. The previous license-foundation image
-does not contain `instance_access.py`; applying only the new ConfigMap/controller
-against that old image is not supported. Enterprise publication additionally
-requires approval of the commercial terms. This draft is for source review,
-not approval to roll out the new manifests to an existing appliance.
+**Coordinated runtime requirement:** deployment pins must reference a published
+API runtime that contains `instance_access.py`, alongside the matching backend
+ConfigMap, CRD, controller and gateway policy. The previous license-foundation
+image does not contain that integration; applying only the new ConfigMap/controller
+against it is not supported. Branch image builds publish immutable SHA tags
+without advancing installation channel tags, so matching pins can be verified
+before merging. The default image remains Community-only: source integration
+does not approve publication of the commercial package or final customer terms.
+A full Flux upgrade of an existing physical appliance is a separate acceptance
+check from the isolated Rancher tests below.
 
 | Failure | Behavior |
 |---|---|

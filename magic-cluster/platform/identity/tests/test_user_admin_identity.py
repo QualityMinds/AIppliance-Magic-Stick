@@ -20,7 +20,6 @@ KUBERNETES_GROUPS = {
 }
 EXPECTED_POST_LOGOUT_REDIRECT_URIS = (
     "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/##"
-    "https://dashboard2.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/##"
     "https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/"
 )
 EXPECTED_ADMIN_ROLES = {
@@ -189,8 +188,12 @@ class UserAdminIdentityTests(unittest.TestCase):
         self.assertEqual(certificates["identity-pilot-ca"]["spec"]["secretName"], "identity-pilot-ca")
         self.assertEqual(issuers["identity-pilot-ca"]["spec"]["ca"]["secretName"], "identity-pilot-ca")
         self.assertEqual(certificates["identity-pilot"]["spec"]["issuerRef"]["name"], "identity-pilot-ca")
-        self.assertIn(
+        self.assertNotIn(
             "dashboard2.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}",
+            certificates["identity-pilot"]["spec"]["dnsNames"],
+        )
+        self.assertIn(
+            "${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}",
             certificates["identity-pilot"]["spec"]["dnsNames"],
         )
         self.assertIn(
@@ -327,6 +330,19 @@ class UserAdminIdentityTests(unittest.TestCase):
             f"{EXPECTED_POST_LOGOUT_REDIRECT_URIS}'",
             script,
         )
+
+    def test_dashboard_callbacks_and_origins_match_on_install_and_upgrade(self):
+        client = next(client for client in realm_import()["clients"]
+                      if client["clientId"] == HUMAN_GATEWAY_CLIENT_ID)
+        script = keycloak_container()["lifecycle"]["postStart"]["exec"]["command"][-1]
+        for field in ("redirectUris", "webOrigins"):
+            configured = json.dumps(client[field], separators=(",", ":"))
+            self.assertIn(f"-s '{field}={configured}'", script)
+            self.assertFalse(any("dashboard2." in value for value in client[field]))
+        self.assertIn("https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback",
+                      client["redirectUris"])
+        self.assertIn("https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback",
+                      client["redirectUris"])
 
     def test_upgrade_reconciliation_covers_the_full_keycloak_startup_budget(self):
         container = keycloak_container()

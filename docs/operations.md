@@ -4,14 +4,20 @@ This page collects common day-2 checks for a running appliance.
 
 ## Offline license operation
 
-Dashboard 2 administrators use **License & Enterprise**; terminal administrators
+Dashboard administrators use **License & Enterprise**; terminal administrators
 use `magicstick license status` or the TUI's **License** tab. The MIT foundation
 supports signed-file preview, explicit replacement and export. An installed
 Enterprise extension plus a valid `resource-sharing` entitlement adds targeted
 instance access. Existing Community operation remains license-independent.
 
-Follow [licensing.md](licensing.md) to provision the issuer's public trust store,
-issue files outside the appliance, rotate keys and back up the runtime Secret.
+Official releases deliver the issuer's public keys automatically. Customers
+upload only their signed JSON; there is no manual trust-store installation step.
+Follow [licensing.md](licensing.md) for manufacturer key publication, issuance
+outside the appliance, rotation and runtime Secret backups. On upgrade, the new
+release-owned official store works alongside the preserved local store without
+rewriting it. Confirm the expected key ID with `magicstick license status`.
+If keys are unavailable, check that the official ConfigMap and matching API image
+have both reconciled; never resolve this by importing a key from the license file.
 The private signing key must never enter the cluster. Back up both the original
 license and its installation ID; a bound file alone cannot restore a lost ID.
 After an ambiguous write failure, refresh status before retrying. Never delete
@@ -20,7 +26,7 @@ logs/issues. A Pod restart preserves it; a deleted cluster does not.
 
 ## Instance sharing checks
 
-Administrators configure **Dashboard 2 → Services → instance → Sharing**.
+Administrators configure **Dashboard → Services → instance → Sharing**.
 Ordinary users receive only their granted instances. Inspect
 `AppInstance.status.accessGuardReady` and the current Envoy `SecurityPolicy`
 conditions before changing an existing instance's sharing. The operator leaves
@@ -229,23 +235,20 @@ AnythingLLM. Instance-local hostnames use the same instance-name pattern with
 the mDNS domain. The terminal control-plane client uses
 `api.<mDNS-domain>`, for example `api.magicstick.local`.
 
-While the React migration is in preview, `dashboard2.<mDNS-domain>` is published
-as an additional mDNS hostname. With the defaults, open
-`https://dashboard2.magicstick.local/`. It has a separate Deployment, Service,
-OIDC policy, and browser cookie but shares the current dashboard backend API.
-The current dashboard at `https://magicstick.local/` remains available. Check
-both frontends without reading credentials:
+The React dashboard is the standard UI at `https://magicstick.local/` and the
+configured public-domain root. It uses the existing primary routes and OIDC
+cookies; there is only one frontend Deployment. Check it without reading
+credentials:
 
 ```bash
-kubectl -n dashboard get deploy,service \
-  ai-appliance-dashboard ai-appliance-dashboard-next
-kubectl -n identity-system get httproute dashboard-local dashboard-next-local
+kubectl -n dashboard get deploy,service ai-appliance-dashboard
+kubectl -n identity-system get httproute dashboard-local dashboard-public
 kubectl -n identity-system get securitypolicy \
-  dashboard-local-oidc dashboard-next-local-oidc
+  dashboard-local-oidc dashboard-public-oidc
 ```
 
-For a release acceptance pass, compare the current and React dashboards with
-the same authenticated role and live appliance state:
+For a release acceptance pass, verify the standard dashboard against the live
+appliance state with each supported authenticated role:
 
 1. **Overview:** compare counts and verify that every module and instance route
    can be opened and copied from its grouped resource row.
@@ -279,6 +282,38 @@ pnpm typecheck
 pnpm test
 pnpm build
 ```
+
+### Dashboard upgrade cleanup
+
+The standard Deployment and Service keep the name `ai-appliance-dashboard`.
+The frontend Pod now has one `web` container on port 8080; the Service still
+exposes port 80 and resolves its named `http` target. API/CLI resources and
+runtime data are not replaced. The ConfigMap-based renderer and its nginx
+configuration are no longer deployed. `index.html` is served with `no-store`;
+hashed assets are immutable and missing assets return 404 rather than HTML.
+
+Flux installations with pruning enabled remove the retired preview and
+renderer resources from their inventory. The old `dashboard2` hostname is no
+longer advertised by kdns and is removed from certificate and Keycloak
+allowlists. Existing bookmarks must use the primary local or public root URL.
+The Keycloak startup reconciliation updates existing clients as well as fresh
+realm imports; no realm reset or user recreation is needed.
+
+If an external GitOps installation deliberately uses `prune: false`, first
+reconcile identity and dashboard resources and verify the primary frontend is
+Ready. Then remove only the retired objects, using the intended context:
+
+```bash
+kubectl --context "$CONTEXT" -n dashboard rollout status deployment/ai-appliance-dashboard --timeout=120s
+kubectl --context "$CONTEXT" -n dashboard delete deployment,service ai-appliance-dashboard-next --ignore-not-found
+kubectl --context "$CONTEXT" -n dashboard delete configmap ai-appliance-dashboard-renderer ai-appliance-dashboard-nginx --ignore-not-found
+kubectl --context "$CONTEXT" -n dashboard delete referencegrant allow-identity-dashboard-next --ignore-not-found
+kubectl --context "$CONTEXT" -n identity-system delete httproute dashboard-next-local --ignore-not-found
+kubectl --context "$CONTEXT" -n identity-system delete securitypolicy dashboard-next-local-oidc --ignore-not-found
+```
+
+Do not delete the primary dashboard, shared API, identity namespace, runtime
+resources, Secrets or PVCs. A migration does not require reinstalling the host.
 
 ### CLI and terminal UI
 

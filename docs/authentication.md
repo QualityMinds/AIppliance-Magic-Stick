@@ -57,7 +57,7 @@ The local realm defines four initial roles:
 
 | Role | Intended access |
 |---|---|
-| `magicstick-user` | Authenticated application user; minimal Dashboard 2 My instances launchpad |
+| `magicstick-user` | Authenticated application user; minimal dashboard My instances launchpad |
 | `magicstick-viewer` | Read-only dashboard and status access |
 | `magicstick-operator` | Runtime application and model operations |
 | `magicstick-admin` | Identity, security, and appliance administration |
@@ -73,7 +73,7 @@ groups should be mapped to the local Magic Stick roles in Keycloak.
 Dashboard access is hierarchical: viewer permits read-only endpoints, operator
 also permits module, instance, model, and credential operations, and admin also
 permits appliance-wide settings and human-user administration. `magicstick-user`
-alone receives only the Dashboard 2 **My instances** launchpad and its minimal
+alone receives only the dashboard **My instances** launchpad and its minimal
 session/instance API; it does not grant control-plane or status access.
 
 AppInstance access uses the same hierarchy at the Envoy edge. OIDC stores the
@@ -194,7 +194,7 @@ browser never receives that client secret or a Keycloak Admin API token. The
 dedicated API ServiceAccount
 `identity-system/ai-appliance-dashboard-api` may read only
 `Secret/magicstick-user-admin-client` and caches the short-lived admin token in
-memory until shortly before expiry. The nginx and renderer frontend Pod has no
+memory until shortly before expiry. The React/nginx frontend Pod has no
 ServiceAccount token and therefore cannot read that Secret.
 
 Local accounts can be created, edited, enabled, disabled, assigned one of the

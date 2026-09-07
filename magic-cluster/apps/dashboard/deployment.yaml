@@ -3,10 +3,10 @@ kind: Deployment
 metadata:
   name: ai-appliance-dashboard
   namespace: dashboard
-  annotations:
-    configmap.reloader.stakater.com/reload: ai-appliance-dashboard-nginx,ai-appliance-dashboard-renderer
   labels:
     app: ai-appliance-dashboard
+    app.kubernetes.io/name: magicstick-dashboard
+    app.kubernetes.io/component: web
 spec:
   replicas: 1
   selector:
@@ -16,8 +16,8 @@ spec:
     metadata:
       labels:
         app: ai-appliance-dashboard
-      annotations:
-        appliance.magicstick.dev/dashboard-config-revision: compute-targets-v1
+        app.kubernetes.io/name: magicstick-dashboard
+        app.kubernetes.io/component: web
     spec:
       serviceAccountName: default
       automountServiceAccountToken: false
@@ -25,57 +25,42 @@ spec:
         runAsNonRoot: true
         runAsUser: 101
         runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
       containers:
-        - name: nginx
-          image: nginx:1.27.5-alpine
+        - name: web
+          image: ghcr.io/qualityminds/magicstick-dashboard:sha-238e78dc52c38fb4309b52c4849983fa06c98964@sha256:cb1da62ff7832da3d5447302c85805debe89a6f8c5a6dc62dfc389c679d28e41
+          imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 80
+            - containerPort: 8080
               name: http
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 24Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
           volumeMounts:
-            - name: html
-              mountPath: /usr/share/nginx/html
-            - name: nginx-config
-              mountPath: /etc/nginx/conf.d/default.conf
-              subPath: default.conf
-              readOnly: true
-            - name: nginx-cache
-              mountPath: /var/cache/nginx
-            - name: nginx-run
-              mountPath: /var/run
-        - name: renderer
-          image: bitnami/kubectl@sha256:a67b11e95e953f550f020a41970185ccc5f83d78b86b8c575d02c904aa0f9cd7
-          command: ["/bin/sh", "/scripts/render.sh"]
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop: ["ALL"]
-          volumeMounts:
-            - name: html
-              mountPath: /html
-            - name: scripts
-              mountPath: /scripts
-              readOnly: true
-            - name: renderer-tmp
+            - name: tmp
               mountPath: /tmp
       volumes:
-        - name: html
-          emptyDir: {}
-        - name: nginx-config
-          configMap:
-            name: ai-appliance-dashboard-nginx
-        - name: scripts
-          configMap:
-            name: ai-appliance-dashboard-renderer
-            defaultMode: 0755
-        - name: nginx-cache
-          emptyDir: {}
-        - name: nginx-run
-          emptyDir: {}
-        - name: renderer-tmp
+        - name: tmp
           emptyDir: {}
