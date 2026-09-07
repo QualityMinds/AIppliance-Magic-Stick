@@ -122,6 +122,24 @@ export interface ModulesPayload {
   };
 }
 
+export interface InstanceSharing {
+  mode: 'all' | 'selected';
+  users?: string[];
+  groups?: string[];
+}
+
+export interface SharingPrincipal {id: string; name: string}
+
+export interface InstanceAccessState {
+  name: string;
+  revision: string;
+  sharing: InstanceSharing;
+  authentication: string;
+  guardReady: boolean;
+  feature: {id: string; licensed: boolean; implemented: boolean; available: boolean; reason: string};
+  principals?: {users: SharingPrincipal[]; groups: SharingPrincipal[]};
+}
+
 export interface AppInstance {
   metadata?: KubernetesObjectMeta;
   spec?: Record<string, unknown> & {
@@ -129,7 +147,7 @@ export interface AppInstance {
     enabled?: boolean;
     targetNamespace?: string;
     values?: Record<string, unknown>;
-    access?: {authentication?: string; role?: string; exposure?: string};
+    access?: {authentication?: string; role?: string; exposure?: string; sharing?: InstanceSharing};
   };
   status?: StatusValue;
 }

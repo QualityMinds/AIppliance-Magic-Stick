@@ -154,8 +154,8 @@ To test the standard frontend image, named Service port, API proxy, cache header
 and admin/viewer browser behavior in an isolated Rancher Desktop namespace:
 
 ```bash
-docker --context rancher-desktop build -f apps/web/Dockerfile -t magicstick-web:default-test .
-docker --context rancher-desktop build -f apps/api/Dockerfile -t magicstick-api:license-test .
+docker --context rancher-desktop build -f apps/web/Dockerfile -t magicstick-web:default-test ..
+docker --context rancher-desktop build -f apps/api/Dockerfile --target community -t magicstick-api:license-test ..
 pnpm build
 python3 apps/api/rancher_license_test.py --web
 ```

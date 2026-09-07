@@ -30,6 +30,25 @@ describe('license management', () => {
     vi.spyOn(api, 'importLicense').mockResolvedValue({...status, ...candidate, hasDocument: true, revision: '2'});
   });
 
+  it('bundles scoped license texts for offline inspection and exact download', async () => {
+    mount();
+    await screen.findByRole('heading', {name: 'Software licenses'});
+    const link = screen.getByRole('link', {name: 'Download Enterprise · Provisional notice', hidden: true});
+    expect(link).toHaveAttribute('download', 'MagicStick-Enterprise.txt');
+    const text = decodeURIComponent(link.getAttribute('href')!.split(',', 2)[1]!);
+    expect(text).toContain('LicenseRef-MagicStick-Enterprise');
+    expect(text).toContain('not a complete customer license');
+    expect(screen.getByText(/not a commercial agreement/)).toBeInTheDocument();
+  });
+
+  it('keeps software notices readable when entitlement status is unavailable', async () => {
+    vi.mocked(api.licenseStatus).mockRejectedValue(new Error('License API unavailable.'));
+    mount();
+    await screen.findByText('License API unavailable.');
+    expect(screen.getByRole('heading', {name: 'Software licenses'})).toBeInTheDocument();
+    expect(screen.getByRole('link', {name: 'Download Community · MIT License', hidden: true})).toHaveAttribute('download', 'MagicStick-MIT.txt');
+  });
+
   it('requires preview and explicit activation, preserving the reviewed revision', async () => {
     const user = userEvent.setup(); mount();
     await upload(user);
@@ -37,7 +56,7 @@ describe('license management', () => {
     await user.click(screen.getByRole('button', {name: 'Validate license'}));
     await user.click(await screen.findByRole('button', {name: 'Activate license'}));
     expect(api.importLicense).toHaveBeenCalledWith('opaque-signed-license', '1');
-    await screen.findByText('License saved. Enterprise features remain unavailable until implemented.');
+    await screen.findByText('License saved. Installed capabilities with a valid entitlement are now available.');
     expect(screen.getByLabelText('License file')).toHaveValue('');
     expect(screen.getByText('Not implemented')).toBeInTheDocument();
   });

@@ -20,8 +20,12 @@ formalized, release entries should group changes under:
   conflict/retirement checks and a nonempty-public-key release gate.
 - MIT-licensed offline license foundation with Ed25519-signed files, separate
   issuer tooling, admin-only React/CLI/TUI management, Kubernetes persistence
-  and replacement conflict protection. All seven planned Enterprise business
-  capabilities remain unimplemented; Community functions are unchanged.
+  and replacement conflict protection. Community functions are unchanged.
+- Optional Enterprise instance sharing with stable user/group allow-lists,
+  live authorization, fail-closed gateway guards, a basic-user launchpad and
+  dashboard/CLI management. The other six planned Enterprise capabilities remain
+  unimplemented. Default published API images stay Community-only pending
+  approval of the provisional Enterprise terms; offline notices explain the scope.
 
 - Fail-closed one-command installation wrappers for dedicated Ubuntu 24.04
   hosts and existing Kubernetes clusters from Bash or PowerShell 7, including

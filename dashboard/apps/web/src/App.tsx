@@ -13,6 +13,7 @@ import {KubernetesAccessPage} from './pages/KubernetesAccessPage';
 import {SettingsPage} from './pages/SettingsPage';
 import {SystemPage} from './pages/SystemPage';
 import {LicensePage} from './pages/LicensePage';
+import {MyInstancesPage} from './pages/MyInstancesPage';
 
 type TabId = 'overview' | 'services' | 'models' | 'users' | 'api-access' | 'kubernetes-access' | 'settings' | 'license' | 'system';
 
@@ -71,6 +72,9 @@ export const App = () => {
 
   if (session.isPending) return <main className="boot"><Loading /></main>;
   if (session.error || !session.data) return <main className="boot"><ErrorNotice error={session.error ?? new Error('Session is unavailable.')} /></main>;
+  if (!session.data.roles.some((role) => ['magicstick-viewer', 'magicstick-operator', 'magicstick-admin'].includes(role))) {
+    return <main className="page"><header className="hero"><div><p className="eyebrow">Magic Stick</p><h1>My applications</h1><p>Signed in: {session.data.username}</p></div><a className="button button-ghost" href="/logout">Log out</a></header><section className="workspace"><MyInstancesPage /></section></main>;
+  }
 
   return (
     <main className="page">

@@ -10,6 +10,7 @@ data:
   controller.py: |
     #!/usr/bin/env python3
     import json
+    import hashlib
     import os
     import re
     import ssl
@@ -967,6 +968,7 @@ data:
             "publicURL": access.get("publicURL", ""),
             "authentication": access.get("authentication", ""),
             "requiredRole": access.get("requiredRole", ""),
+            "accessGuardReady": access.get("accessGuardReady", False),
             "message": message,
             "conditions": [condition("True" if phase in ("Ready", "Suspended", "Disabled") else "False", reason, message, generation)],
         }})
@@ -2113,6 +2115,27 @@ data:
         }
 
 
+    def app_instance_guard(instance):
+        metadata = instance.get("metadata") or {}
+        return {
+            "failOpen": False,
+            "headersToExtAuth": ["Cookie", "Authorization"],
+            "http": {
+                "backendRefs": [{"name": "ai-appliance-dashboard-api", "port": 8080}],
+                "path": "/internal/instance-access/" + str(metadata.get("name", "")) + "/" + str(metadata.get("uid", "")),
+            },
+        }
+
+
+    def app_instance_guard_policy(instance, name, route_name):
+        return {
+            "apiVersion": "gateway.envoyproxy.io/v1alpha1", "kind": "SecurityPolicy",
+            "metadata": {"name": name, "namespace": IDENTITY_NAMESPACE, "labels": access_resource_labels(instance)},
+            "spec": {"targetRefs": [{"group": "gateway.networking.k8s.io", "kind": "HTTPRoute", "name": route_name}],
+                     "extAuth": app_instance_guard(instance)},
+        }
+
+
     def app_instance_security_policy(instance, policy_name, route_names, redirect_url, cookie_domain, required_role):
         issuer = "https://id." + mdns_domain() + "/realms/magicstick"
         allowed_roles = {
@@ -2130,6 +2153,7 @@ data:
                 "labels": access_resource_labels(instance),
             },
             "spec": {
+                "extAuth": app_instance_guard(instance),
                 "targetRefs": [{
                     "group": "gateway.networking.k8s.io",
                     "kind": "HTTPRoute",
@@ -2249,6 +2273,8 @@ data:
                 mdns_domain(),
                 required_role,
             ))
+        else:
+            resources.append(app_instance_guard_policy(instance, local_policy_name, local_route_name))
         public_url = ""
         if exposure == "localAndPublic":
             resources.append(app_instance_route(
@@ -2279,6 +2305,8 @@ data:
                     public_domain(),
                     required_role,
                 ))
+            else:
+                resources.append(app_instance_guard_policy(instance, public_policy_name, public_route_name))
         return resources, {
             "authentication": authentication,
             "requiredRole": required_role,
@@ -2312,9 +2340,45 @@ data:
             key = (reference["apiVersion"], reference["kind"], metadata["namespace"], metadata["name"])
             if key not in desired_keys and get_applied_resource(reference):
                 delete_applied_resource(reference)
+        # Install the guard before routing to an application. A new/unaccepted
+        # policy gets a route with no backend, never a transient public route.
+        guard_ready = bool(enabled)
         for resource in desired:
+            if resource["kind"] != "SecurityPolicy":
+                continue
+            digest = hashlib.sha256(json.dumps(resource["spec"], sort_keys=True).encode()).hexdigest()
+            resource["metadata"].setdefault("annotations", {})["appliance.magicstick.dev/access-guard-spec"] = digest
             apply_resource(resource)
+            current = get_applied_resource(resource) or {}
+            current_metadata = current.get("metadata") or {}
+            policy_status = current.get("status") or {}
+            ancestors = policy_status.get("ancestors") or []
+            conditions = [item for ancestor in ancestors for item in ancestor.get("conditions", []) if item.get("type") == "Accepted"]
+            accepted = bool(conditions) and all(item.get("status") == "True" and item.get("observedGeneration") == current_metadata.get("generation") for item in conditions)
+            guard_ready = guard_ready and accepted and (current_metadata.get("annotations") or {}).get("appliance.magicstick.dev/access-guard-spec") == digest
+        for resource in desired:
+            if resource["kind"] == "SecurityPolicy":
+                continue
+            if resource["kind"] == "HTTPRoute" and not guard_ready:
+                for rule in resource["spec"].get("rules", []):
+                    rule["backendRefs"] = []
+            apply_resource(resource)
+        access_status["accessGuardReady"] = guard_ready
         return access_status
+
+
+    def instance_sharing_entitled(instance):
+        access = (instance.get("spec") or {}).get("access") or {}
+        if "sharing" not in access or (access.get("sharing") or {}).get("mode") == "all":
+            return True
+        metadata = instance.get("metadata") or {}
+        endpoint = "http://ai-appliance-dashboard-api.identity-system.svc.cluster.local:8080/internal/instance-entitlement/"
+        endpoint += str(metadata.get("name", "")) + "/" + str(metadata.get("uid", ""))
+        try:
+            with urllib.request.urlopen(endpoint, timeout=5) as response:
+                return response.status == 200
+        except (urllib.error.URLError, TimeoutError, OSError):
+            return False
 
 
     def app_instance_helmrelease(instance, definition, source, suspend=False):
@@ -2417,6 +2481,9 @@ data:
         ensure_app_instance_finalizer(instance)
         enabled = spec.get("enabled", True) is not False
         access_status = sync_app_instance_access(instance, definition, enabled=enabled)
+        if enabled and not instance_sharing_entitled(instance):
+            patch_instance_status(instance, "LicenseRequired", target, "SharingUnavailable", "Instance restrictions remain in place. Restore the sharing license or verification service.", access=access_status, generation=generation)
+            return "LicenseRequired", target
         release, url = app_instance_helmrelease(instance, definition, source, suspend=not enabled)
         apply_resource(release)
         if not enabled:
@@ -2425,7 +2492,11 @@ data:
 
         current = get_applied_resource(reference) or {}
         ready = ready_condition(current)
-        if ready.get("status") == "True":
+        if not access_status.get("accessGuardReady"):
+            phase = "Reconciling"
+            reason = "WaitingForAccessGuard"
+            message = "Waiting for Envoy to accept the instance access guard."
+        elif ready.get("status") == "True":
             phase = "Ready"
             reason = ready.get("reason") or "HelmReleaseReady"
             message = ready.get("message") or "Helm release is ready."

@@ -2,6 +2,7 @@ import {useState} from 'react';
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query';
 import {
   canMutateRuntime,
+  canAdminister,
   effectiveModuleStatus,
   flattenInstances,
   instanceResourceLinks,
@@ -14,6 +15,7 @@ import {
 } from '@magicstick/dashboard-core';
 import type {
   ApplicationCatalogEntry,
+  InstanceSharing,
   ModelsPayload,
   ModuleCatalogEntry,
   ModuleState,
@@ -22,6 +24,7 @@ import type {
 } from '@magicstick/dashboard-contracts';
 import {api} from '../api';
 import {Button, ConfirmDialog, Dialog, Empty, ErrorNotice, Field, Loading, Panel, ProgressBar, ResourceLinks, StatusBadge} from '../components';
+import {InstanceSharingDialog, SharingFields} from './InstanceSharing';
 
 type ApplicationOption = {id: string; label: string; definition: ApplicationCatalogEntry; missing: string[]};
 type Credentials = {title: string; entries: Array<{key: string; value: string}>};
@@ -41,13 +44,14 @@ const instanceHost = (type: string, name: string, publicDomain: string) => {
   return `${cleanName}.${cleanType}.${publicDomain.replace(/^\.|\.$/g, '')}`;
 };
 
-const CreateInstanceDialog = ({open, initialType, applications, models, instances, publicDomain, onClose, onCreated}: {
+const CreateInstanceDialog = ({open, initialType, applications, models, instances, publicDomain, admin, onClose, onCreated}: {
   open: boolean;
   initialType?: string;
   applications: ApplicationOption[];
   models: string[];
   instances: FlatInstance[];
   publicDomain: string;
+  admin: boolean;
   onClose: () => void;
   onCreated: () => Promise<void>;
 }) => {
@@ -59,6 +63,9 @@ const CreateInstanceDialog = ({open, initialType, applications, models, instance
   const [authentication, setAuthentication] = useState('sso');
   const [role, setRole] = useState('user');
   const [exposure, setExposure] = useState('localAndPublic');
+  const [sharing, setSharing] = useState<InstanceSharing>({mode: 'all', users: [], groups: []});
+  const license = useQuery({queryKey: ['license'], queryFn: () => api.licenseStatus(), enabled: open && admin});
+  const sharingAvailable = admin && license.data?.features?.some((feature) => feature.id === 'resource-sharing' && feature.available);
   const [adminEmail, setAdminEmail] = useState('admin@example.com');
   const [postgresStorage, setPostgresStorage] = useState('10Gi');
   const [maxConcurrentAgents, setMaxConcurrentAgents] = useState(2);
@@ -85,7 +92,7 @@ const CreateInstanceDialog = ({open, initialType, applications, models, instance
       const host = instanceHost(type, name, publicDomain || 'magicstick.example.com');
       const base = {
         name, enabled: true, namespace: 'ai', model: model || 'CHANGEME_MODEL',
-        access: {authentication, role, exposure},
+        access: {authentication, role, exposure, ...(sharing.mode === 'selected' ? {sharing} : {})},
       } as Record<string, unknown>;
       if (type === 'openclaw' || type === 'hermes') {
         base.storage = {size: storage}; base.ingress = {enabled: false, host};
@@ -130,10 +137,15 @@ const CreateInstanceDialog = ({open, initialType, applications, models, instance
           {modelRequired && <Field label={type === 'paperclip' ? 'Default Model' : 'Model'}><select value={model} onChange={(event) => setModel(event.target.value)} required><option value="">No deployed chat model selected</option>{models.map((item) => <option key={item} value={item}>{item}</option>)}</select></Field>}
           {type === 'paperclip' && <Field label="Admin Email"><input type="email" value={adminEmail} onChange={(event) => setAdminEmail(event.target.value)} required /></Field>}
           {type === 'kubeopencode' && <Field label="Template"><input value={template} onChange={(event) => setTemplate(event.target.value)} required /></Field>}
-          <Field label="Access"><select value={authentication} onChange={(event) => setAuthentication(event.target.value)}><option value="sso">SSO protected</option><option value="none">Public without login</option></select></Field>
+          <Field label="Access"><select value={authentication} onChange={(event) => {setAuthentication(event.target.value); if (event.target.value !== 'sso') setSharing({mode: 'all', users: [], groups: []});}}><option value="sso">SSO protected</option><option value="none">Public without login</option></select></Field>
           <Field label="Minimum Role"><select value={role} onChange={(event) => setRole(event.target.value)}><option value="user">Authenticated user</option><option value="viewer">Viewer</option><option value="operator">Operator</option><option value="admin">Administrator</option></select></Field>
           <Field label="Exposure"><select value={exposure} onChange={(event) => setExposure(event.target.value)}><option value="localAndPublic">Local and public hosts</option><option value="local">Local host only</option></select></Field>
         </div>
+        {admin && authentication === 'sso' && <>
+          <SharingFields value={sharing} onChange={setSharing} disabled={!sharingAvailable || mutation.isPending} />
+          {!sharingAvailable && <p className="muted">Targeted sharing requires an active Enterprise license. The default role-based access remains available.</p>}
+          <ErrorNotice error={license.error} />
+        </>}
         {type === 'paperclip' && <fieldset className="runtime-options"><legend>Agent runtimes</legend>
           <label className="check-field"><input type="checkbox" checked={openCodeEnabled} onChange={(event) => setOpenCodeEnabled(event.target.checked)} /> OpenCode</label>
           <label className="check-field"><input type="checkbox" checked={openClawEnabled} disabled={!openClawInstances.length} onChange={(event) => setOpenClawEnabled(event.target.checked)} /> OpenClaw Gateway</label>
@@ -170,13 +182,16 @@ export const ServicesPage = ({session}: {session: Session}) => {
   const [filter, setFilter] = useState<'all' | 'applications' | 'runtime' | 'platform'>('all');
   const [credentials, setCredentials] = useState<Credentials | null>(null);
   const [removeTarget, setRemoveTarget] = useState('');
+  const [sharingTarget, setSharingTarget] = useState('');
   const [operationError, setOperationError] = useState<unknown>(null);
   const [parameters, setParameters] = useState<Record<string, Record<string, string>>>({});
   const mutable = canMutateRuntime(session);
+  const admin = canAdminister(session);
 
   const refresh = async () => { await Promise.all([
     queryClient.invalidateQueries({queryKey: ['modules']}), queryClient.invalidateQueries({queryKey: ['instances']}),
     queryClient.invalidateQueries({queryKey: ['models']}), queryClient.invalidateQueries({queryKey: ['status']}),
+    queryClient.invalidateQueries({queryKey: ['instance-access']}),
   ]); };
   const moduleMutation = useMutation({
     mutationFn: ({name, enabled}: {name: string; enabled: boolean}) => enabled ? api.enableModule(name, parameters[name] ?? {}) : api.disableModule(name),
@@ -238,10 +253,13 @@ export const ServicesPage = ({session}: {session: Session}) => {
     const phase = item.value.status?.phase ?? (enabled ? 'Requested' : 'Suspended');
     const access = item.value.spec?.access?.authentication === 'none' ? 'public without login' : `SSO: ${item.value.spec?.access?.role ?? 'user'}`;
     const credentialsAvailable = ['openclaw', 'odysseus', 'paperclip'].includes(item.type) && String(phase).toLowerCase() !== 'removing';
+    const restricted = item.value.spec?.access?.sharing?.mode === 'selected';
     return <article className="service-instance" key={item.name}><div className="service-row"><div><strong>{item.name}</strong><small>{item.value.spec?.targetNamespace ?? 'ai'} · {access}</small></div><div className="actions"><StatusBadge phase={phase} />
       {credentialsAvailable && mutable && <Button variant="ghost" onClick={async () => { try { const result = await api.instanceCredentials(item.name); setCredentials({title: result.title ?? item.name, entries: result.credentials ?? []}); } catch (reason) { setOperationError(reason); } }}>Credentials</Button>}
-      {mutable && String(phase).toLowerCase() !== 'removing' && <Button variant="danger" onClick={() => setRemoveTarget(item.name)}>Remove</Button>}
+      {admin && String(phase).toLowerCase() !== 'removing' && <Button variant="ghost" onClick={() => setSharingTarget(item.name)}>Sharing</Button>}
+      {mutable && (!restricted || admin) && String(phase).toLowerCase() !== 'removing' && <Button variant="danger" onClick={() => setRemoveTarget(item.name)}>Remove</Button>}
     </div></div>
+      {restricted && <p className="muted">Enterprise · Selected users and groups</p>}
       {(phaseInProgress(phase) || phaseNeedsAttention(phase)) && <ProgressBar phase={phase} enabled={enabled} message={item.value.status?.message} />}
       {item.value.status?.message && String(phase).toLowerCase() !== 'ready' && <p className="muted">{item.value.status.message}</p>}
       <ResourceLinks links={instanceResourceLinks(item.value, statusQuery.data)} />
@@ -281,7 +299,8 @@ export const ServicesPage = ({session}: {session: Session}) => {
     {show('applications') && <section className="stack compact"><div className="section-title"><div><h2>Applications</h2><p>{applications.length + standaloneApps.length} services · {allInstances.length} instances</p></div></div>{applicationCards}{standaloneApps.map(moduleCard)}{!applications.length && !standaloneApps.length && <Empty>No application services are catalogued.</Empty>}</section>}
     {show('runtime') && <section className="stack compact"><div className="section-title"><div><h2>AI Runtime</h2><p>{runtime.length} module{runtime.length === 1 ? '' : 's'}</p></div></div>{runtime.map(moduleCard)}{!runtime.length && <Empty>No shared AI runtime modules are catalogued.</Empty>}</section>}
     {show('platform') && <details className="details-panel" open={filter === 'platform'}><summary><span><strong>Platform &amp; Operators</strong><small>{platform.length} technical module{platform.length === 1 ? '' : 's'}</small></span><span>Show</span></summary><div className="stack compact details-content">{platform.map(moduleCard)}</div></details>}
-    <CreateInstanceDialog key={`${create.open}-${create.type ?? 'all'}`} open={create.open} initialType={create.type} applications={applications} models={deployedModels} instances={allInstances} publicDomain={settingsQuery.data?.publicDomain ?? 'magicstick.example.com'} onClose={() => setCreate({open: false})} onCreated={refresh} />
+    <CreateInstanceDialog key={`${create.open}-${create.type ?? 'all'}`} open={create.open} initialType={create.type} applications={applications} models={deployedModels} instances={allInstances} publicDomain={settingsQuery.data?.publicDomain ?? 'magicstick.example.com'} admin={admin} onClose={() => setCreate({open: false})} onCreated={refresh} />
+    {sharingTarget && <InstanceSharingDialog name={sharingTarget} onClose={() => setSharingTarget('')} onSaved={refresh} />}
     <Dialog open={Boolean(credentials)} title={credentials?.title ?? 'Credentials'} description="Sensitive values are shown only on request." onClose={() => setCredentials(null)}><dl className="credential-list">{credentials?.entries.map((entry) => <div key={entry.key}><dt>{entry.key}</dt><dd><code>{entry.value}</code></dd></div>)}</dl></Dialog>
     <ConfirmDialog key={removeTarget} open={Boolean(removeTarget)} title="Remove instance" description={`Remove ${removeTarget}? Its reconciled application resources will be removed by the operator.`} confirmLabel="Remove" busy={removeMutation.isPending} error={removeMutation.error} onClose={() => setRemoveTarget('')} onConfirm={() => removeMutation.mutate(removeTarget)} />
   </div>;

@@ -1,0 +1,11 @@
+.git
+.codex
+.agents
+**/node_modules
+**/dist
+**/__pycache__
+**/.pytest_cache
+**/.DS_Store
+**/.env
+**/.env.local
+**/*.log

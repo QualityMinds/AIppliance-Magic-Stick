@@ -8,6 +8,7 @@ import {loadSnapshot} from './snapshot';
 import {runTui} from './tui';
 import {createDemoRuntime} from './demo';
 import {licenseLines, previewLines, readLicenseFile, saveLicenseFile} from './license';
+import type {InstanceSharing} from '@magicstick/dashboard-contracts';
 
 export const VERSION = '0.1.0';
 
@@ -63,6 +64,8 @@ Read commands:
   overview                             Appliance, module, instance and model summary
   service list                         List modules
   instance list                        List application instances
+  instance access <name>                Show instance sharing policy (admin)
+  instance principals [--kind users|groups] [--search text]
   model list                           List models and compute targets
   model search <query> [--provider huggingface|ollama]
   model popular [--provider huggingface|ollama]
@@ -83,6 +86,7 @@ Mutation commands:
   instance create <type> --file payload.json
   instance remove <name>
   instance credentials <name>
+  instance share <name> --file policy.json --yes
   model estimate --file payload.json
   model create-local --file payload.json
   model create-external --file payload.json
@@ -261,6 +265,13 @@ const licenseCommand = async (runtime: Runtime, parsed: ParsedArguments, io: Cli
 };
 
 const instanceCommand = async (runtime: Runtime, parsed: ParsedArguments, io: CliIo, action: string, name?: string) => {
+  if (action === 'principals') {
+    const kind = textOption(parsed, 'kind') ?? 'users';
+    if (kind !== 'users' && kind !== 'groups') throw new Error('Use --kind users or groups.');
+    const result = await runtime.api.instancePrincipals(kind, textOption(parsed, 'search') ?? '', integerOption(parsed, 'first', 0));
+    output(io, parsed, result, () => table(['ID', 'NAME'], result.items.map((item) => [item.id, item.name])));
+    return;
+  }
   if (!action || action === 'list') {
     const payload = await runtime.api.instances();
     output(io, parsed, payload, () => table(['TYPE', 'NAME', 'PHASE', 'MESSAGE'], flattenInstances(payload).map((item) => [
@@ -272,6 +283,15 @@ const instanceCommand = async (runtime: Runtime, parsed: ParsedArguments, io: Cl
   if (action === 'create') {
     const result = await runtime.api.createInstance(id, await readJsonPayload(parsed, io));
     output(io, parsed, result, () => `Created ${id} instance request.`);
+  } else if (action === 'access') {
+    const result = await runtime.api.instanceAccess(id);
+    output(io, parsed, result, () => stringify(result));
+  } else if (action === 'share') {
+    if (option(parsed, 'yes') !== true) throw new Error('Review the instance access policy and use --yes to confirm the change.');
+    const policy = await readJsonPayload(parsed, io) as unknown as InstanceSharing;
+    const current = await runtime.api.instanceAccess(id);
+    const result = await runtime.api.updateInstanceAccess(id, policy, current.revision);
+    output(io, parsed, result, () => `Updated instance sharing for ${id}.`);
   } else if (action === 'remove') {
     const result = await runtime.api.removeInstance(id);
     output(io, parsed, result, () => `Removed instance ${id}.`);

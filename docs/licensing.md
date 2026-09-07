@@ -1,9 +1,15 @@
 # Offline license management
 
-The first AIMS-005 increment adds **MIT-licensed infrastructure**, not Enterprise
-business features. The React dashboard, CLI and TUI use the same admin-only API
+The AIMS-005 foundation is **MIT-licensed infrastructure**. Optional Enterprise
+business code uses the same signed-capability boundary. The React dashboard, CLI and TUI use the same admin-only API
 and persistent Kubernetes state. No existing Community operation requires a
 license. The React frontend is the standard browser dashboard.
+
+Software-license scope and technical entitlement activation are different.
+See the [licensing overview](../LICENSING.md), unchanged [MIT text](../LICENSE)
+and provisional [Enterprise notice](../enterprise/LICENSE). The React page
+bundles those texts for offline inspection/download; they are not fetched from
+GitHub at runtime. Customer terms still require review before commercial release.
 
 ## Current scope
 
@@ -24,8 +30,10 @@ The seven stable entitlement IDs are:
 | `multi-gpu` | Additional Multi-GPU management workflows |
 | `k3s-multi-node` | Additional k3s multi-node management workflows |
 
-All seven currently report `implemented: false` and `available: false`, even
-with a valid entitlement. These names do not put existing GPU, k3s or SSO
+The optional extension implements `resource-sharing` for
+[targeted instance access](instance-sharing.md). A Community-only build reports
+all capabilities as unimplemented; the other six remain unimplemented even in
+the extension build. These names do not put existing GPU, k3s or SSO
 capabilities behind a paywall. Multi-GPU and multi-node support boundaries still
 need their own review. Future business code belongs behind the separately
 documented [Enterprise boundary](../enterprise/README.md).
@@ -242,16 +250,16 @@ set. The first version has one active file, no scheduled replacements, online
 revocation service, billing, audit ledger or configurable grace period.
 
 Expired or unverifiable licenses produce no licensed capabilities. Community
-routes do not call the Enterprise gate. Existing business features are not
-changed and no running workload is stopped. Future Enterprise code must preserve
-protective access policies and recovery on expiry; those business semantics need
-their own implementation and tests, not just this foundation's tests.
+operations do not require an Enterprise entitlement. Restricted instance requests
+are denied until their entitlement is restored; workloads and their protective
+policies are not deleted or made public. See the explicit
+[instance-sharing failure semantics](instance-sharing.md#enforcement-and-rollout).
 
-`LicenseService.require_capability(feature, authorized=...)` is the future
+`LicenseService.require_capability(feature, authorized=...)` is the
 server-side integration hook. It fails unless caller authorization, a verified
 entitlement and an actually implemented/available capability all permit the
-operation. At present it rejects every planned capability as unimplemented or
-unlicensed. Future extensions must register their implementation and use the
+operation. The optional extension registers `resource-sharing`; it does not
+activate the other six capabilities. Extensions register their implementation and use the
 same decision in applicable API and controller mutation paths; no existing
 Community path is gated by this hook.
 
@@ -273,8 +281,9 @@ python3 -m venv /tmp/magicstick-license-test-venv
 cd dashboard
 pnpm install --frozen-lockfile
 pnpm typecheck && pnpm test && pnpm build
-docker --context rancher-desktop build -t magicstick-api:license-test -f apps/api/Dockerfile .
 cd ..
+docker --context rancher-desktop build --target community \
+  -t magicstick-api:license-test -f dashboard/apps/api/Dockerfile .
 /tmp/magicstick-license-test-venv/bin/python dashboard/apps/api/rancher_license_test.py
 ```
 
@@ -298,3 +307,6 @@ The API image is built for amd64/arm64 by the dashboard-image workflow with
 PyJWT and cryptography pinned in `requirements.txt`. Production manifests should
 use its published `api-sha-<commit>` tag when advancing the runtime; changing only
 the mounted backend ConfigMap does not update the packaged verification module.
+The build context is the repository root. `--target community` excludes the
+optional Enterprise package entirely; `--target enterprise` includes it. The
+commercial publication boundary is documented in [enterprise/README.md](../enterprise/README.md).

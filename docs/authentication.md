@@ -57,7 +57,7 @@ The local realm defines four initial roles:
 
 | Role | Intended access |
 |---|---|
-| `magicstick-user` | Authenticated application user |
+| `magicstick-user` | Authenticated application user; minimal dashboard My instances launchpad |
 | `magicstick-viewer` | Read-only dashboard and status access |
 | `magicstick-operator` | Runtime application and model operations |
 | `magicstick-admin` | Identity, security, and appliance administration |
@@ -73,13 +73,22 @@ groups should be mapped to the local Magic Stick roles in Keycloak.
 Dashboard access is hierarchical: viewer permits read-only endpoints, operator
 also permits module, instance, model, and credential operations, and admin also
 permits appliance-wide settings and human-user administration. `magicstick-user`
-alone does not grant dashboard access.
+alone receives only the dashboard **My instances** launchpad and its minimal
+session/instance API; it does not grant control-plane or status access.
 
 AppInstance access uses the same hierarchy at the Envoy edge. OIDC stores the
 Keycloak access token in the shared `MagicStickAccessToken` cookie; Envoy's JWT
 filter validates that token and authorizes the selected minimum
 `realm_access.roles` value before forwarding to the application. A route can be
 made unauthenticated only with explicit `spec.access.authentication: none`.
+
+The optional Enterprise [instance-sharing capability](instance-sharing.md) adds
+allow-lists of stable Keycloak user and group IDs. For restricted instances, the
+API and gateway guard also verify live user status, effective minimum role,
+group membership (including subgroups) and the signed license. Administrators
+retain management visibility, but require an explicit grant to use the app or
+retrieve its private credentials. These are HTTP access controls, not Kubernetes
+tenant/network isolation.
 
 Human browser sessions use OIDC Authorization Code Flow. Human `kubectl`
 sessions use a separate public PKCE client and an exec credential plugin. The
@@ -117,7 +126,7 @@ The current implementation provides:
   Keycloak client and browser session protect dynamically created instances
 - a non-blocking Keycloak startup reconciliation that adds the callback path
   patterns needed by existing installations
-- dashboard API token validation and viewer/operator/admin authorization
+- dashboard API token validation, a minimal user launchpad and viewer/operator/admin authorization
 - a public `magicstick-cli` device-flow client and the JWT-protected,
   mDNS-published `api.<mDNS-domain>` route used by the CLI and TUI
 - protected local and public routes for LiteLLM, AnythingLLM, and KubeOpenCode

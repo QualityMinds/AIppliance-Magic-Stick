@@ -167,11 +167,21 @@ pnpm cli --version
 pnpm cli --help
 ```
 
-Build the browser production image from the workspace root:
+Build production images from the **repository root** (not `dashboard/`) so
+source-of-truth license notices can be included:
 
 ```bash
-docker build -f apps/web/Dockerfile -t magicstick-dashboard:local .
+cd .. # when still in dashboard/ from the commands above
+docker build -f dashboard/apps/web/Dockerfile -t magicstick-dashboard:local .
+docker build -f dashboard/apps/cli/Dockerfile -t magicstick-cli:local .
+docker build -f dashboard/apps/api/Dockerfile --target community -t magicstick-api:local .
 ```
+
+For coordinated API/ConfigMap changes, publish the matching immutable images
+before advancing the deployment pins. The dashboard-image workflow can run on
+an integration branch via `workflow_dispatch`; only a `main` build updates the
+mutable `web`, `react-preview`, `console` and `api-licensing-v1` channel tags.
+Branch builds publish SHA tags without moving those installation channels.
 
 The browser and terminal apps may import only `packages/api-client`,
 `packages/contracts`, and `packages/core` for control-plane behavior. Keep DOM,

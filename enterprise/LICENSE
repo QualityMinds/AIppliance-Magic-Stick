@@ -1,0 +1,49 @@
+Magic Stick Enterprise licensing notice
+Version 0.1-review, 2026-09-06
+
+Copyright (c) 2026 QualityMinds GmbH. All rights reserved.
+
+REVIEW STATUS
+
+This is a provisional licensing notice for review. It reserves rights in the
+specifically identified Enterprise code; it is not a complete customer license
+agreement, an evaluation license or approval for a commercial release.
+
+SCOPE
+
+This notice applies only to files under enterprise/magicstick_enterprise/ in
+the Magic Stick repository that explicitly carry the following identifier:
+
+    SPDX-License-Identifier: LicenseRef-MagicStick-Enterprise
+
+It does not apply to the existing MIT-licensed Community code, documentation,
+license-management infrastructure, client interfaces or integration contracts.
+It does not change the terms of third-party components or rights previously
+granted under the MIT License.
+
+RESERVATION OF RIGHTS
+
+Except to the extent a separate written agreement with QualityMinds GmbH,
+applicable mandatory law or the applicable source-hosting platform terms
+provide otherwise, no permission to use, copy, modify, distribute or sublicense
+the covered Enterprise code is granted by this notice.
+
+Public access to the source does not place the covered code under the MIT
+License or another open-source license. Rights to use Enterprise functionality
+must be granted in a separate commercial agreement with QualityMinds GmbH.
+
+TECHNICAL ENTITLEMENTS
+
+A signed Magic Stick license file is a technical entitlement record. Possessing,
+uploading or validating that file is not itself a commercial agreement and does
+not independently grant rights to the covered code. It does not define prices,
+renewal conditions, support commitments, warranties or a governing jurisdiction.
+
+CUSTOMER AGREEMENT
+
+Before a customer release, the parties must agree the applicable commercial
+terms, including the licensed customer, scope of use, features, installation or
+other agreed limits, duration and any support arrangements. Those terms are not
+supplied by this provisional notice and require separate review and approval.
+
+Community and third-party license notices must remain with their components.

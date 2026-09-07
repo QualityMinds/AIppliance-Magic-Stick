@@ -47,7 +47,15 @@ digest, or chart version.
 The license-verification runtime bundles these packages through
 `dashboard/apps/api/requirements.txt`; their licenses remain separate from
 Magic Stick's MIT code. The private-key issuer tool is not copied into the
-customer image. No Enterprise business code is currently included.
+customer image. The default API image remains Community-only; an explicit
+Enterprise build includes the separate package described in
+[enterprise/README.md](enterprise/README.md). The scoped
+[Enterprise notice](enterprise/LICENSE) is provisional; final customer release
+terms remain a release gate, not a change to third-party or existing MIT licenses.
+Repository-built dashboard/CLI/API images include their own license notices.
+The browser bundle also embeds the [licensing overview](LICENSING.md) and texts
+for offline inspection. Enterprise API builds declare the combined license
+identifier; Community builds still contain no Enterprise business code.
 
 | Package | Version | Upstream license/source | Usage |
 |---|---|---|---|

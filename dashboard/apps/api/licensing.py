@@ -1,9 +1,10 @@
-"""MIT-licensed, offline license plumbing. No Enterprise business feature is enabled.
+"""MIT-licensed, offline license plumbing with optional Enterprise capabilities.
 
 Only configured public Ed25519 keys are trusted. The issuer lives outside the
 customer runtime. Kubernetes is the authoritative state; no entitlement cache.
 """
 import base64
+import importlib
 import json
 import os
 import re
@@ -30,6 +31,14 @@ FEATURES = {
     "k3s-multi-node": "k3s multi-node management",
 }
 IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
+
+def installed_capabilities():
+    try:
+        package = importlib.import_module("magicstick_enterprise")
+        return set(package.CAPABILITIES).intersection(FEATURES)
+    except (ImportError, AttributeError, TypeError):
+        return set()
 
 
 class LicenseError(Exception):
@@ -229,6 +238,7 @@ class LicenseService:
             "state": "missing", "message": "Community mode. No license has been imported.", "valid": False,
         }
         licensed = set(result.get("claims", {}).get("features", [])) if result["valid"] else set()
+        implemented = installed_capabilities()
         try:
             trusted = sorted(self.keys())
         except LicenseError:
@@ -236,8 +246,8 @@ class LicenseService:
         return {**result, "installationId": installation_id, "revision": secret["metadata"]["resourceVersion"],
                 "checkedAt": int(time.time()), "trustedKeyIds": trusted, "hasDocument": bool(data.get("license.json")),
                 "features": [{"id": key, "name": name, "licensed": key in licensed,
-                              "implemented": False, "available": False,
-                              "reason": "not_implemented" if key in licensed else "unlicensed"} for key, name in FEATURES.items()]}
+                              "implemented": key in implemented, "available": key in licensed and key in implemented,
+                              "reason": "available" if key in licensed and key in implemented else "not_implemented" if key in licensed else "unlicensed"} for key, name in FEATURES.items()]}
 
     def inspect(self, document):
         state = self.state()
@@ -265,7 +275,7 @@ class LicenseService:
         return {"filename": "magicstick-license.json", "content": data["license.json"]}
 
     def require_capability(self, feature, *, authorized):
-        """Integration hook. All seven planned business capabilities are absent."""
+        """Require a trusted entitlement, installed implementation and authorization."""
         if not authorized:
             raise LicenseError("forbidden", "User is not authorized for this operation.", 403)
         status = self.status()
