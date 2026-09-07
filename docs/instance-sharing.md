@@ -174,13 +174,22 @@ or contact the physical server. Abrupt termination can require cleanup of the
 printed namespace and its explicitly named test cluster resources. A full Flux
 upgrade of an existing physical appliance remains a separate release check.
 
-Local acceptance on 2026-09-06 covered 27 package/security tests, 105 dashboard
-API tests, 54 operator tests, 21 identity tests, 24 React tests and 86 CLI tests.
+Local integration acceptance on 2026-09-07 covered 35 package/security tests,
+117 dashboard API tests, 61 operator tests, 42 identity tests, 26 React tests
+and 86 CLI tests, with the React frontend as the standard dashboard and the
+release-owned issuer trust bundle preserved.
 The real Chrome fixture test covered user/group selection, confirmation,
 desktop/mobile layout, exact offline license-text downloads and the basic-user
 launchpad. In isolated Rancher with
 Keycloak 26.6.3 and Envoy Gateway 1.8.2, real browser sessions verified direct
 user and nested-group grants, nonmember/admin denial, immediate ACL changes,
 concurrent-update rejection and fail-closed trust revocation without deleting
-the policy. Community image exclusion and six Kubernetes compositions were
-also checked. This is not production multi-tenant isolation acceptance.
+the policy. A separate Rancher/Chrome test verified official-key loading,
+rotation/retirement, preserved local trust, license persistence across a Pod
+restart, CLI import and dashboard upload/activation through the primary Service.
+Community image exclusion, 19 Kubernetes compositions and both production
+client builds were also checked. This is not production multi-tenant isolation
+acceptance or a full Flux upgrade test of an existing appliance.
+On this Rancher run, namespace finalization exceeded the harness's 60-second
+cleanup wait. Kubernetes completed deletion normally afterward, without forced
+finalizers; only the empty CRDs created by that test were then removed.
