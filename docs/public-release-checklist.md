@@ -77,10 +77,13 @@ namespace and synthetic identities; it is not full Enterprise or SSO acceptance.
 
 For targeted instance sharing, also run the explicit isolated
 [real Keycloak/Envoy test](instance-sharing.md#verification), check current
-`accessGuardReady` rollout semantics, and verify a Community image excludes the
-optional package. The commercial package and combined-image notices must have
-approved terms before commercial release; a review PR carries the provisional
-notice and is not release approval. Until then CI publishes only Community.
+`accessGuardReady` rollout semantics, and verify the one API image includes the
+bounded Enterprise package and both license notices. Confirm that missing,
+invalid, tampered and expired entitlements keep the capability unavailable while
+Community operation remains usable. Confirm CI publishes no separate Community
+or Enterprise API variant. The commercial package and combined-image notices
+must have approved terms before commercial release; the provisional notice is
+not release approval.
 Check the file-scope [licensing overview](../LICENSING.md), unchanged MIT text,
 explicit Enterprise headers, offline dashboard notices and image license files.
 Do not label combined Enterprise distributions as solely MIT-licensed.

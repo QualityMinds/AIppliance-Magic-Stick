@@ -67,7 +67,7 @@ Paperclip, KubeOpenCode, KubeAI, LiteLLM, or direct app instance reconcilers.
 | Kubernetes Access | Lets administrators assign Viewer, Operator, or Cluster Administrator access to existing SSO identities and download or copy token-free OIDC kubeconfigs. |
 | System Status | Shows NVIDIA, AMD, and Intel detection/operator/resource state plus Flux, Pod, Service, Ingress, and Event status. |
 | Settings | Edits appliance-wide public and mDNS domain settings. The public dashboard host is always derived from the public domain. |
-| License & Enterprise | Admin-only offline license preview, activation, status and export, also available through CLI/TUI. The optional extension implements targeted instance sharing. The dashboard also bundles the MIT text, licensing overview and provisional Enterprise notice for offline inspection/download. |
+| License & Enterprise | Admin-only offline license preview, activation, status and export, also available through CLI/TUI. The standard API runtime contains the license-gated targeted-sharing implementation. The dashboard also bundles the MIT text, licensing overview and provisional Enterprise notice for offline inspection/download. |
 
 ## Backend API
 
@@ -363,7 +363,7 @@ Existing Community features remain license-independent.
 
 Dashboard administrators use the **Sharing** button on each instance, or the
 sharing fields in **Create Instance**, to choose selected Keycloak users/groups.
-The `resource-sharing` entitlement and optional Enterprise implementation are
+The packaged implementation and a valid `resource-sharing` entitlement are
 required. The existing default remains all users with the required role.
 The API filters instance lists, overview/module/status/event data and derived
 URLs for non-admins. A separate edge check enforces app and credential access;

@@ -94,7 +94,7 @@ export const LicensePage = () => {
       {message && <p role="status" className="notice notice-good">{message}</p>}
     </Panel>
     <Panel title="Enterprise capabilities">
-      <p className="muted">A capability requires both an installed implementation and a valid license entitlement. Missing or expired entitlements never make private instances public.</p>
+      <p className="muted">A capability requires both a packaged implementation and a valid license entitlement. Missing or expired entitlements never make private instances public.</p>
       <div className="table-wrap"><table><thead><tr><th>Capability</th><th>License entitlement</th><th>Implementation</th></tr></thead><tbody>
         {status.features.map((feature) => <tr key={feature.id}><td>{feature.name}</td><td>{feature.licensed ? 'Licensed' : 'Not licensed'}</td><td>{feature.implemented ? 'Implemented' : 'Not implemented'}</td></tr>)}
       </tbody></table></div>

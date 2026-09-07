@@ -159,6 +159,10 @@ HTTPServer(('127.0.0.1', 8082), Handler).serve_forever()
             request(method, path, body, role='viewer', expected=403)
         status = request()
         assert status['state'] == 'missing'
+        sharing = next(feature for feature in status['features'] if feature['id'] == 'resource-sharing')
+        assert sharing['implemented'] and not sharing['licensed'] and not sharing['available']
+        assert all(not feature['implemented'] and not feature['available']
+                   for feature in status['features'] if feature['id'] != 'resource-sharing')
         assert status['trustedKeyIds'] == sorted(json.loads(trust)['keys']), 'Shipped public keys must load without populating the existing empty local store'
         legacy_after = json.loads(kubectl('-n', namespace, 'get', 'configmap', 'magicstick-license-trust', '-o', 'json'))
         assert legacy_after['data'] == legacy_before['data'] and legacy_after['metadata']['uid'] == legacy_before['metadata']['uid']
@@ -170,11 +174,14 @@ HTTPServer(('127.0.0.1', 8082), Handler).serve_forever()
         assert request('POST', '/api/license/validate', {'document': document})['candidate']['valid']
         assert request()['state'] == 'missing', 'Preview must not save the license'
         result = request('PUT', body={'document': document, 'expectedRevision': status['revision']})
-        assert result['valid'] and all(f['licensed'] and not f['available'] for f in result['features'])
+        sharing = next(feature for feature in result['features'] if feature['id'] == 'resource-sharing')
+        assert result['valid'] and sharing['licensed'] and sharing['implemented'] and sharing['available']
+        assert all(feature['licensed'] and not feature['implemented'] and not feature['available']
+                   for feature in result['features'] if feature['id'] != 'resource-sharing')
         request('PUT', body={'document': document, 'expectedRevision': status['revision']}, expected=409)
         request('PUT', body={'document': '{}', 'expectedRevision': result['revision']}, expected=400)
         assert request('GET', '/api/license/export')['content'] == document
-        print('PASS: authentication, admin-only access, CSRF, preview, activation, conflicts, invalid replacement, exact export', flush=True)
+        print('PASS: authentication, admin-only access, CSRF, preview, activation of only the packaged capability, conflicts, invalid replacement, exact export', flush=True)
 
         uid = kubectl('-n', namespace, 'get', 'secret', SECRET_NAME, '-o', 'jsonpath={.metadata.uid}')
         forwarding.terminate(); forwarding.wait(timeout=10); forwarding = None

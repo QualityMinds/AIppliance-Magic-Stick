@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
-"""Community integration and fail-closed boundary for optional instance sharing.
+"""Community integration and fail-closed boundary for instance sharing.
 
-No Enterprise module is required for unrestricted instances. Missing code,
+No Enterprise entitlement is required for unrestricted instances. Missing code,
 licenses or identity data never convert a restriction into public access.
 """
 import copy

@@ -55,7 +55,7 @@ const SharingEditor = ({initial, onSaved, onClose}: {initial: InstanceAccessStat
   const enabled = initial.feature.available && initial.guardReady && initial.authentication === 'sso';
   return <form className="stack" onSubmit={(event) => {event.preventDefault(); if (confirmed && enabled) mutation.mutate();}}>
     <p>Administrators retain the management view. App access and instance credentials still require an explicit grant.</p>
-    {!initial.feature.available && <p className="notice notice-warn">A valid license with Targeted access and the installed Enterprise extension is required. Existing restrictions are never removed automatically.</p>}
+    {!initial.feature.available && <p className="notice notice-warn">A valid license with Targeted access is required. The implementation is included in the standard API runtime; existing restrictions are never removed automatically.</p>}
     {!initial.guardReady && <p className="notice notice-warn">The operator is still preparing the access guard. Wait for the instance to become ready.</p>}
     {initial.authentication !== 'sso' && <p className="notice notice-warn">Switch this instance to SSO before selecting users or groups.</p>}
     <SharingFields value={sharing} onChange={(value) => {setSharing(value); setConfirmed(false);}} disabled={!enabled || mutation.isPending} labels={initial.principals} />

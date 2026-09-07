@@ -1,7 +1,8 @@
 # Offline license management
 
-The AIMS-005 foundation is **MIT-licensed infrastructure**. Optional Enterprise
-business code uses the same signed-capability boundary. The React dashboard, CLI and TUI use the same admin-only API
+The AIMS-005 foundation is **MIT-licensed infrastructure**. Separately licensed
+Enterprise business code is packaged in the same API image and uses the
+signed-capability boundary. The React dashboard, CLI and TUI use the same admin-only API
 and persistent Kubernetes state. No existing Community operation requires a
 license. The React frontend is the standard browser dashboard.
 
@@ -30,10 +31,10 @@ The seven stable entitlement IDs are:
 | `multi-gpu` | Additional Multi-GPU management workflows |
 | `k3s-multi-node` | Additional k3s multi-node management workflows |
 
-The optional extension implements `resource-sharing` for
-[targeted instance access](instance-sharing.md). A Community-only build reports
-all capabilities as unimplemented; the other six remain unimplemented even in
-the extension build. These names do not put existing GPU, k3s or SSO
+The standard API image implements `resource-sharing` for
+[targeted instance access](instance-sharing.md). Without a matching license it
+reports the capability as implemented but unavailable; the other six remain
+unimplemented. These names do not put existing GPU, k3s or SSO
 capabilities behind a paywall. Multi-GPU and multi-node support boundaries still
 need their own review. Future business code belongs behind the separately
 documented [Enterprise boundary](../enterprise/README.md).
@@ -258,8 +259,8 @@ policies are not deleted or made public. See the explicit
 `LicenseService.require_capability(feature, authorized=...)` is the
 server-side integration hook. It fails unless caller authorization, a verified
 entitlement and an actually implemented/available capability all permit the
-operation. The optional extension registers `resource-sharing`; it does not
-activate the other six capabilities. Extensions register their implementation and use the
+operation. The packaged Enterprise module registers `resource-sharing`; it does
+not activate the other six capabilities. Future implementations register themselves and use the
 same decision in applicable API and controller mutation paths; no existing
 Community path is gated by this hook.
 
@@ -282,7 +283,7 @@ cd dashboard
 pnpm install --frozen-lockfile
 pnpm typecheck && pnpm test && pnpm build
 cd ..
-docker --context rancher-desktop build --target community \
+docker --context rancher-desktop build \
   -t magicstick-api:license-test -f dashboard/apps/api/Dockerfile .
 /tmp/magicstick-license-test-venv/bin/python dashboard/apps/api/rancher_license_test.py
 ```
@@ -307,6 +308,8 @@ The API image is built for amd64/arm64 by the dashboard-image workflow with
 PyJWT and cryptography pinned in `requirements.txt`. Production manifests should
 use its published `api-sha-<commit>` tag when advancing the runtime; changing only
 the mounted backend ConfigMap does not update the packaged verification module.
-The build context is the repository root. `--target community` excludes the
-optional Enterprise package entirely; `--target enterprise` includes it. The
-commercial publication boundary is documented in [enterprise/README.md](../enterprise/README.md).
+The build context is the repository root. The Dockerfile produces one runtime
+containing both explicitly scoped code areas and both notices. Missing, invalid,
+tampered or expired entitlements leave Enterprise capabilities unavailable while
+Community operation remains usable. The commercial publication boundary is
+documented in [enterprise/README.md](../enterprise/README.md).

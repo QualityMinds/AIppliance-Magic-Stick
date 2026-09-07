@@ -11,7 +11,7 @@ const documents = [
 
 export const SoftwareLicenses = () => <Panel title="Software licenses">
   <p>Community is MIT-licensed, including commercial use. Only explicitly marked Enterprise code has separate terms. Existing MIT rights are unchanged.</p>
-  <p className="muted">A signed entitlement file is a technical activation record, not a commercial agreement. The Enterprise notice is provisional and subject to review.</p>
+  <p className="muted">The standard API uses one combined image. A signed entitlement file activates packaged Enterprise capabilities; it is a technical record, not a commercial agreement. The Enterprise notice is provisional and subject to review.</p>
   <div className="stack compact">{documents.map((document) => <details key={document.filename} className="license-document">
     <summary>{document.title}</summary>
     <pre>{document.text}</pre>

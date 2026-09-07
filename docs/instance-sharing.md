@@ -7,8 +7,9 @@ This increment does not add module ACLs, team delegation or resource budgets.
 
 ## Dashboard workflow
 
-1. Install the optional Enterprise API implementation and provision/import a
-   valid signed license containing `resource-sharing`; see [licensing](licensing.md).
+1. Install the standard API image and provision/import a valid signed license
+   containing `resource-sharing`; see [licensing](licensing.md). The same image
+   also runs in Community mode without a license.
 2. In **Dashboard → Services**, expand an application's instances and select
    **Sharing**. Administrators can also select sharing while creating an instance.
 3. Keep **All users with the required role**, or select **Selected users or groups**.
@@ -86,10 +87,12 @@ The operator installs an Envoy HTTP external-authorization check for **every**
 instance route, including currently unrestricted routes. This avoids an old
 public route remaining usable when a restriction is first added. The check is
 bound to the AppInstance name **and UID**; a reused name does not reuse a grant.
-An unrestricted request needs no license or Enterprise import. A restricted
+An unrestricted request needs no license activation. A restricted
 request verifies the signature/expiry/installation binding, implemented capability,
 authenticated identity, live enabled status, effective role and current groups.
-Arbitrary identity headers from the browser are not trusted.
+Arbitrary identity headers from the browser are not trusted. The implementation
+is present in the standard API image, but the entitlement is checked live before
+every restricted decision.
 
 `EnvoyProxy.spec.filterOrder` places external authorization after JWT/OIDC
 authentication. `SecurityPolicy.spec.extAuth.failOpen` is false. The check is a
@@ -113,8 +116,9 @@ ConfigMap, CRD, controller and gateway policy. The previous license-foundation
 image does not contain that integration; applying only the new ConfigMap/controller
 against it is not supported. Branch image builds publish immutable SHA tags
 without advancing installation channel tags, so matching pins can be verified
-before merging. The default image remains Community-only: source integration
-does not approve publication of the commercial package or final customer terms.
+before merging. CI publishes one combined API runtime rather than separate
+Community and Enterprise images. Package inclusion does not approve final
+customer terms and does not activate a capability without its signed entitlement.
 A full Flux upgrade of an existing physical appliance is a separate acceptance
 check from the isolated Rancher tests below.
 
@@ -150,7 +154,7 @@ signed-license storage:
 
 ```bash
 docker --context rancher-desktop build -f dashboard/apps/api/Dockerfile \
-  --target enterprise -t magicstick-api:sharing-test .
+  -t magicstick-api:sharing-test .
 PLAYWRIGHT_MODULE=/absolute/path/to/node_modules/playwright \
   /path/to/venv/bin/python dashboard/apps/api/rancher_sharing_test.py
 ```
@@ -187,8 +191,8 @@ concurrent-update rejection and fail-closed trust revocation without deleting
 the policy. A separate Rancher/Chrome test verified official-key loading,
 rotation/retirement, preserved local trust, license persistence across a Pod
 restart, CLI import and dashboard upload/activation through the primary Service.
-Community image exclusion, 19 Kubernetes compositions and both production
-client builds were also checked. This is not production multi-tenant isolation
+Single-image package inclusion, no-license Community behavior, 19 Kubernetes
+compositions and both production client builds were also checked. This is not production multi-tenant isolation
 acceptance or a full Flux upgrade test of an existing appliance.
 On this Rancher run, namespace finalization exceeded the harness's 60-second
 cleanup wait. Kubernetes completed deletion normally afterward, without forced

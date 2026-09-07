@@ -117,7 +117,9 @@ jobs:
             type=raw,value=api-licensing-v1,enable=${{ github.ref == 'refs/heads/main' }}
           labels: |
             org.opencontainers.image.title=MagicStick dashboard API
-            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.description=Single license-gated Community and Enterprise API runtime for MagicStick
+            org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick
+            org.opencontainers.image.licenses=MIT AND LicenseRef-MagicStick-Enterprise
             org.opencontainers.image.revision=${{ github.sha }}
 
       - name: Build and push multi-architecture image
@@ -153,7 +155,6 @@ jobs:
         with:
           context: .
           file: dashboard/apps/api/Dockerfile
-          target: community
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.api-meta.outputs.tags }}

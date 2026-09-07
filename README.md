@@ -14,6 +14,9 @@ Only explicitly marked Enterprise business code has separate terms. See the
 [licensing overview](LICENSING.md) and the provisional
 [Enterprise notice](enterprise/LICENSE). The latter is a review draft, not a
 completed customer agreement; existing MIT rights are unchanged.
+The standard API is distributed as one combined image: Community operation is
+available without a license, while packaged Enterprise capabilities remain
+inactive until a matching signed entitlement is verified at runtime.
 
 ## Installation
 

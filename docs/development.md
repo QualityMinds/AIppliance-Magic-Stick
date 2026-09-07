@@ -174,8 +174,13 @@ source-of-truth license notices can be included:
 cd .. # when still in dashboard/ from the commands above
 docker build -f dashboard/apps/web/Dockerfile -t magicstick-dashboard:local .
 docker build -f dashboard/apps/cli/Dockerfile -t magicstick-cli:local .
-docker build -f dashboard/apps/api/Dockerfile --target community -t magicstick-api:local .
+docker build -f dashboard/apps/api/Dockerfile -t magicstick-api:local .
 ```
+
+The API Dockerfile intentionally has one final runtime. It contains the
+MIT-licensed foundation and explicitly scoped Enterprise implementation, carries
+both notices, and activates paid capabilities only after live license verification.
+Do not add separate Community/Enterprise image variants.
 
 For coordinated API/ConfigMap changes, publish the matching immutable images
 before advancing the deployment pins. The dashboard-image workflow can run on

@@ -80,6 +80,22 @@ class LicenseTests(unittest.TestCase):
         self.assertTrue(all(f['licensed'] for f in status['features']))
         self.assertTrue(all(not f['implemented'] and not f['available'] for f in status['features']))
 
+    def test_packaged_enterprise_code_requires_a_matching_entitlement(self):
+        with patch('licensing.installed_capabilities', return_value={'resource-sharing'}):
+            community = self.service.status()
+            sharing = next(feature for feature in community['features'] if feature['id'] == 'resource-sharing')
+            self.assertTrue(sharing['implemented'])
+            self.assertFalse(sharing['licensed'])
+            self.assertFalse(sharing['available'])
+
+            activated = self.service.activate(self.document(), community['revision'])
+            sharing = next(feature for feature in activated['features'] if feature['id'] == 'resource-sharing')
+            self.assertTrue(sharing['licensed'])
+            self.assertTrue(sharing['implemented'])
+            self.assertTrue(sharing['available'])
+            self.assertTrue(all(not feature['available'] for feature in activated['features']
+                                if feature['id'] != 'resource-sharing'))
+
     def test_state_survives_service_restart_and_export_is_exact(self):
         status = self.service.status()
         document = self.document()

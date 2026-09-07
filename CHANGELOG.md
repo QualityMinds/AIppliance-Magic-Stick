@@ -24,8 +24,9 @@ formalized, release entries should group changes under:
 - Optional Enterprise instance sharing with stable user/group allow-lists,
   live authorization, fail-closed gateway guards, a basic-user launchpad and
   dashboard/CLI management. The other six planned Enterprise capabilities remain
-  unimplemented. Default published API images stay Community-only pending
-  approval of the provisional Enterprise terms; offline notices explain the scope.
+  unimplemented. One mixed-license API image now carries the bounded implementation
+  and both notices; live signed entitlements activate paid capabilities while
+  Community operation remains available without a license.
 
 - Fail-closed one-command installation wrappers for dedicated Ubuntu 24.04
   hosts and existing Kubernetes clusters from Bash or PowerShell 7, including

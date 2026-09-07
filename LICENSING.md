@@ -17,8 +17,8 @@ agreement. Publishing this review does not approve a commercial release.
 
 The root MIT license text is unchanged. This boundary does not withdraw or
 replace rights in code already made available under MIT, and does not add an
-Enterprise payment requirement to existing Community functionality. A call to
-an optional Enterprise extension does not relicense the caller.
+Enterprise payment requirement to existing Community functionality. Calling a
+packaged Enterprise capability does not relicense the Community caller.
 
 New Enterprise files must explicitly identify their applicable terms; the
 current exception is not a blanket commercial relicensing of the repository.
@@ -35,22 +35,22 @@ workflow. The final agreement must specify customer rights and applicable terms
 separately; no price, renewal, support level or jurisdiction is implied here.
 
 Before customer release, review the Enterprise notice and final customer terms
-with qualified legal counsel and approve the package scope and notices.
-The CI/default API image remains Community-only during that review. The
-explicit local Enterprise build is used for technical validation; it is not a
-general evaluation-license grant.
+with qualified legal counsel and approve the package scope and notices. The
+standard API image contains both scopes and is therefore a mixed-license
+distribution; its technical availability is not a general evaluation-license
+grant.
 
 ## Distribution and attribution
 
 - Preserve the applicable copyright and license notices in source and packages.
 - Enterprise file headers use `SPDX-License-Identifier: LicenseRef-MagicStick-Enterprise`
   and refer to the scoped [notice](enterprise/LICENSE).
-- Combined API images include the MIT text, this overview and the Enterprise
-  notice; Community images contain no Enterprise business implementation.
+- The single API image includes the MIT text, this overview, the Enterprise
+  notice and the bounded Enterprise implementation.
 - The React dashboard bundles the same source texts for offline inspection and
-  download. Displaying an Enterprise notice does not mean the extension is installed.
+  download. Displaying an Enterprise notice does not mean a capability is licensed.
 - Upstream license obligations remain separate. Build labels must describe the
-  included code; an Enterprise image must not advertise only `MIT`.
+  included code; the combined image must not advertise only `MIT`.
 
 For technical activation, persistence and recovery, see
 [offline license management](docs/licensing.md). For the first optional business

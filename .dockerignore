@@ -9,3 +9,8 @@
 **/.env
 **/.env.local
 **/*.log
+private
+private/**
+**/signing-key.pem
+**/customer-claims.json
+**/customer-license.json

@@ -6,9 +6,10 @@ This page collects common day-2 checks for a running appliance.
 
 Dashboard administrators use **License & Enterprise**; terminal administrators
 use `magicstick license status` or the TUI's **License** tab. The MIT foundation
-supports signed-file preview, explicit replacement and export. An installed
-Enterprise extension plus a valid `resource-sharing` entitlement adds targeted
-instance access. Existing Community operation remains license-independent.
+supports signed-file preview, explicit replacement and export. The standard API
+runtime includes the Enterprise implementation; a valid `resource-sharing`
+entitlement activates targeted instance access. Existing Community operation
+remains license-independent.
 
 Official releases deliver the issuer's public keys automatically. Customers
 upload only their signed JSON; there is no manual trust-store installation step.
