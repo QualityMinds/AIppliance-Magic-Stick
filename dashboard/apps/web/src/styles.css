@@ -195,12 +195,13 @@ footer { padding: 1.1rem; color: #8798b2; text-align: center; font-size: .8rem; 
 .overview-resource { display: grid; grid-template-columns: minmax(150px, .5fr) minmax(0, 1.5fr); align-items: center; gap: 1rem; padding: .75rem; border: 1px solid var(--line); border-radius: 12px; background: rgb(4 11 22 / 55%); }
 .overview-resource .resource-links { margin-top: 0; justify-content: flex-end; }
 
-.capacity-scale { position: relative; height: 62px; margin: 1.5rem 0 .2rem; border-radius: 999px; background: #2a3341; }
+.capacity-scale { position: relative; height: 62px; margin: 4rem 0 .2rem; border-radius: 999px; background: #2a3341; }
 .capacity-available { position: absolute; inset: 0 auto auto 0; height: 8px; border: 1px solid #4ed6ed; border-radius: 999px; background: #18394a; }
 .capacity-available input { position: absolute; inset: -7px 0 auto; margin: 0; }
 .capacity-overflow { position: absolute; inset: 0 0 auto auto; height: 8px; border-radius: 0 999px 999px 0; background: #596272; }
 .capacity-marker { position: absolute; top: -24px; width: 1px; height: 29px; background: #71839c; }
-.capacity-marker span { position: absolute; bottom: 32px; left: 50%; width: max-content; max-width: 130px; transform: translateX(-50%); color: #dbe5f5; font-size: .68rem; font-weight: 700; text-align: center; }
+.capacity-marker span { position: absolute; bottom: 32px; left: 50%; width: max-content; max-width: 130px; transform: translateX(var(--marker-label-shift, -50%)); color: #dbe5f5; font-size: .68rem; font-weight: 700; text-align: center; }
+.capacity-marker.minimum span { bottom: 50px; }
 .capacity-marker.recommended { background: var(--cyan); }
 .capacity-marker.recommended span { color: #6ceaff; }
 .capacity-marker.available { top: 8px; height: 18px; background: #9caabd; }

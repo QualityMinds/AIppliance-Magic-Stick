@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: magicstick-offloading-profiles
+  namespace: flux-system
+  annotations:
+    kustomize.toolkit.fluxcd.io/ssa: IfNotPresent
+  labels:
+    reconcile.fluxcd.io/watch: Enabled
+data:
+  values.json: '{"resourceProfiles":{}}'
+# Helm needs a valid valuesKey even before any offloading model exists.
+# Flux only bootstraps the store; subsequent profile updates belong to the operator.

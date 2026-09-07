@@ -32,6 +32,25 @@ class VllmWrapperTests(unittest.TestCase):
         self.wrapper["sys"].argv[:] = self.original_argv
         self.wrapper["subprocess"].run = self.original_subprocess_run
 
+    def test_cpu_offload_budget_is_converted_to_gib_and_cannot_be_overridden(self):
+        self.wrapper["os"].environ.update(MAGICSTICK_COMPUTE_TARGET="nvidia-gpu", MAGICSTICK_VLLM_VRAM_LIMIT="12000Mi", MAGICSTICK_CPU_OFFLOAD_MI="8192")
+        self.wrapper["gpu_total_mib"] = lambda *_: 24000
+        self.wrapper["sys"].argv[:] = ["wrapper.py", "--cpu-offload-gb", "64", "--offload-backend=prefetch", "--offload-group-size=4"]
+        self.wrapper["configure_argv"]()
+        args = self.wrapper["sys"].argv
+        self.assertIn("--cpu-offload-gb=8.000000", args)
+        self.assertIn("--offload-backend=uva", args)
+        self.assertIn("--offload-group-size=0", args)
+        self.assertNotIn("64", args)
+        self.assertIn("--gpu-memory-utilization=0.5000", args)
+
+    def test_explicit_offloading_disabled_keeps_zero(self):
+        self.wrapper["os"].environ.update(MAGICSTICK_COMPUTE_TARGET="nvidia-gpu", MAGICSTICK_VLLM_VRAM_LIMIT="12000Mi", MAGICSTICK_CPU_OFFLOAD_MI="0")
+        self.wrapper["gpu_total_mib"] = lambda *_: 24000
+        self.wrapper["sys"].argv[:] = ["wrapper.py", "--cpu-offload-gb=16"]
+        self.wrapper["configure_argv"]()
+        self.assertIn("--cpu-offload-gb=0.000000", self.wrapper["sys"].argv)
+
     def test_cpu_target_starts_vllm_without_inspecting_nvidia(self):
         self.wrapper["os"].environ["MAGICSTICK_COMPUTE_TARGET"] = "cpu"
         self.wrapper["sys"].argv[:] = ["wrapper.py", "--max-model-len=2048", "--gpu-memory-utilization=0.9"]

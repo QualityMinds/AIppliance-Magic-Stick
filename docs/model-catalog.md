@@ -192,7 +192,10 @@ a JSON file. A local TUI form lists only live engine/compute-target pairs,
 accepts a direct `hf://` or `ollama://` reference, obtains the normal server-side
 memory estimate, and rounds an automatic recommendation upward to the same
 100 MiB planning increment as the browser. An explicit reservation remains
-possible. Dynamic catalog search and tested-preset browsing remain richer in
+possible. NVIDIA models also expose the opt-in **Use additional system RAM**
+choice and a separate total host-RAM budget. Leaving that budget empty uses the
+server recommendation; inadequate or unverifiable budgets are rejected.
+Dynamic catalog search and tested-preset browsing remain richer in
 the browser; the non-interactive CLI continues to accept the complete API
 payload with `model create-local --file`.
 
@@ -281,7 +284,52 @@ It derives attention KV and recurrent-state memory from the actual architecture,
 so CPU and accelerator variants receive comparable minimum and recommended
 planning values. On GPU
 targets the declared VRAM value is planning metadata; Kubernetes exposes exactly
-one GPU to the model pod and Ollama manages loading and any CPU offload itself.
+one GPU to the model pod. Existing activations without an explicit offloading
+policy retain Ollama's automatic loading behavior.
+
+### Explicit CPU offloading for NVIDIA models
+
+The browser and TUI offer **Use additional system RAM** for a single NVIDIA
+GPU-backed vLLM or Ollama replica. It is opt-in, does not use disk swap or another
+node's RAM, and can substantially reduce inference speed. AMD/Intel offloading,
+multi-GPU placement, and distributed inference are not part of this path.
+
+Keep the GPU's VRAM budget and select a separate **Host RAM reservation**. This
+second value is the total model-container RAM budget, including offloaded
+weights, host runtime, and selected startup headroom; it is not extra VRAM.
+The API derives the engine controls from model metadata and both budgets. The
+breakdown distinguishes estimated weights on GPU/RAM, GPU KV, host KV upper
+bound, runtime reserves, recommendation headroom, and download size. For Ollama
+the full host KV bound is conservative because hybrid layers do not split
+proportionally; it must not be interpreted as measured duplicate cache.
+
+- **vLLM:** the selected VRAM budget determines the estimated weight deficit.
+  The wrapper passes the derived MiB amount as `--cpu-offload-gb` in GiB with
+  the UVA backend. KV remains on the GPU. Offloading cannot make an oversized
+  GPU KV/runtime budget fit; reduce context/concurrency or increase VRAM.
+- **Ollama:** GGUF layer metadata determines an estimated GPU-layer count for
+  the pinned llama-server runtime (`LLAMA_ARG_N_GPU_LAYERS`, fit disabled).
+  Layers are not equally sized, so this is not a byte-exact VRAM limit. After
+  loading, the operator samples `/api/ps`; the installed-model card distinguishes
+  engine-reported RAM/VRAM buffers from requests and total process memory and
+  warns if reported buffers exceed the planned budget.
+
+The operator creates a named KubeAI resource profile with exactly one GPU and
+the chosen host RAM as both `requests.memory` and `limits.memory`. Increasing
+RAM never multiplies the GPU request. Host availability is based on allocatable
+RAM minus workload requests on an eligible GPU node, not the sum of CPU gauges
+across the cluster; unscheduled requests are accounted for conservatively.
+Kubernetes remains the final scheduling authority. Per-device placement is a
+separate feature: the current VRAM packing view is still a planning estimate.
+
+Existing resources that omit `cpuOffloading` are unchanged. New NVIDIA models
+explicitly use `false` when the switch is off: vLLM weight offloading is disabled,
+and Ollama requests all layers on GPU with automatic fit disabled. Metadata is
+required for `true`; the API rejects unknown host/VRAM capacity or allocations
+that cannot fit. Runtime startup peaks and layer compatibility still require
+validation on the selected model and GPU; the recommendation is not a guarantee
+against OOM. See [the runtime fields](appliance-crd.md#cpu-offloading-fields) and
+[operational checks](operations.md#cpu-offloading-checks).
 
 `qwen3827b` retains its validated single-GPU NVIDIA AWQ profile for a 24 GB-class
 GPU and now also offers the official FP8 and BF16 checkpoints. NVIDIA FP8

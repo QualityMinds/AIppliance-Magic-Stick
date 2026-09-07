@@ -78,6 +78,8 @@ export interface LocalModelInput {
   contextWindow: number;
   maxNumSeqs: number;
   reservationMi: number;
+  cpuOffloading?: boolean;
+  hostMemoryMi?: number;
 }
 
 const CLEAR = '\x1b[2J\x1b[H';
@@ -115,6 +117,14 @@ export const buildLocalModelPayload = (input: LocalModelInput, target: ComputeTa
   };
   if (target.kind === 'cpu' || input.computeTarget === 'cpu') local.memoryRequiredMi = input.reservationMi;
   else local.vram = `${input.reservationMi}Mi`;
+  if (input.cpuOffloading !== undefined) {
+    if (input.cpuOffloading && input.computeTarget !== 'nvidia-gpu') throw new Error('CPU offloading currently supports NVIDIA GPU models only.');
+    if (input.computeTarget === 'nvidia-gpu') local.cpuOffloading = input.cpuOffloading;
+    if (input.cpuOffloading) {
+      if (!Number.isInteger(input.hostMemoryMi) || Number(input.hostMemoryMi) < 100) throw new Error('A separate host RAM reservation is required for CPU offloading.');
+      local.memoryRequiredMi = input.hostMemoryMi;
+    }
+  }
   return {name: input.name, enabled: true, targetNamespace: 'ai', local};
 };
 
@@ -222,7 +232,7 @@ const modelLines = (snapshot: DashboardSnapshot, selectedIndex = -1) => {
       const local = item.spec?.local ?? {};
       const detail = item.spec?.type === 'external'
         ? String((item.spec?.external as Record<string, unknown> | undefined)?.model ?? 'external')
-        : `${String(local.engine ?? '')} ${String(local.computeTarget ?? '')}`.trim();
+        : `${String(local.engine ?? '')} ${String(local.computeTarget ?? '')}${local.cpuOffloading ? ` · CPU offloading · host RAM ${formatMi(Number(item.status?.memoryRequiredMi ?? local.memoryRequiredMi))}` : ''}`.trim();
       return `${selectedPrefix(index, selectedIndex)} ${item.metadata?.name ?? 'unnamed'}  ${statusLabel(item.status?.phase)}  ${detail}`.trimEnd();
     }),
   ];
@@ -522,25 +532,42 @@ export const runTui = async (runtime: Runtime, options: {color?: boolean; refres
       {id: 'contextWindow', label: 'Context size', value: '4096', required: true},
       {id: 'maxNumSeqs', label: 'Max sequences', value: '1', required: true},
       {id: 'reservationMi', label: 'RAM/VRAM reservation MiB', value: '', hint: 'automatic recommendation'},
+      {id: 'cpuOffloading', label: 'Use additional system RAM', value: 'false', kind: 'choice', choices: [{value: 'false', label: 'No'}, {value: 'true', label: 'Yes (NVIDIA GPU only)'}], hint: 'May substantially reduce inference speed.'},
+      {id: 'hostMemoryMi', label: 'Additional host RAM budget MiB', value: '', hint: 'offloading + runtime; empty = recommendation'},
     ], 'create model', async (values) => {
       const [engine = '', computeTarget = ''] = values.runtime?.split('\u001f') ?? [];
       const target = snapshot.models.computeTargets.targets.find((item) => item.id === computeTarget && item.available && item.engines?.includes(engine));
       if (!target) throw new Error('The selected runtime and hardware combination is no longer available.');
       const contextWindow = positiveInteger(values.contextWindow ?? '', 'Context size');
       const maxNumSeqs = positiveInteger(values.maxNumSeqs ?? '', 'Max sequences');
+      const cpuOffloading = values.cpuOffloading === 'true';
+      if (cpuOffloading && computeTarget !== 'nvidia-gpu') throw new Error('CPU offloading currently supports NVIDIA GPU models only.');
       await perform(`Create model ${values.name}`, async () => {
         const estimate = await runtime.api.estimateMemory({engine, computeTarget, url: values.reference, contextWindow, maxNumSeqs, modelType: values.modelType});
+        let displayEstimate = estimate;
         const reservationMi = values.reservationMi?.trim()
           ? positiveInteger(values.reservationMi, 'RAM/VRAM reservation')
-          : roundMemory(estimate.recommendedMi);
+          : cpuOffloading && estimate.maximumMi != null
+            ? Math.max(100, Math.min(roundMemory(estimate.recommendedMi), Math.floor(estimate.maximumMi / 100) * 100))
+            : roundMemory(estimate.recommendedMi);
+        let hostMemoryMi: number | undefined;
+        if (cpuOffloading) {
+          const split = await runtime.api.estimateMemory({engine, computeTarget, url: values.reference, contextWindow, maxNumSeqs, modelType: values.modelType, cpuOffloading: true, vramMi: reservationMi});
+          const plan = split.offloading;
+          displayEstimate = split;
+          if (!plan?.fitsVram) throw new Error('VRAM is too small for remaining GPU weights, KV cache and runtime. Increase VRAM or reduce context.');
+          hostMemoryMi = values.hostMemoryMi?.trim() ? positiveInteger(values.hostMemoryMi, 'Host RAM budget') : roundMemory(plan.ramRecommendedMi);
+          if (plan.ramMaximumMi == null || hostMemoryMi < plan.ramMinimumMi || hostMemoryMi > plan.ramMaximumMi) throw new Error('The host RAM budget must cover offloading and runtime and fit on an eligible GPU node.');
+        }
         const input: LocalModelInput = {
           name: values.name ?? '', modelType: values.modelType ?? 'chat', engine, computeTarget,
-          reference: values.reference ?? '', contextWindow, maxNumSeqs, reservationMi,
+          reference: values.reference ?? '', contextWindow, maxNumSeqs, reservationMi, cpuOffloading, hostMemoryMi,
         };
         await runtime.api.createLocalModel(buildLocalModelPayload(input, target));
         return {lines: [
           `${input.name} was requested on ${target.displayName ?? target.id} with ${engine}.`,
-          `Reservation: ${formatMi(reservationMi)}; estimate: ${formatMi(estimate.minimumMi)} minimum / ${formatMi(estimate.recommendedMi)} recommended.`,
+          `Reservation: ${formatMi(reservationMi)}; estimate: ${formatMi(displayEstimate.minimumMi)} minimum / ${formatMi(displayEstimate.recommendedMi)} recommended.`,
+          ...(cpuOffloading ? [`Additional host RAM reserved: ${formatMi(hostMemoryMi)}. The RAM/VRAM split is estimated, not measured.`] : []),
         ]};
       });
     });

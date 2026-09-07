@@ -106,6 +106,17 @@ describe('terminal dashboard', () => {
     expect(osc52ClipboardSequence('secret')).toBe('\x1b]52;c;c2VjcmV0\x07');
   });
 
+  it('keeps GPU and host budgets separate and lets the server derive offload controls', () => {
+    const input = {name: 'hybrid', modelType: 'chat', engine: 'OLlama', reference: 'ollama://example:latest',
+      contextWindow: 4096, maxNumSeqs: 1, reservationMi: 12000, computeTarget: 'nvidia-gpu', cpuOffloading: true, hostMemoryMi: 16000};
+    const payload = buildLocalModelPayload(input, {id: 'nvidia-gpu', kind: 'gpu'});
+    expect(payload.local).toMatchObject({cpuOffloading: true, vram: '12000Mi', memoryRequiredMi: 16000});
+    expect(payload.local).not.toHaveProperty('ollamaGpuLayers');
+    expect(payload.local).not.toHaveProperty('cpuOffloadMi');
+    expect(() => buildLocalModelPayload({...input, computeTarget: 'cpu'}, {id: 'cpu', kind: 'cpu'})).toThrow('NVIDIA');
+    expect(() => buildLocalModelPayload({...input, hostMemoryMi: undefined}, {id: 'nvidia-gpu', kind: 'gpu'})).toThrow('separate host RAM');
+  });
+
   it('handles multiple navigation keys delivered in one raw terminal chunk', () => {
     expect(splitTerminalInput('jja')).toEqual(['j', 'j', 'a']);
     expect(splitTerminalInput('\x1b[B\x1b[C')).toEqual(['\x1b[B', '\x1b[C']);

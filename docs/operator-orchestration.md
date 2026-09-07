@@ -53,6 +53,19 @@ The dashboard is also not an operator. It reads status and creates or patches
   `spec.local.memoryRequiredMi` into the engine-specific KubeAI resource-profile
   multiplier. Each multiplier unit represents 16 MiB, so KubeAI writes the
   reservation to the model pod's `resources.requests.memory`.
+- For explicit single-NVIDIA-GPU CPU offloading, generate a memory-specific
+  KubeAI profile in `flux-system/magicstick-offloading-profiles` (`values.json`).
+  The HelmRelease consumes it through optional `valuesFrom`. Clone the matching
+  engine profile, preserve its CPU/toleration settings and single GPU, and set
+  host RAM request/limit to the chosen budget. Never scale a GPU profile to
+  increase RAM, patch generated Pods, or mutate the Git-owned inline values.
+  Flux bootstraps this ConfigMap with an empty `resourceProfiles` map and SSA
+  `IfNotPresent`; the operator then owns `data.values.json`. Later Flux
+  reconciles must not reset this runtime store. A valid initial values key keeps
+  Helm healthy before the first offloading model exists.
+  Named ConfigMap get/patch is granted separately in `flux-system`; profiles are
+  reused and the generated store is bounded. A new profile triggers a Helm
+  reconcile/KubeAI controller rollout before the model can be scheduled.
 - Resolve each instance backend from the app catalog and create derived local
   and optional public HTTPRoutes, exact callback routes on the shared dashboard
   hosts, the cross-namespace ReferenceGrant, and an Envoy SecurityPolicy for

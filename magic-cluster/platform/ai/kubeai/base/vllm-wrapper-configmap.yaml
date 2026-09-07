@@ -198,6 +198,27 @@ data:
         # safety cap so a full-device budget still leaves runtime headroom.
         utilization = min(0.98, raw_utilization)
 
+        if "MAGICSTICK_CPU_OFFLOAD_MI" in os.environ:
+            raw = os.environ["MAGICSTICK_CPU_OFFLOAD_MI"]
+            if not raw.isdigit():
+                die("MAGICSTICK_CPU_OFFLOAD_MI must be a non-negative integer")
+            offload_mi = int(raw)
+            if offload_mi and compute_target != "nvidia-gpu":
+                die("CPU weight offloading is currently supported on NVIDIA only")
+            filtered = []
+            skip = False
+            controlled = {"--cpu-offload-gb", "--cpu_offload_gb", "--offload-backend", "--offload-group-size"}
+            for arg in args:
+                if skip:
+                    skip = False
+                    continue
+                if arg in controlled:
+                    skip = True
+                    continue
+                if arg.split("=", 1)[0] not in controlled:
+                    filtered.append(arg)
+            args = filtered + [f"--cpu-offload-gb={offload_mi / 1024:.6f}", "--offload-backend=uva", "--offload-group-size=0"]
+            log(f"cpu_offload_mib={offload_mi} (weight budget, not total host RAM or KV cache)")
         args.append(f"--gpu-memory-utilization={utilization:.4f}")
         sys.argv[:] = [sys.argv[0], *args]
 

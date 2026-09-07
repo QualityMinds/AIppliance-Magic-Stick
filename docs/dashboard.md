@@ -286,7 +286,7 @@ the appliance service restores the TUI automatically.
 | `GET` | `/api/model-discovery/popular?provider={huggingface,ollama}&limit=` | Returns Hugging Face trending models or Ollama's public popularity order, filtered for the selected model type, engine, and compute target. |
 | `GET` | `/api/model-discovery/artifacts?provider={huggingface,ollama}&repo=&cursor=&limit=` | Resolves directly related Hugging Face quantizations or the selected Ollama model's locally runnable tags. |
 | `GET` | `/api/status` | Returns runtime objects and the catalogued NVIDIA/AMD/Intel operator lifecycle from `Appliance.status.hardwareOperators`. |
-| `POST` | `/api/models/estimate-memory` | Estimates minimum and recommended RAM or accelerator memory for every supported local engine/compute-target combination. |
+| `POST` | `/api/models/estimate-memory` | Estimates minimum and recommended RAM or accelerator memory for every supported local engine/compute-target combination; an explicit NVIDIA `cpuOffloading: true` plus VRAM budget returns a separate `offloading` RAM/VRAM plan. |
 | `POST` | `/api/models/estimate-vram` | Backward-compatible alias for `/api/models/estimate-memory`. |
 | `POST` | `/api/models/local` | Adds or replaces a local KubeAI-backed `ModelActivation`. |
 | `POST` | `/api/models/external` | Adds or replaces an external LiteLLM-backed `ModelActivation`; Dashboard-entered API keys are stored as Secrets. |
@@ -749,8 +749,9 @@ down to the same step so the UI never offers more than the unreserved capacity.
 For CPU targets, the selected value is stored as
 `spec.local.memoryRequiredMi`. The operator rounds it up to a 16 MiB unit and
 turns it into the model pod's Kubernetes `requests.memory`. For accelerator
-targets, the selected VRAM remains scheduling/planning metadata; Ollama still
-decides the actual GPU offload at runtime. Live memory metrics currently come
+targets, the selected VRAM remains scheduling/planning metadata; old Ollama
+models without an explicit offloading policy retain their automatic fit.
+Live memory metrics currently come
 from NVIDIA DCGM, so AMD and Intel estimates can show minimum, recommendation,
 and breakdown without an adjustable maximum until matching memory metrics are
 available.
@@ -760,6 +761,25 @@ parallel sequences. The browser cannot supply an arbitrary runtime value. The
 operator passes that value to vLLM as `--kv-cache-memory-bytes`; 512 MiB remains
 only as a compatibility fallback for older or directly created resources that
 do not contain the derived field.
+
+For NVIDIA GPU models, **CPU offloading → Use additional system RAM** is an
+opt-in setting below the VRAM control. Keep VRAM and host RAM separate: the new
+**Host RAM reservation** slider/number field includes offloaded weights and
+host runtime, while **Use recommended RAM allocation** adjusts only host RAM.
+Budgets use 100 MiB steps. The host ceiling is the largest eligible node's
+allocatable RAM after workload requests, with pending requests deducted
+conservatively; it is not the cluster-wide CPU gauge. Creation is blocked while
+the split is loading, when capacity is unknown, or when either budget is
+inadequate. Manual RAM choices survive recalculation, and changing engine or
+hardware resets opt-in so a previous policy cannot silently carry over.
+
+The expanded breakdown separates estimated GPU/RAM weights, GPU KV, conservative
+host KV bound, host/GPU runtime, and headroom. vLLM offloads weights, not KV;
+Ollama chooses an estimated layer split, not a VRAM hard limit. The installed
+model card shows the host reservation separately and displays Ollama's `/api/ps`
+RAM/VRAM buffer reports when available. Missing measurements remain explicitly
+unknown, never zero. These reports are not process RSS or the Kubernetes
+reservation. See [CPU offloading behavior and limits](model-catalog.md#explicit-cpu-offloading-for-nvidia-models).
 
 The estimator prefers exact public Safetensors file sizes, checks the requested
 context against the model's advertised maximum, and adds a CPU-specific
@@ -785,8 +805,9 @@ full gray arc is 100 percent of that device's memory. The outer violet ring is
 unreserved memory (`total - active model reservations`); the inner cyan ring is
 memory currently available to the system. The center names the CPU or GPU and
 shows its currently available value. CPU totals are aggregated across Ready,
-schedulable appliance nodes, reservations come from active CPU
-`ModelActivation.status.memoryRequiredMi` values, and current availability
+schedulable appliance nodes, reservations come from active CPU models and
+GPU models with explicit CPU offloading via `ModelActivation.status.memoryRequiredMi`
+(falling back to the requested value), and current availability
 comes from the Kubelet node summary. The metrics API working-set value is used
 only as a fallback when a cluster does not permit the Kubelet summary.
 

@@ -128,7 +128,18 @@ spec:
                     memoryRequiredMi:
                       type: integer
                       minimum: 16
-                      description: Kubernetes memory request for CPU-backed model pods, in MiB.
+                      description: Total host RAM request in MiB for CPU models or GPU models with CPU offloading. Includes runtime and offloaded memory.
+                    cpuOffloading:
+                      type: boolean
+                      description: Explicit GPU weight/layer offloading policy. Omission preserves legacy engine behavior; no default is injected.
+                    cpuOffloadMi:
+                      type: integer
+                      minimum: 0
+                      description: Derived vLLM weight-offloading budget in MiB, separate from total host RAM.
+                    ollamaGpuLayers:
+                      type: integer
+                      minimum: 1
+                      description: Estimated number of Ollama layers to retain on GPU. Not a byte-exact VRAM limit.
                     contextWindow:
                       type: integer
                       minimum: 1
@@ -220,6 +231,12 @@ spec:
                 memoryRequiredMi:
                   type: integer
                   minimum: 0
+                cpuOffloading:
+                  type: boolean
+                memoryUsage:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                  description: Engine-reported usage, separate from reservations. Missing values mean unknown, not zero.
                 message:
                   type: string
                 conditions:

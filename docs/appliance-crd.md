@@ -282,6 +282,39 @@ spec:
 Intel is currently a vLLM-only target. An Ollama/Intel activation is rejected
 until a validated KubeAI image and resource profile are added.
 
+### CPU offloading fields
+
+The optional NVIDIA `spec.local.cpuOffloading` boolean has **no CRD default**:
+omission preserves legacy runtime behavior; explicit `false` requests no weight
+offloading (and all GPU layers without auto-fit for Ollama). `true` currently
+supports one NVIDIA-backed vLLM or Ollama replica only.
+
+| Field | Contract when offloading is enabled |
+|---|---|
+| `vram` / `vramMi` | GPU memory planning budget; separate from system RAM. |
+| `memoryRequiredMi` | Total host RAM including offloaded weights, runtime and chosen startup headroom; rendered as equal Pod memory request and limit. |
+| `cpuOffloadMi` | API-derived vLLM weight budget, converted to GiB by the wrapper. Zero for Ollama; not a KV budget. |
+| `ollamaGpuLayers` | API-derived positive layer count for Ollama; requires GGUF layer metadata. |
+
+For normal API/CLI creation, submit only `cpuOffloading`, the RAM/VRAM budgets
+and model/context inputs. The API recomputes both engine-specific fields;
+client-supplied derived values are ignored. The estimator's `offloading` object
+reports `ramMinimumMi`, `ramRecommendedMi`, `ramMaximumMi`, `gpuMinimumMi`,
+`gpuRecommendedMi`, `fitsVram`, and the separated weight/cache/runtime estimates.
+An unknown maximum is `null`, not zero. Invalid combinations, insufficient
+budgets, and more than one replica are rejected. Administrators creating CRs
+directly must supply a consistent derived plan; the operator still validates
+target, replica count, host runtime coverage, and engine controls.
+
+`status.cpuOffloading`, `status.memoryRequiredMi`, and
+`status.resolvedResourceProfile` expose applied intent. Optional
+`status.memoryUsage` contains Ollama `/api/ps` reports (`ramMi`, `vramMi`,
+`totalMi`, `source`, `sampledAt`, `replicas`), not process RSS or resource requests.
+Missing/unloaded runtime samples clear that object. Profile values are generated
+outside Git-owned `Appliance/local.spec`; see [operator responsibilities](operator-orchestration.md).
+
+### External activation example
+
 ```yaml
 apiVersion: appliance.magicstick.dev/v1alpha1
 kind: ModelActivation

@@ -990,6 +990,7 @@ data:
         artifact="",
         precision="",
         quantization="",
+        memory_usage=None,
     ):
         metadata = activation.get("metadata") or {}
         path = f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{metadata.get('namespace')}/modelactivations/{metadata.get('name')}/status"
@@ -1006,6 +1007,8 @@ data:
             "resolvedResourceProfile": resource_profile,
             "vramRequiredMi": int(vram_mi or 0),
             "memoryRequiredMi": int(memory_mi or 0),
+            "cpuOffloading": bool(((activation.get("spec") or {}).get("local") or {}).get("cpuOffloading")),
+            "memoryUsage": memory_usage,
             "message": message,
             "conditions": [condition("True" if phase in ("Ready", "Disabled") else "False", reason, message, generation)],
         }})
@@ -1491,6 +1494,9 @@ data:
             "vram",
             "vramMi",
             "memoryRequiredMi",
+            "cpuOffloading",
+            "cpuOffloadMi",
+            "ollamaGpuLayers",
             "contextWindow",
             "context_window",
             "maxOutputTokens",
@@ -1534,6 +1540,68 @@ data:
         units = max(1, (requested_mi + CPU_MEMORY_PROFILE_UNIT_MI - 1) // CPU_MEMORY_PROFILE_UNIT_MI)
         normalized_mi = units * CPU_MEMORY_PROFILE_UNIT_MI
         return profile_name + ":" + str(units), normalized_mi
+
+
+    def offloading_runtime(local, engine, compute_target):
+        if "cpuOffloading" not in local:
+            return None  # Preserve existing models, including Ollama auto-fit.
+        if not isinstance(local["cpuOffloading"], bool):
+            raise ValueError("local.cpuOffloading must be a boolean")
+        enabled = local["cpuOffloading"]
+        if enabled and compute_target != "nvidia-gpu":
+            raise ValueError("CPU offloading currently supports NVIDIA GPU models only")
+        if not enabled:
+            return {"enabled": False, "cpuOffloadMi": 0}
+        memory = positive_int(local.get("memoryRequiredMi")) or 0
+        raw_offload = local.get("cpuOffloadMi", 0)
+        if isinstance(raw_offload, bool) or not isinstance(raw_offload, int) or raw_offload < 0:
+            raise ValueError("local.cpuOffloadMi must be a non-negative integer")
+        host_base = 6144 if engine == "VLLM" else 4096
+        if memory < host_base + raw_offload:
+            raise ValueError("Host RAM must cover offloaded weights and engine runtime")
+        if positive_int(local.get("maxReplicas", 1)) != 1 or positive_int(local.get("minReplicas", 1)) not in (None, 1):
+            raise ValueError("CPU offloading currently supports one model replica")
+        layers = positive_int(local.get("ollamaGpuLayers"))
+        if engine == "OLlama" and not layers:
+            raise ValueError("local.ollamaGpuLayers is required for Ollama offloading")
+        return {"enabled": True, "cpuOffloadMi": raw_offload, "ramMi": memory, "gpuLayers": layers}
+
+
+    def offloading_profile_name(base_profile, memory_mi):
+        return base_profile.rsplit(":", 1)[0] + "-ram-" + str(memory_mi)
+
+
+    def ensure_offloading_profile(base_profile, memory_mi):
+        """Extend Helm values, not a generated Pod. The GPU count remains one."""
+        release = get_resource("helm.toolkit.fluxcd.io", "v2", "helmreleases", FLUX_NAMESPACE, "kubeai") or {}
+        if not any(value.get("kind") == "ConfigMap" and value.get("name") == "magicstick-offloading-profiles" and value.get("valuesKey") == "values.json"
+                   for value in (release.get("spec") or {}).get("valuesFrom") or []):
+            raise ValueError("Update the KubeAI HelmRelease to enable offloading resource profiles")
+        base_name = base_profile.rsplit(":", 1)[0]
+        base = (((release.get("spec") or {}).get("values") or {}).get("resourceProfiles") or {}).get(base_name)
+        if not base or str((base.get("requests") or {}).get("nvidia.com/gpu")) != "1":
+            raise ValueError("Waiting for a compatible single-GPU KubeAI resource profile")
+        profile = json.loads(json.dumps(base))
+        profile.setdefault("requests", {})["memory"] = str(memory_mi) + "Mi"
+        profile.setdefault("limits", {})["memory"] = str(memory_mi) + "Mi"
+        profile["limits"]["nvidia.com/gpu"] = "1"
+        name = "magicstick-offloading-profiles"
+        existing = get_core_resource("v1", "configmaps", FLUX_NAMESPACE, name)
+        if not existing:
+            raise ValueError("Waiting for the KubeAI offloading profile ConfigMap to be installed")
+        values = json.loads((existing.get("data") or {}).get("values.json") or "{}")
+        key = offloading_profile_name(base_profile, memory_mi)
+        profiles = values.setdefault("resourceProfiles", {})
+        if profiles.get(key) == profile:
+            return
+        profiles[key] = profile
+        encoded = json.dumps(values, sort_keys=True)
+        if len(encoded) > 750000:
+            raise ValueError("Offloading resource-profile storage is full; administrator cleanup is required")
+        apply_resource({"apiVersion": "v1", "kind": "ConfigMap", "metadata": {
+            "name": name, "namespace": FLUX_NAMESPACE,
+            "labels": {"app.kubernetes.io/managed-by": "magicstick-operator", "reconcile.fluxcd.io/watch": "Enabled"},
+        }, "data": {"values.json": encoded}})
 
 
     def model_args_with_runtime_limits(args, context_window, max_num_seqs):
@@ -1712,6 +1780,29 @@ data:
         return True, "Ollama alias " + model_name + " is available on every ready model pod."
 
 
+    def ollama_memory_usage(namespace, model_name):
+        samples = []
+        for endpoint in model_pod_endpoints(namespace, model_name):
+            try:
+                data = ollama_request_json(endpoint, "GET", "/api/ps")
+                for model in data.get("models") or []:
+                    if not ollama_name_is_available(ollama_model_names({"models": [model]}), model_name):
+                        continue
+                    total = positive_int(model.get("size"))
+                    vram = model.get("size_vram")
+                    if total and isinstance(vram, int) and 0 <= vram <= total:
+                        samples.append({"totalMi": (total + 1048575) // 1048576,
+                                        "vramMi": (vram + 1048575) // 1048576,
+                                        "ramMi": (total - vram + 1048575) // 1048576})
+            except (OSError, ValueError, urllib.error.URLError):
+                continue
+        if not samples:
+            return None
+        # Values are engine buffer reports, not process RSS or reservations.
+        return {"source": "ollama-api-ps", "sampledAt": datetime.now(timezone.utc).isoformat(),
+                "replicas": len(samples), **{key: max(item[key] for item in samples) for key in ("totalMi", "vramMi", "ramMi")}}
+
+
     def kubeai_model_resource(activation, presets, compute_catalog=None):
         metadata = activation.get("metadata") or {}
         spec = activation.get("spec") or {}
@@ -1721,6 +1812,8 @@ data:
         compute_target = local.get("computeTarget") or "nvidia-gpu"
         engine = local.get("engine") or "VLLM"
         resource_profile = local.get("resourceProfile")
+        base_resource_profile = resource_profile
+        offloading = offloading_runtime(local, engine, compute_target)
         target_definition = compute_target_definition(compute_target, compute_catalog, engine) if compute_catalog else {
             "kind": "cpu" if compute_target == "cpu" else "gpu"
         }
@@ -1728,6 +1821,8 @@ data:
         url = (local.get("url") or "").strip()
         vram_mi = local_model_vram_mi(local)
         memory_mi = positive_int(local.get("memoryRequiredMi")) or 0
+        if offloading and offloading["enabled"]:
+            resource_profile = offloading_profile_name(resource_profile, memory_mi) + ":1"
         if not url:
             raise ValueError("local.url is required for local ModelActivation")
         if engine == "VLLM" and not url.startswith("hf://"):
@@ -1777,6 +1872,8 @@ data:
             if compute_target == "cpu":
                 kv_cache_memory_bytes = positive_int(local.get("kvCacheMemoryBytes")) or 536870912
                 args = model_args_with_cpu_cache(args, kv_cache_memory_bytes)
+            if offloading is not None:
+                env["MAGICSTICK_CPU_OFFLOAD_MI"] = str(offloading["cpuOffloadMi"])
         else:
             if local.get("args"):
                 raise ValueError("OLlama local.args is not supported; use contextWindow and maxNumSeqs")
@@ -1792,6 +1889,11 @@ data:
                 env["OLLAMA_CONTEXT_LENGTH"] = str(context_window)
             if max_num_seqs:
                 env["OLLAMA_NUM_PARALLEL"] = str(max_num_seqs)
+            if offloading is not None and accelerator_backed:
+                # The pinned Ollama llama-server runtime accepts these envs.
+                # Explicit layers disable silent auto-fit; estimates are not VRAM limits.
+                env["LLAMA_ARG_N_GPU_LAYERS"] = str(offloading["gpuLayers"] if offloading["enabled"] else 999)
+                env["LLAMA_ARG_FIT"] = "off"
             args = []
         return {
             "apiVersion": "kubeai.org/v1",
@@ -1826,6 +1928,8 @@ data:
             "resourceProfile": resource_profile,
             "vramMi": vram_mi,
             "memoryMi": memory_mi,
+            "offloading": offloading,
+            "baseResourceProfile": base_resource_profile,
         }
 
 
@@ -1865,6 +1969,8 @@ data:
                 "resolvedResourceProfile": runtime["resourceProfile"],
                 "vramRequiredMi": runtime["vramMi"],
                 "memoryRequiredMi": runtime["memoryMi"],
+                "cpuOffloading": bool((runtime.get("offloading") or {}).get("enabled")),
+                "memoryUsage": runtime.get("memoryUsage"),
                 "message": message,
             }
 
@@ -1885,6 +1991,7 @@ data:
                 artifact=runtime.get("artifact", ""),
                 precision=runtime.get("precision", ""),
                 quantization=runtime.get("quantization", ""),
+                memory_usage=runtime.get("memoryUsage"),
             )
 
         if metadata.get("deletionTimestamp"):
@@ -1964,6 +2071,13 @@ data:
                 message = "Waiting for required CRDs: models.kubeai.org"
                 patch_status("WaitingForCRDs", "WaitingForCRDs", message, name)
                 return "WaitingForCRDs", status_payload("WaitingForCRDs", message, name)
+            if (runtime.get("offloading") or {}).get("enabled"):
+                try:
+                    ensure_offloading_profile(runtime["baseResourceProfile"], runtime["memoryMi"])
+                except ValueError as error:
+                    message = str(error)
+                    patch_status("Starting", "WaitingForOffloadingProfile", message, name)
+                    return "Starting", status_payload("Starting", message, name)
             applied_model = apply_resource(resource)
             kubeai_model = get_resource("kubeai.org", "v1", "models", namespace, name) or applied_model
             ready_replicas, expected_replicas = kubeai_model_replica_counts(kubeai_model)
@@ -1980,6 +2094,8 @@ data:
                 if not alias_ready:
                     patch_status("Starting", "WaitingForOllamaAlias", message, name)
                     return "Starting", status_payload("Starting", message, name)
+                if runtime.get("offloading") is not None:
+                    runtime["memoryUsage"] = ollama_memory_usage(namespace, name)
 
         if catalog_contains_model(namespace, name):
             message = "Model is available in the generated model catalog."

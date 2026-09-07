@@ -338,6 +338,24 @@ export interface DiscoveryArtifactsPayload {
   nextCursor?: string | null;
 }
 
+export interface CpuOffloadingPlan {
+  enabled: boolean;
+  mode: 'weights' | 'layers';
+  vramBudgetMi: number;
+  weightsOnGpuMi: number;
+  weightsOnCpuMi: number;
+  kvOnGpuMi: number;
+  kvOnCpuMi: number;
+  hostRuntimeMi: number;
+  ramMinimumMi: number;
+  ramRecommendedMi: number;
+  ramMaximumMi: number | null;
+  gpuMinimumMi: number;
+  gpuRecommendedMi: number;
+  fitsVram: boolean;
+  estimated: boolean;
+}
+
 export interface MemoryEstimate {
   minimumMi: number;
   recommendedMi: number;
@@ -362,6 +380,7 @@ export interface MemoryEstimate {
     fullAttentionLayers?: number;
     recurrentLayers?: number;
   };
+  offloading?: CpuOffloadingPlan;
   contextWindow?: number;
   modelMaxContext?: number;
   maxNumSeqs?: number;

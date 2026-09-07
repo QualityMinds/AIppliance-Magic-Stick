@@ -6,6 +6,11 @@ metadata:
 spec:
   interval: 10m0s
   targetNamespace: ai
+  valuesFrom:
+    - kind: ConfigMap
+      name: magicstick-offloading-profiles
+      valuesKey: values.json
+      optional: true
   chart:
     spec:
       chart: kubeai

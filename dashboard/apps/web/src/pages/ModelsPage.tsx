@@ -34,6 +34,7 @@ const MemoryGauge = ({device}: {device: ComputeMemoryDevice}) => {
 };
 
 const EstimateBreakdown = ({estimate}: {estimate: MemoryEstimate}) => {
+  const offloading = estimate.offloading;
   const runtime = estimate.runtimeDetails ?? {};
   const kvBudgetMi = Number(estimate.kvCacheMi ?? 0);
   const hasTheoreticalKv = estimate.theoreticalKvCacheMi !== null && estimate.theoreticalKvCacheMi !== undefined;
@@ -66,21 +67,37 @@ const EstimateBreakdown = ({estimate}: {estimate: MemoryEstimate}) => {
   ];
   return <details>
     <summary>Breakdown</summary>
-    <dl className="facts">{cards.map((item) => <div key={item.label}><dt>{item.label}</dt><dd>{item.value}</dd></div>)}</dl>
+    {offloading ? <>
+      <dl className="facts">
+        <div><dt>Weights · GPU</dt><dd>{formatMi(offloading.weightsOnGpuMi)}</dd></div>
+        <div><dt>Weights · RAM</dt><dd>{formatMi(offloading.weightsOnCpuMi)}</dd></div>
+        <div><dt>KV budget · GPU</dt><dd>{formatMi(offloading.kvOnGpuMi)}</dd></div>
+        <div><dt>KV upper bound · RAM</dt><dd>{formatMi(offloading.kvOnCpuMi)}</dd></div>
+        <div><dt>GPU runtime reserve</dt><dd>{formatMi(estimate.reserveMi)}</dd></div>
+        <div><dt>GPU recommended headroom</dt><dd>{formatMi(estimate.recommendedReserveMi)}</dd></div>
+        <div><dt>Host runtime reserve</dt><dd>{formatMi(offloading.hostRuntimeMi)}</dd></div>
+        <div><dt>RAM startup headroom</dt><dd>{formatMi(offloading.ramRecommendedMi - offloading.ramMinimumMi)}</dd></div>
+        <div><dt>Download (disk / network)</dt><dd>{formatBytes(estimate.downloadBytes)}</dd></div>
+      </dl>
+      <p className="muted">Planning estimates, not measured usage. Host RAM includes offloaded weights and runtime. For Ollama, the host KV upper bound conservatively covers an unknown hybrid-layer split; it is not additional measured cache. vLLM weight offloading does not offload KV cache.</p>
+    </> : <dl className="facts">{cards.map((item) => <div key={item.label}><dt>{item.label}</dt><dd>{item.value}</dd></div>)}</dl>}
     {hybridSafetyMi > 0 && <p className="muted">Configured KV budget: {formatMi(kvBudgetMi)} = {formatMi(baseKvMi)} theoretical cache + {formatMi(hybridSafetyMi)} compatibility safety for the hybrid vLLM allocator.</p>}
-    <p className="muted">Minimum includes weights, the complete KV budget, and runtime components. Recommended adds the separate headroom shown above. Download size is not added to memory.</p>
+    {!offloading && <p className="muted">Minimum includes weights, the complete KV budget, and runtime components. Recommended adds the separate headroom shown above. Download size is not added to memory.</p>}
     {estimate.warnings?.map((warning) => <p className="muted" key={warning}>{warning}</p>)}
   </details>;
 };
 
-const EstimatePanel = ({estimate, availableMi, selectedMi, onSelected}: {estimate?: MemoryEstimate; availableMi: number; selectedMi: number; onSelected: (value: number) => void}) => {
+const EstimatePanel = ({estimate, availableMi, selectedMi, onSelected, hideBreakdown = false}: {estimate?: MemoryEstimate; availableMi: number; selectedMi: number; onSelected: (value: number) => void; hideBreakdown?: boolean}) => {
   if (!estimate) return <div className="empty compact-empty">Choose a model reference to calculate memory.</div>;
   const minimum = roundMemory(estimate.minimumMi);
   const recommended = roundMemory(estimate.recommendedMi);
   const maximum = Math.max(100, Math.floor(availableMi / 100) * 100);
   const scaleMaximum = Math.max(maximum, minimum, recommended);
   const availablePercent = maximum / scaleMaximum * 100;
-  const marker = (value: number) => ({left: `${Math.min(100, value / scaleMaximum * 100)}%`} as CSSProperties);
+  const marker = (value: number) => {
+    const percent = Math.min(100, value / scaleMaximum * 100);
+    return {left: `${percent}%`, '--marker-label-shift': percent > 85 ? '-100%' : percent < 15 ? '0%' : '-50%'} as CSSProperties;
+  };
   return <section className="estimate">
     <header><div><strong>{estimate.computeTarget === 'cpu' ? 'RAM' : 'VRAM'} reservation</strong><span className="muted">{estimate.confidence ?? 'estimated'} confidence</span></div></header>
     <div className="estimate-metrics"><div><span>Minimum</span><strong>{formatMi(minimum)}</strong></div><div><span>Recommended</span><strong>{formatMi(recommended)}</strong></div><div><span>100% unreserved</span><strong>{formatMi(maximum)}</strong></div></div>
@@ -92,9 +109,10 @@ const EstimatePanel = ({estimate, availableMi, selectedMi, onSelected}: {estimat
       <span className="capacity-marker available" style={marker(maximum)}><span>100% {formatMi(maximum)}</span></span>
     </div>
     <div className="slider-labels"><span>Selected: {formatMi(selectedMi)}</span><span>{Math.round(Math.min(maximum, selectedMi) / maximum * 100)}% of unreserved memory</span></div>
+    <Field label={estimate.computeTarget === 'cpu' ? 'RAM budget (MiB)' : 'VRAM budget (MiB)'}><input type="number" min="100" step="100" max={maximum} value={selectedMi} onChange={(event) => onSelected(Number(event.target.value))} /></Field>
     <div className="button-grid three"><Button type="button" onClick={() => onSelected(Math.min(maximum, minimum))}>Minimum</Button><Button type="button" variant="primary" onClick={() => onSelected(Math.min(maximum, recommended))}>Recommended</Button><Button type="button" onClick={() => onSelected(maximum)}>100%</Button></div>
     {(minimum > maximum || recommended > maximum) && <div className="notice notice-warn">{minimum > maximum ? 'Minimum and recommended' : 'Recommended'} memory extends into the grey area beyond currently unreserved capacity.</div>}
-    <EstimateBreakdown estimate={estimate} />
+    {!hideBreakdown && <EstimateBreakdown estimate={estimate} />}
   </section>;
 };
 
@@ -123,6 +141,11 @@ const LocalModelForm = ({models, onClose, onCreated}: {models: ModelsPayload; on
   const [searchModel, setSearchModel] = useState(''); const [artifacts, setArtifacts] = useState<DiscoveryItem[]>([]);
   const [artifactCursor, setArtifactCursor] = useState<string | null>(null); const [selectedSearchArtifact, setSelectedSearchArtifact] = useState('');
   const [estimate, setEstimate] = useState<MemoryEstimate>(); const [selectedMi, setSelectedMi] = useState(100);
+  const [cpuOffloading, setCpuOffloading] = useState(false);
+  const [offloadEstimate, setOffloadEstimate] = useState<MemoryEstimate>();
+  const [hostMemoryMi, setHostMemoryMi] = useState(100);
+  const [hostMemoryEdited, setHostMemoryEdited] = useState(false);
+  const [offloadError, setOffloadError] = useState<unknown>(null);
   const [formError, setFormError] = useState<unknown>(null); const [searching, setSearching] = useState(false); const [loadingArtifacts, setLoadingArtifacts] = useState(false);
 
   useEffect(() => {
@@ -144,6 +167,27 @@ const LocalModelForm = ({models, onClose, onCreated}: {models: ModelsPayload; on
   const targetDevices = models.computeMemory?.devices?.filter((device) => device.computeTarget === computeTarget || device.id === computeTarget) ?? [];
   const availableMi = Math.max(100, ...targetDevices.map((device) => device.unreservedMi ?? 0), estimate?.maximumMi ?? 0, targetDevices.length ? 0 : estimate?.recommendedMi ?? 1024);
   const selectedDiscoveryArtifact = artifacts.find((item) => item.id === selectedSearchArtifact);
+  const supportsOffloading = computeTarget === 'nvidia-gpu';
+  const offload = supportsOffloading && cpuOffloading ? offloadEstimate?.offloading : undefined;
+  const hostMaximum = Math.max(0, Math.floor((offload?.ramMaximumMi ?? 0) / 100) * 100);
+
+  useEffect(() => { setCpuOffloading(false); setOffloadEstimate(undefined); setHostMemoryEdited(false); }, [engine, computeTarget]);
+  useEffect(() => { setHostMemoryEdited(false); }, [url]);
+  useEffect(() => {
+    if (!hostMemoryEdited && offload) setHostMemoryMi(roundMemory(offload.ramRecommendedMi));
+  }, [offload, hostMemoryEdited]);
+  useEffect(() => {
+    setOffloadEstimate(undefined); setOffloadError(null);
+    if (!cpuOffloading || !supportsOffloading || !url) return;
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const result = await api.estimateMemory({engine, computeTarget, url, contextWindow, maxNumSeqs, modelType, cpuOffloading: true, vramMi: selectedMi});
+        if (!cancelled) setOffloadEstimate(result);
+      } catch (reason) { if (!cancelled) setOffloadError(reason); }
+    }, 350);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [cpuOffloading, supportsOffloading, engine, computeTarget, url, contextWindow, maxNumSeqs, modelType, selectedMi]);
 
   const applyModel = (nextUrl: string, artifact?: ModelArtifact, variant?: ModelVariant) => {
     setUrl(nextUrl); setName((current) => current || safeModelName(nextUrl));
@@ -159,14 +203,20 @@ const LocalModelForm = ({models, onClose, onCreated}: {models: ModelsPayload; on
 
   useEffect(() => {
     if (!url) { setEstimate(undefined); return; }
+    let cancelled = false;
     const timer = window.setTimeout(async () => {
       try {
         const result = await api.estimateMemory({engine, computeTarget, url, contextWindow, maxNumSeqs, modelType});
-        setEstimate(result); setSelectedMi(roundMemory(result.recommendedMi)); setFormError(null);
-      } catch (reason) { setFormError(reason); }
+        if (!cancelled) {
+          setEstimate(result);
+          const maximum = Math.floor(availableMi / 100) * 100;
+          setSelectedMi((current) => Math.min(maximum, cpuOffloading ? current : roundMemory(result.recommendedMi)));
+          setFormError(null);
+        }
+      } catch (reason) { if (!cancelled) setFormError(reason); }
     }, 350);
-    return () => window.clearTimeout(timer);
-  }, [computeTarget, contextWindow, engine, maxNumSeqs, modelType, url]);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [computeTarget, contextWindow, engine, maxNumSeqs, modelType, url, cpuOffloading]);
 
   const searchParams = (query: string, cursor?: string | null) => {
     const params = new URLSearchParams({provider, q: query, engine, computeTarget, modelType, limit: '20'});
@@ -208,6 +258,13 @@ const LocalModelForm = ({models, onClose, onCreated}: {models: ModelsPayload; on
       if (!target?.available || !target.engines?.includes(engine)) throw new Error('The selected engine and hardware combination is not available.');
       const local: Record<string, unknown> = {modelType, computeTarget, engine, contextWindow, maxNumSeqs};
       if (target.kind === 'cpu' || computeTarget === 'cpu') local.memoryRequiredMi = selectedMi; else local.vram = `${selectedMi}Mi`;
+      if (supportsOffloading) {
+        local.cpuOffloading = cpuOffloading;
+        if (cpuOffloading) {
+          if (!offload?.fitsVram || !hostMaximum || hostMemoryMi < offload.ramMinimumMi || hostMemoryMi > hostMaximum) throw new Error('Choose a valid RAM and VRAM allocation before creating the model.');
+          local.memoryRequiredMi = hostMemoryMi;
+        }
+      }
       if (source === 'preset' && presetId) { local.preset = presetId; if (artifactId) local.artifact = artifactId; } else local.url = url;
       await api.createLocalModel({name: name || safeModelName(url), enabled: true, targetNamespace: 'ai', local});
     },
@@ -239,9 +296,28 @@ const LocalModelForm = ({models, onClose, onCreated}: {models: ModelsPayload; on
     {source === 'direct' && <Field label={engine === 'OLlama' ? 'Ollama model reference' : 'Hugging Face URL'}><input value={url} onChange={(event) => { const nextUrl = event.target.value; setUrl(nextUrl); if (nextUrl) setName((current) => current || safeModelName(nextUrl)); }} placeholder={engine === 'OLlama' ? 'ollama://qwen3.5:9b' : 'hf://Qwen/Qwen3.6-27B'} required /></Field>}
 
     <div className="form-grid three"><Field label="Name"><input value={name} onChange={(event) => setName(event.target.value)} required /></Field><Field label="Type"><select value={modelType} onChange={(event) => setModelType(event.target.value)}><option value="chat">Chat</option><option value="embedding">Embedding</option></select></Field><Field label="Selected URL"><input value={url} readOnly /></Field><Field label="Max Num Seqs"><input type="number" min="1" value={maxNumSeqs} onChange={(event) => setMaxNumSeqs(Number(event.target.value))} /></Field><Field label="Context Size"><input type="number" min="1" value={contextWindow} onChange={(event) => setContextWindow(Number(event.target.value))} /></Field></div>
-    <EstimatePanel estimate={estimate} availableMi={availableMi} selectedMi={selectedMi} onSelected={setSelectedMi} />
+    <EstimatePanel estimate={cpuOffloading ? offloadEstimate ?? estimate : estimate} availableMi={availableMi} selectedMi={selectedMi} onSelected={setSelectedMi} hideBreakdown={cpuOffloading} />
+    {supportsOffloading && <Panel title="CPU offloading" className="nested-panel">
+      <label className="check-field"><input type="checkbox" checked={cpuOffloading} onChange={(event) => setCpuOffloading(event.target.checked)} />Use additional system RAM</label>
+      <p className="muted">Stores part of the model in this GPU node's RAM. This can run larger models, but may substantially reduce response speed. No disk swap or RAM from another node is used.</p>
+      {cpuOffloading && <>
+        {!offload && !offloadError && <p role="status">Calculating the RAM / VRAM allocation…</p>}
+        {offload && <section className="estimate stack compact">
+          <header><strong>Host RAM reservation</strong><p className="muted">Includes offloading and runtime</p></header>
+          <div className="estimate-metrics"><div><span>Minimum</span><strong>{formatMi(offload.ramMinimumMi)}</strong></div><div><span>Recommended</span><strong>{formatMi(offload.ramRecommendedMi)}</strong></div><div><span>100% unreserved on an eligible GPU node</span><strong>{offload.ramMaximumMi === null ? 'Unknown' : formatMi(hostMaximum)}</strong></div></div>
+          <input aria-label="Host RAM reservation" type="range" min="100" step="100" max={Math.max(100, hostMaximum)} value={Math.min(Math.max(100, hostMaximum), hostMemoryMi)} disabled={!hostMaximum} onChange={(event) => { setHostMemoryEdited(true); setHostMemoryMi(Number(event.target.value)); }} />
+          <Field label="Host RAM budget (MiB)"><input type="number" min={roundMemory(offload.ramMinimumMi)} step="100" max={hostMaximum || undefined} value={hostMemoryMi} onChange={(event) => { setHostMemoryEdited(true); setHostMemoryMi(Number(event.target.value)); }} /></Field>
+          <Button type="button" onClick={() => { setHostMemoryEdited(false); setHostMemoryMi(roundMemory(offload.ramRecommendedMi)); }}>Use recommended RAM allocation</Button>
+          <p className="muted">The GPU budget above is preserved. Kubernetes reserves this host RAM on the same node as the GPU; the estimate uses the largest eligible node, not a cluster-wide sum.</p>
+          {engine === 'OLlama' && <p className="notice notice-warn">Ollama uses an estimated layer split, not a byte-exact VRAM limit. The loaded model's reported memory is shown separately.</p>}
+          {(!offload.fitsVram || !hostMaximum || hostMemoryMi < offload.ramMinimumMi || hostMemoryMi > hostMaximum) && <p className="notice notice-warn">This allocation does not fit the verified RAM / VRAM budgets. Increase the budget, reduce context or choose a smaller model.</p>}
+        </section>}
+        {offloadEstimate && <EstimateBreakdown estimate={offloadEstimate} />}
+      </>}
+      <ErrorNotice error={offloadError} />
+    </Panel>}
     <ErrorNotice error={formError ?? createMutation.error} />
-    <div className="form-actions"><Button type="button" variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" disabled={createMutation.isPending || !url}>Add Local Model</Button></div>
+    <div className="form-actions"><Button type="button" variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" disabled={createMutation.isPending || !url || (cpuOffloading && (!offload || !offload.fitsVram || !hostMaximum || hostMemoryMi < offload.ramMinimumMi || hostMemoryMi > hostMaximum))}>Add Local Model</Button></div>
   </form>;
 };
 
@@ -249,6 +325,19 @@ const ExternalModelForm = ({onClose, onCreated}: {onClose: () => void; onCreated
   const [name, setName] = useState(''); const [model, setModel] = useState('openai/gpt-4o-mini'); const [apiBase, setApiBase] = useState('https://api.openai.com/v1'); const [apiKey, setApiKey] = useState(''); const [modelType, setModelType] = useState('chat'); const [contextWindow, setContextWindow] = useState(128000);
   const mutation = useMutation({mutationFn: () => api.createExternalModel({name, enabled: true, targetNamespace: 'ai', external: {model, apiBase, modelType, contextWindow}, ...(apiKey ? {apiKey} : {})}), onSuccess: async () => { await onCreated(); onClose(); }});
   return <form className="stack" onSubmit={(event) => { event.preventDefault(); mutation.mutate(); }}><div className="form-grid"><Field label="Name"><input value={name} onChange={(event) => setName(event.target.value)} required /></Field><Field label="Provider Model"><input value={model} onChange={(event) => setModel(event.target.value)} required /></Field><Field label="API Base"><input value={apiBase} onChange={(event) => setApiBase(event.target.value)} type="url" required /></Field><Field label="Type"><select value={modelType} onChange={(event) => setModelType(event.target.value)}><option value="chat">Chat</option><option value="embedding">Embedding</option></select></Field><Field label="Context Size"><input type="number" min="1" value={contextWindow} onChange={(event) => setContextWindow(Number(event.target.value))} /></Field><Field label="API Key"><input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} autoComplete="new-password" placeholder="Optional when supplied elsewhere" /></Field></div><ErrorNotice error={mutation.error} /><div className="form-actions"><Button type="button" variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" disabled={mutation.isPending}>Add External Model</Button></div></form>;
+};
+
+const OffloadingStatus = ({local, status}: {local: Record<string, unknown>; status?: Record<string, unknown>}) => {
+  if (!local.cpuOffloading) return null;
+  const usage = status?.memoryUsage as {ramMi?: number; vramMi?: number; source?: string; sampledAt?: string} | undefined;
+  const ramBudget = Number(status?.memoryRequiredMi ?? local.memoryRequiredMi ?? 0);
+  const vramBudget = Number(status?.vramRequiredMi ?? local.vramMi ?? 0);
+  const exceedsBudget = usage && ((ramBudget > 0 && Number(usage.ramMi) > ramBudget) || (vramBudget > 0 && Number(usage.vramMi) > vramBudget));
+  return <div className="stack compact">
+    <div className="tag-list"><span className="tag">CPU offloading enabled</span><span className="tag">Host RAM reserved: {formatMi(Number(status?.memoryRequiredMi ?? local.memoryRequiredMi))}</span></div>
+    {usage ? <p className="muted">Engine-reported buffers: {formatMi(usage.ramMi)} RAM · {formatMi(usage.vramMi)} VRAM. Source: {usage.source}. These are not reservations or total process memory.</p> : <p className="muted">Actual RAM / VRAM split is not currently reported. The values above are reservations, not measured usage.</p>}
+    {exceedsBudget && <p className="notice notice-warn">The engine reports more memory than the planned budget. Increase the allocation or reduce model size/context; the Ollama layer split is not a byte-exact VRAM limit.</p>}
+  </div>;
 };
 
 export const ModelsPage = ({session}: {session: Session}) => {
@@ -278,6 +367,7 @@ export const ModelsPage = ({session}: {session: Session}) => {
       return <Panel key={activation.metadata?.name} title={activation.metadata?.name ?? 'unnamed'} meta={`${activation.spec?.type ?? (local ? 'local' : 'external')} · ${String(local?.modelType ?? external?.modelType ?? 'chat')}`} actions={<StatusBadge phase={phase} />}>
         <div className="tag-list">{local && <><span className="tag">Compute: {target}</span><span className="tag">Engine: {String(activation.status?.engine ?? local.engine ?? 'VLLM')}</span>{(activation.status?.artifact || local.artifact) && <span className="tag">Artifact: {String(activation.status?.artifact ?? local.artifact)}</span>}{(activation.status?.format || local.format) && <span className="tag">Format: {String(activation.status?.format ?? local.format)}</span>}{(activation.status?.quantization || local.quantization) && <span className="tag">Quantization: {quantizationText(activation.status?.quantization ?? local.quantization)}</span>}<span className="tag">{isCpu ? 'RAM' : 'VRAM'}: {isCpu ? formatMi(Number(activation.status?.memoryRequiredMi ?? local.memoryRequiredMi)) : activation.status?.vramRequiredMi ? formatMi(Number(activation.status.vramRequiredMi)) : String(local.vram ?? 'default')}</span><span className="tag">Context: {String(local.contextWindow ?? 'default')}</span><span className="tag">Max seqs: {String(local.maxNumSeqs ?? 'default')}</span><span className="tag">Target: {String(activation.spec?.targetNamespace ?? 'ai')}</span></>}{external && <><span className="tag">Provider: {String(external.model ?? 'external')}</span><span className="tag">Context: {String(external.contextWindow ?? 'default')}</span></>}</div>
         <ProgressBar phase={phase} enabled={activation.spec?.enabled !== false} message={activation.status?.message} />
+        {local && <OffloadingStatus local={local} status={activation.status} />}
         <p className="muted">{String(activation.status?.message ?? activation.status?.modelRef ?? 'Waiting for catalog registration.')}</p>
         {mutable && <Button variant="danger" disabled={removeMutation.isPending || String(phase).toLowerCase() === 'removing'} onClick={() => setRemoveTarget(activation.metadata?.name ?? '')}>{String(phase).toLowerCase() === 'removing' ? 'Removing' : 'Remove'}</Button>}
       </Panel>;

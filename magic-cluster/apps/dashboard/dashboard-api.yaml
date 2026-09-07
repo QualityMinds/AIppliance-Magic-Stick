@@ -4692,6 +4692,7 @@ data:
             "confidence": confidence,
             "warnings": warnings,
             "calculationSource": "huggingface-model-metadata",
+            "modelLayers": config_int(dimensions, "num_hidden_layers", "n_layer", "num_layers") or 0,
         }
 
 
@@ -4903,6 +4904,88 @@ data:
             "confidence": "estimated",
             "warnings": warnings,
             "calculationSource": calculation_source,
+            "modelLayers": positive_int(ollama_gguf_value(gguf_metadata, "block_count")) or 0,
+        }
+
+
+    def offloading_host_memory_available(compute_target):
+        """Largest schedulable host budget, never the sum of several nodes."""
+        resource = {"nvidia-gpu": "nvidia.com/gpu"}.get(compute_target)
+        nodes = [node for node in ready_schedulable_nodes() if
+                 positive_int(((node.get("status") or {}).get("allocatable") or {}).get(resource))]
+        if not nodes:
+            return None
+        used = {}
+        for pod in list_resource("/api/v1/pods"):
+            if (pod.get("status") or {}).get("phase") in ("Succeeded", "Failed"):
+                continue
+            spec = pod.get("spec") or {}
+            node_name = spec.get("nodeName")
+            regular = sum(quantity_mi(((c.get("resources") or {}).get("requests") or {}).get("memory")) for c in spec.get("containers") or [])
+            # Restartable init containers are native sidecars: their requests
+            # overlap both later init containers and the serving containers.
+            sidecars, init = 0, 0
+            for container in spec.get("initContainers") or []:
+                memory = quantity_mi(((container.get("resources") or {}).get("requests") or {}).get("memory"))
+                if container.get("restartPolicy") == "Always":
+                    sidecars += memory
+                    init = max(init, sidecars)
+                else:
+                    init = max(init, sidecars + memory)
+            used[node_name] = used.get(node_name, 0) + max(regular + sidecars, init) + quantity_mi((spec.get("overhead") or {}).get("memory"))
+        # Unscheduled workload requests have no known node yet. Count them
+        # conservatively against every candidate instead of promising this RAM.
+        pending = used.get(None, 0) + used.get("", 0)
+        return max(max(0, quantity_mi(((node.get("status") or {}).get("allocatable") or {}).get("memory")) - used.get((node.get("metadata") or {}).get("name"), 0) - pending) for node in nodes)
+
+
+    def offloading_plan(payload, estimate, reserve_mi, ram_available=None):
+        """Plan weight/layer offloading; this is not KV-cache offloading or a VRAM hard limit."""
+        if payload.get("cpuOffloading") is not True:
+            raise RequestError(400, "cpuOffloading must be a boolean")
+        engine = normalize_local_engine(payload.get("engine"))
+        if payload.get("computeTarget", "nvidia-gpu") != "nvidia-gpu":
+            raise RequestError(400, "CPU offloading currently supports NVIDIA GPU models only.")
+        budget = positive_int(payload.get("vramMi")) or parse_mib(payload.get("vram"))
+        if not budget:
+            raise RequestError(400, "Choose a VRAM budget before enabling CPU offloading.")
+        weights = int(estimate.get("weightsMi") or 0)
+        kv = int(estimate.get("kvCacheMi") or 0)
+        runtime = int(estimate.get("runtimeReserveMi") or 0)
+        if not weights or estimate.get("confidence") == "fallback":
+            raise RequestError(400, "Reliable model metadata is required for CPU offloading.")
+        gpu_room = max(0, budget - kv - runtime - reserve_mi)
+        cpu_weights = min(weights, round_up_mib(max(0, weights - gpu_room)))
+        gpu_weights = weights - cpu_weights
+        gpu_layers = None
+        cpu_kv = 0
+        if engine == "OLlama":
+            layers = positive_int(estimate.get("modelLayers"))
+            if not layers:
+                raise RequestError(400, "GGUF layer metadata is required for Ollama CPU offloading.")
+            # Keep at least one layer on GPU. Layers need not have equal sizes:
+            # this is an estimate, verified against /api/ps after loading.
+            gpu_layers = max(1, min(layers + 1, int(gpu_room * (layers + 1) / weights)))
+            gpu_weights = min(weights, (weights * gpu_layers + layers) // (layers + 1))
+            cpu_weights = weights - gpu_weights
+            # Conservatively reserve the complete KV budget on the host too;
+            # hybrid layers cannot be split proportionally from totals alone.
+            cpu_kv = kv if cpu_weights else 0
+        host_runtime = 6144 if engine == "VLLM" else 4096
+        ram_minimum = round_up_mib(cpu_weights + cpu_kv + host_runtime)
+        ram_recommended = round_up_mib(ram_minimum + max(2048, int(weights * 0.15)))
+        gpu_minimum = gpu_weights + kv + runtime
+        return {
+            "enabled": True, "mode": "weights" if engine == "VLLM" else "layers",
+            "vramBudgetMi": budget, "weightsOnGpuMi": gpu_weights,
+            "weightsOnCpuMi": cpu_weights, "kvOnGpuMi": kv, "kvOnCpuMi": cpu_kv,
+            "hostRuntimeMi": host_runtime, "ramMinimumMi": ram_minimum,
+            "ramRecommendedMi": ram_recommended, "ramMaximumMi": ram_available,
+            "gpuMinimumMi": gpu_minimum,
+            "gpuRecommendedMi": gpu_minimum + reserve_mi,
+            "cpuOffloadMi": cpu_weights if engine == "VLLM" else 0,
+            "gpuLayers": gpu_layers, "fitsVram": gpu_minimum <= budget,
+            "estimated": True,
         }
 
 
@@ -4936,10 +5019,10 @@ data:
         if maximum_mi is None:
             if compute_target == "nvidia-gpu":
                 warnings.append("Live GPU availability unavailable; max available cannot be verified.")
-        elif maximum_mi < minimum_mi:
+        elif maximum_mi < minimum_mi and not payload.get("cpuOffloading"):
             warnings.append("Estimated minimum exceeds unreserved VRAM.")
 
-        return {
+        result = {
             "repo": estimate.get("repo"),
             "engine": engine,
             "computeTarget": compute_target,
@@ -4976,6 +5059,20 @@ data:
             "gpuAvailable": bool(vram.get("available")),
             "warnings": warnings,
         }
+        if "cpuOffloading" in payload and not isinstance(payload["cpuOffloading"], bool):
+            raise RequestError(400, "cpuOffloading must be a boolean")
+        if payload.get("cpuOffloading"):
+            plan = offloading_plan({**payload, "engine": engine, "computeTarget": compute_target}, estimate, reserve_mi, offloading_host_memory_available(compute_target))
+            result["offloading"] = plan
+            result["minimumMi"] = plan["gpuMinimumMi"]
+            result["recommendedMi"] = plan["gpuRecommendedMi"]
+            result["confidence"] = "estimated"
+            if maximum_mi is not None and plan["gpuMinimumMi"] > maximum_mi:
+                warnings.append("Estimated minimum with CPU offloading still exceeds unreserved VRAM.")
+            warnings.append("CPU offloading may substantially reduce inference speed. RAM is reserved on the same node as the GPU; startup peaks are estimates.")
+            if engine == "OLlama":
+                warnings.append("Ollama layer sizes vary. GPU placement is a planning target, not a byte-exact VRAM limit. Host KV is a conservative upper bound, not additional measured cache.")
+        return result
 
 
     def estimate_model_vram(payload):
@@ -5036,7 +5133,7 @@ data:
             local = {}
             allowed = {
                 "preset", "artifact", "url", "modelType", "engine", "computeTarget", "vram", "vramMi",
-                "memoryRequiredMi",
+                "memoryRequiredMi", "cpuOffloading",
                 "contextWindow", "maxOutputTokens", "maxNumSeqs", "minReplicas", "maxReplicas",
             }
             for key in allowed:
@@ -5049,6 +5146,10 @@ data:
             engine = normalize_local_engine(local.get("engine"))
             local["computeTarget"] = compute_target
             local["engine"] = engine
+            if "cpuOffloading" in local and not isinstance(local["cpuOffloading"], bool):
+                raise ValueError("local.cpuOffloading must be a boolean")
+            if local.get("cpuOffloading") and compute_target != "nvidia-gpu":
+                raise ValueError("CPU offloading currently supports NVIDIA GPU models only")
             selected_artifact = resolve_local_preset_artifact(local)
             resolved_model_url = str((selected_artifact or {}).get("url") or local.get("url") or "").strip()
             target_definition = ((compute_target_catalog().get("targets") or {}).get(compute_target) or {})
@@ -5075,7 +5176,28 @@ data:
                             + " MiB for this model, context, and CPU vLLM cache."
                         )
             else:
-                local.pop("memoryRequiredMi", None)
+                if local.get("cpuOffloading"):
+                    if not resolved_model_url:
+                        raise ValueError("A resolved model URL is required for CPU offloading")
+                    if positive_int(local.get("maxReplicas", 1)) != 1 or positive_int(local.get("minReplicas", 1)) not in (None, 1):
+                        raise ValueError("CPU offloading currently supports one model replica")
+                    estimate = estimate_model_memory({**local, "url": resolved_model_url})
+                    plan = estimate["offloading"]
+                    memory = positive_int(local.get("memoryRequiredMi"))
+                    if not memory or memory < plan["ramMinimumMi"]:
+                        raise ValueError("RAM reservation must be at least " + str(plan["ramMinimumMi"]) + " MiB, including offloading and host runtime")
+                    if plan["ramMaximumMi"] is None or memory > plan["ramMaximumMi"]:
+                        raise ValueError("RAM reservation exceeds verifiable unreserved RAM on a compatible GPU node")
+                    if estimate["maximumMi"] is None or plan["vramBudgetMi"] > estimate["maximumMi"]:
+                        raise ValueError("VRAM reservation exceeds verifiable unreserved GPU memory")
+                    if not plan["fitsVram"]:
+                        raise ValueError("VRAM budget is too small for remaining GPU weights, KV cache and runtime; increase VRAM or reduce context")
+                    local["memoryRequiredMi"] = memory
+                    local["cpuOffloadMi"] = plan["cpuOffloadMi"]
+                    if plan["gpuLayers"] is not None:
+                        local["ollamaGpuLayers"] = plan["gpuLayers"]
+                else:
+                    local.pop("memoryRequiredMi", None)
             labels["appliance.magicstick.dev/compute-target"] = compute_target
             labels["appliance.magicstick.dev/engine"] = engine.lower()
             spec["local"] = local
@@ -5297,6 +5419,13 @@ data:
                 continue
             status = activation.get("status") or {}
             local = spec.get("local") or {}
+            if local.get("cpuOffloading"):
+                host_ram = positive_int(status.get("memoryRequiredMi")) or positive_int(local.get("memoryRequiredMi")) or 0
+                if host_ram:
+                    reservations.setdefault("cpu", []).append({
+                        "model": str(metadata.get("name") or "local-model") + " (offloading)",
+                        "reservedMi": host_ram,
+                    })
             compute_target = str(
                 local.get("computeTarget")
                 or status.get("computeTarget")
