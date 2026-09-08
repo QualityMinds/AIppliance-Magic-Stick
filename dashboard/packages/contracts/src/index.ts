@@ -258,6 +258,7 @@ export interface ModelArtifact {
   downloadBytes?: number;
   sizeLabel?: string;
   modelMaxContext?: number;
+  modelContextSource?: 'artifact' | 'base-model';
   compatibility?: string;
   [key: string]: unknown;
 }
@@ -341,6 +342,7 @@ export interface DiscoverySearchPayload {
 
 export interface DiscoveryArtifactsPayload {
   provider: 'huggingface' | 'ollama';
+  baseModel?: DiscoveryItem;
   artifacts: DiscoveryItem[];
   total: number;
   nextCursor?: string | null;

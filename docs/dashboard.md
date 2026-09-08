@@ -682,7 +682,9 @@ classification, and runtime-compatibility guidance remain visible after
 selection. When Hugging Face publishes `usedStorage`, the dashboard also shows
 the repository download size. The estimator reads the selected repository's
 `config.json`; when it advertises a maximum context, that value becomes the
-initial **Context Size** while remaining editable. A new dynamic model starts
+initial **Context Size** while remaining editable. If a quantization repository
+does not publish its own context metadata, discovery inherits the directly
+related base model's value and labels it accordingly. A new dynamic model starts
 with **Max Num Seqs = 1**. A dynamic result is labelled experimental until the
 chosen runtime has loaded it; the dashboard does not claim that arbitrary
 community artifacts are validated. Selecting an artifact writes its `hf://`

@@ -3439,6 +3439,18 @@ data:
         }
 
 
+    def hf_artifact_context(artifact, base_model):
+        item = dict(artifact)
+        if positive_int(item.get("modelMaxContext")):
+            item["modelContextSource"] = "artifact"
+            return item
+        inherited = positive_int((base_model or {}).get("modelMaxContext"))
+        if inherited:
+            item["modelMaxContext"] = inherited
+            item["modelContextSource"] = "base-model"
+        return item
+
+
     def hf_public_model(model):
         summary = hf_model_summary(model)
         return bool(
@@ -3704,7 +3716,7 @@ data:
                     }
 
             artifacts = []
-            selected_artifact = dict(selected)
+            selected_artifact = hf_artifact_context(selected, base_model)
             selected_artifact.update({
                 "relation": "selected",
                 "discoverySource": "selected",
@@ -3730,7 +3742,7 @@ data:
                     or not hf_relation_to(summary, base_repo)
                 ):
                     continue
-                artifact = dict(summary)
+                artifact = hf_artifact_context(summary, base_model)
                 artifact.update({
                     "relation": "quantized",
                     "discoverySource": "base-model",

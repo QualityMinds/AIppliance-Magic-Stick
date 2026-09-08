@@ -1436,6 +1436,8 @@ class HuggingFaceDiscoveryTests(unittest.TestCase):
         ])
         self.assertEqual(first["artifacts"][0]["relation"], "selected")
         self.assertEqual(first["artifacts"][1]["discoverySource"], "base-model")
+        self.assertEqual(first["artifacts"][1]["modelMaxContext"], 262144)
+        self.assertEqual(first["artifacts"][1]["modelContextSource"], "base-model")
         self.assertIsNone(first["nextCursor"])
 
         second = self.server["model_discovery_artifacts"]({
@@ -1479,6 +1481,8 @@ class HuggingFaceDiscoveryTests(unittest.TestCase):
         self.assertEqual(result["baseModel"]["repo"], "Qwen/Qwen3.6-27B")
         self.assertEqual(result["artifacts"][0]["repo"], "community/Qwen3.6-27B-AWQ")
         self.assertEqual(result["artifacts"][0]["quantization"]["method"], "awq")
+        self.assertEqual(result["artifacts"][0]["modelMaxContext"], 262144)
+        self.assertEqual(result["artifacts"][0]["modelContextSource"], "base-model")
 
     def test_multiple_gguf_files_are_exposed_without_summing_complete_variants(self):
         model = {

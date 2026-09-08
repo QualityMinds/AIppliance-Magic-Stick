@@ -133,7 +133,7 @@ const DiscoveryMetadata = ({item}: {item?: DiscoveryItem}) => item ? <div classN
   {quantizationText(item.quantization) && <span className="tag">Quantization: {quantizationText(item.quantization)}</span>}
   {item.trustStatus && <span className="tag">Trust: {item.trustStatus}</span>}
   {(item.sizeLabel || item.downloadBytes) && <span className="tag">Download: {item.sizeLabel ?? formatBytes(item.downloadBytes)}</span>}
-  {item.modelMaxContext && <span className="tag">Model context: {item.modelMaxContext.toLocaleString()}</span>}
+  {item.modelMaxContext && <span className="tag">Model context: {item.modelMaxContext.toLocaleString()}{item.modelContextSource === 'base-model' ? ' · base model' : ''}</span>}
 </div> : null;
 
 const LocalModelForm = ({models, onClose, onCreated}: {models: ModelsPayload; onClose: () => void; onCreated: () => Promise<void>}) => {
@@ -157,6 +157,7 @@ const LocalModelForm = ({models, onClose, onCreated}: {models: ModelsPayload; on
   const [searchResults, setSearchResults] = useState<DiscoveryItem[]>([]); const [searchCursor, setSearchCursor] = useState<string | null>(null);
   const [searchModel, setSearchModel] = useState(''); const [artifacts, setArtifacts] = useState<DiscoveryItem[]>([]);
   const [artifactCursor, setArtifactCursor] = useState<string | null>(null); const [selectedSearchArtifact, setSelectedSearchArtifact] = useState('');
+  const [artifactBaseModel, setArtifactBaseModel] = useState<DiscoveryItem>();
   const [estimate, setEstimate] = useState<MemoryEstimate>(); const [selectedMi, setSelectedMi] = useState(100);
   const [cpuOffloading, setCpuOffloading] = useState(false);
   const [offloadEstimate, setOffloadEstimate] = useState<MemoryEstimate>();
@@ -187,6 +188,7 @@ const LocalModelForm = ({models, onClose, onCreated}: {models: ModelsPayload; on
   const presets = useMemo(() => Object.entries(models.presets).flatMap(([id, preset]) => matchingVariants(preset.variants, engine, computeTarget).map((variant) => ({id, label: preset.displayName ?? id, variant}))), [computeTarget, engine, models.presets]);
   const selectedPreset = presets.find((item) => item.id === presetId);
   const selectedPresetArtifact = selectedArtifact(selectedPreset?.variant, artifactId);
+  const selectedSearchModel = searchResults.find((item) => item.repo === searchModel);
   const targetDevices = models.computeMemory?.devices?.filter((device) => device.computeTarget === computeTarget || device.id === computeTarget) ?? [];
   const capacities = [...targetDevices.map((device) => device.unreservedMi), estimate?.maximumMi].filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0);
   const capacityKnown = capacities.length > 0;
@@ -228,9 +230,11 @@ const LocalModelForm = ({models, onClose, onCreated}: {models: ModelsPayload; on
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, [cpuOffloading, supportsOffloading, engine, computeTarget, url, contextWindow, maxNumSeqs, modelType, kvCacheType, selectedMi]);
 
-  const applyModel = (nextUrl: string, artifact?: ModelArtifact, variant?: ModelVariant) => {
+  const applyModel = (nextUrl: string, artifact?: ModelArtifact, variant?: ModelVariant, baseModel?: DiscoveryItem) => {
     setUrl(nextUrl); setName((current) => current || safeModelName(nextUrl));
-    const context = Number(artifact?.modelMaxContext ?? variant?.contextWindow ?? 0);
+    const context = [artifact?.modelMaxContext, variant?.contextWindow, baseModel?.modelMaxContext]
+      .map((value) => Number(value ?? 0))
+      .find((value) => Number.isFinite(value) && value > 0) ?? 0;
     if (context > 0) setContextWindow(context);
     if (variant?.maxNumSeqs) setMaxNumSeqs(variant.maxNumSeqs);
   };
@@ -269,7 +273,7 @@ const LocalModelForm = ({models, onClose, onCreated}: {models: ModelsPayload; on
   };
   const runSearch = async (query = search, append = false) => {
     setSearching(true); setFormError(null);
-    if (!append) { setArtifacts([]); setSelectedSearchArtifact(''); }
+    if (!append) { setArtifacts([]); setSelectedSearchArtifact(''); setArtifactBaseModel(undefined); }
     try {
       const result = await api.searchModels(searchParams(query, append ? searchCursor : null));
       const combined = append ? [...searchResults, ...result.results] : result.results;
@@ -282,10 +286,10 @@ const LocalModelForm = ({models, onClose, onCreated}: {models: ModelsPayload; on
     try {
       const result = await api.modelArtifacts(artifactParams(repo, append ? artifactCursor : null));
       const combined = append ? [...artifacts, ...result.artifacts] : result.artifacts;
-      setArtifacts(combined); setArtifactCursor(result.nextCursor ?? null);
+      setArtifacts(combined); setArtifactCursor(result.nextCursor ?? null); if (!append) setArtifactBaseModel(result.baseModel);
       if (!append) {
         const first = result.artifacts.find((item) => item.compatibility !== 'incompatible') ?? result.artifacts[0];
-        setSelectedSearchArtifact(first?.id ?? ''); if (first?.url) applyModel(first.url, first);
+        setSelectedSearchArtifact(first?.id ?? ''); if (first?.url) applyModel(first.url, first, undefined, result.baseModel ?? selectedSearchModel);
       }
     } catch (reason) { setFormError(reason); } finally { setLoadingArtifacts(false); }
   };
@@ -325,7 +329,7 @@ const LocalModelForm = ({models, onClose, onCreated}: {models: ModelsPayload; on
       {searchResults.length > 0 && <div className="stack compact discovery-selects">
         <Field label="Matching model"><select value={searchModel} onChange={(event) => loadArtifacts(event.target.value, false)}>{searchResults.map((item) => <option key={item.repo} value={item.repo}>{item.repo}{item.pulls ? ` · ${item.pulls.toLocaleString()} pulls` : ''}</option>)}</select></Field>
         {searchCursor && <Button type="button" variant="ghost" disabled={searching} onClick={() => runSearch(search, true)}>Load more models</Button>}
-        <Field label={provider === 'ollama' ? 'Tag / quantization' : 'Quantization / artifact'}><select value={selectedSearchArtifact} disabled={loadingArtifacts} onChange={(event) => { const id = event.target.value; setSelectedSearchArtifact(id); const item = artifacts.find((artifact) => artifact.id === id); if (item?.url) applyModel(item.url, item); }}>{artifacts.map((item) => <option key={item.id} value={item.id}>{item.label ?? item.repo}{item.sizeLabel ? ` · ${item.sizeLabel}` : item.downloadBytes ? ` · ${formatBytes(item.downloadBytes)}` : ''}</option>)}</select></Field>
+        <Field label={provider === 'ollama' ? 'Tag / quantization' : 'Quantization / artifact'}><select value={selectedSearchArtifact} disabled={loadingArtifacts} onChange={(event) => { const id = event.target.value; setSelectedSearchArtifact(id); const item = artifacts.find((artifact) => artifact.id === id); if (item?.url) applyModel(item.url, item, undefined, artifactBaseModel ?? selectedSearchModel); }}>{artifacts.map((item) => <option key={item.id} value={item.id}>{item.label ?? item.repo}{item.sizeLabel ? ` · ${item.sizeLabel}` : item.downloadBytes ? ` · ${formatBytes(item.downloadBytes)}` : ''}</option>)}</select></Field>
         {artifactCursor && <Button type="button" variant="ghost" disabled={loadingArtifacts} onClick={() => loadArtifacts(searchModel, true)}>Load more {provider === 'ollama' ? 'tags' : 'quantizations'}</Button>}
         <DiscoveryMetadata item={selectedDiscoveryArtifact} />
       </div>}
