@@ -17,6 +17,10 @@ Run this before publishing this repository or creating a public release tag.
   present when GitHub Pages is published from `docs/`.
 - CI release checks are present under `.github/workflows/`.
 - Runtime images and chart versions avoid mutable tags such as `latest` where practical.
+- Dashboard source publication is not appliance rollout: after a successful
+  client-image workflow, promote the matching Web and API image-index digests
+  and verify Flux, both Deployments and the changed browser screen. Follow
+  [dashboard image promotion](operations.md#dashboard-image-promotion).
 
 ## Value Scan
 

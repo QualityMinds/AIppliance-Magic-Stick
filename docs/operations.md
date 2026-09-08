@@ -286,6 +286,27 @@ pnpm test
 pnpm build
 ```
 
+### Dashboard image promotion
+
+A source commit and a successful `Build MagicStick dashboard clients` workflow
+do not change the image used by existing appliances. The Web and API Deployment
+manifests pin immutable digests; updating the mutable registry aliases or
+restarting an unchanged Pod does not replace those pins.
+
+After the workflow succeeds, inspect the `sha-<commit>` and `api-sha-<commit>`
+registry tags. Verify their `linux/amd64` and `linux/arm64` manifests, then promote
+their image-index digests together in `magic-cluster/apps/dashboard/deployment.yaml`
+and `magic-cluster/apps/dashboard/api-deployment.yaml`. Commit the promotion to
+the branch tracked by the appliance. Flux must reconcile that new revision
+before the Deployment can roll out the new containers.
+
+Verify the configured image, running Pod image ID and readiness for both
+`dashboard/ai-appliance-dashboard` and
+`identity-system/ai-appliance-dashboard-api`. Finally reload the primary
+dashboard in a browser and check the changed screen under the intended role.
+Report source publication, image build and live rollout as separate results;
+an old digest is not a browser-cache problem.
+
 ### Dashboard upgrade cleanup
 
 The standard Deployment and Service keep the name `ai-appliance-dashboard`.

@@ -105,6 +105,11 @@ not duplicate Kubernetes access, Keycloak administration, model discovery, or
 reconciliation logic in a client. The CLI and TUI reuse the same contracts, API
 client, and core rules without importing React.
 
+Pushing frontend source builds an image but does not promote it to appliances.
+The Web and API Deployments use immutable image digests. After a successful
+build, update both image references and verify the live rollout as described in
+[dashboard image promotion](operations.md#dashboard-image-promotion).
+
 The React frontend is the only browser dashboard, deployed as
 `dashboard/ai-appliance-dashboard`. Open `https://<mDNS-domain>/` (by default
 `https://magicstick.local/`) or the configured public-domain root. The existing
