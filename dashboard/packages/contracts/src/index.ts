@@ -356,6 +356,12 @@ export interface CpuOffloadingPlan {
   estimated: boolean;
 }
 
+export interface MemoryCalculation {
+  formula: string;
+  substitution?: string | null;
+  notes?: string[];
+}
+
 export interface MemoryEstimate {
   minimumMi: number;
   recommendedMi: number;
@@ -387,6 +393,7 @@ export interface MemoryEstimate {
   confidence?: string;
   calculationSource?: string;
   warnings?: string[];
+  calculations?: Record<string, MemoryCalculation>;
   [key: string]: unknown;
 }
 

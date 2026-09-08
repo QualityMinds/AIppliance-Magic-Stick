@@ -59,6 +59,10 @@ The dashboard is also not an operator. It reads status and creates or patches
   engine profile, preserve its CPU/toleration settings and single GPU, and set
   host RAM request/limit to the chosen budget. Never scale a GPU profile to
   increase RAM, patch generated Pods, or mutate the Git-owned inline values.
+  Explicit `spec.local.allowMemoryRisk: true` permits a trial below estimated
+  host coverage; preserve the chosen request/limit and engine controls. Missing
+  or false retains strict validation. Positive budgets, supported targets and
+  replica restrictions still apply; reconciliation success is not runtime fit.
   Flux bootstraps this ConfigMap with an empty `resourceProfiles` map and SSA
   `IfNotPresent`; the operator then owns `data.values.json`. Later Flux
   reconciles must not reset this runtime store. A valid initial values key keeps

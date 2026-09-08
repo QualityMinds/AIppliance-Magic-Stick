@@ -751,6 +751,10 @@ class LocalRuntimeTests(unittest.TestCase):
         with self.assertRaises(ValueError) as raised:
             self.server["model_activation_payload"]("local", payload)
         self.assertIn("must be at least", str(raised.exception))
+        payload["local"]["allowMemoryRisk"] = True
+        resource = self.server["model_activation_payload"]("local", payload)
+        self.assertEqual(resource["spec"]["local"]["memoryRequiredMi"], 3000)
+        self.assertEqual(resource["spec"]["local"]["kvCacheMemoryBytes"], 100 * mib)
 
     def test_ollama_memory_estimate_supports_cpu_nvidia_and_amd_without_huggingface(self):
         self.server["hf_metadata"] = lambda _repo: self.fail("Ollama estimation must not call HuggingFace")

@@ -4546,7 +4546,27 @@ data:
         return layers, layers
 
 
-    def kv_cache_mi(config, context_window, max_num_seqs):
+    def memory_calculation(formula, substitution=None, *notes):
+        """Public, explanatory metadata only; never expose the raw model config."""
+        return {"formula": formula, "substitution": substitution, "notes": list(notes)}
+
+
+    def attention_cache_calculation(groups, context_window, max_num_seqs, value_bytes):
+        # Group identical dimensions so heterogeneous GGUF layers stay accurate.
+        terms = [f"{count:,} × {heads:,} × ({key:,} + {value:,})" for (heads, key, value), count in groups.items()]
+        elements = sum(count * heads * (key + value) for (heads, key, value), count in groups.items())
+        per_token = elements * value_bytes
+        total = per_token * int(context_window) * int(max_num_seqs)
+        return memory_calculation(
+            "ceil(Σ[layers × KV heads × (key dimensions + value dimensions)] × bytes/value × context tokens × sequences ÷ 1,048,576)",
+            f"ceil(({' + '.join(terms)}) × {value_bytes} × {int(context_window):,} × {int(max_num_seqs):,} ÷ 1,048,576) = {ceil_mib(total):,} MiB",
+            f"{per_token:,} bytes ({per_token / 1024:g} KiB) per token per sequence. These are cached Key/Value vectors, not the token's text bytes.",
+            f"Assumed KV precision: {'FP8' if value_bytes == 1 else '16-bit'} ({value_bytes} bytes/value). Weight quantization does not set KV precision.",
+            "Planning estimate, not measured engine allocation. ceil rounds up; 1 MiB = 1,048,576 bytes.",
+        )
+
+
+    def kv_cache_dimensions(config):
         layers, _total_layers = kv_cache_layer_count(config)
         hidden = config_int(config, "hidden_size", "n_embd", "d_model")
         heads = config_int(config, "num_attention_heads", "n_head")
@@ -4555,6 +4575,14 @@ data:
             return None
         head_dim = config_int(config, "head_dim", "qk_rope_head_dim") or max(1, hidden // heads)
         kv_dtype_bytes = 1 if "fp8" in str(config.get("kv_cache_dtype") or "").lower() else 2
+        return layers, kv_heads, head_dim, kv_dtype_bytes
+
+
+    def kv_cache_mi(config, context_window, max_num_seqs):
+        dimensions = kv_cache_dimensions(config)
+        if dimensions is None:
+            return None
+        layers, kv_heads, head_dim, kv_dtype_bytes = dimensions
         bytes_value = 2 * layers * kv_heads * head_dim * kv_dtype_bytes * int(context_window) * int(max_num_seqs)
         return ceil_mib(bytes_value)
 
@@ -4674,6 +4702,63 @@ data:
                 "CPU vLLM reserve includes model working tensors and compile/warm-up headroom"
                 + (" plus the multimodal processor cache." if runtime_details.get("multimodalReserveMi") else ".")
             )
+        calculations = {}
+        weight_bytes = positive_int(((metadata.get("safetensorsIndex") or {}).get("metadata") or {}).get("total_size"))
+        if weight_size_source == "repository-files":
+            weight_bytes = sum(positive_int(entry.get("size")) or 0 for entry in metadata.get("modelTree", [])
+                               if entry.get("type") == "file" and str(entry.get("path") or "").endswith(".safetensors"))
+        if weight_bytes:
+            calculations["weightsMi"] = memory_calculation(
+                "ceil(checkpoint bytes ÷ 1,048,576)", f"ceil({weight_bytes:,} ÷ 1,048,576) = {weights_mi:,} MiB",
+                "Source: " + weight_size_source + ". File size is a planning proxy for resident weights, not measured RAM/VRAM.")
+        elif weight_size_source == "model-config":
+            params = estimated_parameter_count(dimensions) or 0
+            overhead = 1.12 if quantization_bits(dimensions) else 1.0
+            calculations["weightsMi"] = memory_calculation(
+                "ceil(estimated parameters × bytes/weight × quantization overhead ÷ 1,048,576)",
+                f"ceil({params:,} × {dtype_bytes(dimensions):g} × {overhead:g} ÷ 1,048,576) = {weights_mi:,} MiB",
+                "Parameter count is from model config or an architecture heuristic, not a checkpoint measurement.")
+        else:
+            calculations["weightsMi"] = memory_calculation(
+                "ceil(Σ[parameter count per dtype × bytes/dtype] ÷ 1,048,576)" if weights_mi else "Unavailable: checkpoint and parameter metadata are missing.",
+                f"Result: {weights_mi:,} MiB", "Source: " + (weight_size_source or "unavailable") + ". Zero is unknown, not a zero-memory model.")
+        cache_dimensions = kv_cache_dimensions(dimensions)
+        if cache_dimensions:
+            layers, heads, head_dim, value_bytes = cache_dimensions
+            calculations["theoreticalKvCacheMi"] = attention_cache_calculation(
+                {(heads, head_dim, head_dim): layers}, context_window, max_num_seqs, value_bytes)
+        else:
+            calculations["theoreticalKvCacheMi"] = memory_calculation("Unavailable: model cache dimensions are missing.", None, "Zero is unknown, not a zero-memory cache.")
+        calculations["kvCacheMi"] = memory_calculation(
+            "theoretical KV cache × hybrid compatibility factor",
+            f"{theoretical_kv_mi:,} × {kv_compatibility_factor} = {kv_mi:,} MiB",
+            "CPU hybrid factor = ceil(total layers ÷ full-attention layers); otherwise 1. This is an allocator envelope, not extra token data.")
+        calculations["hybridAllocatorSafetyMi"] = memory_calculation(
+            "KV budget − theoretical KV cache",
+            f"{kv_mi:,} − {theoretical_kv_mi:,} = {max(0, kv_mi - theoretical_kv_mi):,} MiB",
+            f"Compatibility factor: {kv_compatibility_factor}. CPU hybrid allocator padding is estimated conservatively.")
+        if compute_target == "cpu":
+            working = runtime_details["runtimeWeightsMi"]
+            calculations["compileReserveMi"] = memory_calculation(
+                "max(2,048, floor(max(checkpoint weights, activation-dtype weights) × 0.35))",
+                f"max(2,048, floor(max({weights_mi:,}, {working:,}) × 0.35)) = {runtime_details['compileReserveMi']:,} MiB",
+                "Heuristic compile/warm-up allowance; not an engine-reported requirement. floor rounds down.")
+            calculations["multimodalReserveMi"] = memory_calculation(
+                "4,096 MiB if a vision/audio/multimodal config exists; otherwise 0",
+                f"{runtime_details['multimodalReserveMi']:,} MiB", "Fixed processor-cache planning allowance.")
+            calculations["unpackReserveMi"] = memory_calculation(
+                "max(checkpoint weights, activation-dtype weights) for quantized models; otherwise 0",
+                f"max({weights_mi:,}, {working:,})" + (f" = {runtime_details['unpackReserveMi']:,} MiB" if quantization_bits(dimensions) else " → 0 MiB (not quantized)"),
+                "Conservative working-copy allowance. Activation-dtype weights = ceil(parameters × activation bytes ÷ 1,048,576), falling back to checkpoint weights.")
+            calculations["reserveMi"] = memory_calculation(
+                "compile / warm-up + multimodal cache + quantization working copy",
+                f"{runtime_details['compileReserveMi']:,} + {runtime_details['multimodalReserveMi']:,} + {runtime_details['unpackReserveMi']:,} = {runtime_mi:,} MiB")
+        else:
+            calculations["engineRuntimeReserveMi"] = memory_calculation(
+                "max(2,048, floor(weights MiB × 0.08))",
+                f"max(2,048, floor({weights_mi:,} × 0.08)) = {runtime_mi:,} MiB",
+                "Heuristic GPU runtime allowance, not measured usage. floor rounds down.")
+            calculations["reserveMi"] = calculations["engineRuntimeReserveMi"]
         return {
             "repo": repo,
             "sourceUrl": "https://huggingface.co/" + repo,
@@ -4692,6 +4777,7 @@ data:
             "confidence": confidence,
             "warnings": warnings,
             "calculationSource": "huggingface-model-metadata",
+            "calculations": calculations,
             "modelLayers": config_int(dimensions, "num_hidden_layers", "n_layer", "num_layers") or 0,
         }
 
@@ -4779,6 +4865,7 @@ data:
             return None
 
         attention_elements_per_token = 0
+        attention_groups = {}
         for layer in full_attention_layers:
             kv_heads = ollama_layer_value(kv_head_counts, layer, max(kv_head_counts))
             key_length = ollama_layer_value(key_lengths, layer, max(key_lengths))
@@ -4786,6 +4873,8 @@ data:
             if kv_heads <= 0 or key_length <= 0 or value_length <= 0:
                 return None
             attention_elements_per_token += kv_heads * (key_length + value_length)
+            group = (kv_heads, key_length, value_length)
+            attention_groups[group] = attention_groups.get(group, 0) + 1
 
         # Magic Stick does not override OLLAMA_KV_CACHE_TYPE, so Ollama uses
         # its f16 default for the attention cache. Recurrent state is f32 in
@@ -4798,6 +4887,8 @@ data:
         )
         recurrent_layer_count = runtime_layers - len(full_attention_layers)
         recurrent_bytes = 0
+        calculations = {"attentionKvCacheMi": attention_cache_calculation(
+            attention_groups, context_window, max_num_seqs, 2)}
         if recurrent_layer_count > 0:
             ssm_conv = positive_int(ollama_gguf_value(gguf_metadata, "ssm.conv_kernel"))
             ssm_inner = positive_int(ollama_gguf_value(gguf_metadata, "ssm.inner_size"))
@@ -4813,6 +4904,14 @@ data:
                 * int(max_num_seqs)
                 * 4
             )
+            calculations["recurrentStateMi"] = memory_calculation(
+                "ceil(recurrent layers × [(conv kernel − 1) × (inner size + 2 × groups × state size) + state size × inner size] × sequences × 4 ÷ 1,048,576)",
+                f"ceil({recurrent_layer_count:,} × [({ssm_conv} − 1) × ({ssm_inner:,} + 2 × {ssm_groups:,} × {ssm_state:,}) + {ssm_state:,} × {ssm_inner:,}] × {int(max_num_seqs):,} × 4 ÷ 1,048,576) = {ceil_mib(recurrent_bytes):,} MiB",
+                "Rolling convolution and recurrent state use FP32 (4 bytes/value). This scales with sequences, not context tokens.")
+        calculations["kvCacheMi"] = memory_calculation(
+            "ceil((attention cache bytes + recurrent state bytes) ÷ 1,048,576)",
+            f"ceil(({attention_bytes:,} + {recurrent_bytes:,}) ÷ 1,048,576) = {ceil_mib(attention_bytes + recurrent_bytes):,} MiB",
+            "The total rounds once from raw bytes; independently rounded cards can sum to 1 MiB more.")
 
         return {
             "architecture": architecture,
@@ -4822,6 +4921,7 @@ data:
             "attentionKvCacheMi": int(ceil_mib(attention_bytes)),
             "recurrentStateMi": int(ceil_mib(recurrent_bytes)),
             "totalMi": int(ceil_mib(attention_bytes + recurrent_bytes)),
+            "calculations": calculations,
             "modelMaxContext": int(
                 positive_int(ollama_gguf_value(gguf_metadata, "context_length")) or 0
             ),
@@ -4880,6 +4980,23 @@ data:
         runtime_mi = max(512, int((weights_mi + kv_mi) * 0.10))
         source_path = reference["namespace"] + "/" + reference["model"] + ":" + reference["tag"]
         runtime_details = {"engineRuntimeReserveMi": int(runtime_mi)}
+        calculations = dict((cache_estimate or {}).get("calculations") or {})
+        model_bytes = int(metadata.get("modelBytes") or 0)
+        calculations["weightsMi"] = memory_calculation(
+            "ceil(model / adapter / projector layer bytes ÷ 1,048,576)",
+            f"ceil({model_bytes:,} ÷ 1,048,576) = {weights_mi:,} MiB",
+            "Source: Ollama manifest. Stored tensor size is a proxy for resident weights, not measured RAM/VRAM.")
+        if not cache_estimate:
+            calculations["kvCacheMi"] = memory_calculation(
+                "max(256, floor(weights MiB × 0.08 × max(1, context tokens ÷ 4,096) × sequences))",
+                f"max(256, floor({weights_mi:,} × 0.08 × max(1, {context_window:,} ÷ 4,096) × {max_num_seqs:,})) = {kv_mi:,} MiB",
+                "Fallback heuristic only: GGUF dimensions are unavailable. This is not a model-specific bytes-per-token calculation.")
+        calculations["theoreticalKvCacheMi"] = calculations["kvCacheMi"]
+        calculations["engineRuntimeReserveMi"] = memory_calculation(
+            "max(512, floor((weights MiB + complete KV budget MiB) × 0.10))",
+            f"max(512, floor(({weights_mi:,} + {kv_mi:,}) × 0.10)) = {runtime_mi:,} MiB",
+            "Heuristic engine-runtime allowance, not measured usage. floor rounds down.")
+        calculations["reserveMi"] = calculations["engineRuntimeReserveMi"]
         if cache_estimate:
             runtime_details.update({
                 "attentionKvCacheMi": int(cache_estimate["attentionKvCacheMi"]),
@@ -4904,6 +5021,7 @@ data:
             "confidence": "estimated",
             "warnings": warnings,
             "calculationSource": calculation_source,
+            "calculations": calculations,
             "modelLayers": positive_int(ollama_gguf_value(gguf_metadata, "block_count")) or 0,
         }
 
@@ -4989,6 +5107,65 @@ data:
         }
 
 
+    def memory_summary_calculations(result, base, engine):
+        calculations = dict(base.get("calculations") or {})
+        weights, kv, runtime = (int(base.get(key) or 0) for key in ("weightsMi", "kvCacheMi", "runtimeReserveMi"))
+        minimum = weights + kv + runtime
+        headroom = result["recommendedReserveMi"]
+        floor = 2048 if engine == "VLLM" else 512
+        calculations["minimumMi"] = memory_calculation(
+            "weights + complete KV budget + runtime reserve",
+            f"{weights:,} + {kv:,} + {runtime:,} = {minimum:,} MiB")
+        calculations["recommendedReserveMi"] = memory_calculation(
+            f"max({floor:,}, floor(non-offloaded minimum MiB × 0.15))",
+            f"max({floor:,}, floor({minimum:,} × 0.15)) = {headroom:,} MiB",
+            "Additional planning headroom, separate from the engine runtime reserve; not measured usage.")
+        calculations["recommendedMi"] = memory_calculation(
+            "minimum + recommended headroom", f"{minimum:,} + {headroom:,} = {minimum + headroom:,} MiB")
+        download = int(result.get("downloadBytes") or 0)
+        calculations["downloadBytes"] = memory_calculation(
+            "download bytes ÷ 1,000,000,000 = decimal GB" if download else "Download size unavailable",
+            f"{download:,} ÷ 1,000,000,000 = {download / 1e9:.3f} GB" if download else None,
+            "Source: " + str(result.get("downloadSizeSource") or "unavailable") + ". Disk/network size is not added to memory. Hugging Face repository storage can include extra artifacts; reused blobs may reduce downloads.")
+        plan = result.get("offloading")
+        if plan:
+            gpu, cpu = plan["weightsOnGpuMi"], plan["weightsOnCpuMi"]
+            room = max(0, plan["vramBudgetMi"] - kv - runtime - headroom)
+            if plan["mode"] == "layers":
+                layers = int(base.get("modelLayers") or 0) + 1
+                calculations["weightsOnGpuMi"] = memory_calculation(
+                    "min(weights, ceil(weights × planned GPU layers ÷ (model layers + 1)))",
+                    f"min({weights:,}, ceil({weights:,} × {plan['gpuLayers']:,} ÷ {layers:,})) = {gpu:,} MiB",
+                    f"GPU layer target = clamp(floor({room:,} MiB weight room × {layers:,} ÷ {weights:,}), 1, {layers:,}). Layer sizes vary; this is not a byte-exact limit.")
+                calculations["weightsOnCpuMi"] = memory_calculation("weights − GPU weights", f"{weights:,} − {gpu:,} = {cpu:,} MiB")
+            else:
+                calculations["weightsOnCpuMi"] = memory_calculation(
+                    "min(weights, ceil(max(0, weights − GPU weight room) ÷ 100) × 100)",
+                    f"min({weights:,}, ceil(max(0, {weights:,} − {room:,}) ÷ 100) × 100) = {cpu:,} MiB",
+                    f"GPU weight room = max(0, {plan['vramBudgetMi']:,} budget − {kv:,} KV − {runtime:,} runtime − {headroom:,} headroom), in MiB.")
+                calculations["weightsOnGpuMi"] = memory_calculation("weights − offloaded weights", f"{weights:,} − {cpu:,} = {gpu:,} MiB")
+            calculations["kvOnGpuMi"] = calculations.get("kvCacheMi", memory_calculation("Complete KV budget remains reserved on GPU", f"{kv:,} MiB"))
+            calculations["kvOnCpuMi"] = memory_calculation(
+                "complete KV budget for Ollama with offloaded layers; otherwise 0",
+                f"{plan['kvOnCpuMi']:,} MiB", "Conservative upper bound for an unknown Ollama layer split, not extra measured cache. vLLM weight offloading does not offload KV.")
+            calculations["hostRuntimeMi"] = memory_calculation(
+                "6,144 MiB for vLLM; 4,096 MiB for Ollama", f"{plan['hostRuntimeMi']:,} MiB", "Fixed host-runtime planning allowance.")
+            calculations["ramMinimumMi"] = memory_calculation(
+                "ceil((offloaded weights + host KV upper bound + host runtime) ÷ 100) × 100",
+                f"ceil(({cpu:,} + {plan['kvOnCpuMi']:,} + {plan['hostRuntimeMi']:,}) ÷ 100) × 100 = {plan['ramMinimumMi']:,} MiB")
+            calculations["ramRecommendedMi"] = memory_calculation(
+                "ceil((RAM minimum + max(2,048, floor(total weights × 0.15))) ÷ 100) × 100",
+                f"ceil(({plan['ramMinimumMi']:,} + max(2,048, floor({weights:,} × 0.15))) ÷ 100) × 100 = {plan['ramRecommendedMi']:,} MiB")
+            calculations["ramHeadroomMi"] = memory_calculation(
+                "RAM recommended − RAM minimum", f"{plan['ramRecommendedMi']:,} − {plan['ramMinimumMi']:,} = {plan['ramRecommendedMi'] - plan['ramMinimumMi']:,} MiB",
+                "Includes the final 100 MiB rounding of the recommended host budget.")
+            calculations["minimumMi"] = memory_calculation(
+                "GPU weights + complete GPU KV budget + GPU runtime", f"{gpu:,} + {kv:,} + {runtime:,} = {plan['gpuMinimumMi']:,} MiB")
+            calculations["recommendedMi"] = memory_calculation(
+                "GPU minimum + recommended headroom", f"{plan['gpuMinimumMi']:,} + {headroom:,} = {plan['gpuRecommendedMi']:,} MiB")
+        return calculations
+
+
     def estimate_model_memory(payload):
         payload = payload or {}
         engine = normalize_local_engine(payload.get("engine"))
@@ -5072,6 +5249,7 @@ data:
             warnings.append("CPU offloading may substantially reduce inference speed. RAM is reserved on the same node as the GPU; startup peaks are estimates.")
             if engine == "OLlama":
                 warnings.append("Ollama layer sizes vary. GPU placement is a planning target, not a byte-exact VRAM limit. Host KV is a conservative upper bound, not additional measured cache.")
+        result["calculations"] = memory_summary_calculations(result, estimate, engine)
         return result
 
 
@@ -5133,7 +5311,7 @@ data:
             local = {}
             allowed = {
                 "preset", "artifact", "url", "modelType", "engine", "computeTarget", "vram", "vramMi",
-                "memoryRequiredMi", "cpuOffloading",
+                "memoryRequiredMi", "cpuOffloading", "allowMemoryRisk",
                 "contextWindow", "maxOutputTokens", "maxNumSeqs", "minReplicas", "maxReplicas",
             }
             for key in allowed:
@@ -5146,6 +5324,9 @@ data:
             engine = normalize_local_engine(local.get("engine"))
             local["computeTarget"] = compute_target
             local["engine"] = engine
+            if "allowMemoryRisk" in local and not isinstance(local["allowMemoryRisk"], bool):
+                raise ValueError("local.allowMemoryRisk must be a boolean")
+            allow_memory_risk = local.get("allowMemoryRisk") is True
             if "cpuOffloading" in local and not isinstance(local["cpuOffloading"], bool):
                 raise ValueError("local.cpuOffloading must be a boolean")
             if local.get("cpuOffloading") and compute_target != "nvidia-gpu":
@@ -5170,7 +5351,7 @@ data:
                         round_up_mib(estimate.get("kvCacheMi")),
                     )
                     local["kvCacheMemoryBytes"] = kv_cache_mi * MIB_BYTES
-                    if memory_required_mi and memory_required_mi < minimum_mi:
+                    if memory_required_mi and memory_required_mi < minimum_mi and not allow_memory_risk:
                         raise ValueError(
                             "local.memoryRequiredMi must be at least " + str(minimum_mi)
                             + " MiB for this model, context, and CPU vLLM cache."
@@ -5184,13 +5365,15 @@ data:
                     estimate = estimate_model_memory({**local, "url": resolved_model_url})
                     plan = estimate["offloading"]
                     memory = positive_int(local.get("memoryRequiredMi"))
-                    if not memory or memory < plan["ramMinimumMi"]:
+                    if not memory or memory < 16:
+                        raise ValueError("local.memoryRequiredMi must be an integer of at least 16 MiB")
+                    if memory < plan["ramMinimumMi"] and not allow_memory_risk:
                         raise ValueError("RAM reservation must be at least " + str(plan["ramMinimumMi"]) + " MiB, including offloading and host runtime")
-                    if plan["ramMaximumMi"] is None or memory > plan["ramMaximumMi"]:
+                    if not allow_memory_risk and (plan["ramMaximumMi"] is None or memory > plan["ramMaximumMi"]):
                         raise ValueError("RAM reservation exceeds verifiable unreserved RAM on a compatible GPU node")
-                    if estimate["maximumMi"] is None or plan["vramBudgetMi"] > estimate["maximumMi"]:
+                    if not allow_memory_risk and (estimate["maximumMi"] is None or plan["vramBudgetMi"] > estimate["maximumMi"]):
                         raise ValueError("VRAM reservation exceeds verifiable unreserved GPU memory")
-                    if not plan["fitsVram"]:
+                    if not plan["fitsVram"] and not allow_memory_risk:
                         raise ValueError("VRAM budget is too small for remaining GPU weights, KV cache and runtime; increase VRAM or reduce context")
                     local["memoryRequiredMi"] = memory
                     local["cpuOffloadMi"] = plan["cpuOffloadMi"]

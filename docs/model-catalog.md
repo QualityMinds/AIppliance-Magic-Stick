@@ -175,17 +175,27 @@ the checkpoint or Ollama tag and recalculates memory; it does not quantize a
 model during pod start.
 Every supported local artifact receives a minimum and recommended memory
 estimate: vLLM on CPU/NVIDIA/AMD/Intel and Ollama on CPU/NVIDIA/AMD. The memory
-control caps allocations at the target's unreserved memory (`total memory -
+slider caps allocations at the target's unreserved memory (`total memory -
 active model reservations`), independent of the separate live free-memory
 measurement, while retaining minimum and recommended markers in a gray
 overflow area when the model is larger than unreserved capacity.
+The numeric budget field can exceed this ceiling. Uncertain or insufficient
+memory shows an explicit creation warning; **Add Local Model** remains enabled
+for valid inputs and records `local.allowMemoryRisk: true` when accepting the
+risk. This permits a startup attempt, not a guarantee of schedulability or fit.
 
 vLLM calculations use public HuggingFace weight and architecture metadata.
 Ollama calculations use exact model-layer bytes from the public registry
 manifest and read a bounded GGUF-header range for attention, recurrent-state,
 GQA, hybrid-layer, and context dimensions. If that range is unavailable, the
 estimator reports and uses its conservative manifest-only fallback. Both RAM
-and VRAM views preserve the weights, KV-cache, and reserve breakdown.
+and VRAM views preserve the weights, KV-cache, and reserve breakdown. Each value
+has an info overlay with the server-provided formula, substituted inputs and
+assumptions. Attention cache uses the sum of per-layer KV heads × (key dimensions
++ value dimensions) × bytes/value × context × sequences, rounded up to MiB.
+Recurrent state is separate and context-independent. Runtime reserves and
+recommended headroom explicitly remain heuristics; changing the explanation
+does not change the estimator's numerical behavior.
 
 The terminal UI can create the same local and external activation types without
 a JSON file. A local TUI form lists only live engine/compute-target pairs,
@@ -325,8 +335,11 @@ separate feature: the current VRAM packing view is still a planning estimate.
 Existing resources that omit `cpuOffloading` are unchanged. New NVIDIA models
 explicitly use `false` when the switch is off: vLLM weight offloading is disabled,
 and Ollama requests all layers on GPU with automatic fit disabled. Metadata is
-required for `true`; the API rejects unknown host/VRAM capacity or allocations
-that cannot fit. Runtime startup peaks and layer compatibility still require
+required for `true`; without explicit `local.allowMemoryRisk: true`, the API
+rejects unknown host/VRAM capacity or allocations that cannot fit. The risk flag
+allows a trial with unchanged requests/limits and may result in Pending or OOM.
+It does not bypass metadata, engine, target, replica or positive-budget validation.
+Runtime startup peaks and layer compatibility still require
 validation on the selected model and GPU; the recommendation is not a guarantee
 against OOM. See [the runtime fields](appliance-crd.md#cpu-offloading-fields) and
 [operational checks](operations.md#cpu-offloading-checks).

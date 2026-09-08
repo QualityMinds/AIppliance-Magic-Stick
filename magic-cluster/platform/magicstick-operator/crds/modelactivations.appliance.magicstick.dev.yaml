@@ -136,6 +136,9 @@ spec:
                       type: integer
                       minimum: 0
                       description: Derived vLLM weight-offloading budget in MiB, separate from total host RAM.
+                    allowMemoryRisk:
+                      type: boolean
+                      description: Explicitly accept an estimated insufficient or unverifiable memory budget. Does not change resource requests or guarantee startup.
                     ollamaGpuLayers:
                       type: integer
                       minimum: 1

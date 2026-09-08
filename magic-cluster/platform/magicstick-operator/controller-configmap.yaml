@@ -1495,6 +1495,7 @@ data:
             "vramMi",
             "memoryRequiredMi",
             "cpuOffloading",
+            "allowMemoryRisk",
             "cpuOffloadMi",
             "ollamaGpuLayers",
             "contextWindow",
@@ -1557,7 +1558,11 @@ data:
         if isinstance(raw_offload, bool) or not isinstance(raw_offload, int) or raw_offload < 0:
             raise ValueError("local.cpuOffloadMi must be a non-negative integer")
         host_base = 6144 if engine == "VLLM" else 4096
-        if memory < host_base + raw_offload:
+        if "allowMemoryRisk" in local and not isinstance(local["allowMemoryRisk"], bool):
+            raise ValueError("local.allowMemoryRisk must be a boolean")
+        if memory < 16:
+            raise ValueError("Host RAM must be an integer of at least 16 MiB")
+        if memory < host_base + raw_offload and local.get("allowMemoryRisk") is not True:
             raise ValueError("Host RAM must cover offloaded weights and engine runtime")
         if positive_int(local.get("maxReplicas", 1)) != 1 or positive_int(local.get("minReplicas", 1)) not in (None, 1):
             raise ValueError("CPU offloading currently supports one model replica")

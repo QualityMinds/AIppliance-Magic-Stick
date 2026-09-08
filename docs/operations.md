@@ -826,10 +826,10 @@ For every supported local engine/target pair, the form calculates minimum and
 recommended memory before creation. vLLM supports CPU, NVIDIA, AMD, and Intel;
 Ollama supports CPU, NVIDIA, and AMD. The CPU RAM slider and accelerator VRAM
 slider both end at the target's unreserved memory. Values beyond that capacity
-remain visible only as minimum/recommended markers in the gray overflow area.
+appear as minimum/recommended markers in the gray overflow area; a manually
+entered numeric budget may exceed capacity after the creation warning.
 Displayed requirements and selections use 100 MiB planning increments. Values
-round upward; the safe unreserved ceiling rounds downward so a selectable value
-never exceeds planning capacity. The React dashboard breakdown separates weights, theoretical
+round upward; the safe slider ceiling rounds downward. The React dashboard breakdown separates weights, theoretical
 or estimated KV cache, hybrid-allocator safety, compile/warm-up headroom,
 multimodal processor cache, quantization working copy, generic engine reserve,
 and recommendation headroom. Download size is shown as storage/network context
@@ -838,6 +838,23 @@ come from the registry manifest and cache dimensions come from a bounded range
 of the GGUF header. Hybrid models show attention KV and recurrent state
 separately. If a registry proxy blocks ranged blob reads, the API reports and
 uses the conservative manifest-only fallback.
+
+Use the **info (i)** buttons on memory values to inspect the API's formula and
+current substituted numbers. Check context tokens, maximum sequences, KV precision
+and full-attention layers before comparing cache estimates. Runtime/headroom
+formulas are planning heuristics, not engine measurements. Missing calculation
+metadata is displayed as unavailable; 100 MiB reservation rounding is separate
+from compact GiB display formatting.
+
+The warning-styled **Add Local Model** remains usable for uncertain or
+insufficient memory. Clicking it records `spec.local.allowMemoryRisk: true`;
+equivalent API/CLI JSON can supply the same boolean explicitly. This skips only
+memory-estimate/capacity preflight guards, including CPU vLLM and offloading host
+coverage. Required positive values, supported targets, offloading metadata and
+single-replica constraints still apply. Requests/limits and derived cache budgets
+are not reduced or removed. Inspect Pod events and previous logs after such a
+trial: Pending, OOMKilled and CrashLoopBackOff remain possible. A warning is not
+a promise that the runtime can load the model.
 
 For a CPU target, the selected value becomes the model pod's Kubernetes memory
 request in 16 MiB units. Check the requested value after creation:
@@ -1017,7 +1034,7 @@ deploy,pods` if a command does not match the running resource name.
 | Intel model stays in `WaitingForGPU` | Confirm whether the node publishes `gpu.intel.com/xe` or `gpu.intel.com/i915`; the resolved profile in `ModelActivation.status` must match that resource. |
 | A GPU appears in Compute memory but not in the model hardware selector | Confirm the vendor module is enabled and inspect the node's allocatable resource (`nvidia.com/gpu`, `amd.com/gpu`, `gpu.intel.com/xe`, or `gpu.intel.com/i915`). A transient Flux `Reconciling` phase no longer blocks selection once that resource exists; without it, the driver or device plugin is not ready. |
 | CPU model stays in `Starting` | Check the CPU model Pod for image-pull, RAM, CPU, model-download, or vLLM startup failures; no NVIDIA checks should appear. |
-| CPU vLLM reports insufficient memory for KV cache | Recreate the model through the current dashboard so `spec.local.kvCacheMemoryBytes` is derived from model architecture, context, and maximum sequences. Older or directly created resources without that field retain the 512 MiB compatibility fallback. Reduce context or concurrency when the derived minimum exceeds unreserved RAM; do not bypass the server-side minimum check. |
+| CPU vLLM reports insufficient memory for KV cache | Inspect the info overlay's cache formula and recreate through the current dashboard so `spec.local.kvCacheMemoryBytes` is derived from architecture, context, and sequences. Older/direct resources without it retain the 512 MiB fallback. Reduce context/concurrency or increase RAM. Explicit `local.allowMemoryRisk: true` permits a below-estimate trial, but does not shrink the derived cache or guarantee startup. |
 | CPU vLLM is OOM-killed while loading or warming a quantized or multimodal model | The current estimator includes checkpoint bytes, a possible runtime working-weight copy, compile/warm-up headroom, the multimodal processor cache, and a conservative hybrid-cache factor. Confirm that the `ModelActivation` contains both `memoryRequiredMi` and `kvCacheMemoryBytes`, then compare the Pod limit and cgroup peak. If the recommendation is larger than the node, reduce context or choose a smaller model instead of raising only the timeout. |
 | Hugging Face model search is unavailable or rate-limited | Retry after the short-lived discovery cache can refresh, narrow a broad prefix, and inspect the dashboard API log without printing credentials. Model discovery uses only the public Hugging Face API. Tested presets and direct `hf://` references remain available and do not depend on the search endpoint. |
 | Ollama Library search or tag lookup is unavailable | Retry after the short-lived discovery cache can refresh and inspect the dashboard API log. Discovery reads only bounded public `ollama.com` pages because Ollama does not document a remote catalog API. Tested presets and direct `ollama://` references remain available; model creation is not coupled to Library discovery. |

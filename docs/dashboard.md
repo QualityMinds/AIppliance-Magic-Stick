@@ -737,7 +737,8 @@ model reservations`) as their 100-percent slider maximum. The separate live
 free-memory value does not change that planning limit. Minimum and recommended
 values are marked on the same scale. If either estimate exceeds unreserved
 capacity, its marker remains visible in a gray overflow section to the right of
-the slider; the selected allocation itself never exceeds unreserved capacity.
+the slider. The slider stays bounded; the numeric field also accepts larger
+budgets, with an explicit memory-risk warning before creation.
 The React dashboard's collapsible **Breakdown** separates model weights, the base KV-cache
 estimate, recurrent state where applicable, hybrid-allocator safety, engine
 runtime components, recommendation headroom, and download size. For vLLM hybrid models, the UI labels the
@@ -749,7 +750,15 @@ multimodal processor cache, and a quantization working copy when applicable.
 Download size is storage/network information and is explicitly not included in
 the memory total. Every displayed recommendation and selectable reservation is
 rounded upward to a 100 MiB planning step. The safe slider maximum is rounded
-down to the same step so the UI never offers more than the unreserved capacity.
+down to the same step. Each summary/Breakdown value has an **info (i)** button:
+hover or focus previews its explanation; click/Enter pins it, and Escape,
+the close button, or an outside click dismisses it. Overlays show the formula,
+substituted current inputs, binary units and rounding. Cache explanations include
+bytes per token per sequence and assumed KV precision, independent of weight
+quantization. Runtime allowances and fallback heuristics are labelled as estimates,
+not measurements. The API supplies additive `calculations` entries containing
+`formula`, `substitution`, and `notes`; an older API shows an honest unavailable
+message instead of invented dimensions.
 
 For CPU targets, the selected value is stored as
 `spec.local.memoryRequiredMi`. The operator rounds it up to a 16 MiB unit and
@@ -773,9 +782,15 @@ opt-in setting below the VRAM control. Keep VRAM and host RAM separate: the new
 host runtime, while **Use recommended RAM allocation** adjusts only host RAM.
 Budgets use 100 MiB steps. The host ceiling is the largest eligible node's
 allocatable RAM after workload requests, with pending requests deducted
-conservatively; it is not the cluster-wide CPU gauge. Creation is blocked while
-the split is loading, when capacity is unknown, or when either budget is
-inadequate. Manual RAM choices survive recalculation, and changing engine or
+conservatively; it is not the cluster-wide CPU gauge. Unknown capacity,
+uncertain estimates, or inadequate budgets show a warning, not a disabled
+**Add Local Model** button. Clicking the warning-styled button accepts the
+memory risk and stores `spec.local.allowMemoryRisk: true`. The API/controller
+then allow estimated under-reservation and unverifiable/oversubscribed capacity
+without raising the selected budgets or removing requests/limits. Pods may remain
+Pending, fail to load, or OOM/restart. Invalid inputs, unsupported hardware/engine
+combinations, missing metadata needed to derive an offloading plan and replica
+restrictions are still errors. Manual RAM choices survive recalculation, and changing engine or
 hardware resets opt-in so a previous policy cannot silently carry over.
 
 The expanded breakdown separates estimated GPU/RAM weights, GPU KV, conservative
@@ -795,8 +810,9 @@ hybrid cache grouping can allocate more memory than the pure full-attention
 formula suggests. The shared API returns both values as
 `theoreticalKvCacheMi` and `hybridAllocatorSafetyMi`; runtime components are
 returned in `runtimeDetails`, while `recommendedReserveMi` is the separate
-recommendation headroom. A selected CPU reservation below the computed minimum
-is rejected before Kubernetes starts a CrashLooping pod.
+recommendation headroom. CPU reservations below the computed minimum require
+the explicit memory-risk acceptance described above. API/CLI clients that omit
+`local.allowMemoryRisk` retain the stricter preflight checks.
 
 Accelerator availability uses the Ready, schedulable node's allocatable vendor
 resource as the final runtime signal. An enabled vendor operator that is

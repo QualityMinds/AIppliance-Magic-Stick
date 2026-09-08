@@ -1,5 +1,5 @@
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
-import {render, screen, waitFor} from '@testing-library/react';
+import {fireEvent, render, screen, waitFor} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {ModelsPage} from './pages/ModelsPage';
@@ -49,13 +49,60 @@ describe('CPU offloading model configuration', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
-  it('blocks creation when host RAM cannot be verified', async () => {
+  it('warns but permits explicit risk acceptance when host RAM cannot be verified', async () => {
     vi.mocked(api.estimateMemory).mockImplementation(async (payload) => (payload as {cpuOffloading?: boolean}).cpuOffloading
       ? {...base, offloading: {...plan, ramMaximumMi: null}} : base);
     const user = await openForm();
     await user.click(screen.getByLabelText('Use additional system RAM'));
     await screen.findByText('Unknown');
+    const add = screen.getByRole('button', {name: 'Add Local Model'});
+    expect(add).toBeEnabled();
+    expect(add).toHaveAccessibleDescription(/Unreserved host RAM could not be verified/);
+    await user.click(add);
+    await waitFor(() => expect(api.createLocalModel).toHaveBeenCalledWith(expect.objectContaining({local: expect.objectContaining({allowMemoryRisk: true, cpuOffloading: true, memoryRequiredMi: 12300})})));
+  });
+
+  it('permits a deliberately small host reservation without silently raising it', async () => {
+    const user = await openForm();
+    await user.click(screen.getByLabelText('Use additional system RAM'));
+    const input = await screen.findByLabelText('Host RAM budget (MiB)');
+    await waitFor(() => expect(input).toHaveValue(12300));
+    await user.clear(input); await user.type(input, '100');
+    const add = screen.getByRole('button', {name: 'Add Local Model'});
+    expect(add).toBeEnabled();
+    expect(add).toHaveAccessibleDescription(/Host RAM is below/);
+    await user.click(add);
+    await waitFor(() => expect(api.createLocalModel).toHaveBeenCalledWith(expect.objectContaining({local: expect.objectContaining({allowMemoryRisk: true, memoryRequiredMi: 100})})));
+  });
+
+  it('keeps syntactically invalid reservations disabled', async () => {
+    const user = await openForm();
+    const input = screen.getByLabelText('VRAM budget (MiB)');
+    fireEvent.change(input, {target: {value: '-100'}});
     expect(screen.getByRole('button', {name: 'Add Local Model'})).toBeDisabled();
+    await user.clear(input); await user.type(input, '150');
+    expect(screen.getByRole('button', {name: 'Add Local Model'})).toBeDisabled();
+  });
+
+  it('accepts a numeric GPU budget over the slider ceiling with a warning', async () => {
+    const user = await openForm();
+    const input = screen.getByLabelText('VRAM budget (MiB)');
+    await user.clear(input); await user.type(input, '14000');
+    const add = screen.getByRole('button', {name: 'Add Local Model'});
+    expect(add).toBeEnabled();
+    expect(add).toHaveAccessibleDescription(/exceeds currently unreserved capacity/);
+    await user.click(add);
+    await waitFor(() => expect(api.createLocalModel).toHaveBeenCalledWith(expect.objectContaining({local: expect.objectContaining({allowMemoryRisk: true, vram: '14000Mi'})})));
+  });
+
+  it('does not invent 100 MiB of capacity when less than one planning step remains', async () => {
+    vi.mocked(api.models).mockResolvedValue({...fixture, computeMemory: {devices: [{...fixture.computeMemory.devices[0]!, unreservedMi: 63}]}});
+    await openForm();
+    expect(screen.getByLabelText('Memory reservation')).toBeDisabled();
+    expect(screen.getByRole('button', {name: /^100%$/})).toBeDisabled();
+    expect(screen.getByText('< 100 MiB unreserved')).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Add Local Model'})).toBeEnabled();
+    expect(screen.getByRole('button', {name: 'Add Local Model'})).toHaveAccessibleDescription(/exceeds currently unreserved capacity/);
   });
 
   it('preserves manual RAM and resets opt-in when changing engine', async () => {

@@ -295,16 +295,20 @@ supports one NVIDIA-backed vLLM or Ollama replica only.
 | `memoryRequiredMi` | Total host RAM including offloaded weights, runtime and chosen startup headroom; rendered as equal Pod memory request and limit. |
 | `cpuOffloadMi` | API-derived vLLM weight budget, converted to GiB by the wrapper. Zero for Ollama; not a KV budget. |
 | `ollamaGpuLayers` | API-derived positive layer count for Ollama; requires GGUF layer metadata. |
+| `allowMemoryRisk` | Optional explicit boolean accepting insufficient/uncertain memory estimates or unavailable capacity. Also applies to CPU vLLM minimum checks. Omission/false keeps strict preflight validation. Does not change requests, limits, cache settings, authorization, or hardware support. |
 
 For normal API/CLI creation, submit only `cpuOffloading`, the RAM/VRAM budgets
 and model/context inputs. The API recomputes both engine-specific fields;
 client-supplied derived values are ignored. The estimator's `offloading` object
 reports `ramMinimumMi`, `ramRecommendedMi`, `ramMaximumMi`, `gpuMinimumMi`,
 `gpuRecommendedMi`, `fitsVram`, and the separated weight/cache/runtime estimates.
-An unknown maximum is `null`, not zero. Invalid combinations, insufficient
-budgets, and more than one replica are rejected. Administrators creating CRs
-directly must supply a consistent derived plan; the operator still validates
-target, replica count, host runtime coverage, and engine controls.
+An unknown maximum is `null`, not zero. Insufficient/unknown budgets require
+`allowMemoryRisk: true`; the dashboard records this when its warning-styled Add
+button is used. Invalid combinations and more than one replica remain rejected.
+Administrators creating CRs directly must supply derived engine controls; the
+operator validates target, replica count, positive RAM and engine controls.
+Only the estimated host-runtime coverage check is skipped by the explicit flag.
+Neither the flag nor a successful creation guarantees a running model.
 
 `status.cpuOffloading`, `status.memoryRequiredMi`, and
 `status.resolvedResourceProfile` expose applied intent. Optional

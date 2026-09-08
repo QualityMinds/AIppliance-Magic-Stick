@@ -58,6 +58,18 @@ class OffloadingRuntimeTests(unittest.TestCase):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 self.c["offloading_runtime"]({**self.activation["spec"]["local"], **changes}, "VLLM", "nvidia-gpu")
 
+    def test_explicit_risk_acceptance_reaches_runtime_without_increasing_reservation(self):
+        self.activation["spec"]["local"].update(memoryRequiredMi=100, allowMemoryRisk=True)
+        resource, runtime = self.c["kubeai_model_resource"](self.activation, {})
+        self.assertEqual(runtime["memoryMi"], 100)
+        self.assertEqual(resource["spec"]["resourceProfile"], "magicstick-nvidia-gpu-ram-100:1")
+        self.assertEqual(resource["spec"]["env"]["MAGICSTICK_CPU_OFFLOAD_MI"], "8000")
+
+    def test_risk_acceptance_does_not_bypass_types_positive_budgets_or_replica_rules(self):
+        for changes in ({"memoryRequiredMi": 0}, {"allowMemoryRisk": "true"}, {"maxReplicas": 2}, {"cpuOffloadMi": -1}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                self.c["offloading_runtime"]({**self.activation["spec"]["local"], "allowMemoryRisk": True, **changes}, "VLLM", "nvidia-gpu")
+
     def test_usage_is_engine_reported_and_missing_is_not_zero(self):
         with patch.dict(self.c, {"model_pod_endpoints": lambda *_: ["http://example.local"],
             "ollama_request_json": lambda *_: {"models": [{"name": "hybrid:latest", "size": 20 * 1048576, "size_vram": 12 * 1048576}]} }):

@@ -82,6 +82,22 @@ class CpuOffloadingTests(unittest.TestCase):
             self.assertNotIn("memoryRequiredMi", result["spec"]["local"])
             self.assertNotIn("cpuOffloadMi", result["spec"]["local"])
 
+    def test_explicit_memory_risk_acceptance_preserves_small_and_unverifiable_budgets(self):
+        self.api["offloading_host_memory_available"] = lambda _: None
+        self.api["vram_summary"] = lambda _: {"available": False}
+        self.base["kvCacheMi"] = 30000
+        local = {**self.payload, "memoryRequiredMi": 100, "allowMemoryRisk": True}
+        result = self.api["model_activation_payload"]("local", {"name": "test", "local": local})
+        self.assertEqual(result["spec"]["local"]["memoryRequiredMi"], 100)
+        self.assertEqual(result["spec"]["local"]["vramMi"], 16000)
+        self.assertIs(result["spec"]["local"]["allowMemoryRisk"], True)
+        self.assertGreater(result["spec"]["local"]["cpuOffloadMi"], 100)
+
+    def test_risk_acceptance_does_not_bypass_invalid_values_or_replica_limits(self):
+        for changes in ({"memoryRequiredMi": 0}, {"maxReplicas": 2}, {"allowMemoryRisk": "true"}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                self.api["model_activation_payload"]("local", {"name": "test", "local": {**self.payload, "allowMemoryRisk": True, **changes}})
+
     def test_unsupported_targets_and_invalid_types_are_rejected(self):
         for target in ("cpu", "amd-gpu", "intel-gpu"):
             with self.subTest(target=target), self.assertRaisesRegex(ValueError, "NVIDIA"):
