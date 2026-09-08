@@ -3,1012 +3,302 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="MagicStick is a self-hosted AI appliance for local and external models, managed AI services, SSO, Kubernetes operators, Flux, and GitOps-managed automation." />
-  <meta name="theme-color" content="#071014" />
-  <meta property="og:title" content="MagicStick" />
-  <meta property="og:description" content="A self-hosted AI appliance for local and external models, managed AI services, SSO, and Kubernetes-native automation." />
+  <meta name="description" content="MagicStick turns your hardware into a self-hosted AI platform for local and external models, managed AI applications, identity, and Kubernetes-native operations." />
+  <meta name="theme-color" content="#061217" />
+  <meta property="og:title" content="MagicStick — Private AI, ready to operate" />
+  <meta property="og:description" content="A self-hosted AI appliance for models, applications, identity, and Kubernetes-native operations on your own hardware." />
   <meta property="og:type" content="website" />
-  <title>MagicStick - Self-hosted AI Appliance</title>
-  <style>
-    :root {
-      color-scheme: dark;
-      --bg: #061014;
-      --surface: #0c171c;
-      --surface-strong: #111d24;
-      --surface-soft: #15212a;
-      --text: #ecf4f2;
-      --muted: #aebebc;
-      --line: #274049;
-      --teal: #26d9c5;
-      --cyan: #72d7ff;
-      --green: #7ce38b;
-      --amber: #f4c762;
-      --coral: #ff8c72;
-      --ink: #020607;
-      --max: 1160px;
-    }
-
-    * {
-      box-sizing: border-box;
-    }
-
-    html {
-      scroll-behavior: smooth;
-    }
-
-    body {
-      margin: 0;
-      min-height: 100vh;
-      background: var(--bg);
-      color: var(--text);
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      letter-spacing: 0;
-    }
-
-    a {
-      color: inherit;
-    }
-
-    .site-header {
-      position: sticky;
-      top: 0;
-      z-index: 20;
-      border-bottom: 1px solid rgba(39, 64, 73, 0.72);
-      background: rgba(6, 16, 20, 0.9);
-      backdrop-filter: blur(18px);
-    }
-
-    .nav {
-      width: min(var(--max), calc(100% - 40px));
-      margin: 0 auto;
-      min-height: 68px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 24px;
-    }
-
-    .brand {
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      text-decoration: none;
-      font-weight: 800;
-    }
-
-    .brand-mark {
-      width: 34px;
-      height: 34px;
-      border: 1px solid rgba(38, 217, 197, 0.65);
-      border-radius: 8px;
-      display: grid;
-      place-items: center;
-      background: #0d2729;
-      color: var(--teal);
-      font-size: 0.95rem;
-    }
-
-    .nav-links {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-    }
-
-    .nav-links a {
-      padding: 9px 11px;
-      border-radius: 8px;
-      color: var(--muted);
-      text-decoration: none;
-      font-size: 0.94rem;
-    }
-
-    .nav-links a:hover,
-    .nav-links a:focus-visible {
-      background: rgba(38, 217, 197, 0.09);
-      color: var(--text);
-      outline: none;
-    }
-
-    .button {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 9px;
-      min-height: 42px;
-      padding: 0 15px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      color: var(--text);
-      text-decoration: none;
-      font-weight: 750;
-      background: rgba(17, 29, 36, 0.86);
-    }
-
-    .button:hover,
-    .button:focus-visible {
-      border-color: rgba(114, 215, 255, 0.9);
-      outline: none;
-    }
-
-    .button.primary {
-      border-color: rgba(38, 217, 197, 0.84);
-      background: #0b5d5d;
-    }
-
-    .button.secondary {
-      color: var(--muted);
-    }
-
-    .hero {
-      border-bottom: 1px solid rgba(39, 64, 73, 0.72);
-      background: var(--bg);
-    }
-
-    .hero-inner {
-      width: min(var(--max), calc(100% - 40px));
-      margin: 0 auto;
-      padding: 72px 0 64px;
-      display: grid;
-      grid-template-columns: minmax(0, 0.92fr) minmax(390px, 1.08fr);
-      align-items: center;
-      gap: 54px;
-    }
-
-    .eyebrow {
-      margin: 0 0 18px;
-      color: var(--teal);
-      font-size: 0.86rem;
-      font-weight: 800;
-      text-transform: uppercase;
-    }
-
-    h1,
-    h2,
-    h3,
-    p {
-      margin-top: 0;
-    }
-
-    h1 {
-      margin-bottom: 22px;
-      font-size: 4.6rem;
-      line-height: 0.95;
-    }
-
-    .hero-copy {
-      max-width: 690px;
-      color: var(--muted);
-      font-size: 1.18rem;
-      line-height: 1.7;
-    }
-
-    .hero-actions {
-      margin-top: 30px;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-    }
-
-    .hero-proof {
-      margin-top: 28px;
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 10px;
-    }
-
-    .proof-item {
-      border: 1px solid rgba(39, 64, 73, 0.8);
-      border-radius: 8px;
-      padding: 12px;
-      background: rgba(12, 23, 28, 0.78);
-    }
-
-    .proof-item strong {
-      display: block;
-      margin-bottom: 4px;
-      color: var(--text);
-      font-size: 1rem;
-    }
-
-    .proof-item span {
-      color: var(--muted);
-      font-size: 0.82rem;
-      line-height: 1.35;
-    }
-
-    .product-shot {
-      position: relative;
-      border: 1px solid rgba(114, 215, 255, 0.26);
-      border-radius: 8px;
-      overflow: hidden;
-      background: #081117;
-      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
-    }
-
-    .product-topbar {
-      min-height: 46px;
-      border-bottom: 1px solid rgba(39, 64, 73, 0.78);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0 16px;
-      background: #0c171c;
-    }
-
-    .window-dots {
-      display: flex;
-      gap: 7px;
-    }
-
-    .window-dots span {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      background: var(--line);
-    }
-
-    .window-dots span:nth-child(1) {
-      background: var(--coral);
-    }
-
-    .window-dots span:nth-child(2) {
-      background: var(--amber);
-    }
-
-    .window-dots span:nth-child(3) {
-      background: var(--green);
-    }
-
-    .topbar-status {
-      color: var(--muted);
-      font-size: 0.78rem;
-    }
-
-    .dashboard-scene {
-      display: grid;
-      grid-template-columns: 150px minmax(0, 1fr);
-      min-height: 475px;
-    }
-
-    .sidebar {
-      border-right: 1px solid rgba(39, 64, 73, 0.72);
-      padding: 16px 12px;
-      background: #0a1419;
-    }
-
-    .sidebar-title {
-      margin-bottom: 16px;
-      color: var(--muted);
-      font-size: 0.76rem;
-      text-transform: uppercase;
-      font-weight: 800;
-    }
-
-    .side-pill {
-      display: block;
-      margin-bottom: 8px;
-      padding: 9px 10px;
-      border: 1px solid rgba(39, 64, 73, 0.9);
-      border-radius: 8px;
-      color: var(--muted);
-      font-size: 0.85rem;
-    }
-
-    .side-pill.active {
-      border-color: rgba(38, 217, 197, 0.62);
-      background: rgba(38, 217, 197, 0.13);
-      color: var(--text);
-    }
-
-    .dashboard-main {
-      padding: 18px;
-      display: grid;
-      gap: 16px;
-      background: #081117;
-    }
-
-    .metric-strip {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 10px;
-    }
-
-    .metric {
-      border: 1px solid rgba(39, 64, 73, 0.82);
-      border-radius: 8px;
-      padding: 12px;
-      background: #0d171d;
-    }
-
-    .metric span {
-      display: block;
-      color: var(--muted);
-      font-size: 0.72rem;
-    }
-
-    .metric strong {
-      display: block;
-      margin-top: 6px;
-      font-size: 1.18rem;
-    }
-
-    .module-preview-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
-    }
-
-    .module-card {
-      border: 1px solid rgba(39, 64, 73, 0.82);
-      border-radius: 8px;
-      padding: 13px;
-      display: grid;
-      gap: 10px;
-      background: #0d171d;
-    }
-
-    .module-card-head {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 12px;
-    }
-
-    .module-card h3 {
-      margin: 0;
-      font-size: 1rem;
-    }
-
-    .status {
-      border: 1px solid rgba(124, 227, 139, 0.45);
-      border-radius: 999px;
-      color: var(--green);
-      padding: 2px 8px;
-      font-size: 0.72rem;
-      white-space: nowrap;
-    }
-
-    .status.waiting {
-      border-color: rgba(244, 199, 98, 0.5);
-      color: var(--amber);
-    }
-
-    .bar {
-      height: 7px;
-      overflow: hidden;
-      border-radius: 999px;
-      background: #14232b;
-    }
-
-    .bar span {
-      display: block;
-      height: 100%;
-      width: var(--value);
-      background: var(--teal);
-    }
-
-    .module-card p {
-      margin: 0;
-      color: var(--muted);
-      font-size: 0.8rem;
-      line-height: 1.45;
-    }
-
-    .terminal {
-      border: 1px solid rgba(39, 64, 73, 0.82);
-      border-radius: 8px;
-      padding: 13px;
-      background: #020607;
-      color: #baf7df;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 0.78rem;
-      line-height: 1.7;
-      overflow: hidden;
-    }
-
-    .section {
-      border-bottom: 1px solid rgba(39, 64, 73, 0.7);
-      background: var(--bg);
-    }
-
-    .section.alt {
-      background: #081319;
-    }
-
-    .section-inner {
-      width: min(var(--max), calc(100% - 40px));
-      margin: 0 auto;
-      padding: 76px 0;
-    }
-
-    .section-header {
-      max-width: 760px;
-      margin-bottom: 32px;
-    }
-
-    .section-header h2 {
-      margin-bottom: 14px;
-      font-size: 2.1rem;
-      line-height: 1.12;
-    }
-
-    .section-header p {
-      color: var(--muted);
-      font-size: 1.03rem;
-      line-height: 1.7;
-    }
-
-    .feature-grid,
-    .module-grid,
-    .doc-grid {
-      display: grid;
-      gap: 14px;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-
-    .feature,
-    .module,
-    .doc-link,
-    .quick-panel {
-      border: 1px solid rgba(39, 64, 73, 0.84);
-      border-radius: 8px;
-      padding: 18px;
-      background: rgba(17, 29, 36, 0.62);
-    }
-
-    .feature h3,
-    .module h3,
-    .doc-link h3 {
-      margin-bottom: 8px;
-      font-size: 1.04rem;
-    }
-
-    .feature p,
-    .module p,
-    .doc-link p {
-      margin-bottom: 0;
-      color: var(--muted);
-      line-height: 1.6;
-      font-size: 0.95rem;
-    }
-
-    .module-tag {
-      display: inline-flex;
-      margin-bottom: 12px;
-      border: 1px solid rgba(114, 215, 255, 0.34);
-      border-radius: 999px;
-      color: var(--cyan);
-      padding: 3px 9px;
-      font-size: 0.78rem;
-      font-weight: 700;
-    }
-
-    .quick-layout {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(360px, 0.75fr);
-      gap: 18px;
-      align-items: start;
-    }
-
-    .steps {
-      display: grid;
-      gap: 12px;
-      margin: 0;
-      padding: 0;
-      list-style: none;
-    }
-
-    .steps li {
-      border: 1px solid rgba(39, 64, 73, 0.78);
-      border-radius: 8px;
-      padding: 15px;
-      background: rgba(12, 23, 28, 0.74);
-    }
-
-    .steps strong {
-      display: block;
-      margin-bottom: 6px;
-    }
-
-    .steps span {
-      color: var(--muted);
-      line-height: 1.55;
-    }
-
-    pre {
-      margin: 0;
-      border: 1px solid rgba(39, 64, 73, 0.84);
-      border-radius: 8px;
-      padding: 18px;
-      overflow-x: auto;
-      background: #020607;
-      color: #d8f9eb;
-      font-size: 0.86rem;
-      line-height: 1.7;
-    }
-
-    code {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    }
-
-    .architecture {
-      border: 1px solid rgba(39, 64, 73, 0.84);
-      border-radius: 8px;
-      padding: 18px;
-      display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
-      gap: 10px;
-      background: rgba(12, 23, 28, 0.72);
-    }
-
-    .arch-node {
-      min-height: 104px;
-      border: 1px solid rgba(39, 64, 73, 0.9);
-      border-radius: 8px;
-      display: grid;
-      align-content: center;
-      gap: 8px;
-      padding: 14px;
-      background: #0d171d;
-    }
-
-    .arch-node strong {
-      font-size: 0.94rem;
-    }
-
-    .arch-node span {
-      color: var(--muted);
-      font-size: 0.78rem;
-      line-height: 1.45;
-    }
-
-    .footer {
-      background: #020607;
-    }
-
-    .footer-inner {
-      width: min(var(--max), calc(100% - 40px));
-      margin: 0 auto;
-      padding: 36px 0;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 20px;
-      color: var(--muted);
-      font-size: 0.92rem;
-    }
-
-    .footer-links {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 14px;
-    }
-
-    .footer-links a {
-      color: var(--muted);
-      text-decoration: none;
-    }
-
-    .footer-links a:hover,
-    .footer-links a:focus-visible {
-      color: var(--text);
-      outline: none;
-    }
-
-    @media (max-width: 980px) {
-      .hero-inner,
-      .quick-layout {
-        grid-template-columns: 1fr;
-      }
-
-      .product-shot {
-        max-width: 720px;
-      }
-
-      .feature-grid,
-      .module-grid,
-      .doc-grid,
-      .architecture {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-    }
-
-    @media (max-width: 720px) {
-      .nav {
-        min-height: auto;
-        padding: 14px 0;
-        align-items: flex-start;
-        flex-direction: column;
-      }
-
-      .nav-links {
-        justify-content: flex-start;
-      }
-
-      h1 {
-        font-size: 3.1rem;
-      }
-
-      .hero-inner,
-      .section-inner {
-        width: min(100% - 28px, var(--max));
-      }
-
-      .hero-inner {
-        padding-top: 48px;
-      }
-
-      .hero-proof,
-      .metric-strip,
-      .module-preview-grid,
-      .feature-grid,
-      .module-grid,
-      .doc-grid,
-      .architecture {
-        grid-template-columns: 1fr;
-      }
-
-      .dashboard-scene {
-        grid-template-columns: 1fr;
-      }
-
-      .sidebar {
-        border-right: 0;
-        border-bottom: 1px solid rgba(39, 64, 73, 0.72);
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 8px;
-      }
-
-      .sidebar-title {
-        grid-column: 1 / -1;
-        margin: 0;
-      }
-
-      .side-pill {
-        margin: 0;
-      }
-
-      .footer-inner {
-        align-items: flex-start;
-        flex-direction: column;
-      }
-    }
-  </style>
+  <title>MagicStick — Private AI, ready to operate</title>
+  <link rel="stylesheet" href="site.css" />
 </head>
 <body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
   <header class="site-header">
-    <nav class="nav" aria-label="Main navigation">
+    <nav class="nav wrap" aria-label="Main navigation">
       <a class="brand" href="#top" aria-label="MagicStick home">
         <span class="brand-mark" aria-hidden="true">MS</span>
         <span>MagicStick</span>
       </a>
       <div class="nav-links">
-        <a href="#why">Why</a>
-        <a href="#services">Services</a>
-        <a href="#quickstart">Install</a>
+        <a href="#product">Product</a>
+        <a href="#models">Models</a>
+        <a href="#platform">Platform</a>
+        <a href="#open-core">Open core</a>
+        <a href="#install">Install</a>
         <a href="#docs">Docs</a>
-        <a class="button secondary" href="https://github.com/QualityMinds/AIppliance-Magic-Stick">GitHub</a>
+        <a class="button ghost" href="https://github.com/QualityMinds/AIppliance-Magic-Stick">GitHub <span class="arrow" aria-hidden="true">↗</span></a>
       </div>
     </nav>
   </header>
 
-  <main id="top">
-    <section class="hero" aria-labelledby="hero-title">
-      <div class="hero-inner">
-        <div>
-          <p class="eyebrow">Open source AI appliance template</p>
-          <h1 id="hero-title">MagicStick</h1>
-          <p class="hero-copy">
-            A self-hosted AI appliance for local and external models, managed AI services, and Kubernetes-native automation. Install it on hardware, a VM, or an existing cluster, complete the protected first-run setup, then manage services, models, users, API keys, SSO-bound Kubernetes access, domains, and application links from one dashboard.
-          </p>
-          <div class="hero-actions" aria-label="Primary actions">
-            <a class="button primary" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/installation/README.md">Install MagicStick</a>
-            <a class="button" href="https://github.com/QualityMinds/AIppliance-Magic-Stick">View on GitHub</a>
-            <a class="button" href="sales-deck/Magic-Stick-Salesdeck-Dark-DE.pdf">Sales deck</a>
-            <a class="button secondary" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/README.md">Read docs</a>
-          </div>
-          <div class="hero-proof" aria-label="Project highlights">
-            <div class="proof-item">
-              <strong>Local-first, cloud-ready</strong>
-              <span>Run private models locally or connect external providers.</span>
-            </div>
-            <div class="proof-item">
-              <strong>GitOps-ready</strong>
-              <span>Flux keeps the cluster aligned with declarative state.</span>
-            </div>
-            <div class="proof-item">
-              <strong>Secure by default</strong>
-              <span>Local SSO and role-based dashboard access protect the appliance.</span>
-            </div>
-          </div>
+  <main id="main">
+    <section class="hero" id="top" aria-labelledby="hero-title">
+      <div class="hero-inner wrap">
+        <p class="eyebrow">Open-source AI appliance</p>
+        <h1 id="hero-title">Private AI.<br /><span class="accent">Ready to operate.</span></h1>
+        <p class="hero-lead">
+          MagicStick turns a bare-metal server, virtual machine, or existing Kubernetes cluster into a self-hosted AI platform—with models, applications, identity, and day-two operations in one control plane.
+        </p>
+        <div class="hero-actions" aria-label="Primary actions">
+          <a class="button primary" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/installation/README.md">Install MagicStick <span class="arrow" aria-hidden="true">→</span></a>
+          <a class="button" href="https://github.com/QualityMinds/AIppliance-Magic-Stick">Explore the repository</a>
+          <a class="button ghost" href="sales-deck/Magic-Stick-Salesdeck-Dark-DE.pdf">Download sales deck</a>
         </div>
 
-        <figure class="product-shot" aria-label="MagicStick dashboard preview">
-          <div class="product-topbar">
-            <div class="window-dots" aria-hidden="true"><span></span><span></span><span></span></div>
-            <div class="topbar-status">magicstick.local</div>
+        <div class="hero-facts" aria-label="MagicStick at a glance">
+          <div class="fact"><strong>4</strong><span>installation paths</span></div>
+          <div class="fact"><strong>2</strong><span>local inference engines</span></div>
+          <div class="fact"><strong>CPU + GPU</strong><span>NVIDIA, AMD, and Intel targets</span></div>
+          <div class="fact"><strong>1</strong><span>browser, CLI, TUI, and API control plane</span></div>
+        </div>
+
+        <figure class="hero-screen">
+          <div class="screen-bar" aria-hidden="true">
+            <span class="screen-dots"><i></i><i></i><i></i></span>
+            <span class="mono">https://magicstick.local</span>
           </div>
-          <div class="dashboard-scene">
-            <aside class="sidebar" aria-label="Dashboard sections">
-              <div class="sidebar-title">Dashboard</div>
-              <span class="side-pill active">Overview</span>
-              <span class="side-pill">Services</span>
-              <span class="side-pill">Models</span>
-              <span class="side-pill">Users</span>
-              <span class="side-pill">System Status</span>
-            </aside>
-            <div class="dashboard-main">
-              <div class="metric-strip">
-                <div class="metric"><span>Services</span><strong>9 ready</strong></div>
-                <div class="metric"><span>Models</span><strong>3 active</strong></div>
-                <div class="metric"><span>Identity</span><strong>SSO ready</strong></div>
-                <div class="metric"><span>Compute</span><strong>CPU + GPU</strong></div>
-              </div>
-              <div class="module-preview-grid">
-                <article class="module-card">
-                  <div class="module-card-head">
-                    <h3>OpenClaw</h3>
-                    <span class="status">Ready</span>
-                  </div>
-                  <div class="bar" aria-hidden="true"><span style="--value: 100%"></span></div>
-                  <p>Managed agent service with nested instances, routes, and credentials.</p>
-                </article>
-                <article class="module-card">
-                  <div class="module-card-head">
-                    <h3>Hermes</h3>
-                    <span class="status">Ready</span>
-                  </div>
-                  <div class="bar" aria-hidden="true"><span style="--value: 100%"></span></div>
-                  <p>Browser chat workspace backed by deployed chat models.</p>
-                </article>
-                <article class="module-card">
-                  <div class="module-card-head">
-                    <h3>Qwen Local</h3>
-                    <span class="status waiting">Reconciling</span>
-                  </div>
-                  <div class="bar" aria-hidden="true"><span style="--value: 70%"></span></div>
-                  <p>vLLM or Ollama with RAM and accelerator-memory planning.</p>
-                </article>
-                <article class="module-card">
-                  <div class="module-card-head">
-                    <h3>AnythingLLM</h3>
-                    <span class="status">Ready</span>
-                  </div>
-                  <div class="bar" aria-hidden="true"><span style="--value: 100%"></span></div>
-                  <p>Knowledge workspace published under public and mDNS hosts.</p>
-                </article>
-              </div>
-              <div class="terminal" aria-label="Bootstrap flow">
-                <div>$ kubectl kustomize magic-cluster/flux/entrypoints/single-node</div>
-                <div>$ flux reconcile kustomization magicstick-operator</div>
-                <div>local appliance: services ready, SSO active, model catalog published</div>
-              </div>
-            </div>
-          </div>
+          <img src="sales-deck/assets/Magic-Stick-Dashboard-Overview-Strip-Current.png" width="1044" height="312" alt="MagicStick dashboard overview showing appliance, module, instance, and model status together with generated local and public URLs" fetchpriority="high" />
+          <figcaption>One view of appliance state and every available endpoint.</figcaption>
         </figure>
       </div>
     </section>
 
-    <section class="section" id="why">
-      <div class="section-inner">
-        <div class="section-header">
-          <h2>Build a small AI platform without turning it into a platform team.</h2>
-          <p>
-            MagicStick packages the boring but critical pieces of a local AI appliance: host bootstrap, K3s, Flux, identity, model serving, optional hardware operators, app operators, predictable routes, and a dashboard that writes runtime CRs instead of hand-editing cluster state.
-          </p>
+    <div class="trust-strip" aria-label="Platform foundations">
+      <div class="trust-inner wrap">
+        <span class="trust-label">Built on open infrastructure</span>
+        <div class="trust-items">
+          <span>Kubernetes + K3s</span><span>Flux GitOps</span><span>Keycloak</span>
+          <span>Envoy Gateway</span><span>vLLM + Ollama</span><span>LiteLLM</span>
         </div>
-        <div class="feature-grid">
-          <article class="feature">
-            <h3>Dashboard-managed runtime</h3>
-            <p>Manage services and their instances, add local or external models, inspect progress, and open generated application URLs.</p>
+      </div>
+    </div>
+
+    <section class="section" id="product" aria-labelledby="product-title">
+      <div class="wrap">
+        <div class="section-heading">
+          <div><span class="section-number">01 / Product</span><h2 id="product-title">A complete appliance, not a pile of manifests.</h2></div>
+          <p>Install once, then operate models and AI applications through a purpose-built control plane instead of assembling identity, routing, runtimes, and observability by hand.</p>
+        </div>
+
+        <div class="outcome-grid">
+          <article class="outcome">
+            <span class="outcome-index">01 — DEPLOY</span>
+            <h3>From empty machine to usable platform</h3>
+            <p>Bootstrap Ubuntu, K3s, Flux, identity, the gateway, and MagicStick—or add the platform safely to an existing Kubernetes cluster.</p>
           </article>
-          <article class="feature">
-            <h3>Catalog-driven services</h3>
-            <p>The service catalogs control display names, dependencies, activation mode, parameters, and managed instance availability.</p>
+          <article class="outcome">
+            <span class="outcome-index">02 — CONTROL</span>
+            <h3>One surface for the full runtime</h3>
+            <p>Manage services, instances, models, users, API keys, Kubernetes access, domains, licenses, and system health from the browser, CLI, TUI, or API.</p>
           </article>
-          <article class="feature">
-            <h3>Public-safe base repo</h3>
-            <p>Keep this repository reusable and generic while private deployments provide real domains, tokens, and overlays.</p>
-          </article>
-          <article class="feature">
-            <h3>Flexible local inference</h3>
-            <p>Run vLLM on CPU, NVIDIA, AMD, or Intel hardware. Run Ollama on CPU, NVIDIA, or AMD, with only detected and ready targets offered in the dashboard.</p>
-          </article>
-          <article class="feature">
-            <h3>SSO and user management</h3>
-            <p>Protect the dashboard and application routes with local Keycloak SSO, then manage local users and their viewer, operator, or administrator access centrally.</p>
-          </article>
-          <article class="feature">
-            <h3>GitOps as the baseline</h3>
-            <p>Flux owns the platform graph, while runtime resources let users work through Kubernetes APIs and the dashboard.</p>
+          <article class="outcome">
+            <span class="outcome-index">03 — OWN</span>
+            <h3>Your hardware. Your network. Your data.</h3>
+            <p>Keep local inference and application data on infrastructure you control while retaining the option to route selected models to external providers.</p>
           </article>
         </div>
       </div>
     </section>
 
-    <section class="section alt" id="services">
-      <div class="section-inner">
-        <div class="section-header">
-          <h2>One appliance, many AI surfaces.</h2>
-          <p>
-            The reusable cluster base brings together model routing, local inference, identity, and app operators. The Services page combines platform capabilities with their managed application instances, while the Models page presents only engines and hardware targets that are available on the cluster.
-          </p>
+    <section class="section alt" id="models" aria-labelledby="models-title">
+      <div class="wrap">
+        <div class="section-heading">
+          <div><span class="section-number">02 / Model operations</span><h2 id="models-title">Choose a model—not a deployment manifest.</h2></div>
+          <p>MagicStick turns model metadata and detected hardware into an explainable deployment plan, while keeping every resource visible in Kubernetes.</p>
         </div>
-        <div class="module-grid">
-          <article class="module">
-            <span class="module-tag">Core</span>
-            <h3>MagicStick Operator</h3>
-            <p>Coordinates module activations, app instances, model activations, and status across the appliance.</p>
+
+        <div class="feature-stack">
+          <article class="feature-row">
+            <figure class="feature-visual">
+              <img src="sales-deck/assets/Magic-Stick-Create-Model-Current.png" width="784" height="462" alt="MagicStick local model creation screen showing a selected model, context settings, and minimum and recommended accelerator memory" loading="lazy" />
+              <figcaption>Capacity-aware local model creation with explicit memory budgets.</figcaption>
+            </figure>
+            <div class="feature-copy">
+              <span class="section-number">Discover + size</span>
+              <h3>Search, quantify, and place local models with context.</h3>
+              <p>Search Hugging Face or the Ollama Library, select a compatible artifact or quantization, inherit published context metadata, and see minimum and recommended memory before anything is scheduled.</p>
+              <ul class="feature-list">
+                <li>Hugging Face model and artifact discovery</li><li>Ollama model and tag discovery</li>
+                <li>Editable context and concurrency</li><li>Quantized KV-cache choices</li>
+                <li>Explainable RAM and VRAM breakdowns</li><li>Explicit NVIDIA CPU offloading</li>
+              </ul>
+            </div>
           </article>
-          <article class="module">
-            <span class="module-tag">Models</span>
-            <h3>KubeAI, vLLM, Ollama, and LiteLLM</h3>
-            <p>Serve local models through vLLM or Ollama and route OpenAI-compatible traffic to local or external providers.</p>
+
+          <article class="feature-row reverse">
+            <figure class="feature-visual">
+              <img src="sales-deck/assets/Magic-Stick-Dashboard-Services-Current.png" width="1044" height="560" alt="MagicStick Services page showing application modules, their state, and controls for enabling services and creating instances" loading="lazy" />
+              <figcaption>Modules and their managed instances share one operational view.</figcaption>
+            </figure>
+            <div class="feature-copy">
+              <span class="section-number">Run + reuse</span>
+              <h3>Turn platform services into managed workspaces.</h3>
+              <p>Enable reusable modules and create separate application instances for teams or projects. MagicStick resolves dependencies, publishes routes, connects models, and reports progress without hiding the underlying cluster state.</p>
+              <ul class="feature-list">
+                <li>AnythingLLM knowledge workspaces</li><li>OpenClaw and Hermes instances</li>
+                <li>Paperclip agent orchestration</li><li>KubeOpenCode coding agents</li>
+                <li>Odysseus agent applications</li><li>Local and public application routes</li>
+              </ul>
+            </div>
           </article>
-          <article class="module">
-            <span class="module-tag">Knowledge</span>
-            <h3>AnythingLLM</h3>
-            <p>Run a self-hosted workspace for documents, embeddings, and chat-backed knowledge flows.</p>
-          </article>
-          <article class="module">
-            <span class="module-tag">Agents</span>
-            <h3>OpenClaw</h3>
-            <p>Create managed agent instances with model catalog integration and dashboard-accessible credentials.</p>
-          </article>
-          <article class="module">
-            <span class="module-tag">Chat</span>
-            <h3>Hermes</h3>
-            <p>Run a browser chat workspace wired to deployed chat models and local ingress hosts.</p>
-          </article>
-          <article class="module">
-            <span class="module-tag">Identity</span>
-            <h3>Keycloak and Envoy Gateway</h3>
-            <p>Use one local SSO layer for the dashboard and managed application routes, with optional upstream identity brokering through Keycloak.</p>
-          </article>
-          <article class="module">
-            <span class="module-tag">Hardware</span>
-            <h3>On-demand accelerator operators</h3>
-            <p>Node discovery requests only the matching NVIDIA, AMD, or Intel operator. CPU-only appliances keep all three accelerator operators inactive.</p>
-          </article>
-          <article class="module">
-            <span class="module-tag">Enterprise option · planned</span>
-            <h3>Resource-scoped governance</h3>
-            <p>Per-service and per-instance access, group-level RBAC, and delegated administration are planned enterprise capabilities available for design discussions on request; they are not part of the current implementation.</p>
-          </article>
+        </div>
+
+        <div class="capability-bar" aria-label="Model and application capabilities">
+          <span>vLLM</span><span>Ollama</span><span>CPU</span><span>NVIDIA</span><span>AMD ROCm</span><span>Intel XPU</span><span>FP8 / AWQ / GGUF</span><span>KV cache formats</span><span>OpenAI-compatible API</span>
         </div>
       </div>
     </section>
 
-    <section class="section" id="quickstart">
-      <div class="section-inner">
-        <div class="section-header">
-          <h2>Four installation paths, one protected appliance.</h2>
-          <p>
-            Start from the environment you already have. Every new installation ends in the same protected first-run setup, creates no default human password, and converges to the same GitOps-managed platform.
-          </p>
+    <section class="section" id="platform" aria-labelledby="platform-title">
+      <div class="wrap">
+        <div class="section-heading">
+          <div><span class="section-number">03 / Platform</span><h2 id="platform-title">Kubernetes-native from first boot to day two.</h2></div>
+          <p>The dashboard is a focused control surface, not a second source of truth. Actions become declarative resources; operators and Flux reconcile them into the running platform.</p>
         </div>
-        <div class="quick-layout">
-          <div class="quick-panel">
-            <ol class="steps">
-              <li>
-                <strong>Empty physical server</strong>
-                <span>Boot the USB installer to install Ubuntu, K3s, Flux, and MagicStick from scratch.</span>
-              </li>
-              <li>
-                <strong>New cloud VM</strong>
-                <span>Use the cloud-init and autoinstall template with providers such as Hetzner or Azure.</span>
-              </li>
-              <li>
-                <strong>Existing Ubuntu 24.04 host or VM</strong>
-                <span>Run the reviewed install script on a dedicated machine to add K3s, Flux, and MagicStick.</span>
-              </li>
-              <li>
-                <strong>Existing Kubernetes cluster</strong>
-                <span>Deploy the cluster components from Bash or PowerShell while reusing compatible Flux controllers.</span>
-              </li>
-            </ol>
+
+        <div class="platform-grid">
+          <div class="platform-map" aria-label="MagicStick architecture layers">
+            <div class="layer"><span class="layer-label">Experience</span><div class="layer-items"><span>React dashboard</span><span>CLI</span><span>Local TUI</span><span>Control API</span></div></div>
+            <div class="layer"><span class="layer-label">Access</span><div class="layer-items"><span>Keycloak SSO</span><span>Envoy Gateway</span><span>Users + roles</span><span>API keys</span><span>OIDC kubeconfig</span></div></div>
+            <div class="layer"><span class="layer-label">Control</span><div class="layer-items"><span>MagicStick APIs</span><span>Meta-operator</span><span>Flux</span><span>Service catalogs</span><span>Runtime CRs</span></div></div>
+            <div class="layer"><span class="layer-label">AI runtime</span><div class="layer-items"><span>KubeAI</span><span>vLLM</span><span>Ollama</span><span>LiteLLM</span><span>Model Catalog</span></div></div>
+            <div class="layer"><span class="layer-label">Infrastructure</span><div class="layer-items"><span>Bare metal</span><span>Virtual machine</span><span>Kubernetes</span><span>CPU</span><span>NVIDIA / AMD / Intel</span></div></div>
           </div>
-          <pre><code># Existing Ubuntu 24.04 host
-curl -fsSL https://raw.githubusercontent.com/QualityMinds/AIppliance-Magic-Stick/main/install-from-linux.sh \
+
+          <div class="operations-list" aria-label="Operational capabilities">
+            <div class="operation"><span class="operation-code">01</span><div><strong>Protected first run</strong><span>No default human password; claim code, TLS fingerprint, first administrator, and recovery access.</span></div></div>
+            <div class="operation"><span class="operation-code">02</span><div><strong>Hardware-aware activation</strong><span>Only matching accelerator operators are requested, and readiness follows allocatable resources—not installation alone.</span></div></div>
+            <div class="operation"><span class="operation-code">03</span><div><strong>Identity at every browser route</strong><span>Local Keycloak SSO, role-aware administration, and explicitly controlled public exposure.</span></div></div>
+            <div class="operation"><span class="operation-code">04</span><div><strong>Inspectable reconciliation</strong><span>Flux revisions, pods, routes, events, and conditions turn waiting states into actionable status.</span></div></div>
+            <div class="operation"><span class="operation-code">05</span><div><strong>Same contract everywhere</strong><span>The browser, terminal clients, automation, and Kubernetes resources use the same backend rules.</span></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section alt" id="open-core" aria-labelledby="open-core-title">
+      <div class="wrap">
+        <div class="section-heading">
+          <div><span class="section-number">04 / Open core</span><h2 id="open-core-title">Open where it matters. Licensed where companies need more.</h2></div>
+          <p>MagicStick Community remains a useful MIT-licensed platform. A signed offline entitlement activates packaged Enterprise capabilities in the same API image—without creating a second product to deploy.</p>
+        </div>
+
+        <div class="edition-grid">
+          <article class="edition community">
+            <div class="edition-kicker"><span>Community</span><span class="status-pill available">MIT licensed</span></div>
+            <h3>The complete single-appliance foundation</h3>
+            <p>Install, operate, integrate, and extend a self-hosted AI appliance without an Enterprise license.</p>
+            <ul class="edition-list">
+              <li><span>All four installation paths and protected first run</span><span class="status-pill available">Included</span></li>
+              <li><span>Local and external model operations</span><span class="status-pill available">Included</span></li>
+              <li><span>Services, instances, routing, and local SSO</span><span class="status-pill available">Included</span></li>
+              <li><span>Users, roles, API keys, and Kubernetes access</span><span class="status-pill available">Included</span></li>
+              <li><span>Dashboard, CLI, TUI, API, and GitOps contracts</span><span class="status-pill available">Included</span></li>
+            </ul>
+          </article>
+
+          <article class="edition enterprise">
+            <div class="edition-kicker"><span>Enterprise</span><span class="status-pill">Offline entitlement</span></div>
+            <h3>Governance for organizational use</h3>
+            <p>Add precise organizational controls while the Community foundation stays available and operational.</p>
+            <ul class="edition-list">
+              <li><span>Targeted instance access for users and groups</span><span class="status-pill available">Implemented</span></li>
+              <li><span>Dashboard-managed OIDC and SAML federation</span><span class="status-pill available">Implemented</span></li>
+              <li><span>Delegated team administration and resource budgets</span><span class="status-pill planned">Planned</span></li>
+              <li><span>Central operation of multiple MagicSticks</span><span class="status-pill planned">Planned</span></li>
+              <li><span>Multi-GPU and K3s multi-node workflows</span><span class="status-pill planned">Planned</span></li>
+            </ul>
+            <p class="edition-note">Enterprise commercial terms are currently under review. Planned capabilities are not part of the current product.</p>
+          </article>
+        </div>
+
+        <div class="open-core-footer">
+          <p><strong>One repository. One combined runtime image.</strong> License checks happen in the backend; an expired entitlement never turns private resources public.</p>
+          <a class="button ghost" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/LICENSING.md">Understand licensing <span class="arrow" aria-hidden="true">→</span></a>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="install" aria-labelledby="install-title">
+      <div class="wrap">
+        <div class="section-heading">
+          <div><span class="section-number">05 / Install</span><h2 id="install-title">Start where your infrastructure starts.</h2></div>
+          <p>Every path converges on the same protected appliance state. Preflight checks expose conflicts before installation, and resolved Git revisions keep deployments reproducible.</p>
+        </div>
+
+        <div class="install-grid">
+          <article class="install-card"><span class="install-index">01</span><h3>Empty physical server</h3><p>Boot the USB installer to install Ubuntu, K3s, Flux, and MagicStick from scratch.</p><span class="best-for">Best for · dedicated appliance</span></article>
+          <article class="install-card"><span class="install-index">02</span><h3>New cloud VM</h3><p>Use the cloud-init and autoinstall template for a reproducible virtual appliance.</p><span class="best-for">Best for · remote evaluation</span></article>
+          <article class="install-card"><span class="install-index">03</span><h3>Existing Ubuntu 24.04</h3><p>Run the reviewed installer on a dedicated host or VM to add K3s, Flux, and MagicStick.</p><span class="best-for">Best for · fast start</span></article>
+          <article class="install-card"><span class="install-index">04</span><h3>Existing Kubernetes</h3><p>Install only the Flux-managed cluster components from Bash or PowerShell.</p><span class="best-for">Best for · existing platform</span></article>
+        </div>
+
+        <div class="quickstart">
+          <div class="quickstart-copy">
+            <span class="section-number">Quick start</span>
+            <h3>Review first. Preflight second. Install third.</h3>
+            <p>The Linux entrypoint is intentionally downloadable before execution and supports a non-mutating preflight.</p>
+            <ul class="setup-proof">
+              <li>No generated default password</li><li>Private-network first-run claim</li>
+              <li>Commit-pinned host and Flux state</li><li>Repeatable Ansible convergence</li>
+            </ul>
+          </div>
+          <pre aria-label="MagicStick installation commands"><code><span class="prompt">$</span> curl -fsSL \
+  https://raw.githubusercontent.com/QualityMinds/AIppliance-Magic-Stick/main/install-from-linux.sh \
   -o /tmp/install-from-linux.sh
-sudo bash /tmp/install-from-linux.sh --preflight-only
-sudo bash /tmp/install-from-linux.sh
 
-# Existing Kubernetes cluster
-curl -fsSL https://raw.githubusercontent.com/QualityMinds/AIppliance-Magic-Stick/main/deploy-on-k8s.sh \
-  -o /tmp/deploy-on-k8s.sh
-bash /tmp/deploy-on-k8s.sh --context "$(kubectl config current-context)" --preflight-only
-bash /tmp/deploy-on-k8s.sh --context "$(kubectl config current-context)"</code></pre>
+<span class="prompt">$</span> sudo bash /tmp/install-from-linux.sh --preflight-only
+<span class="prompt">$</span> sudo bash /tmp/install-from-linux.sh
+
+<span class="prompt">#</span> Then open the protected first-run setup
+https://magicstick.local</code></pre>
         </div>
       </div>
     </section>
 
-    <section class="section alt" id="architecture">
-      <div class="section-inner">
-        <div class="section-header">
-          <h2>Kubernetes-native from install to day two.</h2>
-          <p>
-            MagicStick keeps the control plane explicit: first-run setup establishes the administrator, Keycloak and Envoy protect access, Flux owns the platform, the operator creates runtime resources, and app operators run the actual workloads.
-          </p>
+    <section class="section alt" id="docs" aria-labelledby="docs-title">
+      <div class="wrap">
+        <div class="section-heading">
+          <div><span class="section-number">06 / Documentation</span><h2 id="docs-title">Go from first install to your own extension.</h2></div>
+          <p>The public repository documents installation, architecture, runtime APIs, model operations, authentication, troubleshooting, and the extension boundaries.</p>
         </div>
-        <div class="architecture" aria-label="Architecture flow">
-          <div class="arch-node">
-            <strong>Install and setup</strong>
-            <span>Four entry paths and protected first run</span>
-          </div>
-          <div class="arch-node">
-            <strong>K3s</strong>
-            <span>Small Kubernetes base</span>
-          </div>
-          <div class="arch-node">
-            <strong>Flux</strong>
-            <span>GitOps platform graph</span>
-          </div>
-          <div class="arch-node">
-            <strong>Identity and gateway</strong>
-            <span>Keycloak SSO and Envoy routes</span>
-          </div>
-          <div class="arch-node">
-            <strong>Operator and dashboard</strong>
-            <span>Services, models, users, API and Kubernetes access</span>
-          </div>
+
+        <div class="docs-grid">
+          <a class="doc-card" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/installation/README.md"><span class="doc-type">Start here</span><h3>Installation</h3><p>Choose hardware, VM, Linux, or existing-cluster setup and complete first run.</p></a>
+          <a class="doc-card" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/features.md"><span class="doc-type">Product</span><h3>Feature overview</h3><p>Explore the current feature set, screenshots, supported runtimes, and known boundaries.</p></a>
+          <a class="doc-card" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/architecture.md"><span class="doc-type">Build</span><h3>Architecture</h3><p>Understand repository layers, bootstrap flow, Flux graph, operators, and contracts.</p></a>
+          <a class="doc-card" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/model-catalog.md"><span class="doc-type">Models</span><h3>Model operations</h3><p>Follow discovery, quantization, memory estimation, placement, and catalog publication.</p></a>
+          <a class="doc-card" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/authentication.md"><span class="doc-type">Identity</span><h3>Authentication</h3><p>Review local SSO, roles, protected routes, terminal login, and federation.</p></a>
+          <a class="doc-card" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/operations.md"><span class="doc-type">Operate</span><h3>Day-two operations</h3><p>Diagnose Flux, K3s, storage, GPUs, models, routes, events, and application state.</p></a>
         </div>
       </div>
     </section>
 
-    <section class="section" id="docs">
-      <div class="section-inner">
-        <div class="section-header">
-          <h2>Documentation for builders and operators.</h2>
-          <p>
-            Jump into the details when you are ready to bootstrap a node, design an overlay, extend the module catalog, or operate the cluster.
-          </p>
-        </div>
-        <div class="doc-grid">
-          <a class="doc-link" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/installation/README.md">
-            <h3>Installation</h3>
-            <p>Guided paths for hardware, cloud VMs, existing VMs, and Kubernetes clusters.</p>
-          </a>
-          <a class="doc-link" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/architecture.md">
-            <h3>Architecture</h3>
-            <p>Repository layers, bootstrap flow, Flux graph, and components.</p>
-          </a>
-          <a class="doc-link" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/installation/after-installation-dashboard.md">
-            <h3>Dashboard</h3>
-            <p>First login, domains, services, models, users, system status, and SSO verification.</p>
-          </a>
-          <a class="doc-link" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/modules.md">
-            <h3>Modules</h3>
-            <p>Catalog-driven module activation and generated Flux Kustomizations.</p>
-          </a>
-          <a class="doc-link" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/model-catalog.md">
-            <h3>Model Catalog</h3>
-            <p>Generated model metadata, external model schema, and troubleshooting.</p>
-          </a>
-          <a class="doc-link" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/operations.md">
-            <h3>Operations</h3>
-            <p>Day-two checks for Flux, K3s, apps, CPU and GPU runtimes, storage, logs, and failures.</p>
-          </a>
+    <section class="cta" aria-labelledby="cta-title">
+      <div class="cta-inner wrap">
+        <div><span class="section-number">Build on your terms</span><h2 id="cta-title">Turn the machine you own into the AI platform you control.</h2></div>
+        <div class="cta-actions">
+          <a class="button primary" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/installation/README.md">Choose an install path <span class="arrow" aria-hidden="true">→</span></a>
+          <a class="button ghost" href="https://github.com/QualityMinds/AIppliance-Magic-Stick">Star or fork on GitHub</a>
         </div>
       </div>
     </section>
   </main>
 
   <footer class="footer">
-    <div class="footer-inner">
-      <div>MagicStick Community is an open-source AI appliance template.</div>
-      <div class="footer-links">
-        <a href="https://github.com/QualityMinds/AIppliance-Magic-Stick">GitHub</a>
-        <a href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/CONTRIBUTING.md">Contributing</a>
-        <a href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/SECURITY.md">Security</a>
-        <a href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/LICENSING.md">Licensing</a>
-        <a href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/LICENSE">Community MIT License</a>
-        <a href="legal-notice.html">Legal Notice</a>
-        <a href="privacy.html">Privacy Policy</a>
+    <div class="footer-main wrap">
+      <div class="footer-brand">
+        <a class="brand" href="#top"><span class="brand-mark" aria-hidden="true">MS</span><span>MagicStick</span></a>
+        <p>A reusable, open-core AI appliance for self-hosted models, applications, identity, and Kubernetes-native operations.</p>
       </div>
+      <div class="footer-column"><strong>Product</strong><a href="#models">Models</a><a href="#platform">Platform</a><a href="#open-core">Open core</a><a href="#install">Install</a></div>
+      <div class="footer-column"><strong>Project</strong><a href="https://github.com/QualityMinds/AIppliance-Magic-Stick">GitHub</a><a href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/CONTRIBUTING.md">Contributing</a><a href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/ROADMAP.md">Roadmap</a><a href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/SECURITY.md">Security</a></div>
+      <div class="footer-column"><strong>Resources</strong><a href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/README.md">Documentation</a><a href="sales-deck/Magic-Stick-Salesdeck-Dark-DE.pdf">Sales deck</a><a href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/LICENSING.md">Licensing</a><a href="legal-notice.html">Legal notice</a></div>
+    </div>
+    <div class="footer-bottom wrap">
+      <span>MagicStick Community is MIT licensed.</span>
+      <span><a href="privacy.html">Privacy policy</a> · <a href="legal-notice.html">Legal notice</a></span>
     </div>
   </footer>
 </body>
