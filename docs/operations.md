@@ -569,7 +569,7 @@ identity management is unavailable and the **System → Users** tab stays hidden
 
 ## Federated SSO checks
 
-The **Federated SSO** tab requires a live `magicstick-admin`, local Keycloak and
+The **System → Federated SSO** tab requires a live `magicstick-admin`, local Keycloak and
 a valid `federated-sso` entitlement for validation or save. Keep a tested local
 recovery administrator signed in while introducing a provider. Configure the
 displayed provider-specific callback at the upstream IdP, validate metadata,

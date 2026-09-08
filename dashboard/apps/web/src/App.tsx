@@ -10,17 +10,15 @@ import {ModelsPage} from './pages/ModelsPage';
 import {ApiAccessPage} from './pages/ApiAccessPage';
 import {KubernetesAccessPage} from './pages/KubernetesAccessPage';
 import {MyInstancesPage} from './pages/MyInstancesPage';
-import {FederatedSsoPage} from './pages/FederatedSsoPage';
 import {allowedSystemSections, SystemAreaPage, type SystemSectionId} from './pages/SystemAreaPage';
 
-type TabId = 'overview' | 'services' | 'models' | 'api-access' | 'kubernetes-access' | 'federated-sso' | 'system';
+type TabId = 'overview' | 'services' | 'models' | 'api-access' | 'kubernetes-access' | 'system';
 type DashboardRoute = {tab: TabId; systemSection: SystemSectionId};
 
 const tabs: Array<{id: TabId; label: string; admin?: boolean; identity?: boolean}> = [
   {id: 'overview', label: 'Overview'},
   {id: 'services', label: 'Services'},
   {id: 'models', label: 'Models'},
-  {id: 'federated-sso', label: 'Federated SSO', admin: true, identity: true},
   {id: 'api-access', label: 'API Access', admin: true},
   {id: 'kubernetes-access', label: 'Kubernetes Access', admin: true, identity: true},
   {id: 'system', label: 'System'},
@@ -30,8 +28,9 @@ const initialRoute = (): DashboardRoute => {
   const value = window.location.hash.replace(/^#\/?/, '').replace(/\/$/, '');
   const [tab, section] = value.split('/');
   if (tab === 'settings' || tab === 'license' || tab === 'users') return {tab: 'system', systemSection: tab};
+  if (tab === 'federated-sso') return {tab: 'system', systemSection: 'federated-sso'};
   if (tab === 'system') {
-    const systemSection = section && (['settings', 'license', 'users', 'status'] as string[]).includes(section) ? section as SystemSectionId : 'status';
+    const systemSection = section && (['settings', 'license', 'users', 'federated-sso', 'status'] as string[]).includes(section) ? section as SystemSectionId : 'status';
     return {tab: 'system', systemSection};
   }
   return {tab: tabs.some((item) => item.id === tab) ? tab as TabId : 'overview', systemSection: 'status'};
@@ -48,7 +47,6 @@ const ActivePage = ({route, session, onSystemSectionChange}: {
     case 'models': return <ModelsPage session={session} />;
     case 'api-access': return <ApiAccessPage />;
     case 'kubernetes-access': return <KubernetesAccessPage />;
-    case 'federated-sso': return <FederatedSsoPage />;
     case 'system': return <SystemAreaPage session={session} section={route.systemSection} onSectionChange={onSystemSectionChange} />;
     default: return <OverviewPage />;
   }

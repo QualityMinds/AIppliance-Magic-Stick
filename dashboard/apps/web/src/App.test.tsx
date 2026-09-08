@@ -12,6 +12,8 @@ const payloads: Record<string, unknown> = {
   '/api/models': {activations: [], presets: {}, computeTargets: {default: 'cpu', targets: [{id: 'cpu', displayName: 'CPU', engines: ['VLLM'], available: true}]}, computeMemory: {devices: [{id: 'cpu', name: 'CPU', computeTarget: 'cpu', totalMi: 65536, unreservedMi: 60000, freeMi: 50000}]}},
   '/api/status': {httpRoutes: [{name: 'litellm', labels: {'app.kubernetes.io/name': 'litellm'}, hostnames: ['litellm.magicstick.local'], accepted: true}], hardwareOperators: {}},
   '/api/settings': {publicDomain: 'magicstick.example.com', dashboardHost: 'magicstick.example.com', mdnsDomain: 'magicstick.local', mdnsName: 'magicstick'},
+  '/api/license': {state: 'valid', message: 'License valid.', valid: true, installationId: 'example-installation', revision: 'revision-1', checkedAt: 1, trustedKeyIds: ['example-key'], hasDocument: true, features: [{id: 'federated-sso', name: 'Dashboard-managed federated SSO', licensed: true, implemented: true, available: true, reason: 'available'}]},
+  '/api/federated-sso': {feature: {id: 'federated-sso', name: 'Dashboard-managed federated SSO', licensed: true, implemented: true, available: true, reason: 'available'}, issuer: 'https://id.magicstick.local/realms/magicstick', callbackUrl: 'https://id.magicstick.local/realms/magicstick/broker/{alias}/endpoint', providers: []},
   '/api/users?search=&first=0&max=25': {users: [], total: 0, first: 0, max: 25},
 };
 
@@ -25,6 +27,7 @@ const renderApp = () => {
 describe('default React dashboard', () => {
   beforeEach(() => {
     payloads['/api/session'] = {subject: '1', username: 'tova', roles: ['magicstick-admin'], identityManagementAvailable: true, identityManagementMode: 'keycloak'};
+    payloads['/api/license'] = {state: 'valid', message: 'License valid.', valid: true, installationId: 'example-installation', revision: 'revision-1', checkedAt: 1, trustedKeyIds: ['example-key'], hasDocument: true, features: [{id: 'federated-sso', name: 'Dashboard-managed federated SSO', licensed: true, implemented: true, available: true, reason: 'available'}]};
     window.history.replaceState(null, '', '#/overview');
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input), window.location.origin);
@@ -40,7 +43,7 @@ describe('default React dashboard', () => {
     expect(screen.getByRole('link', {name: 'Log out'})).toHaveAttribute('href', '/logout');
     expect(await screen.findByText('magicstick.local', {exact: false})).toBeInTheDocument();
     expect(screen.getByRole('button', {name: 'API Access'})).toBeInTheDocument();
-    expect(screen.getByRole('button', {name: 'Federated SSO'})).toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'Federated SSO'})).not.toBeInTheDocument();
     expect(screen.getByRole('button', {name: 'Kubernetes Access'})).toBeInTheDocument();
     const navigation = screen.getByRole('navigation', {name: 'Dashboard pages'});
     expect(within(navigation).getByRole('button', {name: 'System'})).toBeInTheDocument();
@@ -53,6 +56,7 @@ describe('default React dashboard', () => {
     expect(within(systemSections).getByRole('tab', {name: 'Settings'})).toBeInTheDocument();
     expect(within(systemSections).getByRole('tab', {name: 'License'})).toBeInTheDocument();
     expect(within(systemSections).getByRole('tab', {name: 'Users'})).toBeInTheDocument();
+    expect(await within(systemSections).findByRole('tab', {name: 'Federated SSO'})).toBeEnabled();
     expect(within(systemSections).getByRole('tab', {name: 'System Status'})).toBeInTheDocument();
   });
 
@@ -84,6 +88,21 @@ describe('default React dashboard', () => {
     expect(screen.getByRole('tab', {name: 'Settings'})).toHaveAttribute('aria-selected', 'true');
   });
 
+  it('redirects the former Federated SSO page into System', async () => {
+    window.history.replaceState(null, '', '#/federated-sso');
+    renderApp();
+    expect(await screen.findByRole('heading', {name: 'Federated SSO'})).toBeInTheDocument();
+    await waitFor(() => expect(window.location.hash).toBe('#/system/federated-sso'));
+    expect(screen.getByRole('tab', {name: 'Federated SSO'})).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('disables the Federated SSO System tab without its entitlement', async () => {
+    payloads['/api/license'] = {...payloads['/api/license'] as object, valid: false, features: [{id: 'federated-sso', name: 'Dashboard-managed federated SSO', licensed: false, implemented: true, available: false, reason: 'unlicensed'}]};
+    renderApp();
+    await userEvent.click(await screen.findByRole('button', {name: 'System'}));
+    expect(await screen.findByRole('tab', {name: 'Federated SSO (Enterprise license required)'})).toBeDisabled();
+  });
+
   it('hides administrative tabs from viewers', async () => {
     payloads['/api/session'] = {subject: '2', username: 'viewer', roles: ['magicstick-viewer']};
     window.history.replaceState(null, '', '#/license');
@@ -92,6 +111,7 @@ describe('default React dashboard', () => {
     expect(screen.getByRole('button', {name: 'System'})).toBeInTheDocument();
     const systemSections = screen.getByRole('tablist', {name: 'System sections'});
     expect(within(systemSections).queryByRole('tab', {name: 'Users'})).not.toBeInTheDocument();
+    expect(within(systemSections).queryByRole('tab', {name: /Federated SSO/})).not.toBeInTheDocument();
     expect(within(systemSections).queryByRole('tab', {name: 'Settings'})).not.toBeInTheDocument();
     expect(within(systemSections).queryByRole('tab', {name: 'License'})).not.toBeInTheDocument();
     expect(within(systemSections).getByRole('tab', {name: 'System Status'})).toBeInTheDocument();
@@ -107,6 +127,7 @@ describe('default React dashboard', () => {
     expect(within(systemSections).getByRole('tab', {name: 'Settings'})).toBeInTheDocument();
     expect(within(systemSections).getByRole('tab', {name: 'License'})).toBeInTheDocument();
     expect(within(systemSections).queryByRole('tab', {name: 'Users'})).not.toBeInTheDocument();
+    expect(within(systemSections).queryByRole('tab', {name: /Federated SSO/})).not.toBeInTheDocument();
     expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).startsWith('/api/users'))).toBe(false);
   });
 });

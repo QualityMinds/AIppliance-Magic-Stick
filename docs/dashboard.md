@@ -371,9 +371,12 @@ Existing Community features remain license-independent.
 
 ## Federated SSO Administration
 
-The **Federated SSO** tab is visible only to `magicstick-admin` when local
-Keycloak identity management is active. `federated-sso` is an Enterprise
-capability: listing and recovery deletion remain possible, while metadata
+The **System → Federated SSO** tab is visible only to `magicstick-admin` when local
+Keycloak identity management is active. The tab is disabled until the installed
+license contains the `federated-sso` Enterprise entitlement. The former
+`#/federated-sso` route redirects to `#/system/federated-sso`.
+`federated-sso` is an Enterprise capability: listing and recovery deletion
+remain possible, while metadata
 validation and create/update require a currently valid entitlement and the
 packaged implementation. OIDC uses a discovery URL, client ID, client secret and
 scopes; SAML uses a metadata URL. Both protocols require one or more exact
