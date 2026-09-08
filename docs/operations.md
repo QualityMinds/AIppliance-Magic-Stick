@@ -936,10 +936,12 @@ Administrator cleanup of unused entries is required if that bound is reached.
 
 For vLLM, logs show `MAGICSTICK_CPU_OFFLOAD_MI` converted to `--cpu-offload-gb`;
 the existing VRAM utilization wrapper remains active. KV stays on GPU. For
-Ollama, inspect `LLAMA_ARG_N_GPU_LAYERS` and `LLAMA_ARG_FIT=off`, the runtime's
-loaded-layer log, and `/api/ps` after loading. Source-model/runtime compatibility
-must be checked on the chosen artifact; estimates cannot make layers equal in
-size. Engine-reported RAM/VRAM buffers in the dashboard are distinct from Pod
+Ollama CPU offloading, verify `LLAMA_ARG_FIT=on` and the absence of a fixed
+`LLAMA_ARG_N_GPU_LAYERS`, then inspect the runtime's `offloaded N/M layers` log
+and `/api/ps` after loading. GPU-first auto-fit uses actual free memory, while
+the dashboard split remains a proportional preflight estimate. Source-model/runtime
+compatibility must be checked on the chosen artifact; estimates cannot make
+layers equal in size. Engine-reported RAM/VRAM buffers in the dashboard are distinct from Pod
 working set/RSS and startup peak. A warning indicates reported buffers above
 the planning budget. If the Pod is OOM-killed, increase host RAM within available
 capacity, reduce context, or use a smaller/quantized artifact; never remove the

@@ -131,7 +131,7 @@ spec:
                       description: Total host RAM request in MiB for CPU models or GPU models with CPU offloading. Includes runtime and offloaded memory.
                     cpuOffloading:
                       type: boolean
-                      description: Explicit GPU weight/layer offloading policy. Omission preserves legacy engine behavior; no default is injected.
+                      description: Explicit GPU weight/layer offloading policy. Ollama true always uses GPU-first auto-fit. Omission preserves legacy engine behavior; no default is injected.
                     cpuOffloadMi:
                       type: integer
                       minimum: 0
@@ -142,7 +142,7 @@ spec:
                     ollamaGpuLayers:
                       type: integer
                       minimum: 1
-                      description: Estimated number of Ollama layers to retain on GPU. Not a byte-exact VRAM limit.
+                      description: Deprecated compatibility field. Current Ollama runtimes ignore it and use GPU-first auto-fit when CPU offloading is enabled.
                     contextWindow:
                       type: integer
                       minimum: 1

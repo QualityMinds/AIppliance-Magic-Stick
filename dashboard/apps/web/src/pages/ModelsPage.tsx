@@ -91,7 +91,7 @@ const EstimateBreakdown = ({estimate}: {estimate: MemoryEstimate}) => {
   return <details>
     <summary>Breakdown</summary>
     <dl className="facts">{(offloading ? offloadCards : cards).map((item) => <div key={item.key}><dt>{item.label}</dt><dd><MemoryInfo label={item.label} value={item.value} calculation={calculations[item.key]} /></dd></div>)}</dl>
-    {offloading && <p className="muted">Planning estimates, not measured usage. Host RAM includes offloaded weights and runtime. For Ollama, the host KV upper bound conservatively covers an unknown hybrid-layer split; it is not additional measured cache. vLLM weight offloading does not offload KV cache.</p>}
+    {offloading && <p className="muted">Planning estimates, not measured usage. Host RAM includes offloaded weights and runtime. Ollama uses GPU-first auto-fit; its displayed weight/cache split is proportional and the exact placement is confirmed only after loading. vLLM weight offloading does not offload KV cache.</p>}
     {hybridSafetyMi > 0 && <p className="muted">Configured KV budget: {formatMi(kvBudgetMi)} = {formatMi(baseKvMi)} theoretical cache + {formatMi(hybridSafetyMi)} compatibility safety for the hybrid vLLM allocator.</p>}
     {!offloading && <p className="muted">Minimum includes weights, the complete KV budget, and runtime components. Recommended adds the separate headroom shown above. Download size is not added to memory.</p>}
     {estimate.warnings?.map((warning) => <p className="muted" key={warning}>{warning}</p>)}
@@ -350,7 +350,7 @@ const LocalModelForm = ({models, onClose, onCreated}: {models: ModelsPayload; on
           <Field label="Host RAM budget (MiB)"><input type="number" min="100" step="100" value={hostMemoryMi} onChange={(event) => { setHostMemoryEdited(true); setHostMemoryMi(Number(event.target.value)); }} /></Field>
           <Button type="button" onClick={() => { setHostMemoryEdited(false); setHostMemoryMi(roundMemory(offload.ramRecommendedMi)); }}>Use recommended RAM allocation</Button>
           <p className="muted">The GPU budget above is preserved. Kubernetes reserves this host RAM on the same node as the GPU; the estimate uses the largest eligible node, not a cluster-wide sum.</p>
-          {engine === 'OLlama' && <p className="notice notice-warn">Ollama uses an estimated layer split, not a byte-exact VRAM limit. The loaded model's reported memory is shown separately.</p>}
+          {engine === 'OLlama' && <p className="muted">Ollama always uses GPU-first auto-fit and places as many layers in actual free VRAM as possible. The selected values remain planning and Kubernetes host-memory budgets; the loaded model's effective split is shown separately.</p>}
         </section>}
         {offloadEstimate && <EstimateBreakdown estimate={offloadEstimate} />}
       </>}

@@ -34,15 +34,17 @@ class CpuOffloadingTests(unittest.TestCase):
         self.assertLessEqual(result["recommendedMi"], 16000)
         self.assertEqual(result["downloadBytes"], self.base["downloadBytes"])
 
-    def test_ollama_is_layer_estimate_with_conservative_host_cache(self):
+    def test_ollama_estimates_a_gpu_first_split_without_fixing_layers(self):
         result = self.api["estimate_model_memory"]({**self.payload, "engine": "OLlama", "url": "ollama://example:latest"})
         plan = result["offloading"]
-        self.assertEqual(plan["mode"], "layers")
-        self.assertGreater(plan["gpuLayers"], 0)
-        self.assertLess(plan["gpuLayers"], 41)
-        self.assertEqual(plan["kvOnCpuMi"], 2000)
+        self.assertEqual(plan["mode"], "gpu-first")
+        self.assertNotIn("gpuLayers", plan)
+        self.assertEqual(plan["weightsOnGpuMi"] + plan["weightsOnCpuMi"], 20000)
+        self.assertEqual(plan["kvOnGpuMi"] + plan["kvOnCpuMi"], 2000)
+        self.assertGreater(plan["kvOnGpuMi"], 0)
+        self.assertGreater(plan["kvOnCpuMi"], 0)
         self.assertTrue(plan["estimated"])
-        self.assertIn("byte-exact", " ".join(result["warnings"]))
+        self.assertIn("GPU-first auto-fit", " ".join(result["warnings"]))
 
     def test_offloading_cannot_move_oversized_gpu_cache(self):
         self.base["kvCacheMi"] = 30000
@@ -57,6 +59,12 @@ class CpuOffloadingTests(unittest.TestCase):
         self.assertEqual(local["memoryRequiredMi"], 20000)
         self.assertGreater(local["cpuOffloadMi"], 1)
         self.assertTrue(local["cpuOffloading"])
+
+    def test_ollama_creation_does_not_persist_a_fixed_gpu_layer_count(self):
+        result = self.api["model_activation_payload"]("local", {"name": "test", "local": {
+            **self.payload, "engine": "OLlama", "url": "ollama://example:latest", "ollamaGpuLayers": 1,
+        }})
+        self.assertNotIn("ollamaGpuLayers", result["spec"]["local"])
 
     def test_creation_rejects_small_or_unknown_host_budget(self):
         with self.assertRaisesRegex(ValueError, "RAM reservation must"):

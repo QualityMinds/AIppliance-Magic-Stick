@@ -1582,10 +1582,7 @@ data:
             raise ValueError("Host RAM must cover offloaded weights and engine runtime")
         if positive_int(local.get("maxReplicas", 1)) != 1 or positive_int(local.get("minReplicas", 1)) not in (None, 1):
             raise ValueError("CPU offloading currently supports one model replica")
-        layers = positive_int(local.get("ollamaGpuLayers"))
-        if engine == "OLlama" and not layers:
-            raise ValueError("local.ollamaGpuLayers is required for Ollama offloading")
-        return {"enabled": True, "cpuOffloadMi": raw_offload, "ramMi": memory, "gpuLayers": layers}
+        return {"enabled": True, "cpuOffloadMi": raw_offload, "ramMi": memory}
 
 
     def offloading_profile_name(base_profile, memory_mi):
@@ -1940,10 +1937,15 @@ data:
             if max_num_seqs:
                 env["OLLAMA_NUM_PARALLEL"] = str(max_num_seqs)
             if offloading is not None and accelerator_backed:
-                # The pinned Ollama llama-server runtime accepts these envs.
-                # Explicit layers disable silent auto-fit; estimates are not VRAM limits.
-                env["LLAMA_ARG_N_GPU_LAYERS"] = str(offloading["gpuLayers"] if offloading["enabled"] else 999)
-                env["LLAMA_ARG_FIT"] = "off"
+                if offloading["enabled"]:
+                    # GPU-first: let Ollama maximize the layer placement from
+                    # actual free VRAM and the pod's bounded host RAM.
+                    env.pop("LLAMA_ARG_N_GPU_LAYERS", None)
+                    env["LLAMA_ARG_FIT"] = "on"
+                else:
+                    # Explicitly disabled means no intentional CPU spill.
+                    env["LLAMA_ARG_N_GPU_LAYERS"] = "999"
+                    env["LLAMA_ARG_FIT"] = "off"
             args = []
         return {
             "apiVersion": "kubeai.org/v1",

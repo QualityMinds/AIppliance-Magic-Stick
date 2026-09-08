@@ -32,11 +32,11 @@ class OffloadingRuntimeTests(unittest.TestCase):
         self.assertEqual(profile["limits"]["memory"], "16000Mi")
         self.assertEqual(profile["requests"]["cpu"], "6")
 
-    def test_ollama_layer_settings_reach_startup_probe_and_serving_runtime(self):
+    def test_ollama_offloading_is_always_gpu_first_auto_fit(self):
         self.activation["spec"]["local"].update(engine="OLlama", url="ollama://example:latest", cpuOffloadMi=0, ollamaGpuLayers=12)
         resource, _ = self.c["kubeai_model_resource"](self.activation, {})
-        self.assertEqual(resource["spec"]["env"]["LLAMA_ARG_N_GPU_LAYERS"], "12")
-        self.assertEqual(resource["spec"]["env"]["LLAMA_ARG_FIT"], "off")
+        self.assertNotIn("LLAMA_ARG_N_GPU_LAYERS", resource["spec"]["env"])
+        self.assertEqual(resource["spec"]["env"]["LLAMA_ARG_FIT"], "on")
         self.assertNotIn("MAGICSTICK_CPU_OFFLOAD_MI", resource["spec"]["env"])
 
     def test_partial_rollout_does_not_silently_publish_an_unloadable_profile(self):

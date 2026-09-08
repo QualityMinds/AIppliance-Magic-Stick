@@ -5188,34 +5188,35 @@ data:
         gpu_room = max(0, budget - kv - runtime - reserve_mi)
         cpu_weights = min(weights, round_up_mib(max(0, weights - gpu_room)))
         gpu_weights = weights - cpu_weights
-        gpu_layers = None
+        gpu_kv = kv
         cpu_kv = 0
+        mode = "weights"
         if engine == "OLlama":
-            layers = positive_int(estimate.get("modelLayers"))
-            if not layers:
-                raise RequestError(400, "GGUF layer metadata is required for Ollama CPU offloading.")
-            # Keep at least one layer on GPU. Layers need not have equal sizes:
-            # this is an estimate, verified against /api/ps after loading.
-            gpu_layers = max(1, min(layers + 1, int(gpu_room * (layers + 1) / weights)))
-            gpu_weights = min(weights, (weights * gpu_layers + layers) // (layers + 1))
+            # Ollama owns the exact GPU-first layer placement at load time. For
+            # planning, divide weights and cache proportionally across the GPU
+            # payload room instead of counting the complete KV cache twice.
+            mode = "gpu-first"
+            payload = weights + kv
+            gpu_room = max(0, budget - runtime - reserve_mi)
+            gpu_payload = min(payload, gpu_room)
+            gpu_weights = min(weights, (weights * gpu_payload) // payload) if payload else 0
+            gpu_kv = min(kv, gpu_payload - gpu_weights)
             cpu_weights = weights - gpu_weights
-            # Conservatively reserve the complete KV budget on the host too;
-            # hybrid layers cannot be split proportionally from totals alone.
-            cpu_kv = kv if cpu_weights else 0
+            cpu_kv = kv - gpu_kv
         host_runtime = 6144 if engine == "VLLM" else 4096
         ram_minimum = round_up_mib(cpu_weights + cpu_kv + host_runtime)
         ram_recommended = round_up_mib(ram_minimum + max(2048, int(weights * 0.15)))
-        gpu_minimum = gpu_weights + kv + runtime
+        gpu_minimum = gpu_weights + gpu_kv + runtime
         return {
-            "enabled": True, "mode": "weights" if engine == "VLLM" else "layers",
+            "enabled": True, "mode": mode,
             "vramBudgetMi": budget, "weightsOnGpuMi": gpu_weights,
-            "weightsOnCpuMi": cpu_weights, "kvOnGpuMi": kv, "kvOnCpuMi": cpu_kv,
+            "weightsOnCpuMi": cpu_weights, "kvOnGpuMi": gpu_kv, "kvOnCpuMi": cpu_kv,
             "hostRuntimeMi": host_runtime, "ramMinimumMi": ram_minimum,
             "ramRecommendedMi": ram_recommended, "ramMaximumMi": ram_available,
             "gpuMinimumMi": gpu_minimum,
             "gpuRecommendedMi": gpu_minimum + reserve_mi,
             "cpuOffloadMi": cpu_weights if engine == "VLLM" else 0,
-            "gpuLayers": gpu_layers, "fitsVram": gpu_minimum <= budget,
+            "fitsVram": gpu_minimum <= budget and (gpu_weights > 0 or weights == 0),
             "estimated": True,
         }
 
@@ -5251,27 +5252,36 @@ data:
         if plan:
             gpu, cpu = plan["weightsOnGpuMi"], plan["weightsOnCpuMi"]
             room = max(0, plan["vramBudgetMi"] - kv - runtime - headroom)
-            if plan["mode"] == "layers":
-                layers = int(base.get("modelLayers") or 0) + 1
+            if plan["mode"] == "gpu-first":
+                payload = weights + kv
+                payload_room = min(payload, max(0, plan["vramBudgetMi"] - runtime - headroom))
                 calculations["weightsOnGpuMi"] = memory_calculation(
-                    "min(weights, ceil(weights × planned GPU layers ÷ (model layers + 1)))",
-                    f"min({weights:,}, ceil({weights:,} × {plan['gpuLayers']:,} ÷ {layers:,})) = {gpu:,} MiB",
-                    f"GPU layer target = clamp(floor({room:,} MiB weight room × {layers:,} ÷ {weights:,}), 1, {layers:,}). Layer sizes vary; this is not a byte-exact limit.")
+                    "floor(weights × GPU payload room ÷ (weights + complete KV budget))",
+                    f"floor({weights:,} × {payload_room:,} ÷ {payload:,}) = {gpu:,} MiB",
+                    "Planning estimate only. Ollama GPU-first auto-fit chooses the exact maximum layer placement from actual free GPU and host memory at load time.")
                 calculations["weightsOnCpuMi"] = memory_calculation("weights − GPU weights", f"{weights:,} − {gpu:,} = {cpu:,} MiB")
+                calculations["kvOnGpuMi"] = memory_calculation(
+                    "GPU payload room − estimated GPU weights",
+                    f"{payload_room:,} − {gpu:,} = {plan['kvOnGpuMi']:,} MiB",
+                    "Estimated proportional cache placement; hybrid architectures and unequal layers can differ at runtime.")
+                calculations["kvOnCpuMi"] = memory_calculation(
+                    "complete KV budget − estimated GPU KV",
+                    f"{kv:,} − {plan['kvOnGpuMi']:,} = {plan['kvOnCpuMi']:,} MiB",
+                    "Estimated proportional cache placement; verify the effective split with Ollama /api/ps and model logs.")
             else:
                 calculations["weightsOnCpuMi"] = memory_calculation(
                     "min(weights, ceil(max(0, weights − GPU weight room) ÷ 100) × 100)",
                     f"min({weights:,}, ceil(max(0, {weights:,} − {room:,}) ÷ 100) × 100) = {cpu:,} MiB",
                     f"GPU weight room = max(0, {plan['vramBudgetMi']:,} budget − {kv:,} KV − {runtime:,} runtime − {headroom:,} headroom), in MiB.")
                 calculations["weightsOnGpuMi"] = memory_calculation("weights − offloaded weights", f"{weights:,} − {cpu:,} = {gpu:,} MiB")
-            calculations["kvOnGpuMi"] = calculations.get("kvCacheMi", memory_calculation("Complete KV budget remains reserved on GPU", f"{kv:,} MiB"))
-            calculations["kvOnCpuMi"] = memory_calculation(
-                "complete KV budget for Ollama with offloaded layers; otherwise 0",
-                f"{plan['kvOnCpuMi']:,} MiB", "Conservative upper bound for an unknown Ollama layer split, not extra measured cache. vLLM weight offloading does not offload KV.")
+                calculations["kvOnGpuMi"] = calculations.get("kvCacheMi", memory_calculation("Complete KV budget remains reserved on GPU", f"{kv:,} MiB"))
+                calculations["kvOnCpuMi"] = memory_calculation(
+                    "vLLM weight offloading does not offload KV cache",
+                    f"{plan['kvOnCpuMi']:,} MiB")
             calculations["hostRuntimeMi"] = memory_calculation(
                 "6,144 MiB for vLLM; 4,096 MiB for Ollama", f"{plan['hostRuntimeMi']:,} MiB", "Fixed host-runtime planning allowance.")
             calculations["ramMinimumMi"] = memory_calculation(
-                "ceil((offloaded weights + host KV upper bound + host runtime) ÷ 100) × 100",
+                "ceil((offloaded weights + estimated host KV + host runtime) ÷ 100) × 100",
                 f"ceil(({cpu:,} + {plan['kvOnCpuMi']:,} + {plan['hostRuntimeMi']:,}) ÷ 100) × 100 = {plan['ramMinimumMi']:,} MiB")
             calculations["ramRecommendedMi"] = memory_calculation(
                 "ceil((RAM minimum + max(2,048, floor(total weights × 0.15))) ÷ 100) × 100",
@@ -5280,7 +5290,7 @@ data:
                 "RAM recommended − RAM minimum", f"{plan['ramRecommendedMi']:,} − {plan['ramMinimumMi']:,} = {plan['ramRecommendedMi'] - plan['ramMinimumMi']:,} MiB",
                 "Includes the final 100 MiB rounding of the recommended host budget.")
             calculations["minimumMi"] = memory_calculation(
-                "GPU weights + complete GPU KV budget + GPU runtime", f"{gpu:,} + {kv:,} + {runtime:,} = {plan['gpuMinimumMi']:,} MiB")
+                "GPU weights + GPU KV budget + GPU runtime", f"{gpu:,} + {plan['kvOnGpuMi']:,} + {runtime:,} = {plan['gpuMinimumMi']:,} MiB")
             calculations["recommendedMi"] = memory_calculation(
                 "GPU minimum + recommended headroom", f"{plan['gpuMinimumMi']:,} + {headroom:,} = {plan['gpuRecommendedMi']:,} MiB")
         return calculations
@@ -5375,7 +5385,7 @@ data:
                 warnings.append("Estimated minimum with CPU offloading still exceeds unreserved VRAM.")
             warnings.append("CPU offloading may substantially reduce inference speed. RAM is reserved on the same node as the GPU; startup peaks are estimates.")
             if engine == "OLlama":
-                warnings.append("Ollama layer sizes vary. GPU placement is a planning target, not a byte-exact VRAM limit. Host KV is a conservative upper bound, not additional measured cache.")
+                warnings.append("Ollama uses GPU-first auto-fit at load time. The displayed RAM/VRAM split is a proportional planning estimate; actual layers and hybrid cache placement can differ.")
         result["calculations"] = memory_summary_calculations(result, estimate, engine)
         return result
 
@@ -5505,8 +5515,6 @@ data:
                         raise ValueError("VRAM budget is too small for remaining GPU weights, KV cache and runtime; increase VRAM or reduce context")
                     local["memoryRequiredMi"] = memory
                     local["cpuOffloadMi"] = plan["cpuOffloadMi"]
-                    if plan["gpuLayers"] is not None:
-                        local["ollamaGpuLayers"] = plan["gpuLayers"]
                 else:
                     local.pop("memoryRequiredMi", None)
             labels["appliance.magicstick.dev/compute-target"] = compute_target

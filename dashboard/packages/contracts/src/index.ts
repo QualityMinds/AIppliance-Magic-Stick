@@ -348,7 +348,7 @@ export interface DiscoveryArtifactsPayload {
 
 export interface CpuOffloadingPlan {
   enabled: boolean;
-  mode: 'weights' | 'layers';
+  mode: 'weights' | 'gpu-first';
   vramBudgetMi: number;
   weightsOnGpuMi: number;
   weightsOnCpuMi: number;

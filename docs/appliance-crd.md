@@ -302,15 +302,16 @@ configuration, not measured cache allocation.
 
 The optional NVIDIA `spec.local.cpuOffloading` boolean has **no CRD default**:
 omission preserves legacy runtime behavior; explicit `false` requests no weight
-offloading (and all GPU layers without auto-fit for Ollama). `true` currently
-supports one NVIDIA-backed vLLM or Ollama replica only.
+offloading. `true` currently supports one NVIDIA-backed vLLM or Ollama replica
+only. Ollama has exactly one enabled policy: GPU-first auto-fit. There is no
+manual layer count or alternative balancing mode.
 
 | Field | Contract when offloading is enabled |
 |---|---|
 | `vram` / `vramMi` | GPU memory planning budget; separate from system RAM. |
 | `memoryRequiredMi` | Total host RAM including offloaded weights, runtime and chosen startup headroom; rendered as equal Pod memory request and limit. |
 | `cpuOffloadMi` | API-derived vLLM weight budget, converted to GiB by the wrapper. Zero for Ollama; not a KV budget. |
-| `ollamaGpuLayers` | API-derived positive layer count for Ollama; requires GGUF layer metadata. |
+| `ollamaGpuLayers` | Deprecated compatibility field. The current operator ignores it when offloading is enabled; Ollama GPU-first auto-fit owns the layer count. |
 | `allowMemoryRisk` | Optional explicit boolean accepting insufficient/uncertain memory estimates or unavailable capacity. Also applies to CPU vLLM minimum checks. Omission/false keeps strict preflight validation. Does not change requests, limits, cache settings, authorization, or hardware support. |
 
 For normal API/CLI creation, submit only `cpuOffloading`, the RAM/VRAM budgets
@@ -321,8 +322,9 @@ reports `ramMinimumMi`, `ramRecommendedMi`, `ramMaximumMi`, `gpuMinimumMi`,
 An unknown maximum is `null`, not zero. Insufficient/unknown budgets require
 `allowMemoryRisk: true`; the dashboard records this when its warning-styled Add
 button is used. Invalid combinations and more than one replica remain rejected.
-Administrators creating CRs directly must supply derived engine controls; the
-operator validates target, replica count, positive RAM and engine controls.
+Administrators creating CRs directly must supply the vLLM offload budget where
+applicable; Ollama derives no fixed layer control. The operator validates target,
+replica count, positive RAM and engine controls.
 Only the estimated host-runtime coverage check is skipped by the explicit flag.
 Neither the flag nor a successful creation guarantees a running model.
 

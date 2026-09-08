@@ -63,6 +63,8 @@ The dashboard is also not an operator. It reads status and creates or patches
   host coverage; preserve the chosen request/limit and engine controls. Missing
   or false retains strict validation. Positive budgets, supported targets and
   replica restrictions still apply; reconciliation success is not runtime fit.
+  Ollama CPU offloading always enables GPU-first auto-fit and never fixes a
+  planned GPU-layer count; vLLM retains its derived weight-offload budget.
   Flux bootstraps this ConfigMap with an empty `resourceProfiles` map and SSA
   `IfNotPresent`; the operator then owns `data.values.json`. Later Flux
   reconciles must not reset this runtime store. A valid initial values key keeps

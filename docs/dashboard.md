@@ -810,9 +810,10 @@ combinations, missing metadata needed to derive an offloading plan and replica
 restrictions are still errors. Manual RAM choices survive recalculation, and changing engine or
 hardware resets opt-in so a previous policy cannot silently carry over.
 
-The expanded breakdown separates estimated GPU/RAM weights, GPU KV, conservative
-host KV bound, host/GPU runtime, and headroom. vLLM offloads weights, not KV;
-Ollama chooses an estimated layer split, not a VRAM hard limit. The installed
+The expanded breakdown separates estimated GPU/RAM weights and KV placement,
+host/GPU runtime, and headroom. vLLM offloads weights, not KV; Ollama always uses
+GPU-first auto-fit and chooses the exact maximum layer placement when loading.
+The proportional preflight split is not a VRAM hard limit. The installed
 model card shows the host reservation separately and displays Ollama's `/api/ps`
 RAM/VRAM buffer reports when available. Missing measurements remain explicitly
 unknown, never zero. These reports are not process RSS or the Kubernetes

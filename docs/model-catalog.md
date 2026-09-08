@@ -335,19 +335,21 @@ Keep the GPU's VRAM budget and select a separate **Host RAM reservation**. This
 second value is the total model-container RAM budget, including offloaded
 weights, host runtime, and selected startup headroom; it is not extra VRAM.
 The API derives the engine controls from model metadata and both budgets. The
-breakdown distinguishes estimated weights on GPU/RAM, GPU KV, host KV upper
-bound, runtime reserves, recommendation headroom, and download size. For Ollama
-the full host KV bound is conservative because hybrid layers do not split
-proportionally; it must not be interpreted as measured duplicate cache.
+breakdown distinguishes estimated weights and KV cache on GPU/RAM, runtime
+reserves, recommendation headroom, and download size. Ollama values are a
+proportional planning estimate; the runtime makes the effective placement from
+the memory that is actually available when the model loads.
 
 - **vLLM:** the selected VRAM budget determines the estimated weight deficit.
   The wrapper passes the derived MiB amount as `--cpu-offload-gb` in GiB with
   the UVA backend. KV remains on the GPU. Offloading cannot make an oversized
   GPU KV/runtime budget fit; reduce context/concurrency or increase VRAM.
-- **Ollama:** GGUF layer metadata determines an estimated GPU-layer count for
-  the pinned llama-server runtime (`LLAMA_ARG_N_GPU_LAYERS`, fit disabled).
-  Layers are not equally sized, so this is not a byte-exact VRAM limit. After
-  loading, the operator samples `/api/ps`; the installed-model card distinguishes
+- **Ollama:** CPU offloading has one policy: GPU-first auto-fit. The operator
+  enables `LLAMA_ARG_FIT` and does not set a fixed GPU-layer count. Ollama places
+  as many layers as possible in the actually free VRAM and uses the bounded host
+  RAM for the remainder. Layer sizes and hybrid cache placement are not uniform,
+  so the preflight split is not a byte-exact VRAM limit. After loading, the
+  operator samples `/api/ps`; the installed-model card distinguishes
   engine-reported RAM/VRAM buffers from requests and total process memory and
   warns if reported buffers exceed the planned budget.
 
@@ -361,8 +363,9 @@ separate feature: the current VRAM packing view is still a planning estimate.
 
 Existing resources that omit `cpuOffloading` are unchanged. New NVIDIA models
 explicitly use `false` when the switch is off: vLLM weight offloading is disabled,
-and Ollama requests all layers on GPU with automatic fit disabled. Metadata is
-required for `true`; without explicit `local.allowMemoryRisk: true`, the API
+and Ollama requests all layers on GPU. When the switch is on, Ollama always uses
+GPU-first auto-fit; there is no balanced, fixed-budget, or manual-layer mode.
+Metadata is required for `true`; without explicit `local.allowMemoryRisk: true`, the API
 rejects unknown host/VRAM capacity or allocations that cannot fit. The risk flag
 allows a trial with unchanged requests/limits and may result in Pending or OOM.
 It does not bypass metadata, engine, target, replica or positive-budget validation.
