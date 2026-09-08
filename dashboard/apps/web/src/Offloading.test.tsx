@@ -38,7 +38,22 @@ async function openForm() {
   return user;
 }
 
+async function openEmptyForm() {
+  const user = userEvent.setup();
+  render(<QueryClientProvider client={new QueryClient({defaultOptions: {queries: {retry: false}}})}><ModelsPage session={{subject: 'admin', username: 'admin', roles: ['magicstick-admin'], identityManagementAvailable: true, identityManagementMode: 'keycloak'}} /></QueryClientProvider>);
+  await user.click(await screen.findByRole('button', {name: /^Create$/}));
+  return user;
+}
+
 describe('CPU offloading model configuration', () => {
+  it('does not show a memory warning before a model has been selected and estimated', async () => {
+    await openEmptyForm();
+    expect(screen.getByText('Choose a model reference to calculate memory.')).toBeInTheDocument();
+    expect(screen.queryByText(/Memory warning/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Add Local Model'})).toBeDisabled();
+    expect(screen.getByRole('button', {name: 'Add Local Model'})).not.toHaveAccessibleDescription();
+  });
+
   it('is opt-in and sends both budgets, but no client-derived engine controls', async () => {
     const user = await openForm();
     expect(screen.getByLabelText('Use additional system RAM')).not.toBeChecked();

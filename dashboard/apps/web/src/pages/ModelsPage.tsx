@@ -196,17 +196,16 @@ const LocalModelForm = ({models, onClose, onCreated}: {models: ModelsPayload; on
   const offload = supportsOffloading && cpuOffloading ? offloadEstimate?.offloading : undefined;
   const hostMaximum = Math.max(0, Math.floor((offload?.ramMaximumMi ?? 0) / 100) * 100);
   const activeEstimate = cpuOffloading ? offloadEstimate : estimate;
-  const memoryRisks = [
-    ...(!activeEstimate ? ['The memory estimate is not available yet.'] : []),
-    ...(activeEstimate && activeEstimate.confidence !== 'high' ? ['Memory requirements are estimated and may differ at runtime.'] : []),
-    ...(activeEstimate && selectedMi < roundMemory(activeEstimate.minimumMi) ? ['The selected memory is below the estimated minimum.'] : []),
+  const memoryRisks = activeEstimate ? [
+    ...(activeEstimate.confidence !== 'high' ? ['Memory requirements are estimated and may differ at runtime.'] : []),
+    ...(selectedMi < roundMemory(activeEstimate.minimumMi) ? ['The selected memory is below the estimated minimum.'] : []),
     ...(capacityKnown && selectedMi > availableMi ? ['The selected memory exceeds currently unreserved capacity.'] : []),
     ...(!capacityKnown ? ['Unreserved device capacity could not be verified.'] : []),
     ...(cpuOffloading && (!offload || !offload.fitsVram) ? ['The offloading plan may not fit the selected VRAM budget.'] : []),
-    ...(cpuOffloading && (!offload || offload.ramMaximumMi === null) ? ['Unreserved host RAM could not be verified.'] : []),
+    ...(cpuOffloading && offload?.ramMaximumMi === null ? ['Unreserved host RAM could not be verified.'] : []),
     ...(offload && hostMemoryMi < offload.ramMinimumMi ? ['Host RAM is below the estimated offloading minimum.'] : []),
     ...(offload && offload.ramMaximumMi !== null && hostMemoryMi > hostMaximum ? ['Host RAM exceeds currently unreserved capacity.'] : []),
-  ];
+  ] : [];
   const hasMemoryRisk = memoryRisks.length > 0;
   const invalidBudget = !Number.isInteger(selectedMi) || selectedMi < 100 || selectedMi % 100 !== 0
     || (cpuOffloading && (!Number.isInteger(hostMemoryMi) || hostMemoryMi < 100 || hostMemoryMi % 100 !== 0));
