@@ -77,6 +77,7 @@ export interface LocalModelInput {
   reference: string;
   contextWindow: number;
   maxNumSeqs: number;
+  kvCacheType?: string;
   reservationMi: number;
   cpuOffloading?: boolean;
   hostMemoryMi?: number;
@@ -113,6 +114,7 @@ export const buildLocalModelPayload = (input: LocalModelInput, target: ComputeTa
     engine: input.engine,
     contextWindow: input.contextWindow,
     maxNumSeqs: input.maxNumSeqs,
+    kvCacheType: input.kvCacheType ?? (input.engine === 'OLlama' ? 'f16' : 'auto'),
     url: input.reference,
   };
   if (target.kind === 'cpu' || input.computeTarget === 'cpu') local.memoryRequiredMi = input.reservationMi;
@@ -232,7 +234,7 @@ const modelLines = (snapshot: DashboardSnapshot, selectedIndex = -1) => {
       const local = item.spec?.local ?? {};
       const detail = item.spec?.type === 'external'
         ? String((item.spec?.external as Record<string, unknown> | undefined)?.model ?? 'external')
-        : `${String(local.engine ?? '')} ${String(local.computeTarget ?? '')}${local.cpuOffloading ? ` · CPU offloading · host RAM ${formatMi(Number(item.status?.memoryRequiredMi ?? local.memoryRequiredMi))}` : ''}`.trim();
+        : `${String(local.engine ?? '')} ${String(local.computeTarget ?? '')} · KV ${String(item.status?.effectiveKvCacheType || item.status?.requestedKvCacheType || local.kvCacheType || 'default')}${item.status?.requestedKvCacheType && !item.status?.effectiveKvCacheType ? ' (pending)' : ''}${local.cpuOffloading ? ` · CPU offloading · host RAM ${formatMi(Number(item.status?.memoryRequiredMi ?? local.memoryRequiredMi))}` : ''}`.trim();
       return `${selectedPrefix(index, selectedIndex)} ${item.metadata?.name ?? 'unnamed'}  ${statusLabel(item.status?.phase)}  ${detail}`.trimEnd();
     }),
   ];
@@ -521,29 +523,33 @@ export const runTui = async (runtime: Runtime, options: {color?: boolean; refres
       value: `${engine}\u001f${target.id}`,
       label: `${engine} / ${target.displayName ?? target.id}`,
     })));
-  const addLocalModel = () => {
-    const choices = runtimeChoices();
-    if (!choices.length) return message('No local runtime available', 'No inference-engine and compute-target combination is currently available.', 'error');
-    openForm('Add local model', 'Enter a direct Hugging Face or Ollama model reference. Leave the reservation empty to use the calculated recommendation.', [
+  const openLocalModelForm = (runtimeValue: string) => {
+    const [engine = '', computeTarget = ''] = runtimeValue.split('\u001f');
+    const target = snapshot.models.computeTargets.targets.find((item) => item.id === computeTarget && item.available && item.engines?.includes(engine));
+    if (!target) return message('Runtime unavailable', 'The selected runtime and hardware combination is no longer available.', 'error');
+    const kvCacheChoices = target.kvCacheTypes?.[engine] ?? (engine === 'OLlama'
+      ? [{value: 'f16', label: 'Standard - F16'}]
+      : [{value: 'auto', label: 'Standard - model precision'}]);
+    openForm('Add local model', `${engine} / ${target.displayName ?? target.id}. Enter a direct model reference; leave the reservation empty to use the calculated recommendation.`, [
       {id: 'name', label: 'Name', value: '', required: true},
-      {id: 'runtime', label: 'Runtime / hardware', value: choices[0]?.value ?? '', kind: 'choice', choices, required: true},
       {id: 'modelType', label: 'Type', value: 'chat', kind: 'choice', choices: [{value: 'chat', label: 'Chat'}, {value: 'embedding', label: 'Embedding'}]},
       {id: 'reference', label: 'Model reference', value: '', required: true, hint: 'hf://publisher/model or ollama://model:tag'},
       {id: 'contextWindow', label: 'Context size', value: '4096', required: true},
+      {id: 'kvCacheType', label: 'KV cache', value: kvCacheChoices[0]?.value ?? (engine === 'OLlama' ? 'f16' : 'auto'), kind: 'choice', choices: kvCacheChoices, required: true},
       {id: 'maxNumSeqs', label: 'Max sequences', value: '1', required: true},
       {id: 'reservationMi', label: 'RAM/VRAM reservation MiB', value: '', hint: 'automatic recommendation'},
       {id: 'cpuOffloading', label: 'Use additional system RAM', value: 'false', kind: 'choice', choices: [{value: 'false', label: 'No'}, {value: 'true', label: 'Yes (NVIDIA GPU only)'}], hint: 'May substantially reduce inference speed.'},
       {id: 'hostMemoryMi', label: 'Additional host RAM budget MiB', value: '', hint: 'offloading + runtime; empty = recommendation'},
     ], 'create model', async (values) => {
-      const [engine = '', computeTarget = ''] = values.runtime?.split('\u001f') ?? [];
-      const target = snapshot.models.computeTargets.targets.find((item) => item.id === computeTarget && item.available && item.engines?.includes(engine));
-      if (!target) throw new Error('The selected runtime and hardware combination is no longer available.');
+      const liveTarget = snapshot.models.computeTargets.targets.find((item) => item.id === computeTarget && item.available && item.engines?.includes(engine));
+      if (!liveTarget) throw new Error('The selected runtime and hardware combination is no longer available.');
+      if (!kvCacheChoices.some((item) => item.value === values.kvCacheType)) throw new Error('The selected KV cache is not compatible with this runtime and hardware.');
       const contextWindow = positiveInteger(values.contextWindow ?? '', 'Context size');
       const maxNumSeqs = positiveInteger(values.maxNumSeqs ?? '', 'Max sequences');
       const cpuOffloading = values.cpuOffloading === 'true';
       if (cpuOffloading && computeTarget !== 'nvidia-gpu') throw new Error('CPU offloading currently supports NVIDIA GPU models only.');
       await perform(`Create model ${values.name}`, async () => {
-        const estimate = await runtime.api.estimateMemory({engine, computeTarget, url: values.reference, contextWindow, maxNumSeqs, modelType: values.modelType});
+        const estimate = await runtime.api.estimateMemory({engine, computeTarget, url: values.reference, contextWindow, maxNumSeqs, modelType: values.modelType, kvCacheType: values.kvCacheType});
         let displayEstimate = estimate;
         const reservationMi = values.reservationMi?.trim()
           ? positiveInteger(values.reservationMi, 'RAM/VRAM reservation')
@@ -552,7 +558,7 @@ export const runTui = async (runtime: Runtime, options: {color?: boolean; refres
             : roundMemory(estimate.recommendedMi);
         let hostMemoryMi: number | undefined;
         if (cpuOffloading) {
-          const split = await runtime.api.estimateMemory({engine, computeTarget, url: values.reference, contextWindow, maxNumSeqs, modelType: values.modelType, cpuOffloading: true, vramMi: reservationMi});
+          const split = await runtime.api.estimateMemory({engine, computeTarget, url: values.reference, contextWindow, maxNumSeqs, modelType: values.modelType, kvCacheType: values.kvCacheType, cpuOffloading: true, vramMi: reservationMi});
           const plan = split.offloading;
           displayEstimate = split;
           if (!plan?.fitsVram) throw new Error('VRAM is too small for remaining GPU weights, KV cache and runtime. Increase VRAM or reduce context.');
@@ -561,9 +567,9 @@ export const runTui = async (runtime: Runtime, options: {color?: boolean; refres
         }
         const input: LocalModelInput = {
           name: values.name ?? '', modelType: values.modelType ?? 'chat', engine, computeTarget,
-          reference: values.reference ?? '', contextWindow, maxNumSeqs, reservationMi, cpuOffloading, hostMemoryMi,
+          reference: values.reference ?? '', contextWindow, maxNumSeqs, kvCacheType: values.kvCacheType ?? '', reservationMi, cpuOffloading, hostMemoryMi,
         };
-        await runtime.api.createLocalModel(buildLocalModelPayload(input, target));
+        await runtime.api.createLocalModel(buildLocalModelPayload(input, liveTarget));
         return {lines: [
           `${input.name} was requested on ${target.displayName ?? target.id} with ${engine}.`,
           `Reservation: ${formatMi(reservationMi)}; estimate: ${formatMi(displayEstimate.minimumMi)} minimum / ${formatMi(displayEstimate.recommendedMi)} recommended.`,
@@ -571,6 +577,16 @@ export const runTui = async (runtime: Runtime, options: {color?: boolean; refres
         ]};
       });
     });
+  };
+  const addLocalModel = () => {
+    const choices = runtimeChoices();
+    if (!choices.length) return message('No local runtime available', 'No inference-engine and compute-target combination is currently available.', 'error');
+    if (choices.length === 1) return openLocalModelForm(choices[0]!.value);
+    overlay = {kind: 'menu', title: 'Choose local runtime', description: 'KV cache choices are filtered for the selected engine and hardware.', active: 0, options: choices.map((choice) => ({
+      label: choice.label,
+      action: () => openLocalModelForm(choice.value),
+    }))};
+    draw();
   };
   const addExternalModel = () => openForm('Add external model', 'Register an OpenAI-compatible provider endpoint.', [
     {id: 'name', label: 'Name', value: '', required: true},

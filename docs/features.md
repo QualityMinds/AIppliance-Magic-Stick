@@ -240,6 +240,9 @@ Lokale Modelle unterstützen:
 - Chat- und Embedding-Typen,
 - Kontextgröße, maximale parallele Sequenzen und Ausgabelimit,
 - explizite CPU-RAM- oder GPU-Speicherreservierung,
+- eine getrennte KV-Cache-Auswahl mit Ollama F16/Q8/Q4 beziehungsweise vLLM
+  FP8 auf kompatibler NVIDIA-/AMD-Hardware, sofort aktualisierter
+  Speicherplanung und getrenntem Soll-/Ist-Status,
 - hergeleitete Minimum- und Recommended-Werte,
 - ein ausklappbares Breakdown aus Gewichten, KV-Cache und Laufzeitreserve.
 

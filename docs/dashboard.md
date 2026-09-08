@@ -286,12 +286,12 @@ the appliance service restores the TUI automatically.
 | `POST` | `/api/instances/{type}` | Adds or replaces an `AppInstance` for supported types such as `openclaw`, `hermes`, `odysseus`, `paperclip`, or `kubeopencode`. |
 | `DELETE` | `/api/instances/{name}` | Deletes the `AppInstance`; its finalizer removes the generated HelmRelease and Helm cleans the application resources. |
 | `GET` | `/api/models` | Returns model catalog entries, variant-aware presets, compute-target availability, `ModelActivation` resources, AnythingLLM status, the estimator-compatible VRAM summary, and a `computeMemory.devices` list for the CPU and every discoverable GPU resource. |
-| `GET` | `/api/models/compute-targets` | Returns CPU/NVIDIA/AMD/Intel availability, supported engines, resolved resource/profile, and a non-sensitive reason when a target is unavailable. |
+| `GET` | `/api/models/compute-targets` | Returns CPU/NVIDIA/AMD/Intel availability, supported engines and KV-cache formats, resolved resource/profile, and a non-sensitive reason when a target is unavailable. |
 | `GET` | `/api/model-discovery/search?provider={huggingface,ollama}&q=&cursor=&limit=` | Searches public Hugging Face repositories or prefix-matching Ollama Library model names and returns bounded metadata plus a continuation cursor. |
 | `GET` | `/api/model-discovery/popular?provider={huggingface,ollama}&limit=` | Returns Hugging Face trending models or Ollama's public popularity order, filtered for the selected model type, engine, and compute target. |
 | `GET` | `/api/model-discovery/artifacts?provider={huggingface,ollama}&repo=&cursor=&limit=` | Resolves directly related Hugging Face quantizations or the selected Ollama model's locally runnable tags. |
 | `GET` | `/api/status` | Returns runtime objects and the catalogued NVIDIA/AMD/Intel operator lifecycle from `Appliance.status.hardwareOperators`. |
-| `POST` | `/api/models/estimate-memory` | Estimates minimum and recommended RAM or accelerator memory for every supported local engine/compute-target combination; an explicit NVIDIA `cpuOffloading: true` plus VRAM budget returns a separate `offloading` RAM/VRAM plan. |
+| `POST` | `/api/models/estimate-memory` | Estimates minimum and recommended RAM or accelerator memory for every supported local engine/compute-target/KV-cache combination; an explicit NVIDIA `cpuOffloading: true` plus VRAM budget returns a separate `offloading` RAM/VRAM plan. |
 | `POST` | `/api/models/estimate-vram` | Backward-compatible alias for `/api/models/estimate-memory`. |
 | `POST` | `/api/models/local` | Adds or replaces a local KubeAI-backed `ModelActivation`. |
 | `POST` | `/api/models/external` | Adds or replaces an external LiteLLM-backed `ModelActivation`; Dashboard-entered API keys are stored as Secrets. |
@@ -715,6 +715,13 @@ Kubernetes reports its allocatable resource. Intel automatically resolves
 Ollama supports CPU, NVIDIA, and AMD; Intel is absent from the Ollama choices
 because no validated KubeAI/Ollama Intel profile is bundled.
 
+Beside **Context Size**, the local form shows a **KV Cache** dropdown. Ollama
+offers F16, Q8, and Q4. vLLM offers model precision on every target and FP8 only
+for CUDA/NVIDIA and ROCm/AMD. The options come from the selected compute
+target's live API contract, so CPU and Intel never show an unsupported FP8
+choice. Changing the cache format immediately reruns both the normal memory
+estimate and, when selected, the CPU-offloading estimate.
+
 An Ollama pod is not sufficient by itself for a Ready model. KubeAI addresses
 the runtime with the `ModelActivation` name, while the downloaded registry tag
 can have a different name. The Magic Stick Operator therefore waits for the
@@ -755,7 +762,10 @@ hover or focus previews its explanation; click/Enter pins it, and Escape,
 the close button, or an outside click dismisses it. Overlays show the formula,
 substituted current inputs, binary units and rounding. Cache explanations include
 bytes per token per sequence and assumed KV precision, independent of weight
-quantization. Runtime allowances and fallback heuristics are labelled as estimates,
+quantization. Quantized-cache overlays also show the exact format storage rule,
+the F16/native-16-bit baseline, and the resulting saving. Ollama Q8_0 uses
+34 bytes per 32-value block and Q4_0 uses 18 bytes per block, including their
+two-byte scales; only attention cache changes. Runtime allowances and fallback heuristics are labelled as estimates,
 not measurements. The API supplies additive `calculations` entries containing
 `formula`, `substitution`, and `notes`; an older API shows an honest unavailable
 message instead of invented dimensions.
@@ -775,6 +785,13 @@ parallel sequences. The browser cannot supply an arbitrary runtime value. The
 operator passes that value to vLLM as `--kv-cache-memory-bytes`; 512 MiB remains
 only as a compatibility fallback for older or directly created resources that
 do not contain the derived field.
+
+The installed-model card distinguishes **KV requested** from **KV active**.
+The second value remains pending until the operator observes a Ready replica
+created with the requested vLLM argument or Ollama environment. This confirms
+the applied pod configuration rather than claiming a separate engine-memory
+measurement; a runtime that rejects the mode never receives a misleading
+active label.
 
 For NVIDIA GPU models, **CPU offloading → Use additional system RAM** is an
 opt-in setting below the VRAM control. Keep VRAM and host RAM separate: the new

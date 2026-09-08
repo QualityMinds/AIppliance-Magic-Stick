@@ -38,6 +38,18 @@ class MemoryCalculationTests(unittest.TestCase):
         self.assertIn("48 × [(4 − 1)", first["calculations"]["recurrentStateMi"]["substitution"])
         self.assertEqual(first["calculations"]["recurrentStateMi"], second["calculations"]["recurrentStateMi"])
 
+    def test_ollama_q8_and_q4_include_block_scales_and_preserve_recurrent_state(self):
+        f16 = self.api["estimate_model_memory"]({**self.payload, "kvCacheType": "f16"})
+        q8 = self.api["estimate_model_memory"]({**self.payload, "kvCacheType": "q8_0"})
+        q4 = self.api["estimate_model_memory"]({**self.payload, "kvCacheType": "q4_0"})
+        self.assertEqual((q8["runtimeDetails"]["attentionKvCacheMi"], q4["runtimeDetails"]["attentionKvCacheMi"]), (333, 176))
+        self.assertEqual(q8["runtimeDetails"]["recurrentStateMi"], f16["runtimeDetails"]["recurrentStateMi"])
+        self.assertEqual(q4["runtimeDetails"]["recurrentStateMi"], f16["runtimeDetails"]["recurrentStateMi"])
+        self.assertIn("34 bytes", " ".join(q8["calculations"]["attentionKvCacheMi"]["notes"]))
+        self.assertIn("18 bytes", " ".join(q4["calculations"]["attentionKvCacheMi"]["notes"]))
+        self.assertGreater(q8["kvCacheSavingsMi"], 0)
+        self.assertGreater(q4["kvCacheSavingsMi"], q8["kvCacheSavingsMi"])
+
     def test_heterogeneous_layer_groups_are_not_explained_as_uniform(self):
         metadata = {"general.architecture": "example", "example.block_count": 2, "example.embedding_length": 64,
                     "example.attention.head_count": [4, 8], "example.attention.head_count_kv": [2, 4],
@@ -53,6 +65,10 @@ class MemoryCalculationTests(unittest.TestCase):
         self.assertIn("max(1, context tokens ÷ 4,096)", calc["formula"])
         self.assertIn("Fallback heuristic only", " ".join(calc["notes"]))
         self.assertNotIn("attentionKvCacheMi", result["calculations"])
+
+        q4 = self.api["estimate_model_memory"]({**self.payload, "kvCacheType": "q4_0"})
+        self.assertEqual(q4["kvCacheMi"], 256)
+        self.assertIn("256 MiB safety floor", " ".join(q4["calculations"]["kvCacheMi"]["notes"]))
 
     def test_all_ollama_targets_explain_reserves_totals_and_download(self):
         for target in ("cpu", "nvidia-gpu", "amd-gpu"):
@@ -74,10 +90,16 @@ class MemoryCalculationTests(unittest.TestCase):
                 result = self.api["estimate_model_memory"]({**self.payload, "engine": "VLLM", "computeTarget": target, "url": "hf://example/model"})
                 calc = result["calculations"]
                 self.assertIn("8 × 4 × (256 + 256)", calc["theoreticalKvCacheMi"]["substitution"])
-                self.assertIn("FP8", " ".join(calc["theoreticalKvCacheMi"]["notes"]))
+                self.assertIn("values × 2 bytes", " ".join(calc["theoreticalKvCacheMi"]["notes"]))
                 self.assertEqual(result["kvCompatibilityFactor"], 4 if target == "cpu" else 1)
                 self.assertIn(f"= {result['hybridAllocatorSafetyMi']:,} MiB", calc["hybridAllocatorSafetyMi"]["substitution"])
                 self.assertIn("compileReserveMi" if target == "cpu" else "engineRuntimeReserveMi", calc)
+
+        fp8 = self.api["estimate_model_memory"]({**self.payload, "engine": "VLLM", "computeTarget": "nvidia-gpu",
+            "url": "hf://example/model", "kvCacheType": "fp8"})
+        self.assertEqual(fp8["kvCacheType"], "fp8")
+        self.assertIn("values × 1 byte", " ".join(fp8["calculations"]["theoreticalKvCacheMi"]["notes"]))
+        self.assertGreater(fp8["kvCacheSavingsMi"], 0)
 
     def test_offloading_summaries_explain_gpu_and_host_budgets(self):
         result = self.api["estimate_model_memory"]({**self.payload, "cpuOffloading": True, "vramMi": 10000})

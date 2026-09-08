@@ -977,8 +977,16 @@ class HelmAppInstanceTests(unittest.TestCase):
                 "--tool-call-parser=qwen3_coder",
                 "--max-model-len=20000",
                 "--max-num-seqs=1",
+                "--kv-cache-dtype=auto",
             ],
         )
+
+        activation["spec"]["local"]["kvCacheType"] = "fp8"
+        fp8_resource, fp8_runtime = self.controller["kubeai_model_resource"](activation, presets)
+        self.assertEqual(fp8_runtime["kvCacheType"], "fp8")
+        self.assertIn("--kv-cache-dtype=fp8", fp8_resource["spec"]["args"])
+        self.assertIn("--calculate-kv-scales", fp8_resource["spec"]["args"])
+        self.assertNotIn("--kv-cache-dtype=auto", fp8_resource["spec"]["args"])
 
     def test_cpu_preset_generates_cpu_runtime_without_gpu_requirements(self):
         manifest = yaml.safe_load((ROOT / "model-presets.yaml").read_text(encoding="utf-8"))
@@ -1060,6 +1068,25 @@ class HelmAppInstanceTests(unittest.TestCase):
         self.assertIn("--kv-cache-memory-bytes=104857600", resource["spec"]["args"])
         self.assertNotIn("--kv-cache-memory-bytes=536870912", resource["spec"]["args"])
 
+    def test_cpu_vllm_rejects_fp8_kv_cache(self):
+        catalog_manifest = yaml.safe_load((ROOT / "compute-target-catalog.yaml").read_text(encoding="utf-8"))
+        compute_catalog = yaml.safe_load(catalog_manifest["data"]["targets.json"])
+        activation = {
+            "metadata": {"name": "cpu-fp8-cache"},
+            "spec": {
+                "targetNamespace": "ai",
+                "local": {
+                    "engine": "VLLM",
+                    "computeTarget": "cpu",
+                    "url": "hf://example/model",
+                    "kvCacheType": "fp8",
+                },
+            },
+        }
+
+        with self.assertRaisesRegex(ValueError, "only on CUDA and ROCm"):
+            self.controller["kubeai_model_resource"](activation, {}, compute_catalog)
+
     def test_ollama_cpu_preset_generates_native_kubeai_ollama_runtime(self):
         manifest = yaml.safe_load((ROOT / "model-presets.yaml").read_text(encoding="utf-8"))
         presets = yaml.safe_load(manifest["data"]["presets.json"])["presets"]
@@ -1073,6 +1100,7 @@ class HelmAppInstanceTests(unittest.TestCase):
                     "preset": "qwen2505bcpu",
                     "engine": "OLlama",
                     "computeTarget": "cpu",
+                    "kvCacheType": "q8_0",
                 },
             },
         }
@@ -1100,6 +1128,9 @@ class HelmAppInstanceTests(unittest.TestCase):
         self.assertEqual(resource["spec"]["env"]["OLLAMA_CONTEXT_LENGTH"], "2048")
         self.assertEqual(resource["spec"]["env"]["OLLAMA_NUM_PARALLEL"], "1")
         self.assertEqual(resource["spec"]["env"]["OLLAMA_MAX_LOADED_MODELS"], "1")
+        self.assertEqual(resource["spec"]["env"]["OLLAMA_KV_CACHE_TYPE"], "q8_0")
+        self.assertEqual(resource["spec"]["env"]["OLLAMA_FLASH_ATTENTION"], "1")
+        self.assertEqual(runtime["kvCacheType"], "q8_0")
         self.assertNotIn("MAGICSTICK_VLLM_WRAPPER_ENABLED", resource["spec"]["env"])
         self.assertNotIn("MAGICSTICK_VLLM_VRAM_LIMIT", resource["spec"]["env"])
 
@@ -1452,6 +1483,7 @@ class HelmAppInstanceTests(unittest.TestCase):
         runtime = {
             "computeTarget": "nvidia-gpu",
             "engine": "VLLM",
+            "kvCacheType": "fp8",
             "resourceProfile": "magicstick-nvidia-gpu:1",
             "vramMi": 8192,
             "memoryMi": 0,
@@ -1507,6 +1539,7 @@ class HelmAppInstanceTests(unittest.TestCase):
         runtime = {
             "computeTarget": "nvidia-gpu",
             "engine": "VLLM",
+            "kvCacheType": "fp8",
             "resourceProfile": "magicstick-nvidia-gpu:1",
             "vramMi": 8192,
             "memoryMi": 0,
@@ -1536,6 +1569,8 @@ class HelmAppInstanceTests(unittest.TestCase):
         )
         self.assertEqual(statuses[-1][0][1], "Starting")
         self.assertEqual(statuses[-1][0][2], "WaitingForReadyReplica")
+        self.assertEqual(statuses[-1][1]["requested_kv_cache_type"], "fp8")
+        self.assertEqual(statuses[-1][1]["effective_kv_cache_type"], "")
 
     def test_ollama_alias_is_created_after_source_download_finishes(self):
         names = ("list_items", "ollama_request_json")
@@ -1718,6 +1753,7 @@ class HelmAppInstanceTests(unittest.TestCase):
         runtime = {
             "computeTarget": "nvidia-gpu",
             "engine": "VLLM",
+            "kvCacheType": "fp8",
             "resourceProfile": "magicstick-nvidia-gpu:1",
             "vramMi": 8192,
             "memoryMi": 0,
@@ -1740,6 +1776,8 @@ class HelmAppInstanceTests(unittest.TestCase):
 
         self.assertEqual(phase, "Ready")
         self.assertEqual(statuses[-1][0][1], "Ready")
+        self.assertEqual(statuses[-1][1]["requested_kv_cache_type"], "fp8")
+        self.assertEqual(statuses[-1][1]["effective_kv_cache_type"], "fp8")
 
     def test_cpu_model_never_requests_or_checks_nvidia_runtime(self):
         names = (

@@ -2414,6 +2414,48 @@ data:
         raise RequestError(400, "unsupported local engine: " + str(value))
 
 
+    def default_kv_cache_type(engine):
+        return "f16" if normalize_local_engine(engine) == "OLlama" else "auto"
+
+
+    def normalize_kv_cache_type(engine, value):
+        engine = normalize_local_engine(engine)
+        normalized = str(value or default_kv_cache_type(engine)).strip().lower().replace("-", "_")
+        aliases = {"standard": default_kv_cache_type(engine), "q8": "q8_0", "q4": "q4_0"}
+        normalized = aliases.get(normalized, normalized)
+        supported = {"VLLM": {"auto", "fp8"}, "OLlama": {"f16", "q8_0", "q4_0"}}
+        if normalized not in supported[engine]:
+            raise RequestError(400, "unsupported " + engine + " KV cache type: " + str(value))
+        return normalized
+
+
+    def kv_cache_options(engine, compute_target, matching_nodes=None):
+        engine = normalize_local_engine(engine)
+        if engine == "OLlama":
+            return [
+                {"value": "f16", "label": "Standard - F16", "relativeSize": 1.0,
+                 "description": "Highest cache precision; two bytes per cached value."},
+                {"value": "q8_0", "label": "Memory saving - Q8", "relativeSize": 34 / 64,
+                 "description": "About half the F16 attention-cache memory with very small quality loss."},
+                {"value": "q4_0", "label": "Strongly compressed - Q4", "relativeSize": 18 / 64,
+                 "description": "About one quarter of F16 attention-cache memory with a larger quality trade-off."},
+            ]
+        options = [{
+            "value": "auto", "label": "Standard - model precision", "relativeSize": 1.0,
+            "description": "vLLM selects the native cache precision; the estimate assumes 16-bit values.",
+        }]
+        # The pinned vLLM releases document quantized FP8 KV cache for CUDA
+        # and ROCm. CPU and Intel XPU stay on the model-native cache dtype until
+        # those backends explicitly guarantee this mode as well.
+        fp8_supported = compute_target in ("nvidia-gpu", "amd-gpu")
+        if fp8_supported:
+            options.append({
+                "value": "fp8", "label": "FP8", "relativeSize": 0.5,
+                "description": "Half the assumed 16-bit attention-cache memory; scales are calibrated at startup.",
+            })
+        return options
+
+
     def resolve_local_preset_artifact(local):
         preset_name = str((local or {}).get("preset") or "").strip()
         requested_artifact = str((local or {}).get("artifact") or "").strip()
@@ -2625,6 +2667,11 @@ data:
                 )
             resolved_resource_profile = resolved_resource_profiles.get("VLLM", resolved_resource_profile)
 
+            cache_types = {
+                engine: kv_cache_options(engine, target_id, matching_nodes)
+                for engine in engines
+            }
+
             result.append({
                 "id": target_id,
                 "displayName": str(definition.get("displayName") or target_id),
@@ -2639,6 +2686,7 @@ data:
                 "defaultResourceProfile": str(definition.get("defaultResourceProfile") or ""),
                 "resolvedResourceProfile": resolved_resource_profile,
                 "resolvedResourceProfiles": resolved_resource_profiles,
+                "kvCacheTypes": cache_types,
                 "available": available,
                 "reason": reason,
                 "message": message,
@@ -2668,6 +2716,21 @@ data:
         if not target["available"]:
             raise RequestError(409, target["message"])
         return target
+
+
+    def require_kv_cache_type_available(target, engine, value):
+        normalized = normalize_kv_cache_type(engine, value)
+        available = {
+            str(item.get("value") or "")
+            for item in ((target.get("kvCacheTypes") or {}).get(normalize_local_engine(engine)) or [])
+        }
+        if normalized not in available:
+            raise RequestError(
+                409,
+                str(target.get("displayName") or target.get("id") or "Selected hardware")
+                + " does not support " + normalized + " KV cache with " + normalize_local_engine(engine) + ".",
+            )
+        return normalized
 
 
     def generated_model_catalog():
@@ -4551,17 +4614,58 @@ data:
         return {"formula": formula, "substitution": substitution, "notes": list(notes)}
 
 
-    def attention_cache_calculation(groups, context_window, max_num_seqs, value_bytes):
+    def kv_cache_storage(groups, cache_type, context_window, max_num_seqs):
+        """Exact logical cache storage, including llama.cpp Q8/Q4 block scales."""
+        cache_type = str(cache_type or "auto").lower()
+        elements = sum(count * heads * (key + value) for (heads, key, value), count in groups.items())
+        baseline_per_token = elements * 2
+        if cache_type in ("auto", "f16"):
+            per_token = baseline_per_token
+            format_label = "model precision (estimated as 16-bit)" if cache_type == "auto" else "F16"
+            storage_formula = "values × 2 bytes"
+        elif cache_type == "fp8":
+            per_token = elements
+            format_label = "FP8"
+            storage_formula = "values × 1 byte"
+        elif cache_type in ("q8_0", "q4_0"):
+            block_bytes = 34 if cache_type == "q8_0" else 18
+            per_token = sum(
+                count * heads * (((key + 31) // 32) + ((value + 31) // 32)) * block_bytes
+                for (heads, key, value), count in groups.items()
+            )
+            format_label = "Q8_0" if cache_type == "q8_0" else "Q4_0"
+            storage_formula = (
+                "each 32-value K/V block uses " + str(block_bytes)
+                + " bytes including its 2-byte scale"
+            )
+        else:
+            raise ValueError("unsupported KV cache type: " + cache_type)
+        total = per_token * int(context_window) * int(max_num_seqs)
+        baseline_total = baseline_per_token * int(context_window) * int(max_num_seqs)
+        return {
+            "cacheType": cache_type,
+            "formatLabel": format_label,
+            "storageFormula": storage_formula,
+            "perTokenBytes": int(per_token),
+            "baselinePerTokenBytes": int(baseline_per_token),
+            "totalBytes": int(total),
+            "baselineBytes": int(baseline_total),
+        }
+
+
+    def attention_cache_calculation(groups, context_window, max_num_seqs, cache_type):
         # Group identical dimensions so heterogeneous GGUF layers stay accurate.
         terms = [f"{count:,} × {heads:,} × ({key:,} + {value:,})" for (heads, key, value), count in groups.items()]
-        elements = sum(count * heads * (key + value) for (heads, key, value), count in groups.items())
-        per_token = elements * value_bytes
-        total = per_token * int(context_window) * int(max_num_seqs)
+        storage = kv_cache_storage(groups, cache_type, context_window, max_num_seqs)
+        total = storage["totalBytes"]
+        baseline = storage["baselineBytes"]
+        saved = max(0, baseline - total)
         return memory_calculation(
-            "ceil(Σ[layers × KV heads × (key dimensions + value dimensions)] × bytes/value × context tokens × sequences ÷ 1,048,576)",
-            f"ceil(({' + '.join(terms)}) × {value_bytes} × {int(context_window):,} × {int(max_num_seqs):,} ÷ 1,048,576) = {ceil_mib(total):,} MiB",
-            f"{per_token:,} bytes ({per_token / 1024:g} KiB) per token per sequence. These are cached Key/Value vectors, not the token's text bytes.",
-            f"Assumed KV precision: {'FP8' if value_bytes == 1 else '16-bit'} ({value_bytes} bytes/value). Weight quantization does not set KV precision.",
+            "ceil(KV values per token × cache-format storage × context tokens × sequences ÷ 1,048,576)",
+            f"ceil(({' + '.join(terms)}) using {storage['formatLabel']} × {int(context_window):,} × {int(max_num_seqs):,} ÷ 1,048,576) = {ceil_mib(total):,} MiB",
+            f"{storage['perTokenBytes']:,} bytes ({storage['perTokenBytes'] / 1024:g} KiB) per token per sequence. These are cached Key/Value vectors, not the token's text bytes.",
+            "Storage rule: " + storage["storageFormula"] + ". Weight quantization does not set KV precision.",
+            f"Compared with F16: {ceil_mib(baseline):,} MiB baseline; approximately {ceil_mib(saved):,} MiB saved for this context and sequence count.",
             "Planning estimate, not measured engine allocation. ceil rounds up; 1 MiB = 1,048,576 bytes.",
         )
 
@@ -4574,21 +4678,22 @@ data:
         if not layers or not hidden or not heads or not kv_heads:
             return None
         head_dim = config_int(config, "head_dim", "qk_rope_head_dim") or max(1, hidden // heads)
-        kv_dtype_bytes = 1 if "fp8" in str(config.get("kv_cache_dtype") or "").lower() else 2
-        return layers, kv_heads, head_dim, kv_dtype_bytes
+        return layers, kv_heads, head_dim
 
 
-    def kv_cache_mi(config, context_window, max_num_seqs):
+    def kv_cache_mi(config, context_window, max_num_seqs, cache_type="auto"):
         dimensions = kv_cache_dimensions(config)
         if dimensions is None:
             return None
-        layers, kv_heads, head_dim, kv_dtype_bytes = dimensions
-        bytes_value = 2 * layers * kv_heads * head_dim * kv_dtype_bytes * int(context_window) * int(max_num_seqs)
-        return ceil_mib(bytes_value)
+        layers, kv_heads, head_dim = dimensions
+        storage = kv_cache_storage(
+            {(kv_heads, head_dim, head_dim): layers}, cache_type, context_window, max_num_seqs
+        )
+        return ceil_mib(storage["totalBytes"])
 
 
-    def vllm_kv_cache_mi(config, context_window, max_num_seqs, compute_target):
-        theoretical_mi = kv_cache_mi(config, context_window, max_num_seqs)
+    def vllm_kv_cache_mi(config, context_window, max_num_seqs, compute_target, cache_type="auto"):
+        theoretical_mi = kv_cache_mi(config, context_window, max_num_seqs, cache_type)
         if theoretical_mi is None:
             return None, 1, None
         layers, total_layers = kv_cache_layer_count(config)
@@ -4625,6 +4730,7 @@ data:
 
     def estimate_vllm_memory(payload, compute_target):
         repo = hf_repo_id(payload.get("url"))
+        kv_cache_type = normalize_kv_cache_type("VLLM", payload.get("kvCacheType"))
         metadata = hf_metadata(repo)
         config = metadata.get("config") or {}
         dimensions = model_dimension_config(config)
@@ -4670,7 +4776,7 @@ data:
             warnings.append("Could not estimate model weight size from HuggingFace metadata.")
 
         kv_mi, kv_compatibility_factor, theoretical_kv_mi = vllm_kv_cache_mi(
-            dimensions, context_window, max_num_seqs, compute_target
+            dimensions, context_window, max_num_seqs, compute_target, kv_cache_type
         )
         if kv_mi is None:
             kv_mi = 0
@@ -4724,9 +4830,9 @@ data:
                 f"Result: {weights_mi:,} MiB", "Source: " + (weight_size_source or "unavailable") + ". Zero is unknown, not a zero-memory model.")
         cache_dimensions = kv_cache_dimensions(dimensions)
         if cache_dimensions:
-            layers, heads, head_dim, value_bytes = cache_dimensions
+            layers, heads, head_dim = cache_dimensions
             calculations["theoreticalKvCacheMi"] = attention_cache_calculation(
-                {(heads, head_dim, head_dim): layers}, context_window, max_num_seqs, value_bytes)
+                {(heads, head_dim, head_dim): layers}, context_window, max_num_seqs, kv_cache_type)
         else:
             calculations["theoreticalKvCacheMi"] = memory_calculation("Unavailable: model cache dimensions are missing.", None, "Zero is unknown, not a zero-memory cache.")
         calculations["kvCacheMi"] = memory_calculation(
@@ -4766,6 +4872,8 @@ data:
             "downloadBytes": int(download_bytes),
             "downloadSizeSource": download_size_source,
             "kvCacheMi": int(kv_mi),
+            "kvCacheType": kv_cache_type,
+            "kvCacheBaselineMi": int(kv_cache_mi(dimensions, context_window, max_num_seqs, "auto") or 0),
             "theoreticalKvCacheMi": int(theoretical_kv_mi or 0),
             "hybridAllocatorSafetyMi": max(0, int(kv_mi) - int(theoretical_kv_mi or 0)),
             "runtimeReserveMi": int(runtime_mi),
@@ -4804,7 +4912,7 @@ data:
         return int(default or 0)
 
 
-    def ollama_gguf_cache_estimate(gguf_metadata, context_window, max_num_seqs):
+    def ollama_gguf_cache_estimate(gguf_metadata, context_window, max_num_seqs, cache_type="f16"):
         """Mirror llama.cpp cache dimensions from a public GGUF header."""
         architecture = str((gguf_metadata or {}).get("general.architecture") or "").strip()
         block_count = positive_int(ollama_gguf_value(gguf_metadata, "block_count"))
@@ -4864,7 +4972,6 @@ data:
         if not any(key_lengths) or not any(value_lengths):
             return None
 
-        attention_elements_per_token = 0
         attention_groups = {}
         for layer in full_attention_layers:
             kv_heads = ollama_layer_value(kv_head_counts, layer, max(kv_head_counts))
@@ -4872,23 +4979,17 @@ data:
             value_length = ollama_layer_value(value_lengths, layer, max(value_lengths))
             if kv_heads <= 0 or key_length <= 0 or value_length <= 0:
                 return None
-            attention_elements_per_token += kv_heads * (key_length + value_length)
             group = (kv_heads, key_length, value_length)
             attention_groups[group] = attention_groups.get(group, 0) + 1
 
-        # Magic Stick does not override OLLAMA_KV_CACHE_TYPE, so Ollama uses
-        # its f16 default for the attention cache. Recurrent state is f32 in
-        # llama.cpp regardless of the attention-cache precision.
-        attention_bytes = (
-            attention_elements_per_token
-            * int(context_window)
-            * int(max_num_seqs)
-            * 2
+        cache_storage = kv_cache_storage(
+            attention_groups, cache_type, context_window, max_num_seqs
         )
+        attention_bytes = cache_storage["totalBytes"]
         recurrent_layer_count = runtime_layers - len(full_attention_layers)
         recurrent_bytes = 0
         calculations = {"attentionKvCacheMi": attention_cache_calculation(
-            attention_groups, context_window, max_num_seqs, 2)}
+            attention_groups, context_window, max_num_seqs, cache_type)}
         if recurrent_layer_count > 0:
             ssm_conv = positive_int(ollama_gguf_value(gguf_metadata, "ssm.conv_kernel"))
             ssm_inner = positive_int(ollama_gguf_value(gguf_metadata, "ssm.inner_size"))
@@ -4918,9 +5019,12 @@ data:
             "runtimeLayers": int(runtime_layers),
             "fullAttentionLayers": int(len(full_attention_layers)),
             "recurrentLayers": int(recurrent_layer_count),
+            "kvCacheType": cache_type,
             "attentionKvCacheMi": int(ceil_mib(attention_bytes)),
+            "attentionKvCacheBaselineMi": int(ceil_mib(cache_storage["baselineBytes"])),
             "recurrentStateMi": int(ceil_mib(recurrent_bytes)),
             "totalMi": int(ceil_mib(attention_bytes + recurrent_bytes)),
+            "baselineTotalMi": int(ceil_mib(cache_storage["baselineBytes"] + recurrent_bytes)),
             "calculations": calculations,
             "modelMaxContext": int(
                 positive_int(ollama_gguf_value(gguf_metadata, "context_length")) or 0
@@ -4930,6 +5034,7 @@ data:
 
     def estimate_ollama_memory(payload, compute_target):
         reference = ollama_model_reference(payload.get("url"))
+        kv_cache_type = normalize_kv_cache_type("OLlama", payload.get("kvCacheType"))
         metadata = ollama_metadata(reference)
         model_type = str(payload.get("modelType") or "chat").lower()
         gguf_metadata = metadata.get("ggufMetadata") or {}
@@ -4953,7 +5058,7 @@ data:
             warnings.append("Max Num Seqs was missing; using " + str(max_num_seqs) + " for the estimate.")
         weights_mi = ceil_mib(metadata.get("modelBytes"))
         cache_estimate = ollama_gguf_cache_estimate(
-            gguf_metadata, context_window, max_num_seqs
+            gguf_metadata, context_window, max_num_seqs, kv_cache_type
         )
         if cache_estimate:
             kv_mi = int(cache_estimate["totalMi"])
@@ -4972,7 +5077,10 @@ data:
             # Retain the previous bounded estimate only when the registry or a
             # proxy cannot provide a usable GGUF header.
             context_factor = max(1.0, float(context_window) / 4096.0)
-            kv_mi = max(256, int(weights_mi * 0.08 * context_factor * max_num_seqs))
+            raw_f16_kv_mi = int(weights_mi * 0.08 * context_factor * max_num_seqs)
+            f16_kv_mi = max(256, raw_f16_kv_mi)
+            cache_ratio = {"f16": 1.0, "q8_0": 34 / 64, "q4_0": 18 / 64}[kv_cache_type]
+            kv_mi = max(256, int(raw_f16_kv_mi * cache_ratio))
             calculation_source = "ollama-registry-manifest-fallback"
             warnings.append(
                 "GGUF architecture metadata was unavailable; KV cache uses the conservative manifest-only fallback."
@@ -4988,9 +5096,9 @@ data:
             "Source: Ollama manifest. Stored tensor size is a proxy for resident weights, not measured RAM/VRAM.")
         if not cache_estimate:
             calculations["kvCacheMi"] = memory_calculation(
-                "max(256, floor(weights MiB × 0.08 × max(1, context tokens ÷ 4,096) × sequences))",
-                f"max(256, floor({weights_mi:,} × 0.08 × max(1, {context_window:,} ÷ 4,096) × {max_num_seqs:,})) = {kv_mi:,} MiB",
-                "Fallback heuristic only: GGUF dimensions are unavailable. This is not a model-specific bytes-per-token calculation.")
+                "max(256, floor(weights MiB × 0.08 × max(1, context tokens ÷ 4,096) × sequences × selected cache-format ratio))",
+                f"max(256, floor({weights_mi:,} × 0.08 × max(1, {context_window:,} ÷ 4,096) × {max_num_seqs:,} × {cache_ratio:g})) = {kv_mi:,} MiB",
+                "Fallback heuristic only: GGUF dimensions are unavailable, so a 256 MiB safety floor remains. Q8 uses 34/64 and Q4 uses 18/64 of the F16 term because each 32-value block also stores a 2-byte scale.")
         calculations["theoreticalKvCacheMi"] = calculations["kvCacheMi"]
         calculations["engineRuntimeReserveMi"] = memory_calculation(
             "max(512, floor((weights MiB + complete KV budget MiB) × 0.10))",
@@ -5011,7 +5119,12 @@ data:
             "downloadBytes": int(metadata.get("modelBytes") or 0),
             "downloadSizeSource": "ollama-manifest",
             "quantization": metadata.get("quantization"),
+            "kvCacheType": kv_cache_type,
             "kvCacheMi": int(kv_mi),
+            "kvCacheBaselineMi": int(
+                cache_estimate.get("baselineTotalMi", 0)
+                if cache_estimate else f16_kv_mi
+            ),
             "theoreticalKvCacheMi": int(kv_mi) if cache_estimate else None,
             "runtimeReserveMi": int(runtime_mi),
             "runtimeDetails": runtime_details,
@@ -5110,6 +5223,13 @@ data:
     def memory_summary_calculations(result, base, engine):
         calculations = dict(base.get("calculations") or {})
         weights, kv, runtime = (int(base.get(key) or 0) for key in ("weightsMi", "kvCacheMi", "runtimeReserveMi"))
+        kv_baseline = int(base.get("kvCacheBaselineMi") or kv)
+        kv_savings = max(0, kv_baseline - kv)
+        calculations["kvCacheSavingsMi"] = memory_calculation(
+            "F16 / native-16-bit KV baseline − selected complete KV budget",
+            f"{kv_baseline:,} − {kv:,} = {kv_savings:,} MiB",
+            "Only the attention cache is quantized. Recurrent state remains at its runtime precision and is included unchanged in both totals.",
+        )
         minimum = weights + kv + runtime
         headroom = result["recommendedReserveMi"]
         floor = 2048 if engine == "VLLM" else 512
@@ -5176,6 +5296,10 @@ data:
         }
         if compute_target not in supported_targets.get(engine, set()):
             raise RequestError(400, engine + " memory estimation is not supported for " + compute_target)
+        kv_cache_type = normalize_kv_cache_type(engine, payload.get("kvCacheType"))
+        if engine == "VLLM" and kv_cache_type == "fp8" and compute_target not in ("nvidia-gpu", "amd-gpu"):
+            raise RequestError(409, "vLLM FP8 KV cache is available only on CUDA and ROCm targets.")
+        payload = {**payload, "kvCacheType": kv_cache_type}
         if engine == "VLLM":
             estimate = estimate_vllm_memory(payload, compute_target)
         else:
@@ -5212,7 +5336,10 @@ data:
             "downloadBytes": int(estimate.get("downloadBytes") or 0),
             "downloadSizeSource": str(estimate.get("downloadSizeSource") or ""),
             "quantization": estimate.get("quantization"),
+            "kvCacheType": kv_cache_type,
             "kvCacheMi": int(kv_mi),
+            "kvCacheBaselineMi": int(estimate.get("kvCacheBaselineMi") or kv_mi),
+            "kvCacheSavingsMi": max(0, int(estimate.get("kvCacheBaselineMi") or kv_mi) - int(kv_mi)),
             "theoreticalKvCacheMi": (
                 int(estimate.get("theoreticalKvCacheMi"))
                 if estimate.get("theoreticalKvCacheMi") is not None
@@ -5312,7 +5439,7 @@ data:
             allowed = {
                 "preset", "artifact", "url", "modelType", "engine", "computeTarget", "vram", "vramMi",
                 "memoryRequiredMi", "cpuOffloading", "allowMemoryRisk",
-                "contextWindow", "maxOutputTokens", "maxNumSeqs", "minReplicas", "maxReplicas",
+                "contextWindow", "maxOutputTokens", "maxNumSeqs", "kvCacheType", "minReplicas", "maxReplicas",
             }
             for key in allowed:
                 if key in supplied_local:
@@ -5324,6 +5451,7 @@ data:
             engine = normalize_local_engine(local.get("engine"))
             local["computeTarget"] = compute_target
             local["engine"] = engine
+            local["kvCacheType"] = normalize_kv_cache_type(engine, local.get("kvCacheType"))
             if "allowMemoryRisk" in local and not isinstance(local["allowMemoryRisk"], bool):
                 raise ValueError("local.allowMemoryRisk must be a boolean")
             allow_memory_risk = local.get("allowMemoryRisk") is True
@@ -6593,7 +6721,12 @@ data:
                         engine = normalize_local_engine(
                             local.get("engine") or payload.get("engine") or "VLLM"
                         )
-                        require_compute_target_available(compute_target, engine)
+                        target = require_compute_target_available(compute_target, engine)
+                        require_kv_cache_type_available(
+                            target,
+                            engine,
+                            local.get("kvCacheType") or payload.get("kvCacheType"),
+                        )
                     else:
                         payload = read_body(self)
                     resource = model_activation_payload(model_type, payload)

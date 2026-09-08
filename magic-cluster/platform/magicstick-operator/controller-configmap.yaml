@@ -990,6 +990,8 @@ data:
         artifact="",
         precision="",
         quantization="",
+        requested_kv_cache_type="",
+        effective_kv_cache_type="",
         memory_usage=None,
     ):
         metadata = activation.get("metadata") or {}
@@ -1004,6 +1006,8 @@ data:
             "artifact": artifact,
             "precision": precision,
             "quantization": quantization,
+            "requestedKvCacheType": requested_kv_cache_type,
+            "effectiveKvCacheType": effective_kv_cache_type,
             "resolvedResourceProfile": resource_profile,
             "vramRequiredMi": int(vram_mi or 0),
             "memoryRequiredMi": int(memory_mi or 0),
@@ -1038,6 +1042,17 @@ data:
         if normalized == "OLLAMA":
             return "OLlama"
         raise ValueError("unsupported local.engine: " + str(value))
+
+
+    def normalize_kv_cache_type(engine, value):
+        engine = normalize_local_engine(engine)
+        default = "f16" if engine == "OLlama" else "auto"
+        normalized = str(value or default).strip().lower().replace("-", "_")
+        normalized = {"standard": default, "q8": "q8_0", "q4": "q4_0"}.get(normalized, normalized)
+        supported = {"VLLM": {"auto", "fp8"}, "OLlama": {"f16", "q8_0", "q4_0"}}
+        if normalized not in supported[engine]:
+            raise ValueError("unsupported " + engine + " KV cache type: " + str(value))
+        return normalized
 
 
     def local_engine(activation):
@@ -1504,6 +1519,7 @@ data:
             "max_output_tokens",
             "maxNumSeqs",
             "max_num_seqs",
+            "kvCacheType",
             "kvCacheMemoryBytes",
             "args",
             "minReplicas",
@@ -1631,6 +1647,29 @@ data:
             normalized.append(f"--max-model-len={context_window}")
         if max_num_seqs:
             normalized.append(f"--max-num-seqs={max_num_seqs}")
+        return normalized
+
+
+    def model_args_with_kv_cache(args, kv_cache_type):
+        normalized = []
+        skip_next = False
+        for arg in [str(item) for item in (args or [])]:
+            if skip_next:
+                skip_next = False
+                continue
+            if arg in ("--kv-cache-dtype", "--kv_cache_dtype"):
+                skip_next = True
+                continue
+            if (
+                arg.startswith("--kv-cache-dtype=")
+                or arg.startswith("--kv_cache_dtype=")
+                or arg in ("--calculate-kv-scales", "--no-calculate-kv-scales")
+            ):
+                continue
+            normalized.append(arg)
+        normalized.append("--kv-cache-dtype=" + kv_cache_type)
+        if kv_cache_type == "fp8":
+            normalized.append("--calculate-kv-scales")
         return normalized
 
 
@@ -1816,6 +1855,7 @@ data:
         local = merged_local_model(activation, presets, compute_catalog)
         compute_target = local.get("computeTarget") or "nvidia-gpu"
         engine = local.get("engine") or "VLLM"
+        kv_cache_type = normalize_kv_cache_type(engine, local.get("kvCacheType"))
         resource_profile = local.get("resourceProfile")
         base_resource_profile = resource_profile
         offloading = offloading_runtime(local, engine, compute_target)
@@ -1823,6 +1863,8 @@ data:
             "kind": "cpu" if compute_target == "cpu" else "gpu"
         }
         accelerator_backed = target_definition.get("kind") == "gpu"
+        if engine == "VLLM" and kv_cache_type == "fp8" and compute_target not in ("nvidia-gpu", "amd-gpu"):
+            raise ValueError("vLLM FP8 KV cache is available only on CUDA and ROCm targets")
         url = (local.get("url") or "").strip()
         vram_mi = local_model_vram_mi(local)
         memory_mi = positive_int(local.get("memoryRequiredMi")) or 0
@@ -1874,6 +1916,7 @@ data:
                 env.pop("MAGICSTICK_VLLM_VRAM_LIMIT", None)
                 env.pop("VLLM_CPU_KVCACHE_SPACE", None)
             args = model_args_with_runtime_limits(local.get("args") or [], context_window, max_num_seqs)
+            args = model_args_with_kv_cache(args, kv_cache_type)
             if compute_target == "cpu":
                 kv_cache_memory_bytes = positive_int(local.get("kvCacheMemoryBytes")) or 536870912
                 args = model_args_with_cpu_cache(args, kv_cache_memory_bytes)
@@ -1890,6 +1933,8 @@ data:
                 env.pop(key, None)
             env["OLLAMA_MAX_LOADED_MODELS"] = "1"
             env["OLLAMA_SCHED_SPREAD"] = "false"
+            env["OLLAMA_KV_CACHE_TYPE"] = kv_cache_type
+            env["OLLAMA_FLASH_ATTENTION"] = "1"
             if context_window:
                 env["OLLAMA_CONTEXT_LENGTH"] = str(context_window)
             if max_num_seqs:
@@ -1930,6 +1975,7 @@ data:
             "artifact": str(local.get("artifact") or ""),
             "precision": str(local.get("precision") or ""),
             "quantization": str(local.get("quantization") or ""),
+            "kvCacheType": kv_cache_type,
             "resourceProfile": resource_profile,
             "vramMi": vram_mi,
             "memoryMi": memory_mi,
@@ -1950,12 +1996,21 @@ data:
         model_type = spec.get("type") or "local"
         namespace = spec.get("targetNamespace") or "ai"
         model_ref = ("kubeai/" + name) if model_type == "local" else ("litellm/" + name)
+        requested_cache_type = ""
+        if model_type == "local":
+            requested_local = spec.get("local") or {}
+            requested_cache_type = str(
+                requested_local.get("kvCacheType")
+                or ("f16" if str(requested_local.get("engine") or "VLLM").strip().upper() == "OLLAMA" else "auto")
+            )
         runtime = {
             "computeTarget": local_compute_target(activation) if model_type == "local" else "external",
             "engine": str(((spec.get("local") or {}).get("engine") or "VLLM")) if model_type == "local" else "external",
             "artifact": str(((spec.get("local") or {}).get("artifact") or "")) if model_type == "local" else "",
             "precision": "",
             "quantization": "",
+            "kvCacheType": requested_cache_type,
+            "runtimeReady": False,
             "resourceProfile": "",
             "vramMi": 0,
             "memoryMi": 0,
@@ -1971,6 +2026,8 @@ data:
                 "artifact": runtime.get("artifact", ""),
                 "precision": runtime.get("precision", ""),
                 "quantization": runtime.get("quantization", ""),
+                "requestedKvCacheType": runtime.get("kvCacheType", ""),
+                "effectiveKvCacheType": runtime.get("kvCacheType", "") if runtime.get("runtimeReady") else "",
                 "resolvedResourceProfile": runtime["resourceProfile"],
                 "vramRequiredMi": runtime["vramMi"],
                 "memoryRequiredMi": runtime["memoryMi"],
@@ -1996,6 +2053,8 @@ data:
                 artifact=runtime.get("artifact", ""),
                 precision=runtime.get("precision", ""),
                 quantization=runtime.get("quantization", ""),
+                requested_kv_cache_type=runtime.get("kvCacheType", ""),
+                effective_kv_cache_type=runtime.get("kvCacheType", "") if runtime.get("runtimeReady") else "",
                 memory_usage=runtime.get("memoryUsage"),
             )
 
@@ -2090,6 +2149,7 @@ data:
                 message = f"Waiting for KubeAI/{runtime['engine']} on {runtime['computeTarget']} to become ready: {ready_replicas}/{expected_replicas} replicas ready."
                 patch_status("Starting", "WaitingForReadyReplica", message, name)
                 return "Starting", status_payload("Starting", message, name)
+            runtime["runtimeReady"] = True
             if runtime["engine"] == "OLlama":
                 alias_ready, message = ensure_ollama_model_alias(
                     namespace,

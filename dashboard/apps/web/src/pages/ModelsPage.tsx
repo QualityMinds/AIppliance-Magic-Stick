@@ -20,6 +20,10 @@ const quantizationText = (value: unknown) => {
   return item.label ?? [item.method, item.bits ? `${item.bits}-bit` : ''].filter(Boolean).join(' ');
 };
 
+const fallbackKvCacheOptions = (engine: string) => engine === 'OLlama'
+  ? [{value: 'f16', label: 'Standard - F16', description: 'Highest cache precision.'}]
+  : [{value: 'auto', label: 'Standard - model precision', description: 'Uses the model precision selected by vLLM.'}];
+
 const MemoryGauge = ({device}: {device: ComputeMemoryDevice}) => {
   const total = Math.max(1, device.totalMi ?? 0);
   const unreserved = Math.max(0, device.unreservedMi ?? total);
@@ -43,6 +47,7 @@ const EstimateBreakdown = ({estimate}: {estimate: MemoryEstimate}) => {
   const hybridSafetyMi = Number(estimate.hybridAllocatorSafetyMi ?? Math.max(0, kvBudgetMi - baseKvMi));
   const attentionKvMi = Number(runtime.attentionKvCacheMi ?? 0);
   const recurrentStateMi = Number(runtime.recurrentStateMi ?? 0);
+  const kvSavingsMi = Number(estimate.kvCacheSavingsMi ?? 0);
   const hasDetailedOllamaCache = attentionKvMi > 0 || recurrentStateMi > 0;
   const runtimeParts = [
     {label: 'Compile / warm-up', key: 'compileReserveMi', value: Number(runtime.compileReserveMi ?? 0)},
@@ -61,6 +66,7 @@ const EstimateBreakdown = ({estimate}: {estimate: MemoryEstimate}) => {
         ]
       : [{label: hasTheoreticalKv ? 'Theoretical KV cache' : 'Estimated KV cache', key: hasTheoreticalKv ? 'theoreticalKvCacheMi' : 'kvCacheMi', value: formatMi(baseKvMi)}]),
     ...(hybridSafetyMi > 0 ? [{label: 'Hybrid allocator safety', key: 'hybridAllocatorSafetyMi', value: formatMi(hybridSafetyMi)}] : []),
+    ...(kvSavingsMi > 0 ? [{label: 'KV cache saving vs F16', key: 'kvCacheSavingsMi', value: formatMi(kvSavingsMi)}] : []),
     ...runtimeParts.map((item) => ({...item, value: formatMi(item.value)})),
     ...(otherRuntimeMi > 0 ? [{label: 'Other runtime reserve', key: 'otherRuntimeMi', value: formatMi(otherRuntimeMi)}] : []),
     ...(Number(estimate.recommendedReserveMi ?? 0) > 0 ? [{label: 'Recommended headroom', key: 'recommendedReserveMi', value: formatMi(estimate.recommendedReserveMi)}] : []),
@@ -136,6 +142,12 @@ const LocalModelForm = ({models, onClose, onCreated}: {models: ModelsPayload; on
   const [engine, setEngine] = useState(engineOptions[0] ?? 'VLLM');
   const targets = availableTargets.filter((target) => target.engines?.includes(engine));
   const [computeTarget, setComputeTarget] = useState(targets[0]?.id ?? models.computeTargets.default ?? 'cpu');
+  const selectedTarget = availableTargets.find((target) => target.id === computeTarget);
+  const kvCacheOptions = useMemo(
+    () => selectedTarget?.kvCacheTypes?.[engine] ?? fallbackKvCacheOptions(engine),
+    [engine, selectedTarget],
+  );
+  const [kvCacheType, setKvCacheType] = useState(kvCacheOptions[0]?.value ?? (engine === 'OLlama' ? 'f16' : 'auto'));
   const provider = engine === 'OLlama' ? 'ollama' : 'huggingface';
   const [source, setSource] = useState<'search' | 'preset' | 'direct'>('search');
   const [name, setName] = useState(''); const [modelType, setModelType] = useState('chat');
@@ -158,6 +170,12 @@ const LocalModelForm = ({models, onClose, onCreated}: {models: ModelsPayload; on
     if (!nextTargets.some((target) => target.id === computeTarget)) setComputeTarget(nextTargets[0]?.id ?? 'cpu');
     setUrl(''); setPresetId(''); setArtifactId(''); setSearchResults([]); setArtifacts([]); setEstimate(undefined);
   }, [engine]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!kvCacheOptions.some((option) => option.value === kvCacheType)) {
+      setKvCacheType(kvCacheOptions[0]?.value ?? (engine === 'OLlama' ? 'f16' : 'auto'));
+    }
+  }, [computeTarget, engine, kvCacheOptions, kvCacheType]);
 
   useEffect(() => {
     let cancelled = false;
@@ -204,12 +222,12 @@ const LocalModelForm = ({models, onClose, onCreated}: {models: ModelsPayload; on
     let cancelled = false;
     const timer = window.setTimeout(async () => {
       try {
-        const result = await api.estimateMemory({engine, computeTarget, url, contextWindow, maxNumSeqs, modelType, cpuOffloading: true, vramMi: selectedMi});
+        const result = await api.estimateMemory({engine, computeTarget, url, contextWindow, maxNumSeqs, modelType, kvCacheType, cpuOffloading: true, vramMi: selectedMi});
         if (!cancelled) setOffloadEstimate(result);
       } catch (reason) { if (!cancelled) setOffloadError(reason); }
     }, 350);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [cpuOffloading, supportsOffloading, engine, computeTarget, url, contextWindow, maxNumSeqs, modelType, selectedMi]);
+  }, [cpuOffloading, supportsOffloading, engine, computeTarget, url, contextWindow, maxNumSeqs, modelType, kvCacheType, selectedMi]);
 
   const applyModel = (nextUrl: string, artifact?: ModelArtifact, variant?: ModelVariant) => {
     setUrl(nextUrl); setName((current) => current || safeModelName(nextUrl));
@@ -228,7 +246,7 @@ const LocalModelForm = ({models, onClose, onCreated}: {models: ModelsPayload; on
     let cancelled = false;
     const timer = window.setTimeout(async () => {
       try {
-        const result = await api.estimateMemory({engine, computeTarget, url, contextWindow, maxNumSeqs, modelType});
+        const result = await api.estimateMemory({engine, computeTarget, url, contextWindow, maxNumSeqs, modelType, kvCacheType});
         if (!cancelled) {
           setEstimate(result);
           const maximum = capacityKnown ? Math.max(100, Math.floor(availableMi / 100) * 100) : roundMemory(result.recommendedMi);
@@ -238,7 +256,7 @@ const LocalModelForm = ({models, onClose, onCreated}: {models: ModelsPayload; on
       } catch (reason) { if (!cancelled) setFormError(reason); }
     }, 350);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [computeTarget, contextWindow, engine, maxNumSeqs, modelType, url, cpuOffloading]);
+  }, [computeTarget, contextWindow, engine, kvCacheType, maxNumSeqs, modelType, url, cpuOffloading]);
 
   const searchParams = (query: string, cursor?: string | null) => {
     const params = new URLSearchParams({provider, q: query, engine, computeTarget, modelType, limit: '20'});
@@ -279,7 +297,7 @@ const LocalModelForm = ({models, onClose, onCreated}: {models: ModelsPayload; on
       if (invalidBudget) throw new Error('Enter positive memory budgets in steps of 100 MiB.');
       const target = availableTargets.find((item) => item.id === computeTarget);
       if (!target?.available || !target.engines?.includes(engine)) throw new Error('The selected engine and hardware combination is not available.');
-      const local: Record<string, unknown> = {modelType, computeTarget, engine, contextWindow, maxNumSeqs};
+      const local: Record<string, unknown> = {modelType, computeTarget, engine, contextWindow, maxNumSeqs, kvCacheType};
       if (hasMemoryRisk) local.allowMemoryRisk = true;
       if (target.kind === 'cpu' || computeTarget === 'cpu') local.memoryRequiredMi = selectedMi; else local.vram = `${selectedMi}Mi`;
       if (supportsOffloading) {
@@ -318,7 +336,8 @@ const LocalModelForm = ({models, onClose, onCreated}: {models: ModelsPayload; on
     {source === 'preset' && <div className="stack compact discovery-selects"><Field label="Preset"><select value={presetId} onChange={(event) => { setPresetId(event.target.value); setArtifactId(''); }}><option value="">Select a tested preset</option>{presets.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></Field><Field label="Precision / Quantization"><select value={artifactId} onChange={(event) => setArtifactId(event.target.value)} disabled={!selectedPreset}><option value="">Default artifact</option>{selectedPreset?.variant.artifacts?.map((item) => <option key={item.id} value={item.id}>{item.title ?? item.id}</option>)}</select></Field></div>}
     {source === 'direct' && <Field label={engine === 'OLlama' ? 'Ollama model reference' : 'Hugging Face URL'}><input value={url} onChange={(event) => { const nextUrl = event.target.value; setUrl(nextUrl); if (nextUrl) setName((current) => current || safeModelName(nextUrl)); }} placeholder={engine === 'OLlama' ? 'ollama://qwen3.5:9b' : 'hf://Qwen/Qwen3.6-27B'} required /></Field>}
 
-    <div className="form-grid three"><Field label="Name"><input value={name} onChange={(event) => setName(event.target.value)} required /></Field><Field label="Type"><select value={modelType} onChange={(event) => setModelType(event.target.value)}><option value="chat">Chat</option><option value="embedding">Embedding</option></select></Field><Field label="Selected URL"><input value={url} readOnly /></Field><Field label="Max Num Seqs"><input type="number" min="1" value={maxNumSeqs} onChange={(event) => setMaxNumSeqs(Number(event.target.value))} /></Field><Field label="Context Size"><input type="number" min="1" value={contextWindow} onChange={(event) => setContextWindow(Number(event.target.value))} /></Field></div>
+    <div className="form-grid three"><Field label="Name"><input value={name} onChange={(event) => setName(event.target.value)} required /></Field><Field label="Type"><select value={modelType} onChange={(event) => setModelType(event.target.value)}><option value="chat">Chat</option><option value="embedding">Embedding</option></select></Field><Field label="Selected URL"><input value={url} readOnly /></Field><Field label="Max Num Seqs"><input type="number" min="1" value={maxNumSeqs} onChange={(event) => setMaxNumSeqs(Number(event.target.value))} /></Field><Field label="Context Size"><input type="number" min="1" value={contextWindow} onChange={(event) => setContextWindow(Number(event.target.value))} /></Field><Field label="KV Cache"><select value={kvCacheType} onChange={(event) => setKvCacheType(event.target.value)}>{kvCacheOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field></div>
+    <p className="muted">{kvCacheOptions.find((option) => option.value === kvCacheType)?.description} Attention-cache values are recalculated immediately; recurrent state and runtime reserve remain separate.</p>
     <EstimatePanel estimate={cpuOffloading ? offloadEstimate ?? estimate : estimate} availableMi={availableMi} capacityKnown={capacityKnown} selectedMi={selectedMi} onSelected={setSelectedMi} hideBreakdown={cpuOffloading} />
     {supportsOffloading && <Panel title="CPU offloading" className="nested-panel">
       <label className="check-field"><input type="checkbox" checked={cpuOffloading} onChange={(event) => setCpuOffloading(event.target.checked)} />Use additional system RAM</label>
@@ -388,7 +407,7 @@ export const ModelsPage = ({session}: {session: Session}) => {
       const target = String(activation.status?.computeTarget ?? local?.computeTarget ?? (local ? 'nvidia-gpu' : 'external'));
       const isCpu = target === 'cpu';
       return <Panel key={activation.metadata?.name} title={activation.metadata?.name ?? 'unnamed'} meta={`${activation.spec?.type ?? (local ? 'local' : 'external')} · ${String(local?.modelType ?? external?.modelType ?? 'chat')}`} actions={<StatusBadge phase={phase} />}>
-        <div className="tag-list">{local && <><span className="tag">Compute: {target}</span><span className="tag">Engine: {String(activation.status?.engine ?? local.engine ?? 'VLLM')}</span>{(activation.status?.artifact || local.artifact) && <span className="tag">Artifact: {String(activation.status?.artifact ?? local.artifact)}</span>}{(activation.status?.format || local.format) && <span className="tag">Format: {String(activation.status?.format ?? local.format)}</span>}{(activation.status?.quantization || local.quantization) && <span className="tag">Quantization: {quantizationText(activation.status?.quantization ?? local.quantization)}</span>}<span className="tag">{isCpu ? 'RAM' : 'VRAM'}: {isCpu ? formatMi(Number(activation.status?.memoryRequiredMi ?? local.memoryRequiredMi)) : activation.status?.vramRequiredMi ? formatMi(Number(activation.status.vramRequiredMi)) : String(local.vram ?? 'default')}</span><span className="tag">Context: {String(local.contextWindow ?? 'default')}</span><span className="tag">Max seqs: {String(local.maxNumSeqs ?? 'default')}</span><span className="tag">Target: {String(activation.spec?.targetNamespace ?? 'ai')}</span></>}{external && <><span className="tag">Provider: {String(external.model ?? 'external')}</span><span className="tag">Context: {String(external.contextWindow ?? 'default')}</span></>}</div>
+        <div className="tag-list">{local && <><span className="tag">Compute: {target}</span><span className="tag">Engine: {String(activation.status?.engine ?? local.engine ?? 'VLLM')}</span>{(activation.status?.artifact || local.artifact) && <span className="tag">Artifact: {String(activation.status?.artifact ?? local.artifact)}</span>}{(activation.status?.format || local.format) && <span className="tag">Format: {String(activation.status?.format ?? local.format)}</span>}{(activation.status?.quantization || local.quantization) && <span className="tag">Quantization: {quantizationText(activation.status?.quantization ?? local.quantization)}</span>}<span className="tag">KV requested: {String(activation.status?.requestedKvCacheType ?? local.kvCacheType ?? (String(local.engine ?? 'VLLM') === 'OLlama' ? 'f16' : 'auto'))}</span><span className="tag">KV active: {String(activation.status?.effectiveKvCacheType || 'pending confirmation')}</span><span className="tag">{isCpu ? 'RAM' : 'VRAM'}: {isCpu ? formatMi(Number(activation.status?.memoryRequiredMi ?? local.memoryRequiredMi)) : activation.status?.vramRequiredMi ? formatMi(Number(activation.status.vramRequiredMi)) : String(local.vram ?? 'default')}</span><span className="tag">Context: {String(local.contextWindow ?? 'default')}</span><span className="tag">Max seqs: {String(local.maxNumSeqs ?? 'default')}</span><span className="tag">Target: {String(activation.spec?.targetNamespace ?? 'ai')}</span></>}{external && <><span className="tag">Provider: {String(external.model ?? 'external')}</span><span className="tag">Context: {String(external.contextWindow ?? 'default')}</span></>}</div>
         <ProgressBar phase={phase} enabled={activation.spec?.enabled !== false} message={activation.status?.message} />
         {local && <OffloadingStatus local={local} status={activation.status} />}
         <p className="muted">{String(activation.status?.message ?? activation.status?.modelRef ?? 'Waiting for catalog registration.')}</p>

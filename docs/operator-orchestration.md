@@ -182,7 +182,13 @@ exists: an allocatable extended resource must be present on a compatible node.
 
 After the KubeAI `Model` is created, its `ModelActivation` remains in
 `Starting` while `status.replicas.ready` is zero. The operator reports the
-current ready-replica count and selected engine in the status message. Ollama
+current ready-replica count and selected engine in the status message. Local
+models always report `status.requestedKvCacheType`, but
+`status.effectiveKvCacheType` stays empty until a generated runtime replica is
+Ready. vLLM receives the normalized `--kv-cache-dtype` argument (plus startup
+scale calculation for FP8); Ollama receives `OLLAMA_KV_CACHE_TYPE` and forced
+Flash Attention. Unsupported engine/target/cache combinations fail before a
+KubeAI Model is created. Ollama
 receives an additional runtime check: the operator reads `/api/tags` from every
 Ready model pod, waits until the registry source tag is present, and
 idempotently creates the KubeAI model-name alias through `/api/copy` when the

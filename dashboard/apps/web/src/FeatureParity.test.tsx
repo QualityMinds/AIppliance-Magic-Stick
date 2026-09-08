@@ -1,5 +1,5 @@
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
-import {render, screen, within} from '@testing-library/react';
+import {render, screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import type {ReactElement} from 'react';
@@ -39,8 +39,14 @@ const models = {
   models: [{id: 'qwen-chat', name: 'Qwen Chat', type: 'chat', provider: 'litellm', modelRef: 'openai/qwen-chat'}, {id: 'embedding-only', type: 'embedding', provider: 'litellm'}],
   activations: [{metadata: {name: 'qwen-chat'}, spec: {type: 'local', enabled: true, targetNamespace: 'ai', local: {modelType: 'chat', computeTarget: 'cpu', engine: 'VLLM', contextWindow: 32768, maxNumSeqs: 1, memoryRequiredMi: 6400}}, status: {phase: 'Ready', modelRef: 'hf://Qwen/Qwen3.5-9B'}}],
   presets: {qwen: {displayName: 'Qwen tested', variants: [{engine: 'VLLM', computeTarget: 'cpu', url: 'hf://Qwen/Qwen3.5-9B', contextWindow: 32768, maxNumSeqs: 1}]}},
-  computeTargets: {default: 'cpu', targets: [{id: 'cpu', kind: 'cpu', displayName: 'CPU', engines: ['VLLM', 'OLlama'], available: true}]},
-  computeMemory: {devices: [{id: 'cpu', name: 'CPU', kind: 'cpu', computeTarget: 'cpu', totalMi: 65536, reservedMi: 6400, unreservedMi: 59136, freeMi: 50000, metricsAvailable: true}]},
+  computeTargets: {default: 'cpu', targets: [{id: 'cpu', kind: 'cpu', displayName: 'CPU', engines: ['VLLM', 'OLlama'], available: true, kvCacheTypes: {
+    VLLM: [{value: 'auto', label: 'Standard - model precision'}],
+    OLlama: [{value: 'f16', label: 'Standard - F16'}, {value: 'q8_0', label: 'Memory saving - Q8'}, {value: 'q4_0', label: 'Strongly compressed - Q4'}],
+  }}, {id: 'nvidia-gpu', kind: 'gpu', displayName: 'NVIDIA GPU', engines: ['VLLM', 'OLlama'], available: true, kvCacheTypes: {
+    VLLM: [{value: 'auto', label: 'Standard - model precision'}, {value: 'fp8', label: 'FP8'}],
+    OLlama: [{value: 'f16', label: 'Standard - F16'}, {value: 'q8_0', label: 'Memory saving - Q8'}, {value: 'q4_0', label: 'Strongly compressed - Q4'}],
+  }}]},
+  computeMemory: {devices: [{id: 'cpu', name: 'CPU', kind: 'cpu', computeTarget: 'cpu', totalMi: 65536, reservedMi: 6400, unreservedMi: 59136, freeMi: 50000, metricsAvailable: true}, {id: 'gpu-1', name: 'NVIDIA GPU', kind: 'gpu', computeTarget: 'nvidia-gpu', totalMi: 24564, reservedMi: 0, unreservedMi: 24564, freeMi: 23000, metricsAvailable: true}]},
   modules: {kubeai: {enabled: true, autoEnabled: true}},
 };
 const status = {
@@ -76,6 +82,9 @@ const payload = (path: string, method: string) => {
     maximumMi: 59136,
     weightsMi: 3800,
     kvCacheMi: 700,
+    kvCacheType: 'fp8',
+    kvCacheBaselineMi: 1050,
+    kvCacheSavingsMi: 350,
     theoreticalKvCacheMi: 175,
     hybridAllocatorSafetyMi: 525,
     reserveMi: 1000,
@@ -140,6 +149,13 @@ describe('dashboard feature contracts', () => {
     await userEvent.type(screen.getByLabelText('Hugging Face URL'), 'hf://Qwen/Qwen3.5-9B');
     expect(await screen.findByText('RAM reservation')).toBeInTheDocument();
     expect(screen.getByLabelText('Max Num Seqs')).toHaveValue(1);
+    expect(screen.getByLabelText('KV Cache')).toHaveValue('auto');
+    expect(within(screen.getByLabelText('KV Cache')).queryByRole('option', {name: 'FP8'})).not.toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText('Hardware'), 'nvidia-gpu');
+    expect(await within(screen.getByLabelText('KV Cache')).findByRole('option', {name: 'FP8'})).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText('KV Cache'), 'fp8');
+    expect(await screen.findByText('KV cache saving vs F16')).toBeInTheDocument();
+    await waitFor(() => expect(requestLog.some((item) => item.path === '/api/models/estimate-memory' && (item.body as {kvCacheType?: string})?.kvCacheType === 'fp8')).toBe(true));
     expect(screen.getByText('Breakdown')).toBeInTheDocument();
     await userEvent.click(screen.getByText('Breakdown'));
     expect(screen.getByText('Theoretical KV cache')).toBeInTheDocument();

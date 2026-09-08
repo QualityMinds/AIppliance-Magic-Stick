@@ -84,7 +84,9 @@ The TUI has the same role-filtered areas as the browser: Overview, Services,
 Models, Settings, Users, API Access, License, Kubernetes, and System. Use left/right or
 `h`/`l` to change page, up/down or `k`/`j` to select an item, `r` to refresh,
 and `q` to quit. Operators can enable and disable catalog services and add or
-remove local and external models. Administrators can additionally create,
+remove local and external models. The local-model form offers only KV-cache
+formats compatible with its chosen engine and hardware and shows the requested
+or Ready-confirmed effective format in the Models view. Administrators can additionally create,
 edit, enable, disable, reset, and delete local users; create and revoke named
 API keys; assign and revoke Kubernetes roles; and copy token-free kubeconfigs
 through OSC 52 when the terminal supports it. Every destructive operation is

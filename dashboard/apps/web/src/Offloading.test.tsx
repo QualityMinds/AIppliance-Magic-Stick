@@ -8,7 +8,10 @@ import {api} from './api';
 vi.mock('./api', () => ({api: {models: vi.fn(), popularModels: vi.fn(), estimateMemory: vi.fn(), createLocalModel: vi.fn()}}));
 const fixture = {
   activations: [], presets: {}, models: [],
-  computeTargets: {targets: [{id: 'nvidia-gpu', kind: 'gpu', available: true, engines: ['VLLM', 'OLlama']}]},
+  computeTargets: {targets: [{id: 'nvidia-gpu', kind: 'gpu', available: true, engines: ['VLLM', 'OLlama'], kvCacheTypes: {
+    VLLM: [{value: 'auto', label: 'Standard - model precision'}, {value: 'fp8', label: 'FP8'}],
+    OLlama: [{value: 'f16', label: 'Standard - F16'}, {value: 'q8_0', label: 'Memory saving - Q8'}, {value: 'q4_0', label: 'Strongly compressed - Q4'}],
+  }}]},
   computeMemory: {devices: [{id: 'gpu-1', computeTarget: 'nvidia-gpu', unreservedMi: 12000, totalMi: 24000, freeMi: 12000}]},
 };
 const plan = {enabled: true, mode: 'weights' as const, vramBudgetMi: 12000, weightsOnGpuMi: 8000, weightsOnCpuMi: 4000,
@@ -44,9 +47,20 @@ describe('CPU offloading model configuration', () => {
     await waitFor(() => expect(screen.getByLabelText('Host RAM budget (MiB)')).toHaveValue(12300));
     expect(screen.getByText('Weights · GPU')).toBeInTheDocument();
     await user.click(screen.getByRole('button', {name: 'Add Local Model'}));
-    await waitFor(() => expect(api.createLocalModel).toHaveBeenCalledWith(expect.objectContaining({local: expect.objectContaining({cpuOffloading: true, memoryRequiredMi: 12300, vram: '12000Mi'})})));
+    await waitFor(() => expect(api.createLocalModel).toHaveBeenCalledWith(expect.objectContaining({local: expect.objectContaining({cpuOffloading: true, memoryRequiredMi: 12300, vram: '12000Mi', kvCacheType: 'auto'})})));
     expect((vi.mocked(api.createLocalModel).mock.calls[0]![0] as {local: Record<string, unknown>}).local).not.toHaveProperty('cpuOffloadMi');
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
+  it('offers compatible cache formats and recalculates for the selected value', async () => {
+    const user = await openForm();
+    expect(screen.getByLabelText('KV Cache')).toHaveValue('auto');
+    await user.selectOptions(screen.getByLabelText('KV Cache'), 'fp8');
+    await waitFor(() => expect(api.estimateMemory).toHaveBeenCalledWith(expect.objectContaining({kvCacheType: 'fp8'})));
+    await user.selectOptions(screen.getByLabelText('Inference Engine'), 'OLlama');
+    await waitFor(() => expect(screen.getByLabelText('KV Cache')).toHaveValue('f16'));
+    expect(screen.getByRole('option', {name: 'Memory saving - Q8'})).toBeInTheDocument();
+    expect(screen.getByRole('option', {name: 'Strongly compressed - Q4'})).toBeInTheDocument();
   });
 
   it('warns but permits explicit risk acceptance when host RAM cannot be verified', async () => {

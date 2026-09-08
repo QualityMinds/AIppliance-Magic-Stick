@@ -197,10 +197,30 @@ Recurrent state is separate and context-independent. Runtime reserves and
 recommended headroom explicitly remain heuristics; changing the explanation
 does not change the estimator's numerical behavior.
 
+**KV Cache** is an independent runtime choice beside **Context Size**. It does
+not change the checkpoint or weight quantization. Ollama offers F16, Q8_0, and
+Q4_0 on CPU, NVIDIA, and AMD. F16 uses two bytes per cached value; llama.cpp's
+Q8_0 stores each 32-value block in 34 bytes including its two-byte scale, and
+Q4_0 stores the same block in 18 bytes. The estimator applies those exact block
+sizes to attention K and V; recurrent state remains FP32 and is not reduced.
+The operator enables Flash Attention and sets `OLLAMA_KV_CACHE_TYPE` on the
+single-model pod.
+
+vLLM offers `auto` everywhere and FP8 only on the pinned CUDA/NVIDIA and
+ROCm/AMD runtimes. `auto` lets vLLM use the model precision and is estimated
+conservatively as two bytes per cache value; FP8 uses one. CPU and Intel XPU do
+not advertise FP8 because the pinned upstream compatibility contract does not
+guarantee it. The operator supplies `--kv-cache-dtype` and requests startup
+scale calculation for FP8. The memory API immediately recalculates attention
+cache, minimum, recommendation, and offloading when the selection changes; its
+info overlays show the selected format, per-token bytes, F16 baseline, and
+estimated saving.
+
 The terminal UI can create the same local and external activation types without
 a JSON file. A local TUI form lists only live engine/compute-target pairs,
 accepts a direct `hf://` or `ollama://` reference, obtains the normal server-side
-memory estimate, and rounds an automatic recommendation upward to the same
+memory estimate, offers only KV-cache formats compatible with the selected
+runtime/target, and rounds an automatic recommendation upward to the same
 100 MiB planning increment as the browser. An explicit reservation remains
 possible. NVIDIA models also expose the opt-in **Use additional system RAM**
 choice and a separate total host-RAM budget. Leaving that budget empty uses the
@@ -285,6 +305,13 @@ reading physical memory from the CUDA, ROCm, or XPU runtime. Small allocations
 use the exact budget-to-physical-memory ratio; the wrapper does not silently
 raise them to a five-percent minimum. A 98-percent upper safety cap remains so
 runtime overhead cannot consume the entire device.
+
+`spec.local.kvCacheType` stores the requested cache representation. Existing
+activations default to `auto` for vLLM and `f16` for Ollama. The operator reports
+that intent as `status.requestedKvCacheType`; it reports
+`status.effectiveKvCacheType` only after a pod with the generated runtime
+configuration is Ready. A missing effective value therefore means pending or
+failed confirmation, not a silent fallback to the requested low-memory format.
 
 Ollama variants use `ollama://` registry references, keep one model loaded per
 pod, map context and parallelism to supported Ollama environment variables,

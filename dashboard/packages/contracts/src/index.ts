@@ -217,8 +217,16 @@ export interface ComputeTarget {
   kind?: 'cpu' | 'gpu' | string;
   displayName?: string;
   engines?: string[];
+  kvCacheTypes?: Record<string, KvCacheOption[]>;
   available?: boolean;
   message?: string;
+}
+
+export interface KvCacheOption {
+  value: 'auto' | 'fp8' | 'f16' | 'q8_0' | 'q4_0' | string;
+  label: string;
+  description?: string;
+  relativeSize?: number;
 }
 
 export interface ComputeMemoryDevice {
@@ -370,6 +378,9 @@ export interface MemoryEstimate {
   downloadBytes?: number;
   quantization?: Quantization | null;
   kvCacheMi?: number;
+  kvCacheType?: string;
+  kvCacheBaselineMi?: number;
+  kvCacheSavingsMi?: number;
   theoreticalKvCacheMi?: number | null;
   hybridAllocatorSafetyMi?: number;
   kvCompatibilityFactor?: number;

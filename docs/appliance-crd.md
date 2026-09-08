@@ -220,6 +220,7 @@ spec:
     artifact: bf16
     computeTarget: cpu
     engine: VLLM
+    kvCacheType: auto
     memoryRequiredMi: 4096
     kvCacheMemoryBytes: 536870912
 ```
@@ -233,6 +234,13 @@ For CPU vLLM models created through the dashboard, `kvCacheMemoryBytes` is
 derived server-side from HuggingFace architecture metadata, context size, and
 maximum sequences. Direct and legacy resources may omit it and receive the
 operator's 512 MiB compatibility fallback.
+
+`local.kvCacheType` selects cache precision independently from weight
+quantization. Defaults preserve existing resources: `auto` for vLLM and `f16`
+for Ollama. vLLM accepts `fp8` only with `computeTarget: nvidia-gpu` or
+`amd-gpu`; CPU and Intel XPU accept only `auto`. Ollama accepts `f16`, `q8_0`,
+or `q4_0` on each supported Ollama target. The API and operator both reject
+incompatible combinations rather than starting with a silent fallback.
 
 `local.artifact` is an ID from the preset variant selected by `engine` and
 `computeTarget`. For example, Qwen presets can expose `bf16`, `fp8`,
@@ -276,11 +284,19 @@ spec:
     artifact: q4-k-m # alternatively q8-0 or fp16 for this preset
     computeTarget: cpu # alternatively nvidia-gpu or amd-gpu
     engine: OLlama
+    kvCacheType: q8_0
     memoryRequiredMi: 2048
 ```
 
 Intel is currently a vLLM-only target. An Ollama/Intel activation is rejected
 until a validated KubeAI image and resource profile are added.
+
+For vLLM, the operator maps the field to `--kv-cache-dtype`; FP8 additionally
+enables dynamic K/V scale calculation. For Ollama it sets
+`OLLAMA_KV_CACHE_TYPE` and `OLLAMA_FLASH_ATTENTION=1`. Status exposes
+`requestedKvCacheType` immediately and `effectiveKvCacheType` only after the
+generated runtime has a Ready replica. The latter confirms the applied startup
+configuration, not measured cache allocation.
 
 ### CPU offloading fields
 

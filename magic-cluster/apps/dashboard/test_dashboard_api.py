@@ -302,6 +302,24 @@ class LocalRuntimeTests(unittest.TestCase):
         self.assertFalse(targets["nvidia-gpu"]["available"])
         self.assertEqual(targets["nvidia-gpu"]["reason"], "capability-module-disabled")
         self.assertEqual(availability["default"], "cpu")
+        self.assertEqual([item["value"] for item in targets["cpu"]["kvCacheTypes"]["VLLM"]], ["auto"])
+        self.assertEqual(
+            [item["value"] for item in targets["cpu"]["kvCacheTypes"]["OLlama"]],
+            ["f16", "q8_0", "q4_0"],
+        )
+
+    def test_cpu_fp8_cache_is_not_offered_even_with_vector_extensions(self):
+        self.server["ready_schedulable_nodes"] = lambda: [{
+            "metadata": {"labels": {
+                "kubernetes.io/os": "linux",
+                "feature.node.kubernetes.io/cpu-cpuid.AVX512F": "true",
+            }},
+            "status": {"nodeInfo": {"architecture": "amd64"}, "allocatable": {}},
+        }]
+
+        cpu = next(item for item in self.server["compute_target_availability"]({"modules": {}})["targets"] if item["id"] == "cpu")
+
+        self.assertEqual([item["value"] for item in cpu["kvCacheTypes"]["VLLM"]], ["auto"])
 
     def test_nvidia_requires_enabled_module_and_allocatable_gpu(self):
         modules = {
@@ -335,6 +353,10 @@ class LocalRuntimeTests(unittest.TestCase):
         }
         self.assertTrue(targets["nvidia-gpu"]["available"])
         self.assertEqual(targets["nvidia-gpu"]["reason"], "ready")
+        self.assertEqual(
+            [item["value"] for item in targets["nvidia-gpu"]["kvCacheTypes"]["VLLM"]],
+            ["auto", "fp8"],
+        )
 
     def test_nvidia_is_available_while_flux_reconciles_when_resource_is_allocatable(self):
         modules = {
@@ -423,9 +445,30 @@ class LocalRuntimeTests(unittest.TestCase):
             targets["amd-gpu"]["resolvedResourceProfiles"]["OLlama"],
             "magicstick-ollama-amd-gpu:1",
         )
+        self.assertEqual(
+            [item["value"] for item in targets["amd-gpu"]["kvCacheTypes"]["VLLM"]],
+            ["auto", "fp8"],
+        )
         self.assertTrue(targets["intel-gpu"]["available"])
         self.assertEqual(targets["intel-gpu"]["selectedResourceName"], "gpu.intel.com/xe")
         self.assertEqual(targets["intel-gpu"]["resolvedResourceProfile"], "magicstick-intel-xe-gpu:1")
+        self.assertEqual(
+            [item["value"] for item in targets["intel-gpu"]["kvCacheTypes"]["VLLM"]],
+            ["auto"],
+        )
+
+    def test_incompatible_cache_type_is_rejected_against_target_contract(self):
+        target = {
+            "id": "cpu",
+            "displayName": "CPU",
+            "kvCacheTypes": {"VLLM": [{"value": "auto"}]},
+        }
+
+        with self.assertRaises(self.server["RequestError"]) as raised:
+            self.server["require_kv_cache_type_available"](target, "VLLM", "fp8")
+
+        self.assertEqual(raised.exception.status, 409)
+        self.assertIn("does not support fp8", str(raised.exception))
 
     def test_unavailable_nvidia_target_returns_conflict(self):
         self.server["summarized_modules"] = lambda: {
@@ -455,6 +498,7 @@ class LocalRuntimeTests(unittest.TestCase):
                 "vram": "99Gi",
                 "memoryRequiredMi": 3072,
                 "engine": "OLLAMA",
+                "kvCacheType": "q8",
                 "resourceProfile": "attacker-profile:1",
                 "args": ["--trust-remote-code"],
                 "env": {"DANGEROUS": "true"},
@@ -466,6 +510,7 @@ class LocalRuntimeTests(unittest.TestCase):
         local = resource["spec"]["local"]
         self.assertEqual(local["computeTarget"], "cpu")
         self.assertEqual(local["engine"], "OLlama")
+        self.assertEqual(local["kvCacheType"], "q8_0")
         self.assertEqual(local["preset"], "qwen2505bcpu")
         self.assertEqual(local["artifact"], "q4-k-m")
         self.assertEqual(local["memoryRequiredMi"], 3072)

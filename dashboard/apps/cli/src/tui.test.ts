@@ -22,8 +22,8 @@ const snapshot = (roles = ['magicstick-admin']): DashboardSnapshot => ({
   },
   instances: {instances: {hermes: [{metadata: {name: 'default'}, status: {phase: 'Ready'}}]}},
   models: {
-    models: [{name: 'qwen'}], activations: [{metadata: {name: 'qwen-local'}, spec: {type: 'local', local: {engine: 'VLLM', computeTarget: 'cpu'}}, status: {phase: 'Ready'}}], presets: {},
-    computeTargets: {default: 'cpu', targets: [{id: 'cpu', available: true, engines: ['VLLM']}]},
+    models: [{name: 'qwen'}], activations: [{metadata: {name: 'qwen-local'}, spec: {type: 'local', local: {engine: 'VLLM', computeTarget: 'cpu', kvCacheType: 'auto'}}, status: {phase: 'Ready', requestedKvCacheType: 'auto', effectiveKvCacheType: 'auto'}}], presets: {},
+    computeTargets: {default: 'cpu', targets: [{id: 'cpu', available: true, engines: ['VLLM'], kvCacheTypes: {VLLM: [{value: 'auto', label: 'Standard - model precision'}]}}]},
     computeMemory: {devices: [{id: 'cpu', name: 'CPU', totalMi: 65536, unreservedMi: 60000, freeMi: 50000}]},
   },
   settings: {publicDomain: 'magicstick.example.com', dashboardHost: 'magicstick.example.com', mdnsDomain: 'magicstick.local', mdnsName: 'magicstick'},
@@ -68,6 +68,7 @@ describe('terminal dashboard', () => {
   it('exposes the same administrative areas to administrators', () => {
     expect(availableTabs(snapshot())).toEqual(['Overview', 'Services', 'Models', 'Settings', 'Users', 'API Access', 'License', 'Kubernetes', 'System']);
     expect(tabLines('Models', snapshot()).join('\n')).toContain('CPU: 49 GiB free');
+    expect(tabLines('Models', snapshot()).join('\n')).toContain('KV auto');
     expect(renderTui(snapshot(), 0, 100, 30, false)).toContain('signed in: tova · admin');
   });
 
@@ -95,7 +96,7 @@ describe('terminal dashboard', () => {
       contextWindow: 32768, maxNumSeqs: 1, reservationMi: 12300,
     };
     expect(buildLocalModelPayload({...base, computeTarget: 'cpu'}, {id: 'cpu', kind: 'cpu'})).toMatchObject({
-      name: 'qwen', local: {memoryRequiredMi: 12300, computeTarget: 'cpu', url: base.reference},
+      name: 'qwen', local: {memoryRequiredMi: 12300, computeTarget: 'cpu', url: base.reference, kvCacheType: 'auto'},
     });
     expect(buildLocalModelPayload({...base, computeTarget: 'nvidia-gpu'}, {id: 'nvidia-gpu', kind: 'gpu'})).toMatchObject({
       name: 'qwen', local: {vram: '12300Mi', computeTarget: 'nvidia-gpu', url: base.reference},
@@ -108,9 +109,9 @@ describe('terminal dashboard', () => {
 
   it('keeps GPU and host budgets separate and lets the server derive offload controls', () => {
     const input = {name: 'hybrid', modelType: 'chat', engine: 'OLlama', reference: 'ollama://example:latest',
-      contextWindow: 4096, maxNumSeqs: 1, reservationMi: 12000, computeTarget: 'nvidia-gpu', cpuOffloading: true, hostMemoryMi: 16000};
+      contextWindow: 4096, maxNumSeqs: 1, kvCacheType: 'q4_0', reservationMi: 12000, computeTarget: 'nvidia-gpu', cpuOffloading: true, hostMemoryMi: 16000};
     const payload = buildLocalModelPayload(input, {id: 'nvidia-gpu', kind: 'gpu'});
-    expect(payload.local).toMatchObject({cpuOffloading: true, vram: '12000Mi', memoryRequiredMi: 16000});
+    expect(payload.local).toMatchObject({cpuOffloading: true, vram: '12000Mi', memoryRequiredMi: 16000, kvCacheType: 'q4_0'});
     expect(payload.local).not.toHaveProperty('ollamaGpuLayers');
     expect(payload.local).not.toHaveProperty('cpuOffloadMi');
     expect(() => buildLocalModelPayload({...input, computeTarget: 'cpu'}, {id: 'cpu', kind: 'cpu'})).toThrow('NVIDIA');

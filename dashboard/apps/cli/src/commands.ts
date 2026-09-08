@@ -315,9 +315,12 @@ const modelCommand = async (runtime: Runtime, parsed: ParsedArguments, io: CliIo
   if (!action || action === 'list') {
     const payload = await runtime.api.models();
     output(io, parsed, payload, () => [
-      table(['NAME', 'TYPE', 'PHASE', 'ENGINE', 'TARGET'], payload.activations.map((item) => {
+      table(['NAME', 'TYPE', 'PHASE', 'ENGINE', 'TARGET', 'KV CACHE'], payload.activations.map((item) => {
         const local = item.spec?.local ?? {};
-        return [item.metadata?.name, item.spec?.type, phase(item.status?.phase), String(local.engine ?? ''), String(local.computeTarget ?? '')];
+        const cache = item.status?.effectiveKvCacheType
+          ? String(item.status.effectiveKvCacheType)
+          : item.status?.requestedKvCacheType ? `${String(item.status.requestedKvCacheType)} (pending)` : String(local.kvCacheType ?? '');
+        return [item.metadata?.name, item.spec?.type, phase(item.status?.phase), String(local.engine ?? ''), String(local.computeTarget ?? ''), cache];
       })),
       '', 'Compute targets',
       table(['ID', 'AVAILABLE', 'ENGINES', 'MESSAGE'], payload.computeTargets.targets.map((target) => [target.id, target.available ? 'yes' : 'no', target.engines?.join(','), truncate(target.message)])),
@@ -337,8 +340,9 @@ const modelCommand = async (runtime: Runtime, parsed: ParsedArguments, io: CliIo
     output(io, parsed, result, () => table(['ARTIFACT', 'FORMAT', 'QUANTIZATION', 'SIZE'], result.artifacts.map((item) => [item.repo, item.format, item.quantization?.label, item.sizeLabel])));
   } else if (action === 'estimate') {
     const result = await runtime.api.estimateMemory(await readJsonPayload(parsed, io));
-    output(io, parsed, result, () => table(['MINIMUM', 'RECOMMENDED', 'WEIGHTS', 'KV CACHE', 'DOWNLOAD'], [[
-      formatMi(result.minimumMi), formatMi(result.recommendedMi), formatMi(result.weightsMi), formatMi(result.kvCacheMi), formatBytes(result.downloadBytes),
+    output(io, parsed, result, () => table(['MINIMUM', 'RECOMMENDED', 'WEIGHTS', 'KV CACHE', 'KV FORMAT', 'KV SAVING', 'DOWNLOAD'], [[
+      formatMi(result.minimumMi), formatMi(result.recommendedMi), formatMi(result.weightsMi), formatMi(result.kvCacheMi),
+      String(result.kvCacheType ?? 'default'), formatMi(result.kvCacheSavingsMi), formatBytes(result.downloadBytes),
     ]]));
   } else if (action === 'create-local' || action === 'create-external') {
     const payload = await readJsonPayload(parsed, io);

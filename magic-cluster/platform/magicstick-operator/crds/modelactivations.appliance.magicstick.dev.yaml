@@ -152,6 +152,15 @@ spec:
                     maxNumSeqs:
                       type: integer
                       minimum: 1
+                    kvCacheType:
+                      type: string
+                      description: Requested inference KV-cache representation. Runtime-specific values are validated by the dashboard and operator.
+                      enum:
+                        - auto
+                        - fp8
+                        - f16
+                        - q8_0
+                        - q4_0
                     kvCacheMemoryBytes:
                       type: integer
                       minimum: 67108864
@@ -226,6 +235,12 @@ spec:
                   type: string
                 quantization:
                   type: string
+                requestedKvCacheType:
+                  type: string
+                  description: KV-cache representation requested in the ModelActivation.
+                effectiveKvCacheType:
+                  type: string
+                  description: Requested KV-cache representation confirmed only after the configured inference runtime has a Ready replica.
                 resolvedResourceProfile:
                   type: string
                 vramRequiredMi:

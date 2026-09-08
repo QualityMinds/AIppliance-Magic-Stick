@@ -846,6 +846,13 @@ formulas are planning heuristics, not engine measurements. Missing calculation
 metadata is displayed as unavailable; 100 MiB reservation rounding is separate
 from compact GiB display formatting.
 
+The **KV Cache** selector is independent of model-weight quantization. Ollama
+F16, Q8_0, and Q4_0 use approximately full, half, and quarter attention-cache
+memory; exact block-scale overhead is included. vLLM FP8 halves the assumed
+16-bit attention-cache storage and is offered only for CUDA/NVIDIA or ROCm/AMD.
+Recurrent state, hybrid allocator padding, and runtime reserve are not silently
+scaled with the attention cache.
+
 The warning-styled **Add Local Model** remains usable for uncertain or
 insufficient memory. Clicking it records `spec.local.allowMemoryRisk: true`;
 equivalent API/CLI JSON can supply the same boolean explicitly. This skips only
@@ -892,6 +899,23 @@ kubectl -n ai get model example-hybrid -o yaml
 kubectl -n flux-system get helmrelease kubeai
 kubectl -n ai get pods -l model=example-hybrid -o yaml
 ```
+
+For cache configuration, compare requested and effective status and inspect the
+generated runtime settings:
+
+```bash
+kubectl -n ai-system get modelactivation example-hybrid \
+  -o jsonpath='{.status.requestedKvCacheType}{" -> "}{.status.effectiveKvCacheType}{"\n"}'
+kubectl -n ai get model example-hybrid \
+  -o jsonpath='{.spec.args}{"\n"}{.spec.env}{"\n"}'
+```
+
+vLLM must contain exactly one `--kv-cache-dtype=auto` or
+`--kv-cache-dtype=fp8`; FP8 also contains `--calculate-kv-scales`. Ollama must
+contain `OLLAMA_KV_CACHE_TYPE=f16|q8_0|q4_0` and
+`OLLAMA_FLASH_ATTENTION=1`. An empty effective value while requested is present
+means the configured runtime has not become Ready; inspect model-pod current and
+previous logs instead of assuming fallback.
 
 Confirm that the Pod requests **one** `nvidia.com/gpu` and the selected host RAM,
 with `limits.memory` matching the host budget. It must not request more GPUs
@@ -1036,6 +1060,7 @@ deploy,pods` if a command does not match the running resource name.
 | CPU model stays in `Starting` | Check the CPU model Pod for image-pull, RAM, CPU, model-download, or vLLM startup failures; no NVIDIA checks should appear. |
 | CPU vLLM reports insufficient memory for KV cache | Inspect the info overlay's cache formula and recreate through the current dashboard so `spec.local.kvCacheMemoryBytes` is derived from architecture, context, and sequences. Older/direct resources without it retain the 512 MiB fallback. Reduce context/concurrency or increase RAM. Explicit `local.allowMemoryRisk: true` permits a below-estimate trial, but does not shrink the derived cache or guarantee startup. |
 | CPU vLLM is OOM-killed while loading or warming a quantized or multimodal model | The current estimator includes checkpoint bytes, a possible runtime working-weight copy, compile/warm-up headroom, the multimodal processor cache, and a conservative hybrid-cache factor. Confirm that the `ModelActivation` contains both `memoryRequiredMi` and `kvCacheMemoryBytes`, then compare the Pod limit and cgroup peak. If the recommendation is larger than the node, reduce context or choose a smaller model instead of raising only the timeout. |
+| KV cache remains `pending confirmation` | Compare `status.requestedKvCacheType` with the empty `status.effectiveKvCacheType`, then inspect the generated KubeAI Model args/env and model-pod logs. The operator publishes the effective value only after the configured runtime has a Ready replica; it never labels a rejected or silently changed mode as active. |
 | Hugging Face model search is unavailable or rate-limited | Retry after the short-lived discovery cache can refresh, narrow a broad prefix, and inspect the dashboard API log without printing credentials. Model discovery uses only the public Hugging Face API. Tested presets and direct `hf://` references remain available and do not depend on the search endpoint. |
 | Ollama Library search or tag lookup is unavailable | Retry after the short-lived discovery cache can refresh and inspect the dashboard API log. Discovery reads only bounded public `ollama.com` pages because Ollama does not document a remote catalog API. Tested presets and direct `ollama://` references remain available; model creation is not coupled to Library discovery. |
 | A selected Hugging Face quantization fails during model loading | Treat dynamic community artifacts as experimental. Confirm the repository format and quantization are supported by the selected vLLM image and CPU/GPU generation, compare the memory estimate with the actual node, and try the original repository or a tested preset. Magic Stick discovers artifacts; it does not convert or validate every third-party quantization. |
