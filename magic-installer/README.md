@@ -125,6 +125,15 @@ Ubuntu Server 24.04.4 LTS AMD64, verifies the pinned SHA256 checksum, patches
 the Ubuntu boot configuration with `autoinstall ds=nocloud`, and appends the
 editable FAT32 `CIDATA` partition.
 
+The network screen remains interactive. During installation, a supported Wi-Fi
+adapter can therefore be selected and its SSID and passphrase entered locally;
+wired DHCP continues to work as before. The template deliberately contains no
+wireless credentials. Subiquity applies the selected Netplan configuration
+during installation and carries it into the installed system. The passphrase is
+therefore stored only on that system, where Netplan files must remain readable
+only by root. If the Ubuntu installer does not detect a wireless adapter, use a
+supported adapter or Ethernet for installation and configure the device later.
+
 For manual debugging, `user-data` and `meta-data` can still be copied to any
 mounted FAT or ISO9660 filesystem labelled `CIDATA`:
 

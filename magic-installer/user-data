@@ -9,12 +9,14 @@ autoinstall:
     - ssh
     - keyboard
     - locale
+    - network
 
   packages:
     - git
     - ansible
     - curl
     - ca-certificates
+    - wpasupplicant
 
   user-data:
     manage_etc_hosts: true

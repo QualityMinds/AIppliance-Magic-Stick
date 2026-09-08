@@ -58,6 +58,7 @@ jobs:
           bash -n install-from-linux.sh
           bash -n deploy-on-k8s.sh
           python3 -m unittest tests/test_install_entrypoints.py
+          python3 -m unittest tests/test_installer_network.py
 
       - name: Run identity, dashboard, operator, model catalog and AI route unit tests
         run: |

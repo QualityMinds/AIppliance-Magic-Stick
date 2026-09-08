@@ -13,7 +13,8 @@ LTS und richtet Ubuntu, K3s, Flux, Keycloak und das Dashboard ein.
 Du benötigst:
 
 - einen dedizierten x86-64-Rechner, der von USB booten kann;
-- eine kabelgebundene Netzwerkverbindung mit Internetzugang;
+- eine kabelgebundene Netzwerkverbindung oder einen vom Ubuntu-Installer
+  unterstützten WLAN-Adapter mit Internetzugang;
 - einen leeren USB-Stick mit mindestens 8 GB;
 - einen zweiten Rechner mit Git und Docker oder Podman zum Erstellen des
   Installationssticks;
@@ -91,11 +92,21 @@ Unter Windows stehen entsprechende PowerShell-Befehle zur Verfügung:
 
 1. Stecke den USB-Stick in den ausgeschalteten Zielrechner.
 2. Öffne das Boot-Menü des Rechners und starte vom USB-Stick.
-3. Wähle im Ubuntu-Installer Sprache, Tastatur, Netzwerk und Zieldatenträger.
-4. Lege einen Linux-Benutzer für die lokale Administration und optional SSH an.
+3. Konfiguriere im interaktiven Netzwerkabschnitt Ethernet oder WLAN. Bei WLAN
+   wählst du den erkannten Adapter und gibst SSID sowie Passwort direkt am
+   Zielrechner ein. Diese Zugangsdaten sind nicht im USB-Abbild enthalten.
+4. Prüfe vor dem Fortfahren, dass der Installer eine IP-Adresse und Zugang zum
+   Internet erhalten hat.
+5. Lege einen Linux-Benutzer für die lokale Administration und optional SSH an.
    Dieser Linux-Benutzer ist nicht der spätere Dashboard-Benutzer.
-5. Bestätige die Installation und warte auf den Neustart.
-6. Entferne den USB-Stick, wenn der Installer dazu auffordert.
+6. Bestätige die Installation und warte auf den Neustart.
+7. Entferne den USB-Stick, wenn der Installer dazu auffordert.
+
+Die WLAN-Auswahl wird von Subiquity als Netplan-Konfiguration in das installierte
+System übernommen. Ein Netz mit Captive Portal oder ein nicht vom Live-System
+unterstützter WLAN-Chipsatz eignet sich nicht für den automatischen Bootstrap;
+verwende dafür zunächst Ethernet. Eine stabile kabelgebundene Verbindung bleibt
+für die größeren Container- und Modell-Downloads die zuverlässigste Variante.
 
 Nach dem ersten Ubuntu-Start läuft die Bereitstellung automatisch weiter. K3s,
 Flux und die Plattform benötigen abhängig von Hardware und Internetverbindung
