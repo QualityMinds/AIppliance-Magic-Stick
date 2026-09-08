@@ -3439,6 +3439,21 @@ data:
         }
 
 
+    def hf_model_summary_with_resolved_config(model, repo, engine="", compute_target="", model_type=""):
+        summary = hf_model_summary(model, engine, compute_target, model_type)
+        if not summary or positive_int(summary.get("modelMaxContext")):
+            return summary
+        try:
+            config = fetch_public_json(hf_resolve_url(repo, "config.json"), required=False)
+        except (OSError, TimeoutError, ValueError, json.JSONDecodeError, UnicodeDecodeError):
+            return summary
+        if not isinstance(config, dict) or not config:
+            return summary
+        enriched = dict(model or {})
+        enriched["config"] = config
+        return hf_model_summary(enriched, engine, compute_target, model_type) or summary
+
+
     def hf_artifact_context(artifact, base_model):
         item = dict(artifact)
         if positive_int(item.get("modelMaxContext")):
@@ -3672,8 +3687,9 @@ data:
         cached = hf_discovery_cache_get(cache_key)
         if cached is None:
             selected_raw = fetch_hf_discovery_json(hf_model_detail_api_url(selected_repo), required=False)
-            selected = hf_model_summary(
+            selected = hf_model_summary_with_resolved_config(
                 selected_raw,
+                selected_repo,
                 context["engine"],
                 context["computeTarget"],
                 context["modelType"],
@@ -3696,8 +3712,9 @@ data:
                 base_model = dict(selected)
             else:
                 base_raw = fetch_hf_discovery_json(hf_model_detail_api_url(base_repo), required=False)
-                base_model = hf_model_summary(
+                base_model = hf_model_summary_with_resolved_config(
                     base_raw,
+                    base_repo,
                     context["engine"],
                     context["computeTarget"],
                     context["modelType"],

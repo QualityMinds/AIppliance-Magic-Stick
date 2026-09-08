@@ -1187,6 +1187,8 @@ class HuggingFaceDiscoveryTests(unittest.TestCase):
 
     def setUp(self):
         self.original_fetch = self.server["fetch_hf_discovery_json"]
+        self.original_fetch_public_json = self.server["fetch_public_json"]
+        self.server["fetch_public_json"] = lambda _url, required=True: None
         self.server["HF_DISCOVERY_CACHE"].clear()
         mib = 1024 * 1024
         self.base = {
@@ -1253,6 +1255,7 @@ class HuggingFaceDiscoveryTests(unittest.TestCase):
 
     def tearDown(self):
         self.server["fetch_hf_discovery_json"] = self.original_fetch
+        self.server["fetch_public_json"] = self.original_fetch_public_json
         self.server["HF_DISCOVERY_CACHE"].clear()
 
     def test_search_normalizes_query_filters_private_models_and_paginates(self):
@@ -1483,6 +1486,54 @@ class HuggingFaceDiscoveryTests(unittest.TestCase):
         self.assertEqual(result["artifacts"][0]["quantization"]["method"], "awq")
         self.assertEqual(result["artifacts"][0]["modelMaxContext"], 262144)
         self.assertEqual(result["artifacts"][0]["modelContextSource"], "base-model")
+
+    def test_artifact_discovery_resolves_context_from_nested_raw_config(self):
+        shallow = {
+            **self.base,
+            "id": "Qwen/Qwen3.8-27B",
+            "config": {
+                "architectures": ["Qwen3_5ForConditionalGeneration"],
+                "model_type": "qwen3_5",
+            },
+        }
+        raw_config = {
+            "model_type": "qwen3_5",
+            "text_config": {
+                "num_hidden_layers": 64,
+                "hidden_size": 5120,
+                "num_attention_heads": 24,
+                "max_position_embeddings": 262144,
+            },
+        }
+        config_calls = []
+
+        def fake_fetch(url, required=True):
+            parsed = self.server["urllib"].parse.urlparse(url)
+            query = self.server["urllib"].parse.parse_qs(parsed.query)
+            if parsed.path == "/api/models/Qwen/Qwen3.8-27B":
+                return shallow
+            if query.get("filter") == ["base_model:Qwen/Qwen3.8-27B"]:
+                return []
+            return []
+
+        def fake_public_fetch(url, required=True):
+            config_calls.append(url)
+            return raw_config
+
+        self.server["fetch_hf_discovery_json"] = fake_fetch
+        self.server["fetch_public_json"] = fake_public_fetch
+
+        result = self.server["model_discovery_artifacts"]({
+            "repo": ["Qwen/Qwen3.8-27B"],
+            "engine": ["VLLM"],
+            "computeTarget": ["nvidia-gpu"],
+        })
+
+        self.assertEqual(result["baseModel"]["modelMaxContext"], 262144)
+        self.assertEqual(result["artifacts"][0]["modelMaxContext"], 262144)
+        self.assertEqual(result["artifacts"][0]["modelContextSource"], "artifact")
+        self.assertEqual(len(config_calls), 1)
+        self.assertTrue(config_calls[0].endswith("/resolve/main/config.json"))
 
     def test_multiple_gguf_files_are_exposed_without_summing_complete_variants(self):
         model = {
