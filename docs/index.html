@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="Deine Hardware. Deine KI. MagicStick verbindet lokale KI-Modelle, Anwendungen und Zugriffsverwaltung zu einer selbst betriebenen Plattform. Community unter MIT." />
-  <meta name="theme-color" content="#f8faf7" />
+  <meta name="theme-color" content="#050b16" />
   <meta property="og:title" content="MagicStick — Deine Hardware. Deine KI." />
   <meta property="og:description" content="Modelle entdecken, Anwendungen starten, Zugriffe verwalten. Deine selbst betriebene KI-Plattform mit offenem Community-Kern." />
   <meta property="og:type" content="website" />
@@ -36,8 +36,8 @@
         <div class="hero-proof"><span>Community unter MIT</span><span>CPU &amp; GPU</span><span>Self-hosted</span></div>
       </div>
       <figure class="hero-art">
-        <img src="assets/ai-infrastructure.webp" width="1536" height="1024" alt="Abstrakte Illustration: drei verbundene Module aus Aluminium und grünem Glas mit leuchtendem Kern" fetchpriority="high" />
-        <figcaption><span>DEIN STACK. ZUSAMMENGEBRACHT.</span><span>Software für vorhandene Hardware</span></figcaption>
+        <a href="assets/dashboard-overview.webp" aria-label="Dashboard-Überblick in voller Größe ansehen"><img src="assets/dashboard-overview.webp" width="1470" height="1126" alt="Aktuelles MagicStick-Dashboard: Übersicht über Appliance, Dienste, Instanzen, Modelle und Anwendungszugriffe mit neutralen Beispieldaten" fetchpriority="high" /></a>
+        <figcaption><span>DAS MAGICSTICK-DASHBOARD</span><span>Echte Oberfläche · Beispieldaten · Zum Vergrößern anklicken</span></figcaption>
       </figure>
     </section>
 
@@ -70,6 +70,10 @@
           <a class="card-link" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/authentication.md">Zugriff und Identität <span aria-hidden="true">↗</span></a>
         </article>
       </div>
+      <figure class="product-shot">
+        <figcaption><p class="eyebrow">DIREKT IM DASHBOARD</p><h3>Modelle und Speicher.<br />Auf einen Blick.</h3><p>CPU und GPU, freie Ressourcen und der Status deiner Modelle – gemeinsam in einer Ansicht.</p><span>Echte aktuelle Oberfläche mit neutralen Beispieldaten. Die Abbildung lässt sich in voller Größe öffnen.</span></figcaption>
+        <a href="assets/dashboard-models.webp" aria-label="Modellverwaltung in voller Größe ansehen"><img src="assets/dashboard-models.webp" width="1470" height="1344" alt="MagicStick-Modellverwaltung mit CPU- und NVIDIA-Speicheranzeigen und zwei beispielhaften Modellen samt Laufzeit, KV-Cache, Kontext und Status" loading="lazy" /></a>
+      </figure>
     </section>
 
     <section class="workspace-section" id="anwendungen" aria-labelledby="apps-title">
@@ -129,7 +133,7 @@
     <section class="faq-section container" aria-labelledby="faq-title">
       <h2 id="faq-title">Noch eine Frage?</h2>
       <div class="faq-list">
-        <details><summary>Ist MagicStick ein Hardwareprodukt? <span aria-hidden="true">+</span></summary><p>MagicStick ist Software für deine vorhandene Infrastruktur. Du kannst einen physischen Server, eine virtuelle Maschine, ein dediziertes Ubuntu-System oder ein vorhandenes Kubernetes-Cluster nutzen. Die Abbildung oben ist eine Illustration der Plattform.</p></details>
+        <details><summary>Ist MagicStick ein Hardwareprodukt? <span aria-hidden="true">+</span></summary><p>MagicStick ist Software für deine vorhandene Infrastruktur. Du kannst einen physischen Server, eine virtuelle Maschine, ein dediziertes Ubuntu-System oder ein vorhandenes Kubernetes-Cluster nutzen. Die Screenshots zeigen das aktuelle Dashboard mit neutralen Beispieldaten.</p></details>
         <details><summary>Brauche ich eine GPU? <span aria-hidden="true">+</span></summary><p>Nein. Lokale Inferenz ist auch auf CPU möglich; externe Anbieter benötigen keine lokale GPU. vLLM unterstützt die katalogisierten CPU-, NVIDIA-, AMD- und Intel-Ziele, Ollama CPU, NVIDIA und AMD. Das Dashboard bietet nur erkannte, verfügbare Kombinationen an. Die konkrete Modell- und Hardwarekompatibilität bleibt entscheidend.</p></details>
         <details><summary>Bleiben meine Daten bei mir? <span aria-hidden="true">+</span></summary><p>Lokale Modellinferenz läuft auf deiner Infrastruktur. Ob Anwendungen weitere Daten übertragen, hängt von ihren Integrationen und deiner Konfiguration ab. Wenn du externe Modelle einbindest, werden die entsprechenden Anfragen an deren Anbieter gesendet. Für Installation und Modell-Downloads werden externe Quellen verwendet.</p></details>
         <details><summary>Kann ich meine eigenen Modelle und Tools verwenden? <span aria-hidden="true">+</span></summary><p>Du kannst kompatible Modelle über Hugging Face, die Ollama Library oder direkte Referenzen wählen und externe Provider ergänzen. Eigene Anwendungen greifen über die OpenAI-kompatible Schnittstelle zu. Kataloge, Kubernetes-APIs und Overlays ermöglichen weitere Integrationen.</p></details>

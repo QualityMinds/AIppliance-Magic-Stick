@@ -9,14 +9,16 @@ not changed by website updates.
 
 - [index.html](index.html): product story, model/resource/access features, application
   use cases, operation, Community/Enterprise boundaries, installation routes, FAQ.
-- [site.css](site.css): responsive light/forest-green design, system fonts, focus
+- [site.css](site.css): responsive dashboard-aligned navy/cyan/violet design, system fonts, focus
   indicators, reduced-motion support, and print-independent browser layout.
 - [site.js](site.js): mobile navigation and keyboard-accessible application tabs.
   Without JavaScript, navigation and all application panels remain visible.
 - [legal-notice.html](legal-notice.html) and [privacy.html](privacy.html): existing
   legal content with matching presentation. Styling updates are not legal review.
-- [assets/ai-infrastructure.webp](assets/ai-infrastructure.webp): original abstract
-  hero artwork. It depicts software infrastructure, not a purchasable hardware device.
+- [assets/dashboard-overview.webp](assets/dashboard-overview.webp): current React
+  dashboard overview, with neutral synthetic example data.
+- [assets/dashboard-models.webp](assets/dashboard-models.webp): current model
+  management UI, with neutral synthetic CPU/GPU resource and model examples.
 
 Only implemented functionality is presented as available. The two Enterprise
 features are targeted instance sharing and dashboard-managed federated SSO. Other
@@ -24,8 +26,20 @@ Enterprise candidates are explicitly marked as not implemented. The MIT boundary
 and commercial notice are defined in [LICENSING.md](../LICENSING.md).
 
 The former dashboard screenshots and the September 1 sales deck are not used as
-current product visuals. Add screenshots only after checking that they show the
-current dashboard and contain no private names, credentials, or deployment data.
+current product visuals. The two new screenshots were captured on 2026-09-09 from
+the unmodified React dashboard at commit `28222ea`, rendered against a loopback-only,
+GET-only fixture API with no upstream appliance access. They are not live server
+measurements, sizing promises, or benchmarks; captions identify the example data.
+No screenshot pixels were generated or retouched. Both were encoded as WebP at
+quality 92, with full-size links retained for inspection.
+
+For refreshes, use the current dashboard with neutral read-only fixtures based on
+`dashboard/apps/web/src/FeatureParity.test.tsx`, explicitly point
+`MAGICSTICK_API_PROXY` to that isolated local fixture server, reject writes and
+unknown endpoints, and inspect every image for private data. Do not use the Vite
+proxy's default live-appliance target for marketing captures. Use `demo-admin`,
+`example.local`, synthetic resource values, and no credentials. Capture Overview
+and Models through the browser, without changing the dashboard's UI or rendering.
 
 ## Preview and checks
 
@@ -48,7 +62,10 @@ After a push, confirm that the latest Pages build succeeded for the exact commit
 and that the published HTML and assets match it. No dashboard/container rollout is
 required for a website-only change.
 
-## Artwork provenance
+## Previous artwork provenance
+
+The original abstract artwork remains in the repository but is no longer shown on
+the website; the product screenshots now take its place.
 
 `ai-infrastructure.webp` was generated with the built-in image-generation tool on
 2026-09-09 and encoded as WebP (`cwebp -q 85`). Original dimensions: 1536 × 1024.
