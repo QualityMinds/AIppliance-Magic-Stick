@@ -1,305 +1,147 @@
 <!doctype html>
-<html lang="en">
+<html lang="de">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="MagicStick turns your hardware into a self-hosted AI platform for local and external models, managed AI applications, identity, and Kubernetes-native operations." />
-  <meta name="theme-color" content="#061217" />
-  <meta property="og:title" content="MagicStick — Private AI, ready to operate" />
-  <meta property="og:description" content="A self-hosted AI appliance for models, applications, identity, and Kubernetes-native operations on your own hardware." />
+  <meta name="description" content="Deine Hardware. Deine KI. MagicStick verbindet lokale KI-Modelle, Anwendungen und Zugriffsverwaltung zu einer selbst betriebenen Plattform. Community unter MIT." />
+  <meta name="theme-color" content="#f8faf7" />
+  <meta property="og:title" content="MagicStick — Deine Hardware. Deine KI." />
+  <meta property="og:description" content="Modelle entdecken, Anwendungen starten, Zugriffe verwalten. Deine selbst betriebene KI-Plattform mit offenem Community-Kern." />
   <meta property="og:type" content="website" />
-  <title>MagicStick — Private AI, ready to operate</title>
+  <title>MagicStick — Deine Hardware. Deine KI.</title>
   <link rel="stylesheet" href="site.css" />
+  <script src="site.js" defer></script>
 </head>
 <body>
-  <a class="skip-link" href="#main">Skip to content</a>
-
+  <a class="skip-link" href="#main">Zum Inhalt</a>
   <header class="site-header">
-    <nav class="nav wrap" aria-label="Main navigation">
-      <a class="brand" href="#top" aria-label="MagicStick home">
-        <span class="brand-mark" aria-hidden="true">MS</span>
-        <span>MagicStick</span>
-      </a>
-      <div class="nav-links">
-        <a href="#product">Product</a>
-        <a href="#models">Models</a>
-        <a href="#platform">Platform</a>
-        <a href="#open-core">Open core</a>
-        <a href="#install">Install</a>
-        <a href="#docs">Docs</a>
-        <a class="button ghost" href="https://github.com/QualityMinds/AIppliance-Magic-Stick">GitHub <span class="arrow" aria-hidden="true">↗</span></a>
-      </div>
-    </nav>
+    <div class="container nav">
+      <a class="wordmark" href="#top" aria-label="MagicStick Startseite"><span class="brand-symbol" aria-hidden="true">m<span>·</span></span>magicstick<span class="wordmark-dot">.</span></a>
+      <button class="menu-toggle" aria-controls="main-navigation" aria-expanded="false" hidden>Menü <span aria-hidden="true">+</span></button>
+      <nav id="main-navigation" aria-label="Hauptnavigation">
+        <a href="#produkt">Produkt</a><a href="#anwendungen">Anwendungen</a><a href="#open-core">Open Core</a>
+        <a href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/README.md">Docs <span aria-hidden="true">↗</span></a>
+        <a class="button button-small" href="#starten">Jetzt starten <span aria-hidden="true">↗</span></a>
+      </nav>
+    </div>
   </header>
 
   <main id="main">
-    <section class="hero" id="top" aria-labelledby="hero-title">
-      <div class="hero-inner wrap">
-        <p class="eyebrow">Open-source AI appliance</p>
-        <h1 id="hero-title">Private AI.<br /><span class="accent">Ready to operate.</span></h1>
-        <p class="hero-lead">
-          MagicStick turns a bare-metal server, virtual machine, or existing Kubernetes cluster into a self-hosted AI platform—with models, applications, identity, and day-two operations in one control plane.
-        </p>
-        <div class="hero-actions" aria-label="Primary actions">
-          <a class="button primary" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/installation/README.md">Install MagicStick <span class="arrow" aria-hidden="true">→</span></a>
-          <a class="button" href="https://github.com/QualityMinds/AIppliance-Magic-Stick">Explore the repository</a>
-          <a class="button ghost" href="sales-deck/Magic-Stick-Salesdeck-Dark-DE.pdf">Download sales deck</a>
-        </div>
-
-        <div class="hero-facts" aria-label="MagicStick at a glance">
-          <div class="fact"><strong>4</strong><span>installation paths</span></div>
-          <div class="fact"><strong>2</strong><span>local inference engines</span></div>
-          <div class="fact"><strong>CPU + GPU</strong><span>NVIDIA, AMD, and Intel targets</span></div>
-          <div class="fact"><strong>1</strong><span>browser, CLI, TUI, and API control plane</span></div>
-        </div>
-
-        <figure class="hero-screen">
-          <div class="screen-bar" aria-hidden="true">
-            <span class="screen-dots"><i></i><i></i><i></i></span>
-            <span class="mono">https://magicstick.local</span>
-          </div>
-          <img src="sales-deck/assets/Magic-Stick-Dashboard-Overview-Strip-Current.png" width="1044" height="312" alt="MagicStick dashboard overview showing appliance, module, instance, and model status together with generated local and public URLs" fetchpriority="high" />
-          <figcaption>One view of appliance state and every available endpoint.</figcaption>
-        </figure>
+    <section class="hero container" id="top" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <p class="eyebrow"><span class="live-dot"></span> Die offene KI-Plattform für deine Infrastruktur</p>
+        <h1 id="hero-title">Deine Hardware.<br /><span>Deine KI.</span></h1>
+        <p class="hero-description">Modelle, Anwendungen und Zugriffe an einem Ort. MagicStick macht aus deinem Server eine KI-Plattform, die du selbst betreibst.</p>
+        <div class="actions"><a class="button" href="#starten">MagicStick installieren <span aria-hidden="true">↗</span></a><a class="text-link" href="https://github.com/QualityMinds/AIppliance-Magic-Stick">Auf GitHub ansehen <span aria-hidden="true">↗</span></a></div>
+        <div class="hero-proof"><span>Community unter MIT</span><span>CPU &amp; GPU</span><span>Self-hosted</span></div>
       </div>
+      <figure class="hero-art">
+        <img src="assets/ai-infrastructure.webp" width="1536" height="1024" alt="Abstrakte Illustration: drei verbundene Module aus Aluminium und grünem Glas mit leuchtendem Kern" fetchpriority="high" />
+        <figcaption><span>DEIN STACK. ZUSAMMENGEBRACHT.</span><span>Software für vorhandene Hardware</span></figcaption>
+      </figure>
     </section>
 
-    <div class="trust-strip" aria-label="Platform foundations">
-      <div class="trust-inner wrap">
-        <span class="trust-label">Built on open infrastructure</span>
-        <div class="trust-items">
-          <span>Kubernetes + K3s</span><span>Flux GitOps</span><span>Keycloak</span>
-          <span>Envoy Gateway</span><span>vLLM + Ollama</span><span>LiteLLM</span>
-        </div>
-      </div>
+    <div class="foundation-strip">
+      <div class="container foundations"><p>Vertraute Technologie.<br /><strong>Als eine Plattform.</strong></p><div><span>Kubernetes</span><span>vLLM</span><span>Ollama</span><span>LiteLLM</span><span>Keycloak</span><span>Flux</span></div></div>
     </div>
 
-    <section class="section" id="product" aria-labelledby="product-title">
-      <div class="wrap">
-        <div class="section-heading">
-          <div><span class="section-number">01 / Product</span><h2 id="product-title">A complete appliance, not a pile of manifests.</h2></div>
-          <p>Install once, then operate models and AI applications through a purpose-built control plane instead of assembling identity, routing, runtimes, and observability by hand.</p>
-        </div>
+    <section class="section container" id="produkt" aria-labelledby="product-title">
+      <div class="section-heading"><p class="eyebrow">WENIGER ZUSAMMENBAUEN. MEHR AUSPROBIEREN.</p><h2 id="product-title">Alles, was zwischen deinem<br class="desktop-break" /> Modell und dem ersten „Hallo“ liegt.</h2><p>MagicStick verbindet die Bausteine: von der Installation über die passende Laufzeit bis zur Anwendung für dein Team.</p></div>
+      <div class="product-grid">
+        <article class="product-card model-card">
+          <div class="card-top"><span class="card-index">01 / MODELLE</span><span class="line-icon" aria-hidden="true">↗</span></div>
+          <h3>Finde das Modell,<br />das zu dir passt.</h3>
+          <p>Durchsuche Hugging Face und die Ollama Library. Wähle Größe und Quantisierung – oder verbinde einen externen Anbieter.</p>
+          <div class="model-families" aria-label="Beispiele für auffindbare Modellfamilien"><span>Qwen</span><span>DeepSeek</span><span>GLM</span><span>Llama</span><span>Gemma</span><span>Mistral</span></div>
+          <a class="card-link" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/model-catalog.md">Modellverwaltung entdecken <span aria-hidden="true">↗</span></a>
+        </article>
+        <article class="product-card memory-card">
+          <div class="card-top"><span class="card-index">02 / RESSOURCEN</span><span class="line-icon" aria-hidden="true">≋</span></div>
+          <h3>Verstehe, was<br />dein Modell braucht.</h3>
+          <p>RAM, VRAM, Kontext und KV-Cache werden gemeinsam geplant. Auf unterstützten NVIDIA-Systemen kannst du zusätzlichen Arbeitsspeicher nutzen.</p>
+          <div class="memory-composition" aria-label="Bestandteile der Speicherschätzung"><div class="memory-track"><span></span><span></span><span></span></div><div class="memory-legend"><span>Gewichte</span><span>KV-Cache</span><span>Laufzeit</span></div></div>
+          <span class="card-note">Schematische Darstellung. Die Anteile variieren je Modell und Konfiguration.</span>
+        </article>
+        <article class="product-card access-card">
+          <div class="card-top"><span class="card-index">03 / ZUGRIFF</span><span class="line-icon" aria-hidden="true">⌘</span></div>
+          <h3>Gib deinem Team<br />einen gemeinsamen Einstieg.</h3>
+          <p>Lokales SSO, Benutzer und Rollen, benannte API-Schlüssel und Kubernetes-Zugriff gehören zur Community-Basis.</p>
+          <div class="access-roles"><span><i aria-hidden="true">U</i> Benutzer</span><span><i aria-hidden="true">O</i> Operator</span><span><i aria-hidden="true">A</i> Administrator</span></div>
+          <a class="card-link" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/authentication.md">Zugriff und Identität <span aria-hidden="true">↗</span></a>
+        </article>
+      </div>
+    </section>
 
-        <div class="outcome-grid">
-          <article class="outcome">
-            <span class="outcome-index">01 — DEPLOY</span>
-            <h3>From empty machine to usable platform</h3>
-            <p>Bootstrap Ubuntu, K3s, Flux, identity, the gateway, and MagicStick—or add the platform safely to an existing Kubernetes cluster.</p>
-          </article>
-          <article class="outcome">
-            <span class="outcome-index">02 — CONTROL</span>
-            <h3>One surface for the full runtime</h3>
-            <p>Manage services, instances, models, users, API keys, Kubernetes access, domains, licenses, and system health from the browser, CLI, TUI, or API.</p>
-          </article>
-          <article class="outcome">
-            <span class="outcome-index">03 — OWN</span>
-            <h3>Your hardware. Your network. Your data.</h3>
-            <p>Keep local inference and application data on infrastructure you control while retaining the option to route selected models to external providers.</p>
-          </article>
+    <section class="workspace-section" id="anwendungen" aria-labelledby="apps-title">
+      <div class="container">
+        <div class="workspace-heading"><div><p class="eyebrow">VOM MODELL ZUM WERKZEUG</p><h2 id="apps-title">Was möchtest<br />du damit machen?</h2></div><p>Ein Modell wird erst durch die passende Anwendung nützlich. Aktiviere Dienste und richte benannte Instanzen mit dem gewünschten Modell ein.</p></div>
+        <div class="use-case-controls" role="tablist" aria-label="Anwendungsbereiche" hidden>
+          <button id="tab-knowledge" role="tab" aria-controls="panel-knowledge" aria-selected="true" tabindex="0">Wissen &amp; Chat</button>
+          <button id="tab-code" role="tab" aria-controls="panel-code" aria-selected="false" tabindex="-1">Code &amp; Agenten</button>
+          <button id="tab-api" role="tab" aria-controls="panel-api" aria-selected="false" tabindex="-1">Eigene Anwendungen</button>
+        </div>
+        <div class="use-case-panel" id="panel-knowledge" role="tabpanel" aria-labelledby="tab-knowledge" tabindex="0">
+          <div class="use-case-copy"><span class="section-count">01</span><h3>Dein Wissen.<br />Im Gespräch.</h3><p>Stelle Dokumente und Modelle in einem gemeinsamen Arbeitsbereich bereit. Nutze Chat-Oberflächen und selbst betriebene Wissenswerkzeuge für deine Inhalte.</p><a class="light-link" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/modules.md">Anwendungen im Katalog <span aria-hidden="true">↗</span></a></div>
+          <div class="app-list"><article><span class="app-monogram" aria-hidden="true">A</span><div><h4>AnythingLLM</h4><p>Dokumente, Embeddings und Wissens-Workspaces.</p></div></article><article><span class="app-monogram" aria-hidden="true">H</span><div><h4>Hermes</h4><p>Browser-Chat mit ausgewähltem Modell und geschütztem Zugang.</p></div></article><div class="app-list-note"><span class="live-dot"></span> Gemeinsamer Modellkatalog für deine Anwendungen</div></div>
+        </div>
+        <div class="use-case-panel" id="panel-code" role="tabpanel" aria-labelledby="tab-code" tabindex="0">
+          <div class="use-case-copy"><span class="section-count">02</span><h3>Ideen werden<br />zu Aufgaben.</h3><p>Starte Coding-Agenten und Agenten-Workflows auf deiner Infrastruktur. Mehrere Instanzen können unterschiedliche Modelle und Nutzungskontexte bekommen.</p><a class="light-link" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/paperclip-agents.md">Agenten-Workflows ansehen <span aria-hidden="true">↗</span></a></div>
+          <div class="app-list"><article><span class="app-monogram" aria-hidden="true">K</span><div><h4>KubeOpenCode</h4><p>Coding-Agenten, Aufgaben und Zeitpläne in Kubernetes.</p></div></article><article><span class="app-monogram" aria-hidden="true">P</span><div><h4>Paperclip</h4><p>Agenten und Runs mit isolierten Ausführungsumgebungen.</p></div></article><div class="app-list-note">Außerdem im Katalog: OpenClaw und Odysseus</div></div>
+        </div>
+        <div class="use-case-panel" id="panel-api" role="tabpanel" aria-labelledby="tab-api" tabindex="0">
+          <div class="use-case-copy"><span class="section-count">03</span><h3>Deine Anwendung.<br />Deine Modellwahl.</h3><p>Verbinde eigene Tools über die gemeinsame OpenAI-kompatible Schnittstelle. Lokale Modelle und externe Anbieter werden über LiteLLM erreichbar.</p><a class="light-link" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/dashboard.md">API-Zugriff einrichten <span aria-hidden="true">↗</span></a></div>
+          <div class="api-flow" aria-label="Verbindung eigener Anwendungen zum Modellkatalog"><span>Deine Anwendung</span><i aria-hidden="true">↓</i><strong>OpenAI-kompatible API</strong><i aria-hidden="true">↓</i><div><span>Lokale Modelle</span><span>Externe Anbieter</span></div><p>Benannte API-Schlüssel zentral erstellen und widerrufen.</p></div>
         </div>
       </div>
     </section>
 
-    <section class="section alt" id="models" aria-labelledby="models-title">
-      <div class="wrap">
-        <div class="section-heading">
-          <div><span class="section-number">02 / Model operations</span><h2 id="models-title">Choose a model—not a deployment manifest.</h2></div>
-          <p>MagicStick turns model metadata and detected hardware into an explainable deployment plan, while keeping every resource visible in Kubernetes.</p>
-        </div>
-
-        <div class="feature-stack">
-          <article class="feature-row">
-            <figure class="feature-visual">
-              <img src="sales-deck/assets/Magic-Stick-Create-Model-Current.png" width="784" height="462" alt="MagicStick local model creation screen showing a selected model, context settings, and minimum and recommended accelerator memory" loading="lazy" />
-              <figcaption>Capacity-aware local model creation with explicit memory budgets.</figcaption>
-            </figure>
-            <div class="feature-copy">
-              <span class="section-number">Discover + size</span>
-              <h3>Search, quantify, and place local models with context.</h3>
-              <p>Search Hugging Face or the Ollama Library, select a compatible artifact or quantization, inherit published context metadata, and see minimum and recommended memory before anything is scheduled.</p>
-              <ul class="feature-list">
-                <li>Hugging Face model and artifact discovery</li><li>Ollama model and tag discovery</li>
-                <li>Editable context and concurrency</li><li>Quantized KV-cache choices</li>
-                <li>Explainable RAM and VRAM breakdowns</li><li>Explicit NVIDIA CPU offloading</li>
-              </ul>
-            </div>
-          </article>
-
-          <article class="feature-row reverse">
-            <figure class="feature-visual">
-              <img src="sales-deck/assets/Magic-Stick-Dashboard-Services-Current.png" width="1044" height="560" alt="MagicStick Services page showing application modules, their state, and controls for enabling services and creating instances" loading="lazy" />
-              <figcaption>Modules and their managed instances share one operational view.</figcaption>
-            </figure>
-            <div class="feature-copy">
-              <span class="section-number">Run + reuse</span>
-              <h3>Turn platform services into managed workspaces.</h3>
-              <p>Enable reusable modules and create separate application instances for teams or projects. MagicStick resolves dependencies, publishes routes, connects models, and reports progress without hiding the underlying cluster state.</p>
-              <ul class="feature-list">
-                <li>AnythingLLM knowledge workspaces</li><li>OpenClaw and Hermes instances</li>
-                <li>Paperclip agent orchestration</li><li>KubeOpenCode coding agents</li>
-                <li>Odysseus agent applications</li><li>Local and public application routes</li>
-              </ul>
-            </div>
-          </article>
-        </div>
-
-        <div class="capability-bar" aria-label="Model and application capabilities">
-          <span>vLLM</span><span>Ollama</span><span>CPU</span><span>NVIDIA</span><span>AMD ROCm</span><span>Intel XPU</span><span>FP8 / AWQ / GGUF</span><span>KV cache formats</span><span>OpenAI-compatible API</span>
-        </div>
+    <section class="section container operate-section" aria-labelledby="operate-title">
+      <div class="operate-intro"><p class="eyebrow">EINRICHTEN IST DER ANFANG</p><h2 id="operate-title">Auch danach<br />behältst du<br /><em>den Überblick.</em></h2><p>MagicStick begleitet den laufenden Betrieb. Du siehst, was bereit ist, was noch startet und wo deine Aufmerksamkeit gebraucht wird.</p><a class="text-link" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/dashboard.md">Dashboard, CLI &amp; TUI <span aria-hidden="true">↗</span></a></div>
+      <div class="operate-list">
+        <article><span>01</span><div><h3>Ein Zustand. Mehrere Wege.</h3><p>Arbeite im Browser, automatisiere über CLI und API oder verwalte die Appliance direkt am lokalen Bildschirm per TUI.</p></div></article>
+        <article><span>02</span><div><h3>Hardware, die wirklich bereit ist.</h3><p>Erkannte CPUs und unterstützte GPUs bestimmen die verfügbaren Laufzeiten. Statusanzeigen machen fehlende Ressourcen und Abhängigkeiten sichtbar.</p></div></article>
+        <article><span>03</span><div><h3>Ein nachvollziehbarer Betrieb.</h3><p>Prüfe Revisionen, Pods, Ereignisse und Anwendungsrouten. Kubernetes, Flux und die MagicStick-Operatoren setzen deine Konfiguration um.</p></div></article>
       </div>
     </section>
 
-    <section class="section" id="platform" aria-labelledby="platform-title">
-      <div class="wrap">
-        <div class="section-heading">
-          <div><span class="section-number">03 / Platform</span><h2 id="platform-title">Kubernetes-native from first boot to day two.</h2></div>
-          <p>The dashboard is a focused control surface, not a second source of truth. Actions become declarative resources; operators and Flux reconcile them into the running platform.</p>
-        </div>
-
-        <div class="platform-grid">
-          <div class="platform-map" aria-label="MagicStick architecture layers">
-            <div class="layer"><span class="layer-label">Experience</span><div class="layer-items"><span>React dashboard</span><span>CLI</span><span>Local TUI</span><span>Control API</span></div></div>
-            <div class="layer"><span class="layer-label">Access</span><div class="layer-items"><span>Keycloak SSO</span><span>Envoy Gateway</span><span>Users + roles</span><span>API keys</span><span>OIDC kubeconfig</span></div></div>
-            <div class="layer"><span class="layer-label">Control</span><div class="layer-items"><span>MagicStick APIs</span><span>Meta-operator</span><span>Flux</span><span>Service catalogs</span><span>Runtime CRs</span></div></div>
-            <div class="layer"><span class="layer-label">AI runtime</span><div class="layer-items"><span>KubeAI</span><span>vLLM</span><span>Ollama</span><span>LiteLLM</span><span>Model Catalog</span></div></div>
-            <div class="layer"><span class="layer-label">Infrastructure</span><div class="layer-items"><span>Bare metal</span><span>Virtual machine</span><span>Kubernetes</span><span>CPU</span><span>NVIDIA / AMD / Intel</span></div></div>
-          </div>
-
-          <div class="operations-list" aria-label="Operational capabilities">
-            <div class="operation"><span class="operation-code">01</span><div><strong>Protected first run</strong><span>No default human password; claim code, TLS fingerprint, first administrator, and recovery access.</span></div></div>
-            <div class="operation"><span class="operation-code">02</span><div><strong>Hardware-aware activation</strong><span>Only matching accelerator operators are requested, and readiness follows allocatable resources—not installation alone.</span></div></div>
-            <div class="operation"><span class="operation-code">03</span><div><strong>Identity at every browser route</strong><span>Local Keycloak SSO, role-aware administration, and explicitly controlled public exposure.</span></div></div>
-            <div class="operation"><span class="operation-code">04</span><div><strong>Inspectable reconciliation</strong><span>Flux revisions, pods, routes, events, and conditions turn waiting states into actionable status.</span></div></div>
-            <div class="operation"><span class="operation-code">05</span><div><strong>Same contract everywhere</strong><span>The browser, terminal clients, automation, and Kubernetes resources use the same backend rules.</span></div></div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="section alt" id="open-core" aria-labelledby="open-core-title">
-      <div class="wrap">
-        <div class="section-heading">
-          <div><span class="section-number">04 / Open core</span><h2 id="open-core-title">Open where it matters. Licensed where companies need more.</h2></div>
-          <p>MagicStick Community remains a useful MIT-licensed platform. A signed offline entitlement activates packaged Enterprise capabilities in the same API image—without creating a second product to deploy.</p>
-        </div>
-
+    <section class="open-section" id="open-core" aria-labelledby="open-title">
+      <div class="container">
+        <div class="section-heading"><p class="eyebrow">OPEN CORE. KLARE GRENZEN.</p><h2 id="open-title">Offen starten.<br />Gezielt erweitern.</h2><p>Die Community ist eine nutzbare KI-Plattform unter MIT – auch für Unternehmen. Enterprise ergänzt ausgewählte Funktionen für die Organisation.</p></div>
         <div class="edition-grid">
-          <article class="edition community">
-            <div class="edition-kicker"><span>Community</span><span class="status-pill available">MIT licensed</span></div>
-            <h3>The complete single-appliance foundation</h3>
-            <p>Install, operate, integrate, and extend a self-hosted AI appliance without an Enterprise license.</p>
-            <ul class="edition-list">
-              <li><span>All four installation paths and protected first run</span><span class="status-pill available">Included</span></li>
-              <li><span>Local and external model operations</span><span class="status-pill available">Included</span></li>
-              <li><span>Services, instances, routing, and local SSO</span><span class="status-pill available">Included</span></li>
-              <li><span>Users, roles, API keys, and Kubernetes access</span><span class="status-pill available">Included</span></li>
-              <li><span>Dashboard, CLI, TUI, API, and GitOps contracts</span><span class="status-pill available">Included</span></li>
-            </ul>
-          </article>
-
-          <article class="edition enterprise">
-            <div class="edition-kicker"><span>Enterprise</span><span class="status-pill">Offline entitlement</span></div>
-            <h3>Governance for organizational use</h3>
-            <p>Add precise organizational controls while the Community foundation stays available and operational.</p>
-            <ul class="edition-list">
-              <li><span>Targeted instance access for users and groups</span><span class="status-pill available">Implemented</span></li>
-              <li><span>Dashboard-managed OIDC and SAML federation</span><span class="status-pill available">Implemented</span></li>
-              <li><span>Delegated team administration and resource budgets</span><span class="status-pill planned">Planned</span></li>
-              <li><span>Central operation of multiple MagicSticks</span><span class="status-pill planned">Planned</span></li>
-              <li><span>Multi-GPU and K3s multi-node workflows</span><span class="status-pill planned">Planned</span></li>
-            </ul>
-            <p class="edition-note">Enterprise commercial terms are currently under review. Planned capabilities are not part of the current product.</p>
-          </article>
+          <article class="edition community"><div class="edition-label">COMMUNITY <span>MIT</span></div><h3>Deine Plattform.<br />Offen für deine Ideen.</h3><p>Quellcode ansehen, anpassen und selbst betreiben. Ohne Enterprise-Lizenz.</p><ul class="check-list"><li>Installation, lokale und externe Modelle</li><li>Anwendungen und benannte Instanzen</li><li>Lokales SSO, Benutzer und Rollen</li><li>API-Schlüssel und Kubernetes-Zugriff</li><li>Dashboard, CLI, TUI und GitOps</li></ul><a class="button" href="https://github.com/QualityMinds/AIppliance-Magic-Stick">Community entdecken <span aria-hidden="true">↗</span></a></article>
+          <article class="edition enterprise"><div class="edition-label">ENTERPRISE <span>LIZENZPFLICHTIGE ERWEITERUNGEN</span></div><h3>Mehr Kontrolle.<br />Für deine Organisation.</h3><p>Die aktuell implementierten Erweiterungen ergänzen die offene Basis:</p><ul class="enterprise-features"><li><span class="feature-check" aria-hidden="true">✓</span><div><strong>Gezielte Instanzfreigaben</strong><p>Instanzen für bestimmte Benutzer oder Gruppen sichtbar und zugänglich machen.</p></div></li><li><span class="feature-check" aria-hidden="true">✓</span><div><strong>Federated SSO im Dashboard</strong><p>OIDC- und SAML-Anbieter sowie die Zuordnung zu Rollen zentral konfigurieren.</p></div></li></ul><a class="text-link" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/LICENSING.md">Lizenzmodell verstehen <span aria-hidden="true">↗</span></a><p class="edition-footnote">Die kommerziellen Vertragsbedingungen befinden sich noch in Prüfung.</p></article>
         </div>
-
-        <div class="open-core-footer">
-          <p><strong>One repository. One combined runtime image.</strong> License checks happen in the backend; an expired entitlement never turns private resources public.</p>
-          <a class="button ghost" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/LICENSING.md">Understand licensing <span class="arrow" aria-hidden="true">→</span></a>
-        </div>
+        <details class="roadmap"><summary><span>Was für Enterprise geplant ist</span><span aria-hidden="true">+</span></summary><div><p>Delegierte Teamverwaltung, Ressourcenbudgets, zentraler Betrieb mehrerer MagicSticks sowie zusätzliche Multi-GPU- und K3s-Multi-Node-Verwaltung. Diese Funktionen sind noch nicht implementiert.</p><p>Vorhandene GPU-Nutzung, lokales SSO und die Community-Funktionen bleiben ohne Enterprise-Lizenz nutzbar.</p></div></details>
       </div>
     </section>
 
-    <section class="section" id="install" aria-labelledby="install-title">
-      <div class="wrap">
-        <div class="section-heading">
-          <div><span class="section-number">05 / Install</span><h2 id="install-title">Start where your infrastructure starts.</h2></div>
-          <p>Every path converges on the same protected appliance state. Preflight checks expose conflicts before installation, and resolved Git revisions keep deployments reproducible.</p>
-        </div>
-
-        <div class="install-grid">
-          <article class="install-card"><span class="install-index">01</span><h3>Empty physical server</h3><p>Boot the USB installer to install Ubuntu, K3s, Flux, and MagicStick from scratch.</p><span class="best-for">Best for · dedicated appliance</span></article>
-          <article class="install-card"><span class="install-index">02</span><h3>New cloud VM</h3><p>Use the cloud-init and autoinstall template for a reproducible virtual appliance.</p><span class="best-for">Best for · remote evaluation</span></article>
-          <article class="install-card"><span class="install-index">03</span><h3>Existing Ubuntu 24.04</h3><p>Run the reviewed installer on a dedicated host or VM to add K3s, Flux, and MagicStick.</p><span class="best-for">Best for · fast start</span></article>
-          <article class="install-card"><span class="install-index">04</span><h3>Existing Kubernetes</h3><p>Install only the Flux-managed cluster components from Bash or PowerShell.</p><span class="best-for">Best for · existing platform</span></article>
-        </div>
-
-        <div class="quickstart">
-          <div class="quickstart-copy">
-            <span class="section-number">Quick start</span>
-            <h3>Review first. Preflight second. Install third.</h3>
-            <p>The Linux entrypoint is intentionally downloadable before execution and supports a non-mutating preflight.</p>
-            <ul class="setup-proof">
-              <li>No generated default password</li><li>Private-network first-run claim</li>
-              <li>Commit-pinned host and Flux state</li><li>Repeatable Ansible convergence</li>
-            </ul>
-          </div>
-          <pre aria-label="MagicStick installation commands"><code><span class="prompt">$</span> curl -fsSL \
-  https://raw.githubusercontent.com/QualityMinds/AIppliance-Magic-Stick/main/install-from-linux.sh \
-  -o /tmp/install-from-linux.sh
-
-<span class="prompt">$</span> sudo bash /tmp/install-from-linux.sh --preflight-only
-<span class="prompt">$</span> sudo bash /tmp/install-from-linux.sh
-
-<span class="prompt">#</span> Then open the protected first-run setup
-https://magicstick.local</code></pre>
-        </div>
+    <section class="section container" id="starten" aria-labelledby="start-title">
+      <div class="start-heading"><div><p class="eyebrow">DEIN NÄCHSTER SCHRITT</p><h2 id="start-title">Bring deine Hardware.<br />Wir bringen den Anfang.</h2></div><p>Wähle den Weg, der zu deiner Umgebung passt. Jede Neuinstallation führt durch die geschützte Ersteinrichtung.</p></div>
+      <div class="install-grid">
+        <a href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/installation/bare-metal.md"><span class="install-number">01 <i aria-hidden="true">↗</i></span><h3>Physischer Server</h3><p>Ubuntu, K3s und MagicStick mit dem USB-Installer einrichten.</p><span class="install-link">USB-Installation</span></a>
+        <a href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/installation/cloud-init-vm.md"><span class="install-number">02 <i aria-hidden="true">↗</i></span><h3>Neue VM</h3><p>Eine virtuelle Appliance mit cloud-init und Autoinstall aufsetzen.</p><span class="install-link">VM-Installation</span></a>
+        <a href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/installation/existing-vm.md"><span class="install-number">03 <i aria-hidden="true">↗</i></span><h3>Ubuntu vorhanden</h3><p>MagicStick auf einem dedizierten Ubuntu-24.04-System installieren.</p><span class="install-link">Linux-Installation</span></a>
+        <a href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/installation/existing-kubernetes.md"><span class="install-number">04 <i aria-hidden="true">↗</i></span><h3>Kubernetes vorhanden</h3><p>Die Plattform in einem bestehenden Cluster bereitstellen.</p><span class="install-link">Cluster-Installation</span></a>
       </div>
+      <div class="setup-note"><span class="note-icon" aria-hidden="true">✓</span><p>Geschützter First-Run mit Einrichtungscode, erstem Administrator und Recovery-Zugang. Kein gemeinsames Standardpasswort.</p></div>
     </section>
 
-    <section class="section alt" id="docs" aria-labelledby="docs-title">
-      <div class="wrap">
-        <div class="section-heading">
-          <div><span class="section-number">06 / Documentation</span><h2 id="docs-title">Go from first install to your own extension.</h2></div>
-          <p>The public repository documents installation, architecture, runtime APIs, model operations, authentication, troubleshooting, and the extension boundaries.</p>
-        </div>
-
-        <div class="docs-grid">
-          <a class="doc-card" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/installation/README.md"><span class="doc-type">Start here</span><h3>Installation</h3><p>Choose hardware, VM, Linux, or existing-cluster setup and complete first run.</p></a>
-          <a class="doc-card" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/features.md"><span class="doc-type">Product</span><h3>Feature overview</h3><p>Explore the current feature set, screenshots, supported runtimes, and known boundaries.</p></a>
-          <a class="doc-card" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/architecture.md"><span class="doc-type">Build</span><h3>Architecture</h3><p>Understand repository layers, bootstrap flow, Flux graph, operators, and contracts.</p></a>
-          <a class="doc-card" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/model-catalog.md"><span class="doc-type">Models</span><h3>Model operations</h3><p>Follow discovery, quantization, memory estimation, placement, and catalog publication.</p></a>
-          <a class="doc-card" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/authentication.md"><span class="doc-type">Identity</span><h3>Authentication</h3><p>Review local SSO, roles, protected routes, terminal login, and federation.</p></a>
-          <a class="doc-card" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/operations.md"><span class="doc-type">Operate</span><h3>Day-two operations</h3><p>Diagnose Flux, K3s, storage, GPUs, models, routes, events, and application state.</p></a>
-        </div>
+    <section class="faq-section container" aria-labelledby="faq-title">
+      <h2 id="faq-title">Noch eine Frage?</h2>
+      <div class="faq-list">
+        <details><summary>Ist MagicStick ein Hardwareprodukt? <span aria-hidden="true">+</span></summary><p>MagicStick ist Software für deine vorhandene Infrastruktur. Du kannst einen physischen Server, eine virtuelle Maschine, ein dediziertes Ubuntu-System oder ein vorhandenes Kubernetes-Cluster nutzen. Die Abbildung oben ist eine Illustration der Plattform.</p></details>
+        <details><summary>Brauche ich eine GPU? <span aria-hidden="true">+</span></summary><p>Nein. Lokale Inferenz ist auch auf CPU möglich; externe Anbieter benötigen keine lokale GPU. vLLM unterstützt die katalogisierten CPU-, NVIDIA-, AMD- und Intel-Ziele, Ollama CPU, NVIDIA und AMD. Das Dashboard bietet nur erkannte, verfügbare Kombinationen an. Die konkrete Modell- und Hardwarekompatibilität bleibt entscheidend.</p></details>
+        <details><summary>Bleiben meine Daten bei mir? <span aria-hidden="true">+</span></summary><p>Lokale Modellinferenz läuft auf deiner Infrastruktur. Ob Anwendungen weitere Daten übertragen, hängt von ihren Integrationen und deiner Konfiguration ab. Wenn du externe Modelle einbindest, werden die entsprechenden Anfragen an deren Anbieter gesendet. Für Installation und Modell-Downloads werden externe Quellen verwendet.</p></details>
+        <details><summary>Kann ich meine eigenen Modelle und Tools verwenden? <span aria-hidden="true">+</span></summary><p>Du kannst kompatible Modelle über Hugging Face, die Ollama Library oder direkte Referenzen wählen und externe Provider ergänzen. Eigene Anwendungen greifen über die OpenAI-kompatible Schnittstelle zu. Kataloge, Kubernetes-APIs und Overlays ermöglichen weitere Integrationen.</p></details>
+        <details><summary>Wo finde ich technische Details? <span aria-hidden="true">+</span></summary><p>Im <a href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/README.md">Dokumentationsindex</a> findest du Installation, Architektur, Modelle, Authentifizierung und Betrieb. Der Quellcode und die Konfigurationsbeispiele liegen im selben öffentlichen Repository.</p></details>
       </div>
     </section>
-
-    <section class="cta" aria-labelledby="cta-title">
-      <div class="cta-inner wrap">
-        <div><span class="section-number">Build on your terms</span><h2 id="cta-title">Turn the machine you own into the AI platform you control.</h2></div>
-        <div class="cta-actions">
-          <a class="button primary" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/installation/README.md">Choose an install path <span class="arrow" aria-hidden="true">→</span></a>
-          <a class="button ghost" href="https://github.com/QualityMinds/AIppliance-Magic-Stick">Star or fork on GitHub</a>
-        </div>
-      </div>
-    </section>
+    <section class="final-cta"><div class="container"><p>Weniger Infrastruktur zusammensuchen.<br /><strong>Mehr mit KI anfangen.</strong></p><a class="button button-lime" href="#starten">Deinen Einstieg wählen <span aria-hidden="true">↗</span></a></div></section>
   </main>
 
-  <footer class="footer">
-    <div class="footer-main wrap">
-      <div class="footer-brand">
-        <a class="brand" href="#top"><span class="brand-mark" aria-hidden="true">MS</span><span>MagicStick</span></a>
-        <p>A reusable, open-core AI appliance for self-hosted models, applications, identity, and Kubernetes-native operations.</p>
-      </div>
-      <div class="footer-column"><strong>Product</strong><a href="#models">Models</a><a href="#platform">Platform</a><a href="#open-core">Open core</a><a href="#install">Install</a></div>
-      <div class="footer-column"><strong>Project</strong><a href="https://github.com/QualityMinds/AIppliance-Magic-Stick">GitHub</a><a href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/CONTRIBUTING.md">Contributing</a><a href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/ROADMAP.md">Roadmap</a><a href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/SECURITY.md">Security</a></div>
-      <div class="footer-column"><strong>Resources</strong><a href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/README.md">Documentation</a><a href="sales-deck/Magic-Stick-Salesdeck-Dark-DE.pdf">Sales deck</a><a href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/LICENSING.md">Licensing</a><a href="legal-notice.html">Legal notice</a></div>
-    </div>
-    <div class="footer-bottom wrap">
-      <span>MagicStick Community is MIT licensed.</span>
-      <span><a href="privacy.html">Privacy policy</a> · <a href="legal-notice.html">Legal notice</a></span>
-    </div>
+  <footer class="site-footer container">
+    <div class="footer-top"><a class="wordmark" href="#top" aria-label="MagicStick Startseite"><span class="brand-symbol" aria-hidden="true">m<span>·</span></span>magicstick<span class="wordmark-dot">.</span></a><p>KI-Infrastruktur. In deiner Hand.</p><a class="text-link" href="https://github.com/QualityMinds/AIppliance-Magic-Stick">Mitentwickeln auf GitHub <span aria-hidden="true">↗</span></a></div>
+    <div class="footer-bottom"><span>MagicStick Community · MIT-Lizenz</span><nav aria-label="Weitere Informationen"><a href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/docs/README.md">Dokumentation</a><a href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/LICENSING.md">Lizenzen</a><a href="legal-notice.html">Impressum</a><a href="privacy.html">Datenschutz</a></nav></div>
   </footer>
 </body>
 </html>

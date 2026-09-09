@@ -47,6 +47,7 @@ Top-level community and release files:
 | [../ROADMAP.md](../ROADMAP.md) | Likely public project directions. |
 | [../THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) | Runtime image and Helm chart inventory for release review. |
 | [index.html](index.html) | GitHub Pages landing page. |
+| [website.md](website.md) | Static marketing website structure, preview, release checks, and original artwork provenance. |
 | [legal-notice.html](legal-notice.html) | Legal notice for the GitHub Pages site. |
 | [privacy.html](privacy.html) | Privacy policy for the GitHub Pages site. |
 

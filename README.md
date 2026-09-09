@@ -134,7 +134,8 @@ Use `example.local`, `example.com`, `CHANGEME`, or documented variables for all 
 Start with [docs/README.md](docs/README.md) for the full documentation index.
 The GitHub Pages landing page lives at [docs/index.html](docs/index.html);
 configure Pages to publish from the `docs/` directory for a buildless project
-site.
+site. See [website maintenance](docs/website.md) for the static sources, local
+preview, accessibility checks, and artwork provenance.
 
 | Topic | Document |
 |---|---|
