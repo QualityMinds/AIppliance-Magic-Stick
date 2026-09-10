@@ -138,6 +138,7 @@ describe('CPU offloading model configuration', () => {
     const user = await openForm();
     await user.click(screen.getByLabelText('Use additional system RAM'));
     const input = await screen.findByLabelText('Host RAM budget (MiB)');
+    await waitFor(() => expect(input).toHaveValue(12300));
     await user.clear(input); await user.type(input, '15000');
     const context = screen.getByLabelText('Context Size');
     await user.clear(context); await user.type(context, '2048');

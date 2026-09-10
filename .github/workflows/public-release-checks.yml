@@ -20,6 +20,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set up supported Node runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
       - name: Set up kubectl
         uses: azure/setup-kubectl@v4
         with:
