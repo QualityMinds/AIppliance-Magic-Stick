@@ -710,6 +710,12 @@ For schema details and model troubleshooting, see
 
 ## Local Inference And Hardware-Driven GPU Operators
 
+Use [post-install host management](host-management.md) for reviewed GPU package
+preparation and mixed-system experiments, and **System → Computer power** for
+administrator-confirmed reboot/shutdown. Check the host worker's journal and
+`HostOperation` phase separately from GPU operator and model readiness. Request
+acceptance is not confirmation of a completed power action.
+
 KubeAI is installed only after a local model requests it. NFD is always present,
 but a healthy CPU/external-only appliance has no NVIDIA, AMD, or Intel
 `ModuleActivation` and no vendor operator workloads.
@@ -741,7 +747,9 @@ kubectl -n ai logs -l model=qwen2505bcpu --tail=200
 If model pods fail to start, check:
 
 - the provider phase and message in `status.hardwareOperators`
-- the matching NFD detection label and, for AMD/Intel, the vendor support label
+- the matching NFD detection label and vendor support; for an additional AMD
+  profile, inspect explicit consent, current host evidence and per-engine
+  validation instead of forcing the vendor support label
 - vendor operator pods and node GPU allocatable resources
 - KubeAI `Model` status
 - vLLM or Ollama model pod logs
@@ -1049,14 +1057,17 @@ deploy,pods` if a command does not match the running resource name.
 | OpenLens reports `lookup <appliance>.local ... no such host` | Download the kubeconfig again. Appliance kubeconfigs use the current private control-plane IP for the Kubernetes API because the OpenLens proxy may bypass mDNS. If DHCP changed the address again, rerun host convergence or wait for the Ready node address to be visible, then download a fresh file. Keep the OIDC issuer on `id.<mdns-domain>`. |
 | Kubernetes login succeeds but RBAC is denied | Confirm the user has exactly one direct `magicstick-kubernetes-*` group, obtain a fresh token after the group change, and inspect the `oidc:` Group subjects in the ClusterRoleBindings. |
 | GPU model never starts | Check the vendor GPU operator, allocatable GPU resources, KubeAI model status, and the selected vLLM/Ollama server logs. |
-| GPU hardware is present but provider is `Unsupported` | Confirm node architecture/Kubernetes preflight first. For AMD or Intel, the broad PCI vendor label can exist while the vendor `NodeFeatureRule` rejects that product; use the operator's supported-hardware documentation instead of adding a Magic Stick PCI allow-list. |
+| GPU hardware is present but provider is `Unsupported` | Confirm node architecture/Kubernetes preflight first. Broad AMD/Intel PCI detection does not imply vendor support. For additional AMD hardware, use only a catalogued, explicitly acknowledged [compatibility profile](gpu-compatibility.md) with host and per-engine validation; unknown cards remain unsupported. Never force the vendor's NFD support label. |
+| AMD HelmRelease times out waiting for `DeviceConfig/default` with `NoMatchingNodes` | The current chart disables Helm's default operand and Magic Stick manages its `DeviceConfig` separately using `appliance.magicstick.dev/amd-gpu-eligible`. Check that the new Helm values/controller are deployed, then inspect **System → Hardware**, upstream support or explicit profile consent, current host evidence and device resources. Controller installation and usable GPU readiness are separate. |
+| Strix Halo remains unverified or has no render/KFD devices | Run `sudo magicstick-gpu-preflight --json`, inspect the actual kernel/firmware/driver, and follow [explicit host preparation](gpu-compatibility.md#explicit-ansible-preparation). PCI matching does not fix missing kernel support. The preparation role accepts reviewed package pins and never reboots automatically. |
+| Experimental AMD engine is unavailable although a GPU is allocatable | Inspect per-engine validation under **System → Hardware**. Confirm the host evidence timer, Node UID/boot/kernel identity and profile consent, then explicitly request validation. A passed Ollama result does not enable vLLM, stale image/host results are invalid, and CPU fallback is not a passing GPU test. |
 | Provider is `Conflict` | A vendor CRD already existed without a Magic Stick `ModuleActivation`. Decide which installation owns the operator; do not run a second copy. |
 | Provider remains `Installing` with zero resources | The controller chart is installed but driver/device-plugin readiness is incomplete. Inspect the vendor namespace and the node's allocatable extended resources. AMD's baseline expects a working host/inbox `amdgpu` driver. |
 | NVIDIA remains `Installing` although `nvidia.com/gpu` is allocatable | The driver and device plugin are active, but the dashboard cannot read DCGM telemetry yet. Check the `nvidia-dcgm-exporter` Pod, Service, endpoints, and the dashboard API ServiceAccount's `services/proxy` permission. |
 | Provider changes to `Unknown` after reboot | NFD has temporarily lost the PCI signal. Magic Stick intentionally retains the existing operator; wait for the next 60-second NFD pass and inspect the node before taking action. |
 | Local model stays in `WaitingForGPU` | The optional runtime is installed but Kubernetes reports no allocatable `nvidia.com/gpu`; verify supported hardware, driver pods, and node capacity. |
 | Accelerator target is disabled in the dashboard | The matching vendor module must be `Ready` and a Ready schedulable node must expose `nvidia.com/gpu`, `amd.com/gpu`, `gpu.intel.com/i915`, or `gpu.intel.com/xe`. CPU remains available independently. |
-| A Compute memory gauge shows `metrics unavailable` | CPU first checks the Kubelet node summary and then `metrics.k8s.io`; verify the dashboard API ServiceAccount can read `nodes/proxy` and node metrics. NVIDIA requires the DCGM exporter. AMD and Intel are still listed but intentionally show no percentage until a compatible vendor memory exporter is installed. |
+| A Compute memory gauge shows `metrics unavailable` | CPU first checks the Kubelet node summary and then `metrics.k8s.io`; verify the dashboard API ServiceAccount can read `nodes/proxy` and node metrics. NVIDIA requires DCGM. Dedicated AMD/Intel usage remains unknown without a compatible exporter. An explicit unified-memory AMD profile can expose host mapping bounds as shared capacity, not as measured GPU usage or extra RAM. |
 | Intel model stays in `WaitingForGPU` | Confirm whether the node publishes `gpu.intel.com/xe` or `gpu.intel.com/i915`; the resolved profile in `ModelActivation.status` must match that resource. |
 | A GPU appears in Compute memory but not in the model hardware selector | Confirm the vendor module is enabled and inspect the node's allocatable resource (`nvidia.com/gpu`, `amd.com/gpu`, `gpu.intel.com/xe`, or `gpu.intel.com/i915`). A transient Flux `Reconciling` phase no longer blocks selection once that resource exists; without it, the driver or device plugin is not ready. |
 | CPU model stays in `Starting` | Check the CPU model Pod for image-pull, RAM, CPU, model-download, or vLLM startup failures; no NVIDIA checks should appear. |

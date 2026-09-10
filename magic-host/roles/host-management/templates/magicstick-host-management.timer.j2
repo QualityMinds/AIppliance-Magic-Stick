@@ -1,0 +1,10 @@
+[Unit]
+Description=Check hardware and approved host operations after base installation
+
+[Timer]
+OnBootSec=90s
+OnUnitInactiveSec=15s
+AccuracySec=2s
+
+[Install]
+WantedBy=timers.target

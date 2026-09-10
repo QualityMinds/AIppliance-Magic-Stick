@@ -1,0 +1,18 @@
+[Unit]
+Description=Inspect Magic Stick hardware and process explicitly approved host operations
+After=network-online.target k3s.service cloud-final.service
+Wants=network-online.target
+ConditionPathExists=/etc/rancher/k3s/k3s.yaml
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+Environment=MAGICSTICK_HOST_NODE_NAME={{ ansible_facts['hostname'] }}
+ExecStart=/usr/bin/python3 /usr/local/lib/magicstick/host-management/host_worker.py
+TimeoutStartSec=45min
+Restart=no
+# Runs on the host, not in a privileged dashboard Pod. APT and orderly system
+# power operations require host access; commands and package profiles are fixed.
+NoNewPrivileges=true
+ProtectHome=read-only

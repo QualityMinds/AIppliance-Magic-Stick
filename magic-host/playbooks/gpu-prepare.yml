@@ -1,0 +1,9 @@
+---
+# Run independently only after reviewing an exact hardware and package plan.
+- name: Explicitly prepare a GPU compatibility profile
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  become: true
+  roles:
+    - gpu-compatibility

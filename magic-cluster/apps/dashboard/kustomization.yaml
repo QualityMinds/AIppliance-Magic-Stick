@@ -6,6 +6,7 @@ resources:
   - clusterrole.yaml
   - clusterrolebinding.yaml
   - settings-rbac.yaml
+  - host-management-rbac.yaml
   - model-secrets-rbac.yaml
   - user-admin-rbac.yaml
   - federation-admin-rbac.yaml

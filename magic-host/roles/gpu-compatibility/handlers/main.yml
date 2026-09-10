@@ -1,0 +1,11 @@
+---
+- name: Reload systemd for GPU host evidence
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Refresh initramfs after explicit GPU memory configuration
+  ansible.builtin.command:
+    argv:
+      - /usr/sbin/update-initramfs
+      - -u
+  changed_when: true

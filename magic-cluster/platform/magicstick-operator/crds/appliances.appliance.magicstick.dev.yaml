@@ -337,6 +337,10 @@ spec:
                         type: string
                       supportedLabel:
                         type: string
+                      compatibility:
+                        type: object
+                        x-kubernetes-preserve-unknown-fields: true
+                        description: Versioned GPU profiles, explicit runtime selection, fresh host evidence and independent per-engine GPU validation. Eligibility never implies a passed engine test.
                       detectedNodes:
                         type: array
                         items:

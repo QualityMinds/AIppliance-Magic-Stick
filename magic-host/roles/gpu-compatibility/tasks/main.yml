@@ -1,0 +1,139 @@
+---
+- name: Install read-only GPU compatibility diagnostics
+  ansible.builtin.copy:
+    src: "{{ item.source }}"
+    dest: "{{ item.destination }}"
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - source: magicstick-gpu-preflight.py
+      destination: /usr/local/sbin/magicstick-gpu-preflight
+    - source: magicstick-hip-smoke.py
+      destination: /usr/local/sbin/magicstick-hip-smoke
+    - source: magicstick-gpu-publish.py
+      destination: /usr/local/sbin/magicstick-gpu-publish
+
+- name: Require a public-safe local Kubernetes node name for evidence publication
+  ansible.builtin.assert:
+    that:
+      - gpu_compatibility_node_name is match('^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$')
+  when: gpu_compatibility_publish_evidence | bool
+
+- name: Install GPU host evidence service and timer
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - magicstick-gpu-preflight.service
+    - magicstick-gpu-preflight.timer
+  notify: Reload systemd for GPU host evidence
+
+- name: Configure periodic GPU host evidence publication
+  ansible.builtin.systemd_service:
+    name: magicstick-gpu-preflight.timer
+    daemon_reload: true
+    enabled: "{{ gpu_compatibility_publish_evidence | bool }}"
+    state: "{{ 'started' if gpu_compatibility_publish_evidence | bool else 'stopped' }}"
+
+- name: Prepare an explicitly selected experimental GPU host profile
+  when: gpu_compatibility_prepare_host | bool
+  block:
+    - name: Require the bounded Strix Halo host preparation profile
+      ansible.builtin.assert:
+        that:
+          - gpu_compatibility_profile == 'strix-halo'
+          - ansible_facts['distribution'] == 'Ubuntu'
+          - ansible_facts['distribution_version'] in ['24.04', '26.04']
+          - gpu_compatibility_package_versions is mapping
+          - gpu_compatibility_system_reserve_mib | int >= 8192
+        fail_msg: >-
+          GPU preparation requires explicit strix-halo selection on Ubuntu
+          24.04 or 26.04 and exact reviewed package versions. This is not
+          certification of an arbitrary kernel/ROCm combination.
+
+    - name: Read hardware evidence before any package or mapping changes
+      ansible.builtin.script:
+        cmd: magicstick-gpu-preflight.py --json --require-profile strix-halo
+        executable: /usr/bin/python3
+      register: gpu_compatibility_preflight
+      changed_when: false
+      check_mode: false
+
+    - name: Validate exact preparation package pins and allowed package families
+      ansible.builtin.assert:
+        that:
+          - item.key is match('^(linux-firmware|rocminfo|linux-generic-hwe-24\.04|linux-(image|modules|modules-extra|headers)-[a-z0-9.+-]+)$')
+          - item.value is string
+          - item.value is match('^[0-9][A-Za-z0-9.+:~_-]*$')
+        fail_msg: >-
+          Supply exact package versions from the reviewed Ubuntu repositories.
+          Wildcards, latest, driver installers and unpinned meta-packages are
+          not accepted by this preparation path.
+      loop: "{{ gpu_compatibility_package_versions | dict2items }}"
+
+    - name: Refresh signed APT metadata only for an approved host preparation
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+        update_cache_retries: 1
+      when: gpu_compatibility_update_cache | bool
+
+    - name: Install only explicitly pinned host preparation packages
+      ansible.builtin.apt:
+        name: "{{ item.key }}={{ item.value }}"
+        state: present
+        update_cache: false
+        allow_downgrade: false
+        fail_on_autoremove: true
+        allow_unauthenticated: false
+        force_apt_get: true
+      loop: "{{ gpu_compatibility_package_versions | dict2items }}"
+
+    - name: Validate an explicit shared-memory mapping limit
+      ansible.builtin.assert:
+        that:
+          - gpu_compatibility_ttm_limit_mib | string is match('^[0-9]+$')
+          - gpu_compatibility_ttm_limit_mib | int == 0 or (gpu_compatibility_preflight.stdout | from_json).systemMemory.totalBytes is not none
+          - gpu_compatibility_ttm_limit_mib | int == 0 or (gpu_compatibility_ttm_limit_mib | int + gpu_compatibility_system_reserve_mib | int) * 1048576 <= (gpu_compatibility_preflight.stdout | from_json).systemMemory.totalBytes | int
+          - gpu_compatibility_ttm_limit_mib | int == 0 or (gpu_compatibility_preflight.stdout | from_json).systemMemory.pageSizeBytes == 4096
+        fail_msg: >-
+          TTM is a shared-RAM mapping limit, not extra physical memory. Keep at
+          least the configured system reserve free. This profile writes TTM
+          pages only on hosts with confirmed 4096-byte pages.
+      when: gpu_compatibility_ttm_limit_mib is not none
+
+    - name: Configure the explicitly requested TTM mapping limit for next boot
+      ansible.builtin.copy:
+        dest: /etc/modprobe.d/90-magicstick-ttm.conf
+        content: |
+          # Managed by Magic Stick. Shared RAM mapping limit, not a reservation.
+          options ttm pages_limit={{ gpu_compatibility_ttm_limit_mib | int * 256 }}
+        owner: root
+        group: root
+        mode: "0644"
+      when:
+        - gpu_compatibility_ttm_limit_mib is not none
+        - gpu_compatibility_ttm_limit_mib | int > 0
+      notify: Refresh initramfs after explicit GPU memory configuration
+
+    - name: Remove only the Magic Stick TTM override when explicitly requested
+      ansible.builtin.file:
+        path: /etc/modprobe.d/90-magicstick-ttm.conf
+        state: absent
+      when:
+        - gpu_compatibility_ttm_limit_mib is not none
+        - gpu_compatibility_ttm_limit_mib | int == 0
+      notify: Refresh initramfs after explicit GPU memory configuration
+
+    - name: Explain the manual reboot and separate engine-validation gate
+      ansible.builtin.debug:
+        msg: >-
+          Preparation never reboots, loads or blacklists amdgpu, changes device
+          permissions, enables KMM, or labels a Kubernetes node. Review package
+          changes; the host-management workflow schedules a separately approved
+          restart if needed. Manual maintenance must schedule its own reboot. Rerun
+          magicstick-gpu-preflight and validate each pinned inference image.

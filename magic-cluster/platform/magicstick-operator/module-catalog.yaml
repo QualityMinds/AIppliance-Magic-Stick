@@ -145,6 +145,11 @@ data:
           "providesCapabilities": ["compute.gpu.amd"],
           "requiredCrds": ["deviceconfigs.amd.com"],
           "waitForReady": true,
+          "parameters": [
+            {"name": "compatibilityProfile", "label": "GPU compatibility profile", "placeholder": "Automatic (upstream support)"},
+            {"name": "allowExperimental", "label": "Allow experimental GPU profile", "placeholder": "false"},
+            {"name": "validationRequest", "label": "GPU validation request", "placeholder": ""}
+          ],
           "hardware": {
             "vendor": "amd",
             "detectionLabel": "feature.node.kubernetes.io/pci-1002.present",

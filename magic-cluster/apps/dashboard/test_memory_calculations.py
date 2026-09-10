@@ -14,6 +14,8 @@ class MemoryCalculationTests(unittest.TestCase):
         }.items()}}
         self.api["ollama_metadata"] = lambda _: {"modelBytes": 17741860480, "ggufMetadata": self.gguf}
         self.api["model_activations"] = lambda: []
+        self.api["compute_target_catalog"] = lambda: {"targets": {}}
+        self.api["ready_schedulable_nodes"] = lambda: []
         self.api["vram_summary"] = lambda _: {"available": True, "plannedRemainingMi": 24000}
         self.api["offloading_host_memory_available"] = lambda _: 32000
         self.payload = {"url": "ollama://example:latest", "engine": "OLlama", "computeTarget": "nvidia-gpu", "contextWindow": 10000, "maxNumSeqs": 1}

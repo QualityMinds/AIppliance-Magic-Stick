@@ -11,13 +11,14 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      # With one replica, zero surge stops the old reconciler before Kubernetes
-      # starts the new one while remaining upgrade-compatible with existing
-      # RollingUpdate Deployments managed through Flux server-side apply.
-      maxSurge: 0
-      maxUnavailable: 1
+    # There is no leader election. Even zero-surge RollingUpdate may start a
+    # replacement while the old Pod is terminating, letting different probe
+    # versions delete one another's Jobs. Recreate waits during normal rollouts.
+    # This is not a substitute for leader election when scaling or deleting
+    # individual Pods manually.
+    type: Recreate
+    # Explicitly clear the former value during upgrades/server-side apply.
+    rollingUpdate: null
   selector:
     matchLabels:
       app.kubernetes.io/name: magicstick-operator
@@ -28,7 +29,7 @@ spec:
         app.kubernetes.io/name: magicstick-operator
         app.kubernetes.io/component: controller
       annotations:
-        appliance.magicstick.dev/controller-config-revision: ollama-gpu-first-v1
+        appliance.magicstick.dev/controller-config-revision: gpu-compatibility-v1
     spec:
       serviceAccountName: magicstick-operator
       containers:

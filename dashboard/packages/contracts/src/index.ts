@@ -217,6 +217,7 @@ export interface ComputeTarget {
   kind?: 'cpu' | 'gpu' | string;
   displayName?: string;
   engines?: string[];
+  engineAvailability?: Record<string, {available: boolean; message?: string; compatibleNodes?: number}>;
   kvCacheTypes?: Record<string, KvCacheOption[]>;
   available?: boolean;
   message?: string;
@@ -241,6 +242,12 @@ export interface ComputeMemoryDevice {
   freeMi?: number;
   metricsAvailable?: boolean;
   metricsSource?: string;
+  memoryArchitecture?: 'unified' | 'discrete' | string;
+  sharedPoolId?: string;
+  sharedMemoryMi?: number;
+  accountingVerified?: boolean;
+  warning?: string;
+  message?: string;
 }
 
 export interface ModelArtifact {
@@ -410,6 +417,56 @@ export interface MemoryEstimate {
   [key: string]: unknown;
 }
 
+export interface GpuCompatibilityProfile {
+  id: string;
+  displayName: string;
+  version: string;
+  experimental: boolean;
+  memoryArchitecture: string;
+  expectedArchitecture?: string;
+  description?: string;
+}
+
+export interface GpuEngineValidation {
+  state: 'unverified' | 'running' | 'passed' | 'failed' | 'stale' | 'upstream';
+  image?: string;
+  kernelVersion?: string;
+  driverVersion?: string;
+  validatedAt?: string;
+  message?: string;
+  runtimeReady?: boolean;
+  runtimeMessage?: string;
+}
+
+export interface GpuCompatibilityNode {
+  node: string;
+  nodeUid?: string;
+  profileId?: string;
+  profileVersion?: string;
+  upstreamSupported?: boolean;
+  optedIn?: boolean;
+  eligible?: boolean;
+  memoryArchitecture?: string;
+  expectedArchitecture?: string;
+  detectedArchitecture?: string;
+  physicalMemoryMi?: number | null;
+  gpuAccessibleMi?: number | null;
+  memoryAccountingVerified?: boolean;
+  pciDevices?: string[];
+  hostDriverReady?: boolean | null;
+  resourceRegistered?: boolean;
+  message?: string;
+  validation?: Record<string, GpuEngineValidation>;
+}
+
+export interface GpuCompatibility {
+  schemaVersion: number;
+  profiles: GpuCompatibilityProfile[];
+  selectedProfile?: string;
+  allowExperimental?: boolean;
+  nodes: GpuCompatibilityNode[];
+}
+
 export interface HardwareOperator {
   module?: string;
   displayName?: string;
@@ -424,6 +481,7 @@ export interface HardwareOperator {
   compatibleNodes?: string[];
   allocatableResources?: number;
   message?: string;
+  compatibility?: GpuCompatibility;
 }
 
 export interface RouteStatus {
@@ -447,6 +505,54 @@ export interface KubernetesObjectSummary {
   name?: string;
   phase?: string;
   conditions?: Array<{type?: string; status?: string; reason?: string; message?: string}>;
+}
+
+export type HostAction = 'prepare-gpu' | 'reboot' | 'poweroff';
+export interface HostPreparationPlan {
+  id: string;
+  state: 'not-required' | 'blocked' | 'ready' | 'available';
+  message: string;
+  profileId: string;
+  profileVersion: string;
+  gpuProfile: string;
+  experimental: boolean;
+  experimentMode?: boolean;
+  engineValidationAvailable?: boolean;
+  displayGpus?: string[];
+  packages: Record<string, string>;
+  targetKernel: string;
+  rebootRequired: boolean;
+  experiment?: HostPreparationPlan;
+}
+export interface HostOperationStatus {
+  requestId: string;
+  action: HostAction;
+  phase: string;
+  message?: string;
+  updatedAt?: string;
+}
+export interface ManagedHost {
+  name: string;
+  nodeUid: string;
+  bootId: string;
+  kernel: string;
+  available: boolean;
+  observedAt?: string;
+  message: string;
+  plan?: HostPreparationPlan | null;
+  operation?: HostOperationStatus | null;
+}
+export interface HostOperationRequest {
+  action: HostAction;
+  nodeName: string;
+  nodeUid: string;
+  bootId: string;
+  requestId: string;
+  confirmation: string;
+  acknowledgeDisruption: boolean;
+  allowExperimental: boolean;
+  experimentMode: boolean;
+  planId?: string;
 }
 
 export interface SystemStatusPayload {

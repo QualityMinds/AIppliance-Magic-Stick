@@ -39,6 +39,9 @@ Expected findings should be placeholders, generated-secret annotations, Kubernet
 ANSIBLE_ROLES_PATH=magic-host/roles \
   ansible-playbook --syntax-check magic-host/playbooks/local.yml
 
+python3 -m unittest discover -s magic-host/roles/gpu-compatibility/tests
+python3 -m unittest discover -s magic-host/roles/host-management/tests
+
 kubectl kustomize magic-cluster/flux/entrypoints/base
 kubectl kustomize magic-cluster/flux/entrypoints/single-node
 kubectl kustomize magic-cluster/apps/dashboard
@@ -133,8 +136,13 @@ Do not commit generated Kubernetes Secrets, Flux bootstrap token secrets, privat
   `example.com`, `CHANGEME`, or documented variables?
 - Do module catalog paths point only to reusable public bases?
 - Do example overlays still build after public base changes?
-- Does the dashboard write only `ModuleActivation`, `ModelActivation`, and
-  `AppInstance` CRs, without direct workload install permissions?
+- Do module, model and instance changes use `ModuleActivation`,
+  `ModelActivation`, and `AppInstance` CRs without direct workload install
+  permissions? Do host actions use only bounded, immutable `HostOperation`
+  requests without dashboard access to host execution or operation status writes?
+- Do host preparation and power changes require explicit administrator consent,
+  current host/plan identity and local replay protection? Does experiment mode
+  remain limited to shipped profiles without implying general GPU support?
 - Are new secrets generated at runtime instead of stored in Git?
 - Are new public interfaces documented in `docs/configuration.md`,
   `docs/gitops-overlays.md`, `docs/operations.md`, or another focused page?

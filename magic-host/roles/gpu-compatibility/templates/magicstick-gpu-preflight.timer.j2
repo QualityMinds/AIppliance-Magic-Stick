@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh Magic Stick GPU host evidence after boot and host changes
+
+[Timer]
+OnBootSec=90s
+OnUnitActiveSec=5min
+RandomizedDelaySec=15s
+Unit=magicstick-gpu-preflight.service
+
+[Install]
+WantedBy=timers.target

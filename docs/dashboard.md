@@ -137,7 +137,7 @@ The React implementation retains the established tab-by-tab feature contract:
 | API Access | Endpoint display/copy, named-key creation, one-time secret display/copy, non-secret metadata, refresh, and guarded revocation. |
 | Kubernetes Access | OIDC readiness, role explanations and warnings, user search/pagination, access assignment/removal, and readiness-guarded kubeconfig download/copy. |
 | Federated SSO | Entitlement status, stable issuer and per-provider callback, OIDC/SAML metadata validation, redacted provider state, exact role mappings, guarded save/delete, and local-recovery guidance. |
-| System | Category tabs for public/mDNS settings; offline license administration and software notices; server-side user administration; and hardware, Flux, Pod, Service, Ingress, and route status. Legacy `#/settings`, `#/license`, and `#/users` hashes resolve to their new nested System routes. |
+| System | Category tabs for public/mDNS settings; offline license administration and software notices; server-side user administration; Hardware profiles and validation; and hardware, Flux, Pod, Service, Ingress, and route status. Legacy `#/settings`, `#/license`, and `#/users` hashes resolve to their new nested System routes. |
 
 `dashboard/apps/web/src/FeatureParity.test.tsx` protects these user-visible
 contracts independently of the smaller application-shell tests. Catalog and
@@ -290,7 +290,7 @@ the appliance service restores the TUI automatically.
 | `GET` | `/api/model-discovery/search?provider={huggingface,ollama}&q=&cursor=&limit=` | Searches public Hugging Face repositories or prefix-matching Ollama Library model names and returns bounded metadata plus a continuation cursor. |
 | `GET` | `/api/model-discovery/popular?provider={huggingface,ollama}&limit=` | Returns Hugging Face trending models or Ollama's public popularity order, filtered for the selected model type, engine, and compute target. |
 | `GET` | `/api/model-discovery/artifacts?provider={huggingface,ollama}&repo=&cursor=&limit=` | Resolves directly related Hugging Face quantizations or the selected Ollama model's locally runnable tags. |
-| `GET` | `/api/status` | Returns runtime objects and the catalogued NVIDIA/AMD/Intel operator lifecycle from `Appliance.status.hardwareOperators`. |
+| `GET` | `/api/status` | Returns runtime objects and the catalogued NVIDIA/AMD/Intel operator lifecycle from `Appliance.status.hardwareOperators`, including AMD `compatibility` profiles, host evidence and per-engine validation. |
 | `POST` | `/api/models/estimate-memory` | Estimates minimum and recommended RAM or accelerator memory for every supported local engine/compute-target/KV-cache combination; an explicit NVIDIA `cpuOffloading: true` plus VRAM budget returns a separate `offloading` RAM/VRAM plan. |
 | `POST` | `/api/models/estimate-vram` | Backward-compatible alias for `/api/models/estimate-memory`. |
 | `POST` | `/api/models/local` | Adds or replaces a local KubeAI-backed `ModelActivation`. |
@@ -648,6 +648,52 @@ when their checkbox is enabled. These values are stored under
 `spec.values.agentExecution`; the dashboard does not create Paperclip
 companies, employee agents, or gateway credentials.
 
+## Hardware Compatibility Controls
+
+**System → Hardware → Host preparation** uses the same approved Ansible workflow
+after initial installation and on existing computers. Plans show exact package
+changes and restart requirements; a bounded experiment mode permits explicitly
+acknowledged tests on unreviewed mixed-GPU combinations. Administrators also see
+**Computer power** under **System**, with exact-host confirmation for restart or
+shutdown. Viewers/operators cannot execute these actions. Availability, progress,
+power-off limitations and recovery are documented in [host management](host-management.md).
+
+**System → Hardware** (`#/system/hardware`) separates upstream GPU support,
+additional profile selection, host readiness, Kubernetes GPU registration and
+per-engine validation. All authenticated dashboard roles can inspect this
+state. Only administrators may save AMD compatibility parameters or request
+validation; ordinary module operators cannot submit arbitrary probe images,
+scripts or selectors through the API.
+
+The initial additional profile is **AMD Strix Halo (experimental)**. Selecting
+it requires the experimental acknowledgement and does not itself confirm
+inference support. **Run GPU validation** requires a saved profile and a second
+confirmation because it downloads images/test models and uses GPU resources.
+Results for Ollama and vLLM remain separate. Returning to upstream rules removes
+the additional opt-in rather than claiming the hardware has become supported.
+
+The same flow uses `ModuleActivation/amd-gpu.spec.parameters` fields
+`compatibilityProfile`, `allowExperimental` and `validationRequest` through the
+existing module API. `GET /api/status` exposes the catalog and evidence under
+`hardwareOperators.amd-gpu.compatibility`. Host/kernel/image changes invalidate
+old evidence; stale or failed experimental engine checks cannot be bypassed by
+accepting a model memory warning. CLI users have `hardware list`,
+`hardware profile strix-halo --allow-experimental`,
+`hardware validate --yes`, and `hardware profile upstream`; the TUI provides
+Hardware inspection and the same explicitly confirmed administrator actions.
+
+Strix Halo cards show a shared CPU/GPU memory explanation, GPU-accessible
+capacity when known, and accounting-verification status. The Models estimator
+uses one physical pool instead of adding RAM and GPU mappings. Unverified GPU
+cgroup accounting stays visible as a warning, not a hard-limit promise. See
+[GPU compatibility](gpu-compatibility.md) and
+[unified-memory reservations](model-catalog.md#amd-unified-memory-reservations).
+
+The reported shared capacity is conservative OS-visible RAM. The API's
+`physicalMemoryMi` field is based on `MemTotal`, not installed DIMM capacity;
+BIOS carve-outs and raw VRAM totals are not added to it. Hardware can therefore
+contain more installed RAM than the currently exposed shared-pool budget.
+
 ## Model Controls
 
 Local and external models are runtime requests stored as `ModelActivation`
@@ -722,6 +768,10 @@ Kubernetes reports its allocatable resource. Intel automatically resolves
 `gpu.intel.com/xe` or `gpu.intel.com/i915`. vLLM supports all four targets.
 Ollama supports CPU, NVIDIA, and AMD; Intel is absent from the Ollama choices
 because no validated KubeAI/Ollama Intel profile is bundled.
+
+For an experimental AMD profile, the selected engine also needs current
+successful GPU validation. Upstream provider readiness and an allocatable
+resource alone do not satisfy that additional gate.
 
 Beside **Context Size**, the local form shows a **KV Cache** dropdown. Ollama
 offers F16, Q8, and Q4. vLLM offers model precision on every target and FP8 only
@@ -867,6 +917,12 @@ operator supplies a compatible memory exporter, those gauges explicitly show
 that memory metrics are unavailable and do not invent a total, percentage, or
 free value. This preserves an honest UI while keeping the response contract
 ready for additional vendor metric adapters.
+
+An explicitly configured unified-memory AMD profile is shown as a shared pool
+instead of an independent extra VRAM bank. Fresh host GTT/TTM bounds can supply
+GPU-accessible capacity without pretending to be live vendor-exporter usage.
+CPU and AMD model budgets are charged conservatively to that pool, with a system
+reserve; missing metrics and unverified GPU cgroup accounting remain explicit.
 
 The preset selector is populated from `ConfigMap/magicstick-model-presets` and
 shows only variants compatible with the selected engine and target. Each

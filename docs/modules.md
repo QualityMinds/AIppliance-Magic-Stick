@@ -103,12 +103,14 @@ auto-enabled vendor `ModuleActivation` only when compatible hardware is present.
 | Module | Detection | Vendor support gate | Allocatable resource | Driver behavior |
 |---|---|---|---|---|
 | `gpu` | `feature.node.kubernetes.io/pci-10de.present` | same label; NVIDIA validates through ClusterPolicy | `nvidia.com/gpu` | NVIDIA GPU Operator managed |
-| `amd-gpu` | `feature.node.kubernetes.io/pci-1002.present` | `feature.node.kubernetes.io/amd-gpu` from AMD's NFD rule | `amd.com/gpu` | portable baseline uses the host/inbox `amdgpu` driver |
+| `amd-gpu` | `feature.node.kubernetes.io/pci-1002.present` | AMD's NFD support rule, or an explicitly acknowledged compatibility profile with host evidence | `amd.com/gpu` | portable baseline uses the host/inbox `amdgpu` driver |
 | `intel-gpu` | `feature.node.kubernetes.io/pci-8086.present` | `intel.feature.node.kubernetes.io/gpu` from Intel's NFD rule | `gpu.intel.com/i915` or `gpu.intel.com/xe` | Linux kernel driver plus Intel device plugin |
 
-Detection is deliberately broader than the vendor support gate. Magic Stick
-does not maintain a product-ID allow-list; AMD and Intel decide whether a
-detected GPU is supported through their shipped `NodeFeatureRule`. Before
+Detection is deliberately broader than the vendor support gate. AMD and Intel
+upstream support remains defined by their shipped `NodeFeatureRule`. Additional
+AMD compatibility is kept separately in a versioned, explicitly selected
+catalog; it never changes the vendor's support labels or treats unknown cards
+as supported. Before
 activation the controller also requires Linux, a supported architecture, and
 the catalogued Kubernetes minimum. If the vendor CRD already exists without a
 Magic Stick activation, installation stops with `Conflict` rather than creating
@@ -125,6 +127,27 @@ is selectable only after its provider is `Ready` and the corresponding
 allocatable resource exists. Intel remains one user-facing target while the
 runtime resolves `gpu.intel.com/xe` or `gpu.intel.com/i915` to a matching KubeAI
 resource profile.
+
+### Additional AMD compatibility profiles
+
+`ConfigMap/magicstick-gpu-compatibility-catalog` in `ai-system` supplies
+`profiles.json`. The initial `strix-halo` profile matches `1002:1586`, expects
+observed `gfx1151`, and declares unified memory and experimental status. It is
+not a certified stack. Administrators select it through
+`ModuleActivation/amd-gpu.spec.parameters.compatibilityProfile` together with
+`allowExperimental: "true"`; the empty profile retains upstream-only behavior.
+A unique `validationRequest` explicitly requests GPU tests, image/model
+downloads and resource usage. The dashboard and CLI require confirmation.
+
+The AMD Helm chart installs the controller and CRDs without its default
+`DeviceConfig`. Magic Stick reconciles that operand separately against its own
+`appliance.magicstick.dev/amd-gpu-eligible` label after upstream support or
+explicit, prepared profile eligibility is established. This avoids coupling
+controller installation to an unmatched GPU selector. Each experimental engine
+must additionally pass its own GPU inference validation before model placement
+is permitted; GPU registration alone is not enough. See
+[GPU compatibility](gpu-compatibility.md) for host preparation, evidence,
+shared-memory constraints and remaining acceptance gates.
 
 ## Generated Flux Kustomization
 

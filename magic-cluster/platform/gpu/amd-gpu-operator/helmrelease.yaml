@@ -17,6 +17,13 @@ spec:
   install:
     createNamespace: false
   values:
+    # A chart install must not wait for a GPU-specific DeviceConfig. Magic Stick
+    # owns its lifecycle separately, after upstream support or explicit profile
+    # eligibility has selected at least one prepared node.
+    crds:
+      defaultCR:
+        install: false
+        upgrade: false
     # Hardware discovery is cluster-wide and shared by all vendors.
     node-feature-discovery:
       enabled: false
@@ -39,7 +46,7 @@ spec:
     deviceConfig:
       spec:
         selector:
-          feature.node.kubernetes.io/amd-gpu: "true"
+          appliance.magicstick.dev/amd-gpu-eligible: "true"
         driver:
           enable: false
           blacklist: false

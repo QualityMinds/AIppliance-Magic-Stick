@@ -10,7 +10,25 @@ See [../docs/architecture.md](../docs/architecture.md) for the bootstrap flow,
 End-user installation steps are collected in
 [../docs/installation/README.md](../docs/installation/README.md).
 
+## GPU compatibility diagnostics
+
+The `gpu-compatibility` role installs read-only `magicstick-gpu-preflight` and
+`magicstick-hip-smoke` helpers. It does not automatically change kernel,
+firmware, ROCm, memory mapping limits, or GPU eligibility. A separate explicit
+preparation playbook accepts reviewed, exact package versions; it never reboots
+the host. A root-owned timer publishes non-secret host evidence on the local K3s
+Node after boot and every five minutes, without changing eligibility labels.
+See [GPU compatibility](../docs/gpu-compatibility.md) for evidence,
+Strix Halo shared-memory accounting, preparation and validation gates.
+
 ## Entry Point
+
+The `host-management` role installs the shared post-install hardware/power worker
+after base convergence. It only inspects until an administrator submits a
+confirmed request. Hardware preparation reuses `gpu-prepare.yml`; kernel changes
+are not embedded in the installation path. See
+[host management](../docs/host-management.md) for exact profiles, mixed-GPU
+experiment mode, state across reboot, power controls and diagnostic commands.
 
 End users with an existing dedicated Ubuntu 24.04 system should start with the
 repository-level [`install-from-linux.sh`](../install-from-linux.sh). It checks

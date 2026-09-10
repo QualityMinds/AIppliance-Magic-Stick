@@ -118,6 +118,7 @@ rules:
       - deployments
     verbs:
       - get
+      - list
       - patch
   - apiGroups:
       - ""
@@ -163,6 +164,15 @@ rules:
       - get
       - list
       - watch
+      - patch
+  - apiGroups:
+      - nfd.k8s-sigs.io
+    resources:
+      - nodefeatures
+      - nodefeaturerules
+    verbs:
+      - get
+      - list
   - apiGroups:
       - ""
     resources:
@@ -190,12 +200,36 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
+  name: magicstick-gpu-validation
+  namespace: ai-system
+rules:
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [get, list, create, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: magicstick-gpu-validation
+  namespace: ai-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: magicstick-gpu-validation
+subjects:
+  - kind: ServiceAccount
+    name: magicstick-operator
+    namespace: ai-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
   name: magicstick-offloading-profiles
   namespace: flux-system
 rules:
   - apiGroups: [""]
     resources: [configmaps]
-    resourceNames: [magicstick-offloading-profiles]
+    resourceNames: [magicstick-offloading-profiles, magicstick-gpu-runtime-images]
     verbs: [get, patch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

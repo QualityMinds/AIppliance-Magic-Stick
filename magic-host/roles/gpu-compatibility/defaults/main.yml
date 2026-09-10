@@ -1,0 +1,16 @@
+---
+# Installing read-only diagnostics never activates experimental GPUs.
+gpu_compatibility_prepare_host: false
+gpu_compatibility_profile: ""
+
+# Explicit APT name:version pins from an administrator-reviewed OS/ROCm stack.
+# Empty by default: no driver, kernel, firmware or ROCm packages are changed.
+gpu_compatibility_package_versions: {}
+gpu_compatibility_update_cache: false
+
+# null leaves the setting unchanged; 0 removes only our managed TTM override.
+# Positive values configure a mapping limit in MiB for the next boot.
+gpu_compatibility_ttm_limit_mib: null
+gpu_compatibility_system_reserve_mib: 8192
+gpu_compatibility_node_name: "{{ ansible_facts['hostname'] }}"
+gpu_compatibility_publish_evidence: true

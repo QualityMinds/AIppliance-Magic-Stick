@@ -1,6 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Do not overlap package/profile preparation, first-run convergence or a pending
+# administrator-approved restart. The lock is shared with the node-local worker.
+install -d -m 0700 /var/lib/magicstick/host-management
+exec 9>/var/lib/magicstick/host-management/maintenance.lock
+if ! flock -n 9; then
+  echo "Host maintenance is active; convergence will retry on the next timer run."
+  exit 0
+fi
+if [[ -f /run/systemd/shutdown/scheduled ]]; then
+  echo "Host shutdown is scheduled; skipping convergence."
+  exit 0
+fi
+
 REPO_METADATA_ENV_FILE="${REPO_METADATA_ENV_FILE:-/etc/default/ai-appliance-repo}"
 
 if [[ ! -f "$REPO_METADATA_ENV_FILE" ]]; then

@@ -11,7 +11,7 @@ describe('offline terminal preview', () => {
     vi.stubGlobal('fetch', fetch);
     const runtime = createDemoRuntime();
     const snapshot = await loadSnapshot(runtime.api);
-    expect(availableTabs(snapshot)).toHaveLength(9);
+    expect(availableTabs(snapshot)).toHaveLength(10);
     for (let index = 0; index < availableTabs(snapshot).length; index += 1) {
       const screen = renderTui(snapshot, index, 120, 30, false, {demo: true});
       expect(screen).toContain('OFFLINE DEMO · read-only · sample data');

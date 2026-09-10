@@ -8,14 +8,17 @@ import {LicensePage} from './LicensePage';
 import {SettingsPage} from './SettingsPage';
 import {SystemPage} from './SystemPage';
 import {UsersPage} from './UsersPage';
+import {HardwarePage} from './HardwarePage';
+import {HostPowerPanel} from './HostManagement';
 
-export type SystemSectionId = 'settings' | 'license' | 'users' | 'federated-sso' | 'status';
+export type SystemSectionId = 'settings' | 'license' | 'users' | 'federated-sso' | 'hardware' | 'status';
 
 const sections: Array<{id: SystemSectionId; label: string; admin?: boolean; identity?: boolean; entitlement?: string}> = [
   {id: 'settings', label: 'Settings', admin: true},
   {id: 'license', label: 'License', admin: true},
   {id: 'users', label: 'Users', admin: true, identity: true},
   {id: 'federated-sso', label: 'Federated SSO', admin: true, identity: true, entitlement: 'federated-sso'},
+  {id: 'hardware', label: 'Hardware'},
   {id: 'status', label: 'System Status'},
 ];
 
@@ -36,7 +39,7 @@ export const SystemAreaPage = ({session, section, onSectionChange}: {
   const federationLicensed = license.data?.features.some((feature) => feature.id === 'federated-sso' && feature.licensed) === true;
 
   return <div className="stack">
-    <div className="section-title"><div><h2>System</h2><p>Settings, licenses, users, federated identity and operational status in one place.</p></div></div>
+    <div className="section-title"><div><h2>System</h2><p>Settings, licenses, users, federated identity, hardware and operational status in one place.</p></div></div>
     <div className="filter-bar" role="tablist" aria-label="System sections">
       {allowed.map((item) => {
         const disabled = item.entitlement === 'federated-sso' && !federationLicensed;
@@ -53,11 +56,13 @@ export const SystemAreaPage = ({session, section, onSectionChange}: {
         >{item.label}</Button>;
       })}
     </div>
+    {canAdminister(session) && <HostPowerPanel />}
     <div role="tabpanel" aria-label={allowed.find((item) => item.id === active)?.label}>
       {active === 'settings' && <SettingsPage />}
       {active === 'license' && <LicensePage />}
       {active === 'users' && <UsersPage />}
       {active === 'federated-sso' && <FederatedSsoPage />}
+      {active === 'hardware' && <HardwarePage session={session} />}
       {active === 'status' && <SystemPage />}
     </div>
   </div>;

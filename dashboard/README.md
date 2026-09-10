@@ -56,8 +56,8 @@ corepack pnpm --filter @magicstick/dashboard-cli build
 corepack pnpm tui:demo
 ```
 
-The standalone equivalent is `magicstick tui --demo`. The preview shows all
-nine tabs using synthetic sample data, clearly labeled **OFFLINE DEMO**.
+The standalone equivalent is `magicstick tui --demo`. The preview shows its
+navigation using synthetic sample data, clearly labeled **OFFLINE DEMO**.
 Arrow keys (or `h/j/k/l`) navigate, `r` reloads the sample data, and `q` quits.
 Live actions, clipboard exports, and sign-out are disabled. It never contacts
 an API or login service, reads saved configuration or credentials, or changes
@@ -81,7 +81,7 @@ in a trusted test network, `--insecure` bypasses certificate verification only
 for the current process, prints a warning, and is never persisted.
 
 The TUI has the same role-filtered areas as the browser: Overview, Services,
-Models, Settings, Users, API Access, License, Kubernetes, and System. Use left/right or
+Models, Settings, Users, API Access, License, Kubernetes, Hardware, and System. Use left/right or
 `h`/`l` to change page, up/down or `k`/`j` to select an item, `r` to refresh,
 and `q` to quit. Operators can enable and disable catalog services and add or
 remove local and external models. The local-model form offers only KV-cache
@@ -93,6 +93,28 @@ through OSC 52 when the terminal supports it. Every destructive operation is
 confirmed, passwords are masked, and a newly created API-key secret remains on
 screen only until its result dialog is closed. The explicit CLI commands remain
 available for scripts and complete JSON instance payloads.
+
+### GPU compatibility profiles
+
+The browser's **System → Hardware** and the TUI Hardware area show upstream
+support, additional profile selection, host/driver evidence, GPU registration
+and per-engine validation separately. Administrators may opt into the initial
+experimental Strix Halo profile and explicitly start GPU validation; inspection
+does not start workloads. The CLI equivalents are:
+
+```bash
+magicstick hardware list
+magicstick hardware profile strix-halo --allow-experimental
+magicstick hardware validate --yes
+magicstick hardware profile upstream
+```
+
+Validation uses fixed catalog images/test models and consumes download space
+and GPU resources. A passed Ollama result does not enable vLLM, unknown cards
+remain unknown, and shared CPU/GPU memory is not two additive capacities.
+See [GPU compatibility](../docs/gpu-compatibility.md) for host preparation,
+experimental support and hardware acceptance gates. These are Community
+hardware controls; they do not grant Enterprise multi-GPU or multi-node placement.
 
 Administrators can inspect, import and export signed offline licenses through
 the **License** tab (`a` to inspect/import, `e` to export). The browser uses

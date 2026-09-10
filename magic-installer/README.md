@@ -19,6 +19,13 @@ or host services.
 
 ## Files
 
+GPU-specific host preparation runs **after** base installation, using the same
+administrator-confirmed workflow as existing appliances. The installer provides
+the local worker, not a second kernel-upgrade path. See
+[host management](../docs/host-management.md). The installation kernel must still
+boot the machine and reach its network/storage. Kubernetes-only deployments do
+not install the root worker and therefore do not expose working host power controls.
+
 | File | Purpose |
 |---|---|
 | `meta-data` | Example cloud-init instance metadata |

@@ -15,6 +15,16 @@ formalized, release entries should group changes under:
 
 ### Added
 
+- GPU compatibility diagnostics with an opt-in Strix Halo profile, separate
+  Ollama/vLLM smoke-test gates, validated runtime-image pins and unified-memory
+  accounting that does not count shared system RAM twice.
+- One post-install, Ansible-backed host-preparation workflow for new and
+  existing appliances, with reviewed package plans, explicit administrator
+  consent, persistent progress and post-reboot verification.
+- A bounded hardware experiment mode for unreviewed GPU combinations, plus
+  administrator-only dashboard restart and shutdown actions with exact-host
+  confirmation and replay protection. Mixed-GPU acceptance remains a separate
+  hardware test, not an automatic support claim.
 - Release-owned public license trust distribution alongside preserved local
   issuers, automatic support for upgrades from an empty legacy store,
   conflict/retirement checks and a nonempty-public-key release gate.

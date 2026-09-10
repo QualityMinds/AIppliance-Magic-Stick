@@ -372,15 +372,15 @@ class HelmAppInstanceTests(unittest.TestCase):
         self.assertNotIn("gpu", modules)
         self.assertNotIn("kubeai", modules)
 
-    def test_controller_rollouts_never_run_competing_reconcilers(self):
+    def test_controller_rollouts_wait_for_old_reconciler_termination(self):
         deployment = yaml.safe_load((ROOT / "deployment.yaml").read_text(encoding="utf-8"))
 
         self.assertEqual(deployment["spec"]["replicas"], 1)
         self.assertEqual(
             deployment["spec"]["strategy"],
             {
-                "type": "RollingUpdate",
-                "rollingUpdate": {"maxSurge": 0, "maxUnavailable": 1},
+                "type": "Recreate",
+                "rollingUpdate": None,
             },
         )
 

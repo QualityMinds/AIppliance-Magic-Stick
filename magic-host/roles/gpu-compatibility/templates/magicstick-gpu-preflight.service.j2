@@ -1,0 +1,17 @@
+[Unit]
+Description=Publish non-secret Magic Stick GPU host evidence
+After=k3s.service
+ConditionPathExists=/etc/rancher/k3s/k3s.yaml
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+Environment=MAGICSTICK_GPU_NODE_NAME={{ gpu_compatibility_node_name }}
+ExecStart=/usr/local/sbin/magicstick-gpu-publish
+TimeoutStartSec=120
+UMask=0077
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectHome=true
+ProtectSystem=strict

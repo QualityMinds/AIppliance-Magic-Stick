@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: magicstick-gpu-runtime-images
+  namespace: flux-system
+  annotations:
+    kustomize.toolkit.fluxcd.io/ssa: IfNotPresent
+  labels:
+    app.kubernetes.io/name: magicstick-operator
+    reconcile.fluxcd.io/watch: Enabled
+data:
+  runtime-config-checksum: 8fbf71866448205a07db32ee1dc212442ad60db14829fb2576f2d92736f1a999
+  vllm-amd: vllm/vllm-openai-rocm:v0.26.0
+  ollama-amd: ollama/ollama:0.33.2-rocm
+  vllm-amd-source: vllm/vllm-openai-rocm:v0.26.0
+  ollama-amd-source: ollama/ollama:0.33.2-rocm
+# Flux bootstraps valid valuesKeys, then the operator owns updates. Successful
+# experimental validation pins the actual image digest; catalog changes reset
+# that pin until the new image passes. No machine-specific result is in Git.

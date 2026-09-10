@@ -251,6 +251,12 @@ spec:
                   minimum: 0
                 cpuOffloading:
                   type: boolean
+                memoryArchitecture:
+                  type: string
+                  description: Unified means GPU and CPU reservations refer to one physical memory pool.
+                sharedPoolId:
+                  type: string
+                  description: Node UID identifying the shared physical memory pool; count this model reservation only once.
                 memoryUsage:
                   type: object
                   x-kubernetes-preserve-unknown-fields: true

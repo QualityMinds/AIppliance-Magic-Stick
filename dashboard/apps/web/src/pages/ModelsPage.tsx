@@ -31,9 +31,13 @@ const MemoryGauge = ({device}: {device: ComputeMemoryDevice}) => {
   const unreservedPercent = Math.min(100, Math.round(unreserved / total * 100));
   const freePercent = Math.min(100, Math.round(free / total * 100));
   return <article className="memory-gauge">
-    <div className="gauge-rings" style={{'--unreserved': `${unreservedPercent * 1.8}deg`, '--free': `${freePercent * 1.8}deg`} as CSSProperties}><div className="gauge-value"><strong>{formatMi(free)}</strong><span>actually free</span></div></div>
+    <div className="gauge-rings" style={{'--unreserved': `${unreservedPercent * 1.8}deg`, '--free': `${freePercent * 1.8}deg`} as CSSProperties}><div className="gauge-value"><strong>{formatMi(free)}</strong><span>{device.memoryArchitecture === 'unified' ? 'shared RAM available' : 'actually free'}</span></div></div>
     <strong>{device.name ?? device.id}</strong>
-    <small><i />{formatMi(unreserved)} unreserved · {formatMi(total)} total</small>
+    {device.memoryArchitecture === 'unified' && <span className="tag">Shared system memory{device.sharedPoolId ? ` · ${device.sharedPoolId}` : ''}</span>}
+    <small><i />{formatMi(unreserved)} unreserved · {formatMi(total)} {device.memoryArchitecture === 'unified' ? 'budgetable' : 'total'}</small>
+    {device.memoryArchitecture === 'unified' && <small className="muted">{device.sharedMemoryMi ? `${formatMi(device.sharedMemoryMi)} OS-visible shared RAM. ` : ''}Budgetable memory excludes safety reserves; available RAM can be higher. Firmware-reserved GPU memory is not added.</small>}
+    {device.memoryArchitecture === 'unified' && <small className="muted">CPU and GPU are budgeted against one OS-visible RAM pool; do not add these capacities. {device.accountingVerified ? 'Shared accounting verified.' : 'Shared accounting not yet verified.'}</small>}
+    {(device.message || device.warning) && <small className="muted">{device.message || device.warning}</small>}
     {!device.metricsAvailable && <span className="muted">Live metrics unavailable</span>}
   </article>;
 };

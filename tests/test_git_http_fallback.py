@@ -45,6 +45,18 @@ class GitHttpFallbackTests(unittest.TestCase):
             temporary = pathlib.Path(temporary_directory)
             fake_bin = temporary / "bin"
             fake_bin.mkdir()
+            # Exercise the host script without touching the test machine's
+            # root-owned maintenance state or shutdown schedule.
+            converge = temporary / "converge.sh"
+            converge.write_text(
+                CONVERGE.read_text(encoding="utf-8")
+                .replace("/var/lib/magicstick/host-management", str(temporary / "host-management"))
+                .replace("/run/systemd/shutdown/scheduled", str(temporary / "shutdown-scheduled")),
+                encoding="utf-8",
+            )
+            fake_flock = fake_bin / "flock"
+            fake_flock.write_text("#!/usr/bin/env bash\n[[ \"$*\" == \"-n 9\" ]]\n", encoding="utf-8")
+            fake_flock.chmod(0o755)
             checkout = temporary / "checkout"
             git_log = temporary / "git.log"
             ansible_log = temporary / "ansible.log"
@@ -120,7 +132,7 @@ class GitHttpFallbackTests(unittest.TestCase):
             environment["FAKE_GIT_LOG"] = str(git_log)
             environment["FAKE_ANSIBLE_LOG"] = str(ansible_log)
             result = subprocess.run(
-                ["bash", str(CONVERGE)],
+                ["bash", str(converge)],
                 cwd=ROOT,
                 env=environment,
                 check=False,

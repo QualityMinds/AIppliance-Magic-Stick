@@ -1,0 +1,30 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: magicstick-gpu-compatibility
+  namespace: amd-gpu-operator
+rules:
+  # Server-side apply needs create permission when the object does not exist.
+  # Kubernetes cannot restrict create by resourceNames; keep it namespaced and
+  # restricted to DeviceConfig, while updates/deletes remain default-only.
+  - apiGroups: [amd.com]
+    resources: [deviceconfigs]
+    verbs: [create]
+  - apiGroups: [amd.com]
+    resources: [deviceconfigs]
+    resourceNames: [default]
+    verbs: [get, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: magicstick-gpu-compatibility
+  namespace: amd-gpu-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: magicstick-gpu-compatibility
+subjects:
+  - kind: ServiceAccount
+    name: magicstick-operator
+    namespace: ai-system

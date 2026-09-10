@@ -4,6 +4,8 @@ import {
   dashboardRole,
   flattenInstances,
   formatMi,
+  gpuCompatibilityParameters,
+  gpuValidationSummary,
   phaseNeedsAttention,
   titleFromKey,
 } from '@magicstick/dashboard-core';
@@ -23,7 +25,7 @@ import {clipTerminalLine, truncate} from './output';
 import {bannerFits, createBannerAnimation, renderBanner, type BannerFrame} from './banner';
 import {licenseLines, previewLines, readLicenseFile, saveLicenseFile} from './license';
 
-export type TuiTab = 'Overview' | 'Services' | 'Models' | 'Settings' | 'Users' | 'API Access' | 'Kubernetes' | 'License' | 'System';
+export type TuiTab = 'Overview' | 'Services' | 'Models' | 'Settings' | 'Users' | 'API Access' | 'Kubernetes' | 'License' | 'Hardware' | 'System';
 
 type TuiEntity =
   | {kind: 'service'; id: string; state: ModuleState; catalog?: ModuleCatalogEntry}
@@ -107,6 +109,8 @@ const positiveInteger = (value: string, label: string) => {
 };
 const roundMemory = (value: number) => Math.max(100, Math.ceil(value / 100) * 100);
 
+export const isTuiActionKey = (key: string) => ['a', 'd', 'e', 'c', 'v', '\r', '\n'].includes(key);
+
 export const buildLocalModelPayload = (input: LocalModelInput, target: ComputeTarget) => {
   const local: Record<string, unknown> = {
     modelType: input.modelType,
@@ -154,7 +158,7 @@ export const availableTabs = (snapshot: DashboardSnapshot): TuiTab[] => {
   if (dashboardRole(snapshot.session) === 'admin') tabs.push('API Access');
   if (dashboardRole(snapshot.session) === 'admin') tabs.push('License');
   if (dashboardRole(snapshot.session) === 'admin' && snapshot.session.identityManagementAvailable !== false) tabs.push('Kubernetes');
-  tabs.push('System');
+  tabs.push('Hardware', 'System');
   return tabs;
 };
 
@@ -228,7 +232,7 @@ const modelLines = (snapshot: DashboardSnapshot, selectedIndex = -1) => {
   const models = modelEntries(snapshot);
   return [
     'Compute memory',
-    ...devices.map((device) => `  ${device.name ?? device.id}: ${formatMi(device.freeMi)} free / ${formatMi(device.unreservedMi)} unreserved / ${formatMi(device.totalMi)} total`),
+    ...devices.flatMap((device) => [`  ${device.name ?? device.id}: ${formatMi(device.freeMi)} ${device.memoryArchitecture === 'unified' ? 'shared RAM available' : 'free'} / ${formatMi(device.unreservedMi)} unreserved / ${formatMi(device.totalMi)} ${device.memoryArchitecture === 'unified' ? 'budgetable' : 'total'}`, ...(device.memoryArchitecture === 'unified' ? ['    OS-visible shared RAM: do not add capacities or firmware GPU memory; accounting ' + (device.accountingVerified ? 'verified.' : 'not verified.')] : [])]),
     '', 'Models',
     ...models.map((item, index) => {
       const local = item.spec?.local ?? {};
@@ -267,6 +271,23 @@ const kubernetesLines = (snapshot: DashboardSnapshot, selectedIndex = -1) => {
   ];
 };
 
+const hardwareLines = (snapshot: DashboardSnapshot) => {
+  const compatibility = snapshot.status.hardwareOperators?.['amd-gpu']?.compatibility;
+  return [
+    `AMD compatibility profile: ${compatibility?.selectedProfile || 'upstream rules'}`,
+    'Detection, host driver, GPU resource and engine validation are separate checks.',
+    ...Object.entries(snapshot.status.hardwareOperators ?? {}).map(([id, item]) => `${item.displayName ?? id}: ${statusLabel(item.phase)} / ${item.allocatableResources ?? 0} GPU resources`),
+    '', ...(compatibility?.nodes ?? []).flatMap((node) => [
+      `${node.node} · ${node.profileId || 'upstream'} · ${node.eligible ? 'eligible' : 'not eligible'}`,
+      `  Driver: ${node.hostDriverReady === true ? 'ready' : 'not verified'} · GPU resource: ${node.resourceRegistered === true ? 'registered' : 'not verified'}`,
+      `  Ollama: ${gpuValidationSummary(node.validation?.OLlama)} · vLLM: ${gpuValidationSummary(node.validation?.VLLM)}`,
+      ...Object.entries(node.validation ?? {}).filter(([, validation]) => validation.state === 'passed' && validation.runtimeMessage).map(([engine, validation]) => `  ${engine}: ${validation.runtimeMessage}`),
+      ...(node.memoryArchitecture === 'unified' ? [`  OS-visible shared RAM: ${formatMi(node.physicalMemoryMi)} / ${formatMi(node.gpuAccessibleMi)} GPU-accessible; do not add.`, `  Shared accounting: ${node.memoryAccountingVerified ? 'verified' : 'not verified'}`] : []),
+    ]),
+    ...(!compatibility ? ['GPU compatibility catalog has not been reported.'] : []),
+  ];
+};
+
 const systemLines = (snapshot: DashboardSnapshot) => [
   'Hardware operators',
   ...Object.entries(snapshot.status.hardwareOperators ?? {}).map(([id, item]) => `  ${item.operatorActive ? '●' : '○'} ${(item.displayName ?? titleFromKey(id)).padEnd(28)} ${statusLabel(item.phase)}  ${truncate(item.message, 60)}`),
@@ -287,6 +308,7 @@ export const tabLines = (tab: TuiTab, snapshot: DashboardSnapshot, selectedIndex
     case 'API Access': return apiAccessLines(snapshot, selectedIndex);
     case 'Kubernetes': return kubernetesLines(snapshot, selectedIndex);
     case 'License': return snapshot.license ? licenseLines(snapshot.license) : [snapshot.licenseError ?? 'No license status loaded.'];
+    case 'Hardware': return hardwareLines(snapshot);
     case 'System': return systemLines(snapshot);
     default: return overviewLines(snapshot);
   }
@@ -326,6 +348,7 @@ const browseHelp = (tab: TuiTab, snapshot: DashboardSnapshot) => {
   if (tab === 'API Access' && canAdminister(snapshot.session)) return `${base} · a: create · d: revoke`;
   if (tab === 'License' && canAdminister(snapshot.session)) return `${base} · a: inspect/import · e: export`;
   if (tab === 'Kubernetes' && canAdminister(snapshot.session)) return `${base} · e/Enter: access · d: revoke · c: copy kubeconfig`;
+  if (tab === 'Hardware' && canAdminister(snapshot.session)) return `${base} · e: profile · v: validate · d: upstream rules`;
   return base;
 };
 
@@ -765,12 +788,34 @@ export const runTui = async (runtime: Runtime, options: {color?: boolean; refres
   };
 
   const browseAction = (key: string) => {
-    if (!['a', 'd', 'e', 'c', '\r', '\n'].includes(key)) return;
+    if (!isTuiActionKey(key)) return;
     if (options.demo) return message('Offline demo', 'This preview is read-only. Live actions require an appliance connection.');
     const tab = activeTab();
     const entity = selectedEntity();
     if ((tab === 'Services' || tab === 'Models') && !canMutateRuntime(snapshot.session)) return message('Read-only session', 'Operator or administrator access is required for this action.', 'error');
-    if (['Users', 'API Access', 'Kubernetes', 'License'].includes(tab) && !canAdminister(snapshot.session)) return message('Administrator access required', 'This action is restricted to Magic Stick administrators.', 'error');
+    if (['Users', 'API Access', 'Kubernetes', 'License', 'Hardware'].includes(tab) && !canAdminister(snapshot.session)) return message('Administrator access required', 'This action is restricted to Magic Stick administrators.', 'error');
+    if (tab === 'Hardware') {
+      const compatibility = snapshot.status.hardwareOperators?.['amd-gpu']?.compatibility;
+      if (!compatibility) return message('Hardware catalog unavailable', 'The server has not reported GPU compatibility profiles yet. Refresh after the controller update.');
+      const apply = async (parameters: Record<string, string>) => perform('GPU compatibility', async () => {
+        await runtime.api.enableModule('amd-gpu', parameters);
+        return {lines: ['Hardware configuration saved. GPU registration and each engine validation are separate readiness checks.']};
+      });
+      if (key === 'e' || key === '\r' || key === '\n') openForm('AMD compatibility profile', 'Experimental profiles require explicit acceptance. Selection affects matching nodes only and does not certify inference.', [
+        {id: 'profile', label: 'Profile', value: compatibility.selectedProfile ?? '', kind: 'choice', choices: [{value: '', label: 'Upstream operator rules only'}, ...compatibility.profiles.map((profile) => ({value: profile.id, label: `${profile.displayName} ${profile.version}${profile.experimental ? ' (experimental)' : ''}`}))]},
+        {id: 'acknowledge', label: 'Accept experimental profile limitations', value: 'false', kind: 'choice', choices: [{value: 'false', label: 'No'}, {value: 'true', label: 'Yes, explicitly opt in'}]},
+      ], 'save', async (values) => apply(gpuCompatibilityParameters(values.profile ?? '', compatibility.profiles, values.acknowledge === 'true')));
+      else if (key === 'd') openConfirm('Return to upstream rules', 'Remove the custom GPU compatibility profile. Existing models may lose GPU eligibility. This does not uninstall the host driver.', 'use upstream', async () => apply(gpuCompatibilityParameters('', compatibility.profiles, false)));
+      else if (key === 'v') {
+        if (!compatibility.selectedProfile) return message('Select a profile first', 'GPU validation requires a saved compatibility profile.');
+        openConfirm('Run GPU validation', 'The profile tests may download images and use GPU resources. They are bounded GPU checks, not a full model quality benchmark.', 'run tests', async () => {
+          const parameters = gpuCompatibilityParameters(compatibility.selectedProfile ?? '', compatibility.profiles, compatibility.allowExperimental === true);
+          parameters.validationRequest = `tui-${Date.now()}-${crypto.randomUUID()}`;
+          await apply(parameters);
+        });
+      }
+      return;
+    }
     if (tab === 'License') {
       if (key === 'a') openForm('Import license', 'Enter a local license file path. Validation does not replace the current license.', [
         {id: 'file', label: 'License file', value: '', required: true},

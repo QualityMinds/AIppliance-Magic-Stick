@@ -24,6 +24,7 @@ data:
     import urllib.error
     import urllib.parse
     import urllib.request
+    from datetime import datetime, timezone
     from decimal import Decimal, InvalidOperation
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -2667,8 +2668,45 @@ data:
                 )
             resolved_resource_profile = resolved_resource_profiles.get("VLLM", resolved_resource_profile)
 
+            # A schedulable device proves device-plugin registration, not that
+            # every engine image can execute on that architecture. Profile-
+            # specific selectors are supplied by the compute catalog.
+            engine_availability = {}
+            has_engine_selectors = False
+            for engine in engines:
+                selector = target_engine_profile(definition, engine).get("nodeSelector") or {}
+                has_engine_selectors = has_engine_selectors or bool(selector)
+                engine_nodes = [node for node in matching_nodes if all(
+                    str(((node.get("metadata") or {}).get("labels") or {}).get(key) or "") == str(value)
+                    for key, value in selector.items()
+                )]
+                engine_capacity = sum(
+                    resource_quantity(((node.get("status") or {}).get("allocatable") or {}).get(selected_resource_name))
+                    for node in engine_nodes
+                ) if selected_resource_name else len(engine_nodes)
+                engine_ready = available and bool(engine_nodes) and engine_capacity >= 1
+                engine_availability[engine] = {
+                    "available": engine_ready,
+                    "compatibleNodes": len(engine_nodes),
+                    "nodeSelector": selector,
+                    "reason": "ready" if engine_ready else ("engine-not-validated" if available else reason),
+                    "message": message if engine_ready or not available else (
+                        engine + " has not passed GPU validation on an eligible node. See System > Hardware."
+                    ),
+                }
+            declared_engines = list(engines)
+            if has_engine_selectors:
+                engines = [engine for engine in engines if engine_availability[engine]["available"]]
+                if available and not engines:
+                    available = False
+                    reason = "engine-not-validated"
+                    message = "GPU resources are registered, but no engine is validated on an eligible node. See System > Hardware."
+
             cache_types = {
-                engine: kv_cache_options(engine, target_id, matching_nodes)
+                engine: kv_cache_options(engine, target_id, [node for node in matching_nodes if all(
+                    str(((node.get("metadata") or {}).get("labels") or {}).get(key) or "") == str(value)
+                    for key, value in (target_engine_profile(definition, engine).get("nodeSelector") or {}).items()
+                )])
                 for engine in engines
             }
 
@@ -2678,6 +2716,8 @@ data:
                 "kind": str(definition.get("kind") or ""),
                 "vendor": str(definition.get("vendor") or ""),
                 "engines": engines,
+                "declaredEngines": declared_engines,
+                "engineAvailability": engine_availability,
                 "architectures": sorted(architectures),
                 "nodeSelector": node_selector,
                 "requiredCapabilities": required_capabilities,
@@ -2711,6 +2751,9 @@ data:
         target = next((item for item in availability["targets"] if item["id"] == compute_target), None)
         if not target:
             raise RequestError(400, "unsupported compute target: " + str(compute_target))
+        engine_status = (target.get("engineAvailability") or {}).get(engine)
+        if engine_status and not engine_status.get("available"):
+            raise RequestError(409, engine_status["message"])
         if engine not in target.get("engines", []):
             raise RequestError(409, str(target.get("displayName") or compute_target) + " does not support " + engine + ".")
         if not target["available"]:
@@ -2754,7 +2797,11 @@ data:
             },
         }
         if "parameters" in payload:
-            spec["parameters"] = dict(payload.get("parameters") or {})
+            if not isinstance(payload.get("parameters"), dict):
+                raise ValueError("parameters must be an object")
+            spec["parameters"] = dict(payload["parameters"])
+            if module == "amd-gpu":
+                spec["parameters"] = validate_gpu_compatibility_parameters(spec["parameters"])
         return {
             "apiVersion": f"{APPLIANCE_GROUP}/{APPLIANCE_VERSION}",
             "kind": "ModuleActivation",
@@ -2771,6 +2818,53 @@ data:
             },
             "spec": spec,
         }
+
+
+    def gpu_compatibility_catalog():
+        configmap = get_resource(
+            f"/api/v1/namespaces/{APPLIANCE_NAMESPACE}/configmaps/magicstick-gpu-compatibility-catalog"
+        ) or {}
+        try:
+            data = json.loads((configmap.get("data") or {}).get("profiles.json", "{}"))
+            return data if isinstance(data, dict) else {}
+        except (ValueError, TypeError):
+            return {}
+
+
+    def validate_gpu_compatibility_parameters(parameters):
+        allowed = {"compatibilityProfile", "allowExperimental", "validationRequest"}
+        if set(parameters) - allowed:
+            raise ValueError("Unsupported AMD GPU profile parameter")
+        profile = parameters.get("compatibilityProfile", "")
+        if not isinstance(profile, str):
+            raise ValueError("compatibilityProfile must be a profile identifier")
+        profile = profile.strip()
+        consent = parameters.get("allowExperimental", "false")
+        if not (isinstance(consent, bool) or isinstance(consent, str) and consent in ("true", "false")):
+            raise ValueError("allowExperimental must be true or false")
+        consent = consent is True or consent == "true"
+        if profile:
+            definition = next((item for item in gpu_compatibility_catalog().get("profiles", [])
+                               if isinstance(item, dict) and item.get("id") == profile), None)
+            if not definition:
+                raise ValueError("Unknown GPU compatibility profile: " + profile)
+            if definition.get("experimental") and not consent:
+                raise ValueError("Experimental GPU profiles require explicit acknowledgement")
+        validation = parameters.get("validationRequest")
+        result = {"compatibilityProfile": profile, "allowExperimental": "true" if consent else "false", "validationRequest": ""}
+        if validation is not None:
+            if not isinstance(validation, str) or validation and not re.fullmatch(r"[A-Za-z0-9._-]{1,80}", validation):
+                raise ValueError("validationRequest must be a short unique identifier")
+            if validation and not profile:
+                raise ValueError("Choose a GPU compatibility profile before requesting validation")
+            result["validationRequest"] = validation
+        return result
+
+
+    def module_mutation_access(module, payload):
+        # GPU validation starts privileged device access in fixed, catalogue-
+        # owned images. Ordinary model operators cannot select these profiles.
+        return "admin" if module == "amd-gpu" and "parameters" in payload else "operator"
 
 
     def manual_module_activation_patch(resource):
@@ -5356,6 +5450,21 @@ data:
 
         vram = vram_summary(model_activations()) if compute_target == "nvidia-gpu" else {"available": False}
         maximum_mi = vram.get("plannedRemainingMi") if vram.get("available") else None
+        shared_pools = []
+        if compute_target == "amd-gpu":
+            definition = (compute_target_catalog().get("targets") or {}).get(compute_target) or {}
+            selector = {**(definition.get("nodeSelector") or {}), **(target_engine_profile(definition, engine).get("nodeSelector") or {})}
+            eligible_nodes = [node for node in ready_schedulable_nodes() if all(
+                str(((node.get("metadata") or {}).get("labels") or {}).get(key) or "") == str(value)
+                for key, value in selector.items()
+            )]
+            shared_pools = unified_memory_pools(eligible_nodes, active_model_memory_reservations(model_activations()))
+            if shared_pools:
+                known = [pool["gpuUnreservedMi"] for pool in shared_pools if pool["gpuUnreservedMi"] is not None]
+                maximum_mi = max(known) if known else None
+                warnings.append("AMD unified memory is shared with CPU workloads. GPU-accessible RAM is not additional VRAM; the same physical pool is budgeted once.")
+                if not all(pool["memoryAccountingVerified"] for pool in shared_pools):
+                    warnings.append("GPU memory accounting in container limits has not been verified on this host; the budget is not a guaranteed hard GPU limit.")
         if maximum_mi is None:
             if compute_target == "nvidia-gpu":
                 warnings.append("Live GPU availability unavailable; max available cannot be verified.")
@@ -5367,6 +5476,8 @@ data:
             "engine": engine,
             "computeTarget": compute_target,
             "memoryKind": "ram" if compute_target == "cpu" else "vram",
+            "memoryArchitecture": "unified" if shared_pools else "dedicated",
+            "sharedPools": shared_pools,
             "sourceUrl": estimate.get("sourceUrl"),
             "minimumMi": int(minimum_mi),
             "recommendedMi": int(recommended_mi),
@@ -5792,11 +5903,14 @@ data:
                     or positive_int(local.get("vramMi"))
                     or 0
                 )
+                if status.get("memoryArchitecture") == "unified":
+                    reserved_mi = max(reserved_mi, positive_int(status.get("memoryRequiredMi")) or 0)
             if not reserved_mi:
                 continue
             reservations.setdefault(compute_target, []).append({
                 "model": str(metadata.get("name") or "local-model"),
                 "reservedMi": int(reserved_mi),
+                **({"memoryArchitecture": "unified"} if status.get("memoryArchitecture") == "unified" else {}),
             })
         for items in reservations.values():
             items.sort(key=lambda item: item["model"])
@@ -5854,16 +5968,16 @@ data:
         return samples
 
 
-    def cpu_memory_device(nodes, reservations):
+    def cpu_memory_device(nodes, reservations, samples=None):
         if not nodes:
             return None
         total_mi = sum(
             quantity_mi((((node.get("status") or {}).get("capacity") or {}).get("memory")))
             for node in nodes
         )
-        reserved_models = reservations.get("cpu") or []
+        reserved_models = list(reservations.get("cpu") or [])
         reserved_mi = sum(int(item.get("reservedMi") or 0) for item in reserved_models)
-        samples = node_memory_samples(nodes)
+        samples = node_memory_samples(nodes) if samples is None else samples
         node_names = [
             str((node.get("metadata") or {}).get("name") or "")
             for node in nodes
@@ -5976,11 +6090,71 @@ data:
         return devices
 
 
+    def unified_memory_pools(nodes, reservations, samples=None):
+        """UMA budgets share the OS RAM pool; GPU aperture is not extra RAM.
+
+        Pending model placement is not known here. Charge all CPU/AMD model
+        budgets to each candidate pool conservatively rather than offering the
+        same memory twice. The Kubernetes scheduler remains authoritative.
+        """
+        pools = []
+        shared_reservations = list(reservations.get("cpu") or []) + list(reservations.get("amd-gpu") or [])
+        reserved = sum(int(item.get("reservedMi") or 0) for item in shared_reservations)
+        for node in nodes:
+            metadata, status = node.get("metadata") or {}, node.get("status") or {}
+            raw = (metadata.get("annotations") or {}).get("appliance.magicstick.dev/gpu-host-preflight", "")
+            try:
+                report = json.loads(raw)
+            except (ValueError, TypeError):
+                continue
+            if not isinstance(report, dict) or report.get("memoryArchitecture") != "unified":
+                continue
+            info = status.get("nodeInfo") or {}
+            if not metadata.get("uid") or report.get("nodeUid") != metadata["uid"]:
+                continue
+            if report.get("kernelVersion") != info.get("kernelVersion"):
+                continue
+            if not info.get("bootID") or report.get("bootId") != info["bootID"]:
+                continue
+            try:
+                generated = datetime.fromisoformat(str(report.get("generatedAt") or "").replace("Z", "+00:00"))
+                age = (datetime.now(timezone.utc) - generated).total_seconds()
+                if age < -300 or age > 86400:
+                    continue
+            except (ValueError, TypeError):
+                continue
+            name = str(metadata.get("name") or "")
+            physical = min(positive_int(report.get("physicalMemoryMi")) or 0,
+                           quantity_mi((status.get("capacity") or {}).get("memory")))
+            accessible = positive_int(report.get("gpuAccessibleMi"))
+            if not physical:
+                continue
+            allocatable = quantity_mi((status.get("allocatable") or {}).get("memory")) or physical
+            system_reserve = max(8192, (physical + 9) // 10)
+            schedulable = max(0, min(physical, allocatable) - system_reserve)
+            maximum = min(accessible, schedulable) if accessible else None
+            sample = (samples or {}).get(name) or {}
+            free = sample.get("availableMi")
+            pools.append({
+                "id": metadata["uid"], "node": name, "memoryArchitecture": "unified",
+                "physicalMemoryMi": physical, "gpuAccessibleMi": accessible,
+                "systemReserveMi": system_reserve, "totalMi": schedulable,
+                "reservedMi": reserved, "unreservedMi": max(0, schedulable - reserved),
+                "gpuUnreservedMi": max(0, maximum - reserved) if maximum is not None else None,
+                "freeMi": max(0, min(physical, int(free))) if free is not None else None,
+                "memoryAccountingVerified": report.get("memoryAccountingVerified") is True,
+                "reservations": shared_reservations,
+                "message": "CPU and GPU budgets share one OS-visible RAM pool. Capacities are not additive. Model placement is conservatively budgeted; GPU cgroup accounting is not a guaranteed hard limit.",
+            })
+        return pools
+
+
     def compute_memory_summary(activations, nvidia_vram=None):
         nodes = ready_schedulable_nodes()
         reservations = active_model_memory_reservations(activations)
         devices = []
-        cpu = cpu_memory_device(nodes, reservations)
+        samples = node_memory_samples(nodes)
+        cpu = cpu_memory_device(nodes, reservations, samples)
         if cpu:
             devices.append(cpu)
 
@@ -6010,9 +6184,41 @@ data:
             [device for device in devices if device.get("kind") == "gpu"],
             reservations,
         )
+        pools = unified_memory_pools(nodes, reservations, samples)
+        for pool in pools:
+            for device in gpu_devices:
+                if device.get("computeTarget") != "amd-gpu" or device.get("nodes") != [pool["node"]]:
+                    continue
+                device.update({
+                    "memoryArchitecture": "unified", "sharedPoolId": pool["id"],
+                    "sharedMemoryMi": pool["physicalMemoryMi"],
+                    "accountingVerified": pool["memoryAccountingVerified"],
+                    "totalMi": min(pool["gpuAccessibleMi"] or 0, pool["totalMi"]),
+                    "unreservedMi": pool["gpuUnreservedMi"],
+                    "reservedMi": pool["reservedMi"], "reservations": pool["reservations"],
+                    "freeMi": min(pool["freeMi"], pool["gpuAccessibleMi"]) if pool["freeMi"] is not None and pool["gpuAccessibleMi"] else None,
+                    "metricsSource": "host-preflight-and-kubelet", "metricsAvailable": pool["freeMi"] is not None and pool["gpuAccessibleMi"] is not None,
+                    "message": pool["message"],
+                })
+        known_uma = [item for item in reservations.get("amd-gpu", []) if item.get("memoryArchitecture") == "unified"]
+        if cpu and (pools or known_uma):
+            # GPU-side UMA budgets also consume physical system RAM. They are
+            # counted once here, not added as another independent capacity.
+            charged_gpu = list(reservations.get("amd-gpu") or []) if pools else known_uma
+            gpu_reserved = sum(int(item.get("reservedMi") or 0) for item in charged_gpu)
+            cpu["reservedMi"] += gpu_reserved
+            cpu["reservations"].extend(charged_gpu)
+            unavailable = sum(pool["physicalMemoryMi"] - pool["totalMi"] for pool in pools)
+            cpu["totalMi"] = max(0, cpu["totalMi"] - unavailable)
+            cpu["unreservedMi"] = max(0, cpu["totalMi"] - cpu["reservedMi"])
+            cpu.update({"memoryArchitecture": "unified", "sharedPoolId": ",".join(pool["id"] for pool in pools),
+                        "sharedMemoryMi": sum(pool["physicalMemoryMi"] for pool in pools),
+                        "accountingVerified": bool(pools) and all(pool["memoryAccountingVerified"] for pool in pools),
+                        "message": "Includes RAM shared with AMD GPU workloads; do not add GPU memory to this capacity."})
         devices = ([cpu] if cpu else []) + gpu_devices
         return {
             "devices": devices,
+            "sharedPools": pools,
             "deviceCount": len(devices),
             "metricsComplete": bool(devices) and all(device.get("metricsAvailable") for device in devices),
         }
@@ -6256,6 +6462,99 @@ data:
             raise RequestError(409, "Wait for the instance access guard to become ready.")
 
 
+    HOST_MANAGEMENT_ANNOTATION = "appliance.magicstick.dev/host-management"
+    HOST_OPERATION_TERMINAL = {"Succeeded", "PreparedUnverified", "Failed", "Rejected", "Interrupted"}
+
+
+    def host_operations_path():
+        return f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/hostoperations"
+
+
+    def host_management_status():
+        nodes = (request_json("GET", "/api/v1/nodes") or {}).get("items", [])
+        try:
+            operations = (request_json("GET", host_operations_path()) or {}).get("items", [])
+            available = True
+        except urllib.error.HTTPError as error:
+            if error.code != 404:
+                raise
+            operations, available = [], False
+        hosts = []
+        for node in nodes:
+            meta, info = node.get("metadata", {}), node.get("status", {}).get("nodeInfo", {})
+            try:
+                raw = meta.get("annotations", {}).get(HOST_MANAGEMENT_ANNOTATION, "{}")
+                report = json.loads(raw) if len(raw) <= 32768 else {}
+                observed = datetime.fromisoformat(report.get("observedAt", "").replace("Z", "+00:00")).timestamp()
+                fresh = (report.get("schemaVersion") == 1 and -30 <= time.time() - observed <= 180
+                         and report.get("nodeUid") == meta.get("uid") and report.get("bootId") == info.get("bootID")
+                         and report.get("kernel") == info.get("kernelVersion"))
+            except (ValueError, TypeError, AttributeError):
+                report, fresh = {}, False
+            operation = next((item for item in operations if item.get("spec", {}).get("nodeUid") == meta.get("uid")), None)
+            hosts.append({"name": meta.get("name", ""), "nodeUid": meta.get("uid", ""), "bootId": info.get("bootID", ""),
+                          "kernel": info.get("kernelVersion", ""), "available": fresh and available,
+                          "observedAt": report.get("observedAt", ""), "plan": report.get("plan") if fresh else None,
+                          "message": "Host worker is available." if fresh and available else "Host worker or operation API is unavailable/stale. No power or preparation action can be requested.",
+                          "operation": {"requestId": operation.get("spec", {}).get("requestId"), "action": operation.get("spec", {}).get("action"),
+                                        **(operation.get("status") or {"phase": "Pending", "message": "Waiting for the local host worker."})} if operation else None})
+        return {"nodes": hosts}
+
+
+    def create_host_operation(principal, payload):
+        if not ROLE_ACCESS["admin"].intersection(principal.get("roles", [])):
+            raise AuthError(403, "Administrator access is required for host operations.")
+        _reject_unknown_fields(payload, {"action", "nodeName", "nodeUid", "bootId", "requestId", "planId", "allowExperimental", "experimentMode", "acknowledgeDisruption", "confirmation"})
+        action = payload.get("action")
+        if action not in {"prepare-gpu", "reboot", "poweroff"}:
+            raise RequestError(400, "Unknown host operation.")
+        if not re.fullmatch(r"[a-f0-9]{32}", str(payload.get("requestId", ""))):
+            raise RequestError(400, "A valid request identity is required.")
+        host = next((item for item in host_management_status()["nodes"] if item["name"] == payload.get("nodeName")), None)
+        if not host or not host["available"]:
+            raise RequestError(409, "The selected host is not available for management. Refresh System status.")
+        if payload.get("confirmation") != host["name"] or payload.get("acknowledgeDisruption") is not True:
+            raise RequestError(400, "Confirm the exact host name and interruption of its services.")
+        if payload.get("nodeUid") != host["nodeUid"] or payload.get("bootId") != host["bootId"]:
+            raise RequestError(409, "Host identity or boot changed. Refresh and confirm the new host state.")
+        if type(payload.get("allowExperimental", False)) is not bool:
+            raise RequestError(400, "Experimental acknowledgement must be a boolean.")
+        if type(payload.get("experimentMode", False)) is not bool:
+            raise RequestError(400, "Experiment mode must be an explicit boolean.")
+        plan = host.get("plan") or {}
+        if payload.get("experimentMode") is True:
+            plan = plan.get("experiment") or {}
+        if action == "prepare-gpu":
+            if plan.get("state") not in {"available", "ready"} or payload.get("planId") != plan.get("id"):
+                raise RequestError(409, "The preparation plan changed or is blocked; review the current plan.")
+            if plan.get("experimental") and payload.get("allowExperimental") is not True:
+                raise RequestError(400, "Explicit experimental hardware acknowledgement is required.")
+        elif payload.get("planId") or payload.get("allowExperimental") or payload.get("experimentMode"):
+            raise RequestError(400, "Power operations cannot supply hardware preparation settings.")
+        spec = {key: payload[key] for key in ("action", "nodeName", "nodeUid", "bootId", "requestId", "acknowledgeDisruption")}
+        spec.update(planId=payload.get("planId", ""), allowExperimental=payload.get("allowExperimental", False), experimentMode=payload.get("experimentMode", False),
+                    actorHash=hashlib.sha256(str(principal.get("subject", "")).encode()).hexdigest())
+        name = "host-" + hashlib.sha256(json.dumps(host["nodeUid"], sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:24]
+        path = host_operations_path() + "/" + name
+        try:
+            existing = request_json("GET", path)
+        except urllib.error.HTTPError as error:
+            if error.code != 404:
+                raise
+            existing = None
+        if existing:
+            if existing.get("spec", {}).get("requestId") == payload["requestId"]:
+                if existing.get("spec") != spec:
+                    raise RequestError(409, "This request identity belongs to a different operation or administrator.")
+                return {"accepted": True, "requestId": payload["requestId"], "operation": existing.get("status") or {"phase": "Pending"}}
+            if existing.get("status", {}).get("phase") not in HOST_OPERATION_TERMINAL:
+                raise RequestError(409, "This host already has an active operation. It will not be replaced.")
+            request_json("DELETE", path, {"apiVersion": "v1", "kind": "DeleteOptions", "preconditions": {"uid": existing["metadata"]["uid"]}})
+        request_json("POST", host_operations_path(), {"apiVersion": f"{APPLIANCE_GROUP}/{APPLIANCE_VERSION}", "kind": "HostOperation",
+                     "metadata": {"name": name, "namespace": APPLIANCE_NAMESPACE}, "spec": spec})
+        return {"accepted": True, "requestId": payload["requestId"], "operation": {"phase": "Pending"}}
+
+
     def required_get_access(parts):
         if parts in (["api", "session"], ["api", "my-instances"]):
             return "user"
@@ -6463,7 +6762,29 @@ data:
                 else:
                     self.send_error_json(503, "Federated SSO is unavailable; no change was confirmed.")
 
+        def handle_host_management(self, mutate=False):
+            try:
+                principal = self.require_access("admin" if mutate else "viewer")
+                if mutate:
+                    validate_dashboard_mutation_request(self)
+                    self.send_json(create_host_operation(principal, read_body(self, max_bytes=4096)), 202)
+                else:
+                    self.send_json(host_management_status())
+            except AuthError as error:
+                self.send_auth_error(error)
+            except RequestError as error:
+                self.send_error_json(error.status, str(error))
+            except urllib.error.HTTPError as error:
+                self.send_error_json(409 if error.code == 409 else 503, "Host operation API is unavailable or another request is active. Refresh before retrying.")
+            except (ValueError, TypeError):
+                self.send_error_json(400, "Invalid host operation request.")
+            except Exception:
+                self.send_error_json(503, "Host management is unavailable; no action was confirmed. Refresh status before retrying.")
+
         def do_GET(self):
+            if self.route() == "/api/host-management":
+                self.handle_host_management()
+                return
             if self.handle_instance_guard():
                 return
             parts = self.route().strip("/").split("/")
@@ -6652,6 +6973,9 @@ data:
             self.send_error_json(404, "not found")
 
         def do_POST(self):
+            if self.route() == "/api/host-management/operations":
+                self.handle_host_management(mutate=True)
+                return
             if self.handle_instance_guard():
                 return
             if self.route() == "/api/license/validate":
@@ -6705,6 +7029,9 @@ data:
                         return
                     enabled = parts[3] == "enable"
                     payload = read_body(self)
+                    if module_mutation_access(module, payload) == "admin":
+                        self.require_access("admin")
+                        validate_dashboard_mutation_request(self)
                     resource = module_activation_payload(module, enabled, payload)
                     name = resource["metadata"]["name"]
                     collection = f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/moduleactivations"

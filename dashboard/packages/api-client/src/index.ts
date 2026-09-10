@@ -9,6 +9,8 @@ import {
   type FederationInput,
   type FederationValidation,
   type InstancesPayload,
+  type ManagedHost,
+  type HostOperationRequest,
   type InstanceAccessState,
   type InstanceSharing,
   type SharingPrincipal,
@@ -147,6 +149,12 @@ export class MagicStickApi {
   }
   models() { return this.request<ModelsPayload>('/api/models'); }
   status() { return this.request<SystemStatusPayload>('/api/status'); }
+  hostManagement() { return this.request<{nodes: ManagedHost[]}>('/api/host-management'); }
+  requestHostOperation(payload: HostOperationRequest) {
+    return this.request<{accepted: boolean; requestId: string; operation: {phase: string}}>('/api/host-management/operations', {
+      method: 'POST', body: JSON.stringify(payload),
+    });
+  }
 
   enableModule(name: string, parameters: Record<string, string> = {}) {
     return this.request(`/api/modules/${encodeURIComponent(name)}/enable`, {

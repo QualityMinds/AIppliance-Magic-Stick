@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "profiles": [
+    {
+      "id": "strix-halo-ubuntu-24.04",
+      "version": "1",
+      "gpuProfile": "strix-halo",
+      "displayName": "Strix Halo / Ubuntu 24.04",
+      "experimental": true,
+      "os": {"id": "ubuntu", "versionId": "24.04"},
+      "architecture": "x86_64",
+      "pciDevices": ["1002:1586"],
+      "targetKernel": "7.0.0-31-generic",
+      "packages": {"linux-generic-hwe-24.04": "7.0.0-31.31~24.04.1"},
+      "source": "https://rocm.docs.amd.com/en/docs-7.2.0/how-to/system-optimization/strixhalo.html"
+    }
+  ]
+}

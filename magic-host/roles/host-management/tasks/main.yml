@@ -1,0 +1,56 @@
+---
+- name: Create root-owned host management directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - {path: /usr/local/lib/magicstick/host-management, mode: "0755"}
+    - {path: /usr/local/lib/magicstick/host-management/roles, mode: "0755"}
+    - {path: /var/lib/magicstick/host-management, mode: "0700"}
+
+- name: Install bounded host worker and reviewed local package profiles
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/usr/local/lib/magicstick/host-management/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - host_worker.py
+    - host_plan.py
+    - profiles.json
+    - ansible.cfg
+
+- name: Install the same preparation playbook and role used by the host workflow
+  ansible.builtin.copy:
+    src: "{{ item.source }}"
+    dest: "{{ item.destination }}"
+    owner: root
+    group: root
+    mode: preserve
+  loop:
+    - source: "{{ role_path }}/../../playbooks/gpu-prepare.yml"
+      destination: /usr/local/lib/magicstick/host-management/prepare.yml
+    - source: "{{ role_path }}/../gpu-compatibility"
+      destination: /usr/local/lib/magicstick/host-management/roles/
+
+- name: Install node-local host management service and timer
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - magicstick-host-management.service
+    - magicstick-host-management.timer
+
+- name: Enable post-install host inspection and approved-operation processing
+  ansible.builtin.systemd_service:
+    name: magicstick-host-management.timer
+    daemon_reload: true
+    enabled: true
+    state: started

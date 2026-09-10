@@ -4,6 +4,7 @@ import {BANNER_HEIGHT, bannerFits} from './banner';
 import {
   availableTabs,
   buildLocalModelPayload,
+  isTuiActionKey,
   moveSelection,
   moveTab,
   osc52ClipboardSequence,
@@ -66,14 +67,31 @@ describe('terminal dashboard', () => {
   });
 
   it('exposes the same administrative areas to administrators', () => {
-    expect(availableTabs(snapshot())).toEqual(['Overview', 'Services', 'Models', 'Settings', 'Users', 'API Access', 'License', 'Kubernetes', 'System']);
+    expect(availableTabs(snapshot())).toEqual(['Overview', 'Services', 'Models', 'Settings', 'Users', 'API Access', 'License', 'Kubernetes', 'Hardware', 'System']);
     expect(tabLines('Models', snapshot()).join('\n')).toContain('CPU: 49 GiB free');
     expect(tabLines('Models', snapshot()).join('\n')).toContain('KV auto');
     expect(renderTui(snapshot(), 0, 100, 30, false)).toContain('signed in: tova · admin');
   });
 
   it('hides administrative areas from viewers', () => {
-    expect(availableTabs(snapshot(['magicstick-viewer']))).toEqual(['Overview', 'Services', 'Models', 'System']);
+    expect(availableTabs(snapshot(['magicstick-viewer']))).toEqual(['Overview', 'Services', 'Models', 'Hardware', 'System']);
+  });
+
+  it('shows hardware validation separately and restricts action hints to administrators', () => {
+    expect(isTuiActionKey('v')).toBe(true);
+    expect(isTuiActionKey('r')).toBe(false);
+    const state = snapshot();
+    state.models.computeMemory = {devices: [{id: 'example-gpu', totalMi: 49152, freeMi: 60000, memoryArchitecture: 'unified', accountingVerified: false}]};
+    expect(tabLines('Models', state).join('\n')).toContain('shared RAM available');
+    expect(tabLines('Models', state).join('\n')).toContain('48 GiB budgetable');
+    state.status.hardwareOperators = {'amd-gpu': {phase: 'Degraded', compatibility: {schemaVersion: 1, profiles: [], selectedProfile: 'strix-halo', allowExperimental: true, nodes: [{node: 'example-node', eligible: true, hostDriverReady: true, resourceRegistered: true, memoryArchitecture: 'unified', memoryAccountingVerified: false, physicalMemoryMi: 65536, gpuAccessibleMi: 49152, validation: {OLlama: {state: 'passed'}, VLLM: {state: 'failed'}}}]}}};
+    expect(tabLines('Hardware', state).join('\n')).toContain('Ollama: passed · runtime pending · vLLM: failed');
+    expect(tabLines('Hardware', state).join('\n')).toContain('Shared accounting: not verified');
+    expect(tabLines('Hardware', state).join('\n')).toContain('OS-visible shared RAM: 64 GiB');
+    const index = availableTabs(state).indexOf('Hardware');
+    expect(renderTui(state, index, 150, 40, false)).toContain('e: profile · v: validate');
+    const viewer = {...state, session: {...state.session, roles: ['magicstick-viewer']}};
+    expect(renderTui(viewer, availableTabs(viewer).indexOf('Hardware'), 150, 40, false)).not.toContain('e: profile');
   });
 
   it('wraps page navigation in both directions', () => {

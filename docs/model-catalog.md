@@ -324,6 +324,35 @@ targets the declared VRAM value is planning metadata; Kubernetes exposes exactly
 one GPU to the model pod. Existing activations without an explicit offloading
 policy retain Ollama's automatic loading behavior.
 
+### AMD unified-memory reservations
+
+An additional AMD compatibility profile is not a portable-runtime guarantee.
+The experimental Strix Halo profile requires current host evidence, an
+allocatable GPU and a separate successful validation for the selected engine.
+One engine passing does not enable the other. The initial path supports one
+eligible unified-memory node; mixed/different candidate nodes require explicit
+hardware placement and are rejected rather than scheduled ambiguously.
+
+For this path, system RAM and GPU-accessible memory are a shared physical pool.
+The API reports `memoryArchitecture: unified` and `sharedPools`, subtracts a
+system reserve, and accounts for CPU/AMD model reservations without offering
+the same memory twice. Missing GPU counters remain unknown.
+`sharedPools[].physicalMemoryMi` uses the conservative OS-visible `MemTotal`,
+not total installed RAM or an inferred sum with firmware-reported VRAM. The runtime sets
+one RAM request/limit of at least the selected accelerator budget and the
+engine baseline (4096 MiB for Ollama or 8192 MiB for vLLM), while still requesting
+exactly one `amd.com/gpu`. `ModelActivation.status.sharedPoolId` identifies the
+Node UID and `memoryRequiredMi` records the actual shared-RAM reservation.
+
+`memoryAccountingVerified` stays false until GPU/cgroup accounting is actually
+demonstrated; neither model readiness nor a planning budget proves a hard GPU
+memory limit. This is not the discrete-GPU CPU-offloading feature. Validated
+experimental image digests are published in
+`flux-system/magicstick-gpu-runtime-images` and consumed by KubeAI through
+Helm `valuesFrom`; upstream release pins remain the catalog defaults. See
+[GPU compatibility](gpu-compatibility.md) for the experimental support and
+hardware acceptance boundaries.
+
 ### Explicit CPU offloading for NVIDIA models
 
 The browser and TUI offer **Use additional system RAM** for a single NVIDIA

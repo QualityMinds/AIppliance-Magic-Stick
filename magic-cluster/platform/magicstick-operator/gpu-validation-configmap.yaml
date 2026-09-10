@@ -1,0 +1,97 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: magicstick-gpu-validation
+  namespace: ai-system
+  labels:
+    app.kubernetes.io/name: magicstick-operator
+data:
+  validate.py: |
+    """Bounded smoke validation; never a benchmark or a universal support claim."""
+    import json
+    import os
+    import re
+    import time
+    import urllib.error
+    import urllib.request
+
+    engine = os.environ["ENGINE"]
+    model = os.environ["TEST_MODEL"]
+    port = 11434 if engine == "OLlama" else 8000
+    base = "http://127.0.0.1:" + str(port)
+
+    def request(path, data=None, timeout=30):
+        payload = None if data is None else json.dumps(data).encode()
+        with urllib.request.urlopen(urllib.request.Request(
+            base + path, data=payload, headers={"Content-Type": "application/json"}
+        ), timeout=timeout) as response:
+            return json.load(response)
+
+    deadline = time.monotonic() + 900
+    while True:
+        try:
+            request("/api/tags" if engine == "OLlama" else "/v1/models")
+            break
+        except (OSError, ValueError, urllib.error.URLError):
+            if time.monotonic() > deadline:
+                raise RuntimeError("Engine API did not start within 900 seconds")
+            time.sleep(5)
+
+    # A raw, two-token completion avoids model-specific chat/thinking templates.
+    # This fixed arithmetic fixture is checked identically on CPU and GPU; it is
+    # an engine smoke check, not an instruction-following quality benchmark.
+    prompt = "2 + 2 ="
+    if engine == "OLlama":
+        request("/api/pull", {"model": model, "stream": False}, timeout=600)
+        result = request("/api/generate", {
+            "model": model, "prompt": prompt, "stream": False, "raw": True,
+            "keep_alive": "5m", "options": {"num_ctx": 512, "num_predict": 2, "temperature": 0},
+        }, timeout=180)
+        answer = str(result.get("response") or "")
+        active = request("/api/ps").get("models") or []
+        gpu_execution = any(item.get("name") == model and int(item.get("size_vram") or 0) > 0 for item in active)
+        completion = {"done": result.get("done"), "reason": result.get("done_reason"),
+                      "promptTokens": result.get("prompt_eval_count"), "outputTokens": result.get("eval_count")}
+    else:
+        # The ROCm sidecar runs an exact HIP matrix check before starting vLLM.
+        result = request("/v1/completions", {
+            "model": model, "prompt": prompt,
+            "max_tokens": 2, "temperature": 0,
+        }, timeout=180)
+        answer = str(result["choices"][0].get("text") or "")
+        gpu_execution = True  # Exact HIP arithmetic was required before the API started.
+        completion = {"reason": result["choices"][0].get("finish_reason"),
+                      "promptTokens": (result.get("usage") or {}).get("prompt_tokens"),
+                      "outputTokens": (result.get("usage") or {}).get("completion_tokens")}
+    # This is solely the answer to the fixed public synthetic prompt above.
+    # Never log the response object, environment, headers or user prompts.
+    print(json.dumps({"probe": "tiny-model-arithmetic", "engine": engine, "model": model,
+                      "answer": answer[:160], "answerTruncated": len(answer) > 160,
+                      "completion": completion, "gpuExecution": gpu_execution}), flush=True)
+    if not gpu_execution:
+        raise RuntimeError("Ollama did not report GPU model buffers; CPU fallback is not validation")
+    if not re.fullmatch(r"(?:4|four)[.!]?", answer.strip(), flags=re.IGNORECASE):
+        raise RuntimeError("Tiny-model arithmetic response failed the smoke check")
+    print(json.dumps({"state": "passed", "engine": engine, "model": model, "gpuExecution": True,
+                      "scope": "tiny-model-smoke-test", "memoryAccountingVerified": False}), flush=True)
+  vllm-start.py: |
+    import os
+    import torch
+
+    if not torch.version.hip or not torch.cuda.is_available():
+        raise RuntimeError("ROCm/HIP GPU execution is unavailable")
+    architecture = str(torch.cuda.get_device_properties(0).gcnArchName).split(":")[0]
+    if architecture != os.environ["EXPECTED_ARCHITECTURE"]:
+        raise RuntimeError("Unexpected measured GPU architecture: " + architecture)
+    values = torch.arange(256, dtype=torch.float32, device="cuda").reshape(16, 16)
+    actual = values @ torch.eye(16, dtype=torch.float32, device="cuda")
+    torch.cuda.synchronize()
+    if not torch.equal(actual, values):
+        raise RuntimeError("HIP GPU arithmetic smoke check failed")
+    del actual, values
+    torch.cuda.empty_cache()
+    os.execvp("python3", ["python3", "-m", "vllm.entrypoints.openai.api_server",
+        "--model", os.environ["TEST_MODEL"], "--host", "127.0.0.1", "--port", "8000",
+        "--max-model-len", "512", "--max-num-seqs", "1", "--gpu-memory-utilization", "0.15",
+        "--kv-cache-memory-bytes", "268435456",
+        "--enforce-eager"])

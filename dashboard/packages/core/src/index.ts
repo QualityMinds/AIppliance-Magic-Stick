@@ -11,6 +11,8 @@ import type {
   RouteStatus,
   Session,
   SystemStatusPayload,
+  GpuCompatibilityProfile,
+  GpuEngineValidation,
 } from '@magicstick/dashboard-contracts';
 
 export type DashboardRole = 'viewer' | 'operator' | 'admin';
@@ -24,6 +26,18 @@ export const dashboardRole = (session?: Session): DashboardRole => {
 
 export const canMutateRuntime = (session?: Session) => dashboardRole(session) !== 'viewer';
 export const canAdminister = (session?: Session) => dashboardRole(session) === 'admin';
+
+export const gpuValidationSummary = (validation?: GpuEngineValidation) => {
+  const state = validation?.state ?? 'unverified';
+  return state === 'passed' ? `${state} · runtime ${validation?.runtimeReady ? 'ready' : 'pending'}` : state;
+};
+
+export const gpuCompatibilityParameters = (profileId: string, profiles: GpuCompatibilityProfile[], acknowledged: boolean): Record<string, string> => {
+  const profile = profiles.find((item) => item.id === profileId);
+  if (profileId && !profile) throw new Error('The selected GPU compatibility profile is not available. Refresh hardware status.');
+  if (profile?.experimental && !acknowledged) throw new Error('Explicitly acknowledge the experimental GPU profile before enabling it.');
+  return {compatibilityProfile: profileId, allowExperimental: String(Boolean(profile?.experimental && acknowledged))};
+};
 
 export const phaseTone = (phase?: string) => {
   const normalized = String(phase ?? '').toLowerCase();
@@ -202,7 +216,7 @@ export const instanceResourceLinks = (instance: AppInstance, status?: SystemStat
   ]);
 };
 
-export const formatMi = (value?: number) => {
+export const formatMi = (value?: number | null) => {
   if (!Number.isFinite(value)) return 'unknown';
   const mib = Number(value);
   return mib >= 1024 ? `${(mib / 1024).toFixed(mib >= 10240 ? 0 : 1)} GiB` : `${Math.round(mib)} MiB`;

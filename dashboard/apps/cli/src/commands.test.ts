@@ -25,6 +25,53 @@ const runtime = (api: Partial<MagicStickApi>): Runtime => ({
 });
 
 describe('runCli', () => {
+  const compatibility = {
+    schemaVersion: 1, selectedProfile: 'strix-halo', allowExperimental: true,
+    profiles: [{id: 'strix-halo', displayName: 'AMD Strix Halo', version: '1', experimental: true, memoryArchitecture: 'unified'}],
+    nodes: [{node: 'example-node', memoryArchitecture: 'unified', physicalMemoryMi: 65536, gpuAccessibleMi: 49152, memoryAccountingVerified: false, validation: {OLlama: {state: 'passed' as const, runtimeReady: false, runtimeMessage: 'KubeAI activates with a model.'}, VLLM: {state: 'failed' as const}}}],
+  };
+  const hardwareRuntime = (roles = ['magicstick-admin']) => runtime({
+    status: vi.fn(async () => ({hardwareOperators: {'amd-gpu': {phase: 'Degraded', compatibility}}})),
+    session: vi.fn(async () => ({subject: 'example', username: 'example', roles, identityManagementAvailable: false, identityManagementMode: 'external'})),
+    enableModule: vi.fn(async () => ({})),
+  });
+
+  it('requires experimental acknowledgement and persists the catalog profile', async () => {
+    const live = hardwareRuntime();
+    await expect(runCli(['hardware', 'profile', 'strix-halo'], io().supplied, {createRuntime: async () => live})).rejects.toThrow('Explicitly acknowledge');
+    expect(live.api.enableModule).not.toHaveBeenCalled();
+    await runCli(['hardware', 'profile', 'strix-halo', '--allow-experimental'], io().supplied, {createRuntime: async () => live});
+    expect(live.api.enableModule).toHaveBeenCalledWith('amd-gpu', {compatibilityProfile: 'strix-halo', allowExperimental: 'true'});
+  });
+
+  it('rejects unknown profiles and non-admin mutations without writes', async () => {
+    const live = hardwareRuntime();
+    await expect(runCli(['hardware', 'profile', 'unknown', '--allow-experimental'], io().supplied, {createRuntime: async () => live})).rejects.toThrow('not available');
+    expect(live.api.enableModule).not.toHaveBeenCalled();
+    const viewer = hardwareRuntime(['magicstick-viewer']);
+    await expect(runCli(['hardware', 'profile', 'upstream'], io().supplied, {createRuntime: async () => viewer})).rejects.toThrow('Administrator');
+    expect(viewer.api.enableModule).not.toHaveBeenCalled();
+  });
+
+  it('requires confirmation to run bounded GPU validation and retains the saved profile', async () => {
+    const live = hardwareRuntime();
+    await expect(runCli(['hardware', 'validate'], io().supplied, {createRuntime: async () => live})).rejects.toThrow('--yes');
+    await runCli(['hardware', 'validate', '--yes'], io().supplied, {createRuntime: async () => live});
+    expect(live.api.enableModule).toHaveBeenCalledWith('amd-gpu', {compatibilityProfile: 'strix-halo', allowExperimental: 'true', validationRequest: expect.stringMatching(/^cli-/)});
+  });
+
+  it('reports per-engine validation and shared memory without promising readiness', async () => {
+    const output = io();
+    await runCli(['hardware', 'list'], output.supplied, {createRuntime: async () => hardwareRuntime()});
+    expect(output.stdout()).toContain('passed');
+    expect(output.stdout()).toContain('runtime pending');
+    expect(output.stdout()).toContain('KubeAI activates with a model.');
+    expect(output.stdout()).toContain('failed');
+    expect(output.stdout()).toContain('Do not add capacities');
+    expect(output.stdout()).toContain('OS-visible shared RAM 64 GiB');
+    expect(output.stdout()).toContain('Accounting not verified');
+  });
+
   it.each([['tui', '--demo'], ['--demo', 'tui']])('starts an offline preview for %j without constructing a live runtime', async (...argv) => {
     const createRuntime = vi.fn();
     const launch = vi.fn(async () => undefined);

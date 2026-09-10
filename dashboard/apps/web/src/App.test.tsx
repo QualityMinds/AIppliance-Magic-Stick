@@ -58,6 +58,7 @@ describe('default React dashboard', () => {
     expect(within(systemSections).getByRole('tab', {name: 'Users'})).toBeInTheDocument();
     expect(await within(systemSections).findByRole('tab', {name: 'Federated SSO'})).toBeEnabled();
     expect(within(systemSections).getByRole('tab', {name: 'System Status'})).toBeInTheDocument();
+    expect(within(systemSections).getByRole('tab', {name: 'Hardware'})).toBeInTheDocument();
   });
 
   it('loads admin data only after opening its tab', async () => {

@@ -32,6 +32,14 @@ External LiteLLM-backed providers and CPU inference do not require GPU hardware
 or drivers. AMD and Intel targets appear only after their operator and
 allocatable Kubernetes resource are ready.
 
+Strix Halo is an additional **experimental** AMD profile, not part of a blanket
+GPU support guarantee. Use **System → Hardware** to inspect host evidence,
+explicitly acknowledge the profile and request separate engine validation.
+Generic detection never upgrades kernel/firmware or reboots a machine. Some
+hosts need a reviewed kernel preparation first; follow
+[GPU compatibility](gpu-compatibility.md) before enabling experiments. CPU and
+external inference remain available independently.
+
 ## Clone And Validate
 
 ```bash
@@ -121,6 +129,12 @@ partition.
 
 ## After First Boot
 
+After the base system and dashboard are ready, use **System → Hardware → Host
+preparation** for any additional reviewed kernel preparation. New and existing
+machines share this workflow; installation never implicitly approves a kernel
+change or reboot. See [host management](host-management.md) for experiments on
+mixed GPUs and administrator power controls.
+
 After cloud-init finishes, the appliance switches the physical display from
 the boot-log console to a dedicated, centered first-run appliance page. Its
 color-coded sections show only the mDNS name, the primary private LAN address,
@@ -190,3 +204,8 @@ NVIDIA, AMD, or Intel target becomes selectable only after detected hardware,
 its operator, and the matching allocatable resource are ready. **System
 Status** shows the NVIDIA, AMD, and Intel provider lifecycle even when a
 provider is not required.
+
+For an experimental AMD profile, a matching PCI device and registered GPU are
+only intermediate stages: the selected engine must also pass current GPU
+validation. Strix Halo's CPU and GPU share memory; do not add their capacities
+or treat a GPU mapping limit as additional RAM.

@@ -8,6 +8,21 @@ spec:
   targetNamespace: ai
   valuesFrom:
     - kind: ConfigMap
+      name: magicstick-gpu-runtime-images
+      valuesKey: runtime-config-checksum
+      targetPath: podAnnotations.magicstick-gpu-runtime-images
+      optional: true
+    - kind: ConfigMap
+      name: magicstick-gpu-runtime-images
+      valuesKey: vllm-amd
+      targetPath: modelServers.VLLM.images.magicstick-vllm-amd
+      optional: true
+    - kind: ConfigMap
+      name: magicstick-gpu-runtime-images
+      valuesKey: ollama-amd
+      targetPath: modelServers.OLlama.images.magicstick-ollama-amd
+      optional: true
+    - kind: ConfigMap
       name: magicstick-offloading-profiles
       valuesKey: values.json
       optional: true
@@ -122,7 +137,9 @@ spec:
         imageName: magicstick-ollama-amd
         nodeSelector:
           kubernetes.io/os: linux
-          feature.node.kubernetes.io/amd-gpu: "true"
+          appliance.magicstick.dev/amd-gpu-eligible: "true"
+          appliance.magicstick.dev/amd-ollama-eligible: "true"
+          appliance.magicstick.dev/amd-ollama-runtime-ready: "true"
         requests:
           cpu: "2"
           memory: 4Gi
@@ -138,7 +155,9 @@ spec:
         imageName: magicstick-vllm-amd
         nodeSelector:
           kubernetes.io/os: linux
-          feature.node.kubernetes.io/amd-gpu: "true"
+          appliance.magicstick.dev/amd-gpu-eligible: "true"
+          appliance.magicstick.dev/amd-vllm-eligible: "true"
+          appliance.magicstick.dev/amd-vllm-runtime-ready: "true"
         requests:
           cpu: "6"
           memory: 8Gi

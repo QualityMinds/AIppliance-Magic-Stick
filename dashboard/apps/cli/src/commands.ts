@@ -1,5 +1,5 @@
 import {promises as fs} from 'node:fs';
-import {flattenInstances, formatBytes, formatMi, titleFromKey} from '@magicstick/dashboard-core';
+import {canAdminister, flattenInstances, formatBytes, formatMi, gpuCompatibilityParameters, gpuValidationSummary, titleFromKey} from '@magicstick/dashboard-core';
 import {ApiError, type MagicStickApi} from '@magicstick/dashboard-api-client';
 import {parseArguments, option, optionValues, type ParsedArguments} from './args';
 import {phase, stringify, table, truncate} from './output';
@@ -63,6 +63,7 @@ Authentication:
 Read commands:
   overview                             Appliance, module, instance and model summary
   service list                         List modules
+  hardware list                        GPU profiles, nodes and engine validation
   instance list                        List application instances
   instance access <name>                Show instance sharing policy (admin)
   instance principals [--kind users|groups] [--search text]
@@ -83,6 +84,8 @@ Mutation commands:
   service enable <name> [--set key=value ...]
   service disable <name>
   service credentials <name>
+  hardware profile <id|upstream> [--allow-experimental]
+  hardware validate --yes               Request bounded GPU validation jobs
   instance create <type> --file payload.json
   instance remove <name>
   instance credentials <name>
@@ -240,6 +243,41 @@ const serviceCommand = async (runtime: Runtime, parsed: ParsedArguments, io: Cli
     return;
   }
   throw new Error(`Unknown service action: ${action}`);
+};
+
+const hardwareCommand = async (runtime: Runtime, parsed: ParsedArguments, io: CliIo, action: string, name?: string) => {
+  const status = await runtime.api.status();
+  const compatibility = status.hardwareOperators?.['amd-gpu']?.compatibility;
+  if (!action || action === 'list') {
+    output(io, parsed, status.hardwareOperators ?? {}, () => [
+      table(['OPERATOR', 'PHASE', 'RESOURCES'], Object.entries(status.hardwareOperators ?? {}).map(([id, item]) => [id, item.phase, item.allocatableResources ?? 0])),
+      '', `AMD profile: ${compatibility?.selectedProfile || 'upstream rules'}`,
+      table(['PROFILE', 'VERSION', 'EXPERIMENTAL', 'MEMORY'], (compatibility?.profiles ?? []).map((item) => [item.id, item.version, item.experimental ? 'yes' : 'no', item.memoryArchitecture])),
+      '', table(['NODE', 'PROFILE', 'DRIVER', 'GPU RESOURCE', 'OLLAMA', 'VLLM'], (compatibility?.nodes ?? []).map((node) => [node.node, node.profileId || 'upstream', node.hostDriverReady === true ? 'ready' : 'not verified', node.resourceRegistered === true ? 'registered' : 'not verified', gpuValidationSummary(node.validation?.OLlama), gpuValidationSummary(node.validation?.VLLM)])),
+      ...(compatibility?.nodes ?? []).flatMap((node) => Object.entries(node.validation ?? {}).filter(([, validation]) => validation.state === 'passed' && validation.runtimeMessage).map(([engine, validation]) => `${node.node} ${engine}: ${validation.runtimeMessage}`)),
+      ...(compatibility?.nodes ?? []).filter((node) => node.memoryArchitecture === 'unified').map((node) => `${node.node}: OS-visible shared RAM ${formatMi(node.physicalMemoryMi)}; GPU-accessible ${formatMi(node.gpuAccessibleMi)}. Do not add capacities or firmware-reserved GPU memory. Accounting ${node.memoryAccountingVerified ? 'verified' : 'not verified'}.`),
+    ].join('\n'));
+    return;
+  }
+  if (!canAdminister(await runtime.api.session())) throw new Error('Administrator access is required to change GPU profiles or run validation.');
+  if (!compatibility) throw new Error('The server has not reported its GPU compatibility catalog.');
+  if (action === 'profile') {
+    const id = required(name, 'profile id or upstream');
+    const parameters = gpuCompatibilityParameters(id === 'upstream' ? '' : id, compatibility.profiles, option(parsed, 'allow-experimental') === true);
+    const result = await runtime.api.enableModule('amd-gpu', parameters);
+    output(io, parsed, result, () => `Saved GPU compatibility profile ${id}. This is not a GPU or engine readiness confirmation. Run hardware list to inspect each stage.`);
+    return;
+  }
+  if (action === 'validate') {
+    if (option(parsed, 'yes') !== true) throw new Error('GPU validation downloads test images and uses GPU resources. Repeat with --yes to confirm.');
+    if (!compatibility.selectedProfile) throw new Error('Select a compatibility profile before requesting validation.');
+    const parameters = gpuCompatibilityParameters(compatibility.selectedProfile, compatibility.profiles, compatibility.allowExperimental === true);
+    parameters.validationRequest = `cli-${Date.now()}-${crypto.randomUUID()}`;
+    const result = await runtime.api.enableModule('amd-gpu', parameters);
+    output(io, parsed, result, () => 'GPU validation requested. Engines are evaluated separately; inspect hardware list for results.');
+    return;
+  }
+  throw new Error(`Unknown hardware action: ${action}`);
 };
 
 const licenseCommand = async (runtime: Runtime, parsed: ParsedArguments, io: CliIo, action: string, filename?: string) => {
@@ -489,6 +527,7 @@ export const runCli = async (argv: string[], suppliedIo: Partial<CliIo> = {}, de
     output(io, parsed, result, () => table(['USERNAME', 'ROLES'], [[result.username, result.roles.join(', ')]]));
   } else if (command === 'overview') await summary(runtime.api, parsed, io);
   else if (command === 'service' || command === 'services') await serviceCommand(runtime, parsed, io, action, argument);
+  else if (command === 'hardware') await hardwareCommand(runtime, parsed, io, action, argument);
   else if (command === 'instance' || command === 'instances') await instanceCommand(runtime, parsed, io, action, argument);
   else if (command === 'model' || command === 'models') await modelCommand(runtime, parsed, io, action, argument);
   else if (command === 'settings') await settingsCommand(runtime, parsed, io, action);

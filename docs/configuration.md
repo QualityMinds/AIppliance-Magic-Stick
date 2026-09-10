@@ -59,7 +59,43 @@ meaning as the Linux installer. The default `main` ref is convenient for
 development; use a release tag or 40-character commit for controlled
 installations.
 
+## GPU compatibility configuration
+
+Additional AMD profiles are runtime module intent, not installer defaults or
+appliance-wide domain settings. Administrators configure
+`ModuleActivation/amd-gpu.spec.parameters.compatibilityProfile`,
+`allowExperimental` and an optional unique `validationRequest` through
+**System → Hardware**, CLI/TUI, or the runtime CR. Unknown profiles, arbitrary
+probe images and implicit experimental consent are rejected by the API.
+
+`ai-system/magicstick-gpu-compatibility-catalog` provides versioned profile and
+fixed test-image/model definitions. The initial `strix-halo` profile remains
+experimental; host and per-engine validation are additional independent gates. Runtime-owned
+keys in `flux-system/magicstick-gpu-runtime-images` carry successful image
+digests to KubeAI Helm `valuesFrom`; public manifests contain no machine-specific
+validation results or image-ID evidence.
+
+The host `gpu-compatibility` role installs read-only diagnostics and a bounded
+evidence publisher. `gpu_compatibility_publish_evidence` defaults to true;
+`gpu_compatibility_node_name` defaults to the local hostname. It publishes only
+the local Node's non-secret `appliance.magicstick.dev/gpu-host-preflight`
+annotation, not GPU eligibility labels.
+
+Host preparation is separate and opt-in: `gpu_compatibility_prepare_host`
+defaults to false, `gpu_compatibility_package_versions` to an empty mapping,
+and `gpu_compatibility_ttm_limit_mib` to null (unchanged). Supply exact reviewed
+package versions and a bounded shared-memory limit only when needed. No
+automatic kernel/firmware upgrade, KMM enablement or reboot follows generic GPU
+detection. See [GPU compatibility](gpu-compatibility.md) for variables,
+preparation, rollback and accounting constraints.
+
 ## Runtime Settings
+
+Host package preparation and power actions are not ordinary appliance settings.
+The shared [post-install host workflow](host-management.md) uses immutable
+`HostOperation` requests and root-owned, versioned package profiles. It never
+accepts package URLs or shell commands from the dashboard. The installer only
+provides this mechanism; it does not approve or run an experimental preparation.
 
 In `readonly-public` mode, Ansible renders appliance-wide settings into
 `ConfigMap/ai-appliance-settings` in namespace `flux-system`. Flux

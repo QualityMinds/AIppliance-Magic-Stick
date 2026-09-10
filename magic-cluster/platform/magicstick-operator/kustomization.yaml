@@ -6,10 +6,14 @@ resources:
   - crds/moduleactivations.appliance.magicstick.dev.yaml
   - crds/appinstances.appliance.magicstick.dev.yaml
   - crds/modelactivations.appliance.magicstick.dev.yaml
+  - crds/hostoperations.appliance.magicstick.dev.yaml
   - rbac.yaml
   - kubernetes-access-rbac.yaml
   - module-catalog.yaml
   - compute-target-catalog.yaml
+  - gpu-compatibility-catalog.yaml
+  - gpu-validation-configmap.yaml
+  - gpu-runtime-images.yaml
   - app-catalog.yaml
   - model-presets.yaml
   - controller-configmap.yaml

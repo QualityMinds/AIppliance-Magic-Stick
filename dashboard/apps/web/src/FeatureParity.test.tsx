@@ -139,6 +139,23 @@ describe('dashboard feature contracts', () => {
     expect(screen.getByLabelText('Postgres')).toBeInTheDocument();
   });
 
+  it('Models distinguishes a shared RAM pool and renders the API accounting message', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const path = new URL(String(input), window.location.origin).pathname;
+      if (path === '/api/models') return json({...models, computeMemory: {devices: [{id: 'amd-example', name: 'Example GPU', computeTarget: 'amd-gpu', totalMi: 49152, unreservedMi: 32768, freeMi: 40000, memoryArchitecture: 'unified', sharedPoolId: 'unified-example', sharedMemoryMi: 65536, accountingVerified: false, message: 'GPU accounting is not a guaranteed hard limit.'}]}});
+      return json(payload(path, 'GET'));
+    }));
+    renderPage(<ModelsPage session={session} />);
+    expect(await screen.findByText('Shared system memory · unified-example')).toBeInTheDocument();
+    expect(screen.getByText('shared RAM available')).toBeInTheDocument();
+    expect(screen.queryByText('actually free')).not.toBeInTheDocument();
+    expect(screen.getByText(/48 GiB budgetable/)).toBeInTheDocument();
+    expect(screen.getByText(/64 GiB OS-visible shared RAM/)).toBeInTheDocument();
+    expect(screen.getByText(/CPU and GPU are budgeted against one OS-visible RAM pool; do not add these capacities/)).toBeInTheDocument();
+    expect(screen.getByText(/Shared accounting not yet verified/)).toBeInTheDocument();
+    expect(screen.getByText('GPU accounting is not a guaranteed hard limit.')).toBeInTheDocument();
+  });
+
   it('Models restores model-source controls, memory planning and registered models', async () => {
     renderPage(<ModelsPage session={session} />);
     expect(await screen.findByRole('heading', {name: 'Models'})).toBeInTheDocument();

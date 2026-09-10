@@ -61,6 +61,44 @@ keeps it disabled; the operator only seeds missing activations.
 
 ## Modules And Instances
 
+### AMD compatibility intent and evidence
+
+Additional GPU support is runtime intent, not an edit to `Appliance.spec`.
+`ModuleActivation/amd-gpu.spec.parameters` accepts these bounded fields:
+
+| Field | Meaning |
+| --- | --- |
+| `compatibilityProfile` | Catalog profile ID, currently experimental `strix-halo`, or an empty string for upstream-only support. |
+| `allowExperimental` | Explicit `"true"` consent required for an experimental profile. |
+| `validationRequest` | Optional unique identifier requesting bounded, resource-consuming engine validation. Changing it requests a fresh run. |
+
+The API restricts these parameters to administrators; it accepts no arbitrary
+test image, script or node selector. Profile selection does not itself mean
+that a driver, GPU resource or inference engine is ready.
+
+`Appliance.status.hardwareOperators.amd-gpu.compatibility` contains the selected
+profile, catalog profiles and per-node evidence including `profileId`,
+`profileVersion`, `upstreamSupported`, `optedIn`, `eligible`, `pciDevices`,
+`expectedArchitecture`, `detectedArchitecture`, `hostDriverReady`,
+`resourceRegistered` and `hostFingerprint`. Per-engine `validation.OLlama` and
+`validation.VLLM` expose state, image/image ID, job, timestamps and reasons.
+Upstream support is reported distinctly from a locally passed validation.
+
+For shared-memory evidence, `physicalMemoryMi` is the OS-visible `MemTotal` in
+MiB, not installed-memory inventory. `gpuAccessibleMi` is a conservative
+GTT/TTM bound within that pool. Raw firmware VRAM counters are not added to it.
+
+For unified-memory activations, `ModelActivation.status.memoryArchitecture`
+is `unified`, `sharedPoolId` identifies the Node UID, and `memoryRequiredMi`
+records the single shared-RAM reservation. This is not additional RAM plus
+VRAM and does not certify GPU cgroup enforcement. Node host-evidence metadata
+is runtime-owned and must not be seeded in public manifests. See
+[GPU compatibility](gpu-compatibility.md) for the exact host and validation
+contract and [model catalog](model-catalog.md#amd-unified-memory-reservations)
+for reservation behavior.
+
+### Application instances
+
 Modules are capabilities. Instances are concrete uses of those capabilities.
 
 For example, creating `ModuleActivation/openclaw-operator` installs the
@@ -115,6 +153,14 @@ See [paperclip-agents.md](paperclip-agents.md) for the generated adapter,
 network, model, and credential contracts.
 
 ## Runtime CRs
+
+`HostOperation` is a separate namespaced runtime request for node-local
+`prepare-gpu`, `reboot` or `poweroff`. Its spec is immutable and bound to a Node
+UID, boot ID, unique request ID and explicit disruption acknowledgement; hardware
+preparation additionally binds the exact local plan and experiment consent.
+The dashboard creates requests, while the local root worker owns status. These
+actions never mutate Git-owned `Appliance.spec`. See the [host-management API and
+recovery contract](host-management.md).
 
 ```yaml
 apiVersion: appliance.magicstick.dev/v1alpha1

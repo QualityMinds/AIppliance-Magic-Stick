@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: magicstick-gpu-compatibility-catalog
+  namespace: ai-system
+  labels:
+    app.kubernetes.io/name: magicstick-operator
+    app.kubernetes.io/component: gpu-compatibility-catalog
+data:
+  profiles.json: |
+    {
+      "schemaVersion": 1,
+      "profiles": [
+        {
+          "id": "strix-halo",
+          "displayName": "AMD Strix Halo (experimental)",
+          "version": "1",
+          "vendor": "amd",
+          "architectures": ["amd64"],
+          "pciDevices": ["1002:1586"],
+          "expectedArchitecture": "gfx1151",
+          "memoryArchitecture": "unified",
+          "experimental": true,
+          "description": "Explicit opt-in for one Strix Halo GPU per node. Requires a fresh host preflight and separate successful GPU inference validation for each engine. Unified memory is one physical pool, not extra VRAM.",
+          "engines": {
+            "OLlama": {"image": "ollama/ollama:0.33.2-rocm", "testModel": "qwen3:0.6b"},
+            "VLLM": {"image": "vllm/vllm-openai-rocm:v0.26.0", "testModel": "Qwen/Qwen3-0.6B"}
+          }
+        }
+      ]
+    }

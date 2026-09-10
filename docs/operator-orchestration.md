@@ -14,7 +14,7 @@ The dashboard is also not an operator. It reads status and creates or patches
 | Magic Stick Dashboard | Reads `Appliance`, module catalog, Flux, Pod, Service, Ingress, HTTPRoute, and Event status; creates or patches runtime CRs only. |
 | Node Feature Discovery | Re-detects node hardware every 60 seconds and publishes the shared PCI-vendor and platform labels. |
 | NVIDIA GPU Operator | Owns NVIDIA driver, device-plugin, and `nvidia.com/gpu` publication after matching hardware is detected. |
-| AMD GPU Operator | Owns AMD device configuration and device-plugin publication; the portable baseline consumes the host/inbox `amdgpu` driver. |
+| AMD GPU Operator | Reconciles Magic Stick's separately managed `DeviceConfig` and publishes device-plugin resources; the portable baseline consumes the host/inbox `amdgpu` driver. |
 | Intel Device Plugins Operator | Owns Intel GPU device-plugin resources on supported Intel GPU nodes; the kernel provides the host driver. |
 | OpenClaw Operator | Owns lifecycle of `OpenClawInstance` resources. |
 | Hermes Operator | Owns lifecycle of `HermesInstance` resources. |
@@ -157,6 +157,41 @@ For v1alpha1, examples use these defaults:
 - generated Flux source comes from `Appliance.spec.source`
 
 ## Failure And Status Behavior
+
+### AMD compatibility and validation
+
+The versioned `magicstick-gpu-compatibility-catalog` is separate from upstream
+vendor support. `ModuleActivation/amd-gpu` parameters select a profile and
+explicit experimental consent; `validationRequest` is a unique run identifier.
+Only administrators may change those parameters through the API. The initial
+Strix Halo profile is experimental, single-GPU-per-node and excludes mixed-card
+nodes. It is not a declaration that all AMD GPUs or both engines work.
+
+The host evidence timer publishes one sanitized Node annotation. The controller
+checks its UID, boot ID, kernel, fingerprint and timestamp before treating it as
+current. It sets only Magic Stick eligibility/engine labels, never AMD's NFD
+support label. The managed `DeviceConfig` selects eligible nodes separately from
+Helm controller installation. A registered `amd.com/gpu` resource still does not
+permit an unvalidated experimental engine.
+
+Explicit validation runs fixed catalog images sequentially in bounded Jobs;
+test Pods receive a GPU resource but no service-account token, host-path mounts
+or privileged container mode. Ollama must report GPU buffers and answer a small
+arithmetic request; vLLM must pass a HIP computation and a small inference
+request. CPU fallback is not success. Results are keyed to host identity,
+profile version, run identifier and actual image ID; changed evidence becomes
+stale. Successful digests are carried through runtime-owned keys in
+`flux-system/magicstick-gpu-runtime-images` and KubeAI Helm `valuesFrom`, so
+model images match validation instead of merely reusing a mutable tag. The
+catalog's pinned release versions remain unchanged.
+
+`Appliance.status.hardwareOperators.amd-gpu.compatibility` exposes profile,
+node, host/resource and per-engine validation stages. Unified memory remains
+one physical pool and `memoryAccountingVerified` is not inferred from model
+readiness. See [GPU compatibility](gpu-compatibility.md) and
+[model reservations](model-catalog.md#amd-unified-memory-reservations).
+
+### Module and model readiness
 
 If an instance requires a module that is disabled, the MVP contract
 does not override the disabled module. The instance remains in
