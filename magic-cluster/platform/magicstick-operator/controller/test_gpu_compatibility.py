@@ -351,7 +351,15 @@ class GpuCompatibilityTests(unittest.TestCase):
         for engine, key in (("OLlama", "ollama-amd"), ("VLLM", "vllm-amd")):
             self.assertEqual(config["data"][key], self.profile["engines"][engine]["image"])
             self.assertEqual(config["data"][key + "-source"], config["data"][key])
-            self.assertEqual(kubeai["spec"]["values"]["modelServers"][engine]["images"]["magicstick-" + key], config["data"][key])
+            # The seed ConfigMap is the only AMD image source. Inline tags must
+            # not replace validated digests when generic values are merged.
+            self.assertNotIn("magicstick-" + key, kubeai["spec"]["values"]["modelServers"][engine]["images"])
+            reference = next(item for item in kubeai["spec"]["valuesFrom"] if item.get("valuesKey") == key)
+            self.assertEqual(reference["name"], config["metadata"]["name"])
+            self.assertEqual(reference["targetPath"], "modelServers." + engine + ".images.magicstick-" + key)
+        references = kubeai["spec"]["valuesFrom"]
+        generic_index = next(i for i, item in enumerate(references) if item["name"] == "magicstick-offloading-profiles")
+        self.assertTrue(all(i > generic_index for i, item in enumerate(references) if item["name"] == config["metadata"]["name"]))
 
     def test_failed_validation_does_not_publish_engine_eligibility(self):
         job = self.job()

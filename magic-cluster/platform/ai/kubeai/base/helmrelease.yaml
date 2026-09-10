@@ -7,6 +7,11 @@ spec:
   interval: 10m0s
   targetNamespace: ai
   valuesFrom:
+    # Merge generic runtime profiles before the authoritative image pins.
+    - kind: ConfigMap
+      name: magicstick-offloading-profiles
+      valuesKey: values.json
+      optional: true
     - kind: ConfigMap
       name: magicstick-gpu-runtime-images
       valuesKey: runtime-config-checksum
@@ -21,10 +26,6 @@ spec:
       name: magicstick-gpu-runtime-images
       valuesKey: ollama-amd
       targetPath: modelServers.OLlama.images.magicstick-ollama-amd
-      optional: true
-    - kind: ConfigMap
-      name: magicstick-offloading-profiles
-      valuesKey: values.json
       optional: true
   chart:
     spec:
@@ -50,8 +51,8 @@ spec:
         images:
           magicstick-vllm-nvidia: vllm/vllm-openai:v0.23.0
           magicstick-vllm-cpu: vllm/vllm-openai-cpu:v0.23.0
-          # Stable vendor images introduced upstream for the v0.26 release.
-          magicstick-vllm-amd: vllm/vllm-openai-rocm:v0.26.0
+          # AMD images come only from magicstick-gpu-runtime-images. Duplicate
+          # inline tags can override validated digests during values merging.
           magicstick-vllm-intel: vllm/vllm-openai-xpu:v0.26.0
       OLlama:
         images:
@@ -59,7 +60,7 @@ spec:
           # standard and ROCm images on the same pinned upstream release.
           magicstick-ollama-cpu: ollama/ollama:0.33.2
           magicstick-ollama-nvidia: ollama/ollama:0.33.2
-          magicstick-ollama-amd: ollama/ollama:0.33.2-rocm
+          # The AMD image is supplied by valuesFrom above.
     modelRollouts:
       # Avoid starting an extra GPU model pod during model updates.
       surge: 0

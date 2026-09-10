@@ -171,6 +171,14 @@ provider may become `Ready` with only one engine validated; inspect the separate
 Ollama/vLLM results before selecting a runtime. The compatibility profile remains
 experimental even after those small tests pass.
 
+The operator publishes validated AMD image digests through
+`magicstick-gpu-runtime-images`. KubeAI imports generic resource profiles first
+and these image pins last, without duplicate inline AMD image tags. This keeps
+Helm values merging from restoring an unvalidated tag. A successful smoke test
+alone is not runtime adoption: `runtimeReady` also requires the exact digest in
+KubeAI's installed configuration and Ready controller Pods with matching
+configuration checksums. See the [Flux values-reference contract](https://fluxcd.io/flux/components/helm/helmreleases/#values-references).
+
 The automatic model fixture uses the raw completion `2 + 2 =` with a two-token
 output budget and checks the exact arithmetic answer. It deliberately avoids
 model-specific chat and thinking templates: a tiny model's instruction-following

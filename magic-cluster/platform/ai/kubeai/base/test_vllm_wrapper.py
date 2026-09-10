@@ -129,15 +129,18 @@ class VllmWrapperTests(unittest.TestCase):
         values = release["spec"]["values"]
         images = values["modelServers"]["VLLM"]["images"]
         ollama_images = values["modelServers"]["OLlama"]["images"]
+        amd_images = yaml.safe_load((ROOT.parents[2] / "magicstick-operator/gpu-runtime-images.yaml").read_text(encoding="utf-8"))["data"]
         profiles = values["resourceProfiles"]
 
         self.assertEqual(images["magicstick-vllm-cpu"], "vllm/vllm-openai-cpu:v0.23.0")
         self.assertEqual(images["magicstick-vllm-nvidia"], "vllm/vllm-openai:v0.23.0")
-        self.assertEqual(images["magicstick-vllm-amd"], "vllm/vllm-openai-rocm:v0.26.0")
+        self.assertNotIn("magicstick-vllm-amd", images)
+        self.assertEqual(amd_images["vllm-amd"], "vllm/vllm-openai-rocm:v0.26.0")
         self.assertEqual(images["magicstick-vllm-intel"], "vllm/vllm-openai-xpu:v0.26.0")
         self.assertEqual(ollama_images["magicstick-ollama-cpu"], "ollama/ollama:0.33.2")
         self.assertEqual(ollama_images["magicstick-ollama-nvidia"], "ollama/ollama:0.33.2")
-        self.assertEqual(ollama_images["magicstick-ollama-amd"], "ollama/ollama:0.33.2-rocm")
+        self.assertNotIn("magicstick-ollama-amd", ollama_images)
+        self.assertEqual(amd_images["ollama-amd"], "ollama/ollama:0.33.2-rocm")
         self.assertNotIn("nvidia.com/gpu", profiles["magicstick-vllm-cpu"]["requests"])
         self.assertNotIn("nvidia.com/gpu", profiles["magicstick-vllm-cpu"]["limits"])
         self.assertEqual(profiles["magicstick-vllm-cpu-memory"]["requests"]["memory"], "16Mi")
