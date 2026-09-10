@@ -81,9 +81,11 @@ describe('terminal dashboard', () => {
     expect(isTuiActionKey('v')).toBe(true);
     expect(isTuiActionKey('r')).toBe(false);
     const state = snapshot();
-    state.models.computeMemory = {devices: [{id: 'example-gpu', totalMi: 49152, freeMi: 60000, memoryArchitecture: 'unified', accountingVerified: false}]};
+    state.models.computeMemory = {sharedPools: [{id: 'example-node', node: 'example-node', installedMemoryMi: 131072, firmwareReservedMi: 65536, physicalMemoryMi: 65536, gpuAccessibleMi: 49152}], devices: [{id: 'example-gpu', totalMi: 49152, freeMi: 60000, memoryArchitecture: 'unified', accountingVerified: false}]};
     expect(tabLines('Models', state).join('\n')).toContain('shared RAM available');
     expect(tabLines('Models', state).join('\n')).toContain('48 GiB budgetable');
+    expect(tabLines('Models', state).join('\n')).toContain('installed RAM 128 GiB / fixed GPU reservation 64 GiB');
+    expect(tabLines('Models', state).join('\n')).toContain('dynamic GPU ceiling 48 GiB (within Linux RAM, not extra)');
     state.status.hardwareOperators = {'amd-gpu': {phase: 'Degraded', compatibility: {schemaVersion: 1, profiles: [], selectedProfile: 'strix-halo', allowExperimental: true, nodes: [{node: 'example-node', eligible: true, hostDriverReady: true, resourceRegistered: true, memoryArchitecture: 'unified', memoryAccountingVerified: false, physicalMemoryMi: 65536, gpuAccessibleMi: 49152, validation: {OLlama: {state: 'passed'}, VLLM: {state: 'failed'}}}]}}};
     expect(tabLines('Hardware', state).join('\n')).toContain('Ollama: passed · runtime pending · vLLM: failed');
     expect(tabLines('Hardware', state).join('\n')).toContain('Shared accounting: not verified');

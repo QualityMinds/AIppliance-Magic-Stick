@@ -6138,6 +6138,8 @@ data:
             pools.append({
                 "id": metadata["uid"], "node": name, "memoryArchitecture": "unified",
                 "physicalMemoryMi": physical, "gpuAccessibleMi": accessible,
+                "installedMemoryMi": positive_int(report.get("installedMemoryMi")),
+                "firmwareReservedMi": positive_int(report.get("firmwareReservedMi")),
                 "systemReserveMi": system_reserve, "totalMi": schedulable,
                 "reservedMi": reserved, "unreservedMi": max(0, schedulable - reserved),
                 "gpuUnreservedMi": max(0, maximum - reserved) if maximum is not None else None,

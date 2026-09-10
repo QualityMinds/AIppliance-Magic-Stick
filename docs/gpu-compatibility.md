@@ -88,6 +88,22 @@ the advertised capacity can be expanded. The diagnostic preserves the raw
 VRAM/GTT counters so these differences can be investigated without changing
 the scheduling budget.
 
+The read-only inventory also publishes `installedMemoryMi` from populated
+SMBIOS type-17 devices (`dmidecode --type 17`) and `firmwareReservedMi` when the
+selected `uma/carveout_options` entry agrees with `mem_info_vram_total`. Missing
+tools, unknown SMBIOS device sizes or conflicting firmware evidence remain
+unknown; installed capacity is never inferred by adding Linux and GPU counters.
+Only the aggregate capacities are published, not DIMM identifiers or raw DMI
+output. These two inventory fields do not change scheduling, model estimates,
+GPU eligibility, firmware settings or reboot plans.
+
+The dashboard separates installed RAM, the fixed GPU carve-out, Linux-visible
+RAM and the dynamic GPU ceiling. The dynamic value is **inside** Linux RAM and
+must not be added to it. Where the measured totals reconcile, the difference
+`installed - fixed - Linux-visible` is labelled other firmware/platform memory,
+not extra GPU capacity. Existing CPU/GPU gauges remain conservative model-budget
+views, not hardware-inventory totals.
+
 ## Explicit Ansible preparation
 
 Administrators can also configure the **fixed firmware reservation** and

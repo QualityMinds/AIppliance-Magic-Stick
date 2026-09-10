@@ -1535,6 +1535,8 @@ data:
                 "memoryArchitecture": (profile or {}).get("memoryArchitecture") or host.get("memoryArchitecture") or "unknown",
                 "physicalMemoryMi": positive_int(host.get("physicalMemoryMi")),
                 "gpuAccessibleMi": positive_int(host.get("gpuAccessibleMi")),
+                "installedMemoryMi": positive_int(host.get("installedMemoryMi")),
+                "firmwareReservedMi": positive_int(host.get("firmwareReservedMi")),
                 "memoryAccountingVerified": host.get("memoryAccountingVerified") is True,
                 "hostDriverReady": (host_ready if profile else host.get("hostDriverReady")) if host else None,
                 "hostFingerprint": host.get("fingerprint", ""),

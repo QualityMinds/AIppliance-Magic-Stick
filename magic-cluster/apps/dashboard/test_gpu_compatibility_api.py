@@ -94,6 +94,22 @@ class GPUCompatibilityApiTests(unittest.TestCase):
         self.assertEqual(pool['gpuUnreservedMi'], 36 * 1024)
         self.assertFalse(pool['memoryAccountingVerified'])
 
+    def test_installed_and_firmware_inventory_do_not_expand_model_budgets(self):
+        node = self.node()
+        key = 'appliance.magicstick.dev/gpu-host-preflight'
+        report = json.loads(node['metadata']['annotations'][key])
+        report.update(installedMemoryMi=131072, firmwareReservedMi=65536)
+        node['metadata']['annotations'][key] = json.dumps(report)
+        pool = self.api['unified_memory_pools']([node], {})[0]
+        self.assertEqual(pool['installedMemoryMi'], 131072)
+        self.assertEqual(pool['firmwareReservedMi'], 65536)
+        self.assertEqual(pool['physicalMemoryMi'], 65536)
+        self.assertEqual(pool['totalMi'], 52 * 1024)
+        self.assertEqual(pool['gpuAccessibleMi'], 48 * 1024)
+        old = self.api['unified_memory_pools']([self.node()], {})[0]
+        self.assertIsNone(old['installedMemoryMi'])
+        self.assertIsNone(old['firmwareReservedMi'])
+
     def test_stale_node_boot_or_uid_does_not_supply_memory_capacity(self):
         for field in ('bootID', 'kernelVersion'):
             node = self.node()

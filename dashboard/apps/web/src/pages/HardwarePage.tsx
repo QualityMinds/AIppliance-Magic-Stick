@@ -1,10 +1,11 @@
 import {useState} from 'react';
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query';
-import {canAdminister, formatMi, gpuCompatibilityParameters} from '@magicstick/dashboard-core';
+import {canAdminister, gpuCompatibilityParameters} from '@magicstick/dashboard-core';
 import type {GpuCompatibility, GpuCompatibilityNode, Session} from '@magicstick/dashboard-contracts';
 import {api} from '../api';
 import {Button, ConfirmDialog, Empty, ErrorNotice, Field, Loading, Panel, StatusBadge} from '../components';
 import {HostPreparationPanel} from './HostManagement';
+import {SharedMemoryOverview} from '../SharedMemoryOverview';
 
 const stage = (ready?: boolean | null) => ready === true ? 'Ready' : ready === false ? 'Not ready' : 'Not verified';
 
@@ -19,7 +20,7 @@ const HardwareNode = ({node}: {node: GpuCompatibilityNode}) => <article classNam
     {Boolean(node.pciDevices?.length) && <div><dt>PCI devices</dt><dd>{node.pciDevices?.join(', ')}</dd></div>}
   </dl>
   {node.message && <p className="muted">{node.message}</p>}
-  {node.memoryArchitecture === 'unified' && <div className="notice notice-warn"><strong>Shared CPU / GPU memory</strong><p>OS-visible shared RAM pool{node.physicalMemoryMi ? `: ${formatMi(node.physicalMemoryMi)}` : ''}. GPU-accessible memory: {node.gpuAccessibleMi ? formatMi(node.gpuAccessibleMi) : 'not verified'}. These are not independent capacities. Firmware-reserved GPU memory is not added to this conservative budget.</p><p>Memory accounting: {node.memoryAccountingVerified ? 'verified' : 'not yet verified; no capacity guarantee'}.</p></div>}
+  {node.memoryArchitecture === 'unified' && <SharedMemoryOverview pool={node} />}
   <h4>Engine validation</h4>
   <div className="list">{['OLlama', 'VLLM'].map((engine) => {
     const validation = node.validation?.[engine];

@@ -313,6 +313,14 @@ dashboard in a browser and check the changed screen under the intended role.
 Report source publication, image build and live rollout as separate results;
 an old digest is not a browser-cache problem.
 
+For unified-memory inventory changes, also let normal host convergence install
+the updated read-only GPU preflight and refresh its Node annotation. Verify
+`installedMemoryMi`, `firmwareReservedMi`, `physicalMemoryMi` (Linux RAM) and
+`gpuAccessibleMi` (dynamic ceiling) separately. The Models/Hardware overview
+must not add the dynamic ceiling to Linux RAM or alter reservation budgets.
+This inventory refresh needs no firmware write or computer restart. Missing
+`dmidecode`/SMBIOS data stays unknown rather than inferred from GPU counters.
+
 ### Dashboard upgrade cleanup
 
 The standard Deployment and Service keep the name `ai-appliance-dashboard`.

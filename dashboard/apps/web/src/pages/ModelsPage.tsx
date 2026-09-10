@@ -11,6 +11,7 @@ import type {
 import {api} from '../api';
 import {Button, ConfirmDialog, Dialog, Empty, ErrorNotice, Field, Loading, Panel, ProgressBar, StatusBadge} from '../components';
 import {MemoryInfo, unreservedCalculation} from '../MemoryInfo';
+import {SharedMemoryOverview} from '../SharedMemoryOverview';
 
 const roundMemory = (value: number) => Math.max(100, Math.ceil(value / 100) * 100);
 const quantizationText = (value: unknown) => {
@@ -30,12 +31,15 @@ const MemoryGauge = ({device}: {device: ComputeMemoryDevice}) => {
   const free = Math.max(0, device.freeMi ?? 0);
   const unreservedPercent = Math.min(100, Math.round(unreserved / total * 100));
   const freePercent = Math.min(100, Math.round(free / total * 100));
+  const shared = device.memoryArchitecture === 'unified';
+  const sharedGpu = shared && device.kind !== 'cpu' && device.computeTarget !== 'cpu';
   return <article className="memory-gauge">
     <div className="gauge-rings" style={{'--unreserved': `${unreservedPercent * 1.8}deg`, '--free': `${freePercent * 1.8}deg`} as CSSProperties}><div className="gauge-value"><strong>{formatMi(free)}</strong><span>{device.memoryArchitecture === 'unified' ? 'shared RAM available' : 'actually free'}</span></div></div>
     <strong>{device.name ?? device.id}</strong>
+    {shared && <span>{sharedGpu ? 'Dynamic GPU memory · within Linux RAM' : 'Linux RAM · CPU and shared GPU allocations'}</span>}
     {device.memoryArchitecture === 'unified' && <span className="tag">Shared system memory{device.sharedPoolId ? ` · ${device.sharedPoolId}` : ''}</span>}
     <small><i />{formatMi(unreserved)} unreserved · {formatMi(total)} {device.memoryArchitecture === 'unified' ? 'budgetable' : 'total'}</small>
-    {device.memoryArchitecture === 'unified' && <small className="muted">{device.sharedMemoryMi ? `${formatMi(device.sharedMemoryMi)} OS-visible shared RAM. ` : ''}Budgetable memory excludes safety reserves; available RAM can be higher. Firmware-reserved GPU memory is not added.</small>}
+    {shared && <small className="muted">{device.sharedMemoryMi ? `${formatMi(device.sharedMemoryMi)} OS-visible shared RAM. ` : ''}Budgetable memory excludes safety reserves; available RAM can be higher. {sharedGpu ? 'This gauge does not show the fixed GPU reservation or total GPU memory.' : 'This gauge does not show total installed RAM.'}</small>}
     {device.memoryArchitecture === 'unified' && <small className="muted">CPU and GPU are budgeted against one OS-visible RAM pool; do not add these capacities. {device.accountingVerified ? 'Shared accounting verified.' : 'Shared accounting not yet verified.'}</small>}
     {(device.message || device.warning) && <small className="muted">{device.message || device.warning}</small>}
     {!device.metricsAvailable && <span className="muted">Live metrics unavailable</span>}
@@ -406,7 +410,7 @@ export const ModelsPage = ({session}: {session: Session}) => {
 
   return <div className="stack">
     <div className="section-title"><div><h2>Models</h2><p>Local inference and external OpenAI-compatible providers.</p></div></div>
-    <section><p className="eyebrow">Compute Memory</p><div className="memory-grid">{query.data.computeMemory?.devices?.length ? query.data.computeMemory.devices.map((device) => <MemoryGauge key={device.id} device={device} />) : <MemoryGauge device={{id: 'cpu-unavailable', name: 'CPU', kind: 'cpu'}} />}</div></section>
+    <section className="stack"><p className="eyebrow">Compute Memory</p>{query.data.computeMemory?.sharedPools?.map((pool) => <SharedMemoryOverview key={pool.id} pool={pool} />)}<div className="memory-grid">{query.data.computeMemory?.devices?.length ? query.data.computeMemory.devices.map((device) => <MemoryGauge key={device.id} device={device} />) : <MemoryGauge device={{id: 'cpu-unavailable', name: 'CPU', kind: 'cpu'}} />}</div></section>
     <div className="section-title"><div><h2>Installed Models</h2><p>{activations.length + registered.length} model{activations.length + registered.length === 1 ? '' : 's'}</p></div>{mutable && <Button variant="primary" onClick={() => setCreateOpen(true)}>Create</Button>}</div>
     <div className="stack compact">{activations.map((activation) => {
       const local = activation.spec?.local as Record<string, unknown> | undefined; const external = activation.spec?.external as Record<string, unknown> | undefined;

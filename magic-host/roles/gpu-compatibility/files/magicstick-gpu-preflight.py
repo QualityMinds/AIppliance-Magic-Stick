@@ -79,6 +79,33 @@ def kernel_evidence(release):
     return {"release": release, "strixHaloFixes": fixes, "source": SOURCE, "runtimeCompatibility": "not-validated"}
 
 
+def installed_memory_bytes(output):
+    """Sum populated SMBIOS devices, never array maximum capacity or partial data."""
+    sizes = re.findall(r"^\s*Size:\s*(.+?)\s*$", output, re.M)
+    total = 0
+    for size in sizes:
+        if size == "No Module Installed":
+            continue
+        match = re.fullmatch(r"(\d+) (kB|MB|GB|TB)", size)
+        if not match or int(match[1]) <= 0:
+            return None
+        total += int(match[1]) * {"kB": 1024, "MB": 1024**2, "GB": 1024**3, "TB": 1024**4}[match[2]]
+    return total or None
+
+
+def firmware_reserved_mi(device_path, vram_bytes):
+    """Only label VRAM as a carve-out when the current firmware option agrees."""
+    index = number(read(device_path / "uma/carveout"))
+    if index is None:
+        return None
+    for line in read(device_path / "uma/carveout_options").splitlines():
+        match = re.fullmatch(r"\s*(\d+):.*\((\d+) (MB|GB)\)\s*", line)
+        if match and int(match[1]) == index:
+            size_mi = int(match[2]) * (1024 if match[3] == "GB" else 1)
+            return size_mi if size_mi > 0 and size_mi * 1024**2 == vram_bytes else None
+    return None
+
+
 def collect(root=Path("/"), live=True):
     def path(value):
         return root / value.lstrip("/")
@@ -174,6 +201,11 @@ def collect(root=Path("/"), live=True):
     profile_devices = [device for device in devices if device["profileId"] == PROFILE_ID]
     if len(profile_devices) == 1:
         device = profile_devices[0]
+        inventory_status, inventory_output = command(["dmidecode", "--type", "17"], live)
+        installed_bytes = installed_memory_bytes(inventory_output) if inventory_status["status"] == "ok" else None
+        report["systemMemory"]["installedBytes"] = installed_bytes
+        report["systemMemory"]["inventoryQuery"] = inventory_status
+        fixed_mi = firmware_reserved_mi(path("/sys/bus/pci/devices") / device["pciAddress"], device["memory"]["vramTotalBytes"])
         gfx = device["gfxArchitectures"][0] if len(device["gfxArchitectures"]) == 1 else None
         limits = [value for value in [device["memory"]["gttTotalBytes"], report["systemMemory"]["ttmLimitBytes"], memory.get("MemTotal")] if value is not None and value > 0]
         accessible_bytes = min(limits) if device["memory"]["gttTotalBytes"] and memory.get("MemTotal") else None
@@ -185,6 +217,9 @@ def collect(root=Path("/"), live=True):
             "gpuAccessibleMi": accessible_bytes // (1024 * 1024) if accessible_bytes is not None else None,
             # MemTotal is OS-visible physical memory, deliberately excludes BIOS carve-out.
             "physicalMemoryMi": memory["MemTotal"] // (1024 * 1024) if memory.get("MemTotal") else None,
+            # Inventory only: these fields must never enlarge the scheduling budget.
+            "installedMemoryMi": installed_bytes // (1024 * 1024) if installed_bytes else None,
+            "firmwareReservedMi": fixed_mi,
             "memoryAccountingVerified": False,
             "driverVersion": report["driver"]["version"], "kernelVersion": release,
             "hostDriverReady": bool(device["driver"] == "amdgpu" and report["driver"]["kfd"]["charDevice"] and any(node["charDevice"] for node in device["renderNodes"]) and gfx == "gfx1151" and report["kernel"]["strixHaloFixes"] == "present"),

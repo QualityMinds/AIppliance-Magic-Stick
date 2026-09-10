@@ -933,6 +933,18 @@ GPU-accessible capacity without pretending to be live vendor-exporter usage.
 CPU and AMD model budgets are charged conservatively to that pool, with a system
 reserve; missing metrics and unverified GPU cgroup accounting remain explicit.
 
+On unified-memory hosts, **Models → Compute Memory** and **System → Hardware →
+GPU nodes** show a separate physical-memory overview: installed RAM (SMBIOS),
+fixed firmware GPU reservation, Linux-visible RAM and the dynamic GPU ceiling.
+The dynamic ceiling is a subset of Linux-visible RAM, not an additional bank.
+Unknown inventory stays explicitly unreported; fixed firmware memory is not
+silently added to model budgets. CPU/GPU gauges are labelled as Linux/shared
+budget views rather than total installed CPU/GPU memory. This is a read-only
+display change; only the separately confirmed hardware controls change memory
+settings. See the [inventory contract](gpu-compatibility.md#kernel-and-shared-memory-constraints).
+CLI hardware output and the physical TUI's Models/Hardware views expose the same
+four values and the same non-additive relationship.
+
 The preset selector is populated from `ConfigMap/magicstick-model-presets` and
 shows only variants compatible with the selected engine and target. Each
 variant may declare `defaultArtifact` and `artifacts[]`; the artifact entries

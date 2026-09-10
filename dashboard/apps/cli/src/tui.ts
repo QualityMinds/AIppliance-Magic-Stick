@@ -232,6 +232,10 @@ const modelLines = (snapshot: DashboardSnapshot, selectedIndex = -1) => {
   const models = modelEntries(snapshot);
   return [
     'Compute memory',
+    ...(snapshot.models.computeMemory?.sharedPools ?? []).flatMap((pool) => [
+      `  ${pool.node}: installed RAM ${formatMi(pool.installedMemoryMi)} / fixed GPU reservation ${formatMi(pool.firmwareReservedMi)}`,
+      `    Linux RAM ${formatMi(pool.physicalMemoryMi)} / dynamic GPU ceiling ${formatMi(pool.gpuAccessibleMi)} (within Linux RAM, not extra)`,
+    ]),
     ...devices.flatMap((device) => [`  ${device.name ?? device.id}: ${formatMi(device.freeMi)} ${device.memoryArchitecture === 'unified' ? 'shared RAM available' : 'free'} / ${formatMi(device.unreservedMi)} unreserved / ${formatMi(device.totalMi)} ${device.memoryArchitecture === 'unified' ? 'budgetable' : 'total'}`, ...(device.memoryArchitecture === 'unified' ? ['    OS-visible shared RAM: do not add capacities or firmware GPU memory; accounting ' + (device.accountingVerified ? 'verified.' : 'not verified.')] : [])]),
     '', 'Models',
     ...models.map((item, index) => {
@@ -282,7 +286,7 @@ const hardwareLines = (snapshot: DashboardSnapshot) => {
       `  Driver: ${node.hostDriverReady === true ? 'ready' : 'not verified'} · GPU resource: ${node.resourceRegistered === true ? 'registered' : 'not verified'}`,
       `  Ollama: ${gpuValidationSummary(node.validation?.OLlama)} · vLLM: ${gpuValidationSummary(node.validation?.VLLM)}`,
       ...Object.entries(node.validation ?? {}).filter(([, validation]) => validation.state === 'passed' && validation.runtimeMessage).map(([engine, validation]) => `  ${engine}: ${validation.runtimeMessage}`),
-      ...(node.memoryArchitecture === 'unified' ? [`  OS-visible shared RAM: ${formatMi(node.physicalMemoryMi)} / ${formatMi(node.gpuAccessibleMi)} GPU-accessible; do not add.`, `  Shared accounting: ${node.memoryAccountingVerified ? 'verified' : 'not verified'}`] : []),
+      ...(node.memoryArchitecture === 'unified' ? [`  Installed RAM: ${formatMi(node.installedMemoryMi)} / fixed GPU reservation: ${formatMi(node.firmwareReservedMi)}`, `  OS-visible shared RAM: ${formatMi(node.physicalMemoryMi)} / dynamic GPU ceiling: ${formatMi(node.gpuAccessibleMi)} (within Linux RAM, not extra).`, `  Shared accounting: ${node.memoryAccountingVerified ? 'verified' : 'not verified'}`] : []),
     ]),
     ...(!compatibility ? ['GPU compatibility catalog has not been reported.'] : []),
   ];

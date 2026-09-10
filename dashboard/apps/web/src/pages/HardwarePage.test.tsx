@@ -39,7 +39,8 @@ describe('hardware compatibility', () => {
     expect(screen.getByText('Not recognized')).toBeInTheDocument();
     expect(screen.getByText('Not ready')).toBeInTheDocument();
     expect(screen.getByText(/These are not independent capacities/)).toBeInTheDocument();
-    expect(screen.getByText(/OS-visible shared RAM pool: 64 GiB/)).toBeInTheDocument();
+    expect(screen.getByText('Linux-visible RAM').parentElement).toHaveTextContent('64 GiB');
+    expect(screen.getByText('Installed RAM').parentElement).toHaveTextContent('Not reported');
     expect(screen.getByText(/not yet verified; no capacity guarantee/)).toBeInTheDocument();
   });
 
@@ -56,7 +57,7 @@ describe('hardware compatibility', () => {
     mount();
     const driver = await screen.findByText('Host driver');
     expect(driver.parentElement).toHaveTextContent('Not verified');
-    expect(screen.getByText(/GPU-accessible memory: not verified/)).toBeInTheDocument();
+    expect(screen.getByText('Dynamic GPU ceiling').parentElement).toHaveTextContent('Not reported');
     expect(screen.queryByText('Not ready')).not.toBeInTheDocument();
   });
 

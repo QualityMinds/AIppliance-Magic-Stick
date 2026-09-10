@@ -107,6 +107,8 @@ footer { padding: 1.1rem; color: #8798b2; text-align: center; font-size: .8rem; 
 .gauge-value span { color: var(--muted); font-size: .72rem; }
 .memory-gauge > small { display: flex; align-items: center; gap: .35rem; }
 .memory-gauge > small i { width: 7px; height: 7px; border-radius: 50%; background: var(--violet); }
+.shared-memory-overview .facts { grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); }
+.shared-memory-overview .facts dd { font-size: 1.3rem; font-weight: 700; color: var(--cyan); }
 
 .estimate { padding: 1rem; border: 1px solid var(--line); border-radius: 14px; background: rgb(5 11 22 / 40%); }
 .estimate > header > div { display: flex; justify-content: space-between; gap: 1rem; }

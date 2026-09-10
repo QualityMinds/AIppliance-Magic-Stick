@@ -142,12 +142,16 @@ describe('dashboard feature contracts', () => {
   it('Models distinguishes a shared RAM pool and renders the API accounting message', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const path = new URL(String(input), window.location.origin).pathname;
-      if (path === '/api/models') return json({...models, computeMemory: {devices: [{id: 'amd-example', name: 'Example GPU', computeTarget: 'amd-gpu', totalMi: 49152, unreservedMi: 32768, freeMi: 40000, memoryArchitecture: 'unified', sharedPoolId: 'unified-example', sharedMemoryMi: 65536, accountingVerified: false, message: 'GPU accounting is not a guaranteed hard limit.'}]}});
+      if (path === '/api/models') return json({...models, computeMemory: {sharedPools: [{id: 'unified-example', node: 'example-node', installedMemoryMi: 131072, firmwareReservedMi: 65536, physicalMemoryMi: 65536, gpuAccessibleMi: 49152}], devices: [{id: 'amd-example', name: 'Example GPU', computeTarget: 'amd-gpu', totalMi: 49152, unreservedMi: 32768, freeMi: 40000, memoryArchitecture: 'unified', sharedPoolId: 'unified-example', sharedMemoryMi: 65536, accountingVerified: false, message: 'GPU accounting is not a guaranteed hard limit.'}]}});
       return json(payload(path, 'GET'));
     }));
     renderPage(<ModelsPage session={session} />);
     expect(await screen.findByText('Shared system memory · unified-example')).toBeInTheDocument();
     expect(screen.getByText('shared RAM available')).toBeInTheDocument();
+    expect(screen.getByText('Dynamic GPU memory · within Linux RAM')).toBeInTheDocument();
+    expect(screen.getByText('Installed RAM').parentElement).toHaveTextContent('128 GiB');
+    expect(screen.getByText('Fixed GPU reservation').parentElement).toHaveTextContent('64 GiB');
+    expect(screen.getByText(/This gauge does not show the fixed GPU reservation or total GPU memory/)).toBeInTheDocument();
     expect(screen.queryByText('actually free')).not.toBeInTheDocument();
     expect(screen.getByText(/48 GiB budgetable/)).toBeInTheDocument();
     expect(screen.getByText(/64 GiB OS-visible shared RAM/)).toBeInTheDocument();

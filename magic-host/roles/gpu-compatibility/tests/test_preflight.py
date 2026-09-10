@@ -127,6 +127,36 @@ class HostEvidenceTests(unittest.TestCase):
         report = preflight.collect(self.root, live=False)
         self.assertIsNone(report["nodeAnnotation"]["gpuAccessibleMi"])
         self.assertIsNone(report["nodeAnnotation"]["physicalMemoryMi"])
+        self.assertIsNone(report["nodeAnnotation"]["installedMemoryMi"])
+        self.assertIsNone(report["nodeAnnotation"]["firmwareReservedMi"])
+
+    def test_installed_inventory_does_not_expand_shared_budget(self):
+        self.strix_fixture()
+        self.write("/sys/bus/pci/devices/0000:01:00.0/uma/carveout", "0")
+        self.write("/sys/bus/pci/devices/0000:01:00.0/uma/carveout_options", "0: Minimum (512 MB)\n7: High (64 GB)")
+        def query(argv, live):
+            return ({"status": "ok"}, "\tSize: 64 GB\n\tSize: 64 GB\n\tSize: No Module Installed\n") if argv[0] == "dmidecode" else ({"status": "not-run"}, "")
+        with patch.object(preflight, "command", side_effect=query):
+            report = preflight.collect(self.root, live=False)
+        self.assertEqual(report["nodeAnnotation"]["installedMemoryMi"], 131072)
+        self.assertEqual(report["nodeAnnotation"]["firmwareReservedMi"], 512)
+        self.assertEqual(report["nodeAnnotation"]["physicalMemoryMi"], 65536)
+        self.assertEqual(report["nodeAnnotation"]["gpuAccessibleMi"], 32768)
+        self.assertNotIn("No Module Installed", json.dumps(report))
+
+    def test_smbios_unknown_devices_are_not_summed_as_complete_inventory(self):
+        for output in ("", "Maximum Capacity: 1 TB", "Size: Unknown", "Size: 16 GB\nSize: Unknown", "Size: No Module Installed", "Size: 0 GB"):
+            self.assertIsNone(preflight.installed_memory_bytes(output))
+        self.assertEqual(preflight.installed_memory_bytes("Size: 1024 MB\nSize: 1 GB"), 2 * 1024**3)
+
+    def test_raw_vram_is_not_assumed_to_be_a_firmware_reservation(self):
+        base = self.root / "sys/bus/pci/devices/0000:01:00.0"
+        self.write("/sys/bus/pci/devices/0000:01:00.0/uma/carveout", "7")
+        self.write("/sys/bus/pci/devices/0000:01:00.0/uma/carveout_options", "7: High (64 GB)")
+        self.assertEqual(preflight.firmware_reserved_mi(base, 64 * 1024**3), 65536)
+        self.assertIsNone(preflight.firmware_reserved_mi(base, 512 * 1024**2))
+        self.write("/sys/bus/pci/devices/0000:01:00.0/uma/carveout", "8")
+        self.assertIsNone(preflight.firmware_reserved_mi(base, 64 * 1024**3))
 
     def test_cli_requires_exact_profile_and_absolute_root(self):
         command = [sys.executable, str(ROLE / "files/magicstick-gpu-preflight.py"), "--json", "--root", str(self.root), "--require-profile", "strix-halo"]

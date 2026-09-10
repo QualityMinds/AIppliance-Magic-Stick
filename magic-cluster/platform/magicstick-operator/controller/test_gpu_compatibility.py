@@ -79,6 +79,15 @@ class GpuCompatibilityTests(unittest.TestCase):
         self.assertIsNone(self.status()["hostDriverReady"])
         self.assertFalse(self.status()["eligible"])
 
+    def test_hardware_status_preserves_inventory_separate_from_shared_capacity(self):
+        self.change_host(installedMemoryMi=131072, firmwareReservedMi=65536)
+        result = self.status()
+        self.assertEqual(result["installedMemoryMi"], 131072)
+        self.assertEqual(result["firmwareReservedMi"], 65536)
+        self.assertEqual(result["physicalMemoryMi"], 60000)
+        self.assertEqual(result["gpuAccessibleMi"], 45000)
+        self.assertFalse(result["memoryAccountingVerified"])
+
     def hardware_status(self, compatibility):
         catalog = json.loads(yaml.safe_load((ROOT / "module-catalog.yaml").read_text())["data"]["modules.json"])
         self.node["status"]["nodeInfo"].update({"operatingSystem": "linux", "kubeletVersion": "v1.36.4"})

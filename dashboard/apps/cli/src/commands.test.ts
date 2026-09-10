@@ -67,7 +67,8 @@ describe('runCli', () => {
     expect(output.stdout()).toContain('runtime pending');
     expect(output.stdout()).toContain('KubeAI activates with a model.');
     expect(output.stdout()).toContain('failed');
-    expect(output.stdout()).toContain('Do not add capacities');
+    expect(output.stdout()).toContain('within Linux RAM, not extra');
+    expect(output.stdout()).toContain('installed RAM unknown; fixed GPU reservation unknown');
     expect(output.stdout()).toContain('OS-visible shared RAM 64 GiB');
     expect(output.stdout()).toContain('Accounting not verified');
   });

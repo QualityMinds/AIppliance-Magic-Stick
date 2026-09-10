@@ -230,6 +230,16 @@ export interface KvCacheOption {
   relativeSize?: number;
 }
 
+/** Inventory only; GPU dynamic memory is a subset of Linux-visible RAM. */
+export interface SharedMemoryInventory {
+  node: string;
+  installedMemoryMi?: number | null;
+  firmwareReservedMi?: number | null;
+  physicalMemoryMi?: number | null;
+  gpuAccessibleMi?: number | null;
+  memoryAccountingVerified?: boolean;
+}
+
 export interface ComputeMemoryDevice {
   id: string;
   kind?: string;
@@ -316,7 +326,7 @@ export interface ModelsPayload {
   activations: ModelActivation[];
   presets: Record<string, ModelPreset>;
   computeTargets: {default?: string; targets: ComputeTarget[]};
-  computeMemory?: {deviceCount?: number; metricsComplete?: boolean; devices?: ComputeMemoryDevice[]};
+  computeMemory?: {deviceCount?: number; metricsComplete?: boolean; devices?: ComputeMemoryDevice[]; sharedPools?: Array<SharedMemoryInventory & {id: string}>};
   [key: string]: unknown;
 }
 
@@ -438,8 +448,7 @@ export interface GpuEngineValidation {
   runtimeMessage?: string;
 }
 
-export interface GpuCompatibilityNode {
-  node: string;
+export interface GpuCompatibilityNode extends SharedMemoryInventory {
   nodeUid?: string;
   profileId?: string;
   profileVersion?: string;
@@ -449,9 +458,6 @@ export interface GpuCompatibilityNode {
   memoryArchitecture?: string;
   expectedArchitecture?: string;
   detectedArchitecture?: string;
-  physicalMemoryMi?: number | null;
-  gpuAccessibleMi?: number | null;
-  memoryAccountingVerified?: boolean;
   pciDevices?: string[];
   hostDriverReady?: boolean | null;
   resourceRegistered?: boolean;
