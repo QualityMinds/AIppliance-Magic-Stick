@@ -300,6 +300,12 @@ and `magic-cluster/apps/dashboard/api-deployment.yaml`. Commit the promotion to
 the branch tracked by the appliance. Flux must reconcile that new revision
 before the Deployment can roll out the new containers.
 
+Promote the same commit's `cli-sha-<commit>` image-index digest in
+`magic-host/roles/dashboard-console/defaults/main.yml` for the physical TUI.
+The normal host convergence applies that runtime Deployment and retains its
+persisted console state. Changing the mutable `console` alias alone does not
+restart an already running console Pod.
+
 Verify the configured image, running Pod image ID and readiness for both
 `dashboard/ai-appliance-dashboard` and
 `identity-system/ai-appliance-dashboard-api`. Finally reload the primary
