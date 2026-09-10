@@ -21,6 +21,7 @@ ROLE = Path(__file__).resolve().parents[1]
 REPO = ROLE.parents[2]
 sys.path.insert(0, str(ROLE / "files"))
 import host_worker
+import gpu_memory
 
 
 def main():
@@ -105,7 +106,70 @@ def main():
             assert completed["status"]["phase"] == "Succeeded" and len(power_commands) == 1
             assert power_commands[0][0] == "/usr/sbin/shutdown"
             checks += 1
-        print(json.dumps({"passed": checks, "realPowerCommands": 0, "nodesModified": 0, "context": args.context}))
+        # Real CRD admission/status, entirely fake host/firmware/Ansible execution.
+        memory_document = copy.deepcopy(document)
+        memory_document["metadata"]["name"] = "memory-" + uuid.uuid4().hex[:12]
+        memory_document["spec"].update(action="configure-gpu-memory", requestId=uuid.uuid4().hex,
+                                       allowExperimental=True, planId="b" * 64,
+                                       gpuMemory={"carveoutIndex": 0, "dynamicLimitMi": 65536})
+        memory_operation = json.loads(execute(["create", "-f", "-", "-o", "json"], memory_document, actor=True).stdout)
+        assert memory_operation["spec"]["gpuMemory"] == {"carveoutIndex": 0, "dynamicLimitMi": 65536}
+        checks += 1
+        for changes in ({"gpuMemory": {}}, {"gpuMemory": {"carveoutIndex": True, "dynamicLimitMi": 1024}},
+                        {"gpuMemory": {"carveoutIndex": 0, "dynamicLimitMi": 0}}, {"allowExperimental": False}, {"experimentMode": True}):
+            bad = copy.deepcopy(memory_document); bad["metadata"]["name"] = "invalid-memory-" + uuid.uuid4().hex[:8]
+            bad["spec"].update(changes)
+            rejected = execute(["create", "--dry-run=server", "-f", "-"], bad, ok=False)
+            assert rejected.returncode != 0, changes
+            checks += 1
+        memory_report = {"bootId": "boot-a", "kernel": {"release": "test-kernel"}, "os": {"id": "ubuntu", "versionId": "24.04"},
+                         "hardwareFingerprint": "f" * 64,
+                         "systemMemory": {"totalBytes": 64000 * gpu_memory.MIB, "ttmLimitBytes": 32768 * gpu_memory.MIB}}
+        memory_capability = {"id": "b" * 64, "supported": True, "pciAddress": "0000:01:00.0", "currentCarveoutIndex": 1,
+                             "currentCarveoutMi": 32768, "systemMemoryMi": 64000, "currentDynamicLimitMi": 32768,
+                             "options": [{"index": 0, "label": "Minimum (512 MB)", "sizeMi": 512}, {"index": 1, "label": "High (32 GB)", "sizeMi": 32768}]}
+        configuration = {"id": "initial", "conflicts": False, "managedPages": None}
+        with tempfile.TemporaryDirectory() as state:
+            memory_commands, firmware_writes = [], []
+            def fake_memory_run(command, **kwargs):
+                memory_commands.append(command)
+                if command[0] == "/usr/bin/ansible-playbook":
+                    approved = json.loads((Path(state) / "approved-memory-vars.json").read_text())
+                    assert approved["gpu_compatibility_package_versions"] == {}
+                    assert approved["gpu_compatibility_update_cache"] is False
+                    configuration.update(id="managed", managedPages=approved["gpu_compatibility_ttm_limit_mib"] * 256)
+                return ""
+            with patch.object(host_worker, "NAMESPACE", namespace), patch.object(host_worker, "kube", side_effect=kube), \
+                    patch.object(host_worker, "run", side_effect=fake_memory_run), \
+                    patch.object(host_worker, "display_gpus", return_value=["1002:1586"]), \
+                    patch.object(gpu_memory, "collect", side_effect=lambda *args: copy.deepcopy(memory_capability)), \
+                    patch.object(gpu_memory, "configuration", side_effect=lambda: dict(configuration)), \
+                    patch.object(gpu_memory, "write_carveout", side_effect=lambda *args, **kwargs: firmware_writes.append(args)):
+                def reconcile_memory():
+                    observed = kube(["get", crd_name, memory_operation["metadata"]["name"], "-n", namespace, "-o", "json"])
+                    worker = host_worker.Worker(node, memory_report, {}, Path(state), memory=memory_capability)
+                    worker.reconcile(observed)
+                    return worker.state["current"]["phase"]
+                assert reconcile_memory() == "RebootScheduled"
+                assert len(firmware_writes) == 1 and len(memory_commands) == 1
+                checks += 1
+                assert reconcile_memory() == "RebootScheduled" and len(memory_commands) == 1
+                checks += 1
+                memory_report.update(bootId="boot-b", systemMemory={"totalBytes": 96000 * gpu_memory.MIB, "ttmLimitBytes": 48000 * gpu_memory.MIB})
+                memory_capability.update(currentCarveoutIndex=0, currentCarveoutMi=512, systemMemoryMi=96000, currentDynamicLimitMi=48000)
+                assert reconcile_memory() == "Verifying"
+                assert reconcile_memory() == "RebootScheduled"
+                assert len(memory_commands) == 3 and len(firmware_writes) == 1
+                checks += 1
+                memory_report.update(bootId="boot-c", systemMemory={"totalBytes": 96000 * gpu_memory.MIB, "ttmLimitBytes": 65536 * gpu_memory.MIB})
+                memory_capability.update(currentDynamicLimitMi=65536)
+                assert reconcile_memory() == "Verifying"
+                assert reconcile_memory() == "Succeeded"
+                assert len(memory_commands) == 3 and len(firmware_writes) == 1
+                checks += 1
+                assert reconcile_memory() == "Succeeded" and len(memory_commands) == 3
+                checks += 1
+        print(json.dumps({"passed": checks, "realPowerCommands": 0, "realFirmwareWrites": 0, "nodesModified": 0, "context": args.context}))
     finally:
         if created_namespace:
             execute(["delete", "namespace", namespace, "--wait=false"])

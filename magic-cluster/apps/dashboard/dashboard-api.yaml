@@ -6495,18 +6495,64 @@ data:
             hosts.append({"name": meta.get("name", ""), "nodeUid": meta.get("uid", ""), "bootId": info.get("bootID", ""),
                           "kernel": info.get("kernelVersion", ""), "available": fresh and available,
                           "observedAt": report.get("observedAt", ""), "plan": report.get("plan") if fresh else None,
+                          "gpuMemory": report.get("gpuMemory") if fresh else None,
                           "message": "Host worker is available." if fresh and available else "Host worker or operation API is unavailable/stale. No power or preparation action can be requested.",
                           "operation": {"requestId": operation.get("spec", {}).get("requestId"), "action": operation.get("spec", {}).get("action"),
                                         **(operation.get("status") or {"phase": "Pending", "message": "Waiting for the local host worker."})} if operation else None})
         return {"nodes": hosts}
 
 
+    def validate_host_gpu_memory(host, payload):
+        capability = host.get("gpuMemory") or {}
+        if not isinstance(capability, dict) or capability.get("supported") is not True:
+            raise RequestError(409, "GPU memory configuration is unavailable for this host.")
+        if (not re.fullmatch(r"[a-f0-9]{64}", str(capability.get("id", "")))
+                or payload.get("planId") != capability.get("id")):
+            raise RequestError(409, "GPU memory configuration changed. Refresh and review the current values.")
+        if payload.get("allowExperimental") is not True or payload.get("experimentMode") is True:
+            raise RequestError(400, "GPU memory configuration requires explicit experimental consent, not a mixed-hardware override.")
+        settings = payload.get("gpuMemory")
+        if not isinstance(settings, dict) or set(settings) != {"carveoutIndex", "dynamicLimitMi"}:
+            raise RequestError(400, "Supply only a firmware carveout index and dynamic GPU memory limit.")
+        index, dynamic = settings.get("carveoutIndex"), settings.get("dynamicLimitMi")
+        if type(index) is not int or type(dynamic) is not int or not 0 <= index <= 255 or not 1 <= dynamic <= 1048576:
+            raise RequestError(400, "GPU memory settings must be bounded integer values in MiB.")
+        integer_fields = ("systemMemoryMi", "currentCarveoutIndex", "currentCarveoutMi", "currentDynamicLimitMi",
+                          "systemReserveMi", "stepMi", "minDynamicLimitMi")
+        if any(type(capability.get(key)) is not int for key in integer_fields):
+            raise RequestError(409, "GPU memory evidence is incomplete. No change can be requested.")
+        options = capability.get("options")
+        if (not isinstance(options, list) or not 1 <= len(options) <= 256
+                or any(not isinstance(option, dict) or type(option.get("index")) is not int
+                       or type(option.get("sizeMi")) is not int or not 0 <= option["index"] <= 255
+                       or not 1 <= option["sizeMi"] <= 1048576 for option in options)
+                or len({option["index"] for option in options}) != len(options)):
+            raise RequestError(409, "Firmware memory options are unavailable or ambiguous.")
+        chosen = next((option for option in options if option["index"] == index), None)
+        current = next((option for option in options if option["index"] == capability["currentCarveoutIndex"]), None)
+        if not current or current["sizeMi"] != capability["currentCarveoutMi"]:
+            raise RequestError(409, "Active firmware memory evidence is inconsistent. Refresh hardware diagnostics.")
+        if chosen is None:
+            raise RequestError(400, "The selected firmware memory option is not offered by this computer.")
+        reserve, step, minimum = (capability[key] for key in ("systemReserveMi", "stepMi", "minDynamicLimitMi"))
+        if (not 8192 <= reserve <= 1048576 or not 1 <= step <= 1048576 or not 1 <= minimum <= 1048576
+                or not 1 <= capability["systemMemoryMi"] <= 1048576 or capability["currentDynamicLimitMi"] <= 0):
+            raise RequestError(409, "GPU memory safety bounds are unavailable.")
+        projected = capability["systemMemoryMi"] + capability["currentCarveoutMi"] - chosen["sizeMi"]
+        maximum = (projected - reserve) // step * step
+        if dynamic < minimum or dynamic > maximum or dynamic % step:
+            raise RequestError(400, "The dynamic GPU limit must follow the slider steps and preserve the host RAM safety reserve.")
+        if index == capability["currentCarveoutIndex"] and dynamic == capability["currentDynamicLimitMi"]:
+            raise RequestError(400, "GPU memory settings are unchanged.")
+        return {"carveoutIndex": index, "dynamicLimitMi": dynamic}
+
+
     def create_host_operation(principal, payload):
         if not ROLE_ACCESS["admin"].intersection(principal.get("roles", [])):
             raise AuthError(403, "Administrator access is required for host operations.")
-        _reject_unknown_fields(payload, {"action", "nodeName", "nodeUid", "bootId", "requestId", "planId", "allowExperimental", "experimentMode", "acknowledgeDisruption", "confirmation"})
+        _reject_unknown_fields(payload, {"action", "nodeName", "nodeUid", "bootId", "requestId", "planId", "allowExperimental", "experimentMode", "acknowledgeDisruption", "confirmation", "gpuMemory"})
         action = payload.get("action")
-        if action not in {"prepare-gpu", "reboot", "poweroff"}:
+        if action not in {"prepare-gpu", "configure-gpu-memory", "reboot", "poweroff"}:
             raise RequestError(400, "Unknown host operation.")
         if not re.fullmatch(r"[a-f0-9]{32}", str(payload.get("requestId", ""))):
             raise RequestError(400, "A valid request identity is required.")
@@ -6524,7 +6570,12 @@ data:
         plan = host.get("plan") or {}
         if payload.get("experimentMode") is True:
             plan = plan.get("experiment") or {}
-        if action == "prepare-gpu":
+        memory_settings = None
+        if action == "configure-gpu-memory":
+            memory_settings = validate_host_gpu_memory(host, payload)
+        elif "gpuMemory" in payload:
+            raise RequestError(400, "GPU memory settings require a dedicated memory operation.")
+        elif action == "prepare-gpu":
             if plan.get("state") not in {"available", "ready"} or payload.get("planId") != plan.get("id"):
                 raise RequestError(409, "The preparation plan changed or is blocked; review the current plan.")
             if plan.get("experimental") and payload.get("allowExperimental") is not True:
@@ -6534,6 +6585,8 @@ data:
         spec = {key: payload[key] for key in ("action", "nodeName", "nodeUid", "bootId", "requestId", "acknowledgeDisruption")}
         spec.update(planId=payload.get("planId", ""), allowExperimental=payload.get("allowExperimental", False), experimentMode=payload.get("experimentMode", False),
                     actorHash=hashlib.sha256(str(principal.get("subject", "")).encode()).hexdigest())
+        if memory_settings is not None:
+            spec["gpuMemory"] = memory_settings
         name = "host-" + hashlib.sha256(json.dumps(host["nodeUid"], sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:24]
         path = host_operations_path() + "/" + name
         try:

@@ -722,6 +722,14 @@ administrator-confirmed reboot/shutdown. Check the host worker's journal and
 `HostOperation` phase separately from GPU operator and model readiness. Request
 acceptance is not confirmation of a completed power action.
 
+**System → Hardware → Shared GPU memory** configures supported Strix Halo
+firmware reservations and dynamic TTM limits through the same host worker.
+Inspect current versus requested values and retain console access before
+confirming the possible two-reboot workflow. Unsupported/mixed systems and
+conflicting local overrides stay blocked. An interrupted memory operation must
+be diagnosed before resubmission; never delete its state to force a retry.
+See the [memory safety and recovery contract](host-management.md#fixed-and-dynamic-gpu-memory).
+
 KubeAI is installed only after a local model requests it. NFD is always present,
 but a healthy CPU/external-only appliance has no NVIDIA, AMD, or Intel
 `ModuleActivation` and no vendor operator workloads.

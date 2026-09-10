@@ -155,12 +155,20 @@ network, model, and credential contracts.
 ## Runtime CRs
 
 `HostOperation` is a separate namespaced runtime request for node-local
-`prepare-gpu`, `reboot` or `poweroff`. Its spec is immutable and bound to a Node
+`prepare-gpu`, `configure-gpu-memory`, `reboot` or `poweroff`. Its spec is immutable and bound to a Node
 UID, boot ID, unique request ID and explicit disruption acknowledgement; hardware
 preparation additionally binds the exact local plan and experiment consent.
 The dashboard creates requests, while the local root worker owns status. These
 actions never mutate Git-owned `Appliance.spec`. See the [host-management API and
 recovery contract](host-management.md).
+
+`configure-gpu-memory` additionally requires the current memory capability's
+`planId`, explicit experimental consent and `gpuMemory` containing only the
+integer `carveoutIndex` and `dynamicLimitMi`. It cannot use mixed-system
+`experimentMode`; other actions cannot carry `gpuMemory`. The API and root
+worker enforce advertised firmware choices, current host/configuration identity,
+dynamic-limit steps and the remaining OS RAM allowance. The request contains
+desired settings only, not an arbitrary device path or executable payload.
 
 ```yaml
 apiVersion: appliance.magicstick.dev/v1alpha1

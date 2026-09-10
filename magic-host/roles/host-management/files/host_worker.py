@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Node-local, root-owned executor for three bounded HostOperation actions.
+"""Node-local, root-owned executor for bounded HostOperation actions.
 
 No HTTP listener, shell execution, dashboard-supplied packages or executable paths.
 Each timer tick is serialized with ordinary host convergence. Persist intent before
@@ -19,6 +19,7 @@ import sys
 import time
 
 from host_plan import TERMINAL, build_plan, digest, requested_plan, validate_request
+import gpu_memory
 
 BASE = Path("/usr/local/lib/magicstick/host-management")
 STATE = Path("/var/lib/magicstick/host-management")
@@ -105,8 +106,9 @@ def local_node_name():
 
 
 class Worker:
-    def __init__(self, node, report, plan, state_dir=STATE):
+    def __init__(self, node, report, plan, state_dir=STATE, memory=None):
         self.node, self.report, self.plan, self.root = node, report, plan, state_dir
+        self.memory = memory or {"supported": False, "message": "GPU memory evidence is unavailable."}
         self.path = state_dir / "state.json"
         self.state = json.loads(self.path.read_text()) if self.path.exists() else {"completed": [], "current": None}
 
@@ -136,6 +138,114 @@ class Worker:
 
     def activation(self):
         return kube(["get", "moduleactivations.appliance.magicstick.dev", "amd-gpu", "-n", NAMESPACE, "--ignore-not-found", "-o", "json"]) or {}
+
+    def memory_reboot(self, operation):
+        current = self.state["current"]
+        if current.get("rebootCount", 0) >= 2:
+            raise RuntimeError("The approved memory workflow permits at most two restarts.")
+        current["stageBootId"] = self.report["bootId"]
+        current["rebootCount"] = current.get("rebootCount", 0) + 1
+        self.schedule_power(operation, "reboot")
+
+    def apply_dynamic_memory(self, operation):
+        current = self.state["current"]
+        desired = current["memoryDesired"]
+        # Only actual Linux-visible memory authorizes the TTM write. A projected
+        # post-UMA value was sufficient for preview, never for execution.
+        actual = self.report.get("systemMemory", {}).get("totalBytes")
+        if type(actual) is not int or actual < (desired["dynamicLimitMi"] + desired["systemReserveMi"]) * gpu_memory.MIB:
+            raise RuntimeError("The observed Linux RAM after firmware configuration cannot safely accommodate the approved dynamic limit.")
+        config = gpu_memory.configuration()
+        if config["conflicts"] or config["id"] != current["memoryConfigurationId"]:
+            raise RuntimeError("Local GPU memory boot configuration changed during maintenance.")
+        if self.report.get("systemMemory", {}).get("ttmLimitBytes") == desired["dynamicLimitMi"] * gpu_memory.MIB:
+            self.update(operation, "Succeeded", "Firmware reservation and dynamic GPU limit are active. No GPU modules were enabled and inference-engine validation remains a separate check.")
+            return
+        current["memoryStage"] = "ttm"
+        self.update(operation, "Preparing", "Applying the approved dynamic shared-RAM limit through Ansible. The running kernel and packages remain unchanged.")
+        extra = self.root / "approved-memory-vars.json"
+        atomic_json(extra, {"gpu_compatibility_prepare_host": True, "gpu_compatibility_profile": "strix-halo",
+                            "gpu_compatibility_package_versions": {}, "gpu_compatibility_update_cache": False,
+                            "gpu_compatibility_ttm_limit_mib": desired["dynamicLimitMi"],
+                            "gpu_compatibility_system_reserve_mib": desired["systemReserveMi"],
+                            "gpu_compatibility_initramfs_kernel": current["memoryKernel"]})
+        run(["/usr/bin/ansible-playbook", "-i", "localhost,", "--connection=local", str(BASE / "prepare.yml"), "--extra-vars", "@" + str(extra)], timeout=2400)
+        config = gpu_memory.configuration()
+        if config["conflicts"] or config["managedPages"] != desired["dynamicLimitMi"] * 256:
+            raise RuntimeError("Ansible did not persist the exact approved memory limit.")
+        current["memoryConfigurationId"] = config["id"]
+        self.memory_reboot(operation)
+
+    def begin_memory(self, operation):
+        current = self.state["current"]
+        fresh = gpu_memory.collect(self.report, display_gpus())
+        if not fresh.get("supported") or fresh.get("id") != self.memory.get("id"):
+            raise RuntimeError("GPU memory firmware or boot configuration changed after the reviewed plan.")
+        desired = gpu_memory.validate_selection(self.memory, operation["spec"]["gpuMemory"])
+        current.update(memoryDesired=desired, memoryKernel=self.report["kernel"]["release"],
+                       memoryFingerprint=self.report.get("hardwareFingerprint"), memoryOs=self.report.get("os"),
+                       memoryOptions=self.memory["options"], memoryConfigurationId=gpu_memory.configuration()["id"],
+                       requestDigest=digest(operation["spec"]), rebootCount=0)
+        if desired["carveoutIndex"] != self.memory["currentCarveoutIndex"]:
+            current["memoryStage"] = "uma"
+            self.update(operation, "Preparing", "Applying only the approved firmware reservation. After its restart, actual Linux RAM will be checked before changing the dynamic limit.")
+            gpu_memory.write_carveout(desired["pciAddress"], desired["carveoutIndex"],
+                                      expected_index=self.memory["currentCarveoutIndex"], expected_options=self.memory["options"])
+            self.memory_reboot(operation)
+        else:
+            self.apply_dynamic_memory(operation)
+
+    def reconcile_memory(self, operation):
+        current = self.state["current"]
+        phase = current["phase"]
+        if current.get("requestDigest") != digest(operation.get("spec") or {}):
+            self.update(operation, "Interrupted", "The memory request changed after approval. No further host action will run.")
+            return
+        if phase in {"Accepted", "Preparing"}:
+            self.update(operation, "Interrupted", "Memory configuration was interrupted. Inspect firmware and boot settings locally before issuing a new request; no write or restart was repeated.")
+            return
+        if phase == "RebootScheduled":
+            if current.get("stageBootId") == self.report["bootId"]:
+                if time.time() - current.get("scheduledAt", 0) > 600:
+                    self.update(operation, "Failed", "No new boot was observed after memory maintenance. The restart will not be repeated automatically.")
+                return
+            current["verifiedBootId"] = self.report["bootId"]
+            self.update(operation, "Verifying", "Restart detected. Checking the actual firmware reservation, shared-memory limit and unchanged kernel.")
+            return
+        if phase != "Verifying":
+            self.update(operation, "Interrupted", "Unknown memory maintenance phase; no further action will run.")
+            return
+        if current.get("verifiedBootId") != self.report["bootId"]:
+            self.update(operation, "Interrupted", "An unexpected additional restart interrupted memory verification.")
+            return
+        try:
+            desired = current["memoryDesired"]
+            if self.report["kernel"]["release"] != current["memoryKernel"]:
+                raise RuntimeError("The running kernel changed during memory maintenance; no further memory writes will run.")
+            if (self.report.get("hardwareFingerprint") != current["memoryFingerprint"] or self.report.get("os") != current["memoryOs"]):
+                raise RuntimeError("Hardware, driver, firmware or OS identity changed during memory maintenance.")
+            if (not self.memory.get("supported") or self.memory.get("pciAddress") != desired["pciAddress"]
+                    or self.memory.get("options") != current["memoryOptions"]
+                    or self.memory.get("currentCarveoutIndex") != desired["carveoutIndex"]
+                    or self.memory.get("currentCarveoutMi") != desired["carveoutMi"]):
+                raise RuntimeError("The expected firmware reservation or hardware evidence was not confirmed after reboot.")
+            config = gpu_memory.configuration()
+            if config["conflicts"] or config["id"] != current["memoryConfigurationId"]:
+                raise RuntimeError("Memory boot configuration changed during the restart.")
+            if current["memoryStage"] == "uma":
+                self.apply_dynamic_memory(operation)
+            elif current["memoryStage"] == "ttm":
+                if self.report.get("systemMemory", {}).get("ttmLimitBytes") != desired["dynamicLimitMi"] * gpu_memory.MIB:
+                    raise RuntimeError("The exact approved dynamic GPU memory limit did not become active.")
+                if self.report["systemMemory"]["totalBytes"] < (desired["dynamicLimitMi"] + desired["systemReserveMi"]) * gpu_memory.MIB:
+                    raise RuntimeError("The observed Linux RAM no longer leaves the approved safety reserve.")
+                self.update(operation, "Succeeded", "Firmware reservation and dynamic GPU memory limit were verified after restart. No kernel update or module activation was performed; engine validation is separate.")
+            else:
+                raise RuntimeError("Unknown memory maintenance stage.")
+        except (RuntimeError, OSError, ValueError, subprocess.TimeoutExpired) as error:
+            print(json.dumps({"event": "memory-operation-error", "requestId": current["requestId"],
+                              "type": type(error).__name__, "message": str(error) if isinstance(error, RuntimeError) else "Local configuration could not be read safely."}), file=sys.stderr)
+            self.update(operation, "Failed", "Memory configuration could not be verified safely. No automatic retry or rollback will occur; inspect the local host-management journal and firmware settings.")
 
     @staticmethod
     def activation_identity(activation):
@@ -181,7 +291,7 @@ class Worker:
                 error = "Execution state was lost or replaced. Confirm a new operation after reviewing the host."
             else:
                 try:
-                    validate_request(operation, self.node, self.report, self.plan, time.time())
+                    validate_request(operation, self.node, self.report, self.plan, time.time(), self.memory)
                     error = ""
                 except ValueError as invalid:
                     error = str(invalid)
@@ -199,6 +309,9 @@ class Worker:
                     raise RuntimeError("A shutdown is already scheduled; host preparation was not started.")
                 if spec["action"] in {"reboot", "poweroff"}:
                     self.schedule_power(operation, spec["action"])
+                    return
+                if spec["action"] == "configure-gpu-memory":
+                    self.begin_memory(operation)
                     return
                 self.update(operation, "Preparing", "Applying the administrator-approved host profile through Ansible.")
                 self.state["current"]["activationBefore"] = self.activation_identity(self.activation())
@@ -229,6 +342,9 @@ class Worker:
             return
         if current["nodeUid"] != self.node["metadata"]["uid"]:
             self.update(operation, "Interrupted", "Kubernetes host identity changed. No further action will run.")
+            return
+        if current["action"] == "configure-gpu-memory":
+            self.reconcile_memory(operation)
             return
         new_boot = current["initialBootId"] != self.report["bootId"]
         if phase in {"Accepted", "Preparing"}:
@@ -286,7 +402,10 @@ class Worker:
         report = {"schemaVersion": 1, "observedAt": stamp(), "nodeUid": self.node["metadata"]["uid"],
                   "bootId": self.report["bootId"], "kernel": self.report["kernel"]["release"],
                   "plan": self.plan, "actions": ["reboot", "poweroff", "prepare-gpu"],
+                  "gpuMemory": self.memory,
                   "operation": {key: current[key] for key in ("requestId", "action", "phase", "message", "updatedAt") if key in current}}
+        if self.memory.get("supported"):
+            report["actions"].append("configure-gpu-memory")
         kube(["patch", "node", self.node["metadata"]["name"], "--type=merge", "--patch-file=/dev/stdin", "-o", "json"],
              {"metadata": {"uid": self.node["metadata"]["uid"], "annotations": {ANNOTATION: json.dumps(report, sort_keys=True)}}})
 
@@ -310,8 +429,9 @@ def main():
         if info.get("bootID") != report.get("bootId") or info.get("kernelVersion") != report.get("kernel", {}).get("release"):
             return 0  # Kubelet has not yet published this boot; no trusted identity.
         catalog = json.loads((BASE / "profiles.json").read_text())
-        plan = build_plan(report, display_gpus(), installed_packages(catalog), catalog, platform.machine())
-        worker = Worker(node, report, plan)
+        inventory = display_gpus()
+        plan = build_plan(report, inventory, installed_packages(catalog), catalog, platform.machine())
+        worker = Worker(node, report, plan, memory=gpu_memory.collect(report, inventory))
         # Publishing a plan must not depend on the CRD already having reconciled.
         worker.publish()
         operation = kube(["get", RESOURCE, operation_name(node["metadata"]["uid"]), "-n", NAMESPACE, "--ignore-not-found", "-o", "json"])

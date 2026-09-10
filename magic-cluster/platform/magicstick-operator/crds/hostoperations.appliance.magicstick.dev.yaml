@@ -34,15 +34,17 @@ spec:
               x-kubernetes-validations:
                 - rule: self == oldSelf
                   message: Host operation requests are immutable.
-                - rule: self.action != 'prepare-gpu' || (has(self.planId) && size(self.planId) == 64)
-                  message: GPU preparation requires a reviewed plan.
+                - rule: "!(self.action in ['prepare-gpu', 'configure-gpu-memory']) || (has(self.planId) && size(self.planId) == 64)"
+                  message: GPU preparation and memory configuration require reviewed host evidence.
                 - rule: '!self.experimentMode || self.allowExperimental'
                   message: Experiment mode requires explicit experimental acknowledgement.
-                - rule: self.action == 'prepare-gpu' || ((!has(self.planId) || self.planId == '') && !self.allowExperimental && !self.experimentMode)
+                - rule: "self.action in ['prepare-gpu', 'configure-gpu-memory'] || ((!has(self.planId) || self.planId == '') && !self.allowExperimental && !self.experimentMode)"
                   message: Power operations cannot supply preparation settings.
+                - rule: "self.action == 'configure-gpu-memory' ? (has(self.gpuMemory) && self.allowExperimental && !self.experimentMode) : !has(self.gpuMemory)"
+                  message: Only explicitly acknowledged GPU memory operations can carry memory settings.
               required: [action, nodeName, nodeUid, bootId, requestId, acknowledgeDisruption, allowExperimental, experimentMode, actorHash]
               properties:
-                action: {type: string, enum: [prepare-gpu, reboot, poweroff]}
+                action: {type: string, enum: [prepare-gpu, configure-gpu-memory, reboot, poweroff]}
                 nodeName: {type: string, minLength: 1, maxLength: 253, pattern: '^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$'}
                 nodeUid: {type: string, minLength: 1, maxLength: 64}
                 bootId: {type: string, minLength: 1, maxLength: 64}
@@ -52,6 +54,12 @@ spec:
                 experimentMode: {type: boolean}
                 acknowledgeDisruption: {type: boolean, enum: [true]}
                 actorHash: {type: string, pattern: '^[a-f0-9]{64}$', maxLength: 64}
+                gpuMemory:
+                  type: object
+                  required: [carveoutIndex, dynamicLimitMi]
+                  properties:
+                    carveoutIndex: {type: integer, minimum: 0, maximum: 255}
+                    dynamicLimitMi: {type: integer, minimum: 1, maximum: 1048576}
             status:
               type: object
               properties:

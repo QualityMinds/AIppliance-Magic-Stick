@@ -507,7 +507,25 @@ export interface KubernetesObjectSummary {
   conditions?: Array<{type?: string; status?: string; reason?: string; message?: string}>;
 }
 
-export type HostAction = 'prepare-gpu' | 'reboot' | 'poweroff';
+export type HostAction = 'prepare-gpu' | 'configure-gpu-memory' | 'reboot' | 'poweroff';
+export interface HostGpuMemorySettings {
+  carveoutIndex: number;
+  dynamicLimitMi: number;
+}
+export interface HostGpuMemory {
+  id: string;
+  supported: boolean;
+  message: string;
+  pciAddress?: string;
+  systemMemoryMi?: number;
+  currentCarveoutIndex?: number;
+  currentCarveoutMi?: number;
+  currentDynamicLimitMi?: number;
+  options?: Array<{index: number; label: string; sizeMi: number}>;
+  systemReserveMi?: number;
+  stepMi?: number;
+  minDynamicLimitMi?: number;
+}
 export interface HostPreparationPlan {
   id: string;
   state: 'not-required' | 'blocked' | 'ready' | 'available';
@@ -540,6 +558,7 @@ export interface ManagedHost {
   observedAt?: string;
   message: string;
   plan?: HostPreparationPlan | null;
+  gpuMemory?: HostGpuMemory | null;
   operation?: HostOperationStatus | null;
 }
 export interface HostOperationRequest {
@@ -553,6 +572,7 @@ export interface HostOperationRequest {
   allowExperimental: boolean;
   experimentMode: boolean;
   planId?: string;
+  gpuMemory?: HostGpuMemorySettings;
 }
 
 export interface SystemStatusPayload {

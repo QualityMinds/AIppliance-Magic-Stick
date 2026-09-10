@@ -64,6 +64,51 @@ is distinct from GPU availability. Successful AMD smoke tests do not certify
 other vendors or the entire mixed system. Tests remain local evidence, never
 automatic additions to the public compatibility catalog.
 
+## Fixed and dynamic GPU memory
+
+**System → Hardware → Shared GPU memory** provides two administrator controls
+on a single supported Strix Halo GPU with compatible kernel/firmware evidence:
+
+- **Fixed GPU reservation (firmware):** a discrete slider containing only the
+  options reported by that computer's `uma/carveout_options`. This RAM is carved
+  out at boot and is unavailable to Linux.
+- **Dynamic GPU memory limit:** a slider in 1 GiB steps for the TTM ceiling on
+  GPU use of shared Linux RAM. It is not a reservation, an additional memory
+  pool, or guaranteed free memory. CPU workloads compete for that RAM.
+
+The panel separates current values from the unsubmitted draft. Changing a
+slider sends no host operation. A non-step-aligned kernel default can have a
+rounded draft, but that alone cannot enable submission. The preview estimates
+Linux RAM as current `MemTotal` plus the old fixed reservation minus the new
+fixed reservation. The dynamic ceiling must leave at least **16 GiB** outside
+GPU dynamic allocations; this allowance is not a Kubernetes memory reservation.
+Actual post-boot `MemTotal`, not this projection, governs the second stage.
+
+Select **Review memory configuration**, accept the experimental/disruption
+warning and enter the exact computer name to apply. A fixed-reservation change
+may require **up to two restarts**: first apply and verify the firmware choice,
+then apply the dynamic limit through the existing Ansible role and verify it
+after another boot. A dynamic-only change requires one restart. All workloads
+on that computer are interrupted; no migration or automatic firmware rollback
+is promised. Keep physical console/recovery access available. Closing the
+browser does not cancel an accepted operation.
+
+The worker independently checks the reviewed hardware/configuration identity,
+actual firmware options, active memory values and safety allowance. Missing
+firmware controls, mixed/unknown GPU layouts, incomplete/stale evidence and
+competing boot/modprobe overrides disable this flow. Hardware experiment mode
+does **not** override those memory guards. A memory operation installs no kernel
+or packages, changes no inference profile and starts no GPU validation workload.
+Its success confirms the requested memory settings, not inference compatibility,
+performance, cgroup accounting or successful model execution.
+
+The next-boot dynamic setting is owned in
+`/etc/modprobe.d/90-magicstick-ttm.conf`; the role refreshes initramfs. Neither a
+live TTM-only write nor the deprecated `amdgpu.gttsize` override is used. Firmware
+option indices are resolved locally; browser requests contain no device path or
+shell command. [Linux UMA controls](https://www.kernel.org/doc/html/latest/gpu/amdgpu/driver-misc.html#uma-carveout)
+and [AMD shared-memory guidance](https://rocm.docs.amd.com/en/docs-7.2.0/how-to/system-optimization/strixhalo.html).
+
 ## Restart and shut down
 
 Administrators see **Computer power** inside **System**, with **Restart computer**
@@ -122,6 +167,13 @@ Typical preparation: `Preparing` → `RebootScheduled` → `Verifying` → `Vali
 `Succeeded` means the specified host/AMD smoke checks passed, not production
 model acceptance or KubeAI runtime-image adoption. Those remain visible under
 [GPU compatibility](gpu-compatibility.md).
+
+Memory configuration uses `Preparing` → `RebootScheduled` → `Verifying`, with a
+second bounded cycle when both firmware reservation and TTM need changing.
+Root-owned state records the stage and reboot count before side effects. An
+interrupted/uncertain write is never automatically replayed. Changed hardware,
+unexpected actual memory or a conflicting local setting stops the operation;
+inspect the journal before issuing a new confirmed request.
 
 `Rejected`, `Interrupted`, `Failed` and `PreparedUnverified` are terminal. An
 uncertain package execution, changed boot/profile, wrong kernel after reboot,

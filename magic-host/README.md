@@ -29,6 +29,9 @@ confirmed request. Hardware preparation reuses `gpu-prepare.yml`; kernel changes
 are not embedded in the installation path. See
 [host management](../docs/host-management.md) for exact profiles, mixed-GPU
 experiment mode, state across reboot, power controls and diagnostic commands.
+The same worker supports explicitly confirmed Strix Halo firmware-reservation
+and dynamic-memory sliders. It verifies real post-boot RAM before applying the
+TTM setting through Ansible and never changes memory just from inspection.
 
 End users with an existing dedicated Ubuntu 24.04 system should start with the
 repository-level [`install-from-linux.sh`](../install-from-linux.sh). It checks

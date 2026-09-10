@@ -132,6 +132,106 @@ class HostManagementApiTests(unittest.TestCase):
         self.assertFalse(self.requests)
 
 
+class GpuMemoryApiTests(HostManagementApiTests):
+    def setUp(self):
+        super().setUp()
+        self.capability = {"id": "d" * 64, "supported": True, "message": "Shared memory configuration available.",
+                           "pciAddress": "0000:01:00.0", "systemMemoryMi": 65536,
+                           "currentCarveoutIndex": 1, "currentCarveoutMi": 32768, "currentDynamicLimitMi": 32768,
+                           "options": [{"index": 0, "label": "Minimum", "sizeMi": 512},
+                                       {"index": 1, "label": "Medium", "sizeMi": 32768},
+                                       {"index": 2, "label": "High", "sizeMi": 65536}],
+                           "systemReserveMi": 16384, "stepMi": 1024, "minDynamicLimitMi": 1024}
+        self.host["gpuMemory"] = self.capability
+
+    def memory_payload(self, **changes):
+        return self.payload("configure-gpu-memory", planId=self.capability["id"], allowExperimental=True,
+                            gpuMemory={"carveoutIndex": 0, "dynamicLimitMi": 65536}) | changes
+
+    def configure(self, **changes):
+        return self.api["create_host_operation"](self.admin, self.memory_payload(**changes))
+
+    def test_memory_operation_contains_only_bounded_settings(self):
+        self.configure()
+        spec = self.requests[-1][2]["spec"]
+        self.assertEqual(spec["action"], "configure-gpu-memory")
+        self.assertEqual(spec["gpuMemory"], {"carveoutIndex": 0, "dynamicLimitMi": 65536})
+        self.assertEqual(spec["planId"], self.capability["id"])
+        self.assertNotIn("pciAddress", spec)
+        self.assertNotIn("systemReserveMi", spec)
+        self.assertNotIn("packages", spec)
+
+    def test_each_non_admin_role_cannot_configure_memory(self):
+        for role in ("magicstick-viewer", "magicstick-user", "magicstick-operator"):
+            with self.subTest(role=role), self.assertRaises(self.api["AuthError"]):
+                self.api["create_host_operation"]({"roles": [role]}, self.memory_payload())
+        self.assertEqual(self.requests, [])
+
+    def test_stale_identity_consent_and_wrong_operation_mode_rejected(self):
+        for changes in ({"planId": "e" * 64}, {"bootId": "boot-old"}, {"nodeUid": "node-old"},
+                        {"confirmation": "wrong"}, {"allowExperimental": False}, {"experimentMode": True},
+                        {"acknowledgeDisruption": False}):
+            with self.subTest(changes=changes), self.assertRaises(self.api["RequestError"]):
+                self.configure(**changes)
+        self.assertEqual(self.requests, [])
+
+    def test_rejects_unsupported_and_incomplete_capabilities(self):
+        baseline = copy.deepcopy(self.capability)
+        for key, value in (("supported", False), ("id", ""), ("systemMemoryMi", None), ("currentCarveoutIndex", True),
+                           ("currentCarveoutMi", 123), ("systemReserveMi", 0), ("stepMi", 0), ("minDynamicLimitMi", -1),
+                           ("options", []), ("options", [{"index": 0, "sizeMi": 512}, {"index": 0, "sizeMi": 1024}])):
+            self.host["gpuMemory"] = {**baseline, key: value}
+            with self.subTest(key=key, value=value), self.assertRaises(self.api["RequestError"]):
+                self.configure()
+        self.host["gpuMemory"] = None
+        with self.assertRaises(self.api["RequestError"]):
+            self.configure()
+        self.assertEqual(self.requests, [])
+
+    def test_rejects_unknown_fields_floats_booleans_and_invalid_options(self):
+        cases = [None, {}, [], {"carveoutIndex": 0}, {"carveoutIndex": 0, "dynamicLimitMi": 65536, "path": "/etc/example"}]
+        for index in (-1, 3, 256, True, 0.0, "0"):
+            cases.append({"carveoutIndex": index, "dynamicLimitMi": 65536})
+        for dynamic in (-1, 0, True, 1024.0, "1024", 1025, 1048577):
+            cases.append({"carveoutIndex": 0, "dynamicLimitMi": dynamic})
+        for value in cases:
+            with self.subTest(value=value), self.assertRaises(self.api["RequestError"]):
+                self.configure(gpuMemory=value)
+        self.assertEqual(self.requests, [])
+
+    def test_fixed_and_dynamic_limits_share_one_capacity(self):
+        with self.assertRaises(self.api["RequestError"]):
+            self.configure(gpuMemory={"carveoutIndex": 2, "dynamicLimitMi": 32768})
+        self.configure(gpuMemory={"carveoutIndex": 2, "dynamicLimitMi": 16384})
+        self.assertEqual(self.requests[-1][2]["spec"]["gpuMemory"]["dynamicLimitMi"], 16384)
+
+    def test_projection_can_reclaim_firmware_memory_but_preserves_reserve(self):
+        self.configure(gpuMemory={"carveoutIndex": 0, "dynamicLimitMi": 80896})
+        self.requests.clear()
+        with self.assertRaises(self.api["RequestError"]):
+            self.configure(gpuMemory={"carveoutIndex": 0, "dynamicLimitMi": 81920})
+        self.assertEqual(self.requests, [])
+
+    def test_rejects_no_op_and_memory_payloads_on_other_actions(self):
+        with self.assertRaises(self.api["RequestError"]):
+            self.configure(gpuMemory={"carveoutIndex": 1, "dynamicLimitMi": 32768})
+        for action in ("prepare-gpu", "poweroff", "reboot"):
+            with self.subTest(action=action), self.assertRaises(self.api["RequestError"]):
+                self.create(action=action, gpuMemory={"carveoutIndex": 0, "dynamicLimitMi": 1024})
+        self.assertEqual(self.requests, [])
+
+    def test_memory_request_is_idempotent_and_cannot_change_values(self):
+        self.configure()
+        self.existing = self.requests[-1][2]
+        self.requests.clear()
+        self.configure()
+        self.assertEqual([item[0] for item in self.requests], ["GET"])
+        self.requests.clear()
+        with self.assertRaises(self.api["RequestError"]):
+            self.configure(gpuMemory={"carveoutIndex": 0, "dynamicLimitMi": 64512})
+        self.assertEqual([item[0] for item in self.requests], ["GET"])
+
+
 class HostStatusTests(unittest.TestCase):
     def setUp(self):
         self.api = load_server()
@@ -158,6 +258,12 @@ class HostStatusTests(unittest.TestCase):
 
     def test_missing_worker_is_not_an_actionable_host(self):
         self.assertFalse(self.api["host_management_status"]()["nodes"][0]["available"])
+
+    def test_gpu_memory_evidence_is_returned_only_for_fresh_matching_host(self):
+        self.report["gpuMemory"] = {"id": "d" * 64, "supported": True}
+        self.assertEqual(self.status()["gpuMemory"], self.report["gpuMemory"])
+        self.report["bootId"] = "old-boot"
+        self.assertIsNone(self.status()["gpuMemory"])
 
 
 class HostRbacTests(unittest.TestCase):

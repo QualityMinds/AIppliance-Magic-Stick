@@ -5,7 +5,5 @@
 
 - name: Refresh initramfs after explicit GPU memory configuration
   ansible.builtin.command:
-    argv:
-      - /usr/sbin/update-initramfs
-      - -u
+    argv: "{{ ['/usr/sbin/update-initramfs', '-u'] + (['-k', gpu_compatibility_initramfs_kernel] if gpu_compatibility_initramfs_kernel is not none else []) }}"
   changed_when: true

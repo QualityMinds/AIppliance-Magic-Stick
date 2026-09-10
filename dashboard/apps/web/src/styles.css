@@ -115,6 +115,11 @@ footer { padding: 1.1rem; color: #8798b2; text-align: center; font-size: .8rem; 
 .estimate-metrics span { display: block; color: var(--muted); font-size: .76rem; }
 .estimate input[type="range"] { width: 100%; accent-color: var(--cyan); }
 .slider-labels { display: flex; justify-content: space-between; color: var(--muted); font-size: .78rem; }
+.host-gpu-memory { margin-top: .5rem; padding-top: 1rem; border-top: 1px solid var(--line); min-width: 0; }
+.host-gpu-memory .facts { margin: 0; }
+.host-gpu-memory .slider-labels { flex-wrap: wrap; gap: .4rem 1rem; }
+.host-gpu-memory .host-memory-draft { margin: 0; }
+.host-gpu-memory .host-memory-draft strong { color: var(--cyan); }
 .button-grid { display: grid; gap: .5rem; margin: .75rem 0; }
 .button-grid.three { grid-template-columns: repeat(3, 1fr); }
 .estimate details { margin-top: .75rem; }

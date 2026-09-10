@@ -21,6 +21,7 @@
   loop:
     - host_worker.py
     - host_plan.py
+    - gpu_memory.py
     - profiles.json
     - ansible.cfg
 

@@ -658,6 +658,15 @@ acknowledged tests on unreviewed mixed-GPU combinations. Administrators also see
 shutdown. Viewers/operators cannot execute these actions. Availability, progress,
 power-off limitations and recovery are documented in [host management](host-management.md).
 
+On an eligible single-GPU Strix Halo host, **Shared GPU memory** adds sliders
+for the fixed firmware reservation and dynamic shared-RAM ceiling. Current
+values and the local draft remain separate; moving a slider never applies a
+change. Administrator acknowledgement and exact-host confirmation are required,
+with up to two controlled restarts when the firmware reservation changes.
+Stale evidence, conflicting boot settings and unsupported layouts disable the
+controls. The dynamic ceiling is not a reservation or an extra RAM pool. See
+the [memory control contract](host-management.md#fixed-and-dynamic-gpu-memory).
+
 **System → Hardware** (`#/system/hardware`) separates upstream GPU support,
 additional profile selection, host readiness, Kubernetes GPU registration and
 per-engine validation. All authenticated dashboard roles can inspect this

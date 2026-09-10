@@ -69,20 +69,20 @@ def build_plan(report, display_gpus, installed, catalog, architecture):
 
 
 TERMINAL = {"Succeeded", "PreparedUnverified", "Failed", "Rejected", "Interrupted"}
-SPEC_FIELDS = {"action", "nodeName", "nodeUid", "bootId", "requestId", "planId", "allowExperimental", "experimentMode", "acknowledgeDisruption", "actorHash"}
+SPEC_FIELDS = {"action", "nodeName", "nodeUid", "bootId", "requestId", "planId", "allowExperimental", "experimentMode", "acknowledgeDisruption", "actorHash", "gpuMemory"}
 
 
 def requested_plan(plan, spec):
     return (plan.get("experiment") or {}) if spec.get("experimentMode") is True else plan
 
 
-def validate_request(operation, node, report, plan, now):
+def validate_request(operation, node, report, plan, now, gpu_memory=None):
     """Recheck all API promises at the privilege boundary, including identity/time."""
     from datetime import datetime
     import re
     spec = operation.get("spec") or {}
     meta = operation.get("metadata") or {}
-    if set(spec) - SPEC_FIELDS or spec.get("action") not in {"prepare-gpu", "reboot", "poweroff"}:
+    if set(spec) - SPEC_FIELDS or spec.get("action") not in {"prepare-gpu", "reboot", "poweroff", "configure-gpu-memory"}:
         raise ValueError("Unknown host operation or unsupported fields.")
     if meta.get("deletionTimestamp") or not meta.get("uid"):
         raise ValueError("Host operation is not a live Kubernetes request.")
@@ -102,7 +102,16 @@ def validate_request(operation, node, report, plan, now):
         raise ValueError("Explicit disruption acknowledgement is required.")
     if type(spec.get("experimentMode", False)) is not bool or type(spec.get("allowExperimental", False)) is not bool:
         raise ValueError("Experiment mode and experimental consent must be explicit booleans.")
-    if spec["action"] == "prepare-gpu":
+    if spec["action"] != "configure-gpu-memory" and "gpuMemory" in spec:
+        raise ValueError("GPU memory settings are only accepted for the dedicated memory action.")
+    if spec["action"] == "configure-gpu-memory":
+        from gpu_memory import validate_selection
+        if spec.get("allowExperimental") is not True or spec.get("experimentMode") is True:
+            raise ValueError("Memory configuration requires explicit experimental consent and does not permit unreviewed mixed hardware.")
+        if not gpu_memory or spec.get("planId") != gpu_memory.get("id"):
+            raise ValueError("GPU memory evidence changed. Refresh and review the current settings.")
+        validate_selection(gpu_memory, spec.get("gpuMemory"))
+    elif spec["action"] == "prepare-gpu":
         plan = requested_plan(plan, spec)
         if plan.get("state") not in {"available", "ready"} or spec.get("planId") != plan.get("id"):
             raise ValueError("Hardware plan changed or is blocked. Review the current plan.")

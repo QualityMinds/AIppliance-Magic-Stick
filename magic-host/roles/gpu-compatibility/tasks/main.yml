@@ -96,6 +96,7 @@
     - name: Validate an explicit shared-memory mapping limit
       ansible.builtin.assert:
         that:
+          - gpu_compatibility_initramfs_kernel is none or gpu_compatibility_initramfs_kernel == ansible_facts['kernel']
           - gpu_compatibility_ttm_limit_mib | string is match('^[0-9]+$')
           - gpu_compatibility_ttm_limit_mib | int == 0 or (gpu_compatibility_preflight.stdout | from_json).systemMemory.totalBytes is not none
           - gpu_compatibility_ttm_limit_mib | int == 0 or (gpu_compatibility_ttm_limit_mib | int + gpu_compatibility_system_reserve_mib | int) * 1048576 <= (gpu_compatibility_preflight.stdout | from_json).systemMemory.totalBytes | int

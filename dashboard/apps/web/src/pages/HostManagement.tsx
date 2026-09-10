@@ -4,6 +4,7 @@ import {canAdminister} from '@magicstick/dashboard-core';
 import type {HostAction, HostPreparationPlan, ManagedHost, Session} from '@magicstick/dashboard-contracts';
 import {api} from '../api';
 import {Button, ConfirmDialog, Empty, ErrorNotice, Field, Loading, Panel, StatusBadge} from '../components';
+import {HostGpuMemoryPanel} from './HostGpuMemory';
 
 const terminal = new Set(['Succeeded', 'PreparedUnverified', 'Failed', 'Rejected', 'Interrupted']);
 const active = (host: ManagedHost) => Boolean(host.operation && !terminal.has(host.operation.phase));
@@ -55,7 +56,7 @@ export const HostPowerPanel = () => {
   </Panel>;
 };
 
-const Preparation = ({host, session}: {host: ManagedHost; session: Session}) => {
+const Preparation = ({host, session, stale}: {host: ManagedHost; session: Session; stale: boolean}) => {
   const [experiment, setExperiment] = useState(false);
   const [acknowledged, setAcknowledged] = useState(false);
   const action = useHostAction();
@@ -70,6 +71,7 @@ const Preparation = ({host, session}: {host: ManagedHost; session: Session}) => 
       {experiment && <div className="notice notice-warn"><strong>Unreviewed hardware experiment</strong><p>{plan.message}</p>{plan.engineValidationAvailable === false && <p>Engine validation is unavailable for this multi-AMD layout. Host preparation alone will not make the GPUs available to models.</p>}</div>}
       {canAdminister(session) && actionable && <><label className="check-field"><input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} /> I accept the experimental profile{experiment ? ', the unreviewed GPU combination and local recovery risk' : ' and its limitations'}.</label><div className="form-actions"><Button disabled={!host.available || active(host) || !acknowledged || Boolean(action.pending)} onClick={() => action.start(host, 'prepare-gpu', plan)}>{experiment ? 'Review hardware experiment' : 'Review hardware preparation'}</Button></div></>}
     </>}
+    <HostGpuMemoryPanel host={host} session={session} stale={stale} />
     <Operation host={host} />
     {action.accepted && <p role="status">Preparation requested. Progress continues on the computer even if this page is closed.</p>}
     {action.dialog}
@@ -80,6 +82,6 @@ export const HostPreparationPanel = ({session}: {session: Session}) => {
   const query = useHosts();
   return <Panel title="Host preparation"><p className="muted">The same post-install workflow prepares new and existing computers. Periodic inspection never installs packages or reboots without approval. Power controls are in System.</p>
     <ErrorNotice error={query.error} />
-    {query.isPending ? <Loading /> : <div className="stack">{(query.data?.nodes ?? []).map((host) => <Preparation key={`${host.nodeUid}:${host.bootId}:${host.plan?.id}`} host={host} session={session} />)}</div>}
+    {query.isPending ? <Loading /> : <div className="stack">{(query.data?.nodes ?? []).map((host) => <Preparation key={`${host.nodeUid}:${host.bootId}:${host.plan?.id}`} host={host} session={session} stale={Boolean(query.error)} />)}</div>}
   </Panel>;
 };
