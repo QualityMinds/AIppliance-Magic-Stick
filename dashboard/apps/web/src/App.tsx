@@ -30,7 +30,7 @@ const initialRoute = (): DashboardRoute => {
   if (tab === 'settings' || tab === 'license' || tab === 'users') return {tab: 'system', systemSection: tab};
   if (tab === 'federated-sso') return {tab: 'system', systemSection: 'federated-sso'};
   if (tab === 'system') {
-    const systemSection = section && (['settings', 'license', 'users', 'federated-sso', 'hardware', 'status'] as string[]).includes(section) ? section as SystemSectionId : 'status';
+    const systemSection = section && (['settings', 'license', 'users', 'federated-sso', 'hardware', 'status', 'power'] as string[]).includes(section) ? section as SystemSectionId : 'status';
     return {tab: 'system', systemSection};
   }
   return {tab: tabs.some((item) => item.id === tab) ? tab as TabId : 'overview', systemSection: 'status'};
@@ -92,7 +92,6 @@ export const App = () => {
         <div>
           <p className="eyebrow">Magic Stick</p>
           <h1>AI Appliance Dashboard</h1>
-          <p className="subtitle">Manage models, services and access in one place.</p>
         </div>
         <div className="hero-side">
           <StatusBadge phase="Connected" />

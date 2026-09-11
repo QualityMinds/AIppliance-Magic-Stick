@@ -44,12 +44,15 @@ describe('host shared GPU memory', () => {
     }));
   });
 
-  it('shows actual memory pools and a discrete slider using only firmware choices', () => {
+  it('shows actual memory pools and a discrete slider using only firmware choices', async () => {
     mount();
     expect(screen.getByText('Current fixed GPU reservation').nextElementSibling).toHaveTextContent('64 GiB');
     expect(screen.getByText('Current dynamic GPU ceiling (TTM)').nextElementSibling).toHaveTextContent('32 GiB');
     expect(screen.getByText('Currently visible Linux RAM').nextElementSibling).toHaveTextContent('64 GiB');
+    expect(screen.queryByText(/not additional independent pools/)).not.toBeInTheDocument();
+    await userEvent.hover(screen.getByRole('button', {name: 'Explain Shared GPU memory on example-node'}));
     expect(screen.getByText(/not additional independent pools/)).toBeInTheDocument();
+    await userEvent.keyboard('{Escape}');
     expect(fixedSlider()).toHaveAttribute('max', '2');
     expect(fixedSlider()).toHaveAttribute('aria-valuetext', '64G: 64 GiB');
     expect(review()).toBeDisabled();
@@ -110,7 +113,7 @@ describe('host shared GPU memory', () => {
     mount();
     expect(screen.getByText('Current dynamic GPU ceiling (TTM)').nextElementSibling).toHaveTextContent('31.2 GiB');
     expect(dynamicSlider()).toHaveValue('31744');
-    expect(screen.getByText(/draft is rounded to 31 GiB/)).toBeInTheDocument();
+    expect(screen.getByText('Draft rounded to 31 GiB')).toBeInTheDocument();
     expect(review()).toBeDisabled(); expect(consent()).toBeDisabled(); expect(writes).toHaveLength(0);
   });
 
@@ -148,10 +151,14 @@ describe('host shared GPU memory', () => {
     expect(fixedSlider()).toBeDisabled(); expect(dynamicSlider()).toBeDisabled(); expect(review()).toBeDisabled(); expect(writes).toHaveLength(0);
   });
 
-  it.each(['Unsupported GPU firmware.', 'Mixed GPU configurations cannot change shared memory.'])('does not offer controls for unsupported hardware: %s', (message) => {
+  it.each(['Unsupported GPU firmware.', 'Mixed GPU configurations cannot change shared memory.'])('does not offer controls for unsupported hardware: %s', async (message) => {
     host.gpuMemory = {...host.gpuMemory!, supported: false, message}; mount();
+    expect(screen.getByText('Unavailable')).toBeInTheDocument();
+    expect(screen.queryByText(message)).not.toBeInTheDocument();
+    await userEvent.hover(screen.getByRole('button', {name: 'Explain Shared GPU memory on example-node'}));
     expect(screen.getByText(message)).toBeInTheDocument(); expect(screen.queryByRole('slider')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'Review memory configuration'})).not.toBeInTheDocument();
+    expect(writes).toHaveLength(0);
   });
 
   it('does not offer unsafe controls when required metadata is missing', () => {
@@ -164,7 +171,8 @@ describe('host shared GPU memory', () => {
     mount(host, {...session, roles: [role]});
     expect(screen.getByText('Current fixed GPU reservation')).toBeInTheDocument();
     expect(screen.queryByRole('slider')).not.toBeInTheDocument(); expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'Review memory configuration'})).not.toBeInTheDocument();
+    expect(writes).toHaveLength(0);
   });
 
   it('shows an API failure without repeating the operation automatically', async () => {

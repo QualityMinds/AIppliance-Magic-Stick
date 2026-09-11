@@ -58,6 +58,11 @@ footer { padding: 1.1rem; color: #8798b2; text-align: center; font-size: .8rem; 
 
 .stack { display: flex; flex-direction: column; gap: 1rem; }
 .stack.compact { gap: .75rem; }
+.inline-info { display: inline-flex; align-items: center; flex-wrap: wrap; gap: .4rem; min-width: 0; }
+.hardware-subheading { margin: 0 0 .75rem; font-size: .95rem; }
+.hardware-advanced { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+.hardware-advanced > summary { cursor: pointer; color: var(--muted); }
+.hardware-advanced > .stack { margin-top: 1rem; }
 .section-title { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .section-title h2 { font-size: 1.4rem; }
 .section-title p { margin-bottom: 0; color: var(--muted); }

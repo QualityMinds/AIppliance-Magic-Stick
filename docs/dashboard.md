@@ -70,7 +70,7 @@ Paperclip, KubeOpenCode, KubeAI, LiteLLM, or direct app instance reconcilers.
 | API Access | Lets administrators create multiple named LiteLLM API keys, view their non-secret metadata, and revoke individual keys. |
 | Kubernetes Access | Lets administrators assign Viewer, Operator, or Cluster Administrator access to existing SSO identities and download or copy token-free OIDC kubeconfigs. |
 | Federated SSO | Enterprise: validates OIDC discovery or SAML metadata, stores providers in Keycloak, and maps exact upstream claim/attribute values to fixed Magic Stick roles. |
-| System | Groups Settings, License, Users, and System Status behind one primary navigation item and presents them as category tabs like the Services filters. Settings, License, and Users retain their administrator and identity-availability restrictions; System Status remains available to every dashboard role. |
+| System | Groups Settings, License, Users, Federated SSO, Hardware, System Status, and Computer power behind one primary navigation item and presents them as category tabs like the Services filters. Administration tabs retain their role, identity, and entitlement restrictions; Hardware and System Status remain available to every dashboard role. Computer power is an administrator-only tab immediately after System Status. |
 
 ## Backend API
 
@@ -137,7 +137,7 @@ The React implementation retains the established tab-by-tab feature contract:
 | API Access | Endpoint display/copy, named-key creation, one-time secret display/copy, non-secret metadata, refresh, and guarded revocation. |
 | Kubernetes Access | OIDC readiness, role explanations and warnings, user search/pagination, access assignment/removal, and readiness-guarded kubeconfig download/copy. |
 | Federated SSO | Entitlement status, stable issuer and per-provider callback, OIDC/SAML metadata validation, redacted provider state, exact role mappings, guarded save/delete, and local-recovery guidance. |
-| System | Category tabs for public/mDNS settings; offline license administration and software notices; server-side user administration; Hardware profiles and validation; and hardware, Flux, Pod, Service, Ingress, and route status. Legacy `#/settings`, `#/license`, and `#/users` hashes resolve to their new nested System routes. |
+| System | Category tabs for public/mDNS settings; offline license administration and software notices; server-side user administration; federated SSO; Hardware profiles and validation; hardware, Flux, Pod, Service, Ingress, and route status; and administrator-only Computer power controls at `#/system/power`. Legacy `#/settings`, `#/license`, and `#/users` hashes resolve to their new nested System routes. |
 
 `dashboard/apps/web/src/FeatureParity.test.tsx` protects these user-visible
 contracts independently of the smaller application-shell tests. Catalog and
@@ -650,15 +650,31 @@ companies, employee agents, or gateway credentials.
 
 ## Hardware Compatibility Controls
 
-**System → Hardware → Host preparation** uses the same approved Ansible workflow
+The Hardware page puts **GPU operators** first, followed by **GPU setup**,
+**GPU memory**, and **GPU nodes**. General explanatory paragraphs are replaced
+by info icons with hover, keyboard-focus, and click/touch overlays. Current
+values, status badges, errors, required acknowledgements, and confirmation-dialog
+warnings remain visible. An operation's details appear only in its matching
+power, preparation, or memory section.
+
+**System → Hardware → GPU setup → Host preparation** uses the same approved Ansible workflow
 after initial installation and on existing computers. Plans show exact package
 changes and restart requirements; a bounded experiment mode permits explicitly
 acknowledged tests on unreviewed mixed-GPU combinations. Administrators also see
-**Computer power** under **System**, with exact-host confirmation for restart or
-shutdown. Viewers/operators cannot execute these actions. Availability, progress,
-power-off limitations and recovery are documented in [host management](host-management.md).
+the separate **System → Computer power** tab immediately after **System Status**,
+with exact-host confirmation for restart or shutdown. Power controls only appear
+on this tab, not on the other System tabs. Viewers/operators cannot access the tab
+or execute these actions. Availability, progress, power-off limitations and
+recovery are documented in [host management](host-management.md).
 
-On an eligible single-GPU Strix Halo host, **Shared GPU memory** adds sliders
+Host preparation already activates the matching AMD runtime profile. The
+collapsed **Advanced · AMD runtime profile** section inside **GPU setup** retains
+the manual profile override without presenting it as a second required setup
+step. That override only changes the cluster's AMD `ModuleActivation`; it does
+not install a kernel or driver. Host package plans and runtime profiles remain
+separate backend concepts.
+
+On an eligible single-GPU Strix Halo host, **GPU memory → Shared GPU memory** adds sliders
 for the fixed firmware reservation and dynamic shared-RAM ceiling. Current
 values and the local draft remain separate; moving a slider never applies a
 change. Administrator acknowledgement and exact-host confirmation are required,
@@ -677,9 +693,11 @@ scripts or selectors through the API.
 The initial additional profile is **AMD Strix Halo (experimental)**. Selecting
 it requires the experimental acknowledgement and does not itself confirm
 inference support. Once host/driver checks and GPU registration pass, both
-configured engines are available without a test. **Run GPU validation** is an
+configured engines are available without a test. **Run GPU validation**, next to
+the **GPU nodes** heading, is an
 optional manual diagnostic requiring a saved profile and a second
 confirmation because it downloads images/test models and uses GPU resources.
+It uses the saved profile, not an unsaved advanced-profile draft.
 Results for Ollama and vLLM remain separate from runtime readiness. Profile saves
 and host preparation never start test models. Returning to upstream rules removes
 the additional opt-in rather than claiming the hardware has become supported.
@@ -958,6 +976,11 @@ center falls back to the applicable **unreserved** budget. Shared free is
 Linux availability already reflects those GPU allocations; they are not
 subtracted from `MemAvailable` a second time. This is remaining reported
 capacity, not a guarantee that any individual allocation will fit.
+For example, 38.2 GiB Linux availability, a 108 GiB shared ceiling and 78.7 GiB
+reported GTT usage yield `min(38.2, 108 - 78.7) = 29.3 GiB` shared free.
+A separate 95 GiB reservation leaves a 13 GiB GPU planning budget; it does not
+change that measured free value. Calculations use bytes before conversion to
+MiB; compact gauge labels round GiB for display.
 Shared unreserved is limited by remaining Linux budgets after system headroom
 and model requests; when the confirmed model domain is shared/GTT, remaining
 GPU reservations also constrain it. Missing pool metrics, unknown domains and

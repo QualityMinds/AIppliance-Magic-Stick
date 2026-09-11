@@ -11,7 +11,7 @@ import {UsersPage} from './UsersPage';
 import {HardwarePage} from './HardwarePage';
 import {HostPowerPanel} from './HostManagement';
 
-export type SystemSectionId = 'settings' | 'license' | 'users' | 'federated-sso' | 'hardware' | 'status';
+export type SystemSectionId = 'settings' | 'license' | 'users' | 'federated-sso' | 'hardware' | 'status' | 'power';
 
 const sections: Array<{id: SystemSectionId; label: string; admin?: boolean; identity?: boolean; entitlement?: string}> = [
   {id: 'settings', label: 'Settings', admin: true},
@@ -20,6 +20,7 @@ const sections: Array<{id: SystemSectionId; label: string; admin?: boolean; iden
   {id: 'federated-sso', label: 'Federated SSO', admin: true, identity: true, entitlement: 'federated-sso'},
   {id: 'hardware', label: 'Hardware'},
   {id: 'status', label: 'System Status'},
+  {id: 'power', label: 'Computer power', admin: true},
 ];
 
 export const allowedSystemSections = (session: Session) => sections.filter((section) => (
@@ -39,7 +40,7 @@ export const SystemAreaPage = ({session, section, onSectionChange}: {
   const federationLicensed = license.data?.features.some((feature) => feature.id === 'federated-sso' && feature.licensed) === true;
 
   return <div className="stack">
-    <div className="section-title"><div><h2>System</h2><p>Settings, licenses, users, federated identity, hardware and operational status in one place.</p></div></div>
+    <div className="section-title"><h2>System</h2></div>
     <div className="filter-bar" role="tablist" aria-label="System sections">
       {allowed.map((item) => {
         const disabled = item.entitlement === 'federated-sso' && !federationLicensed;
@@ -56,7 +57,6 @@ export const SystemAreaPage = ({session, section, onSectionChange}: {
         >{item.label}</Button>;
       })}
     </div>
-    {canAdminister(session) && <HostPowerPanel />}
     <div role="tabpanel" aria-label={allowed.find((item) => item.id === active)?.label}>
       {active === 'settings' && <SettingsPage />}
       {active === 'license' && <LicensePage />}
@@ -64,6 +64,7 @@ export const SystemAreaPage = ({session, section, onSectionChange}: {
       {active === 'federated-sso' && <FederatedSsoPage />}
       {active === 'hardware' && <HardwarePage session={session} />}
       {active === 'status' && <SystemPage />}
+      {active === 'power' && canAdminister(session) && <HostPowerPanel />}
     </div>
   </div>;
 };

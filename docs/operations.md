@@ -748,11 +748,20 @@ For schema details and model troubleshooting, see
 
 Use [post-install host management](host-management.md) for reviewed GPU package
 preparation and mixed-system experiments, and **System → Computer power** for
-administrator-confirmed reboot/shutdown. Check the host worker's journal and
+administrator-confirmed reboot/shutdown. Computer power is a separate,
+administrator-only tab next to **System Status** (`#/system/power`); its controls
+are not shown on other System tabs. Check the host worker's journal and
 `HostOperation` phase separately from GPU operator and model readiness. Request
 acceptance is not confirmation of a completed power action.
 
-**System → Hardware → Shared GPU memory** configures supported Strix Halo
+The Hardware page starts with GPU operator status. **GPU setup → Host preparation**
+is the main kernel/driver and runtime-profile setup path. **Advanced · AMD runtime
+profile** is a collapsed manual override in the same section, not a second setup
+requirement. Optional validation is next to **GPU nodes** and uses the saved
+profile. Info icons retain background explanations and diagnostic messages;
+required action acknowledgements and disruption confirmations remain explicit.
+
+**System → Hardware → GPU memory → Shared GPU memory** configures supported Strix Halo
 firmware reservations and dynamic TTM limits through the same host worker.
 Inspect current versus requested values and retain console access before
 confirming the possible two-reboot workflow. Unsupported/mixed systems and

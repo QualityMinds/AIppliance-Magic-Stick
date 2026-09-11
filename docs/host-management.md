@@ -8,7 +8,10 @@ post-install preparation cannot repair an installer that cannot boot.
 
 ## User workflow
 
-Open **System → Hardware → Host preparation**. The local worker periodically
+Open **System → Hardware → GPU setup → Host preparation**. GPU operators are
+shown first; memory configuration has a separate **GPU memory** section. Help
+and diagnostic details are available through info icons, while action warnings
+and exact-host confirmations remain explicit. The local worker periodically
 inspects the OS, running kernel and **all PCI display GPUs**. It publishes a
 versioned, host-bound plan, including exact package changes and whether a reboot
 is necessary. Inspection itself never installs packages or restarts the host.
@@ -24,6 +27,9 @@ After host verification, `Registering` waits for fresh eligible hardware and an
 allocatable Kubernetes GPU. This completes preparation without an engine smoke
 test. Engine validation is an optional manual action in **System → Hardware**;
 no test-model or inference-image download is started by host preparation.
+The collapsed **Advanced · AMD runtime profile** section is a manual override,
+not another required setup step: preparation already activates the matching
+runtime profile. The override changes no host packages or kernel.
 
 Package and power operations target only the selected computer. GPU runtime
 profile selection uses the existing AMD `ModuleActivation`, which
@@ -70,7 +76,7 @@ automatic additions to the public compatibility catalog.
 
 ## Fixed and dynamic GPU memory
 
-**System → Hardware → Shared GPU memory** provides two administrator controls
+**System → Hardware → GPU memory → Shared GPU memory** provides two administrator controls
 on a single supported Strix Halo GPU with compatible kernel/firmware evidence:
 
 - **Fixed GPU reservation (firmware):** a discrete slider containing only the
@@ -115,8 +121,11 @@ and [AMD shared-memory guidance](https://rocm.docs.amd.com/en/docs-7.2.0/how-to/
 
 ## Restart and shut down
 
-Administrators see **Computer power** inside **System**, with **Restart computer**
-and **Shut down computer**. If several managed computers are reported, select
+Administrators see a separate **Computer power** tab inside **System**, immediately
+after **System Status** (`#/system/power`), with **Restart computer** and
+**Shut down computer**. These controls are only mounted on this tab. Viewers and
+operators cannot access it, including through a direct link. If several managed
+computers are reported, select
 the target explicitly. Both buttons require typing its exact name and accepting
 interruption of all services/workloads on that computer. They are unavailable
 for stale/offline workers or while another operation is active.

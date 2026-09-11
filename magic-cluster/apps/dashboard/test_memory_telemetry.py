@@ -64,6 +64,24 @@ class MemoryTelemetryTests(unittest.TestCase):
         result = self.api['gpu_memory_free'](self.report, self.sample, 96 * 1024)
         self.assertEqual(result['sharedFreeMi'], 12 * 1024)
 
+    def test_38_2_gib_available_and_78_7_gib_used_leave_29_3_gib_shared_free(self):
+        # Keep decimal-GiB input precise in bytes; the API floors only the result to MiB.
+        self.sample['availableBytes'] = 382 * GIB // 10
+        self.sample['devices'][0].update(gttTotalBytes=108 * GIB, gttUsedBytes=787 * GIB // 10)
+        self.report.update(gpuAccessibleMi=108 * 1024, gpuCapacityMi=108 * 1024)
+        self.api['request_json'] = self.unexpected_kubelet
+        nodes = [self.node()]
+        samples = self.api['node_memory_samples'](nodes)
+        for reserved_gib in (0, 95, 108):
+            with self.subTest(reserved_gib=reserved_gib):
+                reservations = {'amd-gpu': [{'model': 'example-model', 'reservedMi': reserved_gib * 1024}]}
+                pool = self.api['unified_memory_pools'](nodes, reservations, samples)[0]
+                self.assertEqual(pool['freeMi'], 39116)  # Linux availability: about 38.2 GiB.
+                self.assertEqual(pool['sharedFreeMi'], 30003)  # min(38.2, 108 - 78.7) GiB.
+                self.assertEqual(round(pool['sharedFreeMi'] / 1024, 1), 29.3)
+                self.assertEqual(pool['gpuUnreservedMi'], (108 - reserved_gib) * 1024)
+                self.assertEqual(pool['dedicatedFreeMi'], 256)
+
     def test_zero_available_is_known_not_missing(self):
         self.sample['availableBytes'] = 0
         nodes = [self.node()]

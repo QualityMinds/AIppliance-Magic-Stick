@@ -125,6 +125,26 @@ describe('compact compute memory gauges', () => {
     expect(container.querySelector('[data-ring="shared-free"]')).toHaveAttribute('data-known', 'false');
   });
 
+  it('renders the 29.3 GiB telemetry result independently of a 95 GiB reservation', () => {
+    const dynamic = {...pool, firmwareReservedMi: 512, physicalMemoryMi: 128 * 1024,
+      gpuAccessibleMi: 108 * 1024, gpuAllocationMode: 'shared-gtt' as const, gpuCapacityMi: 108 * 1024,
+      freeMi: 39116, sharedFreeMi: 30003, unreservedMi: 20 * 1024, gpuUnreservedMi: 13 * 1024};
+    const device = {...gpu, gpuAllocationMode: 'shared-gtt' as const, totalMi: 108 * 1024,
+      gpuCapacityMi: 108 * 1024, reservedMi: 95 * 1024, unreservedMi: 13 * 1024,
+      freeMi: 30003, metricsAvailable: true};
+    const {container, rerender} = render(<MemoryGauge device={device} pool={dynamic} />);
+    // Compact labels round GiB, but the ring uses the full MiB value from the API.
+    expect(reading(container, 'shared-free')).toHaveTextContent('29 GiB');
+    expect(reading(container, 'shared-unreserved')).toHaveTextContent('13 GiB');
+    const progress = () => container.querySelector('[data-ring="shared-free"] .gauge-progress')!.getAttribute('stroke-dasharray');
+    expect(Number(progress()?.split(' ')[0])).toBeCloseTo(29.3 / 108 * 100, 3);
+    const previous = progress();
+    rerender(<MemoryGauge device={{...device, reservedMi: 108 * 1024, unreservedMi: 0}} pool={{...dynamic, unreservedMi: 0, gpuUnreservedMi: 0}} />);
+    expect(reading(container, 'shared-unreserved')).toHaveTextContent('0 MiB');
+    expect(reading(container, 'shared-free')).toHaveTextContent('29 GiB');
+    expect(progress()).toBe(previous);
+  });
+
   it('uses the displayed Linux capacity for both CPU rings without changing the remaining budget', () => {
     const {container} = render(<MemoryGauge device={{id: 'cpu', name: 'CPU', kind: 'cpu', memoryArchitecture: 'unified',
       sharedMemoryMi: 65536, totalMi: 57344, unreservedMi: 32768, freeMi: 49152, metricsAvailable: true}} />);

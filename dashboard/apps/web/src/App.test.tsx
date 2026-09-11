@@ -15,6 +15,7 @@ const payloads: Record<string, unknown> = {
   '/api/license': {state: 'valid', message: 'License valid.', valid: true, installationId: 'example-installation', revision: 'revision-1', checkedAt: 1, trustedKeyIds: ['example-key'], hasDocument: true, features: [{id: 'federated-sso', name: 'Dashboard-managed federated SSO', licensed: true, implemented: true, available: true, reason: 'available'}]},
   '/api/federated-sso': {feature: {id: 'federated-sso', name: 'Dashboard-managed federated SSO', licensed: true, implemented: true, available: true, reason: 'available'}, issuer: 'https://id.magicstick.local/realms/magicstick', callbackUrl: 'https://id.magicstick.local/realms/magicstick/broker/{alias}/endpoint', providers: []},
   '/api/users?search=&first=0&max=25': {users: [], total: 0, first: 0, max: 25},
+  '/api/host-management': {nodes: [{name: 'example-node', nodeUid: 'example-uid', bootId: 'example-boot', kernel: '7.0-test', available: true, message: 'Host worker available.'}]},
 };
 
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), {status, headers: {'content-type': 'application/json'}});
@@ -59,6 +60,50 @@ describe('default React dashboard', () => {
     expect(await within(systemSections).findByRole('tab', {name: 'Federated SSO'})).toBeEnabled();
     expect(within(systemSections).getByRole('tab', {name: 'System Status'})).toBeInTheDocument();
     expect(within(systemSections).getByRole('tab', {name: 'Hardware'})).toBeInTheDocument();
+    expect(within(systemSections).getByRole('tab', {name: 'System Status'}).nextElementSibling).toBe(within(systemSections).getByRole('tab', {name: 'Computer power'}));
+  });
+
+  it('shows power controls only inside the selected Computer power tab', async () => {
+    window.history.replaceState(null, '', '#/system/status');
+    renderApp();
+    await screen.findByRole('heading', {name: 'System Status'});
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).startsWith('/api/host-management'))).toBe(false);
+    for (const label of ['Settings', 'License', 'Users', 'Federated SSO', 'Hardware', 'System Status']) {
+      await userEvent.click(await screen.findByRole('tab', {name: label}));
+      expect(screen.getByRole('tabpanel', {name: label})).toBeInTheDocument();
+      expect(screen.queryByRole('heading', {name: 'Computer power'})).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', {name: 'Restart computer'})).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', {name: 'Shut down computer'})).not.toBeInTheDocument();
+    }
+    await userEvent.click(screen.getByRole('tab', {name: 'Computer power'}));
+    const panel = screen.getByRole('tabpanel', {name: 'Computer power'});
+    expect(await within(panel).findByRole('button', {name: 'Restart computer'})).toBeEnabled();
+    expect(within(panel).getByRole('button', {name: 'Shut down computer'})).toBeEnabled();
+    expect(window.location.hash).toBe('#/system/power');
+    await userEvent.click(screen.getByRole('tab', {name: 'System Status'}));
+    expect(screen.queryByRole('heading', {name: 'Computer power'})).not.toBeInTheDocument();
+    expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+  });
+
+  it('opens the Computer power tab from a direct link', async () => {
+    window.history.replaceState(null, '', '#/system/power');
+    renderApp();
+    expect(await screen.findByRole('heading', {name: 'Computer power'})).toBeInTheDocument();
+    expect(screen.getByRole('tab', {name: 'Computer power'})).toHaveAttribute('aria-selected', 'true');
+    expect(window.location.hash).toBe('#/system/power');
+    expect(screen.queryByRole('heading', {name: 'System Status'})).not.toBeInTheDocument();
+  });
+
+  it.each(['magicstick-viewer', 'magicstick-operator'])('does not expose Computer power to %s, including direct links', async (role) => {
+    payloads['/api/session'] = {subject: 'example', username: 'example', roles: [role]};
+    window.history.replaceState(null, '', '#/system/power');
+    renderApp();
+    expect(await screen.findByRole('heading', {name: 'System Status'})).toBeInTheDocument();
+    expect(screen.queryByRole('tab', {name: 'Computer power'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'Restart computer'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'Shut down computer'})).not.toBeInTheDocument();
+    await waitFor(() => expect(window.location.hash).toBe('#/system/status'));
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).startsWith('/api/host-management'))).toBe(false);
   });
 
   it('loads admin data only after opening its tab', async () => {
@@ -127,6 +172,7 @@ describe('default React dashboard', () => {
     const systemSections = screen.getByRole('tablist', {name: 'System sections'});
     expect(within(systemSections).getByRole('tab', {name: 'Settings'})).toBeInTheDocument();
     expect(within(systemSections).getByRole('tab', {name: 'License'})).toBeInTheDocument();
+    expect(within(systemSections).getByRole('tab', {name: 'Computer power'})).toBeEnabled();
     expect(within(systemSections).queryByRole('tab', {name: 'Users'})).not.toBeInTheDocument();
     expect(within(systemSections).queryByRole('tab', {name: /Federated SSO/})).not.toBeInTheDocument();
     expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).startsWith('/api/users'))).toBe(false);

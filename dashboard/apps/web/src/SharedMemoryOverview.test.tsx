@@ -1,15 +1,18 @@
 import {render, screen} from '@testing-library/react';
 import {describe, expect, it} from 'vitest';
+import userEvent from '@testing-library/user-event';
 import {SharedMemoryOverview} from './SharedMemoryOverview';
 
 describe('physical memory inventory', () => {
-  it('separates installed, fixed, Linux and dynamic memory without adding the dynamic pool', () => {
+  it('separates installed, fixed, Linux and dynamic memory without adding the dynamic pool', async () => {
     render(<SharedMemoryOverview pool={{node: 'example-node', installedMemoryMi: 131072, firmwareReservedMi: 65536, physicalMemoryMi: 64000, gpuAccessibleMi: 32000}} />);
     expect(screen.getByText('Installed RAM').parentElement).toHaveTextContent('128 GiB');
     expect(screen.getByText('Fixed GPU reservation').parentElement).toHaveTextContent('64 GiB');
     expect(screen.getByText('Linux-visible RAM').parentElement).toHaveTextContent('62.5 GiB');
     expect(screen.getByText('Dynamic GPU ceiling').parentElement).toHaveTextContent('31.3 GiB');
-    expect(screen.getByText(/Within Linux RAM · not reserved or protected/)).toBeInTheDocument();
+    expect(screen.queryByText(/One GPU, not two deployment targets/)).not.toBeInTheDocument();
+    await userEvent.hover(screen.getByRole('button', {name: 'Explain Physical memory layout on example-node'}));
+    expect(screen.getByText(/within Linux RAM · not reserved or protected/)).toBeInTheDocument();
     expect(screen.getByText(/1.5 GiB other firmware\/platform memory/)).toBeInTheDocument();
     expect(screen.getByText(/not yet verified; no capacity guarantee/)).toBeInTheDocument();
   });
@@ -22,23 +25,27 @@ describe('physical memory inventory', () => {
     expect(screen.queryByText(/Installed RAM =/)).not.toBeInTheDocument();
   });
 
-  it('shows one GPU with a fixed allocation domain, not an added 110 GiB capacity', () => {
+  it('shows one GPU with a fixed allocation domain, not an added 110 GiB capacity', async () => {
     render(<SharedMemoryOverview pool={{node: 'example-node', installedMemoryMi: 131072, firmwareReservedMi: 65536, physicalMemoryMi: 64000, gpuAccessibleMi: 47104, gpuCapacityMi: 65536, gpuCapacitySource: 'kfd-topology', gpuAllocationMode: 'firmware-reserved'}} />);
     expect(screen.getByText('One GPU · unified physical RAM')).toBeInTheDocument();
     expect(screen.getByText('Driver-reported GPU capacity').parentElement).toHaveTextContent('64 GiB');
+    expect(screen.getByText('Accounting unverified')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', {name: 'Explain Physical memory layout on example-node'}));
     expect(screen.getByText(/GPU weights are not charged twice/)).toBeInTheDocument();
     expect(screen.getByText(/No protected dynamic reserve is promised/)).toBeInTheDocument();
     expect(screen.queryByText('110 GiB')).not.toBeInTheDocument();
   });
 
-  it('names dynamic allocations without promising protected RAM', () => {
+  it('names dynamic allocations without promising protected RAM', async () => {
     render(<SharedMemoryOverview pool={{node: 'example-node', gpuCapacityMi: 111616, gpuAllocationMode: 'shared-gtt', gpuCapacitySource: 'kfd-topology'}} />);
     expect(screen.getByText('Driver-reported GPU capacity').parentElement).toHaveTextContent('109 GiB');
+    await userEvent.hover(screen.getByRole('button', {name: 'Explain Physical memory layout on example-node'}));
     expect(screen.getByText(/limited by both the GPU ceiling and remaining RAM budgets/)).toBeInTheDocument();
   });
 
-  it('flags conflicting totals instead of a negative platform reservation', () => {
+  it('flags conflicting totals instead of a negative platform reservation', async () => {
     render(<SharedMemoryOverview pool={{node: 'example-node', installedMemoryMi: 65536, firmwareReservedMi: 65536, physicalMemoryMi: 65536, gpuAccessibleMi: null}} />);
+    await userEvent.hover(screen.getByRole('button', {name: 'Explain Physical memory layout on example-node'}));
     expect(screen.getByText(/totals do not reconcile/)).toBeInTheDocument();
     expect(screen.queryByText(/Installed RAM =/)).not.toBeInTheDocument();
   });
