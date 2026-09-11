@@ -12,6 +12,11 @@ End-user installation steps are collected in
 
 ## GPU compatibility diagnostics
 
+Live memory counters use a separate `magicstick-memory-sample.timer` (30 seconds).
+It publishes Linux `MemAvailable` and per-PCI AMD VRAM/GTT usage, without engine
+probes or hardware changes. Samples expire after 90 seconds in the dashboard;
+Kubelet working-set estimates are not used for unified-memory free readings.
+
 The `gpu-compatibility` role installs read-only `magicstick-gpu-preflight` and
 `magicstick-hip-smoke` helpers. It does not automatically change kernel,
 firmware, ROCm, memory mapping limits, or GPU eligibility. A separate explicit
@@ -23,7 +28,7 @@ allocations from dynamic Linux RAM. The reported model capacity never sums
 both; missing evidence stays unknown. This does not protect dynamic RAM from
 other processes or change firmware settings.
 See [GPU compatibility](../docs/gpu-compatibility.md) for evidence,
-Strix Halo shared-memory accounting, preparation and validation gates.
+Strix Halo shared-memory accounting, preparation and optional manual engine tests.
 
 ## Entry Point
 

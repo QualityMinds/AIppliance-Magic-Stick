@@ -70,7 +70,7 @@ Additional GPU support is runtime intent, not an edit to `Appliance.spec`.
 | --- | --- |
 | `compatibilityProfile` | Catalog profile ID, currently experimental `strix-halo`, or an empty string for upstream-only support. |
 | `allowExperimental` | Explicit `"true"` consent required for an experimental profile. |
-| `validationRequest` | Optional unique identifier requesting bounded, resource-consuming engine validation. Changing it requests a fresh run. |
+| `validationRequest` | Optional unique identifier explicitly requesting bounded, resource-consuming engine diagnostics. Empty by default; changing it requests a fresh run. Test outcomes never gate GPU availability. |
 
 The API restricts these parameters to administrators; it accepts no arbitrary
 test image, script or node selector. Profile selection does not itself mean
@@ -80,9 +80,13 @@ that a driver, GPU resource or inference engine is ready.
 profile, catalog profiles and per-node evidence including `profileId`,
 `profileVersion`, `upstreamSupported`, `optedIn`, `eligible`, `pciDevices`,
 `expectedArchitecture`, `detectedArchitecture`, `hostDriverReady`,
-`resourceRegistered` and `hostFingerprint`. Per-engine `validation.OLlama` and
+`resourceRegistered`, `hostFingerprint` and `hostBootId`. Per-engine `validation.OLlama` and
 `validation.VLLM` expose state, image/image ID, job, timestamps and reasons.
 Upstream support is reported distinctly from a locally passed validation.
+`compatibility.validationRequired` is `false`. Host/driver and resource eligibility
+remain required; engine tests are advisory. `runtimeReady` describes adoption of
+the configured image by KubeAI, independently of a test's state. Boot/host/image
+changes make a started request stale, not an automatic new test request.
 
 For shared-memory evidence, `physicalMemoryMi` is the OS-visible `MemTotal` in
 MiB, not installed-memory inventory. `gpuAccessibleMi` is a conservative
@@ -163,6 +167,10 @@ preparation additionally binds the exact local plan and experiment consent.
 The dashboard creates requests, while the local root worker owns status. These
 actions never mutate Git-owned `Appliance.spec`. See the [host-management API and
 recovery contract](host-management.md).
+
+GPU preparation uses `Registering` after host verification and completes when
+fresh eligible GPU registration is confirmed. It does not request or wait for
+engine validation. The previous `Validating` phase remains accepted for migration.
 
 `configure-gpu-memory` additionally requires the current memory capability's
 `planId`, explicit experimental consent and `gpuMemory` containing only the

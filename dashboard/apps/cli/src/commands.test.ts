@@ -73,6 +73,21 @@ describe('runCli', () => {
     expect(output.stdout()).toContain('Accounting not verified');
   });
 
+  it.each(['unverified', 'failed', 'stale'] as const)('reports a ready runtime independently of optional %s validation', async (state) => {
+    const live = hardwareRuntime();
+    vi.mocked(live.api.status).mockResolvedValue({hardwareOperators: {'amd-gpu': {phase: 'Ready', compatibility: {
+      ...compatibility, nodes: [{node: 'example-node', eligible: true, validation: {OLlama: {
+        state, runtimeReady: true, runtimeMessage: 'Configured image adopted; optional test only.',
+      }}}],
+    }}}});
+    const output = io();
+    await runCli(['hardware', 'list'], output.supplied, {createRuntime: async () => live});
+    expect(output.stdout()).toContain('Engine validation is optional');
+    expect(output.stdout()).toContain(`${state} · runtime ready`);
+    expect(output.stdout()).toContain('Configured image adopted; optional test only.');
+    expect(live.api.enableModule).not.toHaveBeenCalled();
+  });
+
   it.each([['tui', '--demo'], ['--demo', 'tui']])('starts an offline preview for %j without constructing a live runtime', async (...argv) => {
     const createRuntime = vi.fn();
     const launch = vi.fn(async () => undefined);

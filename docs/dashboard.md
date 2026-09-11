@@ -669,24 +669,28 @@ the [memory control contract](host-management.md#fixed-and-dynamic-gpu-memory).
 
 **System → Hardware** (`#/system/hardware`) separates upstream GPU support,
 additional profile selection, host readiness, Kubernetes GPU registration and
-per-engine validation. All authenticated dashboard roles can inspect this
+optional per-engine validation. All authenticated dashboard roles can inspect this
 state. Only administrators may save AMD compatibility parameters or request
 validation; ordinary module operators cannot submit arbitrary probe images,
 scripts or selectors through the API.
 
 The initial additional profile is **AMD Strix Halo (experimental)**. Selecting
 it requires the experimental acknowledgement and does not itself confirm
-inference support. **Run GPU validation** requires a saved profile and a second
+inference support. Once host/driver checks and GPU registration pass, both
+configured engines are available without a test. **Run GPU validation** is an
+optional manual diagnostic requiring a saved profile and a second
 confirmation because it downloads images/test models and uses GPU resources.
-Results for Ollama and vLLM remain separate. Returning to upstream rules removes
+Results for Ollama and vLLM remain separate from runtime readiness. Profile saves
+and host preparation never start test models. Returning to upstream rules removes
 the additional opt-in rather than claiming the hardware has become supported.
 
 The same flow uses `ModuleActivation/amd-gpu.spec.parameters` fields
 `compatibilityProfile`, `allowExperimental` and `validationRequest` through the
 existing module API. `GET /api/status` exposes the catalog and evidence under
 `hardwareOperators.amd-gpu.compatibility`. Host/kernel/image changes invalidate
-old evidence; stale or failed experimental engine checks cannot be bypassed by
-accepting a model memory warning. CLI users have `hardware list`,
+old evidence without automatically repeating the tests. Missing, running, stale
+or failed results do not disable GPU use; host, profile and runtime-configuration
+checks still apply. CLI users have `hardware list`,
 `hardware profile strix-halo --allow-experimental`,
 `hardware validate --yes`, and `hardware profile upstream`; the TUI provides
 Hardware inspection and the same explicitly confirmed administrator actions.
@@ -917,8 +921,10 @@ CPU totals are aggregated across Ready,
 schedulable appliance nodes, reservations come from active CPU models and
 GPU models with explicit CPU offloading via `ModelActivation.status.memoryRequiredMi`
 (falling back to the requested value), and current availability
-comes from the Kubelet node summary. The metrics API working-set value is used
-only as a fallback when a cluster does not permit the Kubelet summary.
+comes from fresh host `/proc/meminfo` `MemAvailable` samples when available.
+Ordinary nodes retain the Kubelet summary/metrics API fallback. Unified-memory
+nodes never use that fallback: driver-owned GPU allocations can be absent from
+Kubelet working-set accounting, overstating both CPU and shared GPU availability.
 
 NVIDIA gauges use one DCGM record per physical GPU. Kubernetes exposes the
 whole-GPU request but not the chosen GPU UUID on the `ModelActivation`, so the
@@ -944,15 +950,23 @@ free (cyan), shared unreserved (blue), shared free (green). The compact legend
 groups each pair under its own capacity. These are separate scales, not an
 additive model budget or two deployment targets.
 
-Dedicated counters are attributed only to a confirmed firmware-reserved
-allocation domain. Without live dedicated GPU metrics, the free ring stays
-unknown and the center shows the **dedicated unreserved** budget. Shared free
-is `min(available Linux RAM, dynamic GPU ceiling)`, not a separate VRAM reading.
+Dedicated free uses PCI-matched AMD `mem_info_vram_total - mem_info_vram_used`;
+dedicated unreserved is attributed only to a confirmed firmware-reserved model
+allocation domain. Without live metrics, the free ring stays unknown and the
+center falls back to the applicable **unreserved** budget. Shared free is
+`max(0, min(Linux MemAvailable, dynamic GPU ceiling - mem_info_gtt_used))`.
+Linux availability already reflects those GPU allocations; they are not
+subtracted from `MemAvailable` a second time. This is remaining reported
+capacity, not a guarantee that any individual allocation will fit.
 Shared unreserved is limited by remaining Linux budgets after system headroom
 and model requests; when the confirmed model domain is shared/GTT, remaining
 GPU reservations also constrain it. Missing pool metrics, unknown domains and
 non-matching pool IDs are not replaced with another node's values. The dynamic
 ceiling is part of Linux-visible RAM, not an additional bank or protected reserve.
+The lightweight host sampler refreshes every 30 seconds. The API requires a
+sample no older than 90 seconds matching the Node UID, boot ID and kernel;
+missing, invalid or stale counters stay unknown, never zero usage. Current
+sample time and the formula are available through the info symbol.
 
 Hovering or focusing the info symbol previews the explanation. Clicking/tapping
 pins it open; Escape, the close button or an outside click dismisses it. The

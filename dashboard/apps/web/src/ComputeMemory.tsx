@@ -34,9 +34,9 @@ function gaugeReadings(device: ComputeMemoryDevice, pool?: SharedMemoryPool) {
   const dynamic = mode === 'shared-gtt';
   const dedicatedTotal = amount(pool?.firmwareReservedMi) ?? (fixed ? total : null);
   const sharedTotal = within(capacity(pool?.gpuAccessibleMi), capacity(pool?.physicalMemoryMi));
-  const dedicatedFree = fixed ? within(free, dedicatedTotal) : null;
+  const dedicatedFree = within(amount(pool?.dedicatedFreeMi) ?? (fixed ? free : null), dedicatedTotal);
   const dedicatedBudget = fixed ? within(unreserved ?? amount(pool?.gpuUnreservedMi), dedicatedTotal) : null;
-  const sharedFree = within(amount(pool?.freeMi), sharedTotal);
+  const sharedFree = within(amount(pool?.sharedFreeMi), sharedTotal);
   const linuxBudget = amount(pool?.unreservedMi);
   const dynamicBudget = amount(pool?.gpuUnreservedMi) ?? (dynamic ? unreserved : null);
   const sharedBudget = fixed ? within(linuxBudget, sharedTotal)
@@ -72,7 +72,8 @@ function GaugeDetails({device, pool, sharedGpu}: {device: ComputeMemoryDevice; p
         <div><dt>Driver-reported model capacity</dt><dd>{display(device.gpuCapacityMi)}</dd></div>
       </dl>
       <p className="memory-info-note">Dedicated free requires live GPU metrics. Linux available RAM is never reported as free dedicated VRAM. Dedicated unreserved is the planning capacity minus GPU model reservations, only when the driver confirms that allocation domain.</p>
-      <p className="memory-info-note">Shared free = min(currently available Linux RAM, dynamic GPU ceiling). Shared unreserved = min(remaining Linux RAM budget after system headroom and model requests, dynamic ceiling); when models use the shared pool, its remaining GPU budget also applies.</p>
+      <p className="memory-info-note">Shared free = min(Linux MemAvailable, dynamic GPU ceiling − driver-reported GTT usage), never below zero. GPU allocations are already reflected in MemAvailable and are not subtracted from it again. Shared unreserved = min(remaining Linux RAM budget after system headroom and model requests, dynamic ceiling); when models use the shared pool, its remaining GPU budget also applies.</p>
+      <p className="memory-info-note">Host counters refresh every 30 seconds. Missing or older-than-90-second samples are not reported as free memory.{pool?.memorySampledAt ? ` Sample: ${pool.memorySampledAt}.` : ''}</p>
       <p className="memory-info-note">Shared RAM is also used by the CPU. Neither its ceiling nor Kubernetes requests protect it against other processes. These four readings do not change hardware configuration or the model's allocation domain.</p>
     </>}
     {!sharedGpu && <p className="memory-info-note">The violet ring shows unreserved capacity, the cyan ring current availability. {device.memoryArchitecture === 'unified' ? 'Both rings use Linux-visible RAM as their scale. Unreserved memory excludes system headroom and includes host runtime requests. Firmware-reserved GPU memory is outside this RAM.' : 'Both rings use the reported device capacity.'}</p>}

@@ -16,16 +16,20 @@ is necessary. Inspection itself never installs packages or restarts the host.
 For a matching reviewed plan, acknowledge the experimental hardware profile,
 select **Review hardware preparation**, and type the computer's exact name in
 the confirmation dialog. The confirmation authorizes the displayed packages,
-one orderly restart if required, and the bounded AMD GPU validation jobs. The
+one orderly restart if required, and AMD GPU profile activation. The
 local root worker runs the existing Ansible preparation role, persists its
 progress, and resumes verification after reboot. Closing the dashboard does
 not cancel an accepted operation. Existing working kernels are not removed.
+After host verification, `Registering` waits for fresh eligible hardware and an
+allocatable Kubernetes GPU. This completes preparation without an engine smoke
+test. Engine validation is an optional manual action in **System → Hardware**;
+no test-model or inference-image download is started by host preparation.
 
 Package and power operations target only the selected computer. GPU runtime
-profile selection/validation uses the existing AMD `ModuleActivation`, which
+profile selection uses the existing AMD `ModuleActivation`, which
 applies to matching cluster Nodes; the confirmation explicitly includes that
 scope. Concurrent preparation requests must not overwrite a changed module
-decision: the worker detects configuration changes and stops its validation
+decision: the worker detects configuration changes and stops its profile
 handoff. Per-Node runtime placement/validation isolation is a separate extension.
 
 The first shipped package profile is `strix-halo-ubuntu-24.04`, version `1`, for
@@ -162,10 +166,12 @@ configured remote power management. [systemd shutdown manual](https://www.man7.o
 
 ## Progress and recovery
 
-Typical preparation: `Preparing` → `RebootScheduled` → `Verifying` → `Validating`
-→ `Succeeded`. A host that needs no restart enters validation directly.
-`Succeeded` means the specified host/AMD smoke checks passed, not production
-model acceptance or KubeAI runtime-image adoption. Those remain visible under
+Typical preparation: `Preparing` → `RebootScheduled` → `Verifying` → `Registering`
+→ `Succeeded`. A host that needs no restart enters registration directly.
+`Succeeded` means fresh host/driver evidence and an eligible registered GPU,
+not an engine smoke test, production model acceptance or KubeAI runtime-image
+adoption. Legacy in-progress `Validating` operations now complete from the same
+registration checks. Optional engine diagnostics remain visible under
 [GPU compatibility](gpu-compatibility.md).
 
 Memory configuration uses `Preparing` → `RebootScheduled` → `Verifying`, with a

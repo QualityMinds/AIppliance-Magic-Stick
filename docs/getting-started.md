@@ -33,8 +33,9 @@ or drivers. AMD and Intel targets appear only after their operator and
 allocatable Kubernetes resource are ready.
 
 Strix Halo is an additional **experimental** AMD profile, not part of a blanket
-GPU support guarantee. Use **System → Hardware** to inspect host evidence,
-explicitly acknowledge the profile and request separate engine validation.
+GPU support guarantee. Live memory counters refresh every 30 seconds after host
+convergence; unavailable counters remain unknown. Use **System → Hardware** to inspect host evidence,
+explicitly acknowledge the profile and optionally request engine validation.
 Generic detection never upgrades kernel/firmware or reboots a machine. Some
 hosts need a reviewed kernel preparation first; follow
 [GPU compatibility](gpu-compatibility.md) before enabling experiments. CPU and
@@ -205,7 +206,8 @@ its operator, and the matching allocatable resource are ready. **System
 Status** shows the NVIDIA, AMD, and Intel provider lifecycle even when a
 provider is not required.
 
-For an experimental AMD profile, a matching PCI device and registered GPU are
-only intermediate stages: the selected engine must also pass current GPU
-validation. Strix Halo's CPU and GPU share memory; do not add their capacities
+For an experimental AMD profile, current host/driver evidence, profile consent
+and a registered GPU enable the catalogued engines by default. Optional engine
+tests can be started manually in **System → Hardware**; no validation run is
+required to create a model. Strix Halo's CPU and GPU share memory; do not add their capacities
 or treat a GPU mapping limit as additional RAM.

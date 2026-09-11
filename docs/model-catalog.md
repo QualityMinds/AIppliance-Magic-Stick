@@ -328,8 +328,9 @@ policy retain Ollama's automatic loading behavior.
 
 An additional AMD compatibility profile is not a portable-runtime guarantee.
 The experimental Strix Halo profile requires current host evidence, an
-allocatable GPU and a separate successful validation for the selected engine.
-One engine passing does not enable the other. The initial path supports one
+allocatable GPU and the configured KubeAI runtime. Engine validation is optional
+and manual; untested, failed or stale results do not disable either engine.
+Availability is not proof that an arbitrary model will run. The initial path supports one
 eligible unified-memory node; mixed/different candidate nodes require explicit
 hardware placement and are rejected rather than scheduled ambiguously.
 

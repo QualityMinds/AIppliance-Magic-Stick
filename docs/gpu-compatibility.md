@@ -6,6 +6,13 @@ Operator supports it, that ROCm kernels can run on it, or that both inference
 engines support the same stack. Never set a vendor support label just to make a
 Helm health check pass.
 
+**Engine validation is optional and manual.** After the required profile consent,
+fresh host/driver checks and Kubernetes GPU registration, both catalogued GPU
+engines are selectable without running a test model. An unverified, running,
+failed or stale test does not disable a ready GPU. Actual runtime configuration,
+hardware eligibility and model-specific errors are still checked; availability
+does not claim successful inference or memory-accounting validation.
+
 The first additional profile is `strix-halo`, matching AMD display devices with
 PCI vendor `1002` and device `1586`, with expected compute architecture `gfx1151`.
 The expected architecture is compared with observed KFD/ROCm evidence; it is not
@@ -54,7 +61,18 @@ labels or disclose kubeconfig contents. A missing profile removes only a stale
 annotation owned by this publisher. Evidence has a UTC timestamp for freshness
 checks. `gpu_compatibility_node_name` defaults to the local hostname and can be
 overridden for a custom K3s node name; `gpu_compatibility_publish_evidence=false`
-disables the timer without disabling the read-only diagnostic command.
+disables the publication timers without disabling the read-only diagnostic command.
+
+A separate `magicstick-memory-sample.timer` runs every 30 seconds and uses
+`magicstick-gpu-preflight --memory-only` through the same publisher. This cheap
+path reads only `/proc/meminfo` and PCI-matched AMD VRAM/GTT sysfs counters; it
+does not run ROCm, package queries, engine validation, or inference. It patches
+only `appliance.magicstick.dev/memory-sample`, not compatibility evidence or
+eligibility labels. The API checks Node UID, kernel, boot and a 90-second TTL.
+CPU availability uses `MemAvailable`; shared GPU free additionally respects the
+remaining GTT ceiling, without double-subtracting GPU allocations from RAM.
+Stale or missing samples stay unknown on unified-memory hosts instead of falling
+back to potentially inflated Kubelet working-set availability.
 
 For tests, `--root /absolute/snapshot/path` uses a filesystem fixture and disables
 all subprocesses. `--require-profile strix-halo` exits with status 2 if that exact
@@ -214,19 +232,28 @@ A dashboard engine result of `passed` means that the bounded GPU smoke test
 succeeded for that host and exact runtime image. It does not certify every
 model, quantization, context length, answer quality, sustained performance or
 restart scenario, and it does not establish GPU cgroup memory accounting. A
-provider may become `Ready` with only one engine validated; inspect the separate
-Ollama/vLLM results before selecting a runtime. The compatibility profile remains
+provider becomes `Ready` from hardware and registered-resource readiness,
+independently of either engine test. Inspect the separate Ollama/vLLM diagnostic
+results when investigating a model failure. The compatibility profile remains
 experimental even after those small tests pass.
 
-The operator publishes validated AMD image digests through
+The operator publishes configured AMD images through
 `magicstick-gpu-runtime-images`. KubeAI imports generic resource profiles first
 and these image pins last, without duplicate inline AMD image tags. This keeps
-Helm values merging from restoring an unvalidated tag. A successful smoke test
-alone is not runtime adoption: `runtimeReady` also requires the exact digest in
+Helm values merging from restoring a different runtime. Catalog release tags
+work without validation; successful optional tests can pin their actual digest.
+`runtimeReady` requires the exact configured image reference in
 KubeAI's installed configuration and Ready controller Pods with matching
 configuration checksums. See the [Flux values-reference contract](https://fluxcd.io/flux/components/helm/helmreleases/#values-references).
 
-The automatic model fixture uses the raw completion `2 + 2 =` with a two-token
+Choose **System → Hardware → Run GPU validation**, `hardware validate --yes`,
+or the TUI's validation action to start the bounded tests explicitly. Profile
+saves and host preparation never start them. A request is bound to the host boot,
+hardware and runtime images at its first test; changed evidence becomes stale
+without automatically launching another test. Request a new run to refresh it.
+Legacy automatic `host-<request-id>` requests are retired on upgrade.
+
+The manually requested model fixture uses the raw completion `2 + 2 =` with a two-token
 output budget and checks the exact arithmetic answer. It deliberately avoids
 model-specific chat and thinking templates: a tiny model's instruction-following
 failure must not be confused with a broken GPU kernel. The same fixed fixture

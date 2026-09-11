@@ -171,8 +171,9 @@ The host evidence timer publishes one sanitized Node annotation. The controller
 checks its UID, boot ID, kernel, fingerprint and timestamp before treating it as
 current. It sets only Magic Stick eligibility/engine labels, never AMD's NFD
 support label. The managed `DeviceConfig` selects eligible nodes separately from
-Helm controller installation. A registered `amd.com/gpu` resource still does not
-permit an unvalidated experimental engine.
+Helm controller installation. With required profile consent and fresh host checks,
+a registered `amd.com/gpu` resource enables the catalogued engines by default.
+Optional engine tests do not gate hardware `Ready`, selection or model creation.
 
 Explicit validation runs fixed catalog images sequentially in bounded Jobs;
 test Pods receive a GPU resource but no service-account token, host-path mounts
@@ -180,13 +181,17 @@ or privileged container mode. Ollama must report GPU buffers and answer a small
 arithmetic request; vLLM must pass a HIP computation and a small inference
 request. CPU fallback is not success. Results are keyed to host identity,
 profile version, run identifier and actual image ID; changed evidence becomes
-stale. Successful digests are carried through runtime-owned keys in
+stale without automatically starting new tests; a new manual request is needed.
+Legacy automatic host-generated requests are retired. Successful digests are carried through runtime-owned keys in
 `flux-system/magicstick-gpu-runtime-images` and KubeAI Helm `valuesFrom`, so
-model images match validation instead of merely reusing a mutable tag. The
-catalog's pinned release versions remain unchanged.
+model images can match validation. Before any validation, the catalog's configured
+release images work normally. Runtime adoption still verifies KubeAI's effective
+image configuration and Ready controllers, without requiring a passed smoke test.
 
 `Appliance.status.hardwareOperators.amd-gpu.compatibility` exposes profile,
-node, host/resource and per-engine validation stages. Unified memory remains
+node, host/resource and optional per-engine validation stages, with
+`validationRequired: false`. Diagnostic failures remain visible but do not mark
+ready hardware as unavailable. Unified memory remains
 one physical pool and `memoryAccountingVerified` is not inferred from model
 readiness. See [GPU compatibility](gpu-compatibility.md) and
 [model reservations](model-catalog.md#amd-unified-memory-reservations).

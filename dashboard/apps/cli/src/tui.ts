@@ -281,13 +281,13 @@ const hardwareLines = (snapshot: DashboardSnapshot) => {
   const compatibility = snapshot.status.hardwareOperators?.['amd-gpu']?.compatibility;
   return [
     `AMD compatibility profile: ${compatibility?.selectedProfile || 'upstream rules'}`,
-    'Detection, host driver, GPU resource and engine validation are separate checks.',
+    'GPU availability requires host readiness and resource registration; engine validation is optional.',
     ...Object.entries(snapshot.status.hardwareOperators ?? {}).map(([id, item]) => `${item.displayName ?? id}: ${statusLabel(item.phase)} / ${item.allocatableResources ?? 0} GPU resources`),
     '', ...(compatibility?.nodes ?? []).flatMap((node) => [
       `${node.node} · ${node.profileId || 'upstream'} · ${node.eligible ? 'eligible' : 'not eligible'}`,
       `  Driver: ${node.hostDriverReady === true ? 'ready' : 'not verified'} · GPU resource: ${node.resourceRegistered === true ? 'registered' : 'not verified'}`,
       `  Ollama: ${gpuValidationSummary(node.validation?.OLlama)} · vLLM: ${gpuValidationSummary(node.validation?.VLLM)}`,
-      ...Object.entries(node.validation ?? {}).filter(([, validation]) => validation.state === 'passed' && validation.runtimeMessage).map(([engine, validation]) => `  ${engine}: ${validation.runtimeMessage}`),
+      ...Object.entries(node.validation ?? {}).filter(([, validation]) => validation.runtimeMessage).map(([engine, validation]) => `  ${engine}: ${validation.runtimeMessage}`),
       ...(node.memoryArchitecture === 'unified' ? [`  Installed RAM: ${formatMi(node.installedMemoryMi)} / fixed GPU reservation: ${formatMi(node.firmwareReservedMi)}`, `  OS-visible shared RAM: ${formatMi(node.physicalMemoryMi)} / dynamic GPU ceiling: ${formatMi(node.gpuAccessibleMi)} (within Linux RAM, not extra).`, `  One GPU: driver capacity ${formatMi(node.gpuCapacityMi)} / allocation ${node.gpuAllocationMode ?? 'unknown'} / source ${node.gpuCapacitySource ?? 'unavailable'}`, '  Dynamic memory is not a protected reservation. Firmware and dynamic limits are not added.', `  Shared accounting: ${node.memoryAccountingVerified ? 'verified' : 'not verified'}`] : []),
     ]),
     ...(!compatibility ? ['GPU compatibility catalog has not been reported.'] : []),
@@ -805,7 +805,7 @@ export const runTui = async (runtime: Runtime, options: {color?: boolean; refres
       if (!compatibility) return message('Hardware catalog unavailable', 'The server has not reported GPU compatibility profiles yet. Refresh after the controller update.');
       const apply = async (parameters: Record<string, string>) => perform('GPU compatibility', async () => {
         await runtime.api.enableModule('amd-gpu', parameters);
-        return {lines: ['Hardware configuration saved. GPU registration and each engine validation are separate readiness checks.']};
+        return {lines: ['Hardware configuration saved. GPU use requires host readiness and GPU registration. Optional engine tests run only when requested manually.']};
       });
       if (key === 'e' || key === '\r' || key === '\n') openForm('AMD compatibility profile', 'Experimental profiles require explicit acceptance. Selection affects matching nodes only and does not certify inference.', [
         {id: 'profile', label: 'Profile', value: compatibility.selectedProfile ?? '', kind: 'choice', choices: [{value: '', label: 'Upstream operator rules only'}, ...compatibility.profiles.map((profile) => ({value: profile.id, label: `${profile.displayName} ${profile.version}${profile.experimental ? ' (experimental)' : ''}`}))]},
@@ -814,7 +814,7 @@ export const runTui = async (runtime: Runtime, options: {color?: boolean; refres
       else if (key === 'd') openConfirm('Return to upstream rules', 'Remove the custom GPU compatibility profile. Existing models may lose GPU eligibility. This does not uninstall the host driver.', 'use upstream', async () => apply(gpuCompatibilityParameters('', compatibility.profiles, false)));
       else if (key === 'v') {
         if (!compatibility.selectedProfile) return message('Select a profile first', 'GPU validation requires a saved compatibility profile.');
-        openConfirm('Run GPU validation', 'The profile tests may download images and use GPU resources. They are bounded GPU checks, not a full model quality benchmark.', 'run tests', async () => {
+        openConfirm('Run GPU validation', 'Optional diagnostic: the profile tests may download images and use GPU resources. Results do not block GPU use; this is not a full model quality benchmark.', 'run tests', async () => {
           const parameters = gpuCompatibilityParameters(compatibility.selectedProfile ?? '', compatibility.profiles, compatibility.allowExperimental === true);
           parameters.validationRequest = `tui-${Date.now()}-${crypto.randomUUID()}`;
           await apply(parameters);

@@ -65,7 +65,7 @@ spec:
               properties:
                 phase:
                   type: string
-                  enum: [Accepted, Preparing, RebootScheduled, PoweroffScheduled, Verifying, Validating, Succeeded, PreparedUnverified, Failed, Rejected, Interrupted]
+                  enum: [Accepted, Preparing, RebootScheduled, PoweroffScheduled, Verifying, Registering, Validating, Succeeded, PreparedUnverified, Failed, Rejected, Interrupted]
                 message: {type: string, maxLength: 2048}
                 requestId: {type: string, maxLength: 32}
                 startedAt: {type: string, format: date-time}

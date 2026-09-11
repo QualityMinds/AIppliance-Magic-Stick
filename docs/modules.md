@@ -137,15 +137,17 @@ not a certified stack. Administrators select it through
 `ModuleActivation/amd-gpu.spec.parameters.compatibilityProfile` together with
 `allowExperimental: "true"`; the empty profile retains upstream-only behavior.
 A unique `validationRequest` explicitly requests GPU tests, image/model
-downloads and resource usage. The dashboard and CLI require confirmation.
+downloads and resource usage. This is optional; the dashboard and CLI require
+confirmation. Saving a profile or preparing the host does not start engine tests.
 
 The AMD Helm chart installs the controller and CRDs without its default
 `DeviceConfig`. Magic Stick reconciles that operand separately against its own
 `appliance.magicstick.dev/amd-gpu-eligible` label after upstream support or
 explicit, prepared profile eligibility is established. This avoids coupling
-controller installation to an unmatched GPU selector. Each experimental engine
-must additionally pass its own GPU inference validation before model placement
-is permitted; GPU registration alone is not enough. See
+controller installation to an unmatched GPU selector. Eligible hardware with a
+registered GPU enables both catalogued engines by default. Optional smoke-test
+results do not gate selection or placement; effective runtime configuration must
+still be adopted by KubeAI. See
 [GPU compatibility](gpu-compatibility.md) for host preparation, evidence,
 shared-memory constraints and remaining acceptance gates.
 

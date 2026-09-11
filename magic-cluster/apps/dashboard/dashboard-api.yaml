@@ -2668,9 +2668,8 @@ data:
                 )
             resolved_resource_profile = resolved_resource_profiles.get("VLLM", resolved_resource_profile)
 
-            # A schedulable device proves device-plugin registration, not that
-            # every engine image can execute on that architecture. Profile-
-            # specific selectors are supplied by the compute catalog.
+            # Hardware/profile eligibility selects compatible engine targets.
+            # Optional smoke-test outcomes never gate these catalog selectors.
             engine_availability = {}
             has_engine_selectors = False
             for engine in engines:
@@ -2689,9 +2688,9 @@ data:
                     "available": engine_ready,
                     "compatibleNodes": len(engine_nodes),
                     "nodeSelector": selector,
-                    "reason": "ready" if engine_ready else ("engine-not-validated" if available else reason),
+                    "reason": "ready" if engine_ready else ("engine-not-eligible" if available else reason),
                     "message": message if engine_ready or not available else (
-                        engine + " has not passed GPU validation on an eligible node. See System > Hardware."
+                        engine + " has no eligible GPU node for its runtime profile. See System > Hardware. Engine validation is optional."
                     ),
                 }
             declared_engines = list(engines)
@@ -2699,8 +2698,8 @@ data:
                 engines = [engine for engine in engines if engine_availability[engine]["available"]]
                 if available and not engines:
                     available = False
-                    reason = "engine-not-validated"
-                    message = "GPU resources are registered, but no engine is validated on an eligible node. See System > Hardware."
+                    reason = "engine-not-eligible"
+                    message = "GPU resources are registered, but no engine runtime profile has an eligible node. See System > Hardware. Engine validation is optional."
 
             cache_types = {
                 engine: kv_cache_options(engine, target_id, [node for node in matching_nodes if all(
@@ -2855,6 +2854,8 @@ data:
         if validation is not None:
             if not isinstance(validation, str) or validation and not re.fullmatch(r"[A-Za-z0-9._-]{1,80}", validation):
                 raise ValueError("validationRequest must be a short unique identifier")
+            if re.fullmatch(r"host-[a-f0-9]{32}", validation):
+                raise ValueError("Legacy automatic host validation identifiers are retired; use a new manual validationRequest")
             if validation and not profile:
                 raise ValueError("Choose a GPU compatibility profile before requesting validation")
             result["validationRequest"] = validation
@@ -5920,12 +5921,49 @@ data:
         return reservations
 
 
+    def host_memory_sample(node):
+        """Live procfs/sysfs evidence, bound to the current node and boot (90s TTL)."""
+        metadata, status = node.get("metadata") or {}, node.get("status") or {}
+        info = status.get("nodeInfo") or {}
+        try:
+            sample = json.loads((metadata.get("annotations") or {}).get("appliance.magicstick.dev/memory-sample", ""))
+            if (not isinstance(sample, dict) or sample.get("schemaVersion") != 1
+                    or sample.get("source") != "proc-meminfo-amdgpu-sysfs"
+                    or not metadata.get("uid") or sample.get("nodeUid") != metadata["uid"]
+                    or not info.get("bootID") or sample.get("bootId") != info["bootID"]
+                    or not info.get("kernelVersion") or sample.get("kernelVersion") != info["kernelVersion"]):
+                return None
+            generated = datetime.fromisoformat(str(sample.get("generatedAt") or "").replace("Z", "+00:00"))
+            age = (datetime.now(timezone.utc) - generated).total_seconds()
+            total, available = sample.get("totalBytes"), sample.get("availableBytes")
+            if (age < -5 or age > 90 or type(total) is not int or type(available) is not int
+                    or total <= 0 or not 0 <= available <= total
+                    or total // (1024 * 1024) != quantity_mi((status.get("capacity") or {}).get("memory"))):
+                return None
+            return sample
+        except (ValueError, TypeError, OverflowError):
+            return None
+
+
     def node_memory_samples(nodes):
         samples = {}
         missing = []
         for node in nodes:
             name = str((node.get("metadata") or {}).get("name") or "")
             if not name:
+                continue
+            host = host_memory_sample(node)
+            if host is not None:
+                samples[name] = {"availableMi": host["availableBytes"] // (1024 * 1024),
+                                 "source": "host-proc-meminfo", "hostMemory": host}
+                continue
+            try:
+                preflight = json.loads(((node.get("metadata") or {}).get("annotations") or {}).get("appliance.magicstick.dev/gpu-host-preflight", ""))
+            except (ValueError, TypeError):
+                preflight = {}
+            if isinstance(preflight, dict) and preflight.get("memoryArchitecture") == "unified":
+                # Kubelet working-set accounting can miss driver-owned GPU RAM.
+                # Never turn missing/stale host telemetry into a falsely full pool.
                 continue
             try:
                 summary = request_json(
@@ -6108,6 +6146,32 @@ data:
         return "unknown", None
 
 
+    def gpu_memory_free(report, host, accessible):
+        """Driver counters are per PCI device; Linux already accounts for GTT use."""
+        unknown = {"sharedFreeMi": None, "dedicatedFreeMi": None}
+        if not host or not report.get("gpuPciAddress"):
+            return unknown
+        devices = host.get("devices")
+        if not isinstance(devices, list):
+            return unknown
+        matches = [item for item in devices if isinstance(item, dict) and item.get("pciAddress") == report["gpuPciAddress"]]
+        if len(matches) != 1:
+            return unknown
+        device = matches[0]
+        def remaining(domain):
+            total, used = device.get(domain + "TotalBytes"), device.get(domain + "UsedBytes")
+            if type(total) is not int or type(used) is not int or total <= 0 or not 0 <= used <= total:
+                return None
+            if domain == "vram":
+                if total // (1024 * 1024) != positive_int(report.get("firmwareReservedMi")):
+                    return None
+                return (total - used) // (1024 * 1024)
+            if not accessible or accessible * 1024 * 1024 > total:
+                return None
+            return max(0, min(host["availableBytes"], accessible * 1024 * 1024 - used)) // (1024 * 1024)
+        return {"sharedFreeMi": remaining("gtt"), "dedicatedFreeMi": remaining("vram")}
+
+
     def unified_memory_pools(nodes, reservations, samples=None):
         """Keep firmware GPU allocations separate from Linux/GTT accounting.
 
@@ -6162,6 +6226,8 @@ data:
                 gpu_remaining = min(gpu_remaining, max(0, schedulable - reserved))
             sample = (samples or {}).get(name) or {}
             free = sample.get("availableMi")
+            host = sample.get("hostMemory")
+            gpu_free = gpu_memory_free(report, host, accessible)
             pools.append({
                 "id": metadata["uid"], "node": name, "memoryArchitecture": "unified",
                 "physicalMemoryMi": physical, "gpuAccessibleMi": accessible,
@@ -6175,9 +6241,12 @@ data:
                 "reservedMi": reserved, "unreservedMi": max(0, schedulable - reserved),
                 "gpuUnreservedMi": gpu_remaining,
                 "freeMi": max(0, min(physical, int(free))) if free is not None else None,
+                **gpu_free,
+                "memoryMetricsSource": "host-proc-meminfo-amdgpu-sysfs" if host else "unavailable",
+                "memorySampledAt": host.get("generatedAt") if host else None,
                 "memoryAccountingVerified": report.get("memoryAccountingVerified") is True,
                 "reservations": shared_reservations,
-                "message": ("GPU model allocations use the firmware-reserved pool. Only host runtime RAM is charged to Linux; live GPU free memory is not reported."
+                "message": ("GPU model allocations use the firmware-reserved pool. Only host runtime RAM is charged to Linux."
                             if mode == "firmware-reserved" else
                             "GPU model allocations use dynamic Linux RAM. The ceiling is not reserved or protected against other processes."
                             if mode == "shared-gtt" else
@@ -6236,8 +6305,9 @@ data:
                     "totalMi": pool["gpuTotalMi"] or 0,
                     "unreservedMi": pool["gpuUnreservedMi"],
                     "reservedMi": pool["gpuReservedMi"], "reservations": pool["gpuReservations"],
-                    "freeMi": min(pool["freeMi"], pool["gpuCapacityMi"]) if pool["gpuAllocationMode"] == "shared-gtt" and pool["freeMi"] is not None else None,
-                    "metricsSource": "host-preflight-and-kubelet", "metricsAvailable": pool["gpuAllocationMode"] == "shared-gtt" and pool["freeMi"] is not None,
+                    "freeMi": pool["sharedFreeMi"] if pool["gpuAllocationMode"] == "shared-gtt" else pool["dedicatedFreeMi"] if pool["gpuAllocationMode"] == "firmware-reserved" else None,
+                    "metricsSource": pool["memoryMetricsSource"],
+                    "metricsAvailable": (pool["sharedFreeMi"] if pool["gpuAllocationMode"] == "shared-gtt" else pool["dedicatedFreeMi"] if pool["gpuAllocationMode"] == "firmware-reserved" else None) is not None,
                     "message": pool["message"],
                 })
         known_uma = [item for item in reservations.get("amd-gpu", []) if item.get("memoryArchitecture") == "unified"]

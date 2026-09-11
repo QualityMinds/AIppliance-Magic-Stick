@@ -15,5 +15,6 @@ data:
   vllm-amd-source: vllm/vllm-openai-rocm:v0.26.0
   ollama-amd-source: ollama/ollama:0.33.2-rocm
 # Flux bootstraps valid valuesKeys, then the operator owns updates. Successful
-# experimental validation pins the actual image digest; catalog changes reset
-# that pin until the new image passes. No machine-specific result is in Git.
+# optional validation pins the actual image digest; catalog changes reset that
+# pin to the configured image. Neither selection nor runtime adoption requires
+# a smoke test. No machine-specific result is in Git.

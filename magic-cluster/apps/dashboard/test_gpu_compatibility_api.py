@@ -63,26 +63,42 @@ class GPUCompatibilityApiTests(unittest.TestCase):
         self.assertEqual(params['validationRequest'], '')
         self.assertEqual(self.api['validate_gpu_compatibility_parameters']({})['compatibilityProfile'], '')
 
+    def test_retired_automatic_host_request_is_not_accepted_as_a_new_manual_request(self):
+        with self.assertRaisesRegex(ValueError, 'retired'):
+            self.api['validate_gpu_compatibility_parameters']({
+                'compatibilityProfile': 'strix-halo', 'allowExperimental': True,
+                'validationRequest': 'host-' + 'a' * 32,
+            })
+
     def test_profile_mutations_require_admin_even_when_disabling(self):
         self.assertEqual(self.api['module_mutation_access']('amd-gpu', {'parameters': {}}), 'admin')
         self.assertEqual(self.api['module_mutation_access']('gpu', {'parameters': {}}), 'operator')
         with self.assertRaisesRegex(ValueError, 'object'):
             self.api['module_activation_payload']('amd-gpu', True, {'parameters': []})
 
-    def test_registered_gpu_does_not_enable_unvalidated_engine(self):
+    def test_registered_gpu_still_requires_an_eligible_engine_profile(self):
         self.configure_targets([self.node()])
         target = self.api['compute_target_availability']()['targets'][0]
         self.assertTrue(target['available'])
         self.assertEqual(target['engines'], ['OLlama'])
-        self.assertEqual(target['engineAvailability']['VLLM']['reason'], 'engine-not-validated')
-        with self.assertRaisesRegex(self.api['RequestError'], 'not passed GPU validation'):
+        self.assertEqual(target['engineAvailability']['VLLM']['reason'], 'engine-not-eligible')
+        with self.assertRaisesRegex(self.api['RequestError'], 'no eligible GPU node'):
             self.api['require_compute_target_available']('amd-gpu', 'VLLM')
 
-    def test_no_validated_engine_disables_target(self):
+    def test_no_eligible_engine_disables_target(self):
         self.configure_targets([self.node(ollama=False)])
         target = self.api['compute_target_availability']()['targets'][0]
         self.assertFalse(target['available'])
-        self.assertEqual(target['reason'], 'engine-not-validated')
+        self.assertEqual(target['reason'], 'engine-not-eligible')
+
+    def test_eligible_gpu_exposes_both_engines_without_any_validation_results(self):
+        self.configure_targets([self.node(vllm=True)])
+        target = self.api['compute_target_availability']()['targets'][0]
+        self.assertTrue(target['available'])
+        self.assertEqual(target['engines'], ['OLlama', 'VLLM'])
+        for engine in ('OLlama', 'VLLM'):
+            self.assertTrue(target['engineAvailability'][engine]['available'])
+            self.api['require_compute_target_available']('amd-gpu', engine)
 
     def test_shared_pool_charges_cpu_and_gpu_once_and_reserves_system_ram(self):
         reservations = {'cpu': [{'model': 'cpu', 'reservedMi': 4096}],
@@ -170,7 +186,7 @@ class GPUCompatibilityApiTests(unittest.TestCase):
         self.assertEqual(cpu['unreservedMi'], 56 * 1024)
         self.assertFalse(cpu['accountingVerified'])
 
-    def test_estimate_never_uses_unvalidated_large_node(self):
+    def test_estimate_never_uses_ineligible_large_node(self):
         small, large = self.node(vllm=True), self.node(name='node-b')
         small_report = json.loads(small['metadata']['annotations']['appliance.magicstick.dev/gpu-host-preflight'])
         small_report['gpuAccessibleMi'] = 16384

@@ -61,6 +61,11 @@ installations.
 
 ## GPU compatibility configuration
 
+Host convergence also installs `magicstick-memory-sample.timer`. It publishes
+direct Linux/AMD memory counters every 30 seconds, using the configured GPU
+evidence node name and `gpu_compatibility_publish_evidence` switch. It opens no
+network listener, runs no engine probe, and changes no memory allocation limits.
+
 Additional AMD profiles are runtime module intent, not installer defaults or
 appliance-wide domain settings. Administrators configure
 `ModuleActivation/amd-gpu.spec.parameters.compatibilityProfile`,
@@ -70,7 +75,8 @@ probe images and implicit experimental consent are rejected by the API.
 
 `ai-system/magicstick-gpu-compatibility-catalog` provides versioned profile and
 fixed test-image/model definitions. The initial `strix-halo` profile remains
-experimental; host and per-engine validation are additional independent gates. Runtime-owned
+experimental; fresh host evidence and GPU registration remain required, while
+per-engine validation is optional and manual. Runtime-owned
 keys in `flux-system/magicstick-gpu-runtime-images` carry successful image
 digests to KubeAI Helm `valuesFrom`; public manifests contain no machine-specific
 validation results or image-ID evidence.

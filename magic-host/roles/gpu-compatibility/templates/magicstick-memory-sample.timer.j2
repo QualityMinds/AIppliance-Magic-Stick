@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh Magic Stick live memory counters
+
+[Timer]
+OnBootSec=15s
+OnUnitActiveSec=30s
+AccuracySec=1s
+Unit=magicstick-memory-sample.service
+
+[Install]
+WantedBy=timers.target

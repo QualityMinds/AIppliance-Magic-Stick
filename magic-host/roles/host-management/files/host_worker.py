@@ -251,14 +251,14 @@ class Worker:
     def activation_identity(activation):
         return digest({"uid": activation.get("metadata", {}).get("uid"), "spec": activation.get("spec") or {}})
 
-    def request_validation(self, operation):
+    def enable_gpu_profile(self, operation):
         current = self.state["current"]
         if current["plan"].get("engineValidationAvailable") is False:
-            self.update(operation, "PreparedUnverified", "Experimental host preparation finished. GPU engine validation is unavailable for this multi-AMD layout; no GPU eligibility or support certification was granted.")
+            self.update(operation, "PreparedUnverified", "Experimental host preparation finished. The runtime profile is unavailable for this multi-AMD layout; no GPU eligibility or support certification was granted.")
             return
         existing = self.activation()
         if self.activation_identity(existing) != current.get("activationBefore"):
-            self.update(operation, "Interrupted", "GPU module configuration changed during host preparation. That decision was not overwritten; review and request validation explicitly.")
+            self.update(operation, "Interrupted", "GPU module configuration changed during host preparation. That decision was not overwritten; review the hardware profile explicitly.")
             return
         # Refresh node evidence before asking the controller to trust this boot.
         run(["/usr/local/sbin/magicstick-gpu-publish"], timeout=90)
@@ -266,15 +266,15 @@ class Worker:
                       "metadata": {"name": "amd-gpu", "namespace": NAMESPACE}, "spec": {"module": "amd-gpu", "enabled": True,
                       "applianceRef": {"name": "local", "namespace": NAMESPACE}, "parameters": {
                           "compatibilityProfile": current["plan"]["gpuProfile"], "allowExperimental": "true",
-                          "validationRequest": "host-" + current["requestId"]}}}
+                          "validationRequest": ""}}}
         if existing:
             kube(["patch", "moduleactivations.appliance.magicstick.dev", "amd-gpu", "-n", NAMESPACE, "--type=merge", "--patch-file=/dev/stdin", "-o", "json"],
                  {"metadata": {"resourceVersion": existing["metadata"]["resourceVersion"]}, "spec": activation["spec"]})
         else:
             kube(["create", "-f", "-", "-o", "json"], activation)
-        current["validationStartedAt"] = time.time()
-        current["validationBootId"] = self.report["bootId"]
-        self.update(operation, "Validating", "Host is ready. Waiting for Kubernetes GPU registration and separate Ollama/vLLM GPU smoke tests.")
+        current["registrationStartedAt"] = time.time()
+        current["registrationBootId"] = self.report["bootId"]
+        self.update(operation, "Registering", "Host is ready. Waiting for Kubernetes GPU registration. Engine validation is optional and is not started automatically.")
 
     def reconcile(self, operation):
         if not operation:
@@ -328,7 +328,7 @@ class Worker:
                         raise RuntimeError("The reviewed kernel and initramfs were not both installed; reboot was not scheduled.")
                     self.schedule_power(operation, "reboot")
                 else:
-                    self.request_validation(operation)
+                    self.enable_gpu_profile(operation)
             except (RuntimeError, OSError, ValueError, subprocess.TimeoutExpired) as error:
                 print(json.dumps({"event": "host-operation-error", "requestId": spec["requestId"], "type": type(error).__name__,
                                   "message": str(error) if isinstance(error, RuntimeError) else "Local execution or timeout failure; no automatic retry."}), file=sys.stderr)
@@ -362,40 +362,33 @@ class Worker:
                 self.update(operation, "Failed", "No new boot was observed after the scheduled operation. It will not be repeated automatically.")
         elif phase == "Verifying":
             if (self.report.get("nodeAnnotation") or {}).get("hostDriverReady") is True:
-                self.request_validation(operation)
+                self.enable_gpu_profile(operation)
             elif time.time() - current.get("verifyStartedAt", 0) > 300:
                 self.update(operation, "Failed", "The new kernel started, but GPU host checks did not pass. Inspect hardware diagnostics.")
-        elif phase == "Validating":
-            self.verify_engines(operation)
+        elif phase in {"Registering", "Validating"}:
+            self.verify_gpu_registration(operation)
 
-    def verify_engines(self, operation):
+    def verify_gpu_registration(self, operation):
         current = self.state["current"]
-        if current.get("validationBootId") != self.report["bootId"]:
-            self.update(operation, "Interrupted", "The host restarted during GPU validation. Confirm a new validation request after inspecting the host.")
+        if current.get("registrationBootId", current.get("validationBootId")) != self.report["bootId"]:
+            self.update(operation, "Interrupted", "The host restarted during GPU registration. Review the host before requesting preparation again.")
             return
         activation = kube(["get", "moduleactivations.appliance.magicstick.dev", "amd-gpu", "-n", NAMESPACE, "--ignore-not-found", "-o", "json"]) or {}
         parameters = activation.get("spec", {}).get("parameters", {})
-        if (parameters.get("validationRequest") != "host-" + current["requestId"] or activation.get("spec", {}).get("enabled") is False
+        if (activation.get("spec", {}).get("enabled") is False
                 or parameters.get("compatibilityProfile") != current["plan"]["gpuProfile"] or parameters.get("allowExperimental") != "true"):
-            self.update(operation, "Interrupted", "GPU profile or validation request changed. The host workflow will not overwrite that decision.")
+            self.update(operation, "Interrupted", "GPU profile changed. The host workflow will not overwrite that decision.")
             return
         appliance = kube(["get", "appliances.appliance.magicstick.dev", "local", "-n", NAMESPACE, "-o", "json"])
         nodes = appliance.get("status", {}).get("hardwareOperators", {}).get("amd-gpu", {}).get("compatibility", {}).get("nodes", [])
         evidence = next((node for node in nodes if node.get("nodeUid") == self.node["metadata"]["uid"]), {})
-        validations = evidence.get("validation", {})
-        fresh = evidence.get("hostFingerprint") == self.report.get("hardwareFingerprint")
-        states = []
-        for engine in ("OLlama", "VLLM"):
-            item = validations.get(engine, {})
-            try:
-                timestamp = datetime.fromisoformat(item.get("validatedAt", "").replace("Z", "+00:00")).timestamp()
-            except ValueError:
-                timestamp = 0
-            states.append(item.get("state") if fresh and timestamp >= current["validationStartedAt"] - 1 else "pending")
-        if states == ["passed", "passed"] and evidence.get("hostDriverReady") and evidence.get("resourceRegistered"):
-            self.update(operation, "Succeeded", "Host preparation and both tiny-model AMD GPU smoke tests passed. Other GPU vendors, mixed-system certification, production runtime adoption and model-specific acceptance remain separate checks.")
-        elif "failed" in states or time.time() - current["validationStartedAt"] > 3600:
-            self.update(operation, "Failed", "GPU engine validation failed or exceeded one hour. See System / Hardware for per-engine details. Host preparation will not be repeated.")
+        fresh = (bool(evidence.get("hostFingerprint"))
+                 and evidence["hostFingerprint"] == self.report.get("hardwareFingerprint")
+                 and evidence.get("hostBootId") == self.report["bootId"])
+        if fresh and evidence.get("eligible") and evidence.get("hostDriverReady") and evidence.get("resourceRegistered"):
+            self.update(operation, "Succeeded", "Host preparation and Kubernetes GPU registration are ready. Engine validation is optional; run it manually in System / Hardware. No inference test was required.")
+        elif time.time() - current.get("registrationStartedAt", current.get("validationStartedAt", time.time())) > 900:
+            self.update(operation, "Failed", "Kubernetes GPU registration did not become ready within 15 minutes. Inspect System / Hardware. Host preparation will not be repeated automatically.")
 
     def publish(self):
         current = self.state.get("current") or {}

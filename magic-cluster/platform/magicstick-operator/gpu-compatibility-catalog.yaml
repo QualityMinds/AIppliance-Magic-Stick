@@ -21,7 +21,7 @@ data:
           "expectedArchitecture": "gfx1151",
           "memoryArchitecture": "unified",
           "experimental": true,
-          "description": "Explicit opt-in for one Strix Halo GPU per node. Requires a fresh host preflight and separate successful GPU inference validation for each engine. Unified memory is one physical pool, not extra VRAM.",
+          "description": "Explicit opt-in for one Strix Halo GPU per node. A fresh host preflight and registered GPU enable model use; engine validation is an optional manual diagnostic. Unified memory is one physical pool, not extra VRAM.",
           "engines": {
             "OLlama": {"image": "ollama/ollama:0.33.2-rocm", "testModel": "qwen3:0.6b"},
             "VLLM": {"image": "vllm/vllm-openai-rocm:v0.26.0", "testModel": "Qwen/Qwen3-0.6B"}

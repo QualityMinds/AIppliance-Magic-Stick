@@ -29,7 +29,8 @@ export const canAdminister = (session?: Session) => dashboardRole(session) === '
 
 export const gpuValidationSummary = (validation?: GpuEngineValidation) => {
   const state = validation?.state ?? 'unverified';
-  return state === 'passed' ? `${state} · runtime ${validation?.runtimeReady ? 'ready' : 'pending'}` : state;
+  return state === 'passed' || validation?.runtimeReady !== undefined
+    ? `${state} · runtime ${validation?.runtimeReady ? 'ready' : 'pending'}` : state;
 };
 
 export const gpuCompatibilityParameters = (profileId: string, profiles: GpuCompatibilityProfile[], acknowledged: boolean): Record<string, string> => {

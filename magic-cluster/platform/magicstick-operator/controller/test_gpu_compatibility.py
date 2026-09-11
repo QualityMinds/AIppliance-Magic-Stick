@@ -96,13 +96,14 @@ class GpuCompatibilityTests(unittest.TestCase):
             [self.node], {"deviceconfigs.amd.com"}, compatibility=compatibility,
         )["amd-gpu"]
 
-    def test_experimental_registered_gpu_without_engine_pass_is_validating(self):
+    def test_experimental_registered_gpu_is_ready_during_optional_validation(self):
         compatibility = self.controller["gpu_compatibility_status"]([self.node], self.features, self.catalog, self.activation)
         compatibility["nodes"][0]["validation"]["OLlama"]["state"] = "running"
         result = self.hardware_status(compatibility)
-        self.assertEqual(result["phase"], "Installing")
+        self.assertEqual(result["phase"], "Ready")
         self.assertEqual(result["allocatableResources"], 1)
-        self.assertIn("1 engine check(s) running", result["message"])
+        self.assertIn("1 running", result["message"])
+        self.assertFalse(result["checks"][-1]["required"])
         self.assertNotIn("support rule", result["message"])
         self.assertFalse(result["compatibility"]["nodes"][0]["upstreamSupported"])
 
@@ -116,13 +117,13 @@ class GpuCompatibilityTests(unittest.TestCase):
         self.assertIn("1/2", result["message"])
         self.assertFalse(result["compatibility"]["nodes"][0]["upstreamSupported"])
 
-    def test_all_engine_failures_are_degraded_not_hardware_unsupported(self):
+    def test_all_engine_failures_remain_diagnostic_without_disabling_hardware(self):
         compatibility = self.controller["gpu_compatibility_status"]([self.node], self.features, self.catalog, self.activation)
         for report in compatibility["nodes"][0]["validation"].values():
             report["state"] = "failed"
         result = self.hardware_status(compatibility)
-        self.assertEqual(result["phase"], "Degraded")
-        self.assertIn("all 2 engine validation checks failed", result["message"])
+        self.assertEqual(result["phase"], "Ready")
+        self.assertIn("2 failed", result["message"])
         self.assertEqual(result["allocatableResources"], 1)
 
     def test_explicit_opt_in_is_required(self):
@@ -394,7 +395,7 @@ class GpuCompatibilityTests(unittest.TestCase):
         generic_index = next(i for i, item in enumerate(references) if item["name"] == "magicstick-offloading-profiles")
         self.assertTrue(all(i > generic_index for i, item in enumerate(references) if item["name"] == config["metadata"]["name"]))
 
-    def test_failed_validation_does_not_publish_engine_eligibility(self):
+    def test_failed_validation_does_not_fabricate_a_success(self):
         job = self.job()
         job["status"] = {"conditions": [{"type": "Failed", "status": "True"}]}
         self.assertEqual(self.status([job])["validation"]["OLlama"]["state"], "failed")
@@ -418,7 +419,7 @@ class GpuCompatibilityTests(unittest.TestCase):
         for path, body in patched:
             if path.startswith("/api/v1/nodes/"):
                 self.assertTrue(all(key.startswith("appliance.magicstick.dev/") for key in body["metadata"]["labels"]))
-                self.assertNotIn(self.controller["AMD_ENGINE_LABELS"]["OLlama"], body["metadata"]["labels"])
+                self.assertEqual(body["metadata"]["labels"][self.controller["AMD_ENGINE_LABELS"]["OLlama"]], "true")
         self.assertEqual(result["nodes"][0]["validation"]["OLlama"]["state"], "running")
 
     def test_external_deviceconfig_is_not_taken_over(self):
@@ -566,13 +567,96 @@ class GpuCompatibilityTests(unittest.TestCase):
         resource = {"metadata": {}}
         self.kubeai_pods[0]["metadata"]["annotations"]["checksum/config"] = "old"
         with patch.dict(self.controller, mocks):
-            with self.assertRaisesRegex(ValueError, "validated configuration"):
-                self.controller["require_validated_gpu_runtime"](resource, runtime)
+            with self.assertRaisesRegex(ValueError, "configured GPU runtime"):
+                self.controller["require_gpu_runtime"](resource, runtime)
         self.assertNotIn("annotations", resource["metadata"])
         mocks = self.runtime_fixtures()
         with patch.dict(self.controller, mocks):
-            self.controller["require_validated_gpu_runtime"](resource, runtime)
-        self.assertEqual(resource["metadata"]["annotations"]["appliance.magicstick.dev/validated-runtime-image"], self.pinned_image)
+            self.controller["require_gpu_runtime"](resource, runtime)
+        self.assertEqual(resource["metadata"]["annotations"]["appliance.magicstick.dev/runtime-image"], self.pinned_image)
+
+    def test_default_profile_enables_both_engines_without_running_probes(self):
+        for request in ("", "host-" + "a" * 32):
+            with self.subTest(request=request):
+                self.activation["spec"]["parameters"]["validationRequest"] = request
+                applied = []
+                with patch.dict(self.controller, {
+                    "list_items": lambda _: [], "get_core_resource": lambda *_: {"data": {}},
+                    "get_resource": lambda *_: None, "apply_resource": applied.append,
+                    "patch_json": lambda *_: {}, "kubeai_gpu_runtime_ready": lambda *_: (True, "Configured image adopted."),
+                }):
+                    result = self.controller["reconcile_gpu_compatibility"](
+                        [self.node], self.features, self.catalog, self.activation, {"deviceconfigs.amd.com"})
+                self.assertFalse(result["validationRequired"])
+                self.assertFalse(any(resource["kind"] == "Job" for resource in applied))
+                self.assertEqual(self.hardware_status(result)["phase"], "Ready")
+                for engine in ("OLlama", "VLLM"):
+                    report = result["nodes"][0]["validation"][engine]
+                    self.assertEqual(report["state"], "unverified")
+                    self.assertTrue(report["runtimeReady"])
+                    self.assertEqual(self.node["metadata"]["labels"][self.controller["AMD_ENGINE_LABELS"][engine]], "true")
+                    self.assertEqual(self.node["metadata"]["labels"][self.controller["AMD_RUNTIME_LABELS"][engine]], "true")
+
+    def test_host_operation_schema_accepts_registration_and_legacy_validation_phase(self):
+        crd = yaml.safe_load((ROOT / "crds/hostoperations.appliance.magicstick.dev.yaml").read_text())
+        phases = crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["status"]["properties"]["phase"]["enum"]
+        self.assertIn("Registering", phases)
+        self.assertIn("Validating", phases)
+
+    def test_failed_manual_tests_keep_both_engines_eligible(self):
+        jobs = [self.job(engine) for engine in ("OLlama", "VLLM")]
+        for job in jobs:
+            job["status"] = {"conditions": [{"type": "Failed", "status": "True"}]}
+        with patch.dict(self.controller, {
+            "list_items": lambda path: jobs if "/jobs?" in path else [],
+            "get_core_resource": lambda *_: {"data": {}}, "get_resource": lambda *_: None,
+            "apply_resource": lambda resource: self.assertNotEqual(resource["kind"], "Job"),
+            "patch_json": lambda *_: {}, "kubeai_gpu_runtime_ready": lambda *_: (True, "Configured image adopted."),
+        }):
+            result = self.controller["reconcile_gpu_compatibility"]([self.node], self.features, self.catalog, self.activation, set())
+        for engine in ("OLlama", "VLLM"):
+            self.assertEqual(result["nodes"][0]["validation"][engine]["state"], "failed")
+            self.assertEqual(self.node["metadata"]["labels"][self.controller["AMD_ENGINE_LABELS"][engine]], "true")
+        self.assertEqual(self.hardware_status(result)["phase"], "Ready")
+
+    def test_catalog_tag_can_start_models_without_a_validated_digest(self):
+        mocks = self.runtime_fixtures()
+        tag = self.profile["engines"]["OLlama"]["image"]
+        self.pins["ollama-amd"] = tag
+        checksum = self.controller["gpu_runtime_checksum"](self.pins)
+        self.pins["runtime-config-checksum"] = checksum
+        self.kubeai_deployment["spec"]["template"]["metadata"]["annotations"][self.controller["GPU_RUNTIME_CHECKSUM"]] = checksum
+        self.kubeai_pods[0]["metadata"]["annotations"][self.controller["GPU_RUNTIME_CHECKSUM"]] = checksum
+        self.effective_config["data"]["system.yaml"] = self.effective_config["data"]["system.yaml"].replace(self.pinned_image, tag)
+        resource = {"metadata": {}}
+        with patch.dict(self.controller, mocks):
+            self.controller["require_gpu_runtime"](resource, {"memoryArchitecture": "unified", "engine": "OLlama"})
+        self.assertEqual(resource["metadata"]["annotations"], {"appliance.magicstick.dev/runtime-image": tag})
+
+    def test_host_or_image_changes_require_a_new_manual_request_not_automatic_probes(self):
+        for change in ("boot", "fingerprint", "image"):
+            with self.subTest(change=change):
+                self.setUp()
+                job, pod = self.completed_job()
+                if change == "boot":
+                    self.node["status"]["nodeInfo"]["bootID"] = "boot-two"
+                    self.change_host(bootId="boot-two")
+                elif change == "fingerprint":
+                    self.change_host(fingerprint="c" * 64)
+                else:
+                    self.profile["engines"]["VLLM"]["image"] = "example/vllm:new"
+                applied = []
+                with patch.dict(self.controller, {
+                    "list_items": lambda path: [job] if "/jobs?" in path else [pod] if "/pods?" in path else [],
+                    "get_core_resource": lambda *_: {"data": {}}, "get_resource": lambda *_: None,
+                    "apply_resource": applied.append, "patch_json": lambda *_: {},
+                    "delete_json": lambda *_: self.fail("Keep the manual request evidence until a new request"),
+                }):
+                    result = self.controller["reconcile_gpu_compatibility"]([self.node], self.features, self.catalog, self.activation, set())
+                self.assertFalse(applied)
+                for engine in ("OLlama", "VLLM"):
+                    self.assertEqual(result["nodes"][0]["validation"][engine]["state"], "stale")
+                    self.assertEqual(self.node["metadata"]["labels"][self.controller["AMD_ENGINE_LABELS"][engine]], "true")
 
     def test_kubeai_scheduling_uses_runtime_gate_but_dashboard_selection_does_not(self):
         kubeai = yaml.safe_load((ROOT.parent / "ai/kubeai/base/helmrelease.yaml").read_text())

@@ -98,9 +98,11 @@ available for scripts and complete JSON instance payloads.
 
 The browser's **System → Hardware** and the TUI Hardware area show upstream
 support, additional profile selection, host/driver evidence, GPU registration
-and per-engine validation separately. Administrators may opt into the initial
-experimental Strix Halo profile and explicitly start GPU validation; inspection
-does not start workloads. The CLI equivalents are:
+and optional per-engine validation separately. Administrators may opt into the
+initial experimental Strix Halo profile and explicitly start GPU validation;
+inspection, profile saves and host preparation do not start test workloads.
+GPU use requires eligible hardware, registration and runtime adoption, not a
+successful smoke test. The CLI equivalents are:
 
 ```bash
 magicstick hardware list
@@ -110,8 +112,9 @@ magicstick hardware profile upstream
 ```
 
 Validation uses fixed catalog images/test models and consumes download space
-and GPU resources. A passed Ollama result does not enable vLLM, unknown cards
-remain unknown, and shared CPU/GPU memory is not two additive capacities.
+and GPU resources. Ollama and vLLM results remain independent diagnostics, never
+readiness gates. Unknown cards remain unknown, and shared CPU/GPU memory is not
+two additive capacities.
 See [GPU compatibility](../docs/gpu-compatibility.md) for host preparation,
 experimental support and hardware acceptance gates. These are Community
 hardware controls; they do not grant Enterprise multi-GPU or multi-node placement.

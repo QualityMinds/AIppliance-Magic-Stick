@@ -1,5 +1,5 @@
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
-import {render, screen, waitFor} from '@testing-library/react';
+import {render, screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import type {GpuCompatibility, Session} from '@magicstick/dashboard-contracts';
@@ -79,6 +79,20 @@ describe('hardware compatibility', () => {
     await userEvent.click(screen.getByRole('button', {name: 'Run tests'}));
     await waitFor(() => expect(writes).toHaveLength(1));
     expect(writes[0]).toMatchObject({path: '/api/modules/amd-gpu/enable', body: {parameters: {compatibilityProfile: 'strix-halo', allowExperimental: 'true', validationRequest: expect.stringMatching(/^dashboard-/)}}});
+  });
+
+  it.each(['unverified', 'failed', 'running', 'stale'] as const)('keeps GPU/runtime readiness separate from optional %s tests', async (state) => {
+    compatibility.selectedProfile = 'strix-halo'; compatibility.allowExperimental = true;
+    compatibility.nodes[0]!.eligible = true;
+    compatibility.nodes[0]!.validation = {OLlama: {state, runtimeReady: true, runtimeMessage: 'Configured image adopted; testing is optional.'}};
+    mount();
+    expect(await screen.findByText('Engine validation · Optional')).toBeInTheDocument();
+    expect(screen.getByText('Eligible')).toBeInTheDocument();
+    expect(screen.getByText('Runtime Ready')).toBeInTheDocument();
+    expect(within(screen.getByText('Runtime Ready').parentElement!).getByText(state)).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Run GPU validation'})).toBeEnabled();
+    expect(screen.queryByText('GPU smoke passed')).not.toBeInTheDocument();
+    expect(writes).toHaveLength(0);
   });
 
   it('allows returning to upstream recognition without experimental acknowledgement', async () => {

@@ -321,8 +321,16 @@ the updated read-only GPU preflight and refresh its Node annotation. Verify
 allocation domain. Models shows one compact GPU gauge with four dedicated/shared
 readings and info popups; Hardware retains the detailed inventory. Neither adds
 firmware and dynamic limits. Check that missing dedicated live metrics render as
-a dashed ring and `—`, and shared readings stay bounded by the Linux RAM counters
-and dynamic ceiling. For fixed allocations, check that the generated
+a dashed ring and `—`, and shared readings stay bounded by Linux `MemAvailable`
+and the dynamic ceiling minus live GTT usage. The separate
+`magicstick-memory-sample.timer` publishes direct procfs/sysfs counters every
+30 seconds under `appliance.magicstick.dev/memory-sample`; samples expire after
+90 seconds and are bound to the Node UID, kernel and boot. Compare the CPU ring
+to `/proc/meminfo`, shared free to `min(MemAvailable, GTT ceiling - GTT used)`,
+and dedicated free to the AMD sysfs VRAM counters. Do not subtract reservations
+from measured free memory, or GPU usage from Linux availability a second time.
+Kubelet working-set metrics are not a substitute on unified-memory hosts.
+For fixed allocations, check that the generated
 KubeAI profile requests host runtime RAM, not the GPU weight budget again;
 for dynamic/unknown allocations retain the conservative shared-RAM request.
 Verify the activation's `memoryRequiredMi` and `gpuAllocationMode` after
@@ -1093,10 +1101,11 @@ deploy,pods` if a command does not match the running resource name.
 | OpenLens reports `lookup <appliance>.local ... no such host` | Download the kubeconfig again. Appliance kubeconfigs use the current private control-plane IP for the Kubernetes API because the OpenLens proxy may bypass mDNS. If DHCP changed the address again, rerun host convergence or wait for the Ready node address to be visible, then download a fresh file. Keep the OIDC issuer on `id.<mdns-domain>`. |
 | Kubernetes login succeeds but RBAC is denied | Confirm the user has exactly one direct `magicstick-kubernetes-*` group, obtain a fresh token after the group change, and inspect the `oidc:` Group subjects in the ClusterRoleBindings. |
 | GPU model never starts | Check the vendor GPU operator, allocatable GPU resources, KubeAI model status, and the selected vLLM/Ollama server logs. |
-| GPU hardware is present but provider is `Unsupported` | Confirm node architecture/Kubernetes preflight first. Broad AMD/Intel PCI detection does not imply vendor support. For additional AMD hardware, use only a catalogued, explicitly acknowledged [compatibility profile](gpu-compatibility.md) with host and per-engine validation; unknown cards remain unsupported. Never force the vendor's NFD support label. |
+| GPU hardware is present but provider is `Unsupported` | Confirm node architecture/Kubernetes preflight first. Broad AMD/Intel PCI detection does not imply vendor support. For additional AMD hardware, use only a catalogued, explicitly acknowledged [compatibility profile](gpu-compatibility.md) with fresh host checks and GPU registration. Engine validation is optional; unknown cards remain unsupported. Never force the vendor's NFD support label. |
 | AMD HelmRelease times out waiting for `DeviceConfig/default` with `NoMatchingNodes` | The current chart disables Helm's default operand and Magic Stick manages its `DeviceConfig` separately using `appliance.magicstick.dev/amd-gpu-eligible`. Check that the new Helm values/controller are deployed, then inspect **System → Hardware**, upstream support or explicit profile consent, current host evidence and device resources. Controller installation and usable GPU readiness are separate. |
 | Strix Halo remains unverified or has no render/KFD devices | Run `sudo magicstick-gpu-preflight --json`, inspect the actual kernel/firmware/driver, and follow [explicit host preparation](gpu-compatibility.md#explicit-ansible-preparation). PCI matching does not fix missing kernel support. The preparation role accepts reviewed package pins and never reboots automatically. |
-| Experimental AMD engine is unavailable although a GPU is allocatable | Inspect per-engine validation under **System → Hardware**. Confirm the host evidence timer, Node UID/boot/kernel identity and profile consent, then explicitly request validation. A passed Ollama result does not enable vLLM, stale image/host results are invalid, and CPU fallback is not a passing GPU test. |
+| Experimental AMD engine is unavailable although a GPU is allocatable | Engine validation is no longer a gate. Confirm the host evidence timer, Node UID/boot/kernel identity, profile consent and engine eligibility labels under **System → Hardware**. Model scheduling also waits for KubeAI to adopt the configured runtime image. Neither failed nor missing smoke tests disable a ready GPU. |
+| An optional GPU engine test failed or became stale | Inspect its Job logs and the actual model runtime. GPU use remains enabled when hardware is ready. **Run GPU validation**, CLI `hardware validate --yes`, or the TUI validation action starts a fresh bounded test; host preparation and reboots do not automatically repeat it. A passed test is not a model-size or memory-accounting guarantee. |
 | Provider is `Conflict` | A vendor CRD already existed without a Magic Stick `ModuleActivation`. Decide which installation owns the operator; do not run a second copy. |
 | Provider remains `Installing` with zero resources | The controller chart is installed but driver/device-plugin readiness is incomplete. Inspect the vendor namespace and the node's allocatable extended resources. AMD's baseline expects a working host/inbox `amdgpu` driver. |
 | NVIDIA remains `Installing` although `nvidia.com/gpu` is allocatable | The driver and device plugin are active, but the dashboard cannot read DCGM telemetry yet. Check the `nvidia-dcgm-exporter` Pod, Service, endpoints, and the dashboard API ServiceAccount's `services/proxy` permission. |

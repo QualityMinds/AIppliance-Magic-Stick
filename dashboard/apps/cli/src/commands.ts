@@ -63,7 +63,7 @@ Authentication:
 Read commands:
   overview                             Appliance, module, instance and model summary
   service list                         List modules
-  hardware list                        GPU profiles, nodes and engine validation
+  hardware list                        GPU profiles, nodes and optional engine validation
   instance list                        List application instances
   instance access <name>                Show instance sharing policy (admin)
   instance principals [--kind users|groups] [--search text]
@@ -252,9 +252,10 @@ const hardwareCommand = async (runtime: Runtime, parsed: ParsedArguments, io: Cl
     output(io, parsed, status.hardwareOperators ?? {}, () => [
       table(['OPERATOR', 'PHASE', 'RESOURCES'], Object.entries(status.hardwareOperators ?? {}).map(([id, item]) => [id, item.phase, item.allocatableResources ?? 0])),
       '', `AMD profile: ${compatibility?.selectedProfile || 'upstream rules'}`,
+      'Engine validation is optional. GPU availability and runtime adoption are separate from test results.',
       table(['PROFILE', 'VERSION', 'EXPERIMENTAL', 'MEMORY'], (compatibility?.profiles ?? []).map((item) => [item.id, item.version, item.experimental ? 'yes' : 'no', item.memoryArchitecture])),
       '', table(['NODE', 'PROFILE', 'DRIVER', 'GPU RESOURCE', 'OLLAMA', 'VLLM'], (compatibility?.nodes ?? []).map((node) => [node.node, node.profileId || 'upstream', node.hostDriverReady === true ? 'ready' : 'not verified', node.resourceRegistered === true ? 'registered' : 'not verified', gpuValidationSummary(node.validation?.OLlama), gpuValidationSummary(node.validation?.VLLM)])),
-      ...(compatibility?.nodes ?? []).flatMap((node) => Object.entries(node.validation ?? {}).filter(([, validation]) => validation.state === 'passed' && validation.runtimeMessage).map(([engine, validation]) => `${node.node} ${engine}: ${validation.runtimeMessage}`)),
+      ...(compatibility?.nodes ?? []).flatMap((node) => Object.entries(node.validation ?? {}).filter(([, validation]) => validation.runtimeMessage).map(([engine, validation]) => `${node.node} ${engine}: ${validation.runtimeMessage}`)),
       ...(compatibility?.nodes ?? []).filter((node) => node.memoryArchitecture === 'unified').map((node) => `${node.node}: installed RAM ${formatMi(node.installedMemoryMi)}; fixed GPU reservation ${formatMi(node.firmwareReservedMi)}; OS-visible shared RAM ${formatMi(node.physicalMemoryMi)}; dynamic GPU ceiling ${formatMi(node.gpuAccessibleMi)} (within Linux RAM, not extra). One GPU: driver capacity ${formatMi(node.gpuCapacityMi)}; allocation ${node.gpuAllocationMode ?? 'unknown'}; source ${node.gpuCapacitySource ?? 'unavailable'}. Firmware and dynamic limits are not added. Dynamic memory is not a protected reservation. Accounting ${node.memoryAccountingVerified ? 'verified' : 'not verified'}.`),
     ].join('\n'));
     return;
@@ -265,7 +266,7 @@ const hardwareCommand = async (runtime: Runtime, parsed: ParsedArguments, io: Cl
     const id = required(name, 'profile id or upstream');
     const parameters = gpuCompatibilityParameters(id === 'upstream' ? '' : id, compatibility.profiles, option(parsed, 'allow-experimental') === true);
     const result = await runtime.api.enableModule('amd-gpu', parameters);
-    output(io, parsed, result, () => `Saved GPU compatibility profile ${id}. This is not a GPU or engine readiness confirmation. Run hardware list to inspect each stage.`);
+    output(io, parsed, result, () => `Saved GPU compatibility profile ${id} without starting engine tests. Run hardware list to inspect host and GPU resource readiness; engine validation is optional.`);
     return;
   }
   if (action === 'validate') {

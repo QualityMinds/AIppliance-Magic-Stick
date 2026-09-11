@@ -131,6 +131,39 @@ def gpu_allocation_capacity(device, fixed_mi, ttm_bytes, linux_bytes):
     return {"gpuAllocationMode": mode, "gpuCapacityMi": capacity // 1024**2, "gpuCapacitySource": "kfd-topology"}
 
 
+def collect_memory(root=Path("/")):
+    """Cheap live counters only: no ROCm probes, package queries or mutations."""
+    def path(value):
+        return root / value.lstrip("/")
+
+    memory = dict(re.findall(r"^(MemTotal|MemAvailable):\s+(\d+)\s+kB$", read(path("/proc/meminfo")), re.M))
+    release = read(path("/proc/sys/kernel/osrelease"))
+    boot = read(path("/proc/sys/kernel/random/boot_id"))
+    generated = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    devices = []
+    for entry in sorted(path("/sys/bus/pci/devices").glob("*")):
+        cls = number(read(entry / "class"))
+        if hex_id(read(entry / "vendor")) != "1002" or cls is None or cls >> 16 != 0x03:
+            continue
+        try:
+            driver = (entry / "driver").resolve(strict=True).name
+        except OSError:
+            driver = None
+        if driver != "amdgpu":
+            continue
+        counters = {field: number(read(entry / filename)) for field, filename in (
+            ("vramTotalBytes", "mem_info_vram_total"), ("vramUsedBytes", "mem_info_vram_used"),
+            ("gttTotalBytes", "mem_info_gtt_total"), ("gttUsedBytes", "mem_info_gtt_used"))}
+        devices.append({"pciAddress": entry.name, **counters})
+    return {"kernel": {"release": release}, "bootId": boot, "nodeAnnotation": {
+        "schemaVersion": 1, "source": "proc-meminfo-amdgpu-sysfs", "generatedAt": generated,
+        "bootId": boot, "kernelVersion": release,
+        "totalBytes": int(memory["MemTotal"]) * 1024 if "MemTotal" in memory else None,
+        "availableBytes": int(memory["MemAvailable"]) * 1024 if "MemAvailable" in memory else None,
+        "devices": devices,
+    }}
+
+
 def collect(root=Path("/"), live=True):
     def path(value):
         return root / value.lstrip("/")
@@ -219,7 +252,7 @@ def collect(root=Path("/"), live=True):
     if any(device["profileId"] == PROFILE_ID for device in devices):
         if report["kernel"]["strixHaloFixes"] != "present":
             report["warnings"].append("Strix Halo kernel fixes are not confirmed; do not enable compute based on PCI detection alone.")
-        report["warnings"].append("Matching PCI hardware is not a successful HIP or inference test; each engine image needs separate validation.")
+        report["warnings"].append("Matching PCI hardware is not a successful HIP or inference test; engine validation is an optional separate diagnostic.")
     if not report["driver"]["kfd"]["present"]:
         report["warnings"].append("/dev/kfd is absent; ROCm compute cannot be assumed available.")
     if rocminfo_status["status"] != "ok":
@@ -243,6 +276,7 @@ def collect(root=Path("/"), live=True):
             "generatedAt": report["generatedAt"], "generationTimestamp": report["generatedAt"],
             "bootId": report["bootId"], "memoryArchitecture": "unified",
             "expectedArchitecture": "gfx1151", "detectedArchitecture": gfx,
+            "gpuPciAddress": device["pciAddress"],
             "gpuAccessibleMi": accessible_bytes // (1024 * 1024) if accessible_bytes is not None else None,
             # MemTotal is OS-visible physical memory, deliberately excludes BIOS carve-out.
             "physicalMemoryMi": memory["MemTotal"] // (1024 * 1024) if memory.get("MemTotal") else None,
@@ -261,12 +295,15 @@ def collect(root=Path("/"), live=True):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--json", action="store_true", help="Emit compact JSON (default: indented JSON)")
+    parser.add_argument("--memory-only", action="store_true", help="Read only live procfs/sysfs memory counters; no engine or package probes")
     parser.add_argument("--root", type=Path, help="Existing absolute filesystem snapshot root; disables every subprocess")
     parser.add_argument("--require-profile", choices=[PROFILE_ID], help="Exit 2 unless this exact hardware profile is detected; not a compute validation")
     args = parser.parse_args()
     if args.root is not None and (not args.root.is_absolute() or not args.root.is_dir()):
         parser.error("--root must be an existing absolute directory")
-    report = collect(args.root or Path("/"), live=args.root is None)
+    if args.memory_only and args.require_profile:
+        parser.error("--memory-only cannot be combined with --require-profile")
+    report = collect_memory(args.root or Path("/")) if args.memory_only else collect(args.root or Path("/"), live=args.root is None)
     print(json.dumps(report, indent=None if args.json else 2, sort_keys=True))
     return 2 if args.require_profile and not any(device["profileId"] == args.require_profile for device in report["devices"]) else 0
 

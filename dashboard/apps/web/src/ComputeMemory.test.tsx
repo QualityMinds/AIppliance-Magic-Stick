@@ -7,7 +7,7 @@ import {ComputeMemory, MemoryGauge} from './ComputeMemory';
 const pool: SharedMemoryPool = {id: 'shared-example', node: 'example-node', installedMemoryMi: 131072,
   firmwareReservedMi: 65536, physicalMemoryMi: 65536, gpuAccessibleMi: 47104,
   gpuCapacityMi: 65536, gpuAllocationMode: 'firmware-reserved', gpuCapacitySource: 'kfd-topology',
-  freeMi: 55296, totalMi: 57344, unreservedMi: 40960, gpuUnreservedMi: 57344};
+  freeMi: 55296, sharedFreeMi: 47104, totalMi: 57344, unreservedMi: 40960, gpuUnreservedMi: 57344};
 const gpu: ComputeMemoryDevice = {id: 'amd-example', name: 'Example GPU', kind: 'gpu', computeTarget: 'amd-gpu',
   memoryArchitecture: 'unified', sharedPoolId: pool.id, gpuAllocationMode: 'firmware-reserved',
   gpuCapacityMi: 65536, totalMi: 65536, unreservedMi: 57344, freeMi: null, metricsAvailable: false,
@@ -59,7 +59,7 @@ describe('compact compute memory gauges', () => {
   });
 
   it('bounds shared availability by both current Linux availability and its ceiling', () => {
-    const {container} = render(<MemoryGauge device={gpu} pool={{...pool, freeMi: 8192, unreservedMi: 65536}} />);
+    const {container} = render(<MemoryGauge device={gpu} pool={{...pool, freeMi: 8192, sharedFreeMi: 8192, unreservedMi: 65536}} />);
     expect(reading(container, 'shared-free')).toHaveTextContent('8.0 GiB');
     expect(reading(container, 'shared-unreserved')).toHaveTextContent('46 GiB');
     expect(reading(container, 'dedicated-unreserved')).toHaveTextContent('56 GiB');
@@ -67,7 +67,7 @@ describe('compact compute memory gauges', () => {
 
   it('intersects shared GPU budgets with Linux budgets without attributing them to dedicated VRAM', () => {
     const dynamicPool = {...pool, firmwareReservedMi: 512, physicalMemoryMi: 129024, gpuAccessibleMi: 112640,
-      gpuCapacityMi: 112640, gpuAllocationMode: 'shared-gtt' as const, freeMi: 81920,
+      gpuCapacityMi: 112640, gpuAllocationMode: 'shared-gtt' as const, freeMi: 81920, sharedFreeMi: 81920,
       unreservedMi: 71680, gpuUnreservedMi: 61440};
     const dynamicGpu = {...gpu, gpuAllocationMode: 'shared-gtt' as const, totalMi: 112640, unreservedMi: 61440,
       freeMi: 81920, metricsAvailable: true};
@@ -87,7 +87,7 @@ describe('compact compute memory gauges', () => {
   });
 
   it('fails closed for conflicting domains, invalid counters and unavailable metrics', () => {
-    const {container, rerender} = render(<MemoryGauge device={{...gpu, freeMi: 12345}} pool={{...pool, freeMi: Number.NaN, unreservedMi: -1}} />);
+    const {container, rerender} = render(<MemoryGauge device={{...gpu, freeMi: 12345}} pool={{...pool, freeMi: Number.NaN, sharedFreeMi: Number.NaN, unreservedMi: -1}} />);
     expect(reading(container, 'dedicated-free')).toHaveTextContent('—');
     expect(reading(container, 'shared-free')).toHaveTextContent('—');
     expect(reading(container, 'shared-unreserved')).toHaveTextContent('—');
@@ -106,6 +106,23 @@ describe('compact compute memory gauges', () => {
     expect(screen.getAllByRole('article')).toHaveLength(2);
     expect(screen.queryByRole('region', {name: 'Shared memory'})).not.toBeInTheDocument();
     expect(screen.getAllByText('actually free')).toHaveLength(2);
+  });
+
+  it('uses driver-bounded shared free rather than Linux free or unreserved budget', () => {
+    const dynamic = {...pool, firmwareReservedMi: 512, physicalMemoryMi: 131072, gpuAccessibleMi: 98304,
+      gpuAllocationMode: 'shared-gtt' as const, gpuCapacityMi: 98304, freeMi: 49152,
+      sharedFreeMi: 32768, dedicatedFreeMi: 256, gpuUnreservedMi: 16384};
+    const {container} = render(<MemoryGauge device={{...gpu, gpuAllocationMode: 'shared-gtt', freeMi: 32768, metricsAvailable: true}} pool={dynamic} />);
+    expect(reading(container, 'shared-free')).toHaveTextContent('32 GiB');
+    expect(reading(container, 'shared-unreserved')).toHaveTextContent('16 GiB');
+    expect(reading(container, 'dedicated-free')).toHaveTextContent('256 MiB');
+    expect(screen.getByText('shared free')).toBeInTheDocument();
+  });
+
+  it('does not treat absent GPU telemetry as an entirely free shared pool', () => {
+    const {container} = render(<MemoryGauge device={gpu} pool={{...pool, freeMi: 131072, sharedFreeMi: undefined}} />);
+    expect(reading(container, 'shared-free')).toHaveTextContent('—');
+    expect(container.querySelector('[data-ring="shared-free"]')).toHaveAttribute('data-known', 'false');
   });
 
   it('uses the displayed Linux capacity for both CPU rings without changing the remaining budget', () => {

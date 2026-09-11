@@ -212,6 +212,41 @@ class HostEvidenceTests(unittest.TestCase):
         result = subprocess.run(command[:3] + ["--root", "relative"], capture_output=True, text=True)
         self.assertEqual(result.returncode, 2)
 
+    def test_live_memory_sampler_only_reads_counters_without_running_probes(self):
+        self.strix_fixture()
+        self.write('/proc/sys/kernel/random/boot_id', 'example-boot')
+        self.write('/sys/bus/pci/devices/0000:01:00.0/mem_info_gtt_used', str(12 * 1024**3))
+        self.write('/sys/bus/pci/devices/0000:01:00.0/mem_info_vram_used', '0')
+        with patch.object(preflight.subprocess, 'run', side_effect=AssertionError('memory sampling ran a probe')):
+            report = preflight.collect_memory(self.root)
+        sample = report['nodeAnnotation']
+        self.assertEqual(sample['availableBytes'], 32 * 1024**3)
+        self.assertEqual(sample['devices'][0]['gttUsedBytes'], 12 * 1024**3)
+        self.assertEqual(sample['devices'][0]['vramUsedBytes'], 0)
+        self.assertEqual(sample['devices'][0]['pciAddress'], '0000:01:00.0')
+        self.assertEqual(sample['bootId'], 'example-boot')
+        self.assertNotIn('hostDriverReady', sample)
+
+    def test_missing_memory_usage_is_null_not_zero(self):
+        self.strix_fixture()
+        sample = preflight.collect_memory(self.root)['nodeAnnotation']
+        self.assertIsNone(sample['devices'][0]['gttUsedBytes'])
+        self.assertIsNone(sample['devices'][0]['vramUsedBytes'])
+        self.write('/proc/meminfo', '')
+        self.assertIsNone(preflight.collect_memory(self.root)['nodeAnnotation']['availableBytes'])
+
+    def test_memory_sampling_supports_cpu_only_hosts(self):
+        self.write('/proc/meminfo', 'MemTotal: 8388608 kB\nMemAvailable: 0 kB\n')
+        sample = preflight.collect_memory(self.root)['nodeAnnotation']
+        self.assertEqual(sample['availableBytes'], 0)
+        self.assertEqual(sample['devices'], [])
+
+    def test_memory_cli_does_not_change_full_preflight_contract(self):
+        result = subprocess.run([sys.executable, str(ROLE / 'files/magicstick-gpu-preflight.py'),
+                                 '--json', '--memory-only', '--root', str(self.root)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(json.loads(result.stdout)['nodeAnnotation']['source'], 'proc-meminfo-amdgpu-sysfs')
+
 
 class HipSmokeTests(unittest.TestCase):
     def torch_stub(self, hip="7.2", available=True, architecture="gfx1151:sramecc-:xnack-"):
@@ -311,6 +346,14 @@ class RoleSafetyTests(unittest.TestCase):
         self.assertNotIn('"labels"', script)
         self.assertNotIn("feature.node.kubernetes.io/amd-gpu", script)
 
+    def test_live_memory_timer_is_lightweight_and_separate_from_engine_evidence(self):
+        timer = (ROLE / 'templates/magicstick-memory-sample.timer.j2').read_text()
+        self.assertIn('OnUnitActiveSec=30s', timer)
+        service = (ROLE / 'templates/magicstick-memory-sample.service.j2').read_text()
+        self.assertIn('magicstick-gpu-publish --memory-only', service)
+        self.assertIn('ProtectSystem=strict', service)
+        self.assertNotIn('rocminfo', service)
+
 
 class EvidencePublicationTests(unittest.TestCase):
     def setUp(self):
@@ -330,6 +373,11 @@ class EvidencePublicationTests(unittest.TestCase):
         self.node["status"]["nodeInfo"]["bootID"] = "other-boot"
         with self.assertRaisesRegex(RuntimeError, "boot identity"):
             publisher.evidence_patch(self.report, self.node)
+
+    def test_memory_publication_does_not_overwrite_gpu_eligibility_evidence(self):
+        value = publisher.evidence_patch(self.report, self.node, publisher.MEMORY_ANNOTATION)
+        self.assertEqual(set(value['metadata']['annotations']), {publisher.MEMORY_ANNOTATION})
+        self.assertEqual(json.loads(value['metadata']['annotations'][publisher.MEMORY_ANNOTATION])['nodeUid'], 'node-fixture')
 
     def test_stale_node_kernel_is_rejected(self):
         self.node["status"]["nodeInfo"]["kernelVersion"] = "6.8.0"

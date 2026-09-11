@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Publish bounded host evidence to the local K3s Node, never GPU eligibility."""
 
+import argparse
 import json
 import os
 from pathlib import Path
@@ -11,6 +12,7 @@ import sys
 
 
 ANNOTATION = "appliance.magicstick.dev/gpu-host-preflight"
+MEMORY_ANNOTATION = "appliance.magicstick.dev/memory-sample"
 K3S = "/usr/local/bin/k3s"
 PREFLIGHT = "/usr/local/sbin/magicstick-gpu-preflight"
 
@@ -22,7 +24,7 @@ def execute(argv, stdin=None, timeout=25):
     return json.loads(result.stdout) if result.stdout.strip() else {}
 
 
-def evidence_patch(report, node):
+def evidence_patch(report, node, annotation_key=ANNOTATION):
     info = node.get("status", {}).get("nodeInfo", {})
     if report.get("kernel", {}).get("release") != info.get("kernelVersion"):
         raise RuntimeError("Node kernel metadata does not match this host")
@@ -35,12 +37,15 @@ def evidence_patch(report, node):
         annotation = {**annotation, "nodeUid": node["metadata"]["uid"]}
         annotation = json.dumps(annotation, sort_keys=True, separators=(",", ":"))
     existing = node.get("metadata", {}).get("annotations", {})
-    if annotation is None and ANNOTATION not in existing:
+    if annotation is None and annotation_key not in existing:
         return None
-    return {"metadata": {"annotations": {ANNOTATION: annotation}}}
+    return {"metadata": {"annotations": {annotation_key: annotation}}}
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--memory-only", action="store_true")
+    args = parser.parse_args()
     if not Path(K3S).is_file() or not Path("/etc/rancher/k3s/k3s.yaml").is_file():
         print("GPU host evidence: local K3s is not ready; retry on next timer run.")
         return 0
@@ -49,9 +54,9 @@ def main():
         print("GPU host evidence: invalid local Kubernetes node name.", file=sys.stderr)
         return 1
     try:
-        report = execute([PREFLIGHT, "--json"], timeout=60)
+        report = execute([PREFLIGHT, "--json"] + (["--memory-only"] if args.memory_only else []), timeout=60)
         node = execute([K3S, "kubectl", "--cache-dir=/tmp/magicstick-gpu-kube-cache", "--request-timeout=20s", "get", "node", node_name, "-o", "json"])
-        patch = evidence_patch(report, node)
+        patch = evidence_patch(report, node, MEMORY_ANNOTATION if args.memory_only else ANNOTATION)
         if patch is not None:
             execute([K3S, "kubectl", "--cache-dir=/tmp/magicstick-gpu-kube-cache", "--request-timeout=20s", "patch", "node", node_name, "--type=merge", "--patch-file=/dev/stdin", "-o", "json"], stdin=json.dumps(patch))
         print("GPU host evidence refreshed; no eligibility labels changed.")

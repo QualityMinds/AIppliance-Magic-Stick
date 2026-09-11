@@ -1338,10 +1338,24 @@ data:
             "profileId": profile.get("id"), "profileVersion": profile.get("version"),
             "engine": engine, "image": profile["engines"][engine]["image"],
             "kernelVersion": ((node.get("status") or {}).get("nodeInfo") or {}).get("kernelVersion"),
+            "bootId": ((node.get("status") or {}).get("nodeInfo") or {}).get("bootID"),
             "hostFingerprint": host.get("fingerprint"), "request": request_id,
             "probeVersion": "3",
         }
         return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()[:24]
+
+
+    def gpu_validation_context(node, profile, request_id, host):
+        keys = {engine: gpu_validation_key(node, profile, engine, request_id, host)
+                for engine in profile.get("engines", {})}
+        return hashlib.sha256(json.dumps(keys, sort_keys=True).encode()).hexdigest()
+
+
+    def manual_gpu_validation_request(parameters):
+        request = str(parameters.get("validationRequest") or "")
+        # Older host workers requested probes automatically. Retire those
+        # requests on upgrade rather than starting tests without a manual action.
+        return "" if re.fullmatch(r"host-[a-f0-9]{32}", request) else request
 
 
     def gpu_validation_job(node, profile, engine, request_id, host, activation):
@@ -1357,6 +1371,8 @@ data:
         labels = {GPU_VALIDATION_LABEL: "true", "app.kubernetes.io/managed-by": FIELD_MANAGER}
         metadata = {"name": "gpu-check-" + key, "namespace": APPLIANCE_NAMESPACE, "labels": labels,
                     "annotations": {"appliance.magicstick.dev/validation-key": key,
+                                    "appliance.magicstick.dev/validation-request": request_id,
+                                    "appliance.magicstick.dev/validation-context": gpu_validation_context(node, profile, request_id, host),
                                     "appliance.magicstick.dev/validation-engine": engine,
                                     "appliance.magicstick.dev/validation-node": node_name(node)}}
         activation_meta = (activation or {}).get("metadata") or {}
@@ -1420,13 +1436,13 @@ data:
         KubeAI 0.23.2 does not hot-reload system.yaml. A desired Flux value or a
         Ready Deployment alone cannot establish which configuration it loaded.
         """
-        if not re.fullmatch(r"[^\s]+@sha256:[a-f0-9]{64}", expected_image or ""):
-            return False, "The successful smoke test has not produced a pinned runtime image."
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9./_:@+-]*", expected_image or ""):
+            return False, "No configured GPU runtime image is available."
         pins = (get_core_resource("v1", "configmaps", FLUX_NAMESPACE, "magicstick-gpu-runtime-images") or {}).get("data") or {}
         key = "ollama-amd" if engine == "OLlama" else "vllm-amd"
         checksum = gpu_runtime_checksum(pins)
         if pins.get(key) != expected_image or pins.get("runtime-config-checksum") != checksum:
-            return False, "Waiting for the exact validated image to be published to KubeAI."
+            return False, "Waiting for the configured runtime image to be published to KubeAI."
         release = get_resource("helm.toolkit.fluxcd.io", "v2", "helmreleases", FLUX_NAMESPACE, "kubeai") or {}
         namespace = (release.get("spec") or {}).get("targetNamespace") or "ai"
         query = urllib.parse.urlencode({"labelSelector": "app.kubernetes.io/name=kubeai"})
@@ -1438,7 +1454,7 @@ data:
         template = spec.get("template") or {}
         annotations = (template.get("metadata") or {}).get("annotations") or {}
         if annotations.get(GPU_RUNTIME_CHECKSUM) != checksum or not annotations.get("checksum/config"):
-            return False, "Waiting for KubeAI to adopt the validated runtime configuration."
+            return False, "Waiting for KubeAI to adopt the configured GPU runtime."
         config_name = next(((volume.get("configMap") or {}).get("name") for volume in (template.get("spec") or {}).get("volumes") or []
                             if volume.get("name") == "config"), "")
         config = get_core_resource("v1", "configmaps", namespace, config_name) if config_name else None
@@ -1449,7 +1465,7 @@ data:
         engine_block = re.search(r"(?m)^  " + re.escape(engine) + r": *\n((?: {4}[^\n]*\n|\n)*)", model_servers.group(1)) if model_servers else None
         image_line = r"(?m)^      magicstick-" + re.escape(key) + r": *[\"']?" + re.escape(expected_image) + r"[\"']? *$"
         if not engine_block or not re.search(image_line, engine_block.group(1)):
-            return False, "KubeAI's installed configuration does not contain the exact validated image."
+            return False, "KubeAI's installed configuration does not contain the configured GPU image."
         replicas = positive_int(spec.get("replicas", 1))
         if (not replicas or int(status.get("observedGeneration") or 0) < int((deployment.get("metadata") or {}).get("generation") or 0)
                 or any(int(status.get(field) or 0) != replicas for field in ("replicas", "updatedReplicas", "readyReplicas", "availableReplicas"))):
@@ -1467,8 +1483,8 @@ data:
             ready = any(c.get("type") == "Ready" and c.get("status") == "True" for c in (pod.get("status") or {}).get("conditions") or [])
             if (metadata.get("deletionTimestamp") or not ready
                     or any(pod_annotations.get(key) != annotations[key] for key in (GPU_RUNTIME_CHECKSUM, "checksum/config"))):
-                return False, "Waiting for Ready KubeAI controllers loaded with the validated configuration."
-        return True, "KubeAI's running controllers use the exact image digest that passed validation."
+                return False, "Waiting for Ready KubeAI controllers loaded with the configured GPU runtime."
+        return True, "KubeAI's running controllers use the configured GPU image. Engine validation is optional."
 
 
     def pin_validated_gpu_images(compatibility):
@@ -1479,7 +1495,7 @@ data:
             profiles = compatibility.get("profiles", [])
             profile = next((p for p in profiles if p.get("id") == compatibility.get("selectedProfile")), profiles[0] if profiles else {})
             image = ((profile.get("engines") or {}).get(engine) or {}).get("image")
-            if image and (current_data.get(key + "-source") != image or not compatibility.get("selectedProfile")):
+            if image and (not current_data.get(key) or current_data.get(key + "-source") != image or not compatibility.get("selectedProfile")):
                 desired[key] = image
                 desired[key + "-source"] = image
             reports = [node["validation"][engine] for node in compatibility.get("nodes", [])
@@ -1503,11 +1519,11 @@ data:
         parameters = (((activation or {}).get("spec") or {}).get("parameters") or {})
         selected = str(parameters.get("compatibilityProfile") or "").strip()
         allow_experimental = str(parameters.get("allowExperimental") or "").lower() == "true"
-        request_id = str(parameters.get("validationRequest") or "")
+        request_id = manual_gpu_validation_request(parameters)
         enabled = bool(activation) and ((activation.get("spec") or {}).get("enabled", True) is not False) and not (activation.get("metadata") or {}).get("deletionTimestamp")
         by_job = {(job.get("metadata") or {}).get("name"): job for job in jobs or []}
         result = {"schemaVersion": 1, "profiles": profiles, "selectedProfile": selected,
-                  "allowExperimental": allow_experimental, "nodes": []}
+                  "allowExperimental": allow_experimental, "validationRequired": False, "nodes": []}
         for node in nodes:
             labels = node_labels(node)
             if not label_is_true(labels, "feature.node.kubernetes.io/pci-1002.present"):
@@ -1546,6 +1562,7 @@ data:
                 "memoryAccountingVerified": host.get("memoryAccountingVerified") is True,
                 "hostDriverReady": (host_ready if profile else host.get("hostDriverReady")) if host else None,
                 "hostFingerprint": host.get("fingerprint", ""),
+                "hostBootId": host.get("bootId", ""),
                 "resourceRegistered": extended_resource_capacity([node], ["amd.com/gpu"]) > 0,
                 "message": ("Upstream support rule accepted this GPU." if upstream else
                             "Experimental profile enabled; engine tests are separate." if eligible else
@@ -1559,16 +1576,19 @@ data:
                           "kernelVersion": info.get("kernelVersion", ""), "driverVersion": host.get("driverVersion", ""),
                           "validatedAt": "", "message": "No Magic Stick runtime test has passed for this combination.",
                           "imageId": "", "jobName": "", "runtimeReady": upstream,
-                          "runtimeMessage": "Upstream-supported runtime." if upstream else "Runtime validation has not passed."}
+                          "runtimeMessage": "Upstream-supported runtime." if upstream else "Runtime configuration has not been checked yet; engine validation is optional."}
                 if profile and request_id and not upstream:
+                    request_jobs = [j for j in jobs or [] if
+                        (j.get("metadata", {}).get("annotations") or {}).get("appliance.magicstick.dev/validation-node") == node_name(node)
+                        and (j.get("metadata", {}).get("annotations") or {}).get("appliance.magicstick.dev/validation-request") == request_id]
+                    context = gpu_validation_context(node, profile, request_id, host)
+                    request_stale = any((j.get("metadata", {}).get("annotations") or {}).get("appliance.magicstick.dev/validation-context") != context
+                                        for j in request_jobs)
                     key = gpu_validation_key(node, profile, engine, request_id, host)
                     name = "gpu-check-" + key
                     job = by_job.get(name)
                     report["jobName"] = name
                     report["state"] = gpu_job_state(job)
-                    if not job and any((j.get("metadata", {}).get("annotations") or {}).get("appliance.magicstick.dev/validation-node") == node_name(node)
-                                       and (j.get("metadata", {}).get("annotations") or {}).get("appliance.magicstick.dev/validation-engine") == engine for j in jobs or []):
-                        report["state"] = "stale"
                     if job:
                         job_uid = (job.get("metadata") or {}).get("uid")
                         for pod in pods or []:
@@ -1580,6 +1600,14 @@ data:
                         report["message"] = "Tiny-model GPU smoke test " + report["state"] + "; not a model-size or memory-accounting guarantee."
                     if report["state"] == "passed" and (not eligible or not report["imageId"]):
                         report["state"] = "stale"
+                    if request_stale:
+                        # A manual request is bound to the host/images it first
+                        # tested. Reboots or image changes never launch new probes.
+                        previous = next((j for j in request_jobs if (j.get("metadata", {}).get("annotations") or {})
+                                         .get("appliance.magicstick.dev/validation-engine") == engine), None)
+                        report["jobName"] = (previous or {}).get("metadata", {}).get("name", "")
+                        report["state"] = "stale"
+                        report["message"] = "Host or runtime changed since this optional test request. Run validation manually to refresh the result."
                 item["validation"][engine] = report
             result["nodes"].append(item)
         return result
@@ -1607,11 +1635,16 @@ data:
                 retained.append(job)
         jobs = retained
         pin_validated_gpu_images(result)
+        runtime_images = (get_core_resource("v1", "configmaps", FLUX_NAMESPACE, "magicstick-gpu-runtime-images") or {}).get("data") or {}
         for item in result["nodes"]:
             for engine, report in item["validation"].items():
-                if report["state"] == "passed":
+                if item.get("eligible") and not item.get("upstreamSupported"):
+                    # Runtime adoption is required for scheduling; a successful
+                    # optional smoke test is not. The catalog image works before
+                    # any validation, and successful diagnostics may pin a digest.
+                    key = "ollama-amd" if engine == "OLlama" else "vllm-amd"
                     report["runtimeReady"], report["runtimeMessage"] = kubeai_gpu_runtime_ready(
-                        engine, validated_image_digest(report["image"], report["imageId"]))
+                        engine, str(runtime_images.get(key) or ""))
         by_node = {item["node"]: item for item in result["nodes"]}
         for node in nodes:
             item = by_node.get(node_name(node), {})
@@ -1619,8 +1652,7 @@ data:
             desired["appliance.magicstick.dev/gpu-memory-architecture"] = item.get("memoryArchitecture") if item.get("eligible") else None
             for engine, label in AMD_ENGINE_LABELS.items():
                 report = ((item.get("validation") or {}).get(engine) or {})
-                state = report.get("state")
-                desired[label] = "true" if item.get("eligible") and state in ("passed", "upstream") else None
+                desired[label] = "true" if item.get("eligible") and (item.get("upstreamSupported") or report.get("image")) else None
                 desired[AMD_RUNTIME_LABELS[engine]] = "true" if item.get("eligible") and report.get("runtimeReady") else None
             changes = {key: value for key, value in desired.items() if node_labels(node).get(key) != value}
             if changes:
@@ -1652,14 +1684,14 @@ data:
         # A single probe at a time avoids self-contention and bounds GPU/RAM use.
         running = any(gpu_job_state(job) == "running" for job in jobs)
         parameters = (((activation or {}).get("spec") or {}).get("parameters") or {})
-        request_id = str(parameters.get("validationRequest") or "")
+        request_id = manual_gpu_validation_request(parameters)
         for item in result["nodes"]:
             if not (request_id and item["eligible"] and item["optedIn"] and item["resourceRegistered"]):
                 continue
             profile = next(p for p in profiles.get("profiles", []) if p["id"] == item["profileId"])
             node = next(n for n in nodes if node_name(n) == item["node"])
             for engine, report in item["validation"].items():
-                if running or report["state"] not in ("unverified", "stale"):
+                if running or report["state"] != "unverified":
                     continue
                 desired_job = gpu_validation_job(node, profile, engine, request_id, gpu_host_preflight(node), activation)
                 if any((j.get("metadata") or {}).get("name") == desired_job["metadata"]["name"] for j in jobs):
@@ -1851,29 +1883,17 @@ data:
                     failed = sum(report.get("state") == "failed" for report in reports)
                     running = sum(report.get("state") == "running" for report in reports)
                     experimental = any(item.get("optedIn") and not item.get("upstreamSupported") for item in eligible_nodes)
-                    if passed:
-                        statuses[module]["phase"] = "Ready"
-                        statuses[module]["message"] = (
-                            ("Experimental GPU compatibility profile: " if experimental else "Upstream GPU support: ")
-                            + str(passed) + "/" + str(len(reports)) + " engine checks available; "
-                            + str(allocatable) + " GPU resource(s) registered. Engine availability is independent; "
-                            + "a tiny-model smoke test is not a universal hardware or memory guarantee."
-                        )
-                    elif reports and failed == len(reports):
-                        statuses[module]["phase"] = "Degraded"
-                        statuses[module]["message"] = (
-                            "GPU hardware and device plugin are ready, but all " + str(failed)
-                            + " engine validation checks failed. See each validation Job for the runtime failure."
-                        )
-                    else:
-                        statuses[module]["phase"] = "Installing"
-                        statuses[module]["message"] = (
-                            "GPU resource is registered; " + str(running) + " engine check(s) running, "
-                            + str(failed) + " failed. Request and pass engine validation before model deployment."
-                        )
+                    statuses[module]["phase"] = "Ready"
+                    statuses[module]["message"] = (
+                        ("Experimental GPU compatibility profile: " if experimental else "Upstream GPU support: ")
+                        + str(allocatable) + " GPU resource(s) registered and available. Engine validation is optional: "
+                        + str(passed) + "/" + str(len(reports)) + " passed or upstream-supported, "
+                        + str(running) + " running, " + str(failed) + " failed. Test results do not block model deployment."
+                    )
                     statuses[module]["checks"].append({
                         "name": "engine-validation", "status": "True" if passed else "False" if reports and failed == len(reports) else "Unknown",
-                        "message": str(passed) + "/" + str(len(reports)) + " engine checks available.",
+                        "required": False,
+                        "message": "Optional diagnostic: " + str(passed) + "/" + str(len(reports)) + " passed or upstream-supported; does not gate GPU readiness.",
                     })
         return statuses
 
@@ -2141,7 +2161,7 @@ data:
         })
 
 
-    def require_validated_gpu_runtime(resource, runtime):
+    def require_gpu_runtime(resource, runtime):
         if runtime.get("memoryArchitecture") != "unified":
             return
         pins = (get_core_resource("v1", "configmaps", FLUX_NAMESPACE, "magicstick-gpu-runtime-images") or {}).get("data") or {}
@@ -2150,7 +2170,7 @@ data:
         ready, message = kubeai_gpu_runtime_ready(runtime["engine"], expected_image)
         if not ready:
             raise ValueError(message)
-        resource["metadata"].setdefault("annotations", {})["appliance.magicstick.dev/validated-runtime-image"] = expected_image
+        resource["metadata"].setdefault("annotations", {})["appliance.magicstick.dev/runtime-image"] = expected_image
 
 
     def ensure_unified_memory_profile(runtime):
@@ -2701,7 +2721,7 @@ data:
                 unified_memory_runtime(resource, runtime, target_definition)
                 if runtime.get("memoryArchitecture") == "unified":
                     ensure_unified_memory_profile(runtime)
-                    require_validated_gpu_runtime(resource, runtime)
+                    require_gpu_runtime(resource, runtime)
             except ValueError as error:
                 message = str(error)
                 patch_status("Starting", "WaitingForUnifiedMemoryProfile", message, name)

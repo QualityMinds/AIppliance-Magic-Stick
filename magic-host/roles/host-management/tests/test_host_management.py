@@ -224,20 +224,63 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(restored.state["current"]["phase"], "Failed")
         self.run.assert_not_called()
 
-    def test_engine_validation_never_claims_success_from_old_boot(self):
+    def test_gpu_registration_never_claims_success_from_old_boot(self):
         request = operation(self.plan)
         self.worker.reconcile(request)
-        self.assertEqual(self.worker.state["current"]["phase"], "Validating")
+        self.assertEqual(self.worker.state["current"]["phase"], "Registering")
         self.worker.report["bootId"] = "boot-b"
         self.worker.reconcile(request)
         self.assertEqual(self.worker.state["current"]["phase"], "Interrupted")
 
-    def test_preparation_with_good_kernel_only_requests_gpu_validation(self):
+    def test_preparation_with_good_kernel_enables_gpu_without_requesting_engine_validation(self):
         self.worker.reconcile(operation(self.plan))
         self.run.assert_called_once_with(["/usr/local/sbin/magicstick-gpu-publish"], timeout=90)
         requests = [call.args for call in self.kube.call_args_list if call.args[0][0] == "create"]
-        self.assertEqual(requests[0][1]["spec"]["parameters"]["validationRequest"], "host-" + "a" * 32)
-        self.assertEqual(self.worker.state["current"]["phase"], "Validating")
+        self.assertEqual(requests[0][1]["spec"]["parameters"]["validationRequest"], "")
+        self.assertEqual(self.worker.state["current"]["phase"], "Registering")
+
+    def test_host_preparation_succeeds_with_registered_gpu_regardless_of_smoke_results(self):
+        request = operation(self.plan)
+        self.worker.reconcile(request)
+        activation = next(call.args[1] for call in self.kube.call_args_list if call.args[0][0] == "create")
+        self.run.reset_mock()
+        for state in ("unverified", "failed", "running", "stale"):
+            with self.subTest(validation=state):
+                self.worker.state["current"]["phase"] = "Registering"
+                evidence = {"nodeUid": node()["metadata"]["uid"], "hostFingerprint": self.report["hardwareFingerprint"],
+                            "hostBootId": self.report["bootId"],
+                            "eligible": True, "hostDriverReady": True, "resourceRegistered": True,
+                            "validation": {"OLlama": {"state": state}, "VLLM": {"state": state}}}
+                appliance = {"status": {"hardwareOperators": {"amd-gpu": {"compatibility": {"nodes": [evidence]}}}}}
+                self.kube.side_effect = lambda args, *_: appliance if args[:2] == ["get", "appliances.appliance.magicstick.dev"] else activation
+                self.worker.reconcile(request)
+                self.assertEqual(self.worker.state["current"]["phase"], "Succeeded")
+                self.assertIn("optional", self.worker.state["current"]["message"])
+        self.run.assert_not_called()
+
+    def test_old_appliance_boot_evidence_cannot_complete_registration(self):
+        request = operation(self.plan)
+        self.worker.reconcile(request)
+        activation = next(call.args[1] for call in self.kube.call_args_list if call.args[0][0] == "create")
+        evidence = {"nodeUid": node()["metadata"]["uid"], "hostFingerprint": self.report["hardwareFingerprint"],
+                    "hostBootId": "older-boot", "eligible": True, "hostDriverReady": True, "resourceRegistered": True}
+        appliance = {"status": {"hardwareOperators": {"amd-gpu": {"compatibility": {"nodes": [evidence]}}}}}
+        self.kube.side_effect = lambda args, *_: appliance if args[:2] == ["get", "appliances.appliance.magicstick.dev"] else activation
+        self.worker.reconcile(request)
+        self.assertEqual(self.worker.state["current"]["phase"], "Registering")
+
+    def test_host_preparation_still_waits_for_gpu_registration_and_times_out_without_retry(self):
+        request = operation(self.plan)
+        self.worker.reconcile(request)
+        activation = next(call.args[1] for call in self.kube.call_args_list if call.args[0][0] == "create")
+        self.kube.return_value = activation
+        self.worker.reconcile(request)
+        self.assertEqual(self.worker.state["current"]["phase"], "Registering")
+        self.worker.state["current"]["registrationStartedAt"] = time.time() - 901
+        self.run.reset_mock()
+        self.worker.reconcile(request)
+        self.assertEqual(self.worker.state["current"]["phase"], "Failed")
+        self.run.assert_not_called()
 
     def test_kernel_preparation_runs_fixed_ansible_then_one_reboot_and_resumes(self):
         evidence = report()
@@ -256,7 +299,7 @@ class WorkerTests(unittest.TestCase):
         restored.reconcile(request)
         self.assertEqual(restored.state["current"]["phase"], "Verifying")
         restored.reconcile(request)
-        self.assertEqual(restored.state["current"]["phase"], "Validating")
+        self.assertEqual(restored.state["current"]["phase"], "Registering")
         shutdowns = [call for call in self.run.call_args_list if call.args[0][0] == "/usr/sbin/shutdown"]
         self.assertEqual(len(shutdowns), 1)
 

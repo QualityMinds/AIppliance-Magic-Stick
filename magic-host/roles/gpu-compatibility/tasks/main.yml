@@ -30,14 +30,19 @@
   loop:
     - magicstick-gpu-preflight.service
     - magicstick-gpu-preflight.timer
+    - magicstick-memory-sample.service
+    - magicstick-memory-sample.timer
   notify: Reload systemd for GPU host evidence
 
 - name: Configure periodic GPU host evidence publication
   ansible.builtin.systemd_service:
-    name: magicstick-gpu-preflight.timer
+    name: "{{ item }}"
     daemon_reload: true
     enabled: "{{ gpu_compatibility_publish_evidence | bool }}"
     state: "{{ 'started' if gpu_compatibility_publish_evidence | bool else 'stopped' }}"
+  loop:
+    - magicstick-gpu-preflight.timer
+    - magicstick-memory-sample.timer
 
 - name: Prepare an explicitly selected experimental GPU host profile
   when: gpu_compatibility_prepare_host | bool
@@ -130,11 +135,12 @@
         - gpu_compatibility_ttm_limit_mib | int == 0
       notify: Refresh initramfs after explicit GPU memory configuration
 
-    - name: Explain the manual reboot and separate engine-validation gate
+    - name: Explain the manual reboot and optional engine diagnostics
       ansible.builtin.debug:
         msg: >-
           Preparation never reboots, loads or blacklists amdgpu, changes device
           permissions, enables KMM, or labels a Kubernetes node. Review package
           changes; the host-management workflow schedules a separately approved
           restart if needed. Manual maintenance must schedule its own reboot. Rerun
-          magicstick-gpu-preflight and validate each pinned inference image.
+          magicstick-gpu-preflight after boot. Engine validation is an optional
+          manual diagnostic and is not required to enable a ready GPU.

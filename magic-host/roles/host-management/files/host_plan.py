@@ -31,7 +31,7 @@ def build_plan(report, display_gpus, installed, catalog, architecture):
                         experimental=profile["experimental"], targetKernel=profile["targetKernel"])
             evidence = report.get("nodeAnnotation") or {}
             if evidence.get("hostDriverReady") is True and report.get("kernel", {}).get("strixHaloFixes") == "present":
-                plan.update(state="ready", message="Host driver is ready. The same preparation workflow can enable the experimental profile and validate both GPU engines; no package change or reboot is needed.")
+                plan.update(state="ready", message="Host driver is ready. The preparation workflow can enable the experimental GPU profile; no package change or reboot is needed. Engine validation is optional and manual.")
             elif report.get("kernel", {}).get("release") == profile["targetKernel"]:
                 plan.update(state="blocked", message="The reviewed kernel is already running but the GPU driver is not ready. Inspect hardware diagnostics; repeating installation or reboot is not a repair.")
             elif report.get("kernel", {}).get("strixHaloFixes") == "present":
@@ -39,7 +39,7 @@ def build_plan(report, display_gpus, installed, catalog, architecture):
             else:
                 plan.update(state="available", packages={name: version for name, version in profile["packages"].items()
                                                          if installed.get(name) != version}, rebootRequired=True,
-                            message="The reviewed host kernel is required. Approval allows only the listed packages, one orderly restart, and separate GPU engine validation.")
+                            message="The reviewed host kernel is required. Approval allows only the listed packages, one orderly restart, and GPU profile activation. Engine validation is optional and manual.")
     plan["displayGpus"] = display_gpus or []
     identity = {"os": report.get("os"), "kernel": report.get("kernel", {}).get("release"),
                          "bootId": report.get("bootId"), "fingerprint": report.get("hardwareFingerprint"),

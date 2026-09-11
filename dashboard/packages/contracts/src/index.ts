@@ -252,6 +252,10 @@ export interface SharedMemoryPool extends SharedMemoryInventory {
   id: string;
   totalMi?: number | null;
   freeMi?: number | null;
+  sharedFreeMi?: number | null;
+  dedicatedFreeMi?: number | null;
+  memoryMetricsSource?: string;
+  memorySampledAt?: string | null;
   unreservedMi?: number | null;
   gpuUnreservedMi?: number | null;
   systemReserveMi?: number | null;
@@ -467,6 +471,7 @@ export interface GpuEngineValidation {
 
 export interface GpuCompatibilityNode extends SharedMemoryInventory {
   nodeUid?: string;
+  hostBootId?: string;
   profileId?: string;
   profileVersion?: string;
   upstreamSupported?: boolean;
@@ -483,6 +488,7 @@ export interface GpuCompatibilityNode extends SharedMemoryInventory {
 }
 
 export interface GpuCompatibility {
+  validationRequired?: boolean;
   schemaVersion: number;
   profiles: GpuCompatibilityProfile[];
   selectedProfile?: string;
