@@ -139,8 +139,12 @@ class MemoryEvidenceTests(unittest.TestCase):
             report = evidence(); report["devices"][0][key] = value
             self.assertFalse(self.collect(report, devices)["supported"])
         (companion / "driver").unlink()
-        self.assertFalse(self.collect(devices=devices)["supported"])
+        waiting = self.collect(devices=devices)
+        self.assertFalse(waiting["supported"])
+        self.assertTrue(waiting["waitingForCompanionDriver"])
         self.bind(companion, "nvidia")
+        self.assertEqual(waiting["pciHardwareIdentity"], self.collect(devices=devices)["pciHardwareIdentity"])
+        self.assertNotEqual(waiting["pciIdentity"], self.collect(devices=devices)["pciIdentity"])
         (companion / "class").unlink()
         self.assertFalse(self.collect(devices=devices)["supported"])
 
@@ -314,6 +318,44 @@ class MemoryWorkerTests(unittest.TestCase):
         self.worker().reconcile(operation); self.worker().reconcile(operation)
         self.assertEqual(self.worker().state["current"]["phase"], "Failed")
         self.run.assert_not_called()
+
+    def test_unchanged_companion_can_finish_loading_before_memory_verification(self):
+        self.memory.update(pciIdentity="d" * 64, pciHardwareIdentity="e" * 64)
+        operation = request(index=3, dynamic=40960)
+        self.worker().reconcile(operation)
+        self.advance_boot("boot-b", 32768, 3, 64000, 40960)
+        self.memory.update(supported=False, pciIdentity="f" * 64, pciHardwareIdentity="e" * 64, waitingForCompanionDriver=True)
+        self.run.reset_mock()
+        self.worker().reconcile(operation); self.worker().reconcile(operation)
+        self.assertEqual(self.worker().state["current"]["phase"], "Verifying")
+        self.run.assert_not_called()
+        self.memory.update(supported=True, pciIdentity="d" * 64, waitingForCompanionDriver=False)
+        self.worker().reconcile(operation)
+        self.assertEqual(self.worker().state["current"]["phase"], "Succeeded")
+        self.run.assert_not_called()
+
+    def test_missing_companion_driver_wait_is_bounded_and_requires_same_hardware(self):
+        for problem in ("timeout", "changed-hardware"):
+            with self.subTest(problem=problem):
+                (self.root / "state.json").unlink(missing_ok=True)
+                self.report, self.memory = evidence(), capability()
+                self.config = {"id": "initial", "conflicts": False, "managedPages": None}
+                self.memory.update(pciIdentity="d" * 64, pciHardwareIdentity="e" * 64)
+                operation = request(index=3, dynamic=40960)
+                self.worker().reconcile(operation)
+                self.advance_boot("boot-b", 32768, 3, 64000, 40960)
+                self.memory.update(supported=False, pciIdentity="f" * 64, pciHardwareIdentity="e" * 64, waitingForCompanionDriver=True)
+                self.worker().reconcile(operation)
+                if problem == "timeout":
+                    worker = self.worker()
+                    worker.state["current"]["memoryVerificationStartedAt"] = time.time() - 601
+                    worker.save()
+                else:
+                    self.memory["pciHardwareIdentity"] = "a" * 64
+                self.run.reset_mock()
+                self.worker().reconcile(operation)
+                self.assertEqual(self.worker().state["current"]["phase"], "Failed")
+                self.run.assert_not_called()
 
     def test_uma_only_does_not_write_ttm_if_dynamic_is_already_exact(self):
         operation = request(index=0, dynamic=32768)

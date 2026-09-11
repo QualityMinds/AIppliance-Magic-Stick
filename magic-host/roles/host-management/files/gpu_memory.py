@@ -95,14 +95,15 @@ def memory_gpu_inventory(display_gpus, root):
             raise ValueError("GPU PCI identity is invalid.")
         vendor = int((entry / "vendor").read_text().strip(), 16)
         device = int((entry / "device").read_text().strip(), 16)
-        driver = (entry / "driver").resolve(strict=True).name
+        link = entry / "driver"
+        driver = link.resolve(strict=True).name if link.is_symlink() else None
         inventory.append({"pciAddress": entry.name, "pciId": f"{vendor:04x}:{device:04x}", "driver": driver})
     if sorted(item["pciId"] for item in inventory) != sorted(display_gpus):
         raise ValueError("PCI GPU inventory changed during inspection. Refresh before configuring memory.")
     strix = [item for item in inventory if item["pciId"] == "1002:1586"]
     if len(strix) != 1 or strix[0]["driver"] != "amdgpu":
         raise ValueError("Shared GPU memory controls require exactly one Strix Halo GPU bound to amdgpu.")
-    if any(item != strix[0] and (not item["pciId"].startswith("10de:") or item["driver"] != "nvidia") for item in inventory):
+    if any(item != strix[0] and (not item["pciId"].startswith("10de:") or item["driver"] not in {None, "nvidia"}) for item in inventory):
         raise ValueError("Strix Halo memory can be managed alongside NVIDIA GPUs using the nvidia driver. Additional AMD GPUs, other vendors or drivers (including nouveau) are not supported by this memory workflow.")
     return inventory, strix[0]["pciAddress"]
 
@@ -119,6 +120,10 @@ def collect(report, display_gpus, root=Path("/")):
             raise ValueError(result["message"])
         inventory, address = memory_gpu_inventory(display_gpus, root)
         result["pciIdentity"] = digest(inventory)
+        result["pciHardwareIdentity"] = digest([{key: item[key] for key in ("pciAddress", "pciId")} for item in inventory])
+        if any(item["driver"] is None for item in inventory):
+            result["waitingForCompanionDriver"] = True
+            raise ValueError("Waiting for the companion NVIDIA GPU driver to bind. Memory controls become available once the nvidia driver is ready.")
         devices = report.get("devices") or []  # Preflight reports AMD GPUs only.
         if (len(devices) != 1 or devices[0].get("vendorId") != "1002"
                 or devices[0].get("deviceId") != "1586" or devices[0].get("driver") != "amdgpu"

@@ -268,6 +268,7 @@ class Worker:
         desired = gpu_memory.validate_selection(self.memory, operation["spec"]["gpuMemory"])
         current.update(memoryDesired=desired, memoryKernel=self.report["kernel"]["release"],
                        memoryFingerprint=self.report.get("hardwareFingerprint"), memoryPciIdentity=self.memory.get("pciIdentity"), memoryOs=self.report.get("os"),
+                       memoryPciHardwareIdentity=self.memory.get("pciHardwareIdentity"),
                        memoryOptions=self.memory["options"], memoryConfigurationId=gpu_memory.configuration()["id"],
                        requestDigest=digest(operation["spec"]), rebootCount=0)
         if desired["carveoutIndex"] != self.memory["currentCarveoutIndex"]:
@@ -294,6 +295,7 @@ class Worker:
                     self.update(operation, "Failed", "No new boot was observed after memory maintenance. The restart will not be repeated automatically.")
                 return
             current["verifiedBootId"] = self.report["bootId"]
+            current["memoryVerificationStartedAt"] = time.time()
             self.update(operation, "Verifying", "Restart detected. Checking the actual firmware reservation, shared-memory limit and unchanged kernel.")
             return
         if phase != "Verifying":
@@ -308,6 +310,16 @@ class Worker:
                 raise RuntimeError("The running kernel changed during memory maintenance; no further memory writes will run.")
             if (self.report.get("hardwareFingerprint") != current["memoryFingerprint"] or self.report.get("os") != current["memoryOs"]):
                 raise RuntimeError("Hardware, driver, firmware or OS identity changed during memory maintenance.")
+            if self.memory.get("waitingForCompanionDriver") is True:
+                if (not current.get("memoryPciHardwareIdentity")
+                        or self.memory.get("pciHardwareIdentity") != current["memoryPciHardwareIdentity"]):
+                    raise RuntimeError("GPU PCI inventory changed during memory maintenance.")
+                if time.time() - current.get("memoryVerificationStartedAt", 0) > 600:
+                    raise RuntimeError("The companion NVIDIA driver did not bind within 10 minutes after reboot.")
+                message = "Waiting for the unchanged companion NVIDIA GPU driver after reboot. No memory write or additional restart will run until it is ready."
+                if current.get("message") != message:
+                    self.update(operation, "Verifying", message)
+                return
             if self.memory.get("pciIdentity") != current.get("memoryPciIdentity"):
                 raise RuntimeError("GPU PCI inventory or companion driver changed during memory maintenance.")
             if (not self.memory.get("supported") or self.memory.get("pciAddress") != desired["pciAddress"]
