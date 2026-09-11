@@ -690,7 +690,8 @@ step. That override only changes the cluster's AMD `ModuleActivation`; it does
 not install a kernel or driver. Host package plans and runtime profiles remain
 separate backend concepts.
 
-On an eligible single-GPU Strix Halo host, expand **GPU nodes → GPU memory → Shared GPU memory** for sliders
+On an eligible host with one Strix Halo GPU (optionally alongside NVIDIA GPUs
+bound to the `nvidia` driver), expand **GPU nodes → GPU memory → Shared GPU memory** for sliders
 for the fixed firmware reservation and dynamic shared-RAM ceiling. Current
 values and the local draft remain separate; moving a slider never applies a
 change. Administrator acknowledgement and exact-host confirmation are required,

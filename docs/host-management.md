@@ -115,7 +115,8 @@ automatic additions to the public compatibility catalog.
 ## Fixed and dynamic GPU memory
 
 **System → Hardware → GPU nodes → GPU memory → Shared GPU memory** provides two administrator controls
-on a single supported Strix Halo GPU with compatible kernel/firmware evidence:
+on one supported Strix Halo GPU with compatible kernel/firmware evidence,
+including hosts with additional NVIDIA GPUs bound to the `nvidia` driver:
 
 - **Fixed GPU reservation (firmware):** a discrete slider containing only the
   options reported by that computer's `uma/carveout_options`. This RAM is carved
@@ -131,6 +132,15 @@ Linux RAM as current `MemTotal` plus the old fixed reservation minus the new
 fixed reservation. The dynamic ceiling must leave at least **16 GiB** outside
 GPU dynamic allocations; this allowance is not a Kubernetes memory reservation.
 Actual post-boot `MemTotal`, not this projection, governs the second stage.
+
+The worker selects the Strix Halo device by its verified PCI address; NVIDIA
+VRAM is neither reconfigured nor added to the shared-memory budget. The TTM
+limit is system-wide, so additional AMD GPUs, other GPU vendors, missing driver
+bindings and NVIDIA GPUs using `nouveau` or `vfio-pci` remain blocked. Complete
+PCI inventory and driver bindings are rechecked at approval and after each
+restart. A changed companion GPU or binding stops the operation. This memory
+workflow never changes the kernel, NVIDIA driver or operator configuration;
+ordinary preparation/experiment-mode safety rules remain separate.
 
 Select **Review memory configuration**, accept the experimental/disruption
 warning and enter the exact computer name to apply. A fixed-reservation change

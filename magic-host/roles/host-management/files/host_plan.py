@@ -122,7 +122,7 @@ def validate_request(operation, node, report, plan, now, gpu_memory=None, networ
     elif spec["action"] == "configure-gpu-memory":
         from gpu_memory import validate_selection
         if spec.get("allowExperimental") is not True or spec.get("experimentMode") is True:
-            raise ValueError("Memory configuration requires explicit experimental consent and does not permit unreviewed mixed hardware.")
+            raise ValueError("Memory configuration requires explicit experimental consent and does not permit bypassing its hardware checks.")
         if not gpu_memory or spec.get("planId") != gpu_memory.get("id"):
             raise ValueError("GPU memory evidence changed. Refresh and review the current settings.")
         validate_selection(gpu_memory, spec.get("gpuMemory"))

@@ -267,7 +267,7 @@ class Worker:
             raise RuntimeError("GPU memory firmware or boot configuration changed after the reviewed plan.")
         desired = gpu_memory.validate_selection(self.memory, operation["spec"]["gpuMemory"])
         current.update(memoryDesired=desired, memoryKernel=self.report["kernel"]["release"],
-                       memoryFingerprint=self.report.get("hardwareFingerprint"), memoryOs=self.report.get("os"),
+                       memoryFingerprint=self.report.get("hardwareFingerprint"), memoryPciIdentity=self.memory.get("pciIdentity"), memoryOs=self.report.get("os"),
                        memoryOptions=self.memory["options"], memoryConfigurationId=gpu_memory.configuration()["id"],
                        requestDigest=digest(operation["spec"]), rebootCount=0)
         if desired["carveoutIndex"] != self.memory["currentCarveoutIndex"]:
@@ -308,6 +308,8 @@ class Worker:
                 raise RuntimeError("The running kernel changed during memory maintenance; no further memory writes will run.")
             if (self.report.get("hardwareFingerprint") != current["memoryFingerprint"] or self.report.get("os") != current["memoryOs"]):
                 raise RuntimeError("Hardware, driver, firmware or OS identity changed during memory maintenance.")
+            if self.memory.get("pciIdentity") != current.get("memoryPciIdentity"):
+                raise RuntimeError("GPU PCI inventory or companion driver changed during memory maintenance.")
             if (not self.memory.get("supported") or self.memory.get("pciAddress") != desired["pciAddress"]
                     or self.memory.get("options") != current["memoryOptions"]
                     or self.memory.get("currentCarveoutIndex") != desired["carveoutIndex"]

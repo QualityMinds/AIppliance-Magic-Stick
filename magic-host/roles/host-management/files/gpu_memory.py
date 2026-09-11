@@ -74,23 +74,57 @@ def configuration(root=Path("/")):
     return {"conflicts": conflicts, "managedPages": managed_pages, "id": digest(sources)}
 
 
+def memory_gpu_inventory(display_gpus, root):
+    """Bind memory writes to one AMD device and inspect additional GPU drivers.
+
+    The UMA setting belongs to the Strix Halo PCI device, but ttm.pages_limit
+    is global. NVIDIA's nvidia driver can coexist; nouveau, other vendors and
+    additional AMD devices must not silently share this memory policy.
+    """
+    if (not isinstance(display_gpus, list) or not display_gpus
+            or any(not isinstance(item, str) or not re.fullmatch(r"[0-9a-f]{4}:[0-9a-f]{4}", item) for item in display_gpus)):
+        raise ValueError("Complete PCI display-device inventory is required for GPU memory configuration.")
+    pci = root / "sys/bus/pci/devices"
+    if not pci.is_dir():
+        raise ValueError("Complete PCI display-device inventory is required for GPU memory configuration.")
+    inventory = []
+    for entry in sorted(pci.iterdir()):
+        if int((entry / "class").read_text().strip(), 16) >> 16 != 3:
+            continue
+        if not re.fullmatch(PCI_PATTERN, entry.name):
+            raise ValueError("GPU PCI identity is invalid.")
+        vendor = int((entry / "vendor").read_text().strip(), 16)
+        device = int((entry / "device").read_text().strip(), 16)
+        driver = (entry / "driver").resolve(strict=True).name
+        inventory.append({"pciAddress": entry.name, "pciId": f"{vendor:04x}:{device:04x}", "driver": driver})
+    if sorted(item["pciId"] for item in inventory) != sorted(display_gpus):
+        raise ValueError("PCI GPU inventory changed during inspection. Refresh before configuring memory.")
+    strix = [item for item in inventory if item["pciId"] == "1002:1586"]
+    if len(strix) != 1 or strix[0]["driver"] != "amdgpu":
+        raise ValueError("Shared GPU memory controls require exactly one Strix Halo GPU bound to amdgpu.")
+    if any(item != strix[0] and (not item["pciId"].startswith("10de:") or item["driver"] != "nvidia") for item in inventory):
+        raise ValueError("Strix Halo memory can be managed alongside NVIDIA GPUs using the nvidia driver. Additional AMD GPUs, other vendors or drivers (including nouveau) are not supported by this memory workflow.")
+    return inventory, strix[0]["pciAddress"]
+
+
 def collect(report, display_gpus, root=Path("/")):
-    result = {"supported": False, "message": "Shared GPU memory controls require a single supported Strix Halo GPU with complete firmware and memory evidence.",
+    result = {"supported": False, "message": "Shared GPU memory controls require one supported Strix Halo GPU with complete firmware and memory evidence; NVIDIA GPUs using the nvidia driver may coexist.",
               "systemReserveMi": RESERVE_MI, "stepMi": STEP_MI, "minDynamicLimitMi": STEP_MI}
     identity = {"bootId": report.get("bootId"), "kernel": report.get("kernel"),
                 "hardwareFingerprint": report.get("hardwareFingerprint"), "displayGpus": display_gpus}
     try:
-        if display_gpus != ["1002:1586"] or report.get("os") not in (
+        if report.get("os") not in (
             {"id": "ubuntu", "versionId": "24.04"}, {"id": "ubuntu", "versionId": "26.04"}
         ):
             raise ValueError(result["message"])
-        devices = report.get("devices") or []
-        if len(devices) != 1 or devices[0].get("deviceId") != "1586" or devices[0].get("driver") != "amdgpu":
+        inventory, address = memory_gpu_inventory(display_gpus, root)
+        result["pciIdentity"] = digest(inventory)
+        devices = report.get("devices") or []  # Preflight reports AMD GPUs only.
+        if (len(devices) != 1 or devices[0].get("vendorId") != "1002"
+                or devices[0].get("deviceId") != "1586" or devices[0].get("driver") != "amdgpu"
+                or devices[0].get("pciAddress") != address):
             raise ValueError(result["message"])
         device = devices[0]
-        address = device.get("pciAddress", "")
-        if not re.fullmatch(PCI_PATTERN, address):
-            raise ValueError("GPU PCI identity is invalid.")
         base = root / "sys/bus/pci/devices" / address
         options = parse_options((base / "uma/carveout_options").read_text())
         raw_index = (base / "uma/carveout").read_text().strip()

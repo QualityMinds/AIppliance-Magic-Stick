@@ -21,7 +21,7 @@ def evidence(boot="boot-a", reserved=32768, total=64000, dynamic=32768):
     return {"bootId": boot, "os": {"id": "ubuntu", "versionId": "24.04"},
             "kernel": {"release": "7.0.0-1-generic", "strixHaloFixes": "present"}, "hardwareFingerprint": "f" * 64,
             "systemMemory": {"totalBytes": total * memory.MIB, "pageSizeBytes": 4096, "ttmLimitBytes": dynamic * memory.MIB},
-            "devices": [{"pciAddress": ADDRESS, "deviceId": "1586", "driver": "amdgpu", "memory": {"vramTotalBytes": reserved * memory.MIB}}]}
+            "devices": [{"pciAddress": ADDRESS, "vendorId": "1002", "deviceId": "1586", "driver": "amdgpu", "memory": {"vramTotalBytes": reserved * memory.MIB}}]}
 
 
 def capability(boot="boot-a", reserved=32768, index=3, total=64000, dynamic=32768):
@@ -54,11 +54,26 @@ class MemoryEvidenceTests(unittest.TestCase):
         self.put(self.root / "sys/module/amdgpu/parameters/gttsize", "-1")
         for filename, value in (("vendor", "0x1002"), ("device", "0x1586"), ("class", "0x030000")):
             self.put(self.base / filename, value)
+        self.bind(self.base, "amdgpu")
 
     @staticmethod
     def put(path, text):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text)
+
+    def bind(self, base, driver):
+        target = self.root / "sys/bus/pci/drivers" / driver
+        target.mkdir(parents=True, exist_ok=True)
+        (base / "driver").unlink(missing_ok=True)
+        (base / "driver").symlink_to(target, target_is_directory=True)
+
+    def add_gpu(self, pci_id="10de:2684", driver="nvidia", address="0000:02:00.0"):
+        base = self.root / "sys/bus/pci/devices" / address
+        vendor, device = pci_id.split(":")
+        for filename, value in (("vendor", "0x" + vendor), ("device", "0x" + device), ("class", "0x030200")):
+            self.put(base / filename, value)
+        self.bind(base, driver)
+        return base
 
     def collect(self, report=None, devices=None):
         return memory.collect(report or evidence(), devices if devices is not None else ["1002:1586"], self.root)
@@ -87,10 +102,58 @@ class MemoryEvidenceTests(unittest.TestCase):
                 self.put(self.base / "uma/carveout_options", bad)
                 self.assertFalse(self.collect()["supported"])
 
-    def test_unknown_mixed_or_missing_inventory_is_not_configurable(self):
+    def test_unknown_or_missing_inventory_is_not_configurable(self):
         for devices in ([], ["1002:9999"], ["1002:1586", "10de:1234"], ["1002:1586", "1002:1586"]):
             self.assertFalse(self.collect(devices=devices)["supported"])
         self.assertFalse(memory.collect(evidence(), None, self.root)["supported"])
+
+    def test_strix_halo_with_nvidia_preserves_amd_options_and_limits(self):
+        original = self.collect()
+        self.add_gpu()
+        for version in ("24.04", "26.04"):
+            for devices in (["1002:1586", "10de:2684"], ["10de:2684", "1002:1586"]):
+                with self.subTest(version=version, devices=devices):
+                    report = evidence(); report["os"]["versionId"] = version
+                    value = self.collect(report, devices)
+                    self.assertTrue(value["supported"], value["message"])
+                    for key in ("pciAddress", "options", "currentCarveoutMi", "systemMemoryMi", "currentDynamicLimitMi", "systemReserveMi"):
+                        self.assertEqual(value[key], original[key])
+                    self.assertNotEqual(value["pciIdentity"], original["pciIdentity"])
+                    self.assertNotEqual(value["id"], original["id"])
+                    self.assertEqual(memory.validate_selection(value, {"carveoutIndex": 0, "dynamicLimitMi": 65536})["pciAddress"], ADDRESS)
+        self.add_gpu(address="0000:03:00.0")
+        self.assertTrue(self.collect(devices=["10de:2684", "1002:1586", "10de:2684"])["supported"])
+
+    def test_other_ttm_consumers_unknown_drivers_and_multi_amd_remain_blocked(self):
+        for pci_id, driver in (("10de:2684", "nouveau"), ("10de:2684", "vfio-pci"),
+                               ("1002:1586", "amdgpu"), ("1002:9999", "amdgpu"), ("8086:1234", "xe")):
+            with self.subTest(pci_id=pci_id, driver=driver):
+                self.add_gpu(pci_id=pci_id, driver=driver)
+                self.assertFalse(self.collect(devices=["1002:1586", pci_id])["supported"])
+
+    def test_mixed_inventory_requires_consistent_local_binding_and_amd_evidence(self):
+        companion = self.add_gpu()
+        devices = ["1002:1586", "10de:2684"]
+        self.assertFalse(self.collect(devices=["1002:1586"])["supported"])
+        for key, value in (("pciAddress", "0000:02:00.0"), ("vendorId", "10de"), ("driver", "nouveau")):
+            report = evidence(); report["devices"][0][key] = value
+            self.assertFalse(self.collect(report, devices)["supported"])
+        (companion / "driver").unlink()
+        self.assertFalse(self.collect(devices=devices)["supported"])
+        self.bind(companion, "nvidia")
+        (companion / "class").unlink()
+        self.assertFalse(self.collect(devices=devices)["supported"])
+
+    def test_mixed_host_keeps_kernel_firmware_and_override_safety_checks(self):
+        self.add_gpu()
+        devices = ["1002:1586", "10de:2684"]
+        report = evidence(); report["kernel"]["strixHaloFixes"] = "unknown"
+        self.assertFalse(self.collect(report, devices)["supported"])
+        self.put(self.base / "uma/carveout", "0")
+        self.assertFalse(self.collect(devices=devices)["supported"])
+        self.put(self.base / "uma/carveout", "3")
+        self.put(self.root / "etc/modprobe.d/foreign.conf", "options ttm pages_limit=123")
+        self.assertFalse(self.collect(devices=devices)["supported"])
 
     def test_pending_uma_reservation_must_match_active_vram(self):
         self.put(self.base / "uma/carveout", "0")
@@ -239,6 +302,18 @@ class MemoryWorkerTests(unittest.TestCase):
         self.worker().reconcile(operation); self.worker().reconcile(operation)
         self.assertEqual(self.worker().state["current"]["phase"], "Succeeded")
         self.assertEqual(len(self.shutdowns()), 1)
+
+    def test_companion_gpu_change_during_reboot_prevents_more_memory_writes(self):
+        self.memory["pciIdentity"] = "d" * 64
+        operation = request()
+        self.worker().reconcile(operation)
+        self.assertEqual(self.worker().state["current"]["memoryPciIdentity"], "d" * 64)
+        self.advance_boot("boot-b", 512, 0, 96000, 48000)
+        self.memory["pciIdentity"] = "e" * 64
+        self.run.reset_mock()
+        self.worker().reconcile(operation); self.worker().reconcile(operation)
+        self.assertEqual(self.worker().state["current"]["phase"], "Failed")
+        self.run.assert_not_called()
 
     def test_uma_only_does_not_write_ttm_if_dynamic_is_already_exact(self):
         operation = request(index=0, dynamic=32768)
