@@ -29,7 +29,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: web
-          image: ghcr.io/qualityminds/magicstick-dashboard:sha-fdb38543ea9dc4e164ff11cdfa644d666cfcfb2b@sha256:0e45bf01477dddcf488731bb0c4821dfd16eeb58d10f551305caa39baace557d
+          image: ghcr.io/qualityminds/magicstick-dashboard:sha-4589c6b60361aefc7059eb310fc9ddae22a34735@sha256:bdbfda39b83ec5a234ce8c577b3f0ef284d5355328c80e2120ec611a867990c0
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
