@@ -139,24 +139,24 @@ describe('dashboard feature contracts', () => {
     expect(screen.getByLabelText('Postgres')).toBeInTheDocument();
   });
 
-  it('Models distinguishes a shared RAM pool and renders the API accounting message', async () => {
+  it('Models keeps shared-memory gauges compact and exposes accounting behind an info symbol', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const path = new URL(String(input), window.location.origin).pathname;
       if (path === '/api/models') return json({...models, computeMemory: {sharedPools: [{id: 'unified-example', node: 'example-node', installedMemoryMi: 131072, firmwareReservedMi: 65536, physicalMemoryMi: 65536, gpuAccessibleMi: 47104, gpuCapacityMi: 65536, gpuAllocationMode: 'firmware-reserved', gpuCapacitySource: 'kfd-topology'}], devices: [{id: 'amd-example', name: 'Example GPU', computeTarget: 'amd-gpu', totalMi: 65536, unreservedMi: 32768, freeMi: null, gpuCapacityMi: 65536, gpuAllocationMode: 'firmware-reserved', memoryArchitecture: 'unified', sharedPoolId: 'unified-example', sharedMemoryMi: 65536, accountingVerified: false, message: 'GPU accounting is not a guaranteed hard limit.'}]}});
       return json(payload(path, 'GET'));
     }));
     renderPage(<ModelsPage session={session} />);
-    expect(await screen.findByText('Unified physical memory')).toBeInTheDocument();
-    expect(screen.getByText('unreserved budget')).toBeInTheDocument();
-    expect(screen.queryByText('shared RAM available')).not.toBeInTheDocument();
-    expect(screen.getByText('GPU model capacity · firmware-reserved pool')).toBeInTheDocument();
+    expect(await screen.findByText('dedicated unreserved')).toBeInTheDocument();
+    expect(screen.getByRole('region', {name: 'Dedicated memory'})).toHaveTextContent('64 GiB');
+    expect(screen.queryByText('Installed RAM')).not.toBeInTheDocument();
+    expect(screen.queryByText(/GPU accounting is not a guaranteed/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', {name: /Physical memory layout/})).not.toBeInTheDocument();
+    expect(screen.getAllByText('Example GPU')).toHaveLength(1);
+    await userEvent.click(screen.getByRole('button', {name: 'Explain Example GPU memory'}));
     expect(screen.getByText('Installed RAM').parentElement).toHaveTextContent('128 GiB');
     expect(screen.getByText('Fixed GPU reservation').parentElement).toHaveTextContent('64 GiB');
-    expect(screen.getByText(/Live GPU free memory is unknown/)).toBeInTheDocument();
-    expect(screen.queryByText('actually free')).not.toBeInTheDocument();
-    expect(screen.getByText(/64 GiB budgetable/)).toBeInTheDocument();
-    expect(screen.getByText(/GPU accounting not yet verified/)).toBeInTheDocument();
-    expect(screen.getAllByText('Example GPU')).toHaveLength(1);
+    expect(screen.getByText(/Dedicated free requires live GPU metrics/)).toBeInTheDocument();
+    expect(screen.getByText(/GPU memory accounting not yet verified/)).toBeInTheDocument();
     expect(screen.getByText('GPU accounting is not a guaranteed hard limit.')).toBeInTheDocument();
   });
 

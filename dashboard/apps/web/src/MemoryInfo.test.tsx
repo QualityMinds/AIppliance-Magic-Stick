@@ -86,4 +86,15 @@ describe('memory calculation overlays', () => {
     expect(unreservedCalculation(23456).substitution).toContain('23,400 MiB');
     expect(unreservedCalculation(null).substitution).toBe('Unreserved capacity is unknown.');
   });
+
+  it('keeps the popup inside the layout viewport when a scrollbar reduces its width', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(document.documentElement, 'clientWidth', 'get').mockReturnValue(320);
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains('memory-info-overlay') ? new DOMRect(0, 0, 296, 180) : new DOMRect(300, 10, 26, 26);
+    });
+    render(<MemoryInfo label="RAM" value="1 GiB" />);
+    await user.click(screen.getByRole('button', {name: 'Explain RAM'}));
+    expect(screen.getByRole('dialog').style.left).toBe('12px');
+  });
 });

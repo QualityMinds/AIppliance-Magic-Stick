@@ -247,6 +247,16 @@ export interface SharedMemoryInventory extends GpuAllocationEvidence {
   memoryAccountingVerified?: boolean;
 }
 
+/** Existing compute-memory API counters for one Linux/GPU shared-memory pool. */
+export interface SharedMemoryPool extends SharedMemoryInventory {
+  id: string;
+  totalMi?: number | null;
+  freeMi?: number | null;
+  unreservedMi?: number | null;
+  gpuUnreservedMi?: number | null;
+  systemReserveMi?: number | null;
+}
+
 export interface ComputeMemoryDevice extends GpuAllocationEvidence {
   id: string;
   kind?: string;
@@ -333,7 +343,7 @@ export interface ModelsPayload {
   activations: ModelActivation[];
   presets: Record<string, ModelPreset>;
   computeTargets: {default?: string; targets: ComputeTarget[]};
-  computeMemory?: {deviceCount?: number; metricsComplete?: boolean; devices?: ComputeMemoryDevice[]; sharedPools?: Array<SharedMemoryInventory & {id: string}>};
+  computeMemory?: {deviceCount?: number; metricsComplete?: boolean; devices?: ComputeMemoryDevice[]; sharedPools?: SharedMemoryPool[]};
   [key: string]: unknown;
 }
 

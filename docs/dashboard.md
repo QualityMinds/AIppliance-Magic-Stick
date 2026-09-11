@@ -906,11 +906,14 @@ AMD, or Intel once Kubernetes already publishes the matching GPU resource. If
 the resource is still absent, the operator phase remains the blocking reason.
 
 Above the installed-model list, the Models screen renders only a small
-**Compute memory** heading and one semicircular gauge per compute device. The
-full gray arc is 100 percent of that device's memory. The outer violet ring is
-unreserved memory (`total - active model reservations`); the inner cyan ring is
-memory currently available to the system. The center names the CPU or GPU and
-shows its currently available value. CPU totals are aggregated across Ready,
+**Compute memory** heading and one semicircular gauge per compute device. Ordinary
+CPU/discrete-GPU gauges have two rings: violet for unreserved memory
+(`total - active model reservations`), cyan for current availability. The full
+arc represents that reading's capacity. On unified-memory CPUs both rings
+use Linux-visible RAM; the unreserved value excludes system headroom. The
+center shows current availability, or the unreserved budget if live metrics are
+missing. A small legend and an info symbol replace inline explanation paragraphs.
+CPU totals are aggregated across Ready,
 schedulable appliance nodes, reservations come from active CPU models and
 GPU models with explicit CPU offloading via `ModelActivation.status.memoryRequiredMi`
 (falling back to the requested value), and current availability
@@ -922,9 +925,9 @@ whole-GPU request but not the chosen GPU UUID on the `ModelActivation`, so the
 dashboard packs planned `vramRequiredMi` reservations deterministically across
 the detected devices; the actually-free inner ring always comes directly from
 DCGM. AMD and Intel device-plugin resources are also listed individually. Until their installed
-operator supplies a compatible memory exporter, those gauges explicitly show
-that memory metrics are unavailable and do not invent a total, percentage, or
-free value. This preserves an honest UI while keeping the response contract
+operator supplies a compatible memory exporter, unavailable readings use a
+dashed ring and `—`, not an invented zero, total, percentage, or free value.
+This preserves an honest UI while keeping the response contract
 ready for additional vendor metric adapters.
 
 An explicitly configured unified-memory AMD profile shows one GPU, not separate
@@ -935,15 +938,27 @@ runtime requests count there. Dynamic GPU allocations consume Linux RAM and
 intersect its remaining budgets after safety headroom. Missing metrics and
 unverified GPU cgroup accounting remain explicit.
 
-On unified-memory hosts, **Models → Compute Memory** and **System → Hardware →
-GPU nodes** show a separate physical-memory overview: installed RAM (SMBIOS),
-fixed firmware GPU reservation, Linux-visible RAM, the dynamic GPU ceiling and
-driver-reported GPU capacity with the allocation domain/source.
-The dynamic ceiling is a subset of Linux-visible RAM, not an additional bank.
-Unknown inventory stays explicitly unreported; fixed firmware memory is not
-silently added to the dynamic budget. The GPU gauge uses the corroborated
-allocation domain. For fixed memory without live GPU metrics, it displays an
-**unreserved budget**, not invented free VRAM derived from Linux available RAM.
+On unified-memory hosts, **Models → Compute Memory** keeps one GPU gauge with
+four rings, from outside to inside: dedicated unreserved (violet), dedicated
+free (cyan), shared unreserved (blue), shared free (green). The compact legend
+groups each pair under its own capacity. These are separate scales, not an
+additive model budget or two deployment targets.
+
+Dedicated counters are attributed only to a confirmed firmware-reserved
+allocation domain. Without live dedicated GPU metrics, the free ring stays
+unknown and the center shows the **dedicated unreserved** budget. Shared free
+is `min(available Linux RAM, dynamic GPU ceiling)`, not a separate VRAM reading.
+Shared unreserved is limited by remaining Linux budgets after system headroom
+and model requests; when the confirmed model domain is shared/GTT, remaining
+GPU reservations also constrain it. Missing pool metrics, unknown domains and
+non-matching pool IDs are not replaced with another node's values. The dynamic
+ceiling is part of Linux-visible RAM, not an additional bank or protected reserve.
+
+Hovering or focusing the info symbol previews the explanation. Clicking/tapping
+pins it open; Escape, the close button or an outside click dismisses it. The
+popup includes installed RAM, fixed GPU reservation, Linux-visible RAM, dynamic
+ceiling, driver capacity, data sources and accounting caveats. The full inventory
+remains in **System → Hardware → GPU nodes**; it is not a separate card on Models.
 Unknown driver capacity remains unknown. Only separately confirmed hardware controls change memory
 settings. See the [inventory contract](gpu-compatibility.md#kernel-and-shared-memory-constraints).
 CLI hardware output and the physical TUI's Models/Hardware views expose the same

@@ -318,8 +318,11 @@ the updated read-only GPU preflight and refresh its Node annotation. Verify
 `installedMemoryMi`, `firmwareReservedMi`, `physicalMemoryMi` (Linux RAM) and
 `gpuAccessibleMi` (dynamic ceiling), `gpuCapacityMi`, `gpuAllocationMode` and
 `gpuCapacitySource` separately. The PCI-matched KFD heap must corroborate the
-allocation domain. The Models/Hardware overview shows one GPU and never adds
-firmware and dynamic limits. For fixed allocations, check that the generated
+allocation domain. Models shows one compact GPU gauge with four dedicated/shared
+readings and info popups; Hardware retains the detailed inventory. Neither adds
+firmware and dynamic limits. Check that missing dedicated live metrics render as
+a dashed ring and `—`, and shared readings stay bounded by the Linux RAM counters
+and dynamic ceiling. For fixed allocations, check that the generated
 KubeAI profile requests host runtime RAM, not the GPU weight budget again;
 for dynamic/unknown allocations retain the conservative shared-RAM request.
 Verify the activation's `memoryRequiredMi` and `gpuAllocationMode` after

@@ -5,13 +5,13 @@ import {
   selectedArtifact,
 } from '@magicstick/dashboard-core';
 import type {
-  ComputeMemoryDevice, DiscoveryItem, MemoryCalculation, MemoryEstimate, ModelArtifact, ModelVariant,
+  DiscoveryItem, MemoryCalculation, MemoryEstimate, ModelArtifact, ModelVariant,
   ModelsPayload, Session,
 } from '@magicstick/dashboard-contracts';
 import {api} from '../api';
 import {Button, ConfirmDialog, Dialog, Empty, ErrorNotice, Field, Loading, Panel, ProgressBar, StatusBadge} from '../components';
 import {MemoryInfo, unreservedCalculation} from '../MemoryInfo';
-import {SharedMemoryOverview} from '../SharedMemoryOverview';
+import {ComputeMemory} from '../ComputeMemory';
 
 const roundMemory = (value: number) => Math.max(100, Math.ceil(value / 100) * 100);
 const quantizationText = (value: unknown) => {
@@ -24,32 +24,6 @@ const quantizationText = (value: unknown) => {
 const fallbackKvCacheOptions = (engine: string) => engine === 'OLlama'
   ? [{value: 'f16', label: 'Standard - F16', description: 'Highest cache precision.'}]
   : [{value: 'auto', label: 'Standard - model precision', description: 'Uses the model precision selected by vLLM.'}];
-
-const MemoryGauge = ({device}: {device: ComputeMemoryDevice}) => {
-  const total = Math.max(1, device.totalMi ?? 0);
-  const hasTotal = typeof device.totalMi === 'number' && device.totalMi > 0;
-  const hasFree = typeof device.freeMi === 'number' && Number.isFinite(device.freeMi);
-  const hasBudget = typeof device.unreservedMi === 'number' && Number.isFinite(device.unreservedMi);
-  const unreserved = Math.max(0, device.unreservedMi ?? total);
-  const free = Math.max(0, device.freeMi ?? 0);
-  const unreservedPercent = Math.min(100, Math.round(unreserved / total * 100));
-  const freePercent = Math.min(100, Math.round(free / total * 100));
-  const shared = device.memoryArchitecture === 'unified';
-  const sharedGpu = shared && device.kind !== 'cpu' && device.computeTarget !== 'cpu';
-  const fixedGpu = sharedGpu && device.gpuAllocationMode === 'firmware-reserved';
-  const value = hasFree ? formatMi(free) : hasBudget ? formatMi(unreserved) : 'Unknown';
-  const valueLabel = hasFree ? (sharedGpu && !fixedGpu ? 'shared RAM available' : 'actually free') : hasBudget ? 'unreserved budget' : 'capacity not reported';
-  return <article className="memory-gauge">
-    <div className="gauge-rings" style={{'--unreserved': `${hasTotal && hasBudget ? unreservedPercent * 1.8 : 0}deg`, '--free': `${hasTotal && hasFree ? freePercent * 1.8 : 0}deg`} as CSSProperties}><div className="gauge-value"><strong>{value}</strong><span>{valueLabel}</span></div></div>
-    <strong>{device.name ?? device.id}</strong>
-    {shared && <span>{sharedGpu ? fixedGpu ? 'GPU model capacity · firmware-reserved pool' : device.gpuAllocationMode === 'shared-gtt' ? 'GPU model capacity · dynamic Linux RAM' : 'GPU model capacity · allocation domain unknown' : 'Linux RAM · host runtime and dynamic GPU allocations'}</span>}
-    {shared && <span className="tag">Unified physical memory</span>}
-    <small><i />{hasBudget ? formatMi(unreserved) : 'Unknown'} unreserved · {hasTotal ? formatMi(total) : 'Unknown'} {shared ? 'budgetable' : 'total'}</small>
-    {shared && <small className="muted">{fixedGpu ? 'Fixed GPU allocations are outside Linux RAM. Live GPU free memory is unknown; the unreserved budget is planning data.' : sharedGpu ? 'Dynamic memory is not a protected reservation. Firmware and dynamic limits are not added.' : 'Excludes firmware-reserved GPU memory; includes the host RAM requested by GPU models.'} {device.accountingVerified ? 'GPU accounting verified.' : 'GPU accounting not yet verified.'}</small>}
-    {(device.message || device.warning) && <small className="muted">{device.message || device.warning}</small>}
-    {!device.metricsAvailable && <span className="muted">Live metrics unavailable</span>}
-  </article>;
-};
 
 const EstimateBreakdown = ({estimate}: {estimate: MemoryEstimate}) => {
   const offloading = estimate.offloading;
@@ -415,7 +389,7 @@ export const ModelsPage = ({session}: {session: Session}) => {
 
   return <div className="stack">
     <div className="section-title"><div><h2>Models</h2><p>Local inference and external OpenAI-compatible providers.</p></div></div>
-    <section className="stack"><p className="eyebrow">Compute Memory</p>{query.data.computeMemory?.sharedPools?.map((pool) => <SharedMemoryOverview key={pool.id} pool={pool} />)}<div className="memory-grid">{query.data.computeMemory?.devices?.length ? query.data.computeMemory.devices.map((device) => <MemoryGauge key={device.id} device={device} />) : <MemoryGauge device={{id: 'cpu-unavailable', name: 'CPU', kind: 'cpu'}} />}</div></section>
+    <ComputeMemory memory={query.data.computeMemory} />
     <div className="section-title"><div><h2>Installed Models</h2><p>{activations.length + registered.length} model{activations.length + registered.length === 1 ? '' : 's'}</p></div>{mutable && <Button variant="primary" onClick={() => setCreateOpen(true)}>Create</Button>}</div>
     <div className="stack compact">{activations.map((activation) => {
       const local = activation.spec?.local as Record<string, unknown> | undefined; const external = activation.spec?.external as Record<string, unknown> | undefined;
