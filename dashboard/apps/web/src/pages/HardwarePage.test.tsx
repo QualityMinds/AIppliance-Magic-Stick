@@ -2,13 +2,14 @@ import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {render, screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
-import type {GpuCompatibility, Session} from '@magicstick/dashboard-contracts';
+import type {GpuCompatibility, ManagedHost, Session} from '@magicstick/dashboard-contracts';
 import {HardwarePage} from './HardwarePage';
 
 const session: Session = {subject: 'example', username: 'example', roles: ['magicstick-admin'], identityManagementAvailable: false, identityManagementMode: 'external'};
 const profile = {id: 'strix-halo', displayName: 'AMD Strix Halo', version: '1', experimental: true, memoryArchitecture: 'unified', expectedArchitecture: 'gfx1151'};
 const initial = (): GpuCompatibility => ({schemaVersion: 1, selectedProfile: '', allowExperimental: false, profiles: [profile], nodes: [{node: 'example-node', nodeUid: 'example-uid', profileId: 'strix-halo', optedIn: false, eligible: false, upstreamSupported: false, memoryArchitecture: 'unified', physicalMemoryMi: 65536, gpuAccessibleMi: 49152, memoryAccountingVerified: false, hostDriverReady: true, resourceRegistered: false, validation: {OLlama: {state: 'passed', image: 'example/ollama:1', message: 'GPU calculation passed.'}, VLLM: {state: 'failed', message: 'GPU calculation failed.'}}}]});
 let compatibility: GpuCompatibility;
+let host: ManagedHost;
 const writes: Array<{path: string; body: unknown}> = [];
 const mount = (roles = session.roles) => render(<QueryClientProvider client={new QueryClient({defaultOptions: {queries: {retry: false}, mutations: {retry: false}}})}><HardwarePage session={{...session, roles}} /></QueryClientProvider>);
 const openAdvanced = async () => {await userEvent.click(await screen.findByText('Advanced · AMD runtime profile'));};
@@ -21,11 +22,12 @@ const enableValidation = () => {
 describe('hardware compatibility', () => {
   beforeEach(() => {
     compatibility = initial();
+    host = {name: 'example-node', nodeUid: 'example-uid', bootId: 'example-boot', kernel: '7.0-test', available: true, message: 'Host worker available.'};
     writes.length = 0;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = new URL(String(input), window.location.origin).pathname;
       if (init?.method === 'POST') {writes.push({path, body: JSON.parse(String(init.body))}); return new Response('{}', {headers: {'content-type': 'application/json'}});}
-      if (path === '/api/host-management') return new Response(JSON.stringify({nodes: [{name: 'example-node', nodeUid: 'example-uid', bootId: 'example-boot', kernel: '7.0-test', available: true, message: 'Host worker available.'}]}), {headers: {'content-type': 'application/json'}});
+      if (path === '/api/host-management') return new Response(JSON.stringify({nodes: [host]}), {headers: {'content-type': 'application/json'}});
       return new Response(JSON.stringify({hardwareOperators: {'amd-gpu': {displayName: 'AMD GPU Operator', phase: 'Degraded', allocatableResources: 0, compatibility}}}), {headers: {'content-type': 'application/json'}});
     }));
   });
@@ -154,5 +156,28 @@ describe('hardware compatibility', () => {
     expect(writes).toHaveLength(0);
     await userEvent.click(screen.getByRole('button', {name: 'Run verification'}));
     await waitFor(() => expect(writes[0]).toMatchObject({body: {profileId: 'strix-halo', engine: 'OLlama', requestId: expect.stringMatching(/^dashboard-/)}}));
+  });
+
+  it('merges device and kernel facts without a nested preparation card and keeps the selected plan live', async () => {
+    host.plan = {id: 'normal-plan', state: 'blocked', profileId: 'example-profile', profileVersion: '1', gpuProfile: 'strix-halo', experimental: true, message: 'Unreviewed hardware combination.', packages: {}, rebootRequired: false, targetKernel: '', displayGpus: ['1002:1586']};
+    host.plan.experiment = {...host.plan, id: 'experiment-plan', state: 'available', profileId: 'example-experiment', experimentMode: true, rebootRequired: true, targetKernel: '7.1-test'};
+    mount();
+    const preparation = await screen.findByText('Host preparation');
+    const node = screen.getByRole('article', {name: 'GPU node example-node'});
+    expect(preparation.closest('article')).toBe(node);
+    const facts = within(node).getByText('Kubernetes GPU resource').closest('dl')!;
+    expect([...facts.querySelectorAll('dt')].map((term) => term.textContent)).toEqual([
+      'Profile', 'Upstream operator recognition', 'Architecture', 'Host driver',
+      'Kubernetes GPU resource', 'Detected GPU devices', 'Running kernel', 'Planned kernel', 'Kernel / driver plan',
+    ]);
+    expect(within(node).getAllByText('Detected GPU devices')).toHaveLength(1);
+    expect(within(node).queryByText('PCI devices')).not.toBeInTheDocument();
+    expect(within(facts).getByText('1002:1586')).toBeInTheDocument();
+    expect(within(facts).getByText('Unchanged')).toBeInTheDocument();
+    await userEvent.click(within(node).getByRole('checkbox', {name: /Experiment mode/}));
+    expect(within(facts).getByText('7.1-test')).toBeInTheDocument();
+    expect(within(facts).getByText('example-experiment · 1')).toBeInTheDocument();
+    expect(within(node).getByRole('button', {name: 'Review hardware experiment'})).toBeDisabled();
+    expect(writes).toHaveLength(0);
   });
 });

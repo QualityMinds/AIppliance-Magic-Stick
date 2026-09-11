@@ -10,17 +10,18 @@ import {InfoPopover} from '../InfoPopover';
 
 const stage = (ready?: boolean | null) => ready === true ? 'Ready' : ready === false ? 'Not ready' : 'Not verified';
 
-const HardwareNode = ({node, host, compatibility, session, stale}: {node: GpuCompatibilityNode; host?: ManagedHost; compatibility?: GpuCompatibility; session: Session; stale: boolean}) => <article className="operator-card stack compact" aria-label={`GPU node ${node.node}`}>
-  <header><div className="inline-info"><strong>{node.node}</strong>{node.message && <InfoPopover label={`GPU on ${node.node}`}><p className="memory-info-note">{node.message}</p></InfoPopover>}</div><StatusBadge phase={node.eligible ? 'Eligible' : 'Not eligible'} /></header>
-  <dl className="facts">
+const HardwareNodeFacts = ({node, host}: {node: GpuCompatibilityNode; host?: ManagedHost}) => <>
     <div><dt>Profile</dt><dd>{node.profileId || 'Upstream rules'}{node.profileVersion ? ` · ${node.profileVersion}` : ''}</dd></div>
     <div><dt>Upstream operator recognition</dt><dd>{node.upstreamSupported ? 'Recognized' : 'Not recognized'}</dd></div>
     <div><dt>Architecture</dt><dd>{node.detectedArchitecture || 'Not verified'}{node.expectedArchitecture ? ` (expected ${node.expectedArchitecture})` : ''}</dd></div>
     <div><dt>Host driver</dt><dd>{stage(node.hostDriverReady)}</dd></div>
     <div><dt>Kubernetes GPU resource</dt><dd>{stage(node.resourceRegistered)}</dd></div>
-    {Boolean(node.pciDevices?.length) && <div><dt>PCI devices</dt><dd>{node.pciDevices?.join(', ')}</dd></div>}
-  </dl>
-  {host && <HostPreparation key={`${host.nodeUid}:${host.bootId}:${host.plan?.id}`} host={host} session={session} stale={stale} embedded />}
+    <div><dt>Detected GPU devices</dt><dd>{(node.pciDevices?.length ? node.pciDevices : host?.plan?.displayGpus)?.join(', ') || 'Not reported'}</dd></div>
+</>;
+
+const HardwareNode = ({node, host, compatibility, session, stale}: {node: GpuCompatibilityNode; host?: ManagedHost; compatibility?: GpuCompatibility; session: Session; stale: boolean}) => <article className="operator-card stack compact" aria-label={`GPU node ${node.node}`}>
+  <header><div className="inline-info"><strong>{node.node}</strong>{node.message && <InfoPopover label={`GPU on ${node.node}`}><p className="memory-info-note">{node.message}</p></InfoPopover>}</div><StatusBadge phase={node.eligible ? 'Eligible' : 'Not eligible'} /></header>
+  {host ? <HostPreparation key={`${host.nodeUid}:${host.bootId}:${host.plan?.id}`} host={host} session={session} stale={stale} embedded leadingFacts={<HardwareNodeFacts node={node} host={host} />} /> : <dl className="facts"><HardwareNodeFacts node={node} /></dl>}
   {compatibility && <details className="hardware-advanced"><summary>Advanced · AMD runtime profile</summary>
     {canAdminister(session) ? <ProfileControls key={`${compatibility.selectedProfile}:${compatibility.allowExperimental}`} compatibility={compatibility} /> : <div className="inline-info"><span>Current profile: {compatibility.selectedProfile || 'upstream rules'}</span><InfoPopover label="AMD runtime profile"><p className="memory-info-note">Administrator access is required to change profiles or run validation.</p></InfoPopover></div>}
   </details>}

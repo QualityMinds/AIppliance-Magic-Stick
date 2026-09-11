@@ -653,7 +653,11 @@ companies, employee agents, or gateway credentials.
 The Hardware page puts **GPU operators** first, followed by **GPU nodes** as the
 main workspace. Each node contains its host preparation, kernel plan, advanced
 runtime profile, physical memory summary, collapsed **GPU memory** controls and
-separate Ollama/vLLM verification buttons. General explanatory paragraphs are replaced
+separate Ollama/vLLM verification buttons. Device and kernel details share one
+grid: **Detected GPU devices** appears once; **Running
+kernel** and **Planned kernel** follow the resource/device row, with **Kernel /
+driver plan** below. Host preparation keeps its status and actions without a
+nested card. General explanatory paragraphs are replaced
 by info icons with hover, keyboard-focus, and click/touch overlays. Current
 values, status badges, errors, required acknowledgements, and confirmation-dialog
 warnings remain visible. An operation's details appear only in its matching

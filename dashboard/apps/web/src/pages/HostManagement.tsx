@@ -57,16 +57,26 @@ export const HostPowerPanel = () => {
   </Panel>;
 };
 
-export const HostPreparation = ({host, session, stale, embedded = false}: {host: ManagedHost; session: Session; stale: boolean; embedded?: boolean}) => {
+export const HostPreparation = ({host, session, stale, embedded = false, leadingFacts}: {host: ManagedHost; session: Session; stale: boolean; embedded?: boolean; leadingFacts?: ReactNode}) => {
   const [experiment, setExperiment] = useState(false);
   const [acknowledged, setAcknowledged] = useState(false);
   const action = useHostAction();
   const plan = experiment ? host.plan?.experiment : host.plan;
   const actionable = plan && ['available', 'ready'].includes(plan.state);
-  return <article className="operator-card stack compact">
+  const Container = embedded ? 'div' : 'article';
+  const kernelPlan = <div><dt>Kernel / driver plan</dt><dd>{plan ? <>{plan.profileId || 'No additional profile'}{plan.profileVersion ? ` · ${plan.profileVersion}` : ''}</> : 'Not reported'}</dd></div>;
+  const facts = <dl className="facts">
+    {leadingFacts}
+    {!embedded && <><div><dt>Detected GPU devices</dt><dd>{plan?.displayGpus?.join(', ') || 'None'}</dd></div>{kernelPlan}</>}
+    <div><dt>Running kernel</dt><dd>{host.kernel}</dd></div>
+    <div><dt>Planned kernel</dt><dd>{plan ? plan.rebootRequired ? plan.targetKernel : 'Unchanged' : 'Not reported'}</dd></div>
+    {embedded && kernelPlan}
+  </dl>;
+  return <Container className={embedded ? 'stack compact' : 'operator-card stack compact'}>
+    {embedded && facts}
     <header><div className="inline-info"><strong>{embedded ? 'Host preparation' : host.name}</strong><InfoPopover label={`Host preparation on ${host.name}`}><p className="memory-info-note">{experiment ? 'Automatic preparation remains blocked. You are reviewing a one-off experimental override below.' : host.plan?.message || host.message}</p><p className="memory-info-note">Prepares this computer's kernel and driver, then activates the matching AMD runtime profile and waits for Kubernetes GPU registration. No engine tests run automatically.</p></InfoPopover></div><StatusBadge phase={host.available ? plan?.state ?? 'Unknown' : 'Unavailable'} /></header>
     {canAdminister(session) && host.plan?.experiment && <label className="check-field"><input type="checkbox" checked={experiment} onChange={(event) => {setExperiment(event.target.checked); setAcknowledged(false);}} /> Experiment mode — test an unreviewed hardware combination</label>}
-    {plan && <><dl className="facts"><div><dt>Detected GPU devices</dt><dd>{plan.displayGpus?.join(', ') || 'None'}</dd></div><div><dt>Kernel / driver plan</dt><dd>{plan.profileId || 'No additional profile'}{plan.profileVersion ? ` · ${plan.profileVersion}` : ''}</dd></div><div><dt>Running kernel</dt><dd>{host.kernel}</dd></div><div><dt>Planned kernel</dt><dd>{plan.rebootRequired ? plan.targetKernel : 'Unchanged'}</dd></div></dl>
+    {plan && <>{!embedded && facts}
       {Object.keys(plan.packages).length > 0 && <div><strong>Exact package changes</strong><ul>{Object.entries(plan.packages).map(([name, version]) => <li key={name}>{name} = {version}</li>)}</ul></div>}
       {experiment && <div className="notice notice-warn"><strong>Unreviewed hardware experiment</strong><p>{plan.message}</p>{plan.engineValidationAvailable === false && <p>Engine validation is unavailable for this multi-AMD layout. Host preparation alone will not make the GPUs available to models.</p>}</div>}
       {canAdminister(session) && actionable && <><label className="check-field"><input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} /> I accept the experimental profile{experiment ? ', the unreviewed GPU combination and local recovery risk' : ' and its limitations'}.</label><div className="form-actions"><Button disabled={stale || !host.available || active(host) || !acknowledged || Boolean(action.pending)} onClick={() => action.start(host, 'prepare-gpu', plan)}>{experiment ? 'Review hardware experiment' : 'Review hardware preparation'}</Button></div></>}
@@ -75,7 +85,7 @@ export const HostPreparation = ({host, session, stale, embedded = false}: {host:
     <Operation host={host} actions={['prepare-gpu']} />
     {action.accepted && <p role="status">Preparation requested. Progress continues on the computer even if this page is closed.</p>}
     {action.dialog}
-  </article>;
+  </Container>;
 };
 
 export const HostPreparationPanel = ({session, children}: {session: Session; children?: ReactNode}) => {

@@ -311,7 +311,8 @@ Verify the configured image, running Pod image ID and readiness for both
 `identity-system/ai-appliance-dashboard-api`. Finally reload the primary
 dashboard in a browser and check the changed screen under the intended role.
 For node-level Hardware controls, verify that preparation and advanced profile
-options are inside the node, GPU memory starts collapsed, and each engine has its
+options are inside the node, device and kernel facts share one grid without a
+duplicate device field or nested preparation card, GPU memory starts collapsed, and each engine has its
 own verification button. Merely opening the page must not submit a validation,
 preparation or memory request. Do not launch GPU probes during a UI-only rollout.
 Report source publication, image build and live rollout as separate results;
@@ -758,14 +759,14 @@ are not shown on other System tabs. Check the host worker's journal and
 `HostOperation` phase separately from GPU operator and model readiness. Request
 acceptance is not confirmation of a completed power action.
 
-The Hardware page starts with GPU operator status. **GPU setup → Host preparation**
+The Hardware page starts with GPU operator status. **GPU nodes → Host preparation**
 is the main kernel/driver and runtime-profile setup path. **Advanced · AMD runtime
 profile** is a collapsed manual override in the same section, not a second setup
-requirement. Optional validation is next to **GPU nodes** and uses the saved
+requirement. Optional validation is inside each GPU node and uses the saved
 profile. Info icons retain background explanations and diagnostic messages;
 required action acknowledgements and disruption confirmations remain explicit.
 
-**System → Hardware → GPU memory → Shared GPU memory** configures supported Strix Halo
+**System → Hardware → GPU nodes → GPU memory → Shared GPU memory** configures supported Strix Halo
 firmware reservations and dynamic TTM limits through the same host worker.
 Inspect current versus requested values and retain console access before
 confirming the possible two-reboot workflow. Unsupported/mixed systems and
