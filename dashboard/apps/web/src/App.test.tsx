@@ -60,6 +60,7 @@ describe('default React dashboard', () => {
     expect(await within(systemSections).findByRole('tab', {name: 'Federated SSO'})).toBeEnabled();
     expect(within(systemSections).getByRole('tab', {name: 'System Status'})).toBeInTheDocument();
     expect(within(systemSections).getByRole('tab', {name: 'Hardware'})).toBeInTheDocument();
+    expect(within(systemSections).getByRole('tab', {name: 'Network'})).toBeInTheDocument();
     expect(within(systemSections).getByRole('tab', {name: 'System Status'}).nextElementSibling).toBe(within(systemSections).getByRole('tab', {name: 'Computer power'}));
   });
 
@@ -100,6 +101,7 @@ describe('default React dashboard', () => {
     renderApp();
     expect(await screen.findByRole('heading', {name: 'System Status'})).toBeInTheDocument();
     expect(screen.queryByRole('tab', {name: 'Computer power'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', {name: 'Network'})).not.toBeInTheDocument();
     expect(screen.queryByRole('button', {name: 'Restart computer'})).not.toBeInTheDocument();
     expect(screen.queryByRole('button', {name: 'Shut down computer'})).not.toBeInTheDocument();
     await waitFor(() => expect(window.location.hash).toBe('#/system/status'));

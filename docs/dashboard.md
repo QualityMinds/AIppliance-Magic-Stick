@@ -70,7 +70,7 @@ Paperclip, KubeOpenCode, KubeAI, LiteLLM, or direct app instance reconcilers.
 | API Access | Lets administrators create multiple named LiteLLM API keys, view their non-secret metadata, and revoke individual keys. |
 | Kubernetes Access | Lets administrators assign Viewer, Operator, or Cluster Administrator access to existing SSO identities and download or copy token-free OIDC kubeconfigs. |
 | Federated SSO | Enterprise: validates OIDC discovery or SAML metadata, stores providers in Keycloak, and maps exact upstream claim/attribute values to fixed Magic Stick roles. |
-| System | Groups Settings, License, Users, Federated SSO, Hardware, System Status, and Computer power behind one primary navigation item and presents them as category tabs like the Services filters. Administration tabs retain their role, identity, and entitlement restrictions; Hardware and System Status remain available to every dashboard role. Computer power is an administrator-only tab immediately after System Status. |
+| System | Groups Settings, License, Users, Federated SSO, Hardware, Network, System Status, and Computer power behind one primary navigation item and presents them as category tabs like the Services filters. Administration tabs retain their role, identity, and entitlement restrictions; Hardware and System Status remain available to every dashboard role. Network is administrator-only; Computer power is an administrator-only tab immediately after System Status. |
 
 ## Backend API
 
@@ -649,6 +649,11 @@ when their checkbox is enabled. These values are stored under
 companies, employee agents, or gateway credentials.
 
 ## Hardware Compatibility Controls
+
+**System → Network** is a separate administrator-only tab for Ethernet/Wi-Fi,
+DHCP/static IPv4, DNS, route metrics and Wi-Fi scanning. Changes require
+exact-host approval and a second confirmation, with local timeout/boot recovery.
+See [network management](network-management.md) for limitations and credentials.
 
 The Hardware page puts **GPU operators** first, followed by **GPU nodes** as the
 main workspace. Each node contains its host preparation, kernel plan, advanced

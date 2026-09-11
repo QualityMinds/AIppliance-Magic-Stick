@@ -38,13 +38,15 @@ spec:
                   message: GPU preparation and memory configuration require reviewed host evidence.
                 - rule: '!self.experimentMode || self.allowExperimental'
                   message: Experiment mode requires explicit experimental acknowledgement.
-                - rule: "self.action in ['prepare-gpu', 'configure-gpu-memory'] || ((!has(self.planId) || self.planId == '') && !self.allowExperimental && !self.experimentMode)"
+                - rule: "self.action in ['prepare-gpu', 'configure-gpu-memory', 'configure-network', 'scan-wifi'] || ((!has(self.planId) || self.planId == '') && !self.allowExperimental && !self.experimentMode)"
                   message: Power operations cannot supply preparation settings.
                 - rule: "self.action == 'configure-gpu-memory' ? (has(self.gpuMemory) && self.allowExperimental && !self.experimentMode) : !has(self.gpuMemory)"
                   message: Only explicitly acknowledged GPU memory operations can carry memory settings.
+                - rule: "self.action in ['configure-network', 'scan-wifi'] ? (has(self.networkRef) && has(self.planId) && size(self.planId) == 64 && !self.allowExperimental && !self.experimentMode) : !has(self.networkRef)"
+                  message: Network operations require current evidence and a bounded credential reference.
               required: [action, nodeName, nodeUid, bootId, requestId, acknowledgeDisruption, allowExperimental, experimentMode, actorHash]
               properties:
-                action: {type: string, enum: [prepare-gpu, configure-gpu-memory, reboot, poweroff]}
+                action: {type: string, enum: [prepare-gpu, configure-gpu-memory, configure-network, scan-wifi, reboot, poweroff]}
                 nodeName: {type: string, minLength: 1, maxLength: 253, pattern: '^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$'}
                 nodeUid: {type: string, minLength: 1, maxLength: 64}
                 bootId: {type: string, minLength: 1, maxLength: 64}
@@ -54,6 +56,12 @@ spec:
                 experimentMode: {type: boolean}
                 acknowledgeDisruption: {type: boolean, enum: [true]}
                 actorHash: {type: string, pattern: '^[a-f0-9]{64}$', maxLength: 64}
+                networkRef:
+                  type: object
+                  required: [name, uid]
+                  properties:
+                    name: {type: string, pattern: '^host-network-[a-f0-9]{32}$', maxLength: 45}
+                    uid: {type: string, minLength: 1, maxLength: 64}
                 gpuMemory:
                   type: object
                   required: [carveoutIndex, dynamicLimitMi]
@@ -65,7 +73,8 @@ spec:
               properties:
                 phase:
                   type: string
-                  enum: [Accepted, Preparing, RebootScheduled, PoweroffScheduled, Verifying, Registering, Validating, Succeeded, PreparedUnverified, Failed, Rejected, Interrupted]
+                  enum: [Accepted, Preparing, Applying, AwaitingConfirmation, RolledBack, RebootScheduled, PoweroffScheduled, Verifying, Registering, Validating, Succeeded, PreparedUnverified, Failed, Rejected, Interrupted]
+                confirmationDeadline: {type: string, format: date-time}
                 message: {type: string, maxLength: 2048}
                 requestId: {type: string, maxLength: 32}
                 startedAt: {type: string, format: date-time}

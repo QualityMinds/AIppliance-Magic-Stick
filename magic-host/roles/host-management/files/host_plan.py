@@ -68,21 +68,21 @@ def build_plan(report, display_gpus, installed, catalog, architecture):
     return plan
 
 
-TERMINAL = {"Succeeded", "PreparedUnverified", "Failed", "Rejected", "Interrupted"}
-SPEC_FIELDS = {"action", "nodeName", "nodeUid", "bootId", "requestId", "planId", "allowExperimental", "experimentMode", "acknowledgeDisruption", "actorHash", "gpuMemory"}
+TERMINAL = {"Succeeded", "PreparedUnverified", "Failed", "Rejected", "Interrupted", "RolledBack"}
+SPEC_FIELDS = {"action", "nodeName", "nodeUid", "bootId", "requestId", "planId", "allowExperimental", "experimentMode", "acknowledgeDisruption", "actorHash", "gpuMemory", "networkRef"}
 
 
 def requested_plan(plan, spec):
     return (plan.get("experiment") or {}) if spec.get("experimentMode") is True else plan
 
 
-def validate_request(operation, node, report, plan, now, gpu_memory=None):
+def validate_request(operation, node, report, plan, now, gpu_memory=None, network=None):
     """Recheck all API promises at the privilege boundary, including identity/time."""
     from datetime import datetime
     import re
     spec = operation.get("spec") or {}
     meta = operation.get("metadata") or {}
-    if set(spec) - SPEC_FIELDS or spec.get("action") not in {"prepare-gpu", "reboot", "poweroff", "configure-gpu-memory"}:
+    if set(spec) - SPEC_FIELDS or spec.get("action") not in {"prepare-gpu", "reboot", "poweroff", "configure-gpu-memory", "configure-network", "scan-wifi"}:
         raise ValueError("Unknown host operation or unsupported fields.")
     if meta.get("deletionTimestamp") or not meta.get("uid"):
         raise ValueError("Host operation is not a live Kubernetes request.")
@@ -104,7 +104,17 @@ def validate_request(operation, node, report, plan, now, gpu_memory=None):
         raise ValueError("Experiment mode and experimental consent must be explicit booleans.")
     if spec["action"] != "configure-gpu-memory" and "gpuMemory" in spec:
         raise ValueError("GPU memory settings are only accepted for the dedicated memory action.")
-    if spec["action"] == "configure-gpu-memory":
+    if spec["action"] not in {"configure-network", "scan-wifi"} and "networkRef" in spec:
+        raise ValueError("Network settings require a dedicated network operation.")
+    if spec["action"] in {"configure-network", "scan-wifi"}:
+        reference = spec.get("networkRef", {})
+        if (not network or not network.get("supported") or spec.get("planId") != network.get("id")
+                or not re.fullmatch(r"[a-f0-9]{64}", str(spec.get("planId", "")))
+                or spec.get("allowExperimental") or spec.get("experimentMode")
+                or set(reference) != {"name", "uid"} or reference.get("name") != "host-network-" + spec["requestId"]
+                or not reference.get("uid")):
+            raise ValueError("Network inventory or request identity changed. Refresh before retrying.")
+    elif spec["action"] == "configure-gpu-memory":
         from gpu_memory import validate_selection
         if spec.get("allowExperimental") is not True or spec.get("experimentMode") is True:
             raise ValueError("Memory configuration requires explicit experimental consent and does not permit unreviewed mixed hardware.")

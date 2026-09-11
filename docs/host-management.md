@@ -8,6 +8,11 @@ post-install preparation cannot repair an installer that cannot boot.
 
 ## User workflow
 
+Ethernet and Wi-Fi use the same bounded host-operation mechanism through
+**System → Network**, adding independent local timeout and boot recovery.
+See [network management](network-management.md). Network, power and GPU changes
+never execute concurrently on the same host.
+
 Open **System → Hardware → GPU nodes → Host preparation**. GPU operators are
 shown first. Each node contains its kernel plan, preparation acknowledgement,
 advanced profile override and collapsed **GPU memory** configuration. Help

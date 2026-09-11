@@ -7,7 +7,7 @@ import {Button, ConfirmDialog, Empty, ErrorNotice, Field, Loading, Panel, Status
 import {HostGpuMemoryPanel} from './HostGpuMemory';
 import {InfoPopover} from '../InfoPopover';
 
-const terminal = new Set(['Succeeded', 'PreparedUnverified', 'Failed', 'Rejected', 'Interrupted']);
+const terminal = new Set(['Succeeded', 'PreparedUnverified', 'Failed', 'Rejected', 'Interrupted', 'RolledBack']);
 const active = (host: ManagedHost) => Boolean(host.operation && !terminal.has(host.operation.phase));
 export const useHosts = () => useQuery({queryKey: ['host-management'], queryFn: () => api.hostManagement(), refetchInterval: 5_000, retry: false});
 

@@ -151,6 +151,9 @@ export class MagicStickApi {
   models() { return this.request<ModelsPayload>('/api/models'); }
   status() { return this.request<SystemStatusPayload>('/api/status'); }
   hostManagement() { return this.request<{nodes: ManagedHost[]}>('/api/host-management'); }
+  confirmHostNetwork(payload: {nodeUid: string; requestId: string; confirmation: string}) {
+    return this.request<{accepted: boolean; requestId: string}>('/api/host-management/network-confirm', {method: 'POST', body: JSON.stringify(payload)});
+  }
   requestGpuValidation(payload: GpuValidationRequest) {
     return this.request<{accepted: boolean; requestId: string}>('/api/hardware/validation', {
       method: 'POST', body: JSON.stringify(payload),

@@ -6622,11 +6622,30 @@ data:
 
 
     HOST_MANAGEMENT_ANNOTATION = "appliance.magicstick.dev/host-management"
-    HOST_OPERATION_TERMINAL = {"Succeeded", "PreparedUnverified", "Failed", "Rejected", "Interrupted"}
+    HOST_NETWORK_SECRET_NAMESPACE = "host-management"
+    HOST_OPERATION_TERMINAL = {"Succeeded", "PreparedUnverified", "Failed", "Rejected", "Interrupted", "RolledBack"}
 
 
     def host_operations_path():
         return f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/hostoperations"
+
+
+    def public_host_network(value):
+        if not isinstance(value, dict):
+            return None
+        fields = {"name", "kind", "mac", "state", "addresses", "gateway", "editable", "scanSupported", "clusterAddresses", "configuredMode",
+                  "configuredAddress", "configuredGateway", "dns", "metric", "configuredSsid", "connectedSsid", "hasPassword", "security", "hidden"}
+        def safe(item):
+            return type(item) in {str, bool, int} or isinstance(item, list) and len(item) <= 64 and all(isinstance(part, str) for part in item)
+        result = {key: value[key] for key in ("id", "supported", "message") if key in value and safe(value[key])}
+        interfaces = value.get("interfaces", [])
+        result["interfaces"] = [{key: item[key] for key in fields if key in item and safe(item[key])} for item in interfaces[:32] if isinstance(item, dict)] if isinstance(interfaces, list) else []
+        scan = value.get("scan")
+        if isinstance(scan, dict):
+            result["scan"] = {key: scan[key] for key in ("interface", "observedAt") if key in scan and safe(scan[key])}
+            networks = scan.get("networks", [])
+            result["scan"]["networks"] = [{key: item[key] for key in ("ssid", "signal", "security") if key in item and safe(item[key])} for item in networks[:32] if isinstance(item, dict)] if isinstance(networks, list) else []
+        return result
 
 
     def host_management_status():
@@ -6655,6 +6674,7 @@ data:
                           "kernel": info.get("kernelVersion", ""), "available": fresh and available,
                           "observedAt": report.get("observedAt", ""), "plan": report.get("plan") if fresh else None,
                           "gpuMemory": report.get("gpuMemory") if fresh else None,
+                          "network": public_host_network(report.get("network")) if fresh else None,
                           "message": "Host worker is available." if fresh and available else "Host worker or operation API is unavailable/stale. No power or preparation action can be requested.",
                           "operation": {"requestId": operation.get("spec", {}).get("requestId"), "action": operation.get("spec", {}).get("action"),
                                         **(operation.get("status") or {"phase": "Pending", "message": "Waiting for the local host worker."})} if operation else None})
@@ -6709,9 +6729,9 @@ data:
     def create_host_operation(principal, payload):
         if not ROLE_ACCESS["admin"].intersection(principal.get("roles", [])):
             raise AuthError(403, "Administrator access is required for host operations.")
-        _reject_unknown_fields(payload, {"action", "nodeName", "nodeUid", "bootId", "requestId", "planId", "allowExperimental", "experimentMode", "acknowledgeDisruption", "confirmation", "gpuMemory"})
+        _reject_unknown_fields(payload, {"action", "nodeName", "nodeUid", "bootId", "requestId", "planId", "allowExperimental", "experimentMode", "acknowledgeDisruption", "confirmation", "gpuMemory", "network"})
         action = payload.get("action")
-        if action not in {"prepare-gpu", "configure-gpu-memory", "reboot", "poweroff"}:
+        if action not in {"prepare-gpu", "configure-gpu-memory", "configure-network", "scan-wifi", "reboot", "poweroff"}:
             raise RequestError(400, "Unknown host operation.")
         if not re.fullmatch(r"[a-f0-9]{32}", str(payload.get("requestId", ""))):
             raise RequestError(400, "A valid request identity is required.")
@@ -6730,7 +6750,22 @@ data:
         if payload.get("experimentMode") is True:
             plan = plan.get("experiment") or {}
         memory_settings = None
-        if action == "configure-gpu-memory":
+        network_settings = None
+        if action not in {"configure-network", "scan-wifi"} and "network" in payload:
+            raise RequestError(400, "Network settings require a dedicated network operation.")
+        if action in {"configure-network", "scan-wifi"}:
+            from network_contract import validate_network
+            network = host.get("network") or {}
+            if (not network.get("supported") or not re.fullmatch(r"[a-f0-9]{64}", str(network.get("id", "")))
+                    or payload.get("planId") != network["id"]):
+                raise RequestError(409, "Network inventory changed or is unavailable. Refresh before applying settings.")
+            if payload.get("allowExperimental") or payload.get("experimentMode") or "gpuMemory" in payload:
+                raise RequestError(400, "Network operations cannot carry hardware preparation settings.")
+            try:
+                network_settings = validate_network(payload.get("network"), network, scan=action == "scan-wifi")
+            except ValueError as error:
+                raise RequestError(400, str(error)) from None
+        elif action == "configure-gpu-memory":
             memory_settings = validate_host_gpu_memory(host, payload)
         elif "gpuMemory" in payload:
             raise RequestError(400, "GPU memory settings require a dedicated memory operation.")
@@ -6756,15 +6791,56 @@ data:
             existing = None
         if existing:
             if existing.get("spec", {}).get("requestId") == payload["requestId"]:
-                if existing.get("spec") != spec:
+                comparable = dict(existing.get("spec") or {})
+                if network_settings is not None:
+                    comparable.pop("networkRef", None)
+                if comparable != spec:
                     raise RequestError(409, "This request identity belongs to a different operation or administrator.")
                 return {"accepted": True, "requestId": payload["requestId"], "operation": existing.get("status") or {"phase": "Pending"}}
             if existing.get("status", {}).get("phase") not in HOST_OPERATION_TERMINAL:
                 raise RequestError(409, "This host already has an active operation. It will not be replaced.")
             request_json("DELETE", path, {"apiVersion": "v1", "kind": "DeleteOptions", "preconditions": {"uid": existing["metadata"]["uid"]}})
-        request_json("POST", host_operations_path(), {"apiVersion": f"{APPLIANCE_GROUP}/{APPLIANCE_VERSION}", "kind": "HostOperation",
-                     "metadata": {"name": name, "namespace": APPLIANCE_NAMESPACE}, "spec": spec})
+        secret = None
+        if network_settings is not None:
+            secret_name = "host-network-" + payload["requestId"]
+            secret = request_json("POST", f"/api/v1/namespaces/{HOST_NETWORK_SECRET_NAMESPACE}/secrets", {
+                "apiVersion": "v1", "kind": "Secret", "metadata": {"name": secret_name, "namespace": HOST_NETWORK_SECRET_NAMESPACE,
+                    "labels": {"appliance.magicstick.dev/request-id": payload["requestId"], "appliance.magicstick.dev/network-node": host["nodeUid"]}},
+                "type": "appliance.magicstick.dev/network-request", "immutable": True,
+                "stringData": {"settings.json": json.dumps(network_settings)}})
+            spec["networkRef"] = {"name": secret_name, "uid": secret["metadata"]["uid"]}
+        try:
+            request_json("POST", host_operations_path(), {"apiVersion": f"{APPLIANCE_GROUP}/{APPLIANCE_VERSION}", "kind": "HostOperation",
+                         "metadata": {"name": name, "namespace": APPLIANCE_NAMESPACE}, "spec": spec})
+        except urllib.error.HTTPError:
+            if secret:
+                request_json("DELETE", f"/api/v1/namespaces/{HOST_NETWORK_SECRET_NAMESPACE}/secrets/" + secret["metadata"]["name"],
+                             {"apiVersion": "v1", "kind": "DeleteOptions", "preconditions": {"uid": secret["metadata"]["uid"]}})
+            raise
         return {"accepted": True, "requestId": payload["requestId"], "operation": {"phase": "Pending"}}
+
+
+    def confirm_host_network(principal, payload):
+        if not ROLE_ACCESS["admin"].intersection(principal.get("roles", [])):
+            raise AuthError(403, "Administrator access is required to confirm network changes.")
+        _reject_unknown_fields(payload, {"nodeUid", "requestId", "confirmation"})
+        if not re.fullmatch(r"[a-f0-9]{32}", str(payload.get("requestId", ""))):
+            raise RequestError(400, "A valid network request identity is required.")
+        name = "host-" + hashlib.sha256(json.dumps(payload.get("nodeUid"), sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:24]
+        path = host_operations_path() + "/" + name
+        operation = request_json("GET", path)
+        spec, status = operation.get("spec", {}), operation.get("status", {})
+        try:
+            deadline = datetime.fromisoformat(status.get("confirmationDeadline", "").replace("Z", "+00:00")).timestamp()
+        except (ValueError, TypeError):
+            deadline = 0
+        if (spec.get("action") != "configure-network" or spec.get("requestId") != payload["requestId"]
+                or spec.get("nodeUid") != payload.get("nodeUid") or spec.get("nodeName") != payload.get("confirmation")
+                or status.get("phase") != "AwaitingConfirmation" or deadline <= time.time()):
+            raise RequestError(409, "This network trial is not awaiting confirmation or has expired.")
+        request_json("PATCH", path, {"metadata": {"resourceVersion": operation["metadata"]["resourceVersion"],
+                     "annotations": {"appliance.magicstick.dev/network-confirmed": payload["requestId"]}}})
+        return {"accepted": True, "requestId": payload["requestId"]}
 
 
     def required_get_access(parts):
@@ -6974,12 +7050,13 @@ data:
                 else:
                     self.send_error_json(503, "Federated SSO is unavailable; no change was confirmed.")
 
-        def handle_host_management(self, mutate=False):
+        def handle_host_management(self, mutate=False, confirm=False):
             try:
                 principal = self.require_access("admin" if mutate else "viewer")
                 if mutate:
                     validate_dashboard_mutation_request(self)
-                    self.send_json(create_host_operation(principal, read_body(self, max_bytes=4096)), 202)
+                    payload = read_body(self, max_bytes=4096)
+                    self.send_json(confirm_host_network(principal, payload) if confirm else create_host_operation(principal, payload), 202)
                 else:
                     self.send_json(host_management_status())
             except AuthError as error:
@@ -7185,6 +7262,9 @@ data:
             self.send_error_json(404, "not found")
 
         def do_POST(self):
+            if self.route() == "/api/host-management/network-confirm":
+                self.handle_host_management(mutate=True, confirm=True)
+                return
             if self.route() == "/api/host-management/operations":
                 self.handle_host_management(mutate=True)
                 return

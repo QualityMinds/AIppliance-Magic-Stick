@@ -161,12 +161,19 @@ network, model, and credential contracts.
 ## Runtime CRs
 
 `HostOperation` is a separate namespaced runtime request for node-local
-`prepare-gpu`, `configure-gpu-memory`, `reboot` or `poweroff`. Its spec is immutable and bound to a Node
+`prepare-gpu`, `configure-gpu-memory`, `configure-network`, `scan-wifi`, `reboot`
+or `poweroff`. Its spec is immutable and bound to a Node
 UID, boot ID, unique request ID and explicit disruption acknowledgement; hardware
 preparation additionally binds the exact local plan and experiment consent.
 The dashboard creates requests, while the local root worker owns status. These
 actions never mutate Git-owned `Appliance.spec`. See the [host-management API and
 recovery contract](host-management.md).
+
+Network operations bind `planId` to the current Netplan/interface inventory and
+carry only an immutable `networkRef` (Secret name and UID), never a password in
+the CR. `configure-network` adds `Applying`, `AwaitingConfirmation` and terminal
+`RolledBack`; status may include `confirmationDeadline`. Explicit confirmation
+uses metadata only. See [network management](network-management.md).
 
 GPU preparation uses `Registering` after host verification and completes when
 fresh eligible GPU registration is confirmed. It does not request or wait for

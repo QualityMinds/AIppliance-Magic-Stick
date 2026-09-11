@@ -2,6 +2,11 @@
 
 Reusable Ansible host automation for the AI Appliance.
 
+The host-management role also installs bounded Ethernet/Wi-Fi trial and recovery
+services using Ubuntu's existing Netplan backend. See
+[network management](../docs/network-management.md); installation enables the
+helpers but does not apply a different network configuration.
+
 The playbook is intentionally generic. By default, deployments use the reusable local inventory in this repository and provide deployment-specific bootstrap values through `/etc/default/ai-appliance-repo`.
 
 See [../docs/architecture.md](../docs/architecture.md) for the bootstrap flow,

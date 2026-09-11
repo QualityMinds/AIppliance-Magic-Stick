@@ -1,5 +1,9 @@
 # Configuration
 
+Post-install Ethernet/Wi-Fi configuration is available in **System → Network**.
+It uses runtime host operations, not deployment metadata or public Git values.
+See [network management](network-management.md) for confirmation and recovery.
+
 Configuration flows from installer inputs to host metadata, Flux post-build
 variables, dashboard settings, runtime CRs, and optional external overlays.
 

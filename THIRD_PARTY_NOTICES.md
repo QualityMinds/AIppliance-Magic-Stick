@@ -44,6 +44,12 @@ digest, or chart version.
 
 ## Dashboard API Python Dependencies
 
+The Ubuntu host-management role uses distribution packages `netplan.io`, `iw`,
+`wpasupplicant` and `python3-yaml` for bounded Ethernet/Wi-Fi management. These
+packages are installed from the host's configured Ubuntu repositories, not
+vendored here. Retain each installed package's `/usr/share/doc/<package>/copyright`
+and corresponding distribution/source notices when redistributing host images.
+
 The license-verification runtime bundles these packages through
 `dashboard/apps/api/requirements.txt`; their licenses remain separate from
 Magic Stick's MIT code. The private-key issuer tool is not copied into the

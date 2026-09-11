@@ -270,7 +270,12 @@ class HostRbacTests(unittest.TestCase):
     def test_dashboard_never_receives_host_privileges_or_status_writes(self):
         role = list(yaml.safe_load_all((Path(__file__).parent / "host-management-rbac.yaml").read_text()))[0]
         self.assertEqual(role["kind"], "Role")
-        self.assertEqual(role["rules"], [{"apiGroups": ["appliance.magicstick.dev"], "resources": ["hostoperations"], "verbs": ["get", "list", "create", "delete"]}])
+        self.assertEqual(role["rules"], [
+            {"apiGroups": ["appliance.magicstick.dev"], "resources": ["hostoperations"], "verbs": ["get", "list", "create", "delete", "patch"]},
+        ])
+        roles = [item for item in yaml.safe_load_all((Path(__file__).parent / "host-management-rbac.yaml").read_text()) if item['kind'] == 'Role']
+        self.assertEqual(roles[1]['metadata']['namespace'], 'host-management')
+        self.assertEqual(roles[1]['rules'], [{"apiGroups": [""], "resources": ["secrets"], "verbs": ["create", "get", "delete"]}])
 
 
 if __name__ == "__main__":

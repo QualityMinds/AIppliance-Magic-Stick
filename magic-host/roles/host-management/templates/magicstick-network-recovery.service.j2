@@ -1,0 +1,18 @@
+[Unit]
+Description=Restore an unconfirmed Magic Stick network configuration at boot
+DefaultDependencies=no
+After=local-fs.target
+Before=network-pre.target systemd-networkd.service NetworkManager.service
+Wants=network-pre.target
+ConditionPathExists=/var/lib/magicstick/host-management/network-trial.json
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+ExecStart=/usr/bin/python3 /usr/local/lib/magicstick/host-management/network_apply.py recover --boot
+TimeoutStartSec=30s
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

@@ -20,12 +20,14 @@ import time
 
 from host_plan import TERMINAL, build_plan, digest, requested_plan, validate_request
 import gpu_memory
+import network_config
 
 BASE = Path("/usr/local/lib/magicstick/host-management")
 STATE = Path("/var/lib/magicstick/host-management")
 ANNOTATION = "appliance.magicstick.dev/host-management"
 RESOURCE = "hostoperations.appliance.magicstick.dev"
 NAMESPACE = "ai-system"
+NETWORK_SECRET_NAMESPACE = "host-management"
 ENV = {"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "HOME": "/root", "LANG": "C.UTF-8",
        "ANSIBLE_CONFIG": str(BASE / "ansible.cfg"), "ANSIBLE_ROLES_PATH": str(BASE / "roles"),
        "ANSIBLE_LOCAL_TEMP": str(STATE / "ansible-tmp"), "ANSIBLE_NOCOLOR": "1"}
@@ -105,10 +107,23 @@ def local_node_name():
     return name
 
 
+def expire_network_credentials(node_uid):
+    secrets = kube(["get", "secrets", "-n", NETWORK_SECRET_NAMESPACE, "-l", "appliance.magicstick.dev/network-node=" + node_uid, "-o", "json"]) or {}
+    for secret in secrets.get("items", []):
+        meta = secret.get("metadata", {})
+        if secret.get("type") != "appliance.magicstick.dev/network-request" or not re.fullmatch(r"host-network-[a-f0-9]{32}", meta.get("name", "")):
+            continue
+        created = datetime.fromisoformat(meta["creationTimestamp"].replace("Z", "+00:00")).timestamp()
+        if time.time() - created > 600:
+            kube(["delete", "--raw", "/api/v1/namespaces/" + NETWORK_SECRET_NAMESPACE + "/secrets/" + meta["name"], "-f", "-"],
+                 {"apiVersion": "v1", "kind": "DeleteOptions", "preconditions": {"uid": meta["uid"]}})
+
+
 class Worker:
-    def __init__(self, node, report, plan, state_dir=STATE, memory=None):
+    def __init__(self, node, report, plan, state_dir=STATE, memory=None, network=None):
         self.node, self.report, self.plan, self.root = node, report, plan, state_dir
         self.memory = memory or {"supported": False, "message": "GPU memory evidence is unavailable."}
+        self.network = network or {"supported": False, "message": "Network inventory is unavailable.", "interfaces": []}
         self.path = state_dir / "state.json"
         self.state = json.loads(self.path.read_text()) if self.path.exists() else {"completed": [], "current": None}
 
@@ -138,6 +153,46 @@ class Worker:
 
     def activation(self):
         return kube(["get", "moduleactivations.appliance.magicstick.dev", "amd-gpu", "-n", NAMESPACE, "--ignore-not-found", "-o", "json"]) or {}
+
+    def begin_network(self, operation):
+        import base64
+        from network_contract import validate_network
+        spec, meta = operation["spec"], operation["metadata"]
+        previous = self.root / "network-trial.json"
+        if previous.exists() and json.loads(previous.read_text()).get("phase") not in TERMINAL:
+            raise ValueError("An earlier network trial needs local recovery before another change can run.")
+        reference = spec["networkRef"]
+        secret = kube(["get", "secret", reference["name"], "-n", NETWORK_SECRET_NAMESPACE, "-o", "json"])
+        if (secret["metadata"]["uid"] != reference["uid"] or secret.get("immutable") is not True
+                or secret.get("type") != "appliance.magicstick.dev/network-request"
+                or secret["metadata"].get("labels", {}).get("appliance.magicstick.dev/request-id") != spec["requestId"]):
+            raise ValueError("Network credentials do not belong to this immutable request.")
+        settings = json.loads(base64.b64decode(secret["data"]["settings.json"], validate=True))
+        fresh = network_config.collect(self.node)
+        if fresh.get("id") != spec["planId"]:
+            raise ValueError("Network configuration changed after review.")
+        settings = validate_network(settings, fresh, scan=spec["action"] == "scan-wifi")
+        kube(["delete", "--raw", "/api/v1/namespaces/" + NETWORK_SECRET_NAMESPACE + "/secrets/" + reference["name"], "-f", "-"],
+             {"apiVersion": "v1", "kind": "DeleteOptions", "preconditions": {"uid": reference["uid"]}})
+        if spec["action"] == "scan-wifi":
+            self.update(operation, "Preparing", "Scanning Wi-Fi networks; the current connection is not replaced.")
+            networks = network_config.scan_wifi(settings["interface"])
+            atomic_json(self.root / "wifi-scan.json", {"interface": settings["interface"], "networks": networks, "observedAt": stamp()})
+            self.update(operation, "Succeeded", "Wi-Fi scan completed.")
+            return
+        atomic_json(self.root / "approved-network.json", {"settings": settings, "approvedAt": time.time(), "operationName": meta["name"], "operationUid": meta["uid"],
+                    **{key: spec[key] for key in ("requestId", "nodeName", "nodeUid", "bootId", "planId")}})
+        self.state["current"]["networkStartedAt"] = time.time()
+        self.update(operation, "Applying", "Network trial queued. Confirmation will be required; unconfirmed changes are rolled back locally.")
+        run(["/usr/bin/systemctl", "start", "--no-block", "magicstick-network-apply.service"])
+
+    def reconcile_network(self, operation):
+        path = self.root / "network-trial.json"
+        result = json.loads(path.read_text()) if path.exists() else {}
+        if result.get("requestId") == self.state["current"]["requestId"] and result.get("phase") in TERMINAL:
+            self.update(operation, result["phase"], result["message"])
+        elif time.time() - self.state["current"].get("networkStartedAt", 0) > 420:
+            self.update(operation, "Interrupted", "Network trial did not report completion. Inspect the local network recovery service before retrying.")
 
     def memory_reboot(self, operation):
         current = self.state["current"]
@@ -291,7 +346,7 @@ class Worker:
                 error = "Execution state was lost or replaced. Confirm a new operation after reviewing the host."
             else:
                 try:
-                    validate_request(operation, self.node, self.report, self.plan, time.time(), self.memory)
+                    validate_request(operation, self.node, self.report, self.plan, time.time(), self.memory, self.network)
                     error = ""
                 except ValueError as invalid:
                     error = str(invalid)
@@ -313,6 +368,9 @@ class Worker:
                 if spec["action"] == "configure-gpu-memory":
                     self.begin_memory(operation)
                     return
+                if spec["action"] in {"configure-network", "scan-wifi"}:
+                    self.begin_network(operation)
+                    return
                 self.update(operation, "Preparing", "Applying the administrator-approved host profile through Ansible.")
                 self.state["current"]["activationBefore"] = self.activation_identity(self.activation())
                 self.save()
@@ -332,7 +390,7 @@ class Worker:
             except (RuntimeError, OSError, ValueError, subprocess.TimeoutExpired) as error:
                 print(json.dumps({"event": "host-operation-error", "requestId": spec["requestId"], "type": type(error).__name__,
                                   "message": str(error) if isinstance(error, RuntimeError) else "Local execution or timeout failure; no automatic retry."}), file=sys.stderr)
-                self.update(operation, "Failed", "Host preparation or power scheduling failed. No automatic retry or reboot will occur. Inspect journalctl -u magicstick-host-management before retrying.")
+                self.update(operation, "Failed", "The requested host operation failed. No automatic retry or reboot will occur. Inspect the host management and network recovery services before retrying.")
             return
 
         phase = current["phase"]
@@ -345,6 +403,9 @@ class Worker:
             return
         if current["action"] == "configure-gpu-memory":
             self.reconcile_memory(operation)
+            return
+        if current["action"] == "configure-network":
+            self.reconcile_network(operation)
             return
         new_boot = current["initialBootId"] != self.report["bootId"]
         if phase in {"Accepted", "Preparing"}:
@@ -396,9 +457,15 @@ class Worker:
                   "bootId": self.report["bootId"], "kernel": self.report["kernel"]["release"],
                   "plan": self.plan, "actions": ["reboot", "poweroff", "prepare-gpu"],
                   "gpuMemory": self.memory,
+                  "network": self.network,
                   "operation": {key: current[key] for key in ("requestId", "action", "phase", "message", "updatedAt") if key in current}}
         if self.memory.get("supported"):
             report["actions"].append("configure-gpu-memory")
+        if self.network.get("supported"):
+            report["actions"].extend(["configure-network", "scan-wifi"])
+        scan = self.root / "wifi-scan.json"
+        if scan.exists():
+            report["network"]["scan"] = json.loads(scan.read_text())
         kube(["patch", "node", self.node["metadata"]["name"], "--type=merge", "--patch-file=/dev/stdin", "-o", "json"],
              {"metadata": {"uid": self.node["metadata"]["uid"], "annotations": {ANNOTATION: json.dumps(report, sort_keys=True)}}})
 
@@ -424,12 +491,13 @@ def main():
         catalog = json.loads((BASE / "profiles.json").read_text())
         inventory = display_gpus()
         plan = build_plan(report, inventory, installed_packages(catalog), catalog, platform.machine())
-        worker = Worker(node, report, plan, memory=gpu_memory.collect(report, inventory))
+        worker = Worker(node, report, plan, memory=gpu_memory.collect(report, inventory), network=network_config.collect(node))
         # Publishing a plan must not depend on the CRD already having reconciled.
         worker.publish()
         operation = kube(["get", RESOURCE, operation_name(node["metadata"]["uid"]), "-n", NAMESPACE, "--ignore-not-found", "-o", "json"])
         worker.reconcile(operation)
         worker.publish()
+        expire_network_credentials(node["metadata"]["uid"])
     return 0
 
 

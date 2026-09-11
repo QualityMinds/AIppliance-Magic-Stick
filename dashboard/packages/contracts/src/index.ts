@@ -545,7 +545,47 @@ export interface KubernetesObjectSummary {
   conditions?: Array<{type?: string; status?: string; reason?: string; message?: string}>;
 }
 
-export type HostAction = 'prepare-gpu' | 'configure-gpu-memory' | 'reboot' | 'poweroff';
+export type HostAction = 'prepare-gpu' | 'configure-gpu-memory' | 'configure-network' | 'scan-wifi' | 'reboot' | 'poweroff';
+export interface NetworkSettings {
+  interface: string;
+  mode?: 'dhcp' | 'static';
+  address?: string;
+  gateway?: string;
+  dns?: string[];
+  metric?: number;
+  ssid?: string;
+  security?: 'open' | 'wpa-psk';
+  password?: string;
+  hidden?: boolean;
+}
+export interface NetworkInterface {
+  name: string;
+  kind: 'ethernet' | 'wifi';
+  mac: string;
+  state: string;
+  addresses: string[];
+  gateway?: string;
+  editable: boolean;
+  scanSupported: boolean;
+  clusterAddresses: string[];
+  configuredMode?: 'dhcp' | 'static';
+  configuredAddress?: string;
+  configuredGateway?: string;
+  dns?: string[];
+  metric?: number;
+  configuredSsid?: string;
+  connectedSsid?: string;
+  hasPassword?: boolean;
+  security?: 'open' | 'wpa-psk';
+  hidden?: boolean;
+}
+export interface HostNetwork {
+  id?: string;
+  supported: boolean;
+  message: string;
+  interfaces: NetworkInterface[];
+  scan?: {interface: string; observedAt: string; networks: Array<{ssid: string; signal?: number; security: string}>};
+}
 export interface HostGpuMemorySettings {
   carveoutIndex: number;
   dynamicLimitMi: number;
@@ -586,6 +626,7 @@ export interface HostOperationStatus {
   phase: string;
   message?: string;
   updatedAt?: string;
+  confirmationDeadline?: string;
 }
 export interface ManagedHost {
   name: string;
@@ -597,6 +638,7 @@ export interface ManagedHost {
   message: string;
   plan?: HostPreparationPlan | null;
   gpuMemory?: HostGpuMemory | null;
+  network?: HostNetwork | null;
   operation?: HostOperationStatus | null;
 }
 export interface HostOperationRequest {
@@ -611,6 +653,7 @@ export interface HostOperationRequest {
   experimentMode: boolean;
   planId?: string;
   gpuMemory?: HostGpuMemorySettings;
+  network?: NetworkSettings;
 }
 
 export interface SystemStatusPayload {

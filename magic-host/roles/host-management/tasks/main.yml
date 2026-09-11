@@ -1,4 +1,9 @@
 ---
+- name: Install the existing Ubuntu networking tools for bounded network management
+  ansible.builtin.apt:
+    name: [netplan.io, python3-yaml, iw, wpasupplicant]
+    state: present
+
 - name: Create root-owned host management directories
   ansible.builtin.file:
     path: "{{ item.path }}"
@@ -21,6 +26,9 @@
   loop:
     - host_worker.py
     - host_plan.py
+    - network_contract.py
+    - network_config.py
+    - network_apply.py
     - gpu_memory.py
     - profiles.json
     - ansible.cfg
@@ -48,6 +56,14 @@
   loop:
     - magicstick-host-management.service
     - magicstick-host-management.timer
+    - magicstick-network-apply.service
+    - magicstick-network-recovery.service
+
+- name: Enable local recovery of unconfirmed network changes before networking starts
+  ansible.builtin.systemd_service:
+    name: magicstick-network-recovery.service
+    daemon_reload: true
+    enabled: true
 
 - name: Enable post-install host inspection and approved-operation processing
   ansible.builtin.systemd_service:

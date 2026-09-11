@@ -751,6 +751,11 @@ For schema details and model troubleshooting, see
 
 ## Local Inference And Hardware-Driven GPU Operators
 
+Network administration is separate under **System → Network**. Follow
+[network management and recovery](network-management.md) for DHCP/static IPv4,
+Wi-Fi credentials, temporary application and rollback. Page loading and source
+publication must never initiate a network connection change.
+
 Use [post-install host management](host-management.md) for reviewed GPU package
 preparation and mixed-system experiments, and **System → Computer power** for
 administrator-confirmed reboot/shutdown. Computer power is a separate,
