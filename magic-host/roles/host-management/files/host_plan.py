@@ -69,20 +69,21 @@ def build_plan(report, display_gpus, installed, catalog, architecture):
 
 
 TERMINAL = {"Succeeded", "PreparedUnverified", "Failed", "Rejected", "Interrupted", "RolledBack"}
-SPEC_FIELDS = {"action", "nodeName", "nodeUid", "bootId", "requestId", "planId", "allowExperimental", "experimentMode", "acknowledgeDisruption", "actorHash", "gpuMemory", "networkRef"}
+SPEC_FIELDS = {"action", "nodeName", "nodeUid", "bootId", "requestId", "planId", "allowExperimental", "experimentMode", "acknowledgeDisruption", "actorHash", "gpuMemory", "networkRef", "updatePolicy", "updateScope"}
 
 
 def requested_plan(plan, spec):
     return (plan.get("experiment") or {}) if spec.get("experimentMode") is True else plan
 
 
-def validate_request(operation, node, report, plan, now, gpu_memory=None, network=None):
+def validate_request(operation, node, report, plan, now, gpu_memory=None, network=None, updates=None):
     """Recheck all API promises at the privilege boundary, including identity/time."""
     from datetime import datetime
     import re
+    from updates_contract import UPDATE_ACTIONS, validate_update_request
     spec = operation.get("spec") or {}
     meta = operation.get("metadata") or {}
-    if set(spec) - SPEC_FIELDS or spec.get("action") not in {"prepare-gpu", "reboot", "poweroff", "configure-gpu-memory", "configure-network", "scan-wifi"}:
+    if set(spec) - SPEC_FIELDS or spec.get("action") not in {"prepare-gpu", "reboot", "poweroff", "configure-gpu-memory", "configure-network", "scan-wifi"} | UPDATE_ACTIONS:
         raise ValueError("Unknown host operation or unsupported fields.")
     if meta.get("deletionTimestamp") or not meta.get("uid"):
         raise ValueError("Host operation is not a live Kubernetes request.")
@@ -106,7 +107,11 @@ def validate_request(operation, node, report, plan, now, gpu_memory=None, networ
         raise ValueError("GPU memory settings are only accepted for the dedicated memory action.")
     if spec["action"] not in {"configure-network", "scan-wifi"} and "networkRef" in spec:
         raise ValueError("Network settings require a dedicated network operation.")
-    if spec["action"] in {"configure-network", "scan-wifi"}:
+    if spec["action"] not in UPDATE_ACTIONS and ({"updatePolicy", "updateScope"} & set(spec)):
+        raise ValueError("Update settings require a dedicated update operation.")
+    if spec["action"] in UPDATE_ACTIONS:
+        validate_update_request(spec["action"], spec, updates)
+    elif spec["action"] in {"configure-network", "scan-wifi"}:
         reference = spec.get("networkRef", {})
         if (not network or not network.get("supported") or spec.get("planId") != network.get("id")
                 or not re.fullmatch(r"[a-f0-9]{64}", str(spec.get("planId", "")))

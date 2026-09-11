@@ -38,15 +38,21 @@ spec:
                   message: GPU preparation and memory configuration require reviewed host evidence.
                 - rule: '!self.experimentMode || self.allowExperimental'
                   message: Experiment mode requires explicit experimental acknowledgement.
-                - rule: "self.action in ['prepare-gpu', 'configure-gpu-memory', 'configure-network', 'scan-wifi'] || ((!has(self.planId) || self.planId == '') && !self.allowExperimental && !self.experimentMode)"
+                - rule: "self.action in ['prepare-gpu', 'configure-gpu-memory', 'configure-network', 'scan-wifi', 'configure-updates', 'check-updates', 'install-updates'] || ((!has(self.planId) || self.planId == '') && !self.allowExperimental && !self.experimentMode)"
                   message: Power operations cannot supply preparation settings.
                 - rule: "self.action == 'configure-gpu-memory' ? (has(self.gpuMemory) && self.allowExperimental && !self.experimentMode) : !has(self.gpuMemory)"
                   message: Only explicitly acknowledged GPU memory operations can carry memory settings.
                 - rule: "self.action in ['configure-network', 'scan-wifi'] ? (has(self.networkRef) && has(self.planId) && size(self.planId) == 64 && !self.allowExperimental && !self.experimentMode) : !has(self.networkRef)"
                   message: Network operations require current evidence and a bounded credential reference.
+                - rule: "!(self.action in ['configure-updates', 'check-updates', 'install-updates']) || (has(self.planId) && size(self.planId) == 64 && !self.allowExperimental && !self.experimentMode)"
+                  message: Update operations require a current policy and do not permit experimental overrides.
+                - rule: "self.action == 'configure-updates' ? has(self.updatePolicy) : !has(self.updatePolicy)"
+                  message: Only update settings requests carry a policy.
+                - rule: "self.action == 'install-updates' ? has(self.updateScope) : !has(self.updateScope)"
+                  message: Only update installation requests carry an update scope.
               required: [action, nodeName, nodeUid, bootId, requestId, acknowledgeDisruption, allowExperimental, experimentMode, actorHash]
               properties:
-                action: {type: string, enum: [prepare-gpu, configure-gpu-memory, configure-network, scan-wifi, reboot, poweroff]}
+                action: {type: string, enum: [prepare-gpu, configure-gpu-memory, configure-network, scan-wifi, configure-updates, check-updates, install-updates, reboot, poweroff]}
                 nodeName: {type: string, minLength: 1, maxLength: 253, pattern: '^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$'}
                 nodeUid: {type: string, minLength: 1, maxLength: 64}
                 bootId: {type: string, minLength: 1, maxLength: 64}
@@ -56,6 +62,15 @@ spec:
                 experimentMode: {type: boolean}
                 acknowledgeDisruption: {type: boolean, enum: [true]}
                 actorHash: {type: string, pattern: '^[a-f0-9]{64}$', maxLength: 64}
+                updateScope: {type: string, enum: [security, all]}
+                updatePolicy:
+                  type: object
+                  required: [mode, windowStart, windowMinutes, automaticReboot]
+                  properties:
+                    mode: {type: string, enum: [manual, security, all]}
+                    windowStart: {type: string, pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$', maxLength: 5}
+                    windowMinutes: {type: integer, minimum: 15, maximum: 360}
+                    automaticReboot: {type: boolean}
                 networkRef:
                   type: object
                   required: [name, uid]

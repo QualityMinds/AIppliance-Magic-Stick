@@ -751,6 +751,11 @@ For schema details and model troubleshooting, see
 
 ## Local Inference And Hardware-Driven GPU Operators
 
+Ubuntu package maintenance is under **System → Updates**. Daily security updates
+default to 03:00–05:00 UTC with no automatic restart; saved policy is preserved by
+host convergence. See [Ubuntu updates](ubuntu-updates.md) for held hardware
+packages, service coordination, manual actions and recovery.
+
 Network administration is separate under **System → Network**. Follow
 [network management and recovery](network-management.md) for DHCP/static IPv4,
 Wi-Fi credentials, temporary application and rollback. Page loading and source

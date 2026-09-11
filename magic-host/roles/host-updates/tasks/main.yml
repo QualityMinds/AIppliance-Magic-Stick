@@ -1,0 +1,50 @@
+---
+- name: Install native Ubuntu update tools
+  ansible.builtin.apt:
+    name: [unattended-upgrades, python3-apt, update-notifier-common]
+    state: present
+    lock_timeout: 120
+
+- name: Create native APT service override directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/apt-daily-upgrade.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Coordinate native APT upgrades with other host maintenance
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/apt-daily-upgrade.service.d/magicstick.conf
+    content: |
+      [Service]
+      ExecStart=
+      ExecStart=/usr/bin/python3 /usr/local/lib/magicstick/host-management/host_updates.py automatic
+      TimeoutStartSec=infinity
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install service for administrator-requested package updates
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/magicstick-host-updates.service
+    content: |
+      [Unit]
+      Description=Apply Magic Stick administrator-requested Ubuntu updates
+      After=network-online.target cloud-final.service
+      Wants=network-online.target
+      [Service]
+      Type=oneshot
+      User=root
+      UMask=0077
+      ExecStart=/usr/bin/python3 /usr/local/lib/magicstick/host-management/host_updates.py requested
+      TimeoutStartSec=infinity
+      Restart=no
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Apply saved update policy or first-install security default
+  ansible.builtin.command:
+    argv: [/usr/bin/python3, /usr/local/lib/magicstick/host-management/host_updates.py, configure]
+  changed_when: false

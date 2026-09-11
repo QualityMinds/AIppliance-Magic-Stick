@@ -6675,10 +6675,27 @@ data:
                           "observedAt": report.get("observedAt", ""), "plan": report.get("plan") if fresh else None,
                           "gpuMemory": report.get("gpuMemory") if fresh else None,
                           "network": public_host_network(report.get("network")) if fresh else None,
+                          "updates": public_host_updates(report.get("updates")) if fresh else None,
                           "message": "Host worker is available." if fresh and available else "Host worker or operation API is unavailable/stale. No power or preparation action can be requested.",
                           "operation": {"requestId": operation.get("spec", {}).get("requestId"), "action": operation.get("spec", {}).get("action"),
                                         **(operation.get("status") or {"phase": "Pending", "message": "Waiting for the local host worker."})} if operation else None})
         return {"nodes": hosts}
+
+
+    def public_host_updates(value):
+        if not isinstance(value, dict):
+            return None
+        result = {key: value[key] for key in ("supported", "id", "busy", "rebootRequired", "phase", "message", "checkedAt",
+                  "lastSuccessAt", "lastAttemptAt", "pendingCount", "securityCount", "blockedCount", "truncated", "requestId")
+                  if key in value and type(value[key]) in {str, bool, int}}
+        policy = value.get("policy")
+        if isinstance(policy, dict):
+            result["policy"] = {key: policy[key] for key in ("mode", "windowStart", "windowMinutes", "automaticReboot")
+                                if key in policy and type(policy[key]) in {str, int, bool}}
+        entries = value.get("packages", [])
+        result["packages"] = [{key: entry[key] for key in ("name", "installed", "candidate", "security", "blocked")
+                              if key in entry and type(entry[key]) in {str, bool}} for entry in entries[:100] if isinstance(entry, dict)] if isinstance(entries, list) else []
+        return result
 
 
     def validate_host_gpu_memory(host, payload):
@@ -6727,17 +6744,20 @@ data:
 
 
     def create_host_operation(principal, payload):
+        UPDATE_ACTIONS = {"configure-updates", "check-updates", "install-updates"}
         if not ROLE_ACCESS["admin"].intersection(principal.get("roles", [])):
             raise AuthError(403, "Administrator access is required for host operations.")
-        _reject_unknown_fields(payload, {"action", "nodeName", "nodeUid", "bootId", "requestId", "planId", "allowExperimental", "experimentMode", "acknowledgeDisruption", "confirmation", "gpuMemory", "network"})
+        _reject_unknown_fields(payload, {"action", "nodeName", "nodeUid", "bootId", "requestId", "planId", "allowExperimental", "experimentMode", "acknowledgeDisruption", "confirmation", "gpuMemory", "network", "updatePolicy", "updateScope"})
         action = payload.get("action")
-        if action not in {"prepare-gpu", "configure-gpu-memory", "configure-network", "scan-wifi", "reboot", "poweroff"}:
+        if action not in {"prepare-gpu", "configure-gpu-memory", "configure-network", "scan-wifi", "reboot", "poweroff"} | UPDATE_ACTIONS:
             raise RequestError(400, "Unknown host operation.")
         if not re.fullmatch(r"[a-f0-9]{32}", str(payload.get("requestId", ""))):
             raise RequestError(400, "A valid request identity is required.")
         host = next((item for item in host_management_status()["nodes"] if item["name"] == payload.get("nodeName")), None)
         if not host or not host["available"]:
             raise RequestError(409, "The selected host is not available for management. Refresh System status.")
+        if (host.get("updates") or {}).get("busy"):
+            raise RequestError(409, "Ubuntu updates are running. Wait for completion before another host operation.")
         if payload.get("confirmation") != host["name"] or payload.get("acknowledgeDisruption") is not True:
             raise RequestError(400, "Confirm the exact host name and interruption of its services.")
         if payload.get("nodeUid") != host["nodeUid"] or payload.get("bootId") != host["bootId"]:
@@ -6751,9 +6771,20 @@ data:
             plan = plan.get("experiment") or {}
         memory_settings = None
         network_settings = None
+        update_policy = None
+        if action not in UPDATE_ACTIONS and {"updatePolicy", "updateScope"} & set(payload):
+            raise RequestError(400, "Update settings require a dedicated update operation.")
         if action not in {"configure-network", "scan-wifi"} and "network" in payload:
             raise RequestError(400, "Network settings require a dedicated network operation.")
-        if action in {"configure-network", "scan-wifi"}:
+        if action in UPDATE_ACTIONS:
+            from updates_contract import validate_update_request
+            if "gpuMemory" in payload:
+                raise RequestError(400, "Update operations cannot carry GPU memory settings.")
+            try:
+                update_policy = validate_update_request(action, payload, host.get("updates"))
+            except ValueError as error:
+                raise RequestError(400, str(error)) from None
+        elif action in {"configure-network", "scan-wifi"}:
             from network_contract import validate_network
             network = host.get("network") or {}
             if (not network.get("supported") or not re.fullmatch(r"[a-f0-9]{64}", str(network.get("id", "")))
@@ -6781,6 +6812,10 @@ data:
                     actorHash=hashlib.sha256(str(principal.get("subject", "")).encode()).hexdigest())
         if memory_settings is not None:
             spec["gpuMemory"] = memory_settings
+        if update_policy is not None:
+            spec["updatePolicy"] = update_policy
+        if action == "install-updates":
+            spec["updateScope"] = payload["updateScope"]
         name = "host-" + hashlib.sha256(json.dumps(host["nodeUid"], sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:24]
         path = host_operations_path() + "/" + name
         try:

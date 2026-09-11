@@ -545,7 +545,7 @@ export interface KubernetesObjectSummary {
   conditions?: Array<{type?: string; status?: string; reason?: string; message?: string}>;
 }
 
-export type HostAction = 'prepare-gpu' | 'configure-gpu-memory' | 'configure-network' | 'scan-wifi' | 'reboot' | 'poweroff';
+export type HostAction = 'prepare-gpu' | 'configure-gpu-memory' | 'configure-network' | 'scan-wifi' | 'configure-updates' | 'check-updates' | 'install-updates' | 'reboot' | 'poweroff';
 export interface NetworkSettings {
   interface: string;
   mode?: 'dhcp' | 'static';
@@ -628,6 +628,29 @@ export interface HostOperationStatus {
   updatedAt?: string;
   confirmationDeadline?: string;
 }
+export interface HostUpdatePolicy {
+  mode: 'manual' | 'security' | 'all';
+  windowStart: string;
+  windowMinutes: number;
+  automaticReboot: boolean;
+}
+export interface HostUpdates {
+  supported: boolean;
+  id: string;
+  policy: HostUpdatePolicy;
+  busy: boolean;
+  rebootRequired: boolean;
+  phase?: string;
+  message?: string;
+  checkedAt?: string;
+  lastSuccessAt?: string;
+  lastAttemptAt?: string;
+  pendingCount?: number;
+  securityCount?: number;
+  blockedCount?: number;
+  truncated?: boolean;
+  packages?: Array<{name: string; installed: string; candidate: string; security: boolean; blocked: string}>;
+}
 export interface ManagedHost {
   name: string;
   nodeUid: string;
@@ -639,6 +662,7 @@ export interface ManagedHost {
   plan?: HostPreparationPlan | null;
   gpuMemory?: HostGpuMemory | null;
   network?: HostNetwork | null;
+  updates?: HostUpdates | null;
   operation?: HostOperationStatus | null;
 }
 export interface HostOperationRequest {
@@ -654,6 +678,8 @@ export interface HostOperationRequest {
   planId?: string;
   gpuMemory?: HostGpuMemorySettings;
   network?: NetworkSettings;
+  updatePolicy?: HostUpdatePolicy;
+  updateScope?: 'security' | 'all';
 }
 
 export interface SystemStatusPayload {

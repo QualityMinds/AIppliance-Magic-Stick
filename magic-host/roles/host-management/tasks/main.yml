@@ -29,6 +29,8 @@
     - network_contract.py
     - network_config.py
     - network_apply.py
+    - updates_contract.py
+    - host_updates.py
     - gpu_memory.py
     - profiles.json
     - ansible.cfg

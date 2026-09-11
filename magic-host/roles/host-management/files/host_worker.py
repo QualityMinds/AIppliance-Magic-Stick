@@ -21,6 +21,8 @@ import time
 from host_plan import TERMINAL, build_plan, digest, requested_plan, validate_request
 import gpu_memory
 import network_config
+import host_updates
+from updates_contract import UPDATE_ACTIONS, validate_update_request
 
 BASE = Path("/usr/local/lib/magicstick/host-management")
 STATE = Path("/var/lib/magicstick/host-management")
@@ -120,10 +122,11 @@ def expire_network_credentials(node_uid):
 
 
 class Worker:
-    def __init__(self, node, report, plan, state_dir=STATE, memory=None, network=None):
+    def __init__(self, node, report, plan, state_dir=STATE, memory=None, network=None, updates=None):
         self.node, self.report, self.plan, self.root = node, report, plan, state_dir
         self.memory = memory or {"supported": False, "message": "GPU memory evidence is unavailable."}
         self.network = network or {"supported": False, "message": "Network inventory is unavailable.", "interfaces": []}
+        self.updates = updates or {"supported": False}
         self.path = state_dir / "state.json"
         self.state = json.loads(self.path.read_text()) if self.path.exists() else {"completed": [], "current": None}
 
@@ -153,6 +156,32 @@ class Worker:
 
     def activation(self):
         return kube(["get", "moduleactivations.appliance.magicstick.dev", "amd-gpu", "-n", NAMESPACE, "--ignore-not-found", "-o", "json"]) or {}
+
+    def begin_updates(self, operation):
+        spec = operation["spec"]
+        fresh = host_updates.status()
+        value = validate_update_request(spec["action"], spec, fresh)
+        if spec["action"] == "configure-updates":
+            self.update(operation, "Applying", "Saving update policy and maintenance schedule.")
+            host_updates.configure(value)
+            self.updates = host_updates.status()
+            self.update(operation, "Succeeded", "Update policy saved.")
+            return
+        atomic_json(self.root / "approved-updates.json", {"action": spec["action"], "scope": spec.get("updateScope", "security"),
+                    "requestId": spec["requestId"], "operationUid": operation["metadata"]["uid"], "approvedAt": time.time()})
+        self.state["current"]["updatesStartedAt"] = time.time()
+        self.update(operation, "Applying", "Ubuntu package maintenance queued.")
+        run(["/usr/bin/systemctl", "start", "--no-block", "magicstick-host-updates.service"])
+
+    def reconcile_updates(self, operation):
+        result = host_updates.status()
+        self.updates = result
+        if result.get("requestId") == operation["spec"]["requestId"]:
+            if result.get("phase") in {"Succeeded", "Failed", "Interrupted"}:
+                self.update(operation, result["phase"], result["message"])
+            return
+        if time.time() - self.state["current"].get("updatesStartedAt", 0) > 300:
+            self.update(operation, "Interrupted", "The local update service did not acknowledge this request. Inspect its journal before retrying.")
 
     def begin_network(self, operation):
         import base64
@@ -346,7 +375,7 @@ class Worker:
                 error = "Execution state was lost or replaced. Confirm a new operation after reviewing the host."
             else:
                 try:
-                    validate_request(operation, self.node, self.report, self.plan, time.time(), self.memory, self.network)
+                    validate_request(operation, self.node, self.report, self.plan, time.time(), self.memory, self.network, self.updates)
                     error = ""
                 except ValueError as invalid:
                     error = str(invalid)
@@ -371,6 +400,9 @@ class Worker:
                 if spec["action"] in {"configure-network", "scan-wifi"}:
                     self.begin_network(operation)
                     return
+                if spec["action"] in UPDATE_ACTIONS:
+                    self.begin_updates(operation)
+                    return
                 self.update(operation, "Preparing", "Applying the administrator-approved host profile through Ansible.")
                 self.state["current"]["activationBefore"] = self.activation_identity(self.activation())
                 self.save()
@@ -387,7 +419,7 @@ class Worker:
                     self.schedule_power(operation, "reboot")
                 else:
                     self.enable_gpu_profile(operation)
-            except (RuntimeError, OSError, ValueError, subprocess.TimeoutExpired) as error:
+            except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as error:
                 print(json.dumps({"event": "host-operation-error", "requestId": spec["requestId"], "type": type(error).__name__,
                                   "message": str(error) if isinstance(error, RuntimeError) else "Local execution or timeout failure; no automatic retry."}), file=sys.stderr)
                 self.update(operation, "Failed", "The requested host operation failed. No automatic retry or reboot will occur. Inspect the host management and network recovery services before retrying.")
@@ -400,6 +432,12 @@ class Worker:
             return
         if current["nodeUid"] != self.node["metadata"]["uid"]:
             self.update(operation, "Interrupted", "Kubernetes host identity changed. No further action will run.")
+            return
+        if current["action"] in UPDATE_ACTIONS:
+            if phase == "Accepted" or current["action"] == "configure-updates":
+                self.update(operation, "Interrupted", "Update policy execution was interrupted. Refresh and submit a new request.")
+            else:
+                self.reconcile_updates(operation)
             return
         if current["action"] == "configure-gpu-memory":
             self.reconcile_memory(operation)
@@ -458,11 +496,14 @@ class Worker:
                   "plan": self.plan, "actions": ["reboot", "poweroff", "prepare-gpu"],
                   "gpuMemory": self.memory,
                   "network": self.network,
+                  "updates": self.updates,
                   "operation": {key: current[key] for key in ("requestId", "action", "phase", "message", "updatedAt") if key in current}}
         if self.memory.get("supported"):
             report["actions"].append("configure-gpu-memory")
         if self.network.get("supported"):
             report["actions"].extend(["configure-network", "scan-wifi"])
+        if self.updates.get("supported"):
+            report["actions"].extend(sorted(UPDATE_ACTIONS))
         scan = self.root / "wifi-scan.json"
         if scan.exists():
             report["network"]["scan"] = json.loads(scan.read_text())
@@ -479,10 +520,13 @@ def main():
         return 0  # Never disrupt initial cloud-init / base installation.
     STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
     with (STATE / "maintenance.lock").open("a") as lock:
+        locked = True
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            return 0
+            locked = False
+            if not host_updates.status().get("busy"):
+                return 0
         node = kube(["get", "node", local_node_name(), "-o", "json"])
         report = json.loads(run(["/usr/local/sbin/magicstick-gpu-preflight", "--json"], timeout=90))
         info = node.get("status", {}).get("nodeInfo", {})
@@ -491,9 +535,11 @@ def main():
         catalog = json.loads((BASE / "profiles.json").read_text())
         inventory = display_gpus()
         plan = build_plan(report, inventory, installed_packages(catalog), catalog, platform.machine())
-        worker = Worker(node, report, plan, memory=gpu_memory.collect(report, inventory), network=network_config.collect(node))
+        worker = Worker(node, report, plan, memory=gpu_memory.collect(report, inventory), network=network_config.collect(node), updates=host_updates.status())
         # Publishing a plan must not depend on the CRD already having reconciled.
         worker.publish()
+        if not locked:
+            return 0  # Publish progress while APT holds maintenance; execute no other action.
         operation = kube(["get", RESOURCE, operation_name(node["metadata"]["uid"]), "-n", NAMESPACE, "--ignore-not-found", "-o", "json"])
         worker.reconcile(operation)
         worker.publish()

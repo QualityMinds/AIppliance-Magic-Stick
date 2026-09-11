@@ -30,7 +30,7 @@ const initialRoute = (): DashboardRoute => {
   if (tab === 'settings' || tab === 'license' || tab === 'users') return {tab: 'system', systemSection: tab};
   if (tab === 'federated-sso') return {tab: 'system', systemSection: 'federated-sso'};
   if (tab === 'system') {
-    const systemSection = section && (['settings', 'license', 'users', 'federated-sso', 'hardware', 'network', 'status', 'power'] as string[]).includes(section) ? section as SystemSectionId : 'status';
+    const systemSection = section && (['settings', 'license', 'users', 'federated-sso', 'hardware', 'network', 'updates', 'status', 'power'] as string[]).includes(section) ? section as SystemSectionId : 'status';
     return {tab: 'system', systemSection};
   }
   return {tab: tabs.some((item) => item.id === tab) ? tab as TabId : 'overview', systemSection: 'status'};

@@ -11,8 +11,9 @@ import {UsersPage} from './UsersPage';
 import {HardwarePage} from './HardwarePage';
 import {HostPowerPanel} from './HostManagement';
 import {NetworkPage} from './NetworkPage';
+import {UpdatesPage} from './UpdatesPage';
 
-export type SystemSectionId = 'settings' | 'license' | 'users' | 'federated-sso' | 'hardware' | 'network' | 'status' | 'power';
+export type SystemSectionId = 'settings' | 'license' | 'users' | 'federated-sso' | 'hardware' | 'network' | 'updates' | 'status' | 'power';
 
 const sections: Array<{id: SystemSectionId; label: string; admin?: boolean; identity?: boolean; entitlement?: string}> = [
   {id: 'settings', label: 'Settings', admin: true},
@@ -21,6 +22,7 @@ const sections: Array<{id: SystemSectionId; label: string; admin?: boolean; iden
   {id: 'federated-sso', label: 'Federated SSO', admin: true, identity: true, entitlement: 'federated-sso'},
   {id: 'hardware', label: 'Hardware'},
   {id: 'network', label: 'Network', admin: true},
+  {id: 'updates', label: 'Updates', admin: true},
   {id: 'status', label: 'System Status'},
   {id: 'power', label: 'Computer power', admin: true},
 ];
@@ -66,6 +68,7 @@ export const SystemAreaPage = ({session, section, onSectionChange}: {
       {active === 'federated-sso' && <FederatedSsoPage />}
       {active === 'hardware' && <HardwarePage session={session} />}
       {active === 'network' && canAdminister(session) && <NetworkPage />}
+      {active === 'updates' && canAdminister(session) && <UpdatesPage />}
       {active === 'status' && <SystemPage />}
       {active === 'power' && canAdminister(session) && <HostPowerPanel />}
     </div>

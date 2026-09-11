@@ -15,6 +15,12 @@ formalized, release entries should group changes under:
 
 ### Added
 
+- Administrator-only **System → Updates** for per-computer Ubuntu update policy,
+  daily UTC maintenance windows, manual checks/installations, held-package
+  visibility and restart status. Ansible enables native unattended security
+  updates by default, preserves saved policy, excludes the kernel/GPU stack and
+  coordinates updates with other host maintenance. Automatic restarts remain
+  disabled unless explicitly enabled.
 - GPU compatibility diagnostics with an opt-in Strix Halo profile, separate
   Ollama/vLLM smoke-test gates, validated runtime-image pins and unified-memory
   accounting that does not count shared system RAM twice.

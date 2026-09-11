@@ -61,6 +61,7 @@ describe('default React dashboard', () => {
     expect(within(systemSections).getByRole('tab', {name: 'System Status'})).toBeInTheDocument();
     expect(within(systemSections).getByRole('tab', {name: 'Hardware'})).toBeInTheDocument();
     expect(within(systemSections).getByRole('tab', {name: 'Network'})).toBeInTheDocument();
+    expect(within(systemSections).getByRole('tab', {name: 'Updates'})).toBeInTheDocument();
     expect(within(systemSections).getByRole('tab', {name: 'System Status'}).nextElementSibling).toBe(within(systemSections).getByRole('tab', {name: 'Computer power'}));
   });
 
@@ -162,6 +163,7 @@ describe('default React dashboard', () => {
     expect(within(systemSections).queryByRole('tab', {name: /Federated SSO/})).not.toBeInTheDocument();
     expect(within(systemSections).queryByRole('tab', {name: 'Settings'})).not.toBeInTheDocument();
     expect(within(systemSections).queryByRole('tab', {name: 'License'})).not.toBeInTheDocument();
+    expect(within(systemSections).queryByRole('tab', {name: 'Updates'})).not.toBeInTheDocument();
     expect(within(systemSections).getByRole('tab', {name: 'System Status'})).toBeInTheDocument();
     expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).startsWith('/api/license'))).toBe(false);
   });

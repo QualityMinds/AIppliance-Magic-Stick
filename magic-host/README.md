@@ -2,6 +2,12 @@
 
 Reusable Ansible host automation for the AI Appliance.
 
+The `host-updates` role configures Ubuntu unattended security updates with a
+03:00–05:00 UTC default window and no automatic reboot. Saved per-host settings
+are preserved; administrators manage them under **System → Updates**. See
+[Ubuntu updates](../docs/ubuntu-updates.md) for package exclusions, maintenance
+locking, optional restarts and recovery.
+
 The host-management role also installs bounded Ethernet/Wi-Fi trial and recovery
 services using Ubuntu's existing Netplan backend. See
 [network management](../docs/network-management.md); installation enables the

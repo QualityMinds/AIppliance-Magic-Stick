@@ -24,21 +24,6 @@
   community.general.timezone:
     name: UTC
 
-- name: Install unattended-upgrades package
-  ansible.builtin.apt:
-    name: unattended-upgrades
-    state: present
-
-- name: Enable unattended-upgrades (security updates only, not enforced)
-  ansible.builtin.copy:
-    dest: /etc/apt/apt.conf.d/20auto-upgrades
-    content: |
-      APT::Periodic::Update-Package-Lists "1";
-      APT::Periodic::Unattended-Upgrade "0";
-    owner: root
-    group: root
-    mode: "0644"
-
 - name: Persist host file watcher limits for Kubernetes workloads
   ansible.builtin.copy:
     dest: /etc/sysctl.d/90-ai-appliance-inotify.conf

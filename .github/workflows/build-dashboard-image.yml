@@ -9,6 +9,7 @@ on:
       - .github/workflows/build-dashboard-image.yml
       - dashboard/**
       - magic-host/roles/host-management/files/network_contract.py
+      - magic-host/roles/host-management/files/updates_contract.py
       - enterprise/**
       - LICENSE
       - LICENSING.md
