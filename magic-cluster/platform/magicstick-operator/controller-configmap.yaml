@@ -1358,6 +1358,30 @@ data:
         return "" if re.fullmatch(r"host-[a-f0-9]{32}", request) else request
 
 
+    def gpu_engine_validation_request(activation, node, profile, engine):
+        parameters = ((activation or {}).get("spec") or {}).get("parameters") or {}
+        global_request = manual_gpu_validation_request(parameters)
+        uid = str((node.get("metadata") or {}).get("uid") or "")
+        key = "appliance.magicstick.dev/gpu-validation-" + hashlib.sha256((uid + ":" + engine).encode()).hexdigest()[:32]
+        raw = (((activation or {}).get("metadata") or {}).get("annotations") or {}).get(key)
+        if not raw:
+            return global_request
+        try:
+            scoped = json.loads(raw)
+        except (ValueError, TypeError):
+            return ""
+        if not isinstance(scoped, dict):
+            return ""
+        # A later explicit CLI/TUI all-engine request supersedes scoped runs.
+        if scoped.get("baseRequest") != (parameters.get("validationRequest") or ""):
+            return global_request
+        if (scoped.get("profileId") != profile.get("id") or scoped.get("profileVersion") != profile.get("version")
+                or scoped.get("activationGeneration") != ((activation or {}).get("metadata") or {}).get("generation")):
+            return ""
+        request = scoped.get("requestId")
+        return request if isinstance(request, str) and re.fullmatch(r"dashboard-[A-Za-z0-9._-]{1,70}", request) else ""
+
+
     def gpu_validation_job(node, profile, engine, request_id, host, activation):
         key = gpu_validation_key(node, profile, engine, request_id, host)
         definition = profile["engines"][engine]
@@ -1519,7 +1543,6 @@ data:
         parameters = (((activation or {}).get("spec") or {}).get("parameters") or {})
         selected = str(parameters.get("compatibilityProfile") or "").strip()
         allow_experimental = str(parameters.get("allowExperimental") or "").lower() == "true"
-        request_id = manual_gpu_validation_request(parameters)
         enabled = bool(activation) and ((activation.get("spec") or {}).get("enabled", True) is not False) and not (activation.get("metadata") or {}).get("deletionTimestamp")
         by_job = {(job.get("metadata") or {}).get("name"): job for job in jobs or []}
         result = {"schemaVersion": 1, "profiles": profiles, "selectedProfile": selected,
@@ -1571,6 +1594,7 @@ data:
                             "No safe single-GPU compatibility profile matches this node."),
                 "validation": {}}
             for engine in AMD_ENGINE_LABELS:
+                request_id = gpu_engine_validation_request(activation, node, profile or {}, engine)
                 definition = ((profile or {}).get("engines") or {}).get(engine) or {}
                 report = {"state": "upstream" if upstream else "unverified", "image": definition.get("image", ""),
                           "kernelVersion": info.get("kernelVersion", ""), "driverVersion": host.get("driverVersion", ""),
@@ -1683,15 +1707,14 @@ data:
                 delete_resource("amd.com", "v1alpha1", "deviceconfigs", "amd-gpu-operator", "default")
         # A single probe at a time avoids self-contention and bounds GPU/RAM use.
         running = any(gpu_job_state(job) == "running" for job in jobs)
-        parameters = (((activation or {}).get("spec") or {}).get("parameters") or {})
-        request_id = manual_gpu_validation_request(parameters)
         for item in result["nodes"]:
-            if not (request_id and item["eligible"] and item["optedIn"] and item["resourceRegistered"]):
+            if not (item["eligible"] and item["optedIn"] and item["resourceRegistered"]):
                 continue
             profile = next(p for p in profiles.get("profiles", []) if p["id"] == item["profileId"])
             node = next(n for n in nodes if node_name(n) == item["node"])
             for engine, report in item["validation"].items():
-                if running or report["state"] != "unverified":
+                request_id = gpu_engine_validation_request(activation, node, profile, engine)
+                if not request_id or running or report["state"] != "unverified":
                     continue
                 desired_job = gpu_validation_job(node, profile, engine, request_id, gpu_host_preflight(node), activation)
                 if any((j.get("metadata") or {}).get("name") == desired_job["metadata"]["name"] for j in jobs):

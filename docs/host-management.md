@@ -8,8 +8,9 @@ post-install preparation cannot repair an installer that cannot boot.
 
 ## User workflow
 
-Open **System → Hardware → GPU setup → Host preparation**. GPU operators are
-shown first; memory configuration has a separate **GPU memory** section. Help
+Open **System → Hardware → GPU nodes → Host preparation**. GPU operators are
+shown first. Each node contains its kernel plan, preparation acknowledgement,
+advanced profile override and collapsed **GPU memory** configuration. Help
 and diagnostic details are available through info icons, while action warnings
 and exact-host confirmations remain explicit. The local worker periodically
 inspects the OS, running kernel and **all PCI display GPUs**. It publishes a
@@ -36,7 +37,9 @@ profile selection uses the existing AMD `ModuleActivation`, which
 applies to matching cluster Nodes; the confirmation explicitly includes that
 scope. Concurrent preparation requests must not overwrite a changed module
 decision: the worker detects configuration changes and stops its profile
-handoff. Per-Node runtime placement/validation isolation is a separate extension.
+handoff. Runtime profile selection is still cluster-wide. The node's **Verify
+Ollama** and **Verify vLLM** buttons request only that engine on that node;
+per-model runtime placement remains a separate extension.
 
 The first shipped package profile is `strix-halo-ubuntu-24.04`, version `1`, for
 Ubuntu 24.04 on x86-64 with Strix Halo (`1002:1586`). It targets
@@ -76,7 +79,7 @@ automatic additions to the public compatibility catalog.
 
 ## Fixed and dynamic GPU memory
 
-**System → Hardware → GPU memory → Shared GPU memory** provides two administrator controls
+**System → Hardware → GPU nodes → GPU memory → Shared GPU memory** provides two administrator controls
 on a single supported Strix Halo GPU with compatible kernel/firmware evidence:
 
 - **Fixed GPU reservation (firmware):** a discrete slider containing only the

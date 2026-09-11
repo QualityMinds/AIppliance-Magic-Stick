@@ -11,6 +11,7 @@ import {
   type InstancesPayload,
   type ManagedHost,
   type HostOperationRequest,
+  type GpuValidationRequest,
   type InstanceAccessState,
   type InstanceSharing,
   type SharingPrincipal,
@@ -150,6 +151,11 @@ export class MagicStickApi {
   models() { return this.request<ModelsPayload>('/api/models'); }
   status() { return this.request<SystemStatusPayload>('/api/status'); }
   hostManagement() { return this.request<{nodes: ManagedHost[]}>('/api/host-management'); }
+  requestGpuValidation(payload: GpuValidationRequest) {
+    return this.request<{accepted: boolean; requestId: string}>('/api/hardware/validation', {
+      method: 'POST', body: JSON.stringify(payload),
+    });
+  }
   requestHostOperation(payload: HostOperationRequest) {
     return this.request<{accepted: boolean; requestId: string; operation: {phase: string}}>('/api/host-management/operations', {
       method: 'POST', body: JSON.stringify(payload),

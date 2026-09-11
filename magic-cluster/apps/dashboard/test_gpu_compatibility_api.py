@@ -1,4 +1,5 @@
 import json
+import hashlib
 import unittest
 from datetime import datetime, timedelta, timezone
 
@@ -11,6 +12,46 @@ class GPUCompatibilityApiTests(unittest.TestCase):
         self.api['gpu_compatibility_catalog'] = lambda: {'profiles': [
             {'id': 'strix-halo', 'experimental': True},
         ]}
+
+    def scoped_request_fixture(self):
+        self.activation = {'metadata': {'name': 'amd-gpu', 'resourceVersion': '7', 'generation': 2},
+                           'spec': {'enabled': True, 'parameters': {'compatibilityProfile': 'strix-halo', 'allowExperimental': 'true'}}}
+        self.api['module_activation'] = lambda _: self.activation
+        self.api['get_resource'] = lambda _: self.node()
+        self.api['gpu_compatibility_catalog'] = lambda: {'profiles': [
+            {'id': 'strix-halo', 'version': '1', 'engines': {'OLlama': {}, 'VLLM': {}}}]}
+        self.api['appliance'] = lambda: {'status': {'hardwareOperators': {'amd-gpu': {'compatibility': {'nodes': [
+            {'node': 'node-a', 'nodeUid': 'node-a-uid', 'profileId': 'strix-halo', 'eligible': True, 'resourceRegistered': True}
+        ]}}}}}
+        self.validation_writes = []
+        self.api['request_json'] = lambda *args: self.validation_writes.append(args)
+        return {'nodeName': 'node-a', 'nodeUid': 'node-a-uid', 'engine': 'OLlama', 'profileId': 'strix-halo',
+                'requestId': 'dashboard-example-1', 'acknowledgeResourceUse': True}
+
+    def test_scoped_validation_updates_only_one_annotation_with_concurrency_guard(self):
+        payload = self.scoped_request_fixture()
+        self.assertTrue(self.api['request_gpu_engine_validation'](payload)['accepted'])
+        method, path, body, content_type = self.validation_writes[0]
+        self.assertEqual(method, 'PATCH')
+        self.assertTrue(path.endswith('/moduleactivations/amd-gpu'))
+        self.assertEqual(content_type, 'application/merge-patch+json')
+        self.assertNotIn('spec', body)
+        self.assertEqual(body['metadata']['resourceVersion'], '7')
+        key = 'appliance.magicstick.dev/gpu-validation-' + hashlib.sha256(b'node-a-uid:OLlama').hexdigest()[:32]
+        annotations = body['metadata']['annotations']
+        self.assertEqual(list(annotations), [key])
+        self.assertEqual(json.loads(annotations[key])['activationGeneration'], 2)
+        self.activation['metadata']['annotations'] = annotations
+        self.api['request_gpu_engine_validation'](payload)
+        self.assertEqual(len(self.validation_writes), 1)
+
+    def test_scoped_validation_rejects_stale_identity_missing_consent_and_arbitrary_engine(self):
+        payload = self.scoped_request_fixture()
+        for change in ({'nodeUid': 'old-uid'}, {'profileId': 'old-profile'}, {'acknowledgeResourceUse': False},
+                       {'engine': 'shell'}, {'image': 'arbitrary/image'}):
+            with self.subTest(change=change), self.assertRaises((ValueError, self.api['RequestError'])):
+                self.api['request_gpu_engine_validation']({**payload, **change})
+        self.assertEqual(self.validation_writes, [])
 
     def node(self, name='node-a', ollama=True, vllm=False):
         labels = {'kubernetes.io/os': 'linux', 'gpu-eligible': 'true'}

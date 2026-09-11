@@ -496,6 +496,15 @@ export interface GpuCompatibility {
   nodes: GpuCompatibilityNode[];
 }
 
+export interface GpuValidationRequest {
+  nodeName: string;
+  nodeUid: string;
+  engine: 'OLlama' | 'VLLM';
+  profileId: string;
+  requestId: string;
+  acknowledgeResourceUse: boolean;
+}
+
 export interface HardwareOperator {
   module?: string;
   displayName?: string;

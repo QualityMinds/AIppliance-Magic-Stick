@@ -7,12 +7,16 @@ import {HardwarePage} from './HardwarePage';
 
 const session: Session = {subject: 'example', username: 'example', roles: ['magicstick-admin'], identityManagementAvailable: false, identityManagementMode: 'external'};
 const profile = {id: 'strix-halo', displayName: 'AMD Strix Halo', version: '1', experimental: true, memoryArchitecture: 'unified', expectedArchitecture: 'gfx1151'};
-const initial = (): GpuCompatibility => ({schemaVersion: 1, selectedProfile: '', allowExperimental: false, profiles: [profile], nodes: [{node: 'example-node', profileId: 'strix-halo', optedIn: false, eligible: false, upstreamSupported: false, memoryArchitecture: 'unified', physicalMemoryMi: 65536, gpuAccessibleMi: 49152, memoryAccountingVerified: false, hostDriverReady: true, resourceRegistered: false, validation: {OLlama: {state: 'passed', image: 'example/ollama:1', message: 'GPU calculation passed.'}, VLLM: {state: 'failed', message: 'GPU calculation failed.'}}}]});
+const initial = (): GpuCompatibility => ({schemaVersion: 1, selectedProfile: '', allowExperimental: false, profiles: [profile], nodes: [{node: 'example-node', nodeUid: 'example-uid', profileId: 'strix-halo', optedIn: false, eligible: false, upstreamSupported: false, memoryArchitecture: 'unified', physicalMemoryMi: 65536, gpuAccessibleMi: 49152, memoryAccountingVerified: false, hostDriverReady: true, resourceRegistered: false, validation: {OLlama: {state: 'passed', image: 'example/ollama:1', message: 'GPU calculation passed.'}, VLLM: {state: 'failed', message: 'GPU calculation failed.'}}}]});
 let compatibility: GpuCompatibility;
 const writes: Array<{path: string; body: unknown}> = [];
 const mount = (roles = session.roles) => render(<QueryClientProvider client={new QueryClient({defaultOptions: {queries: {retry: false}, mutations: {retry: false}}})}><HardwarePage session={{...session, roles}} /></QueryClientProvider>);
 const openAdvanced = async () => {await userEvent.click(await screen.findByText('Advanced · AMD runtime profile'));};
 const explain = async (label: string) => {await userEvent.hover(screen.getByRole('button', {name: `Explain ${label}`}));};
+const enableValidation = () => {
+  compatibility.selectedProfile = 'strix-halo'; compatibility.allowExperimental = true;
+  compatibility.nodes[0]!.eligible = true; compatibility.nodes[0]!.resourceRegistered = true;
+};
 
 describe('hardware compatibility', () => {
   beforeEach(() => {
@@ -61,12 +65,12 @@ describe('hardware compatibility', () => {
     await explain('AMD runtime profile');
     expect(screen.getByText(/Administrator access is required to change profiles/)).toBeInTheDocument();
     expect(screen.queryByLabelText('AMD compatibility profile')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', {name: 'Run GPU validation'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: /^Verify /})).not.toBeInTheDocument();
     expect(writes).toHaveLength(0);
   });
 
   it('treats explicit null host evidence as unknown instead of a driver failure', async () => {
-    compatibility.nodes = [{node: 'example-node', upstreamSupported: true, hostDriverReady: null, physicalMemoryMi: null, gpuAccessibleMi: null, memoryArchitecture: 'unified'}];
+    compatibility.nodes = [{node: 'example-node', nodeUid: 'example-uid', upstreamSupported: true, hostDriverReady: null, physicalMemoryMi: null, gpuAccessibleMi: null, memoryArchitecture: 'unified'}];
     mount();
     const driver = await screen.findByText('Host driver');
     expect(driver.parentElement).toHaveTextContent('Not verified');
@@ -85,18 +89,18 @@ describe('hardware compatibility', () => {
     expect(screen.queryByText('failed')).not.toBeInTheDocument();
   });
 
-  it('requires confirmation before requesting GPU resource-consuming validation', async () => {
-    compatibility.selectedProfile = 'strix-halo'; compatibility.allowExperimental = true;
+  it.each(['Ollama', 'vLLM'])('requires confirmation and requests only %s on this node', async (name) => {
+    enableValidation();
     mount();
-    await userEvent.click(await screen.findByRole('button', {name: 'Run GPU validation'}));
+    await userEvent.click(await screen.findByRole('button', {name: `Verify ${name}`}));
     expect(writes).toHaveLength(0);
-    await userEvent.click(screen.getByRole('button', {name: 'Run tests'}));
+    await userEvent.click(screen.getByRole('button', {name: 'Run verification'}));
     await waitFor(() => expect(writes).toHaveLength(1));
-    expect(writes[0]).toMatchObject({path: '/api/modules/amd-gpu/enable', body: {parameters: {compatibilityProfile: 'strix-halo', allowExperimental: 'true', validationRequest: expect.stringMatching(/^dashboard-/)}}});
+    expect(writes[0]).toMatchObject({path: '/api/hardware/validation', body: {nodeName: 'example-node', nodeUid: 'example-uid', engine: name === 'Ollama' ? 'OLlama' : 'VLLM', profileId: 'strix-halo', acknowledgeResourceUse: true, requestId: expect.stringMatching(/^dashboard-/)}});
   });
 
   it.each(['unverified', 'failed', 'running', 'stale'] as const)('keeps GPU/runtime readiness separate from optional %s tests', async (state) => {
-    compatibility.selectedProfile = 'strix-halo'; compatibility.allowExperimental = true;
+    enableValidation();
     compatibility.nodes[0]!.eligible = true;
     compatibility.nodes[0]!.validation = {OLlama: {state, runtimeReady: true, runtimeMessage: 'Configured image adopted; testing is optional.'}};
     mount();
@@ -104,7 +108,8 @@ describe('hardware compatibility', () => {
     expect(screen.getByText('Eligible')).toBeInTheDocument();
     expect(screen.getByText('Runtime Ready')).toBeInTheDocument();
     expect(within(screen.getByText('Runtime Ready').parentElement!).getByText(state)).toBeInTheDocument();
-    expect(screen.getByRole('button', {name: 'Run GPU validation'})).toBeEnabled();
+    expect(screen.getByRole('button', {name: 'Verify Ollama'}).hasAttribute('disabled')).toBe(state === 'running');
+    expect(screen.getByRole('button', {name: 'Verify vLLM'})).toBeEnabled();
     expect(screen.queryByText('GPU smoke passed')).not.toBeInTheDocument();
     expect(writes).toHaveLength(0);
   });
@@ -118,37 +123,36 @@ describe('hardware compatibility', () => {
     await waitFor(() => expect(writes[0]).toMatchObject({body: {parameters: {compatibilityProfile: '', allowExperimental: 'false'}}}));
   });
 
-  it('puts operators first, groups profile overrides under setup, and separates memory controls', async () => {
+  it('puts operators first and nests preparation, advanced and collapsed memory in each node', async () => {
     mount();
     const operators = await screen.findByRole('heading', {name: 'GPU operators'});
-    const setup = screen.getByRole('heading', {name: 'GPU setup'}).closest('section')!;
-    const memory = screen.getByRole('heading', {name: 'GPU memory'}).closest('section')!;
     const nodes = screen.getByRole('heading', {name: 'GPU nodes'}).closest('section')!;
-    expect(operators.closest('section')?.nextElementSibling).toBe(setup);
-    expect(setup.nextElementSibling).toBe(memory);
-    expect(memory.nextElementSibling).toBe(nodes);
-    expect(within(setup).getByRole('heading', {name: 'Host preparation'})).toBeInTheDocument();
-    expect(within(setup).queryByRole('region', {name: /Shared GPU memory/})).not.toBeInTheDocument();
-    expect(await within(memory).findByRole('region', {name: 'Shared GPU memory on example-node'})).toBeInTheDocument();
-    const advanced = within(setup).getByText('Advanced · AMD runtime profile').closest('details')!;
+    expect(operators.closest('section')?.nextElementSibling).toBe(nodes);
+    const node = within(nodes).getByRole('article', {name: 'GPU node example-node'});
+    expect(await within(node).findByText('Host preparation')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', {name: 'GPU setup'})).not.toBeInTheDocument();
+    const memory = within(node).getByText('GPU memory').closest('details')!;
+    expect(memory).not.toHaveAttribute('open');
+    await userEvent.click(within(node).getByText('GPU memory'));
+    expect(within(memory).getByRole('region', {name: 'Shared GPU memory on example-node'})).toBeVisible();
+    const advanced = within(node).getByText('Advanced · AMD runtime profile').closest('details')!;
     expect(advanced).not.toHaveAttribute('open');
-    expect(within(setup).getByRole('button', {name: 'Save hardware profile'})).not.toBeVisible();
-    expect(within(nodes).getByRole('button', {name: 'Run GPU validation'})).toBeInTheDocument();
+    expect(within(node).getByRole('button', {name: 'Save hardware profile'})).not.toBeVisible();
+    expect(within(node).getByRole('button', {name: 'Verify Ollama'})).toBeInTheDocument();
+    expect(within(node).getByRole('button', {name: 'Verify vLLM'})).toBeInTheDocument();
     expect(screen.queryByText(/GPUs are available when hardware/)).not.toBeInTheDocument();
-    await explain('GPU setup');
-    expect(screen.getByRole('dialog', {name: 'GPU setup'})).toHaveTextContent('Host preparation is the primary setup path');
     expect(writes).toHaveLength(0);
   });
 
   it('validates the saved profile without applying an unsaved advanced override', async () => {
-    compatibility.selectedProfile = 'strix-halo'; compatibility.allowExperimental = true;
+    enableValidation();
     mount();
     await openAdvanced();
     await userEvent.selectOptions(screen.getByLabelText('AMD compatibility profile'), '');
-    await userEvent.click(screen.getByRole('button', {name: 'Run GPU validation'}));
-    expect(screen.getByRole('dialog', {name: 'Run GPU validation'})).toHaveTextContent('Unsaved profile changes are not applied.');
+    await userEvent.click(screen.getByRole('button', {name: 'Verify Ollama'}));
+    expect(screen.getByRole('dialog', {name: 'Verify Ollama'})).toHaveTextContent('Unsaved profile changes are not applied.');
     expect(writes).toHaveLength(0);
-    await userEvent.click(screen.getByRole('button', {name: 'Run tests'}));
-    await waitFor(() => expect(writes[0]).toMatchObject({body: {parameters: {compatibilityProfile: 'strix-halo', allowExperimental: 'true', validationRequest: expect.stringMatching(/^dashboard-/)}}}));
+    await userEvent.click(screen.getByRole('button', {name: 'Run verification'}));
+    await waitFor(() => expect(writes[0]).toMatchObject({body: {profileId: 'strix-halo', engine: 'OLlama', requestId: expect.stringMatching(/^dashboard-/)}}));
   });
 });

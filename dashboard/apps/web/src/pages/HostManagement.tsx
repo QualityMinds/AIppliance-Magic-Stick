@@ -9,7 +9,7 @@ import {InfoPopover} from '../InfoPopover';
 
 const terminal = new Set(['Succeeded', 'PreparedUnverified', 'Failed', 'Rejected', 'Interrupted']);
 const active = (host: ManagedHost) => Boolean(host.operation && !terminal.has(host.operation.phase));
-const useHosts = () => useQuery({queryKey: ['host-management'], queryFn: () => api.hostManagement(), refetchInterval: 5_000, retry: false});
+export const useHosts = () => useQuery({queryKey: ['host-management'], queryFn: () => api.hostManagement(), refetchInterval: 5_000, retry: false});
 
 const Operation = ({host, actions}: {host: ManagedHost; actions: HostAction[]}) => host.operation && actions.includes(host.operation.action)
   ? <div className="notice" role="status"><div className="section-title"><strong>{host.operation.action} · {host.operation.phase}</strong><InfoPopover label={`Operation on ${host.name}`}><p className="memory-info-note">{host.operation.message || 'Waiting for the local host worker.'}</p>{['RebootScheduled', 'PoweroffScheduled'].includes(host.operation.phase) && <p className="memory-info-note">The connection will be interrupted. A shutdown needs local power-on or separately configured remote power management to return. This page never repeats a power request automatically.</p>}</InfoPopover></div>{['RebootScheduled', 'PoweroffScheduled'].includes(host.operation.phase) && <p>All workloads on this computer will be interrupted.</p>}</div> : null;
@@ -57,14 +57,14 @@ export const HostPowerPanel = () => {
   </Panel>;
 };
 
-const Preparation = ({host, session, stale}: {host: ManagedHost; session: Session; stale: boolean}) => {
+export const HostPreparation = ({host, session, stale, embedded = false}: {host: ManagedHost; session: Session; stale: boolean; embedded?: boolean}) => {
   const [experiment, setExperiment] = useState(false);
   const [acknowledged, setAcknowledged] = useState(false);
   const action = useHostAction();
   const plan = experiment ? host.plan?.experiment : host.plan;
   const actionable = plan && ['available', 'ready'].includes(plan.state);
   return <article className="operator-card stack compact">
-    <header><div className="inline-info"><strong>{host.name}</strong><InfoPopover label={`Host preparation on ${host.name}`}><p className="memory-info-note">{experiment ? 'Automatic preparation remains blocked. You are reviewing a one-off experimental override below.' : host.plan?.message || host.message}</p><p className="memory-info-note">Prepares this computer's kernel and driver, then activates the matching AMD runtime profile and waits for Kubernetes GPU registration. No engine tests run automatically.</p></InfoPopover></div><StatusBadge phase={host.available ? plan?.state ?? 'Unknown' : 'Unavailable'} /></header>
+    <header><div className="inline-info"><strong>{embedded ? 'Host preparation' : host.name}</strong><InfoPopover label={`Host preparation on ${host.name}`}><p className="memory-info-note">{experiment ? 'Automatic preparation remains blocked. You are reviewing a one-off experimental override below.' : host.plan?.message || host.message}</p><p className="memory-info-note">Prepares this computer's kernel and driver, then activates the matching AMD runtime profile and waits for Kubernetes GPU registration. No engine tests run automatically.</p></InfoPopover></div><StatusBadge phase={host.available ? plan?.state ?? 'Unknown' : 'Unavailable'} /></header>
     {canAdminister(session) && host.plan?.experiment && <label className="check-field"><input type="checkbox" checked={experiment} onChange={(event) => {setExperiment(event.target.checked); setAcknowledged(false);}} /> Experiment mode — test an unreviewed hardware combination</label>}
     {plan && <><dl className="facts"><div><dt>Detected GPU devices</dt><dd>{plan.displayGpus?.join(', ') || 'None'}</dd></div><div><dt>Kernel / driver plan</dt><dd>{plan.profileId || 'No additional profile'}{plan.profileVersion ? ` · ${plan.profileVersion}` : ''}</dd></div><div><dt>Running kernel</dt><dd>{host.kernel}</dd></div><div><dt>Planned kernel</dt><dd>{plan.rebootRequired ? plan.targetKernel : 'Unchanged'}</dd></div></dl>
       {Object.keys(plan.packages).length > 0 && <div><strong>Exact package changes</strong><ul>{Object.entries(plan.packages).map(([name, version]) => <li key={name}>{name} = {version}</li>)}</ul></div>}
@@ -83,10 +83,15 @@ export const HostPreparationPanel = ({session, children}: {session: Session; chi
   return <Panel title="GPU setup" actions={<InfoPopover label="GPU setup"><p className="memory-info-note">Host preparation is the primary setup path: it prepares the selected computer and activates its matching AMD runtime profile. The advanced profile selector only changes cluster runtime configuration; it does not install a kernel or driver.</p><p className="memory-info-note">Periodic inspection never installs packages or restarts a computer. Power controls are in System → Computer power.</p></InfoPopover>}>
     <h3 className="hardware-subheading">Host preparation</h3>
     <ErrorNotice error={query.error} />
-    {query.isPending ? <Loading /> : <div className="stack">{(query.data?.nodes ?? []).map((host) => <Preparation key={`${host.nodeUid}:${host.bootId}:${host.plan?.id}`} host={host} session={session} stale={Boolean(query.error)} />)}{!query.data?.nodes?.length && !query.error && <Empty>No manageable computers reported yet.</Empty>}</div>}
+    {query.isPending ? <Loading /> : <div className="stack">{(query.data?.nodes ?? []).map((host) => <HostPreparation key={`${host.nodeUid}:${host.bootId}:${host.plan?.id}`} host={host} session={session} stale={Boolean(query.error)} />)}{!query.data?.nodes?.length && !query.error && <Empty>No manageable computers reported yet.</Empty>}</div>}
     {children}
   </Panel>;
 };
+
+export const HostMemoryControls = ({host, session, stale}: {host: ManagedHost; session: Session; stale: boolean}) => <div className="stack compact">
+  <HostGpuMemoryPanel host={host} session={session} stale={stale} />
+  <Operation host={host} actions={['configure-gpu-memory']} />
+</div>;
 
 export const HostMemoryPanel = ({session}: {session: Session}) => {
   const query = useHosts();

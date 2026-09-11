@@ -650,14 +650,16 @@ companies, employee agents, or gateway credentials.
 
 ## Hardware Compatibility Controls
 
-The Hardware page puts **GPU operators** first, followed by **GPU setup**,
-**GPU memory**, and **GPU nodes**. General explanatory paragraphs are replaced
+The Hardware page puts **GPU operators** first, followed by **GPU nodes** as the
+main workspace. Each node contains its host preparation, kernel plan, advanced
+runtime profile, physical memory summary, collapsed **GPU memory** controls and
+separate Ollama/vLLM verification buttons. General explanatory paragraphs are replaced
 by info icons with hover, keyboard-focus, and click/touch overlays. Current
 values, status badges, errors, required acknowledgements, and confirmation-dialog
 warnings remain visible. An operation's details appear only in its matching
 power, preparation, or memory section.
 
-**System → Hardware → GPU setup → Host preparation** uses the same approved Ansible workflow
+**System → Hardware → GPU nodes → Host preparation** uses the same approved Ansible workflow
 after initial installation and on existing computers. Plans show exact package
 changes and restart requirements; a bounded experiment mode permits explicitly
 acknowledged tests on unreviewed mixed-GPU combinations. Administrators also see
@@ -668,13 +670,13 @@ or execute these actions. Availability, progress, power-off limitations and
 recovery are documented in [host management](host-management.md).
 
 Host preparation already activates the matching AMD runtime profile. The
-collapsed **Advanced · AMD runtime profile** section inside **GPU setup** retains
+collapsed **Advanced · AMD runtime profile** section inside each node retains
 the manual profile override without presenting it as a second required setup
 step. That override only changes the cluster's AMD `ModuleActivation`; it does
 not install a kernel or driver. Host package plans and runtime profiles remain
 separate backend concepts.
 
-On an eligible single-GPU Strix Halo host, **GPU memory → Shared GPU memory** adds sliders
+On an eligible single-GPU Strix Halo host, expand **GPU nodes → GPU memory → Shared GPU memory** for sliders
 for the fixed firmware reservation and dynamic shared-RAM ceiling. Current
 values and the local draft remain separate; moving a slider never applies a
 change. Administrator acknowledgement and exact-host confirmation are required,
@@ -693,16 +695,23 @@ scripts or selectors through the API.
 The initial additional profile is **AMD Strix Halo (experimental)**. Selecting
 it requires the experimental acknowledgement and does not itself confirm
 inference support. Once host/driver checks and GPU registration pass, both
-configured engines are available without a test. **Run GPU validation**, next to
-the **GPU nodes** heading, is an
-optional manual diagnostic requiring a saved profile and a second
+configured engines are available without a test. **Verify Ollama** and
+**Verify vLLM** beside each engine are optional diagnostics for that node and
+engine only, requiring a saved profile and a second
 confirmation because it downloads images/test models and uses GPU resources.
 It uses the saved profile, not an unsaved advanced-profile draft.
 Results for Ollama and vLLM remain separate from runtime readiness. Profile saves
 and host preparation never start test models. Returning to upstream rules removes
 the additional opt-in rather than claiming the hardware has become supported.
 
-The same flow uses `ModuleActivation/amd-gpu.spec.parameters` fields
+`POST /api/hardware/validation` requires administrator access, CSRF protection,
+the current node UID, saved profile, a unique request ID and explicit resource-use
+acknowledgement. It stores one scoped request annotation per node UID/engine on
+`ModuleActivation/amd-gpu`, with a resource-version precondition. Other engines'
+requests/results are preserved. Profile-generation changes invalidate scoped
+requests; a new explicit all-engine CLI/TUI request supersedes them.
+
+The existing all-engine flow uses `ModuleActivation/amd-gpu.spec.parameters` fields
 `compatibilityProfile`, `allowExperimental` and `validationRequest` through the
 existing module API. `GET /api/status` exposes the catalog and evidence under
 `hardwareOperators.amd-gpu.compatibility`. Host/kernel/image changes invalidate

@@ -2862,6 +2862,48 @@ data:
         return result
 
 
+    def request_gpu_engine_validation(payload):
+        _reject_unknown_fields(payload, {"nodeName", "nodeUid", "engine", "profileId", "requestId", "acknowledgeResourceUse"})
+        engine = payload.get("engine")
+        request_id = payload.get("requestId")
+        if engine not in ("OLlama", "VLLM") or payload.get("acknowledgeResourceUse") is not True:
+            raise ValueError("Choose Ollama or vLLM and acknowledge GPU resource use")
+        if not isinstance(request_id, str) or not re.fullmatch(r"dashboard-[A-Za-z0-9._-]{1,70}", request_id):
+            raise ValueError("requestId must be a unique dashboard validation identifier")
+        name = payload.get("nodeName")
+        if not isinstance(name, str) or not re.fullmatch(r"[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?", name):
+            raise ValueError("nodeName must identify a Kubernetes node")
+        node = get_resource("/api/v1/nodes/" + urllib.parse.quote(name, safe="")) or {}
+        uid = (node.get("metadata") or {}).get("uid")
+        if not uid or payload.get("nodeUid") != uid:
+            raise RequestError(409, "The node changed; refresh Hardware before requesting validation")
+        activation = module_activation("amd-gpu") or {}
+        parameters = (activation.get("spec") or {}).get("parameters") or {}
+        profile_id = parameters.get("compatibilityProfile")
+        definition = next((p for p in gpu_compatibility_catalog().get("profiles", []) if p.get("id") == profile_id), {})
+        compatibility = (((appliance().get("status") or {}).get("hardwareOperators") or {}).get("amd-gpu") or {}).get("compatibility") or {}
+        evidence = next((n for n in compatibility.get("nodes", []) if n.get("nodeUid") == uid and n.get("node") == name), {})
+        if (not activation or (activation.get("spec") or {}).get("enabled") is False
+                or (activation.get("metadata") or {}).get("deletionTimestamp")
+                or not profile_id or payload.get("profileId") != profile_id
+                or parameters.get("allowExperimental") != "true" or engine not in definition.get("engines", {})
+                or not evidence.get("eligible") or not evidence.get("resourceRegistered")
+                or evidence.get("upstreamSupported") or evidence.get("profileId") != profile_id):
+            raise RequestError(409, "A saved, enabled compatibility profile and a ready GPU node are required")
+        key = "appliance.magicstick.dev/gpu-validation-" + hashlib.sha256((uid + ":" + engine).encode()).hexdigest()[:32]
+        metadata = activation.get("metadata") or {}
+        value = json.dumps({"requestId": request_id, "baseRequest": parameters.get("validationRequest") or "",
+                            "profileId": profile_id, "profileVersion": definition.get("version"),
+                            "activationGeneration": metadata.get("generation")}, sort_keys=True)
+        if (metadata.get("annotations") or {}).get(key) != value:
+            # Resource-version precondition prevents a concurrent profile change
+            # or validation request from being silently overwritten.
+            request_json("PATCH", f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/moduleactivations/amd-gpu",
+                         {"metadata": {"resourceVersion": metadata["resourceVersion"], "annotations": {key: value}}},
+                         "application/merge-patch+json")
+        return {"accepted": True, "requestId": request_id}
+
+
     def module_mutation_access(module, payload):
         # GPU validation starts privileged device access in fixed, catalogue-
         # owned images. Ordinary model operators cannot select these profiles.
@@ -7160,6 +7202,11 @@ data:
             try:
                 path = self.route()
                 parts = path.strip("/").split("/")
+                if path == "/api/hardware/validation":
+                    self.require_access("admin")
+                    validate_dashboard_mutation_request(self)
+                    self.send_json(request_gpu_engine_validation(read_body(self)), 202)
+                    return
                 if path == "/api/api-access":
                     self.require_access("admin")
                     validate_dashboard_mutation_request(self)

@@ -147,7 +147,7 @@ there is no arbitrary larger carve-out or automatic firmware/TTM change.
 ## Explicit Ansible preparation
 
 Administrators can also configure the **fixed firmware reservation** and
-**dynamic GPU memory ceiling** using sliders in **System → Hardware → GPU memory → Shared
+**dynamic GPU memory ceiling** using sliders in **System → Hardware → GPU nodes → GPU memory → Shared
 GPU memory**. Only discovered firmware options are offered, with a 16 GiB
 CPU/OS allowance for the dynamic ceiling and explicit restart confirmation.
 The host worker verifies actual RAM after changing the carve-out before applying
@@ -155,7 +155,7 @@ TTM through the role below. This does not expand the scheduler's capacity using
 unverified projected RAM. See the [memory workflow and recovery
 contract](host-management.md#fixed-and-dynamic-gpu-memory).
 
-The normal user entrypoint is now **System → Hardware → GPU setup → Host preparation** for
+The normal user entrypoint is now **System → Hardware → GPU nodes → Host preparation** for
 both new and existing machines. It uses the same Ansible role below through a
 local root worker, with explicit package/reboot confirmation and resumable
 verification. **System** also provides administrator restart/shutdown controls.
@@ -246,8 +246,10 @@ work without validation; successful optional tests can pin their actual digest.
 KubeAI's installed configuration and Ready controller Pods with matching
 configuration checksums. See the [Flux values-reference contract](https://fluxcd.io/flux/components/helm/helmreleases/#values-references).
 
-Choose **System → Hardware → Run GPU validation**, `hardware validate --yes`,
-or the TUI's validation action to start the bounded tests explicitly. Profile
+Use **Verify Ollama** or **Verify vLLM** under **System → Hardware → GPU nodes**
+to request a bounded test only for that engine and node. Its scoped request does
+not reset other engine results. `hardware validate --yes` and the TUI's
+validation action still request both engines on matching nodes. Profile
 saves and host preparation never start them. A request is bound to the host boot,
 hardware and runtime images at its first test; changed evidence becomes stale
 without automatically launching another test. Request a new run to refresh it.

@@ -310,6 +310,10 @@ Verify the configured image, running Pod image ID and readiness for both
 `dashboard/ai-appliance-dashboard` and
 `identity-system/ai-appliance-dashboard-api`. Finally reload the primary
 dashboard in a browser and check the changed screen under the intended role.
+For node-level Hardware controls, verify that preparation and advanced profile
+options are inside the node, GPU memory starts collapsed, and each engine has its
+own verification button. Merely opening the page must not submit a validation,
+preparation or memory request. Do not launch GPU probes during a UI-only rollout.
 Report source publication, image build and live rollout as separate results;
 an old digest is not a browser-cache problem.
 

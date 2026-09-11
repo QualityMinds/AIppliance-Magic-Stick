@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import json
 import io
 import os
@@ -43,6 +44,40 @@ class GpuCompatibilityTests(unittest.TestCase):
         return self.controller["gpu_compatibility_status"](
             [self.node], self.features, self.catalog, self.activation, jobs, pods
         )["nodes"][0]
+
+    def scoped_request(self, engine="OLlama"):
+        self.activation["spec"]["parameters"]["validationRequest"] = ""
+        key = "appliance.magicstick.dev/gpu-validation-" + hashlib.sha256(("node-uid:" + engine).encode()).hexdigest()[:32]
+        self.activation["metadata"].setdefault("annotations", {})[key] = json.dumps({
+            "requestId": "dashboard-scoped-1", "baseRequest": "", "profileId": self.profile["id"],
+            "profileVersion": self.profile["version"], "activationGeneration": None})
+
+    def test_scoped_request_does_not_request_other_nodes_or_engines(self):
+        self.scoped_request()
+        helper = self.controller["gpu_engine_validation_request"]
+        self.assertEqual(helper(self.activation, self.node, self.profile, "OLlama"), "dashboard-scoped-1")
+        self.assertEqual(helper(self.activation, self.node, self.profile, "VLLM"), "")
+        other = copy.deepcopy(self.node)
+        other["metadata"]["uid"] = "other-node-uid"
+        self.assertEqual(helper(self.activation, other, self.profile, "OLlama"), "")
+        applied = []
+        with patch.dict(self.controller, {
+            "list_items": lambda _: [], "get_core_resource": lambda *_: {"data": {}},
+            "get_resource": lambda *_: None, "apply_resource": applied.append, "patch_json": lambda *_: {},
+        }):
+            self.controller["reconcile_gpu_compatibility"]([self.node], self.features, self.catalog, self.activation, set())
+        jobs = [resource for resource in applied if resource["kind"] == "Job"]
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(jobs[0]["metadata"]["annotations"]["appliance.magicstick.dev/validation-engine"], "OLlama")
+
+    def test_profile_generation_invalidates_scoped_request_and_explicit_global_request_supersedes_it(self):
+        self.scoped_request()
+        helper = self.controller["gpu_engine_validation_request"]
+        self.activation["metadata"]["generation"] = 3
+        self.assertEqual(helper(self.activation, self.node, self.profile, "OLlama"), "")
+        self.activation["spec"]["parameters"]["validationRequest"] = "manual-all-2"
+        for engine in ("OLlama", "VLLM"):
+            self.assertEqual(helper(self.activation, self.node, self.profile, engine), "manual-all-2")
 
     def change_host(self, **values):
         self.host.update(values)
