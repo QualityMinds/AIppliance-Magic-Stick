@@ -106,6 +106,31 @@ def firmware_reserved_mi(device_path, vram_bytes):
     return None
 
 
+def gpu_allocation_capacity(device, fixed_mi, ttm_bytes, linux_bytes):
+    """Corroborate the active KFD allocation domain, never sum VRAM and GTT.
+
+    On this APU amdgpu uses GTT for ordinary device allocations only when GTT
+    is larger than real VRAM. Require the PCI-matched KFD heap to agree, rather
+    than infer engine capacity from a firmware option or mapping limit alone.
+    This is driver capacity, not a successful engine allocation/limit test.
+    """
+    unknown = {"gpuAllocationMode": "unknown", "gpuCapacityMi": None, "gpuCapacitySource": "unavailable"}
+    nodes = device["kfdNodes"]
+    if len(nodes) != 1 or device.get("gfxArchitectures") != ["gfx1151"]:
+        return unknown
+    reported = nodes[0].get("localMemoryBytes")
+    vram, gtt = device["memory"]["vramTotalBytes"], device["memory"]["gttTotalBytes"]
+    if not all(isinstance(value, int) and value > 0 for value in (reported, vram, gtt, ttm_bytes, linux_bytes)):
+        return unknown
+    if gtt <= vram and reported == vram and fixed_mi and fixed_mi * 1024**2 == vram:
+        mode, capacity = "firmware-reserved", vram
+    elif gtt > vram and reported == ttm_bytes:
+        mode, capacity = "shared-gtt", min(reported, gtt, linux_bytes)
+    else:
+        return unknown
+    return {"gpuAllocationMode": mode, "gpuCapacityMi": capacity // 1024**2, "gpuCapacitySource": "kfd-topology"}
+
+
 def collect(root=Path("/"), live=True):
     def path(value):
         return root / value.lstrip("/")
@@ -144,7 +169,11 @@ def collect(root=Path("/"), live=True):
                 continue
             target = int(properties.get("gfx_target_version", "0"))
             gfx = f"gfx{target // 10000}{(target // 100) % 100:x}{target % 100:x}" if target else ""
-            kfd_nodes.append({"node": node.name, "deviceId": format(int(properties.get("device_id", "0")), "04x"), "renderMinor": int(properties.get("drm_render_minor", "0")), "gfxArchitecture": gfx})
+            banks = [dict(re.findall(r"^(\w+)\s+(\d+)$", read(bank), re.M)) for bank in sorted((node / "mem_banks").glob("*/properties"))]
+            # FB_PUBLIC=1, FB_PRIVATE=2 are parts of the same KFD local heap.
+            valid_banks = bool(banks) and all(bank.get("heap_type") in ("1", "2") and int(bank.get("size_in_bytes", "0")) > 0 for bank in banks)
+            local_bytes = sum(int(bank["size_in_bytes"]) for bank in banks) if valid_banks else None
+            kfd_nodes.append({"node": node.name, "deviceId": format(int(properties.get("device_id", "0")), "04x"), "renderMinor": int(properties.get("drm_render_minor", "0")), "gfxArchitecture": gfx, "localMemoryBytes": local_bytes})
     devices = []
     pci = path("/sys/bus/pci/devices")
     if pci.is_dir():
@@ -159,7 +188,7 @@ def collect(root=Path("/"), live=True):
             except OSError:
                 driver = None
             render_names = sorted(item.name for item in (entry / "drm").glob("renderD*"))
-            matched_kfd = [node for node in kfd_nodes if f"renderD{node['renderMinor']}" in render_names]
+            matched_kfd = [node for node in kfd_nodes if node["deviceId"] == device and f"renderD{node['renderMinor']}" in render_names]
             matched_architectures = sorted({node["gfxArchitecture"] for node in matched_kfd if node["gfxArchitecture"]})
             device_memory = {}
             for field, filename in [("vramTotalBytes", "mem_info_vram_total"), ("vramUsedBytes", "mem_info_vram_used"), ("gttTotalBytes", "mem_info_gtt_total"), ("gttUsedBytes", "mem_info_gtt_used")]:
@@ -217,9 +246,10 @@ def collect(root=Path("/"), live=True):
             "gpuAccessibleMi": accessible_bytes // (1024 * 1024) if accessible_bytes is not None else None,
             # MemTotal is OS-visible physical memory, deliberately excludes BIOS carve-out.
             "physicalMemoryMi": memory["MemTotal"] // (1024 * 1024) if memory.get("MemTotal") else None,
-            # Inventory only: these fields must never enlarge the scheduling budget.
+            # Inventory alone never enlarges budgets; KFD must corroborate the domain.
             "installedMemoryMi": installed_bytes // (1024 * 1024) if installed_bytes else None,
             "firmwareReservedMi": fixed_mi,
+            **gpu_allocation_capacity(device, fixed_mi, report["systemMemory"]["ttmLimitBytes"], memory.get("MemTotal")),
             "memoryAccountingVerified": False,
             "driverVersion": report["driver"]["version"], "kernelVersion": release,
             "hostDriverReady": bool(device["driver"] == "amdgpu" and report["driver"]["kfd"]["charDevice"] and any(node["charDevice"] for node in device["renderNodes"]) and gfx == "gfx1151" and report["kernel"]["strixHaloFixes"] == "present"),

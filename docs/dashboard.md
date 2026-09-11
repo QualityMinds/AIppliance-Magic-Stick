@@ -691,9 +691,9 @@ accepting a model memory warning. CLI users have `hardware list`,
 `hardware validate --yes`, and `hardware profile upstream`; the TUI provides
 Hardware inspection and the same explicitly confirmed administrator actions.
 
-Strix Halo cards show a shared CPU/GPU memory explanation, GPU-accessible
-capacity when known, and accounting-verification status. The Models estimator
-uses one physical pool instead of adding RAM and GPU mappings. Unverified GPU
+Strix Halo cards show one GPU, its firmware reservation, dynamic ceiling and
+corroborated driver capacity/allocation domain. The Models estimator uses the
+active domain instead of adding firmware and dynamic limits. Unverified GPU
 cgroup accounting stays visible as a warning, not a hard-limit promise. See
 [GPU compatibility](gpu-compatibility.md) and
 [unified-memory reservations](model-catalog.md#amd-unified-memory-reservations).
@@ -927,23 +927,29 @@ that memory metrics are unavailable and do not invent a total, percentage, or
 free value. This preserves an honest UI while keeping the response contract
 ready for additional vendor metric adapters.
 
-An explicitly configured unified-memory AMD profile is shown as a shared pool
-instead of an independent extra VRAM bank. Fresh host GTT/TTM bounds can supply
-GPU-accessible capacity without pretending to be live vendor-exporter usage.
-CPU and AMD model budgets are charged conservatively to that pool, with a system
-reserve; missing metrics and unverified GPU cgroup accounting remain explicit.
+An explicitly configured unified-memory AMD profile shows one GPU, not separate
+fixed/shared GPUs. Fresh, PCI-matched KFD evidence determines the ordinary
+allocation domain and GPU planning capacity. GTT/TTM bounds alone do not prove
+model capacity. Fixed GPU allocations are outside Linux RAM; only their host
+runtime requests count there. Dynamic GPU allocations consume Linux RAM and
+intersect its remaining budgets after safety headroom. Missing metrics and
+unverified GPU cgroup accounting remain explicit.
 
 On unified-memory hosts, **Models → Compute Memory** and **System → Hardware →
 GPU nodes** show a separate physical-memory overview: installed RAM (SMBIOS),
-fixed firmware GPU reservation, Linux-visible RAM and the dynamic GPU ceiling.
+fixed firmware GPU reservation, Linux-visible RAM, the dynamic GPU ceiling and
+driver-reported GPU capacity with the allocation domain/source.
 The dynamic ceiling is a subset of Linux-visible RAM, not an additional bank.
 Unknown inventory stays explicitly unreported; fixed firmware memory is not
-silently added to model budgets. CPU/GPU gauges are labelled as Linux/shared
-budget views rather than total installed CPU/GPU memory. This is a read-only
-display change; only the separately confirmed hardware controls change memory
+silently added to the dynamic budget. The GPU gauge uses the corroborated
+allocation domain. For fixed memory without live GPU metrics, it displays an
+**unreserved budget**, not invented free VRAM derived from Linux available RAM.
+Unknown driver capacity remains unknown. Only separately confirmed hardware controls change memory
 settings. See the [inventory contract](gpu-compatibility.md#kernel-and-shared-memory-constraints).
 CLI hardware output and the physical TUI's Models/Hardware views expose the same
-four values and the same non-additive relationship.
+values and the same non-additive relationship. The dynamic ceiling and
+Kubernetes requests are not protected reservations against other processes;
+the UI does not promise guaranteed dynamic AI capacity.
 
 The preset selector is populated from `ConfigMap/magicstick-model-presets` and
 shows only variants compatible with the selected engine and target. Each

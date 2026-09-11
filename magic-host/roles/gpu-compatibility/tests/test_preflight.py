@@ -60,6 +60,7 @@ class HostEvidenceTests(unittest.TestCase):
         self.write("/sys/module/ttm/parameters/pages_limit", "8388608")
         self.write("/sys/module/amdgpu/version", "6.14.0")
         self.write("/sys/class/kfd/kfd/topology/nodes/1/properties", "vendor_id 4098\ndevice_id 5510\ngfx_target_version 110501\ndrm_render_minor 128\n")
+        self.write("/sys/class/kfd/kfd/topology/nodes/1/mem_banks/0/properties", f"heap_type 1\nsize_in_bytes {32 * 1024**3}\n")
         self.device()
 
     def test_exact_profile_and_shared_memory_not_summed(self):
@@ -71,9 +72,54 @@ class HostEvidenceTests(unittest.TestCase):
         self.assertEqual(report["devices"][0]["memoryTopology"], "shared")
         self.assertEqual(report["nodeAnnotation"]["physicalMemoryMi"], 65536)
         self.assertEqual(report["nodeAnnotation"]["gpuAccessibleMi"], 32768)
+        self.assertEqual(report["nodeAnnotation"]["gpuCapacityMi"], 32768)
+        self.assertEqual(report["nodeAnnotation"]["gpuAllocationMode"], "shared-gtt")
         self.assertFalse(report["nodeAnnotation"]["memoryAccountingVerified"])
         self.assertFalse(report["nodeAnnotation"]["hostDriverReady"])
         self.assertFalse(report["devices"][0]["computeValidated"])
+
+    def allocation_fixture(self, fixed_gib, dynamic_gib, reported_gib):
+        self.strix_fixture()
+        prefix = "/sys/bus/pci/devices/0000:01:00.0/"
+        self.write(prefix + "mem_info_vram_total", str(int(fixed_gib * 1024**3)))
+        self.write(prefix + "mem_info_gtt_total", str(dynamic_gib * 1024**3))
+        self.write(prefix + "uma/carveout", "0")
+        self.write(prefix + "uma/carveout_options", f"0: Test ({int(fixed_gib * 1024)} MB)")
+        self.write("/sys/module/ttm/parameters/pages_limit", str(dynamic_gib * 1024**3 // 4096))
+        self.write("/sys/class/kfd/kfd/topology/nodes/1/mem_banks/0/properties", f"heap_type 1\nsize_in_bytes {reported_gib * 1024**3}\n")
+
+    def test_fixed_64_and_dynamic_46_report_one_64_gib_gpu_not_46_or_110(self):
+        self.allocation_fixture(64, 46, 64)
+        report = preflight.collect(self.root, live=False)
+        self.assertEqual(len(report["devices"]), 1)
+        self.assertEqual(report["nodeAnnotation"]["gpuAccessibleMi"], 46 * 1024)
+        self.assertEqual(report["nodeAnnotation"]["gpuCapacityMi"], 64 * 1024)
+        self.assertEqual(report["nodeAnnotation"]["gpuAllocationMode"], "firmware-reserved")
+        self.assertEqual(report["nodeAnnotation"]["gpuCapacitySource"], "kfd-topology")
+
+    def test_small_carveout_and_large_gtt_report_only_dynamic_capacity(self):
+        self.allocation_fixture(0.5, 109, 109)
+        self.write("/proc/meminfo", f"MemTotal: {126 * 1024**2} kB\n")
+        report = preflight.collect(self.root, live=False)["nodeAnnotation"]
+        self.assertEqual(report["gpuCapacityMi"], 109 * 1024)
+        self.assertEqual(report["gpuAllocationMode"], "shared-gtt")
+
+    def test_missing_or_conflicting_kfd_heap_never_infers_model_capacity(self):
+        self.allocation_fixture(64, 46, 64)
+        for contents in ("", "heap_type 0\nsize_in_bytes 68719476736", "heap_type 1\nsize_in_bytes 1"):
+            self.write("/sys/class/kfd/kfd/topology/nodes/1/mem_banks/0/properties", contents)
+            annotation = preflight.collect(self.root, live=False)["nodeAnnotation"]
+            self.assertIsNone(annotation["gpuCapacityMi"])
+            self.assertEqual(annotation["gpuAllocationMode"], "unknown")
+
+    def test_equal_gtt_and_vram_prefers_fixed_pool(self):
+        self.allocation_fixture(32, 32, 32)
+        self.assertEqual(preflight.collect(self.root, live=False)["nodeAnnotation"]["gpuAllocationMode"], "firmware-reserved")
+
+    def test_wrong_pci_device_cannot_supply_kfd_capacity(self):
+        self.allocation_fixture(64, 46, 64)
+        self.write("/sys/class/kfd/kfd/topology/nodes/1/properties", "vendor_id 4098\ndevice_id 1\ngfx_target_version 110501\ndrm_render_minor 128\n")
+        self.assertIsNone(preflight.collect(self.root, live=False)["nodeAnnotation"]["gpuCapacityMi"])
 
     def test_unknown_amd_card_is_not_marked_as_strix_or_shared(self):
         self.device(device="9999")

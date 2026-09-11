@@ -38,7 +38,7 @@ describe('hardware compatibility', () => {
     expect(screen.getByText('GPU calculation failed.')).toBeInTheDocument();
     expect(screen.getByText('Not recognized')).toBeInTheDocument();
     expect(screen.getByText('Not ready')).toBeInTheDocument();
-    expect(screen.getByText(/These are not independent capacities/)).toBeInTheDocument();
+    expect(screen.getByText(/One GPU, not two deployment targets/)).toBeInTheDocument();
     expect(screen.getByText('Linux-visible RAM').parentElement).toHaveTextContent('64 GiB');
     expect(screen.getByText('Installed RAM').parentElement).toHaveTextContent('Not reported');
     expect(screen.getByText(/not yet verified; no capacity guarantee/)).toBeInTheDocument();

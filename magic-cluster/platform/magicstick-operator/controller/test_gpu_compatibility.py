@@ -221,6 +221,30 @@ class GpuCompatibilityTests(unittest.TestCase):
         self.assertTrue(resource["spec"]["resourceProfile"].endswith("uma-ram-12000:1"))
         self.assertEqual(resource["spec"]["env"]["OLLAMA_VULKAN"], "false")
 
+    def test_fixed_gpu_budget_is_not_reserved_again_in_linux_ram(self):
+        self.change_host(firmwareReservedMi=65536, gpuAccessibleMi=47104,
+                         gpuCapacityMi=65536, gpuAllocationMode="firmware-reserved", gpuCapacitySource="kfd-topology")
+        for engine, requested, expected in (("OLlama", 0, 4096), ("VLLM", 0, 8192), ("OLlama", 10000, 10000)):
+            runtime = {"computeTarget": "amd-gpu", "engine": engine, "vramMi": 50000, "memoryMi": requested,
+                       "baseResourceProfile": "magicstick-amd-gpu:1"}
+            resource = {"metadata": {}, "spec": {}}
+            with patch.dict(self.controller, {"compute_target_nodes": lambda *_: [self.node]}):
+                self.controller["unified_memory_runtime"](resource, runtime, {})
+            self.assertEqual(runtime["memoryMi"], expected)
+            self.assertEqual(runtime["vramMi"], 50000)
+            self.assertEqual(runtime["gpuAllocationMode"], "firmware-reserved")
+            self.assertEqual(resource["metadata"]["annotations"]["appliance.magicstick.dev/gpu-allocation-mode"], "firmware-reserved")
+
+    def test_inconsistent_capacity_retains_conservative_host_request(self):
+        self.change_host(firmwareReservedMi=65536, gpuAccessibleMi=47104,
+                         gpuCapacityMi=110 * 1024, gpuAllocationMode="firmware-reserved", gpuCapacitySource="kfd-topology")
+        runtime = {"computeTarget": "amd-gpu", "engine": "OLlama", "vramMi": 50000, "memoryMi": 0,
+                   "baseResourceProfile": "magicstick-amd-gpu:1"}
+        with patch.dict(self.controller, {"compute_target_nodes": lambda *_: [self.node]}):
+            self.controller["unified_memory_runtime"]({"metadata": {}, "spec": {}}, runtime, {})
+        self.assertEqual(runtime["memoryMi"], 50000)
+        self.assertEqual(runtime["gpuAllocationMode"], "unknown")
+
     def test_unified_ollama_overrides_requested_vulkan_to_match_rocm_validation(self):
         runtime = {"computeTarget": "amd-gpu", "engine": "OLlama", "vramMi": 12000, "memoryMi": 0,
                    "baseResourceProfile": "magicstick-ollama-amd-gpu:1"}

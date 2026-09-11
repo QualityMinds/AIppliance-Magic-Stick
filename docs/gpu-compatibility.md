@@ -69,24 +69,37 @@ kernel evidence but does not certify an arbitrary ROCm/container combination.
 Older or unrecognized backports require further verification.
 [AMD Strix Halo guidance](https://rocm.docs.amd.com/en/docs-7.2.0/how-to/system-optimization/strixhalo.html)
 
-Strix Halo shares physical memory between CPU and GPU. GTT/TTM values are mapping
-limits, not an extra memory pool to add to system RAM. The helper conservatively
-reports the lesser known GTT, TTM and OS-visible RAM limit. BIOS-reserved memory
-is not added again. Keep an operating-system/Kubernetes reserve and validate
-actual container accounting before using a profile for model reservations.
+Strix Halo has one GPU and unified physical RAM, not two GPU deployment targets.
+GTT/TTM values are dynamic mapping ceilings inside Linux RAM, not an exclusive
+reservation. The helper reports their conservative intersection as
+`gpuAccessibleMi`; this is separate from the driver's ordinary device-allocation
+capacity. Keep operating-system/Kubernetes headroom and validate actual
+container accounting before promising memory protection.
 [AMD memory explanation](https://rocm.docs.amd.com/en/docs-7.2.0/how-to/system-optimization/strixhalo.html)
 
 In the current JSON contract, `physicalMemoryMi` specifically means
 **OS-visible RAM from `/proc/meminfo` `MemTotal`**, not total installed DIMM
-capacity. The shared-pool calculation deliberately uses this conservative
-capacity. `gpuAccessibleMi` is a conservative mapping bound within that pool,
-not a hardware-inventory total. A large `mem_info_vram_total` counter and a
-smaller `MemTotal` do not establish that those values describe two disjoint
-physical ranges which can safely be added. Firmware carve-outs, installed RAM,
-driver mappings and actual allocation behavior need separate validation before
-the advertised capacity can be expanded. The diagnostic preserves the raw
-VRAM/GTT counters so these differences can be investigated without changing
-the scheduling budget.
+capacity. It excludes the firmware GPU carve-out. `gpuAccessibleMi` remains a
+mapping bound within Linux RAM, not total GPU memory. The PCI/render-node-matched
+KFD local heap must agree with the firmware/VRAM and GTT/TTM counters before the
+helper publishes `gpuCapacityMi`, `gpuCapacitySource: kfd-topology` and
+`gpuAllocationMode`:
+
+- `firmware-reserved`: the KFD heap agrees with the active firmware carve-out
+  and GTT is no larger. GPU budgets use this pool, outside Linux `MemTotal`.
+- `shared-gtt`: GTT is larger than VRAM and KFD agrees with TTM. Capacity is
+  bounded by GTT, TTM and Linux RAM; model planning also intersects remaining
+  host RAM budgets after safety headroom.
+- `unknown`: missing, stale, ambiguous or contradictory evidence does not
+  become an inferred capacity. GPU capacity is unknown and host requests stay
+  conservative.
+
+For example, a corroborated 64 GiB firmware heap with a 46 GiB dynamic ceiling
+reports one 64 GiB GPU capacity, not 46 or 110 GiB. A 512 MiB carve-out with a
+corroborated 109 GiB GTT heap reports 109 GiB, not 109.5 GiB. This matches the
+[amdgpu APU allocation rule](https://github.com/torvalds/linux/blob/v7.0/drivers/gpu/drm/amd/amdgpu/amdgpu_ttm.c#L2159).
+Driver capacity is not proof that an engine can successfully allocate all of
+it; engine buffers, current usage and runtime validation remain separate.
 
 The read-only inventory also publishes `installedMemoryMi` from populated
 SMBIOS type-17 devices (`dmidecode --type 17`) and `firmwareReservedMi` when the
@@ -98,11 +111,20 @@ output. These two inventory fields do not change scheduling, model estimates,
 GPU eligibility, firmware settings or reboot plans.
 
 The dashboard separates installed RAM, the fixed GPU carve-out, Linux-visible
-RAM and the dynamic GPU ceiling. The dynamic value is **inside** Linux RAM and
+RAM, the dynamic GPU ceiling and driver-reported model capacity/allocation
+domain. The dynamic value is **inside** Linux RAM and
 must not be added to it. Where the measured totals reconcile, the difference
 `installed - fixed - Linux-visible` is labelled other firmware/platform memory,
 not extra GPU capacity. Existing CPU/GPU gauges remain conservative model-budget
-views, not hardware-inventory totals.
+views, not hardware-inventory totals. Fixed GPU free memory is not inferred
+from Linux `MemAvailable`; without vendor usage metrics it stays unknown.
+
+Neither a GTT ceiling nor a Kubernetes memory request protects RAM for a future
+GPU process. Protecting a dynamic AI budget would require bounded non-AI/host
+workloads, system headroom and verified GPU/cgroup accounting under load. This
+implementation does not install that protection or claim a hard GPU limit.
+Firmware reservation choices remain exactly those advertised by the BIOS;
+there is no arbitrary larger carve-out or automatic firmware/TTM change.
 
 ## Explicit Ansible preparation
 

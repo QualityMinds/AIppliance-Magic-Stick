@@ -5462,7 +5462,7 @@ data:
             if shared_pools:
                 known = [pool["gpuUnreservedMi"] for pool in shared_pools if pool["gpuUnreservedMi"] is not None]
                 maximum_mi = max(known) if known else None
-                warnings.append("AMD unified memory is shared with CPU workloads. GPU-accessible RAM is not additional VRAM; the same physical pool is budgeted once.")
+                warnings.extend(dict.fromkeys(pool["message"] for pool in shared_pools))
                 if not all(pool["memoryAccountingVerified"] for pool in shared_pools):
                     warnings.append("GPU memory accounting in container limits has not been verified on this host; the budget is not a guaranteed hard GPU limit.")
         if maximum_mi is None:
@@ -5903,14 +5903,17 @@ data:
                     or positive_int(local.get("vramMi"))
                     or 0
                 )
-                if status.get("memoryArchitecture") == "unified":
-                    reserved_mi = max(reserved_mi, positive_int(status.get("memoryRequiredMi")) or 0)
             if not reserved_mi:
                 continue
             reservations.setdefault(compute_target, []).append({
                 "model": str(metadata.get("name") or "local-model"),
                 "reservedMi": int(reserved_mi),
-                **({"memoryArchitecture": "unified"} if status.get("memoryArchitecture") == "unified" else {}),
+                **({"memoryArchitecture": "unified", "gpuAllocationMode": status.get("gpuAllocationMode", "unknown"),
+                    "sharedPoolId": status.get("sharedPoolId", ""),
+                    "hostReservedMi": positive_int(status.get("memoryRequiredMi")) or 0}
+                   if status.get("memoryArchitecture") == "unified" else {}),
+                "hostBaselineMi": max(positive_int(local.get("memoryRequiredMi")) or 0,
+                    4096 if str(local.get("engine") or status.get("engine") or "VLLM").upper() == "OLLAMA" else 8192),
             })
         for items in reservations.values():
             items.sort(key=lambda item: item["model"])
@@ -6090,16 +6093,28 @@ data:
         return devices
 
 
-    def unified_memory_pools(nodes, reservations, samples=None):
-        """UMA budgets share the OS RAM pool; GPU aperture is not extra RAM.
+    def gpu_memory_allocation(report):
+        """Only fresh, corroborated KFD capacity selects a model allocation domain."""
+        mode = report.get("gpuAllocationMode")
+        capacity = positive_int(report.get("gpuCapacityMi"))
+        bound = positive_int(report.get("firmwareReservedMi") if mode == "firmware-reserved" else report.get("gpuAccessibleMi"))
+        if (report.get("gpuCapacitySource") == "kfd-topology" and mode in ("firmware-reserved", "shared-gtt")
+                and capacity and bound and capacity <= bound):
+            fixed = positive_int(report.get("firmwareReservedMi"))
+            dynamic = positive_int(report.get("gpuAccessibleMi"))
+            if (mode == "firmware-reserved" and dynamic and dynamic > capacity) or (mode == "shared-gtt" and fixed and fixed >= capacity):
+                return "unknown", None
+            return mode, capacity
+        return "unknown", None
 
-        Pending model placement is not known here. Charge all CPU/AMD model
-        budgets to each candidate pool conservatively rather than offering the
-        same memory twice. The Kubernetes scheduler remains authoritative.
+
+    def unified_memory_pools(nodes, reservations, samples=None):
+        """Keep firmware GPU allocations separate from Linux/GTT accounting.
+
+        Pending placement is charged to each candidate conservatively. Neither
+        a scheduling request nor a mapping ceiling protects future GPU memory.
         """
         pools = []
-        shared_reservations = list(reservations.get("cpu") or []) + list(reservations.get("amd-gpu") or [])
-        reserved = sum(int(item.get("reservedMi") or 0) for item in shared_reservations)
         for node in nodes:
             metadata, status = node.get("metadata") or {}, node.get("status") or {}
             raw = (metadata.get("annotations") or {}).get("appliance.magicstick.dev/gpu-host-preflight", "")
@@ -6132,7 +6147,19 @@ data:
             allocatable = quantity_mi((status.get("allocatable") or {}).get("memory")) or physical
             system_reserve = max(8192, (physical + 9) // 10)
             schedulable = max(0, min(physical, allocatable) - system_reserve)
-            maximum = min(accessible, schedulable) if accessible else None
+            mode, capacity = gpu_memory_allocation(report)
+            gpu_reservations = [item for item in reservations.get("amd-gpu", []) if not item.get("sharedPoolId") or item["sharedPoolId"] == metadata["uid"]]
+            host_reservations = [{**item, "reservedMi": max(
+                int(item.get("hostReservedMi") or 0), int(item.get("hostBaselineMi") or 0),
+                int(item.get("reservedMi") or 0) if mode != "firmware-reserved" else 0,
+            )} for item in gpu_reservations]
+            shared_reservations = list(reservations.get("cpu") or []) + host_reservations
+            reserved = sum(int(item.get("reservedMi") or 0) for item in shared_reservations)
+            gpu_reserved = sum(int(item.get("reservedMi") or 0) for item in gpu_reservations)
+            maximum = min(capacity, schedulable) if mode == "shared-gtt" else capacity
+            gpu_remaining = max(0, capacity - gpu_reserved) if capacity is not None else None
+            if mode == "shared-gtt":
+                gpu_remaining = min(gpu_remaining, max(0, schedulable - reserved))
             sample = (samples or {}).get(name) or {}
             free = sample.get("availableMi")
             pools.append({
@@ -6140,13 +6167,22 @@ data:
                 "physicalMemoryMi": physical, "gpuAccessibleMi": accessible,
                 "installedMemoryMi": positive_int(report.get("installedMemoryMi")),
                 "firmwareReservedMi": positive_int(report.get("firmwareReservedMi")),
+                "gpuAllocationMode": mode, "gpuCapacityMi": capacity,
+                "gpuCapacitySource": "kfd-topology" if capacity is not None else "unavailable",
+                "gpuTotalMi": maximum, "gpuReservedMi": gpu_reserved, "gpuReservations": gpu_reservations,
+                "gpuHostReservations": host_reservations,
                 "systemReserveMi": system_reserve, "totalMi": schedulable,
                 "reservedMi": reserved, "unreservedMi": max(0, schedulable - reserved),
-                "gpuUnreservedMi": max(0, maximum - reserved) if maximum is not None else None,
+                "gpuUnreservedMi": gpu_remaining,
                 "freeMi": max(0, min(physical, int(free))) if free is not None else None,
                 "memoryAccountingVerified": report.get("memoryAccountingVerified") is True,
                 "reservations": shared_reservations,
-                "message": "CPU and GPU budgets share one OS-visible RAM pool. Capacities are not additive. Model placement is conservatively budgeted; GPU cgroup accounting is not a guaranteed hard limit.",
+                "message": ("GPU model allocations use the firmware-reserved pool. Only host runtime RAM is charged to Linux; live GPU free memory is not reported."
+                            if mode == "firmware-reserved" else
+                            "GPU model allocations use dynamic Linux RAM. The ceiling is not reserved or protected against other processes."
+                            if mode == "shared-gtt" else
+                            "The driver's model allocation pool is unconfirmed. GPU capacity stays unknown; RAM accounting remains conservative.")
+                           + " Firmware and dynamic limits are not added. Driver capacity is not an engine allocation guarantee; GPU cgroup accounting is unverified.",
             })
         return pools
 
@@ -6195,18 +6231,27 @@ data:
                     "memoryArchitecture": "unified", "sharedPoolId": pool["id"],
                     "sharedMemoryMi": pool["physicalMemoryMi"],
                     "accountingVerified": pool["memoryAccountingVerified"],
-                    "totalMi": min(pool["gpuAccessibleMi"] or 0, pool["totalMi"]),
+                    "gpuAllocationMode": pool["gpuAllocationMode"], "gpuCapacityMi": pool["gpuCapacityMi"],
+                    "gpuCapacitySource": pool["gpuCapacitySource"],
+                    "totalMi": pool["gpuTotalMi"] or 0,
                     "unreservedMi": pool["gpuUnreservedMi"],
-                    "reservedMi": pool["reservedMi"], "reservations": pool["reservations"],
-                    "freeMi": min(pool["freeMi"], pool["gpuAccessibleMi"]) if pool["freeMi"] is not None and pool["gpuAccessibleMi"] else None,
-                    "metricsSource": "host-preflight-and-kubelet", "metricsAvailable": pool["freeMi"] is not None and pool["gpuAccessibleMi"] is not None,
+                    "reservedMi": pool["gpuReservedMi"], "reservations": pool["gpuReservations"],
+                    "freeMi": min(pool["freeMi"], pool["gpuCapacityMi"]) if pool["gpuAllocationMode"] == "shared-gtt" and pool["freeMi"] is not None else None,
+                    "metricsSource": "host-preflight-and-kubelet", "metricsAvailable": pool["gpuAllocationMode"] == "shared-gtt" and pool["freeMi"] is not None,
                     "message": pool["message"],
                 })
         known_uma = [item for item in reservations.get("amd-gpu", []) if item.get("memoryArchitecture") == "unified"]
         if cpu and (pools or known_uma):
-            # GPU-side UMA budgets also consume physical system RAM. They are
-            # counted once here, not added as another independent capacity.
-            charged_gpu = list(reservations.get("amd-gpu") or []) if pools else known_uma
+            # One host request per activation. Fixed GPU weights are NOT Linux
+            # RAM. Keep existing status requests charged during migration and
+            # when the host report disappears; never free a request speculatively.
+            charged_gpu = []
+            for item in (list(reservations.get("amd-gpu") or []) if pools else known_uma):
+                candidates = [entry for pool in pools for entry in pool["gpuHostReservations"] if entry["model"] == item["model"]]
+                amount = max([int(entry["reservedMi"]) for entry in candidates] or [max(
+                    int(item.get("hostReservedMi") or 0), int(item.get("hostBaselineMi") or 0),
+                    int(item.get("reservedMi") or 0) if item.get("gpuAllocationMode") != "firmware-reserved" else 0)])
+                charged_gpu.append({**item, "reservedMi": amount})
             gpu_reserved = sum(int(item.get("reservedMi") or 0) for item in charged_gpu)
             cpu["reservedMi"] += gpu_reserved
             cpu["reservations"].extend(charged_gpu)
@@ -6216,7 +6261,7 @@ data:
             cpu.update({"memoryArchitecture": "unified", "sharedPoolId": ",".join(pool["id"] for pool in pools),
                         "sharedMemoryMi": sum(pool["physicalMemoryMi"] for pool in pools),
                         "accountingVerified": bool(pools) and all(pool["memoryAccountingVerified"] for pool in pools),
-                        "message": "Includes RAM shared with AMD GPU workloads; do not add GPU memory to this capacity."})
+                        "message": "Linux RAM includes host runtime requests and dynamic GPU allocations, but excludes firmware-reserved GPU memory. Mapping ceilings are not protected reservations."})
         devices = ([cpu] if cpu else []) + gpu_devices
         return {
             "devices": devices,

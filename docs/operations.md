@@ -316,10 +316,21 @@ an old digest is not a browser-cache problem.
 For unified-memory inventory changes, also let normal host convergence install
 the updated read-only GPU preflight and refresh its Node annotation. Verify
 `installedMemoryMi`, `firmwareReservedMi`, `physicalMemoryMi` (Linux RAM) and
-`gpuAccessibleMi` (dynamic ceiling) separately. The Models/Hardware overview
-must not add the dynamic ceiling to Linux RAM or alter reservation budgets.
+`gpuAccessibleMi` (dynamic ceiling), `gpuCapacityMi`, `gpuAllocationMode` and
+`gpuCapacitySource` separately. The PCI-matched KFD heap must corroborate the
+allocation domain. The Models/Hardware overview shows one GPU and never adds
+firmware and dynamic limits. For fixed allocations, check that the generated
+KubeAI profile requests host runtime RAM, not the GPU weight budget again;
+for dynamic/unknown allocations retain the conservative shared-RAM request.
+Verify the activation's `memoryRequiredMi` and `gpuAllocationMode` after
+convergence. Until then, existing larger requests remain counted. Without
+live fixed-GPU metrics, free VRAM must stay unknown, not equal Linux available RAM.
 This inventory refresh needs no firmware write or computer restart. Missing
 `dmidecode`/SMBIOS data stays unknown rather than inferred from GPU counters.
+No protected dynamic reserve or new cgroup limit is installed by this change.
+Before claiming such protection, test non-AI and host-service budgets plus
+GPU/cgroup accounting under memory pressure; do not use a GTT ceiling or
+Kubernetes request as proof.
 
 ### Dashboard upgrade cleanup
 

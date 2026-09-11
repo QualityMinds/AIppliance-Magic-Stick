@@ -90,8 +90,10 @@ GTT/TTM bound within that pool. Raw firmware VRAM counters are not added to it.
 
 For unified-memory activations, `ModelActivation.status.memoryArchitecture`
 is `unified`, `sharedPoolId` identifies the Node UID, and `memoryRequiredMi`
-records the single shared-RAM reservation. This is not additional RAM plus
-VRAM and does not certify GPU cgroup enforcement. Node host-evidence metadata
+records the single Linux-RAM request. `gpuAllocationMode` is `firmware-reserved`,
+`shared-gtt` or `unknown`: the fixed GPU budget is not charged to Linux twice;
+dynamic/unknown allocations retain a conservative shared-RAM request. This does
+not certify GPU cgroup enforcement or protect future dynamic capacity. Node host-evidence metadata
 is runtime-owned and must not be seeded in public manifests. See
 [GPU compatibility](gpu-compatibility.md) for the exact host and validation
 contract and [model catalog](model-catalog.md#amd-unified-memory-reservations)

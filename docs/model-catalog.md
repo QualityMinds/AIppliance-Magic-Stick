@@ -333,16 +333,27 @@ One engine passing does not enable the other. The initial path supports one
 eligible unified-memory node; mixed/different candidate nodes require explicit
 hardware placement and are rejected rather than scheduled ambiguously.
 
-For this path, system RAM and GPU-accessible memory are a shared physical pool.
-The API reports `memoryArchitecture: unified` and `sharedPools`, subtracts a
-system reserve, and accounts for CPU/AMD model reservations without offering
-the same memory twice. Missing GPU counters remain unknown.
-`sharedPools[].physicalMemoryMi` uses the conservative OS-visible `MemTotal`,
-not total installed RAM or an inferred sum with firmware-reported VRAM. The runtime sets
-one RAM request/limit of at least the selected accelerator budget and the
-engine baseline (4096 MiB for Ollama or 8192 MiB for vLLM), while still requesting
-exactly one `amd.com/gpu`. `ModelActivation.status.sharedPoolId` identifies the
-Node UID and `memoryRequiredMi` records the actual shared-RAM reservation.
+The API reports `memoryArchitecture: unified` and `sharedPools`. Fresh,
+corroborated KFD evidence selects `gpuAllocationMode: firmware-reserved` or
+`shared-gtt`; missing evidence leaves GPU capacity unknown. These are allocation
+domains of one GPU, not two selectable GPU targets, and their capacities are
+never added. `sharedPools[].physicalMemoryMi` is Linux `MemTotal`, excluding
+firmware-reserved GPU RAM. `gpuAccessibleMi` is the dynamic mapping ceiling;
+`gpuCapacityMi` is the corroborated driver capacity used for GPU planning.
+
+The runtime requests exactly one `amd.com/gpu` and one Linux RAM request:
+
+- Firmware-reserved allocations: the greater of explicit host RAM and the
+  engine baseline (4096 MiB Ollama, 8192 MiB vLLM), not the GPU weight budget.
+- GTT or unknown allocations: at least the GPU budget, explicit host RAM and
+  engine baseline. GPU and CPU demand are intersected with remaining Linux RAM
+  after a system reserve, never counted as additional physical capacity.
+
+`ModelActivation.status.sharedPoolId` identifies the Node UID,
+`gpuAllocationMode` records the domain and `memoryRequiredMi` records the actual
+host request. Existing larger host requests stay charged until operator
+convergence updates them; missing host evidence does not silently free them.
+No host memory limit is attached as a substitute for an unverified GPU limit.
 
 `memoryAccountingVerified` stays false until GPU/cgroup accounting is actually
 demonstrated; neither model readiness nor a planning budget proves a hard GPU

@@ -256,7 +256,11 @@ spec:
                   description: Unified means GPU and CPU reservations refer to one physical memory pool.
                 sharedPoolId:
                   type: string
-                  description: Node UID identifying the shared physical memory pool; count this model reservation only once.
+                  description: Node UID identifying the shared physical memory pool; count each host request only once.
+                gpuAllocationMode:
+                  description: Corroborated driver allocation domain; firmware-reserved GPU memory is outside Linux RAM.
+                  type: string
+                  enum: ["", unknown, firmware-reserved, shared-gtt]
                 memoryUsage:
                   type: object
                   x-kubernetes-preserve-unknown-fields: true

@@ -997,6 +997,7 @@ data:
         memory_usage=None,
         memory_architecture="",
         shared_pool_id="",
+        gpu_allocation_mode="",
     ):
         metadata = activation.get("metadata") or {}
         path = f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{metadata.get('namespace')}/modelactivations/{metadata.get('name')}/status"
@@ -1019,6 +1020,7 @@ data:
             "memoryUsage": memory_usage,
             "memoryArchitecture": memory_architecture,
             "sharedPoolId": shared_pool_id,
+            "gpuAllocationMode": gpu_allocation_mode,
             "message": message,
             "conditions": [condition("True" if phase in ("Ready", "Disabled") else "False", reason, message, generation)],
         }})
@@ -1527,6 +1529,7 @@ data:
                               and str(info.get("operatingSystem") or labels.get("kubernetes.io/os")) == "linux"
                               and (node.get("spec") or {}).get("unschedulable") is not True)
             eligible = enabled and node_ready(node) and platform_ready and (upstream or (opted_in and host_ready))
+            allocation_mode, allocation_capacity = gpu_memory_allocation(host)
             item = {"node": node_name(node), "nodeUid": (node.get("metadata") or {}).get("uid", ""),
                 "profileId": (profile or {}).get("id", ""), "profileVersion": (profile or {}).get("version", ""),
                 "upstreamSupported": upstream, "optedIn": opted_in, "eligible": eligible,
@@ -1537,6 +1540,9 @@ data:
                 "gpuAccessibleMi": positive_int(host.get("gpuAccessibleMi")),
                 "installedMemoryMi": positive_int(host.get("installedMemoryMi")),
                 "firmwareReservedMi": positive_int(host.get("firmwareReservedMi")),
+                "gpuAllocationMode": allocation_mode,
+                "gpuCapacityMi": allocation_capacity,
+                "gpuCapacitySource": "kfd-topology" if allocation_capacity else "unavailable",
                 "memoryAccountingVerified": host.get("memoryAccountingVerified") is True,
                 "hostDriverReady": (host_ready if profile else host.get("hostDriverReady")) if host else None,
                 "hostFingerprint": host.get("fingerprint", ""),
@@ -2085,6 +2091,21 @@ data:
         }, "data": {"values.json": encoded}})
 
 
+    def gpu_memory_allocation(report):
+        """Only fresh, corroborated KFD capacity selects a model allocation domain."""
+        mode = report.get("gpuAllocationMode")
+        capacity = positive_int(report.get("gpuCapacityMi"))
+        bound = positive_int(report.get("firmwareReservedMi") if mode == "firmware-reserved" else report.get("gpuAccessibleMi"))
+        if (report.get("gpuCapacitySource") == "kfd-topology" and mode in ("firmware-reserved", "shared-gtt")
+                and capacity and bound and capacity <= bound):
+            fixed = positive_int(report.get("firmwareReservedMi"))
+            dynamic = positive_int(report.get("gpuAccessibleMi"))
+            if (mode == "firmware-reserved" and dynamic and dynamic > capacity) or (mode == "shared-gtt" and fixed and fixed >= capacity):
+                return "unknown", None
+            return mode, capacity
+        return "unknown", None
+
+
     def unified_memory_runtime(resource, runtime, definition):
         if runtime.get("computeTarget") != "amd-gpu":
             return
@@ -2095,9 +2116,15 @@ data:
         if len(nodes) != 1 or len(unified) != 1:
             raise ValueError("Unified-memory AMD deployment currently requires one eligible node; explicit hardware placement is needed for mixed nodes")
         base = 4096 if runtime["engine"] == "OLlama" else 8192
-        memory_mi = max(base, runtime["vramMi"], runtime.get("memoryMi") or 0)
+        mode, _capacity = gpu_memory_allocation(gpu_host_preflight(unified[0]))
+        # Firmware carve-out is outside MemTotal. Keep host runtime RAM, but
+        # never charge those GPU weights against Linux a second time. Missing
+        # evidence retains the old conservative shared-RAM request.
+        memory_mi = max(base, runtime.get("memoryMi") or 0,
+                        runtime["vramMi"] if mode != "firmware-reserved" else 0)
         runtime["memoryMi"] = memory_mi
         runtime["memoryArchitecture"] = "unified"
+        runtime["gpuAllocationMode"] = mode
         runtime["sharedPoolId"] = (unified[0].get("metadata") or {}).get("uid") or node_name(unified[0])
         runtime["resourceProfile"] = runtime["baseResourceProfile"].rsplit(":", 1)[0] + "-uma-ram-" + str(memory_mi) + ":1"
         resource["spec"]["resourceProfile"] = runtime["resourceProfile"]
@@ -2109,6 +2136,7 @@ data:
         resource["metadata"].setdefault("annotations", {}).update({
             "appliance.magicstick.dev/memory-architecture": "unified",
             "appliance.magicstick.dev/shared-pool-id": runtime["sharedPoolId"],
+            "appliance.magicstick.dev/gpu-allocation-mode": mode,
             "appliance.magicstick.dev/memory-accounting-verified": "false",
         })
 
@@ -2134,9 +2162,9 @@ data:
         profile = json.loads(json.dumps(base))
         profile.setdefault("nodeSelector", {})["appliance.magicstick.dev/gpu-memory-architecture"] = "unified"
         profile.setdefault("requests", {})["memory"] = str(runtime["memoryMi"]) + "Mi"
-        # The GPU budget is a scheduler reservation in the SAME physical pool.
-        # Cgroup accounting of GPU memory is not validated; do not advertise an
-        # invented byte-exact GPU limit by attaching a misleading host RAM cap.
+        # This reserves only the Linux-RAM component: host baseline for fixed
+        # VRAM, at least the GPU budget for GTT/unknown domains. GPU cgroup
+        # accounting is not validated; a RAM cap is not a hard GPU limit.
         profile.setdefault("limits", {}).pop("memory", None)
         existing = get_core_resource("v1", "configmaps", FLUX_NAMESPACE, "magicstick-offloading-profiles")
         if not existing:
@@ -2565,6 +2593,7 @@ data:
                 "memoryRequiredMi": runtime["memoryMi"],
                 "memoryArchitecture": runtime.get("memoryArchitecture", ""),
                 "sharedPoolId": runtime.get("sharedPoolId", ""),
+                "gpuAllocationMode": runtime.get("gpuAllocationMode", ""),
                 "cpuOffloading": bool((runtime.get("offloading") or {}).get("enabled")),
                 "memoryUsage": runtime.get("memoryUsage"),
                 "message": message,
@@ -2592,6 +2621,7 @@ data:
                 memory_usage=runtime.get("memoryUsage"),
                 memory_architecture=runtime.get("memoryArchitecture", ""),
                 shared_pool_id=runtime.get("sharedPoolId", ""),
+                gpu_allocation_mode=runtime.get("gpuAllocationMode", ""),
             )
 
         if metadata.get("deletionTimestamp"):

@@ -81,9 +81,11 @@ describe('terminal dashboard', () => {
     expect(isTuiActionKey('v')).toBe(true);
     expect(isTuiActionKey('r')).toBe(false);
     const state = snapshot();
-    state.models.computeMemory = {sharedPools: [{id: 'example-node', node: 'example-node', installedMemoryMi: 131072, firmwareReservedMi: 65536, physicalMemoryMi: 65536, gpuAccessibleMi: 49152}], devices: [{id: 'example-gpu', totalMi: 49152, freeMi: 60000, memoryArchitecture: 'unified', accountingVerified: false}]};
-    expect(tabLines('Models', state).join('\n')).toContain('shared RAM available');
-    expect(tabLines('Models', state).join('\n')).toContain('48 GiB budgetable');
+    state.models.computeMemory = {sharedPools: [{id: 'example-node', node: 'example-node', installedMemoryMi: 131072, firmwareReservedMi: 65536, physicalMemoryMi: 65536, gpuAccessibleMi: 49152, gpuCapacityMi: 65536, gpuAllocationMode: 'firmware-reserved', gpuCapacitySource: 'kfd-topology'}], devices: [{id: 'example-gpu', totalMi: 65536, gpuAllocationMode: 'firmware-reserved', memoryArchitecture: 'unified', accountingVerified: false}]};
+    expect(tabLines('Models', state).join('\n')).not.toContain('shared RAM available');
+    expect(tabLines('Models', state).join('\n')).toContain('64 GiB budgetable');
+    expect(tabLines('Models', state).join('\n')).toContain('One GPU: driver capacity 64 GiB / allocation firmware-reserved');
+    expect(tabLines('Models', state).join('\n')).toContain('Dynamic memory is not a protected reservation');
     expect(tabLines('Models', state).join('\n')).toContain('installed RAM 128 GiB / fixed GPU reservation 64 GiB');
     expect(tabLines('Models', state).join('\n')).toContain('dynamic GPU ceiling 48 GiB (within Linux RAM, not extra)');
     state.status.hardwareOperators = {'amd-gpu': {phase: 'Degraded', compatibility: {schemaVersion: 1, profiles: [], selectedProfile: 'strix-halo', allowExperimental: true, nodes: [{node: 'example-node', eligible: true, hostDriverReady: true, resourceRegistered: true, memoryArchitecture: 'unified', memoryAccountingVerified: false, physicalMemoryMi: 65536, gpuAccessibleMi: 49152, validation: {OLlama: {state: 'passed'}, VLLM: {state: 'failed'}}}]}}};

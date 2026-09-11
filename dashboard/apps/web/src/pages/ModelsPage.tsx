@@ -27,20 +27,25 @@ const fallbackKvCacheOptions = (engine: string) => engine === 'OLlama'
 
 const MemoryGauge = ({device}: {device: ComputeMemoryDevice}) => {
   const total = Math.max(1, device.totalMi ?? 0);
+  const hasTotal = typeof device.totalMi === 'number' && device.totalMi > 0;
+  const hasFree = typeof device.freeMi === 'number' && Number.isFinite(device.freeMi);
+  const hasBudget = typeof device.unreservedMi === 'number' && Number.isFinite(device.unreservedMi);
   const unreserved = Math.max(0, device.unreservedMi ?? total);
   const free = Math.max(0, device.freeMi ?? 0);
   const unreservedPercent = Math.min(100, Math.round(unreserved / total * 100));
   const freePercent = Math.min(100, Math.round(free / total * 100));
   const shared = device.memoryArchitecture === 'unified';
   const sharedGpu = shared && device.kind !== 'cpu' && device.computeTarget !== 'cpu';
+  const fixedGpu = sharedGpu && device.gpuAllocationMode === 'firmware-reserved';
+  const value = hasFree ? formatMi(free) : hasBudget ? formatMi(unreserved) : 'Unknown';
+  const valueLabel = hasFree ? (sharedGpu && !fixedGpu ? 'shared RAM available' : 'actually free') : hasBudget ? 'unreserved budget' : 'capacity not reported';
   return <article className="memory-gauge">
-    <div className="gauge-rings" style={{'--unreserved': `${unreservedPercent * 1.8}deg`, '--free': `${freePercent * 1.8}deg`} as CSSProperties}><div className="gauge-value"><strong>{formatMi(free)}</strong><span>{device.memoryArchitecture === 'unified' ? 'shared RAM available' : 'actually free'}</span></div></div>
+    <div className="gauge-rings" style={{'--unreserved': `${hasTotal && hasBudget ? unreservedPercent * 1.8 : 0}deg`, '--free': `${hasTotal && hasFree ? freePercent * 1.8 : 0}deg`} as CSSProperties}><div className="gauge-value"><strong>{value}</strong><span>{valueLabel}</span></div></div>
     <strong>{device.name ?? device.id}</strong>
-    {shared && <span>{sharedGpu ? 'Dynamic GPU memory · within Linux RAM' : 'Linux RAM · CPU and shared GPU allocations'}</span>}
-    {device.memoryArchitecture === 'unified' && <span className="tag">Shared system memory{device.sharedPoolId ? ` · ${device.sharedPoolId}` : ''}</span>}
-    <small><i />{formatMi(unreserved)} unreserved · {formatMi(total)} {device.memoryArchitecture === 'unified' ? 'budgetable' : 'total'}</small>
-    {shared && <small className="muted">{device.sharedMemoryMi ? `${formatMi(device.sharedMemoryMi)} OS-visible shared RAM. ` : ''}Budgetable memory excludes safety reserves; available RAM can be higher. {sharedGpu ? 'This gauge does not show the fixed GPU reservation or total GPU memory.' : 'This gauge does not show total installed RAM.'}</small>}
-    {device.memoryArchitecture === 'unified' && <small className="muted">CPU and GPU are budgeted against one OS-visible RAM pool; do not add these capacities. {device.accountingVerified ? 'Shared accounting verified.' : 'Shared accounting not yet verified.'}</small>}
+    {shared && <span>{sharedGpu ? fixedGpu ? 'GPU model capacity · firmware-reserved pool' : device.gpuAllocationMode === 'shared-gtt' ? 'GPU model capacity · dynamic Linux RAM' : 'GPU model capacity · allocation domain unknown' : 'Linux RAM · host runtime and dynamic GPU allocations'}</span>}
+    {shared && <span className="tag">Unified physical memory</span>}
+    <small><i />{hasBudget ? formatMi(unreserved) : 'Unknown'} unreserved · {hasTotal ? formatMi(total) : 'Unknown'} {shared ? 'budgetable' : 'total'}</small>
+    {shared && <small className="muted">{fixedGpu ? 'Fixed GPU allocations are outside Linux RAM. Live GPU free memory is unknown; the unreserved budget is planning data.' : sharedGpu ? 'Dynamic memory is not a protected reservation. Firmware and dynamic limits are not added.' : 'Excludes firmware-reserved GPU memory; includes the host RAM requested by GPU models.'} {device.accountingVerified ? 'GPU accounting verified.' : 'GPU accounting not yet verified.'}</small>}
     {(device.message || device.warning) && <small className="muted">{device.message || device.warning}</small>}
     {!device.metricsAvailable && <span className="muted">Live metrics unavailable</span>}
   </article>;

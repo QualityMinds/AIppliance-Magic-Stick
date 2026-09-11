@@ -18,6 +18,10 @@ firmware, ROCm, memory mapping limits, or GPU eligibility. A separate explicit
 preparation playbook accepts reviewed, exact package versions; it never reboots
 the host. A root-owned timer publishes non-secret host evidence on the local K3s
 Node after boot and every five minutes, without changing eligibility labels.
+For Strix Halo, matching KFD heap evidence distinguishes firmware-reserved GPU
+allocations from dynamic Linux RAM. The reported model capacity never sums
+both; missing evidence stays unknown. This does not protect dynamic RAM from
+other processes or change firmware settings.
 See [GPU compatibility](../docs/gpu-compatibility.md) for evidence,
 Strix Halo shared-memory accounting, preparation and validation gates.
 

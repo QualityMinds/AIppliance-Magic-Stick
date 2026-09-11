@@ -230,8 +230,15 @@ export interface KvCacheOption {
   relativeSize?: number;
 }
 
-/** Inventory only; GPU dynamic memory is a subset of Linux-visible RAM. */
-export interface SharedMemoryInventory {
+/** Corroborated driver capacity, not proof of an engine allocation or RAM protection. */
+export interface GpuAllocationEvidence {
+  gpuAllocationMode?: 'firmware-reserved' | 'shared-gtt' | 'unknown';
+  gpuCapacityMi?: number | null;
+  gpuCapacitySource?: string;
+}
+
+/** Physical layout: the dynamic ceiling is a subset of Linux-visible RAM. */
+export interface SharedMemoryInventory extends GpuAllocationEvidence {
   node: string;
   installedMemoryMi?: number | null;
   firmwareReservedMi?: number | null;
@@ -240,7 +247,7 @@ export interface SharedMemoryInventory {
   memoryAccountingVerified?: boolean;
 }
 
-export interface ComputeMemoryDevice {
+export interface ComputeMemoryDevice extends GpuAllocationEvidence {
   id: string;
   kind?: string;
   vendor?: string;
@@ -248,8 +255,8 @@ export interface ComputeMemoryDevice {
   name?: string;
   totalMi?: number;
   reservedMi?: number;
-  unreservedMi?: number;
-  freeMi?: number;
+  unreservedMi?: number | null;
+  freeMi?: number | null;
   metricsAvailable?: boolean;
   metricsSource?: string;
   memoryArchitecture?: 'unified' | 'discrete' | string;

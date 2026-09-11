@@ -235,8 +235,10 @@ const modelLines = (snapshot: DashboardSnapshot, selectedIndex = -1) => {
     ...(snapshot.models.computeMemory?.sharedPools ?? []).flatMap((pool) => [
       `  ${pool.node}: installed RAM ${formatMi(pool.installedMemoryMi)} / fixed GPU reservation ${formatMi(pool.firmwareReservedMi)}`,
       `    Linux RAM ${formatMi(pool.physicalMemoryMi)} / dynamic GPU ceiling ${formatMi(pool.gpuAccessibleMi)} (within Linux RAM, not extra)`,
+      `    One GPU: driver capacity ${formatMi(pool.gpuCapacityMi)} / allocation ${pool.gpuAllocationMode ?? 'unknown'} / source ${pool.gpuCapacitySource ?? 'unavailable'}`,
+      '    Dynamic memory is not a protected reservation. Firmware and dynamic limits are not added.',
     ]),
-    ...devices.flatMap((device) => [`  ${device.name ?? device.id}: ${formatMi(device.freeMi)} ${device.memoryArchitecture === 'unified' ? 'shared RAM available' : 'free'} / ${formatMi(device.unreservedMi)} unreserved / ${formatMi(device.totalMi)} ${device.memoryArchitecture === 'unified' ? 'budgetable' : 'total'}`, ...(device.memoryArchitecture === 'unified' ? ['    OS-visible shared RAM: do not add capacities or firmware GPU memory; accounting ' + (device.accountingVerified ? 'verified.' : 'not verified.')] : [])]),
+    ...devices.flatMap((device) => [`  ${device.name ?? device.id}: ${formatMi(device.freeMi)} ${device.gpuAllocationMode === 'shared-gtt' ? 'shared RAM available' : 'free'} / ${formatMi(device.unreservedMi)} unreserved / ${formatMi(device.totalMi)} ${device.memoryArchitecture === 'unified' ? 'budgetable' : 'total'}`, ...(device.memoryArchitecture === 'unified' ? ['    Only host runtime and dynamic GPU allocations are charged to Linux RAM; GPU accounting ' + (device.accountingVerified ? 'verified.' : 'not verified.')] : [])]),
     '', 'Models',
     ...models.map((item, index) => {
       const local = item.spec?.local ?? {};
@@ -286,7 +288,7 @@ const hardwareLines = (snapshot: DashboardSnapshot) => {
       `  Driver: ${node.hostDriverReady === true ? 'ready' : 'not verified'} · GPU resource: ${node.resourceRegistered === true ? 'registered' : 'not verified'}`,
       `  Ollama: ${gpuValidationSummary(node.validation?.OLlama)} · vLLM: ${gpuValidationSummary(node.validation?.VLLM)}`,
       ...Object.entries(node.validation ?? {}).filter(([, validation]) => validation.state === 'passed' && validation.runtimeMessage).map(([engine, validation]) => `  ${engine}: ${validation.runtimeMessage}`),
-      ...(node.memoryArchitecture === 'unified' ? [`  Installed RAM: ${formatMi(node.installedMemoryMi)} / fixed GPU reservation: ${formatMi(node.firmwareReservedMi)}`, `  OS-visible shared RAM: ${formatMi(node.physicalMemoryMi)} / dynamic GPU ceiling: ${formatMi(node.gpuAccessibleMi)} (within Linux RAM, not extra).`, `  Shared accounting: ${node.memoryAccountingVerified ? 'verified' : 'not verified'}`] : []),
+      ...(node.memoryArchitecture === 'unified' ? [`  Installed RAM: ${formatMi(node.installedMemoryMi)} / fixed GPU reservation: ${formatMi(node.firmwareReservedMi)}`, `  OS-visible shared RAM: ${formatMi(node.physicalMemoryMi)} / dynamic GPU ceiling: ${formatMi(node.gpuAccessibleMi)} (within Linux RAM, not extra).`, `  One GPU: driver capacity ${formatMi(node.gpuCapacityMi)} / allocation ${node.gpuAllocationMode ?? 'unknown'} / source ${node.gpuCapacitySource ?? 'unavailable'}`, '  Dynamic memory is not a protected reservation. Firmware and dynamic limits are not added.', `  Shared accounting: ${node.memoryAccountingVerified ? 'verified' : 'not verified'}`] : []),
     ]),
     ...(!compatibility ? ['GPU compatibility catalog has not been reported.'] : []),
   ];
