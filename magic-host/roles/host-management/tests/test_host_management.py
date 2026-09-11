@@ -51,6 +51,50 @@ class PlanTests(unittest.TestCase):
         self.assertFalse(value["packages"])
         self.assertFalse(value["rebootRequired"])
 
+    def test_ubuntu_2604_selects_its_native_generic_package_not_noble_hwe(self):
+        evidence = report()
+        evidence["os"]["versionId"] = "26.04"
+        value = self.plan(evidence)
+        self.assertEqual(value["state"], "available")
+        self.assertEqual(value["profileId"], "strix-halo-ubuntu-26.04")
+        self.assertEqual(value["packages"], {"linux-generic": "7.0.0-31.31"})
+        self.assertEqual(value["targetKernel"], "7.0.0-31-generic")
+        self.assertTrue(value["experimental"])
+        self.assertTrue(value["rebootRequired"])
+
+    def test_ubuntu_2604_working_native_kernel_needs_only_explicit_profile_activation(self):
+        for kernel in ("7.0.0-14-generic", "7.0.0-31-generic", "7.0.0-38-generic"):
+            with self.subTest(kernel=kernel):
+                evidence = report(True)
+                evidence["os"]["versionId"] = "26.04"
+                evidence["kernel"]["release"] = kernel
+                value = self.plan(evidence)
+                self.assertEqual(value["state"], "ready")
+                self.assertTrue(value["experimental"])
+                self.assertEqual(value["packages"], {})
+                self.assertFalse(value["rebootRequired"])
+                with self.assertRaisesRegex(ValueError, "acknowledgement"):
+                    planner.validate_request(operation(value, allowExperimental=False), node(), evidence, value, time.time())
+
+    def test_ubuntu_2604_driver_failure_on_suitable_kernel_is_not_repaired_by_reboot(self):
+        evidence = report(True)
+        evidence["os"]["versionId"] = "26.04"
+        evidence["nodeAnnotation"]["hostDriverReady"] = False
+        value = self.plan(evidence)
+        self.assertEqual(value["state"], "blocked")
+        self.assertFalse(value["packages"])
+        self.assertNotIn("experiment", value)
+
+    def test_ubuntu_2604_preserves_mixed_gpu_gate_and_bounded_experiment(self):
+        evidence = report()
+        evidence["os"]["versionId"] = "26.04"
+        value = self.plan(evidence, ["1002:1586", "10de:2684"])
+        self.assertEqual(value["state"], "blocked")
+        self.assertFalse(value["packages"])
+        self.assertEqual(value["experiment"]["packages"], {"linux-generic": "7.0.0-31.31"})
+        self.assertTrue(value["experiment"]["experimental"])
+        self.assertTrue(value["experiment"]["experimentMode"])
+
     def test_cpu_nvidia_intel_and_unknown_amd_do_not_receive_strix_kernel(self):
         for gpus in ([], ["10de:2684"], ["8086:56a0"], ["1002:9999"], ["10de:2684", "8086:56a0"]):
             with self.subTest(gpus=gpus):

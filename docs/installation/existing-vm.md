@@ -12,7 +12,8 @@ wesentliche Teile des Systems.
 
 ## Voraussetzungen
 
-- Ubuntu Server 24.04 LTS;
+- Ubuntu Server 26.04 LTS als neue Standardbasis, beziehungsweise Ubuntu 24.04
+  LTS als weiterhin unterstützte Legacy-Basis;
 - ein Benutzer mit `sudo`-Rechten;
 - Internetzugang für Paket-, Container- und Helm-Downloads;
 - eine private IP-Adresse und Zugriff aus demselben privaten Netz;
@@ -21,6 +22,12 @@ wesentliche Teile des Systems.
 
 Als brauchbare Ausgangsgröße empfehlen sich 4 vCPU, 16 GB RAM und 100 GB
 Speicher. Erstelle unmittelbar vor der Installation einen VM-Snapshot.
+
+Für neue Installationen auf eigener Hardware entspricht Ubuntu 26.04.1 mit
+seinem nativen Generic-Kernel der USB-Basis. Dieser Installationsweg ersetzt
+jedoch weder den vorhandenen Kernel noch das Ubuntu-Release. Bei Cloud- oder
+GPU-spezifischen Kernelvarianten prüfst du die
+[Hardware-Kompatibilität](../modules.md#ubuntu-2604-baseline) gesondert.
 
 ## Empfohlener Weg: ein Installationsskript
 
@@ -43,7 +50,7 @@ sudo bash /tmp/install-from-linux.sh
 
 Das Skript:
 
-- akzeptiert ausschließlich Ubuntu 24.04 auf `x86_64` oder ARM64;
+- akzeptiert Ubuntu 26.04 und die Legacy-Basis Ubuntu 24.04 auf `x86_64` oder ARM64;
 - verweigert bestehendes K3s, vorhandenen Magic-Stick-Status sowie belegte
   Ports `443` und `9443`;
 - verlangt mindestens 40 GiB freien Speicher;
@@ -188,3 +195,8 @@ sudo /usr/local/sbin/ai-appliance-converge
 
 Eine ältere Installation ohne First-Run-Status wird aus Sicherheitsgründen als
 `CompletedLegacy` behandelt und nicht unauthentifiziert geöffnet.
+
+Der Converge-Runner aktualisiert die Magic-Stick-Konfiguration, führt aber kein
+Ubuntu-Release-Upgrade durch. Eine bestehende Ubuntu-24.04-Appliance bleibt auf
+24.04. Für den Wechsel zur neuen USB-Basis plane eine separate, gesicherte
+Neuinstallation; ein automatischer In-place-Wechsel ist nicht Teil dieses Wegs.

@@ -122,6 +122,25 @@ Do not commit generated Kubernetes Secrets, Flux bootstrap token secrets, privat
 - Confirm brand and project names are used only to identify integrations.
 - Confirm pinned images or digest references are still intentionally selected.
 
+### Ubuntu 26.04 GPU acceptance
+
+- Recheck the pinned stable charts in the official Helm indexes: NVIDIA
+  `v26.7.0` (driver `595.91.07`), AMD `v1.5.1`, and both Intel charts `0.36.0`.
+- Verify the actual K3s and containerd versions on a fresh install. NVIDIA
+  26.7 documents K3s 1.33–1.37 and containerd 2.0–2.3. An existing installation
+  must not be assumed compatible just because Flux can update its HelmRelease.
+- Check NVIDIA RuntimeClass/device-plugin operation and containerd configuration
+  persistence across a computer restart. Do not silently switch to DRA or NRI.
+- Verify the NVIDIA GPU generation against R595 support; Maxwell, Pascal and
+  Volta require a separately reviewed older-driver/OS combination.
+- Keep AMD host/inbox-driver mode, disabled KMM and explicit Strix Halo opt-in.
+  Ubuntu 26.04 and Strix Halo are not made operator-certified by these pins.
+- Validate Intel `i915`/`xe` device registration and the actual inference runtime
+  on the selected GPU. A host kernel update alone is not user-mode validation.
+- Confirm one shared NFD deployment, optional/manual engine validation, and a
+  real model start on each GPU type claimed as supported. Record untested
+  combinations rather than claiming whole-stack compatibility.
+
 ## Review Questions
 
 - Does every public hostname use `example.local`, `example.com`, or a documented placeholder?

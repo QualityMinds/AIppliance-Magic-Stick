@@ -10,7 +10,7 @@ user-oriented installation paths,
 validation, and [../docs/configuration.md](../docs/configuration.md) for the
 variables written into `/etc/default/ai-appliance-repo`.
 
-Use this directory for a new bare-metal or cloud-init machine. If Ubuntu 24.04
+Use this directory for a new Ubuntu 26.04 bare-metal or cloud-init machine. If Ubuntu 26.04 or 24.04
 already runs on a dedicated host, use
 [`../install-from-linux.sh`](../install-from-linux.sh). If Kubernetes already
 exists, use [`../deploy-on-k8s.sh`](../deploy-on-k8s.sh) or
@@ -128,9 +128,44 @@ On Windows, use the PowerShell wrappers:
 ```
 
 The image builder uses Docker or Podman to run the ISO tooling. It downloads
-Ubuntu Server 24.04.4 LTS AMD64, verifies the pinned SHA256 checksum, patches
+Ubuntu Server 26.04.1 LTS AMD64, verifies the pinned SHA256 checksum, patches
 the Ubuntu boot configuration with `autoinstall ds=nocloud`, and appends the
 editable FAT32 `CIDATA` partition.
+
+### Kernel selection
+
+New images select the standard **Try or Install Ubuntu Server** entry. Ubuntu
+26.04 already supplies a modern native kernel; a separate HWE entry is neither
+required nor selected. The builder identifies the entry by `/casper/vmlinuz`,
+requires its kernel/initrd and patches `autoinstall ds=nocloud` into native and
+any optional HWE entries, including loopback configurations.
+
+The target uses `autoinstall.kernel.flavor: generic`, following the Ubuntu
+26.04 native kernel track. The live kernel comes from the checksum-pinned ISO;
+it is not updated merely by rebuilding the same ISO. The ISO URL and checksum
+must be updated together, using [Ubuntu's published checksums](https://releases.ubuntu.com/26.04.1/SHA256SUMS).
+
+This is a **fresh-install migration**, not an in-place upgrade of existing
+appliances. Existing Ubuntu 24.04 hosts retain their separate host-preparation
+profile. Strix Halo remains experimental; a newer kernel alone does not certify
+all GPU drivers, operators or inference engines. See
+[GPU compatibility](../docs/gpu-compatibility.md) and
+[Subiquity kernel selection](https://github.com/canonical/subiquity/blob/main/doc/reference/autoinstall-reference.rst#kernel).
+
+An existing USB stick does not receive boot-menu changes through Git/Flux.
+Rebuild the builder container and installer image (do not use `--no-build` for
+this migration), then write the stick again; back up private `CIDATA` settings
+first. The builder container remains Debian-based: it only runs ISO tools and
+does not determine the installed OS.
+
+The media contains installer configuration, not a snapshot of every local
+Ansible/Flux change. First boot fetches `MAGICSTICK_PUBLIC_REPO` at
+`MAGICSTICK_PUBLIC_REF`; publish the matching host/operator changes to that ref
+before installing. New host installs pin K3s to `v1.36.4+k3s1`; existing clusters
+are not automatically upgraded. NVIDIA 26.7 needs the compatible containerd 2.x
+runtime/drop-in setup, and its R595 driver does not support pre-Turing GPUs.
+
+### Network configuration
 
 The network screen remains interactive. During installation, a supported Wi-Fi
 adapter can therefore be selected and its SSID and passphrase entered locally;
@@ -140,6 +175,28 @@ during installation and carries it into the installed system. The passphrase is
 therefore stored only on that system, where Netplan files must remain readable
 only by root. If the Ubuntu installer does not detect a wireless adapter, use a
 supported adapter or Ethernet for installation and configure the device later.
+
+### APT mirror selection
+
+The **Ubuntu archive mirror configuration** screen is interactive (`apt` in
+`interactive-sections`). Subiquity suggests a country mirror using Ubuntu's
+GeoIP service. Accept it or enter a different official Ubuntu mirror URL;
+Subiquity checks mirror usability. Country selection is an approximation, not a
+latency benchmark or a promise of the fastest server.
+
+Candidates are `country-mirror`, then the Ubuntu main archive for AMD64 (or
+Ubuntu Ports for other architectures). If no candidate works, fix the network
+or URL and retry: `fallback: abort` avoids silently attempting an incomplete
+offline installation. The selected archive is carried into the installed
+system; APT package-signature verification and security updates remain enabled.
+This does not change the separate ISO download source or container registries.
+
+To avoid the request to `https://geoip.ubuntu.com/lookup`, edit your private
+`CIDATA/user-data`: set `autoinstall.apt.geoip: false` and replace
+`country-mirror` with the desired mirror's `uri`. Leave `apt` interactive to
+allow a last-minute change. Never place mirror credentials in the public
+template. See [Subiquity APT configuration](https://github.com/canonical/subiquity/blob/main/doc/reference/autoinstall-reference.rst#apt)
+and the [official Ubuntu mirror list](https://launchpad.net/ubuntu/+archivemirrors).
 
 For manual debugging, `user-data` and `meta-data` can still be copied to any
 mounted FAT or ISO9660 filesystem labelled `CIDATA`:

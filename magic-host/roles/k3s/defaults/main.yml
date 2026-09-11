@@ -1,4 +1,9 @@
 ---
+# Fresh installations use the reviewed stable release with containerd 2.x and
+# v3 config drop-in imports required by the NVIDIA toolkit. Override only
+# with a separately reviewed release; this role never upgrades an existing K3s.
+k3s_version: "v1.36.4+k3s1"
+
 # Default k3s node name. Uses the system hostname so each machine registers
 # itself under its own name in the single-node cluster.
 # Override by setting node_name in host_vars or group_vars.

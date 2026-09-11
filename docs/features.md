@@ -16,7 +16,7 @@ gesondert im Abschnitt [Geplante Enterprise-Erweiterungen](#geplante-enterprise-
 
 | Bereich | Funktionen |
 |---|---|
-| Installation | Bare Metal per USB, neue VM per cloud-init, bestehendes Ubuntu 24.04 und bestehendes Kubernetes |
+| Installation | Bare Metal per USB mit Ubuntu 26.04.1, neue VM per cloud-init, bestehendes Ubuntu 26.04/24.04 und bestehendes Kubernetes |
 | Sichere Ersteinrichtung | Geschützter First-Run ohne Standardpasswort, lokaler Einrichtungscode, erster Administrator und Recovery-Administrator |
 | Plattform | Kubernetes oder K3s, Flux GitOps, deklarative Magic-Stick-APIs und Meta-Operator |
 | Identität | Lokales Keycloak-SSO, lokale Benutzer, Rollen, optionales Upstream-OIDC/SAML und geschützte Anwendungsrouten |
@@ -31,11 +31,12 @@ gesondert im Abschnitt [Geplante Enterprise-Erweiterungen](#geplante-enterprise-
 
 Magic Stick kann passend zur vorhandenen Infrastruktur gestartet werden:
 
-1. **Leerer physischer Server:** Der USB-Installer installiert Ubuntu, K3s,
-   Flux und Magic Stick.
+1. **Leerer physischer Server:** Der USB-Installer installiert Ubuntu 26.04.1, K3s,
+   Flux und Magic Stick. Netzwerk und Ubuntu-Paketmirror sind im Installer
+   auswählbar; ein Ländermirror wird automatisch vorgeschlagen.
 2. **Neue virtuelle Maschine:** Das cloud-init-/Autoinstall-Profil installiert
    Host-Automation, K3s, Flux und Magic Stick, zum Beispiel in einer Cloud-VM.
-3. **Bestehender dedizierter Ubuntu-24.04-Host:**
+3. **Bestehender dedizierter Ubuntu-26.04- oder Ubuntu-24.04-Host:**
    `install-from-linux.sh` prüft den Host und führt die vollständige Installation
    aus.
 4. **Bestehendes Kubernetes-Cluster:** `deploy-on-k8s.sh` beziehungsweise

@@ -1,8 +1,9 @@
 # Installation auf echter Hardware
 
 Dieser Weg macht aus einem dedizierten x86-64-PC oder Server eine vollständige
-Magic-Stick-Appliance. Das Installationsabbild basiert auf Ubuntu Server 24.04
-LTS und richtet Ubuntu, K3s, Flux, Keycloak und das Dashboard ein.
+Magic-Stick-Appliance. Das Installationsabbild basiert auf Ubuntu Server 26.04.1
+LTS mit dessen nativem Generic-Kernel und richtet Ubuntu, K3s, Flux, Keycloak
+und das Dashboard ein.
 
 > **Achtung:** Die Ubuntu-Installation kann den ausgewählten Zieldatenträger
 > vollständig löschen. Sichere vorhandene Daten und prüfe die Datenträgernamen
@@ -22,7 +23,10 @@ Du benötigst:
 
 Als brauchbare Ausgangsgröße empfehlen sich 4 CPU-Kerne, 16 GB RAM und 100 GB
 Speicher. Lokale KI-Modelle benötigen je nach Modell deutlich mehr RAM,
-Speicherplatz und gegebenenfalls eine unterstützte NVIDIA-GPU.
+Speicherplatz und gegebenenfalls eine geeignete NVIDIA-, AMD- oder Intel-GPU.
+Die neue Ubuntu-Basis ist keine pauschale GPU-Freigabe: Beachte die
+[Operator- und Hardwaregrenzen](../modules.md#ubuntu-2604-baseline), insbesondere
+den weiterhin experimentellen Strix-Halo-Pfad.
 
 ## 1. Repository herunterladen
 
@@ -92,15 +96,36 @@ Unter Windows stehen entsprechende PowerShell-Befehle zur Verfügung:
 
 1. Stecke den USB-Stick in den ausgeschalteten Zielrechner.
 2. Öffne das Boot-Menü des Rechners und starte vom USB-Stick.
+   **Try or Install Ubuntu Server** startet den Magic-Stick-Autoinstall mit
+   dem nativen Generic-Kernel von Ubuntu 26.04.1. Ein zusätzlicher
+   Ubuntu-24.04-HWE-Bootpfad ist für dieses Abbild nicht erforderlich.
 3. Konfiguriere im interaktiven Netzwerkabschnitt Ethernet oder WLAN. Bei WLAN
    wählst du den erkannten Adapter und gibst SSID sowie Passwort direkt am
    Zielrechner ein. Diese Zugangsdaten sind nicht im USB-Abbild enthalten.
 4. Prüfe vor dem Fortfahren, dass der Installer eine IP-Adresse und Zugang zum
    Internet erhalten hat.
-5. Lege einen Linux-Benutzer für die lokale Administration und optional SSH an.
+5. Prüfe anschließend die interaktive Auswahl des Ubuntu-Paketspiegels. Per
+   GeoIP kann Subiquity einen Länderspiegel vorschlagen; du kannst die
+   vorgeschlagene Adresse bestätigen oder eine eigene Mirror-URL eingeben.
+   Das Ubuntu-Hauptarchiv bleibt die Rückfalloption. Die geografische Auswahl
+   misst keine Downloadgeschwindigkeit und garantiert nicht den schnellsten
+   Server. Ohne nutzbaren Spiegel und Internetzugang kann der vollständige
+   Magic-Stick-Bootstrap nicht abgeschlossen werden.
+6. Lege einen Linux-Benutzer für die lokale Administration und optional SSH an.
    Dieser Linux-Benutzer ist nicht der spätere Dashboard-Benutzer.
-6. Bestätige die Installation und warte auf den Neustart.
-7. Entferne den USB-Stick, wenn der Installer dazu auffordert.
+7. Bestätige die Installation und warte, bis sich der Rechner am Ende
+   ausgeschaltet hat. Der Installer ist bewusst auf **Poweroff** eingestellt.
+8. Entferne den USB-Stick und schalte den Rechner wieder ein, damit Ubuntu
+   vom installierten Zieldatenträger startet.
+
+Das Zielsystem erhält den nativen Generic-Kernelzweig von Ubuntu 26.04;
+es wird kein Ubuntu-24.04-HWE-Paket installiert. Details stehen unter
+[Kernel-Auswahl](../../magic-installer/README.md#kernel-selection).
+Bestehende USB-Sticks müssen für die neue Ubuntu-Basis neu erstellt und
+beschrieben werden; private `CIDATA`-Einstellungen vorher sichern.
+Eine bereits installierte Ubuntu-24.04-Appliance wird durch den neuen Builder
+oder ein Git-/Flux-Update nicht auf Ubuntu 26.04 aktualisiert. Diese Anleitung
+beschreibt eine Neuinstallation, kein In-place-Release-Upgrade.
 
 Die WLAN-Auswahl wird von Subiquity als Netplan-Konfiguration in das installierte
 System übernommen. Ein Netz mit Captive Portal oder ein nicht vom Live-System

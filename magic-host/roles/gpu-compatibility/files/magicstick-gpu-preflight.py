@@ -182,7 +182,10 @@ def collect(root=Path("/"), live=True):
     ttm_pages = number(read(path("/sys/module/ttm/parameters/pages_limit")))
     if ttm_pages is None:
         ttm_pages = number(read(path("/sys/module/amdttm/parameters/pages_limit")))
-    package_status, firmware_version = command(["dpkg-query", "-W", "-f=${Version}", "linux-firmware"], live)
+    # Resolute splits GPU firmware into a leaf package. Its version, not the
+    # metapackage version, must invalidate stale GPU validation evidence.
+    firmware_package = "linux-firmware-amd-graphics" if os_fields.get("ID") == "ubuntu" and os_fields.get("VERSION_ID") == "26.04" else "linux-firmware"
+    package_status, firmware_version = command(["dpkg-query", "-W", "-f=${Version}", firmware_package], live)
     firmware_version = firmware_version.strip() if package_status.get("status") == "ok" else None
     firmware_dirs = [path("/lib/firmware/amdgpu"), path("/usr/lib/firmware/amdgpu")]
     firmware_files = set()
@@ -240,7 +243,7 @@ def collect(root=Path("/"), live=True):
         "os": {"id": os_fields.get("ID", "unknown"), "versionId": os_fields.get("VERSION_ID", "unknown")},
         "kernel": kernel_evidence(release),
         "driver": {"amdgpuLoaded": path("/sys/module/amdgpu").is_dir(), "version": read(path("/sys/module/amdgpu/version")) or f"inbox-{release}", "kfd": device_status(path("/dev/kfd")),
-                   "firmware": {"packageVersion": firmware_version, "fileCount": len(firmware_files), "packageQuery": package_status}},
+                   "firmware": {"packageName": firmware_package, "packageVersion": firmware_version, "fileCount": len(firmware_files), "packageQuery": package_status}},
         "devices": devices,
         "systemMemory": {"totalBytes": memory.get("MemTotal"), "availableBytes": memory.get("MemAvailable"), "pageSizeBytes": page_size,
                          "ttmPagesLimit": ttm_pages, "ttmLimitBytes": ttm_pages * page_size if ttm_pages is not None else None,

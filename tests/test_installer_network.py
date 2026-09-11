@@ -24,6 +24,24 @@ class InstallerNetworkTests(unittest.TestCase):
         self.assertNotIn("wifis:", self.user_data)
         self.assertNotIn("access-points:", self.user_data)
 
+    def test_archive_mirror_remains_interactive_with_a_country_suggestion(self):
+        self.assertIn("apt", self.autoinstall["interactive-sections"])
+        apt = self.autoinstall["apt"]
+        self.assertTrue(apt["geoip"])
+        self.assertFalse(apt["preserve_sources_list"])
+        candidates = apt["mirror-selection"]["primary"]
+        self.assertEqual(candidates[0], "country-mirror")
+        self.assertIn({"uri": "http://archive.ubuntu.com/ubuntu", "arches": ["amd64", "i386"]}, candidates)
+        self.assertIn({"uri": "http://ports.ubuntu.com/ubuntu-ports",
+                       "arches": ["arm64", "armhf", "ppc64el", "riscv64", "s390x"]}, candidates)
+
+    def test_mirror_failure_does_not_silently_select_an_offline_install(self):
+        apt = self.autoinstall["apt"]
+        self.assertEqual(apt["fallback"], "abort")
+        self.assertNotIn("disable_suites", apt)
+        self.assertNotIn("AllowUnauthenticated", self.user_data)
+        self.assertNotIn("AllowInsecureRepositories", self.user_data)
+
 
 if __name__ == "__main__":
     unittest.main()

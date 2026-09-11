@@ -39,19 +39,27 @@ Strix Halo shared-memory accounting, preparation and optional manual engine test
 
 The `host-management` role installs the shared post-install hardware/power worker
 after base convergence. It only inspects until an administrator submits a
-confirmed request. Hardware preparation reuses `gpu-prepare.yml`; kernel changes
-are not embedded in the installation path. See
+confirmed request. Hardware preparation reuses `gpu-prepare.yml`; GPU-specific
+kernel changes are not embedded in the installation path. New USB installations
+use Ubuntu 26.04.1 with its native Generic kernel, independently of GPU preparation. This does
+not migrate existing hosts or approve GPU-specific package changes. See
 [host management](../docs/host-management.md) for exact profiles, mixed-GPU
 experiment mode, state across reboot, power controls and diagnostic commands.
 The same worker supports explicitly confirmed Strix Halo firmware-reservation
 and dynamic-memory sliders. It verifies real post-boot RAM before applying the
 TTM setting through Ansible and never changes memory just from inspection.
 
-End users with an existing dedicated Ubuntu 24.04 system should start with the
+End users with an existing dedicated Ubuntu 26.04 or 24.04 system should start with the
 repository-level [`install-from-linux.sh`](../install-from-linux.sh). It checks
 that the host is new, writes `/etc/default/ai-appliance-repo`, creates the
 first-run marker, and then calls the converge runner documented below. It does
 not duplicate the Ansible roles.
+
+Fresh installations use the overridable `k3s_version` role default
+`v1.36.4+k3s1`, including containerd 2.x and its native NVIDIA runtime drop-in
+imports. Existing K3s binaries are left untouched; updating an older cluster
+and checking custom containerd templates is a separate migration step before
+adopting NVIDIA Operator 26.7.
 
 Install the versioned collection dependencies when using a minimal
 `ansible-core` environment. The Ubuntu `ansible` package already includes the

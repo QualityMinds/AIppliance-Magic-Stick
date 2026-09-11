@@ -5,6 +5,8 @@
 - name: Install K3s (skip if already installed)
   ansible.builtin.shell: |
     curl -sfL https://get.k3s.io | sh -
+  environment:
+    INSTALL_K3S_VERSION: "{{ k3s_version }}"
   args:
     creates: /usr/local/bin/k3s
 

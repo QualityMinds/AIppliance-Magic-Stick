@@ -3,6 +3,10 @@ autoinstall:
   version: 1
   shutdown: poweroff
 
+  # Ubuntu 26.04 ships a modern native kernel; do not install the 24.04 HWE track.
+  kernel:
+    flavor: generic
+
   interactive-sections:
     - storage
     - identity
@@ -10,6 +14,22 @@ autoinstall:
     - keyboard
     - locale
     - network
+    - apt
+
+  # Subiquity suggests a country mirror and lets the user edit it on screen.
+  # GeoIP contacts geoip.ubuntu.com. Set false for manual/offline location choice.
+  apt:
+    preserve_sources_list: false
+    mirror-selection:
+      primary:
+        - country-mirror
+        - uri: http://archive.ubuntu.com/ubuntu
+          arches: [amd64, i386]
+        - uri: http://ports.ubuntu.com/ubuntu-ports
+          arches: [arm64, armhf, ppc64el, riscv64, s390x]
+    geoip: true
+    # First boot requires network packages, Git and container registries.
+    fallback: abort
 
   packages:
     - git

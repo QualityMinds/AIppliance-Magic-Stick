@@ -8,12 +8,17 @@ Wähle den Weg, der zu deiner Ausgangslage passt:
 |---|---|---|
 | Dedizierter PC oder Server | [Echte Hardware](bare-metal.md) | Der einfachste und vollständigste Appliance-Weg |
 | Neue Cloud-VM mit Cloud-Init | [Neue virtuelle Maschine](cloud-init-vm.md) | Für Hetzner Cloud, Azure und vergleichbare Anbieter |
-| Bereits installiertes Ubuntu 24.04 | [Bestehendes Linux](existing-vm.md) | Ein Skript prüft den dedizierten Host und installiert K3s, Flux und Magic Stick |
+| Bereits installiertes Ubuntu 26.04 oder 24.04 | [Bestehendes Linux](existing-vm.md) | Ein Skript prüft den dedizierten Host und installiert K3s, Flux und Magic Stick |
 | Bereits vorhandener Kubernetes-Cluster | [Bestehender Kubernetes-Cluster](existing-kubernetes.md) | Ein Bash- oder PowerShell-Skript installiert nur die Cluster-Komponenten |
 | Installation und First-Run-Setup abgeschlossen | [Einrichtung im Dashboard](after-installation-dashboard.md) | Domains, Module, Modelle, Instanzen und SSO prüfen |
 
 ## Was bei allen Varianten gleich ist
 
+- Die neue Installationsbasis ist Ubuntu 26.04 LTS. Das USB-Abbild verwendet
+  Ubuntu Server 26.04.1 mit dessen nativem Generic-Kernel; Ubuntu 24.04 bleibt
+  für bestehende, dedizierte Hosts als Legacy-Basis unterstützt.
+- Die Installationsskripte und ein Git-/Flux-Update führen kein Ubuntu-Release-
+  Upgrade durch. Bestehende Systeme bleiben auf ihrem installierten Release.
 - Die Standardinstallation verwendet das öffentliche Repository im
   `readonly-public`-Modus. Dafür ist kein GitHub-Token erforderlich.
 - Das Dashboard und die Anwendungen werden nach der Einrichtung über Keycloak
@@ -49,7 +54,8 @@ Textkonsole und K3s werden dabei nicht eingerichtet.
 
 ## Direkte Installationsbefehle
 
-Für ein bereits installiertes, dediziertes Ubuntu-24.04-System:
+Für ein bereits installiertes, dediziertes Ubuntu-26.04-System
+(oder Ubuntu 24.04 als Legacy-Basis):
 
 ```bash
 curl -fsSL \

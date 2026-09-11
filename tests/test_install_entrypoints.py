@@ -15,6 +15,13 @@ POWERSHELL_INSTALLER = ROOT / "deploy-on-k8s.ps1"
 
 
 class InstallerEntrypointTests(unittest.TestCase):
+    def test_linux_entrypoint_accepts_new_and_legacy_ubuntu_lts(self):
+        source = LINUX_INSTALLER.read_text(encoding="utf-8")
+        self.assertIn('${ID:-}" == "ubuntu"', source)
+        self.assertIn('${VERSION_ID:-}" == "26.04"', source)
+        self.assertIn('${VERSION_ID:-}" == "24.04"', source)
+        self.assertIn("Ubuntu Server 26.04 or 24.04 LTS is required", source)
+
     def run_command(self, *args, env=None):
         return subprocess.run(
             args,

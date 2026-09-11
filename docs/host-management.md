@@ -5,6 +5,23 @@ provides Ubuntu, K3s, the dashboard, diagnostic helpers and a root-owned local
 worker. It does not contain a second GPU package-selection or reboot path.
 The base kernel must already boot the computer and reach storage/network;
 post-install preparation cannot repair an installer that cannot boot.
+New USB media use Ubuntu 26.04 LTS and its native generic kernel for both the
+installer and installed system. This base-install choice is separate from the
+reviewed GPU package profiles below; it does not upgrade an existing appliance
+or change its distribution repositories. Ubuntu 24.04 host preparation remains
+available for existing installations. See
+[installer kernel selection](../magic-installer/README.md#kernel-selection).
+
+Fresh K3s installations are pinned through the overridable Ansible default
+`k3s_version: v1.36.4+k3s1`, rather than resolving a moving install channel.
+This release includes the native containerd v3 configuration drop-in imports
+used by the NVIDIA toolkit. The installation task retains its
+`creates: /usr/local/bin/k3s` guard: ordinary host convergence **does not upgrade
+an existing cluster**. Existing clusters require a separately planned K3s
+upgrade and confirmation that the generated containerd configuration imports
+`config-v3.toml.d/*.toml` before adopting the new NVIDIA configuration. An override
+must preserve that prerequisite; choosing another K3s version is not a claim of
+GPU support. See the [pinned K3s release](https://github.com/k3s-io/k3s/releases/tag/v1.36.4%2Bk3s1).
 
 ## User workflow
 
@@ -46,15 +63,28 @@ handoff. Runtime profile selection is still cluster-wide. The node's **Verify
 Ollama** and **Verify vLLM** buttons request only that engine on that node;
 per-model runtime placement remains a separate extension.
 
-The first shipped package profile is `strix-halo-ubuntu-24.04`, version `1`, for
-Ubuntu 24.04 on x86-64 with Strix Halo (`1002:1586`). It targets
-`linux-generic-hwe-24.04=7.0.0-31.31~24.04.1` / kernel `7.0.0-31-generic`.
-This is a reviewed additional preparation profile, not a blanket kernel policy.
-An already working host does not reinstall that package or downgrade a newer
-kernel. NVIDIA, Intel and other AMD devices without this preparation requirement
+The shipped x86-64 Strix Halo (`1002:1586`) host package profiles are:
+
+| Host OS | Profile / version | Exact package | Target kernel |
+| --- | --- | --- | --- |
+| Ubuntu 26.04 | `strix-halo-ubuntu-26.04` / `1` | `linux-generic=7.0.0-31.31` | `7.0.0-31-generic` |
+| Ubuntu 24.04 | `strix-halo-ubuntu-24.04` / `1` | `linux-generic-hwe-24.04=7.0.0-31.31~24.04.1` | `7.0.0-31-generic` |
+
+The 26.04 package pin comes from the official
+[resolute-updates package listing](https://packages.ubuntu.com/resolute-updates/linux-generic).
+It is a bounded additional preparation plan, not an OS upgrade or a hardware
+certification. The new Ubuntu 26.04 installation path still requires local
+hardware and inference acceptance; both profiles remain **experimental**.
+An already working native 7.0 kernel needs no package change or restart: explicit
+preparation only activates the matching GPU profile. A suitable kernel with a
+failing driver instead remains blocked for diagnosis. The worker does not
+reinstall the pinned package or downgrade a newer working kernel.
+NVIDIA, Intel and other AMD devices without this preparation requirement
 retain their existing operator path; no matching profile is not proof of GPU
 support. Profiles must be maintained and revalidated for future security updates;
-the worker never selects arbitrary `latest` releases.
+the worker never selects arbitrary `latest` releases. The Ansible package gate
+allows the `linux-generic` meta-package only on 26.04, and the 24.04 HWE
+meta-package only on 24.04. It never adds third-party package repositories.
 
 ## Mixed systems and experiment mode
 

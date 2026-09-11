@@ -21,6 +21,13 @@ For installer image creation:
 - enough disk space for the Ubuntu Server ISO and generated installer image
 - a target machine that can boot the generated USB image
 
+New USB images use Ubuntu 26.04.1 and its native Generic kernel for live boot
+and the target. This does not upgrade existing appliances. See
+[installer kernel selection](../magic-installer/README.md#kernel-selection).
+Network and APT archive selection remain interactive; the installer suggests a
+country mirror and permits a custom URL. See
+[APT mirror selection](../magic-installer/README.md#apt-mirror-selection).
+
 For local model serving:
 
 - enough CPU RAM for the selected CPU preset, or a supported NVIDIA, AMD, or
@@ -79,7 +86,7 @@ ANSIBLE_ROLES_PATH=magic-host/roles \
 The default installer mode uses this public repository directly and does not
 need a GitHub token.
 
-For an existing dedicated Ubuntu 24.04 system, the repository-level wrapper
+For an existing dedicated Ubuntu 26.04 or 24.04 system, the repository-level wrapper
 performs the host checks, writes the public metadata, pins the resolved commit,
 and starts the same Ansible playbook:
 

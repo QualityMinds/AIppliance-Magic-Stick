@@ -9,6 +9,18 @@ variables, dashboard settings, runtime CRs, and optional external overlays.
 
 ## Host Metadata
 
+Kernel choice for **new** installations belongs to
+`magic-installer/user-data`: `autoinstall.kernel.flavor` defaults to `generic`
+for Ubuntu 26.04.1. It is not runtime metadata and does not upgrade existing
+hosts. The native USB boot default is described in
+[installer kernel selection](../magic-installer/README.md#kernel-selection).
+
+APT mirrors also belong to installer configuration, not runtime metadata.
+`autoinstall.apt` uses GeoIP-based `country-mirror` followed by the main Ubuntu
+archive, with `apt` in `interactive-sections` for manual URL selection. Disable
+`geoip` in a private CIDATA copy if location lookup is unwanted. See
+[APT mirror selection](../magic-installer/README.md#apt-mirror-selection).
+
 The installer writes `/etc/default/ai-appliance-repo`. The Ansible playbook
 reads that file and maps environment-style keys into Ansible variables.
 

@@ -59,6 +59,7 @@ jobs:
           python3 -m unittest discover -s magic-host/roles/dashboard-console/tests -p 'test_*.py'
           python3 -m unittest discover -s magic-host/roles/gpu-compatibility/tests -p 'test_*.py'
           python3 -m unittest discover -s magic-host/roles/host-management/tests -p 'test_*.py'
+          python3 -m unittest discover -s magic-host/roles/k3s/tests -p 'test_*.py'
 
       - name: Check one-command installer entrypoints
         run: |
@@ -66,6 +67,7 @@ jobs:
           bash -n deploy-on-k8s.sh
           python3 -m unittest tests/test_install_entrypoints.py
           python3 -m unittest tests/test_installer_network.py
+          python3 -m unittest tests/test_installer_boot.py
           python3 -m unittest tests/test_git_http_fallback.py
 
       - name: Run identity, dashboard, operator, model catalog and AI route unit tests

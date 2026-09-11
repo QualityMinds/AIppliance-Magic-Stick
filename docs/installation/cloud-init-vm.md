@@ -2,8 +2,16 @@
 
 Dieser Weg installiert Magic Stick auf einer neuen Ubuntu-VM bei einem
 Cloud-Anbieter wie Hetzner Cloud oder Microsoft Azure. Verwende ein frisches
-Ubuntu-24.04-LTS-Cloud-Image und übergib die unten stehende Konfiguration als
+Ubuntu-26.04-LTS-Cloud-Image und übergib die unten stehende Konfiguration als
 Cloud-Init beziehungsweise `Custom Data`.
+
+Ubuntu 26.04.1 ist die neue USB-Referenzbasis mit nativem Generic-Kernel.
+Cloud-Images können stattdessen den für ihren Anbieter vorgesehenen Kernel
+mitbringen; diese Konfiguration ersetzt ihn nicht. Ist beim Anbieter noch kein
+Ubuntu-26.04-Image verfügbar, bleibt Ubuntu 24.04 als Legacy-Basis nutzbar.
+Cloud-Init und spätere Magic-Stick-Updates führen kein Ubuntu-Release-Upgrade
+durch. Prüfe bei GPU-VMs zusätzlich die
+[Operator- und Hardwaregrenzen](../modules.md#ubuntu-2604-baseline).
 
 ## Sicherheits- und Netzwerkhinweise
 
@@ -107,8 +115,8 @@ Bootstrap deaktiviert, damit Cloud-init nicht unbemerkt hängen bleibt.
 ## 2. VM bei Hetzner Cloud erstellen
 
 1. Erstelle ein Projekt und ein privates Netzwerk.
-2. Erstelle einen Server mit Ubuntu 24.04 LTS und verbinde ihn mit dem privaten
-   Netzwerk.
+2. Erstelle einen Server mit dem verfügbaren Ubuntu-26.04-LTS-Image und verbinde
+   ihn mit dem privaten Netzwerk.
 3. Füge deinen SSH-Schlüssel hinzu.
 4. Füge den vollständigen Inhalt von `magicstick-cloud-init.yaml` im Feld
    **Cloud config** ein.
@@ -117,7 +125,8 @@ Bootstrap deaktiviert, damit Cloud-init nicht unbemerkt hängen bleibt.
 
 ## 3. VM bei Microsoft Azure erstellen
 
-1. Erstelle eine VM mit Ubuntu Server 24.04 LTS in einem VNet.
+1. Erstelle eine VM mit einem verfügbaren Ubuntu-Server-26.04-LTS-Image in einem
+   VNet.
 2. Verwende nach Möglichkeit eine private IP und administriere die VM über VPN,
    Bastion oder einen vergleichbaren privaten Zugang.
 3. Füge deinen SSH-Schlüssel hinzu.

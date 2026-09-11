@@ -78,6 +78,16 @@ formalized, release entries should group changes under:
 
 ### Changed
 
+- Fresh USB installations now use checksum-pinned Ubuntu 26.04.1 with its
+  native Generic kernel and interactive APT mirror selection (country-mirror
+  suggestion with a manual URL override). Existing Ubuntu 24.04 installations
+  are not upgraded in place.
+- New K3s installs pin `v1.36.4+k3s1`; NVIDIA GPU Operator moves to `v26.7.0`
+  with containerd 2.x runtime drop-ins and driver `595.91.07`. Pre-Turing NVIDIA
+  hardware requires a separate legacy-driver plan. AMD `v1.5.1` and Intel
+  `0.36.0` remain the current stable pins. Ubuntu 26.04 Strix Halo preparation
+  is a separate experimental profile; hardware acceptance remains outstanding.
+
 - The browser dashboard now groups Settings, License, Users, and System Status
   under one primary **System** navigation item, with role-aware category tabs
   and redirects for the former direct hashes.

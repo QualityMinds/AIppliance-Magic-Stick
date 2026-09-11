@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DEFAULT_UBUNTU_ISO_URL="https://releases.ubuntu.com/24.04.4/ubuntu-24.04.4-live-server-amd64.iso"
-DEFAULT_UBUNTU_ISO_SHA256="e907d92eeec9df64163a7e454cbc8d7755e8ddc7ed42f99dbc80c40f1a138433"
+DEFAULT_UBUNTU_ISO_URL="https://releases.ubuntu.com/26.04.1/ubuntu-26.04.1-live-server-amd64.iso"
+DEFAULT_UBUNTU_ISO_SHA256="cc8a95cde20f6ced61a322420de00f10cc3c90ced545daa46cb9c1a117f1d927"
 
 usage() {
   cat <<'USAGE'
@@ -67,21 +67,50 @@ patch_boot_config() {
   local file="$1"
   local tmp="${file}.tmp"
 
+  # Ubuntu 26.04 includes the required modern kernel in the standard entry.
+  # Select it by path, not by a translated title or a fragile menu index.
+  # Patch optional HWE entries too, but do not require them in a new LTS ISO.
   awk '
+    NR == FNR {
+      if ($0 ~ /^[[:space:]]*menuentry[[:space:]]/) entry_line = FNR
+      if (!native_entry && entry_line && $0 ~ /^[[:space:]]*linux(efi)?[[:space:]]+\/casper\/vmlinuz([[:space:]]|$)/) {
+        native_entry = entry_line
+      }
+      next
+    }
+    FNR == 1 && native_entry { print "set default=magicstick-install" }
+    native_entry && /^[[:space:]]*set[[:space:]]+default=/ { next }
+    FNR == native_entry {
+      # Replace an existing explicit id so the patch is idempotent.
+      gsub(/--id([=[:space:]]+)("[^"]*"|\047[^\047]*\047|[^[:space:]]+)/, "", $0)
+      if (!sub(/[[:space:]]*\{[[:space:]]*$/, " --id magicstick-install {")) {
+        print "Unsupported installer menuentry syntax" > "/dev/stderr"
+        exit 1
+      }
+    }
     {
-      is_linux = ($0 ~ /^[[:space:]]*linux(efi)?[[:space:]]/ && $0 ~ /\/casper\/vmlinuz/)
+      is_linux = ($0 ~ /^[[:space:]]*linux(efi)?[[:space:]]/ && $0 ~ /\/casper\/(hwe-)?vmlinuz([[:space:]]|$)/)
       is_append = ($0 ~ /^[[:space:]]*append[[:space:]]/ && $0 ~ /casper/)
 
-      if ((is_linux || is_append) && $0 !~ /(^|[[:space:]])autoinstall([[:space:]]|$)/) {
-        if ($0 ~ /[[:space:]]---/) {
-          sub(/[[:space:]]---/, " autoinstall ds=nocloud ---")
-        } else {
-          $0 = $0 " autoinstall ds=nocloud"
+      if (is_linux || is_append) {
+        args = ""
+        if ($0 !~ /(^|[[:space:]])autoinstall([[:space:]]|$)/) args = args " autoinstall"
+        if ($0 !~ /(^|[[:space:]])ds=nocloud([[:space:]]|$)/) {
+          if ($0 ~ /(^|[[:space:]])ds=/) {
+            print "Conflicting installer datasource" > "/dev/stderr"
+            exit 1
+          }
+          args = args " ds=nocloud"
         }
+        if ($0 ~ /[[:space:]]---([[:space:]]|$)/) sub(/[[:space:]]---/, args " ---")
+        else $0 = $0 args
       }
       print
     }
-  ' "$file" >"$tmp"
+  ' "$file" "$file" >"$tmp" || {
+    rm -f "$tmp"
+    die "Could not patch installer boot configuration: $file"
+  }
 
   mv "$tmp" "$file"
 }
@@ -186,6 +215,11 @@ fi
 
 printf '%s  %s\n' "$UBUNTU_ISO_SHA256" "$ISO_PATH" | sha256sum -c -
 
+# Fail early if a custom ISO does not provide the standard live kernel pair.
+xorriso -report_about SORRY -indev "$ISO_PATH" \
+  -ls /casper/vmlinuz /casper/initrd >/dev/null \
+  || die "The selected Ubuntu ISO must include /casper/vmlinuz and /casper/initrd"
+
 USER_DATA="$WORK_DIR/cidata/user-data"
 META_DATA="$WORK_DIR/cidata/meta-data"
 CIDATA_README="$WORK_DIR/cidata/README.txt"
@@ -238,6 +272,14 @@ Magic-Stick CIDATA partition
 Edit user-data and meta-data in this FAT partition before booting the target
 machine if deployment values need to change.
 
+The boot menu defaults to the standard Ubuntu Server kernel. The installed
+kernel track is selected by autoinstall.kernel.flavor (default: generic).
+New media use Ubuntu 26.04.1; this does not upgrade an existing installation.
+
+Network and Ubuntu archive mirror selection are interactive. A country mirror
+is suggested using geoip.ubuntu.com; enter a trusted mirror URL to override it.
+To disable GeoIP, set autoinstall.apt.geoip to false in user-data before booting.
+
 This partition may contain a GitHub/Flux token. Treat the USB stick and any
 image made from it as sensitive.
 EOF
@@ -255,6 +297,7 @@ xorriso -report_about SORRY -indev "$ISO_PATH" -find / -type f -name "*.cfg" \
 
 map_args=()
 patched_count=0
+native_patched_count=0
 
 while IFS= read -r iso_config_path; do
   [[ -n "$iso_config_path" ]] || continue
@@ -266,8 +309,11 @@ while IFS= read -r iso_config_path; do
     continue
   fi
 
-  if grep -qE '(/casper/vmlinuz|initrd=.*casper)' "$local_config_path"; then
+  if grep -qE '(/casper/(hwe-)?vmlinuz|initrd=.*casper)' "$local_config_path"; then
     patch_boot_config "$local_config_path"
+    if grep -q '^set default=magicstick-install$' "$local_config_path"; then
+      native_patched_count=$((native_patched_count + 1))
+    fi
     map_args+=(-map "$local_config_path" "$iso_config_path")
     patched_count=$((patched_count + 1))
   fi
@@ -275,6 +321,9 @@ done <"$CONFIG_LIST"
 
 if [[ "$patched_count" -eq 0 ]]; then
   die "No Ubuntu boot configuration containing /casper/vmlinuz was found"
+fi
+if [[ "$native_patched_count" -eq 0 ]]; then
+  die "No selectable standard installer GRUB entry was found in the Ubuntu ISO"
 fi
 
 TMP_OUTPUT="${OUTPUT}.tmp"
@@ -292,3 +341,4 @@ mv "$TMP_OUTPUT" "$OUTPUT"
 
 printf 'Created installer image: %s\n' "$OUTPUT"
 printf 'CIDATA partition: FAT32 label CIDATA, partition number %s\n' "$CIDATA_PARTITION_NUMBER"
+printf 'Default boot kernel: standard Ubuntu Server; target flavor: generic.\n'

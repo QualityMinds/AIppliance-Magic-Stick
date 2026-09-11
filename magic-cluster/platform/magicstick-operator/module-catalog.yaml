@@ -123,9 +123,9 @@ data:
             "detectionLabel": "feature.node.kubernetes.io/pci-10de.present",
             "supportedLabel": "feature.node.kubernetes.io/pci-10de.present",
             "architectures": ["amd64", "arm64"],
-            "minimumKubernetes": "1.29.0",
+            "minimumKubernetes": "1.33.0",
             "resourceNames": ["nvidia.com/gpu"],
-            "operatorVersion": "v26.3.3",
+            "operatorVersion": "v26.7.0",
             "driverMode": "operator-managed"
           },
           "default": false,

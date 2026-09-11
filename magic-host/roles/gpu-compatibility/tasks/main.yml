@@ -71,11 +71,15 @@
     - name: Validate exact preparation package pins and allowed package families
       ansible.builtin.assert:
         that:
-          - item.key is match('^(linux-firmware|rocminfo|linux-generic-hwe-24\.04|linux-(image|modules|modules-extra|headers)-[a-z0-9.+-]+)$')
+          - item.key is match('^(linux-firmware|linux-firmware-amd-graphics|rocminfo|linux-generic|linux-generic-hwe-24\.04|linux-(image|modules|modules-extra|headers)-[a-z0-9.+-]+)$')
+          - item.key != 'linux-generic' or ansible_facts['distribution_version'] == '26.04'
+          - item.key != 'linux-generic-hwe-24.04' or ansible_facts['distribution_version'] == '24.04'
+          - item.key != 'linux-firmware-amd-graphics' or ansible_facts['distribution_version'] == '26.04'
           - item.value is string
           - item.value is match('^[0-9][A-Za-z0-9.+:~_-]*$')
         fail_msg: >-
-          Supply exact package versions from the reviewed Ubuntu repositories.
+          Supply exact package versions from the reviewed Ubuntu repositories
+          for this release: linux-generic on 26.04, linux-generic-hwe-24.04 on 24.04.
           Wildcards, latest, driver installers and unpinned meta-packages are
           not accepted by this preparation path.
       loop: "{{ gpu_compatibility_package_versions | dict2items }}"

@@ -71,6 +71,16 @@ class MemoryEvidenceTests(unittest.TestCase):
         self.assertEqual(value["systemMemoryMi"], 64000)
         self.assertEqual(len(value["id"]), 64)
 
+    def test_ubuntu_2604_retains_evidence_based_shared_memory_controls(self):
+        report = evidence()
+        report["os"]["versionId"] = "26.04"
+        self.assertTrue(self.collect(report)["supported"])
+        report["kernel"]["strixHaloFixes"] = "unknown"
+        self.assertFalse(self.collect(report)["supported"])
+        report["kernel"]["strixHaloFixes"] = "present"
+        report["os"]["versionId"] = "99.04"
+        self.assertFalse(self.collect(report)["supported"])
+
     def test_duplicate_unknown_empty_firmware_options_fail_closed(self):
         for bad in ("", "0: Auto (half RAM)", "0: (1 GB)\n0: (2 GB)", "0: (1 GB)\n1: (1024 MB)", "256: (1 GB)", "0: (0 GB)"):
             with self.subTest(bad=bad):

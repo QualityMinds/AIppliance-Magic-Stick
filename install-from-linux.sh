@@ -13,7 +13,7 @@ PREFLIGHT_ONLY=false
 
 usage() {
   cat <<'EOF'
-Install Magic Stick on a dedicated Ubuntu 24.04 host or VM.
+Install Magic Stick on a dedicated Ubuntu 26.04 or 24.04 host or VM.
 
 Usage:
   sudo bash install-from-linux.sh [options]
@@ -28,7 +28,7 @@ Options:
   --yes                 Skip the interactive confirmation
   -h, --help            Show this help
 
-This installer is only for a new, dedicated Ubuntu 24.04 system. It installs
+This installer is only for a new, dedicated Ubuntu 26.04 or 24.04 system. It installs
 K3s, Flux, Magic Stick, and the one-time First-Run Setup. It does not create a
 default administrator password.
 EOF
@@ -133,8 +133,8 @@ run_preflight() {
 
   # shellcheck disable=SC1091
   source /etc/os-release
-  [[ "${ID:-}" == "ubuntu" && "${VERSION_ID:-}" == "24.04" ]] || \
-    fail "Ubuntu Server 24.04 LTS is required (found ${PRETTY_NAME:-unknown})."
+  [[ "${ID:-}" == "ubuntu" && ( "${VERSION_ID:-}" == "26.04" || "${VERSION_ID:-}" == "24.04" ) ]] || \
+    fail "Ubuntu Server 26.04 or 24.04 LTS is required (found ${PRETTY_NAME:-unknown})."
   [[ "$(uname -m)" =~ ^(x86_64|aarch64|arm64)$ ]] || fail "Unsupported architecture: $(uname -m)"
   command -v systemctl >/dev/null 2>&1 || fail "systemd is required."
   command -v ss >/dev/null 2>&1 || fail "The ss utility is required (package: iproute2)."

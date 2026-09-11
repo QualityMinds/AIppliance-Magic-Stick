@@ -145,10 +145,33 @@ class HostEvidenceTests(unittest.TestCase):
         self.assertEqual(preflight.collect(self.root, live=False)["devices"][0]["gfxArchitectures"], [])
 
     def test_kernel_evidence_is_version_specific_not_certification(self):
-        for release, expected in [("6.8.0-139-generic", "missing"), ("6.14.0-1017-oem", "unknown"), ("6.14.0-1018-oem", "present"), ("6.18.3", "unknown"), ("6.18.4", "present"), ("unknown", "unknown")]:
+        for release, expected in [("6.8.0-139-generic", "missing"), ("6.14.0-1017-oem", "unknown"), ("6.14.0-1018-oem", "present"), ("6.18.3", "unknown"), ("6.18.4", "present"), ("7.0.0-14-generic", "present"), ("7.0.0-31-generic", "present"), ("unknown", "unknown")]:
             evidence = preflight.kernel_evidence(release)
             self.assertEqual(evidence["strixHaloFixes"], expected)
             self.assertEqual(evidence["runtimeCompatibility"], "not-validated")
+
+    def test_ubuntu_2604_tracks_amd_firmware_leaf_version_in_hardware_fingerprint(self):
+        self.strix_fixture()
+        self.write("/etc/os-release", 'ID=ubuntu\nVERSION_ID="26.04"\n')
+        self.write("/proc/sys/kernel/osrelease", "7.0.0-31-generic")
+        fingerprints = []
+        for version in ("20260101.example1", "20260101.example2"):
+            def fixture_command(argv, live):
+                if argv[0] == "dpkg-query":
+                    self.assertEqual(argv[-1], "linux-firmware-amd-graphics")
+                    return {"status": "ok"}, version
+                return {"status": "skipped"}, ""
+            with patch.object(preflight, "command", side_effect=fixture_command):
+                report = preflight.collect(self.root, live=False)
+            self.assertEqual(report["driver"]["firmware"]["packageName"], "linux-firmware-amd-graphics")
+            self.assertEqual(report["nodeAnnotation"]["firmwareVersion"], version)
+            fingerprints.append(report["hardwareFingerprint"])
+        self.assertNotEqual(*fingerprints)
+
+    def test_ubuntu_2404_retains_monolithic_firmware_package_evidence(self):
+        self.strix_fixture()
+        report = preflight.collect(self.root, live=False)
+        self.assertEqual(report["driver"]["firmware"]["packageName"], "linux-firmware")
 
     def test_fingerprint_stable_when_free_memory_changes_but_not_kernel(self):
         self.strix_fixture()
@@ -327,7 +350,15 @@ class RoleSafetyTests(unittest.TestCase):
         self.assertIn("item.value is string", tasks)
         self.assertIn("gpu_compatibility_system_reserve_mib | int >= 8192", tasks)
         self.assertIn("memory", tasks.lower())
-        self.assertIn("--require-profile strix-halo", tasks)
+
+    def test_kernel_metapackage_is_bounded_to_its_ubuntu_release(self):
+        tasks = yaml.safe_load((ROLE / "tasks/main.yml").read_text())
+        preparation = next(task for task in tasks if "block" in task)["block"]
+        package_assertions = next(task for task in preparation if task["name"] == "Validate exact preparation package pins and allowed package families")["ansible.builtin.assert"]["that"]
+        self.assertIn("item.key != 'linux-generic' or ansible_facts['distribution_version'] == '26.04'", package_assertions)
+        self.assertIn("item.key != 'linux-generic-hwe-24.04' or ansible_facts['distribution_version'] == '24.04'", package_assertions)
+        self.assertIn("item.key != 'linux-firmware-amd-graphics' or ansible_facts['distribution_version'] == '26.04'", package_assertions)
+        self.assertIn("item.value is string", package_assertions)
 
     def test_helper_role_runs_before_k3s(self):
         play = yaml.safe_load((HOST / "playbooks/local.yml").read_text())[0]

@@ -25,12 +25,12 @@ the same protected First-Run Setup; no default human password is generated.
 
 | Starting point | Entry point | What it installs |
 |---|---|---|
-| Empty physical server | [Build and boot the USB installer](docs/installation/bare-metal.md) | Ubuntu, K3s, Flux, and Magic Stick |
+| Empty physical server | [Build and boot the USB installer](docs/installation/bare-metal.md) | Ubuntu 26.04.1, K3s, Flux, and Magic Stick |
 | New cloud VM | [Use the cloud-init/autoinstall template](docs/installation/cloud-init-vm.md) | Ubuntu host automation, K3s, Flux, and Magic Stick |
-| Existing dedicated Ubuntu 24.04 host or VM | [`install-from-linux.sh`](install-from-linux.sh) | K3s, Flux, and Magic Stick on the host |
+| Existing dedicated Ubuntu 26.04 or 24.04 host or VM | [`install-from-linux.sh`](install-from-linux.sh) | K3s, Flux, and Magic Stick on the host |
 | Existing Kubernetes cluster | [`deploy-on-k8s.sh`](deploy-on-k8s.sh) or [`deploy-on-k8s.ps1`](deploy-on-k8s.ps1) | Flux-managed Magic Stick cluster components only |
 
-### Existing Ubuntu 24.04 host
+### Existing Ubuntu 26.04 or 24.04 host
 
 Download the script first so it can be reviewed, then run its fail-closed
 preflight and installation. The host must be dedicated to Magic Stick.

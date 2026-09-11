@@ -87,6 +87,18 @@ kernel evidence but does not certify an arbitrary ROCm/container combination.
 Older or unrecognized backports require further verification.
 [AMD Strix Halo guidance](https://rocm.docs.amd.com/en/docs-7.2.0/how-to/system-optimization/strixhalo.html)
 
+New installations use Ubuntu 26.04's native generic 7.0 kernel rather than
+installing the Ubuntu 24.04 HWE stack. This satisfies the helper's kernel-version
+check, but does not waive AMD driver evidence, experimental profile consent or
+the mixed-GPU safeguards. A working host needs no additional package change;
+optional engine validation remains separate. Existing 24.04 hosts retain their
+own bounded preparation profile. See [host package profiles](host-management.md).
+Ubuntu 26.04 splits firmware into vendor packages: GPU evidence therefore tracks
+`linux-firmware-amd-graphics` rather than only the `linux-firmware` metapackage,
+so an AMD firmware update invalidates older hardware fingerprints. Ubuntu 24.04
+keeps its existing monolithic-package evidence.
+[Ubuntu firmware package layout](https://packages.ubuntu.com/resolute/linux-firmware)
+
 Strix Halo has one GPU and unified physical RAM, not two GPU deployment targets.
 GTT/TTM values are dynamic mapping ceilings inside Linux RAM, not an exclusive
 reservation. The helper reports their conservative intersection as
@@ -187,8 +199,10 @@ check-mode output before explicitly rerunning without `--check`.
 | `gpu_compatibility_ttm_limit_mib` | `null` leaves existing configuration unchanged; a positive integer writes the managed next-boot TTM mapping limit; `0` removes only that managed override. |
 | `gpu_compatibility_system_reserve_mib` | At least 8192 MiB must remain outside an explicit TTM mapping limit. This is a safety floor, not a universal sizing recommendation. |
 
-Allowed pinned package families are `linux-firmware`, `rocminfo`, the exact
-`linux-generic-hwe-24.04` meta-package, and explicit
+Allowed pinned package families are `linux-firmware`, `rocminfo`,
+`linux-firmware-amd-graphics` on Ubuntu 26.04, the native
+`linux-generic` meta-package on Ubuntu 26.04, the
+`linux-generic-hwe-24.04` meta-package on Ubuntu 24.04, and explicit
 `linux-image-*`, `linux-modules-*`, `linux-modules-extra-*` and `linux-headers-*`
 packages. All require exact package-version pins. Select versions from already
 trusted Ubuntu repositories; the role

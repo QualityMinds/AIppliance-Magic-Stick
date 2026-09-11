@@ -95,6 +95,42 @@ an unmarked legacy NVIDIA activation exists only for upgrade compatibility.
 
 ## Hardware-Driven GPU Operators
 
+### Ubuntu 26.04 baseline
+
+The installer now targets Ubuntu 26.04 LTS. GPU chart versions were checked
+against the vendors' stable Helm indexes on 2026-09-11:
+
+| Integration | Pinned version | Ubuntu 26.04 position |
+|---|---|---|
+| NVIDIA GPU Operator | `v26.7.0`, driver `595.91.07` | NVIDIA lists Ubuntu 26.04, K3s 1.33–1.37, containerd 2.0–2.3 and kernel 7.0 / R595. |
+| AMD GPU Operator | `v1.5.1` | Latest stable chart, already selected. Ubuntu 26.04 is not in the published operator OS matrix; the host/inbox-driver path remains a migration candidate, not a certified stack. |
+| Intel Device Plugins Operator and GPU plugin | `0.36.0` | Latest stable charts, already selected. Actual support depends on the GPU, the host `i915`/`xe` driver and the container's user-mode runtime. |
+
+NVIDIA's R595 default no longer supports Maxwell, Pascal or Volta. Those GPUs
+need a separately reviewed R580/OS/kernel combination; changing
+`kernelModuleType` alone does not restore their support. The catalog's NVIDIA
+Kubernetes minimum is 1.33. Existing clusters are not upgraded merely by changing
+a chart pin. Check their Kubernetes/containerd versions before reconciling this
+baseline, and do not interpret a PCI detection label as complete hardware support.
+
+The NVIDIA toolkit uses K3s' actual containerd config and socket, with a drop-in
+at `/var/lib/rancher/k3s/agent/etc/containerd/config-v3.toml.d/99-nvidia.toml`.
+The selected K3s 1.36.4 release imports this directory in its native v3 template,
+so no copied or frozen containerd config template is needed. Existing custom
+templates or older K3s versions must be reviewed for that import before upgrade.
+The Device Plugin / ClusterPolicy path stays enabled; DRA and the NRI plugin
+remain disabled. Shared NFD, AMD host-driver mode and Intel kernel-driver mode
+are unchanged.
+
+References: [NVIDIA 26.7 platform support](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/26.7/platform-support.html),
+[NVIDIA GPU deprecation schedule](https://forums.developer.nvidia.com/t/unix-graphics-feature-deprecation-schedule/60588),
+[AMD operator compatibility](https://instinct.docs.amd.com/projects/gpu-operator/en/release-v1.5.1/index.html#compatibility),
+[Intel GPU driver/runtime contract](https://github.com/intel/intel-device-plugins-for-kubernetes/blob/v0.36.0/cmd/gpu_plugin/README.md#kmd-and-umd).
+An installer build and GPU-specific acceptance on Ubuntu 26.04 remain required;
+upstream release metadata is not a Magic Stick hardware test result.
+
+### Discovery and activation
+
 One static Node Feature Discovery (NFD) installation scans every node and
 refreshes its labels every 60 seconds. Vendor charts never install their own NFD
 copy. Magic Stick watches the display/3D-controller vendor labels and creates an
