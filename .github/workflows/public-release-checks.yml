@@ -60,6 +60,7 @@ jobs:
           python3 -m unittest discover -s magic-host/roles/gpu-compatibility/tests -p 'test_*.py'
           python3 -m unittest discover -s magic-host/roles/host-management/tests -p 'test_*.py'
           python3 -m unittest discover -s magic-host/roles/k3s/tests -p 'test_*.py'
+          python3 -m unittest discover -s magic-host/roles/kubernetes-oidc/tests -p 'test_*.py'
 
       - name: Check one-command installer entrypoints
         run: |

@@ -128,6 +128,13 @@ The `ansible-pull-timer` role installs `/usr/local/sbin/ai-appliance-converge`. 
 In `readonly-public` mode the runner skips the external deployment checkout and
 Flux reads only the public Magicstick repository.
 
+K3s configuration has one steady-state writer: the `k3s` role creates the
+initial file only when it is missing; after Flux and identity discovery,
+`kubernetes-oidc` renders the complete configuration with the effective domain,
+current host IP and OIDC trust. Repeated runs with unchanged settings do not
+restart K3s. Actual configuration or identity-CA changes still trigger a restart;
+the bootstrap stage never temporarily removes the existing IP SAN or OIDC settings.
+
 ```bash
 /usr/local/sbin/ai-appliance-converge
 ```

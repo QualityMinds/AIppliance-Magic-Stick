@@ -5,6 +5,11 @@ server after Flux has installed the identity stack. It installs only the public
 identity CA on the host, re-renders K3s, waits for the restarted API server and
 publishes non-secret discovery data for the dashboard.
 
+This is the steady-state writer of the complete K3s configuration. The earlier
+`k3s` role only creates a missing bootstrap configuration, so it cannot reset
+the effective domain, host IP or identity settings on each timer run. A restart
+is notified only when the rendered configuration or public identity CA changes.
+
 The published Kubernetes API endpoint uses the host's current default private
 IPv4 address instead of the appliance `.local` name. This keeps downloaded
 kubeconfigs usable in OpenLens and other clients whose internal proxy bypasses

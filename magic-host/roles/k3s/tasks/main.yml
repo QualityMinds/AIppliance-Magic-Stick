@@ -1,6 +1,15 @@
 ---
-- name: Configure K3s
+- name: Check for an existing K3s configuration
+  ansible.builtin.stat:
+    path: /etc/rancher/k3s/config.yaml
+  register: k3s_existing_config
+
+# After bootstrap, kubernetes-oidc renders the complete configuration once the
+# effective domain, host IP and identity trust are known. Rendering bootstrap
+# defaults here would remove its IP SAN and restart K3s twice on every run.
+- name: Configure K3s for first bootstrap only
   ansible.builtin.import_tasks: configure.yml
+  when: not k3s_existing_config.stat.exists
 
 - name: Install K3s (skip if already installed)
   ansible.builtin.shell: |

@@ -27,6 +27,30 @@ class K3sInstallationContractTests(unittest.TestCase):
         self.assertNotIn("{{ k3s_version", self.install["ansible.builtin.shell"])
         self.assertIn("https://get.k3s.io", self.install["ansible.builtin.shell"])
 
+    def test_bootstrap_checks_for_existing_config_before_rendering(self):
+        check = next(task for task in self.tasks if task.get("register") == "k3s_existing_config")
+        configure = next(task for task in self.tasks if task.get("ansible.builtin.import_tasks") == "configure.yml")
+        self.assertEqual(check["ansible.builtin.stat"]["path"], "/etc/rancher/k3s/config.yaml")
+        self.assertLess(self.tasks.index(check), self.tasks.index(configure))
+
+    def test_bootstrap_never_rewrites_an_existing_identity_aware_config(self):
+        configure = next(task for task in self.tasks if task.get("ansible.builtin.import_tasks") == "configure.yml")
+        self.assertEqual(configure["when"], "not k3s_existing_config.stat.exists")
+
+    def test_identity_stage_remains_the_steady_state_config_writer(self):
+        tasks = yaml.safe_load((ROLE.parent / "kubernetes-oidc/tasks/main.yml").read_text())
+        configure = next(task for task in tasks if task.get("ansible.builtin.include_role", {}).get("name") == "k3s")
+        self.assertEqual(configure["ansible.builtin.include_role"]["tasks_from"], "configure")
+        self.assertNotIn("when", configure)
+        self.assertEqual(configure["vars"]["k3s_tls_sans"], [
+            "{{ kubernetes_oidc_mdns_domain }}", "{{ kubernetes_oidc_host_address }}",
+        ])
+        self.assertEqual(configure["vars"]["k3s_oidc_issuer_url"], "{{ kubernetes_oidc_issuer_url }}")
+        trust_check = next(task for task in tasks if task.get("register") == "kubernetes_oidc_discovery")
+        flush = next(task for task in tasks if task.get("ansible.builtin.meta") == "flush_handlers")
+        self.assertLess(tasks.index(trust_check), tasks.index(configure))
+        self.assertLess(tasks.index(configure), tasks.index(flush))
+
 
 if __name__ == "__main__":
     unittest.main()

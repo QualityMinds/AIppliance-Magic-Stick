@@ -237,3 +237,9 @@ dashboard also upgrades a legacy marker that still names the appliance mDNS
 host to the current Ready control-plane `InternalIP` at download time. A
 platform-managed endpoint such as a control-plane load balancer or public-safe
 DNS name is preserved exactly as published.
+
+Host convergence preserves the existing K3s configuration during bootstrap and
+reconciles it after loading the effective domain and verified identity trust.
+Unchanged periodic runs do not restart K3s; real configuration or public-CA
+changes still do. In particular, the current host IP is not removed from
+`tls-san` and then added back during the same run.
