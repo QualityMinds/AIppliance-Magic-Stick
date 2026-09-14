@@ -23,12 +23,13 @@ const HardwareNodeFacts = ({node, host}: {node: GpuCompatibilityNode; host?: Man
 const HardwareNode = ({node, host, compatibility, session, stale}: {node: GpuCompatibilityNode; host?: ManagedHost; compatibility?: GpuCompatibility; session: Session; stale: boolean}) => <article className="operator-card stack compact" aria-label={`GPU node ${node.node}`}>
   <header><div className="inline-info"><strong>{node.node}</strong>{node.message && <InfoPopover label={`GPU on ${node.node}`}><p className="memory-info-note">{node.message}</p></InfoPopover>}</div><StatusBadge phase={node.eligible === true ? 'Eligible' : node.eligible === false ? 'Not eligible' : 'Unknown'} /></header>
   {host ? <HostPreparation key={`${host.nodeUid}:${host.bootId}:${host.plan?.id}`} host={host} session={session} stale={stale} embedded leadingFacts={<HardwareNodeFacts node={node} host={host} />} /> : <dl className="facts"><HardwareNodeFacts node={node} /></dl>}
-  <GpuSharingControls nodeUid={node.nodeUid} session={session} />
+  <GpuSharingControls nodeUid={node.nodeUid} session={session} amdControls={compatibility || node.memoryArchitecture === 'unified' || host?.gpuMemory?.supported ? <>
   {compatibility && <details className="hardware-advanced"><summary>Advanced · AMD runtime profile</summary>
     {canAdminister(session) ? <ProfileControls key={`${compatibility.selectedProfile}:${compatibility.allowExperimental}`} compatibility={compatibility} /> : <div className="inline-info"><span>Current profile: {compatibility.selectedProfile || 'upstream rules'}</span><InfoPopover label="AMD runtime profile"><p className="memory-info-note">Administrator access is required to change profiles or run validation.</p></InfoPopover></div>}
   </details>}
   {node.memoryArchitecture === 'unified' && <SharedMemoryOverview pool={node} />}
   {host && <details className="hardware-advanced"><summary>GPU memory</summary><HostMemoryControls host={host} session={session} stale={stale} /></details>}
+  </> : undefined} />
   <div className="inline-info"><h4>Engine validation · Optional</h4><InfoPopover label={`Engine validation on ${node.node}`}><p className="memory-info-note">Manual diagnostic only. Untested, running, failed or stale tests do not disable a ready GPU. A successful smoke test does not confirm model size, quality or memory accounting.</p></InfoPopover></div>
   <div className="list">{(['OLlama', 'VLLM'] as const).map((engine) => {
     const validation = node.validation?.[engine];

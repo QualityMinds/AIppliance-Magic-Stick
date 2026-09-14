@@ -53,9 +53,31 @@ describe('hardware compatibility', () => {
     mount();
     expect(await screen.findByLabelText('NVIDIA allocation mode')).toHaveValue('shared');
     expect(screen.getByRole('region', {name: 'NVIDIA GPU sharing'})).toBeInTheDocument();
+    expect(screen.getByRole('heading', {name: 'GPU Configuration NVIDIA'})).toBeInTheDocument();
+    expect(screen.queryByRole('heading', {name: 'GPU Configuration AMD'})).not.toBeInTheDocument();
     expect(screen.queryByText('Advanced · AMD runtime profile')).not.toBeInTheDocument();
     expect(screen.queryByText('Not eligible')).not.toBeInTheDocument();
     expect(screen.queryByText('Not recognized')).not.toBeInTheDocument();
+    expect(writes).toHaveLength(0);
+  });
+
+  it('groups AMD profile and collapsed memory controls before the separate NVIDIA configuration', async () => {
+    const base: GpuSharingState = {provider: 'amd', backend: 'dra', mode: 'exclusive', managed: false, experimental: true,
+      maxModels: 2, nodeName: host.name, nodeUid: host.nodeUid, namespace: 'ai', expectedRevision: '7',
+      available: true, reason: '', phase: 'Ready', message: '', claimName: '', activeModels: 0, admittedModels: [], memoryIsolation: false};
+    sharing = [{...base, provider: 'nvidia', backend: 'time-slicing', experimental: false}, base];
+    mount();
+    const nvidia = await screen.findByRole('region', {name: 'NVIDIA GPU configuration'});
+    const amd = screen.getByRole('region', {name: 'AMD GPU configuration'});
+    const advanced = within(amd).getByText('Advanced · AMD runtime profile').closest('details')!;
+    const memory = within(amd).getByText('GPU memory').closest('details')!;
+    expect(advanced).not.toHaveAttribute('open');
+    expect(memory).not.toHaveAttribute('open');
+    expect(within(amd).getByRole('region', {name: 'AMD GPU sharing'})).toBeInTheDocument();
+    expect(within(nvidia).getByRole('region', {name: 'NVIDIA GPU sharing'})).toBeInTheDocument();
+    expect(within(nvidia).queryByText('GPU memory')).not.toBeInTheDocument();
+    expect(within(nvidia).queryByText('Advanced · AMD runtime profile')).not.toBeInTheDocument();
+    expect(amd.compareDocumentPosition(nvidia) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(writes).toHaveLength(0);
   });
 

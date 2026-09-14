@@ -219,6 +219,13 @@ class NvidiaGpuSharingTests(unittest.TestCase):
         legacy = yaml.safe_load(self.cm['data']['any'])
         self.assertEqual(legacy, self.c['nvidia_sharing_plugin_config']('time-slicing', 2))
 
+    def test_fresh_installation_defaults_to_one_model_per_gpu_for_both_providers(self):
+        release = yaml.safe_load((CLUSTER_ROOT / 'platform/gpu/nvidia-gpu-operator/helmrelease.yaml').read_text())
+        default = release['spec']['values']['devicePlugin']['config']['default']
+        self.assertEqual(default, 'magicstick-exclusive')
+        self.assertNotIn('sharing', json.loads(self.cm['data'][default]))
+        self.assertEqual(self.c['gpu_sharing_config']({'spec': {'parameters': {}}}), {'mode': 'exclusive'})
+
     def test_observed_sharing_status_is_published_and_retained_by_the_crd(self):
         self.reconcile()
         catalog = yaml.safe_load((ROOT / 'module-catalog.yaml').read_text())['data']['modules.json']

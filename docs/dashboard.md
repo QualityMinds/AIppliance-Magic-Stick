@@ -650,13 +650,16 @@ companies, employee agents, or gateway credentials.
 
 ## Hardware Compatibility Controls
 
-**System → Hardware → GPU nodes → GPU sharing** provides common exclusive/shared
-controls for experimental AMD DRA and NVIDIA device-plugin time-slicing, with
-independent model-slot limits and provider-specific restart confirmation.
+**System → Hardware → GPU nodes → GPU Configuration AMD / NVIDIA** groups each
+provider's **GPU sharing** controls separately. AMD runtime profiles and collapsed
+GPU-memory controls stay within the AMD section. New installations default to
+one model per GPU for both providers. Apply is enabled only for changed, valid
+settings; sharing uses one final restart confirmation and no additional checkbox.
+The backend labels are **DRA sharing configuration** and **Time-slicing configuration**.
 `GET/POST /api/hardware/gpu-sharing` exposes both providers' status and guarded
 configuration. See [GPU sharing](gpu-sharing.md) for its single-device-per-provider
-scope, transition, memory limitations and rollback. Inherited NVIDIA settings
-are not changed merely by opening the page.
+scope, transition, memory limitations, upgrade preservation and rollback.
+Existing settings are not changed merely by opening the page.
 
 **System → Updates** manages automatic Ubuntu security updates, the UTC
 maintenance window, optional automatic restarts and manual package maintenance.

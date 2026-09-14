@@ -50,4 +50,6 @@ spec:
     devicePlugin:
       config:
         name: time-slicing-config
-        default: any
+        # Fresh nodes get one allocation per physical GPU. Existing explicit
+        # node profiles (including the legacy two-slot "any") take precedence.
+        default: magicstick-exclusive

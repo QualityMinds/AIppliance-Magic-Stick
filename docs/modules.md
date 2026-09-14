@@ -124,8 +124,9 @@ are unchanged.
 
 **System → Hardware → GPU sharing** manages NVIDIA exclusive/time-sliced
 allocation through `ModuleActivation/gpu.spec.parameters.gpuSharing` and the
-selected node's device-plugin configuration label. The static two-slot default
-is preserved until explicitly adopted. AMD uses the same management UI with
+selected node's device-plugin configuration label. New installations default to
+one model per GPU; the legacy `any` two-slot profile remains available for existing
+nodes and must be pinned before upgrading an inherited configuration. AMD uses the same management UI with
 its independent, experimental DRA backend. See [GPU sharing](gpu-sharing.md)
 for limits, model restarts, status and recovery.
 

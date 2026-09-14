@@ -1,6 +1,6 @@
 # GPU sharing
 
-**System → Hardware → GPU nodes → GPU sharing** provides the same administration
+**System → Hardware → GPU nodes → GPU Configuration AMD / NVIDIA → GPU sharing** provides the same administration
 for AMD and NVIDIA: **Exclusive** or **Shared**, a model-slot limit, transition
 status and explicit restart confirmation. The backend stays visible:
 
@@ -10,9 +10,15 @@ status and explicit restart confirmation. The backend stays visible:
 | NVIDIA | NVIDIA device plugin, one allocation | NVIDIA device-plugin time-slicing |
 
 The settings are independent, including on mixed NVIDIA/Strix Halo hosts.
-Merely opening Hardware does not change either provider. AMD remains exclusive
-by default; NVIDIA's existing static two-slot default is shown as **Inherited
-configuration** until an administrator explicitly applies managed settings.
+New installations use **Exclusive · one model per GPU** for both providers.
+Merely opening Hardware does not change either provider. Apply is enabled only
+when the selected mode or shared-model count differs from the current settings,
+including configurations that were not saved through this dashboard. Reverting
+an edit disables Apply again. The backend labels are **DRA sharing configuration**
+and **Time-slicing configuration**; no extra sharing checkbox is required.
+The final confirmation still explains model restarts and the lack of isolated
+GPU memory. AMD runtime profiles and collapsed GPU-memory controls are grouped
+inside **GPU Configuration AMD**, before the separate NVIDIA section.
 NVIDIA DRA, MIG and MPS are not enabled by these controls.
 
 ## Initial scope and limits
@@ -44,7 +50,10 @@ models. AMD also reports its device PCI address and shared claim.
 Administrator-only `POST /api/hardware/gpu-sharing` uses the normal CSRF checks,
 `provider` (`amd`/`nvidia`), `mode`, `maxModels`, `nodeName`, `nodeUid`, the current
 `expectedRevision`, `acknowledgeSharing` for shared mode and
-`acknowledgeRestart`. AMD's checkbox explicitly identifies the experimental mode.
+`acknowledgeRestart`. The dashboard supplies these acknowledgements only after
+the final confirmation, without a separate checkbox. The underlying AMD
+integration retains its bounded opt-in and hardware checks; its `experimental`
+API flag is not a label for Kubernetes DRA itself.
 The API stores bounded JSON in the selected ModuleActivation's
 `spec.parameters.gpuSharing`, not `Appliance.spec`:
 
@@ -79,7 +88,8 @@ and does not gate normal GPU use.
 NVIDIA keeps its existing GPU Operator, ClusterPolicy, driver and device plugin.
 The shipped `time-slicing-config` ConfigMap contains immutable named profiles:
 `magicstick-exclusive` and `magicstick-shared-2` through `magicstick-shared-16`.
-The legacy `any` default remains unchanged. The operator switches only the
+The Helm default is `magicstick-exclusive`. The legacy two-slot `any` profile
+remains available unchanged for existing installations. The operator switches only the
 selected node's `nvidia.com/device-plugin.config` label; NVIDIA's config manager
 reloads the named configuration. No external ConfigMap is overwritten.
 
@@ -98,6 +108,17 @@ The general `mig.strategy=single`/`mixed` setting alone does not imply active
 partitions: non-MIG cards with `mig.capable=false` remain eligible. MIG-capable
 cards using those strategies need corroborated `all-disabled`/`success` state;
 MIG resources, partition labels or a pending MIG configuration block management.
+
+### Upgrading older NVIDIA defaults
+
+Before reconciling the new Helm default on an older installation, inspect the
+current ClusterPolicy, node profile label and advertised replica count. If the
+node still inherits the former `any` profile and that existing allocation should
+remain, pin `nvidia.com/device-plugin.config=any` on that node before the upgrade.
+Retain existing explicit or custom node profiles; do not overwrite them or infer
+a profile from an unknown configuration. New nodes without an explicit profile
+use the exclusive default. Changing an existing allocation remains a separate,
+confirmed Hardware action.
 
 ## Recovery and diagnostics
 
