@@ -713,7 +713,7 @@ On an eligible host with one Strix Halo GPU (optionally alongside NVIDIA GPUs
 bound to the `nvidia` driver), expand **GPU nodes → GPU memory → Shared GPU memory** for sliders
 for the fixed firmware reservation and dynamic shared-RAM ceiling. Current
 values and the local draft remain separate; moving a slider never applies a
-change. Administrator acknowledgement and exact-host confirmation are required,
+change. The final disruption dialog requires exact-host confirmation,
 with up to two controlled restarts when the firmware reservation changes.
 Stale evidence, conflicting boot settings and unsupported layouts disable the
 controls. The dynamic ceiling is not a reservation or an extra RAM pool. See

@@ -797,7 +797,7 @@ is the main kernel/driver and runtime-profile setup path. **Advanced · AMD runt
 profile** is a collapsed manual override in the same section, not a second setup
 requirement. Optional validation is inside each GPU node and uses the saved
 profile. Info icons retain background explanations and diagnostic messages;
-required action acknowledgements and disruption confirmations remain explicit.
+final disruption confirmations remain explicit.
 
 **System → Hardware → GPU nodes → GPUs → GPU Configuration AMD → Shared GPU memory** configures supported Strix Halo
 firmware reservations and dynamic TTM limits through the same host worker.

@@ -145,8 +145,8 @@ driver binding or timeout stops the operation. This memory
 workflow never changes the kernel, NVIDIA driver or operator configuration;
 ordinary preparation/experiment-mode safety rules remain separate.
 
-Select **Review memory configuration**, accept the experimental/disruption
-warning and enter the exact computer name to apply. A fixed-reservation change
+Select **Review memory configuration** and enter the exact computer name in the
+final disruption confirmation to apply. A fixed-reservation change
 may require **up to two restarts**: first apply and verify the firmware choice,
 then apply the dynamic limit through the existing Ansible role and verify it
 after another boot. A dynamic-only change requires one restart. All workloads

@@ -26,7 +26,6 @@ const MemoryControls = ({host, memory, session, stale, hideHeading}: {host: Mana
   const [draft, setDraft] = useState<HostGpuMemorySettings>(() => ({carveoutIndex: memory.currentCarveoutIndex ?? -1,
     dynamicLimitMi: complete ? snap(memory.currentDynamicLimitMi!, memory.currentCarveoutIndex!) : 0}));
   const [dirty, setDirty] = useState(false);
-  const [acknowledged, setAcknowledged] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [pending, setPending] = useState<{settings: HostGpuMemorySettings; requestId: string} | null>(null);
   const [accepted, setAccepted] = useState('');
@@ -40,20 +39,20 @@ const MemoryControls = ({host, memory, session, stale, hideHeading}: {host: Mana
     && draft.dynamicLimitMi <= maximum && draft.dynamicLimitMi % step === 0);
   const mutation = useMutation({
     mutationFn: () => {
-      if (!pending || blocked || !canAdminister(session) || !acknowledged || !dirty || !valid || !changed) throw new Error('Host state changed. Review the current memory configuration again.');
+      if (!pending || blocked || !canAdminister(session) || !dirty || !valid || !changed) throw new Error('Host state changed. Review the current memory configuration again.');
       return api.requestHostOperation({action: 'configure-gpu-memory', nodeName: host.name, nodeUid: host.nodeUid,
         bootId: host.bootId, requestId: pending.requestId, confirmation: host.name, acknowledgeDisruption: true,
         allowExperimental: true, experimentMode: false, planId: memory.id, gpuMemory: pending.settings});
     },
     retry: false,
     onSuccess: async () => {
-      setAccepted(pending?.requestId ?? 'accepted'); setPending(null); setAcknowledged(false);
+      setAccepted(pending?.requestId ?? 'accepted'); setPending(null);
       await client.invalidateQueries({queryKey: ['host-management']});
     },
   });
   useEffect(() => {
     if (pending && blocked && !mutation.isPending) {
-      setPending(null); setAcknowledged(false);
+      setPending(null);
       setFeedback('Host state changed. Review the current memory configuration again.');
     }
   }, [blocked, pending, mutation.isPending]);
@@ -62,12 +61,12 @@ const MemoryControls = ({host, memory, session, stale, hideHeading}: {host: Mana
     const option = options[position];
     if (!option) return;
     const dynamicLimitMi = snap(draft.dynamicLimitMi, option.index);
-    setDraft({carveoutIndex: option.index, dynamicLimitMi}); setDirty(true); setAcknowledged(false); setAccepted('');
+    setDraft({carveoutIndex: option.index, dynamicLimitMi}); setDirty(true); setAccepted('');
     setFeedback(dynamicLimitMi !== draft.dynamicLimitMi
       ? `The dynamic GPU limit was adjusted to ${formatMi(dynamicLimitMi)} to retain the ${formatMi(reserve)} CPU/OS safety allowance. Review both values.` : '');
   };
   const changeDynamic = (value: number) => {
-    setDraft({...draft, dynamicLimitMi: snap(value, draft.carveoutIndex)}); setDirty(true); setAcknowledged(false); setAccepted(''); setFeedback('');
+    setDraft({...draft, dynamicLimitMi: snap(value, draft.carveoutIndex)}); setDirty(true); setAccepted(''); setFeedback('');
   };
   const firmwareChanges = pending?.settings.carveoutIndex !== memory.currentCarveoutIndex;
   const plannedFixed = options.find((option) => option.index === pending?.settings.carveoutIndex);
@@ -104,9 +103,7 @@ const MemoryControls = ({host, memory, session, stale, hideHeading}: {host: Mana
       </div>
       {!valid && <div className="notice notice-warn">This combination does not leave enough Linux RAM for the required CPU/OS safety allowance. Choose a smaller fixed reservation or dynamic limit.</div>}
       {feedback && <div className="notice notice-warn" role="status">{feedback}</div>}
-      <label className="check-field"><input type="checkbox" checked={acknowledged} disabled={controlsDisabled || !dirty || !changed || !valid}
-        onChange={(event) => setAcknowledged(event.target.checked)} /> I accept the experimental memory configuration, workload interruption and possible restarts. I have local recovery access.</label>
-      <div className="form-actions"><Button variant="primary" disabled={controlsDisabled || !dirty || !changed || !valid || !acknowledged} onClick={() => {
+      <div className="form-actions"><Button variant="primary" disabled={controlsDisabled || !dirty || !changed || !valid} onClick={() => {
         mutation.reset(); setPending({settings: {...draft}, requestId: crypto.randomUUID().replaceAll('-', '')});
       }}>Review memory configuration</Button></div>
       <ConfirmDialog key={pending?.requestId ?? 'closed'} open={Boolean(pending)} title="Configure GPU shared memory" description={description}

@@ -18,14 +18,12 @@ const mount = (initialHost = host, initialSession = session) => {
 const fixedSlider = () => screen.getByRole('slider', {name: 'Fixed GPU reservation (firmware)'});
 const dynamicSlider = () => screen.getByRole('slider', {name: 'Dynamic GPU memory limit'});
 const review = () => screen.getByRole('button', {name: 'Review memory configuration'});
-const consent = () => screen.getByRole('checkbox', {name: /I accept the experimental memory configuration/});
 const chooseMemory = () => {
   fireEvent.change(fixedSlider(), {target: {value: '0'}});
   fireEvent.change(dynamicSlider(), {target: {value: String(100 * 1024)}});
 };
 const openConfirmation = async () => {
   chooseMemory();
-  await userEvent.click(consent());
   await userEvent.click(review());
   return screen.getByRole('dialog');
 };
@@ -63,10 +61,11 @@ describe('host shared GPU memory', () => {
     expect(writes).toHaveLength(0);
   });
 
-  it('requires explicit consent and the exact hostname before submitting a scoped operation', async () => {
+  it('requires the final exact-hostname confirmation before submitting a scoped operation', async () => {
     mount(); chooseMemory();
-    expect(review()).toBeDisabled();
-    await userEvent.click(consent()); await userEvent.click(review());
+    expect(screen.queryByRole('checkbox', {name: /experimental memory configuration/})).not.toBeInTheDocument();
+    expect(review()).toBeEnabled();
+    await userEvent.click(review());
     const dialog = screen.getByRole('dialog');
     expect(dialog).toHaveTextContent('up to two restarts');
     expect(dialog).toHaveTextContent('not guaranteed');
@@ -87,7 +86,7 @@ describe('host shared GPU memory', () => {
 
   it('explains that a dynamic-limit-only change requires one restart', async () => {
     mount(); fireEvent.change(dynamicSlider(), {target: {value: String(40 * 1024)}});
-    await userEvent.click(consent()); await userEvent.click(review());
+    await userEvent.click(review());
     const dialog = screen.getByRole('dialog');
     expect(dialog).toHaveTextContent('Changing only the dynamic limit requires one restart.');
     expect(dialog).not.toHaveTextContent('up to two restarts');
@@ -105,7 +104,8 @@ describe('host shared GPU memory', () => {
   it('keeps no-op configurations disabled even after a slider interaction', () => {
     mount(); fireEvent.change(dynamicSlider(), {target: {value: String(40 * 1024)}});
     fireEvent.change(dynamicSlider(), {target: {value: String(32 * 1024)}});
-    expect(consent()).toBeDisabled(); expect(review()).toBeDisabled(); expect(writes).toHaveLength(0);
+    expect(screen.queryByRole('checkbox', {name: /experimental memory configuration/})).not.toBeInTheDocument();
+    expect(review()).toBeDisabled(); expect(writes).toHaveLength(0);
   });
 
   it('does not treat a rounded kernel default as a requested change', () => {
@@ -114,16 +114,16 @@ describe('host shared GPU memory', () => {
     expect(screen.getByText('Current dynamic GPU ceiling (TTM)').nextElementSibling).toHaveTextContent('31.2 GiB');
     expect(dynamicSlider()).toHaveValue('31744');
     expect(screen.getByText('Draft rounded to 31 GiB')).toBeInTheDocument();
-    expect(review()).toBeDisabled(); expect(consent()).toBeDisabled(); expect(writes).toHaveLength(0);
+    expect(review()).toBeDisabled(); expect(writes).toHaveLength(0);
   });
 
-  it('clamps the dependent dynamic limit with clear feedback and clears earlier consent', async () => {
-    mount(); chooseMemory(); await userEvent.click(consent());
+  it('clamps the dependent dynamic limit with clear feedback while retaining a changed draft', () => {
+    mount(); chooseMemory();
     fireEvent.change(fixedSlider(), {target: {value: '2'}});
     expect(dynamicSlider()).toHaveValue(String(48 * 1024));
     expect(screen.getByRole('status')).toHaveTextContent('adjusted to 48 GiB');
     expect(screen.getByRole('status')).toHaveTextContent('16 GiB CPU/OS safety allowance');
-    expect(consent()).not.toBeChecked(); expect(review()).toBeDisabled();
+    expect(review()).toBeEnabled();
   });
 
   it('preserves local slider choices on an unchanged polling report', () => {
@@ -140,7 +140,7 @@ describe('host shared GPU memory', () => {
     view.rerender(next);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(fixedSlider()).toHaveAttribute('aria-valuetext', '64G: 64 GiB');
-    expect(consent()).not.toBeChecked(); expect(review()).toBeDisabled(); expect(writes).toHaveLength(0);
+    expect(review()).toBeDisabled(); expect(writes).toHaveLength(0);
   });
 
   it.each(['stale', 'unavailable', 'busy'])('blocks controls and invalidates confirmation when host becomes %s', async (state) => {
