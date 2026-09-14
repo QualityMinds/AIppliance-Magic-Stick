@@ -72,6 +72,10 @@ data:
         ("networking.k8s.io", "NetworkPolicy"): "networkpolicies",
         ("amd.com", "DeviceConfig"): "deviceconfigs",
         ("batch", "Job"): "jobs",
+        ("resource.k8s.io", "DeviceClass"): "deviceclasses",
+        ("resource.k8s.io", "ResourceClaim"): "resourceclaims",
+        ("admissionregistration.k8s.io", "MutatingAdmissionPolicy"): "mutatingadmissionpolicies",
+        ("admissionregistration.k8s.io", "MutatingAdmissionPolicyBinding"): "mutatingadmissionpolicybindings",
     }
 
     STATIC_DEPENDENCIES = {
@@ -152,6 +156,8 @@ data:
         if "/" in api_version:
             group, version = api_version.split("/", 1)
             plural = PLURALS[(group, kind)]
+            if kind in ("DeviceClass", "MutatingAdmissionPolicy", "MutatingAdmissionPolicyBinding"):
+                return f"/apis/{group}/{version}/{plural}/{name}"
             return f"/apis/{group}/{version}/namespaces/{namespace}/{plural}/{name}"
         plural = kind.lower() + "s"
         return f"/api/{api_version}/namespaces/{namespace}/{plural}/{name}"
@@ -998,6 +1004,7 @@ data:
         memory_architecture="",
         shared_pool_id="",
         gpu_allocation_mode="",
+        gpu_sharing=None,
     ):
         metadata = activation.get("metadata") or {}
         path = f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{metadata.get('namespace')}/modelactivations/{metadata.get('name')}/status"
@@ -1021,6 +1028,7 @@ data:
             "memoryArchitecture": memory_architecture,
             "sharedPoolId": shared_pool_id,
             "gpuAllocationMode": gpu_allocation_mode,
+            "gpuSharing": gpu_sharing,
             "message": message,
             "conditions": [condition("True" if phase in ("Ready", "Disabled") else "False", reason, message, generation)],
         }})
@@ -1249,6 +1257,10 @@ data:
 
 
     def compute_target_capacity(compute_target, definition, engine="VLLM"):
+        if compute_target == "amd-gpu" and GPU_SHARING_STATE.get("mode") == "dra-shared":
+            return int(GPU_SHARING_STATE.get("phase") == "Ready" and any(
+                (node.get("metadata") or {}).get("uid") == GPU_SHARING_STATE.get("nodeUid")
+                for node in compute_target_nodes(definition, engine)))
         if compute_target == "nvidia-gpu":
             return nvidia_gpu_capacity()
         _resource_name, _profile, capacity = compute_target_resource_selection(definition, engine)
@@ -1266,6 +1278,405 @@ data:
     }
     GPU_RUNTIME_CHECKSUM = "magicstick-gpu-runtime-images"
     GPU_PREFLIGHT_ANNOTATION = "appliance.magicstick.dev/gpu-host-preflight"
+    GPU_SHARING_STATE = {}
+    NVIDIA_SHARING_STATE = {}
+    AMD_DRA_IMAGE = "rocm/k8s-gpu-dra-driver:v1.0.1"
+    DRA_SENTINEL_RESOURCE = "appliance.magicstick.dev/amd-dra"
+    DRA_POLICY_NAME = "magicstick-amd-dra"
+
+
+    def gpu_sharing_config(activation, provider="amd"):
+        raw = ((activation or {}).get("spec", {}).get("parameters") or {}).get("gpuSharing")
+        if not raw:
+            return {"mode": "exclusive"}
+        try:
+            config = json.loads(raw)
+        except (ValueError, TypeError):
+            raise ValueError("GPU sharing configuration is not valid JSON")
+        if not isinstance(config, dict) or set(config) - {"mode", "nodeName", "nodeUid", "namespace", "maxModels", "allowExperimental"}:
+            raise ValueError("Unsupported GPU sharing configuration")
+        shared_mode = "dra-shared" if provider == "amd" else "time-slicing"
+        if config.get("mode") not in ("exclusive", shared_mode):
+            raise ValueError("Unknown GPU sharing mode")
+        if config["mode"] != "exclusive" or provider == "nvidia":
+            if provider == "amd" and config.get("allowExperimental") is not True:
+                raise ValueError("AMD DRA sharing requires experimental consent")
+            for key in ("nodeName", "nodeUid", "namespace"):
+                if not isinstance(config.get(key), str) or not re.fullmatch(r"[a-z0-9][a-z0-9.-]{0,252}", config[key]):
+                    raise ValueError("GPU sharing requires a valid " + key)
+            count = config.get("maxModels")
+            if isinstance(count, bool) or not isinstance(count, int) or not 2 <= count <= 16:
+                raise ValueError("GPU sharing supports between 2 and 16 models")
+            if config["namespace"] != "ai":
+                raise ValueError("GPU sharing currently supports the ai model namespace")
+        return config
+
+
+    def sharing_admitted_models(models, namespace, limit):
+        enabled = sorted([m for m in models if m.get("spec", {}).get("enabled", True) is not False
+                          and not m.get("metadata", {}).get("deletionTimestamp")],
+                         key=lambda m: (m.get("metadata", {}).get("creationTimestamp", ""), m["metadata"]["name"]))
+        return [m["metadata"]["name"] for m in enabled if (m.get("spec") or {}).get("targetNamespace", "ai") == namespace][:limit]
+
+
+    def require_sharing_slot(resource, state):
+        if state.get("phase") != "Ready":
+            raise ValueError(state.get("message") or "GPU sharing is not ready")
+        if resource["metadata"]["namespace"] != state["namespace"]:
+            raise ValueError("Managed GPU sharing currently uses namespace " + state["namespace"])
+        if resource["metadata"]["name"] not in state["admittedModels"]:
+            raise ValueError("Waiting for a GPU sharing slot (maximum " + str(state.get("slotLimit", state["maxModels"])) + " models)")
+        if resource["spec"].get("maxReplicas") != 1 or resource["spec"].get("minReplicas") != 1:
+            raise ValueError("GPU sharing currently supports exactly one replica per model")
+
+
+    def nvidia_whole_gpu_available(node):
+        # A global MIG strategy is not evidence of active MIG partitions:
+        # non-MIG cards can report "single" with mig.capable=false.
+        labels = (node.get("metadata") or {}).get("labels") or {}
+        resources = {**((node.get("status") or {}).get("capacity") or {}),
+                     **((node.get("status") or {}).get("allocatable") or {})}
+        if (any(key.startswith("nvidia.com/mig-") and positive_int(value) for key, value in resources.items())
+                or "-MIG-" in str(labels.get("nvidia.com/gpu.product", "")).upper()
+                or positive_int(labels.get("nvidia.com/gpu.slices.gi"))
+                or positive_int(labels.get("nvidia.com/gpu.slices.ci"))):
+            return False
+        if (labels.get("nvidia.com/mig.config", "") not in ("", "all-disabled")
+                or labels.get("nvidia.com/mig.config.state", "") not in ("", "success")):
+            return False
+        strategy = labels.get("nvidia.com/mig.strategy", "none")
+        return strategy == "none" or strategy in ("single", "mixed") and (
+            labels.get("nvidia.com/mig.capable") == "false"
+            or labels.get("nvidia.com/mig.capable") == "true"
+            and labels.get("nvidia.com/mig.config") == "all-disabled"
+            and labels.get("nvidia.com/mig.config.state") == "success")
+
+
+    def nvidia_sharing_plugin_config(mode, count):
+        value = {"version": "v1", "flags": {"migStrategy": "none"}}
+        if mode == "time-slicing":
+            value["sharing"] = {"timeSlicing": {"renameByDefault": False, "failRequestsGreaterThanOne": True,
+                                "resources": [{"name": "nvidia.com/gpu", "replicas": count}]}}
+        return value
+
+
+    def reconcile_nvidia_sharing(nodes, activation):
+        """Select a shipped device-plugin config, never migrate ClusterPolicy to DRA."""
+        NVIDIA_SHARING_STATE.clear()
+        state = NVIDIA_SHARING_STATE
+        state.update(managed=False, phase="Ready", memoryIsolation=False)
+        if not (((activation or {}).get("spec") or {}).get("parameters") or {}).get("gpuSharing"):
+            return state  # Preserve the existing static default and custom installations.
+        state["managed"] = True
+        try:
+            if activation.get("spec", {}).get("enabled", True) is False or activation.get("metadata", {}).get("deletionTimestamp"):
+                raise ValueError("NVIDIA module is disabled; sharing configuration was not applied")
+            config = gpu_sharing_config(activation, "nvidia")
+            state.update(config)
+            candidates = [n for n in nodes if positive_int(node_labels(n).get("nvidia.com/gpu.count"))]
+            if len(candidates) != 1 or not node_ready(candidates[0]):
+                raise ValueError("Sharing management currently requires one ready NVIDIA GPU node")
+            node = candidates[0]
+            labels = node_labels(node)
+            if node_name(node) != config["nodeName"] or node.get("metadata", {}).get("uid") != config["nodeUid"]:
+                raise ValueError("The saved NVIDIA node identity changed; refresh Hardware")
+            if positive_int(labels.get("nvidia.com/gpu.count")) != 1 or not nvidia_whole_gpu_available(node):
+                raise ValueError("NVIDIA sharing management currently requires one physical GPU without MIG")
+            key = "magicstick-exclusive" if config["mode"] == "exclusive" else "magicstick-shared-" + str(config["maxModels"])
+            current_key = labels.get("nvidia.com/device-plugin.config", "")
+            if current_key not in ("", "any", "magicstick-exclusive") and not re.fullmatch(r"magicstick-shared-(?:[2-9]|1[0-6])", current_key):
+                raise ValueError("An external NVIDIA plugin configuration is selected; it was not modified")
+            policy = get_json("/apis/nvidia.com/v1/clusterpolicies/cluster-policy") or {}
+            plugin = (policy.get("spec") or {}).get("devicePlugin") or {}
+            if plugin.get("enabled", True) is False or (plugin.get("config") or {}).get("name") != "time-slicing-config":
+                raise ValueError("The NVIDIA operator is not using Magic Stick's device-plugin configuration; it was not modified")
+            cm = get_core_resource("v1", "configmaps", "gpu-operator", "time-slicing-config") or {}
+            try:
+                shipped = json.loads((cm.get("data") or {}).get(key) or "null")
+            except ValueError:
+                shipped = None
+            if shipped != nvidia_sharing_plugin_config(config["mode"], config["maxModels"]):
+                raise ValueError("Waiting for the shipped NVIDIA sharing configurations; no custom configuration was overwritten")
+            models = [m for m in model_activations() if (m.get("spec") or {}).get("type", "local") == "local" and local_compute_target(m) == "nvidia-gpu"]
+            all_pods = list_items("/api/v1/pods")
+            pods = [p for p in all_pods if (p.get("metadata", {}).get("labels") or {}).get("app.kubernetes.io/managed-by") == "kubeai"
+                    and (p.get("metadata", {}).get("labels") or {}).get("appliance.magicstick.dev/compute-target") == "nvidia-gpu"]
+            if current_key != key:
+                unmanaged = [p for p in all_pods if p not in pods and (p.get("status") or {}).get("phase") not in ("Succeeded", "Failed")
+                             and any(str((c.get("resources", {}).get("limits") or {}).get("nvidia.com/gpu", "0")) != "0"
+                                     for c in (p.get("spec", {}).get("containers") or []) + (p.get("spec", {}).get("initContainers") or []))]
+                if unmanaged:
+                    raise ValueError("Stop unmanaged NVIDIA GPU workloads before changing sharing mode")
+                for model in models:
+                    delete_kubeai_model(model["metadata"]["name"], model.get("spec", {}).get("targetNamespace") or "ai")
+                if pods:
+                    state.update(phase="Switching", message="Waiting for NVIDIA model pods to stop; AMD models and cached downloads are unchanged.")
+                    return state
+                patch_json("/api/v1/nodes/" + urllib.parse.quote(node_name(node), safe=""),
+                           {"metadata": {"labels": {"nvidia.com/device-plugin.config": key}}})
+                state.update(phase="Starting", message="Waiting for NVIDIA to apply the selected sharing configuration.")
+                return state
+            slots = config["maxModels"] if config["mode"] == "time-slicing" else 1
+            plugin_ready = any(p.get("spec", {}).get("nodeName") == node_name(node)
+                               and p.get("metadata", {}).get("namespace") == "gpu-operator"
+                               and not p.get("metadata", {}).get("deletionTimestamp") and pod_is_ready(p)
+                               and any(o.get("kind") == "DaemonSet" and o.get("name") == "nvidia-device-plugin-daemonset"
+                                       for o in p.get("metadata", {}).get("ownerReferences") or []) for p in all_pods)
+            if (not plugin_ready or positive_int((node.get("status", {}).get("allocatable") or {}).get("nvidia.com/gpu")) != slots
+                    or (positive_int(labels.get("nvidia.com/gpu.replicas")) or 1) != slots):
+                state.update(phase="Starting", message="Waiting for NVIDIA device-plugin readiness and matching advertised slots.")
+                return state
+            state.update(phase="Ready", slotLimit=slots, admittedModels=sharing_admitted_models(models, config["namespace"], slots),
+                         activeModels=len([p for p in pods if p.get("status", {}).get("phase") == "Running" and not p.get("metadata", {}).get("deletionTimestamp")]),
+                         message="NVIDIA allocation is ready. Shared slots do not isolate GPU memory or guarantee throughput.")
+        except ValueError as error:
+            state.update(phase="Blocked", message=str(error))
+        except urllib.error.HTTPError as error:
+            state.update(phase="Blocked", message="Kubernetes rejected NVIDIA sharing setup (HTTP " + str(error.code) + ").")
+        return state
+
+
+    def apply_nvidia_sharing_profile(resource, runtime):
+        state = NVIDIA_SHARING_STATE
+        if runtime.get("computeTarget") != "nvidia-gpu" or not state.get("managed"):
+            return
+        require_sharing_slot(resource, state)
+        release = get_resource("helm.toolkit.fluxcd.io", "v2", "helmreleases", FLUX_NAMESPACE, "kubeai") or {}
+        base_name = runtime["baseResourceProfile"].rsplit(":", 1)[0]
+        base = (((release.get("spec") or {}).get("values") or {}).get("resourceProfiles") or {}).get(base_name)
+        if not base or str((base.get("requests") or {}).get("nvidia.com/gpu")) != "1":
+            raise ValueError("Waiting for the single-GPU NVIDIA KubeAI profile")
+        if str(resource["spec"].get("resourceProfile", "")).rsplit(":", 1)[-1] != "1":
+            raise ValueError("NVIDIA sharing supports one GPU allocation per model")
+        profile = json.loads(json.dumps(base))
+        profile.setdefault("nodeSelector", {})["kubernetes.io/hostname"] = state["nodeName"]
+        profile.setdefault("limits", {})["nvidia.com/gpu"] = "1"
+        if (runtime.get("offloading") or {}).get("enabled"):
+            profile["requests"]["memory"] = profile["limits"]["memory"] = str(runtime["memoryMi"]) + "Mi"
+        key = base_name + "-sharing-" + hashlib.sha256(json.dumps(profile, sort_keys=True).encode()).hexdigest()[:16]
+        existing = get_core_resource("v1", "configmaps", FLUX_NAMESPACE, "magicstick-offloading-profiles") or {}
+        values = json.loads((existing.get("data") or {}).get("values.json") or "{}")
+        if (values.get("resourceProfiles") or {}).get(key) != profile:
+            values.setdefault("resourceProfiles", {})[key] = profile
+            encoded = json.dumps(values, sort_keys=True)
+            if len(encoded) > 750000:
+                raise ValueError("Runtime resource-profile storage is full")
+            patch_json(f"/api/v1/namespaces/{FLUX_NAMESPACE}/configmaps/magicstick-offloading-profiles", {"data": {"values.json": encoded}})
+        resource["spec"]["resourceProfile"] = runtime["resourceProfile"] = key + ":1"
+        runtime["gpuSharing"] = {"mode": state["mode"], "node": state["nodeName"]}
+        resource["metadata"].setdefault("annotations", {})["appliance.magicstick.dev/gpu-sharing-mode"] = state["mode"]
+
+
+    def amd_dra_devices(slices, node):
+        """Use real DRA inventory; never synthesize slots as physical GPUs."""
+        devices = []
+        for item in slices:
+            spec = item.get("spec") or {}
+            if spec.get("driver") != "gpu.amd.com" or spec.get("nodeName") != node_name(node):
+                continue
+            for device in spec.get("devices") or []:
+                attributes = device.get("attributes") or {}
+                pci = (attributes.get("resource.kubernetes.io/pciBusID") or {}).get("string") or ""
+                devices.append({"name": device.get("name"), "pool": (spec.get("pool") or {}).get("name"),
+                                "pciAddress": pci, "pciDevice": "1002:" + str((attributes.get("deviceID") or {}).get("string", "")).removeprefix("0x"),
+                                "nodeUid": (node.get("metadata") or {}).get("uid")})
+        return devices
+
+
+    def dra_admission_resources():
+        # KubeAI 0.23 has only global pod patches. A native, narrowly scoped
+        # admission policy adapts marked AMD model pods, not CPU/NVIDIA pods.
+        # The unadvertised sentinel keeps pods Pending if the adapter is absent.
+        match = {"resourceRules": [{"apiGroups": [""], "apiVersions": ["v1"],
+                                   "operations": ["CREATE"], "resources": ["pods"]}],
+                 "objectSelector": {"matchLabels": {"app.kubernetes.io/managed-by": "kubeai",
+                                    "appliance.magicstick.dev/compute-target": "amd-gpu"}}}
+        policy = {"apiVersion": "admissionregistration.k8s.io/v1", "kind": "MutatingAdmissionPolicy",
+            "metadata": {"name": DRA_POLICY_NAME}, "spec": {
+                "failurePolicy": "Fail", "reinvocationPolicy": "Never", "matchConstraints": match,
+                "matchConditions": [
+                    {"name": "kubeai-controller", "expression": "request.userInfo.username == 'system:serviceaccount:ai:kubeai'"},
+                    {"name": "dra-profile", "expression": "has(object.spec.containers[0].resources.limits) && 'appliance.magicstick.dev/amd-dra' in object.spec.containers[0].resources.limits"},
+                    {"name": "no-existing-claims", "expression": "!has(object.spec.resourceClaims) || size(object.spec.resourceClaims) == 0"},
+                ],
+                "variables": [{"name": "claim", "expression": "object.spec.containers[0].env.filter(e, e.name == 'MAGICSTICK_DRA_CLAIM' && has(e.value) && e.value.matches('^magicstick-amd-shared-[a-f0-9]{20}$'))[0].value"}],
+                "mutations": [{"patchType": "JSONPatch", "jsonPatch": {"expression": """[
+                    JSONPatch{op: 'add', path: '/spec/resourceClaims', value: [Object.spec.resourceClaims{name: 'gpu', resourceClaimName: variables.claim}]},
+                    JSONPatch{op: 'add', path: '/spec/containers/0/resources/claims', value: [Object.spec.containers.resources.claims{name: 'gpu'}]},
+                    JSONPatch{op: 'remove', path: '/spec/containers/0/resources/requests/appliance.magicstick.dev~1amd-dra'},
+                    JSONPatch{op: 'remove', path: '/spec/containers/0/resources/limits/appliance.magicstick.dev~1amd-dra'}
+                ]"""}}],
+            }}
+        binding = {"apiVersion": "admissionregistration.k8s.io/v1", "kind": "MutatingAdmissionPolicyBinding",
+                   "metadata": {"name": DRA_POLICY_NAME}, "spec": {"policyName": DRA_POLICY_NAME}}
+        return policy, binding
+
+
+    def dra_shared_claim(config, device):
+        identity = config["nodeUid"] + ":" + device["name"] + ":" + config["namespace"]
+        name = "magicstick-amd-shared-" + hashlib.sha256(identity.encode()).hexdigest()[:20]
+        return {"apiVersion": "resource.k8s.io/v1", "kind": "ResourceClaim", "metadata": {
+            "name": name, "namespace": config["namespace"],
+            "labels": {"app.kubernetes.io/managed-by": "magicstick-operator", "appliance.magicstick.dev/gpu-sharing": "amd"},
+            "annotations": {"appliance.magicstick.dev/node-uid": config["nodeUid"]},
+        }, "spec": {"devices": {"requests": [{"name": "gpu", "exactly": {
+            "deviceClassName": "gpu.amd.com", "allocationMode": "ExactCount", "count": 1,
+            "selectors": [{"cel": {"expression": "has(device.attributes['resource.kubernetes.io'].pciBusID) && device.attributes['resource.kubernetes.io'].pciBusID == " + json.dumps(device["pciAddress"])}}],
+        }}]}}}
+
+
+    def reconcile_gpu_sharing(nodes, compatibility, activation, current):
+        """Drain only managed AMD models before changing allocation backends."""
+        global GPU_SHARING_STATE
+        state = {"mode": "exclusive", "phase": "Ready", "message": "Exclusive AMD GPU allocation.",
+                 "memoryIsolation": False, "experimental": True, "maxModels": 1}
+        GPU_SHARING_STATE.clear()
+        GPU_SHARING_STATE.update(state)
+        state = GPU_SHARING_STATE
+        current_dra = ((current or {}).get("spec", {}).get("draDriver") or {}).get("enable") is True
+        try:
+            config = gpu_sharing_config(activation)
+            state.update(config)
+            desired_dra = config["mode"] == "dra-shared"
+            if not desired_dra and not current_dra:
+                if ((activation or {}).get("spec", {}).get("parameters") or {}).get("gpuSharing") and (
+                        int(((current or {}).get("status", {}).get("devicePlugin") or {}).get("availableNumber") or 0) < 1
+                        or int((current or {}).get("status", {}).get("observedGeneration") or 0) < int((current or {}).get("metadata", {}).get("generation") or 0)):
+                    state.update(phase="Starting", message="Waiting for the AMD device plugin to become ready before resuming models.")
+                return False  # Keep the established device-plugin path unchanged.
+            eligible = [n for n in nodes if any(i.get("eligible") and i.get("nodeUid") == (n.get("metadata") or {}).get("uid")
+                                               for i in compatibility["nodes"])]
+            if desired_dra:
+                if len(eligible) != 1 or (eligible[0].get("metadata") or {}).get("uid") != config["nodeUid"] or node_name(eligible[0]) != config["nodeName"]:
+                    raise ValueError("DRA sharing currently requires exactly one eligible AMD GPU node with the saved identity")
+                if not version_at_least(((eligible[0].get("status") or {}).get("nodeInfo") or {}).get("kubeletVersion", ""), "1.36.0"):
+                    raise ValueError("DRA sharing requires Kubernetes 1.36 or newer")
+                info = next(i for i in compatibility["nodes"] if i.get("nodeUid") == config["nodeUid"])
+                if len(info.get("pciDevices") or []) != 1:
+                    raise ValueError("DRA sharing currently requires exactly one AMD GPU on the selected node")
+            models = [m for m in model_activations() if (m.get("spec") or {}).get("type", "local") == "local" and local_compute_target(m) == "amd-gpu"]
+            pods = [p for p in list_items("/api/v1/pods?labelSelector=appliance.magicstick.dev%2Fcompute-target%3Damd-gpu")
+                    if (p.get("metadata", {}).get("labels") or {}).get("app.kubernetes.io/managed-by") == "kubeai"]
+            # Reject a switch while unmanaged legacy GPU workloads still exist.
+            all_pods = list_items("/api/v1/pods")
+            unmanaged = [p for p in all_pods if (p.get("status") or {}).get("phase") not in ("Succeeded", "Failed")
+                         and p not in pods and any(str((c.get("resources", {}).get("limits") or {}).get("amd.com/gpu", "0")) != "0"
+                         for c in ((p.get("spec") or {}).get("containers") or []) + ((p.get("spec") or {}).get("initContainers") or []))]
+            if desired_dra != current_dra and unmanaged:
+                raise ValueError("Stop non-Magic-Stick AMD GPU workloads before changing allocation mode")
+            incompatible = [p for p in pods if bool((p.get("spec") or {}).get("resourceClaims")) != desired_dra]
+            if desired_dra != current_dra or incompatible:
+                for model in models:
+                    metadata, spec = model.get("metadata") or {}, model.get("spec") or {}
+                    delete_kubeai_model(metadata["name"], spec.get("targetNamespace") or "ai")
+                if pods:
+                    state.update(phase="Switching", message="Waiting for AMD model pods to stop; configuration and model downloads are retained.")
+                    return None
+            if not desired_dra:
+                for claim in list_items("/apis/resource.k8s.io/v1/resourceclaims?labelSelector=appliance.magicstick.dev%2Fgpu-sharing%3Damd"):
+                    metadata = claim.get("metadata") or {}
+                    if metadata.get("namespace") != "ai" or (metadata.get("labels") or {}).get("app.kubernetes.io/managed-by") != "magicstick-operator":
+                        continue
+                    if (claim.get("status") or {}).get("reservedFor"):
+                        state.update(phase="Switching", message="Waiting for shared GPU claims to be released.")
+                        return None
+                    delete_resource("resource.k8s.io", "v1", "resourceclaims", metadata["namespace"], metadata["name"])
+                state.update(phase="Switching", message="Restoring the AMD device plugin; models resume when it is ready.")
+                return False
+            if not current_dra:
+                state.update(phase="Switching", message="Starting the AMD DRA driver.")
+                return True
+            driver_pods = [p for p in all_pods if (p.get("metadata") or {}).get("namespace") == "amd-gpu-operator"
+                           and (p.get("spec") or {}).get("nodeName") == config["nodeName"]
+                           and any(o.get("kind") == "DaemonSet" and o.get("name") == "default-dra-driver"
+                                   for o in (p.get("metadata") or {}).get("ownerReferences") or [])]
+            if not any(pod_is_ready(p) and not p.get("metadata", {}).get("deletionTimestamp")
+                       and any(c.get("image") == AMD_DRA_IMAGE for c in p.get("spec", {}).get("containers", []))
+                       for p in driver_pods):
+                state.update(phase="Starting", message="Waiting for the pinned AMD DRA driver on the selected node.")
+                return True
+            slices = list_items("/apis/resource.k8s.io/v1/resourceslices")
+            devices = amd_dra_devices(slices, eligible[0])
+            if len(devices) != 1:
+                state.update(phase="Starting", message="Waiting for exactly one AMD GPU in DRA ResourceSlices.")
+                return True
+            device = devices[0]
+            if not device.get("pciAddress") or not device.get("name"):
+                raise ValueError("DRA did not report a stable GPU PCI identity")
+            if device["pciDevice"] not in info["pciDevices"]:
+                raise ValueError("DRA GPU identity does not match the current hardware inventory")
+            device_class = {"apiVersion": "resource.k8s.io/v1", "kind": "DeviceClass", "metadata": {"name": "gpu.amd.com"},
+                            "spec": {"selectors": [{"cel": {"expression": "device.driver == 'gpu.amd.com'"}}]}}
+            existing_class = get_applied_resource(device_class)
+            if existing_class and (existing_class.get("spec") or {}).get("selectors") != device_class["spec"]["selectors"]:
+                raise ValueError("Existing gpu.amd.com DeviceClass uses different selectors; it was not modified")
+            if not existing_class:
+                apply_resource(device_class)
+            for policy in dra_admission_resources():
+                apply_resource(policy)
+            claim = dra_shared_claim(config, device)
+            existing = get_applied_resource(claim)
+            if existing and (existing.get("metadata", {}).get("labels") or {}).get("app.kubernetes.io/managed-by") != FIELD_MANAGER:
+                raise ValueError("The selected DRA claim is not Magic Stick owned; it was not modified")
+            if existing and existing.get("spec") != claim["spec"]:
+                raise ValueError("The managed DRA claim differs from its saved GPU selection; stop models and review the claim")
+            if not existing:
+                apply_resource(claim)
+            allowed = sharing_admitted_models(models, config["namespace"], config["maxModels"])
+            state.update(phase="Ready", message="AMD DRA sharing is ready. Memory budgets are reservations, not isolated GPU memory limits.",
+                         device=device, claimName=claim["metadata"]["name"], admittedModels=allowed,
+                         activeModels=len([p for p in pods if (p.get("status") or {}).get("phase") == "Running"]))
+            for item in compatibility["nodes"]:
+                if item.get("nodeUid") == config["nodeUid"]:
+                    item["resourceRegistered"] = True
+            return True
+        except ValueError as error:
+            state.update(phase="Blocked", message=str(error))
+            return None
+        except urllib.error.HTTPError as error:
+            state.update(phase="Blocked", message="Kubernetes rejected GPU sharing setup (HTTP " + str(error.code)
+                         + "). Check the installed APIs, controller permissions and resource configuration.")
+            return None
+
+
+    def apply_dra_model_profile(resource, runtime):
+        state = GPU_SHARING_STATE
+        if runtime.get("computeTarget") != "amd-gpu" or state.get("mode") != "dra-shared":
+            resource["spec"].get("env", {}).pop("MAGICSTICK_DRA_CLAIM", None)
+            return
+        require_sharing_slot(resource, state)
+        release = get_resource("helm.toolkit.fluxcd.io", "v2", "helmreleases", FLUX_NAMESPACE, "kubeai") or {}
+        base_name = runtime["baseResourceProfile"].rsplit(":", 1)[0]
+        base = (((release.get("spec") or {}).get("values") or {}).get("resourceProfiles") or {}).get(base_name)
+        if not base or str((base.get("requests") or {}).get("amd.com/gpu")) != "1":
+            raise ValueError("Waiting for the AMD KubeAI profile")
+        profile = json.loads(json.dumps(base))
+        for key in ("requests", "limits"):
+            profile.setdefault(key, {}).pop("amd.com/gpu", None)
+            profile[key][DRA_SENTINEL_RESOURCE] = "1"
+        if runtime.get("memoryMi"):
+            profile["requests"]["memory"] = str(runtime["memoryMi"]) + "Mi"
+        profile["limits"].pop("memory", None)
+        profile.setdefault("nodeSelector", {})["kubernetes.io/hostname"] = state["nodeName"]
+        identity = json.dumps(profile, sort_keys=True)
+        key = base_name + "-dra-" + hashlib.sha256(identity.encode()).hexdigest()[:16]
+        existing = get_core_resource("v1", "configmaps", FLUX_NAMESPACE, "magicstick-offloading-profiles") or {}
+        values = json.loads((existing.get("data") or {}).get("values.json") or "{}")
+        if (values.get("resourceProfiles") or {}).get(key) != profile:
+            values.setdefault("resourceProfiles", {})[key] = profile
+            encoded = json.dumps(values, sort_keys=True)
+            if len(encoded) > 750000:
+                raise ValueError("Runtime resource-profile storage is full")
+            patch_json(f"/api/v1/namespaces/{FLUX_NAMESPACE}/configmaps/magicstick-offloading-profiles", {"data": {"values.json": encoded}})
+        resource["spec"]["resourceProfile"] = runtime["resourceProfile"] = key + ":1"
+        resource["spec"].setdefault("env", {})["MAGICSTICK_DRA_CLAIM"] = state["claimName"]
+        runtime["gpuSharing"] = {"mode": "dra-shared", "claimName": state["claimName"],
+                                 "node": state["nodeName"], "device": state["device"]["pciAddress"]}
+        resource["metadata"].setdefault("annotations", {}).update({
+            "appliance.magicstick.dev/gpu-sharing-mode": "dra-shared",
+            "appliance.magicstick.dev/gpu-claim": state["claimName"],
+            "appliance.magicstick.dev/gpu-device": state["device"]["pciAddress"],
+        })
     GPU_VALIDATION_LABEL = "appliance.magicstick.dev/gpu-validation"
 
 
@@ -1404,7 +1815,7 @@ data:
             metadata["ownerReferences"] = [{"apiVersion": APPLIANCE_GROUP + "/" + APPLIANCE_VERSION,
                 "kind": "ModuleActivation", "name": activation_meta["name"], "uid": activation_meta["uid"]}]
         mounts = [{"name": "probe", "mountPath": "/probe", "readOnly": True}, {"name": "cache", "mountPath": "/cache"}]
-        return {"apiVersion": "batch/v1", "kind": "Job", "metadata": metadata, "spec": {
+        job = {"apiVersion": "batch/v1", "kind": "Job", "metadata": metadata, "spec": {
             "backoffLimit": 0, "activeDeadlineSeconds": 1200,
             "template": {"metadata": {"labels": labels}, "spec": {
                 "restartPolicy": "Never", "automountServiceAccountToken": False,
@@ -1426,6 +1837,16 @@ data:
                             {"name": "cache", "emptyDir": {"sizeLimit": "4Gi"}}],
             }},
         }}
+        if GPU_SHARING_STATE.get("mode") == "dra-shared" and GPU_SHARING_STATE.get("phase") == "Ready":
+            metadata["namespace"] = GPU_SHARING_STATE["namespace"]
+            metadata.pop("ownerReferences", None)  # Namespaced owners cannot cross namespaces.
+            pod = job["spec"]["template"]["spec"]
+            pod["resourceClaims"] = [{"name": "gpu", "resourceClaimName": GPU_SHARING_STATE["claimName"]}]
+            engine_resources = pod["initContainers"][0]["resources"]
+            for key in ("requests", "limits"):
+                engine_resources[key].pop("amd.com/gpu", None)
+            engine_resources["claims"] = [{"name": "gpu"}]
+        return job
 
 
     def gpu_job_state(job):
@@ -1638,9 +2059,14 @@ data:
 
 
     def reconcile_gpu_compatibility(nodes, node_features, profiles, activation, crd_names):
+        global GPU_SHARING_STATE
+        GPU_SHARING_STATE = {}
         query = urllib.parse.urlencode({"labelSelector": GPU_VALIDATION_LABEL + "=true"})
         jobs = list_items(f"/apis/batch/v1/namespaces/{APPLIANCE_NAMESPACE}/jobs?{query}")
         pods = list_items(f"/api/v1/namespaces/{APPLIANCE_NAMESPACE}/pods?{query}")
+        if (((activation or {}).get("spec") or {}).get("parameters") or {}).get("gpuSharing"):
+            jobs += list_items(f"/apis/batch/v1/namespaces/ai/jobs?{query}")
+            pods += list_items(f"/api/v1/namespaces/ai/pods?{query}")
         result = gpu_compatibility_status(nodes, node_features, profiles, activation, jobs, pods)
         desired_jobs = {report.get("jobName") for item in result["nodes"] if item.get("eligible") and item.get("optedIn")
                         for report in item.get("validation", {}).values()}
@@ -1652,7 +2078,7 @@ data:
                 # cascade obsolete probes so their engine sidecars release GPU
                 # allocations; never grant this controller blanket Pod deletion.
                 delete_json(
-                    f"/apis/batch/v1/namespaces/{APPLIANCE_NAMESPACE}/jobs/" + urllib.parse.quote(name, safe=""),
+                    f"/apis/batch/v1/namespaces/" + urllib.parse.quote((job.get("metadata") or {}).get("namespace") or APPLIANCE_NAMESPACE, safe="") + "/jobs/" + urllib.parse.quote(name, safe=""),
                     {"apiVersion": "v1", "kind": "DeleteOptions", "propagationPolicy": "Background"},
                 )
             else:
@@ -1694,17 +2120,35 @@ data:
                      or annotations.get("meta.helm.sh/release-name") == "amd-gpu-operator-amd-gpu-operator")
             if current and not owned:
                 result["message"] = "Existing default DeviceConfig is not Magic Stick owned; it was not modified."
-            elif any(item["eligible"] for item in result["nodes"]):
-                apply_resource({"apiVersion": "amd.com/v1alpha1", "kind": "DeviceConfig", "metadata": {
+            elif (any(item["eligible"] for item in result["nodes"])
+                  or ((current or {}).get("spec", {}).get("draDriver") or {}).get("enable") is True
+                  or (activation.get("spec", {}).get("parameters") or {}).get("gpuSharing")):
+                dra_enabled = reconcile_gpu_sharing(nodes, result, activation, current)
+                result["sharing"] = dict(GPU_SHARING_STATE)
+                if dra_enabled is not None:
+                    apply_resource({"apiVersion": "amd.com/v1alpha1", "kind": "DeviceConfig", "metadata": {
                     "name": "default", "namespace": "amd-gpu-operator",
                     "annotations": {"appliance.magicstick.dev/managed-device-config": "true", "helm.sh/resource-policy": "keep"},
-                }, "spec": {"selector": {AMD_ELIGIBILITY_LABEL: "true"},
+                }, "spec": {"selector": ({"kubernetes.io/hostname": GPU_SHARING_STATE["nodeName"]}
+                                        if dra_enabled else {AMD_ELIGIBILITY_LABEL: "true"}),
                     "driver": {"enable": False, "blacklist": False},
-                    "devicePlugin": {"enableDevicePlugin": True, "enableNodeLabeller": True},
+                    "devicePlugin": {"enableDevicePlugin": not dra_enabled, "enableNodeLabeller": True},
                     "metricsExporter": {"enable": False}, "testRunner": {"enable": False},
-                    "configManager": {"enable": False}, "draDriver": {"enable": False}}})
+                    "configManager": {"enable": False}, "draDriver": {"enable": dra_enabled,
+                        **({"image": AMD_DRA_IMAGE, "cmdLineArguments": {"cdi-root": "/var/run/cdi"}} if dra_enabled else {})}}})
             elif current and owned:
                 delete_resource("amd.com", "v1alpha1", "deviceconfigs", "amd-gpu-operator", "default")
+        for node in nodes:
+            ready = (GPU_SHARING_STATE.get("mode") == "dra-shared" and GPU_SHARING_STATE.get("phase") == "Ready"
+                     and (node.get("metadata") or {}).get("uid") == GPU_SHARING_STATE.get("nodeUid"))
+            key = "appliance.magicstick.dev/amd-dra-ready"
+            value = "true" if ready else None
+            if node_labels(node).get(key) != value:
+                patch_json("/api/v1/nodes/" + urllib.parse.quote(node_name(node), safe=""), {"metadata": {"labels": {key: value}}})
+                if value:
+                    node.setdefault("metadata", {}).setdefault("labels", {})[key] = value
+                else:
+                    node_labels(node).pop(key, None)
         # A single probe at a time avoids self-contention and bounds GPU/RAM use.
         running = any(gpu_job_state(job) == "running" for job in jobs)
         for item in result["nodes"]:
@@ -1719,6 +2163,12 @@ data:
                 desired_job = gpu_validation_job(node, profile, engine, request_id, gpu_host_preflight(node), activation)
                 if any((j.get("metadata") or {}).get("name") == desired_job["metadata"]["name"] for j in jobs):
                     continue  # A completed job with missing evidence must not become an unbounded retry.
+                if desired_job["metadata"]["namespace"] != APPLIANCE_NAMESPACE:
+                    probe = get_core_resource("v1", "configmaps", APPLIANCE_NAMESPACE, "magicstick-gpu-validation") or {}
+                    if not probe.get("data"):
+                        continue
+                    apply_resource({"apiVersion": "v1", "kind": "ConfigMap", "metadata": {
+                        "name": "magicstick-gpu-validation", "namespace": desired_job["metadata"]["namespace"]}, "data": probe["data"]})
                 apply_resource(desired_job)
                 report["state"] = "running"
                 running = True
@@ -1789,6 +2239,8 @@ data:
                 supported = [node for node in compatible if node_name(node) in eligible_names]
             resource_names = [str(item) for item in hardware.get("resourceNames") or []]
             allocatable = extended_resource_capacity(supported if module == "amd-gpu" and compatibility is not None else compatible, resource_names)
+            if module == "amd-gpu" and GPU_SHARING_STATE.get("mode") == "dra-shared":
+                allocatable = int(GPU_SHARING_STATE.get("phase") == "Ready")
             activation = activations.get(module)
             activation_spec = (activation or {}).get("spec") or {}
             activation_metadata = (activation or {}).get("metadata") or {}
@@ -1893,6 +2345,8 @@ data:
                     },
                 ],
             }
+            if module == "gpu":
+                statuses[module]["sharing"] = dict(NVIDIA_SHARING_STATE)
             if module == "amd-gpu" and compatibility is not None:
                 statuses[module]["compatibility"] = compatibility
                 if compatibility.get("message"):
@@ -2637,6 +3091,7 @@ data:
                 "memoryArchitecture": runtime.get("memoryArchitecture", ""),
                 "sharedPoolId": runtime.get("sharedPoolId", ""),
                 "gpuAllocationMode": runtime.get("gpuAllocationMode", ""),
+                "gpuSharing": runtime.get("gpuSharing"),
                 "cpuOffloading": bool((runtime.get("offloading") or {}).get("enabled")),
                 "memoryUsage": runtime.get("memoryUsage"),
                 "message": message,
@@ -2665,6 +3120,7 @@ data:
                 memory_architecture=runtime.get("memoryArchitecture", ""),
                 shared_pool_id=runtime.get("sharedPoolId", ""),
                 gpu_allocation_mode=runtime.get("gpuAllocationMode", ""),
+                gpu_sharing=runtime.get("gpuSharing"),
             )
 
         if metadata.get("deletionTimestamp"):
@@ -2692,6 +3148,16 @@ data:
             message = "Unsupported model type: " + str(model_type)
             patch_status("Degraded", "UnsupportedType", message)
             return "Degraded", status_payload("Degraded", message)
+
+        if model_type == "local" and runtime["computeTarget"] == "amd-gpu" and GPU_SHARING_STATE.get("phase", "Ready") != "Ready":
+            message = GPU_SHARING_STATE.get("message") or "Waiting for AMD GPU allocation setup."
+            patch_status("Starting", "WaitingForGpuSharing", message, name)
+            return "Starting", status_payload("Starting", message, name)
+
+        if model_type == "local" and runtime["computeTarget"] == "nvidia-gpu" and NVIDIA_SHARING_STATE.get("managed") and NVIDIA_SHARING_STATE.get("phase") != "Ready":
+            message = NVIDIA_SHARING_STATE.get("message") or "Waiting for NVIDIA GPU allocation setup."
+            patch_status("Starting", "WaitingForGpuSharing", message, name)
+            return "Starting", status_payload("Starting", message, name)
 
         resource = None
         if model_type == "local":
@@ -2745,8 +3211,11 @@ data:
                 if runtime.get("memoryArchitecture") == "unified":
                     ensure_unified_memory_profile(runtime)
                     require_gpu_runtime(resource, runtime)
+                apply_dra_model_profile(resource, runtime)
             except ValueError as error:
                 message = str(error)
+                if runtime.get("computeTarget") == "amd-gpu" and GPU_SHARING_STATE.get("mode") == "dra-shared":
+                    delete_kubeai_model(name, namespace)
                 patch_status("Starting", "WaitingForUnifiedMemoryProfile", message, name)
                 return "Starting", status_payload("Starting", message, name)
             if not crd_exists("models.kubeai.org"):
@@ -2760,6 +3229,12 @@ data:
                     message = str(error)
                     patch_status("Starting", "WaitingForOffloadingProfile", message, name)
                     return "Starting", status_payload("Starting", message, name)
+            try:
+                apply_nvidia_sharing_profile(resource, runtime)
+            except ValueError as error:
+                delete_kubeai_model(name, namespace)
+                patch_status("Starting", "WaitingForGpuSharing", str(error), name)
+                return "Starting", status_payload("Starting", str(error), name)
             applied_model = apply_resource(resource)
             kubeai_model = get_resource("kubeai.org", "v1", "models", namespace, name) or applied_model
             ready_replicas, expected_replicas = kubeai_model_replica_counts(kubeai_model)
@@ -3401,6 +3876,7 @@ data:
             nodes, list_items("/apis/nfd.k8s-sigs.io/v1alpha1/nodefeatures"),
             compatibility_catalog, activations.get("amd-gpu"), crd_names,
         )
+        reconcile_nvidia_sharing(nodes, activations.get("gpu"))
         hardware_operator_statuses(
             catalog,
             activations,
@@ -3466,7 +3942,7 @@ data:
         reconcile_paperclip_tenant_namespaces(instances)
 
         model_statuses = {}
-        for model in models:
+        for model in sorted(models, key=lambda m: (m.get("metadata", {}).get("creationTimestamp", ""), m.get("metadata", {}).get("name", ""))):
             name = (model.get("metadata") or {}).get("name")
             phase, status = reconcile_model_activation(model, catalog, presets, compute_catalog)
             model_statuses[name] = status

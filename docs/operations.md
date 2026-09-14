@@ -751,6 +751,14 @@ For schema details and model troubleshooting, see
 
 ## Local Inference And Hardware-Driven GPU Operators
 
+Use [GPU sharing](gpu-sharing.md) for common management of optional AMD DRA and
+NVIDIA device-plugin time-slicing, provider-local transitions and rollback.
+NVIDIA status is in `hardwareOperators.gpu.sharing`; verify its selected
+`nvidia.com/device-plugin.config` label, device-plugin readiness and advertised
+slots. Its driver and ClusterPolicy are retained. In AMD DRA mode, check the actual
+`ResourceSlice`/`ResourceClaim` allocation instead of expecting `amd.com/gpu` on
+the node. Model slots are not additional physical GPUs or isolated VRAM quotas.
+
 Ubuntu package maintenance is under **System → Updates**. Daily security updates
 default to 03:00–05:00 UTC with no automatic restart; saved policy is preserved by
 host convergence. See [Ubuntu updates](ubuntu-updates.md) for held hardware

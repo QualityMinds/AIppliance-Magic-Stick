@@ -4,6 +4,38 @@ metadata:
   name: time-slicing-config
   namespace: gpu-operator
 data:
+  magicstick-exclusive: |-
+    {"version":"v1","flags":{"migStrategy":"none"}}
+  magicstick-shared-2: |-
+    {"version":"v1","flags":{"migStrategy":"none"},"sharing":{"timeSlicing":{"renameByDefault":false,"failRequestsGreaterThanOne":true,"resources":[{"name":"nvidia.com/gpu","replicas":2}]}}}
+  magicstick-shared-3: |-
+    {"version":"v1","flags":{"migStrategy":"none"},"sharing":{"timeSlicing":{"renameByDefault":false,"failRequestsGreaterThanOne":true,"resources":[{"name":"nvidia.com/gpu","replicas":3}]}}}
+  magicstick-shared-4: |-
+    {"version":"v1","flags":{"migStrategy":"none"},"sharing":{"timeSlicing":{"renameByDefault":false,"failRequestsGreaterThanOne":true,"resources":[{"name":"nvidia.com/gpu","replicas":4}]}}}
+  magicstick-shared-5: |-
+    {"version":"v1","flags":{"migStrategy":"none"},"sharing":{"timeSlicing":{"renameByDefault":false,"failRequestsGreaterThanOne":true,"resources":[{"name":"nvidia.com/gpu","replicas":5}]}}}
+  magicstick-shared-6: |-
+    {"version":"v1","flags":{"migStrategy":"none"},"sharing":{"timeSlicing":{"renameByDefault":false,"failRequestsGreaterThanOne":true,"resources":[{"name":"nvidia.com/gpu","replicas":6}]}}}
+  magicstick-shared-7: |-
+    {"version":"v1","flags":{"migStrategy":"none"},"sharing":{"timeSlicing":{"renameByDefault":false,"failRequestsGreaterThanOne":true,"resources":[{"name":"nvidia.com/gpu","replicas":7}]}}}
+  magicstick-shared-8: |-
+    {"version":"v1","flags":{"migStrategy":"none"},"sharing":{"timeSlicing":{"renameByDefault":false,"failRequestsGreaterThanOne":true,"resources":[{"name":"nvidia.com/gpu","replicas":8}]}}}
+  magicstick-shared-9: |-
+    {"version":"v1","flags":{"migStrategy":"none"},"sharing":{"timeSlicing":{"renameByDefault":false,"failRequestsGreaterThanOne":true,"resources":[{"name":"nvidia.com/gpu","replicas":9}]}}}
+  magicstick-shared-10: |-
+    {"version":"v1","flags":{"migStrategy":"none"},"sharing":{"timeSlicing":{"renameByDefault":false,"failRequestsGreaterThanOne":true,"resources":[{"name":"nvidia.com/gpu","replicas":10}]}}}
+  magicstick-shared-11: |-
+    {"version":"v1","flags":{"migStrategy":"none"},"sharing":{"timeSlicing":{"renameByDefault":false,"failRequestsGreaterThanOne":true,"resources":[{"name":"nvidia.com/gpu","replicas":11}]}}}
+  magicstick-shared-12: |-
+    {"version":"v1","flags":{"migStrategy":"none"},"sharing":{"timeSlicing":{"renameByDefault":false,"failRequestsGreaterThanOne":true,"resources":[{"name":"nvidia.com/gpu","replicas":12}]}}}
+  magicstick-shared-13: |-
+    {"version":"v1","flags":{"migStrategy":"none"},"sharing":{"timeSlicing":{"renameByDefault":false,"failRequestsGreaterThanOne":true,"resources":[{"name":"nvidia.com/gpu","replicas":13}]}}}
+  magicstick-shared-14: |-
+    {"version":"v1","flags":{"migStrategy":"none"},"sharing":{"timeSlicing":{"renameByDefault":false,"failRequestsGreaterThanOne":true,"resources":[{"name":"nvidia.com/gpu","replicas":14}]}}}
+  magicstick-shared-15: |-
+    {"version":"v1","flags":{"migStrategy":"none"},"sharing":{"timeSlicing":{"renameByDefault":false,"failRequestsGreaterThanOne":true,"resources":[{"name":"nvidia.com/gpu","replicas":15}]}}}
+  magicstick-shared-16: |-
+    {"version":"v1","flags":{"migStrategy":"none"},"sharing":{"timeSlicing":{"renameByDefault":false,"failRequestsGreaterThanOne":true,"resources":[{"name":"nvidia.com/gpu","replicas":16}]}}}
   any: |-
     version: v1
     flags:

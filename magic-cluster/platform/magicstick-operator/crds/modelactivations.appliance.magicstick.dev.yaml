@@ -265,6 +265,20 @@ spec:
                   type: object
                   x-kubernetes-preserve-unknown-fields: true
                   description: Engine-reported usage, separate from reservations. Missing values mean unknown, not zero.
+                gpuSharing:
+                  type: object
+                  nullable: true
+                  properties:
+                    mode:
+                      type: string
+                      enum: [dra-shared, time-slicing, exclusive]
+                    claimName:
+                      type: string
+                    node:
+                      type: string
+                    device:
+                      type: string
+                  description: Requested GPU sharing assignment; readiness confirms the model pod started with this allocation. Sharing does not isolate GPU memory.
                 message:
                   type: string
                 conditions:

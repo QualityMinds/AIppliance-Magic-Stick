@@ -14,7 +14,7 @@ The dashboard is also not an operator. It reads status and creates or patches
 | Magic Stick Dashboard | Reads `Appliance`, module catalog, Flux, Pod, Service, Ingress, HTTPRoute, and Event status; creates or patches runtime CRs only. |
 | Node Feature Discovery | Re-detects node hardware every 60 seconds and publishes the shared PCI-vendor and platform labels. |
 | NVIDIA GPU Operator | Owns NVIDIA driver, device-plugin, and `nvidia.com/gpu` publication after matching hardware is detected. |
-| AMD GPU Operator | Reconciles Magic Stick's separately managed `DeviceConfig` and publishes device-plugin resources; the portable baseline consumes the host/inbox `amdgpu` driver. |
+| AMD GPU Operator | Reconciles Magic Stick's separately managed `DeviceConfig`, using either its default device plugin or explicitly enabled DRA driver; both consume the host/inbox `amdgpu` driver. |
 | Intel Device Plugins Operator | Owns Intel GPU device-plugin resources on supported Intel GPU nodes; the kernel provides the host driver. |
 | OpenClaw Operator | Owns lifecycle of `OpenClawInstance` resources. |
 | Hermes Operator | Owns lifecycle of `HermesInstance` resources. |
@@ -164,8 +164,9 @@ The versioned `magicstick-gpu-compatibility-catalog` is separate from upstream
 vendor support. `ModuleActivation/amd-gpu` parameters select a profile and
 explicit experimental consent; `validationRequest` is a unique run identifier.
 Only administrators may change those parameters through the API. The initial
-Strix Halo profile is experimental, single-GPU-per-node and excludes mixed-card
-nodes. It is not a declaration that all AMD GPUs or both engines work.
+Strix Halo profile is experimental and requires exactly one matched AMD GPU;
+verified NVIDIA cards can coexist. Unknown mixtures retain the host safety
+checks. It is not a declaration that all AMD GPUs or both engines work.
 
 The host evidence timer publishes one sanitized Node annotation. The controller
 checks its UID, boot ID, kernel, fingerprint and timestamp before treating it as
@@ -197,6 +198,15 @@ readiness. See [GPU compatibility](gpu-compatibility.md) and
 [model reservations](model-catalog.md#amd-unified-memory-reservations).
 
 ### Module and model readiness
+
+Optional [AMD DRA sharing](gpu-sharing.md) replaces legacy allocation only after
+managed AMD models drain. The operator owns one shared claim, a narrowly scoped
+native admission adapter and bounded model admission; the AMD adapter leaves
+NVIDIA allocation unchanged. The same Hardware controls manage NVIDIA separately
+through named, shipped device-plugin time-slicing profiles and a per-node label.
+NVIDIA changes drain only NVIDIA models, retain the driver/ClusterPolicy and wait
+for confirmed advertised slots. Hardware inventory counts physical GPUs, not
+synthetic sharing slots.
 
 If an instance requires a module that is disabled, the MVP contract
 does not override the disabled module. The instance remains in

@@ -118,9 +118,16 @@ at `/var/lib/rancher/k3s/agent/etc/containerd/config-v3.toml.d/99-nvidia.toml`.
 The selected K3s 1.36.4 release imports this directory in its native v3 template,
 so no copied or frozen containerd config template is needed. Existing custom
 templates or older K3s versions must be reviewed for that import before upgrade.
-The Device Plugin / ClusterPolicy path stays enabled; DRA and the NRI plugin
+The NVIDIA Device Plugin / ClusterPolicy path stays enabled; NVIDIA DRA and the NRI plugin
 remain disabled. Shared NFD, AMD host-driver mode and Intel kernel-driver mode
 are unchanged.
+
+**System → Hardware → GPU sharing** manages NVIDIA exclusive/time-sliced
+allocation through `ModuleActivation/gpu.spec.parameters.gpuSharing` and the
+selected node's device-plugin configuration label. The static two-slot default
+is preserved until explicitly adopted. AMD uses the same management UI with
+its independent, experimental DRA backend. See [GPU sharing](gpu-sharing.md)
+for limits, model restarts, status and recovery.
 
 References: [NVIDIA 26.7 platform support](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/26.7/platform-support.html),
 [NVIDIA GPU deprecation schedule](https://forums.developer.nvidia.com/t/unix-graphics-feature-deprecation-schedule/60588),

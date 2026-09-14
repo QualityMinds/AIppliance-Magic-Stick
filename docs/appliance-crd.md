@@ -71,10 +71,19 @@ Additional GPU support is runtime intent, not an edit to `Appliance.spec`.
 | `compatibilityProfile` | Catalog profile ID, currently experimental `strix-halo`, or an empty string for upstream-only support. |
 | `allowExperimental` | Explicit `"true"` consent required for an experimental profile. |
 | `validationRequest` | Optional unique identifier explicitly requesting bounded, resource-consuming engine diagnostics. Empty by default; changing it requests a fresh run. Test outcomes never gate GPU availability. |
+| `gpuSharing` | Bounded JSON for `exclusive` or experimental `dra-shared`, selected node name/UID, namespace `ai`, 2–16 model slots and consent. Only the dedicated, revision-checked GPU-sharing API changes it; profile edits preserve it. |
 
 The API restricts these parameters to administrators; it accepts no arbitrary
 test image, script or node selector. Profile selection does not itself mean
 that a driver, GPU resource or inference engine is ready.
+
+`ModuleActivation/gpu.spec.parameters.gpuSharing` holds the independent NVIDIA
+configuration: `exclusive` or `time-slicing`, selected node name/UID, namespace
+`ai` and 2–16 shared slots. The common GPU-sharing API translates its public
+`exclusive`/`shared` modes into these provider-specific values. Missing settings
+preserve the existing NVIDIA device-plugin default. Hardware operator status
+`hardwareOperators.gpu.sharing` reports management, desired mode, observed phase,
+slot limit and admitted models. No NVIDIA DRA migration is implied.
 
 `Appliance.status.hardwareOperators.amd-gpu.compatibility` contains the selected
 profile, catalog profiles and per-node evidence including `profileId`,
@@ -83,6 +92,10 @@ profile, catalog profiles and per-node evidence including `profileId`,
 `resourceRegistered`, `hostFingerprint` and `hostBootId`. Per-engine `validation.OLlama` and
 `validation.VLLM` expose state, image/image ID, job, timestamps and reasons.
 Upstream support is reported distinctly from a locally passed validation.
+`compatibility.sharing` records the allocation transition and actual DRA device
+inventory. `ModelActivation.status.gpuSharing` records allocation mode and node,
+plus the shared claim and PCI device for AMD DRA. See [GPU sharing](gpu-sharing.md) for these optional
+contracts and their non-isolating memory semantics.
 `compatibility.validationRequired` is `false`. Host/driver and resource eligibility
 remain required; engine tests are advisory. `runtimeReady` describes adoption of
 the configured image by KubeAI, independently of a test's state. Boot/host/image

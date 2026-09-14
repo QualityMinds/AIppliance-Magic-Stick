@@ -5,3 +5,4 @@ resources:
   - helmrelease.yaml
   - offloading-profiles-configmap.yaml
   - vllm-wrapper-configmap.yaml
+  - gpu-sharing-rbac.yaml

@@ -342,7 +342,9 @@ never added. `sharedPools[].physicalMemoryMi` is Linux `MemTotal`, excluding
 firmware-reserved GPU RAM. `gpuAccessibleMi` is the dynamic mapping ceiling;
 `gpuCapacityMi` is the corroborated driver capacity used for GPU planning.
 
-The runtime requests exactly one `amd.com/gpu` and one Linux RAM request:
+The runtime requests one AMD GPU and one Linux RAM request. Exclusive mode uses
+`amd.com/gpu`; optional [DRA sharing](gpu-sharing.md) uses one shared claim while
+retaining the same RAM accounting and per-model planning budgets:
 
 - Firmware-reserved allocations: the greater of explicit host RAM and the
   engine baseline (4096 MiB Ollama, 8192 MiB vLLM), not the GPU weight budget.
@@ -366,6 +368,11 @@ Helm `valuesFrom`; upstream release pins remain the catalog defaults. See
 hardware acceptance boundaries.
 
 ### Explicit CPU offloading for NVIDIA models
+
+[GPU sharing](gpu-sharing.md) is independent of CPU offloading. Managed NVIDIA
+time-slicing/exclusive profiles keep the selected node, runtime and offloading
+RAM requests/limits while requesting one device-plugin allocation per model.
+Sharing slots do not create VRAM partitions or additional physical GPUs.
 
 The browser and TUI offer **Use additional system RAM** for a single NVIDIA
 GPU-backed vLLM or Ollama replica. It is opt-in, does not use disk swap or another

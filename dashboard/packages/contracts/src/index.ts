@@ -121,6 +121,7 @@ export interface KubernetesObjectMeta {
 }
 
 export interface StatusValue {
+  gpuSharing?: {mode: 'dra-shared' | 'time-slicing' | 'exclusive'; claimName?: string; node: string; device?: string} | null;
   phase?: string;
   message?: string;
   [key: string]: unknown;
@@ -505,6 +506,39 @@ export interface GpuValidationRequest {
   acknowledgeResourceUse: boolean;
 }
 
+export interface GpuSharingState {
+  provider: 'amd' | 'nvidia';
+  backend: 'dra' | 'time-slicing';
+  mode: 'exclusive' | 'shared';
+  managed: boolean;
+  experimental: boolean;
+  maxModels: number;
+  nodeName: string;
+  nodeUid: string;
+  namespace: string;
+  expectedRevision: string;
+  available: boolean;
+  reason: string;
+  phase: string;
+  message: string;
+  device?: {name: string; pool: string; pciAddress: string} | null;
+  claimName: string;
+  activeModels: number;
+  admittedModels: string[];
+  memoryIsolation: false;
+}
+
+export interface GpuSharingRequest {
+  provider: 'amd' | 'nvidia';
+  mode: 'exclusive' | 'shared';
+  maxModels: number;
+  nodeName: string;
+  nodeUid: string;
+  expectedRevision: string;
+  acknowledgeSharing: boolean;
+  acknowledgeRestart: boolean;
+}
+
 export interface HardwareOperator {
   module?: string;
   displayName?: string;
@@ -520,6 +554,9 @@ export interface HardwareOperator {
   allocatableResources?: number;
   message?: string;
   compatibility?: GpuCompatibility;
+  sharing?: {managed?: boolean; mode?: 'exclusive' | 'time-slicing'; phase?: string; message?: string;
+    nodeName?: string; nodeUid?: string; maxModels?: number; slotLimit?: number;
+    activeModels?: number; admittedModels?: string[]; memoryIsolation?: false};
 }
 
 export interface RouteStatus {

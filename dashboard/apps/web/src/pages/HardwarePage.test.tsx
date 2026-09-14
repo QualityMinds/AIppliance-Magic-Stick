@@ -2,7 +2,7 @@ import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {render, screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
-import type {GpuCompatibility, ManagedHost, Session} from '@magicstick/dashboard-contracts';
+import type {GpuCompatibility, GpuSharingState, ManagedHost, Session} from '@magicstick/dashboard-contracts';
 import {HardwarePage} from './HardwarePage';
 
 const session: Session = {subject: 'example', username: 'example', roles: ['magicstick-admin'], identityManagementAvailable: false, identityManagementMode: 'external'};
@@ -10,6 +10,7 @@ const profile = {id: 'strix-halo', displayName: 'AMD Strix Halo', version: '1', 
 const initial = (): GpuCompatibility => ({schemaVersion: 1, selectedProfile: '', allowExperimental: false, profiles: [profile], nodes: [{node: 'example-node', nodeUid: 'example-uid', profileId: 'strix-halo', optedIn: false, eligible: false, upstreamSupported: false, memoryArchitecture: 'unified', physicalMemoryMi: 65536, gpuAccessibleMi: 49152, memoryAccountingVerified: false, hostDriverReady: true, resourceRegistered: false, validation: {OLlama: {state: 'passed', image: 'example/ollama:1', message: 'GPU calculation passed.'}, VLLM: {state: 'failed', message: 'GPU calculation failed.'}}}]});
 let compatibility: GpuCompatibility;
 let host: ManagedHost;
+let sharing: GpuSharingState[];
 const writes: Array<{path: string; body: unknown}> = [];
 const mount = (roles = session.roles) => render(<QueryClientProvider client={new QueryClient({defaultOptions: {queries: {retry: false}, mutations: {retry: false}}})}><HardwarePage session={{...session, roles}} /></QueryClientProvider>);
 const openAdvanced = async () => {await userEvent.click(await screen.findByText('Advanced · AMD runtime profile'));};
@@ -23,11 +24,13 @@ describe('hardware compatibility', () => {
   beforeEach(() => {
     compatibility = initial();
     host = {name: 'example-node', nodeUid: 'example-uid', bootId: 'example-boot', kernel: '7.0-test', available: true, message: 'Host worker available.'};
+    sharing = [];
     writes.length = 0;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = new URL(String(input), window.location.origin).pathname;
       if (init?.method === 'POST') {writes.push({path, body: JSON.parse(String(init.body))}); return new Response('{}', {headers: {'content-type': 'application/json'}});}
       if (path === '/api/host-management') return new Response(JSON.stringify({nodes: [host]}), {headers: {'content-type': 'application/json'}});
+      if (path === '/api/hardware/gpu-sharing') return new Response(JSON.stringify({providers: sharing}), {headers: {'content-type': 'application/json'}});
       return new Response(JSON.stringify({hardwareOperators: {'amd-gpu': {displayName: 'AMD GPU Operator', phase: 'Degraded', allocatableResources: 0, compatibility}}}), {headers: {'content-type': 'application/json'}});
     }));
   });
@@ -40,6 +43,20 @@ describe('hardware compatibility', () => {
     await userEvent.click(screen.getByRole('checkbox', {name: /I accept the experimental/}));
     await userEvent.click(screen.getByRole('button', {name: 'Save hardware profile'}));
     await waitFor(() => expect(writes).toEqual([{path: '/api/modules/amd-gpu/enable', body: {parameters: {compatibilityProfile: 'strix-halo', allowExperimental: 'true'}}}]));
+  });
+
+  it('offers NVIDIA sharing on a host without AMD compatibility controls', async () => {
+    compatibility.nodes = [];
+    sharing = [{provider: 'nvidia', backend: 'time-slicing', mode: 'shared', managed: false, experimental: false,
+      maxModels: 2, nodeName: host.name, nodeUid: host.nodeUid, namespace: 'ai', expectedRevision: '7',
+      available: true, reason: '', phase: 'Ready', message: '', claimName: '', activeModels: 0, admittedModels: [], memoryIsolation: false}];
+    mount();
+    expect(await screen.findByLabelText('NVIDIA allocation mode')).toHaveValue('shared');
+    expect(screen.getByRole('region', {name: 'NVIDIA GPU sharing'})).toBeInTheDocument();
+    expect(screen.queryByText('Advanced · AMD runtime profile')).not.toBeInTheDocument();
+    expect(screen.queryByText('Not eligible')).not.toBeInTheDocument();
+    expect(screen.queryByText('Not recognized')).not.toBeInTheDocument();
+    expect(writes).toHaveLength(0);
   });
 
   it('keeps discovery, resource registration and each engine result separate', async () => {

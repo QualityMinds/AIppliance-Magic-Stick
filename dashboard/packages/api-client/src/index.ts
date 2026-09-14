@@ -12,6 +12,8 @@ import {
   type ManagedHost,
   type HostOperationRequest,
   type GpuValidationRequest,
+  type GpuSharingState,
+  type GpuSharingRequest,
   type InstanceAccessState,
   type InstanceSharing,
   type SharingPrincipal,
@@ -156,6 +158,12 @@ export class MagicStickApi {
   }
   requestGpuValidation(payload: GpuValidationRequest) {
     return this.request<{accepted: boolean; requestId: string}>('/api/hardware/validation', {
+      method: 'POST', body: JSON.stringify(payload),
+    });
+  }
+  gpuSharing() { return this.request<{providers: GpuSharingState[]}>('/api/hardware/gpu-sharing'); }
+  configureGpuSharing(payload: GpuSharingRequest) {
+    return this.request<{accepted: boolean; mode: string}>('/api/hardware/gpu-sharing', {
       method: 'POST', body: JSON.stringify(payload),
     });
   }

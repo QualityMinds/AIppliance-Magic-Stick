@@ -25,6 +25,7 @@ bootstrap plus runtime configuration through the dashboard and runtime CRs.
 | [gitops-overlays.md](gitops-overlays.md) | Optional GitOps include and overlay patterns for advanced deployments. |
 | [operations.md](operations.md) | Day-2 checks for Flux, K3s, apps, models, storage, GPU, logs, and common failures. |
 | [gpu-compatibility.md](gpu-compatibility.md) | Experimental GPU profiles, Strix Halo host evidence and explicit preparation, separate engine validation, and shared-memory safety boundaries. |
+| [gpu-sharing.md](gpu-sharing.md) | Common AMD DRA/NVIDIA time-slicing management, model slots, provider-local transitions, memory limitations and rollback. |
 | [host-management.md](host-management.md) | Shared post-install hardware preparation, bounded mixed-GPU experiments, administrator restart/shutdown, local Ansible worker and recovery. |
 | [model-catalog.md](model-catalog.md) | AI model catalog contract, external model schema, generated ConfigMap keys, and troubleshooting. |
 | [paperclip-agents.md](paperclip-agents.md) | Paperclip sandbox execution, gateway agents, model access, credentials, and network isolation. |

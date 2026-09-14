@@ -7,12 +7,13 @@ import {Button, ConfirmDialog, Empty, ErrorNotice, Field, Loading, Panel, Status
 import {HostMemoryControls, HostPreparation, useHosts} from './HostManagement';
 import {SharedMemoryOverview} from '../SharedMemoryOverview';
 import {InfoPopover} from '../InfoPopover';
+import {GpuSharingControls} from './GpuSharingControls';
 
 const stage = (ready?: boolean | null) => ready === true ? 'Ready' : ready === false ? 'Not ready' : 'Not verified';
 
 const HardwareNodeFacts = ({node, host}: {node: GpuCompatibilityNode; host?: ManagedHost}) => <>
     <div><dt>Profile</dt><dd>{node.profileId || 'Upstream rules'}{node.profileVersion ? ` · ${node.profileVersion}` : ''}</dd></div>
-    <div><dt>Upstream operator recognition</dt><dd>{node.upstreamSupported ? 'Recognized' : 'Not recognized'}</dd></div>
+    <div><dt>Upstream operator recognition</dt><dd>{node.upstreamSupported === true ? 'Recognized' : node.upstreamSupported === false ? 'Not recognized' : 'Not verified'}</dd></div>
     <div><dt>Architecture</dt><dd>{node.detectedArchitecture || 'Not verified'}{node.expectedArchitecture ? ` (expected ${node.expectedArchitecture})` : ''}</dd></div>
     <div><dt>Host driver</dt><dd>{stage(node.hostDriverReady)}</dd></div>
     <div><dt>Kubernetes GPU resource</dt><dd>{stage(node.resourceRegistered)}</dd></div>
@@ -20,8 +21,9 @@ const HardwareNodeFacts = ({node, host}: {node: GpuCompatibilityNode; host?: Man
 </>;
 
 const HardwareNode = ({node, host, compatibility, session, stale}: {node: GpuCompatibilityNode; host?: ManagedHost; compatibility?: GpuCompatibility; session: Session; stale: boolean}) => <article className="operator-card stack compact" aria-label={`GPU node ${node.node}`}>
-  <header><div className="inline-info"><strong>{node.node}</strong>{node.message && <InfoPopover label={`GPU on ${node.node}`}><p className="memory-info-note">{node.message}</p></InfoPopover>}</div><StatusBadge phase={node.eligible ? 'Eligible' : 'Not eligible'} /></header>
+  <header><div className="inline-info"><strong>{node.node}</strong>{node.message && <InfoPopover label={`GPU on ${node.node}`}><p className="memory-info-note">{node.message}</p></InfoPopover>}</div><StatusBadge phase={node.eligible === true ? 'Eligible' : node.eligible === false ? 'Not eligible' : 'Unknown'} /></header>
   {host ? <HostPreparation key={`${host.nodeUid}:${host.bootId}:${host.plan?.id}`} host={host} session={session} stale={stale} embedded leadingFacts={<HardwareNodeFacts node={node} host={host} />} /> : <dl className="facts"><HardwareNodeFacts node={node} /></dl>}
+  <GpuSharingControls nodeUid={node.nodeUid} session={session} />
   {compatibility && <details className="hardware-advanced"><summary>Advanced · AMD runtime profile</summary>
     {canAdminister(session) ? <ProfileControls key={`${compatibility.selectedProfile}:${compatibility.allowExperimental}`} compatibility={compatibility} /> : <div className="inline-info"><span>Current profile: {compatibility.selectedProfile || 'upstream rules'}</span><InfoPopover label="AMD runtime profile"><p className="memory-info-note">Administrator access is required to change profiles or run validation.</p></InfoPopover></div>}
   </details>}
@@ -100,6 +102,6 @@ export const HardwarePage = ({session}: {session: Session}) => {
   return <div className="stack">
     <div className="section-title"><div className="inline-info"><h2>Hardware</h2><InfoPopover label="Hardware"><p className="memory-info-note">GPUs are available when hardware and driver checks pass and Kubernetes registers the resource. Engine validation is optional.</p></InfoPopover></div><Button variant="ghost" onClick={() => query.refetch()}>Refresh hardware</Button></div>
     <Panel title="GPU operators"><div className="list">{operators.map(([id, operator]) => <article className="list-row" key={id}><div><div className="inline-info"><strong>{operator.displayName ?? id}</strong>{operator.message && <InfoPopover label={operator.displayName ?? id}><p className="memory-info-note">{operator.message}</p></InfoPopover>}</div><small className="muted">{operator.detectedNodes?.length ?? 0} nodes · {operator.allocatableResources ?? 0} GPU resources · {operator.operatorVersion ?? 'Version unknown'}</small></div><StatusBadge phase={operator.phase} /></article>)}</div>{!operators.length && <Empty>No hardware operator status reported.</Empty>}</Panel>
-    <Panel title="GPU nodes"><ErrorNotice error={hosts.error} />{hosts.isPending && <Loading />}{nodes.length ? <div className="stack">{nodes.map((node) => <HardwareNode key={node.nodeUid ?? node.node} node={node} compatibility={compatibility} session={session} stale={Boolean(hosts.error)} host={hosts.data?.nodes.find((host) => node.nodeUid ? node.nodeUid === host.nodeUid : node.node === host.name)} />)}</div> : !hosts.isPending && <Empty>No GPU nodes reported.</Empty>}</Panel>
+    <Panel title="GPU nodes"><ErrorNotice error={hosts.error} />{hosts.isPending && <Loading />}{nodes.length ? <div className="stack">{nodes.map((node) => <HardwareNode key={node.nodeUid ?? node.node} node={node} compatibility={compatibility?.nodes.some((item) => node.nodeUid ? item.nodeUid === node.nodeUid : item.node === node.node) ? compatibility : undefined} session={session} stale={Boolean(hosts.error)} host={hosts.data?.nodes.find((host) => node.nodeUid ? node.nodeUid === host.nodeUid : node.node === host.name)} />)}</div> : !hosts.isPending && <Empty>No GPU nodes reported.</Empty>}</Panel>
   </div>;
 };

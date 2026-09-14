@@ -141,6 +141,29 @@ Do not commit generated Kubernetes Secrets, Flux bootstrap token secrets, privat
   real model start on each GPU type claimed as supported. Record untested
   combinations rather than claiming whole-stack compatibility.
 
+## GPU sharing acceptance
+
+- Check native admission support on Kubernetes 1.36+, CDI injection, actual
+  `ResourceSlices`, PCI identity and a shared claim with two simultaneous Pod
+  consumers. Run real GPU computation and inference, not readiness alone.
+- Verify model-slot limits, retained RAM requests, no CPU fallback without the
+  admission adapter, and unchanged CPU/NVIDIA allocation.
+- Exercise both allocation transitions, preserving model activations/downloads
+  and waiting for claim release before stopping DRA. Confirm optional per-engine
+  validation works with the shared claim.
+- Check administrator/CSRF/revision/consent guards and hardware UI status.
+  Do not describe cooperative sharing as hard memory or tenant isolation.
+- For NVIDIA, verify inherited configuration is not automatically changed;
+  exercise exclusive/shared and slot-count changes through the Hardware UI.
+  Check actual device-plugin readiness, node configuration/replica labels and
+  allocatable slots. Run two real inference workloads concurrently.
+- Confirm NVIDIA transitions affect only NVIDIA models and preserve offloading
+  RAM requests/limits; AMD transitions affect only AMD models. On mixed hosts,
+  retain Strix Halo memory safety checks and leave NVIDIA VRAM management alone.
+- Check external NVIDIA plugin configurations, MIG, multiple physical GPUs,
+  node-identity changes and unmanaged workloads fail closed. Confirm physical
+  GPU inventory does not multiply devices by the time-slicing replica count.
+
 ## Review Questions
 
 - Does every public hostname use `example.local`, `example.com`, or a documented placeholder?

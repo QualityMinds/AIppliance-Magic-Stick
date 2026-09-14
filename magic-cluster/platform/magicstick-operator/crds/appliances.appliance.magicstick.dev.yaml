@@ -341,6 +341,10 @@ spec:
                         type: object
                         x-kubernetes-preserve-unknown-fields: true
                         description: Versioned GPU profiles, explicit runtime selection, fresh host evidence and independent per-engine GPU validation. Eligibility never implies a passed engine test.
+                      sharing:
+                        type: object
+                        x-kubernetes-preserve-unknown-fields: true
+                        description: Provider-local GPU allocation management, desired mode, transition phase, selected node and admitted models. Sharing slots are not physical devices or isolated memory partitions.
                       detectedNodes:
                         type: array
                         items:

@@ -30,6 +30,7 @@ digest, or chart version.
 | `vllm/vllm-openai-xpu:v0.26.0` | https://github.com/vllm-project/vllm | Intel XPU-backed local vLLM model serving through KubeAI | Referenced only |
 | `ollama/ollama:0.33.2` | https://github.com/ollama/ollama | CPU- and NVIDIA-backed local Ollama model serving through KubeAI | Referenced only |
 | `ollama/ollama:0.33.2-rocm` | https://github.com/ollama/ollama | AMD ROCm-backed local Ollama model serving through KubeAI | Referenced only |
+| `rocm/k8s-gpu-dra-driver:v1.0.1` | https://github.com/ROCm/k8s-gpu-dra-driver | Optional AMD Dynamic Resource Allocation and shared GPU claims | Referenced only |
 | `mintplexlabs/anythingllm:1.12.1` | https://github.com/Mintplex-Labs/anything-llm | AnythingLLM | Referenced only |
 | `qdrant/qdrant:v1.13.6` | https://github.com/qdrant/qdrant | Qdrant vector database | Referenced only |
 | `ghcr.io/paperclipai/paperclip:sha-df0e5bd` | https://github.com/paperclipai/paperclip | Paperclip `v2026.707.0` compatible runtime build | Referenced only |

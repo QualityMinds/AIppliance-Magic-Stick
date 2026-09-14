@@ -86,6 +86,61 @@ class GpuCompatibilityTests(unittest.TestCase):
     def job(self, engine="OLlama"):
         return self.controller["gpu_validation_job"](self.node, self.profile, engine, "test-1", self.host, self.activation)
 
+    def test_optional_validation_uses_shared_claim_without_cross_namespace_owner(self):
+        self.controller["GPU_SHARING_STATE"].update(mode="dra-shared", phase="Ready", namespace="ai", claimName="shared-test")
+        for engine in ("OLlama", "VLLM"):
+            job = self.job(engine)
+            self.assertEqual(job["metadata"]["namespace"], "ai")
+            self.assertNotIn("ownerReferences", job["metadata"])
+            pod = job["spec"]["template"]["spec"]
+            self.assertEqual(pod["resourceClaims"], [{"name": "gpu", "resourceClaimName": "shared-test"}])
+            resources = pod["initContainers"][0]["resources"]
+            self.assertEqual(resources["claims"], [{"name": "gpu"}])
+            self.assertNotIn("amd.com/gpu", resources["limits"])
+            self.assertNotIn("amd.com/gpu", resources["requests"])
+            self.assertFalse(pod["automountServiceAccountToken"])
+            self.assertNotIn("hostPath", json.dumps(pod))
+
+    def test_dra_driver_is_retained_if_host_evidence_is_lost_and_claim_consumers_need_it(self):
+        self.activation['spec']['parameters'].update(validationRequest='', gpuSharing=json.dumps({
+            'mode': 'dra-shared', 'nodeName': 'gpu-node', 'nodeUid': 'node-uid', 'namespace': 'ai',
+            'maxModels': 2, 'allowExperimental': True}))
+        self.change_host(generatedAt='2000-01-01T00:00:00Z')
+        current = {'metadata': {'annotations': {'appliance.magicstick.dev/managed-device-config': 'true'}},
+                   'spec': {'selector': {'kubernetes.io/hostname': 'gpu-node'}, 'draDriver': {'enable': True}}}
+        writes, deleted = [], []
+        with patch.dict(self.controller, {
+            'list_items': lambda _: [], 'get_core_resource': lambda *_: {'data': {}},
+            'get_resource': lambda *_: current, 'apply_resource': writes.append, 'patch_json': lambda *_: {},
+            'delete_resource': lambda *args: deleted.append(args),
+        }):
+            result = self.controller['reconcile_gpu_compatibility'](
+                [self.node], self.features, self.catalog, self.activation, {'deviceconfigs.amd.com'})
+        self.assertFalse(result['nodes'][0]['eligible'])
+        self.assertEqual(result['sharing']['phase'], 'Blocked')
+        self.assertEqual(writes, [])
+        self.assertEqual(deleted, [])
+
+    def test_dra_driver_selector_is_stable_while_eligibility_is_rechecked(self):
+        self.activation['spec']['parameters']['validationRequest'] = ''
+        writes = []
+
+        def sharing(*_):
+            self.controller['GPU_SHARING_STATE'].update(mode='dra-shared', phase='Switching', nodeName='gpu-node')
+            return True
+
+        with patch.dict(self.controller, {
+            'list_items': lambda _: [], 'get_core_resource': lambda *_: {'data': {}},
+            'get_resource': lambda *_: None, 'apply_resource': writes.append, 'patch_json': lambda *_: {},
+            'reconcile_gpu_sharing': sharing,
+        }):
+            self.controller['reconcile_gpu_compatibility'](
+                [self.node], self.features, self.catalog, self.activation, {'deviceconfigs.amd.com'})
+        device = next(item for item in writes if item['kind'] == 'DeviceConfig')
+        self.assertEqual(device['spec']['selector'], {'kubernetes.io/hostname': 'gpu-node'})
+        self.assertTrue(device['spec']['draDriver']['enable'])
+        self.assertFalse(device['spec']['devicePlugin']['enableDevicePlugin'])
+
     def completed_job(self, engine="OLlama"):
         job = self.job(engine)
         job["metadata"]["uid"] = "job-uid"

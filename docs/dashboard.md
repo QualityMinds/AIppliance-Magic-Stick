@@ -650,6 +650,14 @@ companies, employee agents, or gateway credentials.
 
 ## Hardware Compatibility Controls
 
+**System → Hardware → GPU nodes → GPU sharing** provides common exclusive/shared
+controls for experimental AMD DRA and NVIDIA device-plugin time-slicing, with
+independent model-slot limits and provider-specific restart confirmation.
+`GET/POST /api/hardware/gpu-sharing` exposes both providers' status and guarded
+configuration. See [GPU sharing](gpu-sharing.md) for its single-device-per-provider
+scope, transition, memory limitations and rollback. Inherited NVIDIA settings
+are not changed merely by opening the page.
+
 **System → Updates** manages automatic Ubuntu security updates, the UTC
 maintenance window, optional automatic restarts and manual package maintenance.
 It shows held/kernel/GPU packages and reboot requirements without automatically
@@ -824,8 +832,8 @@ Kubernetes reports its allocatable resource. Intel automatically resolves
 Ollama supports CPU, NVIDIA, and AMD; Intel is absent from the Ollama choices
 because no validated KubeAI/Ollama Intel profile is bundled.
 
-For an experimental AMD profile, the selected engine also needs current
-successful GPU validation. Upstream provider readiness and an allocatable
+For an experimental AMD profile, the selected engine needs current host evidence
+and an adopted runtime configuration; GPU validation remains optional. Upstream provider readiness and an allocatable
 resource alone do not satisfy that additional gate.
 
 Beside **Context Size**, the local form shows a **KV Cache** dropdown. Ollama

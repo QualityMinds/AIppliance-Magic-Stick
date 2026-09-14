@@ -2658,6 +2658,12 @@ data:
                     message = str(int(capacity)) + " allocatable " + str(definition.get("displayName") or target_id) + " resource(s) available."
 
             resolved_resource_profiles = {}
+            dra_nodes = [node for node in matching_nodes if target_id == "amd-gpu" and
+                         ((node.get("metadata") or {}).get("labels") or {}).get("appliance.magicstick.dev/amd-dra-ready") == "true"]
+            if dra_nodes and reason not in ("capability-provider-missing", "capability-module-disabled"):
+                available, reason = True, "ready"
+                message = "AMD DRA sharing is ready on " + str(len(dra_nodes)) + " GPU node(s)."
+                selected_resource_name = ""  # DRA is not an extended resource.
             for engine in engines:
                 engine_profile = target_engine_profile(definition, engine)
                 per_resource = engine_profile.get("resourceProfilesByResource") or {}
@@ -2679,6 +2685,8 @@ data:
                     str(((node.get("metadata") or {}).get("labels") or {}).get(key) or "") == str(value)
                     for key, value in selector.items()
                 )]
+                if dra_nodes:
+                    engine_nodes = [node for node in engine_nodes if node in dra_nodes]
                 engine_capacity = sum(
                     resource_quantity(((node.get("status") or {}).get("allocatable") or {}).get(selected_resource_name))
                     for node in engine_nodes
@@ -2801,6 +2809,13 @@ data:
             spec["parameters"] = dict(payload["parameters"])
             if module == "amd-gpu":
                 spec["parameters"] = validate_gpu_compatibility_parameters(spec["parameters"])
+            if module in ("amd-gpu", "gpu"):
+                if "gpuSharing" in payload["parameters"]:
+                    raise ValueError("Unsupported module parameter: use Hardware GPU sharing")
+                # Generic module/profile edits preserve independent sharing intent.
+                sharing = (((module_activation(module) or {}).get("spec") or {}).get("parameters") or {}).get("gpuSharing")
+                if sharing:
+                    spec["parameters"]["gpuSharing"] = sharing
         return {
             "apiVersion": f"{APPLIANCE_GROUP}/{APPLIANCE_VERSION}",
             "kind": "ModuleActivation",
@@ -2860,6 +2875,120 @@ data:
                 raise ValueError("Choose a GPU compatibility profile before requesting validation")
             result["validationRequest"] = validation
         return result
+
+
+    def nvidia_whole_gpu_available(node):
+        # A global MIG strategy is not evidence of active MIG partitions:
+        # non-MIG cards can report "single" with mig.capable=false.
+        labels = (node.get("metadata") or {}).get("labels") or {}
+        resources = {**((node.get("status") or {}).get("capacity") or {}),
+                     **((node.get("status") or {}).get("allocatable") or {})}
+        if (any(key.startswith("nvidia.com/mig-") and positive_int(value) for key, value in resources.items())
+                or "-MIG-" in str(labels.get("nvidia.com/gpu.product", "")).upper()
+                or positive_int(labels.get("nvidia.com/gpu.slices.gi"))
+                or positive_int(labels.get("nvidia.com/gpu.slices.ci"))):
+            return False
+        if (labels.get("nvidia.com/mig.config", "") not in ("", "all-disabled")
+                or labels.get("nvidia.com/mig.config.state", "") not in ("", "success")):
+            return False
+        strategy = labels.get("nvidia.com/mig.strategy", "none")
+        return strategy == "none" or strategy in ("single", "mixed") and (
+            labels.get("nvidia.com/mig.capable") == "false"
+            or labels.get("nvidia.com/mig.capable") == "true"
+            and labels.get("nvidia.com/mig.config") == "all-disabled"
+            and labels.get("nvidia.com/mig.config.state") == "success")
+
+
+    def gpu_sharing_status(provider="amd"):
+        module = {"amd": "amd-gpu", "nvidia": "gpu"}[provider]
+        activation = module_activation(module) or {}
+        metadata = activation.get("metadata") or {}
+        try:
+            config = json.loads(((activation.get("spec") or {}).get("parameters") or {}).get("gpuSharing") or '{}')
+            if not isinstance(config, dict):
+                config = {}
+        except (ValueError, TypeError):
+            config = {}
+        operator = (((appliance().get("status") or {}).get("hardwareOperators") or {}).get(module) or {})
+        compatibility = operator.get("compatibility") or {}
+        eligible = [n for n in compatibility.get("nodes", []) if n.get("eligible") and len(n.get("pciDevices") or []) == 1]
+        selected = eligible[0] if len(eligible) == 1 else {}
+        node = get_resource("/api/v1/nodes/" + urllib.parse.quote(selected["node"], safe="")) if selected.get("node") else {}
+        node = node or {}
+        version = str(((node.get("status") or {}).get("nodeInfo") or {}).get("kubeletVersion") or "")
+        match = re.match(r"v?(\d+)\.(\d+)", version)
+        supported = bool(match and tuple(map(int, match.groups())) >= (1, 36)
+                         and selected.get("nodeUid") == (node.get("metadata") or {}).get("uid"))
+        observed = compatibility.get("sharing") or {}
+        enabled = bool(activation and (activation.get("spec") or {}).get("enabled", True) is not False and not metadata.get("deletionTimestamp"))
+        available = enabled and supported and len(eligible) == 1
+        reason = "" if available else "DRA sharing requires one eligible AMD GPU on one ready Kubernetes 1.36+ node."
+        inherited_slots = 1
+        if provider == "nvidia":
+            candidates = [n for n in ready_schedulable_nodes() if positive_int((n.get("metadata", {}).get("labels") or {}).get("nvidia.com/gpu.count"))]
+            node = candidates[0] if len(candidates) == 1 else {}
+            labels = node.get("metadata", {}).get("labels") or {}
+            selected = {"node": node.get("metadata", {}).get("name", ""), "nodeUid": node.get("metadata", {}).get("uid", "")}
+            current_key = labels.get("nvidia.com/device-plugin.config", "")
+            available = bool(enabled and len(candidates) == 1 and positive_int(labels.get("nvidia.com/gpu.count")) == 1
+                             and nvidia_whole_gpu_available(node)
+                             and (current_key in ("", "any", "magicstick-exclusive") or re.fullmatch(r"magicstick-shared-(?:[2-9]|1[0-6])", current_key)))
+            inherited_slots = positive_int(labels.get("nvidia.com/gpu.replicas")) or positive_int((node.get("status", {}).get("allocatable") or {}).get("nvidia.com/gpu")) or 1
+            observed = operator.get("sharing") or {}
+            reason = "" if available else "Time-slicing management requires one ready NVIDIA GPU on one node, without MIG or an externally selected plugin configuration."
+        mode = config.get("mode", "time-slicing" if inherited_slots > 1 else "exclusive")
+        mode = "exclusive" if mode == "exclusive" else "shared"
+        phase = observed.get("phase", "Ready" if not config else "Starting")
+        if config and (observed.get("mode") != config.get("mode") or observed.get("maxModels") != config.get("maxModels")):
+            phase = "Starting"
+        return {"provider": provider, "backend": "dra" if provider == "amd" else "time-slicing", "mode": mode,
+                "managed": bool(config), "experimental": provider == "amd", "maxModels": config.get("maxModels", max(2, inherited_slots)),
+                "nodeName": selected.get("node") or config.get("nodeName", ""),
+                "nodeUid": selected.get("nodeUid") or config.get("nodeUid", ""),
+                "namespace": config.get("namespace", MODEL_TARGET_NAMESPACE),
+                "expectedRevision": metadata.get("resourceVersion", ""), "available": available,
+                "reason": reason,
+                "phase": phase,
+                "message": observed.get("message", ""), "device": observed.get("device"),
+                "claimName": observed.get("claimName", ""), "activeModels": observed.get("activeModels", 0),
+                "admittedModels": observed.get("admittedModels", []), "memoryIsolation": False}
+
+
+    def configure_gpu_sharing(payload):
+        _reject_unknown_fields(payload, {"provider", "mode", "maxModels", "nodeName", "nodeUid", "expectedRevision", "acknowledgeSharing", "acknowledgeRestart"})
+        provider = payload.get("provider")
+        if provider not in ("amd", "nvidia"):
+            raise ValueError("Choose AMD or NVIDIA GPU sharing")
+        mode = payload.get("mode")
+        if mode not in ("exclusive", "shared"):
+            raise ValueError("Choose exclusive or shared GPU allocation")
+        if payload.get("acknowledgeRestart") is not True:
+            raise ValueError("Acknowledge that the selected provider's model pods may restart")
+        count = payload.get("maxModels", 2)
+        if isinstance(count, bool) or not isinstance(count, int) or not 2 <= count <= 16:
+            raise ValueError("Choose between 2 and 16 simultaneous models")
+        state = gpu_sharing_status(provider)
+        if not state["expectedRevision"] or payload.get("expectedRevision") != state["expectedRevision"]:
+            raise RequestError(409, "GPU settings changed; refresh Hardware and retry")
+        if mode == "shared":
+            if payload.get("acknowledgeSharing") is not True:
+                raise ValueError("Acknowledge shared GPU use without isolated memory limits")
+            if not state["available"] or payload.get("nodeUid") != state["nodeUid"] or payload.get("nodeName") != state["nodeName"]:
+                raise RequestError(409, state["reason"] or "GPU identity changed; refresh Hardware and retry")
+        # Exclusive recovery is still identity-bound for NVIDIA's node-local label.
+        if provider == "nvidia" and (payload.get("nodeUid") != state["nodeUid"] or payload.get("nodeName") != state["nodeName"]):
+            raise RequestError(409, "GPU identity changed; refresh Hardware and retry")
+        backend_mode = "exclusive" if mode == "exclusive" else "dra-shared" if provider == "amd" else "time-slicing"
+        config = {"mode": backend_mode, "maxModels": count, "nodeName": state["nodeName"], "nodeUid": state["nodeUid"],
+                  "namespace": MODEL_TARGET_NAMESPACE, "allowExperimental": provider == "amd" and mode == "shared"}
+        parameters = {"gpuSharing": json.dumps(config, sort_keys=True)}
+        if provider == "amd":
+            parameters["validationRequest"] = ""
+        module = "amd-gpu" if provider == "amd" else "gpu"
+        request_json("PATCH", f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/moduleactivations/{module}",
+                     {"metadata": {"resourceVersion": state["expectedRevision"]},
+                      "spec": {"parameters": parameters}}, "application/merge-patch+json")
+        return {"accepted": True, "provider": provider, "mode": mode}
 
 
     def request_gpu_engine_validation(payload):
@@ -6111,6 +6240,16 @@ data:
                 status = node.get("status") or {}
                 capacity = status.get("capacity") or status.get("allocatable") or {}
                 count = int(sum(resource_quantity(capacity.get(name)) for name in resource_names))
+                if target_id == "nvidia-gpu":
+                    labels = (node.get("metadata") or {}).get("labels") or {}
+                    physical = positive_int(labels.get("nvidia.com/gpu.count"))
+                    replicas = positive_int(labels.get("nvidia.com/gpu.replicas"))
+                    if physical:
+                        count = physical
+                    elif replicas:
+                        count //= replicas
+                if target_id == "amd-gpu" and ((node.get("metadata") or {}).get("labels") or {}).get("appliance.magicstick.dev/amd-dra-ready") == "true":
+                    count = 1
                 node_name = str((node.get("metadata") or {}).get("name") or "")
                 for _index in range(max(0, min(count, 32))):
                     slot += 1
@@ -7219,6 +7358,8 @@ data:
                     self.send_json(model_discovery_artifacts(query))
                 elif path == "/api/status":
                     self.send_json(instance_scoped_response("status", status_payload(), principal))
+                elif path == "/api/hardware/gpu-sharing":
+                    self.send_json({"providers": [gpu_sharing_status(provider) for provider in ("amd", "nvidia")]})
                 elif path == "/api/settings":
                     self.send_json(settings_response())
                 elif path == "/api/events":
@@ -7321,6 +7462,11 @@ data:
                     self.require_access("admin")
                     validate_dashboard_mutation_request(self)
                     self.send_json(request_gpu_engine_validation(read_body(self)), 202)
+                    return
+                if path == "/api/hardware/gpu-sharing":
+                    self.require_access("admin")
+                    validate_dashboard_mutation_request(self)
+                    self.send_json(configure_gpu_sharing(read_body(self)), 202)
                     return
                 if path == "/api/api-access":
                     self.require_access("admin")
