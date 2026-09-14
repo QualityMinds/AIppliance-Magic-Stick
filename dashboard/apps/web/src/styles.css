@@ -114,7 +114,7 @@ footer { padding: 1.1rem; color: #8798b2; text-align: center; font-size: .8rem; 
 .gauge-track { stroke: #202d41; }
 .gauge-track-unknown { stroke: #41516a; stroke-dasharray: 1 3; }
 .gauge-progress { stroke: currentColor; }
-.gauge-slot { fill: none; stroke: #41516a; stroke-width: 7; stroke-linecap: round; }
+.gauge-slot { fill: none; stroke: #41516a; stroke-width: 7; stroke-linecap: butt; }
 .gauge-slot[data-slot="free"] { stroke: #f3bd68; }
 .gauge-slot-legend { display: flex; align-items: center; gap: .35rem; font-size: .75rem; color: var(--muted); }
 .gauge-slot-legend > i { width: 6px; height: 6px; border-radius: 50%; background: #f3bd68; }
