@@ -232,7 +232,12 @@ Normal phases are `NotRequired`, `Detected`, `Installing`, `Ready`, and
 `Degraded`. A provider is not `Ready` merely because its controller Deployment
 exists: an allocatable extended resource must be present on a compatible node.
 
-After the KubeAI `Model` is created, its `ModelActivation` remains in
+After the KubeAI `Model` is created, its `ModelActivation` is `WaitingForPod`
+until a non-terminating model Pod exists. A persisted `status.podCreation`
+timer marks it `Degraded` / `ModelPodCreationStalled` after two minutes without
+a Pod, while reconciliation continues. New desired configuration or model
+identity resets the timer; an existing Pod clears it, even during a long image
+pull or model download. Once a Pod exists, the activation remains in
 `Starting` while `status.replicas.ready` is zero. The operator reports the
 current ready-replica count and selected engine in the status message. Local
 models always report `status.requestedKvCacheType`, but

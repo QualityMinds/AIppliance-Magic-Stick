@@ -281,6 +281,16 @@ spec:
                   description: Requested GPU sharing assignment; readiness confirms the model pod started with this allocation. Sharing does not isolate GPU memory.
                 message:
                   type: string
+                podCreation:
+                  type: object
+                  nullable: true
+                  description: Persistent no-Pod timer, reset for a new model or desired configuration and cleared once a Pod exists.
+                  properties:
+                    revision:
+                      type: string
+                    since:
+                      type: string
+                      format: date-time
                 conditions:
                   type: array
                   items:

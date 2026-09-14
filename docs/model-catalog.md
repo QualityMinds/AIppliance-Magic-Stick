@@ -104,6 +104,12 @@ name exists as an Ollama alias on every Ready model pod. This prevents a
 KubeAI-ready pod from publishing a LiteLLM entry that still returns `404 model
 not found`.
 
+Before any model Pod exists, an activation reports `WaitingForPod`, not runtime
+startup. Two minutes without a Pod produces `Degraded` /
+`ModelPodCreationStalled`; the controller keeps retrying and recovers when a
+Pod appears. Existing Pods can download models or initialize without this
+no-Pod timeout. See [model readiness](operator-orchestration.md#module-and-model-readiness).
+
 ## Compute Targets And Bundled Local Presets
 
 The dashboard reads its local model choices from

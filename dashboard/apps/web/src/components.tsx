@@ -49,9 +49,12 @@ export const Loading = () => <div className="loading" aria-live="polite">Loading
 
 export const ProgressBar = ({phase, enabled = true, message}: {phase?: string; enabled?: boolean; message?: string}) => {
   const progress = progressForPhase(phase, enabled, message);
-  return <div className={`progress progress-${progress.tone}`} aria-label={`${progress.label}: ${progress.value}%`}>
-    <div className="progress-label"><span>{progress.label}</span><span>{progress.value}%</span></div>
-    <div className="progress-track"><span style={{width: `${progress.value}%`}} /></div>
+  const showPercentage = !progress.indeterminate && progress.tone !== 'bad';
+  return <div className={`progress progress-${progress.tone}${progress.indeterminate ? ' progress-indeterminate' : ''}`} role="progressbar"
+    aria-label={showPercentage ? `${progress.label}: ${progress.value}%` : progress.label}
+    aria-valuemin={0} aria-valuemax={100} aria-valuenow={showPercentage ? progress.value : undefined}>
+    <div className="progress-label"><span>{progress.label}</span>{showPercentage && <span>{progress.value}%</span>}</div>
+    <div className="progress-track"><span style={{width: progress.indeterminate ? '35%' : `${progress.value}%`}} /></div>
   </div>;
 };
 

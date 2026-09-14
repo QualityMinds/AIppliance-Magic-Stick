@@ -441,10 +441,17 @@ spec:
 ```
 
 For a local activation, `status.phase: Starting` means that its KubeAI `Model`
-exists but `status.replicas.ready` is still zero. The local activation becomes
+and a non-terminating model Pod exist but `status.replicas.ready` is still zero.
+Without a Pod, the phase is `WaitingForPod`, then `Degraded` with reason
+`ModelPodCreationStalled` after two minutes. `status.podCreation` stores `since`
+and a `revision` bound to model UID/generation and activation generation so the
+timer survives controller restarts without penalizing a changed configuration.
+It is cleared once a Pod exists. Reconciliation continues and automatically
+recovers; there is no time limit on image/model downloads in an existing Pod.
+The local activation becomes
 `Ready` only after at least one vLLM or Ollama replica is ready and the generated model
 catalog contains the model. If the ready replica disappears, the phase returns
-to `Starting` and the model is withdrawn from the routable catalog. External
+to `Starting` or the no-Pod states above and the model is withdrawn from the routable catalog. External
 activations keep their catalog-based readiness behavior.
 
 ## Status

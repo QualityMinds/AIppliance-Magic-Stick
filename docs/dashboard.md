@@ -594,6 +594,8 @@ Progress is phase-based. The dashboard maps existing status phases such as
 `Disabled`, `WaitingForModules`, `Starting`, `Reconciling`, `Removing`, `Ready`, and
 `Degraded` to visual progress states. These percentages are orientation hints,
 not scheduler- or operator-reported completion percentages.
+Model Pod creation and runtime startup use indeterminate progress without a
+percentage; failures also do not display a completion percentage.
 
 Instances are runtime requests stored as `AppInstance` resources in namespace
 `ai-system`. The dashboard shows create controls only for instance types whose
@@ -1098,7 +1100,12 @@ operational GPU before the Models screen can observe the device.
 Catalog-only models are read-only in the Models screen. Remove actions are shown
 only for `ModelActivation` rows that the dashboard can delete.
 
-A local model is shown as `Starting` until KubeAI reports a ready vLLM or Ollama replica.
+A local model first shows `WaitingForPod` while no model Pod exists. After two
+minutes without a Pod it becomes `Degraded` with reason `ModelPodCreationStalled`,
+and a hint to inspect KubeAI/controller admission errors. Retries continue;
+the status recovers automatically when a Pod appears. This timeout does not
+apply to downloads or engine startup in an existing Pod.
+A local model with a Pod is shown as `Starting` until KubeAI reports a ready vLLM or Ollama replica.
 The status message includes the ready-replica count, for example `0/1 replicas
 ready`. `Ready` therefore means both that the local runtime is serving its
 health endpoint and that the generated catalog has published the model.

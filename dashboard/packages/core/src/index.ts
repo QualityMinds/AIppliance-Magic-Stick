@@ -44,7 +44,7 @@ export const phaseTone = (phase?: string) => {
   const normalized = String(phase ?? '').toLowerCase();
   if (['ready', 'active', 'enabled', 'completed', 'succeeded', 'registered', 'accepted', 'configured'].includes(normalized)) return 'good';
   if (['failed', 'error', 'degraded'].includes(normalized)) return 'bad';
-  if (['installing', 'starting', 'reconciling', 'pending', 'progressing'].includes(normalized)) return 'warn';
+  if (['installing', 'starting', 'waitingforpod', 'reconciling', 'pending', 'progressing'].includes(normalized)) return 'warn';
   return 'neutral';
 };
 
@@ -52,11 +52,12 @@ export interface ProgressState {
   value: number;
   label: string;
   tone: 'good' | 'warn' | 'bad' | 'neutral';
+  indeterminate?: boolean;
 }
 
 export const phaseInProgress = (phase?: string) => [
   'requested', 'detected', 'installing', 'waitingformodules', 'waitingforcrds',
-  'waitingforgpu', 'starting', 'reconciling', 'removing', 'progressing',
+  'waitingforgpu', 'waitingforpod', 'starting', 'reconciling', 'removing', 'progressing',
 ].includes(String(phase ?? '').toLowerCase());
 
 export const phaseNeedsAttention = (phase?: string) => {
@@ -87,7 +88,8 @@ export const progressForPhase = (phase?: string, enabled = true, message = ''): 
   if (normalized === 'waitingformodules') return {value: 35, label: 'Waiting for dependencies', tone: 'warn'};
   if (normalized === 'waitingforcrds') return {value: 45, label: 'Waiting for CRDs', tone: 'warn'};
   if (normalized === 'waitingforgpu') return {value: 55, label: 'Waiting for GPU', tone: 'warn'};
-  if (normalized === 'starting') return {value: 85, label: 'Starting model runtime', tone: 'warn'};
+  if (normalized === 'waitingforpod') return {value: 0, label: 'Waiting for model Pod', tone: 'warn', indeterminate: true};
+  if (normalized === 'starting') return {value: 85, label: 'Starting model runtime', tone: 'warn', indeterminate: true};
   if (normalized === 'reconciling') return {value: 70, label: 'Reconciling', tone: 'warn'};
   if (normalized === 'removing') return {value: 65, label: 'Removing', tone: 'warn'};
   if (['degraded', 'failed', 'error', 'unsupported', 'conflict'].includes(normalized)) {

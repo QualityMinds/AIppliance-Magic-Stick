@@ -104,6 +104,10 @@ and selected node. A native, fail-closed admission policy attaches the claim onl
 to marked AMD model Pods created by the KubeAI controller. An unadvertised
 sentinel resource prevents CPU fallback if that adapter is absent. Neither CPU
 nor NVIDIA profiles are rewritten by the AMD adapter.
+The JSON patch uses plain JSON maps for claim-array values. Typed CEL objects
+inside those arrays can trigger a conversion panic in the Kubernetes 1.36 API
+server before a Pod is stored. Validate the adapter with a server-side dry run
+as the KubeAI ServiceAccount; checking policy creation alone is insufficient.
 
 Optional Ollama/vLLM validation uses the same shared claim in `ai`, without
 privileged workloads or GPU host-path mounts. Validation is manually requested

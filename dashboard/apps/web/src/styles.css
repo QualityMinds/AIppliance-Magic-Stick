@@ -236,6 +236,9 @@ select option:disabled { color: var(--muted); }
 .progress-good .progress-track span { background: linear-gradient(90deg, #2a9568, var(--green)); }
 .progress-warn .progress-track span { background: linear-gradient(90deg, #8c6c20, var(--yellow)); }
 .progress-bad .progress-track span { background: linear-gradient(90deg, #99465b, var(--red)); }
+.progress-indeterminate .progress-track span { animation: progress-wait 1.8s ease-in-out infinite alternate; }
+@keyframes progress-wait { from { transform: translateX(0); } to { transform: translateX(185%); } }
+@media (prefers-reduced-motion: reduce) { .progress-indeterminate .progress-track span { animation: none; width: 100% !important; opacity: .5; } }
 
 .resource-links { display: flex; flex-wrap: wrap; min-width: 0; gap: .45rem; margin-top: .7rem; }
 .resource-link { display: inline-flex; align-items: center; gap: .45rem; min-width: 0; max-width: 100%; padding: .25rem .3rem .25rem .55rem; border: 1px solid #304966; border-radius: 999px; background: #07101e; }

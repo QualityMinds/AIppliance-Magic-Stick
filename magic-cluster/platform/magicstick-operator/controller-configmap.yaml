@@ -59,6 +59,7 @@ data:
     DEFAULT_VLLM_CPU_MEMORY_MI = 4096
     DEFAULT_OLLAMA_CPU_MEMORY_MI = 2048
     OLLAMA_MODEL_API_TIMEOUT_SECONDS = 5
+    MODEL_POD_CREATION_TIMEOUT_SECONDS = 120
     PLURALS = {
         ("appliance.magicstick.dev", "ModuleActivation"): "moduleactivations",
         ("appliance.magicstick.dev", "AppInstance"): "appinstances",
@@ -1005,6 +1006,7 @@ data:
         shared_pool_id="",
         gpu_allocation_mode="",
         gpu_sharing=None,
+        pod_creation=None,
     ):
         metadata = activation.get("metadata") or {}
         path = f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{metadata.get('namespace')}/modelactivations/{metadata.get('name')}/status"
@@ -1029,6 +1031,7 @@ data:
             "sharedPoolId": shared_pool_id,
             "gpuAllocationMode": gpu_allocation_mode,
             "gpuSharing": gpu_sharing,
+            "podCreation": pod_creation,
             "message": message,
             "conditions": [condition("True" if phase in ("Ready", "Disabled") else "False", reason, message, generation)],
         }})
@@ -1487,6 +1490,8 @@ data:
         # KubeAI 0.23 has only global pod patches. A native, narrowly scoped
         # admission policy adapts marked AMD model pods, not CPU/NVIDIA pods.
         # The unadvertised sentinel keeps pods Pending if the adapter is absent.
+        # JSON map values avoid the CEL typed-object-in-list conversion panic
+        # in Kubernetes 1.36; keep both claim arrays JSON-native.
         match = {"resourceRules": [{"apiGroups": [""], "apiVersions": ["v1"],
                                    "operations": ["CREATE"], "resources": ["pods"]}],
                  "objectSelector": {"matchLabels": {"app.kubernetes.io/managed-by": "kubeai",
@@ -1501,8 +1506,8 @@ data:
                 ],
                 "variables": [{"name": "claim", "expression": "object.spec.containers[0].env.filter(e, e.name == 'MAGICSTICK_DRA_CLAIM' && has(e.value) && e.value.matches('^magicstick-amd-shared-[a-f0-9]{20}$'))[0].value"}],
                 "mutations": [{"patchType": "JSONPatch", "jsonPatch": {"expression": """[
-                    JSONPatch{op: 'add', path: '/spec/resourceClaims', value: [Object.spec.resourceClaims{name: 'gpu', resourceClaimName: variables.claim}]},
-                    JSONPatch{op: 'add', path: '/spec/containers/0/resources/claims', value: [Object.spec.containers.resources.claims{name: 'gpu'}]},
+                    JSONPatch{op: 'add', path: '/spec/resourceClaims', value: [{'name': 'gpu', 'resourceClaimName': variables.claim}]},
+                    JSONPatch{op: 'add', path: '/spec/containers/0/resources/claims', value: [{'name': 'gpu'}]},
                     JSONPatch{op: 'remove', path: '/spec/containers/0/resources/requests/appliance.magicstick.dev~1amd-dra'},
                     JSONPatch{op: 'remove', path: '/spec/containers/0/resources/limits/appliance.magicstick.dev~1amd-dra'}
                 ]"""}}],
@@ -2772,6 +2777,40 @@ data:
         )
 
 
+    def model_pod_creation_status(activation, model, namespace, model_name):
+        """Separate absent Pods from slow downloads/startup; persist a retry timer."""
+        selector = urllib.parse.urlencode({"labelSelector": "app=model,model=" + model_name})
+        pods = list_items(f"/api/v1/namespaces/{namespace}/pods?{selector}")
+        metadata = model.get("metadata") or {}
+        uid = metadata.get("uid") or ""
+        for pod in pods:
+            pod_metadata = pod.get("metadata") or {}
+            if pod_metadata.get("deletionTimestamp"):
+                continue
+            owners = [owner for owner in pod_metadata.get("ownerReferences") or [] if owner.get("kind") == "Model"]
+            if uid and owners and not any(owner.get("uid") == uid for owner in owners):
+                continue
+            return None, None
+        revision = ":".join(str(value) for value in (
+            uid, metadata.get("generation", 0), (activation.get("metadata") or {}).get("generation", 0)))
+        current = datetime.fromisoformat(now().replace("Z", "+00:00"))
+        previous = (activation.get("status") or {}).get("podCreation") or {}
+        since = current
+        if previous.get("revision") == revision:
+            try:
+                parsed = datetime.fromisoformat(str(previous.get("since", "")).replace("Z", "+00:00"))
+                if parsed.tzinfo is not None and parsed <= current:
+                    since = parsed
+            except ValueError:
+                pass
+        tracker = {"revision": revision, "since": since.isoformat().replace("+00:00", "Z")}
+        if (current - since).total_seconds() >= MODEL_POD_CREATION_TIMEOUT_SECONDS:
+            return tracker, ("Degraded", "ModelPodCreationStalled",
+                "No model Pod was created within 2 minutes. Check the KubeAI controller logs and Kubernetes admission errors. Retrying automatically.")
+        return tracker, ("WaitingForPod", "WaitingForModelPod",
+            "Waiting for KubeAI to create the model Pod; the inference runtime has not started yet.")
+
+
     def model_pod_endpoints(namespace, model_name):
         selector = urllib.parse.urlencode({"labelSelector": "app=model,model=" + model_name})
         pods = list_items(f"/api/v1/namespaces/{namespace}/pods?{selector}")
@@ -3092,6 +3131,7 @@ data:
                 "sharedPoolId": runtime.get("sharedPoolId", ""),
                 "gpuAllocationMode": runtime.get("gpuAllocationMode", ""),
                 "gpuSharing": runtime.get("gpuSharing"),
+                "podCreation": runtime.get("podCreation"),
                 "cpuOffloading": bool((runtime.get("offloading") or {}).get("enabled")),
                 "memoryUsage": runtime.get("memoryUsage"),
                 "message": message,
@@ -3121,6 +3161,7 @@ data:
                 shared_pool_id=runtime.get("sharedPoolId", ""),
                 gpu_allocation_mode=runtime.get("gpuAllocationMode", ""),
                 gpu_sharing=runtime.get("gpuSharing"),
+                pod_creation=runtime.get("podCreation"),
             )
 
         if metadata.get("deletionTimestamp"):
@@ -3239,6 +3280,11 @@ data:
             kubeai_model = get_resource("kubeai.org", "v1", "models", namespace, name) or applied_model
             ready_replicas, expected_replicas = kubeai_model_replica_counts(kubeai_model)
             if ready_replicas < 1:
+                runtime["podCreation"], pod_wait = model_pod_creation_status(activation, kubeai_model, namespace, name)
+                if pod_wait:
+                    phase, reason, message = pod_wait
+                    patch_status(phase, reason, message, name)
+                    return phase, status_payload(phase, message, name)
                 message = f"Waiting for KubeAI/{runtime['engine']} on {runtime['computeTarget']} to become ready: {ready_replicas}/{expected_replicas} replicas ready."
                 patch_status("Starting", "WaitingForReadyReplica", message, name)
                 return "Starting", status_payload("Starting", message, name)

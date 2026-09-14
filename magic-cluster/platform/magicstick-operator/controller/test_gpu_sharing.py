@@ -164,6 +164,15 @@ class GpuSharingTests(unittest.TestCase):
         self.c['apply_dra_model_profile'](model, {'computeTarget': 'nvidia-gpu'})
         self.assertEqual(model, original)
 
+    def test_native_adapter_uses_json_maps_not_typed_object_lists(self):
+        policy, _ = self.c['dra_admission_resources']()
+        expression = policy['spec']['mutations'][0]['jsonPatch']['expression']
+        self.assertNotIn('Object.', expression)
+        self.assertIn("value: [{'name': 'gpu', 'resourceClaimName': variables.claim}]", expression)
+        self.assertIn("value: [{'name': 'gpu'}]", expression)
+        self.assertIn("op: 'remove', path: '/spec/containers/0/resources/requests/appliance.magicstick.dev~1amd-dra'", expression)
+        self.assertIn("op: 'remove', path: '/spec/containers/0/resources/limits/appliance.magicstick.dev~1amd-dra'", expression)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -1525,6 +1525,7 @@ class HelmAppInstanceTests(unittest.TestCase):
             "get_resource",
             "catalog_contains_model",
             "patch_model_status",
+            "list_items",
         )
         originals = {name: self.controller[name] for name in names}
         statuses = []
@@ -1553,6 +1554,7 @@ class HelmAppInstanceTests(unittest.TestCase):
             "an unready KubeAI model must not be accepted from the catalog"
         )
         self.controller["patch_model_status"] = lambda *args, **kwargs: statuses.append((args, kwargs))
+        self.controller["list_items"] = lambda _path: [{"metadata": {"name": "model-local-chat-example"}, "status": {"phase": "Pending"}}]
         activation = {
             "metadata": {"name": "local-chat", "namespace": "ai-system", "generation": 1},
             "spec": {"type": "local", "targetNamespace": "ai", "local": {}},
