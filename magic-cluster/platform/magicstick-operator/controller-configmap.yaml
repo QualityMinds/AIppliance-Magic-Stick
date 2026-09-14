@@ -1491,7 +1491,8 @@ data:
         # admission policy adapts marked AMD model pods, not CPU/NVIDIA pods.
         # The unadvertised sentinel keeps pods Pending if the adapter is absent.
         # JSON map values avoid the CEL typed-object-in-list conversion panic
-        # in Kubernetes 1.36; keep both claim arrays JSON-native.
+        # in Kubernetes 1.36; keep both claim arrays JSON-native and explicitly
+        # type the composed claim variable for CEL's homogeneous map check.
         match = {"resourceRules": [{"apiGroups": [""], "apiVersions": ["v1"],
                                    "operations": ["CREATE"], "resources": ["pods"]}],
                  "objectSelector": {"matchLabels": {"app.kubernetes.io/managed-by": "kubeai",
@@ -1506,7 +1507,7 @@ data:
                 ],
                 "variables": [{"name": "claim", "expression": "object.spec.containers[0].env.filter(e, e.name == 'MAGICSTICK_DRA_CLAIM' && has(e.value) && e.value.matches('^magicstick-amd-shared-[a-f0-9]{20}$'))[0].value"}],
                 "mutations": [{"patchType": "JSONPatch", "jsonPatch": {"expression": """[
-                    JSONPatch{op: 'add', path: '/spec/resourceClaims', value: [{'name': 'gpu', 'resourceClaimName': variables.claim}]},
+                    JSONPatch{op: 'add', path: '/spec/resourceClaims', value: [{'name': 'gpu', 'resourceClaimName': string(variables.claim)}]},
                     JSONPatch{op: 'add', path: '/spec/containers/0/resources/claims', value: [{'name': 'gpu'}]},
                     JSONPatch{op: 'remove', path: '/spec/containers/0/resources/requests/appliance.magicstick.dev~1amd-dra'},
                     JSONPatch{op: 'remove', path: '/spec/containers/0/resources/limits/appliance.magicstick.dev~1amd-dra'}
@@ -3192,13 +3193,15 @@ data:
 
         if model_type == "local" and runtime["computeTarget"] == "amd-gpu" and GPU_SHARING_STATE.get("phase", "Ready") != "Ready":
             message = GPU_SHARING_STATE.get("message") or "Waiting for AMD GPU allocation setup."
-            patch_status("Starting", "WaitingForGpuSharing", message, name)
-            return "Starting", status_payload("Starting", message, name)
+            phase = "Degraded" if GPU_SHARING_STATE.get("phase") == "Blocked" else "Starting"
+            patch_status(phase, "GpuSharingBlocked" if phase == "Degraded" else "WaitingForGpuSharing", message, name)
+            return phase, status_payload(phase, message, name)
 
         if model_type == "local" and runtime["computeTarget"] == "nvidia-gpu" and NVIDIA_SHARING_STATE.get("managed") and NVIDIA_SHARING_STATE.get("phase") != "Ready":
             message = NVIDIA_SHARING_STATE.get("message") or "Waiting for NVIDIA GPU allocation setup."
-            patch_status("Starting", "WaitingForGpuSharing", message, name)
-            return "Starting", status_payload("Starting", message, name)
+            phase = "Degraded" if NVIDIA_SHARING_STATE.get("phase") == "Blocked" else "Starting"
+            patch_status(phase, "GpuSharingBlocked" if phase == "Degraded" else "WaitingForGpuSharing", message, name)
+            return phase, status_payload(phase, message, name)
 
         resource = None
         if model_type == "local":

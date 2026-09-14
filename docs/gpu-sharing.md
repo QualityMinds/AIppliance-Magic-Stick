@@ -104,7 +104,8 @@ and selected node. A native, fail-closed admission policy attaches the claim onl
 to marked AMD model Pods created by the KubeAI controller. An unadvertised
 sentinel resource prevents CPU fallback if that adapter is absent. Neither CPU
 nor NVIDIA profiles are rewritten by the AMD adapter.
-The JSON patch uses plain JSON maps for claim-array values. Typed CEL objects
+The JSON patch uses plain JSON maps for claim-array values, with the composed
+claim variable explicitly cast to `string` for CEL's homogeneous map typing. Typed CEL objects
 inside those arrays can trigger a conversion panic in the Kubernetes 1.36 API
 server before a Pod is stored. Validate the adapter with a server-side dry run
 as the KubeAI ServiceAccount; checking policy creation alone is insufficient.
@@ -164,7 +165,9 @@ released. An eligibility-label change must not tear down that driver first.
 
 Inspect `compatibility.sharing` in the appliance's AMD operator status for
 `Switching`, `Starting`, `Ready` or `Blocked`. Inspect the actual claim allocation
-and Pod events if models remain pending; an `amd.com/gpu` extended resource is
+and Pod events if models remain pending. A `Blocked` sharing setup is reported
+as `Degraded` / `GpuSharingBlocked` on the model, not as runtime startup. Inspect
+Pod events and controller logs; an `amd.com/gpu` extended resource is
 not expected while DRA owns allocation. The dashboard counts the physical DRA
 device once, not once per model slot.
 

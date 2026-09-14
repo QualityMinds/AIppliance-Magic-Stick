@@ -81,6 +81,20 @@ class ModelPodStatusTests(unittest.TestCase):
         self.assertEqual(patches[0]['status']['podCreation'], tracker)
         self.assertIsNone(patches[1]['status']['podCreation'])
 
+    def test_blocked_sharing_is_degraded_not_starting_for_both_providers(self):
+        for target, key in (('amd-gpu', 'GPU_SHARING_STATE'), ('nvidia-gpu', 'NVIDIA_SHARING_STATE')):
+            statuses = []
+            self.activation['spec'] = {'type': 'local', 'local': {'computeTarget': target}}
+            with patch.dict(self.c, {
+                'ensure_model_finalizer': lambda *_: None,
+                'patch_model_status': lambda *args, **kwargs: statuses.append(args),
+                key: {'phase': 'Blocked', 'managed': True, 'message': 'GPU sharing setup rejected.'},
+            }):
+                phase, status = self.c['reconcile_model_activation'](self.activation, {}, {})
+            self.assertEqual(phase, 'Degraded')
+            self.assertEqual(statuses[-1][2], 'GpuSharingBlocked')
+            self.assertEqual(status['message'], 'GPU sharing setup rejected.')
+
     def test_reconciliation_reports_stall_then_recovers_through_starting_to_ready(self):
         self.activation['spec'] = {'type': 'local', 'targetNamespace': 'ai', 'local': {'computeTarget': 'cpu'}}
         self.model['spec'] = {'minReplicas': 1}
