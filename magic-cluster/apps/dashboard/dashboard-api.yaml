@@ -6537,6 +6537,171 @@ data:
         return ""
 
 
+    def pod_gpu_slots(pod, resource_names, claim_name=""):
+        """Scheduler requests, including restartable init containers; not VRAM."""
+        spec = pod.get("spec") or {}
+        def requested(container):
+            resources = container.get("resources") or {}
+            requests, limits = resources.get("requests") or {}, resources.get("limits") or {}
+            return sum(int(resource_quantity(requests.get(key, limits.get(key)))) for key in resource_names)
+        regular = sum(requested(container) for container in spec.get("containers") or [])
+        sidecars, init = 0, 0
+        for container in spec.get("initContainers") or []:
+            count = requested(container)
+            if container.get("restartPolicy") == "Always":
+                sidecars += count
+                init = max(init, sidecars)
+            else:
+                init = max(init, sidecars + count)
+        extended = max(regular + sidecars, init)
+        dra = bool(claim_name and any(claim.get("resourceClaimName") == claim_name
+                                     for claim in spec.get("resourceClaims") or []))
+        return max(extended, int(dra))
+
+
+    def gpu_slot_summary(activations, nodes=None, catalog=None, pods=None, sharing=None, exclude_model=None):
+        """A scheduling snapshot, never infer free slots from free memory.
+
+        Count model intent before a pod exists, plus unmatched workloads. A
+        managed pod replaces its model's reservation, not adds another one.
+        Unknown placement stays a target-wide reservation; node views subtract
+        it conservatively instead of inventing a physical GPU assignment.
+        """
+        nodes = ready_schedulable_nodes() if nodes is None else nodes
+        catalog = compute_target_catalog() if catalog is None else catalog
+        pods = list_resource("/api/v1/pods") if pods is None else pods
+        if sharing is None:
+            sharing = gpu_sharing_status("amd") if any(
+                ((node.get("metadata") or {}).get("labels") or {}).get("appliance.magicstick.dev/amd-dra-ready") == "true"
+                for node in nodes) else {}
+        result = {}
+        for target_id, definition in (catalog.get("targets") or {}).items():
+            if definition.get("kind") != "gpu":
+                continue
+            selector = definition.get("nodeSelector") or {}
+            architectures = definition.get("architectures") or []
+            resource_names = definition.get("resourceNames") or []
+            pools = {}
+            for node in nodes:
+                metadata, status = node.get("metadata") or {}, node.get("status") or {}
+                labels = metadata.get("labels") or {}
+                if (not all(str(labels.get(key, "")) == str(value) for key, value in selector.items())
+                        or architectures and (status.get("nodeInfo") or {}).get("architecture") not in architectures):
+                    continue
+                total = sum(int(resource_quantity((status.get("allocatable") or {}).get(key))) for key in resource_names)
+                dra = target_id == "amd-gpu" and labels.get("appliance.magicstick.dev/amd-dra-ready") == "true"
+                claim_name, mode = "", "exclusive"
+                if dra:
+                    ready = (sharing.get("mode") == "shared" and sharing.get("phase") == "Ready"
+                             and sharing.get("nodeUid") == metadata.get("uid")
+                             and sharing.get("nodeName") == metadata.get("name") and sharing.get("claimName"))
+                    total = (positive_int(sharing.get("maxModels")) or 0) if ready else 0
+                    claim_name, mode = sharing.get("claimName", "") if ready else "", "dra-shared"
+                elif target_id == "nvidia-gpu" and (positive_int(labels.get("nvidia.com/gpu.replicas")) or 1) > 1:
+                    mode = "time-slicing"
+                if total or dra:
+                    pools[metadata["name"]] = {"node": metadata["name"], "total": total, "demand": 0,
+                                               "mode": mode, "claimName": claim_name, "labels": labels}
+            unassigned = 0
+            model_pods = {}
+            for pod in pods:
+                if (pod.get("status") or {}).get("phase") in ("Succeeded", "Failed"):
+                    continue
+                metadata, spec = pod.get("metadata") or {}, pod.get("spec") or {}
+                labels = metadata.get("labels") or {}
+                model_key = (metadata.get("namespace", ""), labels.get("appliance.magicstick.dev/modelactivation", ""))
+                managed = bool(model_key[1] and labels.get("app.kubernetes.io/managed-by") == "kubeai"
+                               and labels.get("appliance.magicstick.dev/compute-target") == target_id)
+                if managed and model_key == exclude_model:
+                    continue
+                count = pod_gpu_slots(pod, resource_names, sharing.get("claimName", "") if target_id == "amd-gpu" else "")
+                if not count:
+                    continue
+                node_name = spec.get("nodeName")
+                if node_name in pools:
+                    pools[node_name]["demand"] += count
+                elif not node_name:
+                    unassigned += count
+                if managed:
+                    model_pods[model_key] = model_pods.get(model_key, 0) + count
+            for activation in activations:
+                metadata, spec = activation.get("metadata") or {}, activation.get("spec") or {}
+                local, status = spec.get("local") or {}, activation.get("status") or {}
+                if (spec.get("type") != "local" or spec.get("enabled", True) is False
+                        or metadata.get("deletionTimestamp")
+                        or str(local.get("computeTarget") or status.get("computeTarget") or "nvidia-gpu") != target_id):
+                    continue
+                key = (spec.get("targetNamespace") or MODEL_TARGET_NAMESPACE, metadata.get("name", ""))
+                if key == exclude_model:
+                    continue
+                replicas = max(1, positive_int(local.get("maxReplicas")) or positive_int(local.get("minReplicas")) or 1)
+                outstanding = max(0, replicas - model_pods.get(key, 0))
+                node_name = (status.get("gpuSharing") or {}).get("node")
+                if node_name in pools:
+                    pools[node_name]["demand"] += outstanding
+                else:
+                    unassigned += outstanding
+
+            def counts(items, pending):
+                total = sum(item["total"] for item in items)
+                # Excess demand on a pinned node cannot consume another node's slots.
+                occupied = sum(min(item["total"], item["demand"]) for item in items)
+                free = max(0, total - occupied - pending)
+                return {"total": total, "used": total - free, "free": free,
+                        "queued": max(0, pending - (total - occupied)) + sum(max(0, item["demand"] - item["total"]) for item in items)}
+
+            entry = {**counts(list(pools.values()), unassigned), "scope": "target", "unassigned": unassigned,
+                     "nodes": [{**counts([pool], unassigned), "node": pool["node"], "mode": pool["mode"], "scope": "node"}
+                               for pool in pools.values()], "engines": {}}
+            for engine in definition.get("engines") or []:
+                engine_selector = target_engine_profile(definition, engine).get("nodeSelector") or {}
+                eligible = [pool for pool in pools.values() if all(str(pool["labels"].get(key, "")) == str(value)
+                                                                  for key, value in engine_selector.items())]
+                entry["engines"][engine] = {**counts(eligible, unassigned), "scope": "target"}
+            result[target_id] = entry
+        return result
+
+
+    def attach_gpu_slots(memory, targets, slots):
+        for target in targets.get("targets") or []:
+            if target.get("id") in slots:
+                summary = slots[target["id"]]
+                target["slots"] = {key: value for key, value in summary.items() if key not in ("engines", "nodes")}
+                for engine, state in (target.get("engineAvailability") or {}).items():
+                    if engine in summary["engines"]:
+                        state["slots"] = summary["engines"][engine]
+        devices = memory.get("devices") or []
+        for device in devices:
+            target = device.get("computeTarget")
+            summary = slots.get(target)
+            if not summary or device.get("kind") != "gpu":
+                continue
+            names = device.get("nodes") or []
+            node = next((item for item in summary["nodes"] if names == [item["node"]]), None)
+            if node:
+                siblings = [item for item in devices if item.get("computeTarget") == target and item.get("nodes") == names]
+                device["slots"] = {**node, "scope": "device" if len(siblings) == 1 else "node"}
+            else:
+                device["slots"] = {key: value for key, value in summary.items() if key not in ("engines", "nodes")}
+
+
+    def require_gpu_slot_available(resource):
+        spec = resource.get("spec") or {}
+        if spec.get("type") != "local" or spec.get("enabled", True) is False:
+            return
+        local = spec.get("local") or {}
+        target = local.get("computeTarget", "nvidia-gpu")
+        if target == "cpu":
+            return
+        key = (spec.get("targetNamespace") or MODEL_TARGET_NAMESPACE, resource["metadata"]["name"])
+        slots = gpu_slot_summary(model_activations(), exclude_model=key).get(target)
+        if slots:
+            engine_slots = slots.get("engines", {}).get(local.get("engine", "VLLM"), slots)
+            required = max(1, positive_int(local.get("maxReplicas")) or positive_int(local.get("minReplicas")) or 1)
+            if engine_slots["free"] < required:
+                raise RequestError(409, "No free GPU model slots for " + target + ". Remove a model or change GPU sharing in System > Hardware.")
+
+
     def summarized_models():
         activations = model_activations()
         modules_payload = summarized_modules()
@@ -6548,6 +6713,9 @@ data:
         anything = dict(stack.get("anything-llm") or {})
         anything["url"] = first_ingress_url(MODEL_TARGET_NAMESPACE, "anything-llm")
         vram = vram_summary(activations)
+        memory = compute_memory_summary(activations, vram)
+        targets = compute_target_availability(modules_payload)
+        attach_gpu_slots(memory, targets, gpu_slot_summary(activations))
         return {
             "catalog": generated_model_catalog(),
             "models": (generated_model_catalog().get("models") or []),
@@ -6556,8 +6724,8 @@ data:
             "modules": stack,
             "anythingLlm": anything,
             "vram": vram,
-            "computeMemory": compute_memory_summary(activations, vram),
-            "computeTargets": compute_target_availability(modules_payload),
+            "computeMemory": memory,
+            "computeTargets": targets,
         }
 
 
@@ -7572,6 +7740,7 @@ data:
                     else:
                         payload = read_body(self)
                     resource = model_activation_payload(model_type, payload)
+                    require_gpu_slot_available(resource)
                     name = resource["metadata"]["name"]
                     collection = f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/modelactivations"
                     item = collection + "/" + name

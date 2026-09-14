@@ -764,6 +764,13 @@ the node. Model slots are not additional physical GPUs or isolated VRAM quotas.
 In Hardware, check both provider sections, unchanged/changed/reverted Apply states,
 and the final confirmation without sharing checkboxes. AMD advanced profiles and
 collapsed GPU-memory controls must stay in the AMD section.
+Both provider sections start collapsed. In Models, verify the segmented slot
+ring against allocatable resources (or the ready AMD shared-claim limit), enabled
+ModelActivations and live GPU Pods. A full GPU stays visible but disabled in the
+Hardware selector even when it has spare memory. Slot polling and the API write
+check must block new starts without discarding an open form. See
+[slot accounting](gpu-sharing.md#model-slot-accounting) for pending, terminating
+and multi-node workloads. No GPU validation run is required just to view slots.
 
 Ubuntu package maintenance is under **System → Updates**. Daily security updates
 default to 03:00–05:00 UTC with no automatic restart; saved policy is preserved by

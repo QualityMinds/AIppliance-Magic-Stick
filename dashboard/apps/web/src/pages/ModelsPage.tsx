@@ -12,6 +12,7 @@ import {api} from '../api';
 import {Button, ConfirmDialog, Dialog, Empty, ErrorNotice, Field, Loading, Panel, ProgressBar, StatusBadge} from '../components';
 import {MemoryInfo, unreservedCalculation} from '../MemoryInfo';
 import {ComputeMemory} from '../ComputeMemory';
+import {slotsFull, targetSlots} from '../GpuSlots';
 
 const roundMemory = (value: number) => Math.max(100, Math.ceil(value / 100) * 100);
 const quantizationText = (value: unknown) => {
@@ -128,8 +129,9 @@ const LocalModelForm = ({models, onClose, onCreated}: {models: ModelsPayload; on
   const engineOptions = [...new Set(availableTargets.flatMap((target) => target.engines ?? []))];
   const [engine, setEngine] = useState(engineOptions[0] ?? 'VLLM');
   const targets = availableTargets.filter((target) => target.engines?.includes(engine));
-  const [computeTarget, setComputeTarget] = useState(targets[0]?.id ?? models.computeTargets.default ?? 'cpu');
+  const [computeTarget, setComputeTarget] = useState(targets.find((target) => !slotsFull(target, engine))?.id ?? '');
   const selectedTarget = availableTargets.find((target) => target.id === computeTarget);
+  const noSlots = slotsFull(selectedTarget, engine);
   const kvCacheOptions = useMemo(
     () => selectedTarget?.kvCacheTypes?.[engine] ?? fallbackKvCacheOptions(engine),
     [engine, selectedTarget],
@@ -155,7 +157,7 @@ const LocalModelForm = ({models, onClose, onCreated}: {models: ModelsPayload; on
 
   useEffect(() => {
     const nextTargets = availableTargets.filter((target) => target.engines?.includes(engine));
-    if (!nextTargets.some((target) => target.id === computeTarget)) setComputeTarget(nextTargets[0]?.id ?? 'cpu');
+    if (!nextTargets.some((target) => target.id === computeTarget && !slotsFull(target, engine))) setComputeTarget(nextTargets.find((target) => !slotsFull(target, engine))?.id ?? '');
     setUrl(''); setPresetId(''); setArtifactId(''); setSearchResults([]); setArtifacts([]); setEstimate(undefined);
   }, [engine]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -284,6 +286,7 @@ const LocalModelForm = ({models, onClose, onCreated}: {models: ModelsPayload; on
   const createMutation = useMutation({
     mutationFn: async () => {
       if (!url) throw new Error('Select or enter a model reference.');
+      if (noSlots) throw new Error('No free GPU model slots. Remove a model or change GPU sharing in System > Hardware.');
       if (invalidBudget) throw new Error('Enter positive memory budgets in steps of 100 MiB.');
       const target = availableTargets.find((item) => item.id === computeTarget);
       if (!target?.available || !target.engines?.includes(engine)) throw new Error('The selected engine and hardware combination is not available.');
@@ -305,9 +308,14 @@ const LocalModelForm = ({models, onClose, onCreated}: {models: ModelsPayload; on
   return <form className="stack" onSubmit={(event) => { event.preventDefault(); createMutation.mutate(); }}>
     <div className="form-grid three">
       <Field label="Inference Engine"><select value={engine} onChange={(event) => setEngine(event.target.value)}>{engineOptions.map((item) => <option key={item}>{item}</option>)}</select></Field>
-      <Field label="Hardware"><select value={computeTarget} onChange={(event) => setComputeTarget(event.target.value)}>{targets.map((target) => <option key={target.id} value={target.id}>{target.displayName ?? target.id}</option>)}</select></Field>
+      <Field label="Hardware"><select value={computeTarget} aria-describedby={noSlots ? 'model-slots-full' : undefined} onChange={(event) => setComputeTarget(event.target.value)}>
+        {!computeTarget && <option value="" disabled>No hardware with free slots</option>}
+        {targets.map((target) => {const slots = targetSlots(target, engine); return <option key={target.id} value={target.id} disabled={slotsFull(target, engine)}>{target.displayName ?? target.id}{slots ? slots.free === 0 ? ` · no free slots (${slots.used}/${slots.total} occupied)` : ` · ${slots.free}/${slots.total} slots free` : ''}</option>;})}
+      </select></Field>
       <Field label="Model source"><select value={source} onChange={(event) => setSource(event.target.value as typeof source)}><option value="search">{provider === 'ollama' ? 'Ollama Library' : 'Hugging Face search'}</option><option value="preset">Tested preset</option><option value="direct">Direct reference</option></select></Field>
     </div>
+
+    {noSlots && <p id="model-slots-full" className="notice notice-warn" role="status">No free GPU model slots. Remove a model or change GPU sharing in System &gt; Hardware.</p>}
 
     {source === 'search' && <Panel title={provider === 'ollama' ? 'Ollama Library' : 'Hugging Face'} className="nested-panel">
       <div className="search-row"><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Qwen, GLM, DeepSeek…" /><Button type="button" variant="primary" disabled={searching || search.trim().length < 2} onClick={() => runSearch()}>{searching ? 'Searching…' : 'Search'}</Button></div>
@@ -349,7 +357,7 @@ const LocalModelForm = ({models, onClose, onCreated}: {models: ModelsPayload; on
     </Panel>}
     <ErrorNotice error={formError ?? createMutation.error} />
     {hasMemoryRisk && <div id="model-memory-risk" className="notice notice-warn" role="note"><strong>Memory warning — you can still try to start this model.</strong><ul>{memoryRisks.map((risk) => <li key={risk}>{risk}</li>)}</ul><p>Adding it accepts this risk. The pod may remain Pending, fail with out-of-memory errors or restart. Requests and limits stay at your selected budgets; a successful start is not guaranteed.</p></div>}
-    <div className="form-actions"><Button type="button" variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" className={hasMemoryRisk ? 'memory-risk-button' : undefined} aria-describedby={hasMemoryRisk ? 'model-memory-risk' : undefined} disabled={createMutation.isPending || !url || invalidBudget}>{hasMemoryRisk && <span aria-hidden="true">⚠ </span>}Add Local Model</Button></div>
+    <div className="form-actions"><Button type="button" variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" className={hasMemoryRisk ? 'memory-risk-button' : undefined} aria-describedby={[noSlots ? 'model-slots-full' : '', hasMemoryRisk ? 'model-memory-risk' : ''].filter(Boolean).join(' ') || undefined} disabled={createMutation.isPending || !url || invalidBudget || !selectedTarget || noSlots}>{hasMemoryRisk && <span aria-hidden="true">⚠ </span>}Add Local Model</Button></div>
   </form>;
 };
 
@@ -373,7 +381,7 @@ const OffloadingStatus = ({local, status}: {local: Record<string, unknown>; stat
 };
 
 export const ModelsPage = ({session}: {session: Session}) => {
-  const queryClient = useQueryClient(); const query = useQuery({queryKey: ['models'], queryFn: () => api.models()});
+  const queryClient = useQueryClient(); const query = useQuery({queryKey: ['models'], queryFn: () => api.models(), refetchInterval: 15_000});
   const [createOpen, setCreateOpen] = useState(false); const [location, setLocation] = useState<'local' | 'external'>('local');
   const [removeTarget, setRemoveTarget] = useState(''); const [runtimeConfirm, setRuntimeConfirm] = useState(false);
   const mutable = canMutateRuntime(session); const refresh = async () => { await queryClient.invalidateQueries({queryKey: ['models']}); };

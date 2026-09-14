@@ -2,6 +2,7 @@ import type {CSSProperties} from 'react';
 import {formatMi} from '@magicstick/dashboard-core';
 import type {ComputeMemoryDevice, ModelsPayload, SharedMemoryPool} from '@magicstick/dashboard-contracts';
 import {InfoPopover} from './InfoPopover';
+import {SlotLegend, SlotRing} from './GpuSlots';
 
 const known = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0;
 const amount = (value?: number | null) => known(value) ? value : null;
@@ -86,11 +87,13 @@ function GaugeDetails({device, pool, sharedGpu}: {device: ComputeMemoryDevice; p
 export function MemoryGauge({device, pool}: {device: ComputeMemoryDevice; pool?: SharedMemoryPool}) {
   const {readings, groups, primary, primaryLabel, sharedGpu} = gaugeReadings(device, pool);
   const name = device.name ?? device.id;
+  const slots = device.kind === 'gpu' ? device.slots : undefined;
   return <article className={`memory-gauge${sharedGpu ? ' memory-gauge-shared' : ''}`} aria-label={`${name} memory`}>
     <div className="gauge-rings">
       <svg viewBox="0 0 256 140" aria-hidden="true">
+        {slots && <SlotRing slots={slots} />}
         {readings.map((reading, index) => {
-          const radius = 122 - index * 13;
+          const radius = 122 - (index + (slots ? 1 : 0)) * 13;
           const path = `M ${128 - radius} 132 A ${radius} ${radius} 0 0 1 ${128 + radius} 132`;
           const measured = reading.valueMi !== null && reading.totalMi !== null && reading.totalMi > 0;
           const percent = measured ? Math.min(100, reading.valueMi! / reading.totalMi! * 100) : 0;
@@ -103,6 +106,7 @@ export function MemoryGauge({device, pool}: {device: ComputeMemoryDevice; pool?:
       <div className="gauge-value"><strong><MemoryValue value={primary} /></strong><span>{primaryLabel}</span></div>
     </div>
     <header className="gauge-heading"><strong>{name}</strong><InfoPopover label={`${name} memory`}><GaugeDetails device={device} pool={pool} sharedGpu={sharedGpu} /></InfoPopover></header>
+    {slots && <SlotLegend slots={slots} name={name} />}
     <div className={`gauge-legend${sharedGpu ? ' gauge-legend-shared' : ''}`}>
       {groups.map((group) => <section className="gauge-legend-group" key={group.label} aria-label={`${group.label} memory`}>
         <div className="gauge-pool-title"><span>{group.label}</span><span><MemoryValue value={group.totalMi} /></span></div>

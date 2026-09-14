@@ -218,10 +218,11 @@ export interface ComputeTarget {
   kind?: 'cpu' | 'gpu' | string;
   displayName?: string;
   engines?: string[];
-  engineAvailability?: Record<string, {available: boolean; message?: string; compatibleNodes?: number}>;
+  engineAvailability?: Record<string, {available: boolean; message?: string; compatibleNodes?: number; slots?: GpuSlots}>;
   kvCacheTypes?: Record<string, KvCacheOption[]>;
   available?: boolean;
   message?: string;
+  slots?: GpuSlots;
 }
 
 export interface KvCacheOption {
@@ -280,6 +281,18 @@ export interface ComputeMemoryDevice extends GpuAllocationEvidence {
   accountingVerified?: boolean;
   warning?: string;
   message?: string;
+  slots?: GpuSlots;
+}
+
+/** Scheduling capacity, independent of memory and shared across engines. */
+export interface GpuSlots {
+  total: number;
+  used: number;
+  free: number;
+  queued?: number;
+  scope?: 'device' | 'node' | 'target';
+  node?: string;
+  mode?: string;
 }
 
 export interface ModelArtifact {

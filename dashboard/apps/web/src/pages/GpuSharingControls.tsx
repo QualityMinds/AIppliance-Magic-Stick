@@ -55,10 +55,12 @@ export const GpuSharingControls = ({nodeUid, session, amdControls}: {nodeUid?: s
     const controls = provider === 'amd' ? amdControls : undefined;
     if (!state && !controls) return null;
     const vendor = provider === 'amd' ? 'AMD' : 'NVIDIA';
-    return <section key={provider} className="gpu-configuration stack compact" aria-label={`${vendor} GPU configuration`}>
-      <h4 className="gpu-configuration-title">GPU Configuration {vendor}</h4>
-      {state && <SharingForm key={`${state.mode}:${state.maxModels}:${state.nodeUid}`} state={state} session={session} />}
-      {controls}
-    </section>;
+    return <section key={provider} className="gpu-configuration" aria-label={`${vendor} GPU configuration`}><details>
+      <summary><h4 className="gpu-configuration-title">GPU Configuration {vendor}</h4></summary>
+      <div className="stack compact gpu-configuration-content">
+        {state && <SharingForm key={`${state.mode}:${state.maxModels}:${state.nodeUid}`} state={state} session={session} />}
+        {controls}
+      </div>
+    </details></section>;
   })}</>;
 };

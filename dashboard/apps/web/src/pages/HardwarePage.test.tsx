@@ -13,7 +13,8 @@ let host: ManagedHost;
 let sharing: GpuSharingState[];
 const writes: Array<{path: string; body: unknown}> = [];
 const mount = (roles = session.roles) => render(<QueryClientProvider client={new QueryClient({defaultOptions: {queries: {retry: false}, mutations: {retry: false}}})}><HardwarePage session={{...session, roles}} /></QueryClientProvider>);
-const openAdvanced = async () => {await userEvent.click(await screen.findByText('Advanced · AMD runtime profile'));};
+const openAmd = async () => {await userEvent.click(await screen.findByText('GPU Configuration AMD'));};
+const openAdvanced = async () => {await openAmd(); await userEvent.click(await screen.findByText('Advanced · AMD runtime profile'));};
 const explain = async (label: string) => {await userEvent.hover(screen.getByRole('button', {name: `Explain ${label}`}));};
 const enableValidation = () => {
   compatibility.selectedProfile = 'strix-halo'; compatibility.allowExperimental = true;
@@ -51,6 +52,7 @@ describe('hardware compatibility', () => {
       maxModels: 2, nodeName: host.name, nodeUid: host.nodeUid, namespace: 'ai', expectedRevision: '7',
       available: true, reason: '', phase: 'Ready', message: '', claimName: '', activeModels: 0, admittedModels: [], memoryIsolation: false}];
     mount();
+    await userEvent.click(await screen.findByText('GPU Configuration NVIDIA'));
     expect(await screen.findByLabelText('NVIDIA allocation mode')).toHaveValue('shared');
     expect(screen.getByRole('region', {name: 'NVIDIA GPU sharing'})).toBeInTheDocument();
     expect(screen.getByRole('heading', {name: 'GPU Configuration NVIDIA'})).toBeInTheDocument();
@@ -172,6 +174,7 @@ describe('hardware compatibility', () => {
     const node = within(nodes).getByRole('article', {name: 'GPU node example-node'});
     expect(await within(node).findByText('Host preparation')).toBeInTheDocument();
     expect(screen.queryByRole('heading', {name: 'GPU setup'})).not.toBeInTheDocument();
+    await openAmd();
     const memory = within(node).getByText('GPU memory').closest('details')!;
     expect(memory).not.toHaveAttribute('open');
     await userEvent.click(within(node).getByText('GPU memory'));

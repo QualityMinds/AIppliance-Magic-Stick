@@ -652,7 +652,8 @@ companies, employee agents, or gateway credentials.
 
 **System → Hardware → GPU nodes → GPU Configuration AMD / NVIDIA** groups each
 provider's **GPU sharing** controls separately. AMD runtime profiles and collapsed
-GPU-memory controls stay within the AMD section. New installations default to
+GPU-memory controls stay within the AMD section. Both provider sections are
+independently expandable and start collapsed. New installations default to
 one model per GPU for both providers. Apply is enabled only for changed, valid
 settings; sharing uses one final restart confirmation and no additional checkbox.
 The backend labels are **DRA sharing configuration** and **Time-slicing configuration**.
@@ -997,8 +998,17 @@ runtime requests count there. Dynamic GPU allocations consume Linux RAM and
 intersect its remaining budgets after safety headroom. Missing metrics and
 unverified GPU cgroup accounting remain explicit.
 
+GPU gauges add an outer segmented **model-slot** ring (gold: free, grey: occupied)
+and exact free/total counts, independently of memory. Fully occupied GPUs remain
+visible but disabled in the Hardware selector, with a `no free slots` hint.
+The model form refreshes every 15 seconds; if its selected GPU becomes full,
+submission is disabled without clearing the form or switching hardware.
+The API also checks current slots before writing a local model; accepting a
+memory-estimate risk does not bypass slot exhaustion. CPU models are unchanged.
+See [slot accounting](gpu-sharing.md#model-slot-accounting) for counting rules.
+
 On unified-memory hosts, **Models → Compute Memory** keeps one GPU gauge with
-four rings, from outside to inside: dedicated unreserved (violet), dedicated
+four memory rings inside the slot ring: dedicated unreserved (violet), dedicated
 free (cyan), shared unreserved (blue), shared free (green). The compact legend
 groups each pair under its own capacity. These are separate scales, not an
 additive model budget or two deployment targets.

@@ -19,7 +19,33 @@ and **Time-slicing configuration**; no extra sharing checkbox is required.
 The final confirmation still explains model restarts and the lack of isolated
 GPU memory. AMD runtime profiles and collapsed GPU-memory controls are grouped
 inside **GPU Configuration AMD**, before the separate NVIDIA section.
+Both sections start collapsed and can be opened independently.
 NVIDIA DRA, MIG and MPS are not enabled by these controls.
+
+## Model-slot accounting
+
+Models shows a segmented outer GPU ring with free/total slots; memory rings
+remain separate. Full GPUs are greyed out in the model form with a clear hint.
+`GET /api/models` includes `slots` on GPU memory devices and compute targets,
+plus engine-specific counts under `engineAvailability`. NVIDIA and exclusive
+AMD capacity comes from Kubernetes allocatable resources; AMD DRA uses the
+ready, node-identity-matched shared-claim limit. Desired but not yet ready DRA
+configuration does not advertise usable slots.
+
+Enabled model activations reserve their replica slots before Pods exist.
+Matching KubeAI Pods replace those reservations, so they are not counted twice.
+Other GPU Pods, including validation workloads and terminating Pods, also count;
+completed Pods and deleted/disabled model intent do not. An enabled failed model
+retains its slot for retries. Removing a model releases its slot once its Pod
+has stopped. Slots are shared across engines, not inferred from RAM or VRAM.
+
+Without confirmed physical placement, multiple GPUs on one node show a labelled
+**Node slots** pool, not an invented per-device assignment. Unscheduled intent is
+counted once per target and conservatively against eligible node/engine pools.
+The API rechecks availability before model writes (existing models can reuse
+their own slots). This is a scheduling snapshot, not an atomic Kubernetes
+resource allocation; the scheduler and sharing-controller admission remain
+authoritative if concurrent clients race for the last slot.
 
 ## Initial scope and limits
 

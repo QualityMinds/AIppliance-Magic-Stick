@@ -15,6 +15,24 @@ const gpu: ComputeMemoryDevice = {id: 'amd-example', name: 'Example GPU', kind: 
 const reading = (container: HTMLElement, id: string) => container.querySelector(`[data-reading="${id}"]`)!;
 
 describe('compact compute memory gauges', () => {
+  it('adds a segmented model-slot ring without changing memory readings', () => {
+    const {container} = render(<MemoryGauge device={{...gpu, slots: {total: 3, used: 2, free: 1, scope: 'device'}}} pool={pool} />);
+    expect(container.querySelectorAll('[data-ring]')).toHaveLength(5);
+    expect(container.querySelectorAll('[data-slot="free"]')).toHaveLength(1);
+    expect(container.querySelectorAll('[data-slot="used"]')).toHaveLength(2);
+    expect(screen.getByLabelText('Example GPU model slots')).toHaveTextContent('1 / 3 free');
+    expect(reading(container, 'shared-free')).toHaveTextContent('46 GiB');
+  });
+
+  it('shows exhausted slots independently from abundant memory and labels shared node pools', () => {
+    const {container, rerender} = render(<MemoryGauge device={{...gpu, slots: {total: 1, used: 1, free: 0, scope: 'device'}}} pool={pool} />);
+    expect(container.querySelectorAll('[data-slot="free"]')).toHaveLength(0);
+    expect(screen.getByText('0 / 1 free')).toBeInTheDocument();
+    rerender(<MemoryGauge device={{...gpu, slots: {total: 8, used: 2, free: 6, scope: 'node'}}} pool={pool} />);
+    expect(screen.getByText('Node slots')).toBeInTheDocument();
+    expect(screen.getByText('6 / 8 free')).toBeInTheDocument();
+  });
+
   it('shows one GPU with four distinct readings and keeps explanations off the page', () => {
     const {container} = render(<ComputeMemory memory={{devices: [gpu], sharedPools: [pool]}} />);
     expect(screen.getAllByRole('article')).toHaveLength(1);

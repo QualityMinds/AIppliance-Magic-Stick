@@ -54,6 +54,12 @@ public `magic-cluster/apps/ai` base.
 
 ## KubeAI Models
 
+The dashboard's GPU gauges show model slots separately from memory. Enabled
+models reserve slots while starting; their Pods are not counted a second time.
+Full GPUs stay visible but disabled in the Hardware selector, and the API checks
+slots before accepting a local model write. Accepting an uncertain memory budget
+does not bypass this scheduling limit. See [GPU slot accounting](gpu-sharing.md#model-slot-accounting).
+
 A `kubeai.org/v1` `Model` in namespace `ai` becomes a LiteLLM deployment only
 after KubeAI reports at least one ready replica. Models that are still pulling
 weights, compiling, warming up, or restarting are removed from the routable

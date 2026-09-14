@@ -64,7 +64,8 @@ footer { padding: 1.1rem; color: #8798b2; text-align: center; font-size: .8rem; 
 .hardware-advanced > summary { cursor: pointer; color: var(--muted); }
 .hardware-advanced > .stack { margin-top: 1rem; }
 .gpu-configuration { margin-top: .5rem; padding-top: 1rem; border-top: 1px solid var(--line); }
-.gpu-configuration-title { margin: 0; font-size: 1.05rem; }
+.gpu-configuration-title { display: inline; margin: 0; font-size: 1.05rem; }
+.gpu-configuration-content { margin-top: 1rem; }
 .gpu-sharing-title { margin: 0; font-size: .95rem; }
 .section-title { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .section-title h2 { font-size: 1.4rem; }
@@ -113,6 +114,12 @@ footer { padding: 1.1rem; color: #8798b2; text-align: center; font-size: .8rem; 
 .gauge-track { stroke: #202d41; }
 .gauge-track-unknown { stroke: #41516a; stroke-dasharray: 1 3; }
 .gauge-progress { stroke: currentColor; }
+.gauge-slot { fill: none; stroke: #41516a; stroke-width: 7; stroke-linecap: round; }
+.gauge-slot[data-slot="free"] { stroke: #f3bd68; }
+.gauge-slot-legend { display: flex; align-items: center; gap: .35rem; font-size: .75rem; color: var(--muted); }
+.gauge-slot-legend > i { width: 6px; height: 6px; border-radius: 50%; background: #f3bd68; }
+.gauge-slot-legend > strong { color: var(--text); font-variant-numeric: tabular-nums; }
+select option:disabled { color: var(--muted); }
 .gauge-value { position: absolute; z-index: 1; inset: auto 0 8px; display: flex; flex-direction: column; align-items: center; gap: .1rem; }
 .gauge-value strong { color: var(--cyan); font-size: 1.4rem; font-variant-numeric: tabular-nums; }
 .gauge-value > span { color: var(--muted); font-size: .68rem; }

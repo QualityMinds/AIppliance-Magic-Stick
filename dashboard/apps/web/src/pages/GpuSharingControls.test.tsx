@@ -9,7 +9,13 @@ const session: Session = {subject: 'example', username: 'example', roles: ['magi
 let state: GpuSharingState;
 let providers: GpuSharingState[];
 const writes: unknown[] = [];
-const mount = (roles = session.roles) => render(<QueryClientProvider client={new QueryClient({defaultOptions: {queries: {retry: false}}})}><GpuSharingControls nodeUid="example-uid" session={{...session, roles}} /></QueryClientProvider>);
+const mount = async (roles = session.roles, expand = true) => {
+  const rendered = render(<QueryClientProvider client={new QueryClient({defaultOptions: {queries: {retry: false}}})}><GpuSharingControls nodeUid="example-uid" session={{...session, roles}} /></QueryClientProvider>);
+  if (expand) for (const provider of providers.filter((item) => item.nodeUid === 'example-uid')) {
+    await userEvent.click(await screen.findByText(`GPU Configuration ${provider.provider === 'amd' ? 'AMD' : 'NVIDIA'}`));
+  }
+  return rendered;
+};
 
 describe('Provider-independent GPU sharing configuration', () => {
   beforeEach(() => {
@@ -26,8 +32,23 @@ describe('Provider-independent GPU sharing configuration', () => {
     }));
   });
 
+  it('starts both provider sections collapsed and expands them independently', async () => {
+    providers.push({...state, provider: 'nvidia', backend: 'time-slicing'});
+    const {container} = await mount(session.roles, false);
+    await screen.findByText('GPU Configuration AMD');
+    expect(container.querySelectorAll('.gpu-configuration details[open]')).toHaveLength(0);
+    expect(screen.getByRole('button', {name: 'Apply AMD sharing'})).not.toBeVisible();
+    expect(screen.getByRole('button', {name: 'Apply NVIDIA sharing'})).not.toBeVisible();
+    await userEvent.click(screen.getByText('GPU Configuration AMD'));
+    expect(screen.getByRole('button', {name: 'Apply AMD sharing'})).toBeDisabled();
+    expect(screen.getByRole('button', {name: 'Apply NVIDIA sharing'})).not.toBeVisible();
+    await userEvent.click(screen.getByText('GPU Configuration AMD'));
+    expect(container.querySelectorAll('.gpu-configuration details[open]')).toHaveLength(0);
+    expect(writes).toHaveLength(0);
+  });
+
   it('uses the restart confirmation instead of an additional sharing checkbox', async () => {
-    mount();
+    await mount();
     await userEvent.selectOptions(await screen.findByLabelText('AMD allocation mode'), 'shared');
     expect(screen.getByRole('button', {name: 'Apply AMD sharing'})).toBeEnabled();
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
@@ -40,14 +61,14 @@ describe('Provider-independent GPU sharing configuration', () => {
   });
 
   it('offers only read-only configuration to non-admin users', async () => {
-    mount(['magicstick-operator']);
+    await mount(['magicstick-operator']);
     expect(await screen.findByLabelText('AMD allocation mode')).toBeDisabled();
     expect(screen.queryByRole('button', {name: 'Apply AMD sharing'})).not.toBeInTheDocument();
   });
 
   it('keeps explanations in an info popover and unsupported DRA disabled', async () => {
     state.available = false;
-    mount();
+    await mount();
     expect(await screen.findByRole('option', {name: 'Shared · multiple models'})).toBeDisabled();
     expect(screen.queryByText(/does not partition/)).not.toBeInTheDocument();
     await userEvent.hover(screen.getByRole('button', {name: 'Explain AMD GPU sharing'}));
@@ -56,7 +77,7 @@ describe('Provider-independent GPU sharing configuration', () => {
 
   it('allows recovery to exclusive mode without experimental consent', async () => {
     state.mode = 'shared'; state.available = false;
-    mount();
+    await mount();
     await userEvent.selectOptions(await screen.findByLabelText('AMD allocation mode'), 'exclusive');
     expect(screen.getByRole('button', {name: 'Apply AMD sharing'})).toBeEnabled();
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
@@ -64,7 +85,7 @@ describe('Provider-independent GPU sharing configuration', () => {
 
   it('manages NVIDIA independently beside AMD on a mixed node', async () => {
     providers.push({...state, provider: 'nvidia', backend: 'time-slicing', experimental: false, expectedRevision: '9', mode: 'shared'});
-    mount();
+    await mount();
     const nvidia = within(await screen.findByRole('region', {name: 'NVIDIA GPU sharing'}));
     expect(screen.getByRole('region', {name: 'AMD GPU sharing'})).toBeInTheDocument();
     expect(nvidia.getByText('Time-slicing configuration')).toBeInTheDocument();
@@ -86,7 +107,7 @@ describe('Provider-independent GPU sharing configuration', () => {
 
   it('does not show providers assigned to another node', async () => {
     state.nodeUid = 'other-uid';
-    mount();
+    await mount();
     await waitFor(() => expect(screen.queryByText('Loading…')).not.toBeInTheDocument());
     expect(screen.queryByRole('region')).not.toBeInTheDocument();
     expect(writes).toEqual([]);
@@ -94,7 +115,7 @@ describe('Provider-independent GPU sharing configuration', () => {
 
   it('disables invalid slot limits and unchanged managed settings', async () => {
     state.managed = true; state.mode = 'shared';
-    mount();
+    await mount();
     const count = await screen.findByLabelText('AMD maximum simultaneous models');
     expect(screen.getByRole('button', {name: 'Apply AMD sharing'})).toBeDisabled();
     await userEvent.clear(count);
@@ -109,7 +130,7 @@ describe('Provider-independent GPU sharing configuration', () => {
     state.provider = provider; state.managed = managed;
     state.backend = provider === 'amd' ? 'dra' : 'time-slicing';
     const vendor = provider === 'amd' ? 'AMD' : 'NVIDIA';
-    mount();
+    await mount();
     const mode = await screen.findByLabelText(`${vendor} allocation mode`);
     const apply = screen.getByRole('button', {name: `Apply ${vendor} sharing`});
     expect(apply).toBeDisabled();
@@ -122,7 +143,7 @@ describe('Provider-independent GPU sharing configuration', () => {
 
   it.each([false, true])('recognizes only actual slot changes, including reverting to the current value (managed: %s)', async (managed) => {
     state.mode = 'shared'; state.managed = managed;
-    mount();
+    await mount();
     const count = await screen.findByLabelText('AMD maximum simultaneous models');
     const apply = screen.getByRole('button', {name: 'Apply AMD sharing'});
     expect(apply).toBeDisabled();
