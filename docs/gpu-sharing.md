@@ -1,6 +1,6 @@
 # GPU sharing
 
-**System → Hardware → GPU nodes → GPU Configuration AMD / NVIDIA → GPU sharing** provides the same administration
+**System → Hardware → GPU nodes → GPUs → GPU Configuration AMD / NVIDIA → GPU sharing** provides the same administration
 for AMD and NVIDIA: **Exclusive** or **Shared**, a model-slot limit, transition
 status and explicit restart confirmation. The backend stays visible:
 
@@ -17,8 +17,10 @@ including configurations that were not saved through this dashboard. Reverting
 an edit disables Apply again. The backend labels are **DRA sharing configuration**
 and **Time-slicing configuration**; no extra sharing checkbox is required.
 The final confirmation still explains model restarts and the lack of isolated
-GPU memory. AMD runtime profiles and collapsed GPU-memory controls are grouped
-inside **GPU Configuration AMD**, before the separate NVIDIA section.
+GPU memory. Physical GPU accordions contain their memory layout first, device
+facts, then collapsed sharing controls. AMD runtime profile and shared-memory
+controls stay with the matching AMD GPU. A provider's single-device sharing
+form is never duplicated as independent controls on multiple same-vendor GPUs.
 Both sections start collapsed and can be opened independently.
 NVIDIA DRA, MIG and MPS are not enabled by these controls.
 

@@ -61,11 +61,17 @@ footer { padding: 1.1rem; color: #8798b2; text-align: center; font-size: .8rem; 
 .inline-info { display: inline-flex; align-items: center; flex-wrap: wrap; gap: .4rem; min-width: 0; }
 .hardware-subheading { margin: 0 0 .75rem; font-size: .95rem; }
 .hardware-advanced { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--line); }
-.hardware-advanced > summary { cursor: pointer; color: var(--muted); }
+.hardware-advanced > summary { cursor: pointer; color: var(--text); }
 .hardware-advanced > .stack { margin-top: 1rem; }
 .gpu-configuration { margin-top: .5rem; padding-top: 1rem; border-top: 1px solid var(--line); }
 .gpu-configuration-title { display: inline; margin: 0; font-size: 1.05rem; }
 .gpu-configuration-content { margin-top: 1rem; }
+.gpu-device-name { margin-left: .8rem; font-size: .875rem; color: var(--muted); }
+.gpu-configuration summary, .gpu-sharing > summary { cursor: pointer; }
+.gpu-sharing > summary .status { float: right; }
+.hardware-advanced > summary .memory-info-button, .gpu-sharing > summary .memory-info-button { vertical-align: middle; margin-left: .35rem; }
+.gpu-validation-target { max-width: 34rem; }
+.gpu-validation-device { padding: .5rem 0; }
 .gpu-sharing-title { margin: 0; font-size: .95rem; }
 .section-title { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .section-title h2 { font-size: 1.4rem; }
@@ -150,6 +156,7 @@ select option:disabled { color: var(--muted); }
 .estimate input[type="range"] { width: 100%; accent-color: var(--cyan); }
 .slider-labels { display: flex; justify-content: space-between; color: var(--muted); font-size: .78rem; }
 .host-gpu-memory { margin-top: .5rem; padding-top: 1rem; border-top: 1px solid var(--line); min-width: 0; }
+.host-gpu-memory-embedded { margin-top: 0; padding-top: 0; border-top: 0; }
 .host-gpu-memory .facts { margin: 0; }
 .host-gpu-memory .slider-labels { flex-wrap: wrap; gap: .4rem 1rem; }
 .host-gpu-memory .host-memory-draft { margin: 0; }

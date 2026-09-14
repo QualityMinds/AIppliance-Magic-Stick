@@ -66,7 +66,7 @@ export function InfoPopover({label, dialogLabel = label, children}: {
       onMouseEnter={preview} onMouseLeave={dismissPreview}
       onFocus={() => { if (skipFocusPreview.current) skipFocusPreview.current = false; else preview(); }}
       onBlur={(event) => { if (!overlay.current?.contains(event.relatedTarget as Node)) dismissPreview(); }}
-      onClick={() => { cancelDismiss(); if (mode === 'pinned') close(); else setMode('pinned'); }}>
+      onClick={(event) => { event.preventDefault(); event.stopPropagation(); cancelDismiss(); if (mode === 'pinned') close(); else setMode('pinned'); }}>
       <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="1.7"/><circle cx="12" cy="7.5" r="1.1" fill="currentColor"/><path d="M10.5 11H12v6m-2 0h4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>
     </button>
     {open && createPortal(<section id={id} ref={overlay} tabIndex={-1} role="dialog" aria-label={dialogLabel} className="memory-info-overlay" style={position}

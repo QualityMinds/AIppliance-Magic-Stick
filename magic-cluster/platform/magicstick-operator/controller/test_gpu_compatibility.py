@@ -87,7 +87,7 @@ class GpuCompatibilityTests(unittest.TestCase):
         return self.controller["gpu_validation_job"](self.node, self.profile, engine, "test-1", self.host, self.activation)
 
     def test_optional_validation_uses_shared_claim_without_cross_namespace_owner(self):
-        self.controller["GPU_SHARING_STATE"].update(mode="dra-shared", phase="Ready", namespace="ai", claimName="shared-test")
+        self.controller["GPU_SHARING_STATE"].update(mode="dra-shared", phase="Ready", namespace="ai", claimName="shared-test", nodeUid="node-uid")
         for engine in ("OLlama", "VLLM"):
             job = self.job(engine)
             self.assertEqual(job["metadata"]["namespace"], "ai")

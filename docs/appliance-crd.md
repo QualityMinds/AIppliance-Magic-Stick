@@ -1,5 +1,10 @@
 # Appliance CRD
 
+`status.hardwareOperators.<module>.devices` reports physical PCI GPUs with their
+node identity, device-local facts, memory layout and optional per-engine
+results. See [device-specific diagnostics](gpu-compatibility.md#device-specific-dashboard-diagnostics)
+for request binding and exact-device limitations.
+
 The `Appliance` custom resource is the Git-owned aggregate status surface for
 the local Magic Stick installation. Runtime module, instance, and model
 requests are represented as separate `ModuleActivation`, `AppInstance`, and

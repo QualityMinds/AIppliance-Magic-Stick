@@ -341,6 +341,12 @@ spec:
                         type: object
                         x-kubernetes-preserve-unknown-fields: true
                         description: Versioned GPU profiles, explicit runtime selection, fresh host evidence and independent per-engine GPU validation. Eligibility never implies a passed engine test.
+                      devices:
+                        type: array
+                        description: Physical PCI GPUs with device-local facts and optional diagnostic results. Sharing replicas are not additional GPUs.
+                        items:
+                          type: object
+                          x-kubernetes-preserve-unknown-fields: true
                       sharing:
                         type: object
                         x-kubernetes-preserve-unknown-fields: true

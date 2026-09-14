@@ -159,8 +159,7 @@ there is no arbitrary larger carve-out or automatic firmware/TTM change.
 ## Explicit Ansible preparation
 
 Administrators can also configure the **fixed firmware reservation** and
-**dynamic GPU memory ceiling** using sliders in **System → Hardware → GPU nodes → GPU memory → Shared
-GPU memory**. Only discovered firmware options are offered, with a 16 GiB
+**dynamic GPU memory ceiling** using sliders in **System → Hardware → GPU nodes → GPUs → GPU Configuration AMD → Shared GPU memory**. Only discovered firmware options are offered, with a 16 GiB
 CPU/OS allowance for the dynamic ceiling and explicit restart confirmation.
 The host worker verifies actual RAM after changing the carve-out before applying
 TTM through the role below. This does not expand the scheduler's capacity using
@@ -217,6 +216,39 @@ diagnostic metadata, not support claims. Schedule a controlled reboot separately
 rerun diagnostics afterwards. To remove a Magic Stick TTM override, explicitly
 set its limit to `0`, review the diff, apply and reboot. Keep a previously
 working kernel available when planning a kernel upgrade.
+
+## Device-specific dashboard diagnostics
+
+The read-only host preflight publishes a separate `displayDevices` PCI inventory
+with name, driver, vendor/device IDs, architecture and memory evidence where
+available. The AMD-only `devices` and Strix Halo memory-safety contract stay
+unchanged. `Appliance.status.hardwareOperators.<module>.devices` exposes physical
+cards and optional per-engine results, never time-slicing replicas.
+
+The dashboard offers all GPUs on a node or one exact device. Each Ollama/vLLM
+request requires confirmation and records identity-bound `device-validation-*`
+annotations on the existing vendor `ModuleActivation`, not Git-owned appliance
+spec or model settings. The API validates all selected targets before writing.
+Cross-provider conflicts report which providers already accepted the request;
+there is no automatic retry.
+
+The controller serializes tests across devices and engines. Each Job requests a
+real GPU resource and selects the current node/boot/hardware identity. AMD DRA
+uses only the matching ResourceClaim; NVIDIA retains its existing `nvidia`
+runtime and `nvidia.com/gpu` resource. No host-device mounts, CPU fallback,
+automatic model removal or kernel/memory changes are introduced. Tests may wait
+for active workloads. Failed or stale tests never disable a GPU or automatically
+rerun. Missing runtime-image evidence is not a verified pass. Device diagnostics
+do not repin model runtime images.
+
+The current exact-device path supports one physical GPU per vendor on a node,
+including one AMD plus one NVIDIA and their sharing replicas. Same-vendor
+multi-card nodes remain visible but cannot be blindly tested through a
+node-level legacy allocation. MIG, missing physical inventory and providers
+without an approved diagnostic are explicitly unavailable; an all-GPU request
+never silently skips them. During rolling upgrades the old inventory remains
+visible, but exact-device diagnostics stay disabled until fresh host evidence
+arrives.
 
 ## A small computation proof in the exact inference image
 

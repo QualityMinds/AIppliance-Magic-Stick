@@ -53,13 +53,13 @@ data:
         completion = {"done": result.get("done"), "reason": result.get("done_reason"),
                       "promptTokens": result.get("prompt_eval_count"), "outputTokens": result.get("eval_count")}
     else:
-        # The ROCm sidecar runs an exact HIP matrix check before starting vLLM.
+        # The engine sidecar checks GPU arithmetic before starting vLLM.
         result = request("/v1/completions", {
             "model": model, "prompt": prompt,
             "max_tokens": 2, "temperature": 0,
         }, timeout=180)
         answer = str(result["choices"][0].get("text") or "")
-        gpu_execution = True  # Exact HIP arithmetic was required before the API started.
+        gpu_execution = True  # GPU arithmetic was required before the API started.
         completion = {"reason": result["choices"][0].get("finish_reason"),
                       "promptTokens": (result.get("usage") or {}).get("prompt_tokens"),
                       "outputTokens": (result.get("usage") or {}).get("completion_tokens")}
@@ -78,16 +78,20 @@ data:
     import os
     import torch
 
-    if not torch.version.hip or not torch.cuda.is_available():
-        raise RuntimeError("ROCm/HIP GPU execution is unavailable")
-    architecture = str(torch.cuda.get_device_properties(0).gcnArchName).split(":")[0]
-    if architecture != os.environ["EXPECTED_ARCHITECTURE"]:
-        raise RuntimeError("Unexpected measured GPU architecture: " + architecture)
+    provider = os.environ.get("GPU_PROVIDER", "amd")
+    if not torch.cuda.is_available() or (provider == "amd" and not torch.version.hip) or (provider == "nvidia" and not torch.version.cuda):
+        raise RuntimeError("The requested GPU backend is unavailable")
+    if torch.cuda.device_count() != 1:
+        raise RuntimeError("A device diagnostic requires exactly one allocated GPU")
+    if provider == "amd":
+        architecture = str(torch.cuda.get_device_properties(0).gcnArchName).split(":")[0]
+        if os.environ.get("EXPECTED_ARCHITECTURE") and architecture != os.environ["EXPECTED_ARCHITECTURE"]:
+            raise RuntimeError("Unexpected measured GPU architecture: " + architecture)
     values = torch.arange(256, dtype=torch.float32, device="cuda").reshape(16, 16)
     actual = values @ torch.eye(16, dtype=torch.float32, device="cuda")
     torch.cuda.synchronize()
     if not torch.equal(actual, values):
-        raise RuntimeError("HIP GPU arithmetic smoke check failed")
+        raise RuntimeError("GPU arithmetic smoke check failed")
     del actual, values
     torch.cuda.empty_cache()
     os.execvp("python3", ["python3", "-m", "vllm.entrypoints.openai.api_server",

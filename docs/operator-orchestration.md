@@ -227,6 +227,11 @@ capacity. For Intel, the controller also resolves the actual resource to the
 matching `xe` or `i915` KubeAI profile before creating the model.
 
 `Appliance.status.hardwareOperators` always contains NVIDIA, AMD, and Intel.
+Each provider's `devices` list contains physical PCI inventory, not sharing
+replicas. Explicit `device-validation-*` ModuleActivation annotations queue
+per-device diagnostics, bound to node/boot/hardware/configuration identity.
+They run sequentially, do not change GPU eligibility, and do not automatically
+rerun on stale evidence. See [diagnostic binding](gpu-compatibility.md#device-specific-dashboard-diagnostics).
 Normal phases are `NotRequired`, `Detected`, `Installing`, `Ready`, and
 `Unknown`; actionable failures are `Disabled`, `Unsupported`, `Conflict`, and
 `Degraded`. A provider is not `Ready` merely because its controller Deployment

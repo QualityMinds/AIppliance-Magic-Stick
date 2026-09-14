@@ -126,7 +126,27 @@ class HostEvidenceTests(unittest.TestCase):
         report = preflight.collect(self.root, live=False)
         self.assertIsNone(report["devices"][0]["profileId"])
         self.assertEqual(report["devices"][0]["memoryTopology"], "unknown")
-        self.assertNotIn("nodeAnnotation", report)
+        self.assertNotIn("profileId", report["nodeAnnotation"])
+        self.assertNotIn("memoryArchitecture", report["nodeAnnotation"])
+        self.assertEqual(report["nodeAnnotation"]["displayDevices"][0]["deviceId"], "9999")
+
+    def test_inventory_includes_nvidia_without_broadening_amd_memory_evidence(self):
+        self.strix_fixture()
+        prefix = "/sys/bus/pci/devices/0000:02:00.0"
+        for field, value in {"vendor": "0x10de", "device": "0x2684", "class": "0x030000"}.items():
+            self.write(prefix + "/" + field, value)
+        driver = self.root / "sys/bus/pci/drivers/nvidia"
+        driver.mkdir(parents=True)
+        (self.root / prefix.lstrip("/") / "driver").symlink_to(driver)
+        self.write("/proc/driver/nvidia/gpus/0000:02:00.0/information", "Model: NVIDIA Example GPU\nGPU UUID: GPU-example\n")
+        report = preflight.collect(self.root, live=False)
+        self.assertEqual(len(report["devices"]), 1)
+        inventory = report["nodeAnnotation"]["displayDevices"]
+        self.assertEqual(len(inventory), 2)
+        self.assertEqual(inventory[1]["name"], "NVIDIA Example GPU")
+        self.assertEqual(inventory[1]["driver"], "nvidia")
+        self.assertEqual(inventory[1]["uuid"], "GPU-example")
+        self.assertEqual(report["nodeAnnotation"]["gpuPciAddress"], "0000:01:00.0")
 
     def test_non_display_amd_function_is_not_a_gpu(self):
         self.device(cls="0x060400")

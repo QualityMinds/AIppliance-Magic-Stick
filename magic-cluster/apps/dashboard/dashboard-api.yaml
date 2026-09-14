@@ -2992,6 +2992,8 @@ data:
 
 
     def request_gpu_engine_validation(payload):
+        if "deviceIds" in payload:
+            return request_physical_gpu_validation(payload)
         _reject_unknown_fields(payload, {"nodeName", "nodeUid", "engine", "profileId", "requestId", "acknowledgeResourceUse"})
         engine = payload.get("engine")
         request_id = payload.get("requestId")
@@ -3031,6 +3033,68 @@ data:
                          {"metadata": {"resourceVersion": metadata["resourceVersion"], "annotations": {key: value}}},
                          "application/merge-patch+json")
         return {"accepted": True, "requestId": request_id}
+
+
+    def request_physical_gpu_validation(payload):
+        _reject_unknown_fields(payload, {"nodeName", "nodeUid", "engine", "deviceIds", "requestId", "acknowledgeResourceUse"})
+        ids, engine, request_id = payload.get("deviceIds"), payload.get("engine"), payload.get("requestId")
+        if engine not in ("OLlama", "VLLM") or payload.get("acknowledgeResourceUse") is not True:
+            raise ValueError("Choose Ollama or vLLM and acknowledge GPU resource use")
+        if not isinstance(request_id, str) or not re.fullmatch(r"dashboard-[A-Za-z0-9._-]{1,70}", request_id):
+            raise ValueError("requestId must be a unique dashboard validation identifier")
+        if not isinstance(ids, list) or not 1 <= len(ids) <= 32 or not all(isinstance(x, str) for x in ids) or len(set(ids)) != len(ids):
+            raise ValueError("Choose one or more distinct physical GPU devices")
+        name = payload.get("nodeName")
+        if not isinstance(name, str) or not re.fullmatch(r"[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?", name):
+            raise ValueError("nodeName must identify a Kubernetes node")
+        node = get_resource("/api/v1/nodes/" + urllib.parse.quote(name, safe="")) or {}
+        uid = (node.get("metadata") or {}).get("uid")
+        boot = (node.get("status") or {}).get("nodeInfo", {}).get("bootID")
+        if not uid or payload.get("nodeUid") != uid:
+            raise RequestError(409, "The node changed; refresh Hardware before requesting validation")
+        devices = [d for o in (appliance().get("status", {}).get("hardwareOperators") or {}).values() for d in o.get("devices", [])]
+        selected = [d for d in devices if d.get("id") in ids and d.get("nodeUid") == uid and d.get("node") == name]
+        if len(selected) != len(ids) or any(not d.get("validationAvailable") or d.get("bootId") != boot
+                                          or d.get("validation", {}).get(engine, {}).get("state") in ("queued", "running") for d in selected):
+            raise RequestError(409, "A selected GPU changed, is unavailable or already has a pending diagnostic; refresh Hardware")
+        try:
+            host = json.loads((node.get("metadata", {}).get("annotations") or {}).get("appliance.magicstick.dev/gpu-host-preflight", ""))
+            age = (datetime.now(timezone.utc) - datetime.fromisoformat(host["generatedAt"].replace("Z", "+00:00"))).total_seconds()
+            if (not -300 <= age <= 86400 or host.get("nodeUid") != uid or host.get("bootId") != boot
+                    or host.get("kernelVersion") != node.get("status", {}).get("nodeInfo", {}).get("kernelVersion")
+                    or any(not re.fullmatch(r"[a-f0-9]{64}", str(d.get("validationContext", "")))
+                           or host.get("fingerprint") != d.get("hostFingerprint") for d in selected)):
+                raise ValueError("stale host")
+        except (ValueError, TypeError, KeyError, AttributeError):
+            raise RequestError(409, "Physical GPU evidence changed or expired; refresh Hardware before validation")
+        # Verify all targets before writing any request. Requests are recorded on
+        # their existing vendor ModuleActivations, never in Git-owned spec.
+        changes = {}
+        for device in selected:
+            module = device.get("module")
+            if module not in ("amd-gpu", "gpu"):
+                raise RequestError(409, "No approved diagnostic exists for the selected provider")
+            if module not in changes:
+                activation = module_activation(module) or {}
+                metadata = activation.get("metadata") or {}
+                if not metadata.get("resourceVersion") or activation.get("spec", {}).get("enabled", True) is False or metadata.get("deletionTimestamp"):
+                    raise RequestError(409, "The GPU operator is no longer enabled; refresh Hardware")
+                changes[module] = (metadata, {})
+            metadata, annotations = changes[module]
+            if metadata.get("generation") != device.get("activationGeneration"):
+                raise RequestError(409, "The GPU configuration changed; refresh Hardware before validation")
+            key = "appliance.magicstick.dev/device-validation-" + hashlib.sha256((device["id"] + ":" + engine).encode()).hexdigest()[:24]
+            annotations[key] = json.dumps({"requestId": request_id, "context": device["validationContext"]}, sort_keys=True)
+        accepted = []
+        for module, (metadata, annotations) in changes.items():
+            try:
+                if any((metadata.get("annotations") or {}).get(k) != v for k, v in annotations.items()):
+                    request_json("PATCH", f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/moduleactivations/{module}",
+                                 {"metadata": {"resourceVersion": metadata["resourceVersion"], "annotations": annotations}}, "application/merge-patch+json")
+                accepted.append(module)
+            except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError):
+                raise RequestError(409, "Validation could not be recorded for every provider. Accepted providers: " + (", ".join(accepted) or "none") + ". Refresh Hardware before retrying.")
+        return {"accepted": True, "requestId": request_id, "deviceIds": ids}
 
 
     def module_mutation_access(module, payload):

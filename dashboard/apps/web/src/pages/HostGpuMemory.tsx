@@ -10,7 +10,7 @@ const terminal = new Set(['Succeeded', 'PreparedUnverified', 'Failed', 'Rejected
 const formatMi = (value?: number) => value === undefined ? 'Unknown' : value < 1024 ? `${value.toLocaleString()} MiB` : `${Number((value / 1024).toFixed(1)).toLocaleString()} GiB`;
 const positive = (value?: number): value is number => value !== undefined && Number.isFinite(value) && value > 0;
 
-const MemoryControls = ({host, memory, session, stale}: {host: ManagedHost; memory: HostGpuMemory; session: Session; stale: boolean}) => {
+const MemoryControls = ({host, memory, session, stale, hideHeading}: {host: ManagedHost; memory: HostGpuMemory; session: Session; stale: boolean; hideHeading?: boolean}) => {
   const client = useQueryClient();
   const options = [...(memory.options ?? [])].sort((left, right) => left.sizeMi - right.sizeMi);
   const step = memory.stepMi ?? 1024;
@@ -74,8 +74,8 @@ const MemoryControls = ({host, memory, session, stale}: {host: ManagedHost; memo
   const controlsDisabled = blocked || mutation.isPending || Boolean(pending);
   const description = `${host.name}: fixed GPU reservation ${formatMi(memory.currentCarveoutMi)} → ${formatMi(plannedFixed?.sizeMi)}; dynamic GPU ceiling ${formatMi(memory.currentDynamicLimitMi)} → ${formatMi(pending?.settings.dynamicLimitMi)}. ${firmwareChanges ? 'A firmware reservation change may require up to two restarts: first to apply the firmware setting, then to activate and verify the dynamic limit.' : 'Changing only the dynamic limit requires one restart.'} All workloads on this computer will be interrupted. This is experimental; startup and model success are not guaranteed. Keep local console access and a recovery path. No workload migration is performed. The dynamic limit is a ceiling, not a reservation or guaranteed free memory.`;
 
-  return <section className="host-gpu-memory stack compact" aria-label={`Shared GPU memory on ${host.name}`}>
-    <header className="inline-info"><strong>Shared GPU memory · Strix Halo</strong><InfoPopover label={`Shared GPU memory on ${host.name}`}><p className="memory-info-note">CPU and GPU use the same physical RAM. Firmware-reserved GPU memory is unavailable to Linux; dynamic GPU memory is borrowed from Linux RAM only when needed. These are not additional independent pools.</p>{memory.message && <p className="memory-info-note">{memory.message}</p>}</InfoPopover></header>
+  return <section className={`host-gpu-memory stack compact${hideHeading ? ' host-gpu-memory-embedded' : ''}`} aria-label={`Shared GPU memory on ${host.name}`}>
+    {!hideHeading && <header className="inline-info"><strong>Shared GPU memory · Strix Halo</strong><SharedGpuMemoryInfo host={host} /></header>}
     <dl className="facts">
       <div><dt>Current fixed GPU reservation</dt><dd>{formatMi(memory.currentCarveoutMi)}</dd></div>
       <div><dt>Current dynamic GPU ceiling (TTM)</dt><dd>{formatMi(memory.currentDynamicLimitMi)}</dd></div>
@@ -117,9 +117,11 @@ const MemoryControls = ({host, memory, session, stale}: {host: ManagedHost; memo
   </section>;
 };
 
-export const HostGpuMemoryPanel = ({host, session, stale = false}: {host: ManagedHost; session: Session; stale?: boolean}) => {
+export const SharedGpuMemoryInfo = ({host}: {host: ManagedHost}) => <InfoPopover label={`Shared GPU memory on ${host.name}`}><p className="memory-info-note">CPU and GPU use the same physical RAM. Firmware-reserved GPU memory is unavailable to Linux; dynamic GPU memory is borrowed from Linux RAM only when needed. These are not additional independent pools.</p>{host.gpuMemory?.message && <p className="memory-info-note">{host.gpuMemory.message}</p>}</InfoPopover>;
+
+export const HostGpuMemoryPanel = ({host, session, stale = false, hideHeading = false}: {host: ManagedHost; session: Session; stale?: boolean; hideHeading?: boolean}) => {
   const memory = host.gpuMemory;
-  if (!memory?.supported) return <section className="host-gpu-memory stack compact" aria-label={`Shared GPU memory on ${host.name}`}><div className="inline-info"><strong>Shared GPU memory</strong><StatusBadge phase="Unavailable" /><InfoPopover label={`Shared GPU memory on ${host.name}`}><p className="memory-info-note">{memory?.message || 'Shared GPU memory configuration is unavailable for this computer.'}</p></InfoPopover></div></section>;
+  if (!memory?.supported) return <section className="host-gpu-memory stack compact" aria-label={`Shared GPU memory on ${host.name}`}><div className="inline-info">{!hideHeading && <strong>Shared GPU memory</strong>}<StatusBadge phase="Unavailable" />{!hideHeading && <SharedGpuMemoryInfo host={host} />}</div></section>;
   // Polling preserves the draft; changed node, boot or fingerprinted configuration evidence invalidates it and any open confirmation.
-  return <MemoryControls key={`${host.name}:${host.nodeUid}:${host.bootId}:${memory.id}`} host={host} memory={memory} session={session} stale={stale} />;
+  return <MemoryControls key={`${host.name}:${host.nodeUid}:${host.bootId}:${memory.id}`} host={host} memory={memory} session={session} stale={stale} hideHeading={hideHeading} />;
 };

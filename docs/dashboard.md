@@ -652,10 +652,12 @@ companies, employee agents, or gateway credentials.
 
 ## Hardware Compatibility Controls
 
-**System → Hardware → GPU nodes → GPU Configuration AMD / NVIDIA** groups each
-provider's **GPU sharing** controls separately. AMD runtime profiles and collapsed
-GPU-memory controls stay within the AMD section. Both provider sections are
-independently expandable and start collapsed. New installations default to
+**System → Hardware → GPU nodes → Node: name → GPUs** contains one named,
+initially collapsed accordion per physical PCI GPU, not per sharing slot. Its
+physical memory layout appears first, followed by device facts and collapsed
+**GPU sharing**, **AMD runtime profile** and **Shared GPU memory** sections.
+AMD-only controls stay with their matching device. Bold summary titles carry
+info icons without repeated inner headings. New installations default to
 one model per GPU for both providers. Apply is enabled only for changed, valid
 settings; sharing uses one final restart confirmation and no additional checkbox.
 The backend labels are **DRA sharing configuration** and **Time-slicing configuration**.
@@ -675,12 +677,15 @@ exact-host approval and a second confirmation, with local timeout/boot recovery.
 See [network management](network-management.md) for limitations and credentials.
 
 The Hardware page puts **GPU operators** first, followed by **GPU nodes** as the
-main workspace. Each node contains its host preparation, kernel plan, advanced
-runtime profile, physical memory summary, collapsed **GPU memory** controls and
-separate Ollama/vLLM verification buttons. Device and kernel details share one
-grid: **Detected GPU devices** appears once; **Running
-kernel** and **Planned kernel** follow the resource/device row, with **Kernel /
-driver plan** below. Host preparation keeps its status and actions without a
+main workspace. Only **Profile**, **Upstream operator recognition**, **Running
+kernel**, **Planned kernel** and **Kernel / driver plan** remain in the node grid.
+**Architecture**, **Host driver**, **Kubernetes GPU resource** and **Detected GPU
+device** belong to the respective GPU accordion. Below the accordions, optional
+Ollama/vLLM verification offers all GPUs on the node or one physical device.
+Requests contain explicit device IDs; results stay separate per GPU and engine.
+Tests require confirmation and run sequentially. Unsupported targets are never
+silently omitted from an all-GPU request. See [diagnostic binding and
+limitations](gpu-compatibility.md#device-specific-dashboard-diagnostics). Host preparation keeps its status and actions without a
 nested card. General explanatory paragraphs are replaced
 by info icons with hover, keyboard-focus, and click/touch overlays. Current
 values, status badges, errors, required acknowledgements, and confirmation-dialog
@@ -698,7 +703,7 @@ or execute these actions. Availability, progress, power-off limitations and
 recovery are documented in [host management](host-management.md).
 
 Host preparation already activates the matching AMD runtime profile. The
-collapsed **Advanced · AMD runtime profile** section inside each node retains
+collapsed **AMD runtime profile** section inside the matching GPU retains
 the manual profile override without presenting it as a second required setup
 step. That override only changes the cluster's AMD `ModuleActivation`; it does
 not install a kernel or driver. Host package plans and runtime profiles remain

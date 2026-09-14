@@ -473,8 +473,9 @@ export interface GpuCompatibilityProfile {
 }
 
 export interface GpuEngineValidation {
-  state: 'unverified' | 'running' | 'passed' | 'failed' | 'stale' | 'upstream';
+  state: 'unverified' | 'queued' | 'running' | 'passed' | 'failed' | 'stale' | 'upstream';
   image?: string;
+  imageId?: string;
   kernelVersion?: string;
   driverVersion?: string;
   validatedAt?: string;
@@ -514,9 +515,34 @@ export interface GpuValidationRequest {
   nodeName: string;
   nodeUid: string;
   engine: 'OLlama' | 'VLLM';
-  profileId: string;
+  profileId?: string;
+  deviceIds?: string[];
   requestId: string;
   acknowledgeResourceUse: boolean;
+}
+
+export interface HardwareGpuDevice {
+  id: string;
+  node: string;
+  nodeUid: string;
+  bootId?: string;
+  vendor: string;
+  module?: string;
+  name: string;
+  pciAddress: string;
+  pciId: string;
+  architecture?: string;
+  hostDriver?: string;
+  hostDriverReady?: boolean | null;
+  resourceRegistered?: boolean;
+  eligible?: boolean;
+  memoryTotalMi?: number | null;
+  memoryArchitecture?: string;
+  memory?: SharedMemoryInventory;
+  validationAvailable: boolean;
+  validationReason?: string;
+  validationContext?: string;
+  validation?: Record<string, GpuEngineValidation>;
 }
 
 export interface GpuSharingState {
@@ -553,6 +579,7 @@ export interface GpuSharingRequest {
 }
 
 export interface HardwareOperator {
+  devices?: HardwareGpuDevice[];
   module?: string;
   displayName?: string;
   vendor?: string;

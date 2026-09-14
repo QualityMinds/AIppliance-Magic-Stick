@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import platform
 import re
+import shlex
 import shutil
 import stat
 import subprocess
@@ -164,6 +165,41 @@ def collect_memory(root=Path("/")):
     }}
 
 
+def display_inventory(root, amd_devices, live):
+    """Physical PCI inventory only; never infer GPUs from shared resource slots."""
+    _, output = command(["lspci", "-Dmm"], live)
+    names = {}
+    for line in output.splitlines():
+        try:
+            fields = shlex.split(line)
+            if len(fields) >= 4:
+                names[fields[0].lower()] = fields[3]
+        except ValueError:
+            continue
+    amd = {device["pciAddress"]: device for device in amd_devices}
+    result = []
+    for entry in sorted((root / "sys/bus/pci/devices").glob("*")):
+        cls = number(read(entry / "class"))
+        if cls is None or cls >> 16 != 0x03:
+            continue
+        vendor, device = hex_id(read(entry / "vendor")), hex_id(read(entry / "device"))
+        try:
+            driver = (entry / "driver").resolve(strict=True).name
+        except OSError:
+            driver = None
+        evidence = amd.get(entry.name, {})
+        nvidia = dict(re.findall(r"^([^:\n]+):\s*(.+)$", read(root / "proc/driver/nvidia/gpus" / entry.name / "information"), re.M))
+        architectures = evidence.get("gfxArchitectures", [])
+        result.append({"pciAddress": entry.name, "vendorId": vendor, "deviceId": device,
+                       "driver": driver, "name": nvidia.get("Model") or names.get(entry.name)
+                       or ("AMD Strix Halo" if vendor == "1002" and device == "1586" else ""),
+                       "driverVersion": read(root / "sys/module" / driver / "version") if driver else "",
+                       "uuid": nvidia.get("GPU UUID", ""),
+                       "architecture": architectures[0] if len(architectures) == 1 else "",
+                       "memoryTotalMi": (evidence.get("memory", {}).get("vramTotalBytes") or 0) // 1024**2 or None})
+    return result
+
+
 def collect(root=Path("/"), live=True):
     def path(value):
         return root / value.lstrip("/")
@@ -260,7 +296,9 @@ def collect(root=Path("/"), live=True):
         report["warnings"].append("/dev/kfd is absent; ROCm compute cannot be assumed available.")
     if rocminfo_status["status"] != "ok":
         report["warnings"].append("Host rocminfo evidence is unavailable; probe the pinned ROCm container separately.")
+    display_devices = display_inventory(root, devices, live)
     fingerprint_data = {"os": report["os"], "kernel": release, "driverVersion": report["driver"]["version"], "firmwarePackage": firmware_version,
+                        "displayDevices": display_devices,
                         "devices": [{key: device[key] for key in ("pciAddress", "vendorId", "deviceId", "driver", "gfxArchitectures")} for device in devices]}
     report["hardwareFingerprint"] = hashlib.sha256(json.dumps(fingerprint_data, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     profile_devices = [device for device in devices if device["profileId"] == PROFILE_ID]
@@ -292,6 +330,13 @@ def collect(root=Path("/"), live=True):
             "hostDriverReady": bool(device["driver"] == "amdgpu" and report["driver"]["kfd"]["charDevice"] and any(node["charDevice"] for node in device["renderNodes"]) and gfx == "gfx1151" and report["kernel"]["strixHaloFixes"] == "present"),
             "firmwareVersion": firmware_version,
         }
+    # Keep the AMD-only devices/profile contract intact. This separate inventory
+    # also exists on NVIDIA/Intel-only hosts and is bound to node/boot by publish.
+    if display_devices:
+        report.setdefault("nodeAnnotation", {
+            "fingerprint": report["hardwareFingerprint"], "generatedAt": report["generatedAt"],
+            "bootId": report["bootId"], "kernelVersion": release,
+        })["displayDevices"] = display_devices
     return report
 
 

@@ -98,8 +98,8 @@ export const HostPreparationPanel = ({session, children}: {session: Session; chi
   </Panel>;
 };
 
-export const HostMemoryControls = ({host, session, stale}: {host: ManagedHost; session: Session; stale: boolean}) => <div className="stack compact">
-  <HostGpuMemoryPanel host={host} session={session} stale={stale} />
+export const HostMemoryControls = ({host, session, stale, hideHeading = false}: {host: ManagedHost; session: Session; stale: boolean; hideHeading?: boolean}) => <div className="stack compact">
+  <HostGpuMemoryPanel host={host} session={session} stale={stale} hideHeading={hideHeading} />
   <Operation host={host} actions={['configure-gpu-memory']} />
 </div>;
 

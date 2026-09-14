@@ -10,6 +10,14 @@ data:
   profiles.json: |
     {
       "schemaVersion": 1,
+      "diagnostics": {
+        "nvidia": {
+          "engines": {
+            "OLlama": {"image": "ollama/ollama:0.33.2", "testModel": "qwen3:0.6b"},
+            "VLLM": {"image": "vllm/vllm-openai:v0.23.0", "testModel": "Qwen/Qwen3-0.6B"}
+          }
+        }
+      },
       "profiles": [
         {
           "id": "strix-halo",

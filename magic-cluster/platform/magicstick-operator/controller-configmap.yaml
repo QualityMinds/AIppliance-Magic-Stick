@@ -1802,8 +1802,11 @@ data:
     def gpu_validation_job(node, profile, engine, request_id, host, activation):
         key = gpu_validation_key(node, profile, engine, request_id, host)
         definition = profile["engines"][engine]
+        provider = profile.get("vendor", "amd")
+        resource = "nvidia.com/gpu" if provider == "nvidia" else "amd.com/gpu"
         env = [{"name": name, "value": str(value)} for name, value in {
             "ENGINE": engine, "TEST_MODEL": definition["testModel"],
+            "GPU_PROVIDER": provider,
             "EXPECTED_ARCHITECTURE": profile["expectedArchitecture"],
             "OLLAMA_HOST": "127.0.0.1:11434", "OLLAMA_MODELS": "/cache/ollama",
             "OLLAMA_VULKAN": "false",
@@ -1826,14 +1829,15 @@ data:
             "template": {"metadata": {"labels": labels}, "spec": {
                 "restartPolicy": "Never", "automountServiceAccountToken": False,
                 "nodeSelector": {"kubernetes.io/hostname": node_labels(node).get("kubernetes.io/hostname", node_name(node)),
-                                 AMD_ELIGIBILITY_LABEL: "true"},
-                "tolerations": [{"key": "amd.com/gpu", "operator": "Exists", "effect": "NoSchedule"}],
+                                 **({AMD_ELIGIBILITY_LABEL: "true"} if provider == "amd" else {})},
+                **({"runtimeClassName": "nvidia"} if provider == "nvidia" else {}),
+                "tolerations": [{"key": resource, "operator": "Exists", "effect": "NoSchedule"}],
                 "initContainers": [{"name": "engine", "restartPolicy": "Always", "image": definition["image"],
                     "imagePullPolicy": "Always", "env": env, "volumeMounts": mounts,
                     "command": ["ollama", "serve"] if engine == "OLlama" else ["python3", "/probe/vllm-start.py"],
                     "securityContext": {"allowPrivilegeEscalation": False, "capabilities": {"drop": ["ALL"]}},
-                    "resources": {"requests": {"cpu": "1", "memory": "4Gi", "amd.com/gpu": "1"},
-                                  "limits": {"cpu": "4", "memory": "8Gi", "amd.com/gpu": "1"}}}],
+                    "resources": {"requests": {"cpu": "1", "memory": "4Gi", resource: "1"},
+                                  "limits": {"cpu": "4", "memory": "8Gi", resource: "1"}}}],
                 "containers": [{"name": "validate", "image": "python:3.13-alpine", "env": env,
                     "command": ["python", "/probe/validate.py"], "volumeMounts": mounts,
                     "securityContext": {"allowPrivilegeEscalation": False, "runAsNonRoot": True,
@@ -1843,7 +1847,8 @@ data:
                             {"name": "cache", "emptyDir": {"sizeLimit": "4Gi"}}],
             }},
         }}
-        if GPU_SHARING_STATE.get("mode") == "dra-shared" and GPU_SHARING_STATE.get("phase") == "Ready":
+        if (provider == "amd" and GPU_SHARING_STATE.get("nodeUid") == (node.get("metadata") or {}).get("uid")
+                and GPU_SHARING_STATE.get("mode") == "dra-shared" and GPU_SHARING_STATE.get("phase") == "Ready"):
             metadata["namespace"] = GPU_SHARING_STATE["namespace"]
             metadata.pop("ownerReferences", None)  # Namespaced owners cannot cross namespaces.
             pod = job["spec"]["template"]["spec"]
@@ -1853,6 +1858,160 @@ data:
                 engine_resources[key].pop("amd.com/gpu", None)
             engine_resources["claims"] = [{"name": "gpu"}]
         return job
+
+
+    def gpu_device_request_key(device_id, engine):
+        return "appliance.magicstick.dev/device-validation-" + hashlib.sha256((device_id + ":" + engine).encode()).hexdigest()[:24]
+
+
+    def physical_gpu_devices(nodes, compatibility, activations, catalog):
+        """PCI inventory, not device-plugin replicas; diagnostics never gate use."""
+        result = []
+        vendors = {"1002": ("amd", "amd-gpu", "amdgpu", "amd.com/gpu"),
+                   "10de": ("nvidia", "gpu", "nvidia", "nvidia.com/gpu"),
+                   "8086": ("intel", "intel-gpu", "", "gpu.intel.com/xe")}
+        for node in nodes:
+            host = gpu_host_preflight(node)
+            inventory = host.get("displayDevices") or []
+            metadata = node.get("metadata") or {}
+            info = (node.get("status") or {}).get("nodeInfo") or {}
+            amd = next((n for n in compatibility.get("nodes", []) if n.get("nodeUid") == metadata.get("uid")), {})
+            for gpu in inventory:
+                pci = gpu.get("pciAddress", "")
+                if not re.fullmatch(r"[a-f0-9]{4}:[a-f0-9]{2}:[a-f0-9]{2}\.[0-7]", pci):
+                    continue
+                vendor, module, driver, resource = vendors.get(gpu.get("vendorId"), ("unknown", "", "", ""))
+                activation = activations.get(module) or {}
+                enabled = bool(activation) and activation.get("spec", {}).get("enabled", True) is not False and not activation.get("metadata", {}).get("deletionTimestamp")
+                count = sum(g.get("vendorId") == gpu.get("vendorId") for g in inventory)
+                capacity = (node.get("status") or {}).get("capacity") or {}
+                registered = extended_resource_capacity([node], [resource]) > 0 if resource else False
+                if vendor == "amd" and GPU_SHARING_STATE.get("nodeUid") == metadata.get("uid") and (GPU_SHARING_STATE.get("device") or {}).get("pciAddress") == pci:
+                    registered = GPU_SHARING_STATE.get("phase") == "Ready"
+                if vendor == "intel":
+                    registered = extended_resource_capacity([node], ["gpu.intel.com/xe", "gpu.intel.com/i915"]) > 0
+                host_ready = gpu.get("driver") in ("i915", "xe") if vendor == "intel" else bool(driver and gpu.get("driver") == driver)
+                eligible = enabled and node_ready(node) and not (node.get("spec") or {}).get("unschedulable") and host_ready and registered
+                if vendor == "amd":
+                    eligible = eligible and amd.get("eligible") is True
+                profile = next((p for p in catalog.get("profiles", []) if vendor == "amd" and p.get("id") == amd.get("profileId")), None)
+                if not profile:
+                    profile = {"id": vendor + "-upstream", "version": "1", "vendor": vendor,
+                               "expectedArchitecture": gpu.get("architecture", ""),
+                               "engines": (catalog.get("diagnostics", {}).get(vendor) or {}).get("engines", {})}
+                device_id = metadata.get("uid", "") + "/" + pci
+                context = hashlib.sha256(json.dumps({"id": device_id, "boot": info.get("bootID"),
+                    "fingerprint": host.get("fingerprint"), "profile": profile,
+                    "generation": activation.get("metadata", {}).get("generation")}, sort_keys=True).encode()).hexdigest()
+                reason = ("" if eligible else "Fresh host evidence, an enabled operator and a registered GPU are required.")
+                # Legacy device plugins select a GPU themselves. Do not present
+                # a node-level allocation as a test of an arbitrarily chosen GPU.
+                if count != 1:
+                    reason = "Exact-device validation requires one physical GPU per vendor on this node; sharing replicas do not count as GPUs."
+                if vendor == "nvidia" and not nvidia_whole_gpu_available(node):
+                    reason = "NVIDIA diagnostics require a whole GPU resource without MIG."
+                if not profile.get("engines"):
+                    reason = "No approved engine diagnostic is configured for this GPU."
+                total = gpu.get("memoryTotalMi")
+                if vendor == "nvidia" and count == 1:
+                    total = positive_int(node_labels(node).get("nvidia.com/gpu.memory")) or total
+                architecture = gpu.get("architecture", "")
+                if vendor == "nvidia" and count == 1 and node_labels(node).get("nvidia.com/gpu.compute.major"):
+                    architecture = "CUDA " + node_labels(node)["nvidia.com/gpu.compute.major"] + "." + node_labels(node).get("nvidia.com/gpu.compute.minor", "0")
+                item = {"id": device_id, "node": node_name(node), "nodeUid": metadata.get("uid", ""),
+                    "bootId": info.get("bootID", ""), "vendor": vendor, "module": module,
+                    "hostFingerprint": host.get("fingerprint", ""),
+                    "activationGeneration": activation.get("metadata", {}).get("generation"),
+                    "name": gpu.get("name") or vendor.upper() + " GPU", "pciAddress": pci,
+                    "pciId": gpu.get("vendorId", "") + ":" + gpu.get("deviceId", ""),
+                    "architecture": architecture, "hostDriver": gpu.get("driver") or "",
+                    "hostDriverReady": host_ready, "resourceRegistered": registered, "eligible": eligible,
+                    "memoryTotalMi": total, "memoryArchitecture": "discrete",
+                    "validationAvailable": not reason, "validationReason": reason,
+                    "validationContext": context, "validation": {}, "profileId": profile["id"]}
+                if vendor == "amd" and count == 1 and amd.get("memoryArchitecture") == "unified":
+                    item["memoryArchitecture"] = "unified"
+                    item["memory"] = {key: value for key, value in amd.items() if key in (
+                        "node", "installedMemoryMi", "firmwareReservedMi", "physicalMemoryMi", "gpuAccessibleMi",
+                        "gpuAllocationMode", "gpuCapacityMi", "gpuCapacitySource", "memoryAccountingVerified")}
+                result.append((item, node, profile, host, activation))
+        return result
+
+
+    def reconcile_device_validations(nodes, compatibility, activations, catalog):
+        """Explicit per-device queue. A reboot/image/profile change never reruns it."""
+        devices = physical_gpu_devices(nodes, compatibility, activations, catalog)
+        identity_label = "appliance.magicstick.dev/gpu-host-identity"
+        for node in nodes:
+            host = gpu_host_preflight(node)
+            identity = hashlib.sha256(json.dumps({"uid": node.get("metadata", {}).get("uid"),
+                "boot": host.get("bootId"), "fingerprint": host.get("fingerprint")}, sort_keys=True).encode()).hexdigest()[:32] if host else None
+            if node_labels(node).get(identity_label) != identity:
+                patch_json("/api/v1/nodes/" + urllib.parse.quote(node_name(node), safe=""), {"metadata": {"labels": {identity_label: identity}}})
+                if identity:
+                    node.setdefault("metadata", {}).setdefault("labels", {})[identity_label] = identity
+                else:
+                    node.setdefault("metadata", {}).setdefault("labels", {}).pop(identity_label, None)
+        query = urllib.parse.urlencode({"labelSelector": GPU_VALIDATION_LABEL + "=true"})
+        namespaces = {APPLIANCE_NAMESPACE, GPU_SHARING_STATE.get("namespace") or APPLIANCE_NAMESPACE}
+        jobs = [j for ns in namespaces for j in list_items(f"/apis/batch/v1/namespaces/{ns}/jobs?{query}")]
+        pods = [p for ns in namespaces for p in list_items(f"/api/v1/namespaces/{ns}/pods?{query}")]
+        running = any(gpu_job_state(j) == "running" for j in jobs)
+        results = []
+        for item, node, profile, host, activation in devices:
+            for engine in ("OLlama", "VLLM"):
+                definition = profile.get("engines", {}).get(engine) or {}
+                report = {"state": "unverified", "image": definition.get("image", ""),
+                          "message": item["validationReason"] or "No optional device test requested."}
+                legacy = next((n for n in compatibility.get("nodes", []) if n.get("nodeUid") == item["nodeUid"]), {}) if item["vendor"] == "amd" else {}
+                previous = legacy.get("validation", {}).get(engine) or {}
+                if previous.get("runtimeReady") is not None:
+                    report.update(runtimeReady=previous["runtimeReady"], runtimeMessage=previous.get("runtimeMessage", ""))
+                item["validation"][engine] = report
+                raw = activation.get("metadata", {}).get("annotations", {}).get(gpu_device_request_key(item["id"], engine))
+                if not raw or not definition:
+                    if not raw and previous and item["validationAvailable"]:
+                        report.update(previous)
+                    continue
+                try:
+                    request = json.loads(raw)
+                except (ValueError, TypeError):
+                    continue
+                if not isinstance(request, dict) or not re.fullmatch(r"dashboard-[A-Za-z0-9._-]{1,70}", str(request.get("requestId", ""))):
+                    continue
+                if request.get("context") != item["validationContext"] or not item["validationAvailable"]:
+                    report.update(state="stale", message="Device, host or configuration changed. Review and request a new test manually.")
+                    continue
+                desired = gpu_validation_job(node, profile, engine, request["requestId"], host, activation)
+                desired["spec"]["template"]["spec"]["nodeSelector"][identity_label] = node_labels(node)[identity_label]
+                annotations = desired["metadata"]["annotations"]
+                annotations["appliance.magicstick.dev/validation-device"] = item["id"]
+                job = next((j for j in jobs if j.get("metadata", {}).get("name") == desired["metadata"]["name"]), None)
+                report["state"] = gpu_job_state(job)
+                report["jobName"] = desired["metadata"]["name"]
+                if job:
+                    report["validatedAt"] = job.get("status", {}).get("completionTime", "")
+                    report["message"] = "Device-specific GPU smoke test " + report["state"] + "; not a model-size or memory-accounting guarantee."
+                    job_uid = job.get("metadata", {}).get("uid")
+                    owned = [p for p in pods if job_uid and any(o.get("uid") == job_uid for o in p.get("metadata", {}).get("ownerReferences", []))]
+                    report["imageId"] = next((s.get("imageID", "") for p in owned for s in p.get("status", {}).get("initContainerStatuses", []) if s.get("name") == "engine"), "")
+                    if report["state"] == "passed" and not validated_image_digest(report["image"], report["imageId"]):
+                        report.update(state="stale", message="The completed diagnostic's runtime image identity is unavailable; no verified result is claimed.")
+                elif running:
+                    report.update(state="queued", message="Waiting for the current GPU diagnostic to finish.")
+                else:
+                    ns = desired["metadata"]["namespace"]
+                    if ns != APPLIANCE_NAMESPACE:
+                        probe = get_core_resource("v1", "configmaps", APPLIANCE_NAMESPACE, "magicstick-gpu-validation") or {}
+                        if not probe.get("data"):
+                            continue
+                        apply_resource({"apiVersion": "v1", "kind": "ConfigMap", "metadata": {
+                            "name": "magicstick-gpu-validation", "namespace": ns}, "data": probe["data"]})
+                    apply_resource(desired)
+                    running = True
+                    report.update(state="running", message="GPU diagnostic requested; it may wait for active workloads.")
+            results.append(item)
+        return results
 
 
     def gpu_job_state(job):
@@ -4004,6 +4163,9 @@ data:
             crd_names=crd_names,
             compatibility=compatibility,
         )
+        for device in reconcile_device_validations(nodes, compatibility, activations, compatibility_catalog):
+            if device["module"] in hardware_statuses:
+                hardware_statuses[device["module"]].setdefault("devices", []).append(device)
         patch_appliance_status(module_statuses, instance_statuses, model_statuses, hardware_statuses)
         print(f"reconciled modules={len(module_statuses)} instances={len(instances)} models={len(models)}", flush=True)
 

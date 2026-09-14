@@ -310,10 +310,12 @@ Verify the configured image, running Pod image ID and readiness for both
 `dashboard/ai-appliance-dashboard` and
 `identity-system/ai-appliance-dashboard-api`. Finally reload the primary
 dashboard in a browser and check the changed screen under the intended role.
-For node-level Hardware controls, verify that preparation and advanced profile
-options are inside the node, device and kernel facts share one grid without a
-duplicate device field or nested preparation card, GPU memory starts collapsed, and each engine has its
-own verification button. Merely opening the page must not submit a validation,
+For Hardware controls, verify **Node: name**, a node-only kernel/profile grid,
+and one named accordion per physical PCI GPU. GPU facts must never be copied
+from AMD onto NVIDIA. Physical memory appears first inside each GPU; sharing,
+AMD runtime profile and shared memory start collapsed with bold info-icon
+summaries. Below the GPU accordions, check the all/single-GPU selector and
+independent Ollama/vLLM results and verification buttons. Merely opening the page must not submit a validation,
 preparation or memory request. Do not launch GPU probes during a UI-only rollout.
 Report source publication, image build and live rollout as separate results;
 an old digest is not a browser-cache problem.
@@ -797,7 +799,7 @@ requirement. Optional validation is inside each GPU node and uses the saved
 profile. Info icons retain background explanations and diagnostic messages;
 required action acknowledgements and disruption confirmations remain explicit.
 
-**System → Hardware → GPU nodes → GPU memory → Shared GPU memory** configures supported Strix Halo
+**System → Hardware → GPU nodes → GPUs → GPU Configuration AMD → Shared GPU memory** configures supported Strix Halo
 firmware reservations and dynamic TTM limits through the same host worker.
 Inspect current versus requested values and retain console access before
 confirming the possible two-reboot workflow. Unsupported/mixed systems and

@@ -13,6 +13,8 @@ const mount = async (roles = session.roles, expand = true) => {
   const rendered = render(<QueryClientProvider client={new QueryClient({defaultOptions: {queries: {retry: false}}})}><GpuSharingControls nodeUid="example-uid" session={{...session, roles}} /></QueryClientProvider>);
   if (expand) for (const provider of providers.filter((item) => item.nodeUid === 'example-uid')) {
     await userEvent.click(await screen.findByText(`GPU Configuration ${provider.provider === 'amd' ? 'AMD' : 'NVIDIA'}`));
+    const section = screen.getByRole('region', {name: `${provider.provider === 'amd' ? 'AMD' : 'NVIDIA'} GPU configuration`});
+    await userEvent.click(within(section).getByText('GPU sharing'));
   }
   return rendered;
 };
@@ -86,14 +88,14 @@ describe('Provider-independent GPU sharing configuration', () => {
   it('manages NVIDIA independently beside AMD on a mixed node', async () => {
     providers.push({...state, provider: 'nvidia', backend: 'time-slicing', experimental: false, expectedRevision: '9', mode: 'shared'});
     await mount();
-    const nvidia = within(await screen.findByRole('region', {name: 'NVIDIA GPU sharing'}));
-    expect(screen.getByRole('region', {name: 'AMD GPU sharing'})).toBeInTheDocument();
+    const nvidia = within(await screen.findByLabelText('NVIDIA GPU sharing'));
+    expect(screen.getByLabelText('AMD GPU sharing')).toBeInTheDocument();
     expect(nvidia.getByText('Time-slicing configuration')).toBeInTheDocument();
     expect(screen.getByText('DRA sharing configuration')).toBeInTheDocument();
     expect(screen.queryByText(/Inherited configuration|Experimental/)).not.toBeInTheDocument();
     expect(screen.getByRole('heading', {name: 'GPU Configuration AMD'})).toBeInTheDocument();
     expect(screen.getByRole('heading', {name: 'GPU Configuration NVIDIA'})).toBeInTheDocument();
-    expect(nvidia.getByRole('heading', {name: 'GPU sharing'})).toBeInTheDocument();
+    expect(nvidia.getByText('GPU sharing').closest('summary')).not.toBeNull();
     expect(nvidia.getByRole('button', {name: 'Apply NVIDIA sharing'})).toBeDisabled();
     expect(writes).toEqual([]);
     await userEvent.clear(nvidia.getByLabelText('NVIDIA maximum simultaneous models'));
