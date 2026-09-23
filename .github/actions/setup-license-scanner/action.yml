@@ -1,0 +1,29 @@
+name: Set up pinned license scanner
+description: Install checksum-verified Syft; never run a remote installer script
+runs:
+  using: composite
+  steps:
+    - name: Install Syft 1.52.0
+      shell: bash
+      run: |
+        set -euo pipefail
+        case "$(uname -m)" in
+          x86_64)
+            arch=amd64
+            sha=caeedb81fb0491615f1ebd1761e4145d41ee86dd2cc7bf80669f9f5ad9d6133d
+            ;;
+          aarch64|arm64)
+            arch=arm64
+            sha=c46d5e4c28e12aa4c5becfaa343ef1c7f89045b6b895f2c21d471c62db09c706
+            ;;
+          *) echo "Unsupported audit runner architecture" >&2; exit 1 ;;
+        esac
+        directory="$RUNNER_TEMP/magicstick-license-tools"
+        mkdir -p "$directory"
+        curl --fail --location --retry 3 \
+          "https://github.com/anchore/syft/releases/download/v1.52.0/syft_1.52.0_linux_${arch}.tar.gz" \
+          --output "$directory/syft.tar.gz"
+        printf '%s  %s\n' "$sha" "$directory/syft.tar.gz" | sha256sum --check --strict
+        tar -xzf "$directory/syft.tar.gz" -C "$directory" syft
+        "$directory/syft" version
+        echo "$directory" >> "$GITHUB_PATH"

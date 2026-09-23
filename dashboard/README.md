@@ -1,0 +1,197 @@
+# Magic Stick Dashboard Clients
+
+This workspace contains the standard React dashboard, the `magicstick` command
+line client, its interactive terminal UI, and framework-neutral packages shared
+by all three interfaces. The React application replaces the ConfigMap-rendered
+UI and runs at `https://magicstick.local/` and the configured public-domain root.
+The separate preview installation and its hostname are retired; the backend API,
+SSO, CLI and TUI retain their existing contracts.
+
+```text
+apps/web              React browser application and nginx image
+apps/cli              standalone CLI and interactive TUI
+apps/api              offline license verifier, issuer tooling and API runtime image
+packages/contracts    typed control-plane API contracts
+packages/api-client   authenticated HTTP transport
+packages/core         role, formatting, catalog, and selection rules
+```
+
+## Build and test
+
+Node.js 24 and the pinned pnpm version are required.
+
+```bash
+corepack enable
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm test
+pnpm build
+```
+
+The build creates the browser bundle and the standalone executable
+`apps/cli/dist/magicstick.js`. Run it through the workspace scripts:
+
+```bash
+pnpm cli --help
+pnpm cli login
+pnpm tui
+pnpm cli console
+```
+
+Or copy the generated executable to a directory on `PATH`:
+
+```bash
+install -m 0755 apps/cli/dist/magicstick.js ~/.local/bin/magicstick
+magicstick --help
+```
+
+### Offline terminal preview
+
+To explore just the terminal frontend without an appliance, DNS, or login,
+use Node.js 24+ and run from this directory:
+
+```bash
+corepack pnpm install --frozen-lockfile
+corepack pnpm --filter @magicstick/dashboard-cli build
+corepack pnpm tui:demo
+```
+
+The standalone equivalent is `magicstick tui --demo`. The preview shows its
+navigation using synthetic sample data, clearly labeled **OFFLINE DEMO**.
+Arrow keys (or `h/j/k/l`) navigate, `r` reloads the sample data, and `q` quits.
+Live actions, clipboard exports, and sign-out are disabled. It never contacts
+an API or login service, reads saved configuration or credentials, or changes
+the local session. The sample catalog and resource values are not deployment
+defaults. Omit `--demo` to use the normal authenticated appliance client.
+
+The CLI uses `https://api.magicstick.local` by default. `magicstick login`
+starts the Keycloak Device Authorization Flow, opens the verification page when
+possible, and stores the resulting renewable session with file mode `0600`
+below `$XDG_CONFIG_HOME/magicstick`, or `~/.config/magicstick` when that
+variable is unset. It never accepts passwords as
+ordinary command-line arguments. Set `MAGICSTICK_API_URL`,
+`MAGICSTICK_ISSUER`, or `MAGICSTICK_CLIENT_ID` for a non-default appliance. For
+non-persistent automation, `MAGICSTICK_ACCESS_TOKEN` supplies an existing
+short-lived access token without writing it to disk.
+
+The CLI includes the operating-system CA store. If the appliance CA is not
+trusted there, use `--ca-file /path/to/magicstick-oidc-ca.crt` for the first
+login; that public CA path is saved for later calls. On a disposable appliance
+in a trusted test network, `--insecure` bypasses certificate verification only
+for the current process, prints a warning, and is never persisted.
+
+The TUI has the same role-filtered areas as the browser: Overview, Services,
+Models, Settings, Users, API Access, License, Kubernetes, Hardware, and System. Use left/right or
+`h`/`l` to change page, up/down or `k`/`j` to select an item, `r` to refresh,
+and `q` to quit. Operators can enable and disable catalog services and add or
+remove local and external models. The local-model form offers only KV-cache
+formats compatible with its chosen engine and hardware and shows the requested
+or Ready-confirmed effective format in the Models view. Administrators can additionally create,
+edit, enable, disable, reset, and delete local users; create and revoke named
+API keys; assign and revoke Kubernetes roles; and copy token-free kubeconfigs
+through OSC 52 when the terminal supports it. Every destructive operation is
+confirmed, passwords are masked, and a newly created API-key secret remains on
+screen only until its result dialog is closed. The explicit CLI commands remain
+available for scripts and complete JSON instance payloads.
+
+### GPU compatibility profiles
+
+The browser's **System → Hardware** and the TUI Hardware area show upstream
+support, additional profile selection, host/driver evidence, GPU registration
+and optional per-engine validation separately. Administrators may opt into the
+initial experimental Strix Halo profile and explicitly start GPU validation;
+inspection, profile saves and host preparation do not start test workloads.
+GPU use requires eligible hardware, registration and runtime adoption, not a
+successful smoke test. The CLI equivalents are:
+
+```bash
+magicstick hardware list
+magicstick hardware profile strix-halo --allow-experimental
+magicstick hardware validate --yes
+magicstick hardware profile upstream
+```
+
+Validation uses fixed catalog images/test models and consumes download space
+and GPU resources. Ollama and vLLM results remain independent diagnostics, never
+readiness gates. Unknown cards remain unknown, and shared CPU/GPU memory is not
+two additive capacities.
+See [GPU compatibility](../docs/gpu-compatibility.md) for host preparation,
+experimental support and hardware acceptance gates. These hardware controls and supported multi-GPU functions require no license file.
+
+Administrators can inspect, import and export signed offline licenses through
+the **License** tab (`a` to inspect/import, `e` to export). The browser uses
+**System → License**. The CLI provides `license status`, `license inspect`,
+`license import --yes` and `license export`. The original file is stored in a
+runtime Kubernetes Secret, not the client. Free Registered and Commercial files enable Federated SSO. All other core
+functions remain usable without a file, subject to the BSL Additional Use Grant. See [issuer setup and license operation](../docs/licensing.md).
+
+The seven-line, borderless ASCII banner shows a rounded USB spacecraft with
+nacelles and **AIppliance** / **Magic Stick**
+on separate lines. Branding lives on the ship rather than in a duplicate TUI
+heading. There are no captions or flame effects. A denser starfield mixes white
+and muted gray stars across all seven rows, behind the foreground artwork.
+Most stay still, while a small minority drift just one column every 24 seconds.
+Twinkling is gentle rather than rapid.
+Its connector slides fully into a slightly wider but still compact PC containing
+a graphics card with three large animated fans enclosed in
+a separate gray shroud and a finned heatsink, without USB or GPU text labels.
+On startup the stick docks once, the PC boots, and its fans accelerate and glow
+orange only inside the case, without external power sparks. A small light-gray
+readout beside the fans shows **IDLE**, **SPIN**, or **READY**, artificial usage
+%, and **TPS** (tokens per second). Values change slowly and are decorative,
+not appliance measurements, in both live and offline modes.
+The stick then stays inserted and the PC remains powered; neither
+refreshing data nor resizing the terminal repeats startup. The connected pair
+is centered across the terminal width, leaving space on both sides on large
+screens rather than pinning the PC to the right edge.
+
+After startup, the recurring animation focuses on gray/orange visitors and a
+golden laptop with an outlined screen, keyboard, and touchpad. Each gets about
+18 seconds on screen, with a new visit roughly every two minutes and a long
+quiet gap. Side stages show the laptop's full open screen and base on wide
+terminals; smaller terminals use a three-row version in a lower flight path.
+No purple accents are used. These effects are decorative, not appliance status.
+
+Animation runs continuously, including during dialogs, with no pause/resume
+control. Terminals below 19 rows hide the banner to leave room for controls;
+the animation clock keeps advancing while hidden.
+`--no-color` retains the artwork without colors. Startup travel runs at half speed;
+the banner redraws at eight frames per second, independently of API refreshes.
+Artwork, scene timing, and animation lifecycle live in
+[apps/cli/src/banner.ts](apps/cli/src/banner.ts), separate from the TUI.
+
+`magicstick console` is the persistent appliance-monitor entry point. It checks
+the cached SSO session, renders a Keycloak device-login code when authentication
+is required, and opens the same interactive TUI. It never stores a password.
+The host installer runs this mode automatically on virtual terminal 9 after the
+first-run claim has been completed. Press `x` to remove the local session and
+authorize another user.
+
+The web app always calls relative `/api/*` paths. Vite proxies those paths to
+`https://magicstick.local` during local development; set
+`MAGICSTICK_API_PROXY` to use another test appliance. The production nginx image
+proxies them to the existing in-cluster dashboard API.
+
+`apps/web/src/FeatureParity.test.tsx` protects the dashboard feature contracts tab by tab.
+CLI/TUI parsing, authentication, private session storage, rendering, and command
+dispatch are covered below `apps/cli/src/*.test.ts`.
+
+To test the standard frontend image, named Service port, API proxy, cache headers,
+and admin/viewer browser behavior in an isolated Rancher Desktop namespace:
+
+```bash
+docker --context rancher-desktop build -f apps/web/Dockerfile -t magicstick-web:default-test ..
+docker --context rancher-desktop build -f apps/api/Dockerfile -t magicstick-api:license-test ..
+pnpm build
+python3 apps/api/rancher_license_test.py --web
+```
+
+This opt-in check also exercises license persistence and the built CLI against
+the real API. It uses synthetic identities, not a full Keycloak/Envoy SSO login.
+Install Playwright and Chrome first, or set `PLAYWRIGHT_MODULE` to an existing
+Playwright module and optionally `PLAYWRIGHT_CHANNEL` (default: `chrome`). The
+frontend nginx configuration differs only in the isolated API Service hostname.
+The test never uses the current Kubernetes context and cleans up its namespace.
+
+No Kubernetes token, OIDC client secret, provider credential, or user password
+belongs in this workspace, frontend image, shell history, or committed fixture.

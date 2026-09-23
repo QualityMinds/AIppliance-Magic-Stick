@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: magicstick-gpu-validation-history
+  namespace: ai-system
+  labels:
+    app.kubernetes.io/managed-by: magicstick-operator
+# Runtime-owned data is intentionally absent from Git. Consumed manual requests
+# survive Job TTL cleanup and controller/node restarts.

@@ -1,0 +1,24 @@
+title = "magicstick gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allow documented placeholders and generated Flux CRD text"
+regexes = [
+  '''CHANGEME[A-Z0-9_/-]*''',
+  '''REPLACE_WITH_[A-Z0-9_]+''',
+  '''example\.(com|local)''',
+  '''api_key: "none"''',
+  '''secret-generator\.v1\.mittwald\.de/autogenerate''',
+]
+
+[[rules]]
+id = "sourcegraph-access-token"
+
+  [[rules.allowlists]]
+  description = "Pinned public kdns source identity, not an access token"
+  condition = "AND"
+  paths = ['''(^|/)licenses/kdns-dependency-evidence\.json$''']
+  regexTarget = "line"
+  regexes = ['''^\s*"target": "kdns/f956ab5d35564ee84e58ba155e78a17423cc835b",\s*$''']

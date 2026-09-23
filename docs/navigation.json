@@ -1,0 +1,139 @@
+[
+  {"Home": "README.md"},
+  {"Get started": [
+    {"Overview": "get-started/README.md"},
+    {"Features and limitations": "get-started/features.md"},
+    {"Requirements": "get-started/requirements.md"},
+    {"Your first model": "get-started/first-model.md"}
+  ]},
+  {"Installation": [
+    {"Choose your path": "installation/README.md"},
+    {"USB installation": "installation/bare-metal.md"},
+    {"New virtual machine": "installation/cloud-init-vm.md"},
+    {"Existing Ubuntu": "installation/existing-vm.md"},
+    {"Existing Kubernetes": "installation/existing-kubernetes.md"},
+    {"First administrator": "installation/first-run-setup.md"},
+    {"Verify installation": "installation/verify.md"}
+  ]},
+  {"User guide": [
+    {"Overview": "user-guide/README.md"},
+    {"Dashboard": "user-guide/dashboard.md"},
+    {"Models": [
+      {"Choose an engine": "user-guide/models/choose-engine.md"},
+      {"Ollama": "user-guide/models/ollama.md"},
+      {"vLLM": "user-guide/models/vllm.md"},
+      {"FreeToken": "user-guide/models/freetoken.md"},
+      {"Realtime": "user-guide/models/realtime.md"},
+      {"External providers": "user-guide/models/external.md"},
+      {"Model lifecycle": "user-guide/models/manage.md"}
+    ]},
+    {"Applications": "user-guide/applications.md"},
+    {"Sharing": "user-guide/sharing.md"},
+    {"API access": "user-guide/api-access.md"},
+    {"Private Mesh": "user-guide/private-mesh.md"}
+  ]},
+  {"Administration": [
+    {"Overview": "administration/README.md"},
+    {"Users and roles": "administration/users.md"},
+    {"Federated SSO": "administration/federated-sso.md"},
+    {"Kubernetes access": "administration/kubernetes-access.md"},
+    {"Domains": "administration/domains.md"},
+    {"Ethernet and Wi-Fi": "administration/network.md"},
+    {"Certificates": "administration/certificates.md"},
+    {"Hardware": [
+      {"GPU setup": "administration/gpu-setup.md"},
+      {"GPU sharing": "administration/gpu-sharing.md"},
+      {"GPU memory": "administration/gpu-memory.md"},
+      {"Host preparation": "administration/host-management.md"},
+      {"Computer power": "administration/power.md"}
+    ]},
+    {"Model cache and storage": "administration/model-cache.md"},
+    {"Updates and rollback": "administration/updates-rollback.md"},
+    {"Ubuntu updates": "administration/ubuntu-updates.md"},
+    {"Backup and recovery": "administration/backup-recovery.md"},
+    {"Licenses": "administration/licenses.md"},
+    {"Private Mesh": "administration/private-mesh.md"},
+    {"Troubleshooting": [
+      {"Start here": "administration/troubleshooting/overview.md"},
+      {"Models": "administration/troubleshooting/models.md"},
+      {"GPU runtimes": "administration/troubleshooting/gpus.md"},
+      {"FreeToken": "administration/troubleshooting/freetoken.md"},
+      {"Realtime": "administration/troubleshooting/realtime.md"},
+      {"CPU offloading": "administration/troubleshooting/offloading.md"},
+      {"Host and Flux": "administration/troubleshooting/platform.md"},
+      {"Applications": "administration/troubleshooting/applications.md"},
+      {"Identity": "administration/troubleshooting/identity.md"},
+      {"Access": "administration/troubleshooting/access.md"},
+      {"Mesh": "administration/troubleshooting/mesh.md"},
+      {"Dashboard upgrades": "administration/troubleshooting/dashboard-upgrades.md"},
+      {"CLI": "administration/troubleshooting/cli.md"},
+      {"Storage": "administration/troubleshooting/storage.md"},
+      {"Logs": "administration/troubleshooting/logs.md"}
+    ]}
+  ]},
+  {"Concepts": [
+    {"Overview": "concepts/README.md"},
+    {"Architecture": "concepts/architecture.md"},
+    {"Modules, applications and models": "concepts/modules-models-applications.md"},
+    {"Controllers": "concepts/controllers.md"},
+    {"Inference routing": "concepts/model-routing.md"},
+    {"Memory": "concepts/memory.md"},
+    {"Identity and security": "concepts/identity.md"},
+    {"Private Mesh": "concepts/private-mesh.md"}
+  ]},
+  {"Reference": [
+    {"Overview": "reference/README.md"},
+    {"Compatibility": "reference/compatibility.md"},
+    {"Configuration": "reference/configuration.md"},
+    {"Kubernetes resources": "reference/kubernetes-resources.md"},
+    {"Dashboard API": "reference/dashboard-api.md"},
+    {"CLI and TUI": "reference/cli.md"},
+    {"Models": [
+      {"Configuration and API": "reference/model-controls.md"},
+      {"Lifecycle": "reference/model-lifecycle.md"},
+      {"vLLM and Ollama": "reference/kubeai-models.md"},
+      {"FreeToken": "reference/freetoken.md"},
+      {"Realtime": "reference/realtime.md"},
+      {"External providers": "reference/external-models.md"},
+      {"Compute targets": "reference/compute-targets.md"},
+      {"Generated catalog": "reference/model-catalog.md"}
+    ]},
+    {"GPU operators": "reference/gpu-operators.md"},
+    {"GPU compatibility": "reference/gpu-compatibility.md"},
+    {"Hardware controls": "reference/hardware-controls.md"},
+    {"Module catalog": "reference/module-catalog.md"},
+    {"Application controls": "reference/application-controls.md"},
+    {"Instance access": "reference/instance-access.md"},
+    {"Kubernetes SSO": "reference/kubernetes-access.md"},
+    {"License API": "reference/license-api.md"},
+    {"Private Mesh": "reference/private-mesh.md"},
+    {"Paperclip agents": "reference/paperclip-agents.md"},
+    {"Status and errors": "reference/status-errors.md"}
+  ]},
+  {"Development": [
+    {"Overview": "development/README.md"},
+    {"Environment": "development/environment.md"},
+    {"Checkout and bootstrap": "development/checkout.md"},
+    {"Build and test": "development/testing.md"},
+    {"Extensions": "development/extensions.md"},
+    {"Dashboard": "development/dashboard.md"},
+    {"Model integration": "development/model-integration.md"},
+    {"GitOps integration": "development/gitops-overlays.md"},
+    {"Image promotion": "development/image-promotion.md"},
+    {"Release checklist": "development/release-checklist.md"},
+    {"License audit": "development/license-audit.md"},
+    {"License issuer": "development/license-issuer.md"},
+    {"Validation procedures": [
+      {"Identity": "development/identity-validation.md"},
+      {"Sharing": "development/sharing-validation.md"},
+      {"Private Mesh": "development/mesh-validation.md"},
+      {"Realtime": "development/realtime-validation.md"}
+    ]},
+    {"Documentation": "development/documentation.md"},
+    {"Marketing website": "development/website.md"},
+    {"Integration reports": [
+      {"Report index": "development/reports/README.md"},
+      {"FreeToken · 2026-09-21": "development/reports/2026-09-21-freetoken.md"}
+    ]}
+  ]}
+]

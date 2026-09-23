@@ -1,0 +1,22 @@
+---
+- name: Create /etc/rancher/k3s directory
+  ansible.builtin.file:
+    path: /etc/rancher/k3s
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Check whether the Magic Stick OIDC CA is installed
+  ansible.builtin.stat:
+    path: "{{ k3s_oidc_ca_file }}"
+  register: k3s_oidc_ca
+
+- name: Deploy K3s config
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: /etc/rancher/k3s/config.yaml
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart k3s

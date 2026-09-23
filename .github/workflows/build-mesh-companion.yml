@@ -1,0 +1,255 @@
+name: Build Private Mesh companion
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/build-mesh-companion.yml
+      - magic-cluster/apps/ai/private-mesh/**
+      - core/magicstick_core/private_mesh/**
+      - dashboard/apps/api/licensing.py
+      - docs/private-mesh.md
+      - LICENSE
+      - LICENSING.md
+      - licenses/**
+      - LICENSE-RELEASE.json
+      - tools/license_*.py
+  pull_request:
+    paths:
+      - .github/workflows/build-mesh-companion.yml
+      - magic-cluster/apps/ai/private-mesh/**
+      - core/magicstick_core/private_mesh/**
+      - dashboard/apps/api/licensing.py
+      - docs/private-mesh.md
+      - LICENSE
+      - LICENSING.md
+      - licenses/**
+      - LICENSE-RELEASE.json
+      - tools/license_*.py
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: 'Optional: publish an existing successful main build without rebuilding'
+        required: false
+        type: string
+        default: ''
+permissions:
+  contents: read
+concurrency:
+  group: mesh-companion-${{ github.ref }}
+  # Do not interrupt a main-branch release halfway through uploading its assets.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+env:
+  RUST_VERSION: '1.98.1'
+  PROTOC_VERSION: '36.2'
+  PYTHONUTF8: '1'
+defaults:
+  run:
+    shell: bash
+jobs:
+  build:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.source_run_id == '' }}
+    name: ${{ matrix.platform }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: macos-arm64
+            machine: arm64
+            protoc: osx-aarch_64
+            protoc_sha256: 9cd98a532c5c5e0c4161314de0225de27e4c8a323917b6ea7b1b714d3ae23466
+            binary: mesh-llm
+          - os: macos-15-intel
+            platform: macos-x64
+            machine: x86_64
+            protoc: osx-x86_64
+            protoc_sha256: 228cc7add4616cc14ca5e80dee83209d44449a7aee95a914ae748fa374efb078
+            binary: mesh-llm
+          - os: ubuntu-24.04
+            platform: linux-x64
+            machine: x86_64
+            protoc: linux-x86_64
+            protoc_sha256: 121f6c7afe1d4d0e3ea6aab9432038599250134cbf4474cb1167d2c7decd4278
+            binary: mesh-llm
+          - os: windows-2022
+            platform: windows-x64
+            machine: AMD64
+            protoc: win64
+            protoc_sha256: f0c128dc0d8492eceece83bb459a4c0e316764b929ffbf1aa416357fd644edd3
+            binary: mesh-llm.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.13'}
+      - name: Build dependencies
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          EXPECTED_MACHINE: ${{ matrix.machine }}
+          PROTOC_PLATFORM: ${{ matrix.protoc }}
+          PROTOC_SHA256: ${{ matrix.protoc_sha256 }}
+        run: |
+          test "$(uname -m)" = "$EXPECTED_MACHINE"
+          if [ "$RUNNER_OS" = Linux ]; then
+            sudo apt-get update
+            sudo apt-get install -y clang cmake libssl-dev pkg-config
+          fi
+          curl --fail --location --retry 3 \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-${PROTOC_PLATFORM}.zip" \
+            --output "$RUNNER_TEMP/protoc.zip"
+          echo "$PROTOC_SHA256  $RUNNER_TEMP/protoc.zip" | shasum -a 256 -c -
+          unzip -q "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
+          echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          # Intel macOS builds cryptography from source. Static OpenSSL avoids
+          # colliding with Python's different libssl.3.dylib in the frozen app.
+          OPENSSL_STATIC=1 python -m pip install --no-cache-dir -r magic-cluster/apps/ai/private-mesh/requirements.txt pyinstaller==6.22.3
+      - name: Initialize Windows compiler
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+        with:
+          arch: x64
+      - name: Windows build dependencies
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          PROTOC_PLATFORM: ${{ matrix.protoc }}
+          PROTOC_SHA256: ${{ matrix.protoc_sha256 }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:PROCESSOR_ARCHITECTURE -ne 'AMD64') { throw 'Windows x64 build host required' }
+          $zip = Join-Path $env:RUNNER_TEMP 'protoc.zip'
+          Invoke-WebRequest -Uri "https://github.com/protocolbuffers/protobuf/releases/download/v${env:PROTOC_VERSION}/protoc-${env:PROTOC_VERSION}-${env:PROTOC_PLATFORM}.zip" -OutFile $zip
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $env:PROTOC_SHA256) { throw 'protoc checksum mismatch' }
+          Expand-Archive -LiteralPath $zip -DestinationPath (Join-Path $env:RUNNER_TEMP 'protoc')
+          (Join-Path $env:RUNNER_TEMP 'protoc/bin') | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          & rustup toolchain install $env:RUST_VERSION --profile minimal
+          if ($LASTEXITCODE -ne 0) { throw 'Rust toolchain installation failed' }
+          & python -m pip install -r magic-cluster/apps/ai/private-mesh/requirements.txt pyinstaller==6.22.3
+          if ($LASTEXITCODE -ne 0) { throw 'Python dependency installation failed' }
+      - name: Check packaging contracts
+        run: |
+          python -c "import sys; sys.path.insert(0, 'magic-cluster/apps/ai/private-mesh'); from build_companion import verify_crypto_linkage; verify_crypto_linkage()"
+          python -m unittest discover -s magic-cluster/apps/ai/private-mesh -p 'test_build_companion.py'
+          python -m unittest discover -s magic-cluster/apps/ai/private-mesh -p 'test_archive_companion.py'
+          python -m unittest discover -s magic-cluster/apps/ai/private-mesh -p 'test_publish_companion.py'
+          python -m unittest discover -s magic-cluster/apps/ai/private-mesh -p 'test_desktop.py'
+      - name: Build pinned private transport
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          CARGO_BUILD_JOBS: '2'
+          CARGO_PROFILE_DEV_DEBUG: '0'
+          CARGO_INCREMENTAL: '0'
+        run: |
+          git -c core.autocrlf=false -c core.longpaths=true clone --depth 1 --branch v0.76.2 https://github.com/Mesh-LLM/mesh-llm.git "$RUNNER_TEMP/mesh-source"
+          python core/magicstick_core/private_mesh/native/apply_policy.py "$RUNNER_TEMP/mesh-source"
+          cd "$RUNNER_TEMP/mesh-source"
+          cargo +"$RUST_VERSION" build --locked -p mesh-llm --no-default-features --features dynamic-native-runtime
+          strip target/debug/mesh-llm
+      - name: Build pinned Windows private transport
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          CARGO_BUILD_JOBS: '2'
+          CARGO_PROFILE_DEV_DEBUG: '0'
+          CARGO_INCREMENTAL: '0'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Git Bash prepends its POSIX link.exe, shadowing the MSVC linker.
+          # Use a native shell and the pinned Rust toolchain's lld, as upstream does.
+          $sysroot = (& rustc "+$env:RUST_VERSION" --print sysroot).Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'Rust sysroot lookup failed' }
+          $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER = Join-Path $sysroot 'lib/rustlib/x86_64-pc-windows-msvc/bin/rust-lld.exe'
+          if (-not (Test-Path -LiteralPath $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER)) { throw 'Pinned Rust lld linker missing' }
+          $source = Join-Path $env:RUNNER_TEMP 'mesh-source'
+          & git -c core.autocrlf=false -c core.longpaths=true clone --depth 1 --branch v0.76.2 https://github.com/Mesh-LLM/mesh-llm.git $source
+          if ($LASTEXITCODE -ne 0) { throw 'Native source checkout failed' }
+          & python core/magicstick_core/private_mesh/native/apply_policy.py $source
+          if ($LASTEXITCODE -ne 0) { throw 'Private transport policy patch failed' }
+          Push-Location $source
+          try {
+            & cargo "+$env:RUST_VERSION" build --locked -p mesh-llm --no-default-features --features dynamic-native-runtime
+            if ($LASTEXITCODE -ne 0) { throw 'Native Windows transport build failed' }
+          } finally { Pop-Location }
+      - name: Verify Windows transport imports
+        if: runner.os == 'Windows'
+        run: |
+          python "$RUNNER_TEMP/mesh-source/scripts/verify-host-dependencies.py" \
+            "$RUNNER_TEMP/mesh-source/target/debug/mesh-llm.exe" --format pe
+      - name: Package consume-only application
+        shell: bash
+        run: |
+          python magic-cluster/apps/ai/private-mesh/build_companion.py \
+            --binary "$RUNNER_TEMP/mesh-source/target/debug/${{ matrix.binary }}" \
+            --upstream-license "$RUNNER_TEMP/mesh-source/LICENSE" \
+            --output "$RUNNER_TEMP/companion"
+      - name: Verify and archive client
+        shell: bash
+        env:
+          TARGET_PLATFORM: ${{ matrix.platform }}
+        run: |
+          python magic-cluster/apps/ai/private-mesh/archive_companion.py \
+            --bundle "$RUNNER_TEMP/companion" \
+            --output "$RUNNER_TEMP/artifacts" \
+            --platform "$TARGET_PLATFORM" \
+            --revision "$GITHUB_SHA" \
+            --native-source "$RUNNER_TEMP/mesh-source"
+      - name: Check source licensing and report open reviews
+        shell: bash
+        run: python tools/license_audit.py --review 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Publish client artifact
+        id: artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MagicStickMesh-${{ matrix.platform }}
+          path: ${{ runner.temp }}/artifacts/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+      - name: Link download in build summary
+        env:
+          ARTIFACT_URL: ${{ steps.artifact.outputs.artifact-url }}
+          TARGET_PLATFORM: ${{ matrix.platform }}
+        run: |
+          echo "### MagicStickMesh — $TARGET_PLATFORM" >> "$GITHUB_STEP_SUMMARY"
+          echo "[Download client artifact]($ARTIFACT_URL) · retained for 30 days" >> "$GITHUB_STEP_SUMMARY"
+          echo "Build revision: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "Contains the application archive, SHA-256 checksum, build information and onboarding instructions." >> "$GITHUB_STEP_SUMMARY"
+          echo "Test distribution only: macOS apps are ad-hoc signed, not Developer ID signed or notarized; Windows packages are unsigned. Packaged launch and transport checks passed. Real mesh inference acceptance is separate." >> "$GITHUB_STEP_SUMMARY"
+  release:
+    name: Publish permanent client downloads
+    needs: build
+    if: >-
+      ${{ always() && !cancelled() && github.ref == 'refs/heads/main' &&
+          (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+          (needs.build.result == 'success' ||
+           (github.event_name == 'workflow_dispatch' && inputs.source_run_id != '')) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.13'}
+      - name: Check release safety contracts
+        run: python -m unittest discover -s magic-cluster/apps/ai/private-mesh -p 'test_publish_companion.py'
+      - name: Check source licensing and report open reviews
+        shell: bash
+        run: python tools/license_audit.py --review 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Publish versioned pre-release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id || github.run_id }}
+        run: |
+          python magic-cluster/apps/ai/private-mesh/publish_companion.py \
+            --repo "$GITHUB_REPOSITORY" --run-id "$SOURCE_RUN_ID" \
+            --current-run-id "$GITHUB_RUN_ID"

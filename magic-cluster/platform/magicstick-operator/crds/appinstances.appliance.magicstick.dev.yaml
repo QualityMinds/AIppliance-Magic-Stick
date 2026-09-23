@@ -1,0 +1,196 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: appinstances.appliance.magicstick.dev
+  labels:
+    app.kubernetes.io/name: magicstick-operator
+    app.kubernetes.io/component: crd
+spec:
+  group: appliance.magicstick.dev
+  names:
+    kind: AppInstance
+    listKind: AppInstanceList
+    plural: appinstances
+    singular: appinstance
+    shortNames:
+      - msinst
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Type
+          type: string
+          jsonPath: .spec.application
+        - name: Enabled
+          type: boolean
+          jsonPath: .spec.enabled
+        - name: Target
+          type: string
+          jsonPath: .spec.targetNamespace
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: URL
+          type: string
+          jsonPath: .status.url
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: AppInstance requests one application or agent instance.
+          required:
+            - spec
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required:
+                - application
+              properties:
+                application:
+                  type: string
+                  minLength: 1
+                enabled:
+                  type: boolean
+                  default: true
+                targetNamespace:
+                  type: string
+                  default: ai
+                applianceRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                      default: local
+                    namespace:
+                      type: string
+                      default: ai-system
+                access:
+                  type: object
+                  description: Controls browser exposure through the shared Envoy Gateway. SSO is required unless explicitly disabled.
+                  x-kubernetes-validations:
+                    - rule: "!has(self.sharing) || self.sharing.mode != 'selected' || !has(self.authentication) || self.authentication == 'sso'"
+                      message: Selected-user sharing requires SSO.
+                  properties:
+                    sharing:
+                      type: object
+                      description: Optional sharing intent. Missing means role-based access. Empty selected lists deny everyone. No license file is required.
+                      required: [mode]
+                      x-kubernetes-validations:
+                        - rule: "self.mode == 'selected' || ((!has(self.users) || size(self.users) == 0) && (!has(self.groups) || size(self.groups) == 0))"
+                          message: All-users mode must not contain selected principals.
+                      properties:
+                        mode:
+                          type: string
+                          enum: [all, selected]
+                        users:
+                          type: array
+                          maxItems: 100
+                          x-kubernetes-list-type: set
+                          items:
+                            type: string
+                            pattern: '^[A-Za-z0-9._:-]{1,160}$'
+                        groups:
+                          type: array
+                          maxItems: 100
+                          x-kubernetes-list-type: set
+                          items:
+                            type: string
+                            pattern: '^[A-Za-z0-9._:-]{1,160}$'
+                    authentication:
+                      type: string
+                      enum:
+                        - sso
+                        - none
+                      default: sso
+                      description: sso requires the shared Keycloak login; none deliberately exposes the route without gateway authentication.
+                    role:
+                      type: string
+                      enum:
+                        - user
+                        - viewer
+                        - operator
+                        - admin
+                      default: user
+                      description: Minimum Magic Stick realm role required when authentication is sso. Higher dashboard roles inherit lower access.
+                    exposure:
+                      type: string
+                      enum:
+                        - local
+                        - localAndPublic
+                      default: localAndPublic
+                      description: Selects a local mDNS route only or both the derived local and public hostnames.
+                values:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                  description: Public-safe Helm values for the selected application definition.
+            status:
+              type: object
+              properties:
+                observedGeneration:
+                  type: integer
+                  format: int64
+                  minimum: 0
+                phase:
+                  type: string
+                kind:
+                  type: string
+                name:
+                  type: string
+                namespace:
+                  type: string
+                url:
+                  type: string
+                localURL:
+                  type: string
+                publicURL:
+                  type: string
+                authentication:
+                  type: string
+                requiredRole:
+                  type: string
+                accessGuardReady:
+                  type: boolean
+                message:
+                  type: string
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                      - lastTransitionTime
+                      - reason
+                      - message
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum:
+                          - "True"
+                          - "False"
+                          - Unknown
+                      observedGeneration:
+                        type: integer
+                        format: int64
+                        minimum: 0
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string

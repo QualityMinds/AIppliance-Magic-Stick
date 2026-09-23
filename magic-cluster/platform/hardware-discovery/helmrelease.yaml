@@ -1,0 +1,36 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: node-feature-discovery
+  namespace: flux-system
+spec:
+  interval: 10m0s
+  targetNamespace: node-feature-discovery
+  chart:
+    spec:
+      chart: node-feature-discovery
+      version: 0.18.3
+      sourceRef:
+        kind: HelmRepository
+        name: node-feature-discovery
+        namespace: flux-system
+  install:
+    createNamespace: false
+  values:
+    worker:
+      config:
+        core:
+          # NFD repeats discovery and reconciles labels after every node start or
+          # hardware change. The chart default is also 60s; keep it explicit as
+          # part of the Magic Stick hardware-discovery contract.
+          sleepInterval: 60s
+        sources:
+          pci:
+            # Class prefix 03 covers display and 3D controllers without keeping
+            # a brittle product allow-list in Magic Stick.
+            deviceClassWhitelist:
+              - "03"
+            # Publishing only the vendor produces the stable labels consumed by
+            # the provider modules, e.g. pci-10de.present and pci-1002.present.
+            deviceLabelFields:
+              - vendor

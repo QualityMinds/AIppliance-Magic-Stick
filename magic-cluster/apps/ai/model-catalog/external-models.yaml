@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-external-models
+  namespace: ai
+  labels:
+    app: ai-model-catalog
+data:
+  models.json: |
+    {
+      "models": []
+    }

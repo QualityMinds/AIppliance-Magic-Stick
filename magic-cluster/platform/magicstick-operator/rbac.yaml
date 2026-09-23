@@ -1,0 +1,322 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: magicstick-operator
+  namespace: ai-system
+  labels:
+    app.kubernetes.io/name: magicstick-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: magicstick-operator
+  labels:
+    app.kubernetes.io/name: magicstick-operator
+rules:
+  - apiGroups: [appliance.magicstick.dev]
+    resources: [hostoperations]
+    verbs: [get, list]
+  - apiGroups: [nvidia.com]
+    resources: [clusterpolicies]
+    resourceNames: [cluster-policy]
+    verbs: [get]
+  - apiGroups: [resource.k8s.io]
+    resources: [resourceslices]
+    verbs: [get, list, watch]
+  - apiGroups: [resource.k8s.io]
+    resources: [resourceclaims]
+    verbs: [get, list]
+  - apiGroups: [resource.k8s.io]
+    resources: [deviceclasses]
+    verbs: [create]
+  - apiGroups: [resource.k8s.io]
+    resources: [deviceclasses]
+    resourceNames: [gpu.amd.com]
+    verbs: [get, patch]
+  - apiGroups: [admissionregistration.k8s.io]
+    resources: [mutatingadmissionpolicies, mutatingadmissionpolicybindings]
+    verbs: [create]
+  - apiGroups: [admissionregistration.k8s.io]
+    resources: [mutatingadmissionpolicies, mutatingadmissionpolicybindings]
+    resourceNames: [magicstick-amd-dra]
+    verbs: [get, patch]
+  - apiGroups:
+      - appliance.magicstick.dev
+    resources:
+      - appliances
+      - appliances/status
+      - appliances/finalizers
+      - moduleactivations
+      - moduleactivations/status
+      - moduleactivations/finalizers
+      - appinstances
+      - appinstances/status
+      - appinstances/finalizers
+      - modelactivations
+      - modelactivations/status
+      - modelactivations/finalizers
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+  - apiGroups:
+      - kubeai.org
+    resources:
+      - models
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - kustomize.toolkit.fluxcd.io
+    resources:
+      - kustomizations
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - helm.toolkit.fluxcd.io
+    resources:
+      - helmreleases
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - gateway.networking.k8s.io
+    resources:
+      - httproutes
+      - referencegrants
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - gateway.envoyproxy.io
+    resources:
+      - securitypolicies
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - source.toolkit.fluxcd.io
+    resources:
+      - gitrepositories
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - apiextensions.k8s.io
+    resources:
+      - customresourcedefinitions
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - resourcequotas
+      - limitranges
+    verbs:
+      - get
+      - create
+      - update
+      - patch
+  - apiGroups:
+      - networking.k8s.io
+    resources:
+      - networkpolicies
+    verbs:
+      - get
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - get
+      - list
+      - watch
+      - patch
+  - apiGroups:
+      - nfd.k8s-sigs.io
+    resources:
+      - nodefeatures
+      - nodefeaturerules
+    verbs:
+      - get
+      - list
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+      - watch
+      # Bounded recovery of terminal Pods with an exact KubeAI Model owner UID.
+      - delete
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: magicstick-operator
+  labels:
+    app.kubernetes.io/name: magicstick-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: magicstick-operator
+subjects:
+  - kind: ServiceAccount
+    name: magicstick-operator
+    namespace: ai-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: magicstick-realtime-runtime
+  namespace: ai
+rules:
+  # Generated per-model stage configurations use server-side apply, including
+  # their initial creation. Keep write access out of the cluster-wide role.
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, create, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: magicstick-realtime-runtime
+  namespace: ai
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: magicstick-realtime-runtime
+subjects:
+  - kind: ServiceAccount
+    name: magicstick-operator
+    namespace: ai-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: magicstick-gpu-validation
+  namespace: ai-system
+rules:
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [get, list, create, patch, delete]
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [magicstick-gpu-validation-history]
+    verbs: [get, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: magicstick-gpu-validation
+  namespace: ai-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: magicstick-gpu-validation
+subjects:
+  - kind: ServiceAccount
+    name: magicstick-operator
+    namespace: ai-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: magicstick-offloading-profiles
+  namespace: flux-system
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [magicstick-offloading-profiles, magicstick-gpu-runtime-images]
+    verbs: [get, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: magicstick-offloading-profiles
+  namespace: flux-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: magicstick-offloading-profiles
+subjects:
+  - kind: ServiceAccount
+    name: magicstick-operator
+    namespace: ai-system

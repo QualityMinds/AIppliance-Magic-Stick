@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Deine Hardware. Deine KI. MagicStick verbindet lokale KI-Modelle, Anwendungen und Zugriffsverwaltung zu einer selbst betriebenen Plattform. Source-available unter BSL 1.1." />
+  <meta name="theme-color" content="#050b16" />
+  <meta property="og:title" content="MagicStick — Deine Hardware. Deine KI." />
+  <meta property="og:description" content="Modelle entdecken, Anwendungen starten, Zugriffe verwalten. Deine selbst betriebene KI-Plattform mit einsehbarem und anpassbarem Quellcode." />
+  <meta property="og:type" content="website" />
+  <title>MagicStick — Deine Hardware. Deine KI.</title>
+  <link rel="stylesheet" href="site.css" />
+  <script src="site.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Zum Inhalt</a>
+  <header class="site-header">
+    <div class="container nav">
+      <a class="wordmark" href="#top" aria-label="MagicStick Startseite"><span class="brand-symbol" aria-hidden="true">m<span>·</span></span>magicstick<span class="wordmark-dot">.</span></a>
+      <button class="menu-toggle" aria-controls="main-navigation" aria-expanded="false" hidden>Menü <span aria-hidden="true">+</span></button>
+      <nav id="main-navigation" aria-label="Hauptnavigation">
+        <a href="#produkt">Produkt</a><a href="#anwendungen">Anwendungen</a><a href="#lizenzen">Lizenzen</a>
+        <a href="README.md">Docs <span aria-hidden="true">↗</span></a>
+        <a class="button button-small" href="#starten">Jetzt starten <span aria-hidden="true">↗</span></a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero container" id="top" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <p class="eyebrow"><span class="live-dot"></span> Die offene KI-Plattform für deine Infrastruktur</p>
+        <h1 id="hero-title">Deine Hardware.<br /><span>Deine KI.</span></h1>
+        <p class="hero-description">Modelle, Anwendungen und Zugriffe an einem Ort. MagicStick macht aus deinem Server eine KI-Plattform, die du selbst betreibst.</p>
+        <div class="actions"><a class="button" href="#starten">MagicStick installieren <span aria-hidden="true">↗</span></a><a class="text-link" href="https://github.com/QualityMinds/AIppliance-Magic-Stick">Auf GitHub ansehen <span aria-hidden="true">↗</span></a></div>
+        <div class="hero-proof"><span>Source-available · BSL 1.1</span><span>CPU &amp; GPU</span><span>Self-hosted</span></div>
+      </div>
+      <figure class="hero-art">
+        <a href="assets/dashboard-overview.webp" aria-label="Dashboard-Überblick in voller Größe ansehen"><img src="assets/dashboard-overview.webp" width="1470" height="1126" alt="Aktuelles MagicStick-Dashboard: Übersicht über Appliance, Dienste, Instanzen, Modelle und Anwendungszugriffe mit neutralen Beispieldaten" fetchpriority="high" /></a>
+        <figcaption><span>DAS MAGICSTICK-DASHBOARD</span><span>Echte Oberfläche · Beispieldaten · Zum Vergrößern anklicken</span></figcaption>
+      </figure>
+    </section>
+
+    <div class="foundation-strip">
+      <div class="container foundations"><p>Vertraute Technologie.<br /><strong>Als eine Plattform.</strong></p><div><span>Kubernetes</span><span>vLLM</span><span>Ollama</span><span>LiteLLM</span><span>Keycloak</span><span>Flux</span></div></div>
+    </div>
+
+    <section class="section container" id="produkt" aria-labelledby="product-title">
+      <div class="section-heading"><p class="eyebrow">WENIGER ZUSAMMENBAUEN. MEHR AUSPROBIEREN.</p><h2 id="product-title">Alles, was zwischen deinem<br class="desktop-break" /> Modell und dem ersten „Hallo“ liegt.</h2><p>MagicStick verbindet die Bausteine: von der Installation über die passende Laufzeit bis zur Anwendung für dein Team.</p></div>
+      <div class="product-grid">
+        <article class="product-card model-card">
+          <div class="card-top"><span class="card-index">01 / MODELLE</span><span class="line-icon" aria-hidden="true">↗</span></div>
+          <h3>Finde das Modell,<br />das zu dir passt.</h3>
+          <p>Durchsuche Hugging Face und die Ollama Library. Wähle Größe und Quantisierung – oder verbinde einen externen Anbieter.</p>
+          <div class="model-families" aria-label="Beispiele für auffindbare Modellfamilien"><span>Qwen</span><span>DeepSeek</span><span>GLM</span><span>Llama</span><span>Gemma</span><span>Mistral</span></div>
+          <a class="card-link" href="user-guide/models/manage.md">Modellverwaltung entdecken <span aria-hidden="true">↗</span></a>
+        </article>
+        <article class="product-card memory-card">
+          <div class="card-top"><span class="card-index">02 / RESSOURCEN</span><span class="line-icon" aria-hidden="true">≋</span></div>
+          <h3>Verstehe, was<br />dein Modell braucht.</h3>
+          <p>RAM, VRAM, Kontext und KV-Cache werden gemeinsam geplant. Auf unterstützten NVIDIA-Systemen kannst du zusätzlichen Arbeitsspeicher nutzen.</p>
+          <div class="memory-composition" aria-label="Bestandteile der Speicherschätzung"><div class="memory-track"><span></span><span></span><span></span></div><div class="memory-legend"><span>Gewichte</span><span>KV-Cache</span><span>Laufzeit</span></div></div>
+          <span class="card-note">Schematische Darstellung. Die Anteile variieren je Modell und Konfiguration.</span>
+        </article>
+        <article class="product-card access-card">
+          <div class="card-top"><span class="card-index">03 / ZUGRIFF</span><span class="line-icon" aria-hidden="true">⌘</span></div>
+          <h3>Gib deinem Team<br />einen gemeinsamen Einstieg.</h3>
+          <p>Lokales SSO, Benutzer und Rollen, benannte API-Schlüssel und Kubernetes-Zugriff gehören zum Core ohne Lizenzdatei.</p>
+          <div class="access-roles"><span><i aria-hidden="true">U</i> Benutzer</span><span><i aria-hidden="true">O</i> Operator</span><span><i aria-hidden="true">A</i> Administrator</span></div>
+          <a class="card-link" href="administration/users.md">Zugriff und Identität <span aria-hidden="true">↗</span></a>
+        </article>
+      </div>
+      <figure class="product-shot">
+        <figcaption><p class="eyebrow">DIREKT IM DASHBOARD</p><h3>Modelle und Speicher.<br />Auf einen Blick.</h3><p>CPU und GPU, freie Ressourcen und der Status deiner Modelle – gemeinsam in einer Ansicht.</p><span>Echte aktuelle Oberfläche mit neutralen Beispieldaten. Die Abbildung lässt sich in voller Größe öffnen.</span></figcaption>
+        <a href="assets/dashboard-models.webp" aria-label="Modellverwaltung in voller Größe ansehen"><img src="assets/dashboard-models.webp" width="1470" height="1344" alt="MagicStick-Modellverwaltung mit CPU- und NVIDIA-Speicheranzeigen und zwei beispielhaften Modellen samt Laufzeit, KV-Cache, Kontext und Status" loading="lazy" /></a>
+      </figure>
+    </section>
+
+    <section class="workspace-section" id="anwendungen" aria-labelledby="apps-title">
+      <div class="container">
+        <div class="workspace-heading"><div><p class="eyebrow">VOM MODELL ZUM WERKZEUG</p><h2 id="apps-title">Was möchtest<br />du damit machen?</h2></div><p>Ein Modell wird erst durch die passende Anwendung nützlich. Aktiviere Dienste und richte benannte Instanzen mit dem gewünschten Modell ein.</p></div>
+        <div class="use-case-controls" role="tablist" aria-label="Anwendungsbereiche" hidden>
+          <button id="tab-knowledge" role="tab" aria-controls="panel-knowledge" aria-selected="true" tabindex="0">Wissen &amp; Chat</button>
+          <button id="tab-code" role="tab" aria-controls="panel-code" aria-selected="false" tabindex="-1">Code &amp; Agenten</button>
+          <button id="tab-api" role="tab" aria-controls="panel-api" aria-selected="false" tabindex="-1">Eigene Anwendungen</button>
+        </div>
+        <div class="use-case-panel" id="panel-knowledge" role="tabpanel" aria-labelledby="tab-knowledge" tabindex="0">
+          <div class="use-case-copy"><span class="section-count">01</span><h3>Dein Wissen.<br />Im Gespräch.</h3><p>Stelle Dokumente und Modelle in einem gemeinsamen Arbeitsbereich bereit. Nutze Chat-Oberflächen und selbst betriebene Wissenswerkzeuge für deine Inhalte.</p><a class="light-link" href="user-guide/applications.md">Anwendungen im Katalog <span aria-hidden="true">↗</span></a></div>
+          <div class="app-list"><article><span class="app-monogram" aria-hidden="true">A</span><div><h4>AnythingLLM</h4><p>Dokumente, Embeddings und Wissens-Workspaces.</p></div></article><article><span class="app-monogram" aria-hidden="true">H</span><div><h4>Hermes</h4><p>Browser-Chat mit ausgewähltem Modell und geschütztem Zugang.</p></div></article><div class="app-list-note"><span class="live-dot"></span> Gemeinsamer Modellkatalog für deine Anwendungen</div></div>
+        </div>
+        <div class="use-case-panel" id="panel-code" role="tabpanel" aria-labelledby="tab-code" tabindex="0">
+          <div class="use-case-copy"><span class="section-count">02</span><h3>Ideen werden<br />zu Aufgaben.</h3><p>Starte Coding-Agenten und Agenten-Workflows auf deiner Infrastruktur. Mehrere Instanzen können unterschiedliche Modelle und Nutzungskontexte bekommen.</p><a class="light-link" href="reference/paperclip-agents.md">Agenten-Workflows ansehen <span aria-hidden="true">↗</span></a></div>
+          <div class="app-list"><article><span class="app-monogram" aria-hidden="true">K</span><div><h4>KubeOpenCode</h4><p>Coding-Agenten, Aufgaben und Zeitpläne in Kubernetes.</p></div></article><article><span class="app-monogram" aria-hidden="true">P</span><div><h4>Paperclip</h4><p>Agenten und Runs mit isolierten Ausführungsumgebungen.</p></div></article><div class="app-list-note">Außerdem im Katalog: OpenClaw und Odysseus</div></div>
+        </div>
+        <div class="use-case-panel" id="panel-api" role="tabpanel" aria-labelledby="tab-api" tabindex="0">
+          <div class="use-case-copy"><span class="section-count">03</span><h3>Deine Anwendung.<br />Deine Modellwahl.</h3><p>Verbinde eigene Tools über die gemeinsame OpenAI-kompatible Schnittstelle. Lokale Modelle und externe Anbieter werden über LiteLLM erreichbar.</p><a class="light-link" href="user-guide/api-access.md">API-Zugriff einrichten <span aria-hidden="true">↗</span></a></div>
+          <div class="api-flow" aria-label="Verbindung eigener Anwendungen zum Modellkatalog"><span>Deine Anwendung</span><i aria-hidden="true">↓</i><strong>OpenAI-kompatible API</strong><i aria-hidden="true">↓</i><div><span>Lokale Modelle</span><span>Externe Anbieter</span></div><p>Benannte API-Schlüssel zentral erstellen und widerrufen.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section container operate-section" aria-labelledby="operate-title">
+      <div class="operate-intro"><p class="eyebrow">EINRICHTEN IST DER ANFANG</p><h2 id="operate-title">Auch danach<br />behältst du<br /><em>den Überblick.</em></h2><p>MagicStick begleitet den laufenden Betrieb. Du siehst, was bereit ist, was noch startet und wo deine Aufmerksamkeit gebraucht wird.</p><a class="text-link" href="user-guide/dashboard.md">Dashboard, CLI &amp; TUI <span aria-hidden="true">↗</span></a></div>
+      <div class="operate-list">
+        <article><span>01</span><div><h3>Ein Zustand. Mehrere Wege.</h3><p>Arbeite im Browser, automatisiere über CLI und API oder verwalte die Appliance direkt am lokalen Bildschirm per TUI.</p></div></article>
+        <article><span>02</span><div><h3>Hardware, die wirklich bereit ist.</h3><p>Erkannte CPUs und unterstützte GPUs bestimmen die verfügbaren Laufzeiten. Statusanzeigen machen fehlende Ressourcen und Abhängigkeiten sichtbar.</p></div></article>
+        <article><span>03</span><div><h3>Ein nachvollziehbarer Betrieb.</h3><p>Prüfe Revisionen, Pods, Ereignisse und Anwendungsrouten. Kubernetes, Flux und die MagicStick-Operatoren setzen deine Konfiguration um.</p></div></article>
+      </div>
+    </section>
+
+    <section class="open-section" id="lizenzen" aria-labelledby="open-title">
+      <div class="container">
+        <div class="section-heading"><p class="eyebrow">SOURCE-AVAILABLE. BSL 1.1.</p><h2 id="open-title">Eine Plattform.<br />Drei Lizenzstufen.</h2><p>Quellcode ansehen, anpassen und selbst betreiben. Jede Version wechselt drei Jahre nach ihrer ersten öffentlichen Verteilung zur MIT-Lizenz. Die produktive Nutzung richtet sich nach dem Additional Use Grant.</p></div>
+        <div class="edition-grid">
+          <article class="edition free"><div class="edition-label">FREE <span>OHNE LIZENZDATEI</span></div><h3>Für berechtigte<br />Nutzung.</h3><p>Für Privatpersonen, gemeinnützige Organisationen, Bildung und Forschung sowie Unternehmen mit höchstens 2 Mio. EUR konsolidiertem Gruppenjahresumsatz innerhalb des Free Use Grants.</p><ul class="check-list"><li>Modelle und GPU-Verwaltung</li><li>Lokale Identität und Rollen</li><li>Resource Sharing und Private Mesh</li><li>Dashboard, CLI, TUI und GitOps</li></ul></article>
+          <article class="edition registered"><div class="edition-label">FREE REGISTERED <span>KOSTENLOSE DATEI</span></div><h3>Mit externer<br />Identität.</h3><p>Für dieselben berechtigten Nutzungen. Die kostenlose signierte Lizenz ergänzt den vollständigen Core um Federated SSO.</p><ul class="check-list"><li>Externe OIDC- und SAML-Provider</li><li>Claim- und Gruppen-Zuordnung</li><li>Offline verifizierte Freischaltung</li></ul></article>
+          <article class="edition commercial"><div class="edition-label">COMMERCIAL <span>VERTRAG &amp; DATEI</span></div><h3>Für kommerzielle<br />Sondernutzung.</h3><p>Für produktive Nutzung über der Umsatzgrenze sowie nicht vom Grant erfasste produktive OEM-, SaaS-, Hosting- und Managed-Service-Angebote für Dritte.</p><ul class="check-list"><li>Commercial Production Entitlement</li><li>Federated SSO</li><li>Alle Core-Funktionen</li></ul></article>
+        </div>
+        <p class="edition-footnote">BSL ist keine Open-Source-Lizenz. Reine Weiterverteilung oder Weiterverkauf allein lösen keine zusätzliche Einschränkung aus. Maßgeblich sind die konkreten produktiven Nutzungen und die Bedingungen in LICENSE.</p>
+        <a class="text-link" href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/LICENSING.md">Lizenzmodell und Bedingungen lesen <span aria-hidden="true">↗</span></a>
+      </div>
+    </section>
+
+    <section class="section container" id="starten" aria-labelledby="start-title">
+      <div class="start-heading"><div><p class="eyebrow">DEIN NÄCHSTER SCHRITT</p><h2 id="start-title">Bring deine Hardware.<br />Wir bringen den Anfang.</h2></div><p>Wähle den Weg, der zu deiner Umgebung passt. Jede Neuinstallation führt durch die geschützte Ersteinrichtung.</p></div>
+      <div class="install-grid">
+        <a href="installation/bare-metal.md"><span class="install-number">01 <i aria-hidden="true">↗</i></span><h3>Physischer Server</h3><p>Ubuntu, K3s und MagicStick mit dem USB-Installer einrichten.</p><span class="install-link">USB-Installation</span></a>
+        <a href="installation/cloud-init-vm.md"><span class="install-number">02 <i aria-hidden="true">↗</i></span><h3>Neue VM</h3><p>Eine virtuelle Appliance mit cloud-init und Autoinstall aufsetzen.</p><span class="install-link">VM-Installation</span></a>
+        <a href="installation/existing-vm.md"><span class="install-number">03 <i aria-hidden="true">↗</i></span><h3>Ubuntu vorhanden</h3><p>MagicStick auf einem dedizierten Ubuntu-26.04-System installieren.</p><span class="install-link">Linux-Installation</span></a>
+        <a href="installation/existing-kubernetes.md"><span class="install-number">04 <i aria-hidden="true">↗</i></span><h3>Kubernetes vorhanden</h3><p>Die Plattform in einem bestehenden Cluster bereitstellen.</p><span class="install-link">Cluster-Installation</span></a>
+      </div>
+      <div class="setup-note"><span class="note-icon" aria-hidden="true">✓</span><p>Geschützter First-Run mit Einrichtungscode, erstem Administrator und Recovery-Zugang. Kein gemeinsames Standardpasswort.</p></div>
+    </section>
+
+    <section class="faq-section container" aria-labelledby="faq-title">
+      <h2 id="faq-title">Noch eine Frage?</h2>
+      <div class="faq-list">
+        <details><summary>Ist MagicStick ein Hardwareprodukt? <span aria-hidden="true">+</span></summary><p>MagicStick ist Software für deine vorhandene Infrastruktur. Du kannst einen physischen Server, eine virtuelle Maschine, ein dediziertes Ubuntu-System oder ein vorhandenes Kubernetes-Cluster nutzen. Die Screenshots zeigen das aktuelle Dashboard mit neutralen Beispieldaten.</p></details>
+        <details><summary>Brauche ich eine GPU? <span aria-hidden="true">+</span></summary><p>Nein. Lokale Inferenz ist auch auf CPU möglich; externe Anbieter benötigen keine lokale GPU. vLLM unterstützt die katalogisierten CPU-, NVIDIA-, AMD- und Intel-Ziele, Ollama CPU, NVIDIA und AMD. Das Dashboard bietet nur erkannte, verfügbare Kombinationen an. Die konkrete Modell- und Hardwarekompatibilität bleibt entscheidend.</p></details>
+        <details><summary>Bleiben meine Daten bei mir? <span aria-hidden="true">+</span></summary><p>Lokale Modellinferenz läuft auf deiner Infrastruktur. Ob Anwendungen weitere Daten übertragen, hängt von ihren Integrationen und deiner Konfiguration ab. Wenn du externe Modelle einbindest, werden die entsprechenden Anfragen an deren Anbieter gesendet. Für Installation und Modell-Downloads werden externe Quellen verwendet.</p></details>
+        <details><summary>Kann ich meine eigenen Modelle und Tools verwenden? <span aria-hidden="true">+</span></summary><p>Du kannst kompatible Modelle über Hugging Face, die Ollama Library oder direkte Referenzen wählen und externe Provider ergänzen. Eigene Anwendungen greifen über die OpenAI-kompatible Schnittstelle zu. Kataloge, Kubernetes-APIs und Overlays ermöglichen weitere Integrationen.</p></details>
+        <details><summary>Wo finde ich technische Details? <span aria-hidden="true">+</span></summary><p>Im <a href="README.md">Dokumentationsindex</a> findest du Installation, Architektur, Modelle, Authentifizierung und Betrieb. Der Quellcode und die Konfigurationsbeispiele liegen im selben öffentlichen Repository.</p></details>
+      </div>
+    </section>
+    <section class="final-cta"><div class="container"><p>Weniger Infrastruktur zusammensuchen.<br /><strong>Mehr mit KI anfangen.</strong></p><a class="button button-lime" href="#starten">Deinen Einstieg wählen <span aria-hidden="true">↗</span></a></div></section>
+  </main>
+
+  <footer class="site-footer container">
+    <div class="footer-top"><a class="wordmark" href="#top" aria-label="MagicStick Startseite"><span class="brand-symbol" aria-hidden="true">m<span>·</span></span>magicstick<span class="wordmark-dot">.</span></a><p>KI-Infrastruktur. In deiner Hand.</p><a class="text-link" href="https://github.com/QualityMinds/AIppliance-Magic-Stick">Mitentwickeln auf GitHub <span aria-hidden="true">↗</span></a></div>
+    <div class="footer-bottom"><span>MagicStick · Business Source License 1.1</span><nav aria-label="Weitere Informationen"><a href="README.md">Dokumentation</a><a href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/LICENSING.md">Lizenzen</a><a href="legal-notice.html">Impressum</a><a href="privacy.html">Datenschutz</a></nav></div>
+  </footer>
+</body>
+</html>

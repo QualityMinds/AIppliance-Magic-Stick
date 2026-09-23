@@ -1,0 +1,20 @@
+FROM debian:bookworm-slim
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    coreutils \
+    curl \
+    dosfstools \
+    file \
+    grep \
+    mtools \
+    perl-base \
+    sed \
+    util-linux \
+    xorriso \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY scripts/build-installer-image-container.sh /usr/local/bin/magicstick-build-installer-image
+
+ENTRYPOINT ["/usr/local/bin/magicstick-build-installer-image"]

@@ -1,0 +1,15 @@
+packages:
+  - apps/*
+  - packages/*
+
+catalog:
+  react: 19.2.8
+  react-dom: 19.2.8
+  typescript: 7.0.2
+  zod: 4.5.4
+
+minimumReleaseAgeExclude:
+  - '@types/react-dom@19.2.7'
+  - '@vitest/mocker@5.0.0'
+  - '@vitest/spy@5.0.0'
+  - vitest@5.0.0

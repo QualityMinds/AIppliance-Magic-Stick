@@ -1,0 +1,208 @@
+name: License audit
+
+on:
+  pull_request:
+    paths:
+      - .github/**
+      - tools/**
+      - tests/test_license_*.py
+      - licenses/**
+      - LICENSE*
+      - LICENSING.md
+      - THIRD_PARTY_NOTICES.md
+      - docs/license-audit.md
+      - docs/development/license-audit.md
+      - requirements-docs.txt
+      - dashboard/**
+      - core/**
+      - magic-cluster/**
+      - magic-host/**
+      - magic-installer/**
+  push:
+    branches: [main]
+  schedule:
+    # Weekly, Monday 04:23 UTC. Scheduled runs use the default branch.
+    - cron: '23 4 * * 1'
+  workflow_dispatch:
+    inputs:
+      strict_release_review:
+        description: Require all publication approvals and dates (optional full-distribution review)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  SYFT_CHECK_FOR_APP_UPDATE: 'false'
+  SYFT_LICENSE_CONTENT: all
+
+concurrency:
+  group: license-audit-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@v4
+        with: {node-version: '24'}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.13'}
+      - uses: ./.github/actions/setup-license-scanner
+      - name: Install frozen audit dependencies without package scripts
+        working-directory: dashboard
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile --ignore-scripts
+          python -m pip install 'PyYAML==6.0.2'
+      - name: Verify source, scope, notice and audit contracts
+        run: |
+          python tools/license_audit.py --check
+          python -m unittest tests/test_license_release.py tests/test_license_audit.py tests/test_license_ci.py tests/test_license_kdns.py
+          node tools/collect_npm_notices.mjs
+          git diff --exit-code -- licenses/third-party/npm.txt
+      - name: Verify pinned upstream license evidence
+        run: python tools/license_ci.py upstream --output audit-output/upstream-evidence.json
+      - name: Inventory current source dependency locks
+        run: |
+          python tools/license_audit.py --inventory audit-output/dependency-inventory.json
+          syft scan dir:. --source-name magicstick-source \
+            --exclude '**/.git/**' --exclude '**/node_modules/**' --exclude '**/audit-output/**' --exclude '**/.build/**' \
+            --enrich golang --enrich javascript --enrich python \
+            -o syft-json=audit-output/source.syft.json \
+            -o spdx-json=audit-output/source.spdx.json \
+            -o cyclonedx-json=audit-output/source.cdx.json
+          python tools/license_ci.py sbom --input audit-output/source.syft.json \
+            --target magicstick-source --output audit-output/source-review.json \
+            --markdown audit-output/source-review.md
+          cat audit-output/source-review.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: license-source-${{ github.sha }}
+          path: audit-output/
+          if-no-files-found: error
+          retention-days: 30
+
+  upstream-sources:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {id: kdns, repository: lab42/kdns, revision: f956ab5d35564ee84e58ba155e78a17423cc835b}
+          - {id: amd-dra, repository: ROCm/k8s-gpu-dra-driver, revision: 9eb4e2ea386e34581524b0110e24769654fcb8d2}
+          - {id: paperclip-operator, repository: paperclipinc/paperclip-operator, revision: 66c1ddf277697952d9e87723dcd26edb5b635c69}
+          - {id: mesh-llm, repository: Mesh-LLM/mesh-llm, revision: a0c1e66b0ac037dd56544b9e2d94969ea43d694f}
+          - {id: openai-endpoint, repository: Mesh-LLM/openai-endpoint, revision: 9166c6a918cda73fe4c05912ed9b06446bb95e60}
+          - {id: freetoken, repository: FlashML-org/FreeToken, revision: cac247a860e316e06580d05aeb05f2e647bde214}
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: ./.github/actions/setup-license-scanner
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.repository }}
+          ref: ${{ matrix.revision }}
+          path: .build/upstream
+          persist-credentials: false
+      - name: Inventory upstream source without running its code
+        env:
+          TARGET: ${{ matrix.id }}
+          REVISION: ${{ matrix.revision }}
+        run: |
+          mkdir -p audit-output
+          test "$(git -C .build/upstream rev-parse HEAD)" = "$REVISION"
+          syft scan dir:.build/upstream --source-name "$TARGET" --source-version "$REVISION" \
+            --exclude '**/.git/**' \
+            --enrich golang --enrich javascript --enrich python \
+            -o syft-json=audit-output/source.syft.json \
+            -o spdx-json=audit-output/source.spdx.json \
+            -o cyclonedx-json=audit-output/source.cdx.json
+          python3 tools/license_ci.py sbom --input audit-output/source.syft.json \
+            --target "$TARGET@$REVISION" --output audit-output/review.json --markdown audit-output/review.md
+          cat audit-output/review.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: license-upstream-${{ matrix.id }}-${{ github.sha }}
+          path: audit-output/
+          if-no-files-found: error
+          retention-days: 30
+
+  dashboard-images:
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [api, web, cli]
+        include:
+          - {architecture: amd64, runner: ubuntu-24.04}
+          - {architecture: arm64, runner: ubuntu-24.04-arm}
+        # Both architectures are independent scans, never inferred from one another.
+        architecture: [amd64, arm64]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: ./.github/actions/setup-license-scanner
+      - name: Build exact dashboard artifact locally, without publishing
+        env:
+          COMPONENT: ${{ matrix.component }}
+        run: docker build --file "dashboard/apps/$COMPONENT/Dockerfile" --tag magicstick-license-audit:local .
+      - name: Inventory final image and preserve package license expressions
+        env:
+          COMPONENT: ${{ matrix.component }}
+          ARCHITECTURE: ${{ matrix.architecture }}
+        run: |
+          mkdir -p audit-output
+          syft scan docker:magicstick-license-audit:local \
+            -o syft-json=audit-output/image.syft.json \
+            -o spdx-json=audit-output/image.spdx.json \
+            -o cyclonedx-json=audit-output/image.cdx.json
+          python3 tools/license_ci.py sbom --input audit-output/image.syft.json \
+            --target "dashboard-$COMPONENT/linux-$ARCHITECTURE" \
+            --output audit-output/review.json --markdown audit-output/review.md
+          cat audit-output/review.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: license-image-${{ matrix.component }}-${{ matrix.architecture }}-${{ github.sha }}
+          path: audit-output/
+          if-no-files-found: error
+          retention-days: 30
+
+  release-readiness:
+    if: always()
+    needs: [source, upstream-sources, dashboard-images]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: Report scan failures and open license reviews
+        env:
+          SOURCE_RESULT: ${{ needs.source.result }}
+          UPSTREAM_RESULT: ${{ needs.upstream-sources.result }}
+          IMAGE_RESULT: ${{ needs.dashboard-images.result }}
+          STRICT_RELEASE_REVIEW: ${{ github.event_name == 'workflow_dispatch' && inputs.strict_release_review }}
+        run: |
+          set -uo pipefail
+          echo '## License review (advisory by default; not legal approval)' >> "$GITHUB_STEP_SUMMARY"
+          status=0
+          if [ "$STRICT_RELEASE_REVIEW" = true ]; then
+            python3 tools/license_audit.py --release 2>&1 | tee -a "$GITHUB_STEP_SUMMARY" || status=1
+          else
+            python3 tools/license_audit.py --review 2>&1 | tee -a "$GITHUB_STEP_SUMMARY" || status=1
+          fi
+          for result in "$SOURCE_RESULT" "$UPSTREAM_RESULT" "$IMAGE_RESULT"; do
+            if [ "$result" != success ]; then
+              echo "Incomplete scan job: $result" >> "$GITHUB_STEP_SUMMARY"
+              status=1
+            fi
+          done
+          exit "$status"

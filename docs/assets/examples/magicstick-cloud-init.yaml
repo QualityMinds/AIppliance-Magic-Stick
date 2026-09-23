@@ -1,0 +1,65 @@
+#cloud-config
+package_update: true
+packages:
+  - git
+  - ansible
+  - curl
+  - ca-certificates
+
+manage_etc_hosts: true
+
+write_files:
+  - path: /etc/default/ai-appliance-repo
+    owner: root:root
+    permissions: "0600"
+    content: |
+      FLUX_BOOTSTRAP_MODE=readonly-public
+      MAGICSTICK_PUBLIC_REPO=https://github.com/QualityMinds/AIppliance-Magic-Stick.git
+      MAGICSTICK_PUBLIC_REF=main
+      MAGICSTICK_PUBLIC_REF_KIND=branch
+      FLUX_PUBLIC_SYNC_PATH=magic-cluster/flux/entrypoints/single-node
+
+      AI_APPLIANCE_DOMAIN=magicstick.example.com
+      AI_APPLIANCE_DASHBOARD_HOST=magicstick.example.com
+      AI_APPLIANCE_MDNS_DOMAIN=magicstick.local
+      AI_APPLIANCE_MDNS_NAME=magicstick
+      AI_APPLIANCE_DASHBOARD_MDNS_NAME=magicstick
+
+runcmd:
+  - install -d -m 0700 -o root -g root /var/lib/magicstick/setup
+  - touch /var/lib/magicstick/setup/new-install
+  - chmod 0600 /var/lib/magicstick/setup/new-install
+  - >-
+    /bin/bash -lc '. /etc/default/ai-appliance-repo &&
+    MAGICSTICK_PUBLIC_REPO="${MAGICSTICK_PUBLIC_REPO:-https://github.com/QualityMinds/AIppliance-Magic-Stick.git}" &&
+    MAGICSTICK_PUBLIC_REF="${MAGICSTICK_PUBLIC_REF:-main}" &&
+    MAGICSTICK_PUBLIC_REF_KIND="${MAGICSTICK_PUBLIC_REF_KIND:-branch}" &&
+    MAGICSTICK_PUBLIC_CHECKOUT="${MAGICSTICK_PUBLIC_CHECKOUT:-/opt/ai-appliance/magicstick}" &&
+    export GIT_TERMINAL_PROMPT=0 &&
+    git_with_http11_fallback() {
+      if git "$@"; then return 0; fi;
+      echo "[magicstick] Git transport failed; retrying with HTTP/1.1." >&2;
+      git -c http.version=HTTP/1.1 "$@";
+    } &&
+    git_clone_with_http11_fallback() {
+      local repo_url="$1";
+      local checkout_dir="$2";
+      if git clone --no-checkout "$repo_url" "$checkout_dir"; then return 0; fi;
+      echo "[magicstick] Git clone failed; retrying with HTTP/1.1." >&2;
+      rm -rf "$checkout_dir";
+      git -c http.version=HTTP/1.1 clone --no-checkout "$repo_url" "$checkout_dir";
+    } &&
+    mkdir -p "$(dirname "$MAGICSTICK_PUBLIC_CHECKOUT")" &&
+    if [ -d "$MAGICSTICK_PUBLIC_CHECKOUT/.git" ]; then
+      git -C "$MAGICSTICK_PUBLIC_CHECKOUT" remote set-url origin "$MAGICSTICK_PUBLIC_REPO";
+    else
+      rm -rf "$MAGICSTICK_PUBLIC_CHECKOUT" &&
+      git_clone_with_http11_fallback "$MAGICSTICK_PUBLIC_REPO" "$MAGICSTICK_PUBLIC_CHECKOUT";
+    fi &&
+    git_with_http11_fallback -C "$MAGICSTICK_PUBLIC_CHECKOUT" fetch --tags --prune origin &&
+    if [ "$MAGICSTICK_PUBLIC_REF_KIND" = branch ] && git -C "$MAGICSTICK_PUBLIC_CHECKOUT" show-ref --verify --quiet "refs/remotes/origin/$MAGICSTICK_PUBLIC_REF"; then
+      git -C "$MAGICSTICK_PUBLIC_CHECKOUT" checkout --force -B "$MAGICSTICK_PUBLIC_REF" "origin/$MAGICSTICK_PUBLIC_REF";
+    else
+      git -C "$MAGICSTICK_PUBLIC_CHECKOUT" checkout --force --detach "$MAGICSTICK_PUBLIC_REF";
+    fi &&
+    bash "$MAGICSTICK_PUBLIC_CHECKOUT/magic-host/roles/ansible-pull-timer/files/ai-appliance-converge"'

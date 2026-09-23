@@ -1,0 +1,34 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: private-mesh-boundary
+  namespace: ai
+spec:
+  podSelector:
+    matchLabels: {app: private-mesh}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: identity-system}
+          podSelector:
+            matchLabels: {app: ai-appliance-dashboard-api}
+      ports: [{protocol: TCP, port: 8080}]
+    - from:
+        - podSelector:
+            matchLabels: {app: litellm}
+      ports: [{protocol: TCP, port: 8082}]
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: envoy-gateway-system}
+      ports: [{protocol: TCP, port: 8083}]
+    # Iroh's authenticated QUIC endpoints use dynamic ports and path migration.
+    - ports: [{protocol: UDP}]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {app: litellm}
+      ports: [{protocol: TCP, port: 4000}, {protocol: TCP, port: 9099}]
+    - ports: [{protocol: UDP}]
+    - ports: [{protocol: TCP, port: 53}, {protocol: TCP, port: 443}, {protocol: TCP, port: 6443}]
+    # No direct model-runtime HTTP egress; only LiteLLM can reach local backends.

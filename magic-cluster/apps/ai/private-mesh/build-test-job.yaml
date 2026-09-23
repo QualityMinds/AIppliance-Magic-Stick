@@ -1,0 +1,68 @@
+# Developer-only integration build. Not included by kustomization.yaml.
+# Create the namespace and private-mesh-test-source ConfigMap first; remove the
+# whole namespace after acceptance. No host mounts, privileged mode or GPU use.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: transport-build
+  namespace: mesh-integration-test
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: transport-build
+  namespace: mesh-integration-test
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 3600
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: {app: private-mesh-integration}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      containers:
+        - name: build
+          image: rust:1.98.1-bookworm@sha256:828077e0f5ed0401fbd9cb5b4d5dedca23bd13c7fe032f3e8b7313e7acd2a57f
+          command: [bash, -ceu]
+          args:
+            - |
+              apt-get update
+              apt-get install -y --no-install-recommends clang cmake protobuf-compiler python3 libssl-dev pkg-config
+              git clone --depth 1 --branch v0.76.2 https://github.com/Mesh-LLM/mesh-llm.git /work/mesh
+              python3 /input/apply_policy.py /work/mesh
+              cd /work/mesh
+              cargo build --locked -p mesh-llm --no-default-features --features dynamic-native-runtime
+              cp target/debug/mesh-llm /work/mesh-llm
+              strip /work/mesh-llm
+              git clone --depth 1 --branch v0.2.0 https://github.com/Mesh-LLM/openai-endpoint.git /work/plugin
+              test "$(git -C /work/plugin rev-parse HEAD)" = 9166c6a918cda73fe4c05912ed9b06446bb95e60
+              cd /work/plugin
+              cargo build --locked
+              cp target/debug/openai-endpoint /work/openai-endpoint
+              strip /work/openai-endpoint
+              sha256sum /work/mesh-llm > /work/magicstick-mesh.sha256
+              echo 'Transport build complete'
+          env:
+            - {name: CARGO_BUILD_JOBS, value: '4'}
+            - {name: CARGO_PROFILE_DEV_DEBUG, value: '0'}
+            - {name: CARGO_HOME, value: /work/cargo}
+          resources:
+            requests: {cpu: 250m, memory: 2Gi}
+            limits: {cpu: '4', memory: 12Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - {name: work, mountPath: /work}
+            - {name: input, mountPath: /input, readOnly: true}
+      volumes:
+        - name: work
+          persistentVolumeClaim: {claimName: transport-build}
+        - name: input
+          configMap: {name: private-mesh-test-source}

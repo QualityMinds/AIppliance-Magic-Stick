@@ -1,0 +1,494 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: modelactivations.appliance.magicstick.dev
+  labels:
+    app.kubernetes.io/name: magicstick-operator
+    app.kubernetes.io/component: crd
+spec:
+  group: appliance.magicstick.dev
+  names:
+    kind: ModelActivation
+    listKind: ModelActivationList
+    plural: modelactivations
+    singular: modelactivation
+    shortNames:
+      - msmodel
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Type
+          type: string
+          jsonPath: .spec.type
+        - name: Enabled
+          type: boolean
+          jsonPath: .spec.enabled
+        - name: Target
+          type: string
+          jsonPath: .spec.targetNamespace
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Model
+          type: string
+          jsonPath: .status.modelRef
+        - name: VRAM
+          type: integer
+          jsonPath: .status.vramRequiredMi
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: ModelActivation requests one local or external model through the Magic Stick runtime controllers.
+          required:
+            - spec
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required:
+                - type
+              properties:
+                enabled:
+                  type: boolean
+                  default: true
+                type:
+                  type: string
+                  enum:
+                    - local
+                    - external
+                targetNamespace:
+                  type: string
+                  default: ai
+                applianceRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                      default: local
+                    namespace:
+                      type: string
+                      default: ai-system
+                local:
+                  type: object
+                  description: Local model settings for vLLM, Ollama, or FreeToken. FreeToken uses its own runtime adapter and nested configuration.
+                  x-kubernetes-preserve-unknown-fields: true
+                  x-kubernetes-validations:
+                    - rule: "!has(self.vllm) || (has(self.engine) && self.engine == 'VLLM')"
+                      message: local.vllm settings require the VLLM engine
+                  properties:
+                    preset:
+                      type: string
+                    artifact:
+                      type: string
+                      minLength: 1
+                      description: Artifact ID selected from the resolved preset variant. When omitted, the variant defaultArtifact is used.
+                    url:
+                      type: string
+                    modelType:
+                      type: string
+                    features:
+                      type: array
+                      items:
+                        type: string
+                    engine:
+                      type: string
+                      default: VLLM
+                      enum:
+                        - VLLM
+                        - OLlama
+                        - FreeToken
+                    computeTarget:
+                      type: string
+                      description: Logical compute backend. Missing values on legacy resources are interpreted as nvidia-gpu.
+                      default: nvidia-gpu
+                      enum:
+                        - cpu
+                        - nvidia-gpu
+                        - amd-gpu
+                        - intel-gpu
+                      x-kubernetes-validations:
+                        - rule: self == oldSelf
+                          message: computeTarget is immutable; recreate the ModelActivation to change it
+                    resourceProfile:
+                      type: string
+                    vram:
+                      type: string
+                    vramMi:
+                      type: integer
+                      minimum: 1
+                    memoryRequiredMi:
+                      type: integer
+                      minimum: 16
+                      description: Total host RAM request in MiB for CPU models or GPU models with CPU offloading. Includes runtime and offloaded memory.
+                    cpuOffloading:
+                      type: boolean
+                      description: Explicit GPU weight/layer offloading policy. Ollama true always uses GPU-first auto-fit. Omission preserves legacy engine behavior; no default is injected.
+                    cpuResources:
+                      type: object
+                      description: Per-replica CPU policy independent of RAM. Omitted fields inherit engine defaults; limit 0 means no quota.
+                      properties:
+                        requestMillicores:
+                          type: integer
+                          minimum: 1
+                        limitMillicores:
+                          type: integer
+                          minimum: 0
+                      x-kubernetes-validations:
+                        - rule: '!has(self.requestMillicores) || !has(self.limitMillicores) || self.limitMillicores == 0 || self.limitMillicores >= self.requestMillicores'
+                          message: CPU limit must be at least the reservation, or 0 for no limit
+                    cpuOffloadMi:
+                      type: integer
+                      minimum: 0
+                      description: Derived vLLM weight-offloading budget in MiB, separate from total host RAM.
+                    allowMemoryRisk:
+                      type: boolean
+                      description: Explicitly accept an estimated insufficient or unverifiable memory budget. Does not change resource requests or guarantee startup.
+                    ollamaGpuLayers:
+                      type: integer
+                      minimum: 1
+                      description: Deprecated compatibility field. Current Ollama runtimes ignore it and use GPU-first auto-fit when CPU offloading is enabled.
+                    contextWindow:
+                      type: integer
+                      minimum: 1
+                    maxOutputTokens:
+                      type: integer
+                      minimum: 1
+                    maxNumSeqs:
+                      type: integer
+                      minimum: 1
+                    kvCacheType:
+                      type: string
+                      description: Requested inference KV-cache representation. Runtime-specific values are validated by the dashboard and operator.
+                      enum:
+                        - auto
+                        - fp8
+                        - f16
+                        - q8_0
+                        - q4_0
+                    kvCacheMemoryBytes:
+                      type: integer
+                      minimum: 67108864
+                    args:
+                      type: array
+                      items:
+                        type: string
+                    minReplicas:
+                      type: integer
+                      minimum: 0
+                    maxReplicas:
+                      type: integer
+                      minimum: 0
+                    env:
+                      type: object
+                      additionalProperties:
+                        type: string
+                    realtime:
+                      type: object
+                      description: Catalog-owned vLLM-Omni Realtime profile. Does not inherit ordinary vLLM memory or offloading settings.
+                      required: [profile, gpuNode]
+                      properties:
+                        profile:
+                          type: string
+                          minLength: 1
+                        gpuNode:
+                          type: string
+                          minLength: 1
+                        gpuCount:
+                          type: integer
+                          enum: [1, 2]
+                          default: 1
+                          description: Physical GPUs for exclusive allocation. Shared NVIDIA time-slicing or AMD DRA uses exactly one slot on one GPU; replicas are not distinct physical GPUs.
+                        systemMemoryMi:
+                          type: integer
+                          minimum: 1
+                          default: 16384
+                        gpuMemoryFraction:
+                          type: number
+                          minimum: 0
+                          exclusiveMinimum: true
+                          maximum: 1
+                          default: 0.9
+                        thinkerCpuOffloadGiB:
+                          type: integer
+                          minimum: 0
+                          default: 0
+                        runtimeImage:
+                          type: string
+                          maxLength: 1024
+                          description: Optional experimental backend-compatible container image. Empty uses the catalog default. No source compatibility shim is applied to custom images.
+                        restartNonce:
+                          type: string
+                          maxLength: 128
+                    vllm:
+                      type: object
+                      description: Engine-specific deployment settings. Omission preserves legacy runtime args/env. Target compatibility is validated against the compute-target catalog.
+                      properties:
+                        visionAttention:
+                          type: string
+                          enum: [auto, aotriton, triton, flash-attn-triton]
+                          default: triton
+                          description: Multimodal vision encoder attention backend, separate from text decoder attention and KV-cache precision. Auto leaves backend selection to vLLM. Manual choices depend on runtime packages, GPU and model compatibility; they are not a successful inference test.
+                    freetoken:
+                      type: object
+                      description: Strictly engine-specific FreeToken v0.1.3 settings. These settings do not affect vLLM or Ollama runtimes.
+                      properties:
+                        gpuDevice:
+                          type: string
+                          description: Selected eligible NVIDIA GPU node inventory ID. FreeToken binds one or more whole NVIDIA GPUs on this one node.
+                        gpuCount:
+                          type: integer
+                          minimum: 1
+                          default: 1
+                          description: Number of whole NVIDIA GPUs requested on the selected node. FreeToken maps this directly to tensor parallelism; MIG and time-sliced GPU slots are not valid.
+                        gpuMemoryMi:
+                          type: integer
+                          minimum: 256
+                          description: Aggregate planned FreeToken VRAM budget in MiB across all requested GPUs. The runtime maps it conservatively per GPU to FreeToken memory-ratio against free VRAM at startup.
+                        systemMemoryMi:
+                          type: integer
+                          minimum: 256
+                          description: Kubernetes memory reservation and limit for the FreeToken Pod; FreeToken has no native total-host-RAM limit flag.
+                        memoryStrategy:
+                          type: string
+                          enum: [auto, fused, offload, cpu, hybrid]
+                          default: auto
+                        restartNonce:
+                          type: string
+                          description: Changes this value to request a Kubernetes rollout restart of the FreeToken runtime.
+                        advanced:
+                          type: object
+                          properties:
+                            cacheType:
+                              type: string
+                              enum: [radix, naive]
+                            kvReserveTokens:
+                              type: integer
+                              minimum: 1
+                            moeCacheSize:
+                              type: integer
+                              minimum: 0
+                            maxPrefillLength:
+                              type: integer
+                              minimum: 1
+                            cudaGraphMaxBatchSize:
+                              type: integer
+                              minimum: 1
+                            cpuThreads:
+                              type: integer
+                              minimum: 1
+                            expertLoad:
+                              type: string
+                              enum: [auto, serial, parallel]
+                            dtype:
+                              type: string
+                              enum: [auto, float16, bfloat16, float32]
+                external:
+                  type: object
+                  description: External LiteLLM provider model settings.
+                  x-kubernetes-preserve-unknown-fields: true
+                  properties:
+                    model:
+                      type: string
+                    apiBase:
+                      type: string
+                    modelType:
+                      type: string
+                    apiKeySecretRef:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        key:
+                          type: string
+                    apiVersion:
+                      type: string
+                    customLlmProvider:
+                      type: string
+                    tpm:
+                      type: integer
+                      minimum: 1
+                    rpm:
+                      type: integer
+                      minimum: 1
+                    contextWindow:
+                      type: integer
+                      minimum: 1
+                    maxOutputTokens:
+                      type: integer
+                      minimum: 1
+            status:
+              type: object
+              properties:
+                observedGeneration:
+                  type: integer
+                  format: int64
+                  minimum: 0
+                phase:
+                  type: string
+                modelRef:
+                  type: string
+                catalogId:
+                  type: string
+                computeTarget:
+                  type: string
+                engine:
+                  type: string
+                artifact:
+                  type: string
+                precision:
+                  type: string
+                quantization:
+                  type: string
+                requestedKvCacheType:
+                  type: string
+                  description: KV-cache representation requested in the ModelActivation.
+                effectiveKvCacheType:
+                  type: string
+                  description: Requested KV-cache representation confirmed only after the configured inference runtime has a Ready replica.
+                resolvedResourceProfile:
+                  type: string
+                vramRequiredMi:
+                  type: integer
+                  minimum: 0
+                memoryRequiredMi:
+                  type: integer
+                  minimum: 0
+                cpuOffloading:
+                  type: boolean
+                cpuResources:
+                  type: object
+                  properties:
+                    requestMillicores:
+                      type: integer
+                      minimum: 1
+                    limitMillicores:
+                      type: integer
+                      minimum: 0
+                memoryArchitecture:
+                  type: string
+                  description: Unified means GPU and CPU reservations refer to one physical memory pool.
+                sharedPoolId:
+                  type: string
+                  description: Node UID identifying the shared physical memory pool; count each host request only once.
+                gpuAllocationMode:
+                  description: Corroborated driver allocation domain; firmware-reserved GPU memory is outside Linux RAM.
+                  type: string
+                  enum: ["", unknown, firmware-reserved, shared-gtt]
+                memoryUsage:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                  description: Engine-reported usage, separate from reservations. Missing values mean unknown, not zero.
+                freeTokenStats:
+                  type: object
+                  nullable: true
+                  x-kubernetes-preserve-unknown-fields: true
+                  description: Normalized optional observations from the pinned FreeToken /v1/stats response. Values are not scheduler reservations or limits.
+                runtimeEndpoint:
+                  type: string
+                  description: Internal OpenAI-compatible endpoint published only after the local runtime is ready.
+                gpuSharing:
+                  type: object
+                  nullable: true
+                  properties:
+                    mode:
+                      type: string
+                      enum: [dra-shared, time-slicing, exclusive]
+                    claimName:
+                      type: string
+                    node:
+                      type: string
+                    device:
+                      type: string
+                    slotCount:
+                      type: integer
+                      minimum: 1
+                      description: Shared GPU allocation slots consumed by this runtime, not a count of distinct physical GPUs.
+                    memoryIsolation:
+                      type: boolean
+                      description: Whether the reported allocation isolates GPU memory. Current cooperative sharing reports false.
+                    wholeGpuCount:
+                      type: integer
+                      minimum: 1
+                      description: Number of whole GPUs reserved for this runtime on the selected node.
+                    tensorParallelSize:
+                      type: integer
+                      minimum: 1
+                      description: FreeToken tensor-parallel size; equals wholeGpuCount for a multi-GPU FreeToken runtime.
+                    vramMiPerDevice:
+                      type: integer
+                      minimum: 0
+                      description: FreeToken's conservative planned VRAM budget for each assigned GPU. vramRequiredMi remains the aggregate budget.
+                  description: Requested GPU sharing assignment; readiness confirms the model pod started with this allocation. Sharing does not isolate GPU memory.
+                message:
+                  type: string
+                podRecovery:
+                  type: object
+                  nullable: true
+                  description: Bounded terminal-Pod recovery; retained while a replacement starts and cleared on readiness.
+                  properties:
+                    revision:
+                      type: string
+                    attempts:
+                      type: integer
+                      minimum: 0
+                      maximum: 5
+                    lastAttempt:
+                      type: string
+                      format: date-time
+                    lastPodUid:
+                      type: string
+                    lastFailure:
+                      type: string
+                podCreation:
+                  type: object
+                  nullable: true
+                  description: Persistent no-Pod timer, reset for a new model or desired configuration and cleared once a Pod exists.
+                  properties:
+                    revision:
+                      type: string
+                    since:
+                      type: string
+                      format: date-time
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                      - lastTransitionTime
+                      - reason
+                      - message
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum:
+                          - "True"
+                          - "False"
+                          - Unknown
+                      observedGeneration:
+                        type: integer
+                        format: int64
+                        minimum: 0
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string

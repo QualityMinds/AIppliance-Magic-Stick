@@ -1,0 +1,62 @@
+import pathlib
+import unittest
+
+
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[4]
+OPENCLAW_TEMPLATE = (
+    REPO_ROOT
+    / "magic-cluster"
+    / "apps"
+    / "instances"
+    / "openclaw"
+    / "templates"
+    / "instance.yaml"
+)
+MODEL_CATALOG_BOOTSTRAP = (
+    REPO_ROOT
+    / "magic-cluster"
+    / "apps"
+    / "ai"
+    / "model-catalog"
+    / "catalog-configmap.yaml"
+)
+
+
+class OpenClawLiteLLMChartTests(unittest.TestCase):
+    def test_chart_uses_the_generated_litellm_catalog(self):
+        template = OPENCLAW_TEMPLATE.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "configMapRef:\n      name: ai-model-catalog\n      key: openclaw.json",
+            template,
+        )
+        self.assertIn(
+            "forcePaths:\n      - models.providers\n      - agents.defaults.compaction\n      - agents.defaults.model\n      - tools.profile",
+            template,
+        )
+        self.assertIn("- name: LITELLM_API_KEY", template)
+        self.assertIn("name: litellm-masterkey-secret", template)
+        self.assertIn("key: LITELLM_MASTER_KEY", template)
+
+    def test_chart_does_not_rely_on_unsupported_openai_environment_overrides(self):
+        template = OPENCLAW_TEMPLATE.read_text(encoding="utf-8")
+
+        self.assertNotIn("OPENAI_BASE_URL", template)
+        self.assertNotIn("OPENCLAW_DEFAULT_MODEL", template)
+        self.assertNotIn("- name: OPENAI_API_KEY", template)
+
+    def test_bootstrap_credential_reference_is_escaped_for_flux_post_build(self):
+        bootstrap = MODEL_CATALOG_BOOTSTRAP.read_text(encoding="utf-8")
+
+        self.assertIn('"apiKey": "$${LITELLM_API_KEY}"', bootstrap)
+        self.assertNotIn('"apiKey": "${LITELLM_API_KEY}"', bootstrap)
+
+    def test_bootstrap_uses_safe_openclaw_runtime_defaults(self):
+        bootstrap = MODEL_CATALOG_BOOTSTRAP.read_text(encoding="utf-8")
+
+        self.assertIn('"reserveTokensFloor": 20000', bootstrap)
+        self.assertIn('"profile": "coding"', bootstrap)
+
+
+if __name__ == "__main__":
+    unittest.main()

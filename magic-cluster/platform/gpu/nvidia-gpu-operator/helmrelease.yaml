@@ -1,0 +1,62 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: gpu-operator
+  namespace: flux-system
+spec:
+  interval: 10m0s
+  targetNamespace: gpu-operator
+  chart:
+    spec:
+      chart: gpu-operator
+      version: v26.7.0
+      sourceRef:
+        kind: HelmRepository
+        name: nvidia
+        namespace: flux-system
+  install:
+    createNamespace: false
+  values:
+    # Magic Stick operates one shared NFD installation for every accelerator
+    # vendor. Never let a vendor chart install a competing NFD stack.
+    nfd:
+      enabled: false
+    # Ubuntu 26.04 baseline from the pinned chart. R595 targets Turing and
+    # newer GPUs; pre-Turing hardware needs a separately reviewed R580 stack.
+    driver:
+      version: "595.91.07"
+      kernelModuleType: auto
+    # Keep the existing Device Plugin / RuntimeClass integration. Switching to
+    # DRA or NRI changes the workload contract and is not part of the OS move.
+    clusterPolicy:
+      deployCR: true
+    gpuCluster:
+      deployCR: false
+    cdi:
+      enabled: true
+      nriPluginEnabled: false
+    toolkit:
+      env:
+      # K3s 1.36.4's native v3 template imports config-v3.toml.d/*.toml.
+      # Write the NVIDIA drop-in there so K3s keeps it after regeneration.
+      - name: CONTAINERD_CONFIG
+        value: /var/lib/rancher/k3s/agent/etc/containerd/config.toml
+      - name: CONTAINERD_SOCKET
+        value: /run/k3s/containerd/containerd.sock
+      - name: RUNTIME_CONFIG_SOURCE
+        value: file=/var/lib/rancher/k3s/agent/etc/containerd/config.toml
+      - name: RUNTIME_DROP_IN_CONFIG
+        value: /var/lib/rancher/k3s/agent/etc/containerd/config-v3.toml.d/99-nvidia.toml
+      # Host role predeclares the runtime before the first K3s start. A SIGHUP
+      # terminates K3s-managed containerd and otherwise restarts the whole API.
+      # Existing hosts must receive the host role and one planned restart first.
+      - name: RUNTIME_RESTART_MODE
+        value: none
+      - name: NVIDIA_RUNTIME_SET_AS_DEFAULT
+        value: "false"
+    devicePlugin:
+      config:
+        name: time-slicing-config
+        # Fresh nodes get one allocation per physical GPU. Existing explicit
+        # node profiles (including the legacy two-slot "any") take precedence.
+        default: magicstick-exclusive

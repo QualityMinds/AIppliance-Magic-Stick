@@ -1,0 +1,105 @@
+# Isolated acceptance only. Never included in the appliance Kustomization.
+# Requires transport-build PVC and private-mesh-acceptance-source ConfigMap.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mesh-acceptance
+  namespace: mesh-integration-test
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 2400
+  template:
+    metadata:
+      labels: {app: private-mesh-integration}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      initContainers:
+        - name: prepare-model
+          image: vllm/vllm-openai-cpu:v0.23.0
+          command: [python, /input/create_test_model.py]
+          resources:
+            requests: {cpu: 100m, memory: 512Mi}
+            limits: {cpu: '2', memory: 2Gi}
+          volumeMounts:
+            - {name: input, mountPath: /input, readOnly: true}
+            - {name: state, mountPath: /test}
+        - name: prepare
+          image: ghcr.io/berriai/litellm:v1.84.0
+          command: [python, /input/e2e_acceptance.py, init]
+          volumeMounts:
+            - {name: input, mountPath: /input, readOnly: true}
+            - {name: state, mountPath: /test}
+        - name: postgres
+          image: postgres:16.4
+          restartPolicy: Always
+          args: [-c, listen_addresses=127.0.0.1, -p, '55432']
+          env:
+            - {name: POSTGRES_HOST_AUTH_METHOD, value: trust}
+          resources:
+            requests: {cpu: 25m, memory: 128Mi}
+            limits: {cpu: '1', memory: 512Mi}
+          volumeMounts:
+            - {name: database, mountPath: /var/lib/postgresql/data}
+            - {name: input, mountPath: /docker-entrypoint-initdb.d/01-mesh.sql, subPath: databases.sql, readOnly: true}
+        - name: litellm-a
+          image: ghcr.io/berriai/litellm:v1.84.0
+          restartPolicy: Always
+          command: [python, /input/e2e_acceptance.py, proxy, '4001', mesh_a]
+          resources:
+            requests: {cpu: 100m, memory: 512Mi}
+            limits: {cpu: '2', memory: 2Gi}
+          volumeMounts:
+            - {name: input, mountPath: /input, readOnly: true}
+            - {name: state, mountPath: /test}
+        - name: litellm-b
+          image: ghcr.io/berriai/litellm:v1.84.0
+          restartPolicy: Always
+          command: [python, /input/e2e_acceptance.py, proxy, '4002', mesh_b]
+          resources:
+            requests: {cpu: 100m, memory: 512Mi}
+            limits: {cpu: '2', memory: 2Gi}
+          volumeMounts:
+            - {name: input, mountPath: /input, readOnly: true}
+            - {name: state, mountPath: /test}
+        - name: vllm
+          image: vllm/vllm-openai-cpu:v0.23.0
+          restartPolicy: Always
+          args: [--host, '127.0.0.1', --port, '8000', --model, /test/vllm-model, --served-model-name, qwen, --max-model-len, '2048', --max-num-seqs, '4', --enforce-eager, --scheduling-policy, priority]
+          env:
+            - {name: VLLM_CPU_KVCACHE_SPACE, value: '1'}
+            - {name: VLLM_CPU_OMP_THREADS_BIND, value: auto}
+            - {name: OMP_NUM_THREADS, value: '2'}
+          resources:
+            requests: {cpu: 100m, memory: 3Gi}
+            limits: {cpu: '3', memory: 6Gi}
+          volumeMounts:
+            - {name: state, mountPath: /test, readOnly: true}
+            - {name: shm, mountPath: /dev/shm}
+      containers:
+        - name: acceptance
+          image: ghcr.io/berriai/litellm:v1.84.0
+          command: [python, -u, /input/e2e_acceptance.py, run]
+          env:
+            - {name: MESH_BINARY, value: /work/mesh-llm}
+            - {name: MESH_ENDPOINT_PLUGIN, value: /work/openai-endpoint}
+            - {name: MESH_BINARY_CHECKSUM, value: /work/magicstick-mesh.sha256}
+            - {name: PYTHONPATH, value: /input}
+          resources:
+            requests: {cpu: 100m, memory: 1Gi}
+            limits: {cpu: '3', memory: 4Gi}
+          volumeMounts:
+            - {name: work, mountPath: /work, readOnly: true}
+            - {name: input, mountPath: /input, readOnly: true}
+            - {name: state, mountPath: /test}
+      volumes:
+        - name: input
+          configMap: {name: private-mesh-acceptance-source}
+        - name: work
+          persistentVolumeClaim: {claimName: transport-build}
+        - name: state
+          emptyDir: {}
+        - name: database
+          emptyDir: {}
+        - name: shm
+          emptyDir: {medium: Memory, sizeLimit: 1Gi}

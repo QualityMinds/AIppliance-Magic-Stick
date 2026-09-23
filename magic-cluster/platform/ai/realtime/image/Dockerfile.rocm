@@ -1,0 +1,57 @@
+# syntax=docker/dockerfile:1.7
+# Same Omni source as the CUDA profile; ROCm is a separate runtime artifact.
+FROM vllm/vllm-openai-rocm:v0.29.0@sha256:e5e47f6aaab675c252c381f0dac237b31b10d87bb74d092b07fb4065efd7f5a1
+
+ARG OMNI_REVISION=f3f8ebfc25de04ea1e1a7900144e6966a57da4f5
+ENV VLLM_OMNI_TARGET_DEVICE=rocm \
+    PYTORCH_ROCM_ARCH=gfx1151 \
+    MAX_JOBS=2 \
+    PYTHONUNBUFFERED=1
+
+LABEL org.opencontainers.image.title="Magic Stick Qwen Realtime ROCm runtime" \
+      org.opencontainers.image.source="https://github.com/QualityMinds/AIppliance-Magic-Stick" \
+      org.opencontainers.image.licenses="Apache-2.0 AND BUSL-1.1" \
+      org.opencontainers.image.omni-revision="${OMNI_REVISION}"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git espeak-ng ffmpeg pkg-config libavcodec-dev libavformat-dev libavutil-dev \
+      libswscale-dev libavdevice-dev libavfilter-dev libswresample-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/vllm-omni
+# Include the release-tag ancestry for truthful setuptools-scm metadata. A
+# depth-one checkout otherwise invents 0.1.dev... and warns about a false ABI
+# mismatch with the matching vLLM 0.29 base. The source itself stays pinned.
+RUN git init . && git remote add origin https://github.com/vllm-project/vllm-omni.git \
+    && git fetch --depth=512 --tags origin "${OMNI_REVISION}" && git checkout --detach "${OMNI_REVISION}" \
+    && test "$(git rev-parse HEAD)" = "${OMNI_REVISION}" \
+    && git describe --tags --match 'v[0-9]*' HEAD
+
+# Keep the ROCm PyTorch/vLLM ABI supplied by the immutable base. In particular,
+# never let the dependency resolver replace it with a PyPI CUDA torch wheel.
+RUN python3 -c 'import importlib.metadata as m; from pathlib import Path; Path("/tmp/rocm-constraints.txt").write_text("\n".join(n+"=="+m.version(n) for n in ("torch", "torchaudio", "torchvision", "vllm"))+"\n")' \
+    && python3 -m pip install --no-cache-dir 'setuptools>=77.0.3,<81' 'setuptools-scm>=8' wheel \
+    && python3 -m pip install --no-cache-dir --no-build-isolation -c /tmp/rocm-constraints.txt . \
+    && python3 -m pip uninstall -y onnxruntime \
+    && python3 -m pip install --no-cache-dir --no-deps --force-reinstall 'onnxruntime-rocm==1.22.2.post3'
+
+# The Ubuntu base exposes PyGObject to Python 3.12 without its Cairo binding.
+# Repair the dependency instead of ignoring a failing pip check.
+RUN apt-get update && apt-get install -y --no-install-recommends libcairo2-dev \
+    && python3 -m pip install --no-cache-dir 'pycairo==1.28.0' \
+    && rm -rf /var/lib/apt/lists/*
+
+# Use the upstream ABI-aware TorchCodec build, rather than the incompatible
+# generic wheel. This is needed for the model's multimodal media processors.
+RUN --mount=type=cache,id=magicstick-omni-rocm-torchcodec,target=/root/.cache/torchcodec-wheels \
+    bash tools/install_torchcodec_rocm.sh
+
+RUN python3 -c 'import importlib.metadata as m; import torch, vllm; from vllm.v1.kv_cache_interface import compute_layout_strides; from vllm.v1.kv_cache_layout import KVCacheLayout; from torchcodec.decoders import VideoDecoder; assert torch.version.hip and not torch.version.cuda; assert vllm.__version__.startswith("0.29."); assert m.version("vllm-omni").startswith("0.29.")' \
+    && python3 -m pip check \
+    && rm -rf .git /tmp/rocm-constraints.txt
+
+COPY LICENSE LICENSING.md THIRD_PARTY_NOTICES.md /usr/local/share/licenses/magicstick/
+COPY LICENSE-RELEASE.json /usr/local/share/licenses/magicstick/
+COPY licenses/ /usr/local/share/licenses/magicstick/licenses/
+ENTRYPOINT []
+CMD ["vllm", "serve", "--omni"]

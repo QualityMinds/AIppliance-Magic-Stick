@@ -1,0 +1,13 @@
+{
+  "name": "@magicstick/dashboard-contracts",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "zod": "catalog:"
+  },
+  "license": "BUSL-1.1"
+}

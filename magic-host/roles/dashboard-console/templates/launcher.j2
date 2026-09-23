@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+set -u
+
+KUBECTL=({{ dashboard_console_k3s_binary | quote }} kubectl --kubeconfig {{ dashboard_console_kubeconfig | quote }})
+NAMESPACE={{ dashboard_console_namespace | quote }}
+DEPLOYMENT={{ dashboard_console_deployment | quote }}
+LABEL={{ dashboard_console_label | quote }}
+API_URL={{ dashboard_console_api_url | quote }}
+OIDC_NETWORK_URL={{ dashboard_console_oidc_network_url | quote }}
+DEFAULT_MDNS_DOMAIN={{ dashboard_console_default_mdns_domain | quote }}
+REFRESH_SECONDS={{ dashboard_console_refresh_seconds | quote }}
+RETRY_SECONDS={{ dashboard_console_retry_seconds | quote }}
+SETUP_NAMESPACE={{ dashboard_console_setup_namespace | quote }}
+SETUP_RESOURCE={{ dashboard_console_setup_resource | quote }}
+
+mdns_domain() {
+  local value
+  value="$("${KUBECTL[@]}" -n flux-system get configmap ai-appliance-settings \
+    -o jsonpath='{.data.AI_APPLIANCE_MDNS_DOMAIN}' 2>/dev/null || true)"
+  printf '%s\n' "${value:-$DEFAULT_MDNS_DOMAIN}"
+}
+
+setup_phase() {
+  "${KUBECTL[@]}" -n "$SETUP_NAMESPACE" get appliancesetup "$SETUP_RESOURCE" \
+    -o jsonpath='{.status.phase}' 2>/dev/null || true
+}
+
+draw_waiting() {
+  local message="$1"
+  printf '\033[2J\033[H'
+  printf '%s\n' '============================================================'
+  printf '%s\n' '                         MAGIC STICK'
+  printf '%s\n' '============================================================'
+  printf '\n'
+  printf '%s\n' 'Lokale Bedienoberflaeche wird vorbereitet ...'
+  printf '\n'
+  printf '  %s\n' "$message"
+  printf '\n'
+  printf '%s\n' 'Die Anzeige aktualisiert sich automatisch.'
+  printf '%s\n' 'Ctrl+Alt+F1: System  |  Ctrl+Alt+F9: Magic Stick'
+}
+
+ready_pod() {
+  "${KUBECTL[@]}" -n "$NAMESPACE" wait \
+    --for=condition=Ready pod \
+    --selector "$LABEL" \
+    --timeout=3s >/dev/null 2>&1 || return 1
+  "${KUBECTL[@]}" -n "$NAMESPACE" get pods \
+    --selector "$LABEL" \
+    --field-selector=status.phase=Running \
+    --sort-by=.metadata.creationTimestamp \
+    -o jsonpath='{.items[-1:].metadata.name}' 2>/dev/null
+}
+
+while true; do
+  current_phase="$(setup_phase)"
+  if [[ "$current_phase" != "Completed" && "$current_phase" != "CompletedLegacy" ]]; then
+    draw_waiting "Ersteinrichtung ist noch nicht abgeschlossen (${current_phase:-unbekannt})."
+    sleep "$RETRY_SECONDS"
+    continue
+  fi
+
+  pod="$(ready_pod || true)"
+  if [[ -z "$pod" ]]; then
+    draw_waiting "Runtime ${NAMESPACE}/${DEPLOYMENT} ist noch nicht bereit."
+    sleep "$RETRY_SECONDS"
+    continue
+  fi
+
+  domain="$(mdns_domain)"
+  issuer="https://id.${domain}/realms/magicstick"
+  draw_waiting 'Verbinde die interaktive TUI ...'
+  "${KUBECTL[@]}" -n "$NAMESPACE" exec -i -t "$pod" -c runtime -- \
+    env \
+      TERM=linux \
+      MAGICSTICK_CONFIG_HOME=/var/lib/magicstick-console \
+      MAGICSTICK_API_URL="$API_URL" \
+      MAGICSTICK_ISSUER="$issuer" \
+      MAGICSTICK_OIDC_NETWORK_URL="$OIDC_NETWORK_URL" \
+      /usr/local/bin/magicstick-dashboard console --no-open --refresh "$REFRESH_SECONDS" || true
+
+  draw_waiting 'TUI wurde beendet; sie wird gleich neu gestartet.'
+  sleep "$RETRY_SECONDS"
+done

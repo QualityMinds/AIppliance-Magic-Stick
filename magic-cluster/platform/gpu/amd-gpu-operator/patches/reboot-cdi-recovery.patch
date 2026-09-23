@@ -1,0 +1,802 @@
+diff --git a/cmd/gpu-kubeletplugin/deviceinfo.go b/cmd/gpu-kubeletplugin/deviceinfo.go
+index b3967ad..928525a 100644
+--- a/cmd/gpu-kubeletplugin/deviceinfo.go
++++ b/cmd/gpu-kubeletplugin/deviceinfo.go
+@@ -17,6 +17,8 @@ limitations under the License.
+ package main
+ 
+ import (
++	"crypto/sha256"
++	"encoding/json"
+ 	"fmt"
+ 
+ 	resourceapi "k8s.io/api/resource/v1"
+@@ -61,15 +63,32 @@ type AmdPartitionInfo struct {
+ 
+ // CanonicalName returns the canonical name for this GPU
+ func (d *AmdGpuInfo) CanonicalName() string {
+-	return fmt.Sprintf("gpu-%v-%v", d.cardIndex, d.renderIndex)
++	return "gpu-" + d.HardwareIdentityHash()[:24]
++}
++
++// DRM card/render indices depend on driver load order, notably on mixed hosts.
++// The UUID is sysfs unique_id when available, NOT KFD's location-derived ID.
++func (d *AmdGpuInfo) HardwareIdentity() string {
++	identity, _ := json.Marshal([]string{"1002", d.DeviceID, d.PCIAddress, d.UUID, d.PartitionProfile})
++	return string(identity)
++}
++
++// ResourceSlice string attributes are limited to 64 characters. The complete
++// identity stays in the checkpoint; publish its digest plus the source fields.
++func (d *AmdGpuInfo) HardwareIdentityHash() string {
++	return fmt.Sprintf("%x", sha256.Sum256([]byte(d.HardwareIdentity())))
+ }
+ 
+ // GetDevice returns the DRA Device representation for a full AMD GPU
+ func (d *AmdGpuInfo) GetDevice() resourceapi.Device {
+ 	attributes := map[resourceapi.QualifiedName]resourceapi.DeviceAttribute{
+-		"type":        {StringValue: ptr.To(AmdGpuDeviceType)},
+-		"productName": {StringValue: ptr.To(d.ProductName)},
+-		"numaNode":    {IntValue: ptr.To(int64(d.NumaNode))},
++		"hardwareIdentity": {StringValue: ptr.To(d.HardwareIdentityHash())},
++		"type":             {StringValue: ptr.To(AmdGpuDeviceType)},
++		"productName":      {StringValue: ptr.To(d.ProductName)},
++		"numaNode":         {IntValue: ptr.To(int64(d.NumaNode))},
++	}
++	if d.UUID != "" {
++		attributes["hardwareUUID"] = resourceapi.DeviceAttribute{StringValue: ptr.To(d.UUID)}
+ 	}
+ 	if d.DriverVersion != "" {
+ 		attributes["driverVersion"] = resourceapi.DeviceAttribute{VersionValue: ptr.To(amdgpu.SemverDriverVersion(d.DriverVersion))}
+diff --git a/cmd/gpu-kubeletplugin/discovery.go b/cmd/gpu-kubeletplugin/discovery.go
+index bbff8d6..87d7dec 100644
+--- a/cmd/gpu-kubeletplugin/discovery.go
++++ b/cmd/gpu-kubeletplugin/discovery.go
+@@ -34,6 +34,9 @@ package main
+ 
+ import (
+ 	"fmt"
++	"os"
++	"regexp"
++	"strings"
+ 
+ 	"github.com/ROCm/k8s-gpu-dra-driver/pkg/amdgpu"
+ 	"github.com/ROCm/k8s-gpu-dra-driver/pkg/consts"
+@@ -50,6 +53,16 @@ func parseDeviceName(name string) (int, int, error) {
+ 	return card, renderD, nil
+ }
+ 
++func hardwareUUID(card int) string {
++	if value, err := os.ReadFile(fmt.Sprintf("/sys/class/drm/card%d/device/unique_id", card)); err == nil {
++		id := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(string(value))), "0x")
++		if strings.Trim(id, "0") != "" && regexp.MustCompile(`^[0-9a-f]+$`).MatchString(id) {
++			return id
++		}
++	}
++	return ""
++}
++
+ // Helper function to extract topology information from GPU info map
+ func extractTopologyInfo(gpuInfoMap map[string]interface{}) (simdUnits, computeUnits int) {
+ 	if simdCount, ok := gpuInfoMap["simdCount"].(int); ok {
+@@ -126,6 +139,10 @@ func enumerateAllPossibleDevices() (AllocatableDevices, error) {
+ 				NumaNode:         gpuInfoMap["numaNode"].(int),
+ 				MemoryBytes:      getMemoryBytes(gpuInfoMap, 80*1024*1024*1024, "device", pciAddr),
+ 			}
++			if !regexp.MustCompile(`^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$`).MatchString(amdGpuInfo.PCIAddress) || amdGpuInfo.DeviceID == "" {
++				return nil, fmt.Errorf("missing PCI identity for AMD GPU %s", pciAddr)
++			}
++			amdGpuInfo.UUID = hardwareUUID(amdGpuInfo.cardIndex)
+ 
+ 			// Create allocatable device for the full GPU
+ 			device := &AllocatableDevice{
+diff --git a/cmd/gpu-kubeletplugin/driver.go b/cmd/gpu-kubeletplugin/driver.go
+index f0db187..6199aa3 100644
+--- a/cmd/gpu-kubeletplugin/driver.go
++++ b/cmd/gpu-kubeletplugin/driver.go
+@@ -37,7 +37,7 @@ import (
+ 	"encoding/json"
+ 	"errors"
+ 	"fmt"
+-	"maps"
++	"sync"
+ 
+ 	resourceapi "k8s.io/api/resource/v1"
+ 	"k8s.io/apimachinery/pkg/types"
+@@ -56,12 +56,15 @@ type driver struct {
+ 	state       *DeviceState
+ 	healthcheck *healthcheck
+ 	cancelCtx   func(error)
++	nodeName    string
++	publishMu   sync.Mutex
+ }
+ 
+ func NewDriver(ctx context.Context, config *Config) (*driver, error) {
+ 	driver := &driver{
+ 		client:    config.coreclient,
+ 		cancelCtx: config.cancelMainCtx,
++		nodeName:  config.flags.nodeName,
+ 	}
+ 
+ 	state, err := NewDeviceState(config)
+@@ -82,18 +85,34 @@ func NewDriver(ctx context.Context, config *Config) (*driver, error) {
+ 	if err != nil {
+ 		return nil, err
+ 	}
++	driver.publishMu.Lock()
+ 	driver.helper = helper
++	driver.publishMu.Unlock()
+ 
+-	devices := make([]resourceapi.Device, 0, len(state.allocatable))
+-	for device := range maps.Values(state.allocatable) {
+-		devices = append(devices, device.GetDevice())
++	driver.healthcheck, err = startHealthcheck(ctx, config)
++	if err != nil {
++		return nil, fmt.Errorf("start healthcheck: %w", err)
++	}
++	if err := driver.publishResources(ctx); err != nil {
++		return nil, err
++	}
++	return driver, nil
++}
++
++func (d *driver) publishResources(ctx context.Context) error {
++	d.publishMu.Lock()
++	defer d.publishMu.Unlock()
++	// Start can accept Unprepare before it returns the helper. Initial
++	// publication below will include that completed cleanup.
++	if d.helper == nil {
++		return nil
+ 	}
+ 	resources := resourceslice.DriverResources{
+ 		Pools: map[string]resourceslice.Pool{
+-			config.flags.nodeName: {
++			d.nodeName: {
+ 				Slices: []resourceslice.Slice{
+ 					{
+-						Devices: devices,
++						Devices: d.state.publishedDevices(),
+ 					},
+ 				},
+ 			},
+@@ -106,16 +125,7 @@ func NewDriver(ctx context.Context, config *Config) (*driver, error) {
+ 		klog.Infof("Publishing ResourceSlice:\n%s", string(resourcesJSON))
+ 	}
+ 
+-	driver.healthcheck, err = startHealthcheck(ctx, config)
+-	if err != nil {
+-		return nil, fmt.Errorf("start healthcheck: %w", err)
+-	}
+-
+-	if err := helper.PublishResources(ctx, resources); err != nil {
+-		return nil, err
+-	}
+-
+-	return driver, nil
++	return d.helper.PublishResources(ctx, resources)
+ }
+ 
+ func (d *driver) Shutdown(logger klog.Logger) error {
+@@ -133,6 +143,9 @@ func (d *driver) PrepareResourceClaims(ctx context.Context, claims []*resourceap
+ 	for _, claim := range claims {
+ 		result[claim.UID] = d.prepareResourceClaim(ctx, claim)
+ 	}
++	if err := d.publishResources(ctx); err != nil {
++		return result, err
++	}
+ 
+ 	return result, nil
+ }
+@@ -165,6 +178,11 @@ func (d *driver) UnprepareResourceClaims(ctx context.Context, claims []kubeletpl
+ 	for _, claim := range claims {
+ 		result[claim.UID] = d.unprepareResourceClaim(ctx, claim)
+ 	}
++	// A kubelet-confirmed release may lift quarantine. Re-publish without
++	// restarting the driver; retries are safe if the API is temporarily down.
++	if err := d.publishResources(ctx); err != nil {
++		return result, err
++	}
+ 
+ 	return result, nil
+ }
+diff --git a/cmd/gpu-kubeletplugin/recovery.go b/cmd/gpu-kubeletplugin/recovery.go
+new file mode 100644
+index 0000000..5fc1ed8
+--- /dev/null
++++ b/cmd/gpu-kubeletplugin/recovery.go
+@@ -0,0 +1,143 @@
++// SPDX-License-Identifier: Apache-2.0
++package main
++
++import (
++	"encoding/json"
++	"fmt"
++	"os"
++	"path/filepath"
++	"sort"
++	"strings"
++
++	configapi "github.com/ROCm/k8s-gpu-dra-driver/api/amd.com/resource/gpu/v1alpha1"
++	resourceapi "k8s.io/api/resource/v1"
++	klog "k8s.io/klog/v2"
++)
++
++func (s *DeviceState) readDeviceAttrs(path string) (int64, int64, string, string, error) {
++	if s.deviceAttrs != nil {
++		return s.deviceAttrs(path)
++	}
++	return s.getDeviceAttrs(path)
++}
++
++func (s *DeviceState) validateDeviceMapping(gpu *AmdGpuInfo) error {
++	if s.identityCheck != nil {
++		return s.identityCheck(gpu)
++	}
++	for _, name := range []string{fmt.Sprintf("card%d", gpu.cardIndex), fmt.Sprintf("renderD%d", gpu.renderIndex)} {
++		path := filepath.Join("/sys/class/drm", name, "device")
++		physical, err := filepath.EvalSymlinks(path)
++		if err != nil || filepath.Base(physical) != gpu.PCIAddress {
++			return fmt.Errorf("DRM mapping for %s no longer matches the discovered PCI identity", name)
++		}
++		vendor, err := os.ReadFile(filepath.Join(path, "vendor"))
++		if err != nil || strings.TrimSpace(string(vendor)) != "0x1002" {
++			return fmt.Errorf("DRM mapping is no longer AMD")
++		}
++		device, err := os.ReadFile(filepath.Join(path, "device"))
++		if err != nil || strings.TrimSpace(string(device)) != gpu.DeviceID {
++			return fmt.Errorf("DRM device identity changed")
++		}
++	}
++	if hardwareUUID(gpu.cardIndex) != gpu.UUID {
++		return fmt.Errorf("GPU hardware unique ID changed")
++	}
++	return nil
++}
++
++// Keep the original checkpoint until kubelet calls Unprepare. It is kubelet,
++// not this plugin, which knows whether all claim consumers have stopped.
++// Legacy checkpoints have no proven physical identity and must never be
++// silently remapped, even if their old DRM numbers happen to exist again.
++func (s *DeviceState) restoreCheckpoint() error {
++	cp := newCheckpoint()
++	if err := s.checkpointManager.GetCheckpoint(DriverPluginCheckpointFile, cp); err != nil {
++		return fmt.Errorf("unable to read recovery checkpoint: %w", err)
++	}
++	if cp.V1 == nil {
++		return fmt.Errorf("unsupported recovery checkpoint")
++	}
++	s.quarantined = make(map[string]map[string]bool)
++	for uid, devices := range cp.V1.PreparedClaims {
++		if err := s.restoreClaim(uid, devices); err != nil {
++			// Remove stale CDI even on a plugin-only restart where /run survives.
++			if removeErr := s.cdi.DeleteClaimSpecFile(uid); removeErr != nil {
++				return fmt.Errorf("cannot revoke stale CDI for claim %s: %w", uid, removeErr)
++			}
++			s.quarantined[uid] = s.quarantineScope(devices)
++			klog.Errorf("GPU allocation blocked: claim %s quarantined (%v); waiting for kubelet Unprepare, driver remains registered", uid, err)
++		}
++	}
++	return s.checkpointManager.CreateCheckpoint(DriverPluginCheckpointFile, cp)
++}
++
++func (s *DeviceState) restoreClaim(uid string, devices PreparedDevices) error {
++	if len(devices) == 0 {
++		return fmt.Errorf("empty prepared-device record")
++	}
++	results := make([]*resourceapi.DeviceRequestAllocationResult, 0, len(devices))
++	for _, device := range devices {
++		if device == nil || device.HardwareIdentity == "" {
++			return fmt.Errorf("legacy checkpoint has no verified hardware identity")
++		}
++		current := s.allocatable[device.DeviceName]
++		if current == nil || current.AmdGpu == nil || current.AmdGpu.HardwareIdentity() != device.HardwareIdentity {
++			return fmt.Errorf("physical GPU identity changed or disappeared")
++		}
++		results = append(results, &resourceapi.DeviceRequestAllocationResult{Device: device.DeviceName})
++	}
++	// Do not reuse cached node paths, major/minor numbers, or container edits.
++	edits, err := s.applyConfig(configapi.DefaultGpuConfig(), results)
++	if err != nil {
++		return err
++	}
++	for _, device := range devices {
++		device.ContainerEdits = edits[device.DeviceName]
++		device.CdiDeviceIds = s.cdi.GetClaimDevices(uid, []string{device.DeviceName})
++	}
++	return s.cdi.CreateClaimSpecFile(uid, devices)
++}
++
++func (s *DeviceState) quarantineScope(devices PreparedDevices) map[string]bool {
++	blocked := map[string]bool{}
++	if len(devices) == 0 {
++		blocked[""] = true
++	}
++	for _, device := range devices {
++		var identity []string
++		if device == nil || json.Unmarshal([]byte(device.HardwareIdentity), &identity) != nil || len(identity) != 5 || identity[2] == "" {
++			blocked[""] = true // Unknown physical scope: protect the entire AMD pool.
++			continue
++		}
++		blocked[device.DeviceName] = true
++		for name, candidate := range s.allocatable {
++			if candidate.AmdGpu != nil && candidate.AmdGpu.PCIAddress == identity[2] {
++				blocked[name] = true // Includes a replacement at the same PCI location.
++			}
++		}
++	}
++	return blocked
++}
++
++func (s *DeviceState) deviceQuarantined(name string) bool {
++	for _, blocked := range s.quarantined {
++		if blocked[""] || blocked[name] {
++			return true
++		}
++	}
++	return false
++}
++
++func (s *DeviceState) publishedDevices() []resourceapi.Device {
++	s.Lock()
++	defer s.Unlock()
++	devices := make([]resourceapi.Device, 0, len(s.allocatable))
++	for name, device := range s.allocatable {
++		if !s.deviceQuarantined(name) {
++			devices = append(devices, device.GetDevice())
++		}
++	}
++	sort.Slice(devices, func(i, j int) bool { return devices[i].Name < devices[j].Name })
++	return devices
++}
+diff --git a/cmd/gpu-kubeletplugin/recovery_test.go b/cmd/gpu-kubeletplugin/recovery_test.go
+new file mode 100644
+index 0000000..58f74c5
+--- /dev/null
++++ b/cmd/gpu-kubeletplugin/recovery_test.go
+@@ -0,0 +1,305 @@
++// SPDX-License-Identifier: Apache-2.0
++package main
++
++import (
++	"fmt"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"github.com/ROCm/k8s-gpu-dra-driver/pkg/consts"
++	resourceapi "k8s.io/api/resource/v1"
++	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
++	"k8s.io/apimachinery/pkg/types"
++	drapbv1 "k8s.io/kubelet/pkg/apis/dra/v1beta1"
++	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
++	cdiapi "tags.cncf.io/container-device-interface/pkg/cdi"
++)
++
++func recoveryFixture(t *testing.T) (*DeviceState, *AmdGpuInfo, string) {
++	t.Helper()
++	dir := t.TempDir()
++	cache, err := cdiapi.NewCache(cdiapi.WithSpecDirs(dir))
++	if err != nil {
++		t.Fatal(err)
++	}
++	manager, err := checkpointmanager.NewCheckpointManager(t.TempDir())
++	if err != nil {
++		t.Fatal(err)
++	}
++	gpu := &AmdGpuInfo{PCIAddress: "0000:01:00.0", DeviceID: "0x1586", cardIndex: 1, renderIndex: 128}
++	s := &DeviceState{cdi: &CDIHandler{cache: cache}, checkpointManager: manager,
++		identityCheck: func(*AmdGpuInfo) error { return nil },
++		allocatable:   AllocatableDevices{gpu.CanonicalName(): {AmdGpu: gpu}}, deviceAttrs: func(path string) (int64, int64, string, string, error) {
++			minor := 0
++			if path == "/dev/kfd" {
++				return 511, 0, "c", "rwm", nil
++			}
++			if strings.Contains(path, "renderD") {
++				fmt.Sscanf(path, "/dev/dri/renderD%d", &minor)
++			} else {
++				fmt.Sscanf(path, "/dev/dri/card%d", &minor)
++			}
++			return 226, int64(minor), "c", "rwm", nil
++		}}
++	if err := manager.CreateCheckpoint(DriverPluginCheckpointFile, newCheckpoint()); err != nil {
++		t.Fatal(err)
++	}
++	return s, gpu, dir
++}
++
++func allocatedClaim(gpu *AmdGpuInfo, uid string) *resourceapi.ResourceClaim {
++	return &resourceapi.ResourceClaim{ObjectMeta: metav1.ObjectMeta{UID: types.UID(uid)},
++		Status: resourceapi.ResourceClaimStatus{Allocation: &resourceapi.AllocationResult{
++			Devices: resourceapi.DeviceAllocationResult{Results: []resourceapi.DeviceRequestAllocationResult{
++				{Driver: consts.DriverName, Pool: "example-node", Device: gpu.CanonicalName(), Request: "gpu"},
++			}},
++		}}}
++}
++
++func TestStableIdentitySurvivesMixedHostDRMRenumbering(t *testing.T) {
++	s, gpu, dir := recoveryFixture(t)
++	claim := allocatedClaim(gpu, "test-claim")
++	before, err := s.Prepare(claim)
++	if err != nil {
++		t.Fatal(err)
++	}
++	files, _ := os.ReadDir(dir)
++	for _, file := range files {
++		if err := os.Remove(filepath.Join(dir, file.Name())); err != nil {
++			t.Fatal(err)
++		}
++	}
++	name := gpu.CanonicalName()
++	gpu.cardIndex, gpu.renderIndex = 2, 129
++	if gpu.CanonicalName() != name {
++		t.Fatal("DRM ordering changed stable identity")
++	}
++	if err := s.restoreCheckpoint(); err != nil {
++		t.Fatal(err)
++	}
++	if len(s.quarantined) != 0 || len(s.publishedDevices()) != 1 {
++		t.Fatal("same hardware must recover")
++	}
++	files, _ = os.ReadDir(dir)
++	if len(files) != 1 {
++		t.Fatal("CDI not restored before registration")
++	}
++	data, _ := os.ReadFile(filepath.Join(dir, files[0].Name()))
++	if !strings.Contains(string(data), "renderD129") || strings.Contains(string(data), "renderD128") {
++		t.Fatalf("stale mapping: %s", data)
++	}
++	after, err := s.Prepare(claim)
++	if err != nil || before[0].CdiDeviceIds[1] != after[0].CdiDeviceIds[1] {
++		t.Fatal("repeated Prepare changed CDI identity", err)
++	}
++}
++
++func TestHardwareIdentityFitsResourceSliceAttributeLimit(t *testing.T) {
++	_, gpu, _ := recoveryFixture(t)
++	gpu.UUID = strings.Repeat("a", 32)
++	gpu.PartitionProfile = "spx_nps1"
++	if len(gpu.HardwareIdentity()) <= resourceapi.DeviceAttributeMaxValueLength {
++		t.Fatal("fixture must exceed the API string attribute limit")
++	}
++	device := gpu.GetDevice()
++	for name, attribute := range device.Attributes {
++		if attribute.StringValue != nil && len(*attribute.StringValue) > resourceapi.DeviceAttributeMaxValueLength {
++			t.Fatalf("attribute %s exceeds the Kubernetes API limit", name)
++		}
++	}
++	if *device.Attributes["hardwareIdentity"].StringValue != gpu.HardwareIdentityHash() {
++		t.Fatal("published identity is not the checkpoint identity digest")
++	}
++}
++
++func TestLegacyCheckpointQuarantinesWithoutPreventingCleanup(t *testing.T) {
++	s, gpu, dir := recoveryFixture(t)
++	cp := newCheckpoint()
++	cp.V1.PreparedClaims["legacy"] = PreparedDevices{&PreparedDevice{Device: drapbv1.Device{DeviceName: "gpu-1-128"}}}
++	if err := s.checkpointManager.CreateCheckpoint(DriverPluginCheckpointFile, cp); err != nil {
++		t.Fatal(err)
++	}
++	if err := s.restoreCheckpoint(); err != nil {
++		t.Fatal("must not abort plugin startup", err)
++	}
++	if len(s.publishedDevices()) != 0 {
++		t.Fatal("unknown old allocation must not be advertised as free")
++	}
++	if _, err := s.Prepare(allocatedClaim(gpu, "new")); err == nil {
++		t.Fatal("quarantine bypass")
++	}
++	files, _ := os.ReadDir(dir)
++	if len(files) != 0 {
++		t.Fatal("must not grant guessed GPU access")
++	}
++	for i := 0; i < 2; i++ {
++		if err := s.Unprepare("legacy"); err != nil {
++			t.Fatal("cleanup must be idempotent without CDI", err)
++		}
++	}
++	if len(s.publishedDevices()) != 1 {
++		t.Fatal("confirmed cleanup did not release quarantine")
++	}
++	if _, err := s.Prepare(allocatedClaim(gpu, "new")); err != nil {
++		t.Fatal(err)
++	}
++}
++
++func TestKnownMissingOrReplacedHardwareNeverRemaps(t *testing.T) {
++	for _, replacement := range []bool{false, true} {
++		s, gpu, dir := recoveryFixture(t)
++		if _, err := s.Prepare(allocatedClaim(gpu, "old")); err != nil {
++			t.Fatal(err)
++		}
++		delete(s.allocatable, gpu.CanonicalName())
++		if replacement {
++			gpu.UUID = "replacement"
++			s.allocatable[gpu.CanonicalName()] = &AllocatableDevice{AmdGpu: gpu}
++		}
++		other := &AmdGpuInfo{PCIAddress: "0000:02:00.0", DeviceID: "0x1586", cardIndex: 3, renderIndex: 130}
++		s.allocatable[other.CanonicalName()] = &AllocatableDevice{AmdGpu: other}
++		if err := s.restoreCheckpoint(); err != nil {
++			t.Fatal(err)
++		}
++		published := s.publishedDevices()
++		if len(published) != 1 || published[0].Name != other.CanonicalName() {
++			t.Fatal("quarantine should isolate known PCI location")
++		}
++		files, _ := os.ReadDir(dir)
++		if len(files) != 0 {
++			t.Fatal("stale CDI was not revoked")
++		}
++		if _, err := s.Prepare(allocatedClaim(other, "other")); err != nil {
++			t.Fatal(err)
++		}
++	}
++}
++
++func TestMalformedClaimsAndDeviceFailureStayRecoverable(t *testing.T) {
++	s, gpu, _ := recoveryFixture(t)
++	if _, err := s.Prepare(allocatedClaim(gpu, "old")); err != nil {
++		t.Fatal(err)
++	}
++	s.deviceAttrs = func(string) (int64, int64, string, string, error) { return 0, 0, "", "", fmt.Errorf("device missing") }
++	if err := s.restoreCheckpoint(); err != nil {
++		t.Fatal(err)
++	}
++	if len(s.publishedDevices()) != 0 {
++		t.Fatal("missing nodes exposed")
++	}
++	if err := s.Unprepare("old"); err != nil {
++		t.Fatal(err)
++	}
++	for _, devices := range []PreparedDevices{nil, {nil}, {&PreparedDevice{HardwareIdentity: "invalid"}}} {
++		cp := newCheckpoint()
++		cp.V1.PreparedClaims["broken"] = devices
++		if err := s.checkpointManager.CreateCheckpoint(DriverPluginCheckpointFile, cp); err != nil {
++			t.Fatal(err)
++		}
++		if err := s.restoreCheckpoint(); err != nil {
++			t.Fatal(err)
++		}
++		if len(s.publishedDevices()) != 0 {
++			t.Fatal("malformed record exposed GPU")
++		}
++		if err := s.Unprepare("broken"); err != nil {
++			t.Fatal(err)
++		}
++	}
++}
++
++func TestMultipleConsumersAreNotGarbageCollectedByPlugin(t *testing.T) {
++	s, gpu, _ := recoveryFixture(t)
++	if _, err := s.Prepare(allocatedClaim(gpu, "shared")); err != nil {
++		t.Fatal(err)
++	}
++	if err := s.restoreCheckpoint(); err != nil {
++		t.Fatal(err)
++	}
++	cp := newCheckpoint()
++	if err := s.checkpointManager.GetCheckpoint(DriverPluginCheckpointFile, cp); err != nil {
++		t.Fatal(err)
++	}
++	if _, ok := cp.V1.PreparedClaims["shared"]; !ok {
++		t.Fatal("plugin must wait for kubelet cleanup, not infer consumers from API")
++	}
++}
++
++func TestChangedSysfsMappingRejectsPrepareAndQuarantinesRecovery(t *testing.T) {
++	s, gpu, _ := recoveryFixture(t)
++	if _, err := s.Prepare(allocatedClaim(gpu, "shared")); err != nil {
++		t.Fatal(err)
++	}
++	s.identityCheck = func(*AmdGpuInfo) error { return fmt.Errorf("DRM mapping changed") }
++	if _, err := s.Prepare(allocatedClaim(gpu, "shared")); err == nil {
++		t.Fatal("unsafe current mapping accepted")
++	}
++	if err := s.restoreCheckpoint(); err != nil {
++		t.Fatal(err)
++	}
++	if len(s.publishedDevices()) != 0 {
++		t.Fatal("changed mapping must stay quarantined")
++	}
++	if err := s.Unprepare("shared"); err != nil {
++		t.Fatal(err)
++	}
++}
++
++// Opt-in host acceptance: only reads actual sysfs/device attributes. All
++// checkpoints and CDI specs stay in t.TempDir; no kubelet registration, GPU
++// allocation, model, or live checkpoint is changed.
++func TestLiveAMDDiscoveryAndRecoveryInIsolatedDirectories(t *testing.T) {
++	if os.Getenv("MAGICSTICK_TEST_LIVE_DISCOVERY") != "1" {
++		t.Skip("requires opt-in AMD host")
++	}
++	config := &Config{flags: &Flags{cdiRoot: t.TempDir(), kubeletPluginsDirectoryPath: t.TempDir()}}
++	manager, err := checkpointmanager.NewCheckpointManager(config.DriverPluginPath())
++	if err != nil {
++		t.Fatal(err)
++	}
++	cp := newCheckpoint()
++	cp.V1.PreparedClaims["legacy-test"] = PreparedDevices{&PreparedDevice{Device: drapbv1.Device{DeviceName: "gpu-1-128"}}}
++	if err := manager.CreateCheckpoint(DriverPluginCheckpointFile, cp); err != nil {
++		t.Fatal(err)
++	}
++	s, err := NewDeviceState(config)
++	if err != nil {
++		t.Fatal("legacy record prevented startup", err)
++	}
++	if len(s.allocatable) == 0 {
++		t.Fatal("no live AMD GPU found")
++	}
++	if len(s.publishedDevices()) != 0 {
++		t.Fatal("legacy state was not quarantined")
++	}
++	if err := s.Unprepare("legacy-test"); err != nil {
++		t.Fatal(err)
++	}
++	for _, device := range s.allocatable {
++		if device.AmdGpu == nil {
++			continue
++		}
++		if _, err := s.Prepare(allocatedClaim(device.AmdGpu, "isolated-live-test")); err != nil {
++			t.Fatal(err)
++		}
++		files, _ := os.ReadDir(config.flags.cdiRoot)
++		for _, file := range files {
++			if err := os.Remove(filepath.Join(config.flags.cdiRoot, file.Name())); err != nil {
++				t.Fatal(err)
++			}
++		}
++		restarted, err := NewDeviceState(config)
++		if err != nil {
++			t.Fatal(err)
++		}
++		if len(restarted.quarantined) != 0 {
++			t.Fatal("unchanged live GPU failed restart recovery")
++		}
++		if err := restarted.Unprepare("isolated-live-test"); err != nil {
++			t.Fatal(err)
++		}
++		break
++	}
++}
+diff --git a/cmd/gpu-kubeletplugin/state.go b/cmd/gpu-kubeletplugin/state.go
+index 578ec7b..000cc94 100644
+--- a/cmd/gpu-kubeletplugin/state.go
++++ b/cmd/gpu-kubeletplugin/state.go
+@@ -63,7 +63,8 @@ type OpaqueDeviceConfig struct {
+ 
+ type PreparedDevice struct {
+ 	drapbv1.Device
+-	ContainerEdits *cdiapi.ContainerEdits
++	ContainerEdits   *cdiapi.ContainerEdits
++	HardwareIdentity string `json:"hardwareIdentity,omitempty"`
+ }
+ 
+ func (pds PreparedDevices) GetDevices() []*drapbv1.Device {
+@@ -79,6 +80,11 @@ type DeviceState struct {
+ 	cdi               *CDIHandler
+ 	allocatable       AllocatableDevices
+ 	checkpointManager checkpointmanager.CheckpointManager
++	// Unknown legacy identities block the whole AMD pool until kubelet unprepares
++	// them. Known identities only quarantine the affected physical device.
++	quarantined   map[string]map[string]bool
++	deviceAttrs   func(string) (int64, int64, string, string, error)
++	identityCheck func(*AmdGpuInfo) error
+ }
+ 
+ func NewDeviceState(config *Config) (*DeviceState, error) {
+@@ -115,6 +121,9 @@ func NewDeviceState(config *Config) (*DeviceState, error) {
+ 
+ 	for _, c := range checkpoints {
+ 		if c == DriverPluginCheckpointFile {
++			if err := state.restoreCheckpoint(); err != nil {
++				return nil, err
++			}
+ 			return state, nil
+ 		}
+ 	}
+@@ -139,12 +148,21 @@ func (s *DeviceState) Prepare(claim *resourceapi.ResourceClaim) ([]*drapbv1.Devi
+ 	}
+ 	preparedClaims := checkpoint.V1.PreparedClaims
+ 
+-	if preparedClaims[claimUID] != nil {
+-		return preparedClaims[claimUID].GetDevices(), nil
++	if _, blocked := s.quarantined[claimUID]; blocked {
++		return nil, fmt.Errorf("claim is quarantined pending kubelet cleanup; no GPU access granted")
+ 	}
+ 
+ 	preparedDevices, err := s.prepareDevices(claim)
+ 	if err != nil {
++		if previous, exists := preparedClaims[claimUID]; exists {
++			if s.quarantined == nil {
++				s.quarantined = make(map[string]map[string]bool)
++			}
++			s.quarantined[claimUID] = s.quarantineScope(previous)
++			if removeErr := s.cdi.DeleteClaimSpecFile(claimUID); removeErr != nil {
++				return nil, fmt.Errorf("cannot revoke stale CDI: %w", removeErr)
++			}
++		}
+ 		return nil, fmt.Errorf("prepare failed: %v", err)
+ 	}
+ 
+@@ -170,7 +188,8 @@ func (s *DeviceState) Unprepare(claimUID string) error {
+ 	}
+ 	preparedClaims := checkpoint.V1.PreparedClaims
+ 
+-	if preparedClaims[claimUID] == nil {
++	if _, exists := preparedClaims[claimUID]; !exists {
++		delete(s.quarantined, claimUID)
+ 		return nil
+ 	}
+ 
+@@ -187,6 +206,7 @@ func (s *DeviceState) Unprepare(claimUID string) error {
+ 	if err := s.checkpointManager.CreateCheckpoint(DriverPluginCheckpointFile, checkpoint); err != nil {
+ 		return fmt.Errorf("unable to sync to checkpoint: %v", err)
+ 	}
++	delete(s.quarantined, claimUID)
+ 
+ 	return nil
+ }
+@@ -225,6 +245,9 @@ func (s *DeviceState) prepareDevices(claim *resourceapi.ResourceClaim) (Prepared
+ 		if _, exists := s.allocatable[result.Device]; !exists {
+ 			return nil, fmt.Errorf("requested GPU is not allocatable: %v", result.Device)
+ 		}
++		if s.deviceQuarantined(result.Device) {
++			return nil, fmt.Errorf("GPU allocation blocked by an unreleased checkpointed claim")
++		}
+ 		for _, c := range slices.Backward(configs) {
+ 			if len(c.Requests) == 0 || slices.Contains(c.Requests, result.Request) {
+ 				configResultsMap[c.Config] = append(configResultsMap[c.Config], &result)
+@@ -284,6 +307,9 @@ func (s *DeviceState) prepareDevices(claim *resourceapi.ResourceClaim) (Prepared
+ 				ContainerEdits: perDeviceCDIContainerEdits[result.Device],
+ 			}
+ 			preparedDevices = append(preparedDevices, device)
++			if gpu := s.allocatable[result.Device].AmdGpu; gpu != nil {
++				device.HardwareIdentity = gpu.HardwareIdentity()
++			}
+ 		}
+ 	}
+ 
+@@ -331,9 +357,20 @@ func (s *DeviceState) applyConfig(config *configapi.GpuConfig, results []*resour
+ 
+ 	for _, result := range results {
+ 		klog.Infof("received allocation result: %+v", result)
+-		card, renderD, err := parseDeviceName(result.Device)
+-		if err != nil {
+-			return nil, fmt.Errorf("error parsing device name %s: %w", result.Device, err)
++		device := s.allocatable[result.Device]
++		if device == nil {
++			return nil, fmt.Errorf("GPU %s is no longer present", result.Device)
++		}
++		var card, renderD int
++		if device.AmdGpu != nil {
++			if err := s.validateDeviceMapping(device.AmdGpu); err != nil {
++				return nil, err
++			}
++			card, renderD = device.AmdGpu.cardIndex, device.AmdGpu.renderIndex
++		} else if device.AmdPartition != nil {
++			card, renderD = device.AmdPartition.cardIndex, device.AmdPartition.renderIndex
++		} else {
++			return nil, fmt.Errorf("GPU %s has no device mapping", result.Device)
+ 		}
+ 		// TODO implement GPU sharing config when it is available
+ 		//switch {
+@@ -347,15 +384,15 @@ func (s *DeviceState) applyConfig(config *configapi.GpuConfig, results []*resour
+ 		renderDPath := fmt.Sprintf("/dev/dri/renderD%d", renderD)
+ 		kfdPath := "/dev/kfd"
+ 
+-		cardMajor, cardMinor, cardDevType, cardPermission, err := s.getDeviceAttrs(cardPath)
++		cardMajor, cardMinor, cardDevType, cardPermission, err := s.readDeviceAttrs(cardPath)
+ 		if err != nil {
+ 			return nil, fmt.Errorf("error getting device attrs for %s: %w", cardPath, err)
+ 		}
+-		renderDMajor, renderDMinor, renderDDevType, renderDPermission, err := s.getDeviceAttrs(renderDPath)
++		renderDMajor, renderDMinor, renderDDevType, renderDPermission, err := s.readDeviceAttrs(renderDPath)
+ 		if err != nil {
+ 			return nil, fmt.Errorf("error getting device attrs for %s: %w", renderDPath, err)
+ 		}
+-		kfdMajor, kfdMinor, kfdDevType, kfdPermission, err := s.getDeviceAttrs(kfdPath)
++		kfdMajor, kfdMinor, kfdDevType, kfdPermission, err := s.readDeviceAttrs(kfdPath)
+ 		if err != nil {
+ 			return nil, fmt.Errorf("error getting device attrs for %s: %w", kfdPath, err)
+ 		}

@@ -1,0 +1,27 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: intel-gpu-device-plugin
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: intel-device-plugins-operator
+  interval: 10m0s
+  targetNamespace: inteldeviceplugins-system
+  chart:
+    spec:
+      chart: intel-device-plugins-gpu
+      version: 0.36.0
+      sourceRef:
+        kind: HelmRepository
+        name: intel-device-plugins
+        namespace: flux-system
+  install:
+    createNamespace: false
+  values:
+    # The chart installs the vendor NodeFeatureRule but reuses Magic Stick's
+    # central NFD controllers. Its resulting label is the support gate for the
+    # actual device-plugin DaemonSet.
+    nodeFeatureRule: true
+    nodeSelector:
+      intel.feature.node.kubernetes.io/gpu: "true"

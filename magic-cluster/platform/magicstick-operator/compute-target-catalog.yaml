@@ -1,0 +1,271 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: magicstick-compute-target-catalog
+  namespace: ai-system
+  labels:
+    app.kubernetes.io/name: magicstick-operator
+    app.kubernetes.io/component: compute-target-catalog
+data:
+  targets.json: |
+    {
+      "schemaVersion": 3,
+      "engines": {
+        "VLLM": {
+          "displayName": "vLLM",
+          "realtimeProfiles": {
+            "qwen3-omni": {
+              "displayName": "vLLM-Omni · NVIDIA CUDA",
+              "model": "Qwen/Qwen3-Omni-30B-A3B-Instruct",
+              "computeTargets": [
+                "nvidia-gpu"
+              ],
+              "gpuCounts": [
+                1,
+                2
+              ],
+              "defaultContextWindow": 8192,
+              "defaultSystemMemoryMi": 16384,
+              "image": "vllm/vllm-omni@sha256:6132afe16e2d30841ff90e22dc311056d8042cf8b688b51eea3142e3e6dead78",
+              "sourceRevision": "f3f8ebfc25de04ea1e1a7900144e6966a57da4f5",
+              "sourceTag": "nightly-f3f8ebfc25de04ea1e1a7900144e6966a57da4f5",
+              "deployConfig": "qwen3_omni_duplex.yaml",
+              "description": "Experimental runtime selection. Model, quantization and hardware compatibility are determined by vLLM-Omni at load time, not by a Magic Stick allowlist. NVIDIA whole GPUs and time-slicing are selectable.",
+              "backend": "cuda",
+              "resourceName": "nvidia.com/gpu"
+            },
+            "qwen3-omni-rocm": {
+              "displayName": "vLLM-Omni · AMD ROCm",
+              "model": "Qwen/Qwen3-Omni-30B-A3B-Instruct",
+              "computeTargets": [
+                "amd-gpu"
+              ],
+              "backend": "rocm",
+              "resourceName": "amd.com/gpu",
+              "gpuCounts": [
+                1,
+                2
+              ],
+              "defaultContextWindow": 8192,
+              "defaultSystemMemoryMi": 16384,
+              "hostRuntimeHeadroomMi": 8192,
+              "image": "",
+              "sourceRevision": "f3f8ebfc25de04ea1e1a7900144e6966a57da4f5",
+              "deployConfig": "qwen3_omni_duplex.yaml",
+              "description": "Experimental ROCm runtime for any allocatable AMD GPU or shared DRA claim. No Strix Halo or architecture whitelist. Use a matching runtime image; allocation is not proof of successful inference."
+            },
+            "qwen3-omni-xpu": {
+              "displayName": "vLLM-Omni · Intel XPU",
+              "model": "Qwen/Qwen3-Omni-30B-A3B-Instruct",
+              "backend": "xpu",
+              "computeTargets": [
+                "intel-gpu"
+              ],
+              "resourceNames": [
+                "gpu.intel.com/xe",
+                "gpu.intel.com/i915"
+              ],
+              "gpuCounts": [
+                1,
+                2
+              ],
+              "defaultContextWindow": 8192,
+              "defaultSystemMemoryMi": 16384,
+              "image": "",
+              "sourceRevision": "f3f8ebfc25de04ea1e1a7900144e6966a57da4f5",
+              "deployConfig": "qwen3_omni_duplex.yaml",
+              "description": "Experimental Intel XPU selection. Supply a compatible vLLM-Omni runtime image in Advanced Settings. No successful model or audio execution is implied."
+            },
+            "qwen3-omni-cpu": {
+              "displayName": "vLLM-Omni · CPU",
+              "model": "Qwen/Qwen3-Omni-30B-A3B-Instruct",
+              "backend": "cpu",
+              "computeTargets": [
+                "cpu"
+              ],
+              "resourceNames": [],
+              "gpuCounts": [
+                1
+              ],
+              "defaultContextWindow": 8192,
+              "defaultSystemMemoryMi": 16384,
+              "image": "",
+              "sourceRevision": "f3f8ebfc25de04ea1e1a7900144e6966a57da4f5",
+              "deployConfig": "qwen3_omni_duplex.yaml",
+              "description": "Experimental CPU selection. Supply a compatible vLLM-Omni runtime image in Advanced Settings. No successful model or audio execution is implied."
+            }
+          },
+          "cpuDefaults": {"cpu": {"requestMillicores": 2000, "limitMillicores": 8000}, "gpu": {"requestMillicores": 1000, "limitMillicores": 0}},
+          "deploymentSettings": {
+            "visionAttention": {
+              "default": "triton",
+              "computeTargets": ["amd-gpu"],
+              "runtimeVersion": "0.26.0",
+              "options": [
+                {"value": "auto", "label": "Automatic (vLLM default)", "description": "Let vLLM select the vision encoder backend. This can fall back to memory-intensive Torch SDPA; it does not guarantee that a model fits."},
+                {"value": "aotriton", "label": "PyTorch SDPA + AOTriton (experimental)", "description": "Enable experimental ROCm attention kernels in PyTorch for the vision encoder. Requires matching PyTorch/AOTriton kernels for the GPU; PyTorch may still fall back to math attention. Validate this model on the selected GPU.", "backend": "TORCH_SDPA", "env": {"TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL": "1"}},
+                {"value": "triton", "label": "vLLM Triton attention", "description": "Use vLLM's Triton vision attention backend. Requires compatible Triton kernels in the ROCm runtime; validate this model on the selected GPU.", "backend": "TRITON_ATTN"},
+                {"value": "flash-attn-triton", "label": "FlashAttention (AMD Triton)", "description": "Use FlashAttention's AMD Triton vision backend. The runtime must contain flash_attn with its AMD Triton dependencies. This setting does not install missing packages; validate this model on the selected GPU.", "backend": "FLASH_ATTN", "env": {"FLASH_ATTENTION_TRITON_AMD_ENABLE": "TRUE"}}
+              ]
+            }
+          },
+          "urlScheme": "hf://",
+          "supportsVramEstimate": true
+        },
+        "OLlama": {
+          "displayName": "Ollama",
+          "cpuDefaults": {"cpu": {"requestMillicores": 2000, "limitMillicores": 8000}, "gpu": {"requestMillicores": 500, "limitMillicores": 0}},
+          "urlScheme": "ollama://",
+          "supportsVramEstimate": false
+        },
+        "FreeToken": {
+          "displayName": "FreeToken",
+          "cpuDefaults": {"gpu": {"requestMillicores": 4000, "limitMillicores": 8000}},
+          "urlScheme": "hf://",
+          "supportsVramEstimate": true,
+          "capabilities": {
+            "source": "https://github.com/FlashML-org/FreeToken",
+            "version": "0.1.3",
+            "operatingSystems": ["linux"],
+            "supportedVendors": ["nvidia"],
+            "supportedArchitectures": ["amd64"],
+            "minimumNvidiaDriverMajor": 580,
+            "requiredCudaMajor": 13,
+            "supportedComputeCapabilities": ["8.6", "8.9", "12.0"],
+            "supportedPrecisionModes": ["auto", "float16", "bfloat16", "float32"],
+            "minimumDevicesPerRuntime": 1,
+            "deviceBinding": "whole-gpus-single-node",
+            "tensorParallelism": {
+              "sameNodeOnly": true,
+              "requiresWholeDevices": true,
+              "requiresHomogeneousDevices": true,
+              "gpuArgument": "container-local-indices",
+              "sizeArgument": "tensor-parallel-size"
+            },
+            "modelArtifacts": ["huggingface-safetensors", "freetoken-ftw"],
+            "modelFamilies": ["DeepSeek-V4-Flash", "GLM-5.3-Flash / GLM-5.2 / GLM-4.7", "Qwen3", "gpt-oss", "Gemma-4", "MiniMax-M2.5 / M3", "Muse-Glimmer"],
+            "modelIdMatchers": ["^deepseek-ai/deepseek-v4-flash-0731$", "^(redhatai/glm-5\\.3-flash-nvfp4|nvidia/glm-(5\\.2|4\\.7)-nvfp4)$", "^(qwen/qwen3\\.8-flash-next-fp8|radixark/qwen3\\.8-flash-next-nvfp4|nvidia/qwen3\\.8-flash-next-nvfp4|qwen/qwen3\\.(6|5)-35b-a3b(?:-fp8)?|nvidia/qwen3\\.6-35b-a3b-nvfp4|qwen/qwen3\\.(8|6)-27b(?:-fp8)?|radixark/qwen3\\.8-27b-nvfp4|nvidia/qwen3\\.6-27b-nvfp4|qwen/qwen3-30b-a3b|qwen/qwen3-vl-(8b|30b-a3b)-instruct)$", "^openai/gpt-oss-(20b|120b)$", "^(google/gemma-4-(26b-a4b-it|12b-it)|nvidia/gemma-4-(26b-a4b|31b-it)-nvfp4)$", "^nvidia/minimax-(m2\\.5|m3)-nvfp4$", "^(meta-models/muse-glimmer-30b|redhatai/muse-glimmer-30b-nvfp4)$"],
+            "tensorParallelUnsupportedModelIdMatchers": ["^qwen/qwen3-vl-(8b|30b-a3b)-instruct$"],
+            "memoryStrategies": ["auto", "fused", "offload", "cpu", "hybrid"],
+            "memory": {
+              "vramControl": "memory-ratio-and-cache-geometry",
+              "hostRamControl": "kubernetes-resource-policy",
+              "requiresCurrentFreeVram": true,
+              "requiresCurrentSystemRam": true
+            }
+          }
+        }
+      },
+      "targets": {
+        "cpu": {
+          "displayName": "CPU",
+          "kind": "cpu",
+          "vendor": "generic",
+          "architectures": ["amd64", "arm64"],
+          "nodeSelector": {"kubernetes.io/os": "linux"},
+          "requiredCapabilities": [],
+          "resourceNames": [],
+          "engines": ["VLLM", "OLlama"],
+          "engineProfiles": {
+            "VLLM": {
+              "defaultResourceProfile": "magicstick-vllm-cpu-memory:256"
+            },
+            "OLlama": {
+              "defaultResourceProfile": "magicstick-ollama-cpu-memory:128"
+            }
+          },
+          "defaultResourceProfile": "magicstick-vllm-cpu-memory:256"
+        },
+        "nvidia-gpu": {
+          "displayName": "NVIDIA GPU",
+          "kind": "gpu",
+          "vendor": "nvidia",
+          "architectures": ["amd64", "arm64"],
+          "nodeSelector": {"kubernetes.io/os": "linux"},
+          "requiredCapabilities": ["compute.gpu.nvidia"],
+          "resourceNames": ["nvidia.com/gpu"],
+          "resourceProfilesByResource": {
+            "nvidia.com/gpu": "magicstick-nvidia-gpu:1"
+          },
+          "engines": ["VLLM", "OLlama", "FreeToken"],
+          "engineProfiles": {
+            "VLLM": {
+              "defaultResourceProfile": "magicstick-nvidia-gpu:1",
+              "resourceProfilesByResource": {
+                "nvidia.com/gpu": "magicstick-nvidia-gpu:1"
+              }
+            },
+            "OLlama": {
+              "defaultResourceProfile": "magicstick-ollama-nvidia-gpu:1",
+              "resourceProfilesByResource": {
+                "nvidia.com/gpu": "magicstick-ollama-nvidia-gpu:1"
+              }
+            },
+            "FreeToken": {
+              "defaultResourceProfile": "magicstick-freetoken-nvidia-gpu:1",
+              "resourceProfilesByResource": {
+                "nvidia.com/gpu": "magicstick-freetoken-nvidia-gpu:1"
+              },
+              "nodeSelector": {
+                "kubernetes.io/arch": "amd64"
+              }
+            }
+          },
+          "defaultResourceProfile": "magicstick-nvidia-gpu:1"
+        },
+        "amd-gpu": {
+          "displayName": "AMD GPU (ROCm)",
+          "kind": "gpu",
+          "vendor": "amd",
+          "architectures": ["amd64"],
+          "nodeSelector": {"kubernetes.io/os": "linux", "appliance.magicstick.dev/amd-gpu-eligible": "true"},
+          "requiredCapabilities": ["compute.gpu.amd"],
+          "resourceNames": ["amd.com/gpu"],
+          "resourceProfilesByResource": {
+            "amd.com/gpu": "magicstick-amd-gpu:1"
+          },
+          "engines": ["VLLM", "OLlama"],
+          "engineProfiles": {
+            "VLLM": {
+              "defaultResourceProfile": "magicstick-amd-gpu:1",
+              "nodeSelector": {"appliance.magicstick.dev/amd-vllm-eligible": "true"},
+              "resourceProfilesByResource": {
+                "amd.com/gpu": "magicstick-amd-gpu:1"
+              }
+            },
+            "OLlama": {
+              "defaultResourceProfile": "magicstick-ollama-amd-gpu:1",
+              "nodeSelector": {"appliance.magicstick.dev/amd-ollama-eligible": "true"},
+              "resourceProfilesByResource": {
+                "amd.com/gpu": "magicstick-ollama-amd-gpu:1"
+              }
+            }
+          },
+          "defaultResourceProfile": "magicstick-amd-gpu:1"
+        },
+        "intel-gpu": {
+          "displayName": "Intel GPU (XPU)",
+          "kind": "gpu",
+          "vendor": "intel",
+          "architectures": ["amd64"],
+          "nodeSelector": {"kubernetes.io/os": "linux"},
+          "requiredCapabilities": ["compute.gpu.intel"],
+          "resourceNames": ["gpu.intel.com/xe", "gpu.intel.com/i915"],
+          "resourceProfilesByResource": {
+            "gpu.intel.com/xe": "magicstick-intel-xe-gpu:1",
+            "gpu.intel.com/i915": "magicstick-intel-i915-gpu:1"
+          },
+          "engines": ["VLLM"],
+          "engineProfiles": {
+            "VLLM": {
+              "defaultResourceProfile": "magicstick-intel-i915-gpu:1",
+              "resourceProfilesByResource": {
+                "gpu.intel.com/xe": "magicstick-intel-xe-gpu:1",
+                "gpu.intel.com/i915": "magicstick-intel-i915-gpu:1"
+              }
+            }
+          },
+          "defaultResourceProfile": "magicstick-intel-i915-gpu:1"
+        }
+      }
+    }

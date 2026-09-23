@@ -1,0 +1,319 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: magicstick-module-catalog
+  namespace: ai-system
+  labels:
+    app.kubernetes.io/name: magicstick-operator
+    app.kubernetes.io/component: module-catalog
+data:
+  modules.json: |
+    {
+      "groups": {
+        "core": {"displayName": "Core", "order": 10},
+        "runtime": {"displayName": "AI Runtime", "order": 20},
+        "apps": {"displayName": "Apps", "order": 30},
+        "operators": {"displayName": "Operators", "order": 40},
+        "other": {"displayName": "Other", "order": 1000}
+      },
+      "modules": {
+        "basis": {
+          "displayName": "Basis",
+          "group": "core",
+          "activationMode": "static",
+          "order": 10,
+          "path": "magic-cluster/platform/basis",
+          "kustomizationName": "platform-basis",
+          "requires": [],
+          "requiredCrds": [],
+          "default": true,
+          "uninstallPolicy": "keep-data"
+        },
+        "hardware-discovery": {
+          "displayName": "Hardware Discovery",
+          "description": "Runs one shared Node Feature Discovery stack and refreshes node hardware labels every 60 seconds.",
+          "group": "core",
+          "activationMode": "static",
+          "order": 15,
+          "path": "magic-cluster/platform/hardware-discovery",
+          "kustomizationName": "hardware-discovery",
+          "requires": ["basis"],
+          "requiredCrds": ["nodefeatures.nfd.k8s-sigs.io"],
+          "default": true,
+          "uninstallPolicy": "keep-data"
+        },
+        "dashboard": {
+          "displayName": "Dashboard",
+          "group": "core",
+          "activationMode": "static",
+          "order": 20,
+          "path": "magic-cluster/apps/dashboard",
+          "kustomizationName": "app-dashboard",
+          "requires": ["basis"],
+          "requiredCrds": [],
+          "default": true,
+          "uninstallPolicy": "remove",
+          "postBuildSubstitution": true
+        },
+        "litellm": {
+          "displayName": "LiteLLM",
+          "group": "runtime",
+          "activationMode": "moduleactivation",
+          "order": 50,
+          "path": "magic-cluster/apps/ai/litellm/base",
+          "kustomizationName": "app-litellm",
+          "requires": ["basis"],
+          "requiredCrds": [],
+          "default": true,
+          "uninstallPolicy": "keep-data",
+          "postBuildSubstitution": true,
+          "credentials": {"provider": "litellm"},
+          "parameters": [
+            {"name": "postgresStorage", "label": "Postgres Storage", "placeholder": "1Gi", "substitution": "AI_APPLIANCE_LITELLM_POSTGRES_STORAGE"}
+          ]
+        },
+        "model-catalog": {
+          "displayName": "Model Catalog",
+          "group": "runtime",
+          "aliases": ["modelCatalog"],
+          "activationMode": "moduleactivation",
+          "order": 60,
+          "path": "magic-cluster/apps/ai/model-catalog",
+          "kustomizationName": "app-model-catalog",
+          "requires": ["litellm"],
+          "requiredCrds": [],
+          "default": true,
+          "uninstallPolicy": "keep-data",
+          "postBuildSubstitution": true
+        },
+        "private-mesh": {
+          "displayName": "Private Mesh",
+          "description": "Private model sharing through LiteLLM, with device enrollment and per-model limits.",
+          "group": "runtime",
+          "activationMode": "moduleactivation",
+          "order": 65,
+          "path": "magic-cluster/apps/ai/private-mesh",
+          "kustomizationName": "app-private-mesh",
+          "requires": ["litellm", "model-catalog", "dashboard"],
+          "requiredCrds": [],
+          "default": false,
+          "uninstallPolicy": "keep-data",
+          "postBuildSubstitution": true
+        },
+        "anything-llm": {
+          "displayName": "AnythingLLM",
+          "group": "apps",
+          "aliases": ["anythingllm", "anythingLlm"],
+          "activationMode": "moduleactivation",
+          "order": 70,
+          "path": "magic-cluster/apps/ai/anything-llm/base",
+          "kustomizationName": "app-anything-llm",
+          "requires": ["litellm", "model-catalog"],
+          "requiredCrds": [],
+          "default": false,
+          "uninstallPolicy": "keep-data",
+          "postBuildSubstitution": true,
+          "parameters": [
+            {"name": "storage", "label": "Storage", "placeholder": "1Gi", "substitution": "AI_APPLIANCE_ANYTHING_LLM_STORAGE"},
+            {"name": "qdrantStorage", "label": "Qdrant Storage", "placeholder": "1Gi", "substitution": "AI_APPLIANCE_QDRANT_STORAGE"}
+          ]
+        },
+        "gpu": {
+          "displayName": "NVIDIA GPU Operator",
+          "description": "Installs the NVIDIA driver and Kubernetes device runtime only after NFD detects NVIDIA display hardware. CPU and external models do not require it.",
+          "group": "operators",
+          "aliases": ["nvidia-gpu", "nvidia-gpu-operator"],
+          "activationMode": "moduleactivation",
+          "activationPolicy": "hardware-detected",
+          "order": 30,
+          "path": "magic-cluster/platform/gpu/nvidia-gpu-operator",
+          "kustomizationName": "platform-gpu",
+          "requires": ["basis", "hardware-discovery"],
+          "providesCapabilities": ["compute.gpu.nvidia"],
+          "requiredCrds": ["clusterpolicies.nvidia.com"],
+          "waitForReady": true,
+          "hardware": {
+            "vendor": "nvidia",
+            "detectionLabel": "feature.node.kubernetes.io/pci-10de.present",
+            "supportedLabel": "feature.node.kubernetes.io/pci-10de.present",
+            "architectures": ["amd64", "arm64"],
+            "minimumKubernetes": "1.33.0",
+            "resourceNames": ["nvidia.com/gpu"],
+            "operatorVersion": "v26.7.0",
+            "driverMode": "operator-managed"
+          },
+          "default": false,
+          "uninstallPolicy": "keep-data"
+        },
+        "amd-gpu": {
+          "displayName": "AMD GPU Operator",
+          "description": "Installs the AMD GPU Operator and device plugin only after NFD detects AMD display hardware. The portable baseline uses the host amdgpu driver.",
+          "group": "operators",
+          "aliases": ["amd-gpu-operator"],
+          "activationMode": "moduleactivation",
+          "activationPolicy": "hardware-detected",
+          "order": 31,
+          "path": "magic-cluster/platform/gpu/amd-gpu-operator",
+          "kustomizationName": "platform-amd-gpu",
+          "requires": ["basis", "hardware-discovery"],
+          "providesCapabilities": ["compute.gpu.amd"],
+          "requiredCrds": ["deviceconfigs.amd.com"],
+          "waitForReady": true,
+          "parameters": [
+            {"name": "compatibilityProfile", "label": "GPU compatibility profile", "placeholder": "Automatic (upstream support)"},
+            {"name": "allowExperimental", "label": "Allow experimental GPU profile", "placeholder": "false"},
+            {"name": "validationRequest", "label": "GPU validation request", "placeholder": ""}
+          ],
+          "hardware": {
+            "vendor": "amd",
+            "detectionLabel": "feature.node.kubernetes.io/pci-1002.present",
+            "supportedLabel": "feature.node.kubernetes.io/amd-gpu",
+            "architectures": ["amd64"],
+            "minimumKubernetes": "1.29.0",
+            "resourceNames": ["amd.com/gpu"],
+            "operatorVersion": "v1.5.1",
+            "driverMode": "host-driver"
+          },
+          "default": false,
+          "uninstallPolicy": "keep-data"
+        },
+        "intel-gpu": {
+          "displayName": "Intel GPU Operator",
+          "description": "Installs Intel Device Plugins Operator and the GPU plugin only after NFD detects Intel display hardware.",
+          "group": "operators",
+          "aliases": ["intel-gpu-operator"],
+          "activationMode": "moduleactivation",
+          "activationPolicy": "hardware-detected",
+          "order": 32,
+          "path": "magic-cluster/platform/gpu/intel-gpu-operator",
+          "kustomizationName": "platform-intel-gpu",
+          "requires": ["basis", "hardware-discovery"],
+          "providesCapabilities": ["compute.gpu.intel"],
+          "requiredCrds": ["gpudeviceplugins.deviceplugin.intel.com"],
+          "waitForReady": true,
+          "hardware": {
+            "vendor": "intel",
+            "detectionLabel": "feature.node.kubernetes.io/pci-8086.present",
+            "supportedLabel": "intel.feature.node.kubernetes.io/gpu",
+            "architectures": ["amd64"],
+            "minimumKubernetes": "1.29.0",
+            "resourceNames": ["gpu.intel.com/i915", "gpu.intel.com/xe"],
+            "operatorVersion": "0.36.0",
+            "driverMode": "kernel-driver"
+          },
+          "default": false,
+          "uninstallPolicy": "keep-data"
+        },
+        "kubeai": {
+          "displayName": "KubeAI",
+          "description": "Provides local model serving for CPU and accelerator-backed models. External models use LiteLLM without KubeAI.",
+          "group": "runtime",
+          "activationMode": "moduleactivation",
+          "activationPolicy": "local-model",
+          "order": 40,
+          "path": "magic-cluster/platform/ai/kubeai",
+          "kustomizationName": "platform-kubeai",
+          "requires": ["basis"],
+          "requiredCrds": ["models.kubeai.org"],
+          "default": false,
+          "uninstallPolicy": "keep-data"
+        },
+        "openclaw-operator": {
+          "displayName": "OpenClaw Operator",
+          "group": "operators",
+          "aliases": ["openclawOperator"],
+          "activationMode": "moduleactivation",
+          "order": 80,
+          "path": "magic-cluster/platform/ai/openclaw-operator",
+          "kustomizationName": "operator-openclaw",
+          "requires": ["basis"],
+          "requiredCrds": ["openclawinstances.openclaw.rocks"],
+          "default": false,
+          "uninstallPolicy": "keep-data"
+        },
+        "hermes-operator": {
+          "displayName": "Hermes Operator",
+          "group": "operators",
+          "aliases": ["hermesOperator"],
+          "activationMode": "moduleactivation",
+          "order": 90,
+          "path": "magic-cluster/platform/ai/hermes-operator",
+          "kustomizationName": "operator-hermes",
+          "requires": ["basis"],
+          "requiredCrds": ["hermesinstances.hermes.agent"],
+          "default": false,
+          "uninstallPolicy": "keep-data"
+        },
+        "paperclip-operator": {
+          "displayName": "Paperclip Operator",
+          "group": "operators",
+          "aliases": ["paperclipOperator"],
+          "activationMode": "moduleactivation",
+          "order": 100,
+          "path": "magic-cluster/platform/ai/paperclip-operator",
+          "kustomizationName": "operator-paperclip",
+          "requires": ["basis"],
+          "requiredCrds": ["instances.paperclip.inc"],
+          "default": false,
+          "uninstallPolicy": "keep-data"
+        },
+        "agent-sandbox": {
+          "displayName": "Agent Sandbox",
+          "group": "operators",
+          "activationMode": "moduleactivation",
+          "order": 105,
+          "path": "magic-cluster/platform/ai/agent-sandbox",
+          "kustomizationName": "platform-agent-sandbox",
+          "requires": ["basis"],
+          "requiredCrds": ["sandboxes.agents.x-k8s.io"],
+          "default": false,
+          "uninstallPolicy": "keep-data"
+        },
+        "freetoken": {
+          "displayName": "FreeToken",
+          "description": "Pinned FreeToken v0.1.3 NVIDIA runtime for supported whole-GPU local models, including same-node tensor parallelism.",
+          "group": "runtime",
+          "activationMode": "moduleactivation",
+          "activationPolicy": "local-model",
+          "order": 45,
+          "path": "magic-cluster/platform/ai/freetoken",
+          "kustomizationName": "platform-freetoken",
+          "requires": ["basis"],
+          "requiredCrds": [],
+          "default": false,
+          "uninstallPolicy": "keep-data"
+        },
+        "kubeopencode": {
+          "displayName": "KubeOpenCode",
+          "group": "apps",
+          "activationMode": "moduleactivation",
+          "order": 110,
+          "path": "magic-cluster/apps/ai/kubeopencode",
+          "kustomizationName": "app-kubeopencode",
+          "requires": ["litellm", "model-catalog"],
+          "requiredCrds": [
+            "agenttemplates.kubeopencode.io",
+            "agents.kubeopencode.io",
+            "tasks.kubeopencode.io",
+            "crontasks.kubeopencode.io",
+            "registries.kubeopencode.io",
+            "kubeopencodeconfigs.kubeopencode.io"
+          ],
+          "default": false,
+          "uninstallPolicy": "keep-data",
+          "postBuildSubstitution": true
+        },
+        "odysseus": {
+          "displayName": "Odysseus",
+          "group": "apps",
+          "activationMode": "moduleactivation",
+          "order": 115,
+          "path": "magic-cluster/apps/ai/odysseus",
+          "kustomizationName": "app-odysseus",
+          "requires": ["basis", "litellm", "model-catalog"],
+          "requiredCrds": [],
+          "default": false,
+          "uninstallPolicy": "keep-data"
+        }
+      }
+    }

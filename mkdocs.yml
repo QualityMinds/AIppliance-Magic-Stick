@@ -1,0 +1,90 @@
+site_name: Magic Stick Documentation
+site_description: Install, use and administer your Magic Stick AI appliance.
+site_url: https://qualityminds.github.io/AIppliance-Magic-Stick/handbook/
+repo_url: https://github.com/QualityMinds/AIppliance-Magic-Stick
+edit_uri: edit/main/docs/
+docs_dir: docs
+site_dir: dist/docs-site/handbook
+strict: true
+theme:
+  name: material
+  language: en
+  font: false
+  palette:
+    - scheme: slate
+      primary: custom
+      accent: cyan
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - scheme: default
+      primary: custom
+      accent: cyan
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+plugins:
+  - search
+hooks:
+  - tools/docs_hook.py
+markdown_extensions:
+  - tables
+  - fenced_code
+  - toc:
+      permalink: true
+extra_css:
+  - stylesheets/handbook.css
+validation:
+  nav:
+    not_found: warn
+  links:
+    not_found: warn
+    anchors: warn
+exclude_docs: |
+  /index.html
+  /legal-notice.html
+  /privacy.html
+  /site.css
+  /site.js
+  /sales-deck/
+  /navigation.json
+  /migration.json
+  /authentication.md
+  /licensing.md
+  /operator-orchestration.md
+  /architecture.md
+  /paperclip-agents.md
+  /operations.md
+  /dashboard.md
+  /model-catalog.md
+  /ubuntu-updates.md
+  /website.md
+  /modules.md
+  /appliance-crd.md
+  /getting-started.md
+  /public-release-checklist.md
+  /license-audit.md
+  /realtime.md
+  /network-management.md
+  /configuration.md
+  /freetoken-integration-review.md
+  /model-cache.md
+  /gpu-sharing.md
+  /host-management.md
+  /development.md
+  /first-run-setup.md
+  /gpu-compatibility.md
+  /private-mesh.md
+  /gitops-overlays.md
+  /instance-sharing.md
+  /features.md
+  /installation/after-installation-dashboard.md

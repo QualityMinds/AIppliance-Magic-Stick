@@ -1,0 +1,3499 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: magicstick-model-presets
+  namespace: ai-system
+  labels:
+    app.kubernetes.io/name: magicstick-operator
+    app.kubernetes.io/component: model-presets
+data:
+  presets.json: |
+    {
+      "schemaVersion": 3,
+      "presets": {
+        "qwen2505bcpu": {
+          "title": "Qwen2.5 0.5B Instruct (portable)",
+          "type": "chat",
+          "variants": [
+            {
+              "id": "vllm-cpu",
+              "engine": "VLLM",
+              "computeTarget": "cpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "hf://Qwen/Qwen2.5-0.5B-Instruct",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-vllm-cpu-memory:256",
+              "memoryRequiredMi": 4096,
+              "kvCacheMemoryBytes": 536870912,
+              "contextWindow": 2048,
+              "maxOutputTokens": 1024,
+              "maxNumSeqs": 1,
+              "args": [
+                "--max-model-len=2048",
+                "--max-num-seqs=1",
+                "--kv-cache-memory-bytes=536870912"
+              ],
+              "defaultArtifact": "bf16",
+              "artifacts": [
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen2.5-0.5B-Instruct",
+                  "bits": 16,
+                  "budgetMi": 4096,
+                  "memoryRequiredMi": 4096,
+                  "format": "safetensors"
+                }
+              ]
+            },
+            {
+              "id": "ollama-cpu",
+              "engine": "OLlama",
+              "computeTarget": "cpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "ollama://qwen2.5:0.5b",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-ollama-cpu-memory:128",
+              "memoryRequiredMi": 2048,
+              "contextWindow": 2048,
+              "maxOutputTokens": 1024,
+              "maxNumSeqs": 1,
+              "defaultArtifact": "q4-k-m",
+              "artifacts": [
+                {
+                  "id": "q4-k-m",
+                  "title": "Q4_K_M - recommended",
+                  "precision": "int4",
+                  "url": "ollama://qwen2.5:0.5b-instruct-q4_K_M",
+                  "quantization": "q4_k_m",
+                  "bits": 4,
+                  "memoryRequiredMi": 2048,
+                  "format": "GGUF"
+                },
+                {
+                  "id": "q8-0",
+                  "title": "Q8_0 - higher quality",
+                  "precision": "int8",
+                  "url": "ollama://qwen2.5:0.5b-instruct-q8_0",
+                  "quantization": "q8_0",
+                  "bits": 8,
+                  "memoryRequiredMi": 2048,
+                  "format": "GGUF"
+                },
+                {
+                  "id": "fp16",
+                  "title": "FP16 - full precision",
+                  "precision": "fp16",
+                  "url": "ollama://qwen2.5:0.5b-instruct-fp16",
+                  "bits": 16,
+                  "memoryRequiredMi": 3072,
+                  "format": "GGUF"
+                }
+              ]
+            },
+            {
+              "id": "vllm-nvidia",
+              "engine": "VLLM",
+              "computeTarget": "nvidia-gpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "hf://Qwen/Qwen2.5-0.5B-Instruct",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-nvidia-gpu:1",
+              "vram": "4Gi",
+              "vramMi": 4096,
+              "contextWindow": 2048,
+              "maxOutputTokens": 1024,
+              "maxNumSeqs": 1,
+              "args": [
+                "--tensor-parallel-size=1",
+                "--max-model-len=2048",
+                "--max-num-seqs=1"
+              ],
+              "defaultArtifact": "bf16",
+              "artifacts": [
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen2.5-0.5B-Instruct",
+                  "bits": 16,
+                  "budgetMi": 4096,
+                  "vram": "4Gi",
+                  "vramMi": 4096,
+                  "format": "safetensors"
+                },
+                {
+                  "id": "awq-int4",
+                  "title": "AWQ Int4 - memory optimized",
+                  "precision": "int4",
+                  "url": "hf://Qwen/Qwen2.5-0.5B-Instruct-AWQ",
+                  "quantization": "awq",
+                  "bits": 4,
+                  "vramMi": 2048,
+                  "vram": "2048Mi",
+                  "format": "safetensors"
+                },
+                {
+                  "id": "gptq-int4",
+                  "title": "GPTQ Int4 - memory optimized",
+                  "precision": "int4",
+                  "url": "hf://Qwen/Qwen2.5-0.5B-Instruct-GPTQ-Int4",
+                  "quantization": "gptq",
+                  "bits": 4,
+                  "vramMi": 2048,
+                  "vram": "2048Mi",
+                  "format": "safetensors"
+                },
+                {
+                  "id": "gptq-int8",
+                  "title": "GPTQ Int8 - higher quality",
+                  "precision": "int8",
+                  "url": "hf://Qwen/Qwen2.5-0.5B-Instruct-GPTQ-Int8",
+                  "quantization": "gptq",
+                  "bits": 8,
+                  "vramMi": 2048,
+                  "vram": "2048Mi",
+                  "format": "safetensors"
+                }
+              ]
+            },
+            {
+              "id": "ollama-nvidia",
+              "engine": "OLlama",
+              "computeTarget": "nvidia-gpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "ollama://qwen2.5:0.5b",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-ollama-nvidia-gpu:1",
+              "vram": "2Gi",
+              "vramMi": 2048,
+              "contextWindow": 2048,
+              "maxOutputTokens": 1024,
+              "maxNumSeqs": 1,
+              "defaultArtifact": "q4-k-m",
+              "artifacts": [
+                {
+                  "id": "q4-k-m",
+                  "title": "Q4_K_M - recommended",
+                  "precision": "int4",
+                  "url": "ollama://qwen2.5:0.5b-instruct-q4_K_M",
+                  "quantization": "q4_k_m",
+                  "bits": 4,
+                  "vramMi": 2048,
+                  "vram": "2048Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "q8-0",
+                  "title": "Q8_0 - higher quality",
+                  "precision": "int8",
+                  "url": "ollama://qwen2.5:0.5b-instruct-q8_0",
+                  "quantization": "q8_0",
+                  "bits": 8,
+                  "vramMi": 2048,
+                  "vram": "2048Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "fp16",
+                  "title": "FP16 - full precision",
+                  "precision": "fp16",
+                  "url": "ollama://qwen2.5:0.5b-instruct-fp16",
+                  "bits": 16,
+                  "vramMi": 3072,
+                  "vram": "3072Mi",
+                  "format": "GGUF"
+                }
+              ]
+            },
+            {
+              "id": "vllm-amd",
+              "engine": "VLLM",
+              "computeTarget": "amd-gpu",
+              "architectures": [
+                "amd64"
+              ],
+              "url": "hf://Qwen/Qwen2.5-0.5B-Instruct",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-amd-gpu:1",
+              "vram": "4Gi",
+              "vramMi": 4096,
+              "contextWindow": 2048,
+              "maxOutputTokens": 1024,
+              "maxNumSeqs": 1,
+              "args": [
+                "--tensor-parallel-size=1",
+                "--max-model-len=2048",
+                "--max-num-seqs=1"
+              ],
+              "defaultArtifact": "bf16",
+              "artifacts": [
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen2.5-0.5B-Instruct",
+                  "bits": 16,
+                  "budgetMi": 4096,
+                  "vram": "4Gi",
+                  "vramMi": 4096,
+                  "format": "safetensors"
+                }
+              ]
+            },
+            {
+              "id": "ollama-amd",
+              "engine": "OLlama",
+              "computeTarget": "amd-gpu",
+              "architectures": [
+                "amd64"
+              ],
+              "url": "ollama://qwen2.5:0.5b",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-ollama-amd-gpu:1",
+              "vram": "2Gi",
+              "vramMi": 2048,
+              "contextWindow": 2048,
+              "maxOutputTokens": 1024,
+              "maxNumSeqs": 1,
+              "defaultArtifact": "q4-k-m",
+              "artifacts": [
+                {
+                  "id": "q4-k-m",
+                  "title": "Q4_K_M - recommended",
+                  "precision": "int4",
+                  "url": "ollama://qwen2.5:0.5b-instruct-q4_K_M",
+                  "quantization": "q4_k_m",
+                  "bits": 4,
+                  "vramMi": 2048,
+                  "vram": "2048Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "q8-0",
+                  "title": "Q8_0 - higher quality",
+                  "precision": "int8",
+                  "url": "ollama://qwen2.5:0.5b-instruct-q8_0",
+                  "quantization": "q8_0",
+                  "bits": 8,
+                  "vramMi": 2048,
+                  "vram": "2048Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "fp16",
+                  "title": "FP16 - full precision",
+                  "precision": "fp16",
+                  "url": "ollama://qwen2.5:0.5b-instruct-fp16",
+                  "bits": 16,
+                  "vramMi": 3072,
+                  "vram": "3072Mi",
+                  "format": "GGUF"
+                }
+              ]
+            },
+            {
+              "id": "vllm-intel",
+              "engine": "VLLM",
+              "computeTarget": "intel-gpu",
+              "architectures": [
+                "amd64"
+              ],
+              "url": "hf://Qwen/Qwen2.5-0.5B-Instruct",
+              "features": [
+                "TextGeneration"
+              ],
+              "vram": "4Gi",
+              "vramMi": 4096,
+              "contextWindow": 2048,
+              "maxOutputTokens": 1024,
+              "maxNumSeqs": 1,
+              "args": [
+                "--tensor-parallel-size=1",
+                "--max-model-len=2048",
+                "--max-num-seqs=1"
+              ],
+              "defaultArtifact": "bf16",
+              "artifacts": [
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen2.5-0.5B-Instruct",
+                  "bits": 16,
+                  "budgetMi": 4096,
+                  "vram": "4Gi",
+                  "vramMi": 4096,
+                  "format": "safetensors"
+                },
+                {
+                  "id": "gptq-int4",
+                  "title": "GPTQ Int4 - memory optimized",
+                  "precision": "int4",
+                  "url": "hf://Qwen/Qwen2.5-0.5B-Instruct-GPTQ-Int4",
+                  "quantization": "gptq",
+                  "bits": 4,
+                  "vramMi": 2048,
+                  "vram": "2048Mi",
+                  "format": "safetensors"
+                },
+                {
+                  "id": "gptq-int8",
+                  "title": "GPTQ Int8 - higher quality",
+                  "precision": "int8",
+                  "url": "hf://Qwen/Qwen2.5-0.5B-Instruct-GPTQ-Int8",
+                  "quantization": "gptq",
+                  "bits": 8,
+                  "vramMi": 2048,
+                  "vram": "2048Mi",
+                  "format": "safetensors"
+                }
+              ]
+            }
+          ]
+        },
+        "qwen3508b": {
+          "title": "Qwen3.5 0.8B (portable, backend-optimized)",
+          "type": "chat",
+          "variants": [
+            {
+              "id": "vllm-cpu",
+              "engine": "VLLM",
+              "computeTarget": "cpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "hf://Qwen/Qwen3.5-0.8B",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-vllm-cpu-memory:256",
+              "memoryRequiredMi": 4096,
+              "kvCacheMemoryBytes": 1073741824,
+              "contextWindow": 32768,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--max-model-len=32768",
+                "--max-num-seqs=1",
+                "--kv-cache-memory-bytes=1073741824",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "bf16",
+              "artifacts": [
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.5-0.8B",
+                  "bits": 16,
+                  "budgetMi": 4096,
+                  "memoryRequiredMi": 4096,
+                  "format": "safetensors"
+                }
+              ]
+            },
+            {
+              "id": "ollama-cpu",
+              "engine": "OLlama",
+              "computeTarget": "cpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "ollama://qwen3.5:0.8b-q8_0",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-ollama-cpu-memory:192",
+              "memoryRequiredMi": 3072,
+              "contextWindow": 32768,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "defaultArtifact": "q8-0",
+              "artifacts": [
+                {
+                  "id": "q8-0",
+                  "title": "Q8_0 - recommended",
+                  "precision": "int8",
+                  "url": "ollama://qwen3.5:0.8b-q8_0",
+                  "quantization": "q8_0",
+                  "bits": 8,
+                  "memoryRequiredMi": 3072,
+                  "format": "GGUF"
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "ollama://qwen3.5:0.8b-bf16",
+                  "bits": 16,
+                  "memoryRequiredMi": 4096,
+                  "format": "GGUF"
+                }
+              ]
+            },
+            {
+              "id": "vllm-nvidia",
+              "engine": "VLLM",
+              "computeTarget": "nvidia-gpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "hf://Qwen/Qwen3.5-0.8B",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-nvidia-gpu:1",
+              "vram": "4Gi",
+              "vramMi": 4096,
+              "contextWindow": 32768,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--tensor-parallel-size=1",
+                "--max-model-len=32768",
+                "--max-num-seqs=1",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "bf16",
+              "artifacts": [
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.5-0.8B",
+                  "bits": 16,
+                  "budgetMi": 4096,
+                  "vram": "4Gi",
+                  "vramMi": 4096,
+                  "format": "safetensors"
+                }
+              ]
+            },
+            {
+              "id": "ollama-nvidia",
+              "engine": "OLlama",
+              "computeTarget": "nvidia-gpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "ollama://qwen3.5:0.8b-q8_0",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-ollama-nvidia-gpu:1",
+              "vram": "3Gi",
+              "vramMi": 3072,
+              "contextWindow": 32768,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "defaultArtifact": "q8-0",
+              "artifacts": [
+                {
+                  "id": "q8-0",
+                  "title": "Q8_0 - recommended",
+                  "precision": "int8",
+                  "url": "ollama://qwen3.5:0.8b-q8_0",
+                  "quantization": "q8_0",
+                  "bits": 8,
+                  "vramMi": 3072,
+                  "vram": "3072Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "ollama://qwen3.5:0.8b-bf16",
+                  "bits": 16,
+                  "vramMi": 4096,
+                  "vram": "4096Mi",
+                  "format": "GGUF"
+                }
+              ]
+            },
+            {
+              "id": "vllm-amd",
+              "engine": "VLLM",
+              "computeTarget": "amd-gpu",
+              "architectures": [
+                "amd64"
+              ],
+              "url": "hf://Qwen/Qwen3.5-0.8B",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-amd-gpu:1",
+              "vram": "4Gi",
+              "vramMi": 4096,
+              "contextWindow": 32768,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--tensor-parallel-size=1",
+                "--max-model-len=32768",
+                "--max-num-seqs=1",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "bf16",
+              "artifacts": [
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.5-0.8B",
+                  "bits": 16,
+                  "budgetMi": 4096,
+                  "vram": "4Gi",
+                  "vramMi": 4096,
+                  "format": "safetensors"
+                }
+              ]
+            },
+            {
+              "id": "ollama-amd",
+              "engine": "OLlama",
+              "computeTarget": "amd-gpu",
+              "architectures": [
+                "amd64"
+              ],
+              "url": "ollama://qwen3.5:0.8b-q8_0",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-ollama-amd-gpu:1",
+              "vram": "3Gi",
+              "vramMi": 3072,
+              "contextWindow": 32768,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "defaultArtifact": "q8-0",
+              "artifacts": [
+                {
+                  "id": "q8-0",
+                  "title": "Q8_0 - recommended",
+                  "precision": "int8",
+                  "url": "ollama://qwen3.5:0.8b-q8_0",
+                  "quantization": "q8_0",
+                  "bits": 8,
+                  "vramMi": 3072,
+                  "vram": "3072Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "ollama://qwen3.5:0.8b-bf16",
+                  "bits": 16,
+                  "vramMi": 4096,
+                  "vram": "4096Mi",
+                  "format": "GGUF"
+                }
+              ]
+            },
+            {
+              "id": "vllm-intel",
+              "engine": "VLLM",
+              "computeTarget": "intel-gpu",
+              "architectures": [
+                "amd64"
+              ],
+              "url": "hf://Qwen/Qwen3.5-0.8B",
+              "features": [
+                "TextGeneration"
+              ],
+              "vram": "4Gi",
+              "vramMi": 4096,
+              "contextWindow": 32768,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--tensor-parallel-size=1",
+                "--max-model-len=32768",
+                "--max-num-seqs=1",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "bf16",
+              "artifacts": [
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.5-0.8B",
+                  "bits": 16,
+                  "budgetMi": 4096,
+                  "vram": "4Gi",
+                  "vramMi": 4096,
+                  "format": "safetensors"
+                }
+              ]
+            }
+          ]
+        },
+        "qwen352b": {
+          "title": "Qwen3.5 2B (portable, backend-optimized)",
+          "type": "chat",
+          "variants": [
+            {
+              "id": "vllm-cpu",
+              "engine": "VLLM",
+              "computeTarget": "cpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "hf://Qwen/Qwen3.5-2B",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-vllm-cpu-memory:512",
+              "memoryRequiredMi": 8192,
+              "kvCacheMemoryBytes": 1073741824,
+              "contextWindow": 32768,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--max-model-len=32768",
+                "--max-num-seqs=1",
+                "--kv-cache-memory-bytes=1073741824",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "bf16",
+              "artifacts": [
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.5-2B",
+                  "bits": 16,
+                  "budgetMi": 8192,
+                  "memoryRequiredMi": 8192,
+                  "format": "safetensors"
+                }
+              ]
+            },
+            {
+              "id": "ollama-cpu",
+              "engine": "OLlama",
+              "computeTarget": "cpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "ollama://qwen3.5:2b-q4_K_M",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-ollama-cpu-memory:256",
+              "memoryRequiredMi": 4096,
+              "contextWindow": 32768,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "defaultArtifact": "q4-k-m",
+              "artifacts": [
+                {
+                  "id": "q4-k-m",
+                  "title": "Q4_K_M - recommended",
+                  "precision": "int4",
+                  "url": "ollama://qwen3.5:2b-q4_K_M",
+                  "quantization": "q4_k_m",
+                  "bits": 4,
+                  "memoryRequiredMi": 4096,
+                  "format": "GGUF"
+                },
+                {
+                  "id": "q8-0",
+                  "title": "Q8_0 - higher quality",
+                  "precision": "int8",
+                  "url": "ollama://qwen3.5:2b-q8_0",
+                  "quantization": "q8_0",
+                  "bits": 8,
+                  "memoryRequiredMi": 5120,
+                  "format": "GGUF"
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "ollama://qwen3.5:2b-bf16",
+                  "bits": 16,
+                  "memoryRequiredMi": 7168,
+                  "format": "GGUF"
+                }
+              ]
+            },
+            {
+              "id": "vllm-nvidia",
+              "engine": "VLLM",
+              "computeTarget": "nvidia-gpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "hf://Qwen/Qwen3.5-2B",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-nvidia-gpu:1",
+              "vram": "8Gi",
+              "vramMi": 8192,
+              "contextWindow": 32768,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--tensor-parallel-size=1",
+                "--max-model-len=32768",
+                "--max-num-seqs=1",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "bf16",
+              "artifacts": [
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.5-2B",
+                  "bits": 16,
+                  "budgetMi": 8192,
+                  "vram": "8Gi",
+                  "vramMi": 8192,
+                  "format": "safetensors"
+                }
+              ]
+            },
+            {
+              "id": "ollama-nvidia",
+              "engine": "OLlama",
+              "computeTarget": "nvidia-gpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "ollama://qwen3.5:2b-q4_K_M",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-ollama-nvidia-gpu:1",
+              "vram": "4Gi",
+              "vramMi": 4096,
+              "contextWindow": 32768,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "defaultArtifact": "q4-k-m",
+              "artifacts": [
+                {
+                  "id": "q4-k-m",
+                  "title": "Q4_K_M - recommended",
+                  "precision": "int4",
+                  "url": "ollama://qwen3.5:2b-q4_K_M",
+                  "quantization": "q4_k_m",
+                  "bits": 4,
+                  "vramMi": 4096,
+                  "vram": "4096Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "q8-0",
+                  "title": "Q8_0 - higher quality",
+                  "precision": "int8",
+                  "url": "ollama://qwen3.5:2b-q8_0",
+                  "quantization": "q8_0",
+                  "bits": 8,
+                  "vramMi": 5120,
+                  "vram": "5120Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "ollama://qwen3.5:2b-bf16",
+                  "bits": 16,
+                  "vramMi": 7168,
+                  "vram": "7168Mi",
+                  "format": "GGUF"
+                }
+              ]
+            },
+            {
+              "id": "vllm-amd",
+              "engine": "VLLM",
+              "computeTarget": "amd-gpu",
+              "architectures": [
+                "amd64"
+              ],
+              "url": "hf://Qwen/Qwen3.5-2B",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-amd-gpu:1",
+              "vram": "8Gi",
+              "vramMi": 8192,
+              "contextWindow": 32768,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--tensor-parallel-size=1",
+                "--max-model-len=32768",
+                "--max-num-seqs=1",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "bf16",
+              "artifacts": [
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.5-2B",
+                  "bits": 16,
+                  "budgetMi": 8192,
+                  "vram": "8Gi",
+                  "vramMi": 8192,
+                  "format": "safetensors"
+                }
+              ]
+            },
+            {
+              "id": "ollama-amd",
+              "engine": "OLlama",
+              "computeTarget": "amd-gpu",
+              "architectures": [
+                "amd64"
+              ],
+              "url": "ollama://qwen3.5:2b-q4_K_M",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-ollama-amd-gpu:1",
+              "vram": "4Gi",
+              "vramMi": 4096,
+              "contextWindow": 32768,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "defaultArtifact": "q4-k-m",
+              "artifacts": [
+                {
+                  "id": "q4-k-m",
+                  "title": "Q4_K_M - recommended",
+                  "precision": "int4",
+                  "url": "ollama://qwen3.5:2b-q4_K_M",
+                  "quantization": "q4_k_m",
+                  "bits": 4,
+                  "vramMi": 4096,
+                  "vram": "4096Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "q8-0",
+                  "title": "Q8_0 - higher quality",
+                  "precision": "int8",
+                  "url": "ollama://qwen3.5:2b-q8_0",
+                  "quantization": "q8_0",
+                  "bits": 8,
+                  "vramMi": 5120,
+                  "vram": "5120Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "ollama://qwen3.5:2b-bf16",
+                  "bits": 16,
+                  "vramMi": 7168,
+                  "vram": "7168Mi",
+                  "format": "GGUF"
+                }
+              ]
+            },
+            {
+              "id": "vllm-intel",
+              "engine": "VLLM",
+              "computeTarget": "intel-gpu",
+              "architectures": [
+                "amd64"
+              ],
+              "url": "hf://Qwen/Qwen3.5-2B",
+              "features": [
+                "TextGeneration"
+              ],
+              "vram": "8Gi",
+              "vramMi": 8192,
+              "contextWindow": 32768,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--tensor-parallel-size=1",
+                "--max-model-len=32768",
+                "--max-num-seqs=1",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "bf16",
+              "artifacts": [
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.5-2B",
+                  "bits": 16,
+                  "budgetMi": 8192,
+                  "vram": "8Gi",
+                  "vramMi": 8192,
+                  "format": "safetensors"
+                }
+              ]
+            }
+          ]
+        },
+        "qwen354b": {
+          "title": "Qwen3.5 4B (portable, backend-optimized)",
+          "type": "chat",
+          "variants": [
+            {
+              "id": "vllm-cpu",
+              "engine": "VLLM",
+              "computeTarget": "cpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "hf://Qwen/Qwen3.5-4B",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-vllm-cpu-memory:896",
+              "memoryRequiredMi": 14336,
+              "kvCacheMemoryBytes": 1073741824,
+              "contextWindow": 32768,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--max-model-len=32768",
+                "--max-num-seqs=1",
+                "--kv-cache-memory-bytes=1073741824",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "bf16",
+              "artifacts": [
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.5-4B",
+                  "bits": 16,
+                  "budgetMi": 14336,
+                  "memoryRequiredMi": 14336,
+                  "format": "safetensors"
+                }
+              ]
+            },
+            {
+              "id": "ollama-cpu",
+              "engine": "OLlama",
+              "computeTarget": "cpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "ollama://qwen3.5:4b-q4_K_M",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-ollama-cpu-memory:384",
+              "memoryRequiredMi": 6144,
+              "contextWindow": 32768,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "defaultArtifact": "q4-k-m",
+              "artifacts": [
+                {
+                  "id": "q4-k-m",
+                  "title": "Q4_K_M - recommended",
+                  "precision": "int4",
+                  "url": "ollama://qwen3.5:4b-q4_K_M",
+                  "quantization": "q4_k_m",
+                  "bits": 4,
+                  "memoryRequiredMi": 6144,
+                  "format": "GGUF"
+                },
+                {
+                  "id": "q8-0",
+                  "title": "Q8_0 - higher quality",
+                  "precision": "int8",
+                  "url": "ollama://qwen3.5:4b-q8_0",
+                  "quantization": "q8_0",
+                  "bits": 8,
+                  "memoryRequiredMi": 8192,
+                  "format": "GGUF"
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "ollama://qwen3.5:4b-bf16",
+                  "bits": 16,
+                  "memoryRequiredMi": 12288,
+                  "format": "GGUF"
+                }
+              ]
+            },
+            {
+              "id": "vllm-nvidia",
+              "engine": "VLLM",
+              "computeTarget": "nvidia-gpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "hf://Qwen/Qwen3.5-4B",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-nvidia-gpu:1",
+              "vram": "14Gi",
+              "vramMi": 14336,
+              "contextWindow": 32768,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--tensor-parallel-size=1",
+                "--max-model-len=32768",
+                "--max-num-seqs=1",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "bf16",
+              "artifacts": [
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.5-4B",
+                  "bits": 16,
+                  "budgetMi": 14336,
+                  "vram": "14Gi",
+                  "vramMi": 14336,
+                  "format": "safetensors"
+                }
+              ]
+            },
+            {
+              "id": "ollama-nvidia",
+              "engine": "OLlama",
+              "computeTarget": "nvidia-gpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "ollama://qwen3.5:4b-q4_K_M",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-ollama-nvidia-gpu:1",
+              "vram": "6Gi",
+              "vramMi": 6144,
+              "contextWindow": 32768,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "defaultArtifact": "q4-k-m",
+              "artifacts": [
+                {
+                  "id": "q4-k-m",
+                  "title": "Q4_K_M - recommended",
+                  "precision": "int4",
+                  "url": "ollama://qwen3.5:4b-q4_K_M",
+                  "quantization": "q4_k_m",
+                  "bits": 4,
+                  "vramMi": 6144,
+                  "vram": "6144Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "q8-0",
+                  "title": "Q8_0 - higher quality",
+                  "precision": "int8",
+                  "url": "ollama://qwen3.5:4b-q8_0",
+                  "quantization": "q8_0",
+                  "bits": 8,
+                  "vramMi": 8192,
+                  "vram": "8192Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "ollama://qwen3.5:4b-bf16",
+                  "bits": 16,
+                  "vramMi": 12288,
+                  "vram": "12288Mi",
+                  "format": "GGUF"
+                }
+              ]
+            },
+            {
+              "id": "vllm-amd",
+              "engine": "VLLM",
+              "computeTarget": "amd-gpu",
+              "architectures": [
+                "amd64"
+              ],
+              "url": "hf://Qwen/Qwen3.5-4B",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-amd-gpu:1",
+              "vram": "14Gi",
+              "vramMi": 14336,
+              "contextWindow": 32768,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--tensor-parallel-size=1",
+                "--max-model-len=32768",
+                "--max-num-seqs=1",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "bf16",
+              "artifacts": [
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.5-4B",
+                  "bits": 16,
+                  "budgetMi": 14336,
+                  "vram": "14Gi",
+                  "vramMi": 14336,
+                  "format": "safetensors"
+                }
+              ]
+            },
+            {
+              "id": "ollama-amd",
+              "engine": "OLlama",
+              "computeTarget": "amd-gpu",
+              "architectures": [
+                "amd64"
+              ],
+              "url": "ollama://qwen3.5:4b-q4_K_M",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-ollama-amd-gpu:1",
+              "vram": "6Gi",
+              "vramMi": 6144,
+              "contextWindow": 32768,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "defaultArtifact": "q4-k-m",
+              "artifacts": [
+                {
+                  "id": "q4-k-m",
+                  "title": "Q4_K_M - recommended",
+                  "precision": "int4",
+                  "url": "ollama://qwen3.5:4b-q4_K_M",
+                  "quantization": "q4_k_m",
+                  "bits": 4,
+                  "vramMi": 6144,
+                  "vram": "6144Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "q8-0",
+                  "title": "Q8_0 - higher quality",
+                  "precision": "int8",
+                  "url": "ollama://qwen3.5:4b-q8_0",
+                  "quantization": "q8_0",
+                  "bits": 8,
+                  "vramMi": 8192,
+                  "vram": "8192Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "ollama://qwen3.5:4b-bf16",
+                  "bits": 16,
+                  "vramMi": 12288,
+                  "vram": "12288Mi",
+                  "format": "GGUF"
+                }
+              ]
+            },
+            {
+              "id": "vllm-intel",
+              "engine": "VLLM",
+              "computeTarget": "intel-gpu",
+              "architectures": [
+                "amd64"
+              ],
+              "url": "hf://Qwen/Qwen3.5-4B",
+              "features": [
+                "TextGeneration"
+              ],
+              "vram": "14Gi",
+              "vramMi": 14336,
+              "contextWindow": 32768,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--tensor-parallel-size=1",
+                "--max-model-len=32768",
+                "--max-num-seqs=1",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "bf16",
+              "artifacts": [
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.5-4B",
+                  "bits": 16,
+                  "budgetMi": 14336,
+                  "vram": "14Gi",
+                  "vramMi": 14336,
+                  "format": "safetensors"
+                }
+              ]
+            }
+          ]
+        },
+        "qwen359b": {
+          "title": "Qwen3.5 9B (portable, backend-optimized)",
+          "type": "chat",
+          "variants": [
+            {
+              "id": "vllm-cpu",
+              "engine": "VLLM",
+              "computeTarget": "cpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "hf://Qwen/Qwen3.5-9B",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-vllm-cpu-memory:1600",
+              "memoryRequiredMi": 25600,
+              "kvCacheMemoryBytes": 1073741824,
+              "contextWindow": 32768,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--max-model-len=32768",
+                "--max-num-seqs=1",
+                "--kv-cache-memory-bytes=1073741824",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "bf16",
+              "artifacts": [
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.5-9B",
+                  "bits": 16,
+                  "budgetMi": 25600,
+                  "memoryRequiredMi": 25600,
+                  "format": "safetensors"
+                }
+              ]
+            },
+            {
+              "id": "ollama-cpu",
+              "engine": "OLlama",
+              "computeTarget": "cpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "ollama://qwen3.5:9b-q4_K_M",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-ollama-cpu-memory:640",
+              "memoryRequiredMi": 10240,
+              "contextWindow": 32768,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "defaultArtifact": "q4-k-m",
+              "artifacts": [
+                {
+                  "id": "q4-k-m",
+                  "title": "Q4_K_M - recommended",
+                  "precision": "int4",
+                  "url": "ollama://qwen3.5:9b-q4_K_M",
+                  "quantization": "q4_k_m",
+                  "bits": 4,
+                  "memoryRequiredMi": 10240,
+                  "format": "GGUF"
+                },
+                {
+                  "id": "q8-0",
+                  "title": "Q8_0 - higher quality",
+                  "precision": "int8",
+                  "url": "ollama://qwen3.5:9b-q8_0",
+                  "quantization": "q8_0",
+                  "bits": 8,
+                  "memoryRequiredMi": 16384,
+                  "format": "GGUF"
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "ollama://qwen3.5:9b-bf16",
+                  "bits": 16,
+                  "memoryRequiredMi": 24576,
+                  "format": "GGUF"
+                }
+              ]
+            },
+            {
+              "id": "vllm-nvidia",
+              "engine": "VLLM",
+              "computeTarget": "nvidia-gpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "hf://cyankiwi/Qwen3.5-9B-AWQ-4bit",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-nvidia-gpu:1",
+              "vram": "16Gi",
+              "vramMi": 16384,
+              "contextWindow": 32768,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--tensor-parallel-size=1",
+                "--max-model-len=32768",
+                "--max-num-seqs=1",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "awq-int4",
+              "artifacts": [
+                {
+                  "id": "awq-int4",
+                  "title": "AWQ Int4 - memory optimized",
+                  "precision": "int4",
+                  "url": "hf://cyankiwi/Qwen3.5-9B-AWQ-4bit",
+                  "quantization": "awq",
+                  "bits": 4,
+                  "budgetMi": 16384,
+                  "vram": "16Gi",
+                  "vramMi": 16384,
+                  "format": "safetensors"
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.5-9B",
+                  "bits": 16,
+                  "vramMi": 25600,
+                  "vram": "25600Mi",
+                  "format": "safetensors"
+                }
+              ]
+            },
+            {
+              "id": "ollama-nvidia",
+              "engine": "OLlama",
+              "computeTarget": "nvidia-gpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "ollama://qwen3.5:9b-q4_K_M",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-ollama-nvidia-gpu:1",
+              "vram": "10Gi",
+              "vramMi": 10240,
+              "contextWindow": 32768,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "defaultArtifact": "q4-k-m",
+              "artifacts": [
+                {
+                  "id": "q4-k-m",
+                  "title": "Q4_K_M - recommended",
+                  "precision": "int4",
+                  "url": "ollama://qwen3.5:9b-q4_K_M",
+                  "quantization": "q4_k_m",
+                  "bits": 4,
+                  "vramMi": 10240,
+                  "vram": "10240Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "q8-0",
+                  "title": "Q8_0 - higher quality",
+                  "precision": "int8",
+                  "url": "ollama://qwen3.5:9b-q8_0",
+                  "quantization": "q8_0",
+                  "bits": 8,
+                  "vramMi": 16384,
+                  "vram": "16384Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "ollama://qwen3.5:9b-bf16",
+                  "bits": 16,
+                  "vramMi": 24576,
+                  "vram": "24576Mi",
+                  "format": "GGUF"
+                }
+              ]
+            },
+            {
+              "id": "vllm-amd",
+              "engine": "VLLM",
+              "computeTarget": "amd-gpu",
+              "architectures": [
+                "amd64"
+              ],
+              "url": "hf://Qwen/Qwen3.5-9B",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-amd-gpu:1",
+              "vram": "25Gi",
+              "vramMi": 25600,
+              "contextWindow": 32768,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--tensor-parallel-size=1",
+                "--max-model-len=32768",
+                "--max-num-seqs=1",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "bf16",
+              "artifacts": [
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.5-9B",
+                  "bits": 16,
+                  "budgetMi": 25600,
+                  "vram": "25Gi",
+                  "vramMi": 25600,
+                  "format": "safetensors"
+                }
+              ]
+            },
+            {
+              "id": "ollama-amd",
+              "engine": "OLlama",
+              "computeTarget": "amd-gpu",
+              "architectures": [
+                "amd64"
+              ],
+              "url": "ollama://qwen3.5:9b-q4_K_M",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-ollama-amd-gpu:1",
+              "vram": "10Gi",
+              "vramMi": 10240,
+              "contextWindow": 32768,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "defaultArtifact": "q4-k-m",
+              "artifacts": [
+                {
+                  "id": "q4-k-m",
+                  "title": "Q4_K_M - recommended",
+                  "precision": "int4",
+                  "url": "ollama://qwen3.5:9b-q4_K_M",
+                  "quantization": "q4_k_m",
+                  "bits": 4,
+                  "vramMi": 10240,
+                  "vram": "10240Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "q8-0",
+                  "title": "Q8_0 - higher quality",
+                  "precision": "int8",
+                  "url": "ollama://qwen3.5:9b-q8_0",
+                  "quantization": "q8_0",
+                  "bits": 8,
+                  "vramMi": 16384,
+                  "vram": "16384Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "ollama://qwen3.5:9b-bf16",
+                  "bits": 16,
+                  "vramMi": 24576,
+                  "vram": "24576Mi",
+                  "format": "GGUF"
+                }
+              ]
+            },
+            {
+              "id": "vllm-intel",
+              "engine": "VLLM",
+              "computeTarget": "intel-gpu",
+              "architectures": [
+                "amd64"
+              ],
+              "url": "hf://Qwen/Qwen3.5-9B",
+              "features": [
+                "TextGeneration"
+              ],
+              "vram": "25Gi",
+              "vramMi": 25600,
+              "contextWindow": 32768,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--tensor-parallel-size=1",
+                "--max-model-len=32768",
+                "--max-num-seqs=1",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "bf16",
+              "artifacts": [
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.5-9B",
+                  "bits": 16,
+                  "budgetMi": 25600,
+                  "vram": "25Gi",
+                  "vramMi": 25600,
+                  "format": "safetensors"
+                }
+              ]
+            }
+          ]
+        },
+        "qwen3527b": {
+          "title": "Qwen3.5 27B (portable, backend-optimized)",
+          "type": "chat",
+          "variants": [
+            {
+              "id": "vllm-cpu",
+              "engine": "VLLM",
+              "computeTarget": "cpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "hf://Qwen/Qwen3.5-27B",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-vllm-cpu-memory:4096",
+              "memoryRequiredMi": 65536,
+              "kvCacheMemoryBytes": 2147483648,
+              "contextWindow": 16384,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--max-model-len=16384",
+                "--max-num-seqs=1",
+                "--kv-cache-memory-bytes=2147483648",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "bf16",
+              "artifacts": [
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.5-27B",
+                  "bits": 16,
+                  "budgetMi": 65536,
+                  "memoryRequiredMi": 65536,
+                  "format": "safetensors"
+                }
+              ]
+            },
+            {
+              "id": "ollama-cpu",
+              "engine": "OLlama",
+              "computeTarget": "cpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "ollama://qwen3.5:27b-q4_K_M",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-ollama-cpu-memory:1536",
+              "memoryRequiredMi": 24576,
+              "contextWindow": 16384,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "defaultArtifact": "q4-k-m",
+              "artifacts": [
+                {
+                  "id": "q4-k-m",
+                  "title": "Q4_K_M - recommended",
+                  "precision": "int4",
+                  "url": "ollama://qwen3.5:27b-q4_K_M",
+                  "quantization": "q4_k_m",
+                  "bits": 4,
+                  "memoryRequiredMi": 24576,
+                  "format": "GGUF"
+                },
+                {
+                  "id": "q8-0",
+                  "title": "Q8_0 - higher quality",
+                  "precision": "int8",
+                  "url": "ollama://qwen3.5:27b-q8_0",
+                  "quantization": "q8_0",
+                  "bits": 8,
+                  "memoryRequiredMi": 40960,
+                  "format": "GGUF"
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "ollama://qwen3.5:27b-bf16",
+                  "bits": 16,
+                  "memoryRequiredMi": 65536,
+                  "format": "GGUF"
+                }
+              ]
+            },
+            {
+              "id": "vllm-nvidia",
+              "engine": "VLLM",
+              "computeTarget": "nvidia-gpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "hf://Qwen/Qwen3.5-27B-GPTQ-Int4",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-nvidia-gpu:1",
+              "vram": "40Gi",
+              "vramMi": 40960,
+              "contextWindow": 16384,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--tensor-parallel-size=1",
+                "--max-model-len=16384",
+                "--max-num-seqs=1",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "gptq-int4",
+              "artifacts": [
+                {
+                  "id": "gptq-int4",
+                  "title": "GPTQ Int4 - memory optimized",
+                  "precision": "int4",
+                  "url": "hf://Qwen/Qwen3.5-27B-GPTQ-Int4",
+                  "quantization": "gptq",
+                  "bits": 4,
+                  "budgetMi": 40960,
+                  "vram": "40Gi",
+                  "vramMi": 40960,
+                  "format": "safetensors"
+                },
+                {
+                  "id": "fp8",
+                  "title": "FP8 - compatible accelerator",
+                  "precision": "fp8",
+                  "url": "hf://Qwen/Qwen3.5-27B-FP8",
+                  "quantization": "fp8",
+                  "bits": 8,
+                  "compatibilityNote": "Requires an FP8-capable NVIDIA GPU.",
+                  "vramMi": 40960,
+                  "vram": "40960Mi",
+                  "format": "safetensors"
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.5-27B",
+                  "bits": 16,
+                  "vramMi": 65536,
+                  "vram": "65536Mi",
+                  "format": "safetensors"
+                }
+              ]
+            },
+            {
+              "id": "ollama-nvidia",
+              "engine": "OLlama",
+              "computeTarget": "nvidia-gpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "ollama://qwen3.5:27b-q4_K_M",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-ollama-nvidia-gpu:1",
+              "vram": "24Gi",
+              "vramMi": 24576,
+              "contextWindow": 16384,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "defaultArtifact": "q4-k-m",
+              "artifacts": [
+                {
+                  "id": "q4-k-m",
+                  "title": "Q4_K_M - recommended",
+                  "precision": "int4",
+                  "url": "ollama://qwen3.5:27b-q4_K_M",
+                  "quantization": "q4_k_m",
+                  "bits": 4,
+                  "vramMi": 24576,
+                  "vram": "24576Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "q8-0",
+                  "title": "Q8_0 - higher quality",
+                  "precision": "int8",
+                  "url": "ollama://qwen3.5:27b-q8_0",
+                  "quantization": "q8_0",
+                  "bits": 8,
+                  "vramMi": 40960,
+                  "vram": "40960Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "ollama://qwen3.5:27b-bf16",
+                  "bits": 16,
+                  "vramMi": 65536,
+                  "vram": "65536Mi",
+                  "format": "GGUF"
+                }
+              ]
+            },
+            {
+              "id": "vllm-amd",
+              "engine": "VLLM",
+              "computeTarget": "amd-gpu",
+              "architectures": [
+                "amd64"
+              ],
+              "url": "hf://Qwen/Qwen3.5-27B",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-amd-gpu:1",
+              "vram": "64Gi",
+              "vramMi": 65536,
+              "contextWindow": 16384,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--tensor-parallel-size=1",
+                "--max-model-len=16384",
+                "--max-num-seqs=1",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "bf16",
+              "artifacts": [
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.5-27B",
+                  "bits": 16,
+                  "budgetMi": 65536,
+                  "vram": "64Gi",
+                  "vramMi": 65536,
+                  "format": "safetensors"
+                },
+                {
+                  "id": "fp8",
+                  "title": "FP8 - compatible ROCm GPU",
+                  "precision": "fp8",
+                  "url": "hf://Qwen/Qwen3.5-27B-FP8",
+                  "quantization": "fp8",
+                  "bits": 8,
+                  "compatibilityNote": "Requires an AMD GPU and ROCm runtime with FP8 support.",
+                  "vramMi": 40960,
+                  "vram": "40960Mi",
+                  "format": "safetensors"
+                }
+              ]
+            },
+            {
+              "id": "ollama-amd",
+              "engine": "OLlama",
+              "computeTarget": "amd-gpu",
+              "architectures": [
+                "amd64"
+              ],
+              "url": "ollama://qwen3.5:27b-q4_K_M",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-ollama-amd-gpu:1",
+              "vram": "24Gi",
+              "vramMi": 24576,
+              "contextWindow": 16384,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "defaultArtifact": "q4-k-m",
+              "artifacts": [
+                {
+                  "id": "q4-k-m",
+                  "title": "Q4_K_M - recommended",
+                  "precision": "int4",
+                  "url": "ollama://qwen3.5:27b-q4_K_M",
+                  "quantization": "q4_k_m",
+                  "bits": 4,
+                  "vramMi": 24576,
+                  "vram": "24576Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "q8-0",
+                  "title": "Q8_0 - higher quality",
+                  "precision": "int8",
+                  "url": "ollama://qwen3.5:27b-q8_0",
+                  "quantization": "q8_0",
+                  "bits": 8,
+                  "vramMi": 40960,
+                  "vram": "40960Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "ollama://qwen3.5:27b-bf16",
+                  "bits": 16,
+                  "vramMi": 65536,
+                  "vram": "65536Mi",
+                  "format": "GGUF"
+                }
+              ]
+            },
+            {
+              "id": "vllm-intel",
+              "engine": "VLLM",
+              "computeTarget": "intel-gpu",
+              "architectures": [
+                "amd64"
+              ],
+              "url": "hf://Qwen/Qwen3.5-27B-GPTQ-Int4",
+              "features": [
+                "TextGeneration"
+              ],
+              "vram": "40Gi",
+              "vramMi": 40960,
+              "contextWindow": 16384,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--tensor-parallel-size=1",
+                "--max-model-len=16384",
+                "--max-num-seqs=1",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "gptq-int4",
+              "artifacts": [
+                {
+                  "id": "gptq-int4",
+                  "title": "GPTQ Int4 - memory optimized",
+                  "precision": "int4",
+                  "url": "hf://Qwen/Qwen3.5-27B-GPTQ-Int4",
+                  "quantization": "gptq",
+                  "bits": 4,
+                  "budgetMi": 40960,
+                  "vram": "40Gi",
+                  "vramMi": 40960,
+                  "format": "safetensors"
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.5-27B",
+                  "bits": 16,
+                  "vramMi": 65536,
+                  "vram": "65536Mi",
+                  "format": "safetensors"
+                }
+              ]
+            }
+          ]
+        },
+        "qwen3535b": {
+          "title": "Qwen3.5 35B A3B (portable, backend-optimized)",
+          "type": "chat",
+          "variants": [
+            {
+              "id": "vllm-cpu",
+              "engine": "VLLM",
+              "computeTarget": "cpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "hf://Qwen/Qwen3.5-35B-A3B",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-vllm-cpu-memory:5120",
+              "memoryRequiredMi": 81920,
+              "kvCacheMemoryBytes": 2147483648,
+              "contextWindow": 16384,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--max-model-len=16384",
+                "--max-num-seqs=1",
+                "--kv-cache-memory-bytes=2147483648",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "bf16",
+              "artifacts": [
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.5-35B-A3B",
+                  "bits": 16,
+                  "budgetMi": 81920,
+                  "memoryRequiredMi": 81920,
+                  "format": "safetensors"
+                }
+              ]
+            },
+            {
+              "id": "ollama-cpu",
+              "engine": "OLlama",
+              "computeTarget": "cpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "ollama://qwen3.5:35b-a3b-q4_K_M",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-ollama-cpu-memory:1920",
+              "memoryRequiredMi": 30720,
+              "contextWindow": 16384,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "defaultArtifact": "q4-k-m",
+              "artifacts": [
+                {
+                  "id": "q4-k-m",
+                  "title": "Q4_K_M - recommended",
+                  "precision": "int4",
+                  "url": "ollama://qwen3.5:35b-a3b-q4_K_M",
+                  "quantization": "q4_k_m",
+                  "bits": 4,
+                  "memoryRequiredMi": 30720,
+                  "format": "GGUF"
+                },
+                {
+                  "id": "q8-0",
+                  "title": "Q8_0 - higher quality",
+                  "precision": "int8",
+                  "url": "ollama://qwen3.5:35b-a3b-q8_0",
+                  "quantization": "q8_0",
+                  "bits": 8,
+                  "memoryRequiredMi": 49152,
+                  "format": "GGUF"
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "ollama://qwen3.5:35b-a3b-bf16",
+                  "bits": 16,
+                  "memoryRequiredMi": 81920,
+                  "format": "GGUF"
+                }
+              ]
+            },
+            {
+              "id": "vllm-nvidia",
+              "engine": "VLLM",
+              "computeTarget": "nvidia-gpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "hf://Qwen/Qwen3.5-35B-A3B-GPTQ-Int4",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-nvidia-gpu:1",
+              "vram": "32Gi",
+              "vramMi": 32768,
+              "contextWindow": 16384,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--tensor-parallel-size=1",
+                "--max-model-len=16384",
+                "--max-num-seqs=1",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "gptq-int4",
+              "artifacts": [
+                {
+                  "id": "gptq-int4",
+                  "title": "GPTQ Int4 - memory optimized",
+                  "precision": "int4",
+                  "url": "hf://Qwen/Qwen3.5-35B-A3B-GPTQ-Int4",
+                  "quantization": "gptq",
+                  "bits": 4,
+                  "budgetMi": 32768,
+                  "vram": "32Gi",
+                  "vramMi": 32768,
+                  "format": "safetensors"
+                },
+                {
+                  "id": "fp8",
+                  "title": "FP8 - compatible accelerator",
+                  "precision": "fp8",
+                  "url": "hf://Qwen/Qwen3.5-35B-A3B-FP8",
+                  "quantization": "fp8",
+                  "bits": 8,
+                  "compatibilityNote": "Requires an FP8-capable NVIDIA GPU.",
+                  "vramMi": 49152,
+                  "vram": "49152Mi",
+                  "format": "safetensors"
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.5-35B-A3B",
+                  "bits": 16,
+                  "vramMi": 81920,
+                  "vram": "81920Mi",
+                  "format": "safetensors"
+                }
+              ]
+            },
+            {
+              "id": "ollama-nvidia",
+              "engine": "OLlama",
+              "computeTarget": "nvidia-gpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "ollama://qwen3.5:35b-a3b-q4_K_M",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-ollama-nvidia-gpu:1",
+              "vram": "30Gi",
+              "vramMi": 30720,
+              "contextWindow": 16384,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "defaultArtifact": "q4-k-m",
+              "artifacts": [
+                {
+                  "id": "q4-k-m",
+                  "title": "Q4_K_M - recommended",
+                  "precision": "int4",
+                  "url": "ollama://qwen3.5:35b-a3b-q4_K_M",
+                  "quantization": "q4_k_m",
+                  "bits": 4,
+                  "vramMi": 30720,
+                  "vram": "30720Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "q8-0",
+                  "title": "Q8_0 - higher quality",
+                  "precision": "int8",
+                  "url": "ollama://qwen3.5:35b-a3b-q8_0",
+                  "quantization": "q8_0",
+                  "bits": 8,
+                  "vramMi": 49152,
+                  "vram": "49152Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "ollama://qwen3.5:35b-a3b-bf16",
+                  "bits": 16,
+                  "vramMi": 81920,
+                  "vram": "81920Mi",
+                  "format": "GGUF"
+                }
+              ]
+            },
+            {
+              "id": "vllm-amd",
+              "engine": "VLLM",
+              "computeTarget": "amd-gpu",
+              "architectures": [
+                "amd64"
+              ],
+              "url": "hf://Qwen/Qwen3.5-35B-A3B",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-amd-gpu:1",
+              "vram": "80Gi",
+              "vramMi": 81920,
+              "contextWindow": 16384,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--tensor-parallel-size=1",
+                "--max-model-len=16384",
+                "--max-num-seqs=1",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "bf16",
+              "artifacts": [
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.5-35B-A3B",
+                  "bits": 16,
+                  "budgetMi": 81920,
+                  "vram": "80Gi",
+                  "vramMi": 81920,
+                  "format": "safetensors"
+                },
+                {
+                  "id": "fp8",
+                  "title": "FP8 - compatible ROCm GPU",
+                  "precision": "fp8",
+                  "url": "hf://Qwen/Qwen3.5-35B-A3B-FP8",
+                  "quantization": "fp8",
+                  "bits": 8,
+                  "compatibilityNote": "Requires an AMD GPU and ROCm runtime with FP8 support.",
+                  "vramMi": 49152,
+                  "vram": "49152Mi",
+                  "format": "safetensors"
+                }
+              ]
+            },
+            {
+              "id": "ollama-amd",
+              "engine": "OLlama",
+              "computeTarget": "amd-gpu",
+              "architectures": [
+                "amd64"
+              ],
+              "url": "ollama://qwen3.5:35b-a3b-q4_K_M",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-ollama-amd-gpu:1",
+              "vram": "30Gi",
+              "vramMi": 30720,
+              "contextWindow": 16384,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "defaultArtifact": "q4-k-m",
+              "artifacts": [
+                {
+                  "id": "q4-k-m",
+                  "title": "Q4_K_M - recommended",
+                  "precision": "int4",
+                  "url": "ollama://qwen3.5:35b-a3b-q4_K_M",
+                  "quantization": "q4_k_m",
+                  "bits": 4,
+                  "vramMi": 30720,
+                  "vram": "30720Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "q8-0",
+                  "title": "Q8_0 - higher quality",
+                  "precision": "int8",
+                  "url": "ollama://qwen3.5:35b-a3b-q8_0",
+                  "quantization": "q8_0",
+                  "bits": 8,
+                  "vramMi": 49152,
+                  "vram": "49152Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "ollama://qwen3.5:35b-a3b-bf16",
+                  "bits": 16,
+                  "vramMi": 81920,
+                  "vram": "81920Mi",
+                  "format": "GGUF"
+                }
+              ]
+            },
+            {
+              "id": "vllm-intel",
+              "engine": "VLLM",
+              "computeTarget": "intel-gpu",
+              "architectures": [
+                "amd64"
+              ],
+              "url": "hf://Qwen/Qwen3.5-35B-A3B-GPTQ-Int4",
+              "features": [
+                "TextGeneration"
+              ],
+              "vram": "32Gi",
+              "vramMi": 32768,
+              "contextWindow": 16384,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--tensor-parallel-size=1",
+                "--max-model-len=16384",
+                "--max-num-seqs=1",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "gptq-int4",
+              "artifacts": [
+                {
+                  "id": "gptq-int4",
+                  "title": "GPTQ Int4 - memory optimized",
+                  "precision": "int4",
+                  "url": "hf://Qwen/Qwen3.5-35B-A3B-GPTQ-Int4",
+                  "quantization": "gptq",
+                  "bits": 4,
+                  "budgetMi": 32768,
+                  "vram": "32Gi",
+                  "vramMi": 32768,
+                  "format": "safetensors"
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.5-35B-A3B",
+                  "bits": 16,
+                  "vramMi": 81920,
+                  "vram": "81920Mi",
+                  "format": "safetensors"
+                }
+              ]
+            }
+          ]
+        },
+        "qwen3627b": {
+          "title": "Qwen3.6 27B (portable, backend-optimized)",
+          "type": "chat",
+          "variants": [
+            {
+              "id": "vllm-cpu",
+              "engine": "VLLM",
+              "computeTarget": "cpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "hf://Qwen/Qwen3.6-27B",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-vllm-cpu-memory:4096",
+              "memoryRequiredMi": 65536,
+              "kvCacheMemoryBytes": 2147483648,
+              "contextWindow": 16384,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--max-model-len=16384",
+                "--max-num-seqs=1",
+                "--kv-cache-memory-bytes=2147483648",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "bf16",
+              "artifacts": [
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.6-27B",
+                  "bits": 16,
+                  "budgetMi": 65536,
+                  "memoryRequiredMi": 65536,
+                  "format": "safetensors"
+                }
+              ]
+            },
+            {
+              "id": "ollama-cpu",
+              "engine": "OLlama",
+              "computeTarget": "cpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "ollama://qwen3.6:27b-q4_K_M",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-ollama-cpu-memory:1536",
+              "memoryRequiredMi": 24576,
+              "contextWindow": 16384,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "defaultArtifact": "q4-k-m",
+              "artifacts": [
+                {
+                  "id": "q4-k-m",
+                  "title": "Q4_K_M - recommended",
+                  "precision": "int4",
+                  "url": "ollama://qwen3.6:27b-q4_K_M",
+                  "quantization": "q4_k_m",
+                  "bits": 4,
+                  "memoryRequiredMi": 24576,
+                  "format": "GGUF"
+                },
+                {
+                  "id": "q8-0",
+                  "title": "Q8_0 - higher quality",
+                  "precision": "int8",
+                  "url": "ollama://qwen3.6:27b-q8_0",
+                  "quantization": "q8_0",
+                  "bits": 8,
+                  "memoryRequiredMi": 40960,
+                  "format": "GGUF"
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "ollama://qwen3.6:27b-bf16",
+                  "bits": 16,
+                  "memoryRequiredMi": 65536,
+                  "format": "GGUF"
+                }
+              ]
+            },
+            {
+              "id": "vllm-nvidia",
+              "engine": "VLLM",
+              "computeTarget": "nvidia-gpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "hf://Qwen/Qwen3.6-27B-FP8",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-nvidia-gpu:1",
+              "vram": "40Gi",
+              "vramMi": 40960,
+              "contextWindow": 16384,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--tensor-parallel-size=1",
+                "--max-model-len=16384",
+                "--max-num-seqs=1",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "fp8",
+              "artifacts": [
+                {
+                  "id": "fp8",
+                  "title": "FP8 - accelerator optimized",
+                  "precision": "fp8",
+                  "url": "hf://Qwen/Qwen3.6-27B-FP8",
+                  "quantization": "fp8",
+                  "bits": 8,
+                  "budgetMi": 40960,
+                  "vram": "40Gi",
+                  "vramMi": 40960,
+                  "format": "safetensors",
+                  "compatibilityNote": "Requires an FP8-capable NVIDIA GPU."
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.6-27B",
+                  "bits": 16,
+                  "vramMi": 65536,
+                  "vram": "65536Mi",
+                  "format": "safetensors"
+                }
+              ]
+            },
+            {
+              "id": "ollama-nvidia",
+              "engine": "OLlama",
+              "computeTarget": "nvidia-gpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "ollama://qwen3.6:27b-q4_K_M",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-ollama-nvidia-gpu:1",
+              "vram": "24Gi",
+              "vramMi": 24576,
+              "contextWindow": 16384,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "defaultArtifact": "q4-k-m",
+              "artifacts": [
+                {
+                  "id": "q4-k-m",
+                  "title": "Q4_K_M - recommended",
+                  "precision": "int4",
+                  "url": "ollama://qwen3.6:27b-q4_K_M",
+                  "quantization": "q4_k_m",
+                  "bits": 4,
+                  "vramMi": 24576,
+                  "vram": "24576Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "q8-0",
+                  "title": "Q8_0 - higher quality",
+                  "precision": "int8",
+                  "url": "ollama://qwen3.6:27b-q8_0",
+                  "quantization": "q8_0",
+                  "bits": 8,
+                  "vramMi": 40960,
+                  "vram": "40960Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "ollama://qwen3.6:27b-bf16",
+                  "bits": 16,
+                  "vramMi": 65536,
+                  "vram": "65536Mi",
+                  "format": "GGUF"
+                }
+              ]
+            },
+            {
+              "id": "vllm-amd",
+              "engine": "VLLM",
+              "computeTarget": "amd-gpu",
+              "architectures": [
+                "amd64"
+              ],
+              "url": "hf://Qwen/Qwen3.6-27B",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-amd-gpu:1",
+              "vram": "64Gi",
+              "vramMi": 65536,
+              "contextWindow": 16384,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--tensor-parallel-size=1",
+                "--max-model-len=16384",
+                "--max-num-seqs=1",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "bf16",
+              "artifacts": [
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.6-27B",
+                  "bits": 16,
+                  "budgetMi": 65536,
+                  "vram": "64Gi",
+                  "vramMi": 65536,
+                  "format": "safetensors"
+                },
+                {
+                  "id": "fp8",
+                  "title": "FP8 - compatible ROCm GPU",
+                  "precision": "fp8",
+                  "url": "hf://Qwen/Qwen3.6-27B-FP8",
+                  "quantization": "fp8",
+                  "bits": 8,
+                  "compatibilityNote": "Requires an AMD GPU and ROCm runtime with FP8 support.",
+                  "vramMi": 40960,
+                  "vram": "40960Mi",
+                  "format": "safetensors"
+                }
+              ]
+            },
+            {
+              "id": "ollama-amd",
+              "engine": "OLlama",
+              "computeTarget": "amd-gpu",
+              "architectures": [
+                "amd64"
+              ],
+              "url": "ollama://qwen3.6:27b-q4_K_M",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-ollama-amd-gpu:1",
+              "vram": "24Gi",
+              "vramMi": 24576,
+              "contextWindow": 16384,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "defaultArtifact": "q4-k-m",
+              "artifacts": [
+                {
+                  "id": "q4-k-m",
+                  "title": "Q4_K_M - recommended",
+                  "precision": "int4",
+                  "url": "ollama://qwen3.6:27b-q4_K_M",
+                  "quantization": "q4_k_m",
+                  "bits": 4,
+                  "vramMi": 24576,
+                  "vram": "24576Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "q8-0",
+                  "title": "Q8_0 - higher quality",
+                  "precision": "int8",
+                  "url": "ollama://qwen3.6:27b-q8_0",
+                  "quantization": "q8_0",
+                  "bits": 8,
+                  "vramMi": 40960,
+                  "vram": "40960Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "ollama://qwen3.6:27b-bf16",
+                  "bits": 16,
+                  "vramMi": 65536,
+                  "vram": "65536Mi",
+                  "format": "GGUF"
+                }
+              ]
+            },
+            {
+              "id": "vllm-intel",
+              "engine": "VLLM",
+              "computeTarget": "intel-gpu",
+              "architectures": [
+                "amd64"
+              ],
+              "url": "hf://Qwen/Qwen3.6-27B",
+              "features": [
+                "TextGeneration"
+              ],
+              "vram": "64Gi",
+              "vramMi": 65536,
+              "contextWindow": 16384,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--tensor-parallel-size=1",
+                "--max-model-len=16384",
+                "--max-num-seqs=1",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "bf16",
+              "artifacts": [
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.6-27B",
+                  "bits": 16,
+                  "budgetMi": 65536,
+                  "vram": "64Gi",
+                  "vramMi": 65536,
+                  "format": "safetensors"
+                }
+              ]
+            }
+          ]
+        },
+        "qwen3635b": {
+          "title": "Qwen3.6 35B A3B (portable, backend-optimized)",
+          "type": "chat",
+          "variants": [
+            {
+              "id": "vllm-cpu",
+              "engine": "VLLM",
+              "computeTarget": "cpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "hf://Qwen/Qwen3.6-35B-A3B",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-vllm-cpu-memory:5120",
+              "memoryRequiredMi": 81920,
+              "kvCacheMemoryBytes": 2147483648,
+              "contextWindow": 16384,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--max-model-len=16384",
+                "--max-num-seqs=1",
+                "--kv-cache-memory-bytes=2147483648",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "bf16",
+              "artifacts": [
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.6-35B-A3B",
+                  "bits": 16,
+                  "budgetMi": 81920,
+                  "memoryRequiredMi": 81920,
+                  "format": "safetensors"
+                }
+              ]
+            },
+            {
+              "id": "ollama-cpu",
+              "engine": "OLlama",
+              "computeTarget": "cpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "ollama://qwen3.6:35b-a3b-q4_K_M",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-ollama-cpu-memory:1920",
+              "memoryRequiredMi": 30720,
+              "contextWindow": 16384,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "defaultArtifact": "q4-k-m",
+              "artifacts": [
+                {
+                  "id": "q4-k-m",
+                  "title": "Q4_K_M - recommended",
+                  "precision": "int4",
+                  "url": "ollama://qwen3.6:35b-a3b-q4_K_M",
+                  "quantization": "q4_k_m",
+                  "bits": 4,
+                  "memoryRequiredMi": 30720,
+                  "format": "GGUF"
+                },
+                {
+                  "id": "q8-0",
+                  "title": "Q8_0 - higher quality",
+                  "precision": "int8",
+                  "url": "ollama://qwen3.6:35b-a3b-q8_0",
+                  "quantization": "q8_0",
+                  "bits": 8,
+                  "memoryRequiredMi": 49152,
+                  "format": "GGUF"
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "ollama://qwen3.6:35b-a3b-bf16",
+                  "bits": 16,
+                  "memoryRequiredMi": 81920,
+                  "format": "GGUF"
+                }
+              ]
+            },
+            {
+              "id": "vllm-nvidia",
+              "engine": "VLLM",
+              "computeTarget": "nvidia-gpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "hf://cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-nvidia-gpu:1",
+              "vram": "32Gi",
+              "vramMi": 32768,
+              "contextWindow": 16384,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--tensor-parallel-size=1",
+                "--max-model-len=16384",
+                "--max-num-seqs=1",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "awq-int4",
+              "artifacts": [
+                {
+                  "id": "awq-int4",
+                  "title": "AWQ Int4 - memory optimized",
+                  "precision": "int4",
+                  "url": "hf://cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit",
+                  "quantization": "awq",
+                  "bits": 4,
+                  "budgetMi": 32768,
+                  "vram": "32Gi",
+                  "vramMi": 32768,
+                  "format": "safetensors"
+                },
+                {
+                  "id": "fp8",
+                  "title": "FP8 - compatible accelerator",
+                  "precision": "fp8",
+                  "url": "hf://Qwen/Qwen3.6-35B-A3B-FP8",
+                  "quantization": "fp8",
+                  "bits": 8,
+                  "compatibilityNote": "Requires an FP8-capable NVIDIA GPU.",
+                  "vramMi": 49152,
+                  "vram": "49152Mi",
+                  "format": "safetensors"
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.6-35B-A3B",
+                  "bits": 16,
+                  "vramMi": 81920,
+                  "vram": "81920Mi",
+                  "format": "safetensors"
+                }
+              ]
+            },
+            {
+              "id": "ollama-nvidia",
+              "engine": "OLlama",
+              "computeTarget": "nvidia-gpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "ollama://qwen3.6:35b-a3b-q4_K_M",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-ollama-nvidia-gpu:1",
+              "vram": "30Gi",
+              "vramMi": 30720,
+              "contextWindow": 16384,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "defaultArtifact": "q4-k-m",
+              "artifacts": [
+                {
+                  "id": "q4-k-m",
+                  "title": "Q4_K_M - recommended",
+                  "precision": "int4",
+                  "url": "ollama://qwen3.6:35b-a3b-q4_K_M",
+                  "quantization": "q4_k_m",
+                  "bits": 4,
+                  "vramMi": 30720,
+                  "vram": "30720Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "q8-0",
+                  "title": "Q8_0 - higher quality",
+                  "precision": "int8",
+                  "url": "ollama://qwen3.6:35b-a3b-q8_0",
+                  "quantization": "q8_0",
+                  "bits": 8,
+                  "vramMi": 49152,
+                  "vram": "49152Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "ollama://qwen3.6:35b-a3b-bf16",
+                  "bits": 16,
+                  "vramMi": 81920,
+                  "vram": "81920Mi",
+                  "format": "GGUF"
+                }
+              ]
+            },
+            {
+              "id": "vllm-amd",
+              "engine": "VLLM",
+              "computeTarget": "amd-gpu",
+              "architectures": [
+                "amd64"
+              ],
+              "url": "hf://Qwen/Qwen3.6-35B-A3B",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-amd-gpu:1",
+              "vram": "80Gi",
+              "vramMi": 81920,
+              "contextWindow": 16384,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--tensor-parallel-size=1",
+                "--max-model-len=16384",
+                "--max-num-seqs=1",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "bf16",
+              "artifacts": [
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.6-35B-A3B",
+                  "bits": 16,
+                  "budgetMi": 81920,
+                  "vram": "80Gi",
+                  "vramMi": 81920,
+                  "format": "safetensors"
+                },
+                {
+                  "id": "fp8",
+                  "title": "FP8 - compatible ROCm GPU",
+                  "precision": "fp8",
+                  "url": "hf://Qwen/Qwen3.6-35B-A3B-FP8",
+                  "quantization": "fp8",
+                  "bits": 8,
+                  "compatibilityNote": "Requires an AMD GPU and ROCm runtime with FP8 support.",
+                  "vramMi": 49152,
+                  "vram": "49152Mi",
+                  "format": "safetensors"
+                }
+              ]
+            },
+            {
+              "id": "ollama-amd",
+              "engine": "OLlama",
+              "computeTarget": "amd-gpu",
+              "architectures": [
+                "amd64"
+              ],
+              "url": "ollama://qwen3.6:35b-a3b-q4_K_M",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-ollama-amd-gpu:1",
+              "vram": "30Gi",
+              "vramMi": 30720,
+              "contextWindow": 16384,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "defaultArtifact": "q4-k-m",
+              "artifacts": [
+                {
+                  "id": "q4-k-m",
+                  "title": "Q4_K_M - recommended",
+                  "precision": "int4",
+                  "url": "ollama://qwen3.6:35b-a3b-q4_K_M",
+                  "quantization": "q4_k_m",
+                  "bits": 4,
+                  "vramMi": 30720,
+                  "vram": "30720Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "q8-0",
+                  "title": "Q8_0 - higher quality",
+                  "precision": "int8",
+                  "url": "ollama://qwen3.6:35b-a3b-q8_0",
+                  "quantization": "q8_0",
+                  "bits": 8,
+                  "vramMi": 49152,
+                  "vram": "49152Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "ollama://qwen3.6:35b-a3b-bf16",
+                  "bits": 16,
+                  "vramMi": 81920,
+                  "vram": "81920Mi",
+                  "format": "GGUF"
+                }
+              ]
+            },
+            {
+              "id": "vllm-intel",
+              "engine": "VLLM",
+              "computeTarget": "intel-gpu",
+              "architectures": [
+                "amd64"
+              ],
+              "url": "hf://Qwen/Qwen3.6-35B-A3B",
+              "features": [
+                "TextGeneration"
+              ],
+              "vram": "80Gi",
+              "vramMi": 81920,
+              "contextWindow": 16384,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--tensor-parallel-size=1",
+                "--max-model-len=16384",
+                "--max-num-seqs=1",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "bf16",
+              "artifacts": [
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.6-35B-A3B",
+                  "bits": 16,
+                  "budgetMi": 81920,
+                  "vram": "80Gi",
+                  "vramMi": 81920,
+                  "format": "safetensors"
+                }
+              ]
+            }
+          ]
+        },
+        "qwen3827b": {
+          "title": "Qwen3.8 27B (portable, backend-optimized)",
+          "type": "chat",
+          "variants": [
+            {
+              "id": "vllm-nvidia",
+              "engine": "VLLM",
+              "computeTarget": "nvidia-gpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "hf://cyankiwi/Qwen3.8-27B-AWQ-INT4",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-nvidia-gpu:1",
+              "vram": "24062Mi",
+              "vramMi": 24062,
+              "contextWindow": 20000,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--tensor-parallel-size=1",
+                "--max-model-len=20000",
+                "--max-num-seqs=1",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "awq-int4",
+              "artifacts": [
+                {
+                  "id": "awq-int4",
+                  "title": "AWQ Int4 - memory optimized",
+                  "precision": "int4",
+                  "url": "hf://cyankiwi/Qwen3.8-27B-AWQ-INT4",
+                  "quantization": "awq",
+                  "bits": 4,
+                  "budgetMi": 24062,
+                  "vram": "24062Mi",
+                  "vramMi": 24062,
+                  "format": "safetensors"
+                },
+                {
+                  "id": "fp8",
+                  "title": "FP8 - compatible accelerator",
+                  "precision": "fp8",
+                  "url": "hf://Qwen/Qwen3.8-27B-FP8",
+                  "quantization": "fp8",
+                  "bits": 8,
+                  "compatibilityNote": "Requires an FP8-capable NVIDIA GPU.",
+                  "vramMi": 40960,
+                  "vram": "40960Mi",
+                  "format": "safetensors"
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.8-27B",
+                  "bits": 16,
+                  "vramMi": 65536,
+                  "vram": "65536Mi",
+                  "format": "safetensors"
+                }
+              ]
+            },
+            {
+              "id": "vllm-cpu",
+              "engine": "VLLM",
+              "computeTarget": "cpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "hf://Qwen/Qwen3.8-27B",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-vllm-cpu-memory:4096",
+              "memoryRequiredMi": 65536,
+              "kvCacheMemoryBytes": 2147483648,
+              "contextWindow": 20000,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--max-model-len=20000",
+                "--max-num-seqs=1",
+                "--kv-cache-memory-bytes=2147483648",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "bf16",
+              "artifacts": [
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.8-27B",
+                  "bits": 16,
+                  "budgetMi": 65536,
+                  "memoryRequiredMi": 65536,
+                  "format": "safetensors"
+                }
+              ]
+            },
+            {
+              "id": "ollama-cpu",
+              "engine": "OLlama",
+              "computeTarget": "cpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "ollama://qwen3.8:27b-q4_K_M",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-ollama-cpu-memory:1536",
+              "memoryRequiredMi": 24576,
+              "contextWindow": 20000,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "defaultArtifact": "q4-k-m",
+              "artifacts": [
+                {
+                  "id": "q4-k-m",
+                  "title": "Q4_K_M - recommended",
+                  "precision": "int4",
+                  "url": "ollama://qwen3.8:27b-q4_K_M",
+                  "quantization": "q4_k_m",
+                  "bits": 4,
+                  "memoryRequiredMi": 24576,
+                  "format": "GGUF"
+                },
+                {
+                  "id": "q8-0",
+                  "title": "Q8_0 - higher quality",
+                  "precision": "int8",
+                  "url": "ollama://qwen3.8:27b-q8_0",
+                  "quantization": "q8_0",
+                  "bits": 8,
+                  "memoryRequiredMi": 40960,
+                  "format": "GGUF"
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "ollama://qwen3.8:27b-bf16",
+                  "bits": 16,
+                  "memoryRequiredMi": 65536,
+                  "format": "GGUF"
+                }
+              ]
+            },
+            {
+              "id": "ollama-nvidia",
+              "engine": "OLlama",
+              "computeTarget": "nvidia-gpu",
+              "architectures": [
+                "amd64",
+                "arm64"
+              ],
+              "url": "ollama://qwen3.8:27b-q4_K_M",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-ollama-nvidia-gpu:1",
+              "vram": "24Gi",
+              "vramMi": 24576,
+              "contextWindow": 20000,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "defaultArtifact": "q4-k-m",
+              "artifacts": [
+                {
+                  "id": "q4-k-m",
+                  "title": "Q4_K_M - recommended",
+                  "precision": "int4",
+                  "url": "ollama://qwen3.8:27b-q4_K_M",
+                  "quantization": "q4_k_m",
+                  "bits": 4,
+                  "vramMi": 24576,
+                  "vram": "24576Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "q8-0",
+                  "title": "Q8_0 - higher quality",
+                  "precision": "int8",
+                  "url": "ollama://qwen3.8:27b-q8_0",
+                  "quantization": "q8_0",
+                  "bits": 8,
+                  "vramMi": 40960,
+                  "vram": "40960Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "ollama://qwen3.8:27b-bf16",
+                  "bits": 16,
+                  "vramMi": 65536,
+                  "vram": "65536Mi",
+                  "format": "GGUF"
+                }
+              ]
+            },
+            {
+              "id": "vllm-amd",
+              "engine": "VLLM",
+              "computeTarget": "amd-gpu",
+              "architectures": [
+                "amd64"
+              ],
+              "url": "hf://Qwen/Qwen3.8-27B",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-amd-gpu:1",
+              "vram": "64Gi",
+              "vramMi": 65536,
+              "contextWindow": 20000,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--tensor-parallel-size=1",
+                "--max-model-len=20000",
+                "--max-num-seqs=1",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "bf16",
+              "artifacts": [
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.8-27B",
+                  "bits": 16,
+                  "budgetMi": 65536,
+                  "vram": "64Gi",
+                  "vramMi": 65536,
+                  "format": "safetensors"
+                },
+                {
+                  "id": "fp8",
+                  "title": "FP8 - compatible ROCm GPU",
+                  "precision": "fp8",
+                  "url": "hf://Qwen/Qwen3.8-27B-FP8",
+                  "quantization": "fp8",
+                  "bits": 8,
+                  "compatibilityNote": "Requires an AMD GPU and ROCm runtime with FP8 support.",
+                  "vramMi": 40960,
+                  "vram": "40960Mi",
+                  "format": "safetensors"
+                }
+              ]
+            },
+            {
+              "id": "ollama-amd",
+              "engine": "OLlama",
+              "computeTarget": "amd-gpu",
+              "architectures": [
+                "amd64"
+              ],
+              "url": "ollama://qwen3.8:27b-q4_K_M",
+              "features": [
+                "TextGeneration"
+              ],
+              "resourceProfile": "magicstick-ollama-amd-gpu:1",
+              "vram": "24Gi",
+              "vramMi": 24576,
+              "contextWindow": 20000,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "defaultArtifact": "q4-k-m",
+              "artifacts": [
+                {
+                  "id": "q4-k-m",
+                  "title": "Q4_K_M - recommended",
+                  "precision": "int4",
+                  "url": "ollama://qwen3.8:27b-q4_K_M",
+                  "quantization": "q4_k_m",
+                  "bits": 4,
+                  "vramMi": 24576,
+                  "vram": "24576Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "q8-0",
+                  "title": "Q8_0 - higher quality",
+                  "precision": "int8",
+                  "url": "ollama://qwen3.8:27b-q8_0",
+                  "quantization": "q8_0",
+                  "bits": 8,
+                  "vramMi": 40960,
+                  "vram": "40960Mi",
+                  "format": "GGUF"
+                },
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "ollama://qwen3.8:27b-bf16",
+                  "bits": 16,
+                  "vramMi": 65536,
+                  "vram": "65536Mi",
+                  "format": "GGUF"
+                }
+              ]
+            },
+            {
+              "id": "vllm-intel",
+              "engine": "VLLM",
+              "computeTarget": "intel-gpu",
+              "architectures": [
+                "amd64"
+              ],
+              "url": "hf://Qwen/Qwen3.8-27B",
+              "features": [
+                "TextGeneration"
+              ],
+              "vram": "64Gi",
+              "vramMi": 65536,
+              "contextWindow": 20000,
+              "maxOutputTokens": 8192,
+              "maxNumSeqs": 1,
+              "args": [
+                "--tensor-parallel-size=1",
+                "--max-model-len=20000",
+                "--max-num-seqs=1",
+                "--reasoning-parser=qwen3",
+                "--enable-auto-tool-choice",
+                "--tool-call-parser=qwen3_coder"
+              ],
+              "defaultArtifact": "bf16",
+              "artifacts": [
+                {
+                  "id": "bf16",
+                  "title": "BF16 - full precision",
+                  "precision": "bf16",
+                  "url": "hf://Qwen/Qwen3.8-27B",
+                  "bits": 16,
+                  "budgetMi": 65536,
+                  "vram": "64Gi",
+                  "vramMi": 65536,
+                  "format": "safetensors"
+                }
+              ]
+            }
+          ]
+        },
+        "qwen352bvlembedding": {
+          "title": "Qwen3 VL Embedding 2B AWQ",
+          "type": "embedding",
+          "variants": [
+            {
+              "id": "vllm-nvidia",
+              "engine": "VLLM",
+              "computeTarget": "nvidia-gpu",
+              "architectures": [
+                "amd64"
+              ],
+              "url": "hf://LifetimeMistake/Qwen3-VL-Embedding-2B-AWQ-4bit",
+              "features": [
+                "TextEmbedding"
+              ],
+              "resourceProfile": "magicstick-nvidia-gpu:1",
+              "vram": "5Gi",
+              "vramMi": 5120,
+              "contextWindow": 4096,
+              "args": [
+                "--runner=pooling",
+                "--convert=embed",
+                "--trust-remote-code",
+                "--quantization=compressed-tensors",
+                "--limit-mm-per-prompt",
+                "{\"image\":1}",
+                "--max-model-len=4096"
+              ],
+              "defaultArtifact": "awq-int4",
+              "artifacts": [
+                {
+                  "id": "awq-int4",
+                  "title": "AWQ Int4 - memory optimized",
+                  "precision": "int4",
+                  "url": "hf://LifetimeMistake/Qwen3-VL-Embedding-2B-AWQ-4bit",
+                  "quantization": "awq",
+                  "bits": 4,
+                  "budgetMi": 5120,
+                  "vram": "5Gi",
+                  "vramMi": 5120,
+                  "format": "safetensors"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }

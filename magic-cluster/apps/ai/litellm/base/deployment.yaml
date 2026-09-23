@@ -1,0 +1,123 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litellm
+  namespace: ai
+  annotations:
+    configmap.reloader.stakater.com/reload: litellm-config,litellm-mesh-qos
+  labels:
+    app: litellm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: litellm
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: litellm
+    spec:
+      initContainers:
+        - name: assemble-config
+          image: busybox:1.36
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - cat /litellm-fragments/*.yaml > /litellm-generated/config.yaml
+          volumeMounts:
+            - name: litellm-config
+              mountPath: /litellm-fragments
+              readOnly: true
+            - name: litellm-generated-config
+              mountPath: /litellm-generated
+      containers:
+        - name: litellm
+          # Realtime Playground understands GA response.output_audio.* events.
+          image: ghcr.io/berriai/litellm:v1.101.0@sha256:d295634e09c648dcdb72c4cc2dd226f5fb87823a73e88cbbed6f205e4deb044b
+          command:
+            - litellm
+          args:
+            - --host
+            - 0.0.0.0
+            - --port
+            - "4000"
+            - --config
+            - /app/config.yaml
+          ports:
+            - name: http
+              containerPort: 4000
+              protocol: TCP
+            - name: mesh-metrics
+              containerPort: 9099
+          env:
+            - name: MAGICSTICK_MESH_METRICS_PORT
+              value: '9099'
+            - name: PYTHONPATH
+              value: /app
+            - name: LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-masterkey-secret
+                  key: LITELLM_MASTER_KEY
+            - name: AZURE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-azure-secret
+                  key: AZURE_API_KEY
+                  optional: true
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-postgresql-secret
+                  key: POSTGRES_DB
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-postgresql-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-postgresql-secret
+                  key: POSTGRES_PASSWORD
+            - name: DATABASE_URL
+              value: postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@litellm-postgresql.ai.svc.cluster.local:5432/$(POSTGRES_DB)
+            - name: STORE_MODEL_IN_DB
+              value: "True"
+          resources:
+            requests:
+              cpu: 200m
+              memory: 1024Mi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+          volumeMounts:
+            - name: mesh-metrics-auth
+              mountPath: /var/run/magicstick-mesh
+              readOnly: true
+            - name: mesh-qos
+              mountPath: /app/mesh_qos.py
+              subPath: mesh_qos.py
+              readOnly: true
+            - name: litellm-generated-config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+              readOnly: true
+      volumes:
+        - name: mesh-metrics-auth
+          secret:
+            secretName: private-mesh-service
+            optional: true
+            items:
+              - {key: MESH_ADMIN_TOKEN, path: MESH_ADMIN_TOKEN}
+        - name: mesh-qos
+          configMap:
+            name: litellm-mesh-qos
+        - name: litellm-config
+          configMap:
+            name: litellm-config
+        - name: litellm-generated-config
+          emptyDir: {}

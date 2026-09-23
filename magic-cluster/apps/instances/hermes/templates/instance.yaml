@@ -1,0 +1,65 @@
+{{- $instance := required "instance is required" .Values.instance -}}
+{{- $values := default dict $instance.values -}}
+{{- $model := trimPrefix "litellm/" (trimPrefix "openai/" (default "CHANGEME_MODEL" $values.model)) -}}
+apiVersion: hermes.agent/v1
+kind: HermesInstance
+metadata:
+  name: {{ $instance.name }}
+  namespace: {{ $instance.namespace }}
+  labels:
+    app.kubernetes.io/name: hermes
+    app.kubernetes.io/instance: {{ $instance.name }}
+    appliance.magicstick.dev/appinstance: {{ $instance.name }}
+spec:
+  # The upstream s6 runtime must own PID 1. Set this explicitly so instances
+  # created by operator 0.1.17 migrate away from its persisted true default.
+  shareProcessNamespace: false
+  image:
+    repository: {{ dig "image" "repository" "ghcr.io/paperclipinc/hermes-agent" $values | quote }}
+    tag: {{ dig "image" "tag" "v0.16.0" $values | quote }}
+  config:
+    raw:
+      model: {{ $model | quote }}
+      base_url: http://litellm.ai.svc.cluster.local:4000/v1
+  env:
+    - name: OPENAI_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: litellm-masterkey-secret
+          key: LITELLM_MASTER_KEY
+    # The gateway on 8443 is an API surface and intentionally returns 404 at
+    # /. Enable the bundled browser dashboard separately and let the shared
+    # Envoy SSO route be its authentication boundary. "Insecure" disables a
+    # second Hermes login; the Service remains ClusterIP-only and restricted by
+    # the operator-managed NetworkPolicy.
+    - name: HERMES_DASHBOARD
+      value: "true"
+    - name: HERMES_DASHBOARD_HOST
+      value: "0.0.0.0"
+    - name: HERMES_DASHBOARD_PORT
+      value: "9119"
+    - name: HERMES_DASHBOARD_INSECURE
+      value: "true"
+  storage:
+    persistence:
+      enabled: true
+      size: {{ dig "storage" "size" "10Gi" $values | quote }}
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {cpu: "1", memory: 2Gi}
+  security:
+    networkPolicy:
+      enabled: true
+      allowedIngressNamespaces: [ai, envoy-gateway-system]
+  networking:
+    service:
+      type: ClusterIP
+      ports:
+        - name: gateway
+          port: 8443
+          targetPort: 8443
+        - name: dashboard
+          port: 9119
+          targetPort: 9119
+    ingress:
+      enabled: false

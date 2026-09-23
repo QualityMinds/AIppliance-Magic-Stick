@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: magicstick-operator
+  namespace: ai-system
+  annotations:
+    configmap.reloader.stakater.com/reload: magicstick-operator-controller
+  labels:
+    app.kubernetes.io/name: magicstick-operator
+    app.kubernetes.io/component: controller
+spec:
+  replicas: 1
+  strategy:
+    # There is no leader election. Even zero-surge RollingUpdate may start a
+    # replacement while the old Pod is terminating, letting different probe
+    # versions delete one another's Jobs. Recreate waits during normal rollouts.
+    # This is not a substitute for leader election when scaling or deleting
+    # individual Pods manually.
+    type: Recreate
+    # Explicitly clear the former value during upgrades/server-side apply.
+    rollingUpdate: null
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: magicstick-operator
+      app.kubernetes.io/component: controller
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: magicstick-operator
+        app.kubernetes.io/component: controller
+      annotations:
+        appliance.magicstick.dev/controller-config-revision: gpu-compatibility-v1
+    spec:
+      serviceAccountName: magicstick-operator
+      containers:
+        - name: controller
+          image: python:3.13-alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - /app/controller.py
+          env:
+            - name: APPLIANCE_NAMESPACE
+              value: ai-system
+            - name: APPLIANCE_NAME
+              value: local
+            - name: MODULE_CATALOG_NAMESPACE
+              value: ai-system
+            - name: MODULE_CATALOG_NAME
+              value: magicstick-module-catalog
+            - name: APP_CATALOG_NAMESPACE
+              value: ai-system
+            - name: APP_CATALOG_NAME
+              value: magicstick-app-catalog
+            - name: COMPUTE_TARGET_CATALOG_NAMESPACE
+              value: ai-system
+            - name: COMPUTE_TARGET_CATALOG_NAME
+              value: magicstick-compute-target-catalog
+            - name: MODEL_PRESETS_NAMESPACE
+              value: ai-system
+            - name: MODEL_PRESETS_NAME
+              value: magicstick-model-presets
+            - name: FLUX_NAMESPACE
+              value: flux-system
+            - name: REQUEUE_SECONDS
+              value: "20"
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+          volumeMounts:
+            - name: controller
+              mountPath: /app/controller.py
+              subPath: controller.py
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: controller
+          configMap:
+            name: magicstick-operator-controller
+            defaultMode: 0555
+        - name: tmp
+          emptyDir: {}

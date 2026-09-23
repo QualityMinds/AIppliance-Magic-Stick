@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Magicstick MeshLLM Endpoint</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,sans-serif;background:#070f1b;color:#e4ecfa}body{margin:0}main{max-width:760px;margin:5vh auto;padding:24px}section{border:1px solid #28435e;background:#0b1728;border-radius:16px;padding:24px;margin:20px 0}h1{font-size:2rem}label{display:block;margin:16px 0 6px}input,textarea,select,button{font:inherit;color:inherit;background:#0c192b;border:1px solid #355570;border-radius:8px;padding:12px;box-sizing:border-box}input,textarea,select{width:100%}textarea{min-height:90px}button{cursor:pointer;margin:12px 8px 0 0}button.primary{background:#13778e;border-color:#25cde6}button:disabled{opacity:.45;cursor:default}small{color:#adc0d6}#answer{white-space:pre-wrap;overflow-wrap:anywhere}#error{color:#ffcf72;white-space:pre-wrap}[hidden]{display:none!important}
+summary{cursor:pointer}pre{padding:16px;background:#070f1b;border:1px solid #28435e;border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:.85rem}code{overflow-wrap:anywhere}.copy-field{display:flex;gap:8px;align-items:stretch}.copy-field input{min-width:0;flex:1}.copy-field button{margin:0;flex-shrink:0}.endpoints{font-size:.9rem}.endpoints dt{color:#adc0d6;margin-top:12px}.endpoints dd{margin:4px 0;overflow-wrap:anywhere}#api-notice{display:block;min-height:1.4em;margin-top:8px}@media(max-width:540px){main{padding:16px}section{padding:16px}.copy-field{flex-wrap:wrap}.copy-field input{flex-basis:100%}}
+</style>
+<main><small>Magicstick MeshLLM Endpoint</small><h1>Private Mesh</h1><p id="status" role="status">Connecting to the endpoint…</p><p id="error" role="alert"></p>
+<section id="join-panel"><form id="join-form"><h2>Join your team</h2><label for="node">Device name</label><input id="node" required pattern="[a-z0-9][a-z0-9-]*" placeholder="endpoint-01"><label for="invite">Invite token</label><textarea id="invite" required autocomplete="off" spellcheck="false"></textarea><button class="primary">Join mesh</button></form></section>
+<section id="chat-panel" hidden><form id="chat-form"><h2>Models</h2><label for="model">Available model</label><select id="model"></select><label for="prompt">Message</label><textarea id="prompt" required></textarea><button class="primary" id="send">Send</button></form><div id="answer" aria-live="polite"></div></section>
+<section id="api-panel" hidden>
+  <details id="api-details"><summary><strong>OpenAI-compatible API</strong></summary>
+    <p>Select an OpenAI-compatible provider in your application, then enter these connection settings.</p>
+    <label for="api-base">Base URL</label><div class="copy-field"><input id="api-base" readonly spellcheck="false"><button id="copy-base" type="button" disabled>Copy URL</button></div>
+    <label for="api-key">API key · inference only</label><div class="copy-field"><input id="api-key" type="password" readonly autocomplete="off" spellcheck="false"><button id="show-key" type="button" aria-pressed="false" disabled>Show</button><button id="copy-key" type="button" disabled>Copy key</button></div>
+    <label for="api-model">Model ID · use the complete value</label><div class="copy-field"><input id="api-model" readonly spellcheck="false"><button id="copy-model" type="button" disabled>Copy model</button></div>
+    <dl class="endpoints"><dt>GET · Available models</dt><dd><code id="models-endpoint"></code></dd><dt>POST · Chat completions</dt><dd><code id="chat-endpoint"></code></dd></dl>
+    <details><summary>Connection example · curl</summary><p><small>Replace PASTE_API_KEY_HERE with the key above. The example uses the model selected in Models.</small></p><pre><code id="api-curl"></code></pre><button id="copy-example" type="button" disabled>Copy example</button></details>
+    <small id="api-notice" role="status"></small>
+    <details><summary>Connection notes</summary><p><small>Only accessible on this computer. Keep the endpoint application running. The port and API key can change after restarting it. The key cannot change mesh settings or stop the application.</small></p><p><small>Use Chat Completions with stream: false. This local endpoint does not currently support streaming, Responses API or embeddings.</small></p></details>
+  </details>
+</section>
+<section id="network-panel" hidden><details><summary><strong>Network</strong></summary><form id="relay-form"><label for="mode">Relay mode</label><select id="mode"><option value="auto">Auto</option><option value="public">Public relay</option><option value="custom">Custom relay</option></select><label for="relay">Custom relay URL</label><input id="relay" type="url" placeholder="https://relay.example.com"><button>Save network</button></form></details><button id="leave">Leave mesh</button></section><button id="quit">Quit endpoint</button></main>
+<script nonce="__NONCE__">
+const $ = id => document.getElementById(id);
+const token = location.hash.slice(1) || sessionStorage.getItem('mesh-session') || '';
+sessionStorage.setItem('mesh-session', token); history.replaceState(null, '', '/');
+let sending = false, relayLoaded = false, connection = null, connectionRequest = 0;
+async function api(path, body){const response = await fetch(path,{method:body===undefined?'GET':'POST',headers:{'X-MagicStick-Session':token,'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});const value=await response.json();if(!response.ok)throw new Error(typeof value.error==='string'?value.error:'Request failed.');return value;}
+function error(e){$('error').textContent=e.message||'Private mesh unavailable.';}
+const shellQuote = value => "'" + value.replaceAll("'", "'\\''") + "'";
+function renderConnection(){
+  const model=$('model').value, base=connection?.baseUrl||'';
+  $('api-base').value=base;$('api-key').value=connection?.apiKey||'';$('api-model').value=model;
+  $('models-endpoint').textContent=base?base+'/models':'';$('chat-endpoint').textContent=base?base+'/chat/completions':'';
+  for(const id of ['copy-base','copy-key','show-key'])$(id).disabled=!connection;
+  for(const id of ['copy-model','copy-example'])$(id).disabled=!connection||!model;
+  $('api-curl').textContent=base&&model?[
+    'export OPENAI_BASE_URL='+shellQuote(base),
+    "export OPENAI_API_KEY='PASTE_API_KEY_HERE'",
+    'curl "$OPENAI_BASE_URL/chat/completions" -H "Authorization: Bearer $OPENAI_API_KEY" -H "Content-Type: application/json" --data '+shellQuote(JSON.stringify({model,messages:[{role:'user',content:'Hello'}],max_tokens:512,stream:false}))
+  ].join('\n'):'A shared model must be available before you can make a chat request.';
+}
+function clearConnection(){connectionRequest++;connection=null;$('api-key').type='password';$('show-key').textContent='Show';$('show-key').setAttribute('aria-pressed','false');$('api-notice').textContent='';renderConnection();}
+async function loadConnection(){
+  const request=++connectionRequest;$('api-notice').textContent='Loading connection settings…';
+  try{const value=await api('/connection');if(request!==connectionRequest||!$('api-details').open||$('api-panel').hidden)return;connection=value;renderConnection();$('api-notice').textContent='';}
+  catch(e){if(request===connectionRequest)$('api-notice').textContent=e.message||'Connection settings unavailable.';}
+}
+async function copyValue(value,label){try{await navigator.clipboard.writeText(value);$('api-notice').textContent=label+' copied.';}catch{$('api-notice').textContent='Clipboard unavailable. Select and copy the value manually.';}}
+$('api-details').ontoggle=()=>{$('api-details').open?loadConnection():clearConnection();};
+$('model').onchange=renderConnection;
+$('copy-base').onclick=()=>copyValue($('api-base').value,'Base URL');
+$('copy-key').onclick=()=>copyValue($('api-key').value,'API key');
+$('copy-model').onclick=()=>copyValue($('api-model').value,'Model ID');
+$('copy-example').onclick=()=>copyValue($('api-curl').textContent,'Example');
+$('show-key').onclick=()=>{const show=$('api-key').type==='password';$('api-key').type=show?'text':'password';$('show-key').textContent=show?'Hide':'Show';$('show-key').setAttribute('aria-pressed',String(show));};
+async function refresh(){try{const state=await api('/status');$('status').textContent=state.configured?`${state.mesh} · ${state.node} · ${state.connected?'Connected':'Connecting'}`:'Not connected';$('join-panel').hidden=state.configured;$('chat-panel').hidden=!state.configured;$('network-panel').hidden=!state.configured;$('api-panel').hidden=!state.configured;if(!state.configured){$('api-details').open=false;clearConnection();}const selected=$('model').value;const options=state.models.map(name=>{const option=document.createElement('option');option.value=name;option.textContent=name.replace(/^share\//,'');return option;});$('model').replaceChildren(...options);if(state.models.includes(selected))$('model').value=selected;$('send').disabled=sending||!state.models.length;renderConnection();if(!relayLoaded&&state.configured){$('mode').value=state.relay.mode;$('relay').value=state.relay.url;relayLoaded=true;}}catch(e){error(e);}}
+$('join-form').onsubmit=async e=>{e.preventDefault();$('error').textContent='';try{await api('/join',{nodeName:$('node').value,token:$('invite').value.trim()});$('invite').value='';await refresh();}catch(e){error(e);}};
+$('chat-form').onsubmit=async e=>{e.preventDefault();sending=true;$('send').disabled=true;$('error').textContent='';$('answer').textContent='';try{const result=await api('/v1/chat/completions',{model:$('model').value,messages:[{role:'user',content:$('prompt').value}],max_tokens:512});$('answer').textContent=result.choices?.[0]?.message?.content||'No response content.';}catch(e){error(e);}finally{sending=false;refresh();}};
+$('relay-form').onsubmit=async e=>{e.preventDefault();try{await api('/relay',{mode:$('mode').value,url:$('relay').value});$('error').textContent='';}catch(e){error(e);}};
+$('leave').onclick=async()=>{if(confirm('Leave this private mesh?')){try{await api('/leave',{});relayLoaded=false;await refresh();}catch(e){error(e);}}};
+$('quit').onclick=async()=>{try{await api('/quit',{});$('api-details').open=false;clearConnection();$('api-panel').hidden=true;$('status').textContent='Endpoint stopped. You can close this tab.';}catch(e){error(e);}};
+refresh();setInterval(refresh,5000);
+</script></html>

@@ -1,0 +1,339 @@
+import json
+import hashlib
+import unittest
+from datetime import datetime, timedelta, timezone
+
+from test_dashboard_api import load_server
+
+
+class GPUCompatibilityApiTests(unittest.TestCase):
+    def setUp(self):
+        self.api = load_server()
+        self.api['gpu_compatibility_catalog'] = lambda: {'profiles': [
+            {'id': 'strix-halo', 'experimental': True},
+        ]}
+
+    def scoped_request_fixture(self):
+        self.activation = {'metadata': {'name': 'amd-gpu', 'resourceVersion': '7', 'generation': 2},
+                           'spec': {'enabled': True, 'parameters': {'compatibilityProfile': 'strix-halo', 'allowExperimental': 'true'}}}
+        self.api['module_activation'] = lambda _: self.activation
+        self.api['get_resource'] = lambda _: self.node()
+        self.api['gpu_compatibility_catalog'] = lambda: {'profiles': [
+            {'id': 'strix-halo', 'version': '1', 'engines': {'OLlama': {}, 'VLLM': {}}}]}
+        self.api['appliance'] = lambda: {'status': {'hardwareOperators': {'amd-gpu': {'compatibility': {'nodes': [
+            {'node': 'node-a', 'nodeUid': 'node-a-uid', 'profileId': 'strix-halo', 'eligible': True, 'resourceRegistered': True}
+        ]}}}}}
+        self.validation_writes = []
+        self.api['request_json'] = lambda *args: self.validation_writes.append(args)
+        return {'nodeName': 'node-a', 'nodeUid': 'node-a-uid', 'engine': 'OLlama', 'profileId': 'strix-halo',
+                'requestId': 'dashboard-example-1', 'acknowledgeResourceUse': True}
+
+    def test_scoped_validation_updates_only_one_annotation_with_concurrency_guard(self):
+        payload = self.scoped_request_fixture()
+        self.assertTrue(self.api['request_gpu_engine_validation'](payload)['accepted'])
+        method, path, body, content_type = self.validation_writes[0]
+        self.assertEqual(method, 'PATCH')
+        self.assertTrue(path.endswith('/moduleactivations/amd-gpu'))
+        self.assertEqual(content_type, 'application/merge-patch+json')
+        self.assertNotIn('spec', body)
+        self.assertEqual(body['metadata']['resourceVersion'], '7')
+        key = 'appliance.magicstick.dev/gpu-validation-' + hashlib.sha256(b'node-a-uid:OLlama').hexdigest()[:32]
+        annotations = body['metadata']['annotations']
+        self.assertEqual(list(annotations), [key])
+        self.assertEqual(json.loads(annotations[key])['activationGeneration'], 2)
+        self.activation['metadata']['annotations'] = annotations
+        self.api['request_gpu_engine_validation'](payload)
+        self.assertEqual(len(self.validation_writes), 1)
+
+    def test_scoped_validation_rejects_stale_identity_missing_consent_and_arbitrary_engine(self):
+        payload = self.scoped_request_fixture()
+        for change in ({'nodeUid': 'old-uid'}, {'profileId': 'old-profile'}, {'acknowledgeResourceUse': False},
+                       {'engine': 'shell'}, {'image': 'arbitrary/image'}):
+            with self.subTest(change=change), self.assertRaises((ValueError, self.api['RequestError'])):
+                self.api['request_gpu_engine_validation']({**payload, **change})
+        self.assertEqual(self.validation_writes, [])
+
+    def node(self, name='node-a', ollama=True, vllm=False):
+        labels = {'kubernetes.io/os': 'linux', 'gpu-eligible': 'true'}
+        if ollama:
+            labels['ollama-eligible'] = 'true'
+        if vllm:
+            labels['vllm-eligible'] = 'true'
+        report = {'nodeUid': name + '-uid', 'memoryArchitecture': 'unified',
+                  'kernelVersion': '7.0.0-test', 'bootId': 'boot-a',
+                  'generatedAt': datetime.now(timezone.utc).isoformat(),
+                  'physicalMemoryMi': 65536, 'gpuAccessibleMi': 49152,
+                  'gpuAllocationMode': 'shared-gtt', 'gpuCapacityMi': 49152, 'gpuCapacitySource': 'kfd-topology',
+                  'memoryAccountingVerified': False}
+        return {'metadata': {'name': name, 'uid': name + '-uid', 'labels': labels,
+                             'annotations': {'appliance.magicstick.dev/gpu-host-preflight': json.dumps(report)}},
+                'status': {'capacity': {'memory': '64Gi', 'amd.com/gpu': '1'},
+                           'allocatable': {'memory': '60Gi', 'amd.com/gpu': '1'},
+                           'nodeInfo': {'architecture': 'amd64', 'kernelVersion': '7.0.0-test', 'bootID': 'boot-a'}}}
+
+    def configure_targets(self, nodes):
+        self.api['ready_schedulable_nodes'] = lambda: nodes
+        self.api['compute_target_catalog'] = lambda: {'targets': {'amd-gpu': {
+            'displayName': 'AMD GPU', 'kind': 'gpu', 'vendor': 'amd',
+            'architectures': ['amd64'], 'nodeSelector': {'gpu-eligible': 'true'},
+            'engines': ['OLlama', 'VLLM'], 'resourceNames': ['amd.com/gpu'],
+            'engineProfiles': {'OLlama': {'nodeSelector': {'ollama-eligible': 'true'}},
+                               'VLLM': {'nodeSelector': {'vllm-eligible': 'true'}}},
+        }}}
+        self.api['summarized_modules'] = lambda: {'modules': {}}
+        self.api['kv_cache_options'] = lambda *_args: []
+
+    def test_profile_opt_in_requires_explicit_consent(self):
+        with self.assertRaisesRegex(ValueError, 'acknowledgement'):
+            self.api['validate_gpu_compatibility_parameters']({'compatibilityProfile': 'strix-halo'})
+        self.assertEqual(self.api['validate_gpu_compatibility_parameters']({
+            'compatibilityProfile': 'strix-halo', 'allowExperimental': True,
+        })['allowExperimental'], 'true')
+
+    def test_rejects_unknown_profile_arbitrary_fields_and_non_boolean_consent(self):
+        for params in ({'compatibilityProfile': 'unknown', 'allowExperimental': True},
+                       {'image': 'untrusted/image'}, {'allowExperimental': 1},
+                       {'validationRequest': 'bad/token'}):
+            with self.subTest(params=params), self.assertRaises(ValueError):
+                self.api['validate_gpu_compatibility_parameters'](params)
+
+    def test_profile_selection_clears_previous_validation_request(self):
+        params = self.api['validate_gpu_compatibility_parameters']({
+            'compatibilityProfile': 'strix-halo', 'allowExperimental': 'true',
+        })
+        self.assertEqual(params['validationRequest'], '')
+        self.assertEqual(self.api['validate_gpu_compatibility_parameters']({})['compatibilityProfile'], '')
+
+    def test_retired_automatic_host_request_is_not_accepted_as_a_new_manual_request(self):
+        with self.assertRaisesRegex(ValueError, 'retired'):
+            self.api['validate_gpu_compatibility_parameters']({
+                'compatibilityProfile': 'strix-halo', 'allowExperimental': True,
+                'validationRequest': 'host-' + 'a' * 32,
+            })
+
+    def test_profile_mutations_require_admin_even_when_disabling(self):
+        self.assertEqual(self.api['module_mutation_access']('amd-gpu', {'parameters': {}}), 'admin')
+        self.assertEqual(self.api['module_mutation_access']('gpu', {'parameters': {}}), 'operator')
+        with self.assertRaisesRegex(ValueError, 'object'):
+            self.api['module_activation_payload']('amd-gpu', True, {'parameters': []})
+
+    def test_registered_gpu_still_requires_an_eligible_engine_profile(self):
+        self.configure_targets([self.node()])
+        target = self.api['compute_target_availability']()['targets'][0]
+        self.assertTrue(target['available'])
+        self.assertEqual(target['engines'], ['OLlama'])
+        self.assertEqual(target['engineAvailability']['VLLM']['reason'], 'engine-not-eligible')
+        with self.assertRaisesRegex(self.api['RequestError'], 'no eligible GPU node'):
+            self.api['require_compute_target_available']('amd-gpu', 'VLLM')
+
+    def test_no_eligible_engine_disables_target(self):
+        self.configure_targets([self.node(ollama=False)])
+        target = self.api['compute_target_availability']()['targets'][0]
+        self.assertFalse(target['available'])
+        self.assertEqual(target['reason'], 'engine-not-eligible')
+
+    def test_eligible_gpu_exposes_both_engines_without_any_validation_results(self):
+        self.configure_targets([self.node(vllm=True)])
+        target = self.api['compute_target_availability']()['targets'][0]
+        self.assertTrue(target['available'])
+        self.assertEqual(target['engines'], ['OLlama', 'VLLM'])
+        for engine in ('OLlama', 'VLLM'):
+            self.assertTrue(target['engineAvailability'][engine]['available'])
+            self.api['require_compute_target_available']('amd-gpu', engine)
+
+    def test_shared_pool_charges_cpu_and_gpu_once_and_reserves_system_ram(self):
+        reservations = {'cpu': [{'model': 'cpu', 'reservedMi': 4096}],
+                        'amd-gpu': [{'model': 'gpu', 'reservedMi': 8192}]}
+        pool = self.api['unified_memory_pools']([self.node()], reservations)[0]
+        self.assertEqual(pool['totalMi'], 60 * 1024 - 8192)
+        self.assertEqual(pool['id'], 'node-a-uid')
+        self.assertEqual(pool['reservedMi'], 12288)
+        self.assertEqual(pool['unreservedMi'], 40 * 1024)
+        self.assertEqual(pool['gpuUnreservedMi'], 40 * 1024)
+        self.assertFalse(pool['memoryAccountingVerified'])
+
+    def test_installed_and_firmware_inventory_do_not_expand_model_budgets(self):
+        node = self.node()
+        key = 'appliance.magicstick.dev/gpu-host-preflight'
+        report = json.loads(node['metadata']['annotations'][key])
+        report.update(installedMemoryMi=131072, firmwareReservedMi=65536)
+        node['metadata']['annotations'][key] = json.dumps(report)
+        pool = self.api['unified_memory_pools']([node], {})[0]
+        self.assertEqual(pool['installedMemoryMi'], 131072)
+        self.assertEqual(pool['firmwareReservedMi'], 65536)
+        self.assertEqual(pool['physicalMemoryMi'], 65536)
+        self.assertEqual(pool['totalMi'], 52 * 1024)
+        self.assertEqual(pool['gpuAccessibleMi'], 48 * 1024)
+        self.assertEqual(pool['gpuCapacityMi'], 48 * 1024)  # Inventory is not added to the corroborated shared capacity.
+        old = self.api['unified_memory_pools']([self.node()], {})[0]
+        self.assertIsNone(old['installedMemoryMi'])
+        self.assertIsNone(old['firmwareReservedMi'])
+
+    def test_stale_node_boot_or_uid_does_not_supply_memory_capacity(self):
+        for field in ('bootID', 'kernelVersion'):
+            node = self.node()
+            node['status']['nodeInfo'][field] = 'changed'
+            self.assertEqual(self.api['unified_memory_pools']([node], {}), [])
+        node = self.node()
+        node['metadata']['uid'] = 'new-uid'
+        self.assertEqual(self.api['unified_memory_pools']([node], {}), [])
+
+    def test_expired_or_malformed_host_evidence_does_not_supply_memory_capacity(self):
+        for value in ('', 'invalid', (datetime.now(timezone.utc) - timedelta(days=2)).isoformat(),
+                      (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()):
+            node = self.node()
+            key = 'appliance.magicstick.dev/gpu-host-preflight'
+            report = json.loads(node['metadata']['annotations'][key])
+            report['generatedAt'] = value
+            node['metadata']['annotations'][key] = json.dumps(report)
+            self.assertEqual(self.api['unified_memory_pools']([node], {}), [])
+
+    def test_cpu_and_gpu_summary_use_same_physical_budget(self):
+        self.configure_targets([self.node()])
+        self.api['node_memory_samples'] = lambda _nodes: {'node-a': {'availableMi': 50 * 1024, 'source': 'kubelet'}}
+        activations = [{'metadata': {'name': 'gpu-model'},
+                        'spec': {'type': 'local', 'local': {'computeTarget': 'amd-gpu', 'vramMi': 8192}},
+                        'status': {'memoryArchitecture': 'unified', 'memoryRequiredMi': 8192}}]
+        result = self.api['compute_memory_summary'](activations, {'available': False})
+        cpu, gpu = result['devices']
+        self.assertEqual(cpu['totalMi'], 52 * 1024)
+        self.assertEqual(cpu['unreservedMi'], 44 * 1024)
+        self.assertEqual(cpu['reservedMi'], 8192)
+        self.assertEqual(sum(item['reservedMi'] for item in cpu['reservations']), cpu['reservedMi'])
+        self.assertEqual(gpu['sharedPoolId'], cpu['sharedPoolId'])
+        self.assertEqual(gpu['unreservedMi'], 40 * 1024)
+
+    def test_unified_host_request_floor_is_counted_once(self):
+        activation = {'metadata': {'name': 'tiny'},
+                      'spec': {'type': 'local', 'local': {'computeTarget': 'amd-gpu', 'vramMi': 100}},
+                      'status': {'memoryArchitecture': 'unified', 'memoryRequiredMi': 8192}}
+        reservations = self.api['active_model_memory_reservations']([activation])
+        self.assertEqual(reservations['amd-gpu'][0]['reservedMi'], 100)
+        self.assertEqual(reservations['amd-gpu'][0]['hostReservedMi'], 8192)
+        self.assertNotIn('cpu', reservations)
+
+    def test_known_unified_reservations_survive_missing_host_evidence(self):
+        node = self.node()
+        node['metadata']['annotations'] = {}
+        self.configure_targets([node])
+        self.api['node_memory_samples'] = lambda _nodes: {}
+        activation = {'metadata': {'name': 'running-gpu'},
+                      'spec': {'type': 'local', 'local': {'computeTarget': 'amd-gpu', 'vramMi': 8192}},
+                      'status': {'memoryArchitecture': 'unified', 'memoryRequiredMi': 8192}}
+        result = self.api['compute_memory_summary']([activation], {'available': False})
+        cpu = result['devices'][0]
+        self.assertEqual(result['sharedPools'], [])
+        self.assertEqual(cpu['reservedMi'], 8192)
+        self.assertEqual(cpu['unreservedMi'], 56 * 1024)
+        self.assertFalse(cpu['accountingVerified'])
+
+    def test_estimate_never_uses_ineligible_large_node(self):
+        small, large = self.node(vllm=True), self.node(name='node-b')
+        small_report = json.loads(small['metadata']['annotations']['appliance.magicstick.dev/gpu-host-preflight'])
+        small_report['gpuAccessibleMi'] = 16384
+        small_report['gpuCapacityMi'] = 16384
+        small['metadata']['annotations']['appliance.magicstick.dev/gpu-host-preflight'] = json.dumps(small_report)
+        self.configure_targets([small, large])
+        self.api['model_activations'] = lambda: []
+        self.api['estimate_vllm_memory'] = lambda *_args: {'weightsMi': 1024, 'kvCacheMi': 256, 'runtimeReserveMi': 1024}
+        result = self.api['estimate_model_memory']({'computeTarget': 'amd-gpu', 'engine': 'VLLM'})
+        self.assertEqual(result['maximumMi'], 16384)
+        self.assertEqual(len(result['sharedPools']), 1)
+
+    def fixed_node(self):
+        node = self.node()
+        key = 'appliance.magicstick.dev/gpu-host-preflight'
+        report = json.loads(node['metadata']['annotations'][key])
+        report.update(installedMemoryMi=131072, firmwareReservedMi=65536,
+                      gpuAccessibleMi=46 * 1024, gpuCapacityMi=65536,
+                      gpuAllocationMode='firmware-reserved')
+        node['metadata']['annotations'][key] = json.dumps(report)
+        return node
+
+    def test_fixed_pool_one_gpu_and_no_double_host_charge(self):
+        self.configure_targets([self.fixed_node()])
+        self.api['node_memory_samples'] = lambda _nodes: {'node-a': {'availableMi': 20000, 'source': 'kubelet'}}
+        activation = {'metadata': {'name': 'fixed-gpu'},
+                      'spec': {'type': 'local', 'local': {'engine': 'OLlama', 'computeTarget': 'amd-gpu', 'vramMi': 50000}},
+                      'status': {'memoryArchitecture': 'unified', 'memoryRequiredMi': 4096,
+                                 'sharedPoolId': 'node-a-uid', 'gpuAllocationMode': 'firmware-reserved'}}
+        result = self.api['compute_memory_summary']([activation], {'available': False})
+        cpu, gpu = result['devices']
+        self.assertEqual(len(result['devices']), 2)  # One CPU view, one physical GPU, never two GPUs.
+        self.assertEqual(cpu['reservedMi'], 4096)
+        self.assertEqual(gpu['reservedMi'], 50000)
+        self.assertEqual(gpu['totalMi'], 65536)
+        self.assertEqual(gpu['unreservedMi'], 15536)
+        self.assertIsNone(gpu['freeMi'])  # Linux MemAvailable is not free firmware VRAM.
+        self.assertFalse(gpu['metricsAvailable'])
+        self.assertEqual(gpu['gpuCapacitySource'], 'kfd-topology')
+
+    def test_pending_fixed_model_charges_host_baseline_not_weights(self):
+        pool = self.api['unified_memory_pools']([self.fixed_node()], {'amd-gpu': [
+            {'model': 'pending', 'reservedMi': 50000, 'hostBaselineMi': 4096},
+        ]})[0]
+        self.assertEqual(pool['reservedMi'], 4096)
+        self.assertEqual(pool['gpuReservedMi'], 50000)
+
+    def test_pending_fixed_model_keeps_explicit_larger_host_request(self):
+        activation = {'metadata': {'name': 'pending'}, 'spec': {'type': 'local', 'local': {
+            'engine': 'OLlama', 'computeTarget': 'amd-gpu', 'vramMi': 50000, 'memoryRequiredMi': 16000,
+        }}}
+        reservations = self.api['active_model_memory_reservations']([activation])
+        pool = self.api['unified_memory_pools']([self.fixed_node()], reservations)[0]
+        self.assertEqual(pool['reservedMi'], 16000)
+
+    def test_fixed_pool_estimator_uses_64_not_46_or_110(self):
+        self.configure_targets([self.fixed_node()])
+        self.api['model_activations'] = lambda: []
+        self.api['estimate_ollama_memory'] = lambda *_: {'weightsMi': 40000, 'runtimeReserveMi': 2000}
+        result = self.api['estimate_model_memory']({'computeTarget': 'amd-gpu', 'engine': 'OLlama'})
+        self.assertEqual(result['maximumMi'], 65536)
+        self.assertIn('firmware-reserved pool', ' '.join(result['warnings']))
+
+    def test_legacy_unknown_capacity_retains_host_request(self):
+        node = self.fixed_node()
+        key = 'appliance.magicstick.dev/gpu-host-preflight'
+        report = json.loads(node['metadata']['annotations'][key])
+        report.pop('gpuCapacitySource')
+        node['metadata']['annotations'][key] = json.dumps(report)
+        pool = self.api['unified_memory_pools']([node], {'amd-gpu': [{'model': 'legacy', 'reservedMi': 50000}]})[0]
+        self.assertIsNone(pool['gpuTotalMi'])
+        self.assertIsNone(pool['gpuUnreservedMi'])
+        self.assertEqual(pool['reservedMi'], 50000)
+
+    def test_existing_shared_request_not_freed_before_operator_convergence(self):
+        pool = self.api['unified_memory_pools']([self.fixed_node()], {'amd-gpu': [
+            {'model': 'old', 'reservedMi': 50000, 'hostReservedMi': 50000, 'hostBaselineMi': 4096},
+        ]})[0]
+        self.assertEqual(pool['reservedMi'], 50000)
+
+    def test_dynamic_capacity_intersects_ram_budget_instead_of_summing_pools(self):
+        pool = self.api['unified_memory_pools']([self.node()], {
+            'cpu': [{'model': 'cpu', 'reservedMi': 40000}],
+            'amd-gpu': [{'model': 'gpu', 'reservedMi': 8000, 'hostReservedMi': 8000}],
+        })[0]
+        self.assertEqual(pool['gpuUnreservedMi'], 52 * 1024 - 48000)
+
+    def test_linux_capped_shared_capacity_below_fixed_reservation_keeps_budget(self):
+        node = self.fixed_node()
+        key = 'appliance.magicstick.dev/gpu-host-preflight'
+        report = json.loads(node['metadata']['annotations'][key])
+        # Raw KFD/GTT was larger than VRAM; the host caps reported capacity to
+        # the 61 GiB that Linux can actually use after a 64 GiB carve-out.
+        report.update(physicalMemoryMi=61 * 1024, gpuAccessibleMi=61 * 1024,
+                      gpuCapacityMi=61 * 1024, gpuAllocationMode='shared-gtt')
+        node['metadata']['annotations'][key] = json.dumps(report)
+        pool = self.api['unified_memory_pools']([node], {
+            'cpu': [{'model': 'cpu', 'reservedMi': 32 * 1024}],
+            'amd-gpu': [{'model': 'gpu', 'reservedMi': 8 * 1024, 'hostReservedMi': 8 * 1024}],
+        })[0]
+        self.assertEqual(pool['gpuAllocationMode'], 'shared-gtt')
+        self.assertEqual(pool['gpuCapacityMi'], 61 * 1024)
+        # 60 GiB allocatable - 8 GiB system allowance - 40 GiB model requests.
+        self.assertEqual(pool['gpuUnreservedMi'], 12 * 1024)
+        self.assertEqual(pool['unreservedMi'], 12 * 1024)
+
+
+if __name__ == '__main__':
+    unittest.main()

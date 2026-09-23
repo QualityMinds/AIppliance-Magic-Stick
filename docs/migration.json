@@ -1,0 +1,560 @@
+{
+  "authentication.md": {
+    "target": "concepts/identity.md",
+    "anchors": {
+      "authentication-and-sso": "concepts/identity.md",
+      "target-architecture": "concepts/identity.md#target-architecture",
+      "authorization-model": "concepts/identity.md#authorization-model",
+      "implemented-scope": "concepts/identity.md#implemented-scope",
+      "kubernetes-sso-access": "reference/kubernetes-access.md#kubernetes-sso-access",
+      "dashboard-user-lifecycle": "administration/users.md#dashboard-user-lifecycle",
+      "dashboard-managed-federation": "administration/federated-sso.md#dashboard-managed-federation",
+      "run-the-pilot": "development/identity-validation.md#run-the-pilot",
+      "production-migration": "administration/certificates.md#production-migration",
+      "secret-and-recovery-rules": "administration/certificates.md#secret-and-recovery-rules"
+    }
+  },
+  "licensing.md": {
+    "target": "administration/licenses.md",
+    "anchors": {
+      "offline-license-management": "administration/licenses.md",
+      "editions-and-entitlements": "administration/licenses.md#editions-and-entitlements",
+      "customer-workflow": "administration/licenses.md#customer-workflow",
+      "signed-document-contract": "reference/license-api.md#signed-document-contract",
+      "issuer-and-trust": "development/license-issuer.md#issuer-and-trust",
+      "persistence-api-and-security": "reference/license-api.md#persistence-api-and-security",
+      "release": "development/license-issuer.md#release"
+    }
+  },
+  "operator-orchestration.md": {
+    "target": "concepts/controllers.md",
+    "anchors": {
+      "operator-orchestration": "concepts/controllers.md",
+      "responsibilities": "concepts/controllers.md#responsibilities",
+      "reconcile-flow": "concepts/controllers.md#reconcile-flow",
+      "instance-mapping": "concepts/controllers.md#instance-mapping",
+      "defaulting": "concepts/controllers.md#defaulting",
+      "failure-and-status-behavior": "concepts/controllers.md#failure-and-status-behavior",
+      "amd-compatibility-and-validation": "concepts/controllers.md#amd-compatibility-and-validation",
+      "module-and-model-readiness": "concepts/controllers.md#module-and-model-readiness",
+      "public-boundary": "concepts/controllers.md#public-boundary"
+    }
+  },
+  "architecture.md": {
+    "target": "concepts/architecture.md",
+    "anchors": {
+      "architecture": "concepts/architecture.md",
+      "repository-layers": "concepts/architecture.md#repository-layers",
+      "bootstrap-flow": "concepts/architecture.md#bootstrap-flow",
+      "bootstrap-modes": "concepts/architecture.md#bootstrap-modes",
+      "flux-graph": "concepts/architecture.md#flux-graph",
+      "appliance-model": "concepts/architecture.md#appliance-model",
+      "platform-components": "concepts/architecture.md#platform-components",
+      "application-components": "concepts/architecture.md#application-components",
+      "value-boundary": "concepts/architecture.md#value-boundary"
+    }
+  },
+  "paperclip-agents.md": {
+    "target": "reference/paperclip-agents.md",
+    "anchors": {
+      "paperclip-agent-execution": "reference/paperclip-agents.md",
+      "versions-and-prerequisites": "reference/paperclip-agents.md#versions-and-prerequisites",
+      "appinstance-contract": "reference/paperclip-agents.md#appinstance-contract",
+      "runtime-types": "reference/paperclip-agents.md#runtime-types",
+      "opencode-and-cli-agents": "reference/paperclip-agents.md#opencode-and-cli-agents",
+      "openclaw-and-hermes": "reference/paperclip-agents.md#openclaw-and-hermes",
+      "model-catalog": "reference/paperclip-agents.md#model-catalog",
+      "network-isolation": "reference/paperclip-agents.md#network-isolation",
+      "credentials": "reference/paperclip-agents.md#credentials",
+      "operations": "reference/paperclip-agents.md#operations"
+    }
+  },
+  "operations.md": {
+    "target": "administration/troubleshooting/overview.md",
+    "anchors": {
+      "operations": "administration/troubleshooting/overview.md",
+      "stop-and-resume-models": "administration/troubleshooting/models.md#stop-and-resume-models",
+      "qwen3-omni-realtime-operation": "administration/troubleshooting/realtime.md#qwen3-omni-realtime-operation",
+      "model-cache-cleanup": "administration/model-cache.md#model-cache-cleanup",
+      "private-mesh-operation": "administration/private-mesh.md#private-mesh-operation",
+      "offline-license-operation": "administration/licenses.md#offline-license-operation",
+      "instance-sharing-checks": "administration/troubleshooting/access.md#instance-sharing-checks",
+      "host-checks": "administration/troubleshooting/platform.md#host-checks",
+      "kubernetes-checks": "administration/troubleshooting/platform.md#kubernetes-checks",
+      "flux-checks": "administration/troubleshooting/platform.md#flux-checks",
+      "app-checks": "administration/troubleshooting/applications.md#app-checks",
+      "identity-pilot-checks": "administration/troubleshooting/identity.md#identity-pilot-checks",
+      "dashboard-image-promotion": "development/image-promotion.md#dashboard-image-promotion",
+      "dashboard-upgrade-cleanup": "administration/troubleshooting/dashboard-upgrades.md#dashboard-upgrade-cleanup",
+      "cli-and-terminal-ui": "administration/troubleshooting/cli.md#cli-and-terminal-ui",
+      "user-administration-checks": "administration/troubleshooting/access.md#user-administration-checks",
+      "federated-sso-checks": "administration/troubleshooting/access.md#federated-sso-checks",
+      "api-access-checks": "administration/troubleshooting/access.md#api-access-checks",
+      "kubernetes-sso-access-checks": "administration/troubleshooting/access.md#kubernetes-sso-access-checks",
+      "appinstance-gateway-access": "administration/troubleshooting/applications.md#appinstance-gateway-access",
+      "model-catalog": "administration/troubleshooting/models.md#model-catalog",
+      "local-inference-and-hardware-driven-gpu-operators": "administration/troubleshooting/gpus.md#local-inference-and-hardware-driven-gpu-operators",
+      "reboot-recovery-and-rollout-order": "administration/troubleshooting/gpus.md#reboot-recovery-and-rollout-order",
+      "freetoken-v013": "administration/troubleshooting/freetoken.md#freetoken-v013",
+      "freetoken-runtime-image-promotion": "administration/troubleshooting/freetoken.md#freetoken-runtime-image-promotion",
+      "cpu-offloading-checks": "administration/troubleshooting/offloading.md#cpu-offloading-checks",
+      "storage": "administration/troubleshooting/storage.md#storage",
+      "logs": "administration/troubleshooting/logs.md#logs",
+      "common-failures": "administration/troubleshooting/overview.md#common-failures"
+    }
+  },
+  "dashboard.md": {
+    "target": "reference/dashboard-api.md",
+    "anchors": {
+      "magic-stick-dashboard": "reference/dashboard-api.md",
+      "role": "reference/dashboard-api.md#role",
+      "ui-areas": "user-guide/dashboard.md#ui-areas",
+      "backend-api": "reference/dashboard-api.md#backend-api",
+      "react-dashboard": "development/dashboard.md#react-dashboard",
+      "cli-and-tui": "reference/cli.md#cli-and-tui",
+      "physical-appliance-console": "reference/cli.md#physical-appliance-console",
+      "license-administration": "reference/license-api.md#license-administration",
+      "federated-sso-administration": "administration/federated-sso.md#federated-sso-administration",
+      "user-controls": "administration/users.md#user-controls",
+      "targeted-instance-sharing": "administration/users.md#targeted-instance-sharing",
+      "user-administration": "administration/users.md#user-administration",
+      "api-access-controls": "user-guide/api-access.md#api-access-controls",
+      "kubernetes-access-controls": "administration/kubernetes-access.md#kubernetes-access-controls",
+      "services-modules-and-instances": "reference/application-controls.md#services-modules-and-instances",
+      "hardware-compatibility-controls": "reference/hardware-controls.md#hardware-compatibility-controls",
+      "model-controls": "reference/model-controls.md#model-controls",
+      "rbac": "reference/dashboard-api.md#rbac",
+      "public-safe-values": "reference/dashboard-api.md#public-safe-values"
+    }
+  },
+  "model-catalog.md": {
+    "target": "concepts/model-routing.md",
+    "anchors": {
+      "ai-model-catalog": "concepts/model-routing.md",
+      "responsibilities": "concepts/model-routing.md#responsibilities",
+      "resources": "concepts/model-routing.md#resources",
+      "reconciliation-flow": "concepts/model-routing.md#reconciliation-flow",
+      "kubeai-models": "reference/kubeai-models.md#kubeai-models",
+      "saved-model-lifecycle": "reference/model-lifecycle.md#saved-model-lifecycle",
+      "realtime-vllm-omni-profile": "reference/realtime.md#realtime-vllm-omni-profile",
+      "freetoken-runtimes": "reference/freetoken.md#freetoken-runtimes",
+      "compute-targets-and-bundled-local-presets": "reference/compute-targets.md#compute-targets-and-bundled-local-presets",
+      "cpu-scheduling-policy": "reference/compute-targets.md#cpu-scheduling-policy",
+      "vllm-vision-attention-deployment": "reference/compute-targets.md#vllm-vision-attention-deployment",
+      "amd-unified-memory-reservations": "reference/compute-targets.md#amd-unified-memory-reservations",
+      "explicit-cpu-offloading-for-nvidia-models": "reference/compute-targets.md#explicit-cpu-offloading-for-nvidia-models",
+      "external-models": "reference/external-models.md#external-models",
+      "defaults": "reference/model-catalog.md#defaults",
+      "generated-configmap": "reference/model-catalog.md#generated-configmap",
+      "consumers": "reference/model-catalog.md#consumers",
+      "gitops-patterns": "development/model-integration.md#gitops-patterns",
+      "operations": "administration/troubleshooting/models.md#operations"
+    }
+  },
+  "ubuntu-updates.md": {
+    "target": "administration/ubuntu-updates.md",
+    "anchors": {
+      "ubuntu-updates": "administration/ubuntu-updates.md",
+      "defaults-and-controls": "administration/ubuntu-updates.md#defaults-and-controls",
+      "update-boundaries": "administration/ubuntu-updates.md#update-boundaries",
+      "integration-and-persistence": "administration/ubuntu-updates.md#integration-and-persistence",
+      "operations-and-recovery": "administration/ubuntu-updates.md#operations-and-recovery"
+    }
+  },
+  "website.md": {
+    "target": "development/website.md",
+    "anchors": {
+      "public-website": "development/website.md",
+      "sources-and-structure": "development/website.md#sources-and-structure",
+      "preview-and-checks": "development/website.md#preview-and-checks",
+      "previous-artwork-provenance": "development/website.md#previous-artwork-provenance"
+    }
+  },
+  "modules.md": {
+    "target": "reference/module-catalog.md",
+    "anchors": {
+      "modules": "reference/module-catalog.md",
+      "catalog-structure": "reference/module-catalog.md#catalog-structure",
+      "runtime-activation": "reference/module-catalog.md#runtime-activation",
+      "on-demand-local-model-runtime": "concepts/modules-models-applications.md#on-demand-local-model-runtime",
+      "hardware-driven-gpu-operators": "reference/gpu-operators.md#hardware-driven-gpu-operators",
+      "ubuntu-2604-baseline": "reference/gpu-operators.md#ubuntu-2604-baseline",
+      "discovery-and-activation": "reference/gpu-operators.md#discovery-and-activation",
+      "additional-amd-compatibility-profiles": "reference/gpu-operators.md#additional-amd-compatibility-profiles",
+      "generated-flux-kustomization": "reference/module-catalog.md#generated-flux-kustomization",
+      "instance-dependencies": "reference/module-catalog.md#instance-dependencies",
+      "disable-behavior": "reference/module-catalog.md#disable-behavior"
+    }
+  },
+  "appliance-crd.md": {
+    "target": "reference/kubernetes-resources.md",
+    "anchors": {
+      "appliance-crd": "reference/kubernetes-resources.md",
+      "api": "reference/kubernetes-resources.md#api",
+      "spec": "reference/kubernetes-resources.md#spec",
+      "modules-and-instances": "reference/kubernetes-resources.md#modules-and-instances",
+      "amd-compatibility-intent-and-evidence": "reference/kubernetes-resources.md#amd-compatibility-intent-and-evidence",
+      "application-instances": "reference/kubernetes-resources.md#application-instances",
+      "runtime-crs": "reference/kubernetes-resources.md#runtime-crs",
+      "cpu-scheduling-fields": "reference/kubernetes-resources.md#cpu-scheduling-fields",
+      "vllm-deployment-fields": "reference/kubernetes-resources.md#vllm-deployment-fields",
+      "realtime-profile-fields": "reference/kubernetes-resources.md#realtime-profile-fields",
+      "cpu-offloading-fields": "reference/kubernetes-resources.md#cpu-offloading-fields",
+      "external-activation-example": "reference/kubernetes-resources.md#external-activation-example",
+      "status": "reference/kubernetes-resources.md#status",
+      "examples": "reference/kubernetes-resources.md#examples",
+      "appliancesetup-first-run-state": "reference/kubernetes-resources.md#appliancesetup-first-run-state"
+    }
+  },
+  "getting-started.md": {
+    "target": "development/checkout.md",
+    "anchors": {
+      "getting-started": "development/checkout.md",
+      "prerequisites": "development/checkout.md#prerequisites",
+      "clone-and-validate": "development/checkout.md#clone-and-validate",
+      "public-read-only-installer": "development/checkout.md#public-read-only-installer",
+      "after-first-boot": "development/checkout.md#after-first-boot",
+      "select-optional-capabilities": "development/checkout.md#select-optional-capabilities"
+    }
+  },
+  "public-release-checklist.md": {
+    "target": "development/release-checklist.md",
+    "anchors": {
+      "public-release-checklist": "development/release-checklist.md",
+      "license-checks-and-advisory-review": "development/release-checklist.md#license-checks-and-advisory-review",
+      "structure": "development/release-checklist.md#structure",
+      "value-scan": "development/release-checklist.md#value-scan",
+      "build-checks": "development/release-checklist.md#build-checks",
+      "license-foundation-checks": "development/release-checklist.md#license-foundation-checks",
+      "secret-checks": "development/release-checklist.md#secret-checks",
+      "third-party-review": "development/release-checklist.md#third-party-review",
+      "realtime-acceptance": "development/release-checklist.md#realtime-acceptance",
+      "ubuntu-2604-gpu-acceptance": "development/release-checklist.md#ubuntu-2604-gpu-acceptance",
+      "gpu-sharing-acceptance": "development/release-checklist.md#gpu-sharing-acceptance",
+      "private-mesh-release-gates": "development/release-checklist.md#private-mesh-release-gates",
+      "review-questions": "development/release-checklist.md#review-questions"
+    }
+  },
+  "license-audit.md": {
+    "target": "development/license-audit.md",
+    "anchors": {
+      "license-and-distribution-audit": "development/license-audit.md",
+      "scope-and-evidence": "development/license-audit.md#scope-and-evidence",
+      "component-assessment": "development/license-audit.md#component-assessment",
+      "special-license-families": "development/license-audit.md#special-license-families",
+      "kdns-evidence-checked-2026-09-23": "development/license-audit.md#kdns-evidence-checked-2026-09-23",
+      "recurring-ci-and-artifact-evidence": "development/license-audit.md#recurring-ci-and-artifact-evidence",
+      "ownership-and-spdx-strategy": "development/license-audit.md#ownership-and-spdx-strategy",
+      "open-reviews-and-artifact-specific-constraints": "development/license-audit.md#open-reviews-and-artifact-specific-constraints"
+    }
+  },
+  "realtime.md": {
+    "target": "reference/realtime.md",
+    "anchors": {
+      "local-realtime-inference": "reference/realtime.md",
+      "use-from-the-dashboard": "user-guide/models/realtime.md#use-from-the-dashboard",
+      "experimentation-boundary": "user-guide/models/realtime.md#experimentation-boundary",
+      "pinned-runtime-and-support-boundary": "reference/realtime.md#pinned-runtime-and-support-boundary",
+      "experimental-amd-strix-halo-profile": "reference/realtime.md#experimental-amd-strix-halo-profile",
+      "cooperative-gpu-sharing": "reference/realtime.md#cooperative-gpu-sharing",
+      "configuration-contract": "reference/realtime.md#configuration-contract",
+      "pinned-cpu-offload-compatibility-repair": "reference/realtime.md#pinned-cpu-offload-compatibility-repair",
+      "lifecycle-and-routing": "reference/realtime.md#lifecycle-and-routing",
+      "protocol-limits-and-acceptance": "development/realtime-validation.md#protocol-limits-and-acceptance"
+    }
+  },
+  "network-management.md": {
+    "target": "administration/network.md",
+    "anchors": {
+      "dashboard-network-configuration": "administration/network.md",
+      "scope-and-implementation-plan": "administration/network.md#scope-and-implementation-plan",
+      "user-flow-and-limitations": "administration/network.md#user-flow-and-limitations",
+      "safety-and-persistence": "administration/network.md#safety-and-persistence",
+      "operations-and-acceptance": "administration/network.md#operations-and-acceptance"
+    }
+  },
+  "configuration.md": {
+    "target": "reference/configuration.md",
+    "anchors": {
+      "configuration": "reference/configuration.md",
+      "host-metadata": "reference/configuration.md#host-metadata",
+      "one-command-installer-options": "reference/configuration.md#one-command-installer-options",
+      "gpu-compatibility-configuration": "reference/configuration.md#gpu-compatibility-configuration",
+      "runtime-settings": "reference/configuration.md#runtime-settings",
+      "module-advanced-parameters": "reference/configuration.md#module-advanced-parameters",
+      "model-catalog-settings": "reference/configuration.md#model-catalog-settings",
+      "installer-build-variables": "reference/configuration.md#installer-build-variables",
+      "secrets": "reference/configuration.md#secrets"
+    }
+  },
+  "freetoken-integration-review.md": {
+    "target": "development/reports/2026-09-21-freetoken.md",
+    "anchors": {
+      "freetoken-integration-review": "development/reports/2026-09-21-freetoken.md",
+      "result": "development/reports/2026-09-21-freetoken.md#result",
+      "reviewed-integration-contracts": "development/reports/2026-09-21-freetoken.md#reviewed-integration-contracts",
+      "safety-checks-covered-in-code": "development/reports/2026-09-21-freetoken.md#safety-checks-covered-in-code",
+      "local-validation-completed": "development/reports/2026-09-21-freetoken.md#local-validation-completed",
+      "required-release-and-hardware-gates": "development/reports/2026-09-21-freetoken.md#required-release-and-hardware-gates"
+    }
+  },
+  "model-cache.md": {
+    "target": "administration/model-cache.md",
+    "anchors": {
+      "model-cache-management": "administration/model-cache.md",
+      "scope": "administration/model-cache.md#scope",
+      "execution-and-deployment": "administration/model-cache.md#execution-and-deployment"
+    }
+  },
+  "gpu-sharing.md": {
+    "target": "administration/gpu-sharing.md",
+    "anchors": {
+      "gpu-sharing": "administration/gpu-sharing.md",
+      "model-slot-accounting": "administration/gpu-sharing.md#model-slot-accounting",
+      "initial-scope-and-limits": "administration/gpu-sharing.md#initial-scope-and-limits",
+      "common-api-and-configuration": "administration/gpu-sharing.md#common-api-and-configuration",
+      "amd-backend": "administration/gpu-sharing.md#amd-backend",
+      "nvidia-backend": "administration/gpu-sharing.md#nvidia-backend",
+      "upgrading-older-nvidia-defaults": "administration/gpu-sharing.md#upgrading-older-nvidia-defaults",
+      "recovery-and-diagnostics": "administration/gpu-sharing.md#recovery-and-diagnostics",
+      "restart-recovery-and-legacy-migration": "administration/gpu-sharing.md#restart-recovery-and-legacy-migration",
+      "optional-validation-lifecycle": "administration/gpu-sharing.md#optional-validation-lifecycle",
+      "acceptance-checks": "administration/gpu-sharing.md#acceptance-checks",
+      "changing-allocation-mode": "administration/gpu-sharing.md#changing-allocation-mode",
+      "upstream-references": "administration/gpu-sharing.md#upstream-references"
+    }
+  },
+  "host-management.md": {
+    "target": "administration/host-management.md",
+    "anchors": {
+      "host-management-after-installation": "administration/host-management.md",
+      "user-workflow": "administration/host-management.md#user-workflow",
+      "mixed-systems-and-experiment-mode": "administration/host-management.md#mixed-systems-and-experiment-mode",
+      "fixed-and-dynamic-gpu-memory": "administration/host-management.md#fixed-and-dynamic-gpu-memory",
+      "restart-and-shut-down": "administration/host-management.md#restart-and-shut-down",
+      "execution-and-security-boundary": "administration/host-management.md#execution-and-security-boundary",
+      "progress-and-recovery": "administration/host-management.md#progress-and-recovery",
+      "local-verification": "administration/host-management.md#local-verification"
+    }
+  },
+  "development.md": {
+    "target": "development/environment.md",
+    "anchors": {
+      "development": "development/environment.md",
+      "local-workflow": "development/environment.md#local-workflow",
+      "public-template-rules": "development/environment.md#public-template-rules",
+      "agent-instructions-and-skills": "development/environment.md#agent-instructions-and-skills",
+      "adding-a-cluster-base": "development/extensions.md#adding-a-cluster-base",
+      "adding-a-module": "development/extensions.md#adding-a-module",
+      "adding-an-app-variable": "development/extensions.md#adding-an-app-variable",
+      "adding-a-secret": "development/extensions.md#adding-a-secret",
+      "adding-an-operator-backed-app": "development/extensions.md#adding-an-operator-backed-app",
+      "updating-the-dashboard": "development/dashboard.md#updating-the-dashboard",
+      "release-validation": "development/testing.md#release-validation"
+    }
+  },
+  "first-run-setup.md": {
+    "target": "installation/first-run-setup.md",
+    "anchors": {
+      "first-run-setup": "installation/first-run-setup.md",
+      "open-the-setup-screen": "installation/first-run-setup.md#open-the-setup-screen",
+      "complete-the-wizard": "installation/first-run-setup.md#complete-the-wizard",
+      "console-recovery-before-completion": "installation/first-run-setup.md#console-recovery-before-completion",
+      "state-and-troubleshooting": "installation/first-run-setup.md#state-and-troubleshooting"
+    }
+  },
+  "gpu-compatibility.md": {
+    "target": "reference/gpu-compatibility.md",
+    "anchors": {
+      "gpu-compatibility-profiles": "reference/gpu-compatibility.md",
+      "host-evidence-without-changing-the-installation": "reference/gpu-compatibility.md#host-evidence-without-changing-the-installation",
+      "kernel-and-shared-memory-constraints": "reference/gpu-compatibility.md#kernel-and-shared-memory-constraints",
+      "explicit-ansible-preparation": "reference/gpu-compatibility.md#explicit-ansible-preparation",
+      "device-specific-dashboard-diagnostics": "reference/gpu-compatibility.md#device-specific-dashboard-diagnostics",
+      "a-small-computation-proof-in-the-exact-inference-image": "reference/gpu-compatibility.md#a-small-computation-proof-in-the-exact-inference-image",
+      "local-checks": "reference/gpu-compatibility.md#local-checks"
+    }
+  },
+  "private-mesh.md": {
+    "target": "user-guide/private-mesh.md",
+    "anchors": {
+      "private-mesh": "user-guide/private-mesh.md",
+      "core-access-and-security": "user-guide/private-mesh.md#core-access-and-security",
+      "architecture-and-request-paths": "concepts/private-mesh.md#architecture-and-request-paths",
+      "user-workflow": "user-guide/private-mesh.md#user-workflow",
+      "permanent-github-client-downloads": "user-guide/private-mesh.md#permanent-github-client-downloads",
+      "windows-companion-package": "user-guide/private-mesh.md#windows-companion-package",
+      "macos-companion-package": "user-guide/private-mesh.md#macos-companion-package",
+      "private-membership-and-relay-trust": "administration/private-mesh.md#private-membership-and-relay-trust",
+      "litellm-keys-and-local-priority": "reference/private-mesh.md#litellm-keys-and-local-priority",
+      "lifecycle-data-and-observability": "administration/private-mesh.md#lifecycle-data-and-observability",
+      "troubleshooting": "administration/troubleshooting/mesh.md#troubleshooting",
+      "versions-and-verification": "development/mesh-validation.md#versions-and-verification",
+      "acceptance-scope": "development/mesh-validation.md#acceptance-scope"
+    }
+  },
+  "gitops-overlays.md": {
+    "target": "development/gitops-overlays.md",
+    "anchors": {
+      "gitops-and-overlays": "development/gitops-overlays.md",
+      "public-entry-points": "development/gitops-overlays.md#public-entry-points",
+      "optional-repository-include-pattern": "development/gitops-overlays.md#optional-repository-include-pattern",
+      "overlay-responsibilities": "development/gitops-overlays.md#overlay-responsibilities",
+      "flux-path-patching": "development/gitops-overlays.md#flux-path-patching",
+      "model-selection": "development/gitops-overlays.md#model-selection",
+      "profile-pattern": "development/gitops-overlays.md#profile-pattern",
+      "optional-apps-and-operators": "development/gitops-overlays.md#optional-apps-and-operators",
+      "post-build-substitution": "development/gitops-overlays.md#post-build-substitution"
+    }
+  },
+  "instance-sharing.md": {
+    "target": "user-guide/sharing.md",
+    "anchors": {
+      "targeted-instance-access": "user-guide/sharing.md",
+      "dashboard-workflow": "user-guide/sharing.md#dashboard-workflow",
+      "runtimeapi-contract": "reference/instance-access.md#runtimeapi-contract",
+      "enforcement-and-rollout": "reference/instance-access.md#enforcement-and-rollout",
+      "verification": "development/sharing-validation.md#verification"
+    }
+  },
+  "features.md": {
+    "target": "get-started/features.md",
+    "anchors": {
+      "magic-stick--funktionsübersicht": "get-started/features.md",
+      "auf-einen-blick": "get-started/features.md",
+      "vier-installationswege-ein-zielzustand": "get-started/features.md",
+      "geschützte-ersteinrichtung": "get-started/features.md",
+      "zentrales-dashboard": "get-started/features.md",
+      "übersicht": "get-started/features.md",
+      "services-module-und-instanzen-in-einer-ansicht": "get-started/features.md",
+      "einstellungen": "get-started/features.md",
+      "module": "get-started/features.md",
+      "basis-und-zentrale-dienste": "get-started/features.md",
+      "optionale-ki--und-anwendungsdienste": "get-started/features.md",
+      "hardwareabhängige-module": "get-started/features.md",
+      "anwendungen-und-instanzen": "get-started/features.md",
+      "lokale-und-externe-modelle": "get-started/features.md",
+      "unterstützte-lokale-kombinationen": "get-started/features.md",
+      "lokale-modellkonfiguration": "get-started/features.md",
+      "externe-modelle": "get-started/features.md",
+      "gemeinsamer-modellzugriff": "get-started/features.md",
+      "benutzer-sso-und-rollen": "get-started/features.md",
+      "rollen": "get-started/features.md",
+      "benutzerverwaltung": "get-started/features.md",
+      "federated-sso": "get-started/features.md",
+      "sitzungen-und-routen": "get-started/features.md",
+      "api-access": "get-started/features.md",
+      "kubernetes-access": "get-started/features.md",
+      "hardwareerkennung-und-systemstatus": "get-started/features.md",
+      "deklarative-apis-und-gitops": "get-started/features.md",
+      "betrieb-und-fehlersuche": "get-started/features.md",
+      "quellcode-und-erweiterbarkeit": "get-started/features.md",
+      "aktuelle-grenzen": "get-started/features.md",
+      "geplante-erweiterungen": "get-started/features.md",
+      "weiterführende-dokumentation": "get-started/features.md"
+    }
+  },
+  "installation/bare-metal.md": {
+    "target": "installation/bare-metal.md",
+    "anchors": {
+      "installation-auf-echter-hardware": "installation/bare-metal.md#usb-installation",
+      "voraussetzungen": "installation/bare-metal.md#before-you-start",
+      "1-repository-herunterladen": "installation/bare-metal.md#1-build-the-installer",
+      "2-installationsabbild-erzeugen": "installation/bare-metal.md#1-build-the-installer",
+      "3-usb-stick-beschreiben": "installation/bare-metal.md#2-write-the-usb-drive",
+      "4-zielrechner-installieren": "installation/bare-metal.md#3-install-the-computer",
+      "5-first-run-setup-öffnen": "installation/bare-metal.md#4-complete-setup",
+      "6-installation-prüfen": "installation/bare-metal.md#4-complete-setup",
+      "fehlerdiagnose": "installation/bare-metal.md#if-installation-stops"
+    }
+  },
+  "installation/after-installation-dashboard.md": {
+    "target": "get-started/first-model.md",
+    "anchors": {
+      "nach-der-installation-magic-stick-im-dashboard-einrichten": "get-started/first-model.md",
+      "1-am-dashboard-anmelden": "get-started/first-model.md",
+      "2-benutzer-verwalten": "get-started/first-model.md",
+      "optional-kubernetes-zugriff-für-benutzer": "get-started/first-model.md",
+      "3-übersicht-kontrollieren": "get-started/first-model.md",
+      "4-domains-und-lokale-adresse-prüfen": "get-started/first-model.md",
+      "5-systemzustand-prüfen": "get-started/first-model.md",
+      "6-gewünschte-betriebsart-wählen": "get-started/first-model.md",
+      "rechner-mit-unterstützter-nvidia-gpu": "get-started/first-model.md",
+      "rechner-ohne-unterstützte-nvidia-gpu": "get-started/first-model.md",
+      "7-module-installieren": "get-started/first-model.md",
+      "8-ein-modell-hinzufügen": "get-started/first-model.md",
+      "lokales-modell": "get-started/first-model.md",
+      "externes-modell": "get-started/first-model.md",
+      "9-eine-anwendung-oder-instanz-erstellen": "get-started/first-model.md",
+      "10-anwendung-öffnen-und-sso-prüfen": "get-started/first-model.md",
+      "11-änderungen-sicher-entfernen": "get-started/first-model.md",
+      "empfohlene-reihenfolge-für-eine-neue-appliance": "get-started/first-model.md"
+    }
+  },
+  "installation/README.md": {
+    "target": "installation/README.md",
+    "anchors": {
+      "magic-stick-installieren": "installation/README.md#choose-your-installation-path",
+      "was-bei-allen-varianten-gleich-ist": "installation/README.md#shared-prerequisites",
+      "welche-variante-soll-ich-wählen": "installation/README.md#choose-your-installation-path",
+      "direkte-installationsbefehle": "installation/README.md#choose-your-installation-path",
+      "nach-der-installation": "installation/README.md#shared-prerequisites"
+    }
+  },
+  "installation/existing-vm.md": {
+    "target": "installation/existing-vm.md",
+    "anchors": {
+      "installation-auf-einem-bestehenden-linux-system": "installation/existing-vm.md#install-on-an-existing-ubuntu-host",
+      "voraussetzungen": "installation/existing-vm.md#before-you-start",
+      "empfohlener-weg-ein-installationsskript": "installation/existing-vm.md#install",
+      "manueller-fallback": "installation/existing-vm.md#install",
+      "1-basispakete-installieren": "installation/existing-vm.md#install",
+      "2-runtime-einstellungen-anlegen": "installation/existing-vm.md#install",
+      "3-repository-installieren": "installation/existing-vm.md#install",
+      "4-neuinstallation-markieren": "installation/existing-vm.md#install",
+      "5-installation-starten": "installation/existing-vm.md#install",
+      "first-run-setup-abschließen": "installation/existing-vm.md#verify-and-continue",
+      "installation-prüfen": "installation/existing-vm.md#verify-and-continue",
+      "bestehende-magic-stick-installation-aktualisieren": "installation/existing-vm.md#existing-magic-stick-installations"
+    }
+  },
+  "installation/existing-kubernetes.md": {
+    "target": "installation/existing-kubernetes.md",
+    "anchors": {
+      "installation-in-einem-bestehenden-kubernetes-cluster": "installation/existing-kubernetes.md#install-in-an-existing-kubernetes-cluster",
+      "voraussetzungen": "installation/existing-kubernetes.md#before-you-start",
+      "empfohlener-weg-ein-installationsskript": "installation/existing-kubernetes.md#install-with-the-wrapper",
+      "manueller-fallback": "installation/existing-kubernetes.md#install-with-the-wrapper",
+      "1-cluster-prüfen": "installation/existing-kubernetes.md#before-you-start",
+      "2-gateway--und-envoy-crds-installieren": "installation/existing-kubernetes.md#install-with-the-wrapper",
+      "3-flux-installieren": "installation/existing-kubernetes.md#install-with-the-wrapper",
+      "4-öffentliche-magic-stick-quelle-synchronisieren": "installation/existing-kubernetes.md#install-with-the-wrapper",
+      "5-optional-kubernetes-zugriff-über-magic-stick-sso-aktivieren": "installation/existing-kubernetes.md#verify-and-troubleshoot",
+      "6-einmaligen-einrichtungscode-erzeugen": "installation/existing-kubernetes.md#complete-setup",
+      "setup-adresse-ermitteln": "installation/existing-kubernetes.md#complete-setup",
+      "abschluss-prüfen": "installation/existing-kubernetes.md#verify-and-troubleshoot",
+      "dns-und-mdns": "installation/existing-kubernetes.md#complete-setup",
+      "deinstallation": "installation/existing-kubernetes.md#removal"
+    }
+  },
+  "installation/cloud-init-vm.md": {
+    "target": "installation/cloud-init-vm.md",
+    "anchors": {
+      "neue-virtuelle-maschine-mit-cloud-init": "installation/cloud-init-vm.md#install-a-new-vm-with-cloud-init",
+      "sicherheits--und-netzwerkhinweise": "installation/cloud-init-vm.md#before-you-start",
+      "1-cloud-init-vorbereiten": "installation/cloud-init-vm.md#1-prepare-cloud-init",
+      "2-vm-bei-hetzner-cloud-erstellen": "installation/cloud-init-vm.md#2-create-the-vm",
+      "3-vm-bei-microsoft-azure-erstellen": "installation/cloud-init-vm.md#2-create-the-vm",
+      "4-bereitstellung-beobachten": "installation/cloud-init-vm.md#3-observe-provisioning",
+      "fehlerdiagnose": "installation/cloud-init-vm.md#if-provisioning-fails"
+    }
+  },
+  "README.md": {
+    "target": "README.md",
+    "anchors": {
+      "documentation": "README.md",
+      "reading-path": "README.md#reading-path",
+      "quick-commands": "development/testing.md"
+    }
+  }
+}

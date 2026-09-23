@@ -1,0 +1,210 @@
+name: Build MagicStick Omni ROCm runtime image
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/build-omni-rocm-image.yml
+      - magic-cluster/platform/ai/realtime/**
+      - magic-cluster/platform/magicstick-operator/controller/**
+      - magic-cluster/platform/magicstick-operator/controller-configmap.yaml
+      - magic-cluster/platform/magicstick-operator/compute-target-catalog.yaml
+      - LICENSE
+      - LICENSE-RELEASE.json
+      - LICENSING.md
+      - THIRD_PARTY_NOTICES.md
+      - licenses/**
+      - tools/license_*.py
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/build-omni-rocm-image.yml
+      - magic-cluster/platform/ai/realtime/**
+      - magic-cluster/platform/magicstick-operator/controller/**
+      - magic-cluster/platform/magicstick-operator/controller-configmap.yaml
+      - magic-cluster/platform/magicstick-operator/compute-target-catalog.yaml
+      - LICENSE
+      - LICENSE-RELEASE.json
+      - LICENSING.md
+      - THIRD_PARTY_NOTICES.md
+      - licenses/**
+      - tools/license_*.py
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the tested image after source checks and the advisory license report
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: omni-rocm-image-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_NAME: ghcr.io/qualityminds/magicstick-omni-rocm
+  TEST_IMAGE: magicstick-omni-rocm:ci
+  SYFT_CHECK_FOR_APP_UPDATE: 'false'
+  SYFT_LICENSE_CONTENT: all
+
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.13'}
+      - name: Install fixture parser
+        run: python -m pip install 'PyYAML==6.0.2'
+      - name: Verify source and workflow contracts
+        run: |
+          python -m unittest discover -s magic-cluster/platform/ai/realtime -p 'test_*.py'
+          python -m unittest discover -s magic-cluster/platform/magicstick-operator/controller -p test_realtime_runtime.py
+          python tools/license_audit.py --check
+
+  build:
+    needs: contracts
+    # Never publish PR code, and never promote a manually dispatched other ref.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      artifact-metadata: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.13'}
+      - name: Install fixture parser
+        run: python -m pip install 'PyYAML==6.0.2'
+      - name: Prepare the actual controller's offline ROCm contract
+        id: runtime
+        run: |
+          python magic-cluster/platform/ai/realtime/prepare_ci_fixture.py \
+            --output "$RUNNER_TEMP/omni-contract" --github-output "$GITHUB_OUTPUT"
+      - name: Make space on the disposable hosted runner
+        run: |
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          df -h / /var/lib/docker
+          available_kib=$(df -Pk /var/lib/docker | awk 'NR == 2 {print $4}')
+          if (( available_kib < 30 * 1024 * 1024 )); then
+            echo "ROCm build needs at least 30 GiB free for layers, compilation and the test image." >&2
+            exit 1
+          fi
+      - uses: docker/setup-buildx-action@v3
+      - name: Generate immutable source tags and labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: type=sha,prefix=sha-,format=long
+          labels: |
+            org.opencontainers.image.title=MagicStick Omni ROCm runtime
+            org.opencontainers.image.description=Experimental ROCm runtime; no model weights or GPU acceptance claim
+            org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick
+            org.opencontainers.image.licenses=Apache-2.0 AND BUSL-1.1
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.omni-revision=${{ steps.runtime.outputs.omni_revision }}
+      - name: Build the native AMD64 candidate without publishing
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: magic-cluster/platform/ai/realtime/image/Dockerfile.rocm
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: ${{ env.TEST_IMAGE }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: OMNI_REVISION=${{ steps.runtime.outputs.omni_revision }}
+          cache-from: type=gha,scope=magicstick-omni-rocm
+          cache-to: type=gha,mode=max,scope=magicstick-omni-rocm
+          provenance: false
+      - name: Check installed pipeline and stage arguments offline
+        run: |
+          for count in 1 2; do
+            docker run --rm --network none --platform linux/amd64 \
+              --memory 6g --cpus 2 --pids-limit 512 --ulimit core=0 \
+              --cap-drop ALL --security-opt no-new-privileges \
+              --mount "type=bind,source=$RUNNER_TEMP/omni-contract,target=/checks,readonly" \
+              --entrypoint python3 "$TEST_IMAGE" /checks/verify_realtime_image.py \
+              --bootstrap /checks/bootstrap.py --rocm-profile "/checks/profile-${count}.json"
+          done
+      - uses: ./.github/actions/setup-license-scanner
+      - name: Inventory the built runtime, not just its recipe
+        run: |
+          mkdir -p audit-output/omni-rocm
+          docker image inspect "$TEST_IMAGE" --format '{{.Id}}' > audit-output/omni-rocm/tested-image-id.txt
+          syft scan "docker:$TEST_IMAGE" --source-name magicstick-omni-rocm --source-version "$GITHUB_SHA" \
+            -o syft-json=audit-output/omni-rocm/image.syft.json \
+            -o spdx-json=audit-output/omni-rocm/image.spdx.json \
+            -o cyclonedx-json=audit-output/omni-rocm/image.cdx.json
+          python tools/license_ci.py sbom --input audit-output/omni-rocm/image.syft.json \
+            --target "magicstick-omni-rocm@$GITHUB_SHA" \
+            --output audit-output/omni-rocm/review.json --markdown audit-output/omni-rocm/review.md
+          cat audit-output/omni-rocm/review.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Check source licensing and report open reviews
+        shell: bash
+        if: github.event_name != 'workflow_dispatch' || inputs.publish
+        run: python3 tools/license_audit.py --review 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Log in to GHCR with this workflow's token
+        if: github.event_name != 'workflow_dispatch' || inputs.publish
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish the tested build from the same BuildKit cache
+        if: github.event_name != 'workflow_dispatch' || inputs.publish
+        id: publish
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: magic-cluster/platform/ai/realtime/image/Dockerfile.rocm
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: OMNI_REVISION=${{ steps.runtime.outputs.omni_revision }}
+          provenance: mode=max
+          sbom: true
+      - name: Attest the published runtime digest
+        if: github.event_name != 'workflow_dispatch' || inputs.publish
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          push-to-registry: true
+      - name: Record the immutable runtime digest
+        if: github.event_name != 'workflow_dispatch' || inputs.publish
+        env:
+          IMAGE_DIGEST: ${{ steps.publish.outputs.digest }}
+          OMNI_REVISION: ${{ steps.runtime.outputs.omni_revision }}
+        run: |
+          printf '%s@%s\n' "$IMAGE_NAME" "$IMAGE_DIGEST" > audit-output/omni-rocm/runtime-image.txt
+          {
+            echo "### Experimental Omni ROCm image"
+            echo "- Image: \`$IMAGE_NAME@$IMAGE_DIGEST\`"
+            echo "- Magic Stick source: \`$GITHUB_SHA\`"
+            echo "- Omni source: \`$OMNI_REVISION\`"
+            echo "- Platform: linux/amd64; model weights are not included."
+            echo "- Offline contract passed; GPU kernels and speech inference remain unverified."
+            echo "Review the exact digest before updating the compute-target catalog; this build does not edit main or the appliance."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Retain contract and license evidence, including blocked releases
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: omni-rocm-evidence-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/omni-contract/
+            audit-output/omni-rocm/
+          if-no-files-found: warn
+          retention-days: 30

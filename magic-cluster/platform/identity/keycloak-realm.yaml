@@ -1,0 +1,189 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keycloak-realm
+  namespace: identity-system
+data:
+  magicstick-realm.json: |
+    {
+      "realm": "magicstick",
+      "enabled": true,
+      "displayName": "Magic Stick",
+      "registrationAllowed": false,
+      "resetPasswordAllowed": true,
+      "rememberMe": true,
+      "loginWithEmailAllowed": true,
+      "roles": {
+        "realm": [
+          {"name": "magicstick-user"},
+          {"name": "magicstick-viewer"},
+          {"name": "magicstick-operator"},
+          {"name": "magicstick-admin"}
+        ]
+      },
+      "groups": [
+        {"name": "magicstick-recovery"},
+        {"name": "magicstick-kubernetes-viewer"},
+        {"name": "magicstick-kubernetes-operator"},
+        {"name": "magicstick-kubernetes-admin"}
+      ],
+      "clients": [
+        {
+          "clientId": "magicstick-human-gateway-local",
+          "name": "Magic Stick human gateway (local)",
+          "enabled": true,
+          "clientAuthenticatorType": "client-secret",
+          "secret": "$${MAGICSTICK_HUMAN_GATEWAY_CLIENT_SECRET}",
+          "standardFlowEnabled": true,
+          "directAccessGrantsEnabled": false,
+          "serviceAccountsEnabled": false,
+          "publicClient": false,
+          "redirectUris": [
+            "https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback",
+            "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback",
+            "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback/*",
+            "https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback",
+            "https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback/*"
+          ],
+          "webOrigins": [
+            "https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}",
+            "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}",
+            "https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"
+          ],
+          "attributes": {
+            "post.logout.redirect.uris": "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/##https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/"
+          },
+          "protocol": "openid-connect"
+        },
+        {
+          "clientId": "magicstick-setup",
+          "name": "Magicstick appliance setup controller",
+          "enabled": true,
+          "clientAuthenticatorType": "client-secret",
+          "secret": "$${MAGICSTICK_SETUP_CLIENT_SECRET}",
+          "standardFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "serviceAccountsEnabled": true,
+          "publicClient": false,
+          "protocol": "openid-connect"
+        },
+        {
+          "clientId": "magicstick-user-admin",
+          "name": "Magic Stick dashboard user administration",
+          "enabled": true,
+          "clientAuthenticatorType": "client-secret",
+          "secret": "$${MAGICSTICK_USER_ADMIN_CLIENT_SECRET}",
+          "standardFlowEnabled": false,
+          "implicitFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "serviceAccountsEnabled": true,
+          "publicClient": false,
+          "protocol": "openid-connect"
+        },
+        {
+          "clientId": "magicstick-federation-admin",
+          "name": "Magic Stick dashboard federation administration",
+          "enabled": true,
+          "clientAuthenticatorType": "client-secret",
+          "secret": "$${MAGICSTICK_FEDERATION_ADMIN_CLIENT_SECRET}",
+          "standardFlowEnabled": false,
+          "implicitFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "serviceAccountsEnabled": true,
+          "publicClient": false,
+          "protocol": "openid-connect"
+        },
+        {
+          "clientId": "magicstick-kubernetes",
+          "name": "Magic Stick Kubernetes CLI",
+          "enabled": true,
+          "standardFlowEnabled": true,
+          "implicitFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "serviceAccountsEnabled": false,
+          "publicClient": true,
+          "redirectUris": [
+            "http://localhost:8000",
+            "http://localhost:18000"
+          ],
+          "webOrigins": [],
+          "attributes": {
+            "pkce.code.challenge.method": "S256"
+          },
+          "protocol": "openid-connect",
+          "protocolMappers": [
+            {
+              "name": "Kubernetes groups",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-group-membership-mapper",
+              "consentRequired": false,
+              "config": {
+                "claim.name": "groups",
+                "full.path": "true",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            }
+          ]
+        },
+        {
+          "clientId": "magicstick-cli",
+          "name": "Magic Stick CLI and TUI",
+          "enabled": true,
+          "standardFlowEnabled": false,
+          "implicitFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "serviceAccountsEnabled": false,
+          "publicClient": true,
+          "redirectUris": [],
+          "webOrigins": [],
+          "attributes": {
+            "oauth2.device.authorization.grant.enabled": "true"
+          },
+          "protocol": "openid-connect"
+        }
+      ],
+      "users": [
+        {
+          "username": "service-account-magicstick-setup",
+          "enabled": true,
+          "serviceAccountClientId": "magicstick-setup",
+          "clientRoles": {
+            "realm-management": [
+              "manage-clients",
+              "view-clients",
+              "manage-users",
+              "query-users",
+              "view-users",
+              "view-realm"
+            ]
+          }
+        },
+        {
+          "username": "service-account-magicstick-user-admin",
+          "enabled": true,
+          "serviceAccountClientId": "magicstick-user-admin",
+          "clientRoles": {
+            "realm-management": [
+              "manage-users",
+              "query-users",
+              "view-users",
+              "view-realm"
+            ]
+          }
+        },
+        {
+          "username": "service-account-magicstick-federation-admin",
+          "enabled": true,
+          "serviceAccountClientId": "magicstick-federation-admin",
+          "clientRoles": {
+            "realm-management": [
+              "manage-identity-providers",
+              "view-identity-providers",
+              "view-realm"
+            ]
+          }
+        }
+      ]
+    }

@@ -1,0 +1,16 @@
+.git
+.codex
+.agents
+**/node_modules
+**/dist
+**/__pycache__
+**/.pytest_cache
+**/.DS_Store
+**/.env
+**/.env.local
+**/*.log
+private
+private/**
+**/signing-key.pem
+**/customer-claims.json
+**/customer-license.json

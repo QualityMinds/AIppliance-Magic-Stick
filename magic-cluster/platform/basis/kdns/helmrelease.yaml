@@ -1,0 +1,57 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kdns
+  namespace: flux-system
+spec:
+  interval: 10m0s
+  targetNamespace: kdns
+  chart:
+    spec:
+      chart: kdns
+      version: 0.2.3
+      sourceRef:
+        kind: HelmRepository
+        name: lab42-charts
+        namespace: flux-system
+  install:
+    createNamespace: false
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: Deployment
+              name: kdns-kdns
+            patch: |
+              - op: replace
+                path: /spec/template/spec/containers/0/image
+                value: ghcr.io/qualityminds/magicstick-kdns@sha256:6b8ed100b7b9da6b54b536895c99d3d7334ed0bb0f90d091168ca40f95c1461b
+              - op: replace
+                path: /spec/template/spec/containers/0/env/0
+                value:
+                  name: KUBERNETES_SERVICE_HOST
+                  value: kubernetes.default.svc
+              - op: replace
+                path: /spec/template/spec/containers/0/resources/limits/memory
+                value: 2Gi
+              - op: add
+                path: /spec/strategy
+                value:
+                  type: Recreate
+                  rollingUpdate: null
+          - target:
+              kind: ClusterRole
+              name: kdns-kdns-ingress-reader
+            patch: |
+              - op: add
+                path: /rules/-
+                value:
+                  apiGroups:
+                    - gateway.networking.k8s.io
+                  resources:
+                    - gateways
+                    - httproutes
+                  verbs:
+                    - get
+                    - list
+                    - watch

@@ -1,0 +1,185 @@
+# Changelog
+
+Notable public changes to AIppliance-Magic-Stick should be recorded here.
+
+The project follows a lightweight changelog style. Until a versioning policy is
+formalized, release entries should group changes under:
+
+- Added
+- Changed
+- Fixed
+- Removed
+- Security
+
+## Unreleased
+
+### Added
+
+- Weekly and on-change license audit CI with hash-verified upstream evidence,
+  dependency drift checks, source SBOMs, per-architecture dashboard image
+  inventories and explicit release-readiness gates. kdns is recorded as
+  MIT-declared with an incomplete upstream copyright/license notice.
+
+- Opt-in Private Mesh implementation under System Settings: signed device
+  enrollment, consume-only companion source, scoped LiteLLM model/key sync,
+  loop-resistant local vLLM exports, remote limits and trusted queue priorities.
+  Membership, signed rosters and model allow-lists protect shared inference.
+  Consume-only laptops use signed invitations.
+  End-to-end/network and platform-release gates are tracked in
+  [Private Mesh](docs/private-mesh.md); source availability is not a rollout claim.
+
+- Administrator-only **System → Updates** for per-computer Ubuntu update policy,
+  daily UTC maintenance windows, manual checks/installations, held-package
+  visibility and restart status. Ansible enables native unattended security
+  updates by default, preserves saved policy, excludes the kernel/GPU stack and
+  coordinates updates with other host maintenance. Automatic restarts remain
+  disabled unless explicitly enabled.
+- GPU compatibility diagnostics with an opt-in Strix Halo profile, separate
+  Ollama/vLLM smoke-test gates, validated runtime-image pins and unified-memory
+  accounting that does not count shared system RAM twice.
+- One post-install, Ansible-backed host-preparation workflow for new and
+  existing appliances, with reviewed package plans, explicit administrator
+  consent, persistent progress and post-reboot verification.
+- A bounded hardware experiment mode for unreviewed GPU combinations, plus
+  administrator-only dashboard restart and shutdown actions with exact-host
+  confirmation and replay protection. Mixed-GPU acceptance remains a separate
+  hardware test, not an automatic support claim.
+- Release-owned public license trust distribution alongside preserved local
+  issuers, automatic support for upgrades from an empty legacy store,
+  conflict/retirement checks and a nonempty-public-key release gate.
+- BSL 1.1 source-available code with an Additional Use Grant, a group-wide
+  EUR 2,000,000 annual-revenue threshold and MIT Change License after three years.
+  Free, Free Registered and Commercial editions share one source tree and images.
+- Offline Ed25519 license files, separate issuer tooling, admin-only React/CLI/TUI
+  management, Kubernetes persistence and replacement conflict protection.
+  Federated SSO is the only feature requiring a signed license file.
+- Core instance sharing with stable user/group allow-lists, live authorization,
+  fail-closed gateway guards, a basic-user launchpad and dashboard/CLI management.
+- Dashboard-managed federation for multiple OIDC or SAML providers, metadata
+  validation, exact claim/attribute-to-role mappings, redacted secret handling,
+  local-login recovery and fail-closed entitlement enforcement.
+
+- Fail-closed one-command installation wrappers for dedicated Ubuntu 24.04
+  hosts and existing Kubernetes clusters from Bash or PowerShell 7, including
+  read-only preflight modes and First-Run Setup initialization.
+- A local-network-only first-run wizard with physical-console claim code,
+  mDNS-independent IP access, and one-time administrator provisioning.
+- `ApplianceSetup` lifecycle state and fail-closed legacy migration behavior.
+- GitHub Pages landing page with legal notice and privacy policy.
+- Public support, maintainer, and governance documentation.
+- A Git-owned application catalog and per-application Helm charts for runtime
+  `AppInstance` resources.
+- An administrator-only dashboard user-management tab for local Keycloak users,
+  including search, access-level assignment, enable/disable, temporary-password
+  reset, and protected deletion.
+- CPU-backed local vLLM inference with a target-aware dashboard selector,
+  cross-architecture smoke preset, and an extensible compute-target catalog.
+- Shared 60-second Node Feature Discovery plus hardware-triggered, pinned
+  NVIDIA, AMD, and Intel GPU operators with preflight, conflict protection,
+  retained restart state, allocatable-resource readiness, and dashboard status.
+- AMD ROCm and Intel XPU vLLM targets with vendor-specific KubeAI profiles,
+  automatic Intel `xe`/`i915` resolution, and availability-gated model controls.
+- Ollama as a second KubeAI inference engine with engine-aware dashboard
+  controls, CPU/NVIDIA/AMD profiles, a portable Qwen2.5 smoke preset, persistent
+  model cache, and target compatibility enforcement.
+- Portable, backend-optimized Qwen3.5, Qwen3.6, and Qwen3.8 model presets with
+  pinned Ollama Q4/Q8 tags, supported vLLM BF16/FP8/GPTQ/AWQ artifacts, and a
+  Qwen3.5 4B capacity tier between the 2B and 9B models.
+- Catalog-controlled precision and quantization choices per inference engine
+  and compute target. The dashboard selects only allowlisted artifacts, applies
+  their checkpoint and memory plan, and reports the resolved artifact in model
+  status and installed-model cards.
+- Administrator-managed, SSO-bound Kubernetes access with Viewer, narrow
+  Magic-Stick Operator, and explicit Cluster Administrator levels, plus
+  token-free OIDC kubeconfig downloads for local or brokered Keycloak users.
+
+### Changed
+
+- Fresh USB installations now use checksum-pinned Ubuntu 26.04.1 with its
+  native Generic kernel and interactive APT mirror selection (country-mirror
+  suggestion with a manual URL override). Existing Ubuntu 24.04 installations
+  are not upgraded in place.
+- New K3s installs pin `v1.36.4+k3s1`; NVIDIA GPU Operator moves to `v26.7.0`
+  with containerd 2.x runtime drop-ins and driver `595.91.07`. Pre-Turing NVIDIA
+  hardware requires a separate legacy-driver plan. AMD `v1.5.1` and Intel
+  `0.36.0` remain the current stable pins. Ubuntu 26.04 Strix Halo preparation
+  is a separate experimental profile; hardware acceptance remains outstanding.
+
+- The browser dashboard now groups Settings, License, Users, and System Status
+  under one primary **System** navigation item, with role-aware category tabs
+  and redirects for the former direct hashes.
+- The React frontend is now the standard dashboard at the existing local and
+  public root URLs, using the original Service and OIDC routes. Shared API,
+  CLI/TUI, first-run handoff and runtime resources remain unchanged.
+- The pinned Ollama CPU/NVIDIA and ROCm server images now use release `0.33.2`
+  so the bundled runtime can parse the Qwen3.5, Qwen3.6, and Qwen3.8 formats.
+- Existing local `ModelActivation` resources remain compatible: when
+  `spec.local.artifact` is absent, the selected preset variant resolves its
+  declared `defaultArtifact`. Unknown artifact IDs fail closed.
+
+- Instance creation in the dashboard now uses a two-step dialog that lists all
+  catalogued types, explains missing modules for unavailable types, and then
+  shows only the selected available instance configuration.
+- The dashboard overview now lists complete local, public, and direct URLs for
+  modules and app instances, including accepted Gateway API `HTTPRoute` hosts.
+- Public documentation is being aligned with runtime CRs, catalog-driven modules,
+  derived instance hostnames, and dashboard-managed settings.
+- `AppInstance` now uses `spec.application` and `spec.values`; the Magic Stick
+  Operator creates one Flux HelmRelease per instance instead of rendering app
+  workloads in controller code.
+- New appliances are accelerator-neutral. KubeAI is activated on demand by CPU
+  or GPU local models, the NVIDIA GPU module only by NVIDIA targets, and
+  external models run without a local inference runtime.
+
+### Fixed
+
+- Downloaded Kubernetes SSO kubeconfigs now use the appliance's current private
+  control-plane IP instead of its mDNS name for the API endpoint, allowing
+  OpenLens and other proxying GUI clients to connect without `.local` DNS
+  support while preserving the stable Keycloak issuer.
+- The bare-metal first-run code now appears on a dedicated, periodically
+  refreshed virtual console after cloud-init has finished. A centered,
+  color-coded appliance panel separates the access paths, claim code, TLS
+  fingerprint, and next steps. Boot logs remain on the first console, internal
+  CNI and virtual-interface addresses are hidden, and completion clears the
+  claim from the physical display.
+- OpenClaw instances now consume the generated LiteLLM provider catalog and
+  start with the catalogued local model instead of silently falling back to the
+  built-in public OpenAI provider.
+- Hermes instance URLs now open the bundled web dashboard on port `9119`
+  instead of routing browsers to the API-only gateway root on port `8443`.
+- Odysseus instances now register their selected model and the shared LiteLLM
+  endpoint through the Odysseus API instead of relying on unsupported
+  environment variables.
+- Magic Stick-managed KubeOpenCode templates now receive model-specific context
+  and output limits, preventing OpenCode from requesting 32000 output tokens
+  from local vLLM models with a smaller total context window.
+- Enabled modules are suspended instead of destructively pruned while their
+  dependencies are temporarily unready during a source or operator rollout.
+- Browser-streamed responses from LiteLLM, AnythingLLM, KubeOpenCode, and all
+  catalogued application instances are no longer terminated by Envoy's default
+  15-second request timeout.
+- LiteLLM's SSO policy no longer replaces its `Bearer sk-...` virtual-key
+  header with the Keycloak access token on UI and API requests.
+- The enabled LiteLLM module again exposes its generated UI and API credentials
+  to authorized operators and administrators from the dashboard Services tab.
+- The Envoy Gateway now redirects appliance HTTP URLs, including LiteLLM UI
+  paths, to the equivalent HTTPS URL instead of refusing port 80 connections.
+
+### Removed
+
+- The ConfigMap-rendered HTML/JavaScript dashboard, renderer sidecar, obsolete
+  UI tests, and separate preview Deployment, Service, mDNS route and SSO entries.
+- Human default passwords and the generated `keycloak-local-admin` Secret from
+  new installations.
+- Application-specific manifest builders, cleanup lists, and direct workload
+  permissions from the Magic Stick Operator.
+
+### Security
+
+- Dashboard user administration uses a dedicated scoped Keycloak service
+  account, exact-name Kubernetes Secret RBAC, live administrator checks,
+  same-origin mutation protection, and last-local-administrator safeguards.
+- Human Kubernetes access uses short-lived OIDC credentials, PKCE, direct
+  Keycloak group membership, least-privilege RBAC, public CA material, and no
+  static bearer token or password in generated kubeconfigs.

@@ -1,0 +1,2961 @@
+{
+  "schemaVersion": 1,
+  "status": "inventory-not-legal-clearance",
+  "pnpmLockSha256": "66c56c1a5345565e0c0e509908b2529c86ebad8976dc79d3dae9a902fa99f5b7",
+  "deploymentReferencesSha256": "e78018f3223ab3052e449d0e8030cc2e47753a22e601877131b7288c66e2a785",
+  "npm": [
+    {
+      "name": "@adobe/css-tools",
+      "version": "4.5.0",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-6OzddxPio9UiWTCemp4N8cYLV2ZN1ncRnV1cVGtve7dhPOtRkleRyx32GQCYSwDYgaHU3USMm84tNsvKzRCa1Q==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "326ff3850062286003ff4cbdaa8f61764e128f9a6532431bccf97e4e2bd75059"
+        }
+      ]
+    },
+    {
+      "name": "@asamuzakjp/css-color",
+      "version": "6.0.7",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-vC/bk1Lz7Tn/EfU9/apOTBk80/8dyGyWMowPoV1tJ52muDGsDqt2HPT2klrFUiY60MQmQv9q8yIht15JnBgDGw==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "bd4539377980dd797fc6a51d90e664e52b2b2625b2158f01d4c68b5fe107eacb"
+        }
+      ]
+    },
+    {
+      "name": "@asamuzakjp/dom-selector",
+      "version": "8.3.2",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-93Z1N+BQNXysodoicpOIyNh2drHfz/CTf9nnT0FEx72GJcIiwgydD7tGAr78j41LsYn3hlRn+LdGPuBLn1Bl8Q==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "7cdf9db3b91cc77b9ec947ad0c7126140f00e34528b67c3a58e9fc1a98055e14"
+        }
+      ]
+    },
+    {
+      "name": "@babel/code-frame",
+      "version": "7.29.7",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76"
+        }
+      ]
+    },
+    {
+      "name": "@babel/helper-validator-identifier",
+      "version": "7.29.7",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-qehxGkRj55h/ff8EMaJ+cYhyaKlHIxqYDn682wQD7RNp9UujOQsHog2uS0r2vzr4pW+sXf90NeeayjcNaX3fFg==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76"
+        }
+      ]
+    },
+    {
+      "name": "@babel/runtime",
+      "version": "7.29.7",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-Nq8OhGWiZIZGV6hLHoyAKLLcJihP/xFeBMGJoUrxTX2psI8dCifzLhZISFb+VWS3wFMRDmCGw5R+dOySCqPLhw==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76"
+        }
+      ]
+    },
+    {
+      "name": "@bramus/specificity",
+      "version": "2.4.2",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-ctxtJ/eA+t+6q2++vj5j7FYX3nRu311q1wfYH3xjlLOsczhlhxAg2FWNUXhpGvAw3BWo1xBcvOV6/YLc2r5FJw==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "ae842a63dd9bc829c95a2ec22dda25a08e422a368b71dbca67a45cde7c4a4b81"
+        }
+      ]
+    },
+    {
+      "name": "@csstools/color-helpers",
+      "version": "6.1.1",
+      "declaredLicense": "MIT-0",
+      "evidence": "installed-package",
+      "integrity": "sha512-gLNsunvwf3mCi5u5o46/Z/JcJMnhbHSaZ69rkgPzNM3J4s8hWwpPUQB6/tt0EDFyCiWzxANlx+2LJwpYj4zS1w==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE.md",
+          "sha256": "947e32047a166cd05f04e45938d172b412c07cbee0b9735afd14bae30e02c2f6"
+        }
+      ]
+    },
+    {
+      "name": "@csstools/css-calc",
+      "version": "3.3.0",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-c5ihYsPkdG6JCkU2zTMm4+k6r7RXuGxtWYhu5DHMIiF1FHzrfmHL5so11AoFpUv/tu61xfcmT4AmKoFfMPoqdQ==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE.md",
+          "sha256": "d00d032f517721b45c56c70c46bf904ebb71ad313df4d4db7722266b38069665"
+        }
+      ]
+    },
+    {
+      "name": "@csstools/css-color-parser",
+      "version": "4.2.2",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-3QKjR/vxyjcSXBLgb6lP0S3MGdvwbmqSsvLPbYdVORqPDc8FX1HAJ0Spk38bxaRXgvENTA47tlhhbb5Z2e8hEg==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE.md",
+          "sha256": "d00d032f517721b45c56c70c46bf904ebb71ad313df4d4db7722266b38069665"
+        }
+      ]
+    },
+    {
+      "name": "@csstools/css-parser-algorithms",
+      "version": "4.0.0",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-+B87qS7fIG3L5h3qwJ/IFbjoVoOe/bpOdh9hAjXbvx0o8ImEmUsGXN0inFOnk2ChCFgqkkGFQ+TpM5rbhkKe4w==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE.md",
+          "sha256": "d00d032f517721b45c56c70c46bf904ebb71ad313df4d4db7722266b38069665"
+        }
+      ]
+    },
+    {
+      "name": "@csstools/css-syntax-patches-for-csstree",
+      "version": "1.1.12",
+      "declaredLicense": "MIT-0",
+      "evidence": "installed-package",
+      "integrity": "sha512-3vLQK+dXxhBMR2Wx99PTCifE+vHtW2ndZWyla8yK813ev6oGhyn8Lja8jCyGAWTJ+LEYZK7EVtJxrDj8ztevJw==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE.md",
+          "sha256": "947e32047a166cd05f04e45938d172b412c07cbee0b9735afd14bae30e02c2f6"
+        }
+      ]
+    },
+    {
+      "name": "@csstools/css-tokenizer",
+      "version": "4.0.0",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-QxULHAm7cNu72w97JUNCBFODFaXpbDg+dP8b/oWFAZ2MTRppA3U00Y2L1HqaS4J6yBqxwa/Y3nMBaxVKbB/NsA==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE.md",
+          "sha256": "d00d032f517721b45c56c70c46bf904ebb71ad313df4d4db7722266b38069665"
+        }
+      ]
+    },
+    {
+      "name": "@exodus/bytes",
+      "version": "1.15.1",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-S6mL0yNB/Abt9Ei4tq8gDhcczc4S3+vQ4ra7vxnAf+YHC02srtqxKKZghx2Dq6p0e66THKwR6r8N6P95wEty7Q==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "dbffd380d59504ba19fcf87ff5a1a33c37edf66d5b09966b0ad5368ab87bc2af"
+        }
+      ]
+    },
+    {
+      "name": "@jridgewell/resolve-uri",
+      "version": "3.1.2",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-bRISgCIjP20/tbWSPWMEi54QVPRZExkuD9lJL+UIxUKtwVJA8wW1Trb1jMs1RFXo1CBTNZ/5hpC9QvmKWdopKw==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "b8778b155bfde5a28b023a558753c0fa058a52bb9de35c343c250be1bbcdedab"
+        }
+      ]
+    },
+    {
+      "name": "@jridgewell/sourcemap-codec",
+      "version": "1.6.0",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-T7jf+5zgsZHwNJ4lvQ7/aezbyk0nNX+zJVWpmHA7VYsEx7a7qr5Rg5IbtJFqkgze5Y2sruq1RUY8Q837Od7iFw==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "769d154fbde32a915af110b1123650bc79f4cbe675acc66e005265bf069c6c6c"
+        }
+      ]
+    },
+    {
+      "name": "@jridgewell/trace-mapping",
+      "version": "0.3.31",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "769d154fbde32a915af110b1123650bc79f4cbe675acc66e005265bf069c6c6c"
+        }
+      ]
+    },
+    {
+      "name": "@oxc-project/types",
+      "version": "0.148.0",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-Nm4s/jB+4FpFsPhWGEC4h7rzksesmtnMXomo6rCMcg/b8zLQuOziRgkCS1fxDCXOlJB/6Q8oABOZ/OP6RIPj9A==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "95ced5ecf1133fbf41d409b5555c86c344f83f3b019926057ddbc07cfdcc27b3"
+        }
+      ]
+    },
+    {
+      "name": "@rolldown/binding-android-arm-eabi",
+      "version": "1.2.7",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-EypzgnYCwyVY4NDHKzGmNJT5b+XaQEBniHxsMdeIQLB/tcCzZnhqrzHpZFbX9iaxx+5RiB8caATBtfvZP7zVxQ==",
+      "licenseFiles": []
+    },
+    {
+      "name": "@rolldown/binding-android-arm64",
+      "version": "1.2.7",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-l17HE9EweWaqJZhuUuNBN/FzM62xw+DECVnJyvMsxn8vJFAGLy5QfLDoYAcronkAN8VxKZHezDpulHDPx95vFw==",
+      "licenseFiles": []
+    },
+    {
+      "name": "@rolldown/binding-darwin-arm64",
+      "version": "1.2.7",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-8ED8ELFvHXc6OCETIn4gXObPiaR6bckM/ipXtbzlPVDRMBfEGjCKgO90F9YtfdpDatVx/ZQw7aZ1vUMf/+T3Mw==",
+      "licenseFiles": []
+    },
+    {
+      "name": "@rolldown/binding-darwin-x64",
+      "version": "1.2.7",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-/WPripjtiAIZ2tWY7ddijORT0Ujg87wxWW/qcoFVCKAWVDPhtY0xr7Dj0M3GyNGz60jGwTElhro/mkF9dT7dDQ==",
+      "licenseFiles": []
+    },
+    {
+      "name": "@rolldown/binding-freebsd-x64",
+      "version": "1.2.7",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-14DI4NcqpvbICxSnGLx3PmtDaWqRP/KGSGb6C+JLLVPeZRl6dKdHba3pGsqT3vpdTqhEYIPG0MMQ8c0xYqoJxA==",
+      "licenseFiles": []
+    },
+    {
+      "name": "@rolldown/binding-linux-arm-gnueabihf",
+      "version": "1.2.7",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-bxrWIRvHWQvbJwi+VIie/kDJmQxcNE6xxWwZdqF/ExVAigtHkv54WTLQPb+QsZdnFy18fg7JPfWGL0RH6vwIlQ==",
+      "licenseFiles": []
+    },
+    {
+      "name": "@rolldown/binding-linux-arm64-gnu",
+      "version": "1.2.7",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-toOY2BChBZyuxU7OYX6Tn389di4IzAqPTycVcci0O7FSfBqzRB3RZn+K5Is6ANf4tmgRd/K1yZTsNTXbkXsnLg==",
+      "licenseFiles": []
+    },
+    {
+      "name": "@rolldown/binding-linux-arm64-musl",
+      "version": "1.2.7",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-lAIXTH/aiLRLxsTgQvfhjo4K1ydWIp00+V0voOr9beb/9ZmkUFrSIb03dXNFRgMNvkE6oGsF10ioQ6UsI+vS5Q==",
+      "licenseFiles": []
+    },
+    {
+      "name": "@rolldown/binding-linux-ppc64-gnu",
+      "version": "1.2.7",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-kdnwS28Pkenp/mZMRwjXXXwxQ7pIsm+bF919LUK93BOyhcLsrVKdP2p9fxpiPNPAbNuch8ypQt0pm2P2LYCAGg==",
+      "licenseFiles": []
+    },
+    {
+      "name": "@rolldown/binding-linux-s390x-gnu",
+      "version": "1.2.7",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-516OdsyLdr5E65paF3yBF55t8mfm9+gmtCsK3xI7XKXIT7EfRlHhxL8K/NR6Hu8BWSgF5+1w74lTL0+nxcc8Qw==",
+      "licenseFiles": []
+    },
+    {
+      "name": "@rolldown/binding-linux-x64-gnu",
+      "version": "1.2.7",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-r8/z8n7GFaYRln3xmP1Cxy0HH/HLM0uBUPkEuSVEfKGDA89M0FsZRZJRSwe/tJjRx+fpH/gjorfhB8tmEbSFLA==",
+      "licenseFiles": []
+    },
+    {
+      "name": "@rolldown/binding-linux-x64-musl",
+      "version": "1.2.7",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-pAsE8iiDxUg1xBqdhrTfg45AVDVpirjz00sblEYClGNNcMnDb+e8beQgqIAw6LvauX/APvgxUnwrgun/YYGBhw==",
+      "licenseFiles": []
+    },
+    {
+      "name": "@rolldown/binding-openharmony-arm64",
+      "version": "1.2.7",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-lTcIYmmnQQA8Or/2DatS6oSqcdLHvendjS+zLu+FwgToynWMRSmQdpM65fTANJgIS4mjbMOo5KT2lnT9SAb96w==",
+      "licenseFiles": []
+    },
+    {
+      "name": "@rolldown/binding-win32-arm64-msvc",
+      "version": "1.2.7",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-e3Gu3WxbNk/UqQhxqU7YIYO+9ZBvWNz3U+h/qRFosscMFzdRPbXYSaSWgSnklv2fz1TgzBTcti2z35c/7irsHw==",
+      "licenseFiles": []
+    },
+    {
+      "name": "@rolldown/binding-win32-x64-msvc",
+      "version": "1.2.7",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-W/jg5qoRSqjsEv0+dZi4e687mcHqmVuU0P4fK6qS/xjetW2Gmc1W8j//z5nAeNcC8Ttm0hV46IjcYeuVwYhuiw==",
+      "licenseFiles": []
+    },
+    {
+      "name": "@rolldown/pluginutils",
+      "version": "1.0.1",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "e1919b3b98b8bf6c1b99fcc60a0ed46027c97ac947432e1278446c9606f50161"
+        }
+      ]
+    },
+    {
+      "name": "@tanstack/query-core",
+      "version": "5.102.8",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-ZNjkJ33CqvPNec/6lZBnHqLc3EVGPZ9ySLhYahU9TcuRFdmwXewuj0c4hwSWcGHqEUwcSrKeZ+oGcvPBqXcQcg==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7"
+        }
+      ]
+    },
+    {
+      "name": "@tanstack/react-query",
+      "version": "5.102.8",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-TYBea4OuXWD7MhaSHq069TWbFe7rcwWN6kzT7JF0OKi1K6c1gTv2IzD6A6ExJsCMozdkqBWeuIUZmu4KQg0O5A==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7"
+        }
+      ]
+    },
+    {
+      "name": "@testing-library/dom",
+      "version": "10.4.1",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-o4PXJQidqJl82ckFaXUeoAW+XysPLauYI43Abki5hABd853iMhitooc6znOnczgbTYmEP6U6/y1ZyKAIsvMKGg==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "bf8fd38056b7606deccfcadb4d8ca1c210082d8ef5513426d2650daedc30bed3"
+        }
+      ]
+    },
+    {
+      "name": "@testing-library/jest-dom",
+      "version": "6.9.1",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-zIcONa+hVtVSSep9UT3jZ5rizo2BsxgyDYU7WFD5eICBE7no3881HGeb/QkGfsJs6JTkY1aQhT7rIPC7e+0nnA==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "bf8fd38056b7606deccfcadb4d8ca1c210082d8ef5513426d2650daedc30bed3"
+        }
+      ]
+    },
+    {
+      "name": "@testing-library/react",
+      "version": "16.3.3",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-Uo193NgQbPMz6lrrhtRQQFcMC6Re/ELLFbbuVL30WDlZxlpZf9/lMHTAVxPRLw1q1iu9OJmR1c2BLiENRstdBg==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "9680978280d509520d2a7b51e93ffbf7d9ec2b9de4411a6989daba5b659048e0"
+        }
+      ]
+    },
+    {
+      "name": "@testing-library/user-event",
+      "version": "14.6.1",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-vq7fv0rnt+QTXgPxr5Hjc210p6YKq2kmdziLgnsZGgLJ9e6VAShx1pACLuRjd/AS/sr7phAR58OIIpf0LlmQNw==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "b5a4028c49c48f820831421de69c8ea83d621a062914bf16739fd0703c7c9fba"
+        }
+      ]
+    },
+    {
+      "name": "@types/aria-query",
+      "version": "5.0.4",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-rfT93uj5s0PRL7EzccGMs3brplhcrghnDoV26NqKhCAS1hVo+WdNsPvE/yb6ilfr5hi2MEk6d5EWJTKdxg8jVw==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+        }
+      ]
+    },
+    {
+      "name": "@types/chai",
+      "version": "5.2.3",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+        }
+      ]
+    },
+    {
+      "name": "@types/deep-eql",
+      "version": "4.0.2",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-c9h9dVVMigMPc4bwTvC5dxqtqJZwQPePsWjPlpSOnojbor6pGqdk541lfA7AqFQr5pB1BRdq0juY9db81BwyFw==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+        }
+      ]
+    },
+    {
+      "name": "@types/estree",
+      "version": "1.0.9",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+        }
+      ]
+    },
+    {
+      "name": "@types/node",
+      "version": "26.4.1",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-k97ENvZWtvA6yqz5/FS6a7duDgOPEeOQOc2iKS/nY6mX6qJUKtLnWzQS+Xj6tXweyj6ZcTAK2Qecetnvi9nCLA==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+        }
+      ]
+    },
+    {
+      "name": "@types/react-dom",
+      "version": "19.2.7",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-I8bPpDLcHBv1qiIiXDCy71Rt8eQDKJP0sMSWJphDdAcdqiJ1sGpZamavoEIRZmYzjia9LuEb2HlYdDpmoENpvQ==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+        }
+      ]
+    },
+    {
+      "name": "@types/react",
+      "version": "19.2.18",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-AnzbBERsrLKtk2XSfTbYRLjQPdy116Sty4q+T+Bp3IC4l6jNBvreVPAHmpq9qhXQM7CXZPjLVmGMw9sy+hxQ3w==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+        }
+      ]
+    },
+    {
+      "name": "@typescript/typescript-aix-ppc64",
+      "version": "7.0.2",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-MTKKkWB7p/0E9xi1d1tHtZ5PiLkGEMIq88pK2CubZjOsLtYTLqhgIgi6zepFa+9GHZ6h05NMCkQxGKiPXMxXtQ==",
+      "licenseFiles": []
+    },
+    {
+      "name": "@typescript/typescript-darwin-arm64",
+      "version": "7.0.2",
+      "declaredLicense": "Apache-2.0",
+      "evidence": "installed-package",
+      "integrity": "sha512-gowzar9MwS/aRWp6f3a4KUqzRjAZjOsmGNCM6LcTgXum+dBfgsBVMN+AgvOCCbguXyick6LJhpBszxMebJ8syA==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "a7d00bfd54525bc694b6e32f64c7ebcf5e6b7ae3657be5cc12767bce74654a47"
+        },
+        {
+          "file": "NOTICE.txt",
+          "sha256": "f5c708b59114507b8b27b48181b6883d106bbca0c1634bbee45b5e344237b66b"
+        }
+      ]
+    },
+    {
+      "name": "@typescript/typescript-darwin-x64",
+      "version": "7.0.2",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-SZ9xZInqApNlNGc9s0W1VSsktYSOe9cFqNOIqmN1Gs8SmkjKZYFt017G4VwPxASInODuAdbTW7sXiFUf893RgA==",
+      "licenseFiles": []
+    },
+    {
+      "name": "@typescript/typescript-freebsd-arm64",
+      "version": "7.0.2",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-W5NH4y/J0plIIS5b2xvTEkU7JFxyqdMAOgf+Ilhl0vHQXKO5dZoxd+C/jEtq56c4F3wk71RB4BMRQ2XdI+bwYQ==",
+      "licenseFiles": []
+    },
+    {
+      "name": "@typescript/typescript-freebsd-x64",
+      "version": "7.0.2",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-UMGDx5sTpzNw3WiPebH7l90IWfJggEd+egHt/q6p7/Cm3zqoV7VxkGXt+3DxPIw8CcmvAB0j3sVVfbhX+M4Tpw==",
+      "licenseFiles": []
+    },
+    {
+      "name": "@typescript/typescript-linux-arm64",
+      "version": "7.0.2",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-Qh4eU4/y3yDjnfjjyPYihMj5/ODIlmt+Bzu17OI+fiSRDW57QmU5SiN63exPRNJPKUzcc1INa1NXdrJ+MqHjUQ==",
+      "licenseFiles": []
+    },
+    {
+      "name": "@typescript/typescript-linux-arm",
+      "version": "7.0.2",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-gffT3xPz9sR7j/YJExkyPntrI0P2EP9XbOyWzth2/Gs0RstK+90RBcO0ncXoXy/beYll1SXw846Nf2zdnEz0QQ==",
+      "licenseFiles": []
+    },
+    {
+      "name": "@typescript/typescript-linux-loong64",
+      "version": "7.0.2",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-uEHck9i8hoAzXPiYRib1O7miOnz23SxIeVl6F4LXox+qov1K35jHcEW6VHKvZI+pyvl7fZEP4MCU5LYvIq1GuQ==",
+      "licenseFiles": []
+    },
+    {
+      "name": "@typescript/typescript-linux-mips64el",
+      "version": "7.0.2",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-R4KvAMnE43W5Qeqb0Ly56O3mWMWIAgsMyz36DCaycd5nbg/9kzm0liw3JocfRqyJY0KPmzFjbswozXyW0DnIYA==",
+      "licenseFiles": []
+    },
+    {
+      "name": "@typescript/typescript-linux-ppc64",
+      "version": "7.0.2",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-DORx5b3sd/4S7eayxm4FQv+A7CrkUIGRaHiwI8oiHTAI1fAPWhF4J0vAlkC8biAlHSVVwxMQ3tjZ2/DVbnQiiA==",
+      "licenseFiles": []
+    },
+    {
+      "name": "@typescript/typescript-linux-riscv64",
+      "version": "7.0.2",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-wf0jqEDOjrPRnKwYRyyJDRo11KMbvMFrU+q4zqKyChODBzvlkbhNQfKvLxQCcwTpdDaXSHZTVuh0JoCrKCUMHQ==",
+      "licenseFiles": []
+    },
+    {
+      "name": "@typescript/typescript-linux-s390x",
+      "version": "7.0.2",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-IkwJc3L7yhytWd/ewjyxNDfOmswCm9GWMJT/ue/dU4aZNbwZeYAetq42VyLmsmSjvoX7z74X6ZaYCtzAr0EuGw==",
+      "licenseFiles": []
+    },
+    {
+      "name": "@typescript/typescript-linux-x64",
+      "version": "7.0.2",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-EYdf2cNg7rgCWJnxCdJ+F3V39O8ihb37eHAu1LK8oAFizgTQbPOK7zHHXbPt8rX24COqODXeI3sIf0fCXG7H/A==",
+      "licenseFiles": []
+    },
+    {
+      "name": "@typescript/typescript-netbsd-arm64",
+      "version": "7.0.2",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-+polYF4MF04aPpO5FTkHran9yUQDSXqy5GiSDKpsll5jy3l3+g9QLhpf39T+ePtefhXLOGrLl0QIjkQP6VnelA==",
+      "licenseFiles": []
+    },
+    {
+      "name": "@typescript/typescript-netbsd-x64",
+      "version": "7.0.2",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-8YIT0EHM/3dq10ZOVF/A7pc/YSMtbcecct4rWtexrnSCHOPcpC2KTLXfTCR6vDpnSiY12heNb1GiN/wu+T/FyA==",
+      "licenseFiles": []
+    },
+    {
+      "name": "@typescript/typescript-openbsd-arm64",
+      "version": "7.0.2",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-APT8+ClYnuYm1u9+kgGXoMj2VzWzcymwh2gNSQVySHfkRDGOTVkoWLjCmOQSaO+PoqQ57B0flRp9SA+7GnnkzQ==",
+      "licenseFiles": []
+    },
+    {
+      "name": "@typescript/typescript-openbsd-x64",
+      "version": "7.0.2",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-yX7s+Q0Dln0Dt9tEzZsAjXXR/+ytBM7AlglaqyeMPxQszJ1JhlJdZ6jLA+IzldHtflX81em7lDao1xXu+aRRkg==",
+      "licenseFiles": []
+    },
+    {
+      "name": "@typescript/typescript-sunos-x64",
+      "version": "7.0.2",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-dLJDGaLZ1D4HPQn62u1n8mBDkJREwMsAkCdkwd4Ieqw+x3TUyTsqY0YiBCtE6H6OzzgGk3iuZ3vFWRS+E8/d1g==",
+      "licenseFiles": []
+    },
+    {
+      "name": "@typescript/typescript-win32-arm64",
+      "version": "7.0.2",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-Gyl1Vy6OsWesLzmq+EP0Fb7b4Nid5232AvcA2SFcdYreldpNtYFFofPjnt62y9hQy7VTaZp65ICJjuAQRaVcIQ==",
+      "licenseFiles": []
+    },
+    {
+      "name": "@typescript/typescript-win32-x64",
+      "version": "7.0.2",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-0BQ3HkAHHlKLSp1qRvf3SUhGpGsDuhB/jgFw75guyqbxJqEaS0Cw/VFO8i2nHglJUzQCRtMMR/IBAKE3ETMC4g==",
+      "licenseFiles": []
+    },
+    {
+      "name": "@vitejs/plugin-react",
+      "version": "6.1.1",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-yxLaQV9gkhS8ezJqCM6+ndU7mDY6gqAg75NQ+0IjwEI8IYOmQCgkRwHKVSfWXW076DsqMo0Dk+0FK1U+M5RgFw==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "29b68325fe026047d13e187b44c33b2acacf7dc647dec4583702e59f235e13b5"
+        }
+      ]
+    },
+    {
+      "name": "@vitest/mocker",
+      "version": "5.0.0",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-66PGTMIiVJP3t4a5yxU9qPtf7MdTBs8jmToMvy+HVflB3Yy13WJZTtPePdvU+wjRV02SKK5doLbSA6o9pwOmiA==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "04575fc5bfae19a9b63100f8691f901a2e15a399011ac02db435a9ef27295551"
+        }
+      ]
+    },
+    {
+      "name": "@vitest/spy",
+      "version": "5.0.0",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-uy+luWBAPw9XfthoHi5AkfHUnuPYEESjl0p/r+meoBnU8bxg5GDQ3Ey8MjcJ6sqahkL4PFyrvfMJJBw7LbU06g==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "04575fc5bfae19a9b63100f8691f901a2e15a399011ac02db435a9ef27295551"
+        }
+      ]
+    },
+    {
+      "name": "ansi-regex",
+      "version": "5.0.1",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-quJQXlTSUGL2LH9SUXo8VwsY4soanhgo6LNSm84E1LBcE8s3O0wpdiRzyR9z/ZZJMlMWv37qOOb9pdJlMUEKFQ==",
+      "licenseFiles": [
+        {
+          "file": "license",
+          "sha256": "48da2f39e100d4085767e94966b43f4fa95ff6a0698fba57ed460914e35f94a0"
+        }
+      ]
+    },
+    {
+      "name": "ansi-styles",
+      "version": "5.2.0",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-Cxwpt2SfTzTtXcfOlzGEee8O+c+MmUgGrNiBcXnuWxuFJHe6a5Hz7qwhwe5OgaSYI0IJvkLqWX1ASG+cJOkEiA==",
+      "licenseFiles": [
+        {
+          "file": "license",
+          "sha256": "48da2f39e100d4085767e94966b43f4fa95ff6a0698fba57ed460914e35f94a0"
+        }
+      ]
+    },
+    {
+      "name": "aria-query",
+      "version": "5.3.0",
+      "declaredLicense": "Apache-2.0",
+      "evidence": "installed-package",
+      "integrity": "sha512-b0P0sZPKtyu8HkeRAfCq0IfURZK+SuwMjY1UXGBU27wpAiTwQAIlq56IbIO+ytk/JjS1fMR14ee5WBBfKi5J6A==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "c8df456c7ccba74b959087dff494d4ac2a12dfb0400c08b46b2494a08a000567"
+        }
+      ]
+    },
+    {
+      "name": "aria-query",
+      "version": "5.3.2",
+      "declaredLicense": "Apache-2.0",
+      "evidence": "installed-package",
+      "integrity": "sha512-COROpnaoap1E2F000S62r6A60uHZnmlvomhfyT2DlTcrY1OrBKn2UhH7qn5wTC9zMvD0AY7csdPSNwKP+7WiQw==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "c8df456c7ccba74b959087dff494d4ac2a12dfb0400c08b46b2494a08a000567"
+        }
+      ]
+    },
+    {
+      "name": "assertion-error",
+      "version": "2.0.1",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-Izi8RQcffqCeNVgFigKli1ssklIbpHnCYc6AknXGYoB6grJqyeby7jv12JUQgmTAnIDnbck1uxksT4dzN3PWBA==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "2130216d5ab4c02134f8247f32999feda0abe1eaf028218baeac445c19ce4cea"
+        }
+      ]
+    },
+    {
+      "name": "bidi-js",
+      "version": "1.0.3",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-RKshQI1R3YQ+n9YJz2QQ147P66ELpa1FQEg20Dk8oW9t2KgLbpDLLp9aGZ7y8WHSshDknG0bknqGw5/tyCs5tw==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE.txt",
+          "sha256": "49d4d143fed599deb502a0fe6e02f49832f87e9a3a4cd0502e469596d50faa6d"
+        }
+      ]
+    },
+    {
+      "name": "chai",
+      "version": "6.2.2",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-NUPRluOfOiTKBKvWPtSD4PhFvWCqOi0BGStNWs57X9js7XGTprSmFoz5F0tWhR4WPjNeR9jXqdC7/UpSJTnlRg==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "b181da80336ff9dd1043fc8be1a764d7382363433319aa872e4d2cb5ce2a3066"
+        }
+      ]
+    },
+    {
+      "name": "css-tree",
+      "version": "3.2.1",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-X7sjQzceUhu1u7Y/ylrRZFU2FS6LRiFVp6rKLPg23y3x3c3DOKAwuXGDp+PAGjh6CSnCjYeAul8pcT8bAl+lSA==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "719a251ceca49c057ea90a1152af6546b767ec88e6d573bb6324454267b32c22"
+        }
+      ]
+    },
+    {
+      "name": "css.escape",
+      "version": "1.5.1",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-YUifsXXuknHlUsmlgyY0PKzgPOr7/FjCePfHNt0jxm83wHZi44VDMQ7/fGNkjY3/jV1MC+1CmZbaHzugyeRtpg==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE-MIT.txt",
+          "sha256": "483acb265f182907d1caf6cff9c16c96f31325ed23792832cc5d8b12d5f88c8a"
+        }
+      ]
+    },
+    {
+      "name": "csstype",
+      "version": "3.2.3",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "11d55bd4541c75ee7879547ac49089c489163dae49551389713c3d026cab383e"
+        }
+      ]
+    },
+    {
+      "name": "data-urls",
+      "version": "7.0.0",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-23XHcCF+coGYevirZceTVD7NdJOqVn+49IHyxgszm+JIiHLoB2TkmPtsYkNWT1pvRSGkc35L6NHs0yHkN2SumA==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE.txt",
+          "sha256": "528eec83cb836a0adda9f8fc3d6a2a70a710d6cc0be9a155f92212c8df28acfa"
+        }
+      ]
+    },
+    {
+      "name": "decimal.js",
+      "version": "10.6.0",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-YpgQiITW3JXGntzdUmyUR1V812Hn8T1YVXhCu+wO3OpS4eU9l4YdD3qjyiKdV6mvV29zapkMeD390UVEf2lkUg==",
+      "licenseFiles": [
+        {
+          "file": "LICENCE.md",
+          "sha256": "3108b546bcff5d346923a82f48b2d252ca722f9088076db6d145f6b67757ad6c"
+        }
+      ]
+    },
+    {
+      "name": "dequal",
+      "version": "2.0.3",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-0je+qPKHEMohvfRTCEo3CrPG6cAzAYgmzKyxRiYSSDkS6eGJdyVJm7WaYA5ECaAD9wLB2T4EEeymA5aFVcYXCA==",
+      "licenseFiles": [
+        {
+          "file": "license",
+          "sha256": "306fa513e39b23a6e8747520de761809d206b99800ef41907b530226574c59ae"
+        }
+      ]
+    },
+    {
+      "name": "detect-libc",
+      "version": "2.1.2",
+      "declaredLicense": "Apache-2.0",
+      "evidence": "installed-package",
+      "integrity": "sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1"
+        }
+      ]
+    },
+    {
+      "name": "dom-accessibility-api",
+      "version": "0.5.16",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-X7BJ2yElsnOJ30pZF4uIIDfBEVgF4XEBxL9Bxhy6dnrm5hkzqmsWHGTiHqRiITNhMyFLyAiWndIJP7Z1NTteDg==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE.md",
+          "sha256": "0ffe67fe630169de46df2d29dc18f5857b4c98f0f95b0cd9e3c21fef51f9a9b8"
+        }
+      ]
+    },
+    {
+      "name": "dom-accessibility-api",
+      "version": "0.6.3",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-7ZgogeTnjuHbo+ct10G9Ffp0mif17idi0IyWNVA/wcwcm7NPOD/WEHVP3n7n3MhXqxoIYm8d6MuZohYWIZ4T3w==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE.md",
+          "sha256": "0ffe67fe630169de46df2d29dc18f5857b4c98f0f95b0cd9e3c21fef51f9a9b8"
+        }
+      ]
+    },
+    {
+      "name": "entities",
+      "version": "8.0.0",
+      "declaredLicense": "BSD-2-Clause",
+      "evidence": "installed-package",
+      "integrity": "sha512-zwfzJecQ/Uej6tusMqwAqU/6KL2XaB2VZ2Jg54Je6ahNBGNH6Ek6g3jjNCF0fG9EWQKGZNddNjU5F1ZQn/sBnA==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "cb992345949ccd6e8394b2cd6c465f7b897c864f845937dbf64e8997f389e164"
+        }
+      ]
+    },
+    {
+      "name": "es-module-lexer",
+      "version": "2.3.2",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-poHGpORABojJJucnV9KbOavETW8lBVnphkW77ER5/BQ5Fz7oXSoCNek7IH3vR5nRjdsEz926ibFYX8KtLQmdyw==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "8a4b6c44eebfb026d23719a348145a661a555568dbfdc11618ff2d0dd9306b00"
+        }
+      ]
+    },
+    {
+      "name": "estree-walker",
+      "version": "3.0.3",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-7RUKfXgSMMkzt6ZuXmqapOurLGPPfgj6l9uRZ7lRGolvk0y2yocc35LdcxKC5PQZdn2DMqioAQ2NoWcrTKmm6g==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "8a6dcbabe7179f9c8489c08a7d874d0f1e093ae7449e03756ccf87cb9d0e296e"
+        }
+      ]
+    },
+    {
+      "name": "expect-type",
+      "version": "1.4.0",
+      "declaredLicense": "Apache-2.0",
+      "evidence": "installed-package",
+      "integrity": "sha512-KfYbmpRm0VbLjEvVa9yGwCi9GI34xvi7A/HXYWQO65CSD2u3MczUJSuwXKFIxlGsgBQizV9q5J9NHj4VG0n+pA==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "7c6cc83c84eaa249a85bf12fe3eedd831bb50c696e8890b5248223ae68c7b408"
+        }
+      ]
+    },
+    {
+      "name": "fdir",
+      "version": "6.5.0",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "9a39f2aadab11a3697edd668ff2d8ad885b649737b7ab4d3bf12b34e5ada0c86"
+        }
+      ]
+    },
+    {
+      "name": "fsevents",
+      "version": "2.3.3",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "2a8a5d6197bb97a018b8a190dd3ed853d750ca87c8e80c17aad41d6c6ff448e1"
+        }
+      ]
+    },
+    {
+      "name": "html-encoding-sniffer",
+      "version": "6.0.0",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-CV9TW3Y3f8/wT0BRFc1/KAVQ3TUHiXmaAb6VW9vtiMFf7SLoMd1PdAc4W3KFOFETBJUb90KatHqlsZMWV+R9Gg==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE.txt",
+          "sha256": "528eec83cb836a0adda9f8fc3d6a2a70a710d6cc0be9a155f92212c8df28acfa"
+        }
+      ]
+    },
+    {
+      "name": "indent-string",
+      "version": "4.0.0",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-EdDDZu4A2OyIK7Lr/2zG+w5jmbuk1DVBnEwREQvBzspBJkCEbRa8GxU1lghYcaGJCnRWibjDXlq779X1/y5xwg==",
+      "licenseFiles": [
+        {
+          "file": "license",
+          "sha256": "48da2f39e100d4085767e94966b43f4fa95ff6a0698fba57ed460914e35f94a0"
+        }
+      ]
+    },
+    {
+      "name": "is-potential-custom-element-name",
+      "version": "1.0.1",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-bCYeRA2rVibKZd+s2625gGnGF/t7DSqDs4dP7CrLA1m7jKWz6pps0LpYLJN8Q64HtmPKJ1hrN3nzPNKFEKOUiQ==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE-MIT.txt",
+          "sha256": "483acb265f182907d1caf6cff9c16c96f31325ed23792832cc5d8b12d5f88c8a"
+        }
+      ]
+    },
+    {
+      "name": "js-tokens",
+      "version": "4.0.0",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "2213d91c606205c71eb051a199478cdc2adde945893404d7f1421436dd6d5cc1"
+        }
+      ]
+    },
+    {
+      "name": "jsdom",
+      "version": "30.0.1",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-52v7mUVUfNQVYYqE1lcdaymWL0njO7lTLUog6ZvW2U5KsbiLk/GnZlVJ+qx0xfNJZ6Gn+KSpPNE52vurbxZwrA==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE.txt",
+          "sha256": "242d37e7cab25cbafc36cc973ee88f9345fddf066afe4f72b7ac3d9ad4e24cce"
+        }
+      ]
+    },
+    {
+      "name": "lightningcss-android-arm64",
+      "version": "1.33.0",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-gEpRTalKdosp4Bb8qWtc2iOgE5SeIHlpS1up9bFq2wAyYhl1UdTObYiHe98zEM9SQvSoqQZ1IQD0JNpg3Ml5pg==",
+      "licenseFiles": []
+    },
+    {
+      "name": "lightningcss-darwin-arm64",
+      "version": "1.33.0",
+      "declaredLicense": "MPL-2.0",
+      "evidence": "installed-package",
+      "integrity": "sha512-Sciaz8eenNTKn9b3t7+xr0ipTp9YxKQY4npwQ3mrRuL0BAVHBLyZxofhaKBAVtzmtRZ/zTyo0/to4B1uWG/Djg==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "5eba353fe5076ac3432177f8ab1cf75e3afcd0584251e37c3bfead5f447d040e"
+        }
+      ]
+    },
+    {
+      "name": "lightningcss-darwin-x64",
+      "version": "1.33.0",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-Z5UPAxzrjlWNNyGy6i65cJzzvgJ5D3T6wMvs+gWpY9d7qRhANrxqAp6LhxIgZhWEw18RfJTGcRxjuLIBr+m8XQ==",
+      "licenseFiles": []
+    },
+    {
+      "name": "lightningcss-freebsd-x64",
+      "version": "1.33.0",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-QQM/Ti/hQajJwCY+RiWuCZ9sdtI/XQk7nDK5vC8kkdwixezOlDgvDx7+RT+QjK6FcFT4MpsuoBnHIo/O3StRRg==",
+      "licenseFiles": []
+    },
+    {
+      "name": "lightningcss-linux-arm-gnueabihf",
+      "version": "1.33.0",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-N7FVBe6iS24MlM6R/4RBTxGhQheZGs7tiQ9U32UtF75NzP5Q7xWPRqLBCKxlRQRk3rY1jCIPLzx7WzOhuUIRLQ==",
+      "licenseFiles": []
+    },
+    {
+      "name": "lightningcss-linux-arm64-gnu",
+      "version": "1.33.0",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-j2v/itmy4HlNxlc6voKXYgBqNi0Ng2LShg4z7GufpEgs05P+2suBVyi9I6YHq5uoVFx9ETin3eCEhLVyXGQnKg==",
+      "licenseFiles": []
+    },
+    {
+      "name": "lightningcss-linux-arm64-musl",
+      "version": "1.33.0",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-yiO5ROMuYQgXbC60yjZU5CYSFZGKXL0HFATXt9mHJn1+zW55oCtMI9NfcVhYLMFDL7gV7oBPon/EmMMGg2OvtQ==",
+      "licenseFiles": []
+    },
+    {
+      "name": "lightningcss-linux-x64-gnu",
+      "version": "1.33.0",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-ar+Ju7LmcN0Jo4FpL4hpFybwNG9/3A/Br5KW2n2jyODg3MEZXaDYADdemoNS+BDNfMgKvylJLj4S5tyRActuAg==",
+      "licenseFiles": []
+    },
+    {
+      "name": "lightningcss-linux-x64-musl",
+      "version": "1.33.0",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-RYiYbkokw0trfKqqzfF55lginwEPrD3OJDfTuJzFs1MK6iFnDenaz1fqLLtX4ITG3OktJQXOeTaw1awrBAlZPw==",
+      "licenseFiles": []
+    },
+    {
+      "name": "lightningcss-win32-arm64-msvc",
+      "version": "1.33.0",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-1K+MPfLSFVpphzpdbfkhlWk6wBrTObBzS2T6db10PNOZgR9GoVsAWzwNyuhUYYbTp23j+4RrncfujZ4uAzXvwA==",
+      "licenseFiles": []
+    },
+    {
+      "name": "lightningcss-win32-x64-msvc",
+      "version": "1.33.0",
+      "declaredLicense": null,
+      "evidence": "lock-only",
+      "integrity": "sha512-OlEICDx/Xl0FqSp4bry8zFnCvGpig3Gl4gCquvYwHuqJKEC1+n9NgDniFvqHGmMv1ZkqDJrDqKKSykTDX+ehuA==",
+      "licenseFiles": []
+    },
+    {
+      "name": "lightningcss",
+      "version": "1.33.0",
+      "declaredLicense": "MPL-2.0",
+      "evidence": "installed-package",
+      "integrity": "sha512-WkUDrojuJs0xkgGf2udWxa3yGBRxPtxUkB79i6aCZLRgc7PM8fZe9TosfPDcvEpQZbuFASnHYmRLBLUbmLOIIA==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "5eba353fe5076ac3432177f8ab1cf75e3afcd0584251e37c3bfead5f447d040e"
+        }
+      ]
+    },
+    {
+      "name": "lru-cache",
+      "version": "11.5.2",
+      "declaredLicense": "BlueOak-1.0.0",
+      "evidence": "installed-package",
+      "integrity": "sha512-4pfM1Ff0x50o0tQwb5ucw/RzNyD0/YJME6IVcStalZuMWxdt3sR3huStTtxz4PUmvZfRguvDejasvQ2kifR11g==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE.md",
+          "sha256": "8a1af140fdfbf5afd3df27f7e662f989c5b963a300020dfafce42033cae9e004"
+        }
+      ]
+    },
+    {
+      "name": "lz-string",
+      "version": "1.5.0",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-h5bgJWpxJNswbU7qCrV0tIKQCaS3blPDrqKWx+QxzuzL1zGUzij9XCWLrSLsJPu5t+eWA/ycetzYAO5IOMcWAQ==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "433fc9dfe659dbfb1e91eed8351f13651e97bfa3ac6d03394c3d63f61d4bbc80"
+        }
+      ]
+    },
+    {
+      "name": "magic-string",
+      "version": "1.2.3",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-Bpb0W2TbLKOZ7vJnOUnVRGq3WL2p+ISV29M6hYPL1AFCpyKZpdr5ytiXoTSSxRVhg8YW7f65+6gbG8WG6PCa/g==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "1cbe51b907662f6cb1492b16c359384a595180bf0e4d101603ed525e75c4e484"
+        }
+      ]
+    },
+    {
+      "name": "mdn-data",
+      "version": "2.27.1",
+      "declaredLicense": "CC0-1.0",
+      "evidence": "installed-package",
+      "integrity": "sha512-9Yubnt3e8A0OKwxYSXyhLymGW4sCufcLG6VdiDdUGVkPhpqLxlvP5vl1983gQjJl3tqbrM731mjaZaP68AgosQ==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "36ffd9dc085d529a7e60e1276d73ae5a030b020313e6c5408593a6ae2af39673"
+        }
+      ]
+    },
+    {
+      "name": "min-indent",
+      "version": "1.0.1",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-I9jwMn07Sy/IwOj3zVkVik2JTvgpaykDZEigL6Rx6N9LbMywwUSMtxET+7lVoDLLd3O3IXwJwvuuns8UB/HeAg==",
+      "licenseFiles": [
+        {
+          "file": "license",
+          "sha256": "9638fa87f845af6cecc56fab498c1f74f4a98522d3b53377bedcbdb44b5a8dcc"
+        }
+      ]
+    },
+    {
+      "name": "nanoid",
+      "version": "3.3.18",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-DTg4MJbGMWkfi6VZFdNt2/caMbQy4Ou+Op/hJQvGEWcnVfoA1QA+xzRKAzw9jD6+GVOOeYr/mIcuDSdug6F6+w==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "da4db1480d9beea3483a2eda5c53b22238d0827d57da162b48f122e04d2d9987"
+        }
+      ]
+    },
+    {
+      "name": "obug",
+      "version": "2.1.4",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-4a+OsYv9UktOJKE+l1A4OufDgdRF9PifWj+tJnHURo/P+WOxpG4GzUFL9qCalmWauao6ogiG+QvnCovwPoyAWA==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "ee48679d379ca6b4493d5e231094d85f818dd9be40b1a4f234fb7ff657ee35d9"
+        }
+      ]
+    },
+    {
+      "name": "parse5",
+      "version": "8.0.1",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-z1e/HMG90obSGeidlli3hj7cbocou0/wa5HacvI3ASx34PecNjNQeaHNo5WIZpWofN9kgkqV1q5YvXe3F0FoPw==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "8c535800331e1e4439835555b3f9edc7fe9dee2fab0d8bbbd5a982e8b8343d4d"
+        }
+      ]
+    },
+    {
+      "name": "picocolors",
+      "version": "1.1.1",
+      "declaredLicense": "ISC",
+      "evidence": "installed-package",
+      "integrity": "sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "6582629e2979466878f6014313dcc2f3756c9616148682227ce3063dde310750"
+        }
+      ]
+    },
+    {
+      "name": "picomatch",
+      "version": "4.0.7",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "d0cd141b0c322fded5dfad1d4645bb2fedfc05b7321fe1009469638190d59ef9"
+        }
+      ]
+    },
+    {
+      "name": "postcss",
+      "version": "8.5.26",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-u82N74LFzG8ca+dD8puPnplTXoGH4fTPpVGuIbt36G3qvNlkvfD0lEAZSxaly3KX8TS/L1A1gsCEmvKmBcVbkQ==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "5be1f3465bba68a626777f984878814aaf35e7ef8e9fd314d469bcf887050fb8"
+        }
+      ]
+    },
+    {
+      "name": "pretty-format",
+      "version": "27.5.1",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-Qb1gy5OrP5+zDf2Bvnzdl3jsTf1qXVMazbvCoKhtKqVs4/YK4ozX4gKQJJVyNe+cajNPn0KoC0MC3FUmaHWEmQ==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "52412d7bc7ce4157ea628bbaacb8829e0a9cb3c58f57f99176126bc8cf2bfc85"
+        }
+      ]
+    },
+    {
+      "name": "punycode",
+      "version": "2.3.1",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE-MIT.txt",
+          "sha256": "483acb265f182907d1caf6cff9c16c96f31325ed23792832cc5d8b12d5f88c8a"
+        }
+      ]
+    },
+    {
+      "name": "react-dom",
+      "version": "19.2.8",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-rVprimfGBG3DR+Tq0IQG2DT5PxKth1WIGDmj5yPmlzr4YBe7uyE+Du4oVqTDXZSHGGGXRtTJEGSSePyQCMBglQ==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93"
+        }
+      ]
+    },
+    {
+      "name": "react-is",
+      "version": "17.0.2",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-w2GsyukL62IJnlaff/nRegPQR94C/XXamvMWmSHRJ4y7Ts/4ocGRmTHvOs8PSE6pB3dWOrD/nueuU5sduBsQ4w==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "52412d7bc7ce4157ea628bbaacb8829e0a9cb3c58f57f99176126bc8cf2bfc85"
+        }
+      ]
+    },
+    {
+      "name": "react",
+      "version": "19.2.8",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-PWaYA1L/q9u2u7xYQi+Y3L3Yfnie7XyLeaJICV1MGD6LprsBxcAqGjYyr0eY3p+QdsA+x/Irkt4Qif8D63+Sbw==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93"
+        }
+      ]
+    },
+    {
+      "name": "redent",
+      "version": "3.0.0",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-6tDA8g98We0zd0GvVeMT9arEOnTw9qM03L9cJXaCjrip1OO764RDBLBfrB4cwzNGDj5OA5ioymC9GkizgWJDUg==",
+      "licenseFiles": [
+        {
+          "file": "license",
+          "sha256": "48da2f39e100d4085767e94966b43f4fa95ff6a0698fba57ed460914e35f94a0"
+        }
+      ]
+    },
+    {
+      "name": "require-from-string",
+      "version": "2.0.2",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-Xf0nWe6RseziFMu+Ap9biiUbmplq6S9/p+7w7YXP/JBHhrUDDUhwa+vANyubuqfZWTveU//DYVGsDG7RKL/vEw==",
+      "licenseFiles": [
+        {
+          "file": "license",
+          "sha256": "6ee0feb1f6ef996ff5a68600f8cf98909cf412d39ef3cdceaefd87d636fa1b7f"
+        }
+      ]
+    },
+    {
+      "name": "rolldown",
+      "version": "1.2.7",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-g0EtLvBjTUB7jhyV0S/TCup3v/XSVl45vUIGbOGU4QPiyjTenCe4mKuFvW9fEgYmS2Fo42AUssRmNuMziXdrig==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "23ecfff35a5a2e80d92142f75228912c3b1abc4b5a8337a821ff4397e2f9f734"
+        }
+      ]
+    },
+    {
+      "name": "saxes",
+      "version": "6.0.0",
+      "declaredLicense": "ISC",
+      "evidence": "installed-package",
+      "integrity": "sha512-xAg7SOnEhrm5zI3puOOKyy1OMcMlIJZYNJY7xLBwSze0UjhPLnWfj2GF2EpT0jmzaJKIWKHLsaSSajf35bcYnA==",
+      "licenseFiles": []
+    },
+    {
+      "name": "scheduler",
+      "version": "0.27.0",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-eNv+WrVbKu1f3vbYJT/xtiF5syA5HPIMtf9IgY/nKg0sWqzAUEvqY/xm7OcZc/qafLx/iO9FgOmeSAp4v5ti/Q==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93"
+        }
+      ]
+    },
+    {
+      "name": "siginfo",
+      "version": "2.0.0",
+      "declaredLicense": "ISC",
+      "evidence": "installed-package",
+      "integrity": "sha512-ybx0WO1/8bSBLEWXZvEd7gMW3Sn3JFlW3TvX1nREbDLRNQNaeNN8WK0meBwPdAaOI7TtRRRJn/Es1zhrrCHu7g==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "3bdddf0b9b08aaa2fe4365b803fc958ed32c0597ca0bd727be8d9fcb8b248d18"
+        }
+      ]
+    },
+    {
+      "name": "source-map-js",
+      "version": "1.2.1",
+      "declaredLicense": "BSD-3-Clause",
+      "evidence": "installed-package",
+      "integrity": "sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "6cb0631f71c7749763fd3dd1d5bee52dd1070ec17f2edc1710079ad070bd2fbd"
+        }
+      ]
+    },
+    {
+      "name": "stackback",
+      "version": "0.0.2",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-1XMJE5fQo1jGH6Y/7ebnwPOBEkIEnT4QF32d5R1+VXdXveM0IBMJt8zfaxX1P3QhVwrYe+576+jkANtSS2mBbw==",
+      "licenseFiles": []
+    },
+    {
+      "name": "std-env",
+      "version": "4.2.0",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-oCUKSupKTHX53EyjDtuZQ64pjLJ6yYCtpmEw0goYxtjG9KpbRe8KAsl2tBUGU9DyMcJ0RwJ8GqJAFzMXcXW1Rw==",
+      "licenseFiles": [
+        {
+          "file": "LICENCE",
+          "sha256": "a6f36438e46fb911859f3b9c4cad045ba64e1af3d8f4512c60258fa2d7552d28"
+        }
+      ]
+    },
+    {
+      "name": "strip-indent",
+      "version": "3.0.0",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-laJTa3Jb+VQpaC6DseHhF7dXVqHTfJPCRDaEbid/drOhgitgYku/letMUqOXFoWV0zIIUbjpdH2t+tYj4bQMRQ==",
+      "licenseFiles": [
+        {
+          "file": "license",
+          "sha256": "48da2f39e100d4085767e94966b43f4fa95ff6a0698fba57ed460914e35f94a0"
+        }
+      ]
+    },
+    {
+      "name": "symbol-tree",
+      "version": "3.2.4",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-9QNk5KwDF+Bvz+PyObkmSYjI5ksVUYtjW7AU22r2NKcfLJcXp96hkDWU3+XndOsUb+AQ9QhfzfCT2O+CNWT5Tw==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "9ea1eccdabe469767a9edb9249a840b2461cf91b2434bf8a3e2fc1f414311cb1"
+        }
+      ]
+    },
+    {
+      "name": "tinybench",
+      "version": "6.1.4",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-9APumHG7r4yOk4X4WlkmE71aZcv1gvin1czO3OQ1U9iJcFA5Ja/ygyb0vPOVHTthFozUYs8CLoLUlM8grb2lTQ==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "cebc084d54e6dd99e53292ddb4bc1cdb63d9bfcd9ce438fe3aa6eb106d79e2ea"
+        }
+      ]
+    },
+    {
+      "name": "tinyexec",
+      "version": "1.3.0",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-QKAl9m8gWWGHV8jZcPeym6j+XULi6tOf1mT83WYJ4Lk2ytW/uwAWkrP0uFsdoYMdueVJ0qs26wZ+23xeB4ibNQ==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "f95f668fe64081ddb4153b322e34fdd719b991285ed08177d5ad7133b7988d92"
+        }
+      ]
+    },
+    {
+      "name": "tinyglobby",
+      "version": "0.2.17",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-wXR/dYpcqKmfWpEdZjiKJOwCNFndD0DMnrW/cYjVGttEkBfVgcLFHoNrlj47mjOVic9yyNu65alsgF4NQyTa2g==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "22c68811e174cbbfb3813d4135918df4f540959c14d872e601d9abe83d3cde8f"
+        }
+      ]
+    },
+    {
+      "name": "tldts-core",
+      "version": "7.4.11",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-CW3WN2rIIE/Of21mulhgnGOwoDyEFNygyIBOONSdyAuSATgMMUCpLeUlB+E8sAwA5xRV9hYPl+kyZ9citHCaKg==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "c64182d48160db948b6aa97a984f1a32974ce4d2053900361264cd33853796cb"
+        }
+      ]
+    },
+    {
+      "name": "tldts",
+      "version": "7.4.11",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-aBiNayCfTQxuIJBm06M+xR14cYaYlDlSXZbgsnKzKNxDKUVq7KFwTjwBSsb7m9Y5xO8WfPnBc63WaYFMTGlvqw==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "c64182d48160db948b6aa97a984f1a32974ce4d2053900361264cd33853796cb"
+        }
+      ]
+    },
+    {
+      "name": "tough-cookie",
+      "version": "6.0.2",
+      "declaredLicense": "BSD-3-Clause",
+      "evidence": "installed-package",
+      "integrity": "sha512-exgYmnmL/sJpR3upZfXG5PoatXQii55xAiXGXzY+sROLZ/Y+SLcp9PgJNI9Vz37HpQ74WvDcLT8eqm+kV3FzrA==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "22ec6791c91ba42c0516a05f4cbdde019aae4687f8a38c5ca7e8a69ee68f851d"
+        }
+      ]
+    },
+    {
+      "name": "tr46",
+      "version": "6.0.0",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-bLVMLPtstlZ4iMQHpFHTR7GAGj2jxi8Dg0s2h2MafAE4uSWF98FC/3MomU51iQAMf8/qDUbKWf5GxuvvVcXEhw==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE.md",
+          "sha256": "499d6d466d064e0460427967a344e2a32fcb86ea8c6cd1a285ec4f1fa03fba67"
+        }
+      ]
+    },
+    {
+      "name": "typescript",
+      "version": "7.0.2",
+      "declaredLicense": "Apache-2.0",
+      "evidence": "installed-package",
+      "integrity": "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "a7d00bfd54525bc694b6e32f64c7ebcf5e6b7ae3657be5cc12767bce74654a47"
+        },
+        {
+          "file": "NOTICE.txt",
+          "sha256": "f5c708b59114507b8b27b48181b6883d106bbca0c1634bbee45b5e344237b66b"
+        }
+      ]
+    },
+    {
+      "name": "undici-types",
+      "version": "8.3.0",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "a6db8096b2707bc0102d256917d4d33f298ba36d8c3f25de067a2b5bb379db27"
+        }
+      ]
+    },
+    {
+      "name": "undici",
+      "version": "8.10.1",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-YQ3WlbqjYMmNpdvDH64jAgLjxuAR9+649calDWhbshYaeQGO2bR4nI94ORJmwI3J9YhoKQnpyGOK+0zlWS5N5Q==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "a6db8096b2707bc0102d256917d4d33f298ba36d8c3f25de067a2b5bb379db27"
+        }
+      ]
+    },
+    {
+      "name": "vite",
+      "version": "8.2.2",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-cFKLV/PRgAUlIRm5WjMjJ86jrftzpqcgH+Us+DS8mI3CDNiH30Whrz8uHL3+MOLPAgqbMBAqWdAHAphOAM+z/Q==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE.md",
+          "sha256": "387dd7baa307083401a27c58c362c30832f5ba1dba84f10cc22c33401523f45c"
+        }
+      ]
+    },
+    {
+      "name": "vitest",
+      "version": "5.0.0",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-gpsMNoRhMjMktVxPtstOH4/PJuPyovVaMDr4oDilXaGH1EcqM2OE96SoHT2VIQ6fTGtTjqmHDrEu2X9RQiXf8Q==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE.md",
+          "sha256": "d47eb4eeddb0a8b7776abd645d9c2d18e14bf6a5ffa52ac75fc3647d672d0260"
+        }
+      ]
+    },
+    {
+      "name": "w3c-xmlserializer",
+      "version": "5.0.0",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-o8qghlI8NZHU1lLPrpi2+Uq7abh4GGPpYANlalzWxyWteJOCsr/P+oPBA49TOLu5FTZO4d3F9MnWJfiMo4BkmA==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE.md",
+          "sha256": "ab654de803cdaa9e2819ab2e934bdf7f757e308649ec231d78e80e92425cdc34"
+        }
+      ]
+    },
+    {
+      "name": "webidl-conversions",
+      "version": "8.0.1",
+      "declaredLicense": "BSD-2-Clause",
+      "evidence": "installed-package",
+      "integrity": "sha512-BMhLD/Sw+GbJC21C/UgyaZX41nPt8bUTg+jWyDeg7e7YN4xOM05YPSIXceACnXVtqyEw/LMClUQMtMZ+PGGpqQ==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE.md",
+          "sha256": "a889cc4dbee2ae172c179856b25d75b0b7a5a136e1b97109b9b590b2ff1a879c"
+        }
+      ]
+    },
+    {
+      "name": "whatwg-mimetype",
+      "version": "5.0.0",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-sXcNcHOC51uPGF0P/D4NVtrkjSU2fNsm9iog4ZvZJsL3rjoDAzXZhkm2MWt1y+PUdggKAYVoMAIYcs78wJ51Cw==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE.txt",
+          "sha256": "528eec83cb836a0adda9f8fc3d6a2a70a710d6cc0be9a155f92212c8df28acfa"
+        }
+      ]
+    },
+    {
+      "name": "whatwg-url",
+      "version": "16.0.1",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-1to4zXBxmXHV3IiSSEInrreIlu02vUOvrhxJJH5vcxYTBDAx51cqZiKdyTxlecdKNSjj8EcxGBxNf6Vg+945gw==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE.txt",
+          "sha256": "db480f236292a093e77a83c35431a8496624e1e664a3547768a9ce2bdde39877"
+        }
+      ]
+    },
+    {
+      "name": "whatwg-url",
+      "version": "17.1.0",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-3GeworPmc2ZfEEHP7lEbUfBX/L75wdEsi0rLNhXcXxnoN5jyq0SL5gCy06SGW2cyTIZdTvWIDQNQoza++vKeaw==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE.txt",
+          "sha256": "db480f236292a093e77a83c35431a8496624e1e664a3547768a9ce2bdde39877"
+        }
+      ]
+    },
+    {
+      "name": "why-is-node-running",
+      "version": "2.3.0",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-hUrmaWBdVDcxvYqnyh09zunKzROWjbZTiNy8dBEjkS7ehEDQibXJ7XvlmtbwuTclUiIyN+CyXQD4Vmko8fNm8w==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "6a134e51aa31496c15a741592fc5d782b2dbf8d8b6b8524e15c8520ae0cd6374"
+        }
+      ]
+    },
+    {
+      "name": "xml-name-validator",
+      "version": "5.0.0",
+      "declaredLicense": "Apache-2.0",
+      "evidence": "installed-package",
+      "integrity": "sha512-EvGK8EJ3DhaHfbRlETOWAS5pO9MZITeauHKJyb8wyajUfQUenkIg2MvLDTZ4T/TgIcm3HU0TFBgWWboAZ30UHg==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE.txt",
+          "sha256": "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9"
+        }
+      ]
+    },
+    {
+      "name": "xmlchars",
+      "version": "2.2.0",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-JZnDKK8B0RCDw84FNdDAIpZK+JuJw+s7Lz8nksI7SIuU3UXJJslUthsi+uWBUYOwPFwW7W7PRLRfUKpxjtjFCw==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "45d196313c2647d313cc65ca9b093d2d6974b64d35ee7346f2c60c9d518dff2c"
+        }
+      ]
+    },
+    {
+      "name": "zod",
+      "version": "4.5.4",
+      "declaredLicense": "MIT",
+      "evidence": "installed-package",
+      "integrity": "sha512-sC95tT5iHHH9gtpj6A81kh+NEaRAUFN+qlUPDUbRfOMvNf5QCBqsb3WgvnpVtK5Y+4UfA6KqufotuTvMGiTlsA==",
+      "licenseFiles": [
+        {
+          "file": "LICENSE",
+          "sha256": "3f1189b28e3866e0d979968d466b78f813f76827cfdca1fbb124cc0a5c8841f8"
+        }
+      ]
+    }
+  ],
+  "python": [
+    {
+      "name": "ansible-core",
+      "version": "2.21.4",
+      "declaredLicense": "GPL-3.0-or-later",
+      "licenseFiles": [
+        "COPYING",
+        "licenses/Apache-License.txt",
+        "licenses/BSD-3-Clause.txt",
+        "licenses/MIT-license.txt",
+        "licenses/PSF-license.txt",
+        "licenses/simplified_bsd.txt"
+      ],
+      "scope": "audit-environment; product requirements must be checked separately"
+    },
+    {
+      "name": "cffi",
+      "version": "2.1.1",
+      "declaredLicense": "MIT-0",
+      "licenseFiles": [
+        "LICENSE"
+      ],
+      "scope": "audit-environment; product requirements must be checked separately"
+    },
+    {
+      "name": "cryptography",
+      "version": "50.0.1",
+      "declaredLicense": "Apache-2.0 OR BSD-3-Clause",
+      "licenseFiles": [
+        "LICENSE",
+        "LICENSE.APACHE",
+        "LICENSE.BSD"
+      ],
+      "scope": "audit-environment; product requirements must be checked separately"
+    },
+    {
+      "name": "Jinja2",
+      "version": "3.1.6",
+      "declaredLicense": null,
+      "licenseFiles": [
+        "LICENSE.txt"
+      ],
+      "scope": "audit-environment; product requirements must be checked separately"
+    },
+    {
+      "name": "MarkupSafe",
+      "version": "3.0.3",
+      "declaredLicense": "BSD-3-Clause",
+      "licenseFiles": [
+        "LICENSE.txt"
+      ],
+      "scope": "audit-environment; product requirements must be checked separately"
+    },
+    {
+      "name": "packaging",
+      "version": "26.3",
+      "declaredLicense": "Apache-2.0 OR BSD-2-Clause",
+      "licenseFiles": [
+        "LICENSE",
+        "LICENSE.APACHE",
+        "LICENSE.BSD"
+      ],
+      "scope": "audit-environment; product requirements must be checked separately"
+    },
+    {
+      "name": "pycparser",
+      "version": "3.0",
+      "declaredLicense": "BSD-3-Clause",
+      "licenseFiles": [
+        "LICENSE"
+      ],
+      "scope": "audit-environment; product requirements must be checked separately"
+    },
+    {
+      "name": "PyJWT",
+      "version": "2.13.0",
+      "declaredLicense": "MIT",
+      "licenseFiles": [
+        "LICENSE",
+        "AUTHORS.rst"
+      ],
+      "scope": "audit-environment; product requirements must be checked separately"
+    },
+    {
+      "name": "PyYAML",
+      "version": "6.0.2",
+      "declaredLicense": "MIT",
+      "licenseFiles": [
+        "LICENSE"
+      ],
+      "scope": "audit-environment; product requirements must be checked separately"
+    },
+    {
+      "name": "resolvelib",
+      "version": "1.2.1",
+      "declaredLicense": "ISC License",
+      "licenseFiles": [
+        "LICENSE"
+      ],
+      "scope": "audit-environment; product requirements must be checked separately"
+    }
+  ],
+  "deploymentReferences": [
+    {
+      "file": ".github/ISSUE_TEMPLATE/config.yml",
+      "line": 4,
+      "reference": "url: https://github.com/QualityMinds/AIppliance-Magic-Stick/security/advisories/new"
+    },
+    {
+      "file": ".github/actions/setup-license-scanner/action.yml",
+      "line": 24,
+      "reference": "\"https://github.com/anchore/syft/releases/download/v1.52.0/syft_1.52.0_linux_${arch}.tar.gz\" \\"
+    },
+    {
+      "file": ".github/workflows/build-amd-dra-image.yml",
+      "line": 36,
+      "reference": "repository: ROCm/k8s-gpu-dra-driver"
+    },
+    {
+      "file": ".github/workflows/build-dashboard-image.yml",
+      "line": 53,
+      "reference": "node-version: \"24\""
+    },
+    {
+      "file": ".github/workflows/build-dashboard-image.yml",
+      "line": 99,
+      "reference": "python3 -m pip install -r dashboard/apps/api/requirements.txt pyyaml"
+    },
+    {
+      "file": ".github/workflows/build-dashboard-image.yml",
+      "line": 130,
+      "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
+    },
+    {
+      "file": ".github/workflows/build-dashboard-image.yml",
+      "line": 145,
+      "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
+    },
+    {
+      "file": ".github/workflows/build-dashboard-image.yml",
+      "line": 160,
+      "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
+    },
+    {
+      "file": ".github/workflows/build-freetoken-image.yml",
+      "line": 75,
+      "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
+    },
+    {
+      "file": ".github/workflows/build-freetoken-image.yml",
+      "line": 102,
+      "reference": "subject-version: v${{ env.FREETOKEN_VERSION }}"
+    },
+    {
+      "file": ".github/workflows/build-freetoken-image.yml",
+      "line": 111,
+      "reference": "echo \"- FreeToken version: \\`v${FREETOKEN_VERSION}\\`\""
+    },
+    {
+      "file": ".github/workflows/build-kdns-image.yml",
+      "line": 44,
+      "reference": "repository: lab42/kdns"
+    },
+    {
+      "file": ".github/workflows/build-kdns-image.yml",
+      "line": 51,
+      "reference": "go-version: 1.26.0"
+    },
+    {
+      "file": ".github/workflows/build-kdns-image.yml",
+      "line": 103,
+      "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
+    },
+    {
+      "file": ".github/workflows/build-mesh-companion.yml",
+      "line": 87,
+      "reference": "with: {python-version: '3.13'}"
+    },
+    {
+      "file": ".github/workflows/build-mesh-companion.yml",
+      "line": 99,
+      "reference": "sudo apt-get install -y clang cmake libssl-dev pkg-config"
+    },
+    {
+      "file": ".github/workflows/build-mesh-companion.yml",
+      "line": 102,
+      "reference": "\"https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-${PROTOC_PLATFORM}.zip\" \\"
+    },
+    {
+      "file": ".github/workflows/build-mesh-companion.yml",
+      "line": 110,
+      "reference": "OPENSSL_STATIC=1 python -m pip install --no-cache-dir -r magic-cluster/apps/ai/private-mesh/requirements.txt pyinstaller==6.22.3"
+    },
+    {
+      "file": ".github/workflows/build-mesh-companion.yml",
+      "line": 126,
+      "reference": "Invoke-WebRequest -Uri \"https://github.com/protocolbuffers/protobuf/releases/download/v${env:PROTOC_VERSION}/protoc-${env:PROTOC_VERSION}-${env:PROTOC_PLATFORM}.zip\" -OutFile $zip"
+    },
+    {
+      "file": ".github/workflows/build-mesh-companion.yml",
+      "line": 132,
+      "reference": "& python -m pip install -r magic-cluster/apps/ai/private-mesh/requirements.txt pyinstaller==6.22.3"
+    },
+    {
+      "file": ".github/workflows/build-mesh-companion.yml",
+      "line": 149,
+      "reference": "git -c core.autocrlf=false -c core.longpaths=true clone --depth 1 --branch v0.76.2 https://github.com/Mesh-LLM/mesh-llm.git \"$RUNNER_TEMP/mesh-source\""
+    },
+    {
+      "file": ".github/workflows/build-mesh-companion.yml",
+      "line": 170,
+      "reference": "& git -c core.autocrlf=false -c core.longpaths=true clone --depth 1 --branch v0.76.2 https://github.com/Mesh-LLM/mesh-llm.git $source"
+    },
+    {
+      "file": ".github/workflows/build-mesh-companion.yml",
+      "line": 242,
+      "reference": "with: {python-version: '3.13'}"
+    },
+    {
+      "file": ".github/workflows/build-mesh-image.yml",
+      "line": 40,
+      "reference": "with: {python-version: '3.13'}"
+    },
+    {
+      "file": ".github/workflows/build-mesh-image.yml",
+      "line": 41,
+      "reference": "- run: pip install -r magic-cluster/apps/ai/private-mesh/requirements.txt"
+    },
+    {
+      "file": ".github/workflows/build-omni-rocm-image.yml",
+      "line": 59,
+      "reference": "with: {python-version: '3.13'}"
+    },
+    {
+      "file": ".github/workflows/build-omni-rocm-image.yml",
+      "line": 61,
+      "reference": "run: python -m pip install 'PyYAML==6.0.2'"
+    },
+    {
+      "file": ".github/workflows/build-omni-rocm-image.yml",
+      "line": 84,
+      "reference": "with: {python-version: '3.13'}"
+    },
+    {
+      "file": ".github/workflows/build-omni-rocm-image.yml",
+      "line": 86,
+      "reference": "run: python -m pip install 'PyYAML==6.0.2'"
+    },
+    {
+      "file": ".github/workflows/build-omni-rocm-image.yml",
+      "line": 112,
+      "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
+    },
+    {
+      "file": ".github/workflows/build-paperclip-operator-image.yml",
+      "line": 38,
+      "reference": "repository: paperclipinc/paperclip-operator"
+    },
+    {
+      "file": ".github/workflows/build-paperclip-operator-image.yml",
+      "line": 85,
+      "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
+    },
+    {
+      "file": ".github/workflows/docs.yml",
+      "line": 48,
+      "reference": "python-version: '3.12'"
+    },
+    {
+      "file": ".github/workflows/docs.yml",
+      "line": 52,
+      "reference": "run: python -m pip install -r requirements-docs.txt"
+    },
+    {
+      "file": ".github/workflows/docs.yml",
+      "line": 99,
+      "reference": "python-version: '3.12'"
+    },
+    {
+      "file": ".github/workflows/docs.yml",
+      "line": 100,
+      "reference": "- run: python -m pip install -r requirements-docs.txt"
+    },
+    {
+      "file": ".github/workflows/license-audit.yml",
+      "line": 52,
+      "reference": "with: {node-version: '24'}"
+    },
+    {
+      "file": ".github/workflows/license-audit.yml",
+      "line": 54,
+      "reference": "with: {python-version: '3.13'}"
+    },
+    {
+      "file": ".github/workflows/license-audit.yml",
+      "line": 61,
+      "reference": "python -m pip install 'PyYAML==6.0.2'"
+    },
+    {
+      "file": ".github/workflows/license-audit.yml",
+      "line": 98,
+      "reference": "- {id: kdns, repository: lab42/kdns, revision: f956ab5d35564ee84e58ba155e78a17423cc835b}"
+    },
+    {
+      "file": ".github/workflows/license-audit.yml",
+      "line": 99,
+      "reference": "- {id: amd-dra, repository: ROCm/k8s-gpu-dra-driver, revision: 9eb4e2ea386e34581524b0110e24769654fcb8d2}"
+    },
+    {
+      "file": ".github/workflows/license-audit.yml",
+      "line": 100,
+      "reference": "- {id: paperclip-operator, repository: paperclipinc/paperclip-operator, revision: 66c1ddf277697952d9e87723dcd26edb5b635c69}"
+    },
+    {
+      "file": ".github/workflows/license-audit.yml",
+      "line": 101,
+      "reference": "- {id: mesh-llm, repository: Mesh-LLM/mesh-llm, revision: a0c1e66b0ac037dd56544b9e2d94969ea43d694f}"
+    },
+    {
+      "file": ".github/workflows/license-audit.yml",
+      "line": 102,
+      "reference": "- {id: openai-endpoint, repository: Mesh-LLM/openai-endpoint, revision: 9166c6a918cda73fe4c05912ed9b06446bb95e60}"
+    },
+    {
+      "file": ".github/workflows/license-audit.yml",
+      "line": 103,
+      "reference": "- {id: freetoken, repository: FlashML-org/FreeToken, revision: cac247a860e316e06580d05aeb05f2e647bde214}"
+    },
+    {
+      "file": ".github/workflows/license-audit.yml",
+      "line": 110,
+      "reference": "repository: ${{ matrix.repository }}"
+    },
+    {
+      "file": ".github/workflows/promote-freetoken-runtime.yml",
+      "line": 90,
+      "reference": "-e \"s|^  image: .*|  image: ${IMAGE_NAME}@${FREETOKEN_DIGEST}|\" \\"
+    },
+    {
+      "file": ".github/workflows/public-release-checks.yml",
+      "line": 27,
+      "reference": "node-version: \"24\""
+    },
+    {
+      "file": ".github/workflows/public-release-checks.yml",
+      "line": 32,
+      "reference": "version: v1.36.0"
+    },
+    {
+      "file": ".github/workflows/public-release-checks.yml",
+      "line": 36,
+      "reference": "python3 -m pip install --user ansible-core"
+    },
+    {
+      "file": ".github/workflows/public-release-checks.yml",
+      "line": 40,
+      "reference": "run: ansible-galaxy collection install -r magic-host/requirements.yml"
+    },
+    {
+      "file": ".github/workflows/public-release-checks.yml",
+      "line": 90,
+      "reference": "python3 -m pip install -r dashboard/apps/api/requirements.txt pyyaml"
+    },
+    {
+      "file": "magic-cluster/apps/ai/anything-llm/base/deployment.yaml",
+      "line": 27,
+      "reference": "image: busybox:1.36"
+    },
+    {
+      "file": "magic-cluster/apps/ai/anything-llm/base/deployment.yaml",
+      "line": 49,
+      "reference": "image: mintplexlabs/anythingllm:1.12.1"
+    },
+    {
+      "file": "magic-cluster/apps/ai/anything-llm/qdrant/base/deployment.yaml",
+      "line": 20,
+      "reference": "image: qdrant/qdrant:v1.13.6"
+    },
+    {
+      "file": "magic-cluster/apps/ai/kubeopencode/base/helmrelease.yaml",
+      "line": 9,
+      "reference": "chart:"
+    },
+    {
+      "file": "magic-cluster/apps/ai/kubeopencode/base/helmrelease.yaml",
+      "line": 11,
+      "reference": "chart: kubeopencode"
+    },
+    {
+      "file": "magic-cluster/apps/ai/kubeopencode/base/helmrelease.yaml",
+      "line": 12,
+      "reference": "version: \"0.1.6\""
+    },
+    {
+      "file": "magic-cluster/apps/ai/litellm/base/deployment.yaml",
+      "line": 24,
+      "reference": "image: busybox:1.36"
+    },
+    {
+      "file": "magic-cluster/apps/ai/litellm/base/deployment.yaml",
+      "line": 39,
+      "reference": "image: ghcr.io/berriai/litellm:v1.101.0@sha256:d295634e09c648dcdb72c4cc2dd226f5fb87823a73e88cbbed6f205e4deb044b"
+    },
+    {
+      "file": "magic-cluster/apps/ai/litellm/base/postgresql-statefulset.yaml",
+      "line": 21,
+      "reference": "image: postgres:16.4"
+    },
+    {
+      "file": "magic-cluster/apps/ai/model-catalog/deployment.yaml",
+      "line": 21,
+      "reference": "image: python:3.13-alpine"
+    },
+    {
+      "file": "magic-cluster/apps/ai/private-mesh/Dockerfile",
+      "line": 3,
+      "reference": "FROM rust:1.98.1-bookworm@sha256:828077e0f5ed0401fbd9cb5b4d5dedca23bd13c7fe032f3e8b7313e7acd2a57f AS transport"
+    },
+    {
+      "file": "magic-cluster/apps/ai/private-mesh/Dockerfile",
+      "line": 4,
+      "reference": "RUN apt-get update && apt-get install -y --no-install-recommends clang cmake protobuf-compiler python3 libssl-dev pkg-config && rm -rf /var/lib/apt/lists/*"
+    },
+    {
+      "file": "magic-cluster/apps/ai/private-mesh/Dockerfile",
+      "line": 5,
+      "reference": "RUN git clone --depth 1 --branch v0.76.2 https://github.com/Mesh-LLM/mesh-llm.git /src/mesh"
+    },
+    {
+      "file": "magic-cluster/apps/ai/private-mesh/Dockerfile",
+      "line": 12,
+      "reference": "RUN git clone --depth 1 --branch v0.2.0 https://github.com/Mesh-LLM/openai-endpoint.git /src/plugin && test \"$(git -C /src/plugin rev-parse HEAD)\" = 9166c6a918cda73fe4c05912ed9b06446bb95e60"
+    },
+    {
+      "file": "magic-cluster/apps/ai/private-mesh/Dockerfile",
+      "line": 17,
+      "reference": "FROM python:3.13-slim-bookworm"
+    },
+    {
+      "file": "magic-cluster/apps/ai/private-mesh/Dockerfile",
+      "line": 19,
+      "reference": "RUN apt-get update && apt-get install -y --no-install-recommends libssl3 ca-certificates && rm -rf /var/lib/apt/lists/*"
+    },
+    {
+      "file": "magic-cluster/apps/ai/private-mesh/Dockerfile",
+      "line": 26,
+      "reference": "RUN pip install --no-cache-dir -r requirements.txt"
+    },
+    {
+      "file": "magic-cluster/apps/ai/private-mesh/build-test-job.yaml",
+      "line": 32,
+      "reference": "image: rust:1.98.1-bookworm@sha256:828077e0f5ed0401fbd9cb5b4d5dedca23bd13c7fe032f3e8b7313e7acd2a57f"
+    },
+    {
+      "file": "magic-cluster/apps/ai/private-mesh/build-test-job.yaml",
+      "line": 37,
+      "reference": "apt-get install -y --no-install-recommends clang cmake protobuf-compiler python3 libssl-dev pkg-config"
+    },
+    {
+      "file": "magic-cluster/apps/ai/private-mesh/build-test-job.yaml",
+      "line": 38,
+      "reference": "git clone --depth 1 --branch v0.76.2 https://github.com/Mesh-LLM/mesh-llm.git /work/mesh"
+    },
+    {
+      "file": "magic-cluster/apps/ai/private-mesh/build-test-job.yaml",
+      "line": 44,
+      "reference": "git clone --depth 1 --branch v0.2.0 https://github.com/Mesh-LLM/openai-endpoint.git /work/plugin"
+    },
+    {
+      "file": "magic-cluster/apps/ai/private-mesh/build_companion.py",
+      "line": 64,
+      "reference": "'Source: https://github.com/Mesh-LLM/mesh-llm/tree/v0.76.2\\n\\n'"
+    },
+    {
+      "file": "magic-cluster/apps/ai/private-mesh/deployment.yaml",
+      "line": 53,
+      "reference": "image: ghcr.io/qualityminds/magicstick-mesh:v0.76.2-ms1@sha256:bdcc54e508bf05fac65bd8d6914205f0a2545887bb341a4ac87e2e4c17c07269"
+    },
+    {
+      "file": "magic-cluster/apps/ai/private-mesh/e2e-job.yaml",
+      "line": 19,
+      "reference": "image: vllm/vllm-openai-cpu:v0.23.0"
+    },
+    {
+      "file": "magic-cluster/apps/ai/private-mesh/e2e-job.yaml",
+      "line": 28,
+      "reference": "image: ghcr.io/berriai/litellm:v1.84.0"
+    },
+    {
+      "file": "magic-cluster/apps/ai/private-mesh/e2e-job.yaml",
+      "line": 34,
+      "reference": "image: postgres:16.4"
+    },
+    {
+      "file": "magic-cluster/apps/ai/private-mesh/e2e-job.yaml",
+      "line": 46,
+      "reference": "image: ghcr.io/berriai/litellm:v1.84.0"
+    },
+    {
+      "file": "magic-cluster/apps/ai/private-mesh/e2e-job.yaml",
+      "line": 56,
+      "reference": "image: ghcr.io/berriai/litellm:v1.84.0"
+    },
+    {
+      "file": "magic-cluster/apps/ai/private-mesh/e2e-job.yaml",
+      "line": 66,
+      "reference": "image: vllm/vllm-openai-cpu:v0.23.0"
+    },
+    {
+      "file": "magic-cluster/apps/ai/private-mesh/e2e-job.yaml",
+      "line": 81,
+      "reference": "image: ghcr.io/berriai/litellm:v1.84.0"
+    },
+    {
+      "file": "magic-cluster/apps/ai/private-mesh/publish_companion.py",
+      "line": 169,
+      "reference": "f'Permanent client downloads from [{revision[:12]}](https://github.com/{repo}/commit/{revision}) '"
+    },
+    {
+      "file": "magic-cluster/apps/ai/private-mesh/publish_companion.py",
+      "line": 171,
+      "reference": "f'(https://github.com/{repo}/actions/runs/{run_id}).\\n\\n'"
+    },
+    {
+      "file": "magic-cluster/apps/dashboard/api-deployment.yaml",
+      "line": 34,
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-89678275a1e9089adca8777c960b02c29097275e@sha256:b5fcbdee610da606831d932f70736ca97efeeaa9225ee0f5de3b929b9e5c74da"
+    },
+    {
+      "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
+      "line": 1173,
+      "reference": "\"        installHint: Install kubelogin from https://github.com/int128/kubelogin and ensure kubectl-oidc_login is on PATH.\","
+    },
+    {
+      "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
+      "line": 6777,
+      "reference": "raise ValueError(\"Realtime requires a Hugging Face repository: hf://organization/model\")"
+    },
+    {
+      "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
+      "line": 6814,
+      "reference": "if image:"
+    },
+    {
+      "file": "magic-cluster/apps/dashboard/deployment.yaml",
+      "line": 32,
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-89678275a1e9089adca8777c960b02c29097275e@sha256:7e4c2896745b7a484b53f02afffdcaf44c81ed649454eefbc646a1c0f4a93222"
+    },
+    {
+      "file": "magic-cluster/apps/instances/hermes/Chart.yaml",
+      "line": 5,
+      "reference": "version: 0.1.0"
+    },
+    {
+      "file": "magic-cluster/apps/instances/hermes/templates/instance.yaml",
+      "line": 17,
+      "reference": "image:"
+    },
+    {
+      "file": "magic-cluster/apps/instances/hermes/templates/instance.yaml",
+      "line": 18,
+      "reference": "repository: {{ dig \"image\" \"repository\" \"ghcr.io/paperclipinc/hermes-agent\" $values | quote }}"
+    },
+    {
+      "file": "magic-cluster/apps/instances/hermes/templates/instance.yaml",
+      "line": 19,
+      "reference": "tag: {{ dig \"image\" \"tag\" \"v0.16.0\" $values | quote }}"
+    },
+    {
+      "file": "magic-cluster/apps/instances/kubeopencode/Chart.yaml",
+      "line": 5,
+      "reference": "version: 0.1.0"
+    },
+    {
+      "file": "magic-cluster/apps/instances/odysseus/Chart.yaml",
+      "line": 5,
+      "reference": "version: 0.1.0"
+    },
+    {
+      "file": "magic-cluster/apps/instances/odysseus/templates/resources.yaml",
+      "line": 127,
+      "reference": "image: docker.io/chromadb/chroma:latest"
+    },
+    {
+      "file": "magic-cluster/apps/instances/odysseus/templates/resources.yaml",
+      "line": 129,
+      "reference": "image: docker.io/searxng/searxng:2026.5.31-7159b8aed"
+    },
+    {
+      "file": "magic-cluster/apps/instances/odysseus/templates/resources.yaml",
+      "line": 131,
+      "reference": "image: docker.io/binwiederhier/ntfy:latest"
+    },
+    {
+      "file": "magic-cluster/apps/instances/odysseus/templates/resources.yaml",
+      "line": 193,
+      "reference": "image: {{ printf \"%s:%s\" (dig \"image\" \"repository\" \"ghcr.io/pewdiepie-archdaemon/odysseus\" $values) (dig \"image\" \"tag\" \"latest\" $values) | quote }}"
+    },
+    {
+      "file": "magic-cluster/apps/instances/odysseus/templates/resources.yaml",
+      "line": 232,
+      "reference": "image: {{ printf \"%s:%s\" (dig \"image\" \"repository\" \"ghcr.io/pewdiepie-archdaemon/odysseus\" $values) (dig \"image\" \"tag\" \"latest\" $values) | quote }}"
+    },
+    {
+      "file": "magic-cluster/apps/instances/openclaw/Chart.yaml",
+      "line": 5,
+      "reference": "version: 0.1.0"
+    },
+    {
+      "file": "magic-cluster/apps/instances/paperclip/Chart.yaml",
+      "line": 5,
+      "reference": "version: 0.1.0"
+    },
+    {
+      "file": "magic-cluster/apps/instances/paperclip/templates/instance.yaml",
+      "line": 21,
+      "reference": "image:"
+    },
+    {
+      "file": "magic-cluster/apps/instances/paperclip/templates/instance.yaml",
+      "line": 22,
+      "reference": "repository: {{ $imageRepository | quote }}"
+    },
+    {
+      "file": "magic-cluster/apps/instances/paperclip/templates/instance.yaml",
+      "line": 23,
+      "reference": "tag: {{ $imageTag | quote }}"
+    },
+    {
+      "file": "magic-cluster/apps/instances/paperclip/templates/instance.yaml",
+      "line": 33,
+      "reference": "image: {{ printf \"%s:%s\" $imageRepository $imageTag | quote }}"
+    },
+    {
+      "file": "magic-cluster/apps/instances/paperclip/templates/instance.yaml",
+      "line": 124,
+      "reference": "image: {{ printf \"%s:%s\" $imageRepository $imageTag | quote }}"
+    },
+    {
+      "file": "magic-cluster/apps/instances/paperclip/templates/instance.yaml",
+      "line": 265,
+      "reference": "version: pluginPackageVersion,"
+    },
+    {
+      "file": "magic-cluster/platform/ai/agent-sandbox/gitrepository.yaml",
+      "line": 8,
+      "reference": "url: https://github.com/kubernetes-sigs/agent-sandbox.git"
+    },
+    {
+      "file": "magic-cluster/platform/ai/agent-sandbox/gitrepository.yaml",
+      "line": 10,
+      "reference": "tag: v0.5.1"
+    },
+    {
+      "file": "magic-cluster/platform/ai/agent-sandbox/helmrelease.yaml",
+      "line": 9,
+      "reference": "chart:"
+    },
+    {
+      "file": "magic-cluster/platform/ai/agent-sandbox/helmrelease.yaml",
+      "line": 11,
+      "reference": "chart: ./helm"
+    },
+    {
+      "file": "magic-cluster/platform/ai/agent-sandbox/helmrelease.yaml",
+      "line": 31,
+      "reference": "image:"
+    },
+    {
+      "file": "magic-cluster/platform/ai/agent-sandbox/helmrelease.yaml",
+      "line": 32,
+      "reference": "tag: v0.5.1"
+    },
+    {
+      "file": "magic-cluster/platform/ai/freetoken/image/Dockerfile",
+      "line": 8,
+      "reference": "FROM nvidia/cuda:13.0.2-devel-ubuntu24.04@sha256:0eee3094c71518ad31d011a594ae6ed6de72959ee07e318cb31cffe71690e90c"
+    },
+    {
+      "file": "magic-cluster/platform/ai/freetoken/image/Dockerfile",
+      "line": 15,
+      "reference": "org.opencontainers.image.source=\"https://github.com/QualityMinds/AIppliance-Magic-Stick\" \\"
+    },
+    {
+      "file": "magic-cluster/platform/ai/freetoken/image/Dockerfile",
+      "line": 33,
+      "reference": "&& apt-get install -y --no-install-recommends \\"
+    },
+    {
+      "file": "magic-cluster/platform/ai/freetoken/image/Dockerfile",
+      "line": 42,
+      "reference": "&& /opt/freetoken/bin/pip install --no-cache-dir --upgrade pip setuptools wheel \\"
+    },
+    {
+      "file": "magic-cluster/platform/ai/freetoken/image/Dockerfile",
+      "line": 43,
+      "reference": "&& /opt/freetoken/bin/pip install --no-cache-dir \"freetoken[accel]==${FREETOKEN_VERSION}\" \\"
+    },
+    {
+      "file": "magic-cluster/platform/ai/freetoken/runtime-configmap.yaml",
+      "line": 13,
+      "reference": "image: ghcr.io/qualityminds/magicstick-freetoken@sha256:190e0392b9ca24680db742765047063a46cda6a1accb20d9c2b2d72b1ee5042d"
+    },
+    {
+      "file": "magic-cluster/platform/ai/freetoken/runtime-configmap.yaml",
+      "line": 18,
+      "reference": "version: \"0.1.3\""
+    },
+    {
+      "file": "magic-cluster/platform/ai/freetoken/runtime-configmap.yaml",
+      "line": 21,
+      "reference": "upstream: https://github.com/FlashML-org/FreeToken/tree/v0.1.3"
+    },
+    {
+      "file": "magic-cluster/platform/ai/hermes-operator/helmrelease.yaml",
+      "line": 9,
+      "reference": "chart:"
+    },
+    {
+      "file": "magic-cluster/platform/ai/hermes-operator/helmrelease.yaml",
+      "line": 11,
+      "reference": "chart: hermes-operator"
+    },
+    {
+      "file": "magic-cluster/platform/ai/hermes-operator/helmrelease.yaml",
+      "line": 12,
+      "reference": "version: \"0.1.18\""
+    },
+    {
+      "file": "magic-cluster/platform/ai/hermes-operator/helmrelease.yaml",
+      "line": 24,
+      "reference": "image:"
+    },
+    {
+      "file": "magic-cluster/platform/ai/hermes-operator/helmrelease.yaml",
+      "line": 25,
+      "reference": "tag: v0.1.18"
+    },
+    {
+      "file": "magic-cluster/platform/ai/kubeai/base/helmrelease.yaml",
+      "line": 30,
+      "reference": "chart:"
+    },
+    {
+      "file": "magic-cluster/platform/ai/kubeai/base/helmrelease.yaml",
+      "line": 32,
+      "reference": "chart: kubeai"
+    },
+    {
+      "file": "magic-cluster/platform/ai/kubeai/base/helmrelease.yaml",
+      "line": 33,
+      "reference": "version: \"0.23.2\""
+    },
+    {
+      "file": "magic-cluster/platform/ai/openclaw-operator/helmrelease.yaml",
+      "line": 9,
+      "reference": "chart:"
+    },
+    {
+      "file": "magic-cluster/platform/ai/openclaw-operator/helmrelease.yaml",
+      "line": 11,
+      "reference": "chart: openclaw-operator"
+    },
+    {
+      "file": "magic-cluster/platform/ai/openclaw-operator/helmrelease.yaml",
+      "line": 12,
+      "reference": "version: \"0.36.4\""
+    },
+    {
+      "file": "magic-cluster/platform/ai/paperclip-operator/helmrelease.yaml",
+      "line": 9,
+      "reference": "chart:"
+    },
+    {
+      "file": "magic-cluster/platform/ai/paperclip-operator/helmrelease.yaml",
+      "line": 11,
+      "reference": "chart: paperclip-operator"
+    },
+    {
+      "file": "magic-cluster/platform/ai/paperclip-operator/helmrelease.yaml",
+      "line": 12,
+      "reference": "version: \"0.18.0\""
+    },
+    {
+      "file": "magic-cluster/platform/ai/paperclip-operator/helmrelease.yaml",
+      "line": 25,
+      "reference": "image:"
+    },
+    {
+      "file": "magic-cluster/platform/ai/paperclip-operator/helmrelease.yaml",
+      "line": 26,
+      "reference": "repository: ghcr.io/qualityminds/magicstick-paperclip-operator"
+    },
+    {
+      "file": "magic-cluster/platform/ai/paperclip-operator/helmrelease.yaml",
+      "line": 27,
+      "reference": "tag: sha-1f9867b542b9b7b10fbc77f631a97a7cb25324be"
+    },
+    {
+      "file": "magic-cluster/platform/ai/realtime/image/Dockerfile.rocm",
+      "line": 3,
+      "reference": "FROM vllm/vllm-openai-rocm:v0.29.0@sha256:e5e47f6aaab675c252c381f0dac237b31b10d87bb74d092b07fb4065efd7f5a1"
+    },
+    {
+      "file": "magic-cluster/platform/ai/realtime/image/Dockerfile.rocm",
+      "line": 12,
+      "reference": "org.opencontainers.image.source=\"https://github.com/QualityMinds/AIppliance-Magic-Stick\" \\"
+    },
+    {
+      "file": "magic-cluster/platform/ai/realtime/image/Dockerfile.rocm",
+      "line": 16,
+      "reference": "RUN apt-get update && apt-get install -y --no-install-recommends \\"
+    },
+    {
+      "file": "magic-cluster/platform/ai/realtime/image/Dockerfile.rocm",
+      "line": 25,
+      "reference": "RUN git init . && git remote add origin https://github.com/vllm-project/vllm-omni.git \\"
+    },
+    {
+      "file": "magic-cluster/platform/ai/realtime/image/Dockerfile.rocm",
+      "line": 33,
+      "reference": "&& python3 -m pip install --no-cache-dir 'setuptools>=77.0.3,<81' 'setuptools-scm>=8' wheel \\"
+    },
+    {
+      "file": "magic-cluster/platform/ai/realtime/image/Dockerfile.rocm",
+      "line": 34,
+      "reference": "&& python3 -m pip install --no-cache-dir --no-build-isolation -c /tmp/rocm-constraints.txt . \\"
+    },
+    {
+      "file": "magic-cluster/platform/ai/realtime/image/Dockerfile.rocm",
+      "line": 36,
+      "reference": "&& python3 -m pip install --no-cache-dir --no-deps --force-reinstall 'onnxruntime-rocm==1.22.2.post3'"
+    },
+    {
+      "file": "magic-cluster/platform/ai/realtime/image/Dockerfile.rocm",
+      "line": 40,
+      "reference": "RUN apt-get update && apt-get install -y --no-install-recommends libcairo2-dev \\"
+    },
+    {
+      "file": "magic-cluster/platform/ai/realtime/image/Dockerfile.rocm",
+      "line": 41,
+      "reference": "&& python3 -m pip install --no-cache-dir 'pycairo==1.28.0' \\"
+    },
+    {
+      "file": "magic-cluster/platform/basis/cert-manager/helmrelease.yaml",
+      "line": 9,
+      "reference": "chart:"
+    },
+    {
+      "file": "magic-cluster/platform/basis/cert-manager/helmrelease.yaml",
+      "line": 11,
+      "reference": "chart: cert-manager"
+    },
+    {
+      "file": "magic-cluster/platform/basis/cert-manager/helmrelease.yaml",
+      "line": 12,
+      "reference": "version: \"v1.20.2\""
+    },
+    {
+      "file": "magic-cluster/platform/basis/kdns/helmrelease.yaml",
+      "line": 9,
+      "reference": "chart:"
+    },
+    {
+      "file": "magic-cluster/platform/basis/kdns/helmrelease.yaml",
+      "line": 11,
+      "reference": "chart: kdns"
+    },
+    {
+      "file": "magic-cluster/platform/basis/kdns/helmrelease.yaml",
+      "line": 12,
+      "reference": "version: 0.2.3"
+    },
+    {
+      "file": "magic-cluster/platform/basis/kdns/image/Dockerfile",
+      "line": 2,
+      "reference": "FROM --platform=$BUILDPLATFORM golang:1.26-alpine3.24 AS build"
+    },
+    {
+      "file": "magic-cluster/platform/basis/kdns/image/Dockerfile",
+      "line": 28,
+      "reference": "printf 'Upstream repository: lab42/kdns\\nRevision: %s\\n' \"$KDNS_REF\" \\"
+    },
+    {
+      "file": "magic-cluster/platform/basis/kdns/image/Dockerfile",
+      "line": 41,
+      "reference": "FROM alpine:3.24 AS setup"
+    },
+    {
+      "file": "magic-cluster/platform/basis/kdns/image/Dockerfile",
+      "line": 45,
+      "reference": "FROM scratch"
+    },
+    {
+      "file": "magic-cluster/platform/basis/reloader/helmrelease.yaml",
+      "line": 9,
+      "reference": "chart:"
+    },
+    {
+      "file": "magic-cluster/platform/basis/reloader/helmrelease.yaml",
+      "line": 11,
+      "reference": "chart: reloader"
+    },
+    {
+      "file": "magic-cluster/platform/basis/secret-generator/helmrelease.yaml",
+      "line": 9,
+      "reference": "chart:"
+    },
+    {
+      "file": "magic-cluster/platform/basis/secret-generator/helmrelease.yaml",
+      "line": 11,
+      "reference": "chart: kubernetes-secret-generator"
+    },
+    {
+      "file": "magic-cluster/platform/basis/secret-generator/helmrelease.yaml",
+      "line": 12,
+      "reference": "version: \"3.4.1\""
+    },
+    {
+      "file": "magic-cluster/platform/basis/secret-generator/helmrelease.yaml",
+      "line": 19,
+      "reference": "image:"
+    },
+    {
+      "file": "magic-cluster/platform/basis/secret-generator/helmrelease.yaml",
+      "line": 21,
+      "reference": "repository: tignis/kubernetes-secret-generator"
+    },
+    {
+      "file": "magic-cluster/platform/basis/secret-generator/helmrelease.yaml",
+      "line": 22,
+      "reference": "tag: \"3.4.1\""
+    },
+    {
+      "file": "magic-cluster/platform/gateway/envoy-gateway/oci-repository.yaml",
+      "line": 12,
+      "reference": "tag: v1.8.2"
+    },
+    {
+      "file": "magic-cluster/platform/gpu/amd-gpu-operator/helmrelease.yaml",
+      "line": 9,
+      "reference": "chart:"
+    },
+    {
+      "file": "magic-cluster/platform/gpu/amd-gpu-operator/helmrelease.yaml",
+      "line": 11,
+      "reference": "chart: gpu-operator-charts"
+    },
+    {
+      "file": "magic-cluster/platform/gpu/amd-gpu-operator/helmrelease.yaml",
+      "line": 12,
+      "reference": "version: v1.5.1"
+    },
+    {
+      "file": "magic-cluster/platform/gpu/amd-gpu-operator/image/Dockerfile",
+      "line": 3,
+      "reference": "FROM --platform=$BUILDPLATFORM golang:1.26.5-bookworm AS build"
+    },
+    {
+      "file": "magic-cluster/platform/gpu/amd-gpu-operator/image/Dockerfile",
+      "line": 11,
+      "reference": "FROM rocm/k8s-gpu-dra-driver:v1.0.1@sha256:f173c8e78bc819e2b8adc15192afefaf69a11307d49fca5382bda82885975830"
+    },
+    {
+      "file": "magic-cluster/platform/gpu/amd-gpu-operator/image/Dockerfile",
+      "line": 13,
+      "reference": "LABEL org.opencontainers.image.source=\"https://github.com/QualityMinds/AIppliance-Magic-Stick\""
+    },
+    {
+      "file": "magic-cluster/platform/gpu/intel-gpu-operator/gpu-plugin-helmrelease.yaml",
+      "line": 11,
+      "reference": "chart:"
+    },
+    {
+      "file": "magic-cluster/platform/gpu/intel-gpu-operator/gpu-plugin-helmrelease.yaml",
+      "line": 13,
+      "reference": "chart: intel-device-plugins-gpu"
+    },
+    {
+      "file": "magic-cluster/platform/gpu/intel-gpu-operator/gpu-plugin-helmrelease.yaml",
+      "line": 14,
+      "reference": "version: 0.36.0"
+    },
+    {
+      "file": "magic-cluster/platform/gpu/intel-gpu-operator/operator-helmrelease.yaml",
+      "line": 9,
+      "reference": "chart:"
+    },
+    {
+      "file": "magic-cluster/platform/gpu/intel-gpu-operator/operator-helmrelease.yaml",
+      "line": 11,
+      "reference": "chart: intel-device-plugins-operator"
+    },
+    {
+      "file": "magic-cluster/platform/gpu/intel-gpu-operator/operator-helmrelease.yaml",
+      "line": 12,
+      "reference": "version: 0.36.0"
+    },
+    {
+      "file": "magic-cluster/platform/gpu/nvidia-gpu-operator/helmrelease.yaml",
+      "line": 9,
+      "reference": "chart:"
+    },
+    {
+      "file": "magic-cluster/platform/gpu/nvidia-gpu-operator/helmrelease.yaml",
+      "line": 11,
+      "reference": "chart: gpu-operator"
+    },
+    {
+      "file": "magic-cluster/platform/gpu/nvidia-gpu-operator/helmrelease.yaml",
+      "line": 12,
+      "reference": "version: v26.7.0"
+    },
+    {
+      "file": "magic-cluster/platform/gpu/nvidia-gpu-operator/helmrelease.yaml",
+      "line": 27,
+      "reference": "version: \"595.91.07\""
+    },
+    {
+      "file": "magic-cluster/platform/gpu/nvidia-gpu-operator/time-slicing-config.yaml",
+      "line": 40,
+      "reference": "version: v1"
+    },
+    {
+      "file": "magic-cluster/platform/hardware-discovery/helmrelease.yaml",
+      "line": 9,
+      "reference": "chart:"
+    },
+    {
+      "file": "magic-cluster/platform/hardware-discovery/helmrelease.yaml",
+      "line": 11,
+      "reference": "chart: node-feature-discovery"
+    },
+    {
+      "file": "magic-cluster/platform/hardware-discovery/helmrelease.yaml",
+      "line": 12,
+      "reference": "version: 0.18.3"
+    },
+    {
+      "file": "magic-cluster/platform/identity/keycloak.yaml",
+      "line": 31,
+      "reference": "image: quay.io/keycloak/keycloak:26.6.3"
+    },
+    {
+      "file": "magic-cluster/platform/identity/postgresql.yaml",
+      "line": 36,
+      "reference": "image: postgres:17-alpine"
+    },
+    {
+      "file": "magic-cluster/platform/identity/routes.yaml",
+      "line": 93,
+      "reference": "image: nginx:1.27.5-alpine"
+    },
+    {
+      "file": "magic-cluster/platform/identity/setup-app.yaml",
+      "line": 38,
+      "reference": "image: python:3.13-alpine"
+    },
+    {
+      "file": "magic-cluster/platform/magicstick-operator/compute-target-catalog.yaml",
+      "line": 127,
+      "reference": "\"source\": \"https://github.com/FlashML-org/FreeToken\","
+    },
+    {
+      "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
+      "line": 2892,
+      "reference": "raise ValueError(\"Realtime requires a Hugging Face repository: hf://organization/model\")"
+    },
+    {
+      "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
+      "line": 2929,
+      "reference": "if image:"
+    },
+    {
+      "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
+      "line": 4106,
+      "reference": "if not image:"
+    },
+    {
+      "file": "magic-cluster/platform/magicstick-operator/controller/test_freetoken_runtime.py",
+      "line": 178,
+      "reference": "\"upstream\": \"https://github.com/FlashML-org/FreeToken\","
+    },
+    {
+      "file": "magic-cluster/platform/magicstick-operator/controller/test_freetoken_runtime.py",
+      "line": 230,
+      "reference": "\"upstream\": \"https://github.com/FlashML-org/FreeToken\","
+    },
+    {
+      "file": "magic-cluster/platform/magicstick-operator/controller/test_freetoken_runtime.py",
+      "line": 293,
+      "reference": "\"healthPath\": \"/health\", \"upstream\": \"https://github.com/FlashML-org/FreeToken\","
+    },
+    {
+      "file": "magic-cluster/platform/magicstick-operator/deployment.yaml",
+      "line": 37,
+      "reference": "image: python:3.13-alpine"
+    },
+    {
+      "file": "magic-host/playbooks/local.yml",
+      "line": 83,
+      "reference": "magicstick_public_repo: \"{{ magicstick_public_repo | default(repo_metadata_env_map.get('MAGICSTICK_PUBLIC_REPO', 'https://github.com/QualityMinds/AIppliance-Magic-Stick.git'), true) }}\""
+    },
+    {
+      "file": "magic-host/requirements.yml",
+      "line": 4,
+      "reference": "version: \"13.2.0\""
+    },
+    {
+      "file": "magic-host/roles/host-management/tests/test_network.py",
+      "line": 110,
+      "reference": "self.original = \"network:\\n  version: 2\\n  ethernets:\\n    eth0:\\n      dhcp4: true\\n\""
+    },
+    {
+      "file": "magic-installer/build-installer-image.sh",
+      "line": 98,
+      "reference": "PUBLIC_REPO=\"https://github.com/QualityMinds/AIppliance-Magic-Stick.git\""
+    },
+    {
+      "file": "magic-installer/scripts/build-installer-image-container.sh",
+      "line": 150,
+      "reference": "MAGICSTICK_PUBLIC_REPO=\"${MAGICSTICK_PUBLIC_REPO:-https://github.com/QualityMinds/AIppliance-Magic-Stick.git}\""
+    },
+    {
+      "file": "magic-installer/scripts/build-installer-image-container.sh",
+      "line": 342,
+      "reference": "printf 'Created installer image: %s\\n' \"$OUTPUT\""
+    }
+  ],
+  "limitations": [
+    "References and top-level license metadata are not full container/chart SBOMs.",
+    "Uninstalled platform-specific packages require release-platform inspection.",
+    "Rust/Go transitive binaries, model terms, assets and commercial EULAs require artifact review."
+  ]
+}

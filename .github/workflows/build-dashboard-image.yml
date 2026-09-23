@@ -1,0 +1,204 @@
+name: Build MagicStick dashboard clients
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .dockerignore
+      - .github/workflows/build-dashboard-image.yml
+      - dashboard/**
+      - magic-host/roles/host-management/files/network_contract.py
+      - magic-host/roles/host-management/files/updates_contract.py
+      - magic-host/roles/host-management/files/model_cache.py
+      - core/**
+      - LICENSE
+      - LICENSING.md
+      - LICENSE-RELEASE.json
+      - THIRD_PARTY_NOTICES.md
+      - licenses/**
+      - tools/license_*.py
+      - tools/collect_*notices*
+  workflow_dispatch:
+    inputs:
+      skip_tests:
+        description: "Build images without test suites for an explicitly requested manual rollout"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+  packages: write
+  attestations: write
+  id-token: write
+
+concurrency:
+  group: dashboard-image-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_NAME: ghcr.io/qualityminds/magicstick-dashboard
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out MagicStick
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Install dashboard dependencies
+        working-directory: dashboard
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify dashboard clients
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.skip_tests) }}
+        working-directory: dashboard
+        run: |
+          pnpm typecheck
+          pnpm test
+
+      - name: Build dashboard clients
+        working-directory: dashboard
+        run: pnpm build
+
+      - name: Record manually skipped tests
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_tests }}
+        run: echo 'Test suites were explicitly skipped for this manual image build. Build success is not a test result.' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check source licensing and report open reviews
+        shell: bash
+        run: python3 tools/license_audit.py --review 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload standalone Magic Stick CLI and notices
+        uses: actions/upload-artifact@v4
+        with:
+          name: magicstick-cli-${{ github.sha }}
+          path: |
+            dashboard/apps/cli/dist/magicstick.js
+            LICENSE
+            LICENSE-RELEASE.json
+            LICENSING.md
+            THIRD_PARTY_NOTICES.md
+            licenses/
+          if-no-files-found: error
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Verify license foundation
+        run: |
+          python3 -m pip install -r dashboard/apps/api/requirements.txt pyyaml
+          python3 dashboard/apps/api/check_license_trust.py --manifest magic-cluster/apps/dashboard/license-official-trust.yaml
+
+      - name: Test license foundation
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.skip_tests) }}
+        run: |
+          python3 -m unittest discover -s dashboard/apps/api -p 'test_*.py'
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          # Keep the preview alias only for appliances upgrading to the default UI.
+          tags: |
+            type=sha,prefix=sha-,format=long
+            type=raw,value=web,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=react-preview,enable=${{ github.ref == 'refs/heads/main' }}
+          labels: |
+            org.opencontainers.image.title=MagicStick React dashboard
+            org.opencontainers.image.description=Default React dashboard for MagicStick
+            org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick
+            org.opencontainers.image.licenses=BUSL-1.1
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Generate CLI runtime image metadata
+        id: cli-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=cli-sha-,format=long
+            type=raw,value=console,enable=${{ github.ref == 'refs/heads/main' }}
+          labels: |
+            org.opencontainers.image.title=MagicStick CLI and TUI runtime
+            org.opencontainers.image.description=Private runtime image for the physical MagicStick console
+            org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick
+            org.opencontainers.image.licenses=BUSL-1.1
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Generate API runtime image metadata
+        id: api-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=api-sha-,format=long
+            type=raw,value=api-licensing-v1,enable=${{ github.ref == 'refs/heads/main' }}
+          labels: |
+            org.opencontainers.image.title=MagicStick dashboard API
+            org.opencontainers.image.description=Magic Stick API with offline edition and Federated SSO entitlement verification
+            org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick
+            org.opencontainers.image.licenses=BUSL-1.1
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Build and push multi-architecture image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: dashboard/apps/web/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=magicstick-dashboard
+          cache-to: type=gha,mode=max,scope=magicstick-dashboard
+          provenance: mode=max
+          sbom: true
+
+      - name: Build and push multi-architecture CLI runtime image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: dashboard/apps/cli/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.cli-meta.outputs.tags }}
+          labels: ${{ steps.cli-meta.outputs.labels }}
+          cache-from: type=gha,scope=magicstick-dashboard-cli
+          cache-to: type=gha,mode=max,scope=magicstick-dashboard-cli
+          provenance: mode=max
+          sbom: true
+
+      - name: Build and push dashboard API runtime
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: dashboard/apps/api/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.api-meta.outputs.tags }}
+          labels: ${{ steps.api-meta.outputs.labels }}
+          cache-from: type=gha,scope=magicstick-dashboard-api
+          cache-to: type=gha,mode=max,scope=magicstick-dashboard-api
+          provenance: mode=max
+          sbom: true

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["instance"],
+  "properties": {
+    "instance": {
+      "type": "object",
+      "required": ["name", "namespace", "application", "localHost", "localName", "values"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "namespace": {"type": "string", "minLength": 1},
+        "application": {"type": "string", "minLength": 1},
+        "localHost": {"type": "string", "minLength": 1},
+        "localName": {"type": "string", "minLength": 1},
+        "values": {"type": "object"}
+      }
+    }
+  }
+}

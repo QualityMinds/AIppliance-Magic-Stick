@@ -1,0 +1,166 @@
+import {describe, expect, it} from 'vitest';
+import type {DashboardSnapshot} from './snapshot';
+import {BANNER_HEIGHT, bannerFits} from './banner';
+import {
+  availableTabs,
+  buildLocalModelPayload,
+  isTuiActionKey,
+  MAX_CONTENT_COLUMNS,
+  moveSelection,
+  moveTab,
+  osc52ClipboardSequence,
+  renderTui,
+  selectableCount,
+  splitTerminalInput,
+  tabLines,
+} from './tui';
+
+const snapshot = (roles = ['magicstick-admin']): DashboardSnapshot => ({
+  session: {subject: '1', username: 'tova', roles, identityManagementAvailable: true, identityManagementMode: 'keycloak'},
+  appliance: {metadata: {name: 'local'}, status: {phase: 'Ready'}},
+  modules: {
+    modules: {litellm: {enabled: true, displayName: 'LiteLLM', activationMode: 'moduleactivation', status: {phase: 'Ready'}}},
+    catalogJson: {modules: {litellm: {displayName: 'LiteLLM', activationMode: 'moduleactivation', order: 10}}},
+  },
+  instances: {instances: {hermes: [{metadata: {name: 'default'}, status: {phase: 'Ready'}}]}},
+  models: {
+    models: [{name: 'qwen'}], activations: [{metadata: {name: 'qwen-local'}, spec: {type: 'local', local: {engine: 'VLLM', computeTarget: 'cpu', kvCacheType: 'auto'}}, status: {phase: 'Ready', requestedKvCacheType: 'auto', effectiveKvCacheType: 'auto'}}], presets: {},
+    computeTargets: {default: 'cpu', targets: [{id: 'cpu', available: true, engines: ['VLLM'], kvCacheTypes: {VLLM: [{value: 'auto', label: 'Standard - model precision'}]}}]},
+    computeMemory: {devices: [{id: 'cpu', name: 'CPU', totalMi: 65536, unreservedMi: 60000, freeMi: 50000}]},
+  },
+  settings: {publicDomain: 'magicstick.example.com', dashboardHost: 'magicstick.example.com', mdnsDomain: 'magicstick.local', mdnsName: 'magicstick'},
+  status: {hardwareOperators: {gpu: {displayName: 'NVIDIA GPU Operator', operatorActive: false, phase: 'Disabled'}}},
+  users: {users: [{id: '1', username: 'tova', enabled: true, effectiveAccessLevel: 'admin'}], total: 1, first: 0, max: 25},
+  apiAccess: {items: [{id: '1', name: 'automation', keyHint: 'sk-…', status: 'active'}], total: 1, apiBases: [{scope: 'OpenAI', url: 'https://litellm.magicstick.local/v1'}]},
+  kubernetesAccess: {users: [{id: '1', username: 'tova', enabled: true, accessLevel: 'admin'}], total: 1, first: 0, max: 100, configuration: {configured: true}},
+  loadedAt: Date.now(),
+});
+
+describe('terminal dashboard', () => {
+  it('keeps branding on the spacecraft and session details below the banner', () => {
+    const lines = renderTui(snapshot(), 0, 100, 30, false).split('\n');
+    expect(lines[BANNER_HEIGHT]).toContain('signed in: tova');
+    expect(lines[2]).toContain('AIppliance');
+    expect(lines[3]).toContain('Magic Stick');
+    expect(lines.slice(BANNER_HEIGHT).join('\n')).not.toMatch(/AIppliance|Magic Stick/);
+    expect(lines.join('\n')).not.toMatch(/b:|pause|animate/);
+    expect(lines.join('\n')).not.toContain('\x1b');
+  });
+
+  it('caps the banner at the same width as the separator on wide terminals', () => {
+    const lines = renderTui(snapshot(), 0, 250, 40, false).split('\n');
+    const bannerWidths = lines.slice(0, BANNER_HEIGHT).map((line) => line.length);
+    expect(Math.max(...bannerWidths)).toBe(MAX_CONTENT_COLUMNS);
+    expect(lines[BANNER_HEIGHT + 2]).toBe('─'.repeat(MAX_CONTENT_COLUMNS));
+  });
+
+  it.each([[80, 24], [50, 19], [51, 19], [40, 18], [120, 40]])('fits a %i by %i screen and keeps the active tab visible', (width, height) => {
+    const screen = renderTui(snapshot(), availableTabs(snapshot()).indexOf('System'), width, height, true);
+    const plain = screen.replace(/\x1b\[[0-9;]*m/g, '');
+    expect(plain.split('\n').length).toBeLessThanOrEqual(height);
+    expect(plain.split('\n').every((line) => line.length < width)).toBe(true);
+    expect(plain).toContain('[ System ]');
+    expect(plain).toMatch(/r:\s?refresh q:quit|r: refresh · q: quit/);
+    if (!bannerFits(height)) expect(plain.split('\n')[0]).toContain('signed in: tova');
+  });
+
+  it('keeps a selected form field and submission help visible beneath the banner', () => {
+    const rendered = renderTui(snapshot(), 4, 120, 24, false, {overlay: {
+      kind: 'form', title: 'Long form', fields: Array.from({length: 20}, (_, index) => ({id: String(index), label: `Field ${index}`, value: 'example'})),
+      active: 19, submitLabel: 'save', onSubmit: async () => undefined,
+    }});
+    expect(rendered).toContain('› Field 19: example');
+    expect(rendered).toContain('Ctrl+S: save');
+    expect(rendered.split('\n')).toHaveLength(24);
+  });
+
+  it('exposes the same administrative areas to administrators', () => {
+    expect(availableTabs(snapshot())).toEqual(['Overview', 'Services', 'Models', 'Settings', 'Users', 'API Access', 'License', 'Kubernetes', 'Hardware', 'System']);
+    expect(tabLines('Models', snapshot()).join('\n')).toContain('CPU: 49 GiB free');
+    expect(tabLines('Models', snapshot()).join('\n')).toContain('KV auto');
+    expect(renderTui(snapshot(), 0, 100, 30, false)).toContain('signed in: tova · admin');
+  });
+
+  it('hides administrative areas from viewers', () => {
+    expect(availableTabs(snapshot(['magicstick-viewer']))).toEqual(['Overview', 'Services', 'Models', 'Hardware', 'System']);
+  });
+
+  it('shows hardware validation separately and restricts action hints to administrators', () => {
+    expect(isTuiActionKey('v')).toBe(true);
+    expect(isTuiActionKey('r')).toBe(false);
+    const state = snapshot();
+    state.models.computeMemory = {sharedPools: [{id: 'example-node', node: 'example-node', installedMemoryMi: 131072, firmwareReservedMi: 65536, physicalMemoryMi: 65536, gpuAccessibleMi: 49152, gpuCapacityMi: 65536, gpuAllocationMode: 'firmware-reserved', gpuCapacitySource: 'kfd-topology'}], devices: [{id: 'example-gpu', totalMi: 65536, gpuAllocationMode: 'firmware-reserved', memoryArchitecture: 'unified', accountingVerified: false}]};
+    expect(tabLines('Models', state).join('\n')).not.toContain('shared RAM available');
+    expect(tabLines('Models', state).join('\n')).toContain('64 GiB budgetable');
+    expect(tabLines('Models', state).join('\n')).toContain('One GPU: driver capacity 64 GiB / allocation firmware-reserved');
+    expect(tabLines('Models', state).join('\n')).toContain('Dynamic memory is not a protected reservation');
+    expect(tabLines('Models', state).join('\n')).toContain('installed RAM 128 GiB / fixed GPU reservation 64 GiB');
+    expect(tabLines('Models', state).join('\n')).toContain('dynamic GPU ceiling 48 GiB (within Linux RAM, not extra)');
+    state.status.hardwareOperators = {'amd-gpu': {phase: 'Degraded', compatibility: {schemaVersion: 1, profiles: [], selectedProfile: 'strix-halo', allowExperimental: true, nodes: [{node: 'example-node', eligible: true, hostDriverReady: true, resourceRegistered: true, memoryArchitecture: 'unified', memoryAccountingVerified: false, physicalMemoryMi: 65536, gpuAccessibleMi: 49152, validation: {OLlama: {state: 'passed'}, VLLM: {state: 'failed'}}}]}}};
+    expect(tabLines('Hardware', state).join('\n')).toContain('Ollama: passed · runtime pending · vLLM: failed');
+    expect(tabLines('Hardware', state).join('\n')).toContain('Shared accounting: not verified');
+    expect(tabLines('Hardware', state).join('\n')).toContain('OS-visible shared RAM: 64 GiB');
+    const index = availableTabs(state).indexOf('Hardware');
+    expect(renderTui(state, index, 150, 40, false)).toContain('e: profile · v: validate');
+    const viewer = {...state, session: {...state.session, roles: ['magicstick-viewer']}};
+    expect(renderTui(viewer, availableTabs(viewer).indexOf('Hardware'), 150, 40, false)).not.toContain('e: profile');
+  });
+
+  it('wraps page navigation in both directions', () => {
+    expect(moveTab(0, -1, 4)).toBe(3);
+    expect(moveTab(3, 1, 4)).toBe(0);
+  });
+
+  it('selects mutable rows without wrapping past either end', () => {
+    expect(selectableCount('Services', snapshot())).toBe(1);
+    expect(selectableCount('Models', snapshot())).toBe(1);
+    expect(moveSelection(0, -1, 4)).toBe(0);
+    expect(moveSelection(3, 1, 4)).toBe(3);
+    expect(renderTui(snapshot(), 1, 120, 30, false, {selectionIndex: 0})).toContain('› ● LiteLLM');
+    expect(renderTui(snapshot(), 1, 120, 30, false, {selectionIndex: 0})).toContain('a: enable · d: disable');
+  });
+
+  it('builds CPU and GPU local-model reservations with the API contract', () => {
+    const base = {
+      name: 'qwen', modelType: 'chat', engine: 'VLLM', reference: 'hf://Qwen/Qwen3.5-9B',
+      contextWindow: 32768, maxNumSeqs: 1, reservationMi: 12300,
+    };
+    expect(buildLocalModelPayload({...base, computeTarget: 'cpu'}, {id: 'cpu', kind: 'cpu'})).toMatchObject({
+      name: 'qwen', local: {memoryRequiredMi: 12300, computeTarget: 'cpu', url: base.reference, kvCacheType: 'auto'},
+    });
+    expect(buildLocalModelPayload({...base, computeTarget: 'nvidia-gpu'}, {id: 'nvidia-gpu', kind: 'gpu'})).toMatchObject({
+      name: 'qwen', local: {vram: '12300Mi', computeTarget: 'nvidia-gpu', url: base.reference},
+    });
+  });
+
+  it('encodes clipboard content with OSC 52 instead of invoking a platform command', () => {
+    expect(osc52ClipboardSequence('secret')).toBe('\x1b]52;c;c2VjcmV0\x07');
+  });
+
+  it('keeps GPU and host budgets separate and lets the server derive offload controls', () => {
+    const input = {name: 'hybrid', modelType: 'chat', engine: 'OLlama', reference: 'ollama://example:latest',
+      contextWindow: 4096, maxNumSeqs: 1, kvCacheType: 'q4_0', reservationMi: 12000, computeTarget: 'nvidia-gpu', cpuOffloading: true, hostMemoryMi: 16000};
+    const payload = buildLocalModelPayload(input, {id: 'nvidia-gpu', kind: 'gpu'});
+    expect(payload.local).toMatchObject({cpuOffloading: true, vram: '12000Mi', memoryRequiredMi: 16000, kvCacheType: 'q4_0'});
+    expect(payload.local).not.toHaveProperty('ollamaGpuLayers');
+    expect(payload.local).not.toHaveProperty('cpuOffloadMi');
+    expect(() => buildLocalModelPayload({...input, computeTarget: 'cpu'}, {id: 'cpu', kind: 'cpu'})).toThrow('NVIDIA');
+    expect(() => buildLocalModelPayload({...input, hostMemoryMi: undefined}, {id: 'nvidia-gpu', kind: 'gpu'})).toThrow('separate host RAM');
+  });
+
+  it('handles multiple navigation keys delivered in one raw terminal chunk', () => {
+    expect(splitTerminalInput('jja')).toEqual(['j', 'j', 'a']);
+    expect(splitTerminalInput('\x1b[B\x1b[C')).toEqual(['\x1b[B', '\x1b[C']);
+    expect(splitTerminalInput('ä')).toEqual(['ä']);
+  });
+
+  it('never renders form secrets as plaintext', () => {
+    const rendered = renderTui(snapshot(), 4, 120, 30, false, {overlay: {
+      kind: 'form', title: 'Create user', fields: [
+        {id: 'password', label: 'Temporary password', value: 'not-for-display', kind: 'secret'},
+      ], active: 0, submitLabel: 'create', onSubmit: async () => undefined,
+    }});
+    expect(rendered).toContain('•••••••••••••••');
+    expect(rendered).not.toContain('not-for-display');
+  });
+});

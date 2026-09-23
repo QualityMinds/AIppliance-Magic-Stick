@@ -1,0 +1,245 @@
+import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
+import {render, screen, waitFor, within} from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {App} from './App';
+
+const payloads: Record<string, unknown> = {
+  '/api/session': {subject: '1', username: 'tova', roles: ['magicstick-admin'], identityManagementAvailable: true, identityManagementMode: 'keycloak'},
+  '/api/appliance': {metadata: {name: 'local'}, status: {phase: 'Ready'}},
+  '/api/modules': {modules: {litellm: {enabled: true, displayName: 'LiteLLM', status: {phase: 'Ready'}}}, catalogJson: {modules: {litellm: {displayName: 'LiteLLM', activationMode: 'moduleactivation'}}, applications: {}}},
+  '/api/instances': {instances: {}},
+  '/api/models': {activations: [], presets: {}, computeTargets: {default: 'cpu', targets: [{id: 'cpu', displayName: 'CPU', engines: ['VLLM'], available: true}]}, computeMemory: {devices: [{id: 'cpu', name: 'CPU', computeTarget: 'cpu', totalMi: 65536, unreservedMi: 60000, freeMi: 50000}]}},
+  '/api/status': {httpRoutes: [{name: 'litellm', labels: {'app.kubernetes.io/name': 'litellm'}, hostnames: ['litellm.magicstick.local'], accepted: true}], hardwareOperators: {}},
+  '/api/settings': {publicDomain: 'magicstick.example.com', dashboardHost: 'magicstick.example.com', mdnsDomain: 'magicstick.local', mdnsName: 'magicstick'},
+  '/api/license': {state: 'valid', message: 'License valid.', valid: true, installationId: 'example-installation', revision: 'revision-1', checkedAt: 1, trustedKeyIds: ['example-key'], hasDocument: true, features: [{id: 'federated-sso', name: 'Dashboard-managed federated SSO', licensed: true, implemented: true, available: true, reason: 'available'}]},
+  '/api/federated-sso': {feature: {id: 'federated-sso', name: 'Dashboard-managed federated SSO', licensed: true, implemented: true, available: true, reason: 'available'}, issuer: 'https://id.magicstick.local/realms/magicstick', callbackUrl: 'https://id.magicstick.local/realms/magicstick/broker/{alias}/endpoint', providers: []},
+  '/api/users?search=&first=0&max=25': {users: [], total: 0, first: 0, max: 25},
+  '/api/host-management': {nodes: [{name: 'example-node', nodeUid: 'example-uid', bootId: 'example-boot', kernel: '7.0-test', available: true, message: 'Host worker available.'}]},
+};
+
+const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), {status, headers: {'content-type': 'application/json'}});
+
+const renderApp = () => {
+  const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}, mutations: {retry: false}}});
+  return render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
+};
+
+describe('default React dashboard', () => {
+  beforeEach(() => {
+    payloads['/api/session'] = {subject: '1', username: 'tova', roles: ['magicstick-admin'], identityManagementAvailable: true, identityManagementMode: 'keycloak'};
+    payloads['/api/license'] = {state: 'valid', message: 'License valid.', valid: true, installationId: 'example-installation', revision: 'revision-1', checkedAt: 1, trustedKeyIds: ['example-key'], hasDocument: true, features: [{id: 'federated-sso', name: 'Dashboard-managed federated SSO', licensed: true, implemented: true, available: true, reason: 'available'}]};
+    window.history.replaceState(null, '', '#/overview');
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), window.location.origin);
+      return response(payloads[`${url.pathname}${url.search}`] ?? payloads[url.pathname] ?? {error: 'not mocked'}, payloads[`${url.pathname}${url.search}`] || payloads[url.pathname] ? 200 : 404);
+    }));
+  });
+
+  it('renders live appliance data and every admin page', async () => {
+    renderApp();
+    expect(await screen.findByRole('heading', {name: 'AI Appliance Dashboard'})).toBeInTheDocument();
+    expect(screen.queryByRole('link', {name: 'Open current dashboard'})).not.toBeInTheDocument();
+    expect(screen.queryByText(/React Preview|Dashboard 2 preview/)).not.toBeInTheDocument();
+    expect(screen.getByRole('link', {name: 'Log out'})).toHaveAttribute('href', '/logout');
+    expect(await screen.findByText('magicstick.local', {exact: false})).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'API Access'})).toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'Federated SSO'})).not.toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Kubernetes Access'})).toBeInTheDocument();
+    const navigation = screen.getByRole('navigation', {name: 'Dashboard pages'});
+    expect(within(navigation).getByRole('button', {name: 'System'})).toBeInTheDocument();
+    expect(within(navigation).queryByRole('button', {name: 'Settings'})).not.toBeInTheDocument();
+    expect(within(navigation).queryByRole('button', {name: 'License'})).not.toBeInTheDocument();
+    expect(within(navigation).queryByRole('button', {name: 'Users'})).not.toBeInTheDocument();
+    expect(within(navigation).queryByRole('button', {name: 'System Status'})).not.toBeInTheDocument();
+    await userEvent.click(within(navigation).getByRole('button', {name: 'System'}));
+    const systemSections = await screen.findByRole('tablist', {name: 'System sections'});
+    expect(within(systemSections).getByRole('tab', {name: 'Settings'})).toBeInTheDocument();
+    expect(within(systemSections).getByRole('tab', {name: 'License'})).toBeInTheDocument();
+    expect(within(systemSections).getByRole('tab', {name: 'Users'})).toBeInTheDocument();
+    expect(within(systemSections).queryByRole('tab', {name: /Federated SSO/})).not.toBeInTheDocument();
+    expect(within(systemSections).getByRole('tab', {name: 'System Status'})).toBeInTheDocument();
+    expect(within(systemSections).getByRole('tab', {name: 'Hardware'})).toBeInTheDocument();
+    expect(within(systemSections).getByRole('tab', {name: 'Model cache'})).toBeInTheDocument();
+    expect(within(systemSections).queryByRole('tab', {name: 'Network'})).not.toBeInTheDocument();
+    expect(within(systemSections).queryByRole('tab', {name: 'Updates'})).not.toBeInTheDocument();
+    expect(within(systemSections).getByRole('tab', {name: 'System Status'}).nextElementSibling).toBe(within(systemSections).getByRole('tab', {name: 'Computer power'}));
+    await userEvent.click(within(systemSections).getByRole('tab', {name: 'Settings'}));
+    const settingsSections = screen.getByRole('tablist', {name: 'Settings sections'});
+    for (const label of ['Domains', 'Mesh', 'Network', 'Updates']) {
+      expect(within(settingsSections).getByRole('tab', {name: label})).toBeEnabled();
+    }
+    expect(await within(settingsSections).findByRole('tab', {name: 'Federated SSO'})).toBeEnabled();
+  });
+
+  it('shows power controls only inside the selected Computer power tab', async () => {
+    window.history.replaceState(null, '', '#/system/status');
+    renderApp();
+    await screen.findByRole('heading', {name: 'System Status'});
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).startsWith('/api/host-management'))).toBe(false);
+    for (const label of ['Settings', 'License', 'Users', 'Hardware', 'System Status']) {
+      await userEvent.click(await screen.findByRole('tab', {name: label}));
+      expect(screen.getByRole('tabpanel', {name: label})).toBeInTheDocument();
+      expect(screen.queryByRole('heading', {name: 'Computer power'})).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', {name: 'Restart computer'})).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', {name: 'Shut down computer'})).not.toBeInTheDocument();
+    }
+    await userEvent.click(screen.getByRole('tab', {name: 'Settings'}));
+    for (const label of ['Federated SSO', 'Network', 'Updates']) {
+      await userEvent.click(await screen.findByRole('tab', {name: label}));
+      expect(screen.getByRole('tabpanel', {name: label})).toBeInTheDocument();
+      expect(screen.queryByRole('button', {name: 'Restart computer'})).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', {name: 'Shut down computer'})).not.toBeInTheDocument();
+    }
+    await userEvent.click(screen.getByRole('tab', {name: 'Computer power'}));
+    const panel = screen.getByRole('tabpanel', {name: 'Computer power'});
+    expect(await within(panel).findByRole('button', {name: 'Restart computer'})).toBeEnabled();
+    expect(within(panel).getByRole('button', {name: 'Shut down computer'})).toBeEnabled();
+    expect(window.location.hash).toBe('#/system/power');
+    await userEvent.click(screen.getByRole('tab', {name: 'System Status'}));
+    expect(screen.queryByRole('heading', {name: 'Computer power'})).not.toBeInTheDocument();
+    expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+  });
+
+  it('opens the Computer power tab from a direct link', async () => {
+    window.history.replaceState(null, '', '#/system/power');
+    renderApp();
+    expect(await screen.findByRole('heading', {name: 'Computer power'})).toBeInTheDocument();
+    expect(screen.getByRole('tab', {name: 'Computer power'})).toHaveAttribute('aria-selected', 'true');
+    expect(window.location.hash).toBe('#/system/power');
+    expect(screen.queryByRole('heading', {name: 'System Status'})).not.toBeInTheDocument();
+  });
+
+  it.each(['magicstick-viewer', 'magicstick-operator'])('does not expose Computer power to %s, including direct links', async (role) => {
+    payloads['/api/session'] = {subject: 'example', username: 'example', roles: [role]};
+    window.history.replaceState(null, '', '#/system/power');
+    renderApp();
+    expect(await screen.findByRole('heading', {name: 'System Status'})).toBeInTheDocument();
+    expect(screen.queryByRole('tab', {name: 'Computer power'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', {name: 'Network'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'Restart computer'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'Shut down computer'})).not.toBeInTheDocument();
+    await waitFor(() => expect(window.location.hash).toBe('#/system/status'));
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).startsWith('/api/host-management'))).toBe(false);
+  });
+
+  it('loads admin data only after opening its tab', async () => {
+    renderApp();
+    await screen.findByRole('heading', {name: 'Overview'});
+    const fetchMock = vi.mocked(fetch);
+    expect(fetchMock.mock.calls.some(([input]) => String(input).startsWith('/api/users'))).toBe(false);
+    await userEvent.click(screen.getByRole('button', {name: 'System'}));
+    await userEvent.click(await screen.findByRole('tab', {name: 'Users'}));
+    await screen.findByRole('heading', {name: 'Users'});
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => String(input).startsWith('/api/users'))).toBe(true));
+  });
+
+  it('follows direct hash navigation and browser history changes', async () => {
+    renderApp();
+    await screen.findByRole('heading', {name: 'Overview'});
+    window.location.hash = '#/system';
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    expect(await screen.findByRole('heading', {name: 'System Status'})).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/system/status');
+  });
+
+  it('redirects legacy settings links to the matching System section', async () => {
+    window.history.replaceState(null, '', '#/settings');
+    renderApp();
+    expect(await screen.findByRole('heading', {name: 'Settings'})).toBeInTheDocument();
+    await waitFor(() => expect(window.location.hash).toBe('#/system/settings'));
+    expect(screen.getByRole('tab', {name: 'Settings'})).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it.each(['#/federated-sso', '#/system/federated-sso', '#/system/settings/federated-sso'])('opens Federated SSO under Settings from %s', async (path) => {
+    window.history.replaceState(null, '', path);
+    renderApp();
+    expect(await screen.findByRole('heading', {name: 'Federated SSO'})).toBeInTheDocument();
+    await waitFor(() => expect(window.location.hash).toBe('#/system/settings/federated-sso'));
+    expect(screen.getByRole('tab', {name: 'Settings'})).toHaveAttribute('aria-selected', 'true');
+    expect(await screen.findByRole('tab', {name: 'Federated SSO'})).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it.each(['network', 'updates'] as const)('keeps old %s links working and follows nested navigation', async (section) => {
+    window.history.replaceState(null, '', `#/system/${section}`);
+    renderApp();
+    const label = section === 'network' ? 'Network' : 'Updates';
+    expect(await screen.findByRole('heading', {name: label})).toBeInTheDocument();
+    expect(screen.getByRole('tab', {name: 'Settings'})).toHaveAttribute('aria-selected', 'true');
+    expect(window.location.hash).toBe(`#/system/settings/${section}`);
+    await userEvent.click(screen.getByRole('tab', {name: 'Domains'}));
+    expect(await screen.findByLabelText('Public Domain')).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/system/settings');
+    window.location.hash = `#/system/settings/${section}`;
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    expect(await screen.findByRole('heading', {name: label})).toBeInTheDocument();
+    expect(screen.getByRole('tab', {name: label})).toHaveAttribute('aria-selected', 'true');
+    expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+  });
+
+  it('disables the Federated SSO Settings tab without its entitlement', async () => {
+    payloads['/api/license'] = {...payloads['/api/license'] as object, valid: false, features: [{id: 'federated-sso', name: 'Dashboard-managed federated SSO', licensed: false, implemented: true, available: false, reason: 'unlicensed'}]};
+    renderApp();
+    await userEvent.click(await screen.findByRole('button', {name: 'System'}));
+    await userEvent.click(screen.getByRole('tab', {name: 'Settings'}));
+    expect(await screen.findByRole('tab', {name: 'Federated SSO (registration or commercial license required)'})).toBeDisabled();
+    await userEvent.click(screen.getByRole('tab', {name: 'Federated SSO (registration or commercial license required)'}));
+    expect(screen.getByRole('tabpanel', {name: 'Domains'})).toBeInTheDocument();
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).startsWith('/api/federated-sso'))).toBe(false);
+  });
+
+  it.each(['magicstick-viewer', 'magicstick-operator'])('blocks all nested settings deep links for %s', async (role) => {
+    payloads['/api/session'] = {subject: 'example', username: 'example', roles: [role]};
+    renderApp();
+    await screen.findByRole('heading', {name: 'Overview'});
+    for (const path of ['#/system/model-cache', '#/system/settings', '#/system/settings/mesh', '#/system/settings/federated-sso', '#/system/settings/network', '#/system/settings/updates', '#/system/network', '#/system/updates', '#/system/federated-sso']) {
+      window.location.hash = path;
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+      await waitFor(() => expect(window.location.hash).toBe('#/system/status'));
+      expect(screen.queryByRole('tablist', {name: 'Settings sections'})).not.toBeInTheDocument();
+    }
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => /^\/api\/(settings|license|federated-sso|mesh|host-management)/.test(String(input)))).toBe(false);
+  });
+
+  it('keeps identity-dependent Settings hidden on direct federation links without local identity management', async () => {
+    payloads['/api/session'] = {subject: 'example', username: 'example', roles: ['magicstick-admin'], identityManagementAvailable: false};
+    window.history.replaceState(null, '', '#/system/settings/federated-sso');
+    renderApp();
+    expect(await screen.findByLabelText('Public Domain')).toBeInTheDocument();
+    expect(screen.queryByRole('tab', {name: /Federated SSO/})).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', {name: 'Network'})).toBeEnabled();
+    expect(screen.getByRole('tab', {name: 'Updates'})).toBeEnabled();
+    expect(window.location.hash).toBe('#/system/settings');
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => /^\/api\/(license|federated-sso)/.test(String(input)))).toBe(false);
+  });
+
+  it('hides administrative tabs from viewers', async () => {
+    payloads['/api/session'] = {subject: '2', username: 'viewer', roles: ['magicstick-viewer']};
+    window.history.replaceState(null, '', '#/license');
+    renderApp();
+    expect(await screen.findByRole('heading', {name: 'System Status'})).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'System'})).toBeInTheDocument();
+    const systemSections = screen.getByRole('tablist', {name: 'System sections'});
+    expect(within(systemSections).queryByRole('tab', {name: 'Users'})).not.toBeInTheDocument();
+    expect(within(systemSections).queryByRole('tab', {name: /Federated SSO/})).not.toBeInTheDocument();
+    expect(within(systemSections).queryByRole('tab', {name: 'Settings'})).not.toBeInTheDocument();
+    expect(within(systemSections).queryByRole('tab', {name: 'License'})).not.toBeInTheDocument();
+    expect(within(systemSections).queryByRole('tab', {name: 'Updates'})).not.toBeInTheDocument();
+    expect(within(systemSections).getByRole('tab', {name: 'System Status'})).toBeInTheDocument();
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).startsWith('/api/license'))).toBe(false);
+  });
+
+  it('keeps identity-dependent Users hidden when local identity management is unavailable', async () => {
+    payloads['/api/session'] = {subject: '1', username: 'tova', roles: ['magicstick-admin'], identityManagementAvailable: false, identityManagementMode: 'external'};
+    window.history.replaceState(null, '', '#/system/users');
+    renderApp();
+    expect(await screen.findByRole('heading', {name: 'System Status'})).toBeInTheDocument();
+    const systemSections = screen.getByRole('tablist', {name: 'System sections'});
+    expect(within(systemSections).getByRole('tab', {name: 'Settings'})).toBeInTheDocument();
+    expect(within(systemSections).getByRole('tab', {name: 'License'})).toBeInTheDocument();
+    expect(within(systemSections).getByRole('tab', {name: 'Computer power'})).toBeEnabled();
+    expect(within(systemSections).queryByRole('tab', {name: 'Users'})).not.toBeInTheDocument();
+    expect(within(systemSections).queryByRole('tab', {name: /Federated SSO/})).not.toBeInTheDocument();
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).startsWith('/api/users'))).toBe(false);
+  });
+});

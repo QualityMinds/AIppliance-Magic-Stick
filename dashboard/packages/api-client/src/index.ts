@@ -1,0 +1,331 @@
+import {
+  sessionSchema,
+  settingsSchema,
+  type ApiAccessPayload,
+  type Appliance,
+  type DiscoveryArtifactsPayload,
+  type DiscoverySearchPayload,
+  type FederatedSsoStatus,
+  type FederationInput,
+  type FederationValidation,
+  type InstancesPayload,
+  type ManagedHost,
+  type HostOperationRequest,
+  type GpuValidationRequest,
+  type GpuSharingState,
+  type GpuSharingRequest,
+  type InstanceAccessState,
+  type InstanceSharing,
+  type SharingPrincipal,
+  type KubernetesAccessPayload,
+  type MemoryEstimate,
+  type ModelLogsPayload,
+  type ModelsPayload,
+  type MeshStatus,
+  type ModulesPayload,
+  type Session,
+  type LicenseStatus,
+  type LicensePreview,
+  type LicenseRequestInput,
+  type LicenseDownload,
+  type Settings,
+  type SystemStatusPayload,
+  type User,
+  type UsersPayload,
+} from '@magicstick/dashboard-contracts';
+
+export class ApiError extends Error {
+  readonly status: number;
+  readonly details: unknown;
+
+  constructor(message: string, status: number, details: unknown = null) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.details = details;
+  }
+}
+
+export interface ApiClientOptions {
+  baseUrl?: string;
+  fetch?: typeof globalThis.fetch;
+  getAccessToken?: () => string | undefined | Promise<string | undefined>;
+}
+
+const mutationMethod = (method: string) => !['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase());
+
+export class MagicStickApi {
+  private readonly baseUrl: string;
+  private readonly fetchImpl?: typeof globalThis.fetch;
+  private readonly getAccessToken?: ApiClientOptions['getAccessToken'];
+
+  constructor(options: ApiClientOptions = {}) {
+    this.baseUrl = (options.baseUrl ?? '').replace(/\/$/, '');
+    this.fetchImpl = options.fetch;
+    this.getAccessToken = options.getAccessToken;
+  }
+
+  async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const method = String(init.method ?? 'GET').toUpperCase();
+    const headers = new Headers(init.headers);
+    headers.set('Accept', 'application/json');
+    if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+    if (mutationMethod(method)) headers.set('X-MagicStick-CSRF', 'dashboard');
+    const token = await this.getAccessToken?.();
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    const fetchImpl = this.fetchImpl ?? globalThis.fetch.bind(globalThis);
+    const response = await fetchImpl(`${this.baseUrl}${path}`, {
+      ...init,
+      method,
+      headers,
+      credentials: token ? 'omit' : 'same-origin',
+      cache: 'no-store',
+    });
+    const contentType = response.headers.get('content-type') ?? '';
+    const body = contentType.includes('application/json')
+      ? await response.json().catch(() => null)
+      : await response.text().catch(() => '');
+    if (!response.ok) {
+      const record = body && typeof body === 'object' ? body as Record<string, unknown> : null;
+      const message = String(record?.message ?? record?.error ?? body ?? response.statusText);
+      throw new ApiError(message || `Request failed with HTTP ${response.status}`, response.status, body);
+    }
+    return body as T;
+  }
+
+  async session(): Promise<Session> {
+    return sessionSchema.parse(await this.request<unknown>('/api/session'));
+  }
+
+  myInstances() {
+    return this.request<{items: Array<{name: string; application: string; phase: string; urls: string[]}>}>('/api/my-instances');
+  }
+
+  licenseStatus() { return this.request<LicenseStatus>('/api/license'); }
+  inspectLicense(document: string) {
+    return this.request<LicensePreview>('/api/license/validate', {method: 'POST', body: JSON.stringify({document})});
+  }
+  importLicense(document: string, expectedRevision: string) {
+    return this.request<LicenseStatus>('/api/license', {method: 'PUT', body: JSON.stringify({document, expectedRevision})});
+  }
+  exportLicense() { return this.request<LicenseDownload>('/api/license/export'); }
+  createLicenseRequest(payload: LicenseRequestInput) {
+    return this.request<LicenseDownload>('/api/license/request', {method: 'POST', body: JSON.stringify(payload)});
+  }
+
+  federatedSso() { return this.request<FederatedSsoStatus>('/api/federated-sso'); }
+  validateFederation(payload: Pick<FederationInput, 'protocol' | 'metadataUrl'>) {
+    return this.request<FederationValidation>('/api/federated-sso/validate', {
+      method: 'POST', body: JSON.stringify(payload),
+    });
+  }
+  createFederation(payload: FederationInput) {
+    return this.request<FederatedSsoStatus>('/api/federated-sso/providers', {
+      method: 'POST', body: JSON.stringify(payload),
+    });
+  }
+  updateFederation(alias: string, payload: FederationInput) {
+    return this.request<FederatedSsoStatus>(`/api/federated-sso/providers/${encodeURIComponent(alias)}`, {
+      method: 'PUT', body: JSON.stringify(payload),
+    });
+  }
+  deleteFederation(alias: string, expectedRevision: string) {
+    return this.request<{deleted: string}>(`/api/federated-sso/providers/${encodeURIComponent(alias)}`, {
+      method: 'DELETE', body: JSON.stringify({expectedRevision}),
+    });
+  }
+
+  async settings(): Promise<Settings> {
+    return settingsSchema.parse(await this.request<unknown>('/api/settings'));
+  }
+
+  mesh() { return this.request<MeshStatus>('/api/mesh'); }
+  meshCommand<T = Record<string, unknown>>(action: 'create' | 'join' | 'leave' | 'invite' | 'revoke-invite' | 'revoke-node' | 'share' | 'unshare' | 'relay' | 'sync', payload: object = {}) {
+    return this.request<T>(`/api/mesh/${action}`, {method: 'POST', body: JSON.stringify(payload)});
+  }
+
+  updateSettings(payload: Pick<Settings, 'publicDomain' | 'mdnsDomain'>) {
+    return this.request<Settings>('/api/settings', {method: 'PATCH', body: JSON.stringify(payload)});
+  }
+
+  appliance() { return this.request<Appliance>('/api/appliance'); }
+  modules() { return this.request<ModulesPayload>('/api/modules'); }
+  instances() { return this.request<InstancesPayload>('/api/instances'); }
+  instanceAccess(name: string) { return this.request<InstanceAccessState>(`/api/instances/${encodeURIComponent(name)}/access`); }
+  updateInstanceAccess(name: string, sharing: InstanceSharing, expectedRevision: string) {
+    return this.request<InstanceAccessState>(`/api/instances/${encodeURIComponent(name)}/access`, {
+      method: 'PUT', body: JSON.stringify({sharing, expectedRevision}),
+    });
+  }
+  instancePrincipals(kind: 'users' | 'groups', search = '', first = 0) {
+    return this.request<{kind: string; items: SharingPrincipal[]; next: number | null}>(
+      `/api/instance-principals?${new URLSearchParams({kind, search, first: String(first)})}`,
+    );
+  }
+  models() { return this.request<ModelsPayload>('/api/models'); }
+  modelLogs(name: string, tailLines = 300) {
+    const query = new URLSearchParams({tailLines: String(tailLines)});
+    return this.request<ModelLogsPayload>(`/api/models/${encodeURIComponent(name)}/logs?${query}`);
+  }
+  status() { return this.request<SystemStatusPayload>('/api/status'); }
+  hostManagement() { return this.request<{nodes: ManagedHost[]}>('/api/host-management'); }
+  confirmHostNetwork(payload: {nodeUid: string; requestId: string; confirmation: string}) {
+    return this.request<{accepted: boolean; requestId: string}>('/api/host-management/network-confirm', {method: 'POST', body: JSON.stringify(payload)});
+  }
+  requestGpuValidation(payload: GpuValidationRequest) {
+    return this.request<{accepted: boolean; requestId: string}>('/api/hardware/validation', {
+      method: 'POST', body: JSON.stringify(payload),
+    });
+  }
+  gpuSharing() { return this.request<{providers: GpuSharingState[]}>('/api/hardware/gpu-sharing'); }
+  configureGpuSharing(payload: GpuSharingRequest) {
+    return this.request<{accepted: boolean; mode: string}>('/api/hardware/gpu-sharing', {
+      method: 'POST', body: JSON.stringify(payload),
+    });
+  }
+  requestHostOperation(payload: HostOperationRequest) {
+    return this.request<{accepted: boolean; requestId: string; operation: {phase: string}}>('/api/host-management/operations', {
+      method: 'POST', body: JSON.stringify(payload),
+    });
+  }
+
+  enableModule(name: string, parameters: Record<string, string> = {}) {
+    return this.request(`/api/modules/${encodeURIComponent(name)}/enable`, {
+      method: 'POST', body: JSON.stringify(Object.keys(parameters).length ? {parameters} : {}),
+    });
+  }
+
+  disableModule(name: string) {
+    return this.request(`/api/modules/${encodeURIComponent(name)}/disable`, {method: 'POST', body: '{}'});
+  }
+
+  moduleCredentials(name: string) {
+    return this.request<{title?: string; credentials?: Array<{key: string; value: string}>}>(
+      `/api/modules/${encodeURIComponent(name)}/credentials`,
+    );
+  }
+
+  createInstance(type: string, payload: unknown) {
+    return this.request(`/api/instances/${encodeURIComponent(type)}`, {method: 'POST', body: JSON.stringify(payload)});
+  }
+
+  removeInstance(name: string) {
+    return this.request(`/api/instances/${encodeURIComponent(name)}`, {method: 'DELETE'});
+  }
+
+  instanceCredentials(name: string) {
+    return this.request<{title?: string; credentials?: Array<{key: string; value: string}>}>(
+      `/api/instances/${encodeURIComponent(name)}/credentials`,
+    );
+  }
+
+  searchModels(params: URLSearchParams) {
+    return this.request<DiscoverySearchPayload>(`/api/model-discovery/search?${params}`);
+  }
+
+  popularModels(params: URLSearchParams) {
+    return this.request<DiscoverySearchPayload>(`/api/model-discovery/popular?${params}`);
+  }
+
+  modelArtifacts(params: URLSearchParams) {
+    return this.request<DiscoveryArtifactsPayload>(`/api/model-discovery/artifacts?${params}`);
+  }
+
+  estimateMemory(payload: unknown) {
+    return this.request<MemoryEstimate>('/api/models/estimate-memory', {method: 'POST', body: JSON.stringify(payload)});
+  }
+
+  estimateModelUpdate(name: string, payload: unknown) {
+    return this.request<MemoryEstimate>(`/api/models/${encodeURIComponent(name)}/estimate-memory`, {
+      method: 'POST', body: JSON.stringify(payload),
+    });
+  }
+
+  updateModel(name: string, payload: unknown) {
+    return this.request(`/api/models/${encodeURIComponent(name)}`, {
+      method: 'PUT', body: JSON.stringify(payload),
+    });
+  }
+
+  createLocalModel(payload: unknown) {
+    return this.request('/api/models/local', {method: 'POST', body: JSON.stringify(payload)});
+  }
+
+  createExternalModel(payload: unknown) {
+    return this.request('/api/models/external', {method: 'POST', body: JSON.stringify(payload)});
+  }
+
+  removeModel(name: string) {
+    return this.request(`/api/models/${encodeURIComponent(name)}`, {method: 'DELETE'});
+  }
+
+  removeLocalRuntime() {
+    return this.request('/api/models/local-runtime/remove', {method: 'POST', body: '{}'});
+  }
+
+  users(search = '', first = 0, max = 25) {
+    const query = new URLSearchParams({search, first: String(first), max: String(max)});
+    return this.request<UsersPayload>(`/api/users?${query}`);
+  }
+
+  createUser(payload: unknown) {
+    return this.request<User>('/api/users', {method: 'POST', body: JSON.stringify(payload)});
+  }
+
+  updateUser(id: string, payload: unknown) {
+    return this.request<User>(`/api/users/${encodeURIComponent(id)}`, {method: 'PATCH', body: JSON.stringify(payload)});
+  }
+
+  updateUserRoles(id: string, accessLevel: string) {
+    return this.request<User>(`/api/users/${encodeURIComponent(id)}/roles`, {
+      method: 'PUT', body: JSON.stringify({accessLevel}),
+    });
+  }
+
+  setUserEnabled(id: string, enabled: boolean) {
+    return this.request<User>(`/api/users/${encodeURIComponent(id)}/${enabled ? 'enable' : 'disable'}`, {
+      method: 'POST', body: '{}',
+    });
+  }
+
+  resetUserPassword(id: string, password: string, temporary = true) {
+    return this.request(`/api/users/${encodeURIComponent(id)}/password`, {
+      method: 'PUT', body: JSON.stringify({password, temporary}),
+    });
+  }
+
+  deleteUser(id: string, usernameConfirmation: string) {
+    return this.request(`/api/users/${encodeURIComponent(id)}`, {
+      method: 'DELETE', body: JSON.stringify({usernameConfirmation}),
+    });
+  }
+
+  apiAccess() { return this.request<ApiAccessPayload>('/api/api-access'); }
+
+  createApiKey(name: string) {
+    return this.request<{item: unknown; key: string; apiBases?: Array<{scope?: string; url: string}>}>(
+      '/api/api-access', {method: 'POST', body: JSON.stringify({name})},
+    );
+  }
+
+  revokeApiKey(id: string) {
+    return this.request(`/api/api-access/${encodeURIComponent(id)}`, {method: 'DELETE'});
+  }
+
+  kubernetesAccess(search = '', first = 0, max = 100) {
+    const query = new URLSearchParams({search, first: String(first), max: String(max)});
+    return this.request<KubernetesAccessPayload>(`/api/kubernetes-access?${query}`);
+  }
+
+  updateKubernetesAccess(id: string, accessLevel: string) {
+    return this.request(`/api/kubernetes-access/${encodeURIComponent(id)}`, {
+      method: 'PUT', body: JSON.stringify({accessLevel}),
+    });
+  }
+
+  kubeconfig(id: string) {
+    return this.request<{filename: string; content: string; accessLevel?: string}>(
+      `/api/kubernetes-access/${encodeURIComponent(id)}/kubeconfig`,
+    );
+  }
+}

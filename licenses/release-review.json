@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "version": "unreleased",
+  "gates": [
+    {"id": "legal-grant", "status": "requires-legal-review", "description": "Approve Additional Use Grant, group/revenue definition, commercial agreement and per-version Change Date mechanism.", "evidence": "docs/license-audit.md"},
+    {"id": "ownership", "status": "requires-legal-review", "description": "Confirm rights to license every owned contribution and marketing asset, excluding all upstream materials.", "evidence": "docs/license-audit.md"},
+    {"id": "kdns", "status": "notice-follow-up", "description": "MIT is explicitly declared in the pinned README and accepted as build evidence. The empty linked LICENSE produces a warning, not an automatic build veto. The complete copyright/license notice remains an open follow-up; no attribution or legal approval is invented.", "evidence": "licenses/upstream-evidence.json"},
+    {"id": "artifact-sboms", "status": "blocked", "description": "Review final per-platform container and companion SBOMs, Cargo/Go/Python dependencies, CUDA/driver EULAs, source offers and upstream commercial exclusions.", "evidence": "licenses/dependency-inventory.json"},
+    {"id": "marketing-assets", "status": "blocked", "description": "Approve the synchronized PDF/PPTX/raster materials and their provenance before publication.", "evidence": "docs/license-audit.md"},
+    {"id": "physical-acceptance", "status": "pending", "description": "Verify the final images on an appliance, including local login/recovery, Federated SSO expiry and Mesh/Sharing without a license.", "evidence": "docs/public-release-checklist.md"}
+  ]
+}

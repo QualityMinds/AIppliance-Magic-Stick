@@ -1,0 +1,42 @@
+---
+- name: Create the persistent containerd v3 drop-in directory before K3s starts
+  ansible.builtin.file:
+    path: /var/lib/rancher/k3s/agent/etc/containerd/config-v3.toml.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Preconfigure the optional NVIDIA runtime without changing the default runtime
+  ansible.builtin.copy:
+    src: 90-magicstick-nvidia.toml
+    dest: /var/lib/rancher/k3s/agent/etc/containerd/config-v3.toml.d/90-magicstick-nvidia.toml
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Check for an existing K3s configuration
+  ansible.builtin.stat:
+    path: /etc/rancher/k3s/config.yaml
+  register: k3s_existing_config
+
+# After bootstrap, kubernetes-oidc renders the complete configuration once the
+# effective domain, host IP and identity trust are known. Rendering bootstrap
+# defaults here would remove its IP SAN and restart K3s twice on every run.
+- name: Configure K3s for first bootstrap only
+  ansible.builtin.import_tasks: configure.yml
+  when: not k3s_existing_config.stat.exists
+
+- name: Install K3s (skip if already installed)
+  ansible.builtin.shell: |
+    curl -sfL https://get.k3s.io | sh -
+  environment:
+    INSTALL_K3S_VERSION: "{{ k3s_version }}"
+  args:
+    creates: /usr/local/bin/k3s
+
+- name: Ensure k3s service is enabled and running
+  ansible.builtin.systemd:
+    name: k3s
+    enabled: true
+    state: started

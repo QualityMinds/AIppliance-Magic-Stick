@@ -1,0 +1,40 @@
+name: Bug report
+description: Report a reproducible issue in the public template.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include real domains, credentials, kubeconfigs, tokens, customer
+        names, or private deployment paths.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Use public-safe placeholders where needed.
+      placeholder: |
+        1. Run ...
+        2. Apply ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation output
+      description: Paste relevant public-safe command output.

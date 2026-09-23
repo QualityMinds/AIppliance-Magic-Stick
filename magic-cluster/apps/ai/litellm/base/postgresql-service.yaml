@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: litellm-postgresql
+  namespace: ai
+  labels:
+    app: litellm-postgresql
+spec:
+  type: ClusterIP
+  selector:
+    app: litellm-postgresql
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+      protocol: TCP

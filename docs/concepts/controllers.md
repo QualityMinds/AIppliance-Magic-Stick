@@ -1,0 +1,340 @@
+# Controllers and reconciliation
+
+Local runtime CPU scheduling follows the engine catalog's `cpuDefaults` plus
+optional `ModelActivation.spec.local.cpuResources` overrides. After memory and
+GPU-sharing resolution, the controller materializes a count-one KubeAI profile
+in the existing runtime-profile ConfigMap. Only CPU requests/limits change;
+RAM quantities, GPU resources, selectors and DRA bindings are preserved.
+This avoids multiplying CPU by CPU-model RAM units. FreeToken applies the
+resolved policy to its own Deployment. See the
+[CPU scheduling policy](../reference/compute-targets.md#cpu-scheduling-policy).
+
+The Magic Stick Operator is a meta-operator. It orchestrates platform modules
+and instance resources; it does not replace specialized operators.
+
+The dashboard is also not an operator. It reads status and creates or patches
+`ModuleActivation`, `ModelActivation`, and `AppInstance` resources only.
+
+## Responsibilities
+
+| Component | Responsibility |
+|---|---|
+| Magic Stick Operator | Watches `ModuleActivation`, `ModelActivation`, and `AppInstance`, enables modules with Flux, creates one Flux HelmRelease plus authenticated Gateway resources per app instance, creates KubeAI model resources, and reports aggregate `Appliance.status`. |
+| Magic Stick Dashboard | Reads `Appliance`, module catalog, Flux, Pod, Service, Ingress, HTTPRoute, and Event status; creates or patches runtime CRs only. |
+| Private Mesh service | Optional module; owns signed device membership and only its own LiteLLM aliases/keys. Reads ready local KubeAI models; never creates model workloads or manages GPUs. See [Private Mesh](../user-guide/private-mesh.md). |
+| Node Feature Discovery | Re-detects node hardware every 60 seconds and publishes the shared PCI-vendor and platform labels. |
+| NVIDIA GPU Operator | Owns NVIDIA driver, device-plugin, and `nvidia.com/gpu` publication after matching hardware is detected. |
+| AMD GPU Operator | Reconciles Magic Stick's separately managed `DeviceConfig`, using either its default device plugin or explicitly enabled DRA driver; both consume the host/inbox `amdgpu` driver. |
+| Intel Device Plugins Operator | Owns Intel GPU device-plugin resources on supported Intel GPU nodes; the kernel provides the host driver. |
+| OpenClaw Operator | Owns lifecycle of `OpenClawInstance` resources. |
+| Hermes Operator | Owns lifecycle of `HermesInstance` resources. |
+| Paperclip Operator | Owns lifecycle of Paperclip `Instance` resources. |
+| Agent Sandbox Controller | Owns lifecycle of `Sandbox` resources and their isolated runtime Pods. |
+| KubeOpenCode controller | Owns KubeOpenCode resources such as `AgentTemplate`, `Agent`, `Task`, `CronTask`, `Registry`, and `KubeOpenCodeConfig`. |
+
+## Reconcile Flow
+
+The optional `ModelActivation.spec.local.realtime` profile uses a direct
+vLLM-Omni Deployment, Service and stage ConfigMap. Module dependencies are the
+selected GPU provider (none for CPU), LiteLLM and model catalog, not KubeAI. Recreate, typed resource
+validation, current-rollout readiness, upstream `/health`, existing model log
+access and finalizer cleanup apply. No separate Realtime controller or protocol
+adapter is introduced. See [Realtime](../reference/realtime.md).
+
+Realtime selects Linux nodes with allocatable resources without regular-engine
+hardware inventory/architecture selectors. Model compatibility is left to Omni,
+not a Magic Stick policy. CPU/XPU may use explicit backend-compatible image
+overrides; only CUDA receives the NVIDIA RuntimeClass. Shared-GTT memory remains
+one host pool, but planning estimates no longer block experimental deployment.
+The Omni Deployment binds the claim directly without the KubeAI admission shim
+or an additional extended-resource request. NVIDIA time-slicing requests one
+slot; multiple replicas are never interpreted as multiple physical GPUs.
+Both provider-local sharing transitions drain managed Omni runtimes as well as
+KubeAI models, retaining activation settings and downloaded model data.
+
+Realtime ConfigMap lifecycle writes are granted by the namespace-scoped
+`ai/magicstick-realtime-runtime` Role, not the operator's ClusterRole. Kubernetes
+API failures in this runtime are converted into ModelActivation status so one
+failed Realtime activation does not abort the remaining model reconciliations.
+Permission/admission errors are Degraded; unavailable APIs are Starting and
+retry on the next reconciliation.
+No `model-policy.json` or HF configuration approval is generated. The selected
+`local.url` supplies `MODEL_ID`; upstream validation failures reach status/logs.
+
+The generated Realtime ConfigMap also contains the version-bound runtime
+bootstrap; its content participates in the Pod-template hash. For catalog-default images, positive Thinker
+CPU offloading uses the [reviewed Omni projection repair](../reference/realtime.md#pinned-cpu-offload-compatibility-repair),
+without changing ordinary vLLM reconciliation or disabling runtime validation.
+
+Pending/active `clear-model-cache` HostOperations temporarily defer new local
+model runtime reconciliation. Disabled/deleting activations still remove their
+runtime so the host can become idle; external models are unaffected. The host
+worker owns deletion and independently checks fresh workload state. See
+[model cache management](../administration/model-cache.md).
+
+- Read the Git-owned `Appliance/local` source configuration.
+- Watch or poll `ModuleActivation`, `ModelActivation`, and `AppInstance`
+  resources.
+- Load `ConfigMap/magicstick-module-catalog` and `ConfigMap/magicstick-app-catalog`.
+- Normalize user-facing module keys to canonical catalog names.
+- Seed missing `ModuleActivation` resources from enabled
+  `Appliance.spec.modules` entries.
+- Read NFD labels, run the platform preflight, and request only the NVIDIA, AMD,
+  or Intel operator whose hardware is present.
+- Refuse a second vendor operator when its CRD already exists outside a Magic
+  Stick activation, and retain existing operators across transient label loss.
+- Add explicitly enabled runtime modules to the desired set.
+- Add required modules for every enabled instance.
+- Add required model-serving modules for every enabled model.
+- Create or update generated Flux `Kustomization` resources only after required
+  module dependencies are requested and ready.
+- Delete generated Flux Kustomizations for disabled runtime modules so Flux can
+  prune module resources.
+- Suspend, rather than delete, an enabled module Kustomization while a required
+  module is temporarily unready, preserving its workloads and persistent data
+  across source and operator rollouts.
+- Delete stale generated Flux Kustomizations that no longer have a matching
+  `ModuleActivation`.
+- Wait for required CRDs.
+- Create or patch KubeAI model resources and one generated HelmRelease per app instance.
+- For CPU-backed vLLM and Ollama models, translate
+  `spec.local.memoryRequiredMi` into the engine-specific KubeAI resource-profile
+  multiplier. Each multiplier unit represents 16 MiB, so KubeAI writes the
+  reservation to the model pod's `resources.requests.memory`.
+- For explicit single-NVIDIA-GPU CPU offloading, generate a memory-specific
+  KubeAI profile in `flux-system/magicstick-offloading-profiles` (`values.json`).
+  The HelmRelease consumes it through optional `valuesFrom`. Clone the matching
+  engine profile, preserve its CPU/toleration settings and single GPU, and set
+  host RAM request/limit to the chosen budget. Never scale a GPU profile to
+  increase RAM, patch generated Pods, or mutate the Git-owned inline values.
+  Explicit `spec.local.allowMemoryRisk: true` permits a trial below estimated
+  host coverage; preserve the chosen request/limit and engine controls. Missing
+  or false retains strict validation. Positive budgets, supported targets and
+  replica restrictions still apply; reconciliation success is not runtime fit.
+  Ollama CPU offloading always enables GPU-first auto-fit and never fixes a
+  planned GPU-layer count; vLLM retains its derived weight-offload budget.
+  Flux bootstraps this ConfigMap with an empty `resourceProfiles` map and SSA
+  `IfNotPresent`; the operator then owns `data.values.json`. Later Flux
+  reconciles must not reset this runtime store. A valid initial values key keeps
+  Helm healthy before the first offloading model exists.
+  Named ConfigMap get/patch is granted separately in `flux-system`; profiles are
+  reused and the generated store is bounded. A new profile triggers a Helm
+  reconcile/KubeAI controller rollout before the model can be scheduled.
+- Resolve each instance backend from the app catalog and create derived local
+  and optional public HTTPRoutes, exact callback routes on the shared dashboard
+  hosts, the cross-namespace ReferenceGrant, and an Envoy SecurityPolicy for
+  shared OIDC plus minimum-role authorization. Catalogued AI application routes
+  disable Envoy's total request timeout for long-lived streams, while the exact
+  callback routes retain the bounded default.
+- Remove generated routes and policies when an instance is suspended or deleted.
+- Install the per-instance external-authorization guard before connecting routes
+  to their backends; report `accessGuardReady` only for accepted current policies.
+  Live identity and explicit grants protect restricted workloads; Resource Sharing
+  does not require a license entitlement. An unavailable access guard fails closed
+  without removing the restriction.
+- Update module, instance, hardware-operator, and condition status.
+
+The static Flux `magicstick-operator` Kustomization must not wait on
+`Appliance/local.status`: that status is a runtime dashboard read model and may
+be `Reconciling` or `Degraded` while optional modules are being installed,
+removed, or repaired.
+
+The controller runs as one replica with a zero-surge rolling strategy. The old
+Pod is stopped before its replacement starts, which keeps reconciliation
+serialized while remaining upgrade-compatible with Flux server-side apply.
+
+## Instance Mapping
+
+| Application | Required module | Required CRD | Chart output |
+|---|---|---|---|
+| `openclaw` | `openclaw-operator` | `openclawinstances.openclaw.rocks` | `OpenClawInstance` `openclaw.rocks/v1alpha1` |
+| `hermes` | `hermes-operator` | `hermesinstances.hermes.agent` | `HermesInstance` `hermes.agent/v1` |
+| `paperclip` | `paperclip-operator`, `agent-sandbox` | `instances.paperclip.inc`, `sandboxes.agents.x-k8s.io` | `Instance` `paperclip.inc/v1alpha1` and per-run `Sandbox` resources |
+| `kubeopencode` | `kubeopencode` | `agenttemplates.kubeopencode.io` | `AgentTemplate` and related `kubeopencode.io/v1alpha1` resources |
+| `odysseus` | `odysseus` | none | `Deployment` `apps/v1` plus supporting Services, PVCs, and ConfigMaps |
+
+All enabled AI app instances also require `litellm` and `model-catalog`.
+Paperclip uses the Agent Sandbox CR backend for CLI runtimes; OpenClaw and
+Hermes remain separate gateway services.
+
+The shared Envoy route is the browser authentication boundary. Hermes uses
+LiteLLM through its native `config.raw`; its agent gateway remains available to
+in-cluster integrations on service port `8443`, while the authenticated browser
+route targets the bundled dashboard on service port `9119`.
+Paperclip is kept private in `local_trusted` mode; an in-pod TCP proxy exposes
+its loopback listener only on the Pod IP for the ClusterIP Service. Odysseus
+runs with its local login disabled. Both avoid an application-specific second
+login after SSO without exposing either backend directly. MagicStick rebuilds
+the pinned Paperclip operator with a documented compatibility patch so only
+`local_trusted` instances bind to loopback; authenticated instances retain the
+upstream network bind.
+
+The generated HelmRelease is stored in `ai-system`, targets the requested app
+namespace, and loads its chart from the GitRepository configured in
+`Appliance.spec.source`. Charts for operator-backed apps render the native CR;
+the Odysseus chart renders its Deployments, Services, PVCs, Secret, ConfigMap,
+directly. Helm owns upgrade and cleanup for application resources; the Magic
+Stick Operator owns all external Gateway resources.
+
+## Defaulting
+
+For v1alpha1, examples use these defaults:
+
+- the installed public appliance profile is `ai-workstation`
+- `Appliance.spec.modules` enables `basis`, `dashboard`, `litellm`, and
+  `model-catalog`; it does not enable GPU or KubeAI
+- enabled external models require only `litellm` and `model-catalog`
+- an enabled CPU model auto-enables `kubeai`, `litellm`, and `model-catalog`
+- CPU models without an explicit memory reservation default to 4096 MiB for
+  vLLM and 2048 MiB for Ollama
+- an enabled accelerator model additionally resolves its vendor capability to
+  `gpu`, `amd-gpu`, or `intel-gpu`
+- missing default module activations are seeded once; existing
+  `ModuleActivation` resources, including disabled ones, take precedence
+- instance target namespace defaults to `ai`
+- `enabled` defaults to `true` inside instance arrays
+- instance authentication defaults to shared SSO with minimum role `user`
+- instance exposure defaults to derived local and public hostnames
+- generated Flux namespace is always `flux-system`
+- generated Flux interval is `10m0s`
+- generated Flux prune is `true`
+- generated Flux deletion policy is `Delete`
+- generated Flux wait is `false` by default; hardware-provider modules set
+  `waitForReady: true` so driver and device-plugin rollout participates in
+  readiness in addition to required-CRD health checks
+- generated Flux source comes from `Appliance.spec.source`
+
+## Failure And Status Behavior
+
+### AMD compatibility and validation
+
+The versioned `magicstick-gpu-compatibility-catalog` is separate from upstream
+vendor support. `ModuleActivation/amd-gpu` parameters select a profile and
+explicit experimental consent; `validationRequest` is a unique run identifier.
+Only administrators may change those parameters through the API. The initial
+Strix Halo profile is experimental and requires exactly one matched AMD GPU;
+verified NVIDIA cards can coexist. Unknown mixtures retain the host safety
+checks. It is not a declaration that all AMD GPUs or both engines work.
+
+The host evidence timer publishes one sanitized Node annotation. The controller
+checks its UID, boot ID, kernel, fingerprint and timestamp before treating it as
+current. It sets only Magic Stick eligibility/engine labels, never AMD's NFD
+support label. The managed `DeviceConfig` selects eligible nodes separately from
+Helm controller installation. With required profile consent and fresh host checks,
+a registered `amd.com/gpu` resource enables the catalogued engines by default.
+Optional engine tests do not gate hardware `Ready`, selection or model creation.
+
+Explicit validation runs fixed catalog images sequentially in bounded Jobs;
+test Pods receive a GPU resource but no service-account token, host-path mounts
+or privileged container mode. Ollama must report GPU buffers and answer a small
+arithmetic request; vLLM must pass a HIP computation and a small inference
+request. CPU fallback is not success. Results are keyed to host identity,
+profile version, run identifier and actual image ID; changed evidence becomes
+stale without automatically starting new tests; a new manual request is needed.
+Manual requests and results are durably recorded in the runtime-owned
+`magicstick-gpu-validation-history` ConfigMap before Job creation/TTL cleanup.
+History failures block new diagnostics, not driver reconciliation. See
+[restart recovery and diagnostic lifecycle](../administration/gpu-sharing.md#recovery-and-diagnostics).
+Legacy automatic host-generated requests are retired. Successful digests are carried through runtime-owned keys in
+`flux-system/magicstick-gpu-runtime-images` and KubeAI Helm `valuesFrom`, so
+model images can match validation. Before any validation, the catalog's configured
+release images work normally. Runtime adoption still verifies KubeAI's effective
+image configuration and Ready controllers, without requiring a passed smoke test.
+
+`Appliance.status.hardwareOperators.amd-gpu.compatibility` exposes profile,
+node, host/resource and optional per-engine validation stages, with
+`validationRequired: false`. Diagnostic failures remain visible but do not mark
+ready hardware as unavailable. Unified memory remains
+one physical pool and `memoryAccountingVerified` is not inferred from model
+readiness. See [GPU compatibility](../reference/gpu-compatibility.md) and
+[model reservations](../reference/compute-targets.md#amd-unified-memory-reservations).
+
+### Module and model readiness
+
+Optional [AMD DRA sharing](../administration/gpu-sharing.md) replaces legacy allocation only after
+managed AMD models drain. The operator owns one shared claim, a narrowly scoped
+native admission adapter and bounded model admission; the AMD adapter leaves
+NVIDIA allocation unchanged. The same Hardware controls manage NVIDIA separately
+through named, shipped device-plugin time-slicing profiles and a per-node label.
+NVIDIA changes drain only NVIDIA models, retain the driver/ClusterPolicy and wait
+for confirmed advertised slots. Hardware inventory counts physical GPUs, not
+synthetic sharing slots.
+
+If an instance requires a module that is disabled, the MVP contract
+does not override the disabled module. The instance remains in
+`WaitingForModules` until the module is enabled again. If a required CRD is not
+present, the controller records `WaitingForCRD` and skips instance creation
+until the next reconcile.
+
+If an enabled module requires another runtime module that is disabled or not
+ready, the module remains in `WaitingForModules`; the operator removes any stale
+generated Flux Kustomization for that module to avoid Flux `dependsOn` errors
+for missing dependencies.
+
+After the local runtime modules are ready, an accelerator-backed model can
+enter `WaitingForGPU` until Kubernetes reports at least one allocatable target
+resource: `nvidia.com/gpu`, `amd.com/gpu`, `gpu.intel.com/xe`, or
+`gpu.intel.com/i915`. CPU and external models never inspect accelerator
+capacity. For Intel, the controller also resolves the actual resource to the
+matching `xe` or `i915` KubeAI profile before creating the model.
+
+`Appliance.status.hardwareOperators` always contains NVIDIA, AMD, and Intel.
+Each provider's `devices` list contains physical PCI inventory, not sharing
+replicas. Explicit `device-validation-*` ModuleActivation annotations queue
+per-device diagnostics, bound to node/boot/hardware/configuration identity.
+They run sequentially, do not change GPU eligibility, and do not automatically
+rerun on stale evidence. See [diagnostic binding](../reference/gpu-compatibility.md#device-specific-dashboard-diagnostics).
+Normal phases are `NotRequired`, `Detected`, `Installing`, `Ready`, and
+`Unknown`; actionable failures are `Disabled`, `Unsupported`, `Conflict`, and
+`Degraded`. A provider is not `Ready` merely because its controller Deployment
+exists: an allocatable extended resource must be present on a compatible node.
+
+After the KubeAI `Model` is created, its `ModelActivation` is `WaitingForPod`
+until a non-terminating model Pod exists. A persisted `status.podCreation`
+timer marks it `Degraded` / `ModelPodCreationStalled` after two minutes without
+a Pod, while reconciliation continues. New desired configuration or model
+identity resets the timer; an existing Pod clears it, even during a long image
+pull or model download. Once a Pod exists, the activation remains in
+`Starting` while `status.replicas.ready` is zero. The operator reports the
+terminal-Pod recovery separately: exact Model controller ownership and Pod
+UID/resourceVersion preconditions are mandatory, with five attempts and
+persistent exponential backoff. No active Pod or shared claim is removed.
+See [model recovery](../reference/kubeai-models.md#kubeai-models). The operator reports the
+current ready-replica count and selected engine in the status message. Local
+models always report `status.requestedKvCacheType`, but
+`status.effectiveKvCacheType` stays empty until a generated runtime replica is
+Ready. vLLM receives the normalized `--kv-cache-dtype` argument (plus startup
+scale calculation for FP8); Ollama receives `OLLAMA_KV_CACHE_TYPE` and forced
+Flash Attention. Unsupported engine/target/cache combinations fail before a
+KubeAI Model is created. Ollama
+receives an additional runtime check: the operator reads `/api/tags` from every
+Ready model pod, waits until the registry source tag is present, and
+idempotently creates the KubeAI model-name alias through `/api/copy` when the
+upstream bootstrap did not do so. The activation remains `Starting` with reason
+`WaitingForOllamaAlias` until that alias is visible on every Ready pod. It
+changes to `Ready` only after these engine-specific checks pass and the model
+catalog has published the model. If a replica or Ollama alias later becomes
+unavailable, the activation returns to `Starting` and the model catalog
+withdraws the LiteLLM route until the runtime is healthy again. External model
+readiness remains catalog-based.
+
+Optional `local.vllm.visionAttention` is resolved through the compute-target
+catalog before creating a KubeAI Model. On supported targets, an explicit
+choice owns the vision encoder backend argument and its opt-in environment
+flags; explicit `auto` removes these overrides via the existing server-side
+apply flow. Omission leaves legacy arguments/environment untouched. The
+requested policy is annotated on the generated Model; logs and inference
+checks, not that annotation, verify the effective backend. See
+[vision attention deployment](../reference/compute-targets.md#vllm-vision-attention-deployment).
+
+The controller sets an instance to `Ready` when its generated HelmRelease is
+ready. Native application readiness remains the responsibility of the chart and
+the specialized operator it installs a CR for.
+
+## Public Boundary
+
+The public repository must remain deployment-neutral. Do not place real
+domains, private IPs, customer names, tokens, kubeconfigs, generated secrets,
+private repository paths, or real deployment-specific values in module
+definitions, examples, or docs. Use `example.local`, `example.com`,
+`CHANGEME`, or documented variables.

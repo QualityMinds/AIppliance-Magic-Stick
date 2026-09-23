@@ -1,0 +1,599 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  namespace: identity-system
+spec:
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+  selector:
+    app.kubernetes.io/name: keycloak
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: identity-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: keycloak
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: keycloak
+    spec:
+      containers:
+        - name: keycloak
+          image: quay.io/keycloak/keycloak:26.6.3
+          imagePullPolicy: IfNotPresent
+          args:
+            - start
+            - --import-realm
+          env:
+            - name: KC_DB
+              value: postgres
+            - name: KC_DB_URL_HOST
+              value: keycloak-postgresql
+            - name: KC_DB_URL_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-postgresql
+                  key: POSTGRES_DB
+            - name: KC_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-postgresql
+                  key: POSTGRES_USER
+            - name: KC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-postgresql
+                  key: POSTGRES_PASSWORD
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-bootstrap-admin
+                  key: KC_BOOTSTRAP_ADMIN_USERNAME
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-bootstrap-admin
+                  key: KC_BOOTSTRAP_ADMIN_PASSWORD
+            - name: MAGICSTICK_HUMAN_GATEWAY_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: magicstick-human-gateway-client
+                  key: client-secret
+            - name: MAGICSTICK_SETUP_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: magicstick-setup-client
+                  key: client-secret
+            - name: MAGICSTICK_USER_ADMIN_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: magicstick-user-admin-client
+                  key: client-secret
+            - name: MAGICSTICK_FEDERATION_ADMIN_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: magicstick-federation-admin-client
+                  key: client-secret
+            - name: KC_HOSTNAME
+              value: "https://id.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
+            - name: KC_HTTP_ENABLED
+              value: "true"
+            - name: KC_PROXY_HEADERS
+              value: xforwarded
+            - name: KC_HEALTH_ENABLED
+              value: "true"
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/sh
+                  - -ec
+                  - |
+                    (
+                      umask 077
+                      config=/tmp/kcadm-client-sync.config
+                      user_admin_config=/tmp/kcadm-user-admin-check.config
+                      federation_admin_config=/tmp/kcadm-federation-admin-check.config
+                      user_admin_allowed_roles="manage-users query-users view-users view-realm"
+                      federation_admin_allowed_roles="manage-identity-providers view-identity-providers view-realm"
+                      cleanup() {
+                        rm -f "$config" "$user_admin_config" "$federation_admin_config"
+                      }
+                      trap cleanup EXIT
+                      client_uuid() {
+                        /opt/keycloak/bin/kcadm.sh get clients \
+                          --config "$config" \
+                          --realm magicstick \
+                          --query "clientId=$1" \
+                          --fields id \
+                          --format csv \
+                          --noquotes 2>/dev/null | tail -n 1 | tr -d '\r'
+                      }
+                      user_uuid() {
+                        /opt/keycloak/bin/kcadm.sh get users \
+                          --config "$config" \
+                          --realm magicstick \
+                          --query "username=$1" \
+                          --query exact=true \
+                          --fields id \
+                          --format csv \
+                          --noquotes 2>/dev/null | tail -n 1 | tr -d '\r'
+                      }
+                      group_uuid() {
+                        /opt/keycloak/bin/kcadm.sh get groups \
+                          --config "$config" \
+                          --realm magicstick \
+                          --query "search=$1" \
+                          --query exact=true \
+                          --fields id,name \
+                          --format csv \
+                          --noquotes 2>/dev/null \
+                          | while IFS=, read -r group_id group_name; do
+                              if [ "$group_name" = "$1" ]; then
+                                printf '%s\n' "$group_id"
+                                break
+                              fi
+                            done \
+                          | tr -d '\r'
+                      }
+                      ensure_group() {
+                        [ -n "$(group_uuid "$1")" ] && return 0
+                        /opt/keycloak/bin/kcadm.sh create groups \
+                          --config "$config" \
+                          --realm magicstick \
+                          -s "name=$1" >/dev/null 2>&1
+                      }
+                      sync_kubernetes_client_and_groups() {
+                        for group in \
+                          magicstick-kubernetes-viewer \
+                          magicstick-kubernetes-operator \
+                          magicstick-kubernetes-admin; do
+                          ensure_group "$group" || return 1
+                        done
+
+                        kubernetes_client_uuid="$(client_uuid magicstick-kubernetes)"
+                        if [ -z "$kubernetes_client_uuid" ]; then
+                          /opt/keycloak/bin/kcadm.sh create clients \
+                            --config "$config" \
+                            --realm magicstick \
+                            -s clientId=magicstick-kubernetes \
+                            -s name='Magic Stick Kubernetes CLI' \
+                            -s enabled=true \
+                            -s standardFlowEnabled=true \
+                            -s implicitFlowEnabled=false \
+                            -s directAccessGrantsEnabled=false \
+                            -s serviceAccountsEnabled=false \
+                            -s publicClient=true \
+                            -s 'redirectUris=["http://localhost:8000","http://localhost:18000"]' \
+                            -s 'webOrigins=[]' \
+                            -s 'attributes."pkce.code.challenge.method"=S256' \
+                            -s protocol=openid-connect >/dev/null 2>&1 || true
+                          kubernetes_client_uuid="$(client_uuid magicstick-kubernetes)"
+                        fi
+                        [ -n "$kubernetes_client_uuid" ] || return 1
+                        /opt/keycloak/bin/kcadm.sh update "clients/$kubernetes_client_uuid" \
+                          --config "$config" \
+                          --realm magicstick \
+                          -s name='Magic Stick Kubernetes CLI' \
+                          -s enabled=true \
+                          -s standardFlowEnabled=true \
+                          -s implicitFlowEnabled=false \
+                          -s directAccessGrantsEnabled=false \
+                          -s serviceAccountsEnabled=false \
+                          -s publicClient=true \
+                          -s 'redirectUris=["http://localhost:8000","http://localhost:18000"]' \
+                          -s 'webOrigins=[]' \
+                          -s 'attributes."pkce.code.challenge.method"=S256' \
+                          -s protocol=openid-connect >/dev/null 2>&1 || return 1
+
+                        kubernetes_mapper_uuid="$(
+                          /opt/keycloak/bin/kcadm.sh get "clients/$kubernetes_client_uuid/protocol-mappers/models" \
+                            --config "$config" \
+                            --realm magicstick \
+                            --fields id,name \
+                            --format csv \
+                            --noquotes 2>/dev/null \
+                            | while IFS=, read -r mapper_id mapper_name; do
+                                if [ "$mapper_name" = "Kubernetes groups" ]; then
+                                  printf '%s\n' "$mapper_id"
+                                  break
+                                fi
+                              done \
+                            | tr -d '\r'
+                        )"
+                        if [ -z "$kubernetes_mapper_uuid" ]; then
+                          /opt/keycloak/bin/kcadm.sh create "clients/$kubernetes_client_uuid/protocol-mappers/models" \
+                            --config "$config" \
+                            --realm magicstick \
+                            -s name='Kubernetes groups' \
+                            -s protocol=openid-connect \
+                            -s protocolMapper=oidc-group-membership-mapper \
+                            -s consentRequired=false \
+                            -s 'config."claim.name"=groups' \
+                            -s 'config."full.path"=true' \
+                            -s 'config."id.token.claim"=true' \
+                            -s 'config."access.token.claim"=true' \
+                            -s 'config."userinfo.token.claim"=true' >/dev/null 2>&1 || return 1
+                        else
+                          /opt/keycloak/bin/kcadm.sh update "clients/$kubernetes_client_uuid/protocol-mappers/models/$kubernetes_mapper_uuid" \
+                            --config "$config" \
+                            --realm magicstick \
+                            -s name='Kubernetes groups' \
+                            -s protocol=openid-connect \
+                            -s protocolMapper=oidc-group-membership-mapper \
+                            -s consentRequired=false \
+                            -s 'config."claim.name"=groups' \
+                            -s 'config."full.path"=true' \
+                            -s 'config."id.token.claim"=true' \
+                            -s 'config."access.token.claim"=true' \
+                            -s 'config."userinfo.token.claim"=true' >/dev/null 2>&1 || return 1
+                        fi
+                      }
+                      sync_dashboard_cli_client() {
+                        dashboard_cli_client_uuid="$(client_uuid magicstick-cli)"
+                        if [ -z "$dashboard_cli_client_uuid" ]; then
+                          /opt/keycloak/bin/kcadm.sh create clients \
+                            --config "$config" \
+                            --realm magicstick \
+                            -s clientId=magicstick-cli \
+                            -s name='Magic Stick CLI and TUI' \
+                            -s enabled=true \
+                            -s standardFlowEnabled=false \
+                            -s implicitFlowEnabled=false \
+                            -s directAccessGrantsEnabled=false \
+                            -s serviceAccountsEnabled=false \
+                            -s publicClient=true \
+                            -s 'redirectUris=[]' \
+                            -s 'webOrigins=[]' \
+                            -s 'attributes."oauth2.device.authorization.grant.enabled"=true' \
+                            -s protocol=openid-connect >/dev/null 2>&1 || true
+                          dashboard_cli_client_uuid="$(client_uuid magicstick-cli)"
+                        fi
+                        [ -n "$dashboard_cli_client_uuid" ] || return 1
+                        /opt/keycloak/bin/kcadm.sh update "clients/$dashboard_cli_client_uuid" \
+                          --config "$config" \
+                          --realm magicstick \
+                          -s name='Magic Stick CLI and TUI' \
+                          -s enabled=true \
+                          -s standardFlowEnabled=false \
+                          -s implicitFlowEnabled=false \
+                          -s directAccessGrantsEnabled=false \
+                          -s serviceAccountsEnabled=false \
+                          -s publicClient=true \
+                          -s 'redirectUris=[]' \
+                          -s 'webOrigins=[]' \
+                          -s 'attributes."oauth2.device.authorization.grant.enabled"=true' \
+                          -s protocol=openid-connect >/dev/null 2>&1 || return 1
+                      }
+                      direct_user_admin_roles() {
+                        user_admin_role_output="$(/opt/keycloak/bin/kcadm.sh get \
+                          "users/$user_admin_service_account_uuid/role-mappings/clients/$realm_management_client_uuid" \
+                          --config "$config" \
+                          --realm magicstick \
+                          --fields name \
+                          --format csv \
+                          --noquotes 2>/dev/null)" || return 1
+                        printf '%s\n' "$user_admin_role_output" \
+                          | tr -d '\r' \
+                          | sed '/^[[:space:]]*$/d' \
+                          | LC_ALL=C sort
+                      }
+                      sync_user_admin_client() {
+                        user_admin_client_uuid="$(client_uuid magicstick-user-admin)"
+                        if [ -z "$user_admin_client_uuid" ]; then
+                          /opt/keycloak/bin/kcadm.sh create clients \
+                            --config "$config" \
+                            --realm magicstick \
+                            -s clientId=magicstick-user-admin \
+                            -s name='Magic Stick dashboard user administration' \
+                            -s enabled=true \
+                            -s clientAuthenticatorType=client-secret \
+                            -s "secret=$MAGICSTICK_USER_ADMIN_CLIENT_SECRET" \
+                            -s standardFlowEnabled=false \
+                            -s implicitFlowEnabled=false \
+                            -s directAccessGrantsEnabled=false \
+                            -s serviceAccountsEnabled=true \
+                            -s publicClient=false \
+                            -s protocol=openid-connect >/dev/null 2>&1 || true
+                          user_admin_client_uuid="$(client_uuid magicstick-user-admin)"
+                        fi
+                        [ -n "$user_admin_client_uuid" ] || return 1
+                        /opt/keycloak/bin/kcadm.sh update "clients/$user_admin_client_uuid" \
+                          --config "$config" \
+                          --realm magicstick \
+                          -s name='Magic Stick dashboard user administration' \
+                          -s enabled=true \
+                          -s clientAuthenticatorType=client-secret \
+                          -s "secret=$MAGICSTICK_USER_ADMIN_CLIENT_SECRET" \
+                          -s standardFlowEnabled=false \
+                          -s implicitFlowEnabled=false \
+                          -s directAccessGrantsEnabled=false \
+                          -s serviceAccountsEnabled=true \
+                          -s publicClient=false \
+                          -s protocol=openid-connect >/dev/null 2>&1 || return 1
+                        user_admin_service_account_uuid="$(user_uuid service-account-magicstick-user-admin)"
+                        realm_management_client_uuid="$(client_uuid realm-management)"
+                        [ -n "$user_admin_service_account_uuid" ] || return 1
+                        [ -n "$realm_management_client_uuid" ] || return 1
+                        current_user_admin_roles="$(direct_user_admin_roles)" || return 1
+                        for role in $current_user_admin_roles; do
+                          case " $user_admin_allowed_roles " in
+                            *" $role "*) ;;
+                            *)
+                              /opt/keycloak/bin/kcadm.sh remove-roles \
+                                --config "$config" \
+                                --target-realm magicstick \
+                                --uusername service-account-magicstick-user-admin \
+                                --cclientid realm-management \
+                                --rolename "$role" >/dev/null 2>&1 || return 1
+                              ;;
+                          esac
+                        done
+                        for role in $user_admin_allowed_roles; do
+                          /opt/keycloak/bin/kcadm.sh add-roles \
+                            --config "$config" \
+                            --target-realm magicstick \
+                            --uusername service-account-magicstick-user-admin \
+                            --cclientid realm-management \
+                            --rolename "$role" >/dev/null 2>&1 || return 1
+                        done
+                        expected_user_admin_roles="$(printf '%s\n' $user_admin_allowed_roles | LC_ALL=C sort)"
+                        current_user_admin_roles="$(direct_user_admin_roles)" || return 1
+                        [ "$current_user_admin_roles" = "$expected_user_admin_roles" ] || return 1
+                        rm -f "$user_admin_config"
+                        /opt/keycloak/bin/kcadm.sh config credentials \
+                          --config "$user_admin_config" \
+                          --server http://localhost:8080 \
+                          --realm magicstick \
+                          --client magicstick-user-admin \
+                          --secret "$MAGICSTICK_USER_ADMIN_CLIENT_SECRET" >/dev/null 2>&1 || return 1
+                        /opt/keycloak/bin/kcadm.sh get roles/magicstick-user \
+                          --config "$user_admin_config" \
+                          --realm magicstick >/dev/null 2>&1 || return 1
+                        /opt/keycloak/bin/kcadm.sh get users \
+                          --config "$user_admin_config" \
+                          --realm magicstick \
+                          --query max=1 >/dev/null 2>&1 || return 1
+                        rm -f "$user_admin_config"
+                      }
+                      direct_federation_admin_roles() {
+                        federation_admin_role_output="$(/opt/keycloak/bin/kcadm.sh get \
+                          "users/$federation_admin_service_account_uuid/role-mappings/clients/$realm_management_client_uuid" \
+                          --config "$config" \
+                          --realm magicstick \
+                          --fields name \
+                          --format csv \
+                          --noquotes 2>/dev/null)" || return 1
+                        printf '%s\n' "$federation_admin_role_output" \
+                          | tr -d '\r' \
+                          | sed '/^[[:space:]]*$/d' \
+                          | LC_ALL=C sort
+                      }
+                      sync_federation_admin_client() {
+                        federation_admin_client_uuid="$(client_uuid magicstick-federation-admin)"
+                        if [ -z "$federation_admin_client_uuid" ]; then
+                          /opt/keycloak/bin/kcadm.sh create clients \
+                            --config "$config" \
+                            --realm magicstick \
+                            -s clientId=magicstick-federation-admin \
+                            -s name='Magic Stick dashboard federation administration' \
+                            -s enabled=true \
+                            -s clientAuthenticatorType=client-secret \
+                            -s "secret=$MAGICSTICK_FEDERATION_ADMIN_CLIENT_SECRET" \
+                            -s standardFlowEnabled=false \
+                            -s implicitFlowEnabled=false \
+                            -s directAccessGrantsEnabled=false \
+                            -s serviceAccountsEnabled=true \
+                            -s publicClient=false \
+                            -s protocol=openid-connect >/dev/null 2>&1 || true
+                          federation_admin_client_uuid="$(client_uuid magicstick-federation-admin)"
+                        fi
+                        [ -n "$federation_admin_client_uuid" ] || return 1
+                        /opt/keycloak/bin/kcadm.sh update "clients/$federation_admin_client_uuid" \
+                          --config "$config" \
+                          --realm magicstick \
+                          -s name='Magic Stick dashboard federation administration' \
+                          -s enabled=true \
+                          -s clientAuthenticatorType=client-secret \
+                          -s "secret=$MAGICSTICK_FEDERATION_ADMIN_CLIENT_SECRET" \
+                          -s standardFlowEnabled=false \
+                          -s implicitFlowEnabled=false \
+                          -s directAccessGrantsEnabled=false \
+                          -s serviceAccountsEnabled=true \
+                          -s publicClient=false \
+                          -s protocol=openid-connect >/dev/null 2>&1 || return 1
+                        federation_admin_service_account_uuid="$(user_uuid service-account-magicstick-federation-admin)"
+                        realm_management_client_uuid="$(client_uuid realm-management)"
+                        [ -n "$federation_admin_service_account_uuid" ] || return 1
+                        [ -n "$realm_management_client_uuid" ] || return 1
+                        current_federation_admin_roles="$(direct_federation_admin_roles)" || return 1
+                        for role in $current_federation_admin_roles; do
+                          case " $federation_admin_allowed_roles " in
+                            *" $role "*) ;;
+                            *)
+                              /opt/keycloak/bin/kcadm.sh remove-roles \
+                                --config "$config" \
+                                --target-realm magicstick \
+                                --uusername service-account-magicstick-federation-admin \
+                                --cclientid realm-management \
+                                --rolename "$role" >/dev/null 2>&1 || return 1
+                              ;;
+                          esac
+                        done
+                        for role in $federation_admin_allowed_roles; do
+                          /opt/keycloak/bin/kcadm.sh add-roles \
+                            --config "$config" \
+                            --target-realm magicstick \
+                            --uusername service-account-magicstick-federation-admin \
+                            --cclientid realm-management \
+                            --rolename "$role" >/dev/null 2>&1 || return 1
+                        done
+                        expected_federation_admin_roles="$(printf '%s\n' $federation_admin_allowed_roles | LC_ALL=C sort)"
+                        current_federation_admin_roles="$(direct_federation_admin_roles)" || return 1
+                        [ "$current_federation_admin_roles" = "$expected_federation_admin_roles" ] || return 1
+                        rm -f "$federation_admin_config"
+                        /opt/keycloak/bin/kcadm.sh config credentials \
+                          --config "$federation_admin_config" \
+                          --server http://localhost:8080 \
+                          --realm magicstick \
+                          --client magicstick-federation-admin \
+                          --secret "$MAGICSTICK_FEDERATION_ADMIN_CLIENT_SECRET" >/dev/null 2>&1 || return 1
+                        /opt/keycloak/bin/kcadm.sh get identity-provider/instances \
+                          --config "$federation_admin_config" \
+                          --realm magicstick >/dev/null 2>&1 || return 1
+                        rm -f "$federation_admin_config"
+                      }
+                      sync_callbacks() {
+                        /opt/keycloak/bin/kcadm.sh config credentials \
+                          --config "$config" \
+                          --server http://localhost:8080 \
+                          --realm magicstick \
+                          --client magicstick-setup \
+                          --secret "$MAGICSTICK_SETUP_CLIENT_SECRET" >/dev/null 2>&1 || return 1
+                        human_gateway_client_uuid="$(client_uuid magicstick-human-gateway-local)"
+                        [ -n "$human_gateway_client_uuid" ] || return 1
+                        /opt/keycloak/bin/kcadm.sh update "clients/$human_gateway_client_uuid" \
+                          --config "$config" \
+                          --realm magicstick \
+                          -s 'redirectUris=["https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/oauth2/callback/*","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/oauth2/callback/*"]' \
+                          -s 'webOrigins=["https://auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}","https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"]' \
+                          -s 'attributes."post.logout.redirect.uris"=https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/##https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}/' >/dev/null 2>&1
+                        sync_user_admin_client
+                        sync_federation_admin_client
+                        sync_kubernetes_client_and_groups
+                        sync_dashboard_cli_client
+                      }
+                      attempt=0
+                      # Match the ten-minute startup-probe budget. First-start
+                      # Quarkus augmentation on ARM can outlive the previous
+                      # three-minute reconciliation window.
+                      while [ "$attempt" -lt 120 ]; do
+                        if sync_callbacks; then
+                          echo "Synchronized scoped Keycloak clients"
+                          exit 0
+                        fi
+                        if /opt/keycloak/bin/kcadm.sh config credentials \
+                          --config "$config" \
+                          --server http://localhost:8080 \
+                          --realm master \
+                          --user "$KC_BOOTSTRAP_ADMIN_USERNAME" \
+                          --password "$KC_BOOTSTRAP_ADMIN_PASSWORD" >/dev/null 2>&1; then
+                          setup_client_uuid="$(
+                            /opt/keycloak/bin/kcadm.sh get clients \
+                              --config "$config" \
+                              --realm magicstick \
+                              --query clientId=magicstick-setup \
+                              --fields id \
+                              --format csv \
+                              --noquotes 2>/dev/null | tail -n 1 | tr -d '\r'
+                          )"
+                          if [ -z "$setup_client_uuid" ]; then
+                            /opt/keycloak/bin/kcadm.sh create clients \
+                              --config "$config" \
+                              --realm magicstick \
+                              -s clientId=magicstick-setup \
+                              -s name='Magicstick appliance setup controller' \
+                              -s enabled=true \
+                              -s clientAuthenticatorType=client-secret \
+                              -s "secret=$MAGICSTICK_SETUP_CLIENT_SECRET" \
+                              -s standardFlowEnabled=false \
+                              -s directAccessGrantsEnabled=false \
+                              -s serviceAccountsEnabled=true \
+                              -s publicClient=false \
+                              -s protocol=openid-connect >/dev/null 2>&1 || true
+                            setup_client_uuid="$(
+                              /opt/keycloak/bin/kcadm.sh get clients \
+                                --config "$config" \
+                                --realm magicstick \
+                                --query clientId=magicstick-setup \
+                                --fields id \
+                                --format csv \
+                                --noquotes 2>/dev/null | tail -n 1 | tr -d '\r'
+                            )"
+                          fi
+                          human_gateway_client_uuid="$(client_uuid magicstick-human-gateway-local)"
+                          if [ -n "$setup_client_uuid" ] && [ -n "$human_gateway_client_uuid" ]; then
+                            /opt/keycloak/bin/kcadm.sh update "clients/$setup_client_uuid" \
+                              --config "$config" \
+                              --realm magicstick \
+                              -s "secret=$MAGICSTICK_SETUP_CLIENT_SECRET" >/dev/null 2>&1 || true
+                            /opt/keycloak/bin/kcadm.sh update "clients/$human_gateway_client_uuid" \
+                              --config "$config" \
+                              --realm magicstick \
+                              -s "secret=$MAGICSTICK_HUMAN_GATEWAY_CLIENT_SECRET" >/dev/null 2>&1 || true
+                            /opt/keycloak/bin/kcadm.sh add-roles \
+                              --config "$config" \
+                              --target-realm magicstick \
+                              --uusername service-account-magicstick-setup \
+                              --cclientid realm-management \
+                              --rolename manage-clients \
+                              --rolename view-clients \
+                              --rolename manage-users \
+                              --rolename query-users \
+                              --rolename view-users \
+                              --rolename view-realm >/dev/null 2>&1 || true
+                            if sync_callbacks; then
+                              echo "Provisioned and synchronized scoped Keycloak clients"
+                              exit 0
+                            fi
+                          fi
+                        fi
+                        attempt=$((attempt + 1))
+                        sleep 5
+                      done
+                      echo "Keycloak client synchronization did not complete; existing realm settings require administrator review" >&2
+                    ) >/proc/1/fd/1 2>/proc/1/fd/2 &
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: management
+              containerPort: 9000
+          startupProbe:
+            httpGet:
+              path: /health/started
+              port: management
+            # Keycloak performs a Quarkus augmentation on the first container
+            # start. On ARM appliance hardware this can take more than four
+            # minutes before the management endpoint starts listening.
+            failureThreshold: 120
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: management
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: management
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1536Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+          volumeMounts:
+            - name: realm
+              mountPath: /opt/keycloak/data/import
+              readOnly: true
+      volumes:
+        - name: realm
+          configMap:
+            name: keycloak-realm

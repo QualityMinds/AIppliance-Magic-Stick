@@ -1,0 +1,2844 @@
+{
+  "schemaVersion": 1,
+  "checkedAt": "2026-09-23",
+  "scope": "local-pre-publication-test-images; not release approval",
+  "reports": [
+    {
+      "schemaVersion": 1,
+      "target": "dashboard-api/linux-arm64",
+      "status": "inventory-not-distribution-approval",
+      "tool": {
+        "name": "syft",
+        "version": "1.52.0"
+      },
+      "sourceIdentity": {
+        "imageID": "sha256:eaee7da904067df6f9b86597a20c92119f1b03087a54949e678bee6542ccd56c",
+        "manifestDigest": "sha256:3b6c526901f3642fef738787afd4dceb041967f4db37bd823a7e19cabc914942",
+        "architecture": "arm64",
+        "os": "linux"
+      },
+      "packageCount": 41,
+      "reviewCounts": {
+        "copyleft-review": 14,
+        "expression-review": 7,
+        "missing-license-evidence": 8,
+        "notice-review": 12
+      },
+      "packages": [
+        {
+          "name": ".python-rundeps",
+          "version": "20260917.215839",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/.python-rundeps@20260917.215839?arch=noarch&distro=alpine-3.24.2",
+          "licenses": [],
+          "review": "missing-license-evidence"
+        },
+        {
+          "name": "alpine-baselayout",
+          "version": "3.7.2-r1",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/alpine-baselayout@3.7.2-r1?arch=aarch64&distro=alpine-3.24.2",
+          "licenses": [
+            "GPL-2.0-only"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "alpine-baselayout-data",
+          "version": "3.7.2-r1",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/alpine-baselayout-data@3.7.2-r1?arch=aarch64&distro=alpine-3.24.2&upstream=alpine-baselayout",
+          "licenses": [
+            "GPL-2.0-only"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "alpine-keys",
+          "version": "2.6-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/alpine-keys@2.6-r0?arch=aarch64&distro=alpine-3.24.2",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "alpine-release",
+          "version": "3.24.2-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/alpine-release@3.24.2-r0?arch=aarch64&distro=alpine-3.24.2&upstream=alpine-base",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "apk-tools",
+          "version": "3.0.8-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/apk-tools@3.0.8-r0?arch=aarch64&distro=alpine-3.24.2",
+          "licenses": [
+            "GPL-2.0-only"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "busybox",
+          "version": "1.37.0-r31",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/busybox@1.37.0-r31?arch=aarch64&distro=alpine-3.24.2",
+          "licenses": [
+            "GPL-2.0-only"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "busybox-binsh",
+          "version": "1.37.0-r31",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/busybox-binsh@1.37.0-r31?arch=aarch64&distro=alpine-3.24.2&upstream=busybox",
+          "licenses": [
+            "GPL-2.0-only"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "ca-certificates",
+          "version": "20260909-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/ca-certificates@20260909-r0?arch=aarch64&distro=alpine-3.24.2",
+          "licenses": [
+            "MPL-2.0 AND MIT"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "ca-certificates-bundle",
+          "version": "20260909-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/ca-certificates-bundle@20260909-r0?arch=aarch64&distro=alpine-3.24.2&upstream=ca-certificates",
+          "licenses": [
+            "MPL-2.0 AND MIT"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "gdbm",
+          "version": "1.26-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/gdbm@1.26-r0?arch=aarch64&distro=alpine-3.24.2",
+          "licenses": [
+            "GPL-3.0-or-later"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "libapk",
+          "version": "3.0.8-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libapk@3.0.8-r0?arch=aarch64&distro=alpine-3.24.2&upstream=apk-tools",
+          "licenses": [
+            "GPL-2.0-only"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "libbz2",
+          "version": "1.0.8-r6",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libbz2@1.0.8-r6?arch=aarch64&distro=alpine-3.24.2&upstream=bzip2",
+          "licenses": [
+            "bzip2-1.0.6"
+          ],
+          "review": "expression-review"
+        },
+        {
+          "name": "libcrypto3",
+          "version": "3.5.8-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libcrypto3@3.5.8-r0?arch=aarch64&distro=alpine-3.24.2&upstream=openssl",
+          "licenses": [
+            "Apache-2.0"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "libffi",
+          "version": "3.5.2-r1",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libffi@3.5.2-r1?arch=aarch64&distro=alpine-3.24.2",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "libncursesw",
+          "version": "6.6_p20260516-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libncursesw@6.6_p20260516-r0?arch=aarch64&distro=alpine-3.24.2&upstream=ncurses",
+          "licenses": [
+            "X11"
+          ],
+          "review": "expression-review"
+        },
+        {
+          "name": "libpanelw",
+          "version": "6.6_p20260516-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libpanelw@6.6_p20260516-r0?arch=aarch64&distro=alpine-3.24.2&upstream=ncurses",
+          "licenses": [
+            "X11"
+          ],
+          "review": "expression-review"
+        },
+        {
+          "name": "libssl3",
+          "version": "3.5.8-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libssl3@3.5.8-r0?arch=aarch64&distro=alpine-3.24.2&upstream=openssl",
+          "licenses": [
+            "Apache-2.0"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "libuuid",
+          "version": "2.42.3-r1",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libuuid@2.42.3-r1?arch=aarch64&distro=alpine-3.24.2&upstream=util-linux",
+          "licenses": [
+            "BSD-3-Clause"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "musl",
+          "version": "1.2.6-r2",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/musl@1.2.6-r2?arch=aarch64&distro=alpine-3.24.2",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "musl-utils",
+          "version": "1.2.6-r2",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/musl-utils@1.2.6-r2?arch=aarch64&distro=alpine-3.24.2&upstream=musl",
+          "licenses": [
+            "MIT AND BSD-2-Clause AND GPL-2.0-or-later"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "ncurses-terminfo-base",
+          "version": "6.6_p20260516-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/ncurses-terminfo-base@6.6_p20260516-r0?arch=aarch64&distro=alpine-3.24.2&upstream=ncurses",
+          "licenses": [
+            "X11"
+          ],
+          "review": "expression-review"
+        },
+        {
+          "name": "readline",
+          "version": "8.3.3-r1",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/readline@8.3.3-r1?arch=aarch64&distro=alpine-3.24.2",
+          "licenses": [
+            "GPL-3.0-or-later"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "scanelf",
+          "version": "1.3.9-r1",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/scanelf@1.3.9-r1?arch=aarch64&distro=alpine-3.24.2&upstream=pax-utils",
+          "licenses": [
+            "GPL-2.0-only"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "sqlite-libs",
+          "version": "3.53.4-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/sqlite-libs@3.53.4-r0?arch=aarch64&distro=alpine-3.24.2&upstream=sqlite",
+          "licenses": [
+            "blessing"
+          ],
+          "review": "expression-review"
+        },
+        {
+          "name": "ssl_client",
+          "version": "1.37.0-r31",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/ssl_client@1.37.0-r31?arch=aarch64&distro=alpine-3.24.2&upstream=busybox",
+          "licenses": [
+            "GPL-2.0-only"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "tzdata",
+          "version": "2026d-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/tzdata@2026d-r0?arch=aarch64&distro=alpine-3.24.2",
+          "licenses": [
+            "Public-Domain"
+          ],
+          "review": "expression-review"
+        },
+        {
+          "name": "xz-libs",
+          "version": "5.8.4-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/xz-libs@5.8.4-r0?arch=aarch64&distro=alpine-3.24.2&upstream=xz",
+          "licenses": [
+            "0BSD",
+            "AND",
+            "GPL-2.0-or-later",
+            "LGPL-2.1-or-later",
+            "Public-Domain"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "zlib",
+          "version": "1.3.2-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/zlib@1.3.2-r0?arch=aarch64&distro=alpine-3.24.2",
+          "licenses": [
+            "Zlib"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "Simple Launcher",
+          "version": "1.1.0.14",
+          "type": "binary",
+          "purl": "",
+          "licenses": [],
+          "review": "missing-license-evidence"
+        },
+        {
+          "name": "Simple Launcher",
+          "version": "1.1.0.14",
+          "type": "binary",
+          "purl": "",
+          "licenses": [],
+          "review": "missing-license-evidence"
+        },
+        {
+          "name": "Simple Launcher",
+          "version": "1.1.0.14",
+          "type": "binary",
+          "purl": "",
+          "licenses": [],
+          "review": "missing-license-evidence"
+        },
+        {
+          "name": "Simple Launcher",
+          "version": "1.1.0.14",
+          "type": "binary",
+          "purl": "",
+          "licenses": [],
+          "review": "missing-license-evidence"
+        },
+        {
+          "name": "Simple Launcher",
+          "version": "1.1.0.14",
+          "type": "binary",
+          "purl": "",
+          "licenses": [],
+          "review": "missing-license-evidence"
+        },
+        {
+          "name": "Simple Launcher",
+          "version": "1.1.0.14",
+          "type": "binary",
+          "purl": "",
+          "licenses": [],
+          "review": "missing-license-evidence"
+        },
+        {
+          "name": "python",
+          "version": "3.13.15",
+          "type": "binary",
+          "purl": "pkg:generic/python@3.13.15",
+          "licenses": [],
+          "review": "missing-license-evidence"
+        },
+        {
+          "name": "cffi",
+          "version": "2.1.1",
+          "type": "python",
+          "purl": "pkg:pypi/cffi@2.1.1",
+          "licenses": [
+            "MIT-0"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "cryptography",
+          "version": "50.0.1",
+          "type": "python",
+          "purl": "pkg:pypi/cryptography@50.0.1",
+          "licenses": [
+            "Apache-2.0 OR BSD-3-Clause"
+          ],
+          "review": "expression-review"
+        },
+        {
+          "name": "pip",
+          "version": "26.2.1",
+          "type": "python",
+          "purl": "pkg:pypi/pip@26.2.1",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "pycparser",
+          "version": "3.0",
+          "type": "python",
+          "purl": "pkg:pypi/pycparser@3.0",
+          "licenses": [
+            "BSD-3-Clause"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "pyjwt",
+          "version": "2.13.0",
+          "type": "python",
+          "purl": "pkg:pypi/pyjwt@2.13.0",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        }
+      ],
+      "limitations": [
+        "SBOM license metadata is not permission to redistribute or proof of notices/source compliance.",
+        "Minified JS, proprietary drivers, model weights, assets and runtime downloads require separate evidence.",
+        "Source lockfiles do not prove the contents or linkage of final binaries."
+      ],
+      "sbomSha256": "d9c2d69f9fa27045b8eaf206841a0e6fba44fdc63129ede61cacc816fcf2010b"
+    },
+    {
+      "schemaVersion": 1,
+      "target": "dashboard-cli/linux-arm64",
+      "status": "inventory-not-distribution-approval",
+      "tool": {
+        "name": "syft",
+        "version": "1.52.0"
+      },
+      "sourceIdentity": {
+        "imageID": "sha256:cf622748306cdf61bbf3f33dda57433288ff1da57790a0d9c28017a2a3bbc5cb",
+        "manifestDigest": "sha256:7bd217591b482ed8c8ce0a0b20d9603a394920bced21c818f8baadf2fa381be4",
+        "architecture": "arm64",
+        "os": "linux"
+      },
+      "packageCount": 165,
+      "reviewCounts": {
+        "copyleft-review": 12,
+        "expression-review": 3,
+        "missing-license-evidence": 1,
+        "notice-review": 149
+      },
+      "packages": [
+        {
+          "name": "alpine-baselayout",
+          "version": "3.7.2-r1",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/alpine-baselayout@3.7.2-r1?arch=aarch64&distro=alpine-3.24.2",
+          "licenses": [
+            "GPL-2.0-only"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "alpine-baselayout-data",
+          "version": "3.7.2-r1",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/alpine-baselayout-data@3.7.2-r1?arch=aarch64&distro=alpine-3.24.2&upstream=alpine-baselayout",
+          "licenses": [
+            "GPL-2.0-only"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "alpine-keys",
+          "version": "2.6-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/alpine-keys@2.6-r0?arch=aarch64&distro=alpine-3.24.2",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "alpine-release",
+          "version": "3.24.2-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/alpine-release@3.24.2-r0?arch=aarch64&distro=alpine-3.24.2&upstream=alpine-base",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "apk-tools",
+          "version": "3.0.8-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/apk-tools@3.0.8-r0?arch=aarch64&distro=alpine-3.24.2",
+          "licenses": [
+            "GPL-2.0-only"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "busybox",
+          "version": "1.37.0-r31",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/busybox@1.37.0-r31?arch=aarch64&distro=alpine-3.24.2",
+          "licenses": [
+            "GPL-2.0-only"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "busybox-binsh",
+          "version": "1.37.0-r31",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/busybox-binsh@1.37.0-r31?arch=aarch64&distro=alpine-3.24.2&upstream=busybox",
+          "licenses": [
+            "GPL-2.0-only"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "ca-certificates-bundle",
+          "version": "20260909-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/ca-certificates-bundle@20260909-r0?arch=aarch64&distro=alpine-3.24.2&upstream=ca-certificates",
+          "licenses": [
+            "MPL-2.0 AND MIT"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "libapk",
+          "version": "3.0.8-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libapk@3.0.8-r0?arch=aarch64&distro=alpine-3.24.2&upstream=apk-tools",
+          "licenses": [
+            "GPL-2.0-only"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "libcrypto3",
+          "version": "3.5.8-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libcrypto3@3.5.8-r0?arch=aarch64&distro=alpine-3.24.2&upstream=openssl",
+          "licenses": [
+            "Apache-2.0"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "libgcc",
+          "version": "15.2.0-r5",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libgcc@15.2.0-r5?arch=aarch64&distro=alpine-3.24.2&upstream=gcc",
+          "licenses": [
+            "GPL-2.0-or-later AND LGPL-2.1-or-later"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "libssl3",
+          "version": "3.5.8-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libssl3@3.5.8-r0?arch=aarch64&distro=alpine-3.24.2&upstream=openssl",
+          "licenses": [
+            "Apache-2.0"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "libstdc++",
+          "version": "15.2.0-r5",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libstdc%2B%2B@15.2.0-r5?arch=aarch64&distro=alpine-3.24.2&upstream=gcc",
+          "licenses": [
+            "GPL-2.0-or-later AND LGPL-2.1-or-later"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "musl",
+          "version": "1.2.6-r2",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/musl@1.2.6-r2?arch=aarch64&distro=alpine-3.24.2",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "musl-utils",
+          "version": "1.2.6-r2",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/musl-utils@1.2.6-r2?arch=aarch64&distro=alpine-3.24.2&upstream=musl",
+          "licenses": [
+            "MIT AND BSD-2-Clause AND GPL-2.0-or-later"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "scanelf",
+          "version": "1.3.9-r1",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/scanelf@1.3.9-r1?arch=aarch64&distro=alpine-3.24.2&upstream=pax-utils",
+          "licenses": [
+            "GPL-2.0-only"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "ssl_client",
+          "version": "1.37.0-r31",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/ssl_client@1.37.0-r31?arch=aarch64&distro=alpine-3.24.2&upstream=busybox",
+          "licenses": [
+            "GPL-2.0-only"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "zlib",
+          "version": "1.3.2-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/zlib@1.3.2-r0?arch=aarch64&distro=alpine-3.24.2",
+          "licenses": [
+            "Zlib"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "node",
+          "version": "24.21.0",
+          "type": "binary",
+          "purl": "pkg:generic/node@24.21.0",
+          "licenses": [],
+          "review": "missing-license-evidence"
+        },
+        {
+          "name": "@gar/promise-retry",
+          "version": "1.0.3",
+          "type": "npm",
+          "purl": "pkg:npm/%40gar/promise-retry@1.0.3",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "@isaacs/fs-minipass",
+          "version": "4.0.1",
+          "type": "npm",
+          "purl": "pkg:npm/%40isaacs/fs-minipass@4.0.1",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "@isaacs/string-locale-compare",
+          "version": "1.1.0",
+          "type": "npm",
+          "purl": "pkg:npm/%40isaacs/string-locale-compare@1.1.0",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "@npmcli/agent",
+          "version": "4.0.2",
+          "type": "npm",
+          "purl": "pkg:npm/%40npmcli/agent@4.0.2",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "@npmcli/arborist",
+          "version": "9.9.1",
+          "type": "npm",
+          "purl": "pkg:npm/%40npmcli/arborist@9.9.1",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "@npmcli/config",
+          "version": "10.12.0",
+          "type": "npm",
+          "purl": "pkg:npm/%40npmcli/config@10.12.0",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "@npmcli/fs",
+          "version": "5.0.0",
+          "type": "npm",
+          "purl": "pkg:npm/%40npmcli/fs@5.0.0",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "@npmcli/git",
+          "version": "7.0.2",
+          "type": "npm",
+          "purl": "pkg:npm/%40npmcli/git@7.0.2",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "@npmcli/installed-package-contents",
+          "version": "4.0.0",
+          "type": "npm",
+          "purl": "pkg:npm/%40npmcli/installed-package-contents@4.0.0",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "@npmcli/map-workspaces",
+          "version": "5.0.3",
+          "type": "npm",
+          "purl": "pkg:npm/%40npmcli/map-workspaces@5.0.3",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "@npmcli/metavuln-calculator",
+          "version": "9.0.3",
+          "type": "npm",
+          "purl": "pkg:npm/%40npmcli/metavuln-calculator@9.0.3",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "@npmcli/name-from-folder",
+          "version": "4.0.0",
+          "type": "npm",
+          "purl": "pkg:npm/%40npmcli/name-from-folder@4.0.0",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "@npmcli/node-gyp",
+          "version": "5.0.0",
+          "type": "npm",
+          "purl": "pkg:npm/%40npmcli/node-gyp@5.0.0",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "@npmcli/package-json",
+          "version": "7.0.5",
+          "type": "npm",
+          "purl": "pkg:npm/%40npmcli/package-json@7.0.5",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "@npmcli/promise-spawn",
+          "version": "9.0.1",
+          "type": "npm",
+          "purl": "pkg:npm/%40npmcli/promise-spawn@9.0.1",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "@npmcli/query",
+          "version": "5.0.0",
+          "type": "npm",
+          "purl": "pkg:npm/%40npmcli/query@5.0.0",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "@npmcli/redact",
+          "version": "4.0.0",
+          "type": "npm",
+          "purl": "pkg:npm/%40npmcli/redact@4.0.0",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "@npmcli/run-script",
+          "version": "10.0.4",
+          "type": "npm",
+          "purl": "pkg:npm/%40npmcli/run-script@10.0.4",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "@sigstore/bundle",
+          "version": "4.0.0",
+          "type": "npm",
+          "purl": "pkg:npm/%40sigstore/bundle@4.0.0",
+          "licenses": [
+            "Apache-2.0"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "@sigstore/core",
+          "version": "3.2.1",
+          "type": "npm",
+          "purl": "pkg:npm/%40sigstore/core@3.2.1",
+          "licenses": [
+            "Apache-2.0"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "@sigstore/protobuf-specs",
+          "version": "0.5.1",
+          "type": "npm",
+          "purl": "pkg:npm/%40sigstore/protobuf-specs@0.5.1",
+          "licenses": [
+            "Apache-2.0"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "@sigstore/sign",
+          "version": "4.1.1",
+          "type": "npm",
+          "purl": "pkg:npm/%40sigstore/sign@4.1.1",
+          "licenses": [
+            "Apache-2.0"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "@sigstore/tuf",
+          "version": "4.0.2",
+          "type": "npm",
+          "purl": "pkg:npm/%40sigstore/tuf@4.0.2",
+          "licenses": [
+            "Apache-2.0"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "@sigstore/verify",
+          "version": "3.1.1",
+          "type": "npm",
+          "purl": "pkg:npm/%40sigstore/verify@3.1.1",
+          "licenses": [
+            "Apache-2.0"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "@tufjs/canonical-json",
+          "version": "2.0.0",
+          "type": "npm",
+          "purl": "pkg:npm/%40tufjs/canonical-json@2.0.0",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "@tufjs/models",
+          "version": "4.1.0",
+          "type": "npm",
+          "purl": "pkg:npm/%40tufjs/models@4.1.0",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "abbrev",
+          "version": "4.0.0",
+          "type": "npm",
+          "purl": "pkg:npm/abbrev@4.0.0",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "agent-base",
+          "version": "7.1.4",
+          "type": "npm",
+          "purl": "pkg:npm/agent-base@7.1.4",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "aproba",
+          "version": "2.1.0",
+          "type": "npm",
+          "purl": "pkg:npm/aproba@2.1.0",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "archy",
+          "version": "1.0.0",
+          "type": "npm",
+          "purl": "pkg:npm/archy@1.0.0",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "balanced-match",
+          "version": "4.0.4",
+          "type": "npm",
+          "purl": "pkg:npm/balanced-match@4.0.4",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "bin-links",
+          "version": "6.0.2",
+          "type": "npm",
+          "purl": "pkg:npm/bin-links@6.0.2",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "binary-extensions",
+          "version": "3.1.0",
+          "type": "npm",
+          "purl": "pkg:npm/binary-extensions@3.1.0",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "brace-expansion",
+          "version": "5.0.7",
+          "type": "npm",
+          "purl": "pkg:npm/brace-expansion@5.0.7",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "cacache",
+          "version": "20.0.4",
+          "type": "npm",
+          "purl": "pkg:npm/cacache@20.0.4",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "chalk",
+          "version": "5.6.2",
+          "type": "npm",
+          "purl": "pkg:npm/chalk@5.6.2",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "chownr",
+          "version": "3.0.0",
+          "type": "npm",
+          "purl": "pkg:npm/chownr@3.0.0",
+          "licenses": [
+            "BlueOak-1.0.0"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "ci-info",
+          "version": "4.4.0",
+          "type": "npm",
+          "purl": "pkg:npm/ci-info@4.4.0",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "cidr-regex",
+          "version": "5.0.5",
+          "type": "npm",
+          "purl": "pkg:npm/cidr-regex@5.0.5",
+          "licenses": [
+            "BSD-2-Clause"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "cmd-shim",
+          "version": "8.0.0",
+          "type": "npm",
+          "purl": "pkg:npm/cmd-shim@8.0.0",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "common-ancestor-path",
+          "version": "2.0.0",
+          "type": "npm",
+          "purl": "pkg:npm/common-ancestor-path@2.0.0",
+          "licenses": [
+            "BlueOak-1.0.0"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "corepack",
+          "version": "0.36.0",
+          "type": "npm",
+          "purl": "pkg:npm/corepack@0.36.0",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "cssesc",
+          "version": "3.0.0",
+          "type": "npm",
+          "purl": "pkg:npm/cssesc@3.0.0",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "debug",
+          "version": "4.4.3",
+          "type": "npm",
+          "purl": "pkg:npm/debug@4.4.3",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "diff",
+          "version": "8.0.4",
+          "type": "npm",
+          "purl": "pkg:npm/diff@8.0.4",
+          "licenses": [
+            "BSD-3-Clause"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "env-paths",
+          "version": "2.2.1",
+          "type": "npm",
+          "purl": "pkg:npm/env-paths@2.2.1",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "exponential-backoff",
+          "version": "3.1.3",
+          "type": "npm",
+          "purl": "pkg:npm/exponential-backoff@3.1.3",
+          "licenses": [
+            "Apache-2.0"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "fastest-levenshtein",
+          "version": "1.0.16",
+          "type": "npm",
+          "purl": "pkg:npm/fastest-levenshtein@1.0.16",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "fdir",
+          "version": "6.5.0",
+          "type": "npm",
+          "purl": "pkg:npm/fdir@6.5.0",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "fs-minipass",
+          "version": "3.0.3",
+          "type": "npm",
+          "purl": "pkg:npm/fs-minipass@3.0.3",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "glob",
+          "version": "13.0.6",
+          "type": "npm",
+          "purl": "pkg:npm/glob@13.0.6",
+          "licenses": [
+            "BlueOak-1.0.0"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "graceful-fs",
+          "version": "4.2.11",
+          "type": "npm",
+          "purl": "pkg:npm/graceful-fs@4.2.11",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "hosted-git-info",
+          "version": "9.0.3",
+          "type": "npm",
+          "purl": "pkg:npm/hosted-git-info@9.0.3",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "http-cache-semantics",
+          "version": "4.2.0",
+          "type": "npm",
+          "purl": "pkg:npm/http-cache-semantics@4.2.0",
+          "licenses": [
+            "BSD-2-Clause"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "http-proxy-agent",
+          "version": "7.0.2",
+          "type": "npm",
+          "purl": "pkg:npm/http-proxy-agent@7.0.2",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "https-proxy-agent",
+          "version": "7.0.6",
+          "type": "npm",
+          "purl": "pkg:npm/https-proxy-agent@7.0.6",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "iconv-lite",
+          "version": "0.7.2",
+          "type": "npm",
+          "purl": "pkg:npm/iconv-lite@0.7.2",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "ignore-walk",
+          "version": "8.0.0",
+          "type": "npm",
+          "purl": "pkg:npm/ignore-walk@8.0.0",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "ini",
+          "version": "6.0.0",
+          "type": "npm",
+          "purl": "pkg:npm/ini@6.0.0",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "init-package-json",
+          "version": "8.2.5",
+          "type": "npm",
+          "purl": "pkg:npm/init-package-json@8.2.5",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "ip-address",
+          "version": "10.2.0",
+          "type": "npm",
+          "purl": "pkg:npm/ip-address@10.2.0",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "is-cidr",
+          "version": "6.0.4",
+          "type": "npm",
+          "purl": "pkg:npm/is-cidr@6.0.4",
+          "licenses": [
+            "BSD-2-Clause"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "isexe",
+          "version": "4.0.0",
+          "type": "npm",
+          "purl": "pkg:npm/isexe@4.0.0",
+          "licenses": [
+            "BlueOak-1.0.0"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "json-parse-even-better-errors",
+          "version": "5.0.0",
+          "type": "npm",
+          "purl": "pkg:npm/json-parse-even-better-errors@5.0.0",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "json-stringify-nice",
+          "version": "1.1.4",
+          "type": "npm",
+          "purl": "pkg:npm/json-stringify-nice@1.1.4",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "jsonparse",
+          "version": "1.3.1",
+          "type": "npm",
+          "purl": "pkg:npm/jsonparse@1.3.1",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "just-diff",
+          "version": "6.0.2",
+          "type": "npm",
+          "purl": "pkg:npm/just-diff@6.0.2",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "just-diff-apply",
+          "version": "5.5.0",
+          "type": "npm",
+          "purl": "pkg:npm/just-diff-apply@5.5.0",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "libnpmaccess",
+          "version": "10.0.3",
+          "type": "npm",
+          "purl": "pkg:npm/libnpmaccess@10.0.3",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "libnpmdiff",
+          "version": "8.1.12",
+          "type": "npm",
+          "purl": "pkg:npm/libnpmdiff@8.1.12",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "libnpmexec",
+          "version": "10.3.2",
+          "type": "npm",
+          "purl": "pkg:npm/libnpmexec@10.3.2",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "libnpmfund",
+          "version": "7.0.26",
+          "type": "npm",
+          "purl": "pkg:npm/libnpmfund@7.0.26",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "libnpmorg",
+          "version": "8.0.1",
+          "type": "npm",
+          "purl": "pkg:npm/libnpmorg@8.0.1",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "libnpmpack",
+          "version": "9.1.12",
+          "type": "npm",
+          "purl": "pkg:npm/libnpmpack@9.1.12",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "libnpmpublish",
+          "version": "11.2.0",
+          "type": "npm",
+          "purl": "pkg:npm/libnpmpublish@11.2.0",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "libnpmsearch",
+          "version": "9.0.1",
+          "type": "npm",
+          "purl": "pkg:npm/libnpmsearch@9.0.1",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "libnpmteam",
+          "version": "8.0.2",
+          "type": "npm",
+          "purl": "pkg:npm/libnpmteam@8.0.2",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "libnpmversion",
+          "version": "8.0.4",
+          "type": "npm",
+          "purl": "pkg:npm/libnpmversion@8.0.4",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "lru-cache",
+          "version": "11.5.1",
+          "type": "npm",
+          "purl": "pkg:npm/lru-cache@11.5.1",
+          "licenses": [
+            "BlueOak-1.0.0"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "make-fetch-happen",
+          "version": "15.0.6",
+          "type": "npm",
+          "purl": "pkg:npm/make-fetch-happen@15.0.6",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "minimatch",
+          "version": "10.2.5",
+          "type": "npm",
+          "purl": "pkg:npm/minimatch@10.2.5",
+          "licenses": [
+            "BlueOak-1.0.0"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "minipass",
+          "version": "3.3.6",
+          "type": "npm",
+          "purl": "pkg:npm/minipass@3.3.6",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "minipass",
+          "version": "7.1.3",
+          "type": "npm",
+          "purl": "pkg:npm/minipass@7.1.3",
+          "licenses": [
+            "BlueOak-1.0.0"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "minipass-collect",
+          "version": "2.0.1",
+          "type": "npm",
+          "purl": "pkg:npm/minipass-collect@2.0.1",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "minipass-fetch",
+          "version": "5.0.2",
+          "type": "npm",
+          "purl": "pkg:npm/minipass-fetch@5.0.2",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "minipass-flush",
+          "version": "1.0.6",
+          "type": "npm",
+          "purl": "pkg:npm/minipass-flush@1.0.6",
+          "licenses": [
+            "BlueOak-1.0.0"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "minipass-pipeline",
+          "version": "1.2.4",
+          "type": "npm",
+          "purl": "pkg:npm/minipass-pipeline@1.2.4",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "minipass-sized",
+          "version": "2.0.0",
+          "type": "npm",
+          "purl": "pkg:npm/minipass-sized@2.0.0",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "minizlib",
+          "version": "3.1.0",
+          "type": "npm",
+          "purl": "pkg:npm/minizlib@3.1.0",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "ms",
+          "version": "2.1.3",
+          "type": "npm",
+          "purl": "pkg:npm/ms@2.1.3",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "mute-stream",
+          "version": "3.0.0",
+          "type": "npm",
+          "purl": "pkg:npm/mute-stream@3.0.0",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "negotiator",
+          "version": "1.0.0",
+          "type": "npm",
+          "purl": "pkg:npm/negotiator@1.0.0",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "node-gyp",
+          "version": "12.4.0",
+          "type": "npm",
+          "purl": "pkg:npm/node-gyp@12.4.0",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "nopt",
+          "version": "9.0.0",
+          "type": "npm",
+          "purl": "pkg:npm/nopt@9.0.0",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "npm",
+          "version": "11.19.0",
+          "type": "npm",
+          "purl": "pkg:npm/npm@11.19.0",
+          "licenses": [
+            "Artistic-2.0"
+          ],
+          "review": "expression-review"
+        },
+        {
+          "name": "npm-audit-report",
+          "version": "7.0.0",
+          "type": "npm",
+          "purl": "pkg:npm/npm-audit-report@7.0.0",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "npm-bundled",
+          "version": "5.0.0",
+          "type": "npm",
+          "purl": "pkg:npm/npm-bundled@5.0.0",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "npm-install-checks",
+          "version": "8.0.0",
+          "type": "npm",
+          "purl": "pkg:npm/npm-install-checks@8.0.0",
+          "licenses": [
+            "BSD-2-Clause"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "npm-normalize-package-bin",
+          "version": "5.0.0",
+          "type": "npm",
+          "purl": "pkg:npm/npm-normalize-package-bin@5.0.0",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "npm-package-arg",
+          "version": "13.0.2",
+          "type": "npm",
+          "purl": "pkg:npm/npm-package-arg@13.0.2",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "npm-packlist",
+          "version": "10.0.4",
+          "type": "npm",
+          "purl": "pkg:npm/npm-packlist@10.0.4",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "npm-pick-manifest",
+          "version": "11.0.3",
+          "type": "npm",
+          "purl": "pkg:npm/npm-pick-manifest@11.0.3",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "npm-profile",
+          "version": "12.0.2",
+          "type": "npm",
+          "purl": "pkg:npm/npm-profile@12.0.2",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "npm-registry-fetch",
+          "version": "19.1.1",
+          "type": "npm",
+          "purl": "pkg:npm/npm-registry-fetch@19.1.1",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "npm-user-validate",
+          "version": "4.0.0",
+          "type": "npm",
+          "purl": "pkg:npm/npm-user-validate@4.0.0",
+          "licenses": [
+            "BSD-2-Clause"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "p-map",
+          "version": "7.0.4",
+          "type": "npm",
+          "purl": "pkg:npm/p-map@7.0.4",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "pacote",
+          "version": "21.5.1",
+          "type": "npm",
+          "purl": "pkg:npm/pacote@21.5.1",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "parse-conflict-json",
+          "version": "5.0.1",
+          "type": "npm",
+          "purl": "pkg:npm/parse-conflict-json@5.0.1",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "path-scurry",
+          "version": "2.0.2",
+          "type": "npm",
+          "purl": "pkg:npm/path-scurry@2.0.2",
+          "licenses": [
+            "BlueOak-1.0.0"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "picomatch",
+          "version": "4.0.4",
+          "type": "npm",
+          "purl": "pkg:npm/picomatch@4.0.4",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "postcss-selector-parser",
+          "version": "7.1.4",
+          "type": "npm",
+          "purl": "pkg:npm/postcss-selector-parser@7.1.4",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "proc-log",
+          "version": "6.1.0",
+          "type": "npm",
+          "purl": "pkg:npm/proc-log@6.1.0",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "proggy",
+          "version": "4.0.0",
+          "type": "npm",
+          "purl": "pkg:npm/proggy@4.0.0",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "promise-all-reject-late",
+          "version": "1.0.1",
+          "type": "npm",
+          "purl": "pkg:npm/promise-all-reject-late@1.0.1",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "promise-call-limit",
+          "version": "3.0.2",
+          "type": "npm",
+          "purl": "pkg:npm/promise-call-limit@3.0.2",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "promzard",
+          "version": "3.0.1",
+          "type": "npm",
+          "purl": "pkg:npm/promzard@3.0.1",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "qrcode-terminal",
+          "version": "0.12.0",
+          "type": "npm",
+          "purl": "pkg:npm/qrcode-terminal@0.12.0",
+          "licenses": [
+            "Apache 2.0"
+          ],
+          "review": "expression-review"
+        },
+        {
+          "name": "read",
+          "version": "5.0.1",
+          "type": "npm",
+          "purl": "pkg:npm/read@5.0.1",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "read-cmd-shim",
+          "version": "6.0.0",
+          "type": "npm",
+          "purl": "pkg:npm/read-cmd-shim@6.0.0",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "safer-buffer",
+          "version": "2.1.2",
+          "type": "npm",
+          "purl": "pkg:npm/safer-buffer@2.1.2",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "semver",
+          "version": "7.8.5",
+          "type": "npm",
+          "purl": "pkg:npm/semver@7.8.5",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "signal-exit",
+          "version": "4.1.0",
+          "type": "npm",
+          "purl": "pkg:npm/signal-exit@4.1.0",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "sigstore",
+          "version": "4.1.1",
+          "type": "npm",
+          "purl": "pkg:npm/sigstore@4.1.1",
+          "licenses": [
+            "Apache-2.0"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "smart-buffer",
+          "version": "4.2.0",
+          "type": "npm",
+          "purl": "pkg:npm/smart-buffer@4.2.0",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "socks",
+          "version": "2.8.9",
+          "type": "npm",
+          "purl": "pkg:npm/socks@2.8.9",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "socks-proxy-agent",
+          "version": "8.0.5",
+          "type": "npm",
+          "purl": "pkg:npm/socks-proxy-agent@8.0.5",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "spdx-exceptions",
+          "version": "2.5.0",
+          "type": "npm",
+          "purl": "pkg:npm/spdx-exceptions@2.5.0",
+          "licenses": [
+            "CC-BY-3.0"
+          ],
+          "review": "expression-review"
+        },
+        {
+          "name": "spdx-expression-parse",
+          "version": "4.0.0",
+          "type": "npm",
+          "purl": "pkg:npm/spdx-expression-parse@4.0.0",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "spdx-license-ids",
+          "version": "3.0.23",
+          "type": "npm",
+          "purl": "pkg:npm/spdx-license-ids@3.0.23",
+          "licenses": [
+            "CC0-1.0"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "ssri",
+          "version": "13.0.1",
+          "type": "npm",
+          "purl": "pkg:npm/ssri@13.0.1",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "supports-color",
+          "version": "10.2.2",
+          "type": "npm",
+          "purl": "pkg:npm/supports-color@10.2.2",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "tar",
+          "version": "7.5.19",
+          "type": "npm",
+          "purl": "pkg:npm/tar@7.5.19",
+          "licenses": [
+            "BlueOak-1.0.0"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "text-table",
+          "version": "0.2.0",
+          "type": "npm",
+          "purl": "pkg:npm/text-table@0.2.0",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "tiny-relative-date",
+          "version": "2.0.2",
+          "type": "npm",
+          "purl": "pkg:npm/tiny-relative-date@2.0.2",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "tinyglobby",
+          "version": "0.2.17",
+          "type": "npm",
+          "purl": "pkg:npm/tinyglobby@0.2.17",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "treeverse",
+          "version": "3.0.0",
+          "type": "npm",
+          "purl": "pkg:npm/treeverse@3.0.0",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "tuf-js",
+          "version": "4.1.0",
+          "type": "npm",
+          "purl": "pkg:npm/tuf-js@4.1.0",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "undici",
+          "version": "6.27.0",
+          "type": "npm",
+          "purl": "pkg:npm/undici@6.27.0",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "util-deprecate",
+          "version": "1.0.2",
+          "type": "npm",
+          "purl": "pkg:npm/util-deprecate@1.0.2",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "validate-npm-package-name",
+          "version": "7.0.2",
+          "type": "npm",
+          "purl": "pkg:npm/validate-npm-package-name@7.0.2",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "walk-up-path",
+          "version": "4.0.0",
+          "type": "npm",
+          "purl": "pkg:npm/walk-up-path@4.0.0",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "which",
+          "version": "6.0.1",
+          "type": "npm",
+          "purl": "pkg:npm/which@6.0.1",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "write-file-atomic",
+          "version": "7.0.1",
+          "type": "npm",
+          "purl": "pkg:npm/write-file-atomic@7.0.1",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "yallist",
+          "version": "4.0.0",
+          "type": "npm",
+          "purl": "pkg:npm/yallist@4.0.0",
+          "licenses": [
+            "ISC"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "yallist",
+          "version": "5.0.0",
+          "type": "npm",
+          "purl": "pkg:npm/yallist@5.0.0",
+          "licenses": [
+            "BlueOak-1.0.0"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "yarn",
+          "version": "1.22.22",
+          "type": "npm",
+          "purl": "pkg:npm/yarn@1.22.22",
+          "licenses": [
+            "BSD-2-Clause"
+          ],
+          "review": "notice-review"
+        }
+      ],
+      "limitations": [
+        "SBOM license metadata is not permission to redistribute or proof of notices/source compliance.",
+        "Minified JS, proprietary drivers, model weights, assets and runtime downloads require separate evidence.",
+        "Source lockfiles do not prove the contents or linkage of final binaries."
+      ],
+      "sbomSha256": "5eaf019b2f46d19af2db5a7e430dedc6ef375e6396e0730b40f0181c4b32c7e2"
+    },
+    {
+      "schemaVersion": 1,
+      "target": "dashboard-web/linux-arm64",
+      "status": "inventory-not-distribution-approval",
+      "tool": {
+        "name": "syft",
+        "version": "1.52.0"
+      },
+      "sourceIdentity": {
+        "imageID": "sha256:0b70a1f2401ec1a6304e2921a214d1003ccc105d117d25fe8ea9df0a1f5f227e",
+        "manifestDigest": "sha256:10555903c06dd738fb3c0c49a3a10ed238d7bdefcbf174f47135e892c1ab8f28",
+        "architecture": "arm64",
+        "os": "linux"
+      },
+      "packageCount": 68,
+      "reviewCounts": {
+        "copyleft-review": 20,
+        "expression-review": 21,
+        "notice-review": 27
+      },
+      "packages": [
+        {
+          "name": "alpine-baselayout",
+          "version": "3.6.8-r1",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/alpine-baselayout@3.6.8-r1?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "GPL-2.0-only"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "alpine-baselayout-data",
+          "version": "3.6.8-r1",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/alpine-baselayout-data@3.6.8-r1?arch=aarch64&distro=alpine-3.21.3&upstream=alpine-baselayout",
+          "licenses": [
+            "GPL-2.0-only"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "alpine-keys",
+          "version": "2.5-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/alpine-keys@2.5-r0?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "alpine-release",
+          "version": "3.21.3-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/alpine-release@3.21.3-r0?arch=aarch64&distro=alpine-3.21.3&upstream=alpine-base",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "aom-libs",
+          "version": "3.11.0-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/aom-libs@3.11.0-r0?arch=aarch64&distro=alpine-3.21.3&upstream=aom",
+          "licenses": [
+            "AND",
+            "BSD-2-Clause",
+            "custom"
+          ],
+          "review": "expression-review"
+        },
+        {
+          "name": "apk-tools",
+          "version": "2.14.6-r3",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/apk-tools@2.14.6-r3?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "GPL-2.0-only"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "brotli-libs",
+          "version": "1.1.0-r2",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/brotli-libs@1.1.0-r2?arch=aarch64&distro=alpine-3.21.3&upstream=brotli",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "busybox",
+          "version": "1.37.0-r12",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/busybox@1.37.0-r12?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "GPL-2.0-only"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "busybox-binsh",
+          "version": "1.37.0-r12",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/busybox-binsh@1.37.0-r12?arch=aarch64&distro=alpine-3.21.3&upstream=busybox",
+          "licenses": [
+            "GPL-2.0-only"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "c-ares",
+          "version": "1.34.5-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/c-ares@1.34.5-r0?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "ca-certificates",
+          "version": "20241121-r1",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/ca-certificates@20241121-r1?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "MPL-2.0 AND MIT"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "ca-certificates-bundle",
+          "version": "20241121-r1",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/ca-certificates-bundle@20241121-r1?arch=aarch64&distro=alpine-3.21.3&upstream=ca-certificates",
+          "licenses": [
+            "MPL-2.0 AND MIT"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "curl",
+          "version": "8.12.1-r1",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/curl@8.12.1-r1?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "curl"
+          ],
+          "review": "expression-review"
+        },
+        {
+          "name": "fontconfig",
+          "version": "2.15.0-r1",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/fontconfig@2.15.0-r1?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "freetype",
+          "version": "2.13.3-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/freetype@2.13.3-r0?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "FTL OR GPL-2.0-or-later"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "geoip",
+          "version": "1.6.12-r5",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/geoip@1.6.12-r5?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "LGPL-2.1-or-later"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "gettext-envsubst",
+          "version": "0.22.5-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/gettext-envsubst@0.22.5-r0?arch=aarch64&distro=alpine-3.21.3&upstream=gettext",
+          "licenses": [
+            "GPL-3.0-or-later AND LGPL-2.1-or-later AND MIT"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "libavif",
+          "version": "1.0.4-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libavif@1.0.4-r0?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "BSD-2-Clause"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "libbsd",
+          "version": "0.12.2-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libbsd@0.12.2-r0?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "BSD-3-Clause"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "libbz2",
+          "version": "1.0.8-r6",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libbz2@1.0.8-r6?arch=aarch64&distro=alpine-3.21.3&upstream=bzip2",
+          "licenses": [
+            "bzip2-1.0.6"
+          ],
+          "review": "expression-review"
+        },
+        {
+          "name": "libcrypto3",
+          "version": "3.3.3-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libcrypto3@3.3.3-r0?arch=aarch64&distro=alpine-3.21.3&upstream=openssl",
+          "licenses": [
+            "Apache-2.0"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "libcurl",
+          "version": "8.12.1-r1",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libcurl@8.12.1-r1?arch=aarch64&distro=alpine-3.21.3&upstream=curl",
+          "licenses": [
+            "curl"
+          ],
+          "review": "expression-review"
+        },
+        {
+          "name": "libdav1d",
+          "version": "1.5.0-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libdav1d@1.5.0-r0?arch=aarch64&distro=alpine-3.21.3&upstream=dav1d",
+          "licenses": [
+            "BSD-2-Clause"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "libedit",
+          "version": "20240808.3.1-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libedit@20240808.3.1-r0?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "BSD-3-Clause"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "libexpat",
+          "version": "2.7.0-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libexpat@2.7.0-r0?arch=aarch64&distro=alpine-3.21.3&upstream=expat",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "libgcrypt",
+          "version": "1.10.3-r1",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libgcrypt@1.10.3-r1?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "LGPL-2.1-or-later AND GPL-2.0-or-later"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "libgd",
+          "version": "2.3.3-r9",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libgd@2.3.3-r9?arch=aarch64&distro=alpine-3.21.3&upstream=gd",
+          "licenses": [
+            "GD"
+          ],
+          "review": "expression-review"
+        },
+        {
+          "name": "libgpg-error",
+          "version": "1.51-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libgpg-error@1.51-r0?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "GPL-2.0-or-later AND LGPL-2.1-or-later"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "libice",
+          "version": "1.1.1-r6",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libice@1.1.1-r6?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "X11"
+          ],
+          "review": "expression-review"
+        },
+        {
+          "name": "libidn2",
+          "version": "2.3.7-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libidn2@2.3.7-r0?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "GPL-2.0-or-later OR LGPL-3.0-or-later"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "libintl",
+          "version": "0.22.5-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libintl@0.22.5-r0?arch=aarch64&distro=alpine-3.21.3&upstream=gettext",
+          "licenses": [
+            "LGPL-2.1-or-later"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "libjpeg-turbo",
+          "version": "3.0.4-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libjpeg-turbo@3.0.4-r0?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "BSD-3-Clause AND IJG AND Zlib"
+          ],
+          "review": "expression-review"
+        },
+        {
+          "name": "libmd",
+          "version": "1.1.0-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libmd@1.1.0-r0?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "AND",
+            "BSD-2-Clause",
+            "BSD-3-Clause",
+            "Beerware",
+            "Domain",
+            "ISC",
+            "Public"
+          ],
+          "review": "expression-review"
+        },
+        {
+          "name": "libncursesw",
+          "version": "6.5_p20241006-r3",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libncursesw@6.5_p20241006-r3?arch=aarch64&distro=alpine-3.21.3&upstream=ncurses",
+          "licenses": [
+            "X11"
+          ],
+          "review": "expression-review"
+        },
+        {
+          "name": "libpng",
+          "version": "1.6.47-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libpng@1.6.47-r0?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "Libpng"
+          ],
+          "review": "expression-review"
+        },
+        {
+          "name": "libpsl",
+          "version": "0.21.5-r3",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libpsl@0.21.5-r3?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "libsharpyuv",
+          "version": "1.4.0-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libsharpyuv@1.4.0-r0?arch=aarch64&distro=alpine-3.21.3&upstream=libwebp",
+          "licenses": [
+            "BSD-3-Clause"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "libsm",
+          "version": "1.2.4-r4",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libsm@1.2.4-r4?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "libssl3",
+          "version": "3.3.3-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libssl3@3.3.3-r0?arch=aarch64&distro=alpine-3.21.3&upstream=openssl",
+          "licenses": [
+            "Apache-2.0"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "libunistring",
+          "version": "1.2-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libunistring@1.2-r0?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "GPL-2.0-or-later OR LGPL-3.0-or-later"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "libuuid",
+          "version": "2.40.4-r1",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libuuid@2.40.4-r1?arch=aarch64&distro=alpine-3.21.3&upstream=util-linux",
+          "licenses": [
+            "BSD-3-Clause"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "libwebp",
+          "version": "1.4.0-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libwebp@1.4.0-r0?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "BSD-3-Clause"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "libx11",
+          "version": "1.8.10-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libx11@1.8.10-r0?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "X11"
+          ],
+          "review": "expression-review"
+        },
+        {
+          "name": "libxau",
+          "version": "1.0.11-r4",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libxau@1.0.11-r4?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "libxcb",
+          "version": "1.16.1-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libxcb@1.16.1-r0?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "libxdmcp",
+          "version": "1.1.5-r1",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libxdmcp@1.1.5-r1?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "libxext",
+          "version": "1.3.6-r2",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libxext@1.3.6-r2?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "libxml2",
+          "version": "2.13.4-r5",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libxml2@2.13.4-r5?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "libxpm",
+          "version": "3.5.17-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libxpm@3.5.17-r0?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "X11"
+          ],
+          "review": "expression-review"
+        },
+        {
+          "name": "libxslt",
+          "version": "1.1.42-r2",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libxslt@1.1.42-r2?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "X11"
+          ],
+          "review": "expression-review"
+        },
+        {
+          "name": "libxt",
+          "version": "1.3.1-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/libxt@1.3.1-r0?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "musl",
+          "version": "1.2.5-r9",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/musl@1.2.5-r9?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "musl-utils",
+          "version": "1.2.5-r9",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/musl-utils@1.2.5-r9?arch=aarch64&distro=alpine-3.21.3&upstream=musl",
+          "licenses": [
+            "MIT AND BSD-2-Clause AND GPL-2.0-or-later"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "ncurses-terminfo-base",
+          "version": "6.5_p20241006-r3",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/ncurses-terminfo-base@6.5_p20241006-r3?arch=aarch64&distro=alpine-3.21.3&upstream=ncurses",
+          "licenses": [
+            "X11"
+          ],
+          "review": "expression-review"
+        },
+        {
+          "name": "nghttp2-libs",
+          "version": "1.64.0-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/nghttp2-libs@1.64.0-r0?arch=aarch64&distro=alpine-3.21.3&upstream=nghttp2",
+          "licenses": [
+            "MIT"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "nginx",
+          "version": "1.27.5-r1",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/nginx@1.27.5-r1?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "2-clause",
+            "BSD-like",
+            "license"
+          ],
+          "review": "expression-review"
+        },
+        {
+          "name": "nginx-module-geoip",
+          "version": "1.27.5-r1",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/nginx-module-geoip@1.27.5-r1?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "2-clause",
+            "BSD-like",
+            "license"
+          ],
+          "review": "expression-review"
+        },
+        {
+          "name": "nginx-module-image-filter",
+          "version": "1.27.5-r1",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/nginx-module-image-filter@1.27.5-r1?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "2-clause",
+            "BSD-like",
+            "license"
+          ],
+          "review": "expression-review"
+        },
+        {
+          "name": "nginx-module-njs",
+          "version": "1.27.5.0.8.10-r1",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/nginx-module-njs@1.27.5.0.8.10-r1?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "2-clause",
+            "BSD-like",
+            "license"
+          ],
+          "review": "expression-review"
+        },
+        {
+          "name": "nginx-module-xslt",
+          "version": "1.27.5-r1",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/nginx-module-xslt@1.27.5-r1?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "2-clause",
+            "BSD-like",
+            "license"
+          ],
+          "review": "expression-review"
+        },
+        {
+          "name": "pcre2",
+          "version": "10.43-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/pcre2@10.43-r0?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "BSD-3-Clause"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "scanelf",
+          "version": "1.3.8-r1",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/scanelf@1.3.8-r1?arch=aarch64&distro=alpine-3.21.3&upstream=pax-utils",
+          "licenses": [
+            "GPL-2.0-only"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "ssl_client",
+          "version": "1.37.0-r12",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/ssl_client@1.37.0-r12?arch=aarch64&distro=alpine-3.21.3&upstream=busybox",
+          "licenses": [
+            "GPL-2.0-only"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "tiff",
+          "version": "4.7.0-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/tiff@4.7.0-r0?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "libtiff"
+          ],
+          "review": "expression-review"
+        },
+        {
+          "name": "tzdata",
+          "version": "2025b-r0",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/tzdata@2025b-r0?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "Public-Domain"
+          ],
+          "review": "expression-review"
+        },
+        {
+          "name": "xz-libs",
+          "version": "5.6.3-r1",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/xz-libs@5.6.3-r1?arch=aarch64&distro=alpine-3.21.3&upstream=xz",
+          "licenses": [
+            "0BSD",
+            "AND",
+            "GPL-2.0-or-later",
+            "LGPL-2.1-or-later",
+            "Public-Domain"
+          ],
+          "review": "copyleft-review"
+        },
+        {
+          "name": "zlib",
+          "version": "1.3.1-r2",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/zlib@1.3.1-r2?arch=aarch64&distro=alpine-3.21.3",
+          "licenses": [
+            "Zlib"
+          ],
+          "review": "notice-review"
+        },
+        {
+          "name": "zstd-libs",
+          "version": "1.5.6-r2",
+          "type": "apk",
+          "purl": "pkg:apk/alpine/zstd-libs@1.5.6-r2?arch=aarch64&distro=alpine-3.21.3&upstream=zstd",
+          "licenses": [
+            "BSD-3-Clause OR GPL-2.0-or-later"
+          ],
+          "review": "copyleft-review"
+        }
+      ],
+      "limitations": [
+        "SBOM license metadata is not permission to redistribute or proof of notices/source compliance.",
+        "Minified JS, proprietary drivers, model weights, assets and runtime downloads require separate evidence.",
+        "Source lockfiles do not prove the contents or linkage of final binaries."
+      ],
+      "sbomSha256": "93a0d5cf0eb983c1b2ac19dc8586b5c9feb4721d36aa403228f74a95bbfb6199"
+    }
+  ]
+}

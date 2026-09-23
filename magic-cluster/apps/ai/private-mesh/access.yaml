@@ -1,0 +1,75 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: private-mesh
+  namespace: ai
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: private-mesh
+  namespace: ai
+rules:
+  - apiGroups: [kubeai.org]
+    resources: [models]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: private-mesh
+  namespace: ai
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: private-mesh}
+subjects:
+  - {kind: ServiceAccount, name: private-mesh, namespace: ai}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: private-mesh-modelactivations
+  namespace: ai-system
+rules:
+  - apiGroups: [appliance.magicstick.dev]
+    resources: [modelactivations]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: private-mesh-modelactivations
+  namespace: ai-system
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: private-mesh-modelactivations}
+subjects:
+  - {kind: ServiceAccount, name: private-mesh, namespace: ai}
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: private-mesh-enrollment
+  namespace: ai
+spec:
+  from:
+    - {group: gateway.networking.k8s.io, kind: HTTPRoute, namespace: identity-system}
+  to:
+    - {group: "", kind: Service, name: private-mesh}
+---
+# Only these enrollment paths bypass interactive OIDC. The application checks
+# single-use invites / signed membership proofs; no management or inference API
+# is exposed here. The Export Bridge has no Service or Gateway route.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: private-mesh-enrollment
+  namespace: identity-system
+spec:
+  parentRefs:
+    - {name: identity-pilot, sectionName: https}
+  hostnames:
+    - "${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
+    - "${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"
+  rules:
+    - matches:
+        - {path: {type: Exact, value: /mesh/enroll}, method: POST}
+        - {path: {type: Exact, value: /mesh/heartbeat}, method: POST}
+      backendRefs:
+        - {name: private-mesh, namespace: ai, port: 8083}

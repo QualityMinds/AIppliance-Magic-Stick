@@ -1,0 +1,48 @@
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: identity-pilot-bootstrap
+  namespace: identity-system
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: identity-pilot-ca
+  namespace: identity-system
+spec:
+  commonName: Magic Stick local identity CA
+  duration: 87600h
+  renewBefore: 720h
+  isCA: true
+  issuerRef:
+    kind: Issuer
+    name: identity-pilot-bootstrap
+  secretName: identity-pilot-ca
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: identity-pilot-ca
+  namespace: identity-system
+spec:
+  ca:
+    secretName: identity-pilot-ca
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: identity-pilot
+  namespace: identity-system
+spec:
+  dnsNames:
+    - "id.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
+    - "auth-pilot.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
+    - "${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
+    - "api.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}"
+    - "${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"
+  issuerRef:
+    kind: Issuer
+    name: identity-pilot-ca
+  secretName: identity-pilot-tls

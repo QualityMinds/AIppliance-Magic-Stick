@@ -1,0 +1,162 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-appliance-dashboard-api
+  namespace: identity-system
+  annotations:
+    configmap.reloader.stakater.com/reload: ai-appliance-dashboard-api,magicstick-license-trust,magicstick-license-official-trust
+  labels:
+    app: ai-appliance-dashboard-api
+    app.kubernetes.io/component: api
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: ai-appliance-dashboard-api
+  template:
+    metadata:
+      labels:
+        app: ai-appliance-dashboard-api
+        app.kubernetes.io/component: api
+      annotations:
+        appliance.magicstick.dev/dashboard-api-revision: compute-targets-v1
+    spec:
+      serviceAccountName: ai-appliance-dashboard-api
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: api
+          image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-89678275a1e9089adca8777c960b02c29097275e@sha256:b5fcbdee610da606831d932f70736ca97efeeaa9225ee0f5de3b929b9e5c74da
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - /app/server.py
+          ports:
+            - containerPort: 8080
+              name: api
+          env:
+            - name: LICENSE_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: LICENSE_TRUST_STORE
+              value: /etc/magicstick-license/trusted-keys.json
+            - name: LICENSE_OFFICIAL_TRUST_STORE
+              value: /etc/magicstick-license-official/trusted-keys.json
+            - name: PORT
+              value: "8080"
+            - name: APPLIANCE_NAMESPACE
+              value: ai-system
+            - name: APPLIANCE_NAME
+              value: local
+            - name: MODULE_CATALOG_NAMESPACE
+              value: ai-system
+            - name: MODULE_CATALOG_NAME
+              value: magicstick-module-catalog
+            - name: APP_CATALOG_NAMESPACE
+              value: ai-system
+            - name: APP_CATALOG_NAME
+              value: magicstick-app-catalog
+            - name: MODEL_PRESETS_NAMESPACE
+              value: ai-system
+            - name: MODEL_PRESETS_NAME
+              value: magicstick-model-presets
+            - name: COMPUTE_TARGET_CATALOG_NAMESPACE
+              value: ai-system
+            - name: COMPUTE_TARGET_CATALOG_NAME
+              value: magicstick-compute-target-catalog
+            - name: MODEL_TARGET_NAMESPACE
+              value: ai
+            - name: MODEL_CATALOG_NAME
+              value: ai-model-catalog
+            - name: DCGM_NAMESPACE
+              value: gpu-operator
+            - name: DCGM_SERVICE
+              value: nvidia-dcgm-exporter
+            - name: DCGM_PORT
+              value: "9400"
+            - name: OIDC_USERINFO_URL
+              value: http://keycloak.identity-system.svc.cluster.local:8080/realms/magicstick/protocol/openid-connect/userinfo
+            - name: OIDC_EXPECTED_ISSUER
+              value: "https://id.${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local}/realms/magicstick"
+            - name: OIDC_EXPECTED_CLIENT_IDS
+              value: magicstick-human-gateway-local,magicstick-cli
+            - name: IDENTITY_MANAGEMENT_MODE
+              value: keycloak
+            - name: KEYCLOAK_ADMIN_URL
+              value: http://keycloak.identity-system.svc.cluster.local:8080
+            - name: KEYCLOAK_REALM
+              value: magicstick
+            - name: KEYCLOAK_USER_ADMIN_SECRET_NAMESPACE
+              value: identity-system
+            - name: KEYCLOAK_USER_ADMIN_SECRET_NAME
+              value: magicstick-user-admin-client
+            - name: KEYCLOAK_FEDERATION_ADMIN_SECRET_NAMESPACE
+              value: identity-system
+            - name: KEYCLOAK_FEDERATION_ADMIN_SECRET_NAME
+              value: magicstick-federation-admin-client
+            - name: KUBERNETES_ACCESS_INFO_NAMESPACE
+              value: identity-system
+            - name: KUBERNETES_ACCESS_INFO_NAME
+              value: magicstick-kubernetes-access-info
+            - name: KUBERNETES_OIDC_CLIENT_ID
+              value: magicstick-kubernetes
+            - name: DASHBOARD_ALLOWED_ORIGINS
+              value: "https://${AI_APPLIANCE_MDNS_DOMAIN:=magicstick.local},https://${AI_APPLIANCE_DASHBOARD_HOST:=magicstick.example.com}"
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: api
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: api
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+          volumeMounts:
+            - name: license-official-trust
+              mountPath: /etc/magicstick-license-official
+              readOnly: true
+            - name: license-trust
+              mountPath: /etc/magicstick-license
+              readOnly: true
+            - name: api
+              mountPath: /app/server.py
+              subPath: server.py
+              readOnly: true
+            - name: api-tmp
+              mountPath: /tmp
+      volumes:
+        - name: license-official-trust
+          configMap:
+            name: magicstick-license-official-trust
+        - name: license-trust
+          configMap:
+            name: magicstick-license-trust
+        - name: api
+          configMap:
+            name: ai-appliance-dashboard-api
+            defaultMode: 0555
+        - name: api-tmp
+          emptyDir: {}

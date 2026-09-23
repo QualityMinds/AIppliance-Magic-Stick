@@ -1,0 +1,139 @@
+name: Promote MagicStick FreeToken runtime digest
+
+on:
+  workflow_dispatch:
+    inputs:
+      digest:
+        description: SHA-256 digest emitted by the successful FreeToken build
+        required: true
+        type: string
+      source_revision:
+        description: Full Git commit SHA recorded by that build
+        required: true
+        type: string
+
+# This workflow is deliberately separate from the image build. It has the only
+# write permission in the release flow and opens a reviewable promotion PR;
+# it never pushes a digest directly to main.
+permissions:
+  contents: read
+  packages: read
+  attestations: read
+
+concurrency:
+  group: freetoken-runtime-promotion
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: ghcr.io/qualityminds/magicstick-freetoken
+
+jobs:
+  promote:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+      packages: read
+      attestations: read
+    steps:
+      - name: Check out the main descriptor
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Validate promotion inputs
+        env:
+          FREETOKEN_DIGEST: ${{ inputs.digest }}
+          SOURCE_REVISION: ${{ inputs.source_revision }}
+        run: |
+          [[ "${FREETOKEN_DIGEST}" =~ ^sha256:[a-f0-9]{64}$ ]]
+          [[ "${SOURCE_REVISION}" =~ ^[a-f0-9]{40}$ ]]
+
+      - name: Set up Docker Buildx for registry inspection
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR for verification
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify the image and its provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FREETOKEN_DIGEST: ${{ inputs.digest }}
+          SOURCE_REVISION: ${{ inputs.source_revision }}
+        run: |
+          image_ref="${IMAGE_NAME}@${FREETOKEN_DIGEST}"
+          docker buildx imagetools inspect "${image_ref}" --raw >/dev/null
+          gh attestation verify "oci://${image_ref}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --source-ref "refs/heads/main" \
+            --source-digest "${SOURCE_REVISION}" \
+            --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/build-freetoken-image.yml" \
+            --deny-self-hosted-runners
+
+      - name: Prepare the digest-pinned descriptor
+        id: descriptor
+        env:
+          FREETOKEN_DIGEST: ${{ inputs.digest }}
+          SOURCE_REVISION: ${{ inputs.source_revision }}
+        run: |
+          short_digest="${FREETOKEN_DIGEST#sha256:}"
+          short_digest="${short_digest:0:12}"
+          promotion_branch="automation/freetoken-runtime-${short_digest}"
+          git checkout -B "${promotion_branch}"
+          sed -i \
+            -e "s|^  image: .*|  image: ${IMAGE_NAME}@${FREETOKEN_DIGEST}|" \
+            -e "s|^  imageDigest: .*|  imageDigest: ${FREETOKEN_DIGEST}|" \
+            -e "s|^  imageRevision: .*|  imageRevision: ${SOURCE_REVISION}|" \
+            -e "s|^  promotionState: .*|  promotionState: verified|" \
+            magic-cluster/platform/ai/freetoken/runtime-configmap.yaml
+          bash magic-cluster/platform/ai/freetoken/verify-runtime-descriptor.sh
+          if git diff --quiet -- magic-cluster/platform/ai/freetoken/runtime-configmap.yaml; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add magic-cluster/platform/ai/freetoken/runtime-configmap.yaml
+          git commit -m "chore: promote FreeToken runtime ${short_digest}"
+          git push --force origin "HEAD:refs/heads/${promotion_branch}"
+          echo "branch=${promotion_branch}" >> "$GITHUB_OUTPUT"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Open or refresh the promotion pull request
+        if: steps.descriptor.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FREETOKEN_DIGEST: ${{ inputs.digest }}
+          SOURCE_REVISION: ${{ inputs.source_revision }}
+          PROMOTION_BRANCH: ${{ steps.descriptor.outputs.branch }}
+        run: |
+          short_digest="${FREETOKEN_DIGEST#sha256:}"
+          short_digest="${short_digest:0:12}"
+          cat > promotion.md <<EOF
+          ## Verified FreeToken runtime promotion
+
+          - Image: \`${IMAGE_NAME}@${FREETOKEN_DIGEST}\`
+          - Digest: \`${FREETOKEN_DIGEST}\`
+          - FreeToken source revision: \`${SOURCE_REVISION}\`
+          - Verification: GHCR manifest plus GitHub provenance attestation from \`.github/workflows/build-freetoken-image.yml\` on \`refs/heads/main\`.
+
+          Merging this PR is the only step that makes the FreeToken runtime descriptor deployable. The descriptor remains digest-pinned after Flux reconciliation.
+          EOF
+          existing_pr="$(gh pr list --head "${PROMOTION_BRANCH}" --base main --state open --json url --jq '.[0].url')"
+          if [[ -n "${existing_pr}" ]]; then
+            gh pr edit "${existing_pr}" \
+              --title "chore: promote FreeToken runtime ${short_digest}" \
+              --body-file promotion.md
+          else
+            gh pr create \
+              --base main \
+              --head "${PROMOTION_BRANCH}" \
+              --title "chore: promote FreeToken runtime ${short_digest}" \
+              --body-file promotion.md
+          fi

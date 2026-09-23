@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-config
+  namespace: ai
+  labels:
+    app: litellm
+data:
+  00-base.yaml: |
+    model_list:
+  99-settings.yaml: |
+    litellm_settings:
+      callbacks: [mesh_qos.mesh_qos]
+      turn_off_message_logging: true

@@ -1,0 +1,51 @@
+{{- $instance := required "instance is required" .Values.instance -}}
+{{- $values := default dict $instance.values -}}
+apiVersion: openclaw.rocks/v1alpha1
+kind: OpenClawInstance
+metadata:
+  name: {{ $instance.name }}
+  namespace: {{ $instance.namespace }}
+  labels:
+    app.kubernetes.io/name: openclaw
+    app.kubernetes.io/instance: {{ $instance.name }}
+    appliance.magicstick.dev/appinstance: {{ $instance.name }}
+spec:
+  podAnnotations:
+    ai-appliance.io/model-catalog-consumer: "true"
+  config:
+    mergeMode: merge
+    configMapRef:
+      name: ai-model-catalog
+      key: openclaw.json
+    forcePaths:
+      - models.providers
+      - agents.defaults.compaction
+      - agents.defaults.model
+      - tools.profile
+  env:
+    - name: LITELLM_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: litellm-masterkey-secret
+          key: LITELLM_MASTER_KEY
+  storage:
+    persistence:
+      enabled: true
+      size: {{ dig "storage" "size" "10Gi" $values | quote }}
+  security:
+    networkPolicy:
+      enabled: true
+      allowedIngressNamespaces: [ai, envoy-gateway-system]
+      additionalEgress:
+        - to:
+            - podSelector:
+                matchLabels:
+                  app: litellm
+          ports:
+            - protocol: TCP
+              port: 4000
+  networking:
+    service:
+      type: ClusterIP
+    ingress:
+      enabled: false

@@ -1,0 +1,20 @@
+{
+  "name": "@magicstick/dashboard-workspace",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "pnpm --filter @magicstick/dashboard-web build && pnpm --filter @magicstick/dashboard-cli build",
+    "cli": "node apps/cli/dist/magicstick.js",
+    "dev": "pnpm --filter @magicstick/dashboard-web dev",
+    "test": "pnpm --filter @magicstick/dashboard-web test && pnpm --filter @magicstick/dashboard-cli test",
+    "test:browser": "pnpm --filter @magicstick/dashboard-web test:browser",
+    "tui": "node apps/cli/dist/magicstick.js tui",
+    "tui:demo": "node apps/cli/dist/magicstick.js tui --demo",
+    "typecheck": "pnpm --filter @magicstick/dashboard-web typecheck && pnpm --filter @magicstick/dashboard-cli typecheck"
+  },
+  "license": "BUSL-1.1"
+}

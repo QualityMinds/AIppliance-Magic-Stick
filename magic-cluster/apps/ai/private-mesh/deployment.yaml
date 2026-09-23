@@ -1,0 +1,98 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: private-mesh-service
+  namespace: ai
+  annotations:
+    secret-generator.v1.mittwald.de/autogenerate: MESH_ADMIN_TOKEN,MESH_IMPORT_TOKEN
+    kustomize.toolkit.fluxcd.io/prune: disabled
+type: Opaque
+data: {}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: private-mesh-state
+  namespace: ai
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: private-mesh
+  namespace: ai
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: private-mesh
+  template:
+    metadata:
+      labels:
+        app: private-mesh
+    spec:
+      serviceAccountName: private-mesh
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+      containers:
+        - name: mesh
+          image: ghcr.io/qualityminds/magicstick-mesh:v0.76.2-ms1@sha256:bdcc54e508bf05fac65bd8d6914205f0a2545887bb341a4ac87e2e4c17c07269
+          envFrom:
+            - secretRef:
+                name: private-mesh-service
+          env:
+            - name: LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-masterkey-secret
+                  key: LITELLM_MASTER_KEY
+          ports:
+            - {name: admin, containerPort: 8080}
+            - {name: imports, containerPort: 8082}
+            - {name: enrollment, containerPort: 8083}
+          readinessProbe:
+            httpGet: {path: /healthz, port: admin}
+          livenessProbe:
+            httpGet: {path: /healthz, port: admin}
+            initialDelaySeconds: 20
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "2", memory: 1Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: state, mountPath: /state}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: state
+          persistentVolumeClaim: {claimName: private-mesh-state}
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: private-mesh
+  namespace: ai
+spec:
+  selector: {app: private-mesh}
+  ports:
+    - {name: admin, port: 8080, targetPort: admin}
+    - {name: imports, port: 8082, targetPort: imports}
+    - {name: enrollment, port: 8083, targetPort: enrollment}

@@ -1,0 +1,20 @@
+# Predeclared before containerd starts; the GPU Operator installs these binaries.
+# CPU/AMD workloads continue to use runc. No default runtime is changed.
+version = 3
+[plugins."io.containerd.cri.v1.runtime"]
+  enable_cdi = true
+[plugins."io.containerd.cri.v1.runtime".containerd.runtimes.nvidia]
+  runtime_type = "io.containerd.runc.v2"
+  [plugins."io.containerd.cri.v1.runtime".containerd.runtimes.nvidia.options]
+    BinaryName = "/usr/local/nvidia/toolkit/nvidia-container-runtime"
+    SystemdCgroup = true
+[plugins."io.containerd.cri.v1.runtime".containerd.runtimes.nvidia-cdi]
+  runtime_type = "io.containerd.runc.v2"
+  [plugins."io.containerd.cri.v1.runtime".containerd.runtimes.nvidia-cdi.options]
+    BinaryName = "/usr/local/nvidia/toolkit/nvidia-container-runtime.cdi"
+    SystemdCgroup = true
+[plugins."io.containerd.cri.v1.runtime".containerd.runtimes.nvidia-legacy]
+  runtime_type = "io.containerd.runc.v2"
+  [plugins."io.containerd.cri.v1.runtime".containerd.runtimes.nvidia-legacy.options]
+    BinaryName = "/usr/local/nvidia/toolkit/nvidia-container-runtime.legacy"
+    SystemdCgroup = true

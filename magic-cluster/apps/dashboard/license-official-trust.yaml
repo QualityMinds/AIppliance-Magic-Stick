@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: magicstick-license-official-trust
+  namespace: identity-system
+  labels:
+    app.kubernetes.io/part-of: magicstick
+  annotations:
+    # Release-owned public verification keys. Flux must update this object on
+    # upgrades; local additions stay in the separate magicstick-license-trust.
+    kustomize.toolkit.fluxcd.io/prune: disabled
+data:
+  # Public verification material only; the private signing key is never shipped.
+  # SHA256 (DER SubjectPublicKeyInfo):
+  # 93f4bd3b664fea576fdd0b32ad9be44525b5a98207885b6cc251919ee1878182
+  trusted-keys.json: |
+    {
+      "keys": {
+        "issuer-2026": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAScvgZinNGr3T/lTl4GB8IgT/bwpxfZgmZP9jD9RRG4k=\n-----END PUBLIC KEY-----\n"
+      },
+      "retiredKeyIds": []
+    }
