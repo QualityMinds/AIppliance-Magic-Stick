@@ -7,8 +7,9 @@ validated Strix Halo release. See [Realtime documentation](../../../../docs/real
 ## CI build and publication
 
 The [Omni ROCm image workflow](../../../../.github/workflows/build-omni-rocm-image.yml)
-builds on native `linux/amd64` after relevant pushes to `main`. Pull requests run
-the source/fixture contracts without publishing. Manual dispatch on `main` also
+builds on native `linux/amd64` after relevant pushes to `main` or `develop`.
+Development images remain unpromoted candidates. Pull requests run
+the source/fixture contracts without publishing. Manual dispatch also
 supports `publish=false` for a build-and-audit run without registry upload:
 
 ```sh
@@ -16,10 +17,31 @@ gh workflow run build-omni-rocm-image.yml --ref main -f publish=false
 ```
 
 CI derives the exact Omni commit from the runtime catalog and rejects a mismatch
-with the Dockerfile or CUDA profile. It builds the image, checks the actual
+with the Dockerfile or CUDA profile. During the image build it imports the actual
+installed Omni package, its configuration/engine modules, TorchCodec and the Qwen
+pipeline without networking. Import failures stop before image/cache export.
+It then checks the actual
 installed one-/two-device stage configuration without a GPU or model download,
 and creates final-image SPDX/CycloneDX/Syft inventories. The native contract runs
 without networking, privileged mode, host device mounts or model weights.
+
+The reviewed Omni revision imports a CUDA shutdown-repair allocator on ROCm too.
+The image applies [a source-hash-bound guard](image/patch_rocm_import.py) **before
+wheel installation**: HIP/CPU builds skip only that CUDA-specific repair, while
+CUDA builds retain it. Unknown or partially modified source fails closed;
+reapplying the same guard is safe. No CUDA libraries or GPUs are fabricated and
+import failures are not suppressed. Review/remove this guard on an upstream
+upgrade. The change is part of the candidate image, not a host/controller patch.
+
+BuildKit reads a branch-specific registry cache at
+`ghcr.io/qualityminds/magicstick-omni-rocm:buildcache-main` or `:buildcache-develop`.
+It exports only final-image layers (`mode=min`) after the offline checks and
+source/license review, reusing the image's registry blobs. The large intermediate
+graph is no longer uploaded to GitHub Actions Cache before tests. A missing cache
+causes a cold build; cache-export failures are advisory, while runtime checks and
+image publication still fail on errors. A `publish=false` run does not write a
+registry cache. Cache tags are mutable build inputs, never deployment references.
+See [Docker's registry-cache contract](https://docs.docker.com/build/cache/backends/registry/).
 
 Publication uses the repository's `GITHUB_TOKEN` with `packages: write`, not a
 developer's local Docker login or a personal token. Source checks must pass
@@ -55,8 +77,8 @@ Before GPU testing, run the controller's `verify_realtime_image.py` inside a
 disposable candidate container, supplying the generated `bootstrap.py` and
 `profile.json` with `--bootstrap ... --rocm-profile ...`. It checks the actual
 installed Qwen pipeline and stage-argument projection without loading weights.
-The Docker build separately checks the ROCm PyTorch ABI, TorchCodec import and
-vLLM layout APIs. None of these checks proves GPU kernel or speech inference.
+The Docker build separately checks the ROCm PyTorch ABI, actual Omni imports,
+TorchCodec and vLLM layout APIs. None of these checks proves GPU kernel or speech inference.
 Run the contract check natively on amd64 when possible. For cross-architecture
 diagnostics, disable core dumps (`--ulimit core=0`) and bound container memory;
 a native-library crash under emulation is not a passing contract or GPU test.

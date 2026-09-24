@@ -84,6 +84,34 @@ class ImageCiTests(unittest.TestCase):
         self.assertNotIn("--privileged", text)
         self.assertNotIn("/dev/dri", text)
 
+    def test_image_checks_real_imports_before_exporting_layers(self):
+        patch = self.recipe.index("RUN python3 /tmp/magicstick-patch-rocm-import.py")
+        install = self.recipe.index("--no-build-isolation")
+        early_import = self.recipe.index("RUN --network=none python3 /usr/local/libexec/magicstick/verify_rocm_imports.py")
+        self.assertLess(patch, install)
+        self.assertLess(install, early_import)
+        script = (Path(__file__).parent / "image/verify_rocm_imports.py").read_text()
+        tree = ast.parse(script)
+        self.assertTrue(any(isinstance(node, ast.Import) and any(alias.name == "vllm_omni" for alias in node.names)
+                            for node in ast.walk(tree)))
+        self.assertIn('resolve_pipeline_config("qwen3_omni_moe", Qwen3OmniMoeConfig())', script)
+        self.assertNotIn("except", script)
+        self.assertNotIn("mock", script)
+
+    def test_only_tested_images_export_small_branch_scoped_registry_cache(self):
+        steps = self.workflow["jobs"]["build"]["steps"]
+        candidate = next(s for s in steps if s.get("with", {}).get("load") == "true")
+        publication = next(s for s in steps if s.get("with", {}).get("push") == "true")
+        expected_ref = "type=registry,ref=${{ env.IMAGE_NAME }}:buildcache-${{ github.ref_name }}"
+        self.assertEqual(candidate["with"]["cache-from"], expected_ref)
+        self.assertNotIn("cache-to", candidate["with"])
+        self.assertEqual(publication["with"]["cache-to"],
+                         expected_ref + ",mode=min,image-manifest=true,oci-mediatypes=true,ignore-error=true")
+        self.assertIn("inputs.publish", publication["if"])
+        self.assertNotIn("type=gha", json.dumps(steps))
+        self.assertEqual(sum("cache-to" in s.get("with", {}) for s in steps), 1)
+        self.assertNotIn("continue-on-error", publication)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2065,47 +2065,47 @@
     },
     {
       "file": ".github/workflows/build-mesh-companion.yml",
-      "line": 87,
+      "line": 89,
       "reference": "with: {python-version: '3.13'}"
     },
     {
       "file": ".github/workflows/build-mesh-companion.yml",
-      "line": 99,
+      "line": 106,
       "reference": "sudo apt-get install -y clang cmake libssl-dev pkg-config"
     },
     {
       "file": ".github/workflows/build-mesh-companion.yml",
-      "line": 102,
+      "line": 109,
       "reference": "\"https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-${PROTOC_PLATFORM}.zip\" \\"
     },
     {
       "file": ".github/workflows/build-mesh-companion.yml",
-      "line": 110,
+      "line": 117,
       "reference": "OPENSSL_STATIC=1 python -m pip install --no-cache-dir -r magic-cluster/apps/ai/private-mesh/requirements.txt pyinstaller==6.22.3"
     },
     {
       "file": ".github/workflows/build-mesh-companion.yml",
-      "line": 126,
+      "line": 133,
       "reference": "Invoke-WebRequest -Uri \"https://github.com/protocolbuffers/protobuf/releases/download/v${env:PROTOC_VERSION}/protoc-${env:PROTOC_VERSION}-${env:PROTOC_PLATFORM}.zip\" -OutFile $zip"
     },
     {
       "file": ".github/workflows/build-mesh-companion.yml",
-      "line": 132,
+      "line": 139,
       "reference": "& python -m pip install -r magic-cluster/apps/ai/private-mesh/requirements.txt pyinstaller==6.22.3"
     },
     {
       "file": ".github/workflows/build-mesh-companion.yml",
-      "line": 149,
+      "line": 156,
       "reference": "git -c core.autocrlf=false -c core.longpaths=true clone --depth 1 --branch v0.76.2 https://github.com/Mesh-LLM/mesh-llm.git \"$RUNNER_TEMP/mesh-source\""
     },
     {
       "file": ".github/workflows/build-mesh-companion.yml",
-      "line": 170,
+      "line": 177,
       "reference": "& git -c core.autocrlf=false -c core.longpaths=true clone --depth 1 --branch v0.76.2 https://github.com/Mesh-LLM/mesh-llm.git $source"
     },
     {
       "file": ".github/workflows/build-mesh-companion.yml",
-      "line": 242,
+      "line": 246,
       "reference": "with: {python-version: '3.13'}"
     },
     {
@@ -2745,27 +2745,27 @@
     },
     {
       "file": "magic-cluster/platform/ai/realtime/image/Dockerfile.rocm",
-      "line": 33,
+      "line": 38,
       "reference": "&& python3 -m pip install --no-cache-dir 'setuptools>=77.0.3,<81' 'setuptools-scm>=8' wheel \\"
     },
     {
       "file": "magic-cluster/platform/ai/realtime/image/Dockerfile.rocm",
-      "line": 34,
+      "line": 39,
       "reference": "&& python3 -m pip install --no-cache-dir --no-build-isolation -c /tmp/rocm-constraints.txt . \\"
     },
     {
       "file": "magic-cluster/platform/ai/realtime/image/Dockerfile.rocm",
-      "line": 36,
+      "line": 41,
       "reference": "&& python3 -m pip install --no-cache-dir --no-deps --force-reinstall 'onnxruntime-rocm==1.22.2.post3'"
     },
     {
       "file": "magic-cluster/platform/ai/realtime/image/Dockerfile.rocm",
-      "line": 40,
+      "line": 45,
       "reference": "RUN apt-get update && apt-get install -y --no-install-recommends libcairo2-dev \\"
     },
     {
       "file": "magic-cluster/platform/ai/realtime/image/Dockerfile.rocm",
-      "line": 41,
+      "line": 46,
       "reference": "&& python3 -m pip install --no-cache-dir 'pycairo==1.28.0' \\"
     },
     {

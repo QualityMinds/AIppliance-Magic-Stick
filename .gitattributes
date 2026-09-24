@@ -2,6 +2,9 @@ magic-cluster/platform/basis/kdns/patches/*.patch -whitespace
 magic-cluster/platform/gpu/amd-gpu-operator/patches/*.patch -whitespace
 *.pdf binary
 *.pptx binary
+# The dependency inventory hashes this file byte-for-byte on every platform.
+# Do not let Git for Windows rewrite its checkout as CRLF.
+dashboard/pnpm-lock.yaml text eol=lf
 # Preserve upstream license text verbatim, including whitespace and RST headings.
 # Real merge conflicts in these files use longer markers instead of Authors' =======.
 licenses/third-party/*.txt -whitespace conflict-marker-size=32

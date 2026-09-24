@@ -3,6 +3,7 @@ import contextlib
 import io
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -15,6 +16,37 @@ from license_audit import (REQUIRED_GATES, REQUIRED_NOTICES, main, notice_checks
 
 
 class LicenseAuditTests(unittest.TestCase):
+    def test_lockfile_checkout_preserves_lf_with_windows_conversion(self):
+        """Exercise Git's real Windows-style filter, not a string-only assertion."""
+        root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as directory:
+            checkout = Path(directory)
+
+            def git(*args):
+                return subprocess.run(["git", *args], cwd=checkout, check=True,
+                                      capture_output=True, text=True)
+
+            git("init", "-q")
+            git("config", "core.autocrlf", "true")
+            (checkout / ".gitattributes").write_bytes((root / ".gitattributes").read_bytes())
+            lock = checkout / "dashboard/pnpm-lock.yaml"
+            lock.parent.mkdir()
+            content = b"lockfileVersion: '9.0'\nsettings:\n  autoInstallPeers: true\n"
+            lock.write_bytes(content)
+            control = checkout / "unrestricted.txt"
+            control.write_bytes(b"ordinary\ntext\n")
+            expected = checksum(lock)
+            git("-c", "core.safecrlf=false", "add", ".")
+            lock.unlink()
+            control.unlink()
+            git("checkout-index", "--all", "--force")
+            self.assertEqual(control.read_bytes(), b"ordinary\r\ntext\r\n")
+            self.assertEqual(lock.read_bytes(), content)
+            self.assertEqual(checksum(lock), expected)
+            # Line-ending policy must not make real dependency drift invisible.
+            lock.write_bytes(content.replace(b"true", b"false"))
+            self.assertNotEqual(checksum(lock), expected)
+
     def test_runtime_lock_is_included_in_deployment_evidence(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -124,8 +124,8 @@ jobs:
           tags: ${{ env.TEST_IMAGE }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: OMNI_REVISION=${{ steps.runtime.outputs.omni_revision }}
-          cache-from: type=gha,scope=magicstick-omni-rocm
-          cache-to: type=gha,mode=max,scope=magicstick-omni-rocm
+          # A missing public cache is a cold build, never a reason to skip checks.
+          cache-from: type=registry,ref=${{ env.IMAGE_NAME }}:buildcache-${{ github.ref_name }}
           provenance: false
       - name: Check installed pipeline and stage arguments offline
         run: |
@@ -175,6 +175,9 @@ jobs:
           build-args: OMNI_REVISION=${{ steps.runtime.outputs.omni_revision }}
           provenance: mode=max
           sbom: true
+          # Reuse GHCR layers; do not upload the huge intermediate graph to GHA.
+          # Export only after runtime/license checks, separately for each branch.
+          cache-to: type=registry,ref=${{ env.IMAGE_NAME }}:buildcache-${{ github.ref_name }},mode=min,image-manifest=true,oci-mediatypes=true,ignore-error=true
       - name: Attest the published runtime digest
         if: github.event_name != 'workflow_dispatch' || inputs.publish
         uses: actions/attest@v4

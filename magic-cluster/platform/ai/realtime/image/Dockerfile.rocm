@@ -27,6 +27,11 @@ RUN git init . && git remote add origin https://github.com/vllm-project/vllm-omn
     && test "$(git rev-parse HEAD)" = "${OMNI_REVISION}" \
     && git describe --tags --match 'v[0-9]*' HEAD
 
+# The pinned Omni CUDA shutdown patch imports CuMemAllocator on HIP too.
+# Repair only the reviewed source, before it is installed into the runtime wheel.
+COPY magic-cluster/platform/ai/realtime/image/patch_rocm_import.py /tmp/magicstick-patch-rocm-import.py
+RUN python3 /tmp/magicstick-patch-rocm-import.py --source-root /opt/vllm-omni
+
 # Keep the ROCm PyTorch/vLLM ABI supplied by the immutable base. In particular,
 # never let the dependency resolver replace it with a PyPI CUDA torch wheel.
 RUN python3 -c 'import importlib.metadata as m; from pathlib import Path; Path("/tmp/rocm-constraints.txt").write_text("\n".join(n+"=="+m.version(n) for n in ("torch", "torchaudio", "torchvision", "vllm"))+"\n")' \
@@ -46,9 +51,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends libcairo2-dev \
 RUN --mount=type=cache,id=magicstick-omni-rocm-torchcodec,target=/root/.cache/torchcodec-wheels \
     bash tools/install_torchcodec_rocm.sh
 
-RUN python3 -c 'import importlib.metadata as m; import torch, vllm; from vllm.v1.kv_cache_interface import compute_layout_strides; from vllm.v1.kv_cache_layout import KVCacheLayout; from torchcodec.decoders import VideoDecoder; assert torch.version.hip and not torch.version.cuda; assert vllm.__version__.startswith("0.29."); assert m.version("vllm-omni").startswith("0.29.")' \
+COPY magic-cluster/platform/ai/realtime/image/verify_rocm_imports.py /usr/local/libexec/magicstick/verify_rocm_imports.py
+# Fail on actual runtime imports before loading/exporting the large image/cache.
+RUN --network=none python3 /usr/local/libexec/magicstick/verify_rocm_imports.py \
     && python3 -m pip check \
-    && rm -rf .git /tmp/rocm-constraints.txt
+    && rm -rf .git /tmp/rocm-constraints.txt /tmp/magicstick-patch-rocm-import.py
 
 COPY LICENSE LICENSING.md THIRD_PARTY_NOTICES.md /usr/local/share/licenses/magicstick/
 COPY LICENSE-RELEASE.json /usr/local/share/licenses/magicstick/

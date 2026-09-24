@@ -70,6 +70,21 @@ class RepositoryHygieneTests(unittest.TestCase):
             for path in ('tools/docs.py', 'tools/release.py', 'tools/update_runtime_images.py'):
                 self.assertFalse(selected(path, patterns), path)
 
+    def test_mesh_companion_checks_checkout_before_expensive_builds(self):
+        definition = workflow('build-mesh-companion')
+        for event in ('push', 'pull_request'):
+            self.assertTrue(selected('.gitattributes', definition['on'][event]['paths']))
+        steps = definition['jobs']['build']['steps']
+        license_check = next(i for i, step in enumerate(steps)
+                             if 'tools/license_audit.py --review' in step.get('run', ''))
+        self.assertIn('test_lockfile_checkout_preserves_lf_with_windows_conversion',
+                      steps[license_check]['run'])
+        dependencies = next(i for i, step in enumerate(steps) if step.get('name') == 'Build dependencies')
+        native = next(i for i, step in enumerate(steps) if step.get('name') == 'Build pinned Windows private transport')
+        self.assertLess(license_check, dependencies)
+        self.assertLess(license_check, native)
+        self.assertNotIn('continue-on-error', steps[license_check])
+
     def test_development_builds_do_not_publish_production_aliases(self):
         for name in ('build-dashboard-image', 'build-mesh-image', 'build-amd-dra-image',
                      'build-freetoken-image', 'build-omni-rocm-image', 'build-kdns-image',

@@ -20,6 +20,10 @@ available, the audit Python environment and deployment/build references.
 Platform-specific npm packages that are not installed locally are explicitly
 `lock-only`, not cleared. The inventory checksums both the pnpm lockfile and the
 deployment/build references; dependency changes invalidate the saved inventory.
+The lockfile has an explicit `text eol=lf` Git attribute so a Windows checkout
+produces the same bytes as Linux/macOS. Checksums remain byte-exact; real lockfile
+changes still invalidate the inventory. The companion workflow checks this
+contract and source consistency before compiling or packaging any client.
 It is not a complete container, Helm or installer SBOM. The recurring workflow
 below extends it with actual artifact scans and retains unresolved coverage.
 

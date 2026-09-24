@@ -3,6 +3,7 @@ on:
   push:
     branches: [main, develop]
     paths:
+      - .gitattributes
       - .github/workflows/build-mesh-companion.yml
       - magic-cluster/apps/ai/private-mesh/**
       - core/magicstick_core/private_mesh/**
@@ -15,6 +16,7 @@ on:
       - tools/license_*.py
   pull_request:
     paths:
+      - .gitattributes
       - .github/workflows/build-mesh-companion.yml
       - magic-cluster/apps/ai/private-mesh/**
       - core/magicstick_core/private_mesh/**
@@ -85,6 +87,11 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@v5
         with: {python-version: '3.13'}
+      - name: Check source licensing and report open reviews
+        shell: bash
+        run: |
+          python -m unittest tests.test_license_audit.LicenseAuditTests.test_lockfile_checkout_preserves_lf_with_windows_conversion
+          python tools/license_audit.py --review 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Build dependencies
         if: runner.os != 'Windows'
         shell: bash
@@ -199,9 +206,6 @@ jobs:
             --platform "$TARGET_PLATFORM" \
             --revision "$GITHUB_SHA" \
             --native-source "$RUNNER_TEMP/mesh-source"
-      - name: Check source licensing and report open reviews
-        shell: bash
-        run: python tools/license_audit.py --review 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Publish client artifact
         id: artifact
         uses: actions/upload-artifact@v4

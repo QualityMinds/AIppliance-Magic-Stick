@@ -8,7 +8,15 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
-No unreleased changes recorded.
+### Fixed
+
+- Keep the dashboard lockfile byte-identical on Windows checkouts and check the
+  companion's source inventory before expensive compilation/packaging.
+- Guard the pinned Omni CUDA-only shutdown repair on HIP/CPU builds, and check
+  real ROCm/Omni imports before exporting an image. Unknown upstream source fails
+  closed; actual GPU/audio acceptance remains separate.
+- Replace the large pre-test GitHub Actions cache export with a final-layer,
+  branch-scoped registry cache written only after runtime and source checks.
 
 ## v0.1.0 - 2026-09-24
 

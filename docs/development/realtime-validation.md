@@ -1,5 +1,16 @@
 # Realtime validation
 
+## ROCm build checks
+
+The [ROCm image workflow](../../magic-cluster/platform/ai/realtime/README.md#ci-build-and-publication)
+checks real installed Omni imports during the Docker build, before exporting the
+large image or a cache. A hash-bound repair skips the pinned upstream's
+CUDA-only shutdown patch on HIP/CPU builds; it does not mock a GPU or suppress
+runtime errors. The generated one-/two-device stage-contract tests still run
+after the build. Registry caches are branch-specific, contain final-image layers
+only, and are written only after successful checks. None of these checks replaces
+GPU or audio acceptance below.
+
 ## Protocol limits and acceptance
 
 The selected Qwen plugin supports audio/text turns, server VAD or explicit
