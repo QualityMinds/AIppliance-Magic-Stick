@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "unreleased",
+  "version": "v0.1.0",
   "gates": [
     {"id": "legal-grant", "status": "requires-legal-review", "description": "Approve Additional Use Grant, group/revenue definition, commercial agreement and per-version Change Date mechanism.", "evidence": "docs/license-audit.md"},
     {"id": "ownership", "status": "requires-legal-review", "description": "Confirm rights to license every owned contribution and marketing asset, excluding all upstream materials.", "evidence": "docs/license-audit.md"},

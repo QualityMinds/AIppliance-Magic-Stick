@@ -2,16 +2,113 @@
 
 Notable public changes to AIppliance-Magic-Stick should be recorded here.
 
-The project follows a lightweight changelog style. Until a versioning policy is
-formalized, release entries should group changes under:
-
-- Added
-- Changed
-- Fixed
-- Removed
-- Security
+Versioned entries contain curated release scope, installation links and known
+limitations. Detailed pre-versioned notes are retained separately below. See the
+[release procedure](docs/development/releases.md) for channels and publication.
 
 ## Unreleased
+
+No unreleased changes recorded.
+
+## v0.1.0 - 2026-09-24
+
+Magic Stick's first versioned **Early Access** release brings installation,
+local AI inference and day-to-day administration together in one dashboard.
+This is a baseline for evaluation on your own infrastructure, not a promise of
+universal GPU/model compatibility or production acceptance for every feature.
+
+### Highlights
+
+- **Install without a local build.** Download the existing Ubuntu 26.04.1 AMD64
+  online USB installer, verify its checksum and write it with a raw-image USB
+  writer. The installer includes network/mirror configuration and protected
+  first-administrator setup; no shared dashboard password is supplied.
+- **Manage models in one place.** Ollama, vLLM and FreeToken use the common model
+  workflow on eligible hardware, with engine-specific configuration, resource
+  planning, Start/Stop/Restart, editing and pod logs. LiteLLM provides the shared
+  OpenAI-compatible inference entry point.
+- **Understand and manage the hardware.** View CPU/GPU memory and allocation
+  slots, configure supported AMD DRA or NVIDIA time-slicing modes, and use
+  optional engine validation. Strix Halo preparation and shared-memory controls
+  remain an explicit hardware-specific path.
+- **Operate the appliance.** Manage local users, groups, applications, API access,
+  network settings, model caches, host preparation and power actions. Native
+  Ubuntu security maintenance has a configurable policy; automatic computer
+  restarts are not enabled by default.
+- **Connect users and devices.** Resource Sharing and opt-in Private Mesh are
+  core features. Federated SSO requires a valid license activation; the canonical
+  license terms determine production-use eligibility.
+- **Follow one handbook.** The English Markdown guides and searchable website
+  share a source, with installation walkthroughs, reviewed dashboard screenshots,
+  architecture diagrams and separate technical references.
+
+### Download and install
+
+- [USB installation guide](https://qualityminds.github.io/AIppliance-Magic-Stick/handbook/installation/bare-metal/)
+- [Existing online installer and verification files](https://github.com/QualityMinds/AIppliance-Magic-Stick/releases/tag/installer-main-ff5fe42eb807315ead9b6a25d7ed561447e23e620975c49f578c4d752cccfd89)
+- [Download the AMD64 .img](https://github.com/QualityMinds/AIppliance-Magic-Stick/releases/download/installer-main-ff5fe42eb807315ead9b6a25d7ed561447e23e620975c49f578c4d752cccfd89/magicstick-installer-main-amd64-online-ff5fe42eb807315e.img)
+- [Download its SHA-256 file](https://github.com/QualityMinds/AIppliance-Magic-Stick/releases/download/installer-main-ff5fe42eb807315ead9b6a25d7ed561447e23e620975c49f578c4d752cccfd89/magicstick-installer-main-amd64-online-ff5fe42eb807315e.img.sha256)
+
+The image is **1,722,220,544 bytes (about 1.60 GiB)**. Its SHA-256 is
+`b03edf5aa58600fa740d66a0c85efb6488058b8e9adc20c10a57ccd047f37636`.
+It is reused unchanged, not rebuilt or renamed for this release. Its original
+build manifest and integrity evidence remain on the linked installer release.
+
+Internet access is required for packages, container images, charts and model
+downloads. Back up the target computer before installation. The product tag
+freezes the source snapshot; this installer bootstraps the **current `main`**
+channel, not a fully frozen v0.1.0 appliance. See
+[release channels and pinning](https://qualityminds.github.io/AIppliance-Magic-Stick/handbook/administration/updates-rollback/#release-channels).
+
+### Validation and known limitations
+
+- On 24 September 2026, the project owner reported a successful online
+  installation and confirmed the release smoke test: dashboard login, model
+  start, an API request, log viewing and model stop. These are owner-reported
+  appliance results, not tests rerun by the release automation; no complete
+  per-engine/per-GPU matrix or independent test logs were supplied.
+  See the [acceptance record](https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/v0.1.0/docs/development/reports/release-v0.1.0-2026-09-24.md).
+- Source/release checks and browser tests use their documented scopes. Browser
+  fixtures do not establish real GPU inference, identity-provider recovery or
+  multi-appliance Mesh acceptance. The broader acceptance and artifact-review
+  items remain visible in the
+  [release checklist](https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/v0.1.0/docs/development/release-checklist.md)
+  and [audit](https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/v0.1.0/docs/development/license-audit.md).
+- Hardware and model compatibility depend on the selected engine, architecture,
+  drivers and runtime. FreeToken uses its restricted NVIDIA capability policy
+  and whole-GPU allocation; it does not use AMD GPUs or NVIDIA time-slicing
+  slots. See the
+  [versioned compatibility reference](https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/v0.1.0/docs/reference/compatibility.md).
+- GPU sharing does not add VRAM or provide hard per-model memory isolation.
+  Memory estimates and reservations are not proof that every workload fits.
+- Realtime is a separate experimental vLLM-Omni path. Chat API compatibility is
+  not a claim of Realtime support in Ollama or FreeToken. Only the configured
+  NVIDIA Realtime profile has a bundled runtime image in this baseline.
+- There is no appliance-wide one-click backup/restore or factory reset. Platform
+  reconciliation does not upgrade the Ubuntu release. Backups and hardware-
+  specific recovery plans remain the administrator's responsibility.
+
+### Release channels and licensing
+
+`main` remains the default installation/release channel. `develop` starts from
+the v0.1.0 source baseline for explicit development opt-in; existing appliances
+are not switched. A source update on `main` is already eligible for Flux
+reconciliation, independently of creating a GitHub Release. This release does
+not perform a manual appliance rollout or promote new runtime image digests.
+
+Magic Stick-owned source uses
+[BSL 1.1 and its Additional Use Grant](https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/v0.1.0/LICENSE).
+The version's publication/Change Date is retained in
+[LICENSE-RELEASE.json](https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/v0.1.0/LICENSE-RELEASE.json).
+Third-party components and models keep their own terms. Open legal, notice and
+artifact reviews remain advisory review work, not fabricated approvals or a
+blanket distribution clearance.
+
+## Pre-versioned development
+
+The following notes retain the development history before v0.1.0. They are not
+pending changes or an acceptance checklist; versioned release notes above define
+the reviewed release scope and its known limitations.
 
 ### Added
 
