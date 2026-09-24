@@ -29,19 +29,27 @@ navigation. Each section's README is the GitHub entry point.
 The current handbook images in `docs/assets/screenshots/` were captured from an
 authenticated test appliance on 24 September 2026, at the owner's request. The
 [capture manifest](../assets/screenshots/captures.json) records each view and its
-integrity hash. An image's optional `source` object replaces the top-level source
-for that capture session; older images retain their original provenance. The
+integrity hash. An image's optional `source` object, or its `sourceSession` key
+under `sourceSessions`, replaces the top-level source for that capture session;
+older images retain their original provenance. The
 visible Services page reported the applied control-plane
 revision recorded there; this is not an independent attestation of the running
 dashboard image. These images are distinct from the marketing site's older
 [fixture-based captures](website.md).
 
-- Navigate and expand sections only. Opening an unsubmitted creation dialog is
-  acceptable; do not create, stop, restart or remove models or change settings
-  merely to arrange a screenshot.
+- Default to read-only navigation and unsubmitted forms. Start test models only
+  with explicit owner authorization, recorded in the capture session. Use a small,
+  neutral-named model and the least resource-intensive adequate target; leave
+  unrelated workloads and system settings alone. Stop the test runtime afterwards
+  and record whether its saved definition and download cache remain.
 - Capture only the relevant panel. Exclude browser chrome, signed-in identities,
-  personal instance names, internal addresses, identifiers, credentials and logs.
+  personal instance names, internal addresses, identifiers and credentials.
   Do not open credential, API-key or kubeconfig views for public captures.
+- A log screenshot needs its own `privacyReview`. Use only inspected output from
+  the authorized test model, crop away host details and internal addresses, and
+  exclude prompts, responses and secrets. Do not present a healthy startup excerpt
+  as failure evidence or a benchmark. Per-image privacy reviews override the
+  manifest's default review; text scanners cannot inspect the pixels.
 - Review every final image visually before publishing. Cropping and WebP encoding
   are allowed; do not retouch values, replace statuses or describe a live capture
   as a synthetic fixture. The recorded numeric values are dated illustrations.

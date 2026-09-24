@@ -9,6 +9,27 @@
     "actions": ["navigate", "expand sections", "open and close an unsubmitted model form"],
     "configurationOrWorkloadChanges": false
   },
+  "sourceSessions": {
+    "model-workflow-2026-09-24": {
+      "kind": "owner-authorized live test model workflow",
+      "browser": "Chrome",
+      "observedAppliedControlPlaneRevision": "0f8f769490f3348484f7dab942a02dccdc6b5ac1",
+      "dashboardImageVerification": "not independently verified by this capture session",
+      "configurationOrWorkloadChanges": true,
+      "authorization": "The owner explicitly requested starting test models as needed for real dashboard screenshots.",
+      "workloadScope": "One new, neutral-named CPU Ollama test model; no existing models, applications, GPU settings or network settings changed.",
+      "actions": [
+        "check available memory and disk space",
+        "create a small documentation-only CPU model and observe Ready",
+        "inspect and crop its initialization logs",
+        "open and cancel model editing and application creation forms",
+        "view unchanged AMD and NVIDIA sharing controls",
+        "open and cancel DHCP and empty WPA configuration drafts",
+        "stop the documentation model and observe Disabled"
+      ],
+      "cleanup": "Test runtime stopped; saved model definition and downloaded Ollama cache retained. Shared caches were not cleared."
+    }
+  },
   "processing": {
     "capture": "focused browser screenshot crops",
     "encoding": "WebP quality 92, metadata removed",
@@ -105,6 +126,97 @@
         "configurationOrWorkloadChanges": false,
         "modelSelected": false
       }
+    },
+    {
+      "file": "model-ready.webp",
+      "view": "Models / Installed Models, ready documentation test model and lifecycle actions",
+      "sourceSession": "model-workflow-2026-09-24",
+      "guides": ["user-guide/models/manage.md"],
+      "width": 1049,
+      "height": 254,
+      "sha256": "4cf2f0487e2e3d6693080806423d3103a0219be01e1ca702f99d643b39a532f7"
+    },
+    {
+      "file": "model-stopped.webp",
+      "view": "Models / Installed Models, documentation test model after Stop with Start available",
+      "sourceSession": "model-workflow-2026-09-24",
+      "guides": ["user-guide/models/manage.md"],
+      "width": 1049,
+      "height": 254,
+      "sha256": "a3d6240f1f968a8ea2b6c4cc9705b9d5bb786847369c1835176bc0cd2f54c141"
+    },
+    {
+      "file": "model-edit.webp",
+      "view": "Models / Edit, unchanged main parameters of the stopped documentation test model",
+      "sourceSession": "model-workflow-2026-09-24",
+      "guides": ["user-guide/models/manage.md"],
+      "width": 900,
+      "height": 407,
+      "sha256": "44f3bbe780bd558759675f5f2aa789afc48e4d445ea1b371f06fb54dd8790a52"
+    },
+    {
+      "file": "model-logs.webp",
+      "view": "Models / Logs, CPU context and KV-cache initialization excerpt",
+      "sourceSession": "model-workflow-2026-09-24",
+      "guides": ["administration/troubleshooting/models.md"],
+      "width": 828,
+      "height": 524,
+      "sha256": "c65c95e600a4da93563b99631a423fe3555019c4f4d465014a3c9423e9961a54",
+      "privacyReview": {
+        "reviewedVisually": true,
+        "included": "Only CPU context and KV-cache initialization from the authorized test model.",
+        "excluded": [
+          "Pod and host identifiers",
+          "internal IP addresses, network configuration and environment dumps",
+          "user prompts, model responses, credentials and secrets"
+        ],
+        "numericValues": "Dated initialization output, not a performance benchmark or sizing recommendation."
+      }
+    },
+    {
+      "file": "application-create.webp",
+      "view": "Services / Create Instance, unsubmitted neutral draft using the ready documentation model",
+      "sourceSession": "model-workflow-2026-09-24",
+      "guides": ["user-guide/applications.md"],
+      "width": 900,
+      "height": 506,
+      "sha256": "91bc8b2f81d3032522a3f2e056fd0f6bde7dd2c6301fb38d8638badaed400b2d"
+    },
+    {
+      "file": "gpu-sharing-amd.webp",
+      "view": "System / Hardware / AMD / GPU sharing, unchanged existing shared configuration",
+      "sourceSession": "model-workflow-2026-09-24",
+      "guides": ["administration/gpu-sharing.md"],
+      "width": 975,
+      "height": 141,
+      "sha256": "302b31ef4a5e361c8716adf6cf14ca5a39ba283c4386860a11d69b9642ea88ba"
+    },
+    {
+      "file": "gpu-sharing-nvidia.webp",
+      "view": "System / Hardware / NVIDIA / GPU sharing, unchanged exclusive configuration",
+      "sourceSession": "model-workflow-2026-09-24",
+      "guides": ["administration/gpu-sharing.md"],
+      "width": 990,
+      "height": 241,
+      "sha256": "4dccbeb1e4717e6ca4b84a412c547ac8b958ad8ea8585cfdd8e5652db06f4890"
+    },
+    {
+      "file": "network-dhcp.webp",
+      "view": "System / Settings / Network, unchanged Ethernet DHCP form",
+      "sourceSession": "model-workflow-2026-09-24",
+      "guides": ["administration/network.md"],
+      "width": 961,
+      "height": 227,
+      "sha256": "5c0753249e5851a3424e5762f1e720c03b820f4bdc1e97c8d34fe58af208dd41"
+    },
+    {
+      "file": "network-wifi.webp",
+      "view": "System / Settings / Network, cancelled empty Wi-Fi WPA-personal draft",
+      "sourceSession": "model-workflow-2026-09-24",
+      "guides": ["administration/network.md"],
+      "width": 961,
+      "height": 384,
+      "sha256": "11697a9b1bb5c1463f84df2314c53d9bd3c13c34c0dc7c4f861aeab77f92c854"
     }
   ]
 }

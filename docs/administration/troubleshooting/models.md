@@ -1,5 +1,22 @@
 # Model startup and lifecycle
 
+## Read runtime logs in the dashboard
+
+1. Open **Models** and choose **Logs** on the affected model card.
+2. Expand its Pod and inspect the relevant container's **Current run**. Previous
+   output is also shown when available after a container restart.
+3. Read the first actionable error, not only the final readiness timeout. Use
+   **Refresh** for another bounded snapshot; this is not a complete log archive.
+4. Review any copied output before sharing it. Logs can contain user input,
+   credentials or internal addresses.
+
+[![Runtime log excerpt showing an Ollama container's context and CPU KV-cache initialization.](../../assets/screenshots/model-logs.webp)](../../assets/screenshots/model-logs.webp)
+
+*Live excerpt from the owner-authorized CPU test model, 24 September 2026. This
+healthy initialization example shows where to inspect output, not an error or a
+performance benchmark. Pod/host details, internal addresses and input content
+are outside the crop.*
+
 ## Stop and resume models
 
 In **Models → Installed Models**, operators and administrators can use **Stop**

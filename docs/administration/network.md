@@ -7,6 +7,20 @@ IPv4 settings; for Wi-Fi, select or enter the network name and credentials.
 After applying, verify connectivity and choose **Keep this network configuration**
 within three minutes. Without confirmation the worker restores the old settings.
 
+## Configuration forms
+
+[![Ethernet configuration form with automatic DHCP, route metric and optional DNS servers.](../assets/screenshots/network-dhcp.webp)](../assets/screenshots/network-dhcp.webp)
+
+*Unchanged Ethernet form, 24 September 2026. With DHCP selected, leaving DNS empty
+uses the automatically supplied values. Interface identifiers and addresses are
+outside the crop; no network change was submitted.*
+
+[![Wi-Fi configuration draft with empty SSID and password fields, WPA personal, hidden network, DHCP and route metric.](../assets/screenshots/network-wifi.webp)](../assets/screenshots/network-wifi.webp)
+
+*Unsubmitted Wi-Fi draft on the same test appliance, 24 September 2026. WPA
+personal was selected only to show its fields. No SSID or password was entered;
+the draft was cancelled without scanning, enabling the radio or connecting.*
+
 <a id="scope-and-implementation-plan"></a>
 
 ## Supported configuration

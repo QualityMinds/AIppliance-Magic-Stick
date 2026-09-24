@@ -15,10 +15,38 @@ without a Magic Stick activation can be read-only.
 | Logs | Shows bounded logs from the selected activation's local Pods/containers, including startup failures. |
 | Remove | Deletes the model activation and its managed runtime. This is not the same as clearing downloaded caches. |
 
+[![Ready CPU model with its saved parameters and Edit, Stop, Logs and Remove buttons.](../../assets/screenshots/model-ready.webp)](../../assets/screenshots/model-ready.webp)
+
+*Live test-appliance capture, 24 September 2026. This small, owner-authorized
+test model illustrates the controls; its parameters are not sizing recommendations.*
+
 The common **Start/Stop** workflow covers Ollama, vLLM, FreeToken, Realtime and
 external activations. For external models it changes local routing only.
 Restart controls depend on the engine; Stop followed by Start is the common
 reload workflow when no separate Restart action is offered.
+
+## Stop and start again
+
+Choose **Stop** on the model card and wait for **Disabled**. The button then
+changes to **Start**. Starting uses the saved configuration; you do not need to
+find the checkpoint or enter its parameters again.
+
+[![The same model after stopping, with Disabled status and a Start button.](../../assets/screenshots/model-stopped.webp)](../../assets/screenshots/model-stopped.webp)
+
+*The same test model after Stop, 24 September 2026. The displayed RAM reservation
+has been released; the model definition and its configured budget are retained.*
+
+## Edit runtime parameters
+
+Choose **Edit**, adjust the supported fields, and review the memory budget before
+selecting **Save changes**. The model source, engine and hardware target remain
+unchanged in this dialog. Saving runtime-affecting settings can restart the model.
+
+[![Model editing dialog with type, context size, output limit, concurrency and KV-cache settings.](../../assets/screenshots/model-edit.webp)](../../assets/screenshots/model-edit.webp)
+
+*Unchanged editing form for the stopped test model, 24 September 2026. This crop
+shows the main parameters; memory controls and the save action continue below.
+No edits were saved for this capture.*
 
 ## Check the result
 

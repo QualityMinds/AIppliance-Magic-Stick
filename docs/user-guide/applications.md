@@ -15,6 +15,12 @@ model when the selected application needs inference.
 3. Review model selection, storage, access requirements and generated local/public URLs.
 4. Wait for the instance to be ready, then open its discovered URL.
 
+[![Create Instance dialog with a ready model selected, SSO protection, minimum role, exposure and instance sharing controls.](../assets/screenshots/application-create.webp)](../assets/screenshots/application-create.webp)
+
+*Unsubmitted test-appliance form, 24 September 2026. The selected model is the
+documentation test model; the neutral instance name is only a draft. No
+application or access-policy change was submitted for this capture.*
+
 Use **Credentials** only when the application exposes a credential panel and your
 role permits access. A URL being present does not bypass SSO or instance access rules.
 See [sharing](sharing.md) to grant selected users or groups access.

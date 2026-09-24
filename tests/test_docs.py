@@ -120,6 +120,7 @@ class DocumentationTests(unittest.TestCase):
         directory = docs.DOCS / 'assets/screenshots'
         manifest = json.loads((directory / 'captures.json').read_text())
         entries = manifest['images']
+        sessions = manifest.get('sourceSessions', {})
         self.assertEqual(manifest['schemaVersion'], 1)
         self.assertFalse(manifest['source']['configurationOrWorkloadChanges'])
         names = [entry['file'] for entry in entries]
@@ -128,10 +129,23 @@ class DocumentationTests(unittest.TestCase):
         for entry in entries:
             with self.subTest(image=entry['file']):
                 source = entry.get('source', manifest['source'])
-                self.assertFalse(source['configurationOrWorkloadChanges'])
+                if 'sourceSession' in entry:
+                    self.assertNotIn('source', entry)
+                    self.assertIn(entry['sourceSession'], sessions)
+                    source = sessions[entry['sourceSession']]
+                self.assertIsInstance(source['configurationOrWorkloadChanges'], bool)
+                if source['configurationOrWorkloadChanges']:
+                    for field in ('authorization', 'workloadScope', 'cleanup'):
+                        self.assertTrue(source[field])
                 self.assertTrue(source['kind'])
                 self.assertTrue(source['browser'])
                 self.assertTrue(source['actions'])
+                privacy = entry.get('privacyReview', manifest['privacyReview'])
+                self.assertTrue(privacy['reviewedVisually'])
+                self.assertTrue(privacy['excluded'])
+                if 'logs' in entry['file']:
+                    self.assertIn('privacyReview', entry)
+                    self.assertTrue(privacy['included'])
                 self.assertEqual(Path(entry['file']).name, entry['file'])
                 data = (directory / entry['file']).read_bytes()
                 self.assertEqual(data[:4], b'RIFF')

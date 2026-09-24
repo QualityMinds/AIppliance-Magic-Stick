@@ -24,6 +24,17 @@ form is never duplicated as independent controls on multiple same-vendor GPUs.
 Both sections start collapsed and can be opened independently.
 NVIDIA DRA, MIG and MPS are not enabled by these controls.
 
+[![NVIDIA GPU sharing with Exclusive, one model per GPU selected, and Apply disabled because nothing changed.](../assets/screenshots/gpu-sharing-nvidia.webp)](../assets/screenshots/gpu-sharing-nvidia.webp)
+
+*Unchanged NVIDIA configuration on the test appliance, 24 September 2026.
+Exclusive mode offers one model slot; opening this section did not apply a change.*
+
+[![AMD GPU sharing with Shared, multiple models selected and a maximum of four simultaneous models.](../assets/screenshots/gpu-sharing-amd.webp)](../assets/screenshots/gpu-sharing-amd.webp)
+
+*Existing AMD shared configuration on the same test appliance, 24 September 2026.
+Four slots are this device's saved setting, not the installation default or a
+guarantee that four arbitrary models fit. No sharing transition was requested.*
+
 ## Model-slot accounting
 
 Models shows a segmented outer GPU ring with free/total slots; memory rings
