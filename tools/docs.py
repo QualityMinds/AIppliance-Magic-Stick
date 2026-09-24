@@ -18,11 +18,18 @@ from urllib.request import Request, urlopen
 import markdown
 import yaml
 
+if __package__:
+    from . import docs_diagrams
+else:
+    import docs_diagrams
+
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / 'docs'
 OUT = ROOT / 'dist/docs-site'
 CATALOG = ROOT / 'magic-cluster/platform/magicstick-operator/compute-target-catalog.yaml'
 REPO = 'https://github.com/QualityMinds/AIppliance-Magic-Stick'
+MARKETING_PAGES = ('index.html', 'de.html', 'editions.html', 'editionen.html',
+                   'legal-notice.html', 'privacy.html')
 
 
 class Links(HTMLParser):
@@ -157,6 +164,7 @@ def nav_paths(value):
 
 def check():
     errors = check_links(source_files(), ROOT)
+    errors += docs_diagrams.check(DOCS / 'assets/diagrams')
     expected = compatibility()
     path = DOCS / 'reference/compatibility.md'
     if not path.exists() or path.read_text() != expected:
@@ -238,7 +246,7 @@ def build():
     if OUT.exists(): shutil.rmtree(OUT)
     OUT.mkdir(parents=True, exist_ok=True)
     subprocess.run([sys.executable, '-m', 'mkdocs', 'build', '--strict'], cwd=ROOT, check=True)
-    for name in ('index.html', 'legal-notice.html', 'privacy.html', 'site.css', 'site.js'):
+    for name in (*MARKETING_PAGES, 'site.css', 'site.js'):
         if name.endswith('.html'):
             (OUT / name).write_text(marketing_links((DOCS / name).read_text()))
         else:

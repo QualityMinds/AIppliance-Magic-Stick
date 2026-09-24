@@ -1,73 +1,146 @@
 # Marketing website maintenance
 
-The German marketing website uses plain HTML, CSS and JavaScript. The combined
-Pages build places it at the site root and the English Markdown handbook under
-`handbook/`. Both are static; readers need no application server or remote font
-service. The appliance dashboard is a separate application and is not changed by
-website updates. Follow [documentation maintenance](documentation.md) for the build,
-CI and the one-time switch of the Pages source to GitHub Actions.
+The public marketing site uses plain HTML, CSS and a small progressive-enhancement
+script. English is the default; German is an explicit language choice. The combined
+Pages build places these pages at the site root and the canonical English Markdown
+handbook under `handbook/`. There is no application server, remote font service,
+build-time frontend framework or analytics dependency. The appliance dashboard is
+a separate application and is not changed by website updates.
+
+Follow [documentation maintenance](documentation.md) for the combined build, CI
+and the one-time switch of the Pages source to GitHub Actions.
 
 ## Sources and structure
 
-- [index.html](../index.html): product story, model/resource/access features, application
-  use cases, operation, Free, Free Registered and Commercial licensing, installation routes, FAQ.
-- [site.css](../site.css): responsive dashboard-aligned navy/cyan/violet design, system fonts, focus
-  indicators, reduced-motion support, and print-independent browser layout.
-- [site.js](../site.js): mobile navigation and keyboard-accessible application tabs.
-  Without JavaScript, navigation and all application panels remain visible.
-- [legal-notice.html](../legal-notice.html) and [privacy.html](../privacy.html): existing
-  legal content with matching presentation. Styling updates are not legal review.
-- [assets/dashboard-overview.webp](../assets/dashboard-overview.webp): current React
-  dashboard overview, with neutral synthetic example data.
-- [assets/dashboard-models.webp](../assets/dashboard-models.webp): current model
-  management UI, with neutral synthetic CPU/GPU resource and model examples.
+| Source | Purpose |
+|---|---|
+| [index.html](../index.html) | English product homepage |
+| [de.html](../de.html) | Equivalent German homepage; handbook links are marked English |
+| [editions.html](../editions.html), [editionen.html](../editionen.html) | Licensing overview, eligibility and the actual request/activation workflow |
+| [site.css](../site.css) | Responsive dashboard-aligned navy/cyan/violet design, system fonts, visible focus and reduced motion |
+| [site.js](../site.js) | Mobile navigation and keyboard-accessible product tabs |
+| [assets/favicon.svg](../assets/favicon.svg) | Small self-contained site mark |
+| [legal-notice.html](../legal-notice.html), [privacy.html](../privacy.html) | Existing English legal content, unchanged by this redesign |
 
-Only implemented functionality is presented as available. Core functions include
-Resource Sharing and Private Mesh without a license file. Federated SSO requires
-Free Registered or Commercial activation. BSL production-use eligibility and
-the per-version MIT Change License are defined in [LICENSING.md](../../LICENSING.md).
+The homepage moves from the product definition through a three-step workflow,
+dashboard examples, use cases, hardware compatibility and day-to-day operations to
+installation, a short license summary and FAQ. The workflow is an ordinary ordered
+HTML list styled as a diagram, not a remote renderer or bitmap. The main starting
+point is the USB guide for a new dedicated physical server; VM, existing Ubuntu and
+existing Kubernetes routes remain directly available.
 
-The former dashboard screenshots and the September 1 sales deck are not used as
-current product visuals. The two new screenshots were captured on 2026-09-09 from
-the unmodified React dashboard at commit `28222ea`, rendered against a loopback-only,
-GET-only fixture API with no upstream appliance access. They are not live server
-measurements, sizing promises, or benchmarks; captions identify the example data.
-No screenshot pixels were generated or retouched. Both were encoded as WebP at
-quality 92, with full-size links retained for inspection.
+Keep both languages in sync when changing claims, links or sections. Language
+switches are ordinary links, with no geolocation, language auto-redirect, cookie or
+stored preference. Each page has a canonical URL, reciprocal English/German
+`hreflang` links, an English `x-default`, descriptive metadata and an existing
+screenshot as the social preview. Existing homepage fragment IDs remain available
+in both languages.
 
-For refreshes, use the current dashboard with neutral read-only fixtures based on
-`dashboard/apps/web/src/FeatureParity.test.tsx`, explicitly point
-`MAGICSTICK_API_PROXY` to that isolated local fixture server, reject writes and
-unknown endpoints, and inspect every image for private data. Do not use the Vite
-proxy's default live-appliance target for marketing captures. Use `demo-admin`,
-`example.local`, synthetic resource values, and no credentials. Capture Overview
-and Models through the browser, without changing the dashboard's UI or rendering.
+The source HTML links to canonical handbook Markdown. `tools/docs.py` converts
+these to `handbook/.../` links in the published artifact. Root repository files
+such as LICENSE and SUPPORT.md use explicit public GitHub links; they are not
+handbook pages. New marketing HTML must be included in `MARKETING_PAGES` and
+excluded from MkDocs in `mkdocs.yml`. Do not collide with legacy redirect routes
+from `docs/migration.json` (in particular `licensing.html`).
+
+## Product and license claims
+
+Only implemented functionality is presented as available. Use the current
+[compatibility reference](../reference/compatibility.md) and canonical user guides
+to verify claims. A listed engine path is not universal device/model support.
+Sharing does not increase physical VRAM or imply hard per-model memory isolation.
+Realtime remains a separate experimental path; chat compatibility does not imply
+Realtime support.
+
+Core functions include Resource Sharing and Private Mesh without a license file.
+Only Federated SSO requires Free Registered or Commercial activation. The technical
+edition does not decide legal eligibility. BSL production-use eligibility,
+third-party-service exclusions and the per-version MIT Change License remain
+defined by [LICENSE](../../LICENSE) and [LICENSING.md](../../LICENSING.md).
+
+The edition pages explain the existing unsigned request → private issuer review →
+signed upload → explicit activation workflow. They link to the published provider
+contact and [license-management guide](../administration/licenses.md), not an
+invented checkout, price, trial, automatic activation service or support guarantee.
+The site overview does not change the license or replace legal review.
+
+## Product screenshots
+
+The redesign reuses five unchanged, privacy-reviewed WebP captures from the
+owner-approved test appliance on 24 September 2026:
+
+| Image | Website placement |
+|---|---|
+| [model-ready.webp](../assets/screenshots/model-ready.webp) | Hero: model lifecycle actions |
+| [model-edit.webp](../assets/screenshots/model-edit.webp) | Models tab: unchanged edit form |
+| [models-memory.webp](../assets/screenshots/models-memory.webp) | Hardware tab: memory and slots |
+| [application-create.webp](../assets/screenshots/application-create.webp) | Apps & access tab: unsubmitted application draft |
+| [model-cache.webp](../assets/screenshots/model-cache.webp) | Operations: disk and cache visibility |
+
+The [capture manifest](../assets/screenshots/captures.json) is the provenance and
+integrity source. Captions identify the date and example nature of values; these
+are not sizing recommendations or benchmarks. The hero shows a clipped detail on
+narrow layouts and links to the full unchanged image. Other images scale to the
+layout and also retain full-size links. Dimensions are declared to reserve space.
+Only the hero image loads eagerly; secondary images load lazily.
+
+No new live-appliance access, workload changes, image generation or pixel
+retouching is needed to rebuild this site. For refreshes, follow the
+[handbook screenshot rules](documentation.md#handbook-screenshots): default to
+read-only navigation and unsubmitted drafts, get specific approval before starting
+test workloads, review final pixels for private data, and update the manifest.
+Do not expose personal model names, credentials, internal addresses or browser
+chrome.
+
+The older `assets/dashboard-overview.webp` and `assets/dashboard-models.webp`
+remain for historical references but are not current landing-page visuals. They
+were captured on 2026-09-09 from the unmodified dashboard at commit `28222ea`
+against a loopback-only, GET-only synthetic fixture API. They must not be described
+as live measurements. The older sales deck also remains a dated artifact.
 
 ## Preview and checks
 
-From the repository root:
+From the repository root, after installing the
+[documentation build dependencies](documentation.md#build-and-preview):
 
 ```sh
+.build/docs-venv/bin/python -m unittest tests.test_docs tests.test_website
 .build/docs-venv/bin/python tools/docs.py build
-python3 -m http.server 8765 --bind 127.0.0.1 --directory dist/docs-site
 node --check docs/site.js
-git diff --check
+python3 -m http.server 8765 --bind 127.0.0.1 --directory dist/docs-site
+```
+
+Open `http://127.0.0.1:8765/`. To preview only the unbuilt marketing layout, serve
+`docs/`; Markdown links remain source links until the combined build resolves them.
+
+Before publishing:
+
+1. Check all four new pages at desktop, tablet and mobile widths, including 320px.
+   Check actual document width as well as visual layout; a deliberately clipped hero
+   image must not make the page scroll horizontally.
+2. Exercise every product tab by mouse and ArrowLeft/ArrowRight/Home/End. Confirm
+   selected state, visible panel and focus agree. Check the mobile menu, link-close
+   behavior and Escape-to-close with focus returned to its button.
+3. Check language switching, installation routes, licensing/contact, FAQ and
+   full-size screenshots. Confirm the built page links into the handbook correctly.
+4. Disable JavaScript and reload: navigation and all three product panels must
+   remain readable; FAQ uses native details/summary. Restore browser settings.
+5. Check missing images, browser errors, visible focus and reduced-motion behavior.
+6. Run `git diff --check` and the public release scan below. A text scan does not
+   replace screenshot privacy review.
+
+```sh
 gitleaks detect --source . --config .gitleaks.toml --no-git --redact
 ```
 
-Install the [documentation build dependencies](documentation.md#build-and-preview)
-first. To preview only the unbuilt marketing layout, serve `docs/`; its Markdown
-links are source links until the combined build resolves them to handbook URLs.
+The documentation CI runs both test modules and the complete static build. The
+website tests cover language/metadata, source links, existing anchors, progressive
+markup, reviewed image dimensions, authoritative license links and build routing.
+They do not prove visual fit or interaction behavior: those need a browser.
 
-Open `http://127.0.0.1:8765/`. Check desktop and mobile widths, missing images,
-horizontal overflow, all relative files and fragment links, the mobile menu,
-Escape to close it, and the application tabs with arrow/Home/End keys. Keep the
-site fully readable without JavaScript. Follow the
-[public release checklist](release-checklist.md) before publishing.
-
-After a push, confirm that the latest Pages build succeeded for the exact commit
-and that the published HTML and assets match it. No dashboard/container rollout is
-required for a website-only change.
+Follow the [public release checklist](release-checklist.md). After a push, confirm
+that Pages succeeded for the exact commit and that published HTML/assets match it.
+No dashboard/container rollout is required for a website-only change.
 
 ## Previous artwork provenance
 

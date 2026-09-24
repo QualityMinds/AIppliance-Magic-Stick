@@ -51,6 +51,9 @@ validation:
     anchors: warn
 exclude_docs: |
   /index.html
+  /de.html
+  /editions.html
+  /editionen.html
   /legal-notice.html
   /privacy.html
   /site.css

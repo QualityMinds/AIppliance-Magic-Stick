@@ -3,6 +3,22 @@
 AIppliance Magic Stick is split into reusable layers for public read-only
 bootstrap, runtime configuration, and optional advanced GitOps overlays.
 
+## At a glance
+
+[![Two separate paths: the dashboard saves model settings for the operator to reconcile; applications send inference requests through LiteLLM to the resulting local runtime and its supported CPU or GPU.](../assets/diagrams/architecture.svg)](../assets/diagrams/architecture.svg)
+
+*Simplified local-model view. Open the diagram for full-size labels.*
+
+The dashboard changes the desired configuration; it does not forward inference
+requests or create Pods directly. The Magic Stick Operator manages ordinary
+Ollama/vLLM models through KubeAI and FreeToken/Realtime through direct workloads.
+The model catalog publishes ready local routes to LiteLLM, which handles requests
+from applications and API clients. Each engine retains its own hardware support.
+
+The diagram omits authentication, module provisioning and external-provider routes.
+Those are described below and in [model routing](model-routing.md) and
+[identity and security](identity.md).
+
 ## Repository Layers
 
 | Layer | Path | Responsibility |

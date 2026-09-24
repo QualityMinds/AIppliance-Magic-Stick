@@ -34,8 +34,9 @@ under `sourceSessions`, replaces the top-level source for that capture session;
 older images retain their original provenance. The
 visible Services page reported the applied control-plane
 revision recorded there; this is not an independent attestation of the running
-dashboard image. These images are distinct from the marketing site's older
-[fixture-based captures](website.md).
+dashboard image. The [marketing website](website.md) reuses selected, unchanged
+images from this same collection, with dated captions. Its older fixture-based
+captures remain in the repository but are no longer displayed.
 
 - Default to read-only navigation and unsubmitted forms. Start test models only
   with explicit owner authorization, recorded in the capture session. Use a small,
@@ -59,6 +60,42 @@ dashboard image. These images are distinct from the marketing site's older
 - Re-capture after relevant UI changes. Update the manifest, run the documentation
   checks, and verify both GitHub-readable links and the rendered desktop/mobile
   handbook. A text-only secret scan does not replace visual privacy review.
+
+## Generated explanatory diagrams
+
+The editable content and layout live in
+[`tools/docs_diagrams.py`](../../tools/docs_diagrams.py). It uses only Python's
+standard library to generate the versioned static SVGs under
+`docs/assets/diagrams/`. Both GitHub and the
+handbook display the same images; no remote renderer, fonts, JavaScript or extra
+build dependency is required. The dark background and cyan/purple accents match
+the dashboard, including when a reader uses the light handbook theme.
+
+| Diagram | Canonical explanation |
+|---|---|
+| System architecture | [Architecture](../concepts/architecture.md#at-a-glance) |
+| Model lifecycle | [Manage deployed models](../user-guide/models/manage.md#understand-the-lifecycle) |
+| Memory and GPU sharing | [Memory accounting](../concepts/memory.md) |
+
+After changing a diagram source, regenerate and verify it:
+
+```bash
+python3 tools/docs_diagrams.py
+python3 tools/docs_diagrams.py --check
+```
+
+The normal documentation check/build and CI reject stale or missing outputs.
+Tests also check static-only SVG content, accessible titles/descriptions, internal
+marker references and Markdown embedding. These checks do not prove semantic
+correctness or text fit: visually review every changed diagram at full size and
+in the desktop/mobile handbook before publishing.
+
+Keep diagrams small and task-focused. Use English labels, generous spacing and
+the linked full-size view for narrow screens. Preserve the prose explanation and
+descriptive alt text; color must not be the only way to distinguish paths or
+states. Mark simplified workflows and illustrative quantities explicitly. Review
+relationships against the canonical docs and relevant runtime contracts when
+behavior changes; generation checks detect source/output drift, not behavior drift.
 
 ## Build and preview
 

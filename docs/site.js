@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: BUSL-1.1
 (() => {
   const menu = document.querySelector('.menu-toggle');
   const navigation = document.querySelector('#main-navigation');
@@ -24,33 +25,37 @@
     });
   }
 
-  const controls = document.querySelector('.use-case-controls');
-  if (!controls) return;
-  const tabs = [...controls.querySelectorAll('[role="tab"]')];
-  const selectTab = (tab, focus = false) => {
-    for (const candidate of tabs) {
-      const selected = candidate === tab;
-      candidate.setAttribute('aria-selected', String(selected));
-      candidate.tabIndex = selected ? 0 : -1;
-      const panel = document.getElementById(candidate.getAttribute('aria-controls'));
-      if (panel) panel.hidden = !selected;
-    }
-    if (focus) tab.focus();
-  };
-  controls.hidden = false;
-  selectTab(tabs[0]);
-  tabs.forEach((tab, index) => {
-    tab.addEventListener('click', () => selectTab(tab));
-    tab.addEventListener('keydown', (event) => {
-      let next;
-      if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
-      if (event.key === 'ArrowLeft') next = (index - 1 + tabs.length) % tabs.length;
-      if (event.key === 'Home') next = 0;
-      if (event.key === 'End') next = tabs.length - 1;
-      if (next !== undefined) {
-        event.preventDefault();
-        selectTab(tabs[next], true);
-      }
+  for (const tour of document.querySelectorAll('[data-tabs]')) {
+    const controls = tour.querySelector('[role="tablist"]');
+    if (!controls) continue;
+    const tabs = [...controls.querySelectorAll('[role="tab"]')];
+    const panels = tabs.map((tab) => document.getElementById(tab.getAttribute('aria-controls')));
+    // Leave every panel readable if the markup is incomplete or JavaScript is off.
+    if (!tabs.length || panels.some((panel) => !panel || !tour.contains(panel))) continue;
+    const selectTab = (tab, focus = false) => {
+      tabs.forEach((candidate, index) => {
+        const selected = candidate === tab;
+        candidate.setAttribute('aria-selected', String(selected));
+        candidate.tabIndex = selected ? 0 : -1;
+        panels[index].hidden = !selected;
+      });
+      if (focus) tab.focus();
+    };
+    controls.hidden = false;
+    selectTab(tabs.find((tab) => tab.getAttribute('aria-selected') === 'true') || tabs[0]);
+    tabs.forEach((tab, index) => {
+      tab.addEventListener('click', () => selectTab(tab));
+      tab.addEventListener('keydown', (event) => {
+        let next;
+        if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
+        if (event.key === 'ArrowLeft') next = (index - 1 + tabs.length) % tabs.length;
+        if (event.key === 'Home') next = 0;
+        if (event.key === 'End') next = tabs.length - 1;
+        if (next !== undefined) {
+          event.preventDefault();
+          selectTab(tabs[next], true);
+        }
+      });
     });
-  });
+  }
 })();

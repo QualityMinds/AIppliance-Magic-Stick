@@ -25,6 +25,24 @@ external activations. For external models it changes local routing only.
 Restart controls depend on the engine; Stop followed by Start is the common
 reload workflow when no separate Restart action is offered.
 
+## Understand the lifecycle
+
+[![Local model workflow: Create or Start prepares and loads a runtime, then publishes a Ready model. Failures can become Degraded. Stop passes through Removing to Disabled; Start reuses the saved settings.](../../assets/diagrams/model-lifecycle.svg)](../../assets/diagrams/model-lifecycle.svg)
+
+*A simplified local-model workflow, not an exhaustive state machine.
+Open the diagram for full-size labels.*
+
+Startup includes dependency preparation, scheduling, any necessary downloads,
+model loading and health checks. Exact progress labels vary by engine. A failure
+can report **Degraded** during startup or after a model was ready: use **Logs**
+and the status message to identify the cause before retrying. Some temporary
+conditions recover through automatic reconciliation.
+
+**Stop** retains the saved settings. Resources are released only after the runtime
+and its allocations have terminated. **Remove** also deletes the model definition;
+neither action is a substitute for [cache cleanup](../../administration/model-cache.md).
+For external models, Start and Stop control local routing, not the remote provider.
+
 ## Stop and start again
 
 Choose **Stop** on the model card and wait for **Disabled**. The button then

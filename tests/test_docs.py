@@ -7,9 +7,10 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
+import xml.etree.ElementTree as ET
 import yaml
 
-from tools import docs, docs_hook
+from tools import docs, docs_diagrams, docs_hook
 
 
 class DocumentationTests(unittest.TestCase):
@@ -115,6 +116,82 @@ class DocumentationTests(unittest.TestCase):
 
     def test_catalog_reference_is_current(self):
         self.assertEqual((docs.DOCS / 'reference/compatibility.md').read_text(), docs.compatibility())
+
+    def test_diagrams_are_deterministic_and_match_committed_outputs(self):
+        self.assertEqual(docs_diagrams.render_all(), docs_diagrams.render_all())
+        self.assertEqual(docs_diagrams.check(), [])
+        self.assertEqual(set(docs_diagrams.render_all()),
+                         {'architecture.svg', 'model-lifecycle.svg', 'memory-and-sharing.svg'})
+
+    def test_diagram_check_rejects_missing_and_stale_output_without_writing(self):
+        self.assertEqual(len(docs_diagrams.check(self.root)), 3)
+        for name, content in docs_diagrams.render_all().items():
+            self.file(name, content)
+        self.assertEqual(docs_diagrams.check(self.root), [])
+        changed = self.file('architecture.svg', '<svg/>')
+        errors = docs_diagrams.check(self.root)
+        self.assertEqual(len(errors), 1)
+        self.assertIn('architecture.svg', errors[0])
+        self.assertEqual(changed.read_text(), '<svg/>')
+
+    def test_diagrams_are_accessible_self_contained_static_svg(self):
+        namespace = '{http://www.w3.org/2000/svg}'
+        allowed = {'svg', 'title', 'desc', 'defs', 'marker', 'path', 'g', 'rect', 'text', 'tspan'}
+        for name, content in docs_diagrams.render_all().items():
+            with self.subTest(diagram=name):
+                root = ET.fromstring(content)
+                self.assertEqual(root.tag, namespace + 'svg')
+                self.assertEqual(root.attrib['role'], 'img')
+                self.assertTrue(root.find(namespace + 'title').text)
+                self.assertGreater(len(root.find(namespace + 'desc').text), 100)
+                ids = [e.attrib['id'] for e in root.iter() if 'id' in e.attrib]
+                self.assertEqual(len(ids), len(set(ids)))
+                for reference in root.attrib['aria-labelledby'].split():
+                    self.assertIn(reference, ids)
+                for element in root.iter():
+                    self.assertIn(element.tag.removeprefix(namespace), allowed)
+                    self.assertFalse(any(key.lower().startswith('on') for key in element.attrib))
+                    self.assertNotIn('href', element.attrib)
+                    if 'marker-end' in element.attrib:
+                        marker = element.attrib['marker-end'].removeprefix('url(#').removesuffix(')')
+                        self.assertIn(marker, ids)
+
+    def test_diagram_shapes_and_text_origins_fit_the_canvas(self):
+        namespace = '{http://www.w3.org/2000/svg}'
+        for name, content in docs_diagrams.render_all().items():
+            with self.subTest(diagram=name):
+                root = ET.fromstring(content)
+                _, _, width, height = map(float, root.attrib['viewBox'].split())
+                for rectangle in root.iter(namespace + 'rect'):
+                    values = {k: float(rectangle.attrib[k]) for k in ('x', 'y', 'width', 'height')}
+                    self.assertGreaterEqual(values['x'], 0)
+                    self.assertGreaterEqual(values['y'], 0)
+                    self.assertLessEqual(values['x'] + values['width'], width)
+                    self.assertLessEqual(values['y'] + values['height'], height)
+                for label in root.iter(namespace + 'text'):
+                    baseline = float(label.attrib['y'])
+                    for line in label:
+                        baseline += float(line.attrib['dy'])
+                        self.assertLessEqual(baseline, height)
+                        self.assertGreaterEqual(float(line.attrib['x']), 0)
+                        self.assertLessEqual(float(line.attrib['x']), width)
+
+    def test_diagrams_have_linked_markdown_images_and_text_alternatives(self):
+        for name, guide in {
+            'architecture.svg': 'concepts/architecture.md',
+            'model-lifecycle.svg': 'user-guide/models/manage.md',
+            'memory-and-sharing.svg': 'concepts/memory.md',
+        }.items():
+            with self.subTest(diagram=name):
+                source = (docs.DOCS / guide).read_text()
+                self.assertRegex(source, r'\[!\[[^\]]{40,}\]\([^\n]+' + name + r'\)\]')
+                self.assertIn('full-size labels', source)
+
+    def test_documentation_workflow_watches_diagram_source_changes(self):
+        workflow = yaml.safe_load((docs.ROOT / '.github/workflows/docs.yml').read_text())
+        events = workflow.get('on', workflow.get(True))
+        for event in ('pull_request', 'push'):
+            self.assertIn('tools/docs_diagrams.py', events[event]['paths'])
 
     def test_handbook_screenshots_have_matching_provenance_and_guide_links(self):
         directory = docs.DOCS / 'assets/screenshots'

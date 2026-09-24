@@ -6,8 +6,10 @@ on:
       - '**/*.md'
       - docs/**
       - tools/docs.py
+      - tools/docs_diagrams.py
       - tools/docs_hook.py
       - tests/test_docs.py
+      - tests/test_website.py
       - requirements-docs.txt
       - mkdocs.yml
       - magic-cluster/platform/magicstick-operator/compute-target-catalog.yaml
@@ -18,8 +20,10 @@ on:
       - '**/*.md'
       - docs/**
       - tools/docs.py
+      - tools/docs_diagrams.py
       - tools/docs_hook.py
       - tests/test_docs.py
+      - tests/test_website.py
       - requirements-docs.txt
       - mkdocs.yml
       - magic-cluster/platform/magicstick-operator/compute-target-catalog.yaml
@@ -54,7 +58,7 @@ jobs:
       - name: Install documentation-only dependencies
         run: python -m pip install -r requirements-docs.txt
       - name: Test documentation tooling
-        run: python -m unittest tests.test_docs
+        run: python -m unittest tests.test_docs tests.test_website
       - name: Check Markdown and build the complete static site
         run: |
           python tools/docs.py build

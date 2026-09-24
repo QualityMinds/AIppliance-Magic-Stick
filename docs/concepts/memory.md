@@ -1,5 +1,10 @@
 # Memory and resource accounting
 
+[![Dedicated VRAM is separate from system RAM; unified memory combines a firmware GPU reservation with Linux RAM shared by CPU and dynamic GPU allocations. Free memory, unreserved budget and model slots are different limits.](../assets/diagrams/memory-and-sharing.svg)](../assets/diagrams/memory-and-sharing.svg)
+
+*Conceptual layout, not to scale. The four model slots are an illustration, not
+a default or a hardware recommendation. Open the diagram for full-size labels.*
+
 ## Capacity, free memory and unreserved budget
 
 - **Capacity** describes a device or memory pool reported by the host/driver.

@@ -1,5 +1,8 @@
 # GPU sharing and model slots
 
+For the relationship between physical memory, free/unreserved budgets and model
+slots, see the [memory and GPU-sharing diagram](../concepts/memory.md).
+
 **System → Hardware → GPU nodes → GPUs → GPU Configuration AMD / NVIDIA → GPU sharing** provides the same administration
 for AMD and NVIDIA: **Exclusive** or **Shared**, a model-slot limit, transition
 status and explicit restart confirmation. The backend stays visible:

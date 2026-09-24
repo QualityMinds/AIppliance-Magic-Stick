@@ -1,326 +1,255 @@
-# AIppliance-Magic-Stick
+<a id="aippliance-magic-stick"></a>
 
-Reusable public template for building an AI Appliance from an empty machine to a running AI platform.
+# Magic Stick
 
-This repository intentionally contains generic template code, public-safe
-defaults, render-only examples, and placeholders. Real deployment values are
-supplied at install time, through runtime settings, or through runtime CRs
-created by the dashboard.
+**Your hardware. Your AI. One place to run it.**
 
-## License
+Magic Stick turns a dedicated server into a self-hosted AI appliance. Install
+models, manage CPU and GPU resources, connect applications, and control access
+from a shared dashboard — from the first installation to everyday operation.
 
-Magic Stick's own source is available under [Business Source License 1.1](LICENSE).
-The Additional Use Grant permits eligible private, non-profit, educational and
-research use, and internal use by groups with at most EUR 2,000,000 consolidated
-annual revenue. Productive use outside that grant requires a commercial agreement.
-Each version changes to the MIT License three years after first public distribution.
+It is software for your own infrastructure, not a hardware device or a hosted
+AI subscription. Use the browser for routine tasks; use the CLI/TUI and
+Kubernetes interfaces when you need deeper control.
 
-All core functions, including Resource Sharing and Private Mesh, work without a
-license file. Federated SSO requires a signed Free Registered or Commercial
-license. See [licensing and eligibility](LICENSING.md), the
-[offline license system](docs/licensing.md), and the
-[third-party release audit](docs/license-audit.md). BSL is source-available, not
-an Open Source license. Third-party terms remain separate.
+[Website](https://qualityminds.github.io/AIppliance-Magic-Stick/) ·
+[Handbook](https://qualityminds.github.io/AIppliance-Magic-Stick/handbook/) ·
+[Get started](#installation) ·
+[Hardware compatibility](docs/reference/compatibility.md) ·
+[License and eligibility](LICENSING.md)
+
+Source-available under **BSL 1.1**. Free production use is subject to the
+[Additional Use Grant](LICENSE); other production use requires a commercial agreement.
+
+## Why Magic Stick?
+
+Running a model is only part of running private AI. You also need to know where
+it fits, make it available to applications, give people access, and keep the
+underlying computer manageable.
+
+Magic Stick brings those tasks together for individuals and teams that want AI
+on infrastructure they control. It combines established inference engines and
+self-hosted applications with a common installation, management and access layer.
+You do not have to treat each engine as a separate appliance.
+
+## What you can do
+
+- **Run and manage models.** Choose Ollama, vLLM or FreeToken on compatible
+  hardware. Find a model, configure its resources, start or stop it, edit supported
+  parameters and inspect runtime logs. [Model guide](docs/user-guide/models/manage.md)
+- **Understand your resources.** See CPU/GPU memory and available allocation
+  slots, choose eligible devices, and configure supported GPU-sharing modes.
+  [GPU setup](docs/administration/gpu-setup.md)
+- **Put models to work.** Use catalog applications for document knowledge, chat
+  and coding-agent workflows, or connect your own application through the
+  LiteLLM-backed OpenAI-compatible API.
+  [Applications](docs/user-guide/applications.md) · [API access](docs/user-guide/api-access.md)
+- **Give your team access.** Manage local users, groups and roles, named API keys,
+  and application-sharing policies. Federated SSO is available with license
+  activation. [Users and roles](docs/administration/users.md) ·
+  [Sharing](docs/user-guide/sharing.md)
+- **Share selected models across devices.** Opt into Private Mesh to make running
+  local chat models available to enrolled appliances and companion clients.
+  [Private Mesh](docs/user-guide/private-mesh.md)
+- **Operate the computer, not just the model.** Manage supported host networking,
+  Ubuntu update policies, model caches and hardware preparation from the dashboard.
+  [Administration](docs/administration/README.md)
+
+[![A ready Ollama test model in the dashboard, with its saved settings and Edit, Stop, Logs and Remove actions.](docs/assets/screenshots/model-ready.webp)](docs/assets/screenshots/model-ready.webp)
+
+*Real test-appliance capture, 24 September 2026. The small documentation model
+illustrates the controls, not recommended model settings. Stop retains its
+configuration; Start brings it back when needed.*
 
 ## Installation
 
-Choose the path that matches the starting point. All new installations end in
-the same protected First-Run Setup; no default human password is generated.
+**Starting with a dedicated physical server? Use the
+[USB installation guide](docs/installation/bare-metal.md).** It takes you from
+Ubuntu installation to a running Magic Stick appliance.
 
-| Starting point | Entry point | What it installs |
+Read the [hardware and network requirements](docs/get-started/requirements.md)
+first. Back up existing data and choose the route that matches your starting point:
+
+| Your starting point | Installation guide | Scope |
 |---|---|---|
-| Empty physical server | [Build and boot the USB installer](docs/installation/bare-metal.md) | Ubuntu 26.04.1, K3s, Flux, and Magic Stick |
-| New cloud VM | [Use the cloud-init/autoinstall template](docs/installation/cloud-init-vm.md) | Ubuntu host automation, K3s, Flux, and Magic Stick |
-| Existing dedicated Ubuntu 26.04 or 24.04 host or VM | [`install-from-linux.sh`](install-from-linux.sh) | K3s, Flux, and Magic Stick on the host |
-| Existing Kubernetes cluster | [`deploy-on-k8s.sh`](deploy-on-k8s.sh) or [`deploy-on-k8s.ps1`](deploy-on-k8s.ps1) | Flux-managed Magic Stick cluster components only |
+| Dedicated physical server | [USB installer](docs/installation/bare-metal.md) | Ubuntu, host automation, K3s, Flux and Magic Stick |
+| New virtual machine | [Cloud-init / autoinstall](docs/installation/cloud-init-vm.md) | Prepare an Ubuntu VM with host automation and Magic Stick |
+| Existing dedicated Ubuntu host or VM | [Install on Ubuntu](docs/installation/existing-vm.md) | Add the platform without changing the Ubuntu release |
+| Existing Kubernetes cluster | [Install in a cluster](docs/installation/existing-kubernetes.md) | Add cluster components; host administration remains yours |
 
-### Existing Ubuntu 26.04 or 24.04 host
+<a id="existing-ubuntu-2604-or-2404-host"></a>
+<a id="existing-kubernetes-cluster"></a>
 
-Download the script first so it can be reviewed, then run its fail-closed
-preflight and installation. The host must be dedicated to Magic Stick.
+The current new-installation baseline is Ubuntu 26.04; existing dedicated Ubuntu
+24.04 hosts remain a legacy installation path. The linked guides include reviewed
+scripts, preflight checks and prerequisites. The default installation reads the
+public repository and needs neither a private Git repository nor a GitHub token.
 
-```bash
-curl -fsSL \
-  https://raw.githubusercontent.com/QualityMinds/AIppliance-Magic-Stick/main/install-from-linux.sh \
-  -o /tmp/install-from-linux.sh
+Installation needs Internet access for packages, images and charts. Keep initial
+setup on a trusted private network. Every route leads to the protected
+[first administrator setup](docs/installation/first-run-setup.md); there is no
+shared default dashboard password.
 
-sudo bash /tmp/install-from-linux.sh --preflight-only
-sudo bash /tmp/install-from-linux.sh
-```
+### From installation to your first response
 
-The script resolves the selected branch or tag to a commit and pins both the
-host checkout and Flux source to that commit. For a released version, add
-`--ref <release-tag>`.
+1. **Finish setup and sign in.** Create the first administrator and
+   [verify the appliance](docs/installation/verify.md).
+2. **Open Models → Create.** Choose an engine and eligible compute target.
+   Start with a small supported model and a modest context length.
+3. **Wait for Ready.** The first start may download model files. Use **Logs** to
+   follow initialization or investigate a failure.
+4. **Try a request.** Use the LiteLLM Playground, a configured application, or
+   your own client with a named API key.
 
-### Existing Kubernetes cluster
+Follow [your first model response](docs/get-started/first-model.md) for the full
+walkthrough. External providers are also an option when you do not want local inference.
 
-Run this from an administrator workstation with `kubectl`, `helm`, `flux`, and
-Python 3. The script shows the selected context and asks before creating any
-cluster-wide resources.
+## Hardware and inference engines
 
-```bash
-curl -fsSL \
-  https://raw.githubusercontent.com/QualityMinds/AIppliance-Magic-Stick/main/deploy-on-k8s.sh \
-  -o /tmp/deploy-on-k8s.sh
+A GPU is optional for the platform. Supported CPU models and external providers
+are alternatives. Local engine availability depends on the device, host
+architecture, drivers, model and available resources.
 
-bash /tmp/deploy-on-k8s.sh --context "$(kubectl config current-context)" --preflight-only
-bash /tmp/deploy-on-k8s.sh --context "$(kubectl config current-context)"
-```
+| Compute target | Configured engine paths |
+|---|---|
+| CPU | Ollama, vLLM |
+| NVIDIA GPU | Ollama, vLLM, FreeToken on eligible devices |
+| AMD GPU / ROCm | Ollama, vLLM |
+| Intel GPU / XPU | vLLM |
 
-On Windows with PowerShell 7:
+This is an overview of configured paths, **not a guarantee for every card or
+model**. Check the [catalog-derived compatibility reference](docs/reference/compatibility.md)
+before choosing hardware. FreeToken has its own supported-device policy, memory
+configuration and whole-GPU allocation requirements.
 
-```powershell
-Invoke-WebRequest `
-  https://raw.githubusercontent.com/QualityMinds/AIppliance-Magic-Stick/main/deploy-on-k8s.ps1 `
-  -OutFile $env:TEMP\deploy-on-k8s.ps1
+[![CPU, NVIDIA and AMD memory views in the dashboard, showing free and unreserved memory alongside available GPU slots.](docs/assets/screenshots/models-memory.webp)](docs/assets/screenshots/models-memory.webp)
 
-pwsh $env:TEMP\deploy-on-k8s.ps1 -Context (kubectl config current-context) -PreflightOnly
-pwsh $env:TEMP\deploy-on-k8s.ps1 -Context (kubectl config current-context)
-```
+*Real test-appliance capture before installing the documentation model,
+24 September 2026. Values illustrate one machine, not hardware requirements,
+performance claims or memory-sizing recommendations.*
 
-The cluster installer reuses compatible existing Flux controllers but refuses
-to replace another `flux-system` source, another Magic Stick installation, or
-an existing First-Run state. See the complete
-[installation guide](docs/installation/README.md) for prerequisites, manual
-fallback steps, setup access, and operational checks.
+### Know the boundaries
 
-## Layout
+- GPU sharing does not add physical VRAM or provide hard per-model memory
+  isolation. Memory estimates are planning aids, not proof that a workload fits.
+  [Memory concepts](docs/concepts/memory.md) · [GPU sharing](docs/administration/gpu-sharing.md)
+- A local model can run on your infrastructure, but external providers and
+  application integrations can send data elsewhere. Downloads also require
+  network access; self-hosted does not automatically mean offline.
+- Realtime is a separate **experimental vLLM-Omni path** with specific supported
+  profiles. An OpenAI-compatible chat API does not imply audio or
+  `/v1/realtime` support. [Realtime guide](docs/user-guide/models/realtime.md)
+- Keep a recovery plan. There is no appliance-wide one-click backup/restore or
+  factory reset, and platform updates do not upgrade the Ubuntu release.
+  [Backup and recovery](docs/administration/backup-recovery.md)
 
-```text
-.
-├── magic-installer/            # reusable cloud-init/autoinstall template
-├── magic-host/                 # reusable Ansible playbooks and roles
-├── magic-cluster/              # reusable Kubernetes, app, platform and Flux bases
-├── install-from-linux.sh       # one-command bootstrap for dedicated Ubuntu hosts
-├── deploy-on-k8s.sh            # existing-cluster bootstrap for Bash
-├── deploy-on-k8s.ps1           # existing-cluster bootstrap for PowerShell 7
-├── examples/demo/              # render-only public overlay using example.local values
-├── .codex/skills/              # optional repo-local Codex skill sources
-├── docs/
-│   ├── .nojekyll
-│   ├── index.html
-│   ├── README.md
-│   ├── architecture.md
-│   ├── authentication.md
-│   ├── appliance-crd.md
-│   ├── configuration.md
-│   ├── dashboard.md
-│   ├── development.md
-│   ├── features.md
-│   ├── getting-started.md
-│   ├── gitops-overlays.md
-│   ├── legal-notice.html
-│   ├── modules.md
-│   ├── model-catalog.md
-│   ├── operator-orchestration.md
-│   ├── operations.md
-│   ├── privacy.html
-│   ├── sales-deck/
-│   └── public-release-checklist.md
-├── CONTRIBUTING.md
-├── SUPPORT.md
-├── SECURITY.md
-├── CODE_OF_CONDUCT.md
-├── GOVERNANCE.md
-├── MAINTAINERS.md
-├── CHANGELOG.md
-├── ROADMAP.md
-├── THIRD_PARTY_NOTICES.md
-├── LICENSE
-├── AGENTS.md
-└── .gitleaks.toml
-```
+## How it fits together
 
-Use `example.local`, `example.com`, `CHANGEME`, or documented variables for all template values.
+The dashboard manages models, applications and settings. The Magic Stick Operator
+coordinates the required runtimes and application operators; LiteLLM provides
+the common model-routing layer. Kubernetes and Flux supply the platform foundation.
+Existing-cluster installations reuse your cluster rather than installing K3s.
+
+The normal workflow stores your choices through the dashboard and runtime
+resources. Advanced GitOps overlays are optional, not a prerequisite for using
+the appliance. Read the [architecture guide](docs/concepts/architecture.md) for
+the control flow, inference path and component responsibilities.
 
 ## Documentation
 
-The [English handbook](docs/README.md) is for users and administrators; Kubernetes
-details and contributor material have their own sections. The same Markdown is
-readable on GitHub and rendered into the searchable static documentation website.
+The handbook is written in English for users and administrators, with technical
+detail kept in separate sections. The same Markdown is readable here on GitHub
+and on the [searchable documentation website](https://qualityminds.github.io/AIppliance-Magic-Stick/handbook/).
 
-| Section | Start here |
+| You want to… | Start here |
 |---|---|
-| Get started | [Features, requirements and your first model](docs/get-started/README.md) |
-| Installation | [USB, new VM, existing Ubuntu or Kubernetes](docs/installation/README.md) |
-| User guide | [Dashboard, models, applications and API access](docs/user-guide/README.md) |
-| Administration | [Users, hardware, network, updates and recovery](docs/administration/README.md) |
-| Concepts | [Architecture and how the parts fit together](docs/concepts/README.md) |
-| Reference | [Configuration, capabilities, APIs and resource contracts](docs/reference/README.md) |
-| Development | [Build, test, contribute and release](docs/development/README.md) |
+| Understand the product and try a model | [Get started](docs/get-started/README.md) |
+| Install on a server, VM or cluster | [Installation](docs/installation/README.md) |
+| Use models, applications and APIs | [User guide](docs/user-guide/README.md) |
+| Manage users, hardware, networking and updates | [Administration](docs/administration/README.md) |
+| Understand architecture, routing and memory | [Concepts](docs/concepts/README.md) |
+| Look up compatibility, settings and APIs | [Reference](docs/reference/README.md) |
+| Build, extend or contribute | [Development](docs/development/README.md) |
 
-The German [marketing landing page](docs/index.html) remains separate from the
-handbook. [Documentation maintenance](docs/development/documentation.md) covers
-local preview, checks and the combined GitHub Pages build. Use **GitHub Actions**
-as the Pages source when publishing the new site; do not serve the Markdown
-source directory as the finished website. Historical reports are separated from
-current guides under [integration reports](docs/development/reports/README.md).
+## License
 
-Agent-specific repo instructions live in [AGENTS.md](AGENTS.md). Optional
-repo-local Codex skill sources live under [.codex/skills](.codex/skills).
+Magic Stick's own source uses the [Business Source License 1.1](LICENSE)
+(`BUSL-1.1`). It is **source-available, not an Open Source license**. Each version
+changes to the MIT License three years after its first public distribution.
 
-## Community And Security
+The Additional Use Grant permits eligible personal, non-profit, educational and
+research use, and internal business use by groups with consolidated annual
+revenue of at most EUR 2,000,000. Production use outside the grant requires a
+commercial agreement. Productive third-party OEM/appliance, SaaS, hosting and
+managed-service offerings where Magic Stick is material are excluded from the
+free grant regardless of revenue. The precise terms are in
+[LICENSE](LICENSE) and [LICENSING.md](LICENSING.md).
 
-- [CONTRIBUTING.md](CONTRIBUTING.md) explains the public repository boundary,
-  validation commands, and pull request expectations.
-- [SECURITY.md](SECURITY.md) defines how to report suspected vulnerabilities or
-  leaked credentials without exposing deployment-specific details.
-- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) sets collaboration expectations.
-- [SUPPORT.md](SUPPORT.md) explains where to ask public questions and where not
-  to put deployment-specific data.
-- [GOVERNANCE.md](GOVERNANCE.md), [MAINTAINERS.md](MAINTAINERS.md), and
-  [CHANGELOG.md](CHANGELOG.md) document the lightweight public project process.
-- [ROADMAP.md](ROADMAP.md) lists likely public project directions.
-- [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists referenced runtime
-  images and Helm charts for release review.
+All core functions — including model engines, GPU management, Resource Sharing
+and Private Mesh — work without a license file. **Only Federated SSO is
+feature-gated**, through Free Registered or Commercial activation. A missing
+license file is not proof that production use qualifies for the free grant.
+See [license management](docs/administration/licenses.md).
 
-## GitOps Entry Points
+Models, engines, applications and other third-party components retain their own
+licenses. See [third-party notices](THIRD_PARTY_NOTICES.md) and the
+[release audit](docs/development/license-audit.md).
 
-Public template:
+## Community and security
 
-```bash
-kubectl kustomize magic-cluster/flux/entrypoints/base
-```
+- **Questions or problems:** follow the [support guide](SUPPORT.md). Support is
+  best-effort; this repository does not promise response times or a support SLA.
+- **Bugs and ideas:** open a [GitHub issue](https://github.com/QualityMinds/AIppliance-Magic-Stick/issues)
+  with reproducible steps and redacted diagnostics.
+- **Security issues:** use the reporting process in [SECURITY.md](SECURITY.md),
+  not a public issue containing sensitive details.
+- **Contributions:** read [CONTRIBUTING.md](CONTRIBUTING.md) and the
+  [Code of Conduct](CODE_OF_CONDUCT.md).
+- **Project direction:** see the [roadmap](ROADMAP.md), [changelog](CHANGELOG.md),
+  [governance](GOVERNANCE.md) and [maintainers](MAINTAINERS.md).
 
-Render-only demo overlay:
+Never publish credentials, kubeconfigs, private addresses, personal data or
+unredacted deployment logs in issues or contributions. The public repository
+contains reusable defaults and safe examples; deployment-specific values belong
+in your own installation.
 
-```bash
-kubectl kustomize examples/demo/infra-cluster/flux-bootstrap
-```
+## For developers and integrators
 
-Public single-node profile:
+<a id="layout"></a>
 
-```bash
-kubectl kustomize magic-cluster/flux/entrypoints/single-node
-```
+### Repository layout
 
-Advanced deployments that use an external GitOps repository can include this
-repository into their source artifact, for example:
+| Directory | Responsibility |
+|---|---|
+| [`magic-installer/`](magic-installer/README.md) | Bootable USB media and Ubuntu autoinstall templates |
+| [`magic-host/`](magic-host/README.md) | Host preparation and Ansible automation |
+| [`magic-cluster/`](magic-cluster/README.md) | Platform, application, GPU and Flux resources |
+| [`dashboard/`](dashboard/README.md) | Browser dashboard, authenticated API and CLI/TUI |
+| [`core/`](core/) | Shared product logic, including licensing and Private Mesh |
+| [`docs/`](docs/README.md) | User handbook, administration, reference and development guides |
+| [`examples/demo/`](examples/README.md) | Render-only examples with public-safe values |
 
-```yaml
-include:
-  - repository:
-      name: magicstick-public
-    fromPath: .
-    toPath: vendor/magicstick
-```
+<a id="gitops-entry-points"></a>
+<a id="host-bootstrap"></a>
+<a id="appliance-modules"></a>
 
-Deployment overlays can then import individual module bases from
-`vendor/magicstick/magic-cluster/platform/...` and
-`vendor/magicstick/magic-cluster/apps/...`.
+### Advanced integration
 
-## Host Bootstrap
+Use the canonical guides for [GitOps entry points and overlays](docs/development/gitops-overlays.md),
+[host bootstrap and configuration](docs/reference/configuration.md),
+[module lifecycle](docs/concepts/controllers.md),
+[runtime resources](docs/reference/kubernetes-resources.md), and
+[model catalog integration](docs/development/model-integration.md).
+These describe the existing extension points; a private deployment repository
+is not required by the default product path.
 
-The installer writes `/etc/default/ai-appliance-repo`. In the default
-`readonly-public` mode, that file only needs the public Flux source and runtime
-settings:
+<a id="validation"></a>
 
-- `FLUX_BOOTSTRAP_MODE`
-- `FLUX_PUBLIC_SYNC_PATH`
-- `MAGICSTICK_PUBLIC_REPO`
-- `MAGICSTICK_PUBLIC_REF`
-- `MAGICSTICK_PUBLIC_REF_KIND`
-- `AI_APPLIANCE_DOMAIN`
-- `AI_APPLIANCE_DASHBOARD_HOST`
-- `AI_APPLIANCE_MDNS_DOMAIN`
-- `AI_APPLIANCE_MDNS_NAME`
-- `AI_APPLIANCE_DASHBOARD_MDNS_NAME`
+### Build and validation
 
-The host converge runner supplies defaults for the public checkout, inventory
-and playbook paths. Optional GitHub bootstrap mode additionally uses:
-
-- `GIT_OWNER`
-- `GIT_REPO`
-- `GIT_BRANCH`
-- `FLUX_CLUSTER_PATH`
-- `AI_APPLIANCE_PRIVATE_CHECKOUT`
-- `FLUX_GITHUB_TOKEN`
-
-Secrets such as Flux tokens must be supplied at install/runtime and must not be committed.
-In `readonly-public` mode Flux reads only this public repository and does not
-need a Git token.
-
-The generated AI model catalog honors `AI_APPLIANCE_DEFAULT_CHAT_MODEL` and
-`AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL` when runtime settings override the public
-defaults. App-specific storage and preferred model settings are runtime
-`AppInstance.spec.values`; instance hostnames are derived as
-`<instance-name>.<instance-type>.<domain>`. Module storage values are runtime
-`ModuleActivation.spec.parameters`.
-
-See [docs/model-catalog.md](docs/model-catalog.md) for the model catalog
-contract, external model schema, generated ConfigMap keys, and operational
-checks.
-
-## Appliance Modules
-
-The base installation now includes the `Appliance` CRD, `ModuleActivation` and
-`AppInstance` CRDs, a public-safe module catalog, a default `Appliance/local`
-resource, and a live `magicstick-operator` controller. Optional capabilities
-are selected declaratively through runtime CRs. The Magic Stick Operator is a
-meta-operator: it enables modules with Flux and creates custom resources for
-specialized operators, while OpenClaw, Hermes, Paperclip, and KubeOpenCode
-remain responsible for their own workloads.
-
-The default appliance is GPU-neutral: LiteLLM and the model catalog support
-external providers without accelerator hardware. Ordinary vLLM and Ollama models
-use KubeAI; FreeToken and the optional vLLM-Omni Realtime path use separately
-managed Deployments behind the same model catalog. Each engine has its own
-hardware and configuration policy. See the catalog-derived
-[compatibility reference](docs/reference/compatibility.md) and
-[engine selection guide](docs/user-guide/models/choose-engine.md). Accelerator
-models require their matching provider and remain in `WaitingForGPU` until the
-required device or claim allocation is available.
-
-One shared Node Feature Discovery installation continuously classifies cluster
-nodes. Matching NVIDIA, AMD, or Intel hardware requests only that vendor's
-pinned operator; CPU-only clusters run none of them. The dashboard System Status
-page always shows all three providers as `NotRequired`, `Installing`, `Ready`,
-or with a concrete failure reason. The Models screen enables only providers
-that are `Ready`; Intel automatically selects its `xe` or `i915` resource
-profile.
-
-The dashboard is the UI and API client for this model. It reads the Appliance,
-module catalog, Flux, Pod, Service, Ingress, and Event status, and creates or
-patches only `ModuleActivation`, `ModelActivation`, and `AppInstance` CRs when
-users enable modules, add models, or request instances. `Appliance/local.spec`
-remains Git-owned.
-
-The React application in `dashboard/apps/web` is the standard browser interface
-at the local and public domain roots. It shares the existing authenticated API
-with the CLI/TUI. The ConfigMap-based frontend and separate preview hostname
-have been retired; existing installations keep their primary dashboard URL.
-
-See [docs/appliance-crd.md](docs/appliance-crd.md),
-[docs/dashboard.md](docs/dashboard.md),
-[docs/modules.md](docs/modules.md), and
-[docs/operator-orchestration.md](docs/operator-orchestration.md).
-
-## Validation
-
-```bash
-ANSIBLE_ROLES_PATH=magic-host/roles \
-  ansible-playbook --syntax-check magic-host/playbooks/local.yml
-
-gitleaks detect --source . --config .gitleaks.toml --no-git --redact
-gitleaks detect --source . --config .gitleaks.toml --redact
-
-kubectl kustomize magic-cluster/flux/entrypoints/base
-kubectl kustomize magic-cluster/flux/entrypoints/single-node
-kubectl kustomize magic-cluster/apps/dashboard
-kubectl kustomize magic-cluster/platform/magicstick-operator
-kubectl kustomize magic-cluster/platform/basis
-kubectl kustomize magic-cluster/platform/hardware-discovery
-kubectl kustomize magic-cluster/platform/gpu
-kubectl kustomize magic-cluster/platform/ai/kubeai
-kubectl kustomize magic-cluster/platform/ai/hermes-operator
-kubectl kustomize magic-cluster/platform/ai/openclaw-operator
-kubectl kustomize magic-cluster/platform/ai/paperclip-operator
-kubectl kustomize magic-cluster/platform/ai/agent-sandbox
-kubectl kustomize magic-cluster/apps/ai/litellm/base
-kubectl kustomize magic-cluster/apps/ai/model-catalog
-kubectl kustomize magic-cluster/apps/ai/anything-llm/base
-kubectl kustomize magic-cluster/apps/ai/kubeopencode
-kubectl kustomize examples/demo/infra-cluster/flux-bootstrap
-```
-
-See [docs/public-release-checklist.md](docs/public-release-checklist.md) before publishing a release tag.
+Start with the [development environment](docs/development/environment.md) and
+[build/test guide](docs/development/testing.md). Use the
+[documentation checks](docs/development/documentation.md) for Markdown, images
+and the static site, and follow the
+[release checklist](docs/development/release-checklist.md) before publishing.
+Repo-specific agent instructions are in [AGENTS.md](AGENTS.md).
