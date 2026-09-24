@@ -11,6 +11,12 @@ On first activation it enables daily Ubuntu security updates from **03:00 to
 the saved settings. This also replaces the older disabled unattended-upgrades
 configuration on existing appliances.
 
+[![Ubuntu update settings with Security updates selected, a 03:00 UTC start, a 120-minute window and automatic restart unchecked.](../assets/screenshots/ubuntu-updates.webp)](../assets/screenshots/ubuntu-updates.webp)
+
+*Settings on the test appliance, captured 24 September 2026. Save update settings
+is disabled because nothing was edited. No package check, installation or restart
+was triggered for this capture.*
+
 The dashboard offers three modes:
 
 - **Security updates**: install eligible Ubuntu security fixes automatically.

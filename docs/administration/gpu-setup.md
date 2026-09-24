@@ -6,6 +6,12 @@ Open **System → Hardware**. Review GPU operators first, then each **Node** and
 individual GPU accordion. Node kernel/profile facts differ from GPU-specific
 architecture, driver, Kubernetes resource and memory information.
 
+[![System Hardware tab showing Ready AMD and NVIDIA operators and an Intel operator marked NotRequired.](../assets/screenshots/gpu-operators.webp)](../assets/screenshots/gpu-operators.webp)
+
+*Operator summary on the test appliance, captured 24 September 2026. NotRequired
+means no matching hardware was detected; the displayed versions are a dated
+example, not the current compatibility contract.*
+
 Detection, host readiness, Kubernetes registration and engine validation are
 separate checks. A detected PCI device or green operator alone does not prove
 that the inference runtime can use it. Read the [compatibility matrix](../reference/compatibility.md).

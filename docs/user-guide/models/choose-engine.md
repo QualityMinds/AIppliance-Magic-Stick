@@ -14,12 +14,29 @@ This is a workflow choice, not a performance ranking. Engine/model format,
 precision, hardware and runtime versions must agree. See the generated
 [compatibility matrix](../../reference/compatibility.md) for the repository's declared combinations.
 
+## Check runtime availability
+
+Open **Services → AI Runtime** to inspect the shared inference services. A service
+marked **Ready** is not the same as a loaded, working model; verify a model with
+an actual request after creation.
+
+[![Services filtered to AI Runtime, with Ready status on the KubeAI and FreeToken module cards.](../../assets/screenshots/services-runtimes.webp)](../../assets/screenshots/services-runtimes.webp)
+
+*Cropped test-appliance view, captured 24 September 2026. Other runtime cards
+continue below. No service was enabled or disabled for this capture.*
+
 ## Choose hardware
 
 In **Models → Create**, select the engine first, then an eligible compute target.
 Unavailable GPUs remain disabled with a reason. A full model-slot ring means no
 new slot is available even if memory remains. A model that is starting already
 reserves a slot; do not count its Pod again.
+
+[![Models page showing CPU, NVIDIA and AMD memory gauges, free GPU slots and the Create button.](../../assets/screenshots/models-memory.webp)](../../assets/screenshots/models-memory.webp)
+
+*Test-appliance view with no registered models, captured 24 September 2026.
+Memory and slot counts describe that device at capture time, not minimum
+requirements or recommended allocations for another computer.*
 
 Use **System → Hardware** for provider state and optional engine validation.
 That validation is a small smoke test, not certification that your full model fits.

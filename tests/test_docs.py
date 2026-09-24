@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: BUSL-1.1
 """Regression checks for the GitHub/website documentation contract."""
+import hashlib
 import json
 from pathlib import Path
 import tempfile
@@ -114,6 +115,27 @@ class DocumentationTests(unittest.TestCase):
 
     def test_catalog_reference_is_current(self):
         self.assertEqual((docs.DOCS / 'reference/compatibility.md').read_text(), docs.compatibility())
+
+    def test_handbook_screenshots_have_matching_provenance_and_guide_links(self):
+        directory = docs.DOCS / 'assets/screenshots'
+        manifest = json.loads((directory / 'captures.json').read_text())
+        entries = manifest['images']
+        self.assertEqual(manifest['schemaVersion'], 1)
+        self.assertFalse(manifest['source']['configurationOrWorkloadChanges'])
+        names = [entry['file'] for entry in entries]
+        self.assertEqual(len(names), len(set(names)))
+        self.assertEqual(set(names), {path.name for path in directory.glob('*.webp')})
+        for entry in entries:
+            with self.subTest(image=entry['file']):
+                self.assertEqual(Path(entry['file']).name, entry['file'])
+                data = (directory / entry['file']).read_bytes()
+                self.assertEqual(data[:4], b'RIFF')
+                self.assertEqual(data[8:12], b'WEBP')
+                self.assertEqual(hashlib.sha256(data).hexdigest(), entry['sha256'])
+                self.assertTrue(entry['guides'])
+                for guide in entry['guides']:
+                    self.assertIn('assets/screenshots/' + entry['file'],
+                                  (docs.DOCS / guide).read_text())
 
     def test_dated_report_is_not_in_current_search(self):
         report = (docs.DOCS / 'development/reports/2026-09-21-freetoken.md').read_text()

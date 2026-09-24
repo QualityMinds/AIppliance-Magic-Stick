@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "capturedOn": "2026-09-24",
+  "source": {
+    "kind": "owner-approved live test appliance",
+    "browser": "Chrome",
+    "observedAppliedControlPlaneRevision": "e4aae66d6b8fb3301c0558cc8079c29a26ea2296",
+    "dashboardImageVerification": "not independently verified by this capture session",
+    "actions": ["navigate", "expand sections", "open and close an unsubmitted model form"],
+    "configurationOrWorkloadChanges": false
+  },
+  "processing": {
+    "capture": "focused browser screenshot crops",
+    "encoding": "WebP quality 92, metadata removed",
+    "retouchedOrSynthesizedPixels": false
+  },
+  "privacyReview": {
+    "reviewedVisually": true,
+    "excluded": [
+      "browser chrome and signed-in identity",
+      "personal instance names and internal URLs",
+      "host names, IP addresses and device identifiers",
+      "credentials, tokens, kubeconfigs and logs"
+    ],
+    "numericValues": "Dated test-device illustrations, not benchmarks, requirements or sizing recommendations."
+  },
+  "images": [
+    {
+      "file": "dashboard-overview.webp",
+      "view": "Overview summary cards",
+      "guides": ["user-guide/dashboard.md"],
+      "width": 1050,
+      "height": 216,
+      "sha256": "0331258b8561a216f518469e92e70d4bfabac9d50d2753307b2520b1a69fd20f"
+    },
+    {
+      "file": "create-model.webp",
+      "view": "Models / Create, unsubmitted default form",
+      "guides": ["get-started/first-model.md"],
+      "width": 900,
+      "height": 1049,
+      "sha256": "0c28185386f8a01e70f97a9b7b629f8109780c0e6a76500113619ce49f9d1957"
+    },
+    {
+      "file": "services-runtimes.webp",
+      "view": "Services / AI Runtime, first two module cards",
+      "guides": ["user-guide/models/choose-engine.md"],
+      "width": 1043,
+      "height": 477,
+      "sha256": "d6b1878091df16cb23aa8bf816d5cd1b1d98c9919f3899bbf059963b9a5f0ec2"
+    },
+    {
+      "file": "models-memory.webp",
+      "view": "Models / compute memory and available slots",
+      "guides": ["user-guide/models/choose-engine.md"],
+      "width": 1294,
+      "height": 550,
+      "sha256": "6158c9f4db10f2cbc97cacbfaab6edc1ebeee494eee57de02b19b7dc9caf9dc2"
+    },
+    {
+      "file": "gpu-operators.webp",
+      "view": "System / Hardware / GPU operators",
+      "guides": ["administration/gpu-setup.md"],
+      "width": 1043,
+      "height": 494,
+      "sha256": "7bd09b83124c56926d57a7944f428f9fe57a38cbfeed3dca7c30b23b12ae8010"
+    },
+    {
+      "file": "shared-gpu-memory.webp",
+      "view": "System / Hardware / AMD / Shared GPU memory",
+      "guides": ["administration/gpu-memory.md"],
+      "width": 987,
+      "height": 727,
+      "sha256": "f525e5b5a8bfd14614ee154558784094872883f0c69c3c39d5cdfb385ac9ffe3"
+    },
+    {
+      "file": "model-cache.webp",
+      "view": "System / Model cache, disk summary and engine table",
+      "guides": ["administration/model-cache.md"],
+      "width": 1016,
+      "height": 405,
+      "sha256": "a307e65285191b8f240adb1b94759aed18006fc1a6e7b1efe6f3ce8b0449dd34"
+    },
+    {
+      "file": "ubuntu-updates.webp",
+      "view": "System / Settings / Updates, unchanged automatic update form",
+      "guides": ["administration/ubuntu-updates.md"],
+      "width": 994,
+      "height": 235,
+      "sha256": "d1ae33d63c9c171e898599356d531d29b694331b9e4d5667235ce68f6550c84f"
+    }
+  ]
+}

@@ -19,9 +19,36 @@ navigation. Each section's README is the GitHub entry point.
 3. Use ordinary Markdown headings, tables, code fences and relative file links.
    Do not require theme-specific tab/admonition syntax to understand a page on GitHub.
 4. Use exact English UI labels and public-safe example values. Screenshots use neutral
-   read-only fixtures and record capture/source provenance; they are not measurements.
+   read-only fixtures or explicitly approved, privacy-reviewed test-appliance views.
+   Record capture/source provenance; screenshots are not benchmarks or sizing advice.
 5. Distinguish implemented behavior, experimental scope, local checks and live acceptance.
 6. Keep root legal/project files authoritative. Do not rewrite their meaning in a guide.
+
+## Handbook screenshots
+
+The current handbook images in `docs/assets/screenshots/` were captured from an
+authenticated test appliance on 24 September 2026, at the owner's request. The
+[capture manifest](../assets/screenshots/captures.json) records each view and its
+integrity hash. The visible Services page reported the applied control-plane
+revision recorded there; this is not an independent attestation of the running
+dashboard image. These images are distinct from the marketing site's older
+[fixture-based captures](website.md).
+
+- Navigate and expand sections only. Opening an unsubmitted creation dialog is
+  acceptable; do not create, stop, restart or remove models or change settings
+  merely to arrange a screenshot.
+- Capture only the relevant panel. Exclude browser chrome, signed-in identities,
+  personal instance names, internal addresses, identifiers, credentials and logs.
+  Do not open credential, API-key or kubeconfig views for public captures.
+- Review every final image visually before publishing. Cropping and WebP encoding
+  are allowed; do not retouch values, replace statuses or describe a live capture
+  as a synthetic fixture. The recorded numeric values are dated illustrations.
+- Store the approved crops as metadata-free WebP images. Keep temporary originals
+  outside the repository. Use ordinary Markdown image links with descriptive alt
+  text, a dated caption, and a link to the same full-size image.
+- Re-capture after relevant UI changes. Update the manifest, run the documentation
+  checks, and verify both GitHub-readable links and the rendered desktop/mobile
+  handbook. A text-only secret scan does not replace visual privacy review.
 
 ## Build and preview
 

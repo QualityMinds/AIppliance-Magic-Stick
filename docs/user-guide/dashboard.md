@@ -1,5 +1,10 @@
 # Dashboard overview
 
+[![Overview cards showing appliance readiness and counts for modules, instances and models.](../assets/screenshots/dashboard-overview.webp)](../assets/screenshots/dashboard-overview.webp)
+
+*Overview on the test appliance, captured 24 September 2026. The URL list below
+the cards is outside this crop. Select any screenshot to open it at full size.*
+
 ## UI Areas
 
 | Area | Purpose |

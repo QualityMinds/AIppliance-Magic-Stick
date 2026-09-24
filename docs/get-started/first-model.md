@@ -17,6 +17,12 @@ Open **Models → Create**. Use a small model for the first test.
 
 See [choose an inference engine](../user-guide/models/choose-engine.md) if unsure.
 
+[![Create Model dialog with Local location, Ollama engine, CPU hardware, model search and configuration fields.](../assets/screenshots/create-model.webp)](../assets/screenshots/create-model.webp)
+
+*The unsubmitted Create Model form on the test appliance, captured 24 September
+2026. No model has been selected yet, so the memory estimate and Add Local Model
+action are not available. The fields change with the selected engine.*
+
 ## 2. Configure and create
 
 For a local model, choose a compatible registry result/tag or a direct reference.
