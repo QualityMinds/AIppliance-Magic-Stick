@@ -24,6 +24,13 @@ Do not assume that every repository returned by Hugging Face is a valid FreeToke
 7. Create the model and use **Logs** to follow initialization. Verify with a small
    request through the common [API endpoint](../api-access.md).
 
+[![FreeToken memory controls with Auto strategy, separate GPU and system RAM budgets, and collapsed Advanced Settings.](../../assets/screenshots/freetoken-memory.webp)](../../assets/screenshots/freetoken-memory.webp)
+
+*Unsubmitted test-appliance form, 24 September 2026. No model was selected or
+created for this capture. The displayed capacities and initial budgets belong to
+this test device; they are not recommended settings or evidence that a particular
+checkpoint fits. Review both budgets after choosing your model.*
+
 ## What the memory controls mean
 
 - GPU memory is the total planned budget across the selected GPUs. At runtime it

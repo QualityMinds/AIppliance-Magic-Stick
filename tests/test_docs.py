@@ -127,6 +127,11 @@ class DocumentationTests(unittest.TestCase):
         self.assertEqual(set(names), {path.name for path in directory.glob('*.webp')})
         for entry in entries:
             with self.subTest(image=entry['file']):
+                source = entry.get('source', manifest['source'])
+                self.assertFalse(source['configurationOrWorkloadChanges'])
+                self.assertTrue(source['kind'])
+                self.assertTrue(source['browser'])
+                self.assertTrue(source['actions'])
                 self.assertEqual(Path(entry['file']).name, entry['file'])
                 data = (directory / entry['file']).read_bytes()
                 self.assertEqual(data[:4], b'RIFF')

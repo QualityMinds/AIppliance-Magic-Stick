@@ -29,7 +29,9 @@ navigation. Each section's README is the GitHub entry point.
 The current handbook images in `docs/assets/screenshots/` were captured from an
 authenticated test appliance on 24 September 2026, at the owner's request. The
 [capture manifest](../assets/screenshots/captures.json) records each view and its
-integrity hash. The visible Services page reported the applied control-plane
+integrity hash. An image's optional `source` object replaces the top-level source
+for that capture session; older images retain their original provenance. The
+visible Services page reported the applied control-plane
 revision recorded there; this is not an independent attestation of the running
 dashboard image. These images are distinct from the marketing site's older
 [fixture-based captures](website.md).

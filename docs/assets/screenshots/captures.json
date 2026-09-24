@@ -88,6 +88,23 @@
       "width": 994,
       "height": 235,
       "sha256": "d1ae33d63c9c171e898599356d531d29b694331b9e4d5667235ce68f6550c84f"
+    },
+    {
+      "file": "freetoken-memory.webp",
+      "view": "Models / Create / FreeToken, unsubmitted memory controls with Auto strategy",
+      "guides": ["user-guide/models/freetoken.md"],
+      "width": 837,
+      "height": 511,
+      "sha256": "b06e47c71a85857fec3a924da2f81064315635c01e0863213b8bb799f01efb9e",
+      "source": {
+        "kind": "owner-approved live test appliance",
+        "browser": "Chrome",
+        "observedAppliedControlPlaneRevision": "9d489be8d53f7c109f67979bfe1af6c222d1a66e",
+        "dashboardImageVerification": "not independently verified by this capture session",
+        "actions": ["navigate", "open an unsubmitted model form", "select FreeToken", "close the form without submitting"],
+        "configurationOrWorkloadChanges": false,
+        "modelSelected": false
+      }
     }
   ]
 }
