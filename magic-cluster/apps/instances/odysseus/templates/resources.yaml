@@ -1,5 +1,17 @@
 {{- $instance := required "instance is required" .Values.instance -}}
 {{- $values := default dict $instance.values -}}
+{{- $images := (.Files.Get "files/runtime-images.json" | fromJson).images -}}
+{{- $defaultAppImage := printf "%s@%s" $images.odysseus.repository $images.odysseus.digest -}}
+{{- $appImage := $defaultAppImage -}}
+{{- $customImage := default dict $values.image -}}
+{{- if or $customImage.repository $customImage.tag $customImage.digest -}}
+  {{- $repository := default $images.odysseus.repository $customImage.repository -}}
+  {{- if $customImage.digest -}}
+    {{- $appImage = printf "%s@%s" $repository $customImage.digest -}}
+  {{- else -}}
+    {{- $appImage = printf "%s:%s" $repository (required "An image override requires an explicit tag or digest" $customImage.tag) -}}
+  {{- end -}}
+{{- end -}}
 {{- $name := $instance.name -}}
 {{- $model := trimPrefix "litellm/" (trimPrefix "openai/" (default "CHANGEME_MODEL" $values.model)) -}}
 {{- $components := dict "chroma" 8000 "searxng" 8080 "ntfy" 80 -}}
@@ -124,11 +136,11 @@ spec:
       containers:
         - name: {{ $component }}
           {{- if eq $component "chroma" }}
-          image: docker.io/chromadb/chroma:latest
+          image: {{ printf "%s@%s" $images.chroma.repository $images.chroma.digest | quote }}
           {{- else if eq $component "searxng" }}
           image: docker.io/searxng/searxng:2026.5.31-7159b8aed
           {{- else }}
-          image: docker.io/binwiederhier/ntfy:latest
+          image: {{ printf "%s@%s" $images.ntfy.repository $images.ntfy.digest | quote }}
           args: [serve]
           {{- end }}
           ports:
@@ -190,7 +202,7 @@ spec:
     spec:
       containers:
         - name: app
-          image: {{ printf "%s:%s" (dig "image" "repository" "ghcr.io/pewdiepie-archdaemon/odysseus" $values) (dig "image" "tag" "latest" $values) | quote }}
+          image: {{ $appImage | quote }}
           ports:
             - name: http
               containerPort: 7000
@@ -229,7 +241,7 @@ spec:
             requests: {cpu: 250m, memory: 1Gi}
             limits: {cpu: "2", memory: 4Gi}
         - name: model-bootstrap
-          image: {{ printf "%s:%s" (dig "image" "repository" "ghcr.io/pewdiepie-archdaemon/odysseus" $values) (dig "image" "tag" "latest" $values) | quote }}
+          image: {{ $appImage | quote }}
           command: [python, /bootstrap/model-bootstrap.py]
           env:
             - name: ODYSSEUS_API_URL

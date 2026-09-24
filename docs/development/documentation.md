@@ -148,6 +148,9 @@ split by task/contract. Manual installer fallback instructions now link to their
 reviewed implementation instead of maintaining a second divergent bootstrap.
 The old German feature overview is replaced with an English summary; the German
 sales deck is separate marketing material, not part of the English handbook.
+The 2026-09-24 collateral import is maintained under AIMS-000 in Team-Innovation;
+presentation/PDF/raster packages are no longer copied into Pages. Current
+handbook screenshots keep their independent capture manifest and stay here.
 Historical FreeToken evidence lives under reports; active audits and JSON evidence
 retain their current maintenance responsibilities.
 Historical report bodies are excluded from full-text search so dated evidence does

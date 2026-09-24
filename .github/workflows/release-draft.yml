@@ -1,0 +1,68 @@
+name: Prepare versioned release draft
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Existing, reviewed main-reachable tag (for example v1.2.3)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: versioned-release-draft
+  cancel-in-progress: false
+
+jobs:
+  draft:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify existing tag belongs to the release channel
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          python -c 'import os; from tools.release import valid_version; valid_version(os.environ["RELEASE_VERSION"])'
+          revision="$(git rev-parse --verify "refs/tags/${RELEASE_VERSION}^{commit}")"
+          git merge-base --is-ancestor "$revision" origin/main
+          git checkout --detach "$revision"
+          echo "RELEASE_REVISION=$revision" >> "$GITHUB_ENV"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Validate metadata and retain advisory review findings
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          python -m unittest tests.test_release tests.test_license_release
+          python tools/release.py check --version "$RELEASE_VERSION" > "$RUNNER_TEMP/release-notes.md"
+          python tools/license_audit.py --review 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Require successful checks for the exact source commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          result="$(gh run list --workflow public-release-checks.yml --commit "$RELEASE_REVISION" \
+            --branch main --limit 20 --json conclusion,status --jq '.[0]')"
+          jq -e '.status == "completed" and .conclusion == "success"' <<< "$result"
+      - name: Create draft without moving tags or publishing assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          gh release create "$RELEASE_VERSION" --verify-tag --draft \
+            --target "$RELEASE_REVISION" --title "Magic Stick $RELEASE_VERSION" \
+            --notes-file "$RUNNER_TEMP/release-notes.md"
+          echo 'Draft created. No release assets were uploaded, no draft was published, and no live rollout was verified.' >> "$GITHUB_STEP_SUMMARY"

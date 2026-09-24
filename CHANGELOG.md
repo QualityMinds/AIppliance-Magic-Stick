@@ -15,6 +15,13 @@ formalized, release entries should group changes under:
 
 ### Added
 
+- Release preparation skill and local metadata helper, with immutable per-version
+  date records, curated notes and an explicitly requested GitHub release draft.
+- Real Chromium dashboard smoke tests for desktop/mobile navigation, roles,
+  model start/stop, conflicts and logs, using isolated API fixtures.
+- Weekly reviewed image-update proposals for Odysseus, Chroma and ntfy, targeting
+  develop without automatic merges or appliance changes.
+
 - Weekly and on-change license audit CI with hash-verified upstream evidence,
   dependency drift checks, source SBOMs, per-architecture dashboard image
   inventories and explicit release-readiness gates. kdns is recorded as
@@ -94,6 +101,19 @@ formalized, release entries should group changes under:
   token-free OIDC kubeconfig downloads for local or brokered Keycloak users.
 
 ### Changed
+
+- Installation defaults consistently track main; the Linux wrapper preserves
+  explicit branch selection instead of pinning every installation to a commit.
+  Development builds use develop with separate image aliases. Existing fixed
+  installations require an explicit channel switch.
+- Odysseus application defaults and companion services now use an immutable
+  image lock. Explicit application-image overrides remain supported.
+- Current host-vault paths and local/private Docker-context exclusions are
+  covered; Markdown-only dashboard edits and unrelated tool edits no longer
+  trigger the affected image builds.
+- Marketing collateral moved to AIMS-000 in Team-Innovation with preserved
+  source files and checksums. Removed unused historical dashboard images and
+  stopped shipping presentation packages in Pages; current handbook captures remain.
 
 - Fresh USB installations now use checksum-pinned Ubuntu 26.04.1 with its
   native Generic kernel and interactive APT mirror selection (country-mirror

@@ -1,0 +1,52 @@
+name: Dashboard browser smoke
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - dashboard/**
+      - '!dashboard/**/*.md'
+      - LICENSE
+      - LICENSING.md
+      - THIRD_PARTY_NOTICES.md
+      - licenses/**
+      - .github/workflows/dashboard-browser-smoke.yml
+  pull_request:
+    paths:
+      - dashboard/**
+      - '!dashboard/**/*.md'
+      - LICENSE
+      - LICENSING.md
+      - THIRD_PARTY_NOTICES.md
+      - licenses/**
+      - .github/workflows/dashboard-browser-smoke.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: browser-smoke-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  chromium:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install locked workspace and Chromium
+        working-directory: dashboard
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm --filter @magicstick/dashboard-web exec playwright install --with-deps chromium
+      - name: Exercise built UI with isolated API fixtures
+        working-directory: dashboard
+        run: pnpm test:browser
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-smoke
+          path: |
+            dashboard/apps/web/playwright-report/
+            dashboard/apps/web/test-results/
+          retention-days: 7

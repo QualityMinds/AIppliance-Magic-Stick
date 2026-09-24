@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "images": {
+    "chroma": {
+      "repository": "docker.io/chromadb/chroma",
+      "trackTag": "latest",
+      "digest": "sha256:1e0b73a187a28757c572acba508c46f48c9e8b0acaf5c20e6d95cdedce1acdf6"
+    },
+    "ntfy": {
+      "repository": "docker.io/binwiederhier/ntfy",
+      "trackTag": "latest",
+      "digest": "sha256:6ef4b819f722fccdc036af611c4774cfdc2de821ab74fdd48bbf4c9d6f8973da"
+    },
+    "odysseus": {
+      "repository": "ghcr.io/pewdiepie-archdaemon/odysseus",
+      "trackTag": "latest",
+      "digest": "sha256:80ed3a1c17fd08e95d12fc709889905aca47f51fa3524b07b53d692d25639879"
+    }
+  }
+}

@@ -92,11 +92,12 @@ test workloads, review final pixels for private data, and update the manifest.
 Do not expose personal model names, credentials, internal addresses or browser
 chrome.
 
-The older `assets/dashboard-overview.webp` and `assets/dashboard-models.webp`
-remain for historical references but are not current landing-page visuals. They
-were captured on 2026-09-09 from the unmodified dashboard at commit `28222ea`
-against a loopback-only, GET-only synthetic fixture API. They must not be described
-as live measurements. The older sales deck also remains a dated artifact.
+The unused historical dashboard fixture images were removed. Current handbook
+and landing-page captures remain under `assets/screenshots/` with their manifest.
+Sales decks, onepagers and infographic collateral now live under
+[AIMS-000 in Team-Innovation](https://github.com/QualityMinds/Team-Innovation/tree/main/missions/AIMS-000-ai-launch-system/assets/product-collateral).
+They are no longer copied into the public Pages artifact. The import retains
+their source provenance and checksums; moving them does not refresh their claims.
 
 ## Preview and checks
 

@@ -119,6 +119,7 @@
     {"Dashboard": "development/dashboard.md"},
     {"Model integration": "development/model-integration.md"},
     {"GitOps integration": "development/gitops-overlays.md"},
+    {"Release channels": "development/releases.md"},
     {"Image promotion": "development/image-promotion.md"},
     {"Release checklist": "development/release-checklist.md"},
     {"License audit": "development/license-audit.md"},

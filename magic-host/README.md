@@ -102,7 +102,7 @@ when `FLUX_BOOTSTRAP_MODE=github`.
 | `FLUX_BOOTSTRAP_MODE` | `flux_bootstrap_mode` |
 | `FLUX_PUBLIC_SYNC_PATH` | `flux_public_sync_path` |
 | `MAGICSTICK_PUBLIC_REPO` | public template Git URL used by the converge runner |
-| `MAGICSTICK_PUBLIC_REF` | public template tag or commit used by the converge runner |
+| `MAGICSTICK_PUBLIC_REF` | public template branch (main by default), tag or commit used by the converge runner |
 | `MAGICSTICK_PUBLIC_REF_KIND` | public template ref field, e.g. `branch` |
 | `AI_APPLIANCE_DOMAIN` | public read-only domain setting |
 | `AI_APPLIANCE_DASHBOARD_HOST` | dashboard ingress hostname |
@@ -130,7 +130,7 @@ Optional overrides and GitHub bootstrap values:
 
 The `ansible-pull-timer` role installs `/usr/local/sbin/ai-appliance-converge`. The runner:
 
-- updates the pinned public template checkout
+- updates the public template checkout from the selected branch, or retains an explicit tag/commit pin
 - updates the external deployment checkout in `github` mode
 - runs the public playbook with the configured inventory, defaulting to the public local inventory
 - uses `FLUX_GITHUB_TOKEN` through a temporary `GIT_ASKPASS` helper when a token is present

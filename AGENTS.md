@@ -6,6 +6,9 @@
   normal path simple and technical detail available separately.
 - `readonly-public` plus dashboard/runtime configuration is the default.
   External GitOps repositories and overlays are optional advanced integrations.
+- Installation defaults follow `main`; development versions follow explicit
+  `develop` opt-in. A main merge is deployment-eligible, not gated by creating a
+  GitHub Release. Keep development image aliases and promotions separate.
 - Keep `Appliance/local.spec` Git-owned. Clients use the shared API and runtime
   intent (`ModuleActivation`, `ModelActivation`, `AppInstance`, settings and
   existing host-operation APIs); controllers create the resulting workloads.
@@ -97,6 +100,7 @@ Skills live in `.agents/skills/`, without duplicate copies in `.codex/skills/`:
 - [Host/hardware](.agents/skills/magicstick-host-hardware/SKILL.md)
 - [Documentation/website](.agents/skills/magicstick-docs-website/SKILL.md)
 - [Publication/rollout](.agents/skills/magicstick-publish-rollout/SKILL.md)
+- [Versioned releases](.agents/skills/magicstick-release/SKILL.md)
 
 General safety and ownership rules belong here, not in a catch-all maintenance
 skill. Keep each skill concise, link canonical procedures, and validate its

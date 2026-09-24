@@ -85,11 +85,13 @@ documentation. These are repository files, not a required global plugin install.
 | [magicstick-host-hardware](../../.agents/skills/magicstick-host-hardware/SKILL.md) | Installer, networking, updates, kernels, GPU drivers and memory/sharing |
 | [magicstick-docs-website](../../.agents/skills/magicstick-docs-website/SKILL.md) | README, handbook, landing pages, screenshots and diagrams |
 | [magicstick-publish-rollout](../../.agents/skills/magicstick-publish-rollout/SKILL.md) | Requested source publication, Pages, image promotion and appliance rollout |
+| [magicstick-release](../../.agents/skills/magicstick-release/SKILL.md) | Versioned release preparation, immutable date records, evidence and optional release draft |
 
 Choose only the relevant skill(s) and references. Skills are automatically
 selectable and may also be invoked by their `$skill-name`. Their instructions do
 not authorize extra operations. General maintenance rules now live in `AGENTS.md`;
-the old maintenance/release skills and duplicate `.codex/skills/` copies are removed.
+duplicate `.codex/skills/` copies are removed. The focused release skill uses the
+[release procedure](releases.md) and does not replace publication authorization.
 Keep detailed procedures in canonical docs, not copied into each skill.
 
 With the documentation dependencies installed, run:

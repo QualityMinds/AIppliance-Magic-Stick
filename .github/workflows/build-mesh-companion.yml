@@ -1,7 +1,7 @@
 name: Build Private Mesh companion
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
     paths:
       - .github/workflows/build-mesh-companion.yml
       - magic-cluster/apps/ai/private-mesh/**

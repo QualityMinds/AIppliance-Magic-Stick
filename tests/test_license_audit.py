@@ -9,10 +9,49 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-from license_audit import REQUIRED_GATES, REQUIRED_NOTICES, main, notice_checks, publication_checks, source_checks
+from license_audit import (REQUIRED_GATES, REQUIRED_NOTICES, main, notice_checks,
+                          publication_checks, source_checks, deployment_references,
+                          refresh_references, references_checksum, checksum)
 
 
 class LicenseAuditTests(unittest.TestCase):
+    def test_runtime_lock_is_included_in_deployment_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / 'magic-cluster/apps/instances/odysseus/files/runtime-images.json'
+            path.parent.mkdir(parents=True)
+            path.write_text(json.dumps({'images': {'app': {'repository': 'example/app', 'digest': 'sha256:' + 'a' * 64}}}))
+            with patch('license_audit.files', return_value=[path]):
+                refs = deployment_references(root)
+            self.assertEqual(len(refs), 1)
+            self.assertEqual(refs[0]['reference'], 'image: example/app@sha256:' + 'a' * 64)
+
+    def test_refresh_preserves_package_metadata_and_rejects_lock_drift(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            lock = root / 'dashboard/pnpm-lock.yaml'
+            lock.parent.mkdir()
+            lock.write_text('fixture')
+            inventory = root / 'licenses/dependency-inventory.json'
+            inventory.parent.mkdir()
+            inventory.write_text(json.dumps({'pnpmLockSha256': checksum(lock), 'npm': ['fixture'],
+                                             'python': ['existing-environment'], 'status': 'not-approval'}))
+            refs = [{'file': 'example', 'line': 1, 'reference': 'image: fixture@sha256:abc'}]
+            with patch('license_audit.deployment_references', return_value=refs):
+                refresh_references(root)
+                saved = json.loads(inventory.read_text())
+                self.assertEqual(saved['npm'], ['fixture'])
+                self.assertEqual(saved['python'], ['existing-environment'])
+                self.assertEqual(saved['status'], 'not-approval')
+                self.assertEqual(saved['deploymentReferencesSha256'], references_checksum(refs))
+                before = inventory.read_bytes()
+                refresh_references(root)
+                self.assertEqual(inventory.read_bytes(), before)
+                lock.write_text('changed')
+                with self.assertRaises(ValueError):
+                    refresh_references(root)
+                self.assertEqual(inventory.read_bytes(), before)
+
     def test_current_source_consistency(self):
         self.assertEqual(source_checks(), [])
 

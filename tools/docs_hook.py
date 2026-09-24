@@ -31,10 +31,7 @@ def on_page_markdown(markdown, page, config, files):
         except ValueError:
             return match[0]
         if target.is_relative_to(DOCS):
-            # Excluded marketing material still lives at the site root.
-            if relative.as_posix().startswith('docs/sales-deck/'):
-                href = config['site_url'].rstrip('/').rsplit('/', 1)[0] + '/' + relative.as_posix()[5:] + sep + fragment
-            elif target.parent == DOCS and (target.suffix == '.html' or target.name in ('site.css', 'site.js')):
+            if target.parent == DOCS and (target.suffix == '.html' or target.name in ('site.css', 'site.js')):
                 href = config['site_url'].rstrip('/').rsplit('/', 1)[0] + '/' + target.name + sep + fragment
             else:
                 return match[0]

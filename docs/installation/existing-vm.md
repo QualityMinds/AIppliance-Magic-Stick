@@ -35,9 +35,12 @@ sudo bash /tmp/install-from-linux.sh --preflight-only
 sudo bash /tmp/install-from-linux.sh
 ```
 
-The wrapper shows the source and target directory, resolves the requested source
-to a commit, creates the new-install marker once, and invokes host convergence.
-For a release, add `--ref <release-tag>`; use `--help` for the supported options.
+The wrapper shows the source and target directory, checks out the requested source,
+creates the new-install marker once, and invokes host convergence. By default the
+host and Flux continue following **main**, the release channel, just like USB,
+cloud-init and existing-cluster installations. `--ref develop` explicitly selects
+development builds. A supplied release tag or full commit SHA stays pinned;
+use `--help` for the supported options. See [release channels](../administration/updates-rollback.md#release-channels).
 The host's Ubuntu release and existing kernel flavor are not silently replaced.
 
 <a id="first-run-setup-abschließen"></a>

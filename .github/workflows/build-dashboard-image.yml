@@ -4,10 +4,12 @@ on:
   push:
     branches:
       - main
+      - develop
     paths:
       - .dockerignore
       - .github/workflows/build-dashboard-image.yml
       - dashboard/**
+      - '!dashboard/**/*.md'
       - magic-host/roles/host-management/files/network_contract.py
       - magic-host/roles/host-management/files/updates_contract.py
       - magic-host/roles/host-management/files/model_cache.py
@@ -42,6 +44,7 @@ env:
 
 jobs:
   build:
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out MagicStick
@@ -124,6 +127,7 @@ jobs:
             type=sha,prefix=sha-,format=long
             type=raw,value=web,enable=${{ github.ref == 'refs/heads/main' }}
             type=raw,value=react-preview,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=web-develop,enable=${{ github.ref == 'refs/heads/develop' }}
           labels: |
             org.opencontainers.image.title=MagicStick React dashboard
             org.opencontainers.image.description=Default React dashboard for MagicStick
@@ -139,6 +143,7 @@ jobs:
           tags: |
             type=sha,prefix=cli-sha-,format=long
             type=raw,value=console,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=console-develop,enable=${{ github.ref == 'refs/heads/develop' }}
           labels: |
             org.opencontainers.image.title=MagicStick CLI and TUI runtime
             org.opencontainers.image.description=Private runtime image for the physical MagicStick console
@@ -154,6 +159,7 @@ jobs:
           tags: |
             type=sha,prefix=api-sha-,format=long
             type=raw,value=api-licensing-v1,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=api-develop,enable=${{ github.ref == 'refs/heads/develop' }}
           labels: |
             org.opencontainers.image.title=MagicStick dashboard API
             org.opencontainers.image.description=Magic Stick API with offline edition and Federated SSO entitlement verification

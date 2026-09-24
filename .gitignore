@@ -10,6 +10,9 @@ Thumbs.db
 
 # Ansible
 *.retry
+magic-host/inventory/host_vars/*.vault.yml
+magic-host/inventory/host_vars/*.vault.yaml
+# Retain protection for private checkouts using the previous directory name.
 infra-host/inventory/host_vars/*.vault.yml
 
 # Secrets / local overrides
@@ -33,6 +36,8 @@ tmp/
 node_modules/
 __pycache__/
 *.py[cod]
+playwright-report/
+test-results/
 
 # Kubernetes local tooling
 kubeconfig

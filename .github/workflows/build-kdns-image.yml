@@ -2,6 +2,7 @@ name: Build MagicStick kdns image
 
 on:
   push:
+    branches: [main, develop]
     paths:
       - .github/workflows/build-kdns-image.yml
       - LICENSE
@@ -30,6 +31,7 @@ env:
 
 jobs:
   build:
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out MagicStick

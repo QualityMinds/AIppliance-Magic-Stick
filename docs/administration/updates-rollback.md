@@ -1,5 +1,26 @@
 # Updates and rollback
 
+## Release channels
+
+All installation paths follow `main` by default. It is the release channel;
+only reviewed release changes belong there. Development builds use `develop`
+and must be selected explicitly (for example `--ref develop` in the Linux and
+Kubernetes installers, or the public-ref option in the USB builder). The branch
+must exist in the selected repository. A version tag or full commit remains an
+explicit fixed-version option, not the default.
+
+Branch followers receive changes through the existing host-convergence timer and
+Flux reconciliation. They do not poll GitHub Release objects: merging to `main`
+already makes that configuration eligible for rollout. A tag alone does not
+promote new image digests. Development image builds and digest promotions must
+stay on `develop` until release review. See [release process](../development/releases.md).
+
+Older Linux-wrapper installations may still be commit-pinned. They are not
+silently migrated. To opt in, back up `/etc/default/ai-appliance-repo`, change
+only `MAGICSTICK_PUBLIC_REF=main` and `MAGICSTICK_PUBLIC_REF_KIND=branch`, then
+run the existing convergence command below and check the Flux source/applied
+revision. Preserve every other local value and do not rerun initial setup.
+
 ## Three separate update paths
 
 | Layer | Managed through | Important boundary |

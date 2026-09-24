@@ -1,0 +1,61 @@
+name: Review runtime image updates
+
+on:
+  schedule:
+    - cron: '23 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: runtime-image-updates
+  cancel-in-progress: false
+
+jobs:
+  updates:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out development channel
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Verify updater and resolve public supplier tags
+        run: |
+          python -m unittest tests.test_runtime_image_updates
+          python tools/update_runtime_images.py --write
+          python tools/license_audit.py --refresh-references
+      - uses: azure/setup-helm@v4
+      - name: Render candidate configuration
+        run: |
+          helm template image-review magic-cluster/apps/instances/odysseus \
+            --set instance.name=example-review --set instance.namespace=ai \
+            --set instance.application=odysseus --set instance.localName=example-review \
+            --set instance.localHost=example-review.odysseus.example.local \
+            --set-json 'instance.values={}' >/tmp/image-review.yaml
+          git diff --check
+      - name: Propose a reviewed update on develop
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          base: develop
+          branch: automation/runtime-image-updates
+          add-paths: |
+            magic-cluster/apps/instances/odysseus/files/runtime-images.json
+            licenses/dependency-inventory.json
+          commit-message: 'chore: update reviewed runtime image candidates'
+          title: 'Review Odysseus runtime image updates'
+          body: |
+            Weekly digest refresh for Chroma, ntfy and Odysseus supplier tags.
+            Runtime references remain immutable. This PR neither merges itself nor deploys an appliance.
+
+            The update job tests the resolver and renders the candidate chart. Review upstream
+            changes and test existing application data before merging to develop. Approve the
+            pending PR workflows created through GITHUB_TOKEN, or run Public release checks
+            manually on this automation branch if they are unavailable. An approved bot identity
+            can be configured separately for unattended PR checks.
+            Promote a tested release to main separately. Legal review stays advisory.

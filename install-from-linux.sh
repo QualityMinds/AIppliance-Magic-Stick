@@ -19,7 +19,8 @@ Usage:
   sudo bash install-from-linux.sh [options]
 
 Options:
-  --ref REF             Git branch, tag, or commit to install (default: main)
+  --ref REF             Git branch, tag, or commit (default: main release channel;
+                        use develop for development builds)
   --repository URL      Public Git repository URL
   --domain DOMAIN       Initial public domain placeholder
   --mdns-domain DOMAIN  Initial local domain (default: magicstick.local)
@@ -200,13 +201,44 @@ checkout_repository() {
   install -d -m 0755 "$(dirname "$INSTALL_DIRECTORY")"
   git init --quiet "$INSTALL_DIRECTORY"
   git -C "$INSTALL_DIRECTORY" remote add origin "$REPOSITORY_URL"
-  if ! git_with_http11_fallback -C "$INSTALL_DIRECTORY" fetch --depth=1 origin "$REQUESTED_REF"; then
+  resolve_repository_ref
+  if ! git_with_http11_fallback -C "$INSTALL_DIRECTORY" fetch --depth=1 origin "$FETCH_REF"; then
     fail "Could not fetch ref '$REQUESTED_REF' from $REPOSITORY_URL."
   fi
   git -C "$INSTALL_DIRECTORY" checkout --quiet --detach FETCH_HEAD
   RESOLVED_COMMIT="$(git -C "$INSTALL_DIRECTORY" rev-parse HEAD)"
   [[ "$RESOLVED_COMMIT" =~ ^[0-9a-f]{40}$ ]] || fail "Could not resolve the installation commit."
-  log "Pinned this installation to commit $RESOLVED_COMMIT."
+  log "Installed $PUBLIC_REF_KIND $PUBLIC_REF at commit $RESOLVED_COMMIT."
+}
+
+resolve_repository_ref() {
+  PUBLIC_REF="$REQUESTED_REF"
+  case "$REQUESTED_REF" in
+    refs/heads/*) PUBLIC_REF_KIND=branch; PUBLIC_REF="${REQUESTED_REF#refs/heads/}" ;;
+    refs/tags/*) PUBLIC_REF_KIND=tag; PUBLIC_REF="${REQUESTED_REF#refs/tags/}" ;;
+    *)
+      if [[ "$REQUESTED_REF" =~ ^[0-9a-fA-F]{40}$ ]]; then
+        PUBLIC_REF_KIND=commit
+      else
+        local advertised
+        advertised="$(git_with_http11_fallback -C "$INSTALL_DIRECTORY" ls-remote --refs origin \
+          "refs/heads/$REQUESTED_REF" "refs/tags/$REQUESTED_REF")" || \
+          fail "Could not identify ref '$REQUESTED_REF'. No metadata was written."
+        if awk -v ref="refs/heads/$REQUESTED_REF" '$2 == ref { found = 1 } END { exit !found }' <<<"$advertised"; then
+          PUBLIC_REF_KIND=branch
+        elif awk -v ref="refs/tags/$REQUESTED_REF" '$2 == ref { found = 1 } END { exit !found }' <<<"$advertised"; then
+          PUBLIC_REF_KIND=tag
+        else
+          fail "Unknown ref '$REQUESTED_REF'. Use an existing branch, tag or full commit SHA."
+        fi
+      fi
+      ;;
+  esac
+  case "$PUBLIC_REF_KIND" in
+    branch) FETCH_REF="refs/heads/$PUBLIC_REF" ;;
+    tag) FETCH_REF="refs/tags/$PUBLIC_REF" ;;
+    commit) FETCH_REF="$PUBLIC_REF" ;;
+  esac
 }
 
 write_metadata() {
@@ -217,8 +249,8 @@ write_metadata() {
   {
     printf 'FLUX_BOOTSTRAP_MODE=%q\n' "readonly-public"
     printf 'MAGICSTICK_PUBLIC_REPO=%q\n' "$REPOSITORY_URL"
-    printf 'MAGICSTICK_PUBLIC_REF=%q\n' "$RESOLVED_COMMIT"
-    printf 'MAGICSTICK_PUBLIC_REF_KIND=%q\n' "commit"
+    printf 'MAGICSTICK_PUBLIC_REF=%q\n' "$PUBLIC_REF"
+    printf 'MAGICSTICK_PUBLIC_REF_KIND=%q\n' "$PUBLIC_REF_KIND"
     printf 'MAGICSTICK_PUBLIC_CHECKOUT=%q\n' "$INSTALL_DIRECTORY"
     printf 'FLUX_PUBLIC_SYNC_PATH=%q\n' "$PUBLIC_SYNC_PATH"
     printf 'AI_APPLIANCE_DOMAIN=%q\n' "$APPLIANCE_DOMAIN"

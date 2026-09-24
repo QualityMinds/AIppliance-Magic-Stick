@@ -144,6 +144,12 @@ def deployment_references(root=ROOT):
         name = path.relative_to(root).as_posix()
         if not name.startswith(("magic-cluster/", "magic-host/", "magic-installer/", ".github/")):
             continue
+        if name == "magic-cluster/apps/instances/odysseus/files/runtime-images.json":
+            lock = json.loads(path.read_text())
+            for image in lock["images"].values():
+                refs.append({"file": name, "line": 1,
+                             "reference": f"image: {image['repository']}@{image['digest']}"})
+            continue
         if path.suffix not in {".yaml", ".yml", ".sh", ".py", ".toml"} and not path.name.startswith("Dockerfile"):
             continue
         for number, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
@@ -157,6 +163,20 @@ def references_checksum(refs):
     # must not invalidate the inventory; changing an image/chart/build input must.
     values = sorted({(item["file"], item["reference"]) for item in refs})
     return hashlib.sha256(json.dumps(values, separators=(",", ":")).encode()).hexdigest()
+
+
+def refresh_references(root=ROOT):
+    """Refresh deployment evidence without inventing package or legal metadata."""
+    path = root / "licenses/dependency-inventory.json"
+    value = json.loads(path.read_text())
+    if value.get("pnpmLockSha256") != checksum(root / "dashboard/pnpm-lock.yaml"):
+        raise ValueError("Lockfile changed: regenerate the full dependency inventory first")
+    refs = deployment_references(root)
+    value["deploymentReferences"] = refs
+    value["deploymentReferencesSha256"] = references_checksum(refs)
+    content = json.dumps(value, indent=2, ensure_ascii=False) + "\n"
+    if content != path.read_text():
+        path.write_text(content)
 
 
 def inventory(root=ROOT):
@@ -188,12 +208,16 @@ def main(argv=None):
     mode.add_argument("--release", action="store_true",
                       help="Explicit strict review: require every publication approval and date record")
     parser.add_argument("--inventory", type=Path)
+    parser.add_argument("--refresh-references", action="store_true",
+                        help="Update deployment evidence only; retain frozen package inventory and review state")
     args = parser.parse_args(argv)
     if args.inventory:
         args.inventory.parent.mkdir(parents=True, exist_ok=True)
         value = inventory()
         args.inventory.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n")
         print(f"Inventory: {len(value['npm'])} locked npm packages, {len(value['deploymentReferences'])} deployment references")
+    if args.refresh_references:
+        refresh_references()
     errors = source_checks()
     if args.review or args.release:
         reviews = publication_checks()

@@ -87,7 +87,7 @@ The default installer mode uses this public repository directly and does not
 need a GitHub token.
 
 For an existing dedicated Ubuntu 26.04 or 24.04 system, the repository-level wrapper
-performs the host checks, writes the public metadata, pins the resolved commit,
+performs the host checks, writes public metadata retaining the selected branch (main by default),
 and starts the same Ansible playbook:
 
 ```bash

@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - develop
     paths:
       - .github/workflows/build-freetoken-image.yml
       - magic-cluster/platform/ai/freetoken/image/**
@@ -32,9 +33,8 @@ env:
 
 jobs:
   build:
-    # An image published from another ref cannot promote this repository's main
-    # runtime descriptor. Run manual dispatches from main as well.
-    if: github.ref == 'refs/heads/main'
+    # Development builds are candidates, not evidence accepted by main promotion.
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out MagicStick
@@ -69,6 +69,7 @@ jobs:
           tags: |
             type=sha,prefix=sha-,format=long
             type=raw,value=v${{ env.FREETOKEN_VERSION }},enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
           labels: |
             org.opencontainers.image.title=MagicStick FreeToken runtime
             org.opencontainers.image.description=Bounded Kubernetes runtime adapter for FreeToken
@@ -113,5 +114,9 @@ jobs:
             echo "- Source revision: \`${GITHUB_SHA}\`"
             echo "- CUDA toolchain: \`13.0\`"
             echo
-            echo "Promote this exact digest with the **Promote MagicStick FreeToken runtime digest** workflow on \`main\`. It verifies the registry image and this repository's build attestation before opening the descriptor-promotion pull request."
+            if [ "$GITHUB_REF" = refs/heads/main ]; then
+              echo "Promote this exact digest with the **Promote MagicStick FreeToken runtime digest** workflow on \`main\`. It verifies the registry image and this repository's build attestation before opening the descriptor-promotion pull request."
+            else
+              echo "Development candidate only. Main promotion rejects develop provenance; rebuild the reviewed source on main before release promotion."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"

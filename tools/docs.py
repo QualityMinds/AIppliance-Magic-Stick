@@ -251,8 +251,7 @@ def build():
             (OUT / name).write_text(marketing_links((DOCS / name).read_text()))
         else:
             shutil.copy2(DOCS / name, OUT / name)
-    for name in ('assets', 'sales-deck'):
-        shutil.copytree(DOCS / name, OUT / name, dirs_exist_ok=True)
+    shutil.copytree(DOCS / 'assets', OUT / 'assets', dirs_exist_ok=True)
     subprocess.run([sys.executable, str(ROOT / 'tools/collect_python_notices.py'),
                     '--output', str(OUT / 'licenses/documentation-build.txt'),
                     'mkdocs', 'mkdocs-material'], cwd=ROOT, check=True)

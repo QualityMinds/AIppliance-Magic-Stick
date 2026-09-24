@@ -15,7 +15,7 @@ on:
       - licenses/**
       - tools/license_*.py
   push:
-    branches: [main]
+    branches: [main, develop]
     paths:
       - .github/workflows/build-omni-rocm-image.yml
       - magic-cluster/platform/ai/realtime/**
@@ -67,8 +67,8 @@ jobs:
 
   build:
     needs: contracts
-    # Never publish PR code, and never promote a manually dispatched other ref.
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    # Never publish PR code; development digests remain unpromoted candidates.
+    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     permissions:

@@ -13,7 +13,7 @@ before selecting a path; do not turn a commit-only request into a live deploymen
 | Commit/push | Review the intended diff and relevant checks, commit the requested scope, push the requested branch, verify the remote revision and remaining worktree/ahead-behind state. Do not dispatch builds or promote images unless requested. |
 | Static website/Pages | Read [documentation publication](../../../docs/development/documentation.md#ci-and-publication) and [website checks](../../../docs/development/website.md#preview-and-checks); verify the matching Pages workflow and served content. This does not update the appliance. |
 | Container publication/appliance rollout | Read [dashboard image promotion](../../../docs/development/image-promotion.md) for dashboard/API/CLI images, or the affected image workflow and runtime manifest for another component. Verify source build, immutable promotion and live acceptance separately. |
-| Versioned distribution/release review | Select applicable sections of the [release checklist](../../../docs/development/release-checklist.md) and [license audit](../../../docs/development/license-audit.md). A strict full-distribution review is opt-in, not implied by an ordinary push. |
+| Versioned distribution/release review | Use the focused [release skill](../magicstick-release/SKILL.md) and [release procedure](../../../docs/development/releases.md). A strict full-distribution review is opt-in, not implied by an ordinary push. |
 
 ## Source publication
 
