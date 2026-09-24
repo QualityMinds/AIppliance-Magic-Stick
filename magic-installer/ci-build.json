@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "recipeRevision": 1,
+  "architecture": "amd64",
+  "offlinePool": "online",
+  "hostname": "example-host-01",
+  "publicRepository": "https://github.com/QualityMinds/AIppliance-Magic-Stick.git",
+  "releaseStatus": "test-build"
+}

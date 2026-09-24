@@ -33,6 +33,19 @@ The public default contains no access token. Consult [installer options](../../m
 for a release pin, mirror and kernel details. The present USB baseline uses Ubuntu
 26.04.1's native Generic kernel, not an Ubuntu 24.04 HWE package.
 
+Optional `--offline-pool reduced` builds remove the additional offline driver
+archive; `--offline-pool online` removes the entire offline package pool. Both
+preserve the installed-system files, live kernel and firmware and require a
+working online mirror. `full` remains the default. Read the
+[reduced-pool limitations and build reports](../../magic-installer/README.md#experimental-reduced-offline-pool)
+before choosing either experimental variant. Builds never overwrite an existing
+image; use a new output filename when rebuilding.
+
+The [online installer pipeline](../development/installer-images.md) can also
+provide a prebuilt test image and checksum. Its workflow summary links the
+matching `main` or `develop` download. These are online-only candidates, not
+physical-installation acceptance; check the evidence and channel before use.
+
 <a id="3-usb-stick-beschreiben"></a>
 
 ## 2. Write the USB drive

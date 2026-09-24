@@ -19,7 +19,9 @@ param(
   [string]$PublicRef = "main",
   [ValidateSet("branch", "tag", "semver", "commit")]
   [string]$PublicRefKind = "branch",
-  [string]$Output = "dist/magicstick-installer.img",
+  [string]$Output = "",
+  [ValidateSet("full", "reduced", "online")]
+  [string]$OfflinePool = "full",
   [string]$ContainerRuntime,
   [string]$BuilderImage = "magicstick-installer-builder:local",
   [switch]$NoBuild,
@@ -102,6 +104,9 @@ if (-not $ContainerRuntime) {
   $ContainerRuntime = Resolve-Tool -Names @("docker", "podman")
 }
 
+if (-not $Output) {
+  $Output = if ($OfflinePool -eq "full") { "dist/magicstick-installer.img" } else { "dist/magicstick-installer-$OfflinePool.img" }
+}
 if ([IO.Path]::IsPathRooted($Output)) {
   $outputFull = $Output
 } else {
@@ -112,6 +117,11 @@ $outputDir = Split-Path -Parent $outputFull
 $outputName = Split-Path -Leaf $outputFull
 $cacheDir = Join-Path $repoRoot ".installer-cache"
 
+foreach ($artifact in @($outputFull, "${outputFull}.sha256", "${outputFull}.report")) {
+  if (Test-Path -LiteralPath $artifact) {
+    throw "Output already exists; choose a new -Output: $artifact"
+  }
+}
 New-Item -ItemType Directory -Force -Path $outputDir, $cacheDir | Out-Null
 
 if (-not $NoBuild) {
@@ -138,6 +148,7 @@ $env:MAGICSTICK_PUBLIC_REF = $PublicRef
 $env:MAGICSTICK_PUBLIC_REF_KIND = $PublicRefKind
 $env:MAGICSTICK_UBUNTU_ISO_URL = $UbuntuIsoUrl
 $env:MAGICSTICK_UBUNTU_ISO_SHA256 = $UbuntuIsoSha256
+$env:MAGICSTICK_OFFLINE_POOL = $OfflinePool
 $env:MAGICSTICK_AI_APPLIANCE_DOMAIN = $Domain
 $env:MAGICSTICK_AI_APPLIANCE_DASHBOARD_HOST = $DashboardHost
 $env:MAGICSTICK_AI_APPLIANCE_MDNS_DOMAIN = $MdnsDomain
@@ -159,6 +170,7 @@ $env:MAGICSTICK_AI_APPLIANCE_DASHBOARD_MDNS_NAME = $DashboardMdnsName
   --env MAGICSTICK_PUBLIC_REF_KIND `
   --env MAGICSTICK_UBUNTU_ISO_URL `
   --env MAGICSTICK_UBUNTU_ISO_SHA256 `
+  --env MAGICSTICK_OFFLINE_POOL `
   --env MAGICSTICK_AI_APPLIANCE_DOMAIN `
   --env MAGICSTICK_AI_APPLIANCE_DASHBOARD_HOST `
   --env MAGICSTICK_AI_APPLIANCE_MDNS_DOMAIN `

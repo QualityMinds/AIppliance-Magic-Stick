@@ -6,15 +6,21 @@ RUN apt-get update \
     coreutils \
     curl \
     dosfstools \
+    fakeroot \
     file \
     grep \
+    gpgv \
     mtools \
     perl-base \
+    python3 \
+    python3-yaml \
     sed \
+    squashfs-tools \
     util-linux \
     xorriso \
   && rm -rf /var/lib/apt/lists/*
 
 COPY scripts/build-installer-image-container.sh /usr/local/bin/magicstick-build-installer-image
+COPY scripts/installer-media.py /usr/local/lib/magicstick-installer/installer-media.py
 
 ENTRYPOINT ["/usr/local/bin/magicstick-build-installer-image"]

@@ -120,6 +120,7 @@
     {"Model integration": "development/model-integration.md"},
     {"GitOps integration": "development/gitops-overlays.md"},
     {"Release channels": "development/releases.md"},
+    {"Installer image builds": "development/installer-images.md"},
     {"Image promotion": "development/image-promotion.md"},
     {"Release checklist": "development/release-checklist.md"},
     {"License audit": "development/license-audit.md"},
@@ -134,6 +135,7 @@
     {"Marketing website": "development/website.md"},
     {"Integration reports": [
       {"Report index": "development/reports/README.md"},
+      {"Installer pool · 2026-09-24": "development/reports/installer-offline-pool-2026-09-24.md"},
       {"FreeToken · 2026-09-21": "development/reports/2026-09-21-freetoken.md"}
     ]}
   ]}

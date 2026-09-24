@@ -11,6 +11,7 @@ Start with [development environment](environment.md) and the repository's
 - [Advanced GitOps integration](gitops-overlays.md)
 - [Release channels and automation](releases.md), [image promotion](image-promotion.md)
   and [release checklist](release-checklist.md)
+- [Reusable online installer images](installer-images.md)
 - [License audit](license-audit.md) and [issuer/trust tooling](license-issuer.md)
 - [Documentation maintenance](documentation.md) and [marketing website](website.md)
 - [Integration reports](reports/README.md)

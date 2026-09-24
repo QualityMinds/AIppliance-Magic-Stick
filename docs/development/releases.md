@@ -26,6 +26,15 @@ downloads. Promote tested digests into the descriptor on the intended
 branch; do not insert mutable aliases into runtime manifests. Other image-specific
 promotion workflows retain their explicit approval/provenance requirements.
 
+## Reusable online installer images
+
+The [online installer pipeline](installer-images.md) builds only when installer
+inputs change. It reuses an existing checksum-verified download for identical
+inputs, independently of product version numbers. `main` and `develop` have
+separate, immutable test/prerelease downloads; their first boot follows the
+selected branch. The pipeline does not make a product release or verify a live
+installation. Product release notes can link an existing installer candidate.
+
 ## Weekly runtime image proposals
 
 [Review runtime image updates](../../.github/workflows/runtime-image-updates.yml)

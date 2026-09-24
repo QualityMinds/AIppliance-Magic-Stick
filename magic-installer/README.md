@@ -132,6 +132,106 @@ Ubuntu Server 26.04.1 LTS AMD64, verifies the pinned SHA256 checksum, patches
 the Ubuntu boot configuration with `autoinstall ds=nocloud`, and appends the
 editable FAT32 `CIDATA` partition.
 
+### Automatic online image builds
+
+The [installer CI workflow](../.github/workflows/build-installer-image.yml) uses
+`online` mode only. Relevant installer changes on `main` or `develop` produce
+separate test/prerelease downloads; unchanged build inputs reuse an existing
+image. Product version changes alone do not trigger a rebuild. See
+[automatic installer images](../docs/development/installer-images.md) for download
+assets, checksums, retention, input fingerprints and recovery from failed uploads.
+Local builds below keep their explicit `full`, `reduced` and `online` choices.
+
+### Experimental reduced offline pool
+
+The normal build remains `--offline-pool full`. Two experimental variants reduce
+the package archive and require a working online Ubuntu mirror:
+
+| Mode | Offline package archives | Default output |
+|---|---|---|
+| `full` | All original packages | `dist/magicstick-installer.img` |
+| `reduced` | Keep `main`, remove `restricted` | `dist/magicstick-installer-reduced.img` |
+| `online` | Remove the entire `/pool` | `dist/magicstick-installer-online.img` |
+
+To remove **all offline package archives**:
+
+```bash
+magic-installer/build-installer-image.sh \
+  --hostname example-host-01 \
+  --offline-pool online \
+  --output dist/magicstick-installer-online.img
+```
+
+Use `--offline-pool reduced` to retain the main package pool. PowerShell accepts
+the same modes as `-OfflinePool online` or `-OfflinePool reduced`. Existing images,
+checksums and report directories are never overwritten. Choose another output
+name for a new build.
+The checksum-verified original ISO is shared in `.installer-cache` and is never
+modified. Each build uses a separate temporary workspace; transformed ISO or
+SquashFS files are not reused from the download cache.
+
+The `reduced` variant is deliberately component-scoped:
+
+- Keep **all of `pool/main`**, including the original kernel, bootloader, SSH and
+  dependency packages. This avoids guessing which individual libraries can go.
+- Remove **only `pool/restricted`**, the additional third-party driver package
+  archive on the currently pinned Server ISO. This does not uninstall anything
+  from the live or target systems and does not remove firmware or kernel drivers.
+- Keep the original signed `dists` metadata byte-for-byte. The only logical
+  change inside the base SquashFS is `Components: main` in
+  `/etc/apt/sources.list.d/cdrom.sources`. The now-inactive restricted index is
+  retained so the original repository signature remains valid. No active local
+  index refers to the removed package files. Online mirror components, keys and
+  signature verification are unchanged; no signing key or trust exemption is added.
+- Preserve the codec and block size when repacking that filesystem. Verify its
+  file contents, ownership, modes, timestamps, links, devices and extended
+  attributes; reject changes outside that single source file. Other SquashFS
+  layers, `vmlinuz`, `initrd` and the target package selection stay unchanged.
+
+The `online` variant removes **all 186 package archives** on the pinned ISO,
+including the kernel, bootloader and driver **archives**, not the running kernel,
+installed software, firmware or installer files. It keeps the original signed
+repository metadata inactive and sets `Enabled: no` in the existing
+`cdrom.sources`. The file must remain present: Subiquity 26.04 would recreate an
+enabled local source if it were deleted. All packages that need downloading
+during installation then come from the chosen mirror, using current available
+versions rather than pinning old ISO archive versions. Packages already supplied
+by the installed-system SquashFS are not unnecessarily downloaded again.
+
+Both modified variants verify the original local repository signature and package
+hashes, preserve filesystem metadata, and require `apt.fallback: abort` in the
+template. They neither disable signature checks nor allow an offline fallback.
+The `reduced` variant additionally checks retained-package dependencies and
+refuses a template that explicitly requests a removed package or enables
+third-party/OEM driver installation, interactive driver/package selection or an
+offline APT fallback. Use `full` for those cases. These checks cover the supplied
+template, not subsequent manual changes to `CIDATA` on the stick. The `online`
+variant deliberately relies on the mirror's package resolver instead of an
+offline dependency closure; unavailable or explicitly pinned old versions can
+still prevent installation.
+
+**A working Ubuntu mirror and Internet access are required.** Older optional
+driver versions included on an ISO can disappear from the normal Ubuntu archive;
+neither smaller image promises that those exact versions can be re-downloaded.
+Magic Stick's post-install GPU/operator provisioning is not changed. This is not
+a smaller Ubuntu edition, a minimal-system switch or an offline installation mode.
+
+Every completed build writes:
+
+- `<image>.sha256`: checksum of the complete USB image, including CIDATA/padding.
+- `<image>.report/size-report.json`: logical image size in bytes/MiB/GiB, strict
+  `< 2 GiB` comparison, source ISO hash, selection policy and filesystem checks.
+- `<image>.report/pool-before.json` and `pool-after.json`: files and package
+  name/version/architecture/path/size/hash inventory, including `/pool`, `/dists`,
+  `/casper` and other payload sizes. These are package archives, not installed sizes.
+
+The ISO's `md5sum.txt` is refreshed for boot configuration changes, the reduced or
+removed pool and the one repacked filesystem. Upstream exclusions for generated boot data
+are preserved. A successful build and checksum verification are **not** a complete
+VM or hardware installation acceptance. See the
+[dated experiment report](../docs/development/reports/installer-offline-pool-2026-09-24.md)
+for measured results and remaining checks.
+
 ### Kernel selection
 
 New images select the standard **Try or Install Ubuntu Server** entry. Ubuntu

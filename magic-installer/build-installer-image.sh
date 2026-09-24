@@ -32,6 +32,8 @@ Options:
   --mdns-name NAME             Local mDNS annotation suffix. Default: derived from --mdns-domain.
   --dashboard-mdns-name NAME   Legacy dashboard mDNS name. Default: derived from --mdns-domain.
   --output PATH                Output image path. Default: dist/magicstick-installer.img.
+  --offline-pool MODE          full (default), reduced (keep main), or online (no pool).
+                              Experimental modes need a working Ubuntu mirror.
   --container-runtime NAME     docker or podman. Auto-detected by default.
   --builder-image NAME         Container image tag for the local builder.
   --no-build                   Reuse an already-built builder image.
@@ -98,7 +100,8 @@ FLUX_PUBLIC_SYNC_PATH="magic-cluster/flux/entrypoints/single-node"
 PUBLIC_REPO="https://github.com/QualityMinds/AIppliance-Magic-Stick.git"
 PUBLIC_REF="main"
 PUBLIC_REF_KIND="branch"
-OUTPUT="dist/magicstick-installer.img"
+OUTPUT=""
+OFFLINE_POOL="full"
 CONTAINER_RUNTIME=""
 BUILDER_IMAGE="magicstick-installer-builder:local"
 NO_BUILD="false"
@@ -124,6 +127,9 @@ while [[ $# -gt 0 ]]; do
     --public-ref) PUBLIC_REF="${2:-}"; shift 2 ;;
     --public-ref-kind) PUBLIC_REF_KIND="${2:-}"; shift 2 ;;
     --output) OUTPUT="${2:-}"; shift 2 ;;
+    --offline-pool)
+      [[ $# -ge 2 ]] || die "--offline-pool needs full, reduced or online"
+      OFFLINE_POOL="$2"; shift 2 ;;
     --container-runtime) CONTAINER_RUNTIME="${2:-}"; shift 2 ;;
     --builder-image) BUILDER_IMAGE="${2:-}"; shift 2 ;;
     --no-build) NO_BUILD="true"; shift ;;
@@ -140,6 +146,12 @@ while [[ $# -gt 0 ]]; do
 done
 
 require_value "--hostname" "$HOSTNAME_VALUE"
+case "$OFFLINE_POOL" in
+  full) OUTPUT="${OUTPUT:-dist/magicstick-installer.img}" ;;
+  reduced) OUTPUT="${OUTPUT:-dist/magicstick-installer-reduced.img}" ;;
+  online) OUTPUT="${OUTPUT:-dist/magicstick-installer-online.img}" ;;
+  *) die "--offline-pool must be full, reduced or online" ;;
+esac
 AI_APPLIANCE_DASHBOARD_HOST="${AI_APPLIANCE_DASHBOARD_HOST:-$AI_APPLIANCE_DOMAIN}"
 AI_APPLIANCE_MDNS_NAME="${AI_APPLIANCE_MDNS_NAME:-${AI_APPLIANCE_DASHBOARD_MDNS_NAME:-${AI_APPLIANCE_MDNS_DOMAIN%.local}}}"
 AI_APPLIANCE_DASHBOARD_MDNS_NAME="${AI_APPLIANCE_DASHBOARD_MDNS_NAME:-$AI_APPLIANCE_MDNS_NAME}"
@@ -176,6 +188,9 @@ OUTPUT_DIR="$(dirname "$OUTPUT_ABS")"
 OUTPUT_BASENAME="$(basename "$OUTPUT_ABS")"
 CACHE_DIR="$REPO_ROOT/.installer-cache"
 
+for artifact in "$OUTPUT_ABS" "$OUTPUT_ABS.sha256" "$OUTPUT_ABS.report"; do
+  [[ ! -e "$artifact" && ! -L "$artifact" ]] || die "Output already exists; choose a new --output: $artifact"
+done
 mkdir -p "$OUTPUT_DIR" "$CACHE_DIR"
 
 if [[ "$NO_BUILD" != "true" ]]; then
@@ -199,6 +214,7 @@ export MAGICSTICK_PUBLIC_REF="$PUBLIC_REF"
 export MAGICSTICK_PUBLIC_REF_KIND="$PUBLIC_REF_KIND"
 export MAGICSTICK_UBUNTU_ISO_URL="$UBUNTU_ISO_URL"
 export MAGICSTICK_UBUNTU_ISO_SHA256="$UBUNTU_ISO_SHA256"
+export MAGICSTICK_OFFLINE_POOL="$OFFLINE_POOL"
 export MAGICSTICK_AI_APPLIANCE_DOMAIN="$AI_APPLIANCE_DOMAIN"
 export MAGICSTICK_AI_APPLIANCE_DASHBOARD_HOST="$AI_APPLIANCE_DASHBOARD_HOST"
 export MAGICSTICK_AI_APPLIANCE_MDNS_DOMAIN="$AI_APPLIANCE_MDNS_DOMAIN"
@@ -222,6 +238,7 @@ run_args=(
   --env MAGICSTICK_PUBLIC_REF_KIND
   --env MAGICSTICK_UBUNTU_ISO_URL
   --env MAGICSTICK_UBUNTU_ISO_SHA256
+  --env MAGICSTICK_OFFLINE_POOL
   --env MAGICSTICK_AI_APPLIANCE_DOMAIN
   --env MAGICSTICK_AI_APPLIANCE_DASHBOARD_HOST
   --env MAGICSTICK_AI_APPLIANCE_MDNS_DOMAIN

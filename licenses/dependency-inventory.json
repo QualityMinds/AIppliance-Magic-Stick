@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "158045c9aae06e3e460799689cfa2e29c2c0a29eebf5aee1ef50927428ddc419",
-  "deploymentReferencesSha256": "c85a8958a75976d05f0362a5ec6061dd7ef8c94b8c7e20f82b035a2f38d7ca19",
+  "deploymentReferencesSha256": "5c556482654d82cf20ce1b2e5ac5cbc97b94fbbd5ec4c88e4fd41bb2663674e9",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -2034,6 +2034,21 @@
       "reference": "echo \"- FreeToken version: \\`v${FREETOKEN_VERSION}\\`\""
     },
     {
+      "file": ".github/workflows/build-installer-image.yml",
+      "line": 51,
+      "reference": "python-version: '3.13'"
+    },
+    {
+      "file": ".github/workflows/build-installer-image.yml",
+      "line": 54,
+      "reference": "python -m pip install PyYAML==6.0.2"
+    },
+    {
+      "file": ".github/workflows/build-installer-image.yml",
+      "line": 138,
+      "reference": "python-version: '3.13'"
+    },
+    {
       "file": ".github/workflows/build-kdns-image.yml",
       "line": 46,
       "reference": "repository: lab42/kdns"
@@ -2240,7 +2255,7 @@
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 92,
+      "line": 94,
       "reference": "python3 -m pip install -r dashboard/apps/api/requirements.txt pyyaml"
     },
     {
@@ -3025,18 +3040,28 @@
     },
     {
       "file": "magic-installer/build-installer-image.sh",
-      "line": 98,
+      "line": 100,
       "reference": "PUBLIC_REPO=\"https://github.com/QualityMinds/AIppliance-Magic-Stick.git\""
     },
     {
       "file": "magic-installer/scripts/build-installer-image-container.sh",
-      "line": 150,
+      "line": 152,
       "reference": "MAGICSTICK_PUBLIC_REPO=\"${MAGICSTICK_PUBLIC_REPO:-https://github.com/QualityMinds/AIppliance-Magic-Stick.git}\""
     },
     {
       "file": "magic-installer/scripts/build-installer-image-container.sh",
-      "line": 342,
+      "line": 405,
       "reference": "printf 'Created installer image: %s\\n' \"$OUTPUT\""
+    },
+    {
+      "file": "magic-installer/scripts/installer-media.py",
+      "line": 397,
+      "reference": "\"MAGICSTICK_PUBLIC_REPO\": \"https://github.com/QualityMinds/AIppliance-Magic-Stick.git\","
+    },
+    {
+      "file": "magic-installer/scripts/installer-media.py",
+      "line": 489,
+      "reference": "if args.operation in (\"finish\", \"verify\") and not args.image:"
     }
   ],
   "limitations": [

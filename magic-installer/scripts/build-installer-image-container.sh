@@ -11,6 +11,8 @@ Usage:
 
 This command is intended to run inside the Magic-Stick installer builder
 container. Build inputs are passed via MAGICSTICK_* environment variables.
+MAGICSTICK_OFFLINE_POOL=full (default), reduced or online selects the offline pool.
+Existing output images and report files are never overwritten.
 USAGE
 }
 
@@ -167,10 +169,17 @@ UBUNTU_ISO_URL="${MAGICSTICK_UBUNTU_ISO_URL:-$DEFAULT_UBUNTU_ISO_URL}"
 UBUNTU_ISO_SHA256="${MAGICSTICK_UBUNTU_ISO_SHA256:-$DEFAULT_UBUNTU_ISO_SHA256}"
 TEMPLATE_DIR="${MAGICSTICK_TEMPLATE_DIR:-/workspace/magic-installer}"
 CACHE_DIR="${MAGICSTICK_CACHE_DIR:-/cache}"
-WORK_DIR="${MAGICSTICK_WORK_DIR:-/tmp/magicstick-installer-build}"
+WORK_ROOT="${MAGICSTICK_WORK_DIR:-/tmp}"
+OFFLINE_POOL="${MAGICSTICK_OFFLINE_POOL:-full}"
+MEDIA_HELPER="/usr/local/lib/magicstick-installer/installer-media.py"
 CIDATA_SIZE="${MAGICSTICK_CIDATA_SIZE:-64M}"
 CIDATA_PARTITION_NUMBER="${MAGICSTICK_CIDATA_PARTITION_NUMBER:-3}"
 VOLUME_ID="${MAGICSTICK_ISO_VOLUME_ID:-MAGICSTICK_INSTALL}"
+
+case "$OFFLINE_POOL" in
+  full | reduced | online) ;;
+  *) die "MAGICSTICK_OFFLINE_POOL must be full, reduced or online" ;;
+esac
 
 case "$FLUX_BOOTSTRAP_MODE" in
   github | readonly-public) ;;
@@ -201,16 +210,45 @@ fi
 [[ -f "$TEMPLATE_DIR/meta-data" ]] || die "Missing template: $TEMPLATE_DIR/meta-data"
 
 mkdir -p "$CACHE_DIR" "$(dirname "$OUTPUT")"
-rm -rf "$WORK_DIR"
-mkdir -p "$WORK_DIR/cidata" "$WORK_DIR/bootfiles"
+for artifact in "$OUTPUT" "$OUTPUT.sha256" "$OUTPUT.report"; do
+  [[ ! -e "$artifact" && ! -L "$artifact" ]] || die "Output already exists: $artifact"
+done
+mkdir "$OUTPUT.build-lock" || die "Another build owns this output: $OUTPUT"
+WORK_DIR=""
+TMP_OUTPUT=""
+TMP_DOWNLOAD=""
+cleanup() {
+  # Only remove this build's uniquely allocated workspace, never a user directory.
+  if [[ -n "$WORK_DIR" ]]; then
+    # Extracted ISO directories can be read-only. Do not follow filesystem links.
+    find "$WORK_DIR" -type d -exec chmod u+rwx {} +
+    rm -rf "$WORK_DIR"
+  fi
+  [[ -z "$TMP_OUTPUT" ]] || rm -f "$TMP_OUTPUT"
+  [[ -z "$TMP_DOWNLOAD" ]] || rm -f "$TMP_DOWNLOAD"
+  rmdir "$OUTPUT.build-lock"
+}
+trap cleanup EXIT
+mkdir -p "$WORK_ROOT"
+WORK_DIR="$(mktemp -d "$WORK_ROOT/magicstick-${OFFLINE_POOL}.XXXXXX")"
+[[ ! -e "${OUTPUT}.tmp" && ! -L "${OUTPUT}.tmp" ]] || die "Temporary output already exists: ${OUTPUT}.tmp"
+TMP_OUTPUT="${OUTPUT}.tmp"
+mkdir -p "$WORK_DIR/cidata"
 
 ISO_NAME="${UBUNTU_ISO_URL##*/}"
 ISO_PATH="$CACHE_DIR/$ISO_NAME"
+[[ "$UBUNTU_ISO_SHA256" =~ ^[a-fA-F0-9]{64}$ ]] || die "Expected a 64-character Ubuntu ISO SHA256"
 
 if [[ ! -f "$ISO_PATH" ]]; then
   printf 'Downloading %s\n' "$UBUNTU_ISO_URL"
-  curl -fL --retry 3 --retry-delay 5 -o "$ISO_PATH.part" "$UBUNTU_ISO_URL"
-  mv "$ISO_PATH.part" "$ISO_PATH"
+  TMP_DOWNLOAD="$(mktemp "$CACHE_DIR/.iso-download.XXXXXX")"
+  curl -fL --retry 3 --retry-delay 5 -o "$TMP_DOWNLOAD" "$UBUNTU_ISO_URL"
+  printf '%s  %s\n' "$UBUNTU_ISO_SHA256" "$TMP_DOWNLOAD" | sha256sum -c -
+  # Concurrent builds may share the verified original, never a
+  # partially downloaded file. No existing cache entry is replaced.
+  mv -n -T "$TMP_DOWNLOAD" "$ISO_PATH"
+  rm -f "$TMP_DOWNLOAD"
+  TMP_DOWNLOAD=""
 fi
 
 printf '%s  %s\n' "$UBUNTU_ISO_SHA256" "$ISO_PATH" | sha256sum -c -
@@ -219,6 +257,12 @@ printf '%s  %s\n' "$UBUNTU_ISO_SHA256" "$ISO_PATH" | sha256sum -c -
 xorriso -report_about SORRY -indev "$ISO_PATH" \
   -ls /casper/vmlinuz /casper/initrd >/dev/null \
   || die "The selected Ubuntu ISO must include /casper/vmlinuz and /casper/initrd"
+
+# No new repository key is generated. fakeroot preserves the existing filesystem
+# metadata for the one narrowly scoped APT source edit, even for non-root builders.
+env -u SOURCE_DATE_EPOCH fakeroot python3 "$MEDIA_HELPER" prepare \
+  --work "$WORK_DIR" --iso "$ISO_PATH" --mode "$OFFLINE_POOL" \
+  --template "$TEMPLATE_DIR/user-data"
 
 USER_DATA="$WORK_DIR/cidata/user-data"
 META_DATA="$WORK_DIR/cidata/meta-data"
@@ -282,6 +326,12 @@ To disable GeoIP, set autoinstall.apt.geoip to false in user-data before booting
 
 This partition may contain a GitHub/Flux token. Treat the USB stick and any
 image made from it as sensitive.
+
+Offline package pool mode: $OFFLINE_POOL.
+Reduced and online media require Internet access. Online media contains no
+offline package archives; all additional packages come from the selected mirror.
+Reduced media keeps main but excludes optional third-party/OEM driver installs.
+The live kernel, firmware and normal installation choices are unchanged.
 EOF
 
 CIDATA_IMAGE="$WORK_DIR/cidata.img"
@@ -302,7 +352,7 @@ native_patched_count=0
 while IFS= read -r iso_config_path; do
   [[ -n "$iso_config_path" ]] || continue
 
-  local_config_path="$WORK_DIR/bootfiles${iso_config_path}"
+  local_config_path="$WORK_DIR/replacements${iso_config_path}"
   mkdir -p "$(dirname "$local_config_path")"
 
   if ! xorriso -report_about SORRY -osirrox on -indev "$ISO_PATH" -extract "$iso_config_path" "$local_config_path" >/dev/null 2>&1; then
@@ -314,7 +364,6 @@ while IFS= read -r iso_config_path; do
     if grep -q '^set default=magicstick-install$' "$local_config_path"; then
       native_patched_count=$((native_patched_count + 1))
     fi
-    map_args+=(-map "$local_config_path" "$iso_config_path")
     patched_count=$((patched_count + 1))
   fi
 done <"$CONFIG_LIST"
@@ -326,8 +375,17 @@ if [[ "$native_patched_count" -eq 0 ]]; then
   die "No selectable standard installer GRUB entry was found in the Ubuntu ISO"
 fi
 
-TMP_OUTPUT="${OUTPUT}.tmp"
-rm -f "$TMP_OUTPUT"
+python3 "$MEDIA_HELPER" metadata --work "$WORK_DIR"
+while IFS= read -r -d '' replacement; do
+  map_args+=(-map "$replacement" "/${replacement#"$WORK_DIR/replacements/"}")
+done < <(find "$WORK_DIR/replacements" -type f -print0)
+
+pool_args=()
+if [[ "$OFFLINE_POOL" == "reduced" ]]; then
+  pool_args=(-rm_r /pool/restricted --)
+elif [[ "$OFFLINE_POOL" == "online" ]]; then
+  pool_args=(-rm_r /pool --)
+fi
 
 xorriso -report_about UPDATE \
   -indev "$ISO_PATH" \
@@ -335,9 +393,14 @@ xorriso -report_about UPDATE \
   -boot_image any replay \
   -volid "$VOLUME_ID" \
   -append_partition "$CIDATA_PARTITION_NUMBER" 0x0c "$CIDATA_IMAGE" \
+  "${pool_args[@]}" \
   "${map_args[@]}"
 
-mv "$TMP_OUTPUT" "$OUTPUT"
+# Publish without replacing an existing file, including on filesystems without
+# hard links. GNU mv -n can succeed without moving; explicitly check that case.
+mv -n -T "$TMP_OUTPUT" "$OUTPUT"
+[[ ! -e "$TMP_OUTPUT" ]] || die "Output was created concurrently; preserved it: $OUTPUT"
+python3 "$MEDIA_HELPER" finish --work "$WORK_DIR" --image "$OUTPUT"
 
 printf 'Created installer image: %s\n' "$OUTPUT"
 printf 'CIDATA partition: FAT32 label CIDATA, partition number %s\n' "$CIDATA_PARTITION_NUMBER"

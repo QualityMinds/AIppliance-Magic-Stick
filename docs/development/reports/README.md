@@ -10,6 +10,7 @@ checks from physical-appliance acceptance.
 
 | Date | Report | Scope |
 |---|---|---|
+| 2026-09-24 | [Installer offline-pool experiments](installer-offline-pool-2026-09-24.md) | Real full/reduced/online image sizes, verified online downloads, filesystem integrity and separate installation acceptance |
 | 2026-09-21 | [FreeToken integration review](2026-09-21-freetoken.md) | Adapter/contracts, local tests and separate runtime/hardware checks |
 
 Current FreeToken instructions are in the [user guide](../../user-guide/models/freetoken.md).

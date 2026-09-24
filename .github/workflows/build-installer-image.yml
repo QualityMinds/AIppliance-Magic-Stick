@@ -1,0 +1,158 @@
+name: Build online installer image
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - .github/workflows/build-installer-image.yml
+      - tools/installer_artifact.py
+      - magic-installer/ci-build.json
+      - magic-installer/Containerfile
+      - magic-installer/.dockerignore
+      - magic-installer/build-installer-image.sh
+      - magic-installer/scripts/build-installer-image-container.sh
+      - magic-installer/scripts/installer-media.py
+      - magic-installer/user-data
+      - magic-installer/meta-data
+      - tests/test_installer_artifact.py
+      - tests/test_installer_pool.py
+      - LICENSE
+      - LICENSING.md
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: installer-image-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: build
+    if: >-
+      github.repository == 'QualityMinds/AIppliance-Magic-Stick' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      reused: ${{ steps.lookup.outputs.reused }}
+      fingerprint: ${{ steps.plan.outputs.fingerprint }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Check installer contracts
+        run: |
+          python -m pip install PyYAML==6.0.2
+          bash -n magic-installer/build-installer-image.sh
+          bash -n magic-installer/scripts/build-installer-image-container.sh
+          python -m unittest tests.test_installer_artifact tests.test_installer_pool tests.test_installer_boot tests.test_installer_network tests.test_install_channels tests.test_git_http_fallback
+          python tools/license_audit.py --review
+      - name: Check public sources for secrets
+        run: |
+          docker run --rm -v "$PWD:/repo:ro" ghcr.io/gitleaks/gitleaks:v8.30.1 \
+            detect --source /repo --config /repo/.gitleaks.toml --no-git --redact
+      - name: Fingerprint build inputs
+        id: plan
+        run: |
+          python tools/installer_artifact.py plan --channel "$GITHUB_REF_NAME" \
+            --revision "$GITHUB_SHA" --plan "$RUNNER_TEMP/installer-plan.json"
+      - name: Reuse an identical published installer
+        id: lookup
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python tools/installer_artifact.py lookup --plan "$RUNNER_TEMP/installer-plan.json"
+      - name: Report reused download
+        if: steps.lookup.outputs.reused == 'true'
+        env:
+          DOWNLOAD_URL: ${{ steps.lookup.outputs.url }}
+        run: |
+          printf '### Online installer reused\n\nBuild inputs are unchanged; no image was rebuilt.\n\n[Existing download](%s)\n' "$DOWNLOAD_URL" >> "$GITHUB_STEP_SUMMARY"
+      - name: Cache checksum-pinned Ubuntu source ISO
+        if: steps.lookup.outputs.reused != 'true'
+        uses: actions/cache@v4
+        with:
+          path: .installer-cache
+          key: installer-ubuntu-iso-${{ steps.plan.outputs.ubuntu_sha256 }}
+      - name: Build online-only media
+        if: steps.lookup.outputs.reused != 'true'
+        env:
+          IMAGE_NAME: ${{ steps.plan.outputs.image }}
+        run: |
+          bash magic-installer/build-installer-image.sh \
+            --hostname example-host-01 --offline-pool online \
+            --flux-bootstrap-mode readonly-public --public-ref "$GITHUB_REF_NAME" \
+            --public-ref-kind branch --container-runtime docker \
+            --builder-image magicstick-installer-builder:ci \
+            --output "$RUNNER_TEMP/installer-assets/$IMAGE_NAME"
+      - name: Verify media and public bootstrap configuration
+        if: steps.lookup.outputs.reused != 'true'
+        env:
+          IMAGE_NAME: ${{ steps.plan.outputs.image }}
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" \
+            -v "$RUNNER_TEMP/installer-assets:/output" \
+            --entrypoint python3 magicstick-installer-builder:ci \
+            /usr/local/lib/magicstick-installer/installer-media.py verify \
+            --image "/output/$IMAGE_NAME" --work /tmp \
+            --public-channel "$GITHUB_REF_NAME"
+          python tools/installer_artifact.py bundle --plan "$RUNNER_TEMP/installer-plan.json" \
+            --directory "$RUNNER_TEMP/installer-assets" --run-id "$GITHUB_RUN_ID"
+      - name: Pass verified artifacts to publication
+        if: steps.lookup.outputs.reused != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ steps.plan.outputs.fingerprint }}
+          path: |
+            ${{ runner.temp }}/installer-assets/*.img
+            ${{ runner.temp }}/installer-assets/*.img.sha256
+            ${{ runner.temp }}/installer-assets/*.build.json
+            ${{ runner.temp }}/installer-assets/*.evidence.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  publish:
+    needs: build
+    if: needs.build.outputs.reused == 'false'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Restore exact build identity
+        run: |
+          python tools/installer_artifact.py plan --channel "$GITHUB_REF_NAME" \
+            --revision "$GITHUB_SHA" --plan "$RUNNER_TEMP/installer-plan.json"
+      - uses: actions/download-artifact@v4
+        with:
+          name: installer-${{ needs.build.outputs.fingerprint }}
+          path: ${{ runner.temp }}/installer-assets
+      - name: Publish immutable installer test build
+        id: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python tools/installer_artifact.py publish --plan "$RUNNER_TEMP/installer-plan.json" \
+            --directory "$RUNNER_TEMP/installer-assets" --run-id "$GITHUB_RUN_ID"
+      - name: Report permanent download
+        env:
+          DOWNLOAD_URL: ${{ steps.publish.outputs.url }}
+        run: |
+          printf '### Online installer built\n\n[Download image, checksum and evidence](%s)\n\nTest build only; complete installation and hardware acceptance remain separate.\n' "$DOWNLOAD_URL" >> "$GITHUB_STEP_SUMMARY"
