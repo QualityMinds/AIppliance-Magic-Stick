@@ -11,6 +11,12 @@ These are **test/prerelease downloads**, not a declaration that a complete
 installation or GPU setup passed. The workflow does not create a versioned
 product release, promote container images, write a USB drive or roll out an appliance.
 
+The project owner confirmed a successful online installation on 24 September
+2026. The [dated installation result](reports/installer-installation-2026-09-24.md)
+records that confirmation separately from the original CI evidence. The current
+online installer is the standard USB installation path. Later successful manual
+tests do not rewrite published build manifests or imply compatibility with every GPU.
+
 For installation, use the [prebuilt image in the USB guide](../installation/bare-metal.md).
 The build scripts are developer tools. Users do not need to clone this repository
 or install Docker to prepare the standard USB installer.

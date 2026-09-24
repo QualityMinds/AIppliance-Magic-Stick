@@ -35,8 +35,10 @@ package archive; additional packages come from your selected Ubuntu mirror.
 The live kernel, firmware and installer remain included. No GitHub token,
 wireless credentials or default user password are embedded.
 
-> This online installer is currently a test/prerelease build. Media integrity
-> checks passed; full installation and hardware acceptance remain separate.
+> Online installation was successfully tested, as confirmed by the project owner
+> on 24 September 2026. Use this image for the standard USB installation path.
+> See the [installation result](../development/reports/installer-installation-2026-09-24.md)
+> for the scope; GPU and inference compatibility are checked separately.
 
 Verify the checksum **before** writing the drive. On Linux, in the download folder:
 
@@ -62,6 +64,19 @@ testing; do not substitute them for the `main` download above.
 ## 2. Write the USB drive
 
 1. Open a USB image-writing application that supports raw `.img` disk images.
+    Examples for the computer you use to prepare the stick:
+
+    - **Windows:** [balenaEtcher](https://etcher.balena.io/) or
+      [Rufus](https://rufus.ie/en/). In Rufus, choose **DD Image mode** if asked,
+      not ISO mode, so the complete disk layout including `CIDATA` is preserved.
+    - **macOS:** [balenaEtcher](https://etcher.balena.io/); select the download
+      for your Intel or Apple Silicon Mac.
+    - **Linux:** [balenaEtcher](https://etcher.balena.io/) or
+      [GNOME Disks](https://apps.gnome.org/DiskUtility/), using **Restore Disk Image**.
+
+    Download the writer from its official site above or your distribution's
+    software manager. Select the downloaded Magic Stick `.img`, not an Ubuntu ISO.
+
 2. Select the downloaded image and the **whole USB drive**, checking its model
    and capacity. Writing erases that drive; do not select your computer's disk.
 3. Write the image and allow the application's verification to finish. Copying

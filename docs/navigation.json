@@ -135,6 +135,7 @@
     {"Marketing website": "development/website.md"},
     {"Integration reports": [
       {"Report index": "development/reports/README.md"},
+      {"Online installation · 2026-09-24": "development/reports/installer-installation-2026-09-24.md"},
       {"Installer pool · 2026-09-24": "development/reports/installer-offline-pool-2026-09-24.md"},
       {"FreeToken · 2026-09-21": "development/reports/2026-09-21-freetoken.md"}
     ]}

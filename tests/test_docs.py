@@ -90,6 +90,17 @@ class DocumentationTests(unittest.TestCase):
         self.assertEqual(result.count('</script>'), 1)
         self.assertIn('Open the current guide', result)
 
+    def test_usb_writers_cover_common_operating_systems_and_preserve_raw_media(self):
+        guide = (docs.DOCS / 'installation/bare-metal.md').read_text()
+        for operating_system in ('Windows', 'macOS', 'Linux'):
+            self.assertIn('**' + operating_system + ':**', guide)
+        for url in ('https://etcher.balena.io/', 'https://rufus.ie/en/',
+                    'https://apps.gnome.org/DiskUtility/'):
+            self.assertIn(url, guide)
+        self.assertIn('**DD Image mode**', guide)
+        self.assertIn('not ISO mode', guide)
+        self.assertIn('**Restore Disk Image**', guide)
+
     def test_legacy_routes_check_actual_rendered_ids(self):
         self.file('docs/migration.json', json.dumps({'old.md': {'target': 'new.md', 'anchors': {'old': 'new.md#new-heading'}}}))
         self.file('out/handbook/new/index.html', '<h1 id="new-heading">New</h1>')
@@ -259,6 +270,16 @@ class DocumentationTests(unittest.TestCase):
         report = (docs.DOCS / 'development/reports/2026-09-21-freetoken.md').read_text()
         metadata = yaml.safe_load(report.split('---', 2)[1])
         self.assertTrue(metadata['search']['exclude'])
+
+    def test_manual_installer_result_is_separate_from_build_evidence(self):
+        path = 'development/reports/installer-installation-2026-09-24.md'
+        report = (docs.DOCS / path).read_text()
+        metadata = yaml.safe_load(report.split('---', 2)[1])
+        self.assertTrue(metadata['search']['exclude'])
+        self.assertIn('owner-reported installation result', report)
+        self.assertIn('physicalInstallation: false', report)
+        self.assertIn('Keep the original image, checksum, build manifest and evidence archive unchanged.', report)
+        self.assertIn('../' + path, (docs.DOCS / 'installation/bare-metal.md').read_text())
 
     def test_ci_checks_pull_requests_but_only_deploys_main(self):
         workflow = yaml.safe_load((docs.ROOT / '.github/workflows/docs.yml').read_text())
