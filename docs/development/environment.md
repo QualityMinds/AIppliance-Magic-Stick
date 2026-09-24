@@ -64,16 +64,56 @@ magic-installer/write-usb.sh --help
 
 ## Agent Instructions And Skills
 
-Agents and contributors should read [../AGENTS.md](../../AGENTS.md) before making
-repo changes. That file is the source of truth for public safety, documentation
-sync, validation selection, and git hygiene.
+Read [AGENTS.md](../../AGENTS.md) for product boundaries, source ownership,
+public safety, task scope and proportionate checks. Area instructions in
+[dashboard/AGENTS.md](../../dashboard/AGENTS.md) and `docs/AGENTS.md` add client/UI
+and public-content conventions. The root instructions explicitly route to them,
+including for API code outside the client workspace and the root README.
 
-Repo-local Codex skill sources live under `../.codex/skills/`. They are
-workflow aids for common project work:
+Open the actual `AIppliance-Magic-Stick` repository as the working directory, not
+only its parent checkout folder. Codex discovers repository skills under
+`.agents/skills/`; start a fresh task/session to verify the loaded instructions and
+available skills after reorganizing them. See the official
+[instruction discovery](https://developers.openai.com/codex/guides/agents-md) and
+[skill discovery](https://learn.chatgpt.com/docs/build-skills#where-codex-loads-local-skills)
+documentation. These are repository files, not a required global plugin install.
 
-- `magicstick-repo-maintenance` for general repo hygiene and documentation sync
-- `magicstick-gitops-module` for modules, Flux, Kustomize, Helm, and catalog work
-- `magicstick-dashboard-runtime` for dashboard/API/runtime CR behavior
-- `magicstick-public-release` for release, legal, security, and public scans
+| Skill | When to use |
+|---|---|
+| [magicstick-dashboard-runtime](../../.agents/skills/magicstick-dashboard-runtime/SKILL.md) | Dashboard, API, client contracts, model controls and runtime behavior |
+| [magicstick-gitops-module](../../.agents/skills/magicstick-gitops-module/SKILL.md) | Catalogs, controllers, CRDs, module lifecycle and Flux composition |
+| [magicstick-host-hardware](../../.agents/skills/magicstick-host-hardware/SKILL.md) | Installer, networking, updates, kernels, GPU drivers and memory/sharing |
+| [magicstick-docs-website](../../.agents/skills/magicstick-docs-website/SKILL.md) | README, handbook, landing pages, screenshots and diagrams |
+| [magicstick-publish-rollout](../../.agents/skills/magicstick-publish-rollout/SKILL.md) | Requested source publication, Pages, image promotion and appliance rollout |
 
-Keep skills concise. Detailed policy belongs in `AGENTS.md` and public docs.
+Choose only the relevant skill(s) and references. Skills are automatically
+selectable and may also be invoked by their `$skill-name`. Their instructions do
+not authorize extra operations. General maintenance rules now live in `AGENTS.md`;
+the old maintenance/release skills and duplicate `.codex/skills/` copies are removed.
+Keep detailed procedures in canonical docs, not copied into each skill.
+
+With the documentation dependencies installed, run:
+
+```sh
+python tools/check_agent_guidance.py
+python -m unittest tests.test_agent_guidance tests.test_docs tests.test_website
+python tools/docs.py build
+```
+
+The existing documentation CI checks skill metadata, naming, duplicate legacy
+entries and local instruction/reference links on relevant changes and its weekly
+run. It does not execute skill commands, access an appliance or prove agent decisions.
+After substantive workflow edits, use these manual acceptance scenarios in a fresh
+session without granting unrelated external writes:
+
+| Example request | Expected routing and boundary |
+|---|---|
+| Change landing-page text | Docs/website; update equivalent languages and run static checks; no appliance work |
+| Add an editable model parameter | Dashboard/runtime; trace saved config, API and controller; add GitOps skill only if orchestration changes |
+| Analyze GPU startup delay | Host/hardware; read-only evidence across boot/driver/registration/runtime; no implicit restart or reinstall |
+| Commit and push only | Publish/rollout source path; verify remote revision; no manual image promotion or cluster mutation |
+| Roll out a dashboard fix | Publish/rollout; source build, coordinated immutable digests, Flux and changed live behavior checked separately |
+| Target appliance is offline | Stop at the last verified stage; report pending live acceptance, not a completed rollout |
+
+Inspect skill selection and observable scope/results, not exact response wording.
+Avoid duplicating broad instructions or adding a new skill for every one-off fix.

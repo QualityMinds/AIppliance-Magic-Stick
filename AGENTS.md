@@ -1,99 +1,103 @@
-# AGENTS.md
+# Magic Stick project instructions
 
-Repository instructions for AI agents and contributors working on
-AIppliance-Magic-Stick.
+## Product and architecture
 
-## Working Model
+- Build for users and administrators without Kubernetes experience. Keep the
+  normal path simple and technical detail available separately.
+- `readonly-public` plus dashboard/runtime configuration is the default.
+  External GitOps repositories and overlays are optional advanced integrations.
+- Keep `Appliance/local.spec` Git-owned. Clients use the shared API and runtime
+  intent (`ModuleActivation`, `ModelActivation`, `AppInstance`, settings and
+  existing host-operation APIs); controllers create the resulting workloads.
+- Use existing module, application and compute-target catalogs and typed API
+  contracts. Do not create parallel lists, orchestration paths or capability rules.
+- Preserve `<instance-name>.<instance-type>.<domain>` for instance hostnames and
+  compatibility of saved settings and existing engine/model lifecycles.
+- Verify new runtime flags and hardware claims against the selected upstream
+  version. A detected device or green operator is not proof of working inference.
+- Treat [LICENSE](LICENSE), [LICENSING.md](LICENSING.md) and
+  [third-party notices](THIRD_PARTY_NOTICES.md) as authoritative. Do not invent
+  editions, entitlements or distribution approval in UI or documentation.
 
-- Treat `readonly-public` as the default product path.
-- Treat external GitOps repositories and overlays as optional advanced
-  integrations, not as the normal installation path.
-- Keep the public repository reusable, deployment-neutral, and safe to publish.
-- Prefer dashboard/runtime CR flows over static example descriptors for modules,
-  models, and app instances.
-- Do not leave product behavior documented in only one layer when code, manifests,
-  or UI changed elsewhere.
+## Scope and public safety
 
-## Public Safety
+- Check the working tree first; preserve unrelated changes and keep commits scoped.
+- Analysis means inspect and explain. Implementation permits scoped local edits
+  and checks, not an unrequested commit, push or live deployment.
+- Commit/push, Pages publication, container publication and appliance rollout are
+  separate outcomes. Follow the requested scope; a skill never grants authority.
+  Normal CI side effects of an authorized push are not manual rollout verification.
+- Live inspection is read-only unless the task authorizes remediation. Reboots,
+  network/firmware changes, deleting workloads or clearing caches need authority
+  covering that disruption. Do not clear operation state to force a retry.
+- Never publish credentials, private keys, kubeconfigs, decoded Secrets, personal
+  data or private deployment values in files, screenshots, logs or test output.
+  Use `example.local`, `example.com`, `CHANGEME`, synthetic fixtures, generated
+  Secrets or documented variables. Public upstream/project URLs are not secrets.
+- Keep deployment-specific storage sizes, model selections and runtime seeds out
+  of reusable bases. Keep `examples/demo` render-only and public-safe.
+- Do not commit generated installer media, caches, build output or local access
+  files. Versioned documentation images/diagrams follow their provenance rules.
 
-Never add real deployment values to this repository:
+## Area guidance and documentation
 
-- tokens, passwords, API keys, kubeconfigs, private keys, Ansible Vault data
-- real domains, private IPs, admin emails, customer names, personal data
-- private repository URLs, private Flux paths, filled installer metadata
-- deployment-specific storage sizes, model selections, or runtime CR seeds
-- decoded Kubernetes Secret values in docs, logs, issues, comments, or tests
+Read [dashboard/AGENTS.md](dashboard/AGENTS.md) for clients or shared API changes
+(including API code under `magic-cluster/apps/dashboard`). Read
+[docs/AGENTS.md](docs/AGENTS.md) for README, handbook, website or public collateral.
+Use the smallest relevant set of skills below; detailed procedures stay in docs.
 
-Use only `example.local`, `example.com`, `CHANGEME`, generated-secret
-annotations, public-safe defaults, or documented variables.
+Update the matching contract when behavior changes:
 
-## Change-To-Documentation Matrix
-
-When behavior changes, update the matching public contract in the same change:
-
-| Change area | Documentation to check |
+| Change | Canonical sources |
 |---|---|
-| Dashboard UI/API/RBAC/status | `docs/user-guide/dashboard.md`, `docs/reference/dashboard-api.md`, `docs/administration/troubleshooting/` |
-| Module catalog, generated Flux, module lifecycle | `docs/reference/module-catalog.md`, `docs/concepts/controllers.md` |
-| Runtime CRDs, status fields, finalizers | `docs/reference/kubernetes-resources.md`, `docs/concepts/controllers.md` |
-| AppInstance hostnames, instance defaults, app operators | `docs/reference/application-controls.md`, `docs/reference/kubernetes-resources.md`, `docs/administration/troubleshooting/applications.md` |
-| ModelActivation, model presets, LiteLLM/KubeAI catalog flow | `docs/user-guide/models/`, `docs/reference/model-controls.md`, `docs/reference/model-catalog.md`, `docs/administration/troubleshooting/models.md` |
-| Installer, host automation, runtime settings | `docs/installation/`, `docs/administration/host-management.md`, `docs/reference/configuration.md`, `magic-installer/README.md`, `magic-host/README.md` |
-| Flux entrypoints, overlays, profiles | `docs/concepts/architecture.md`, `docs/development/gitops-overlays.md`, `magic-cluster/README.md` |
-| Images, Helm charts, third-party components | `THIRD_PARTY_NOTICES.md`, `docs/development/release-checklist.md` |
-| Public process, support, security, legal or Pages content | `README.md`, `docs/README.md`, `SUPPORT.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `GOVERNANCE.md`, `CHANGELOG.md`, `ROADMAP.md`, `docs/index.html`, `docs/legal-notice.html`, `docs/privacy.html` |
+| Dashboard, API, authorization | [Development](docs/development/dashboard.md), [API](docs/reference/dashboard-api.md), [user guide](docs/user-guide/dashboard.md) |
+| Model configuration/lifecycle/routing | [Model integration](docs/development/model-integration.md), [controls](docs/reference/model-controls.md), [catalog](docs/reference/model-catalog.md), `docs/user-guide/models/` |
+| Catalogs, controllers, CRDs, modules | [Modules](docs/reference/module-catalog.md), [resources](docs/reference/kubernetes-resources.md), [controllers](docs/concepts/controllers.md), [application controls](docs/reference/application-controls.md) |
+| Host, installer, network, GPU | [Host management](docs/administration/host-management.md), [configuration](docs/reference/configuration.md), `docs/installation/`, `magic-host/README.md`, `magic-installer/README.md` |
+| Flux, overlays, images | [Architecture](docs/concepts/architecture.md), [overlays](docs/development/gitops-overlays.md), [image promotion](docs/development/image-promotion.md), [notices](THIRD_PARTY_NOTICES.md) |
+| Website, handbook, public project process | [Documentation](docs/development/documentation.md), [website](docs/development/website.md), root README/legal/support/governance files as affected |
 
-Canonical English handbook content lives in the seven topic directories under
-`docs/`, with navigation in `docs/navigation.json`. Root legacy Markdown pages are
-compatibility links, not editing targets. See `docs/development/documentation.md`.
-If a doc seems redundant, consolidate it and preserve old paths/anchors through
-`docs/migration.json` instead of duplicating another source of truth.
+Legacy root documentation pages are compatibility links, not editing targets.
+Preserve old paths/anchors through `docs/migration.json`; do not duplicate guides.
 
-## Validation Matrix
+## Validation and completion
 
-Run the smallest useful checks for the files touched, then broaden when the
-change crosses subsystem boundaries.
+Run checks proportionate to touched behavior and broaden for shared contracts.
+Commands below run from the repository root unless noted. Use the documented
+environment/locked dependencies; a missing tool is a reported gap, not a pass.
 
-| Touched area | Minimum checks |
+| Area | Checks to select |
 |---|---|
-| Markdown/HTML docs | `python tools/docs.py build` with `requirements-docs.txt`, `python -m unittest tests.test_docs`, `git diff --check` |
-| Public safety/security/legal | value scan, `gitleaks detect --source . --config .gitleaks.toml --no-git --redact` |
-| Dashboard | `kubectl kustomize magic-cluster/apps/dashboard`; JS/API syntax checks when embedded scripts change |
-| Operator/catalog/CRDs | `kubectl kustomize magic-cluster/platform/magicstick-operator` |
-| Flux graph/profile | `kubectl kustomize magic-cluster/flux/entrypoints/base` and `magic-cluster/flux/entrypoints/single-node` |
-| AI app or platform module | render the touched base plus `magic-cluster/platform/magicstick-operator` if catalog or dependencies changed |
-| Host automation | `ANSIBLE_ROLES_PATH=magic-host/roles ansible-playbook --syntax-check magic-host/playbooks/local.yml` |
-| Installer scripts | `magic-installer/build-installer-image.sh --help` and `magic-installer/write-usb.sh --help` |
+| Instructions/skills | `python tools/check_agent_guidance.py`; `python -m unittest tests.test_agent_guidance` |
+| Docs/website | With `requirements-docs.txt`: `python -m unittest tests.test_docs tests.test_website`; `python tools/docs.py build`; changed site JS: `node --check docs/site.js` |
+| Dashboard clients | In `dashboard/`: `pnpm typecheck`, `pnpm test`, `pnpm build`; inspect changed UI at desktop/mobile sizes |
+| Dashboard API | Relevant tests in `magic-cluster/apps/dashboard` and `dashboard/apps/api`; render `magic-cluster/apps/dashboard` if deployment/RBAC changes |
+| Operator/catalog/CRDs | Relevant tests in `magic-cluster/platform/magicstick-operator/controller`; render that base and affected modules |
+| Flux graph/profile | Render `magic-cluster/flux/entrypoints/base`, `magic-cluster/flux/entrypoints/single-node` and affected bases; demo composition if affected |
+| Host automation | Affected role tests; `ANSIBLE_ROLES_PATH=magic-host/roles ansible-playbook --syntax-check magic-host/playbooks/local.yml` for Ansible changes |
+| Installer | Shell syntax/CLI checks and relevant `tests/test_install_entrypoints.py`, `tests/test_installer_network.py`, `tests/test_installer_boot.py`, `tests/test_git_http_fallback.py` |
 
-The render-only demo overlay is kept as a public composition smoke test:
-`kubectl kustomize examples/demo/infra-cluster/flux-bootstrap`.
+- Use `kubectl kustomize <base>` for a local render; it does not validate a live cluster.
+- Run `git diff --check`; scan public changes with
+  `gitleaks detect --source . --config .gitleaks.toml --no-git --redact` before publishing.
+- Select applicable sections of the [release checklist](docs/development/release-checklist.md).
+  Full distribution acceptance is not required for an unrelated documentation edit.
+  Keep normal license review advisory; strict distribution review is explicit.
+  Secret, source-consistency and relevant runtime failures remain errors.
+- Report local checks, skipped/unavailable checks, source publication, image build,
+  digest promotion and live acceptance separately. CI started is not CI passed.
+  A source push is not a rollout; an offline appliance is not verified deployed.
 
-## Implementation Rules
+## Repository skills
 
-- Read the nearby manifests/docs before changing behavior.
-- Use the module catalog as the source of truth for modules and the app catalog
-  as the source of truth for instance charts and dependencies; do not
-  reintroduce hardcoded dashboard lists.
-- Preserve the derived instance hostname scheme:
-  `<instance-name>.<instance-type>.<domain>`.
-- Keep `Appliance/local.spec` Git-owned. Runtime changes should use
-  `ModuleActivation`, `ModelActivation`, `AppInstance`, or dashboard settings.
-- Keep `examples/demo` render-only. Do not add static runtime seeds there unless
-  they are purely public-safe smoke-test material.
-- Do not commit generated installer media, caches, rendered manifests, or local
-  kubeconfigs.
+Skills live in `.agents/skills/`, without duplicate copies in `.codex/skills/`:
 
-## Git Hygiene
+- [Dashboard/runtime](.agents/skills/magicstick-dashboard-runtime/SKILL.md)
+- [GitOps/modules](.agents/skills/magicstick-gitops-module/SKILL.md)
+- [Host/hardware](.agents/skills/magicstick-host-hardware/SKILL.md)
+- [Documentation/website](.agents/skills/magicstick-docs-website/SKILL.md)
+- [Publication/rollout](.agents/skills/magicstick-publish-rollout/SKILL.md)
 
-- Start by checking `git status --short`.
-- Never revert user changes unless explicitly asked.
-- If unrelated changes exist, leave them alone.
-- Keep commits scoped and mention the checks actually run.
-- Before publishing, run the public release checklist in
-  `docs/development/release-checklist.md`.
-
-## Optional Repo Skills
-
-Repo-local Codex skill sources live under `.codex/skills/`. They are onboarding
-and workflow aids for agents. Keep them concise and point back to this file and
-the public docs instead of duplicating large policy blocks.
+General safety and ownership rules belong here, not in a catch-all maintenance
+skill. Keep each skill concise, link canonical procedures, and validate its
+metadata/references plus realistic task boundaries after changing it.

@@ -1,6 +1,10 @@
 # Release checklist
 
-Run this before publishing this repository or creating a public release tag.
+Select the sections relevant to the requested publication. An ordinary source
+push or documentation update needs its affected checks and public-safety review,
+not unrelated live GPU or full-distribution acceptance. For a public release tag
+or distributed appliance, record the applicable artifact and live acceptance
+evidence. The strict license review below remains explicitly opt-in.
 
 ## License checks and advisory review
 

@@ -50,6 +50,7 @@ validation:
     not_found: warn
     anchors: warn
 exclude_docs: |
+  /AGENTS.md
   /index.html
   /de.html
   /editions.html
