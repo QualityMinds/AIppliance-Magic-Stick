@@ -11,6 +11,12 @@ after the build. Registry caches are branch-specific, contain final-image layers
 only, and are written only after successful checks. None of these checks replaces
 GPU or audio acceptance below.
 
+The final package/license inventory scans the tested container's read-only
+filesystem with installed-package catalogers and no network. This avoids Syft's
+Docker-daemon TAR export (and a second full-size image copy). Reports retain the
+tested image ID, source revision and SBOM checksum; SPDX/CycloneDX conversion and
+the existing license review remain required before publication.
+
 ## Protocol limits and acceptance
 
 The selected Qwen plugin supports audio/text turns, server VAD or explicit

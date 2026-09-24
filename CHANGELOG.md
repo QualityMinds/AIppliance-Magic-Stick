@@ -17,6 +17,8 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
   closed; actual GPU/audio acceptance remains separate.
 - Replace the large pre-test GitHub Actions cache export with a final-layer,
   branch-scoped registry cache written only after runtime and source checks.
+- Inventory the tested ROCm container filesystem without another full image TAR
+  export, avoiding runner disk exhaustion while retaining the SBOM/license gate.
 
 ## v0.1.0 - 2026-09-24
 

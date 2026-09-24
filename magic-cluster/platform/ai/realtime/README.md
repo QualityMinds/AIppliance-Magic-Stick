@@ -25,6 +25,24 @@ installed one-/two-device stage configuration without a GPU or model download,
 and creates final-image SPDX/CycloneDX/Syft inventories. The native contract runs
 without networking, privileged mode, host device mounts or model weights.
 
+The inventory step runs the checksum-verified Syft scanner against the tested
+image's **read-only final container filesystem**, with networking disabled and
+the image's entrypoint replaced. It uses Syft's installed-package (`image`)
+catalogers, excluding only virtual runtime paths and the injected scanner/scratch
+paths. It does not use the Docker-daemon scan source, which exports a second full
+image TAR and can exhaust the runner disk. SPDX and CycloneDX are converted from
+the resulting small Syft inventory, not by rescanning/exporting the image.
+`tested-image-id.txt` and `image-identity.json` bind that filesystem inventory to
+the exact local image ID, platform, source revision and SBOM checksum. The SBOM
+remains truthfully a directory scan; it does not contain historical layer metadata.
+The scanner cannot access the Docker socket, GPUs or registry credentials, and
+its temporary workspace is bounded. Scanner failures still block publication.
+A small, synthetic native Docker/Syft smoke test verifies installed Debian and
+Python package detection, scanner exclusion and both report formats before the
+large runtime build starts. It pulls no base image and downloads no model.
+See [Syft scan targets](https://oss.anchore.com/docs/guides/sbom/scan-targets/) and
+[cataloger selection](https://oss.anchore.com/docs/guides/sbom/catalogers/).
+
 The reviewed Omni revision imports a CUDA shutdown-repair allocator on ROCm too.
 The image applies [a source-hash-bound guard](image/patch_rocm_import.py) **before
 wheel installation**: HIP/CPU builds skip only that CUDA-specific repair, while

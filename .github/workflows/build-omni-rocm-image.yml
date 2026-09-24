@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - .github/workflows/build-omni-rocm-image.yml
+      - .github/actions/setup-license-scanner/**
       - magic-cluster/platform/ai/realtime/**
       - magic-cluster/platform/magicstick-operator/controller/**
       - magic-cluster/platform/magicstick-operator/controller-configmap.yaml
@@ -18,6 +19,7 @@ on:
     branches: [main, develop]
     paths:
       - .github/workflows/build-omni-rocm-image.yml
+      - .github/actions/setup-license-scanner/**
       - magic-cluster/platform/ai/realtime/**
       - magic-cluster/platform/magicstick-operator/controller/**
       - magic-cluster/platform/magicstick-operator/controller-configmap.yaml
@@ -64,6 +66,11 @@ jobs:
           python -m unittest discover -s magic-cluster/platform/ai/realtime -p 'test_*.py'
           python -m unittest discover -s magic-cluster/platform/magicstick-operator/controller -p test_realtime_runtime.py
           python tools/license_audit.py --check
+      - uses: ./.github/actions/setup-license-scanner
+      - name: Smoke-test the archive-free inventory before the large runtime build
+        env:
+          MAGICSTICK_IMAGE_SCAN_SMOKE: '1'
+        run: python -m unittest discover -s magic-cluster/platform/ai/realtime -p test_image_inventory.py
 
   build:
     needs: contracts
@@ -140,16 +147,14 @@ jobs:
       - uses: ./.github/actions/setup-license-scanner
       - name: Inventory the built runtime, not just its recipe
         run: |
-          mkdir -p audit-output/omni-rocm
-          docker image inspect "$TEST_IMAGE" --format '{{.Id}}' > audit-output/omni-rocm/tested-image-id.txt
-          syft scan "docker:$TEST_IMAGE" --source-name magicstick-omni-rocm --source-version "$GITHUB_SHA" \
-            -o syft-json=audit-output/omni-rocm/image.syft.json \
-            -o spdx-json=audit-output/omni-rocm/image.spdx.json \
-            -o cyclonedx-json=audit-output/omni-rocm/image.cdx.json
+          df -h / /var/lib/docker
+          python magic-cluster/platform/ai/realtime/inventory_ci_image.py \
+            --image "$TEST_IMAGE" --source-version "$GITHUB_SHA" --output audit-output/omni-rocm
           python tools/license_ci.py sbom --input audit-output/omni-rocm/image.syft.json \
             --target "magicstick-omni-rocm@$GITHUB_SHA" \
             --output audit-output/omni-rocm/review.json --markdown audit-output/omni-rocm/review.md
           cat audit-output/omni-rocm/review.md >> "$GITHUB_STEP_SUMMARY"
+          df -h / /var/lib/docker
       - name: Check source licensing and report open reviews
         shell: bash
         if: github.event_name != 'workflow_dispatch' || inputs.publish

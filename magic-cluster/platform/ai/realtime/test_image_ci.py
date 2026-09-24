@@ -112,6 +112,23 @@ class ImageCiTests(unittest.TestCase):
         self.assertEqual(sum("cache-to" in s.get("with", {}) for s in steps), 1)
         self.assertNotIn("continue-on-error", publication)
 
+    def test_inventory_does_not_export_a_second_large_image_before_publication(self):
+        steps = self.workflow["jobs"]["build"]["steps"]
+        inventory = next(index for index, step in enumerate(steps)
+                         if "inventory_ci_image.py" in step.get("run", ""))
+        offline = next(index for index, step in enumerate(steps) if "--network none" in step.get("run", ""))
+        push = next(index for index, step in enumerate(steps) if step.get("with", {}).get("push") == "true")
+        self.assertLess(offline, inventory)
+        self.assertLess(inventory, push)
+        self.assertIn('tools/license_ci.py sbom', steps[inventory]["run"])
+        self.assertNotIn('syft scan "docker:', steps[inventory]["run"])
+        self.assertNotIn("continue-on-error", steps[inventory])
+        early = next(step for step in self.workflow["jobs"]["contracts"]["steps"]
+                     if step.get("env", {}).get("MAGICSTICK_IMAGE_SCAN_SMOKE") == "1")
+        self.assertIn("test_image_inventory.py", early["run"])
+        self.assertNotIn("continue-on-error", early)
+        self.assertEqual(self.workflow["jobs"]["build"]["needs"], "contracts")
+
 
 if __name__ == "__main__":
     unittest.main()
