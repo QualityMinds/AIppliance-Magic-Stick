@@ -3,6 +3,7 @@
 import hashlib
 import json
 from pathlib import Path
+import re
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -60,6 +61,27 @@ class DocumentationTests(unittest.TestCase):
         self.assertEqual(docs.page_url('README.md'), 'handbook/')
         self.assertEqual(docs.page_url('installation/README.md'), 'handbook/installation/')
         self.assertEqual(docs.page_url('user-guide/models/manage.md'), 'handbook/user-guide/models/manage/')
+
+    def test_usb_installation_uses_pinned_online_download_not_local_build(self):
+        guide = (docs.DOCS / 'installation/bare-metal.md').read_text()
+        self.assertIn('## 1. Download the installer', guide)
+        self.assertIn('Internet access is required', guide)
+        self.assertNotIn('git clone', guide)
+        self.assertNotIn('build-installer-image.sh', guide)
+        self.assertNotIn('build-installer-image.ps1', guide)
+        self.assertIn('id="1-build-the-installer"', guide)
+        self.assertIn('../development/installer-images.md#local-development-builds', guide)
+        urls = re.findall(r'https://github.com/QualityMinds/AIppliance-Magic-Stick/releases/download/[^)\s]+', guide)
+        images = [url for url in urls if url.endswith('.img')]
+        self.assertEqual(len(images), 1)
+        self.assertIn(images[0] + '.sha256', urls)
+        identity = re.search(r'/installer-main-([0-9a-f]{64})/magicstick-installer-main-amd64-online-([0-9a-f]{16})\.img$', images[0])
+        self.assertIsNotNone(identity)
+        self.assertEqual(identity.group(1)[:16], identity.group(2))
+        self.assertIn('/releases/tag/installer-main-' + identity.group(1), guide)
+        tools = (docs.ROOT / 'magic-installer/README.md').read_text()
+        self.assertIn('## Development: creating installation media', tools)
+        self.assertIn('not a prerequisite for installing Magic Stick', tools)
 
     def test_legacy_html_has_fragment_map_and_no_script_injection(self):
         result = docs.redirect_document('handbook/', {'old': 'handbook/new/#current', '</script>': 'safe/'})

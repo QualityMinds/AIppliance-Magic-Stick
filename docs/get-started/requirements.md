@@ -11,6 +11,10 @@ accepts supported ARM64 Ubuntu hosts, but every selected image and engine must
 support that architecture. Refer to the [installer defaults](../../magic-installer/README.md)
 and [compute targets](../reference/compute-targets.md) rather than assuming parity.
 
+For USB installation, use the [prebuilt online image](../installation/bare-metal.md),
+an empty USB drive of at least 8 GB and a second computer with a disk-image writer.
+Git, Docker and the installer build scripts are not required for this route.
+
 ## GPU and memory
 
 - A GPU is optional for the appliance; CPU models and external providers are alternatives.

@@ -63,16 +63,18 @@ configuration; Start brings it back when needed.*
 
 ## Installation
 
-**Starting with a dedicated physical server? Use the
-[USB installation guide](docs/installation/bare-metal.md).** It takes you from
-Ubuntu installation to a running Magic Stick appliance.
+**Starting with a dedicated physical server? Download the prebuilt online image
+from the [USB installation guide](docs/installation/bare-metal.md).** Verify its
+checksum, write it to a USB drive and boot the server. No Git, Docker or local
+image build is needed. The guide includes the current test-build status and
+takes you from Ubuntu installation to a running Magic Stick appliance.
 
 Read the [hardware and network requirements](docs/get-started/requirements.md)
 first. Back up existing data and choose the route that matches your starting point:
 
 | Your starting point | Installation guide | Scope |
 |---|---|---|
-| Dedicated physical server | [USB installer](docs/installation/bare-metal.md) | Ubuntu, host automation, K3s, Flux and Magic Stick |
+| Dedicated physical server | [Download the online USB installer](docs/installation/bare-metal.md) | Ubuntu, host automation, K3s, Flux and Magic Stick |
 | New virtual machine | [Cloud-init / autoinstall](docs/installation/cloud-init-vm.md) | Prepare an Ubuntu VM with host automation and Magic Stick |
 | Existing dedicated Ubuntu host or VM | [Install on Ubuntu](docs/installation/existing-vm.md) | Add the platform without changing the Ubuntu release |
 | Existing Kubernetes cluster | [Install in a cluster](docs/installation/existing-kubernetes.md) | Add cluster components; host administration remains yours |
@@ -214,6 +216,9 @@ contains reusable defaults and safe examples; deployment-specific values belong
 in your own installation.
 
 ## For developers and integrators
+
+Installer build scripts are [development tools](docs/development/installer-images.md#local-development-builds)
+for custom media and testing. Normal installations use the prebuilt online image.
 
 <a id="layout"></a>
 

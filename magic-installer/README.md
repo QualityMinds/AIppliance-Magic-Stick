@@ -1,16 +1,20 @@
 # magic-installer
 
-Reusable Ubuntu autoinstall and cloud-init files for the AI Appliance template.
+Developer tools and reusable Ubuntu autoinstall/cloud-init templates for Magic Stick.
 
-These files intentionally contain placeholders only. Copy them into a deployment directory before creating installation media.
+**For normal USB installation, download the prebuilt online image from the
+[USB installation guide](../docs/installation/bare-metal.md). Do not build it locally.**
+Git, Docker and the build scripts are only needed when developing, testing or
+customizing installer media. These source templates contain placeholders only;
+keep private configuration outside the public repository.
 
 See [../docs/installation/README.md](../docs/installation/README.md) for the
 user-oriented installation paths,
-[../docs/getting-started.md](../docs/getting-started.md) for developer-oriented
-validation, and [../docs/configuration.md](../docs/configuration.md) for the
+[developer checkout checks](../docs/development/checkout.md) for developer-oriented
+validation, and [configuration](../docs/reference/configuration.md) for the
 variables written into `/etc/default/ai-appliance-repo`.
 
-Use this directory for a new Ubuntu 26.04 bare-metal or cloud-init machine. If Ubuntu 26.04 or 24.04
+Use these tools for custom Ubuntu 26.04 media or cloud-init configuration. If Ubuntu 26.04 or 24.04
 already runs on a dedicated host, use
 [`../install-from-linux.sh`](../install-from-linux.sh). If Kubernetes already
 exists, use [`../deploy-on-k8s.sh`](../deploy-on-k8s.sh) or
@@ -74,17 +78,23 @@ Optional GitHub bootstrap metadata:
 | `AI_APPLIANCE_PRIVATE_CHECKOUT` | External checkout path; defaults to `/opt/ai-appliance/deployment` |
 | `FLUX_GITHUB_TOKEN` | Required only for `github` bootstrap mode; do not commit a real token |
 
-## Creating Installation Media
+<a id="creating-installation-media"></a>
 
-The preferred path is to build a bootable installer image with a separate
-editable FAT32 partition labelled `CIDATA`. The Ubuntu installer boots from the
+## Development: creating installation media
+
+The normal user path is the [prebuilt online download](../docs/installation/bare-metal.md).
+The Bash/PowerShell build scripts below are development and customization tools,
+not a prerequisite for installing Magic Stick. They require Git and Docker or
+Podman and create a separate editable FAT32 partition labelled `CIDATA`.
+The Ubuntu installer boots from the
 Ubuntu Server ISO content, and cloud-init reads `user-data` and `meta-data` from
 the root of the `CIDATA` partition.
 
 ```bash
 magic-installer/build-installer-image.sh \
   --hostname example-host-01 \
-  --output dist/magicstick-installer.img
+  --offline-pool online \
+  --output dist/magicstick-installer-online.img
 ```
 
 This default uses `--flux-bootstrap-mode readonly-public`, the public
@@ -102,6 +112,7 @@ magic-installer/build-installer-image.sh \
   --git-repo example-deployment \
   --git-branch main \
   --flux-cluster-path deployments/example-deployment/infra-cluster/flux-bootstrap \
+  --offline-pool online \
   --output dist/magicstick-installer-private.img
 ```
 
@@ -113,7 +124,7 @@ Write the generated image to a USB stick:
 
 ```bash
 magic-installer/write-usb.sh --list-devices
-magic-installer/write-usb.sh --image dist/magicstick-installer.img --device /dev/diskN
+magic-installer/write-usb.sh --image dist/magicstick-installer-online.img --device /dev/diskN
 ```
 
 On Windows, use the PowerShell wrappers:
@@ -121,10 +132,11 @@ On Windows, use the PowerShell wrappers:
 ```powershell
 .\magic-installer\build-installer-image.ps1 `
   -Hostname example-host-01 `
-  -Output dist\magicstick-installer.img
+  -OfflinePool online `
+  -Output dist\magicstick-installer-online.img
 
 .\magic-installer\write-usb.ps1 -ListDevices
-.\magic-installer\write-usb.ps1 -Image .\dist\magicstick-installer.img -DiskNumber 3
+.\magic-installer\write-usb.ps1 -Image .\dist\magicstick-installer-online.img -DiskNumber <disk-number>
 ```
 
 The image builder uses Docker or Podman to run the ISO tooling. It downloads
@@ -144,8 +156,9 @@ Local builds below keep their explicit `full`, `reduced` and `online` choices.
 
 ### Experimental reduced offline pool
 
-The normal build remains `--offline-pool full`. Two experimental variants reduce
-the package archive and require a working online Ubuntu mirror:
+The development wrapper retains `full` as its default for compatibility and
+baseline comparisons. Pass `--offline-pool online` to reproduce the standard
+download's mode. Reduced and online variants require a working Ubuntu mirror:
 
 | Mode | Offline package archives | Default output |
 |---|---|---|
@@ -253,9 +266,10 @@ all GPU drivers, operators or inference engines. See
 [Subiquity kernel selection](https://github.com/canonical/subiquity/blob/main/doc/reference/autoinstall-reference.rst#kernel).
 
 An existing USB stick does not receive boot-menu changes through Git/Flux.
-Rebuild the builder container and installer image (do not use `--no-build` for
-this migration), then write the stick again; back up private `CIDATA` settings
-first. The builder container remains Debian-based: it only runs ISO tools and
+Download the updated installer and write the stick again; back up private
+`CIDATA` settings first. Developers testing a changed recipe must rebuild the
+builder and media (do not use `--no-build` for that test).
+The builder container remains Debian-based: it only runs ISO tools and
 does not determine the installed OS.
 
 The media contains installer configuration, not a snapshot of every local

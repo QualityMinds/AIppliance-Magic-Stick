@@ -104,12 +104,15 @@ selected context already owns another `flux-system` source or Magic Stick
 state. The complete decision tree is in
 [installation/README.md](../installation/README.md).
 
-To build new bare-metal installation media instead, use:
+For ordinary installation, use the [prebuilt online image](../installation/bare-metal.md).
+The following scripts are developer tools for testing or customizing media, not
+an installation prerequisite. To build the online variant locally, use:
 
 ```bash
 magic-installer/build-installer-image.sh \
   --hostname example-host-01 \
-  --output dist/magicstick-installer.img
+  --offline-pool online \
+  --output dist/magicstick-installer-online.img
 ```
 
 Useful public-mode options:
@@ -121,14 +124,15 @@ magic-installer/build-installer-image.sh \
   --dashboard-host magicstick.example.com \
   --mdns-domain magicstick.local \
   --flux-public-sync-path magic-cluster/flux/entrypoints/single-node \
-  --output dist/magicstick-installer.img
+  --offline-pool online \
+  --output dist/magicstick-installer-online.img
 ```
 
 List removable devices, then write the image:
 
 ```bash
 magic-installer/write-usb.sh --list-devices
-magic-installer/write-usb.sh --image dist/magicstick-installer.img --device /dev/diskN
+magic-installer/write-usb.sh --image dist/magicstick-installer-online.img --device /dev/diskN
 ```
 
 On Linux the device will usually look like `/dev/sdX` or `/dev/nvmeXnY`. On

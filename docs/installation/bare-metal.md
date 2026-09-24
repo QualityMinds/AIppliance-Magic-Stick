@@ -7,66 +7,79 @@
 ## Before you start
 
 Use a dedicated x86-64 computer, an empty USB drive of at least 8 GB, a second
-computer with Git and Docker or Podman, and a browser on the same private network.
-Check [requirements](../get-started/requirements.md).
+computer that can download and write a disk image, and a browser on the same
+private network. **Use the prebuilt online installer. You do not need Git,
+Docker or a local image build.** Check [requirements](../get-started/requirements.md).
 
 > The image writer erases the selected USB drive. Ubuntu installation can erase
 > the selected target disk. Back up data and verify each device before confirming.
 
 <a id="1-repository-herunterladen"></a>
 <a id="2-installationsabbild-erzeugen"></a>
+<a id="1-build-the-installer"></a>
 
-## 1. Build the installer
+## 1. Download the installer
 
-On the preparation computer:
+Download these two files into the same folder:
+
+- [Online installer image · AMD64 / main](https://github.com/QualityMinds/AIppliance-Magic-Stick/releases/download/installer-main-ff5fe42eb807315ead9b6a25d7ed561447e23e620975c49f578c4d752cccfd89/magicstick-installer-main-amd64-online-ff5fe42eb807315e.img)
+- [SHA-256 checksum](https://github.com/QualityMinds/AIppliance-Magic-Stick/releases/download/installer-main-ff5fe42eb807315ead9b6a25d7ed561447e23e620975c49f578c4d752cccfd89/magicstick-installer-main-amd64-online-ff5fe42eb807315e.img.sha256)
+
+The [download details and build evidence](https://github.com/QualityMinds/AIppliance-Magic-Stick/releases/tag/installer-main-ff5fe42eb807315ead9b6a25d7ed561447e23e620975c49f578c4d752cccfd89)
+identify the exact source and checks. Choose the `.img` asset, **not** GitHub's
+automatically generated “Source code” archives. This image uses Ubuntu Server
+26.04.1 AMD64 and follows Magic Stick's `main` channel at first boot.
+
+**Internet access is required during installation.** The image has no offline
+package archive; additional packages come from your selected Ubuntu mirror.
+The live kernel, firmware and installer remain included. No GitHub token,
+wireless credentials or default user password are embedded.
+
+> This online installer is currently a test/prerelease build. Media integrity
+> checks passed; full installation and hardware acceptance remain separate.
+
+Verify the checksum **before** writing the drive. On Linux, in the download folder:
 
 ```bash
-git clone https://github.com/QualityMinds/AIppliance-Magic-Stick.git
-cd AIppliance-Magic-Stick
-magic-installer/build-installer-image.sh \
-  --hostname magicstick-01 \
-  --output dist/magicstick-installer.img
+sha256sum -c magicstick-installer-main-amd64-online-ff5fe42eb807315e.img.sha256
 ```
 
-The builder downloads the verified Ubuntu media and adds a `CIDATA` partition.
-The public default contains no access token. Consult [installer options](../../magic-installer/README.md)
-for a release pin, mirror and kernel details. The present USB baseline uses Ubuntu
-26.04.1's native Generic kernel, not an Ubuntu 24.04 HWE package.
+On macOS, use `shasum -a 256 -c` with the same checksum filename. The result must
+be `OK`. On Windows, use `Get-FileHash` in PowerShell and compare its SHA256 value
+with the first value in the downloaded `.sha256` file:
 
-Optional `--offline-pool reduced` builds remove the additional offline driver
-archive; `--offline-pool online` removes the entire offline package pool. Both
-preserve the installed-system files, live kernel and firmware and require a
-working online mirror. `full` remains the default. Read the
-[reduced-pool limitations and build reports](../../magic-installer/README.md#experimental-reduced-offline-pool)
-before choosing either experimental variant. Builds never overwrite an existing
-image; use a new output filename when rebuilding.
+```powershell
+Get-FileHash .\magicstick-installer-main-amd64-online-ff5fe42eb807315e.img -Algorithm SHA256
+```
 
-The [online installer pipeline](../development/installer-images.md) can also
-provide a prebuilt test image and checksum. Its workflow summary links the
-matching `main` or `develop` download. These are online-only candidates, not
-physical-installation acceptance; check the evidence and channel before use.
+Stop if the checksum does not match. Local build scripts are
+[development tools](../development/installer-images.md#local-development-builds),
+not an installation prerequisite. `develop` images are for explicit development
+testing; do not substitute them for the `main` download above.
 
 <a id="3-usb-stick-beschreiben"></a>
 
 ## 2. Write the USB drive
 
-```bash
-magic-installer/write-usb.sh --list-devices
-magic-installer/write-usb.sh \
-  --image dist/magicstick-installer.img \
-  --device /dev/diskN
+1. Open a USB image-writing application that supports raw `.img` disk images.
+2. Select the downloaded image and the **whole USB drive**, checking its model
+   and capacity. Writing erases that drive; do not select your computer's disk.
+3. Write the image and allow the application's verification to finish. Copying
+   the `.img` into an ordinary USB folder does not make it bootable.
+4. Reconnect the USB drive if necessary. Open the small partition labelled
+   `CIDATA`; do not format another partition if your operating system prompts.
+5. In `meta-data`, set both values to a unique name for your appliance:
+
+```yaml
+instance-id: magicstick-01
+local-hostname: magicstick-01
 ```
 
-Replace `/dev/diskN` with the verified whole removable disk. On Linux this might
-be `/dev/sdX`; do not select a partition such as `/dev/sdX1`.
-
-Windows PowerShell equivalents:
-
-```powershell
-.\magic-installer\build-installer-image.ps1 -Hostname magicstick-01 -Output dist\magicstick-installer.img
-.\magic-installer\write-usb.ps1 -ListDevices
-.\magic-installer\write-usb.ps1 -Image .\dist\magicstick-installer.img -DiskNumber <disk-number>
-```
+Leave `user-data` unchanged for the normal public installation. Network, mirror,
+administrator account and target disk are chosen during installation. Save the
+file as plain text without changing its name, then safely eject the drive.
+Optional command-line writers are documented with the
+[developer media tools](../../magic-installer/README.md#creating-installation-media).
 
 <a id="4-zielrechner-installieren"></a>
 

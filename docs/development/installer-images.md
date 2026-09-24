@@ -11,6 +11,36 @@ These are **test/prerelease downloads**, not a declaration that a complete
 installation or GPU setup passed. The workflow does not create a versioned
 product release, promote container images, write a USB drive or roll out an appliance.
 
+For installation, use the [prebuilt image in the USB guide](../installation/bare-metal.md).
+The build scripts are developer tools. Users do not need to clone this repository
+or install Docker to prepare the standard USB installer.
+
+## Local development builds
+
+Use a local build only when changing or testing the installer, comparing media
+modes or preparing a custom deployment. Install Git and Docker or Podman, clone
+the repository, and run from its root:
+
+```bash
+magic-installer/build-installer-image.sh \
+  --hostname example-host-01 --offline-pool online \
+  --output dist/magicstick-installer-online.img
+```
+
+On Windows, the equivalent developer wrapper is:
+
+```powershell
+.\magic-installer\build-installer-image.ps1 `
+  -Hostname example-host-01 -OfflinePool online `
+  -Output dist\magicstick-installer-online.img
+```
+
+Choose a new output filename for each rebuild. The wrappers preserve existing
+images. `full` remains their compatibility default when no mode is passed;
+`online` matches the standard published media. Private/custom images must not be
+uploaded as public downloads. For advanced metadata, optional command-line USB
+writers and the media layout, see the [developer tool reference](../../magic-installer/README.md).
+
 ## Build once for each installer recipe
 
 A push to `main` or `develop` starts the workflow only when an installer input or
@@ -63,6 +93,11 @@ Published assets do not use Actions' temporary artifact retention. The 14-day
 Actions artifact is only the handoff between build and publication jobs. Original
 tags, image bytes, source revision and notices are preserved when reused. Product
 release notes can link an existing installer without rebuilding or relabeling it.
+The user-facing USB guide pins a verified `main` candidate. After publishing a
+new baseline, verify its download and checksums, then deliberately update that
+guide's image/checksum/evidence links together. Documentation-only changes do not
+rebuild the image. Do not use GitHub's generic “latest release” URL: product and
+installer releases have different lifecycles, and installer candidates are prereleases.
 
 `main` media follows `main`; `develop` media follows `develop`. Public CI fixes the
 hostname to `example-host-01`, uses public example domains and `readonly-public`,

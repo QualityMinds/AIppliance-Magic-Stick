@@ -4,6 +4,10 @@
 
 # Choose your installation path
 
+For a new physical server, **download the prebuilt online USB image** from the
+[USB guide](bare-metal.md). Building an image yourself is a development workflow,
+not a normal installation step. The online installer requires network access.
+
 | Starting point | Guide | What it installs |
 |---|---|---|
 | Dedicated physical computer | [USB installation](bare-metal.md) | Ubuntu, host automation, Kubernetes and Magic Stick |

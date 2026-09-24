@@ -459,8 +459,8 @@
     "anchors": {
       "installation-auf-echter-hardware": "installation/bare-metal.md#usb-installation",
       "voraussetzungen": "installation/bare-metal.md#before-you-start",
-      "1-repository-herunterladen": "installation/bare-metal.md#1-build-the-installer",
-      "2-installationsabbild-erzeugen": "installation/bare-metal.md#1-build-the-installer",
+      "1-repository-herunterladen": "installation/bare-metal.md#1-download-the-installer",
+      "2-installationsabbild-erzeugen": "installation/bare-metal.md#1-download-the-installer",
       "3-usb-stick-beschreiben": "installation/bare-metal.md#2-write-the-usb-drive",
       "4-zielrechner-installieren": "installation/bare-metal.md#3-install-the-computer",
       "5-first-run-setup-öffnen": "installation/bare-metal.md#4-complete-setup",
