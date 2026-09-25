@@ -95,6 +95,39 @@ figcaption { font-size: .73rem; line-height: 1.6; color: var(--muted); margin-to
 .steps h3 { font-size: 1.04rem; line-height: 1.35; letter-spacing: -.015em; }
 .steps p { font-size: .86rem; margin-top: 10px; }
 .step-arrow { position: absolute; right: -21px; top: -3px; color: #6c829f; }
+.architecture-section { padding-block: 82px 88px; background: radial-gradient(circle at 84% 20%, #17415a54, transparent 38%), linear-gradient(180deg, #0d1b2b, #0b1726); border-block: 1px solid #29425a; }
+.architecture-heading { max-width: 790px; }
+.architecture-heading h2 { font-size: clamp(2rem, 3.2vw, 3rem); }
+.architecture-diagram { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, .95fr); gap: 16px; }
+.architecture-flow { min-width: 0; padding: 23px; border: 1px solid var(--line); border-radius: 15px; background: #0a1422; }
+.architecture-flow-control { grid-column: 1; grid-row: 1; border-left: 3px solid var(--violet); }
+.architecture-flow-inference { grid-column: 1; grid-row: 2; border-left: 3px solid var(--cyan); }
+.architecture-flow h3 { display: flex; align-items: center; gap: 11px; margin-bottom: 18px; font-size: 1.04rem; }
+.architecture-flow h3 span { font-size: .7rem; font-weight: 700; letter-spacing: .05em; color: var(--violet); }
+.architecture-flow-inference h3 span { color: var(--cyan); }
+.architecture-flow-steps { display: grid; grid-template-columns: minmax(0, 1fr) 20px minmax(0, 1fr) 20px; gap: 11px; align-items: center; }
+.architecture-node { min-width: 0; min-height: 126px; padding: 18px; border: 1px solid #304761; border-radius: 11px; background: #101e30; }
+.architecture-node-label { display: block; color: var(--cyan); font-size: .6rem; font-weight: 700; line-height: 1.45; letter-spacing: .12em; }
+.architecture-flow-control .architecture-node-label { color: #b9a9ff; }
+.architecture-node strong { display: block; margin-top: 8px; font-size: 1.06rem; line-height: 1.35; }
+.architecture-node p { margin-top: 5px; font-size: .74rem; line-height: 1.45; }
+.architecture-arrow { justify-self: center; color: #8ea7c3; font-size: 1.35rem; line-height: 1; }
+.architecture-flow-control .architecture-arrow { color: var(--violet); }
+.architecture-flow-inference .architecture-arrow { color: var(--cyan); }
+.architecture-runtime { grid-column: 2; grid-row: 1 / 3; min-width: 0; display: flex; flex-direction: column; justify-content: center; padding: 32px; border: 1px solid #44738a; border-radius: 15px; background: radial-gradient(circle at 75% 8%, #2ed2ed24, transparent 50%), #102738; }
+.architecture-runtime h3 { font-size: clamp(1.35rem, 2.1vw, 2rem); margin-top: 12px; }
+.architecture-runtime > p:not(.architecture-runtime-note) { margin-top: 14px; font-size: .9rem; }
+.architecture-runtime ul { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; padding: 0; margin: 27px 0 0; }
+.architecture-runtime li, .architecture-foundation span { display: inline-flex; align-items: center; padding: 6px 11px; border: 1px solid #416078; border-radius: 6px; color: var(--ink); background: #0a1a29; font-size: .75rem; font-weight: 600; line-height: 1.35; }
+.architecture-runtime-note { margin-top: 20px; font-size: .73rem; line-height: 1.5; }
+.architecture-foundation { display: grid; grid-template-columns: 1.35fr .95fr; gap: 16px; margin-top: 16px; }
+.architecture-foundation > div { padding: 19px 23px; border: 1px solid #2e4861; border-radius: 12px; background: #0a1727; }
+.architecture-foundation h3 { font-size: .8rem; letter-spacing: 0; }
+.architecture-foundation p { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.architecture-foundation span { color: var(--muted); background: #0d1d2d; }
+.architecture-footnote { margin-top: 18px; font-size: .76rem; }
+.architecture-footnote a { display: inline-block; margin-left: 5px; font-weight: 650; text-decoration: none; }
+.architecture-footnote a:hover { text-decoration: underline; }
 .product-section { background: linear-gradient(180deg, #0c1726 0%, #0a1422 100%); border-block: 1px solid #1e314a; }
 .product-tour { border: 1px solid #2b415b; border-radius: var(--radius); background: #091321; overflow: hidden; }
 .product-tabs { display: flex; border-bottom: 1px solid var(--line); padding-inline: 30px; gap: 34px; }
@@ -154,11 +187,6 @@ figcaption { font-size: .73rem; line-height: 1.6; color: var(--muted); margin-to
 .operation-links p { margin-top: 6px; font-size: .84rem; line-height: 1.6; }
 .operation-links i { font-style: normal; color: #8098b8; margin-left: auto; }
 .operation-links a:hover h3 { color: var(--cyan); }
-.technology-strip { display: flex; align-items: center; justify-content: space-between; gap: 30px; padding-top: 32px; margin-top: 48px; border-top: 1px solid var(--line); }
-.technology-strip > p { font-size: .85rem; flex-shrink: 0; }
-.technology-strip > div { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 23px; }
-.technology-strip > div > span { font-size: .92rem; color: #c6d3e7; font-weight: 650; }
-.technology-strip a { font-size: .8rem; text-decoration: none; }
 .start-section { padding-block: 92px; background: linear-gradient(125deg, #122b3c, #0c1b2f 75%); border-block: 1px solid #2c4c63; }
 .installation-layout { display: grid; grid-template-columns: 1.1fr 1fr; gap: 30px; align-items: stretch; }
 .recommended-install { border: 1px solid #466d83; border-radius: var(--radius); padding: 37px; background: #071622; }
@@ -265,8 +293,9 @@ figcaption { font-size: .73rem; line-height: 1.6; color: var(--muted); margin-to
   .use-case-grid article { padding: 24px; }
   .hardware-layout { gap: 50px; grid-template-columns: 1fr 1.2fr; }
   .operations-layout { gap: 38px; }
-  .technology-strip { align-items: flex-start; }
-  .technology-strip > div { gap: 20px; }
+  .architecture-section { padding-block: 72px; }
+  .architecture-flow-steps { gap: 8px; }
+  .architecture-node { padding: 14px; }
   .license-summary, .license-rules { gap: 55px; }
   .faq-section { gap: 60px; }
   .footer-main { gap: 30px; }
@@ -289,6 +318,11 @@ figcaption { font-size: .73rem; line-height: 1.6; color: var(--muted); margin-to
   .steps li { padding-right: 0; flex-direction: column; gap: 12px; }
   .step-arrow { top: 0; right: 0; }
   .workflow { padding-bottom: 64px; }
+  .architecture-diagram, .architecture-foundation { grid-template-columns: 1fr; }
+  .architecture-flow-control, .architecture-flow-inference, .architecture-runtime { grid-column: 1; grid-row: auto; }
+  .architecture-flow-steps { grid-template-columns: minmax(0, 1fr) 20px minmax(0, 1fr); }
+  .architecture-arrow-end { display: none; }
+  .architecture-runtime { min-height: 230px; }
   .product-panel { grid-template-columns: 1fr; padding: 30px; gap: 28px; min-height: auto; }
   .panel-copy { max-width: 540px; }
   .product-panel figure { max-width: 680px; }
@@ -312,8 +346,6 @@ figcaption { font-size: .73rem; line-height: 1.6; color: var(--muted); margin-to
   .operation-links a { padding: 0 0 20px; }
   .operation-links a:last-child { padding-bottom: 20px; }
   .operation-links a:nth-child(n+3) { border-bottom: 0; }
-  .technology-strip { display: block; }
-  .technology-strip > div { justify-content: flex-start; margin-top: 20px; }
   .installation-layout { gap: 24px; grid-template-columns: 1fr; }
   .installation-alternatives { padding: 10px 6px 0; }
   .start-section { padding-block: 70px; }
@@ -371,6 +403,15 @@ figcaption { font-size: .73rem; line-height: 1.6; color: var(--muted); margin-to
   .steps h3 { font-size: 1.1rem; }
   .steps p { margin-top: 7px; }
   .workflow { padding-top: 32px; padding-bottom: 52px; }
+  .architecture-section { padding-block: 56px; }
+  .architecture-flow { padding: 18px; }
+  .architecture-flow-steps { grid-template-columns: minmax(0, 1fr); }
+  .architecture-node { min-height: 0; }
+  .architecture-arrow:not(.architecture-arrow-end) { transform: rotate(90deg); }
+  .architecture-arrow-end { display: none; }
+  .architecture-runtime { min-height: 0; padding: 25px; }
+  .architecture-foundation > div { padding: 18px; }
+  .architecture-footnote a { display: block; margin: 8px 0 0; }
   .product-tabs { padding-inline: 15px; gap: 13px; }
   .product-tabs button { min-height: 66px; font-size: .76rem; padding-inline: 1px; line-height: 1.4; }
   .product-tabs button span { display: block; margin-bottom: 5px; font-size: .6rem; }
@@ -392,9 +433,6 @@ figcaption { font-size: .73rem; line-height: 1.6; color: var(--muted); margin-to
   .operation-links { grid-template-columns: 1fr; gap: 0; }
   .operation-links a { padding-block: 20px; }
   .operation-links a:nth-child(3) { border-bottom: 1px solid var(--line); }
-  .technology-strip { margin-top: 30px; }
-  .technology-strip > div { gap: 14px 22px; }
-  .technology-strip a { width: 100%; margin-top: 4px; }
   .recommended-install { padding: 26px 22px; }
   .recommended-install h3 { font-size: 1.5rem; }
   .recommended-install > a { margin-right: 0; }

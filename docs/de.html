@@ -73,6 +73,38 @@
       <a class="text-link" href="get-started/first-model.md">Schritt für Schritt zum ersten Modell (EN) <span aria-hidden="true">↗</span></a>
     </section>
 
+    <section class="architecture-section" id="architecture" aria-labelledby="architecture-title">
+      <div class="container">
+        <div class="section-heading architecture-heading"><p class="eyebrow">EIN BLICK UNTER DIE HAUBE</p><h2 id="architecture-title">Ein System. Zwei klare Wege.</h2><p>Ein Weg bereitet deine Modelle vor. Der andere leitet Anfragen dorthin. Beides läuft auf deiner Infrastruktur.</p></div>
+        <div class="architecture-diagram" role="group" aria-label="MagicStick-Architektur: Modellverwaltung und Anfragen führen zu lokalen Modell-Engines">
+          <div class="architecture-flow architecture-flow-control">
+            <h3><span>01</span> Modelle verwalten</h3>
+            <div class="architecture-flow-steps">
+              <div class="architecture-node"><span class="architecture-node-label">DU WÄHLST</span><strong>Dashboard</strong><p>Modell, Hardware und Einstellungen</p></div>
+              <span class="architecture-arrow" aria-hidden="true">→</span>
+              <div class="architecture-node"><span class="architecture-node-label">MAGICSTICK BEREITET VOR</span><strong>Magic Stick Operator</strong><p>Richtet die Modell-Engine ein</p></div>
+              <span class="architecture-arrow architecture-arrow-end" aria-hidden="true">→</span>
+            </div>
+          </div>
+          <div class="architecture-flow architecture-flow-inference">
+            <h3><span>02</span> Modelle nutzen</h3>
+            <div class="architecture-flow-steps">
+              <div class="architecture-node"><span class="architecture-node-label">DU VERBINDEST</span><strong>Apps &amp; API-Clients</strong><p>Senden eine Anfrage</p></div>
+              <span class="architecture-arrow" aria-hidden="true">→</span>
+              <div class="architecture-node"><span class="architecture-node-label">MAGICSTICK LEITET WEITER</span><strong>LiteLLM</strong><p>Gemeinsame Modell-API</p></div>
+              <span class="architecture-arrow architecture-arrow-end" aria-hidden="true">→</span>
+            </div>
+          </div>
+          <div class="architecture-runtime"><span class="architecture-node-label">BEIDE WEGE FÜHREN HIERHIN</span><h3>Lokale Modell-Engines</h3><p>Modelle laufen auf einer unterstützten CPU oder GPU.</p><ul aria-label="Inference Engines"><li>Ollama</li><li>vLLM</li><li>FreeToken</li></ul><p class="architecture-runtime-note">Standardmodelle mit Ollama und vLLM nutzen KubeAI; FreeToken läuft direkt.</p></div>
+        </div>
+        <div class="architecture-foundation">
+          <div><h3>Plattform &amp; Updates</h3><p><span>Kubernetes</span><span>Flux</span><span>Ubuntu 26.04 + K3s*</span></p></div>
+          <div><h3>Zugang &amp; Anmeldung</h3><p><span>Envoy Gateway</span><span>Keycloak</span></p></div>
+        </div>
+        <p class="architecture-footnote">* Auf einem neuen dedizierten Server; eine Installation im bestehenden Cluster nutzt deine Kubernetes-Infrastruktur. <a href="concepts/architecture.md">Zur technischen Architektur (EN) <span aria-hidden="true">↗</span></a></p>
+      </div>
+    </section>
+
     <section class="section product-section" id="produkt" aria-labelledby="product-title">
       <div class="container">
         <div class="section-heading"><p class="eyebrow">EINE OBERFLÄCHE FÜR DEN BETRIEB</p><h2 id="product-title">Mehr als ein Modell<br />zum Laufen bringen.</h2><p>Sehen, was läuft. Ressourcen verstehen. Und Modelle für dein Team nutzbar machen.</p></div>
@@ -121,7 +153,6 @@
         <figure><div class="visual-label"><span>SYSTEM / MODEL CACHE</span><span aria-hidden="true">↗</span></div><a class="screenshot" href="assets/screenshots/model-cache.webp"><img src="assets/screenshots/model-cache.webp" alt="Modell-Cache-Verwaltung mit Festplattenkapazität und Cache-Belegung je Engine." width="1016" height="405" loading="lazy" /></a><figcaption>Testsystem, 24.09.2026. Beispielwerte; für die Aufnahme wurde kein Cache geleert.</figcaption></figure>
         <div class="operation-links"><a href="administration/troubleshooting/models.md"><span>01</span><div><h3>Den Modellstart verstehen</h3><p>Status und Logs prüfen, bevor du erneut startest.</p></div><i aria-hidden="true">↗</i></a><a href="administration/model-cache.md"><span>02</span><div><h3>Speicherplatz verwalten</h3><p>Modell-Caches einsehen und eine Bereinigung prüfen.</p></div><i aria-hidden="true">↗</i></a><a href="administration/network.md"><span>03</span><div><h3>Netzwerk einrichten</h3><p>Unterstützte Ethernet- und WLAN-Verbindungen verwalten.</p></div><i aria-hidden="true">↗</i></a><a href="administration/ubuntu-updates.md"><span>04</span><div><h3>Update-Strategie festlegen</h3><p>Ubuntu-Sicherheitsupdates und Wartung steuern.</p></div><i aria-hidden="true">↗</i></a></div>
       </div>
-      <div class="technology-strip"><p>Bewährte Komponenten.<br /><strong>Eine verwaltete Plattform.</strong></p><div><span>Kubernetes</span><span>Flux</span><span>LiteLLM</span><span>Keycloak</span><a href="concepts/architecture.md">So greift es ineinander (EN) <span aria-hidden="true">↗</span></a></div></div>
     </section>
 
     <section class="start-section" id="starten" aria-labelledby="start-title">

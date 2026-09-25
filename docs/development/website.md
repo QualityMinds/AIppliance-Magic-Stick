@@ -23,10 +23,14 @@ and the one-time switch of the Pages source to GitHub Actions.
 | [legal-notice.html](../legal-notice.html), [privacy.html](../privacy.html) | Existing English legal content, unchanged by this redesign |
 
 The homepage moves from the product definition through a three-step workflow,
-dashboard examples, use cases, hardware compatibility and day-to-day operations to
-installation, a short license summary and FAQ. The workflow is an ordinary ordered
-HTML list styled as a diagram, not a remote renderer or bitmap. The main starting
-point is the USB guide for a new dedicated physical server; VM, existing Ubuntu and
+a two-path architecture infographic, dashboard examples, use cases, hardware
+compatibility and day-to-day operations to installation, a short license summary
+and FAQ. The workflow is an ordinary ordered HTML list styled as a diagram; the
+architecture infographic is semantic HTML and CSS, not a remote renderer or bitmap.
+It distinguishes model setup through the Magic Stick Operator from requests routed
+through LiteLLM, shows their shared local runtimes and identifies the platform
+components without treating Ubuntu/K3s as mandatory for existing clusters. The
+main starting point is the USB guide for a new dedicated physical server; VM, existing Ubuntu and
 existing Kubernetes routes remain directly available.
 
 Keep both languages in sync when changing claims, links or sections. Language

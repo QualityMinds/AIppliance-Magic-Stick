@@ -73,6 +73,38 @@
       <a class="text-link" href="get-started/first-model.md">Follow the first-model walkthrough <span aria-hidden="true">↗</span></a>
     </section>
 
+    <section class="architecture-section" id="architecture" aria-labelledby="architecture-title">
+      <div class="container">
+        <div class="section-heading architecture-heading"><p class="eyebrow">WHAT RUNS UNDER THE HOOD</p><h2 id="architecture-title">One system. Two clear paths.</h2><p>One path prepares your models. The other brings requests to them. Both run on infrastructure you control.</p></div>
+        <div class="architecture-diagram" role="group" aria-label="MagicStick architecture: model management and inference requests lead to local model runtimes">
+          <div class="architecture-flow architecture-flow-control">
+            <h3><span>01</span> Manage models</h3>
+            <div class="architecture-flow-steps">
+              <div class="architecture-node"><span class="architecture-node-label">YOU CHOOSE</span><strong>Dashboard</strong><p>Model, hardware and settings</p></div>
+              <span class="architecture-arrow" aria-hidden="true">→</span>
+              <div class="architecture-node"><span class="architecture-node-label">MAGICSTICK PREPARES</span><strong>Magic Stick Operator</strong><p>Sets up the model runtime</p></div>
+              <span class="architecture-arrow architecture-arrow-end" aria-hidden="true">→</span>
+            </div>
+          </div>
+          <div class="architecture-flow architecture-flow-inference">
+            <h3><span>02</span> Use models</h3>
+            <div class="architecture-flow-steps">
+              <div class="architecture-node"><span class="architecture-node-label">YOU CONNECT</span><strong>Apps &amp; API clients</strong><p>Send a request</p></div>
+              <span class="architecture-arrow" aria-hidden="true">→</span>
+              <div class="architecture-node"><span class="architecture-node-label">MAGICSTICK ROUTES</span><strong>LiteLLM</strong><p>Shared model API</p></div>
+              <span class="architecture-arrow architecture-arrow-end" aria-hidden="true">→</span>
+            </div>
+          </div>
+          <div class="architecture-runtime"><span class="architecture-node-label">BOTH PATHS LEAD HERE</span><h3>Local model runtimes</h3><p>Models run on a supported CPU or GPU.</p><ul aria-label="Inference engines"><li>Ollama</li><li>vLLM</li><li>FreeToken</li></ul><p class="architecture-runtime-note">Standard Ollama and vLLM models use KubeAI; FreeToken runs directly.</p></div>
+        </div>
+        <div class="architecture-foundation">
+          <div><h3>Platform &amp; updates</h3><p><span>Kubernetes</span><span>Flux</span><span>Ubuntu 26.04 + K3s*</span></p></div>
+          <div><h3>Access &amp; identity</h3><p><span>Envoy Gateway</span><span>Keycloak</span></p></div>
+        </div>
+        <p class="architecture-footnote">* For a new dedicated server; existing-cluster installs use your Kubernetes infrastructure. <a href="concepts/architecture.md">Explore the detailed architecture <span aria-hidden="true">↗</span></a></p>
+      </div>
+    </section>
+
     <section class="section product-section" id="produkt" aria-labelledby="product-title">
       <div class="container">
         <div class="section-heading"><p class="eyebrow">ONE PLACE TO RUN IT</p><h2 id="product-title">More than getting<br />a model to start.</h2><p>See what is running, understand the resources it needs, and make it useful to your team.</p></div>
@@ -121,7 +153,6 @@
         <figure><div class="visual-label"><span>SYSTEM / MODEL CACHE</span><span aria-hidden="true">↗</span></div><a class="screenshot" href="assets/screenshots/model-cache.webp"><img src="assets/screenshots/model-cache.webp" alt="Model-cache management showing disk capacity and cache usage by engine." width="1016" height="405" loading="lazy" /></a><figcaption>Test appliance, 24 Sep 2026. Example cache values; no cleanup was run for this capture.</figcaption></figure>
         <div class="operation-links"><a href="administration/troubleshooting/models.md"><span>01</span><div><h3>Understand startup</h3><p>Follow status and logs before retrying a model.</p></div><i aria-hidden="true">↗</i></a><a href="administration/model-cache.md"><span>02</span><div><h3>Manage disk space</h3><p>Inspect model caches and review cleanup.</p></div><i aria-hidden="true">↗</i></a><a href="administration/network.md"><span>03</span><div><h3>Configure networking</h3><p>Manage supported Ethernet and Wi-Fi connections.</p></div><i aria-hidden="true">↗</i></a><a href="administration/ubuntu-updates.md"><span>04</span><div><h3>Choose an update policy</h3><p>Control Ubuntu security updates and maintenance.</p></div><i aria-hidden="true">↗</i></a></div>
       </div>
-      <div class="technology-strip"><p>Established components.<br /><strong>One managed platform.</strong></p><div><span>Kubernetes</span><span>Flux</span><span>LiteLLM</span><span>Keycloak</span><a href="concepts/architecture.md">How it fits together <span aria-hidden="true">↗</span></a></div></div>
     </section>
 
     <section class="start-section" id="starten" aria-labelledby="start-title">

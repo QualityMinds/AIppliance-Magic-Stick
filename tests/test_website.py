@@ -150,6 +150,20 @@ class WebsiteTests(unittest.TestCase):
         for name in ('index.html', 'de.html'):
             self.assertTrue(anchors.issubset({a['id'] for _, a in self.markup(name).elements if 'id' in a}))
 
+    def test_architecture_explains_both_paths_and_local_runtime(self):
+        for name in ('index.html', 'de.html'):
+            with self.subTest(page=name):
+                page = self.markup(name)
+                self.assertEqual(len(page.matching('section', id='architecture')), 1)
+                self.assertEqual(len([attrs for tag, attrs in page.elements
+                                      if tag == 'div' and 'architecture-flow' in attrs.get('class', '').split()]), 2)
+                self.assertEqual(len(page.matching('div', **{'class': 'architecture-runtime'})), 1)
+                self.assertTrue(page.matching('a', href='concepts/architecture.md'))
+                text = (docs.DOCS / name).read_text()
+                for component in ('Dashboard', 'Magic Stick Operator', 'LiteLLM',
+                                  'Ollama', 'vLLM', 'FreeToken', 'Flux', 'Keycloak'):
+                    self.assertIn(component, text)
+
     def test_source_links_and_markdown_conversion(self):
         files = [docs.DOCS / name for name in self.pages]
         self.assertEqual(docs.check_links(files, docs.ROOT), [])
