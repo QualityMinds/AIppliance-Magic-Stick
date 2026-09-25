@@ -8,17 +8,65 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+No unreleased changes.
+
+## v0.1.1 - 2026-09-24
+
+Magic Stick **v0.1.1 Early Access** is a build-reliability patch for v0.1.0.
+It fixes Windows companion packaging and the optional vLLM-Omni ROCm image
+pipeline. It does not change the appliance's GPU configuration or enable the
+experimental ROCm Realtime path by default.
+
 ### Fixed
 
-- Keep the dashboard lockfile byte-identical on Windows checkouts and check the
-  companion's source inventory before expensive compilation/packaging.
-- Guard the pinned Omni CUDA-only shutdown repair on HIP/CPU builds, and check
-  real ROCm/Omni imports before exporting an image. Unknown upstream source fails
-  closed; actual GPU/audio acceptance remains separate.
-- Replace the large pre-test GitHub Actions cache export with a final-layer,
-  branch-scoped registry cache written only after runtime and source checks.
-- Inventory the tested ROCm container filesystem without another full image TAR
-  export, avoiding runner disk exhaustion while retaining the SBOM/license gate.
+- Keep the dashboard lockfile byte-identical on Windows checkouts, and verify
+  the companion's source inventory before expensive compilation and packaging.
+- Skip the pinned Omni CUDA-only shutdown repair on HIP/CPU builds while
+  retaining it on CUDA. Unexpected upstream source fails the build instead of
+  silently applying an unverified patch.
+- Check real ROCm/Omni imports before exporting the large image. Keep the
+  offline one- and two-device stage-projection checks as separate gates.
+- Replace the large pre-test GitHub Actions cache export with a branch-scoped,
+  final-layer registry cache, written only after the runtime and source checks.
+- Inventory the tested container's read-only filesystem without another full
+  image TAR export. This avoids the observed runner disk exhaustion while
+  retaining the SBOM and license-inventory checks.
+
+### Installation and updates
+
+Use the unchanged [online USB installer and checksum files](https://github.com/QualityMinds/AIppliance-Magic-Stick/releases/tag/installer-main-ff5fe42eb807315ead9b6a25d7ed561447e23e620975c49f578c4d752cccfd89)
+and the [USB installation guide](https://qualityminds.github.io/AIppliance-Magic-Stick/handbook/installation/bare-metal/).
+No new installer image is required for this patch. Its source tag freezes the
+release snapshot, but the online installer follows the **current `main`**;
+it is not a fully frozen offline v0.1.1 appliance.
+
+Existing `main`-following appliances receive applicable source changes through
+their normal Flux reconciliation. This release does not switch development
+channels, change GPU settings or perform a manual appliance rollout. Runtime
+image publication and promotion remain separate steps.
+
+### Validation and scope
+
+- The [companion build](https://github.com/QualityMinds/AIppliance-Magic-Stick/actions/runs/36031460641)
+  passed on Windows x64, Linux x64, macOS x64 and macOS ARM64 at `9697ad3`.
+- The [complete ROCm build](https://github.com/QualityMinds/AIppliance-Magic-Stick/actions/runs/36044508854)
+  passed at `070e8c8`, including real imports, offline stage contracts,
+  filesystem inventory and image publication. The resulting development
+  candidate is recorded by immutable digest in the
+  [patch evidence report](https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/v0.1.1/docs/development/reports/release-v0.1.1-2026-09-25.md).
+- Release preparation validates metadata, immutable license records and curated
+  notes. The draft-release workflow separately requires successful Public
+  release checks for the exact tagged commit on `main`.
+- These results are **build and contract evidence**, not new GPU/audio inference
+  acceptance. No hardware smoke test was rerun for this patch, and no ROCm image
+  is promoted into the default runtime catalog by these changes.
+
+The [v0.1.0 limitations](https://github.com/QualityMinds/AIppliance-Magic-Stick/releases/tag/v0.1.0)
+remain applicable. Third-party license findings remain advisory review work,
+not blanket distribution approval. Magic Stick-owned source retains its
+[BSL 1.1 terms and Additional Use Grant](https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/v0.1.1/LICENSE);
+the first-public-distribution date of these already public development fixes
+is preserved separately from the GitHub Release publication on 25 September 2026.
 
 ## v0.1.0 - 2026-09-24
 

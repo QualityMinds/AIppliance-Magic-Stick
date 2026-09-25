@@ -10,6 +10,7 @@ checks from physical-appliance acceptance.
 
 | Date | Report | Scope |
 |---|---|---|
+| 2026-09-25 | [v0.1.1 Early Access patch evidence](release-v0.1.1-2026-09-25.md) | Successful Windows/ROCm builds, immutable development-image identity and unchanged hardware acceptance boundary |
 | 2026-09-24 | [v0.1.0 Early Access acceptance](release-v0.1.0-2026-09-24.md) | Owner-confirmed model workflow, reused installer identity and explicit acceptance boundaries |
 | 2026-09-24 | [Successful online installation](installer-installation-2026-09-24.md) | Owner-reported installation success; original CI evidence and separate GPU acceptance retained |
 | 2026-09-24 | [Installer offline-pool experiments](installer-offline-pool-2026-09-24.md) | Real full/reduced/online image sizes, verified online downloads, filesystem integrity and separate installation acceptance |

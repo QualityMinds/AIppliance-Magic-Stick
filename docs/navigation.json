@@ -135,6 +135,7 @@
     {"Marketing website": "development/website.md"},
     {"Integration reports": [
       {"Report index": "development/reports/README.md"},
+      {"v0.1.1 patch evidence · 2026-09-25": "development/reports/release-v0.1.1-2026-09-25.md"},
       {"v0.1.0 acceptance · 2026-09-24": "development/reports/release-v0.1.0-2026-09-24.md"},
       {"Online installation · 2026-09-24": "development/reports/installer-installation-2026-09-24.md"},
       {"Installer pool · 2026-09-24": "development/reports/installer-offline-pool-2026-09-24.md"},
