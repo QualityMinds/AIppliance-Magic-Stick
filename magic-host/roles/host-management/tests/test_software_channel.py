@@ -138,6 +138,29 @@ class HostTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "did not converge"):
                     channel.verify(revision, lambda _: resources, timeout=1, expected_images=["different"])
 
+    def test_local_recovery_restores_metadata_pins_previous_and_verifies(self):
+        channel.write_json(self.root / "software-previous.json", {"commit": "a" * 40})
+        saved = self.root / "software-recovery/metadata.env"
+        saved.parent.mkdir()
+        saved.write_text(channel.METADATA.read_text())
+        channel.METADATA.write_text("MAGICSTICK_PUBLIC_REF=feature/broken\nPRIVATE_VALUE=changed\n")
+        with patch.object(sys, "argv", ["software_channel.py", "rollback"]), patch.object(os, "geteuid", return_value=0), patch.object(channel, "converge") as converge, patch.object(channel, "verify") as verify, patch("builtins.print"):
+            channel.main()
+            self.assertEqual(converge.call_args.args[0], "a" * 40)
+            self.assertTrue(converge.call_args.kwargs["recovery"])
+            self.assertEqual(verify.call_args.args[0], "a" * 40)
+        self.assertEqual(channel.config()["channel"], {"kind": "commit", "value": "a" * 40})
+        self.assertEqual(channel.metadata()["PRIVATE_VALUE"], "keep this")
+        self.assertFalse((self.root / "software-blocked.json").exists())
+
+    def test_failed_recovery_remains_paused(self):
+        channel.write_json(self.root / "software-previous.json", {"commit": "a" * 40})
+        saved = self.root / "software-recovery/metadata.env"
+        saved.parent.mkdir(); saved.write_text(channel.METADATA.read_text())
+        with patch.object(sys, "argv", ["software_channel.py", "rollback"]), patch.object(os, "geteuid", return_value=0), patch.object(channel, "converge", side_effect=RuntimeError("failed")):
+            with self.assertRaises(RuntimeError): channel.main()
+        self.assertTrue((self.root / "software-blocked.json").exists())
+
     def test_missing_service_ack_is_not_hidden_by_a_previous_result(self):
         cap = {"supported": True, "id": "f" * 64, "operation": {"requestId": "b" * 32, "phase": "Succeeded"}}
         plan = {"id": "e" * 64}
