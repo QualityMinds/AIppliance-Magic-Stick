@@ -7,7 +7,7 @@ import {InfoPopover} from '../InfoPopover';
 
 const terminal = new Set(['Succeeded', 'PreparedUnverified', 'Failed', 'Rejected', 'Interrupted', 'RolledBack']);
 const same = (a?: SoftwareChannel, b?: SoftwareChannel) => a?.kind === b?.kind && a?.value === b?.value;
-const short = (value?: string) => value ? value.replace(/^.*@sha1:/, '').slice(0, 12) : 'Unknown';
+const short = (value?: string) => value ? value.replace(/^(?:.*@)?sha1:/, '').slice(0, 12) : 'Unknown';
 const choice = (channel?: SoftwareChannel) => channel?.kind === 'branch' && ['main', 'develop'].includes(channel.value) ? channel.value : channel?.kind ?? 'main';
 
 export const SoftwareChannelEditor = ({host, stale}: {host: ManagedHost; stale: boolean}) => {

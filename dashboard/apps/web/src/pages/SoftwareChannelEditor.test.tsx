@@ -21,7 +21,10 @@ describe('Software channels', () => {
   });
 
   it('does not mutate on opening and only applies reviewed changes', async () => {
+    host.software!.observed = {sourceRevision: 'sha1:' + 'b'.repeat(40), appliedRevision: 'sha1:' + 'b'.repeat(40),
+      ready: true, checkedAtEpoch: Date.now() / 1000, images: []};
     render(renderEditor());
+    expect(screen.getAllByText('b'.repeat(12))).toHaveLength(2);
     expect(screen.getByLabelText('Software channel')).toHaveValue('main');
     expect(screen.getByRole('button', {name: 'Apply channel'})).toBeDisabled();
     await userEvent.selectOptions(screen.getByLabelText('Software channel'), 'develop');
