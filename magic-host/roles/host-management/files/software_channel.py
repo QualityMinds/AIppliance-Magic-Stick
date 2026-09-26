@@ -262,10 +262,39 @@ def registry_image(image, architecture):
 def inspect(git_dir, commit, architecture=None):
     architecture = architecture or {"x86_64": "amd64", "aarch64": "arm64"}.get(platform.machine(), platform.machine())
     images = image_inventory(git_dir, commit)
+    verify_image_sources(git_dir, commit, images)
     for item in images:
         registry_image(item["image"], architecture)
         item["available"] = True
     return images
+
+
+def image_source_path(path):
+    """Only inputs shipped in dashboard images; docs/tests may reuse a build."""
+    if path == "licenses/dependency-inventory.json":
+        return False  # Generated image-reference evidence necessarily changes on promotion.
+    if path in {"LICENSE", "LICENSE-RELEASE.json", "LICENSING.md", "THIRD_PARTY_NOTICES.md", ".dockerignore"}:
+        return True
+    if path.endswith(".md") or re.search(r"(^|/)(?:test_[^/]+|(?:tests|test|e2e)/)|\.test\.[^/]+$", path):
+        return False
+    return (path.startswith(("dashboard/", "core/magicstick_core/"))
+            or path.startswith("licenses/")
+            or path in {"magic-host/roles/host-management/files/" + name for name in
+                        ("network_contract.py", "updates_contract.py", "software_contract.py", "model_cache.py")})
+
+
+def verify_image_sources(git_dir, commit, images):
+    build = re.search(r"sha-([a-f0-9]{40})@", images[0]["image"]).group(1)
+    if build == commit:
+        return
+    try:
+        command(["git", "--git-dir=" + str(git_dir), "cat-file", "-e", build + "^{commit}"])
+    except ValueError:
+        command(["git", "--git-dir=" + str(git_dir), "-c", "http.version=HTTP/1.1", "fetch", "--no-tags", "--depth=1", "--", config()["repository"], build], timeout=180)
+    paths = command(["git", "--git-dir=" + str(git_dir), "diff", "--name-only", build, commit, "--"]).splitlines()
+    changed = [path for path in paths if image_source_path(path)]
+    if changed:
+        raise ValueError("The selected revision contains dashboard/API runtime changes not included in its pinned images. Build and promote matching web, API and console images first.")
 
 
 def preview(selected):

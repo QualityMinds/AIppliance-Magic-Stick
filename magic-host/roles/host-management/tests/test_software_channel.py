@@ -193,3 +193,13 @@ class HostTests(unittest.TestCase):
             self.assertIn("registry-1.docker.io/v2/library/python/manifests/", fetch.call_args.args[0].full_url)
             with self.assertRaisesRegex(ValueError, "Linux/arm64"): channel.registry_image(image, "arm64")
             with self.assertRaisesRegex(ValueError, "unexpected image digest"): channel.registry_image("python:3.13-alpine@sha256:" + "f" * 64, "amd64")
+
+    def test_image_source_parity_rejects_unpublished_runtime_not_docs_or_promotion(self):
+        images = [{"image": "example.com/web:sha-" + "a" * 40 + "@sha256:" + "b" * 64}]
+        irrelevant = "docs/user-guide/dashboard.md\nlicenses/dependency-inventory.json\ndashboard/apps/web/src/Feature.test.tsx\nmagic-host/roles/host-management/files/software_channel.py"
+        with patch.object(channel, "command", side_effect=["", irrelevant]):
+            channel.verify_image_sources(self.root, "c" * 40, images)
+        for path in ("dashboard/apps/web/src/Feature.tsx", "dashboard/pnpm-lock.yaml", "core/magicstick_core/sharing.py", "magic-host/roles/host-management/files/software_contract.py", "LICENSE-RELEASE.json"):
+            with self.subTest(path=path), patch.object(channel, "command", side_effect=["", path]):
+                with self.assertRaisesRegex(ValueError, "not included in its pinned images"):
+                    channel.verify_image_sources(self.root, "c" * 40, images)

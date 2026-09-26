@@ -37,6 +37,9 @@ Updates → Magic Stick software** as an administrator.
    dashboard, API, console and operator runtime images are published, digest-pinned
    and available for its Linux architecture. The dashboard/API/console pins must
    refer to one build. This is not a GPU, model or every-optional-image acceptance test.
+   Runtime-source changes since that image build are rejected until matching
+   images are promoted; documentation, host-only changes and digest-reference
+   evidence can reuse the same build.
 3. Review the resolved revision. Select **Apply channel** and confirm the computer
    name. Services and the dashboard may reconnect during the change.
 4. Wait for success, then inspect the host and cluster revisions. Running image
