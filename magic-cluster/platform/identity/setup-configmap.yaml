@@ -37,11 +37,19 @@ data:
     SETUP_PATH = f"/apis/appliance.magicstick.dev/v1alpha1/namespaces/{NAMESPACE}/appliancesetups/local"
     SECRETS_PATH = f"/api/v1/namespaces/{NAMESPACE}/secrets"
     SETTINGS_PATH = f"/api/v1/namespaces/{SETTINGS_NAMESPACE}/configmaps/ai-appliance-settings"
+    LOCAL_ROUTE_PATH = f"/apis/gateway.networking.k8s.io/v1/namespaces/{NAMESPACE}/httproutes/magicstick-setup-local"
+    DASHBOARD_ROUTE_PATH = f"/apis/gateway.networking.k8s.io/v1/namespaces/{NAMESPACE}/httproutes/dashboard-local"
+    DASHBOARD_POLICY_PATH = f"/apis/gateway.envoyproxy.io/v1alpha1/namespaces/{NAMESPACE}/securitypolicies/dashboard-local-oidc"
+    IDENTITY_ROUTE_PATH = f"/apis/gateway.networking.k8s.io/v1/namespaces/{NAMESPACE}/httproutes/keycloak"
+    GATEWAY_PATH = f"/apis/gateway.networking.k8s.io/v1/namespaces/{NAMESPACE}/gateways/identity-pilot"
+    CERTIFICATE_PATH = f"/apis/cert-manager.io/v1/namespaces/{NAMESPACE}/certificates/identity-pilot"
+    DASHBOARD_DEPLOYMENT_PATH = "/apis/apps/v1/namespaces/dashboard/deployments/ai-appliance-dashboard"
     CLAIM_SECRET_PATH = f"{SECRETS_PATH}/magicstick-setup-claim"
     SESSION_SECRET_PATH = f"{SECRETS_PATH}/magicstick-setup-session"
     SESSION_COOKIE = "MagicStickSetupSession"
     CSRF_COOKIE = "MagicStickSetupCsrf"
     SESSION_TTL_SECONDS = 1800
+    HANDOFF_GRACE_SECONDS = 5
     PRIVATE_CIDRS = [
         "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16",
         "fc00::/7", "fe80::/10",
@@ -51,6 +59,7 @@ data:
     INSTALLATION_ID = re.compile(r"^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$")
     FAILED_CLAIMS = {}
     RECOVERY_MIGRATIONS_COMPLETE = set()
+    COMPLETION_IN_PROGRESS = threading.Event()
 
 
     class ApiError(Exception):
@@ -174,6 +183,91 @@ data:
             "language": data.get("AI_APPLIANCE_LANGUAGE", "de"),
             "publicDomain": data.get("AI_APPLIANCE_DASHBOARD_HOST", ""),
         }
+
+
+    def setup_route_domain(default_domain):
+        """Keep the address that opened setup stable while settings are updated."""
+        route = get_resource(LOCAL_ROUTE_PATH) or {}
+        hostnames = (route.get("spec") or {}).get("hostnames") or []
+        return hostnames[0] if hostnames else default_domain
+
+
+    def current_generation(resource):
+        return int((resource.get("metadata") or {}).get("generation") or 0)
+
+
+    def condition_is_true(conditions, condition_type, generation=0):
+        return any(
+            condition.get("type") == condition_type
+            and condition.get("status") == "True"
+            and int(condition.get("observedGeneration") if condition.get("observedGeneration") is not None
+                    else generation) >= generation
+            for condition in conditions or []
+        )
+
+
+    def route_is_ready(route, hostname):
+        if hostname not in ((route or {}).get("spec") or {}).get("hostnames", []):
+            return False
+        generation = current_generation(route)
+        for parent in ((route or {}).get("status") or {}).get("parents", []):
+            if (parent.get("parentRef") or {}).get("name") != "identity-pilot":
+                continue
+            conditions = parent.get("conditions") or []
+            if (condition_is_true(conditions, "Accepted", generation)
+                    and condition_is_true(conditions, "ResolvedRefs", generation)):
+                return True
+        return False
+
+
+    def policy_is_ready(policy):
+        generation = current_generation(policy or {})
+        return any(
+            (ancestor.get("ancestorRef") or {}).get("name") == "identity-pilot"
+            and condition_is_true(ancestor.get("conditions"), "Accepted", generation)
+            for ancestor in ((policy or {}).get("status") or {}).get("ancestors", [])
+        )
+
+
+    def dashboard_handoff_ready(mdns_domain):
+        """Do not remove the setup route before its authenticated replacement works."""
+        try:
+            dashboard_route = get_resource(DASHBOARD_ROUTE_PATH)
+            dashboard_policy = get_resource(DASHBOARD_POLICY_PATH)
+            identity_route = get_resource(IDENTITY_ROUTE_PATH)
+            gateway = get_resource(GATEWAY_PATH) or {}
+            certificate = get_resource(CERTIFICATE_PATH) or {}
+            deployment = get_resource(DASHBOARD_DEPLOYMENT_PATH) or {}
+            if not (route_is_ready(dashboard_route, mdns_domain)
+                    and policy_is_ready(dashboard_policy)
+                    and route_is_ready(identity_route, "id." + mdns_domain)):
+                return False
+            if not condition_is_true((gateway.get("status") or {}).get("conditions"),
+                                     "Programmed", current_generation(gateway)):
+                return False
+            if not {mdns_domain, "id." + mdns_domain}.issubset(
+                    set((certificate.get("spec") or {}).get("dnsNames") or [])):
+                return False
+            if not condition_is_true((certificate.get("status") or {}).get("conditions"),
+                                     "Ready", current_generation(certificate)):
+                return False
+            desired = int((deployment.get("spec") or {}).get("replicas", 1))
+            status = deployment.get("status") or {}
+            return (desired > 0 and int(status.get("readyReplicas") or 0) >= desired
+                    and int(status.get("observedGeneration") or 0) >= current_generation(deployment))
+        except (KeyError, TypeError, ValueError, OSError):
+            return False
+
+
+    def completion_grace_elapsed(resource):
+        completed_at = ((resource or {}).get("status") or {}).get("completedAt")
+        if not completed_at:
+            return True  # Legacy completed resources did not record a handoff time.
+        try:
+            stamp = datetime.datetime.fromisoformat(completed_at.replace("Z", "+00:00"))
+        except ValueError:
+            return False
+        return (datetime.datetime.now(datetime.timezone.utc) - stamp).total_seconds() >= HANDOFF_GRACE_SECONDS
 
 
     def validate_hostname(value, field, required=True):
@@ -509,13 +603,18 @@ data:
         setup = setup_resource()
         phase = setup_phase(setup)
         if phase not in {"Pending", "Claimed", "Applying", "Failed"}:
+            if phase == "Completed" and (COMPLETION_IN_PROGRESS.is_set()
+                    or not completion_grace_elapsed(setup)
+                    or not dashboard_handoff_ready(current_settings()["mdnsDomain"])):
+                return
             for path in DYNAMIC_PATHS:
                 delete_resource(path)
             if phase == "Completed":
                 migrate_completed_recovery_user(setup)
             return
         settings = current_settings()
-        for collection, item, resource in dynamic_resources(settings["mdnsDomain"], setup_access_ips()):
+        domain = setup_route_domain(settings["mdnsDomain"])
+        for collection, item, resource in dynamic_resources(domain, setup_access_ips()):
             apply_resource(collection, item, resource)
 
 
@@ -528,9 +627,201 @@ data:
             time.sleep(15)
 
 
-    INDEX_HTML = """<!doctype html><html lang=de><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Magicstick einrichten</title><link rel=stylesheet href=/setup/style.css></head><body><main><header><span class=mark>MS</span><div><h1>Magicstick einrichten</h1><p>Lokale Ersteinrichtung</p></div></header><section id=status class=card>Systemstatus wird geprüft …</section><section id=claim class=card hidden><h2>Einrichtungscode</h2><p>Gib den Einrichtungscode mit acht Zeichen von der Textkonsole ein.</p><form id=claimForm><label>Einrichtungscode<input id=claimToken autocomplete=one-time-code minlength=8 maxlength=8 autocapitalize=none spellcheck=false required></label><button>Appliance übernehmen</button></form></section><section id=config class=card hidden><h2>Grundkonfiguration</h2><form id=setupForm><div class=grid><label>Appliance-Name<input name=applianceName required maxlength=80></label><label>Lokale Adresse<input name=mdnsDomain required></label><label>Zeitzone<input name=timezone required></label><label>Sprache<select name=language><option value=de>Deutsch</option><option value=en>English</option></select></label><label class=wide>Öffentliche Domain (optional)<input name=publicDomain placeholder=magicstick.example.com></label></div><h2>Erster Administrator</h2><div class=grid><label>Benutzername<input name=username required autocomplete=username></label><label>Anzeigename<input name=displayName required autocomplete=name></label><label class=wide>E-Mail<input name=email required type=email autocomplete=email></label><label>Passwort<input name=password required type=password minlength=12 autocomplete=new-password></label><label>Passwort bestätigen<input name=passwordConfirm required type=password minlength=12 autocomplete=new-password></label></div><aside>Beim Abschluss wird zusätzlich ein einmaliger Recovery-Zugang erzeugt. Speichere ihn außerhalb der Appliance.</aside><button>Einrichtung abschließen</button></form></section><section id=done class=card hidden><h2>Einrichtung abgeschlossen</h2><p>Speichere diese einmalig angezeigten Recovery-Zugangsdaten:</p><pre id=recovery></pre><p>Danach kannst du dich mit deinem neuen Administratorkonto anmelden.</p><a id=login class=button href=/>Zum SSO-Login</a></section><p id=message role=alert></p></main><script src=/setup/app.js></script></body></html>"""
+    INDEX_HTML = """<!doctype html><html lang=de><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Magicstick einrichten</title><link rel=stylesheet href=/setup/style.css></head><body><main><header><span class=mark>MS</span><div><h1>Magicstick einrichten</h1><p>Lokale Ersteinrichtung</p></div></header><section id=status class=card>Systemstatus wird geprüft …</section><section id=claim class=card hidden><h2>Einrichtungscode</h2><p>Gib den Einrichtungscode mit acht Zeichen von der Textkonsole ein.</p><form id=claimForm><label>Einrichtungscode<input id=claimToken autocomplete=one-time-code minlength=8 maxlength=8 autocapitalize=none spellcheck=false required></label><button>Appliance übernehmen</button></form></section><section id=config class=card hidden><h2>Grundkonfiguration</h2><form id=setupForm><div class=grid><label>Appliance-Name<input name=applianceName required maxlength=80></label><label>Lokale Adresse<input name=mdnsDomain required></label><label>Zeitzone<input name=timezone required></label><label>Sprache<select name=language><option value=de>Deutsch</option><option value=en>English</option></select></label><label class=wide>Öffentliche Domain (optional)<input name=publicDomain placeholder=magicstick.example.com></label></div><h2>Erster Administrator</h2><div class=grid><label>Benutzername<input name=username required autocomplete=username></label><label>Anzeigename<input name=displayName required autocomplete=name></label><label class=wide>E-Mail<input name=email required type=email autocomplete=email></label><label>Passwort<input name=password required type=password minlength=12 autocomplete=new-password></label><label>Passwort bestätigen<input name=passwordConfirm required type=password minlength=12 autocomplete=new-password></label></div><aside>Beim Abschluss wird zusätzlich ein einmaliger Recovery-Zugang erzeugt. Speichere ihn außerhalb der Appliance.</aside><button>Einrichtung abschließen</button></form></section><section id=done class=card hidden><h2>Einrichtung abgeschlossen</h2><p>Speichere diese einmalig angezeigten Recovery-Zugangsdaten:</p><pre id=recovery></pre><p id=recoveryUnavailable hidden>Die Recovery-Zugangsdaten wurden nur einmal angezeigt und können hier nicht erneut abgerufen werden.</p><p>Danach kannst du dich mit deinem neuen Administratorkonto anmelden.</p><p id=handoff role=status aria-live=polite>Das Dashboard wird vorbereitet …</p><button id=login type=button disabled>Zum SSO-Login</button></section><p id=message role=alert></p></main><script src=/setup/app.js></script></body></html>"""
     STYLE_CSS = """:root{color-scheme:light;font-family:Inter,ui-sans-serif,system-ui,sans-serif;background:#f3f5f7;color:#17212b}*{box-sizing:border-box}body{margin:0}main{max-width:760px;margin:0 auto;padding:40px 20px}header{display:flex;align-items:center;gap:16px;margin-bottom:24px}.mark{display:grid;place-items:center;width:52px;height:52px;border-radius:14px;background:#143d59;color:white;font-weight:800}h1{margin:0;font-size:1.8rem}header p{margin:4px 0;color:#596875}.card{background:white;border:1px solid #dce2e7;border-radius:16px;padding:24px;box-shadow:0 10px 32px #17324d10;margin-bottom:18px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.wide{grid-column:1/-1}label{display:grid;gap:7px;font-weight:650}input,select{width:100%;padding:11px 12px;border:1px solid #aeb9c2;border-radius:8px;font:inherit}button,.button{display:inline-block;margin-top:20px;padding:12px 18px;border:0;border-radius:9px;background:#176b87;color:white;font:inherit;font-weight:750;text-decoration:none;cursor:pointer}button:disabled{opacity:.55}aside{margin-top:20px;padding:14px;background:#edf6f7;border-left:4px solid #2b8a9d}pre{padding:16px;background:#17212b;color:#f4fbfc;border-radius:9px;white-space:pre-wrap}#message{color:#a32626;font-weight:700}[hidden]{display:none!important}@media(max-width:600px){.grid{grid-template-columns:1fr}.wide{grid-column:auto}main{padding-top:24px}}"""
-    APP_JS = r"""const $=s=>document.querySelector(s);let defaults={};const cookie=n=>document.cookie.split('; ').find(v=>v.startsWith(n+'='))?.split('=').slice(1).join('=')||'';async function api(path,opts={}){opts.headers={'Content-Type':'application/json',...(opts.headers||{})};if(opts.method&&opts.method!=='GET')opts.headers['X-MagicStick-CSRF']=decodeURIComponent(cookie('MagicStickSetupCsrf'));const r=await fetch('/setup/api/'+path,{...opts,cache:'no-store'});const b=await r.json().catch(()=>({}));if(!r.ok)throw new Error(b.message||'Die Anfrage ist fehlgeschlagen.');return b}function show(id){for(const x of ['claim','config','done'])$('#'+x).hidden=x!==id}function randomCode(bytes=18){const b=new Uint8Array(bytes);crypto.getRandomValues(b);return Array.from(b,x=>x.toString(16).padStart(2,'0')).join('').match(/.{1,6}/g).join('-')}async function load(){try{const s=await api('status');$('#status').textContent=s.phase==='Absent'?'Die Appliance wurde noch nicht für den Setup-Modus initialisiert.':'Setup-Status: '+s.phase;if(['Completed','CompletedLegacy'].includes(s.phase)){location.replace('/');return}const fragment=new URLSearchParams(location.hash.slice(1));const claim=fragment.get('claim');history.replaceState(null,'',location.pathname);if(s.phase==='Claimed'){try{await openConfig();return}catch(e){$('#message').textContent='Die Appliance wurde bereits von einem Browser übernommen. Nutze bei Bedarf „magicstick setup reissue“ an der Konsole.';return}}show('claim');if(claim){$('#claimToken').value=claim;$('#claimForm').requestSubmit()}}catch(e){$('#message').textContent=e.message}}async function openConfig(){defaults=await api('config');for(const [k,v] of Object.entries(defaults))if($('#setupForm').elements[k])$('#setupForm').elements[k].value=v||'';show('config')}$('#claimForm').addEventListener('submit',async e=>{e.preventDefault();$('#message').textContent='';try{await api('claim',{method:'POST',body:JSON.stringify({claimToken:$('#claimToken').value.replaceAll('-','').trim()})});await openConfig()}catch(x){$('#message').textContent=x.message}});$('#setupForm').addEventListener('submit',async e=>{e.preventDefault();$('#message').textContent='';const f=Object.fromEntries(new FormData(e.target));if(f.password!==f.passwordConfirm){$('#message').textContent='Die Passwörter stimmen nicht überein.';return}const setupId=(await api('status')).installationId||randomCode(6).replaceAll('-','');f.recoveryUsername='recovery-'+setupId.slice(0,8);f.recoveryCode=randomCode();delete f.passwordConfirm;const button=e.target.querySelector('button');button.disabled=true;try{const result=await api('complete',{method:'POST',body:JSON.stringify(f)});$('#recovery').textContent='Benutzer: '+result.recoveryUsername+'\nCode:     '+result.recoveryCode;$('#login').href='https://'+f.mdnsDomain+'/';show('done');$('#status').textContent='Setup-Status: Completed'}catch(x){$('#message').textContent=x.message;button.disabled=false}});load();"""
+    APP_JS = r"""
+    const $ = selector => document.querySelector(selector);
+    let defaults = {};
+    let loginUrl = '/';
+    let handoffTimer = null;
+    let handoffReadySeen = false;
+    let loginReady = false;
+
+    const cookie = name => document.cookie.split('; ')
+      .find(value => value.startsWith(name + '='))?.split('=').slice(1).join('=') || '';
+
+    async function api(path, options = {}) {
+      options.headers = {'Content-Type': 'application/json', ...(options.headers || {})};
+      if (options.method && options.method !== 'GET') {
+        options.headers['X-MagicStick-CSRF'] = decodeURIComponent(cookie('MagicStickSetupCsrf'));
+      }
+      const response = await fetch('/setup/api/' + path, {...options, cache: 'no-store'});
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.message || 'Die Anfrage ist fehlgeschlagen.');
+      return body;
+    }
+
+    function show(id) {
+      for (const section of ['claim', 'config', 'done']) {
+        $('#' + section).hidden = section !== id;
+      }
+    }
+
+    function randomCode(bytes = 18) {
+      const data = new Uint8Array(bytes);
+      crypto.getRandomValues(data);
+      return Array.from(data, value => value.toString(16).padStart(2, '0'))
+        .join('').match(/.{1,6}/g).join('-');
+    }
+
+    function setLoginReady(ready) {
+      loginReady = ready;
+      $('#login').disabled = !ready;
+      $('#handoff').textContent = ready
+        ? 'Das Dashboard ist bereit. Du kannst dich jetzt anmelden.'
+        : 'Das Dashboard wird vorbereitet …';
+      if (ready && handoffTimer) {
+        clearTimeout(handoffTimer);
+        handoffTimer = null;
+      }
+    }
+
+    function scheduleHandoff() {
+      if (!loginReady && !handoffTimer) {
+        handoffTimer = setTimeout(checkHandoff, 2500);
+      }
+    }
+
+    async function checkHandoff() {
+      handoffTimer = null;
+      try {
+        const response = await fetch('/setup/api/handoff', {
+          cache: 'no-store',
+          redirect: 'manual',
+        });
+        if (response.type === 'opaqueredirect') {
+          setLoginReady(true);
+          return;
+        }
+        const contentType = response.headers.get('content-type') || '';
+        if (response.ok && contentType.includes('application/json')) {
+          const handoff = await response.json();
+          if (handoff.dashboardURL) {
+            loginUrl = handoff.dashboardURL;
+            try { sessionStorage.setItem('magicstick-dashboard-url', loginUrl); } catch {}
+          }
+          handoffReadySeen = handoffReadySeen || handoff.dashboardReady === true;
+        } else if (response.ok && contentType.includes('text/html')) {
+          // The authenticated dashboard now answers this former setup path.
+          setLoginReady(true);
+          return;
+        }
+      } catch {
+        // The direct :9443 setup listener closes during handoff. Probe the
+        // replacement address only after the server reported it ready.
+        if (handoffReadySeen) {
+          try {
+            await fetch(loginUrl, {mode: 'no-cors', redirect: 'manual', cache: 'no-store'});
+            setLoginReady(true);
+            return;
+          } catch {}
+        }
+      }
+      scheduleHandoff();
+    }
+
+    function startHandoff(url) {
+      loginUrl = url || loginUrl;
+      try { sessionStorage.setItem('magicstick-dashboard-url', loginUrl); } catch {}
+      setLoginReady(false);
+      checkHandoff();
+    }
+
+    async function load() {
+      try {
+        const status = await api('status');
+        $('#status').textContent = status.phase === 'Absent'
+          ? 'Die Appliance wurde noch nicht für den Setup-Modus initialisiert.'
+          : 'Setup-Status: ' + status.phase;
+        const fragment = new URLSearchParams(location.hash.slice(1));
+        const claim = fragment.get('claim');
+        history.replaceState(null, '', location.pathname);
+        if (['Completed', 'CompletedLegacy'].includes(status.phase)) {
+          show('done');
+          $('#recovery').hidden = true;
+          $('#recoveryUnavailable').hidden = false;
+          try { loginUrl = sessionStorage.getItem('magicstick-dashboard-url') || loginUrl; } catch {}
+          startHandoff(loginUrl);
+          return;
+        }
+        if (status.phase === 'Claimed') {
+          try {
+            await openConfig();
+            return;
+          } catch {
+            $('#message').textContent = 'Die Appliance wurde bereits von einem Browser übernommen. Nutze bei Bedarf „magicstick setup reissue“ an der Konsole.';
+            return;
+          }
+        }
+        show('claim');
+        if (claim) {
+          $('#claimToken').value = claim;
+          $('#claimForm').requestSubmit();
+        }
+      } catch (error) {
+        $('#message').textContent = error.message;
+      }
+    }
+
+    async function openConfig() {
+      defaults = await api('config');
+      for (const [key, value] of Object.entries(defaults)) {
+        if ($('#setupForm').elements[key]) {
+          $('#setupForm').elements[key].value = value || '';
+        }
+      }
+      show('config');
+    }
+
+    $('#claimForm').addEventListener('submit', async event => {
+      event.preventDefault();
+      $('#message').textContent = '';
+      try {
+        await api('claim', {
+          method: 'POST',
+          body: JSON.stringify({claimToken: $('#claimToken').value.replaceAll('-', '').trim()}),
+        });
+        await openConfig();
+      } catch (error) {
+        $('#message').textContent = error.message;
+      }
+    });
+
+    $('#setupForm').addEventListener('submit', async event => {
+      event.preventDefault();
+      $('#message').textContent = '';
+      const values = Object.fromEntries(new FormData(event.target));
+      if (values.password !== values.passwordConfirm) {
+        $('#message').textContent = 'Die Passwörter stimmen nicht überein.';
+        return;
+      }
+      const setupId = (await api('status')).installationId || randomCode(6).replaceAll('-', '');
+      values.recoveryUsername = 'recovery-' + setupId.slice(0, 8);
+      values.recoveryCode = randomCode();
+      delete values.passwordConfirm;
+      const button = event.target.querySelector('button');
+      button.disabled = true;
+      try {
+        const result = await api('complete', {method: 'POST', body: JSON.stringify(values)});
+        $('#recovery').textContent = 'Benutzer: ' + result.recoveryUsername +
+          '\nCode:     ' + result.recoveryCode;
+        $('#recovery').hidden = false;
+        $('#recoveryUnavailable').hidden = true;
+        show('done');
+        $('#status').textContent = 'Setup-Status: Completed';
+        startHandoff(result.dashboardURL || 'https://' + values.mdnsDomain + '/');
+      } catch (error) {
+        $('#message').textContent = error.message;
+        button.disabled = false;
+      }
+    });
+
+    $('#login').addEventListener('click', () => {
+      if (loginReady) location.assign(loginUrl);
+    });
+
+    load();
+    """
 
 
     class Handler(BaseHTTPRequestHandler):
@@ -588,6 +879,12 @@ data:
                     setup = setup_resource()
                     spec = (setup or {}).get("spec") or {}
                     self.send_json(200, {"phase": setup_phase(setup), "installationId": spec.get("installationId", ""), "ready": setup is not None})
+                elif path == "/setup/api/handoff":
+                    if setup_phase() != "Completed":
+                        raise ApiError(409, "Die Einrichtung ist noch nicht abgeschlossen.", "setup_incomplete")
+                    domain = current_settings()["mdnsDomain"]
+                    self.send_json(200, {"dashboardURL": "https://" + domain + "/",
+                                         "dashboardReady": dashboard_handoff_ready(domain)})
                 elif path == "/setup/api/config":
                     validate_session(self.headers.get("Cookie"))
                     self.send_json(200, current_settings())
@@ -674,15 +971,20 @@ data:
             ensure_keycloak_user(token, values["username"], values["password"], values["email"], values["displayName"], "primary")
             ensure_keycloak_user(token, values["recoveryUsername"], values["recoveryCode"],
                                  values["recoveryUsername"] + "@" + values["mdnsDomain"], "Recovery Administrator", "recovery")
-            patch_status("Completed", completedAt=now(), lastErrorCode="")
-            delete_resource(CLAIM_SECRET_PATH)
-            delete_resource(SESSION_SECRET_PATH)
-            expired = [
-                f"{SESSION_COOKIE}=; Path=/setup; Max-Age=0; Secure; HttpOnly; SameSite=Strict",
-                f"{CSRF_COOKIE}=; Path=/; Max-Age=0; Secure; SameSite=Strict",
-            ]
-            self.send_json(200, {"completed": True, "recoveryUsername": values["recoveryUsername"],
-                                 "recoveryCode": values["recoveryCode"]}, expired)
+            COMPLETION_IN_PROGRESS.set()
+            try:
+                patch_status("Completed", completedAt=now(), lastErrorCode="")
+                delete_resource(CLAIM_SECRET_PATH)
+                delete_resource(SESSION_SECRET_PATH)
+                expired = [
+                    f"{SESSION_COOKIE}=; Path=/setup; Max-Age=0; Secure; HttpOnly; SameSite=Strict",
+                    f"{CSRF_COOKIE}=; Path=/; Max-Age=0; Secure; SameSite=Strict",
+                ]
+                self.send_json(200, {"completed": True, "recoveryUsername": values["recoveryUsername"],
+                                     "recoveryCode": values["recoveryCode"],
+                                     "dashboardURL": "https://" + values["mdnsDomain"] + "/"}, expired)
+            finally:
+                COMPLETION_IN_PROGRESS.clear()
 
 
     if __name__ == "__main__":

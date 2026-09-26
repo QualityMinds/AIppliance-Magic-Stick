@@ -1,7 +1,10 @@
 import pathlib
 import io
+import shutil
+import subprocess
 import types
 import unittest
+from unittest.mock import patch
 
 import yaml
 
@@ -101,6 +104,120 @@ class SetupGatewayTests(unittest.TestCase):
         finally:
             setup.private_node_ips = original_nodes
             setup.get_resource = original_get
+
+    def test_setup_hostname_stays_stable_while_settings_change(self):
+        route = {"spec": {"hostnames": ["old-name.local"]}}
+        with patch.object(setup, "get_resource", return_value=route):
+            self.assertEqual(setup.setup_route_domain("new-name.local"), "old-name.local")
+        with patch.object(setup, "get_resource", return_value=None):
+            self.assertEqual(setup.setup_route_domain("new-name.local"), "new-name.local")
+
+
+class HandoffReadinessTests(unittest.TestCase):
+    @staticmethod
+    def condition(name, generation=2):
+        return {"type": name, "status": "True", "observedGeneration": generation}
+
+    def resources(self):
+        accepted = [self.condition("Accepted"), self.condition("ResolvedRefs")]
+
+        def route(host):
+            return {"metadata": {"generation": 2}, "spec": {"hostnames": [host]},
+                    "status": {"parents": [{"parentRef": {"name": "identity-pilot"},
+                                            "conditions": accepted}]}}
+
+        return {
+            setup.DASHBOARD_ROUTE_PATH: route("magicstick.local"),
+            setup.DASHBOARD_POLICY_PATH: {"metadata": {"generation": 2},
+                                          "status": {"ancestors": [{
+                                              "ancestorRef": {"name": "identity-pilot"},
+                                              "conditions": [self.condition("Accepted")],
+                                          }]}},
+            setup.IDENTITY_ROUTE_PATH: route("id.magicstick.local"),
+            setup.GATEWAY_PATH: {"metadata": {"generation": 2},
+                                 "status": {"conditions": [self.condition("Programmed")]}},
+            setup.CERTIFICATE_PATH: {"metadata": {"generation": 2},
+                                     "spec": {"dnsNames": ["magicstick.local", "id.magicstick.local"]},
+                                     "status": {"conditions": [self.condition("Ready")]}},
+            setup.DASHBOARD_DEPLOYMENT_PATH: {"metadata": {"generation": 2},
+                                              "spec": {"replicas": 1},
+                                              "status": {"observedGeneration": 2, "readyReplicas": 1}},
+        }
+
+    def test_setup_account_can_read_dashboard_deployment_for_handoff(self):
+        manifest = pathlib.Path(__file__).parents[1] / "setup-rbac.yaml"
+        resources = list(yaml.safe_load_all(manifest.read_text(encoding="utf-8")))
+        role = next(item for item in resources if item["kind"] == "ClusterRole"
+                    and item["metadata"]["name"] == "magicstick-setup")
+        self.assertTrue(any(
+            "apps" in rule.get("apiGroups", [])
+            and "deployments" in rule.get("resources", [])
+            and "ai-appliance-dashboard" in rule.get("resourceNames", [])
+            and "get" in rule.get("verbs", [])
+            for rule in role["rules"]
+        ))
+
+    def test_handoff_waits_for_authenticated_dashboard_and_identity(self):
+        resources = self.resources()
+        with patch.object(setup, "get_resource", side_effect=resources.get):
+            self.assertTrue(setup.dashboard_handoff_ready("magicstick.local"))
+            self.assertFalse(setup.dashboard_handoff_ready("new-name.local"))
+
+        resources[setup.DASHBOARD_DEPLOYMENT_PATH]["status"]["readyReplicas"] = 0
+        with patch.object(setup, "get_resource", side_effect=resources.get):
+            self.assertFalse(setup.dashboard_handoff_ready("magicstick.local"))
+
+    def test_handoff_rejects_stale_route_or_certificate_status(self):
+        resources = self.resources()
+        dashboard = resources[setup.DASHBOARD_ROUTE_PATH]
+        dashboard["status"]["parents"][0]["conditions"][0]["observedGeneration"] = 1
+        with patch.object(setup, "get_resource", side_effect=resources.get):
+            self.assertFalse(setup.dashboard_handoff_ready("magicstick.local"))
+
+        dashboard["status"]["parents"][0]["conditions"][0]["observedGeneration"] = 2
+        resources[setup.CERTIFICATE_PATH]["spec"]["dnsNames"].remove("id.magicstick.local")
+        with patch.object(setup, "get_resource", side_effect=resources.get):
+            self.assertFalse(setup.dashboard_handoff_ready("magicstick.local"))
+
+    def test_handoff_waits_for_oidc_policy(self):
+        resources = self.resources()
+        policy = resources[setup.DASHBOARD_POLICY_PATH]
+        policy["status"]["ancestors"][0]["conditions"][0]["status"] = "False"
+        with patch.object(setup, "get_resource", side_effect=resources.get):
+            self.assertFalse(setup.dashboard_handoff_ready("magicstick.local"))
+
+        policy["status"]["ancestors"][0]["conditions"][0]["status"] = "True"
+        policy["status"]["ancestors"][0]["conditions"][0]["observedGeneration"] = 1
+        with patch.object(setup, "get_resource", side_effect=resources.get):
+            self.assertFalse(setup.dashboard_handoff_ready("magicstick.local"))
+
+    def test_completed_setup_waits_for_target_and_response_grace_period(self):
+        resource = {"status": {"phase": "Completed", "completedAt": setup.now()}}
+        with (patch.object(setup, "setup_resource", return_value=resource),
+              patch.object(setup, "current_settings", return_value={"mdnsDomain": "magicstick.local"}),
+              patch.object(setup, "dashboard_handoff_ready", return_value=True),
+              patch.object(setup, "delete_resource") as delete):
+            setup.reconcile_once()
+            delete.assert_not_called()
+
+        resource["status"]["completedAt"] = "2026-01-01T00:00:00Z"
+        with (patch.object(setup, "setup_resource", return_value=resource),
+              patch.object(setup, "current_settings", return_value={"mdnsDomain": "magicstick.local"}),
+              patch.object(setup, "dashboard_handoff_ready", return_value=False),
+              patch.object(setup, "delete_resource") as delete):
+            setup.reconcile_once()
+            delete.assert_not_called()
+
+        setup.COMPLETION_IN_PROGRESS.set()
+        try:
+            with (patch.object(setup, "setup_resource", return_value=resource),
+                  patch.object(setup, "current_settings", return_value={"mdnsDomain": "magicstick.local"}),
+                  patch.object(setup, "dashboard_handoff_ready", return_value=True),
+                  patch.object(setup, "delete_resource") as delete):
+                setup.reconcile_once()
+                delete.assert_not_called()
+        finally:
+            setup.COMPLETION_IN_PROGRESS.clear()
 
 
 class KeycloakUserTests(unittest.TestCase):
@@ -368,6 +485,8 @@ class RecoveryUserMigrationTests(unittest.TestCase):
         original_setup_resource = setup.setup_resource
         original_delete = setup.delete_resource
         original_migrate = setup.migrate_completed_recovery_user
+        original_settings = setup.current_settings
+        original_handoff = setup.dashboard_handoff_ready
         resource = self.completed_setup()
         deleted = []
         migrated = []
@@ -375,17 +494,47 @@ class RecoveryUserMigrationTests(unittest.TestCase):
             setup.setup_resource = lambda: resource
             setup.delete_resource = deleted.append
             setup.migrate_completed_recovery_user = migrated.append
+            setup.current_settings = lambda: {"mdnsDomain": "magicstick.local"}
+            setup.dashboard_handoff_ready = lambda domain: domain == "magicstick.local"
             setup.reconcile_once()
         finally:
             setup.setup_resource = original_setup_resource
             setup.delete_resource = original_delete
             setup.migrate_completed_recovery_user = original_migrate
+            setup.current_settings = original_settings
+            setup.dashboard_handoff_ready = original_handoff
 
         self.assertEqual(deleted, setup.DYNAMIC_PATHS)
         self.assertEqual(migrated, [resource])
 
 
 class HandlerTests(unittest.TestCase):
+    def test_handoff_api_reports_target_without_recovery_secret(self):
+        handler = object.__new__(setup.Handler)
+        handler.path = "/setup/api/handoff"
+        responses = []
+        handler.send_json = lambda status, payload: responses.append((status, payload))
+        with (patch.object(setup, "setup_phase", return_value="Completed"),
+              patch.object(setup, "current_settings", return_value={"mdnsDomain": "new-name.local"}),
+              patch.object(setup, "dashboard_handoff_ready", return_value=True)):
+            handler.do_GET()
+        self.assertEqual(responses, [(200, {"dashboardURL": "https://new-name.local/",
+                                           "dashboardReady": True})])
+
+    def test_completed_setup_page_waits_instead_of_redirecting_to_itself(self):
+        script = setup.APP_JS
+        self.assertNotIn("location.replace('/')", script)
+        self.assertIn("fetch('/setup/api/handoff'", script)
+        self.assertIn("redirect: 'manual'", script)
+        self.assertIn("id=login type=button disabled", setup.INDEX_HTML)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is needed for the browser handoff test")
+    def test_browser_handoff_waits_for_route_switch(self):
+        harness = pathlib.Path(__file__).with_name("setup_handoff.test.cjs")
+        result = subprocess.run(["node", str(harness)], input=setup.APP_JS,
+                                capture_output=True, text=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_json_response_uses_security_headers(self):
         handler = object.__new__(setup.Handler)
         handler.command = "GET"

@@ -47,11 +47,19 @@ The wizard asks for appliance name, `.local` name, timezone, language, optional
 public domain, and the first administrator. Passwords are sent directly to
 Keycloak and are neither stored in Kubernetes nor written to logs.
 
-On completion, save the one-time recovery username and code. Both the primary
-and recovery users receive `magicstick-user` and `magicstick-admin`. The setup
-claim, session, temporary certificate, gateway, and routes are then removed;
-the local address returns to the normal OIDC-protected dashboard. The physical
-console is cleared again and no longer displays the claim code.
+On completion, save the one-time recovery username and code before leaving the
+page. They cannot be displayed again after a reload. Both the primary and
+recovery users receive `magicstick-user` and `magicstick-admin`.
+
+The login button remains disabled while the authenticated dashboard, its login
+policy, the identity route and certificate become ready. Keep the page open; it
+checks the handoff automatically. Once the setup route has been removed and the
+normal dashboard route is answering, the button becomes available. If this takes
+longer than expected, check the dashboard Deployment, OIDC SecurityPolicy, and
+local dashboard and identity HTTPRoutes rather than repeatedly reloading the
+setup page. The setup claim and session are invalidated at completion; the
+temporary certificate, gateway, and routes are removed after the handoff. The
+physical console is cleared again and no longer displays the claim code.
 
 The recovery user is marked as a protected local recovery account. The normal
 dashboard user administration cannot edit, disable, demote, reset, or delete
