@@ -5,6 +5,7 @@ import {api} from '../api';
 import {Button, ConfirmDialog, Empty, ErrorNotice, Field, Loading, Panel, StatusBadge} from '../components';
 import {InfoPopover} from '../InfoPopover';
 import {useHosts} from './HostManagement';
+import {SoftwareChannelEditor} from './SoftwareChannelEditor';
 
 const terminal = new Set(['Succeeded', 'PreparedUnverified', 'Failed', 'Rejected', 'Interrupted', 'RolledBack']);
 const date = (value?: string) => value ? new Date(value).toLocaleString() : 'Not yet';
@@ -76,6 +77,8 @@ export const UpdatesPage = () => {
   return <div className="stack"><div className="section-title"><div className="inline-info"><h2>Updates</h2><InfoPopover label="Ubuntu updates"><p className="memory-info-note">Updates use the configured Ubuntu APT mirrors. Automatic installations start in the UTC maintenance window; busy hosts retry inside that window. Running package transactions may finish later. Kernel, GPU driver and firmware updates remain in Hardware preparation. K3s, operators and container images use the Magic Stick release workflow. Services may restart during package installation.</p></InfoPopover></div></div>
     <ErrorNotice error={hosts.error} />{hosts.isPending && <Loading />}
     {hosts.data?.nodes.map((host) => <Panel key={host.nodeUid} title={host.name}>
+      <SoftwareChannelEditor key={`${host.bootId}:${Boolean(host.software?.supported)}`} host={host} stale={Boolean(hosts.error)} />
+      <h3>Ubuntu packages</h3>
       {host.updates?.supported ? <HostUpdateEditor key={`${host.bootId}:${host.updates.id}`} host={host} stale={Boolean(hosts.error)} /> : <Empty>Update management requires the current host worker.</Empty>}
     </Panel>)}
     {!hosts.isPending && !hosts.data?.nodes.length && <Empty>No manageable computers reported.</Empty>}

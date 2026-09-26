@@ -8605,10 +8605,35 @@ data:
                           "network": public_host_network(report.get("network")) if fresh else None,
                           "updates": public_host_updates(report.get("updates")) if fresh else None,
                           "modelCache": public_model_cache(report.get("modelCache")) if fresh else None,
+                          "software": public_host_software(report.get("software")) if fresh else None,
                           "message": "Host worker is available." if fresh and available else "Host worker or operation API is unavailable/stale. No power or preparation action can be requested.",
                           "operation": {"requestId": operation.get("spec", {}).get("requestId"), "action": operation.get("spec", {}).get("action"),
                                         **(operation.get("status") or {"phase": "Pending", "message": "Waiting for the local host worker."})} if operation else None})
         return {"nodes": hosts}
+
+
+    def public_host_software(value):
+        if not isinstance(value, dict):
+            return None
+        result = {key: value[key] for key in ("supported", "id", "busy", "blocked", "hostCommit", "previousCommit", "message")
+                  if key in value and type(value[key]) in {str, bool}}
+        if isinstance(value.get("channel"), dict):
+            result["channel"] = {key: value["channel"].get(key, "") for key in ("kind", "value")}
+        preview = value.get("preview")
+        if isinstance(preview, dict) and preview:
+            result["preview"] = {key: preview[key] for key in ("id", "configurationId", "commit", "ready", "checkedAtEpoch") if key in preview}
+            result["preview"]["channel"] = {key: (preview.get("channel") or {}).get(key, "") for key in ("kind", "value")}
+            result["preview"]["images"] = [{key: item[key] for key in ("name", "image", "available") if key in item}
+                for item in preview.get("images", [])[:8] if isinstance(item, dict)]
+        observed = value.get("observed")
+        if isinstance(observed, dict):
+            result["observed"] = {key: observed[key] for key in ("sourceRevision", "appliedRevision", "ready", "checkedAtEpoch") if key in observed}
+            result["observed"]["images"] = [{key: item[key] for key in ("name", "image", "imageId", "ready") if key in item}
+                for item in observed.get("images", [])[:12] if isinstance(item, dict)]
+        operation = value.get("operation")
+        if isinstance(operation, dict) and operation:
+            result["operation"] = {key: operation[key] for key in ("requestId", "phase", "message") if key in operation}
+        return result
 
 
     def public_model_cache(value):
@@ -8686,11 +8711,12 @@ data:
 
     def create_host_operation(principal, payload):
         UPDATE_ACTIONS = {"configure-updates", "check-updates", "install-updates"}
+        SOFTWARE_ACTIONS = {"check-software-channel", "apply-software-channel"}
         if not ROLE_ACCESS["admin"].intersection(principal.get("roles", [])):
             raise AuthError(403, "Administrator access is required for host operations.")
-        _reject_unknown_fields(payload, {"action", "nodeName", "nodeUid", "bootId", "requestId", "planId", "allowExperimental", "experimentMode", "acknowledgeDisruption", "confirmation", "gpuMemory", "network", "updatePolicy", "updateScope"})
+        _reject_unknown_fields(payload, {"action", "nodeName", "nodeUid", "bootId", "requestId", "planId", "allowExperimental", "experimentMode", "acknowledgeDisruption", "confirmation", "gpuMemory", "network", "updatePolicy", "updateScope", "softwareChannel", "softwarePreviewId"})
         action = payload.get("action")
-        if action not in {"prepare-gpu", "configure-gpu-memory", "configure-network", "scan-wifi", "reboot", "poweroff", "clear-model-cache"} | UPDATE_ACTIONS:
+        if action not in {"prepare-gpu", "configure-gpu-memory", "configure-network", "scan-wifi", "reboot", "poweroff", "clear-model-cache"} | UPDATE_ACTIONS | SOFTWARE_ACTIONS:
             raise RequestError(400, "Unknown host operation.")
         if not re.fullmatch(r"[a-f0-9]{32}", str(payload.get("requestId", ""))):
             raise RequestError(400, "A valid request identity is required.")
@@ -8699,6 +8725,8 @@ data:
             raise RequestError(409, "The selected host is not available for management. Refresh System status.")
         if (host.get("updates") or {}).get("busy"):
             raise RequestError(409, "Ubuntu updates are running. Wait for completion before another host operation.")
+        if (host.get("software") or {}).get("busy"):
+            raise RequestError(409, "A software channel operation is running. Wait for completion.")
         if payload.get("confirmation") != host["name"] or payload.get("acknowledgeDisruption") is not True:
             raise RequestError(400, "Confirm the exact host name and interruption of its services.")
         if payload.get("nodeUid") != host["nodeUid"] or payload.get("bootId") != host["bootId"]:
@@ -8713,11 +8741,22 @@ data:
         memory_settings = None
         network_settings = None
         update_policy = None
+        software_settings = None
         if action not in UPDATE_ACTIONS and {"updatePolicy", "updateScope"} & set(payload):
             raise RequestError(400, "Update settings require a dedicated update operation.")
         if action not in {"configure-network", "scan-wifi"} and "network" in payload:
             raise RequestError(400, "Network settings require a dedicated network operation.")
-        if action == "clear-model-cache":
+        if action not in SOFTWARE_ACTIONS and {"softwareChannel", "softwarePreviewId"} & set(payload):
+            raise RequestError(400, "Software channels require a dedicated software operation.")
+        if action in SOFTWARE_ACTIONS:
+            from software_contract import validate_request as validate_software_request
+            if "gpuMemory" in payload:
+                raise RequestError(400, "Software operations cannot carry GPU memory settings.")
+            try:
+                software_settings = validate_software_request(action, payload, host.get("software"))
+            except ValueError as error:
+                raise RequestError(409, str(error)) from None
+        elif action == "clear-model-cache":
             from model_cache import validate_cleanup
             try:
                 validate_cleanup(payload, host.get("modelCache"))
@@ -8761,6 +8800,10 @@ data:
             spec["gpuMemory"] = memory_settings
         if update_policy is not None:
             spec["updatePolicy"] = update_policy
+        if software_settings is not None:
+            spec["softwareChannel"] = software_settings
+            if action == "apply-software-channel":
+                spec["softwarePreviewId"] = payload["softwarePreviewId"]
         if action == "install-updates":
             spec["updateScope"] = payload["updateScope"]
         name = "host-" + hashlib.sha256(json.dumps(host["nodeUid"], sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:24]

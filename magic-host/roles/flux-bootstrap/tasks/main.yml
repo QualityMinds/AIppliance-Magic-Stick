@@ -1,15 +1,27 @@
 ---
-- name: Download Flux install script to a temporary file
-  ansible.builtin.get_url:
-    url: https://fluxcd.io/install.sh
-    dest: /tmp/flux-install.sh
-    mode: "0700"
-  when: not ansible_check_mode
+- name: Check installed Flux CLI
+  ansible.builtin.stat:
+    path: /usr/local/bin/flux
+  register: flux_cli_installed
 
-- name: Install Flux CLI (skip if already installed)
-  ansible.builtin.command:
-    cmd: /tmp/flux-install.sh
-    creates: /usr/local/bin/flux
+- name: Install the reviewed checksum-verified Flux CLI on new hosts
+  when: not flux_cli_installed.stat.exists
+  block:
+    - name: Validate Flux architecture
+      ansible.builtin.assert:
+        that: ansible_facts['architecture'] in flux_cli_architectures
+    - name: Download versioned Flux archive
+      ansible.builtin.get_url:
+        url: "https://github.com/fluxcd/flux2/releases/download/v{{ flux_cli_version }}/flux_{{ flux_cli_version }}_linux_{{ flux_cli_architectures[ansible_facts['architecture']] }}.tar.gz"
+        dest: /var/tmp/magicstick-flux.tar.gz
+        mode: "0600"
+        checksum: "sha256:{{ flux_cli_checksums[flux_cli_architectures[ansible_facts['architecture']]] }}"
+    - name: Install verified Flux binary
+      ansible.builtin.unarchive:
+        src: /var/tmp/magicstick-flux.tar.gz
+        dest: /usr/local/bin
+        remote_src: true
+        include: [flux]
 
 - name: Wait until K3s API server is reachable
   ansible.builtin.wait_for:
@@ -209,7 +221,13 @@
           magicstick_public_ref, flux_public_sync_path and appliance-wide
           AI_APPLIANCE runtime settings.
 
-    - name: Install or upgrade Flux controllers
+    - name: Check existing Flux controllers
+      ansible.builtin.command:
+        argv: ["{{ flux_kubectl_binary }}", "{{ flux_kubectl_subcommand }}", "--kubeconfig", "{{ flux_kubeconfig_path }}", get, deployment, source-controller, -n, flux-system, --ignore-not-found, -o, name]
+      register: flux_existing_controller
+      changed_when: false
+
+    - name: Install Flux controllers or perform an explicitly requested upgrade
       ansible.builtin.command:
         argv:
           - flux
@@ -217,6 +235,7 @@
       environment:
         KUBECONFIG: "{{ flux_kubeconfig_path }}"
       changed_when: true
+      when: flux_existing_controller.stdout | trim == '' or flux_upgrade_controllers | bool
 
     - name: Seed AI Appliance settings ConfigMap
       ansible.builtin.include_tasks: settings-configmap.yml
@@ -237,7 +256,11 @@
           spec:
             interval: 1m0s
             ref:
+          {% if magicstick_public_resolved_commit | default('') | length > 0 %}
+              commit: {{ magicstick_public_resolved_commit | to_json }}
+          {% else %}
               {{ magicstick_public_ref_kind }}: {{ magicstick_public_ref | to_json }}
+          {% endif %}
             url: {{ magicstick_public_repo | to_json }}
           ---
           apiVersion: kustomize.toolkit.fluxcd.io/v1

@@ -38,7 +38,7 @@ spec:
                   message: GPU preparation and memory configuration require reviewed host evidence.
                 - rule: '!self.experimentMode || self.allowExperimental'
                   message: Experiment mode requires explicit experimental acknowledgement.
-                - rule: "self.action in ['prepare-gpu', 'configure-gpu-memory', 'configure-network', 'scan-wifi', 'configure-updates', 'check-updates', 'install-updates', 'clear-model-cache'] || ((!has(self.planId) || self.planId == '') && !self.allowExperimental && !self.experimentMode)"
+                - rule: "self.action in ['prepare-gpu', 'configure-gpu-memory', 'configure-network', 'scan-wifi', 'configure-updates', 'check-updates', 'install-updates', 'clear-model-cache', 'check-software-channel', 'apply-software-channel'] || ((!has(self.planId) || self.planId == '') && !self.allowExperimental && !self.experimentMode)"
                   message: Power operations cannot supply preparation settings.
                 - rule: "self.action == 'configure-gpu-memory' ? (has(self.gpuMemory) && self.allowExperimental && !self.experimentMode) : !has(self.gpuMemory)"
                   message: Only explicitly acknowledged GPU memory operations can carry memory settings.
@@ -52,9 +52,13 @@ spec:
                   message: Only update installation requests carry an update scope.
                 - rule: "self.action != 'clear-model-cache' || (has(self.planId) && size(self.planId) == 64 && !self.allowExperimental && !self.experimentMode)"
                   message: Cache cleanup requires current host evidence and no hardware overrides.
+                - rule: "self.action in ['check-software-channel', 'apply-software-channel'] ? (has(self.softwareChannel) && has(self.planId) && size(self.planId) == 64 && !self.allowExperimental && !self.experimentMode) : !has(self.softwareChannel)"
+                  message: Software operations require a bounded channel and current host evidence.
+                - rule: "self.action == 'apply-software-channel' ? has(self.softwarePreviewId) : !has(self.softwarePreviewId)"
+                  message: Applying a software channel requires its reviewed preview.
               required: [action, nodeName, nodeUid, bootId, requestId, acknowledgeDisruption, allowExperimental, experimentMode, actorHash]
               properties:
-                action: {type: string, enum: [prepare-gpu, configure-gpu-memory, configure-network, scan-wifi, configure-updates, check-updates, install-updates, clear-model-cache, reboot, poweroff]}
+                action: {type: string, enum: [prepare-gpu, configure-gpu-memory, configure-network, scan-wifi, configure-updates, check-updates, install-updates, clear-model-cache, check-software-channel, apply-software-channel, reboot, poweroff]}
                 nodeName: {type: string, minLength: 1, maxLength: 253, pattern: '^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$'}
                 nodeUid: {type: string, minLength: 1, maxLength: 64}
                 bootId: {type: string, minLength: 1, maxLength: 64}
@@ -65,6 +69,13 @@ spec:
                 acknowledgeDisruption: {type: boolean, enum: [true]}
                 actorHash: {type: string, pattern: '^[a-f0-9]{64}$', maxLength: 64}
                 updateScope: {type: string, enum: [security, all]}
+                softwarePreviewId: {type: string, pattern: '^[a-f0-9]{64}$', maxLength: 64}
+                softwareChannel:
+                  type: object
+                  required: [kind, value]
+                  properties:
+                    kind: {type: string, enum: [branch, tag, commit]}
+                    value: {type: string, minLength: 1, maxLength: 200}
                 updatePolicy:
                   type: object
                   required: [mode, windowStart, windowMinutes, automaticReboot]

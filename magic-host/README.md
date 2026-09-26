@@ -138,6 +138,14 @@ The `ansible-pull-timer` role installs `/usr/local/sbin/ai-appliance-converge`. 
 In `readonly-public` mode the runner skips the external deployment checkout and
 Flux reads only the public Magicstick repository.
 
+Administrators can change `main`, `develop`, a custom branch, tag or full commit
+under **System → Settings → Updates**. The existing host-operation worker handles
+check/apply, immutable-image preflight and recovery; it does not execute Git from
+the API process. The host's resolved commit is passed to Flux so the two cannot
+follow different branch tips within a convergence run. The same metadata file is
+retained. See [software channels](../docs/administration/updates-rollback.md) for
+the workflow, supported installations and local recovery.
+
 K3s configuration has one steady-state writer: the `k3s` role creates the
 initial file only when it is missing; after Flux and identity discovery,
 `kubernetes-oidc` renders the complete configuration with the effective domain,

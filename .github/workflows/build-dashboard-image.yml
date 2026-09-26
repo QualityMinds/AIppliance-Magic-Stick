@@ -13,6 +13,7 @@ on:
       - magic-host/roles/host-management/files/network_contract.py
       - magic-host/roles/host-management/files/updates_contract.py
       - magic-host/roles/host-management/files/model_cache.py
+      - magic-host/roles/host-management/files/software_contract.py
       - core/**
       - LICENSE
       - LICENSING.md
@@ -44,7 +45,7 @@ env:
 
 jobs:
   build:
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/'))
     runs-on: ubuntu-24.04
     steps:
       - name: Check out MagicStick

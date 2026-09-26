@@ -112,6 +112,10 @@ class GitHttpFallbackTests(unittest.TestCase):
                       exit 0
                     fi
 
+                    if [[ "$args" == *" rev-parse "* ]]; then
+                      printf '%040d\\n' 1
+                    fi
+
                     exit 0
                     """
                 ),

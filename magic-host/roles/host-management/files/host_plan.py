@@ -69,21 +69,22 @@ def build_plan(report, display_gpus, installed, catalog, architecture):
 
 
 TERMINAL = {"Succeeded", "PreparedUnverified", "Failed", "Rejected", "Interrupted", "RolledBack"}
-SPEC_FIELDS = {"action", "nodeName", "nodeUid", "bootId", "requestId", "planId", "allowExperimental", "experimentMode", "acknowledgeDisruption", "actorHash", "gpuMemory", "networkRef", "updatePolicy", "updateScope"}
+SPEC_FIELDS = {"action", "nodeName", "nodeUid", "bootId", "requestId", "planId", "allowExperimental", "experimentMode", "acknowledgeDisruption", "actorHash", "gpuMemory", "networkRef", "updatePolicy", "updateScope", "softwareChannel", "softwarePreviewId"}
 
 
 def requested_plan(plan, spec):
     return (plan.get("experiment") or {}) if spec.get("experimentMode") is True else plan
 
 
-def validate_request(operation, node, report, plan, now, gpu_memory=None, network=None, updates=None, model_cache=None):
+def validate_request(operation, node, report, plan, now, gpu_memory=None, network=None, updates=None, model_cache=None, software=None):
     """Recheck all API promises at the privilege boundary, including identity/time."""
     from datetime import datetime
     import re
     from updates_contract import UPDATE_ACTIONS, validate_update_request
+    from software_contract import SOFTWARE_ACTIONS, validate_request as validate_software_request
     spec = operation.get("spec") or {}
     meta = operation.get("metadata") or {}
-    if set(spec) - SPEC_FIELDS or spec.get("action") not in {"prepare-gpu", "reboot", "poweroff", "configure-gpu-memory", "configure-network", "scan-wifi", "clear-model-cache"} | UPDATE_ACTIONS:
+    if set(spec) - SPEC_FIELDS or spec.get("action") not in {"prepare-gpu", "reboot", "poweroff", "configure-gpu-memory", "configure-network", "scan-wifi", "clear-model-cache"} | UPDATE_ACTIONS | SOFTWARE_ACTIONS:
         raise ValueError("Unknown host operation or unsupported fields.")
     if meta.get("deletionTimestamp") or not meta.get("uid"):
         raise ValueError("Host operation is not a live Kubernetes request.")
@@ -109,7 +110,11 @@ def validate_request(operation, node, report, plan, now, gpu_memory=None, networ
         raise ValueError("Network settings require a dedicated network operation.")
     if spec["action"] not in UPDATE_ACTIONS and ({"updatePolicy", "updateScope"} & set(spec)):
         raise ValueError("Update settings require a dedicated update operation.")
-    if spec["action"] == "clear-model-cache":
+    if spec["action"] not in SOFTWARE_ACTIONS and ({"softwareChannel", "softwarePreviewId"} & set(spec)):
+        raise ValueError("Software channels require a dedicated software operation.")
+    if spec["action"] in SOFTWARE_ACTIONS:
+        validate_software_request(spec["action"], spec, software, now)
+    elif spec["action"] == "clear-model-cache":
         from model_cache import validate_cleanup
         validate_cleanup(spec, model_cache)
     elif spec["action"] in UPDATE_ACTIONS:

@@ -1,4 +1,11 @@
 ---
+flux_cli_version: "2.9.5"
+flux_cli_architectures: {x86_64: amd64, aarch64: arm64}
+flux_cli_checksums:
+  amd64: b853df82adfd7736f580692f9f734473d571606307139f8fd20c2a80dd1ff473
+  arm64: f3e159af616ec0b9bd0a405c2185cf09d06b74652c1de3c7f377e8166826651a
+# Existing controller upgrades remain an explicit maintenance action.
+flux_upgrade_controllers: false
 flux_kubectl_binary: /usr/local/bin/k3s
 flux_kubectl_subcommand: kubectl
 flux_kubeconfig_path: /etc/rancher/k3s/k3s.yaml

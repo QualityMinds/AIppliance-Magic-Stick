@@ -4,11 +4,11 @@ This Ansible role installs the Flux CLI and performs the cluster bootstrap.
 
 ## What the role does
 
-1. **Install Flux CLI** — runs the official install script if `/usr/local/bin/flux` is not already present.
+1. **Install Flux CLI** — installs the versioned, SHA-256-verified Linux binary when `/usr/local/bin/flux` is absent. The reviewed default is `2.9.5`; existing binaries are retained.
 2. **Wait for K3s API** — first waits for port `6443` on `127.0.0.1` (max `120s`), then waits for both the API readiness endpoint (`/readyz`) and API discovery (`/apis`) with retry logic (default: `24` retries with `5s` delay each, so up to ~2 minutes per check). Together the two API checks can take up to ~4 minutes; including the port wait the maximum combined wait time is ~6 minutes.
 3. **Bootstrap Flux** — supports two modes:
    - `github`: runs `flux bootstrap github` against a CLI-owned seed path, then applies the deployment-owned `magicstick-sync.yaml`.
-   - `readonly-public`: runs `flux install`, creates a public Git source for this repository, applies cluster-local settings, and reconciles the public profile without writing to Git.
+   - `readonly-public`: installs controllers when absent, creates a public Git source for this repository, applies cluster-local settings, and reconciles the public profile without writing to Git. Existing controllers are not reinstalled on every convergence run.
 
 ## Variables
 
@@ -18,6 +18,9 @@ This Ansible role installs the Flux CLI and performs the cluster bootstrap.
 | `magicstick_public_repo` | Yes | Public template Git URL, loaded from `MAGICSTICK_PUBLIC_REPO` |
 | `magicstick_public_ref` | Yes | Public template ref, loaded from `MAGICSTICK_PUBLIC_REF` |
 | `magicstick_public_ref_kind` | No | `branch`, `tag`, `semver`, or `commit`; default: `branch` |
+| `magicstick_public_resolved_commit` | Host runner | Exact commit resolved by the host; takes precedence over ref/kind in public mode. The managed host runner accepts branch/tag/commit, not semver. |
+| `flux_cli_version`, `flux_cli_checksums` | No | Reviewed initial CLI version and per-architecture SHA-256 checksums. Change together. |
+| `flux_upgrade_controllers` | No | Explicit controller install/upgrade using the installed CLI; default `false`. Not an implicit channel-switch upgrade. |
 | `flux_public_sync_path` | `readonly-public` | Public profile path, default: `magic-cluster/flux/entrypoints/single-node` |
 | `flux_cluster_path` | `github` | Path in the external deployment repository, e.g. `deployments/<deployment>/infra-cluster/flux-bootstrap` |
 | `flux_github_owner` | `github` | GitHub owner (organization or user) |
@@ -41,17 +44,11 @@ repository and does not require a GitHub token or external deployment source.
 
 ## Installation security note
 
-The install script is downloaded via HTTPS from `fluxcd.io`. For production environments with stricter security requirements, it is recommended to download a versioned binary directly from the FluxCD GitHub Releases and verify the sha256 checksum:
-
-```bash
-# Example (adjust version):
-FLUX_VERSION=2.5.1
-ARCH=linux_amd64
-curl -sL \
-  "https://github.com/fluxcd/flux2/releases/download/v${FLUX_VERSION}/flux_${FLUX_VERSION}_${ARCH}.tar.gz" \
-  | tar xz -C /tmp flux
-mv /tmp/flux /usr/local/bin/flux
-```
+New installations download the fixed archive from official Flux GitHub Releases
+and verify the checksum before extraction. No moving remote install script is
+executed. Existing CLI/controller versions remain unchanged during ordinary
+convergence. Upgrade them deliberately after checking compatibility; selecting a
+software branch is not authorization for an implicit Flux/K3s version upgrade.
 
 ## Manual GitHub bootstrap
 

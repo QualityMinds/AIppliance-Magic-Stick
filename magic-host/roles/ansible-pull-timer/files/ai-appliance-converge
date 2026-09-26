@@ -4,10 +4,21 @@ set -euo pipefail
 # Do not overlap package/profile preparation, first-run convergence or a pending
 # administrator-approved restart. The lock is shared with the node-local worker.
 install -d -m 0700 /var/lib/magicstick/host-management
-exec 9>/var/lib/magicstick/host-management/maintenance.lock
-if ! flock -n 9; then
+if [[ -n "${MAGICSTICK_CONVERGE_LOCK_FD:-}" ]]; then
+  [[ "$MAGICSTICK_CONVERGE_LOCK_FD" =~ ^[0-9]+$ ]] &&
+    [[ "/proc/self/fd/$MAGICSTICK_CONVERGE_LOCK_FD" -ef /var/lib/magicstick/host-management/maintenance.lock ]] || exit 1
+  lock_fd="$MAGICSTICK_CONVERGE_LOCK_FD"
+else
+  exec 9>/var/lib/magicstick/host-management/maintenance.lock
+  lock_fd=9
+fi
+if ! flock -n "$lock_fd"; then
   echo "Host maintenance is active; convergence will retry on the next timer run."
   exit 0
+fi
+if [[ -f /var/lib/magicstick/host-management/software-blocked.json && "${MAGICSTICK_SOFTWARE_OPERATION:-}" != 1 ]]; then
+  echo "Software update needs review; automatic convergence is paused. Use System / Updates or magicstick-software-recover."
+  exit 1
 fi
 if [[ -f /run/systemd/shutdown/scheduled ]]; then
   echo "Host shutdown is scheduled; skipping convergence."
@@ -21,10 +32,20 @@ if [[ ! -f "$REPO_METADATA_ENV_FILE" ]]; then
   exit 1
 fi
 
-# shellcheck disable=SC1090
-set -a
-source "$REPO_METADATA_ENV_FILE"
-set +a
+metadata_reader=/usr/local/lib/magicstick/host-management/software_channel.py
+if [[ ! -f "$metadata_reader" ]]; then
+  metadata_reader="$(dirname "${BASH_SOURCE[0]}")/../../host-management/files/software_channel.py"
+fi
+if [[ -f "$metadata_reader" ]]; then
+  metadata_exports="$(python3 "$metadata_reader" environment "$REPO_METADATA_ENV_FILE")"
+  eval "$metadata_exports" # The strict parser emits quoted literal assignments only.
+else
+  # Upgrade compatibility for an older bootstrap runner without the parser.
+  # shellcheck disable=SC1090
+  set -a
+  source "$REPO_METADATA_ENV_FILE"
+  set +a
+fi
 
 GIT_HOST="${GIT_HOST:-github.com}"
 GIT_BRANCH="${GIT_BRANCH:-main}"
@@ -63,7 +84,7 @@ case "$FLUX_BOOTSTRAP_MODE" in
 esac
 
 case "$MAGICSTICK_PUBLIC_REF_KIND" in
-  branch | tag | semver | commit) ;;
+  branch | tag | commit) ;;
   *)
     echo "Unsupported MAGICSTICK_PUBLIC_REF_KIND: $MAGICSTICK_PUBLIC_REF_KIND" >&2
     exit 1
@@ -145,6 +166,7 @@ sync_repo() {
   local repo_url="$1"
   local ref="$2"
   local checkout_dir="$3"
+  local kind="${4:-branch}" target commit
 
   mkdir -p "$(dirname "$checkout_dir")"
 
@@ -156,12 +178,25 @@ sync_repo() {
   fi
 
   git_with_http11_fallback -C "$checkout_dir" fetch --tags --prune origin
-
-  if git -C "$checkout_dir" show-ref --verify --quiet "refs/remotes/origin/${ref}"; then
-    git -C "$checkout_dir" checkout --force -B "$ref" "origin/${ref}"
-  else
-    git -C "$checkout_dir" checkout --force --detach "$ref"
+  case "$kind" in
+    branch) git check-ref-format "refs/heads/$ref"; target="refs/remotes/origin/$ref" ;;
+    tag) git check-ref-format "refs/tags/$ref"; target="refs/tags/$ref" ;;
+    commit) [[ "$ref" =~ ^[0-9a-fA-F]{40}$ ]] || return 1; target="$ref"
+      git_with_http11_fallback -C "$checkout_dir" fetch origin "$ref" ;;
+    *) return 1 ;;
+  esac
+  commit="$(git -C "$checkout_dir" rev-parse --verify "$target^{commit}")"
+  [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || return 1
+  if [[ "$checkout_dir" == "$MAGICSTICK_PUBLIC_CHECKOUT" ]]; then
+    if [[ -n "${MAGICSTICK_EXPECTED_COMMIT:-}" && "$commit" != "$MAGICSTICK_EXPECTED_COMMIT" ]]; then
+      echo "The selected source moved after review; check the channel again." >&2
+      return 1
+    fi
+    if [[ -f /usr/local/lib/magicstick/host-management/software_channel.py && "${MAGICSTICK_SOFTWARE_RECOVERY:-}" != 1 ]]; then
+      python3 /usr/local/lib/magicstick/host-management/software_channel.py verify-commit "$checkout_dir" "$commit"
+    fi
   fi
+  git -C "$checkout_dir" checkout --force --detach "$commit"
 }
 
 resolve_checkout_path() {
@@ -215,7 +250,8 @@ resolve_inventory_path() {
   exit 1
 }
 
-sync_repo "$MAGICSTICK_PUBLIC_REPO" "$MAGICSTICK_PUBLIC_REF" "$MAGICSTICK_PUBLIC_CHECKOUT"
+sync_repo "$MAGICSTICK_PUBLIC_REPO" "$MAGICSTICK_PUBLIC_REF" "$MAGICSTICK_PUBLIC_CHECKOUT" "$MAGICSTICK_PUBLIC_REF_KIND"
+MAGICSTICK_RESOLVED_COMMIT="$(git -C "$MAGICSTICK_PUBLIC_CHECKOUT" rev-parse HEAD)"
 
 if [[ "$FLUX_BOOTSTRAP_MODE" == "github" ]]; then
   sync_repo "$PRIVATE_REPO_URL" "$GIT_BRANCH" "$AI_APPLIANCE_PRIVATE_CHECKOUT"
@@ -233,6 +269,7 @@ ansible_args=(
   -e "magicstick_public_repo=$MAGICSTICK_PUBLIC_REPO"
   -e "magicstick_public_ref=$MAGICSTICK_PUBLIC_REF"
   -e "magicstick_public_ref_kind=$MAGICSTICK_PUBLIC_REF_KIND"
+  -e "magicstick_public_resolved_commit=$MAGICSTICK_RESOLVED_COMMIT"
   -e "flux_public_sync_path=$FLUX_PUBLIC_SYNC_PATH"
   -e "ai_appliance_domain=$AI_APPLIANCE_DOMAIN"
   -e "ai_appliance_dashboard_host=$AI_APPLIANCE_DASHBOARD_HOST"
@@ -256,6 +293,7 @@ if [[ "$FLUX_BOOTSTRAP_MODE" == "github" ]]; then
     -e "magicstick_public_repo=$MAGICSTICK_PUBLIC_REPO"
     -e "magicstick_public_ref=$MAGICSTICK_PUBLIC_REF"
     -e "magicstick_public_ref_kind=$MAGICSTICK_PUBLIC_REF_KIND"
+    -e "magicstick_public_resolved_commit=$MAGICSTICK_RESOLVED_COMMIT"
     -e "flux_public_sync_path=$FLUX_PUBLIC_SYNC_PATH"
     -e "ai_appliance_domain=$AI_APPLIANCE_DOMAIN"
     -e "ai_appliance_dashboard_host=$AI_APPLIANCE_DASHBOARD_HOST"

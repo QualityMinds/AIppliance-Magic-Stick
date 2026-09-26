@@ -23,6 +23,8 @@ import gpu_memory
 import network_config
 import host_updates
 import model_cache
+import software_channel
+from software_contract import SOFTWARE_ACTIONS
 from updates_contract import UPDATE_ACTIONS, validate_update_request
 
 BASE = Path("/usr/local/lib/magicstick/host-management")
@@ -123,12 +125,13 @@ def expire_network_credentials(node_uid):
 
 
 class Worker:
-    def __init__(self, node, report, plan, state_dir=STATE, memory=None, network=None, updates=None, cache=None):
+    def __init__(self, node, report, plan, state_dir=STATE, memory=None, network=None, updates=None, cache=None, software=None):
         self.node, self.report, self.plan, self.root = node, report, plan, state_dir
         self.memory = memory or {"supported": False, "message": "GPU memory evidence is unavailable."}
         self.network = network or {"supported": False, "message": "Network inventory is unavailable.", "interfaces": []}
         self.updates = updates or {"supported": False}
         self.cache = cache or {"supported": False}
+        self.software = software or {"supported": False}
         self.path = state_dir / "state.json"
         self.state = json.loads(self.path.read_text()) if self.path.exists() else {"completed": [], "current": None}
 
@@ -174,6 +177,22 @@ class Worker:
         self.state["current"]["updatesStartedAt"] = time.time()
         self.update(operation, "Applying", "Ubuntu package maintenance queued.")
         run(["/usr/bin/systemctl", "start", "--no-block", "magicstick-host-updates.service"])
+
+    def begin_software(self, operation):
+        spec = operation["spec"]
+        software_channel.validate_request(spec["action"], spec, software_channel.status())
+        atomic_json(self.root / "approved-software.json", {**spec, "approvedAt": time.time(), "operationUid": operation["metadata"]["uid"]})
+        self.state["current"]["softwareStartedAt"] = time.time()
+        self.update(operation, "Applying", "Software channel check queued." if spec["action"] == "check-software-channel" else "Applying the reviewed software channel. The dashboard may reconnect during the update.")
+        run(["/usr/bin/systemctl", "start", "--no-block", "magicstick-software-channel.service"])
+
+    def reconcile_software(self, operation):
+        self.software = software_channel.status()
+        result = self.software.get("operation") or {}
+        if result.get("requestId") == operation["spec"]["requestId"] and result.get("phase") in {"Succeeded", "Failed", "Interrupted"}:
+            self.update(operation, result["phase"], result["message"])
+        elif result.get("requestId") != operation["spec"]["requestId"] and time.time() - self.state["current"].get("softwareStartedAt", 0) > 300:
+            self.update(operation, "Interrupted", "The software service did not acknowledge this request. Inspect its journal before retrying.")
 
     def reconcile_updates(self, operation):
         result = host_updates.status()
@@ -395,7 +414,7 @@ class Worker:
                 error = "Execution state was lost or replaced. Confirm a new operation after reviewing the host."
             else:
                 try:
-                    validate_request(operation, self.node, self.report, self.plan, time.time(), self.memory, self.network, self.updates, self.cache)
+                    validate_request(operation, self.node, self.report, self.plan, time.time(), self.memory, self.network, self.updates, self.cache, self.software)
                     error = ""
                 except ValueError as invalid:
                     error = str(invalid)
@@ -422,6 +441,9 @@ class Worker:
                     return
                 if spec["action"] in UPDATE_ACTIONS:
                     self.begin_updates(operation)
+                    return
+                if spec["action"] in SOFTWARE_ACTIONS:
+                    self.begin_software(operation)
                     return
                 if spec["action"] == "clear-model-cache":
                     self.update(operation, "Preparing", "Clearing unused model files. Model configuration and container images are kept.")
@@ -469,6 +491,9 @@ class Worker:
                 self.update(operation, "Interrupted", "Update policy execution was interrupted. Refresh and submit a new request.")
             else:
                 self.reconcile_updates(operation)
+            return
+        if current["action"] in SOFTWARE_ACTIONS:
+            self.reconcile_software(operation)
             return
         if current["action"] == "configure-gpu-memory":
             self.reconcile_memory(operation)
@@ -529,6 +554,7 @@ class Worker:
                   "network": self.network,
                   "updates": self.updates,
                   "modelCache": self.cache,
+                  "software": self.software,
                   "operation": {key: current[key] for key in ("requestId", "action", "phase", "message", "updatedAt") if key in current}}
         if self.memory.get("supported"):
             report["actions"].append("configure-gpu-memory")
@@ -538,6 +564,8 @@ class Worker:
             report["actions"].extend(sorted(UPDATE_ACTIONS))
         if self.cache.get("supported"):
             report["actions"].append("clear-model-cache")
+        if self.software.get("supported"):
+            report["actions"].extend(sorted(SOFTWARE_ACTIONS))
         scan = self.root / "wifi-scan.json"
         if scan.exists():
             report["network"]["scan"] = json.loads(scan.read_text())
@@ -559,7 +587,7 @@ def main():
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             locked = False
-            if not host_updates.status().get("busy"):
+            if not host_updates.status().get("busy") and not software_channel.status().get("busy"):
                 return 0
         node = kube(["get", "node", local_node_name(), "-o", "json"])
         report = json.loads(run(["/usr/local/sbin/magicstick-gpu-preflight", "--json"], timeout=90))
@@ -569,7 +597,13 @@ def main():
         catalog = json.loads((BASE / "profiles.json").read_text())
         inventory = display_gpus()
         plan = build_plan(report, inventory, installed_packages(catalog), catalog, platform.machine())
-        worker = Worker(node, report, plan, memory=gpu_memory.collect(report, inventory), network=network_config.collect(node), updates=host_updates.status(), cache=model_cache.collect(node, kube))
+        software = software_channel.status()
+        if software.get("supported") and not software.get("busy") and time.time() - software.get("observed", {}).get("checkedAtEpoch", 0) > 60:
+            try:
+                software["observed"] = software_channel.observe(kube)
+            except (RuntimeError, OSError, ValueError):
+                pass  # The last observation retains its timestamp; no false readiness.
+        worker = Worker(node, report, plan, memory=gpu_memory.collect(report, inventory), network=network_config.collect(node), updates=host_updates.status(), cache=model_cache.collect(node, kube), software=software)
         # Publishing a plan must not depend on the CRD already having reconciled.
         worker.publish()
         if not locked:

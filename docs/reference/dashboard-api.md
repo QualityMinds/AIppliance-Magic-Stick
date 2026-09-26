@@ -62,6 +62,31 @@ Paperclip, KubeOpenCode, KubeAI, LiteLLM, or direct app instance reconcilers.
 
 ## Backend API
 
+### Software channel operations
+
+`GET /api/host-management` includes each managed host's sanitized `software`
+status: desired branch/tag/commit, host revision, source/applied Flux revision,
+critical running image IDs, last operation, preview and previous revision.
+Local repository paths, metadata, process IDs and credentials are not exposed.
+
+Administrators use the existing host-operation endpoint with
+`action: check-software-channel` or `apply-software-channel`. Requests carry the
+normal node UID, boot ID, unique request ID, node-name confirmation and current
+software `planId`, plus `softwareChannel: {kind, value}`. Apply additionally
+requires `softwarePreviewId` from an unexpired check of that exact selection.
+Other roles, arbitrary repository URLs, shell expressions, shortened commits,
+extra fields and stale plans/previews are rejected before any write. A moved
+branch is rechecked on the host and cannot silently replace the approved commit.
+
+The API writes a bounded `HostOperation`; the root-owned worker serializes it with
+other maintenance and starts `magicstick-software-channel.service`. The browser
+does not patch Flux or execute Ansible. The operation remains observable across
+dashboard restarts; completed request IDs are not replayed. External-GitOps
+installations report the feature unavailable. See
+[software channels](../administration/updates-rollback.md) for recovery and limits.
+
+### Other control-plane operations
+
 Administrators configure **System → Settings → Mesh** through the opt-in
 core `private-mesh` module. No license file is required.
 The typed `/api/mesh` status reports runtime availability, and `/api/mesh/<action>`

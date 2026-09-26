@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "158045c9aae06e3e460799689cfa2e29c2c0a29eebf5aee1ef50927428ddc419",
-  "deploymentReferencesSha256": "5c556482654d82cf20ce1b2e5ac5cbc97b94fbbd5ec4c88e4fd41bb2663674e9",
+  "deploymentReferencesSha256": "9a6cddd88fd7dd337b4fb4eaeb706b4819f0f93aba45f3b3add97d5ea48f2b68",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -1995,27 +1995,27 @@
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 56,
+      "line": 57,
       "reference": "node-version: \"24\""
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 102,
+      "line": 103,
       "reference": "python3 -m pip install -r dashboard/apps/api/requirements.txt pyyaml"
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 134,
+      "line": 135,
       "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 150,
+      "line": 151,
       "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 166,
+      "line": 167,
       "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
     },
     {
@@ -2120,27 +2120,27 @@
     },
     {
       "file": ".github/workflows/build-omni-rocm-image.yml",
-      "line": 59,
-      "reference": "with: {python-version: '3.13'}"
-    },
-    {
-      "file": ".github/workflows/build-omni-rocm-image.yml",
       "line": 61,
-      "reference": "run: python -m pip install 'PyYAML==6.0.2'"
-    },
-    {
-      "file": ".github/workflows/build-omni-rocm-image.yml",
-      "line": 84,
       "reference": "with: {python-version: '3.13'}"
     },
     {
       "file": ".github/workflows/build-omni-rocm-image.yml",
-      "line": 86,
+      "line": 63,
       "reference": "run: python -m pip install 'PyYAML==6.0.2'"
     },
     {
       "file": ".github/workflows/build-omni-rocm-image.yml",
-      "line": 112,
+      "line": 91,
+      "reference": "with: {python-version: '3.13'}"
+    },
+    {
+      "file": ".github/workflows/build-omni-rocm-image.yml",
+      "line": 93,
+      "reference": "run: python -m pip install 'PyYAML==6.0.2'"
+    },
+    {
+      "file": ".github/workflows/build-omni-rocm-image.yml",
+      "line": 119,
       "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
     },
     {
@@ -3021,7 +3021,7 @@
     {
       "file": "magic-cluster/platform/magicstick-operator/deployment.yaml",
       "line": 37,
-      "reference": "image: python:3.13-alpine"
+      "reference": "image: python:3.13-alpine@sha256:79e7a9b9ff1cbceff819f856fb374477792a5967759d94df266de7b7b4120e6f"
     },
     {
       "file": "magic-host/playbooks/local.yml",
@@ -3032,6 +3032,21 @@
       "file": "magic-host/requirements.yml",
       "line": 4,
       "reference": "version: \"13.2.0\""
+    },
+    {
+      "file": "magic-host/roles/flux-bootstrap/tasks/main.yml",
+      "line": 15,
+      "reference": "url: \"https://github.com/fluxcd/flux2/releases/download/v{{ flux_cli_version }}/flux_{{ flux_cli_version }}_linux_{{ flux_cli_architectures[ansible_facts['architecture']] }}.tar.gz\""
+    },
+    {
+      "file": "magic-host/roles/host-management/files/software_channel.py",
+      "line": 101,
+      "reference": "repo = values.get(\"MAGICSTICK_PUBLIC_REPO\", \"https://github.com/QualityMinds/AIppliance-Magic-Stick.git\")"
+    },
+    {
+      "file": "magic-host/roles/host-management/files/software_channel.py",
+      "line": 232,
+      "reference": "fields[\"scope\"] = \"repository:\" + repository + \":pull\""
     },
     {
       "file": "magic-host/roles/host-management/tests/test_network.py",

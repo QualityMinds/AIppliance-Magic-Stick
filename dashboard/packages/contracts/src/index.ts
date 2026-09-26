@@ -866,7 +866,7 @@ export interface KubernetesObjectSummary {
   conditions?: Array<{type?: string; status?: string; reason?: string; message?: string}>;
 }
 
-export type HostAction = 'prepare-gpu' | 'configure-gpu-memory' | 'configure-network' | 'scan-wifi' | 'configure-updates' | 'check-updates' | 'install-updates' | 'clear-model-cache' | 'reboot' | 'poweroff';
+export type HostAction = 'prepare-gpu' | 'configure-gpu-memory' | 'configure-network' | 'scan-wifi' | 'configure-updates' | 'check-updates' | 'install-updates' | 'clear-model-cache' | 'check-software-channel' | 'apply-software-channel' | 'reboot' | 'poweroff';
 export interface NetworkSettings {
   interface: string;
   mode?: 'dhcp' | 'static';
@@ -995,6 +995,7 @@ export interface ManagedHost {
   network?: HostNetwork | null;
   updates?: HostUpdates | null;
   modelCache?: HostModelCache | null;
+  software?: HostSoftware | null;
   operation?: HostOperationStatus | null;
 }
 export interface HostOperationRequest {
@@ -1012,6 +1013,33 @@ export interface HostOperationRequest {
   network?: NetworkSettings;
   updatePolicy?: HostUpdatePolicy;
   updateScope?: 'security' | 'all';
+  softwareChannel?: SoftwareChannel;
+  softwarePreviewId?: string;
+}
+
+export interface SoftwareChannel {kind: 'branch' | 'tag' | 'commit'; value: string}
+export interface SoftwarePreview {
+  id: string;
+  configurationId: string;
+  channel: SoftwareChannel;
+  commit: string;
+  checkedAtEpoch: number;
+  ready: boolean;
+  images: Array<{name: string; image: string; available: boolean}>;
+}
+export interface HostSoftware {
+  supported: boolean;
+  id?: string;
+  channel?: SoftwareChannel;
+  hostCommit?: string;
+  previousCommit?: string;
+  busy?: boolean;
+  blocked?: boolean;
+  message?: string;
+  preview?: SoftwarePreview;
+  operation?: {requestId: string; phase: string; message?: string};
+  observed?: {sourceRevision?: string; appliedRevision?: string; ready?: boolean; checkedAtEpoch?: number;
+    images?: Array<{name: string; image: string; imageId: string; ready: boolean}>};
 }
 
 export interface SystemStatusPayload {

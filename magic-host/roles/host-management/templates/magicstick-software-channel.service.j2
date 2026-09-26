@@ -1,0 +1,13 @@
+[Unit]
+Description=Apply an administrator-reviewed Magic Stick software channel
+After=network-online.target k3s.service
+Wants=network-online.target
+ConditionPathExists=/var/lib/magicstick/host-management/approved-software.json
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+ExecStart=/usr/bin/python3 /usr/local/lib/magicstick/host-management/software_channel.py run
+TimeoutStartSec=65min
+Restart=no

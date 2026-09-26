@@ -328,3 +328,4 @@ td select { min-width: 130px; }
 :root .license-details { display: grid; grid-template-columns: minmax(90px, 1fr) 3fr; gap: .45rem 1rem; }
 :root .license-details dt { color: var(--muted, #a7b9d0); }
 :root .license-details dd { margin: 0; overflow-wrap: anywhere; }
+.software-image-reference {overflow-wrap: anywhere; font-size: .85rem; margin-block: .5rem;}

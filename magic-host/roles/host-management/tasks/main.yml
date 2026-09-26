@@ -32,6 +32,8 @@
     - updates_contract.py
     - host_updates.py
     - model_cache.py
+    - software_contract.py
+    - software_channel.py
     - gpu_memory.py
     - profiles.json
     - ansible.cfg
@@ -61,6 +63,17 @@
     - magicstick-host-management.timer
     - magicstick-network-apply.service
     - magicstick-network-recovery.service
+    - magicstick-software-channel.service
+
+- name: Install local software recovery entrypoint
+  ansible.builtin.copy:
+    dest: /usr/local/sbin/magicstick-software-recover
+    owner: root
+    group: root
+    mode: "0755"
+    content: |
+      #!/bin/sh
+      exec /usr/bin/python3 /var/lib/magicstick/host-management/software-recovery/software_channel.py rollback
 
 - name: Enable local recovery of unconfirmed network changes before networking starts
   ansible.builtin.systemd_service:

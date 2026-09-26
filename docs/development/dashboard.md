@@ -112,6 +112,14 @@ an integration branch via `workflow_dispatch`; only a `main` build updates the
 mutable `web`, `react-preview`, `console` and `api-licensing-v1` channel tags.
 Branch builds publish SHA tags without moving those installation channels.
 
+Software channel selection extends the existing host-operation contract rather
+than creating another update controller. `software_contract.py` is shared by the
+API image and host worker. `SoftwareChannelEditor` uses typed host status and
+check/apply requests; the host performs Git/registry inspection, Ansible execution,
+Flux verification and durable recovery. Tests cover role enforcement, ref syntax,
+stale previews, moved branches, failure pause and matching image verification.
+Keep Ubuntu package policy separate. See [API contract](../reference/dashboard-api.md#software-channel-operations).
+
 The browser and terminal apps may import only `packages/api-client`,
 `packages/contracts`, and `packages/core` for control-plane behavior. Keep DOM,
 React, ANSI, filesystem, and process dependencies out of those packages. New

@@ -26,6 +26,27 @@ downloads. Promote tested digests into the descriptor on the intended
 branch; do not insert mutable aliases into runtime manifests. Other image-specific
 promotion workflows retain their explicit approval/provenance requirements.
 
+## Feature-branch appliance testing
+
+Administrators can explicitly follow an existing feature branch in **System →
+Settings → Updates**, or pin a compatible tag/commit. A branch is executable host
+automation, not just a different dashboard build; only select trusted branches
+in the configured public repository.
+
+For dashboard changes, dispatch **Build MagicStick dashboard clients** on the
+feature branch. It publishes commit-addressed web/API/console images without
+moving either main or develop aliases. Promote all three matching digests into
+that branch's descriptors using the existing [image promotion](image-promotion.md)
+workflow. Unchanged components may retain existing reviewed image pins. Do not
+substitute branch-name image aliases for immutable runtime references.
+
+The host preflight checks `magic-host/software-channel.json` and the four critical
+image references before allowing a switch. Keep its management contract compatible
+or introduce a deliberate migration; do not add the marker to historical code just
+to bypass the check. Registry availability does not prove runtime compatibility.
+An actual change still requires host/Flux convergence and ready, matching images.
+See [channel operation and recovery](../administration/updates-rollback.md).
+
 ## Reusable online installer images
 
 The [online installer pipeline](installer-images.md) builds only when installer
