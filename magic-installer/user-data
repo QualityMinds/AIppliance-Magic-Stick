@@ -98,8 +98,4 @@ autoinstall:
         else
           git -C "$MAGICSTICK_PUBLIC_CHECKOUT" checkout --force --detach "$MAGICSTICK_PUBLIC_REF";
         fi &&
-        bash "$MAGICSTICK_PUBLIC_CHECKOUT/magic-host/roles/ansible-pull-timer/files/ai-appliance-converge" &&
-        if [ -f /run/magicstick-nvidia-display-reboot-required ]; then
-          echo "[magicstick] NVIDIA display driver installed; scheduling one clean reboot." >&2;
-          shutdown -r +1 "Finish Magic Stick NVIDIA console installation";
-        fi'
+        bash "$MAGICSTICK_PUBLIC_CHECKOUT/magic-host/roles/ansible-pull-timer/files/ai-appliance-converge"'

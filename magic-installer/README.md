@@ -23,9 +23,12 @@ or host services.
 
 ## Files
 
-GPU-specific host preparation runs **after** base installation, using the same
-administrator-confirmed workflow as existing appliances. The installer provides
-the local worker, not a second kernel-upgrade path. See
+The installer contains no GPU-driver package selection or reboot code. On a new
+NVIDIA-display host, the fetched Ansible playbook installs its console-owning
+host driver and schedules one clean reboot after successful convergence. AMD
+uses the Ubuntu inbox driver; optional AMD kernel/profile preparation remains
+in the administrator-confirmed host workflow. The installer provides the local
+worker, not a second kernel-upgrade path. See
 [host management](../docs/host-management.md). The installation kernel must still
 boot the machine and reach its network/storage. Kubernetes-only deployments do
 not install the root worker and therefore do not expose working host power controls.
@@ -273,8 +276,11 @@ The builder container remains Debian-based: it only runs ISO tools and
 does not determine the installed OS.
 
 The media contains installer configuration, not a snapshot of every local
-Ansible/Flux change. First boot fetches `MAGICSTICK_PUBLIC_REPO` at
-`MAGICSTICK_PUBLIC_REF`; publish the matching host/operator changes to that ref
+Ansible/Flux change. An existing stick with the public `main` bootstrap does
+not need rebuilding for the NVIDIA console fix: first boot fetches the updated
+host playbook, including its one-time reboot finalizer, from
+`MAGICSTICK_PUBLIC_REPO` at `MAGICSTICK_PUBLIC_REF`. Publish the matching
+host/operator changes to that ref
 before installing. New host installs pin K3s to `v1.36.4+k3s1`; existing clusters
 are not automatically upgraded. NVIDIA 26.7 needs the compatible containerd 2.x
 runtime/drop-in setup, and its R595 driver does not support pre-Turing GPUs.

@@ -14,6 +14,11 @@
 - name: Prepare a host-owned NVIDIA console only on matching hardware
   when: nvidia_display_detected | bool
   block:
+    - name: Check whether this is an installer-created first boot
+      ansible.builtin.stat:
+        path: "{{ nvidia_display_new_install_marker }}"
+      register: nvidia_display_new_install
+
     - name: Require the reviewed Ubuntu NVIDIA host-driver combination
       ansible.builtin.assert:
         that:
@@ -83,13 +88,15 @@
         mode: "0644"
       register: nvidia_display_k3s_policy
 
-    - name: Mark a changed NVIDIA display installation for the first-boot restart
+    - name: Mark a changed first installation for the host-managed reboot
       ansible.builtin.file:
         path: "{{ nvidia_display_reboot_marker }}"
         state: touch
         owner: root
         group: root
         mode: "0600"
-      when: >-
-        nvidia_display_packages.changed or nvidia_display_modprobe.changed
-        or nvidia_display_modules_load.changed or nvidia_display_k3s_policy.changed
+      when:
+        - nvidia_display_new_install.stat.exists
+        - >-
+          nvidia_display_packages.changed or nvidia_display_modprobe.changed
+          or nvidia_display_modules_load.changed or nvidia_display_k3s_policy.changed

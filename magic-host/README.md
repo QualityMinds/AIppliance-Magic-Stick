@@ -33,13 +33,17 @@ On Ubuntu 24.04/26.04 x86_64 appliances with an NVIDIA PCI display controller, t
 framebuffer. This keeps the local first-run and dashboard text consoles visible
 when the monitor is attached to NVIDIA HDMI/DisplayPort. K3s labels that node
 `nvidia.com/gpu.deploy.driver=false`, so the GPU Operator can still provide its
-toolkit and device plugin without replacing the display-owning driver. The
-installer schedules one clean reboot after its first successful convergence to
-activate the host module. On CPU-only and AMD-only systems, this role installs
-no NVIDIA packages, writes no NVIDIA boot configuration, and schedules no
-NVIDIA reboot. Existing NVIDIA hosts need a separately approved restart after
-convergence. Keep the pinned host package and GPU Operator driver versions in
-sync when upgrading either one.
+toolkit and device plugin without replacing the display-owning driver. After a
+successful first host convergence, Ansible schedules one clean reboot only if
+it changed the NVIDIA display setup on an installer-created host. The installer
+media contains no NVIDIA reboot logic: an existing stick following `main` gets
+this behavior from the fetched playbook. A same-boot marker prevents repeated
+scheduling; an interrupted playbook can finish on a later convergence in that
+boot. On CPU-only and AMD-only systems, the role installs no NVIDIA packages,
+writes no NVIDIA boot configuration, and schedules no NVIDIA reboot. Existing
+NVIDIA hosts need a separately approved restart after convergence. Keep the
+pinned host package and GPU Operator driver versions in sync when upgrading
+either one.
 
 Live memory counters use a separate `magicstick-memory-sample.timer` (30 seconds).
 It publishes Linux `MemAvailable` and per-PCI AMD VRAM/GTT usage, without engine

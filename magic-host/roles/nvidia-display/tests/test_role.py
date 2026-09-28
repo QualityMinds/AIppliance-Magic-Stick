@@ -92,14 +92,46 @@ class NvidiaDisplayRoleContractTests(unittest.TestCase):
         self.assertIn("nvidia-drm", files["/etc/modules-load.d/90-magicstick-nvidia-display.conf"])
         self.assertIn("nvidia.com/gpu.deploy.driver=false", files["/etc/rancher/k3s/config.yaml.d/90-magicstick-nvidia-display.yaml"])
 
-    def test_installers_reboot_only_after_nvidia_role_marks_change(self):
+    def test_existing_installation_media_delegates_reboot_to_host_ansible(self):
         usb = (ROOT / "magic-installer/user-data").read_text()
         linux = (ROOT / "install-from-linux.sh").read_text()
-        marker = "/run/magicstick-nvidia-display-reboot-required"
-        self.assertIn(f"if [ -f {marker} ]", usb)
-        self.assertIn(f"if [[ -f {marker} ]]", linux)
-        self.assertIn("shutdown -r +1", usb)
-        self.assertIn("shutdown -r +1", linux)
+        self.assertIn("MAGICSTICK_PUBLIC_REF=main", usb)
+        self.assertIn("ai-appliance-converge", usb)
+        self.assertIn("start_installation", linux)
+        for installer in (usb, linux):
+            self.assertNotIn("magicstick-nvidia-display-reboot-required", installer)
+            self.assertNotIn("Finish Magic Stick NVIDIA console installation", installer)
+            self.assertNotIn("shutdown -r +1", installer)
+
+    def test_only_changed_fresh_installations_request_a_reboot(self):
+        defaults = yaml.safe_load((ROLE / "defaults/main.yml").read_text())
+        self.assertEqual(defaults["nvidia_display_new_install_marker"], "/var/lib/magicstick/setup/new-install")
+        self.assertIn("first-install", defaults["nvidia_display_reboot_marker"])
+        self.assertIn("first-install", defaults["nvidia_display_reboot_scheduled_marker"])
+        marker = next(task for task in self.inner if task.get("name") == "Mark a changed first installation for the host-managed reboot")
+        self.assertIn("nvidia_display_new_install.stat.exists", marker["when"])
+        self.assertTrue(any("nvidia_display_packages.changed" in condition for condition in marker["when"]))
+
+    def test_finalizer_runs_after_roles_and_schedules_at_most_once_per_boot(self):
+        playbook = yaml.safe_load((ROOT / "magic-host/playbooks/local.yml").read_text())[0]
+        self.assertEqual(playbook["post_tasks"][0]["ansible.builtin.meta"], "flush_handlers")
+        finalizer = playbook["post_tasks"][1]
+        self.assertEqual(finalizer["ansible.builtin.import_role"], {"name": "nvidia-display", "tasks_from": "finalize"})
+        self.assertIn("nvidia_display_detected", finalizer["when"])
+        tasks = yaml.safe_load((ROLE / "tasks/finalize.yml").read_text())
+        names = [task["name"] for task in tasks]
+        guard = names.index("Record the completed first-install reboot scheduling")
+        shutdown = names.index("Schedule the first-install NVIDIA display reboot after successful convergence")
+        self.assertLess(shutdown, guard)
+        self.assertTrue(any("nvidia_display_reboot_handled.stat.exists" in condition for condition in tasks[guard]["when"]))
+        self.assertIn("not ansible_check_mode", tasks[guard]["when"])
+        shutdown_state = next(task for task in tasks if task.get("name") == "Check for an existing system shutdown")
+        self.assertEqual(shutdown_state["ansible.builtin.stat"]["path"], "/run/systemd/shutdown/scheduled")
+        command = tasks[shutdown]["ansible.builtin.command"]["argv"]
+        self.assertEqual(command[:3], ["/usr/sbin/shutdown", "-r", "+1"])
+        self.assertIn("not ansible_check_mode", tasks[shutdown]["when"])
+        self.assertIn("not nvidia_display_other_shutdown.stat.exists", tasks[shutdown]["when"])
+        self.assertTrue(any("nvidia_display_reboot_command.changed" in condition for condition in tasks[guard]["when"]))
 
     def test_host_role_precedes_k3s_and_existing_node_is_relabeled(self):
         playbook = yaml.safe_load((ROOT / "magic-host/playbooks/local.yml").read_text())

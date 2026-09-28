@@ -24,8 +24,10 @@
 
 On a local Ubuntu x86_64 appliance with an NVIDIA display controller, the host
 role installs the pinned R595 driver and loads `nvidia-drm` with framebuffer
-support after one installer-scheduled reboot. This lets the physical setup and
-dashboard consoles survive a GPU Operator restart. The node label
+support after one Ansible-scheduled first-install reboot. The playbook schedules
+it only after successful host convergence and only when it changed a new
+installation; the USB image itself has no NVIDIA reboot logic. This lets the
+physical setup and dashboard consoles survive a GPU Operator restart. The node label
 `nvidia.com/gpu.deploy.driver=false` suppresses only the Operator driver pod;
 the Toolkit and Device Plugin remain Operator-managed. CPU-only and AMD-only
 hosts skip the NVIDIA role and do not reboot for it. Check `cat /proc/fb`,

@@ -113,7 +113,11 @@ Optional command-line writers are documented with the
 
 Provisioning continues after the first Ubuntu boot. Package and image downloads
 can take several minutes. Cloud-init hands off to the setup console on virtual
-terminal 9; boot logs remain on terminal 1.
+terminal 9; boot logs remain on terminal 1. On a computer whose monitor is
+connected to an NVIDIA GPU, the fetched host playbook may schedule one additional
+restart after it installs the display driver. Leave the USB stick removed and
+wait for the setup console to return. No new USB image is needed solely for a
+host-playbook update when the stick follows `main`.
 
 <a id="5-first-run-setup-öffnen"></a>
 <a id="6-installation-prüfen"></a>

@@ -1,0 +1,58 @@
+---
+- name: Check whether the first-install NVIDIA display change needs a reboot
+  ansible.builtin.stat:
+    path: "{{ nvidia_display_reboot_marker }}"
+  register: nvidia_display_reboot_pending
+
+- name: Check whether this boot already handled the NVIDIA display reboot
+  ansible.builtin.stat:
+    path: "{{ nvidia_display_reboot_scheduled_marker }}"
+  register: nvidia_display_reboot_handled
+  when: nvidia_display_reboot_pending.stat.exists
+
+- name: Check for an existing system shutdown
+  ansible.builtin.stat:
+    path: /run/systemd/shutdown/scheduled
+  register: nvidia_display_other_shutdown
+  when:
+    - nvidia_display_reboot_pending.stat.exists
+    - not nvidia_display_reboot_handled.stat.exists
+
+- name: Leave an already scheduled shutdown untouched
+  ansible.builtin.debug:
+    msg: >-
+      A system shutdown was already scheduled. Magic Stick will not replace it
+      or schedule another NVIDIA display reboot in this boot. If that shutdown
+      is cancelled or powers off the appliance, reboot manually to activate
+      the host-owned display driver.
+  when:
+    - nvidia_display_reboot_pending.stat.exists
+    - not nvidia_display_reboot_handled.stat.exists
+    - nvidia_display_other_shutdown.stat.exists
+
+- name: Schedule the first-install NVIDIA display reboot after successful convergence
+  ansible.builtin.command:
+    argv:
+      - /usr/sbin/shutdown
+      - -r
+      - "+1"
+      - Finish Magic Stick NVIDIA console installation
+  when:
+    - nvidia_display_reboot_pending.stat.exists
+    - not nvidia_display_reboot_handled.stat.exists
+    - not nvidia_display_other_shutdown.stat.exists
+    - not ansible_check_mode
+  register: nvidia_display_reboot_command
+
+- name: Record the completed first-install reboot scheduling
+  ansible.builtin.file:
+    path: "{{ nvidia_display_reboot_scheduled_marker }}"
+    state: touch
+    owner: root
+    group: root
+    mode: "0600"
+  when:
+    - nvidia_display_reboot_pending.stat.exists
+    - not nvidia_display_reboot_handled.stat.exists
+    - not ansible_check_mode
+    - nvidia_display_other_shutdown.stat.exists or (nvidia_display_reboot_command.changed | default(false))

@@ -287,10 +287,7 @@ write_metadata
 start_installation
 
 log "Installation completed."
-if [[ -f /run/magicstick-nvidia-display-reboot-required ]]; then
-  log "NVIDIA display driver installed; scheduling one clean reboot in one minute."
-  shutdown -r +1 "Finish Magic Stick NVIDIA console installation"
-elif command -v magicstick >/dev/null 2>&1; then
+if command -v magicstick >/dev/null 2>&1; then
   magicstick setup show || true
 else
   log "Run 'sudo magicstick setup show' to display the First-Run Setup address and code."

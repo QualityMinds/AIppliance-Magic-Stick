@@ -177,4 +177,13 @@
     - dashboard-console
     - host-management
     - host-updates
-    
+
+  post_tasks:
+    - name: Finish all host handlers before considering a reboot
+      ansible.builtin.meta: flush_handlers
+
+    - name: Complete first-install NVIDIA display setup after host convergence
+      ansible.builtin.import_role:
+        name: nvidia-display
+        tasks_from: finalize
+      when: nvidia_display_detected | default(false) | bool

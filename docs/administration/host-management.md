@@ -5,6 +5,11 @@ provides Ubuntu, K3s, the dashboard, diagnostic helpers and a root-owned local
 worker. It does not contain a second GPU package-selection or reboot path.
 The base kernel must already boot the computer and reach storage/network;
 post-install preparation cannot repair an installer that cannot boot.
+For an installer-created NVIDIA display host, the base host playbook separately
+installs a pinned display-owning driver and schedules one reboot after successful
+first convergence, so the physical setup/TUI console remains available. The
+media does not select the driver or schedule that reboot. CPU-only and AMD-only
+hosts skip it; optional AMD kernel/profile changes remain administrator-confirmed.
 New USB media use Ubuntu 26.04 LTS and its native generic kernel for both the
 installer and installed system. This base-install choice is separate from the
 reviewed GPU package profiles below; it does not upgrade an existing appliance
