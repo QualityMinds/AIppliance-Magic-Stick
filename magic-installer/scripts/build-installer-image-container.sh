@@ -11,7 +11,7 @@ Usage:
 
 This command is intended to run inside the Magic-Stick installer builder
 container. Build inputs are passed via MAGICSTICK_* environment variables.
-MAGICSTICK_OFFLINE_POOL=full (default), reduced or online selects the offline pool.
+MAGICSTICK_OFFLINE_POOL=reduced (default) or full selects the offline pool.
 Existing output images and report files are never overwritten.
 USAGE
 }
@@ -170,15 +170,15 @@ UBUNTU_ISO_SHA256="${MAGICSTICK_UBUNTU_ISO_SHA256:-$DEFAULT_UBUNTU_ISO_SHA256}"
 TEMPLATE_DIR="${MAGICSTICK_TEMPLATE_DIR:-/workspace/magic-installer}"
 CACHE_DIR="${MAGICSTICK_CACHE_DIR:-/cache}"
 WORK_ROOT="${MAGICSTICK_WORK_DIR:-/tmp}"
-OFFLINE_POOL="${MAGICSTICK_OFFLINE_POOL:-full}"
+OFFLINE_POOL="${MAGICSTICK_OFFLINE_POOL:-reduced}"
 MEDIA_HELPER="/usr/local/lib/magicstick-installer/installer-media.py"
 CIDATA_SIZE="${MAGICSTICK_CIDATA_SIZE:-64M}"
 CIDATA_PARTITION_NUMBER="${MAGICSTICK_CIDATA_PARTITION_NUMBER:-3}"
 VOLUME_ID="${MAGICSTICK_ISO_VOLUME_ID:-MAGICSTICK_INSTALL}"
 
 case "$OFFLINE_POOL" in
-  full | reduced | online) ;;
-  *) die "MAGICSTICK_OFFLINE_POOL must be full, reduced or online" ;;
+  full | reduced) ;;
+  *) die "MAGICSTICK_OFFLINE_POOL must be full or reduced" ;;
 esac
 
 case "$FLUX_BOOTSTRAP_MODE" in
@@ -328,10 +328,10 @@ This partition may contain a GitHub/Flux token. Treat the USB stick and any
 image made from it as sensitive.
 
 Offline package pool mode: $OFFLINE_POOL.
-Reduced and online media require Internet access. Online media contains no
-offline package archives; all additional packages come from the selected mirror.
-Reduced media keeps main but excludes optional third-party/OEM driver installs.
-The live kernel, firmware and normal installation choices are unchanged.
+Reduced media requires Internet access. It retains Ubuntu main packages needed
+by the live installer, including Wi-Fi support, but excludes optional
+third-party/OEM driver archives. The live kernel, firmware and normal
+installation choices are unchanged.
 EOF
 
 CIDATA_IMAGE="$WORK_DIR/cidata.img"
@@ -383,8 +383,6 @@ done < <(find "$WORK_DIR/replacements" -type f -print0)
 pool_args=()
 if [[ "$OFFLINE_POOL" == "reduced" ]]; then
   pool_args=(-rm_r /pool/restricted --)
-elif [[ "$OFFLINE_POOL" == "online" ]]; then
-  pool_args=(-rm_r /pool --)
 fi
 
 xorriso -report_about UPDATE \

@@ -2,7 +2,7 @@
 
 Developer tools and reusable Ubuntu autoinstall/cloud-init templates for Magic Stick.
 
-**For normal USB installation, download the prebuilt online image from the
+**For normal USB installation, download the prebuilt reduced image from the
 [USB installation guide](../docs/installation/bare-metal.md). Do not build it locally.**
 Git, Docker and the build scripts are only needed when developing, testing or
 customizing installer media. These source templates contain placeholders only;
@@ -85,7 +85,7 @@ Optional GitHub bootstrap metadata:
 
 ## Development: creating installation media
 
-The normal user path is the [prebuilt online download](../docs/installation/bare-metal.md).
+The normal user path is the [prebuilt reduced download](../docs/installation/bare-metal.md).
 The Bash/PowerShell build scripts below are development and customization tools,
 not a prerequisite for installing Magic Stick. They require Git and Docker or
 Podman and create a separate editable FAT32 partition labelled `CIDATA`.
@@ -96,8 +96,8 @@ the root of the `CIDATA` partition.
 ```bash
 magic-installer/build-installer-image.sh \
   --hostname example-host-01 \
-  --offline-pool online \
-  --output dist/magicstick-installer-online.img
+  --offline-pool reduced \
+  --output dist/magicstick-installer-reduced.img
 ```
 
 This default uses `--flux-bootstrap-mode readonly-public`, the public
@@ -115,7 +115,7 @@ magic-installer/build-installer-image.sh \
   --git-repo example-deployment \
   --git-branch main \
   --flux-cluster-path deployments/example-deployment/infra-cluster/flux-bootstrap \
-  --offline-pool online \
+  --offline-pool reduced \
   --output dist/magicstick-installer-private.img
 ```
 
@@ -127,7 +127,7 @@ Write the generated image to a USB stick:
 
 ```bash
 magic-installer/write-usb.sh --list-devices
-magic-installer/write-usb.sh --image dist/magicstick-installer-online.img --device /dev/diskN
+magic-installer/write-usb.sh --image dist/magicstick-installer-reduced.img --device /dev/diskN
 ```
 
 On Windows, use the PowerShell wrappers:
@@ -135,11 +135,11 @@ On Windows, use the PowerShell wrappers:
 ```powershell
 .\magic-installer\build-installer-image.ps1 `
   -Hostname example-host-01 `
-  -OfflinePool online `
-  -Output dist\magicstick-installer-online.img
+  -OfflinePool reduced `
+  -Output dist\magicstick-installer-reduced.img
 
 .\magic-installer\write-usb.ps1 -ListDevices
-.\magic-installer\write-usb.ps1 -Image .\dist\magicstick-installer-online.img -DiskNumber <disk-number>
+.\magic-installer\write-usb.ps1 -Image .\dist\magicstick-installer-reduced.img -DiskNumber <disk-number>
 ```
 
 The image builder uses Docker or Podman to run the ISO tooling. It downloads
@@ -147,39 +147,32 @@ Ubuntu Server 26.04.1 LTS AMD64, verifies the pinned SHA256 checksum, patches
 the Ubuntu boot configuration with `autoinstall ds=nocloud`, and appends the
 editable FAT32 `CIDATA` partition.
 
-### Automatic online image builds
+### Automatic reduced image builds
 
 The [installer CI workflow](../.github/workflows/build-installer-image.yml) uses
-`online` mode only. Relevant installer changes on `main` or `develop` produce
+`reduced` mode only. Relevant installer changes on `main` or `develop` produce
 separate test/prerelease downloads; unchanged build inputs reuse an existing
 image. Product version changes alone do not trigger a rebuild. See
 [automatic installer images](../docs/development/installer-images.md) for download
 assets, checksums, retention, input fingerprints and recovery from failed uploads.
-Local builds below keep their explicit `full`, `reduced` and `online` choices.
+Local builds keep explicit `full` and `reduced` choices.
 
-### Experimental reduced offline pool
+<a id="experimental-reduced-offline-pool"></a>
 
-The development wrapper retains `full` as its default for compatibility and
-baseline comparisons. Pass `--offline-pool online` to reproduce the standard
-download's mode. Reduced and online variants require a working Ubuntu mirror:
+### Reduced offline pool
+
+The development wrapper uses `reduced` by default to reproduce the standard
+download. Use `full` only for compatibility comparisons or installer features
+that explicitly need the original restricted package archive. Reduced media
+requires a working Ubuntu mirror:
 
 | Mode | Offline package archives | Default output |
 |---|---|---|
-| `full` | All original packages | `dist/magicstick-installer.img` |
+| `full` | All original packages | `dist/magicstick-installer-full.img` |
 | `reduced` | Keep `main`, remove `restricted` | `dist/magicstick-installer-reduced.img` |
-| `online` | Remove the entire `/pool` | `dist/magicstick-installer-online.img` |
 
-To remove **all offline package archives**:
-
-```bash
-magic-installer/build-installer-image.sh \
-  --hostname example-host-01 \
-  --offline-pool online \
-  --output dist/magicstick-installer-online.img
-```
-
-Use `--offline-pool reduced` to retain the main package pool. PowerShell accepts
-the same modes as `-OfflinePool online` or `-OfflinePool reduced`. Existing images,
+PowerShell accepts the same modes as `-OfflinePool reduced` or `-OfflinePool full`.
+Existing images,
 checksums and report directories are never overwritten. Choose another output
 name for a new build.
 The checksum-verified original ISO is shared in `.installer-cache` and is never
@@ -189,7 +182,8 @@ SquashFS files are not reused from the download cache.
 The `reduced` variant is deliberately component-scoped:
 
 - Keep **all of `pool/main`**, including the original kernel, bootloader, SSH and
-  dependency packages. This avoids guessing which individual libraries can go.
+  dependency packages. This includes `wpasupplicant` and its local dependencies,
+  which Subiquity needs to configure Wi-Fi before an Internet connection exists.
 - Remove **only `pool/restricted`**, the additional third-party driver package
   archive on the currently pinned Server ISO. This does not uninstall anything
   from the live or target systems and does not remove firmware or kernel drivers.
@@ -204,31 +198,18 @@ The `reduced` variant is deliberately component-scoped:
   attributes; reject changes outside that single source file. Other SquashFS
   layers, `vmlinuz`, `initrd` and the target package selection stay unchanged.
 
-The `online` variant removes **all 186 package archives** on the pinned ISO,
-including the kernel, bootloader and driver **archives**, not the running kernel,
-installed software, firmware or installer files. It keeps the original signed
-repository metadata inactive and sets `Enabled: no` in the existing
-`cdrom.sources`. The file must remain present: Subiquity 26.04 would recreate an
-enabled local source if it were deleted. All packages that need downloading
-during installation then come from the chosen mirror, using current available
-versions rather than pinning old ISO archive versions. Packages already supplied
-by the installed-system SquashFS are not unnecessarily downloaded again.
-
-Both modified variants verify the original local repository signature and package
-hashes, preserve filesystem metadata, and require `apt.fallback: abort` in the
-template. They neither disable signature checks nor allow an offline fallback.
-The `reduced` variant additionally checks retained-package dependencies and
+The reduced variant verifies the original local repository signature and package
+hashes, preserves filesystem metadata, and requires `apt.fallback: abort` in the
+template. It neither disables signature checks nor allows an offline fallback.
+It additionally checks retained-package dependencies and
 refuses a template that explicitly requests a removed package or enables
 third-party/OEM driver installation, interactive driver/package selection or an
 offline APT fallback. Use `full` for those cases. These checks cover the supplied
-template, not subsequent manual changes to `CIDATA` on the stick. The `online`
-variant deliberately relies on the mirror's package resolver instead of an
-offline dependency closure; unavailable or explicitly pinned old versions can
-still prevent installation.
+template, not subsequent manual changes to `CIDATA` on the stick.
 
 **A working Ubuntu mirror and Internet access are required.** Older optional
 driver versions included on an ISO can disappear from the normal Ubuntu archive;
-neither smaller image promises that those exact versions can be re-downloaded.
+the reduced image does not promise that those exact versions can be re-downloaded.
 Magic Stick's post-install GPU/operator provisioning is not changed. This is not
 a smaller Ubuntu edition, a minimal-system switch or an offline installation mode.
 
@@ -241,8 +222,8 @@ Every completed build writes:
   name/version/architecture/path/size/hash inventory, including `/pool`, `/dists`,
   `/casper` and other payload sizes. These are package archives, not installed sizes.
 
-The ISO's `md5sum.txt` is refreshed for boot configuration changes, the reduced or
-removed pool and the one repacked filesystem. Upstream exclusions for generated boot data
+The ISO's `md5sum.txt` is refreshed for boot configuration changes, the reduced
+pool and the one repacked filesystem. Upstream exclusions for generated boot data
 are preserved. A successful build and checksum verification are **not** a complete
 VM or hardware installation acceptance. See the
 [dated experiment report](../docs/development/reports/installer-offline-pool-2026-09-24.md)

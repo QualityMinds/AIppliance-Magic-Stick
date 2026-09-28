@@ -20,8 +20,8 @@ param(
   [ValidateSet("branch", "tag", "semver", "commit")]
   [string]$PublicRefKind = "branch",
   [string]$Output = "",
-  [ValidateSet("full", "reduced", "online")]
-  [string]$OfflinePool = "full",
+  [ValidateSet("full", "reduced")]
+  [string]$OfflinePool = "reduced",
   [string]$ContainerRuntime,
   [string]$BuilderImage = "magicstick-installer-builder:local",
   [switch]$NoBuild,
@@ -105,7 +105,7 @@ if (-not $ContainerRuntime) {
 }
 
 if (-not $Output) {
-  $Output = if ($OfflinePool -eq "full") { "dist/magicstick-installer.img" } else { "dist/magicstick-installer-$OfflinePool.img" }
+  $Output = "dist/magicstick-installer-$OfflinePool.img"
 }
 if ([IO.Path]::IsPathRooted($Output)) {
   $outputFull = $Output

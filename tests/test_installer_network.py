@@ -1,3 +1,4 @@
+import json
 import pathlib
 import unittest
 
@@ -18,6 +19,13 @@ class InstallerNetworkTests(unittest.TestCase):
     def test_network_configuration_remains_interactive(self):
         self.assertIn("network", self.autoinstall["interactive-sections"])
         self.assertIn("wpasupplicant", self.autoinstall["packages"])
+
+    def test_published_media_keeps_main_pool_for_wifi_bootstrap(self):
+        config = json.loads((ROOT / "magic-installer/ci-build.json").read_text())
+        self.assertEqual(config["offlinePool"], "reduced")
+        workflow = (ROOT / ".github/workflows/build-installer-image.yml").read_text()
+        self.assertIn("--offline-pool reduced", workflow)
+        self.assertNotIn("--offline-pool online", workflow)
 
     def test_installer_template_does_not_embed_wireless_credentials(self):
         self.assertNotIn("network", self.autoinstall)

@@ -68,16 +68,7 @@ class InstallerPoolTests(unittest.TestCase):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 media.configure_local_source(invalid, "reduced")
 
-    def test_online_source_is_disabled_without_losing_iso_key(self):
-        result, source = media.configure_local_source(SOURCE, "online")
-        self.assertEqual(result, "Enabled: no\n" + SOURCE)
-        disabled = media.control_records(result)[0]
-        self.assertEqual(disabled["Enabled"], "no")
-        self.assertEqual(disabled["Signed-By"], source["Signed-By"])
-        for invalid in (SOURCE.replace("file:///cdrom", "https://example.com/ubuntu"),
-                        "Enabled: yes\n" + SOURCE, SOURCE + "\n" + SOURCE):
-            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
-                media.configure_local_source(invalid, "online")
+    def test_full_source_is_not_rewritten_by_reduction_helper(self):
         with self.assertRaises(ValueError):
             media.configure_local_source(SOURCE, "full")
 
@@ -143,31 +134,19 @@ class InstallerPoolTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 media.validate_selection(before, root, template)
 
-    def test_online_selection_removes_all_archives_not_installed_packages(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            (root / "casper").mkdir()
-            (root / "casper/base.manifest").write_text("+linux-generic\t1\n")
-            template = root / "user-data"
-            config = yaml.safe_load((ROOT / "magic-installer/user-data").read_text())
-            template.write_text(yaml.safe_dump(config))
-            before = {"packages": [
-                {"path": "pool/main/kernel.deb", "name": "linux-generic"},
-                {"path": "pool/restricted/driver.deb", "name": "optional-driver"},
-            ]}
-            self.assertEqual(media.validate_selection(before, root, template, "online"), before["packages"])
-            config["autoinstall"]["apt"]["fallback"] = "offline-install"
-            template.write_text(yaml.safe_dump(config))
-            with self.assertRaises(ValueError):
-                media.validate_selection(before, root, template, "online")
-
     def test_pool_scope_is_mode_specific(self):
         for mode, expected in (("full", [False, False, False]),
-                               ("reduced", [False, True, False]),
-                               ("online", [True, True, False])):
+                               ("reduced", [False, True, False])):
             self.assertEqual([media.removed_pool_file(path, mode) for path in
                               ("pool/main/kernel.deb", "pool/restricted/driver.deb", "casper/vmlinuz")],
                              expected)
+
+    def test_reduced_pool_keeps_installer_wifi_support(self):
+        for path in (
+            "pool/main/w/wpa/wpasupplicant_2%3a2.11-0ubuntu5_amd64.deb",
+            "pool/main/p/pcsc-lite/libpcsclite1_2.4.1-1_amd64.deb",
+        ):
+            self.assertFalse(media.removed_pool_file(path, "reduced"), path)
 
     def test_inventory_checks_package_bytes_and_sizes(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -207,14 +186,6 @@ class InstallerPoolTests(unittest.TestCase):
             self.assertNotIn("remove.deb", result)
             self.assertIn("keep.deb", result)
             self.assertIn(hashlib.md5(b"updated").hexdigest() + "  ./boot.cfg", result)
-            media.write_json(work / "preparation.json", {"mode": "online"})
-            media.metadata(type("Args", (), {"work": work})())
-            result = (replacements / "md5sum.txt").read_text()
-            self.assertNotIn("pool/", result)
-            after = yaml.safe_load((work / "pool-after.json").read_text())
-            self.assertEqual(after["sizes"]["pool"], 0)
-            self.assertEqual(after["sizes"]["poolPackageCount"], 0)
-            self.assertEqual(after["packages"], [])
             media.write_json(work / "preparation.json", {"mode": "full"})
             media.metadata(type("Args", (), {"work": work})())
             result = (replacements / "md5sum.txt").read_text()
@@ -233,11 +204,11 @@ class InstallerPoolTests(unittest.TestCase):
                                "--container-runtime", str(runtime), *arguments],
                               text=True, capture_output=True, check=False)
 
-    def test_wrapper_full_default_and_explicit_pool_modes(self):
+    def test_wrapper_reduced_default_and_explicit_pool_modes(self):
         with tempfile.TemporaryDirectory() as temp:
-            for mode in ("full", "reduced", "online"):
+            for mode in ("full", "reduced"):
                 output = str(Path(temp) / (mode + ".img"))
-                args = [] if mode == "full" else ["--offline-pool", mode]
+                args = [] if mode == "reduced" else ["--offline-pool", mode]
                 result = self.run_wrapper(temp, "--output", output, *args)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(result.stdout.splitlines()[0], mode)
@@ -245,15 +216,12 @@ class InstallerPoolTests(unittest.TestCase):
 
     def test_wrapper_has_distinct_default_names(self):
         with tempfile.TemporaryDirectory() as temp:
-            full = self.run_wrapper(temp)
-            reduced = self.run_wrapper(temp, "--offline-pool", "reduced")
-            online = self.run_wrapper(temp, "--offline-pool", "online")
+            reduced = self.run_wrapper(temp)
+            full = self.run_wrapper(temp, "--offline-pool", "full")
             self.assertEqual(full.returncode, 0, full.stderr)
             self.assertEqual(reduced.returncode, 0, reduced.stderr)
-            self.assertEqual(online.returncode, 0, online.stderr)
-            self.assertIn("/output/magicstick-installer.img", full.stdout)
+            self.assertIn("/output/magicstick-installer-full.img", full.stdout)
             self.assertIn("/output/magicstick-installer-reduced.img", reduced.stdout)
-            self.assertIn("/output/magicstick-installer-online.img", online.stdout)
 
     def test_wrapper_rejects_invalid_mode_and_existing_output(self):
         with tempfile.TemporaryDirectory() as temp:

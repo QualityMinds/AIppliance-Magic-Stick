@@ -1,21 +1,25 @@
-# Automatic online installer images
+# Automatic reduced installer images
 
 The [installer workflow](../../.github/workflows/build-installer-image.yml) builds
-the **online-only AMD64 USB image**. It removes all `/pool` package archives;
-additional packages come from the selected Ubuntu mirror. The live kernel,
-firmware, Subiquity and installed-system filesystem layers remain present.
-Network access during installation is required. See the
-[installer options and limitations](../../magic-installer/README.md#experimental-reduced-offline-pool).
+the **reduced AMD64 USB image**. It retains Ubuntu's signed `main` package pool,
+including the packages Subiquity needs to configure Wi-Fi, and removes only the
+large `restricted` package archive. Additional packages come from the selected
+Ubuntu mirror. The live kernel, firmware, Subiquity and installed-system
+filesystem layers remain present. Network access during installation is required.
+See the [installer options and limitations](../../magic-installer/README.md#reduced-offline-pool).
 
 These are **test/prerelease downloads**, not a declaration that a complete
 installation or GPU setup passed. The workflow does not create a versioned
 product release, promote container images, write a USB drive or roll out an appliance.
 
-The project owner confirmed a successful online installation on 24 September
+The project owner confirmed a successful installation of the earlier online-only
+candidate on 24 September
 2026. The [dated installation result](reports/installer-installation-2026-09-24.md)
-records that confirmation separately from the original CI evidence. The current
-online installer is the standard USB installation path. Later successful manual
-tests do not rewrite published build manifests or imply compatibility with every GPU.
+records that confirmation separately from the original CI evidence. The later
+network-screen finding showed that candidate could not bootstrap Wi-Fi support.
+The reduced installer is now the standard USB path; physical Wi-Fi acceptance of
+each new candidate remains separate from CI. Successful manual tests do not rewrite
+published build manifests or imply compatibility with every GPU.
 
 For installation, use the [prebuilt image in the USB guide](../installation/bare-metal.md).
 The build scripts are developer tools. Users do not need to clone this repository
@@ -29,21 +33,21 @@ the repository, and run from its root:
 
 ```bash
 magic-installer/build-installer-image.sh \
-  --hostname example-host-01 --offline-pool online \
-  --output dist/magicstick-installer-online.img
+  --hostname example-host-01 --offline-pool reduced \
+  --output dist/magicstick-installer-reduced.img
 ```
 
 On Windows, the equivalent developer wrapper is:
 
 ```powershell
 .\magic-installer\build-installer-image.ps1 `
-  -Hostname example-host-01 -OfflinePool online `
-  -Output dist\magicstick-installer-online.img
+  -Hostname example-host-01 -OfflinePool reduced `
+  -Output dist\magicstick-installer-reduced.img
 ```
 
 Choose a new output filename for each rebuild. The wrappers preserve existing
-images. `full` remains their compatibility default when no mode is passed;
-`online` matches the standard published media. Private/custom images must not be
+images. `reduced` is the default and matches the standard published media;
+`full` remains an explicit compatibility option. Private/custom images must not be
 uploaded as public downloads. For advanced metadata, optional command-line USB
 writers and the media layout, see the [developer tool reference](../../magic-installer/README.md).
 
@@ -117,7 +121,8 @@ The build job has read-only repository access. It checks the focused installer
 tests, source-license consistency, advisory license review and public source
 secret scan before building. Open approval records remain visible; the review
 does not invent legal clearance or block publication solely on missing approvals.
-Afterward it verifies image checksums, removal of the entire offline pool,
+Afterward it verifies image checksums, removal of the restricted package pool,
+retention of the signed main package pool,
 protected kernel/firmware/installer files, BIOS/UEFI boot entries and the actual
 public CIDATA configuration. It packages reports and original source notices.
 These integrity checks are not a boot test or a completed installation.

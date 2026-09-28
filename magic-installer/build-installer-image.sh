@@ -31,9 +31,9 @@ Options:
   --mdns-domain HOSTNAME       Local mDNS domain. Default: magicstick.local.
   --mdns-name NAME             Local mDNS annotation suffix. Default: derived from --mdns-domain.
   --dashboard-mdns-name NAME   Legacy dashboard mDNS name. Default: derived from --mdns-domain.
-  --output PATH                Output image path. Default: dist/magicstick-installer.img.
-  --offline-pool MODE          full (default), reduced (keep main), or online (no pool).
-                              Experimental modes need a working Ubuntu mirror.
+  --output PATH                Output image path. Default: dist/magicstick-installer-reduced.img.
+  --offline-pool MODE          reduced (default, keep main) or full.
+                              Reduced media needs a working Ubuntu mirror.
   --container-runtime NAME     docker or podman. Auto-detected by default.
   --builder-image NAME         Container image tag for the local builder.
   --no-build                   Reuse an already-built builder image.
@@ -101,7 +101,7 @@ PUBLIC_REPO="https://github.com/QualityMinds/AIppliance-Magic-Stick.git"
 PUBLIC_REF="main"
 PUBLIC_REF_KIND="branch"
 OUTPUT=""
-OFFLINE_POOL="full"
+OFFLINE_POOL="reduced"
 CONTAINER_RUNTIME=""
 BUILDER_IMAGE="magicstick-installer-builder:local"
 NO_BUILD="false"
@@ -128,7 +128,7 @@ while [[ $# -gt 0 ]]; do
     --public-ref-kind) PUBLIC_REF_KIND="${2:-}"; shift 2 ;;
     --output) OUTPUT="${2:-}"; shift 2 ;;
     --offline-pool)
-      [[ $# -ge 2 ]] || die "--offline-pool needs full, reduced or online"
+      [[ $# -ge 2 ]] || die "--offline-pool needs full or reduced"
       OFFLINE_POOL="$2"; shift 2 ;;
     --container-runtime) CONTAINER_RUNTIME="${2:-}"; shift 2 ;;
     --builder-image) BUILDER_IMAGE="${2:-}"; shift 2 ;;
@@ -147,10 +147,9 @@ done
 
 require_value "--hostname" "$HOSTNAME_VALUE"
 case "$OFFLINE_POOL" in
-  full) OUTPUT="${OUTPUT:-dist/magicstick-installer.img}" ;;
+  full) OUTPUT="${OUTPUT:-dist/magicstick-installer-full.img}" ;;
   reduced) OUTPUT="${OUTPUT:-dist/magicstick-installer-reduced.img}" ;;
-  online) OUTPUT="${OUTPUT:-dist/magicstick-installer-online.img}" ;;
-  *) die "--offline-pool must be full, reduced or online" ;;
+  *) die "--offline-pool must be full or reduced" ;;
 esac
 AI_APPLIANCE_DASHBOARD_HOST="${AI_APPLIANCE_DASHBOARD_HOST:-$AI_APPLIANCE_DOMAIN}"
 AI_APPLIANCE_MDNS_NAME="${AI_APPLIANCE_MDNS_NAME:-${AI_APPLIANCE_DASHBOARD_MDNS_NAME:-${AI_APPLIANCE_MDNS_DOMAIN%.local}}}"

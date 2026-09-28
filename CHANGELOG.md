@@ -10,6 +10,51 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 No unreleased changes.
 
+## v0.1.2 - 2026-09-25
+
+Magic Stick **v0.1.2 Early Access** improves first installation, software
+channel management and the USB installer's Wi-Fi setup.
+
+### Added
+
+- Manage the trusted public source channel from **System → Settings → Updates**.
+  Administrators can follow `main`, `develop` or another existing branch,
+  or pin a tag or commit. The host checks compatible management files and
+  published dashboard images before switching.
+
+### Fixed
+
+- Wait for the first administrator setup to hand off to the dashboard before
+  presenting the completed setup as ready.
+- Keep NVIDIA-connected console output visible during first installation and
+  perform the required display-driver reboot through host automation.
+- Keep Ubuntu's signed `main` package pool in the reduced USB installer.
+  Subiquity can therefore install its Wi-Fi support package before an Internet
+  connection exists. The large optional `restricted` archive is omitted.
+- Show pinned Flux source revisions as commit IDs and reject a channel switch
+  when its dashboard runtime images have not been published.
+
+### Changed
+
+- Make the reduced Ubuntu 26.04.1 AMD64 image the default installer recipe.
+  The automatic installer workflow builds that mode for `main` and `develop`;
+  identical inputs reuse the existing candidate. The full ISO remains an
+  explicit development option.
+- Add a plain-language architecture graphic to the project website.
+
+### Installation and limits
+
+Use the [USB installation guide](https://qualityminds.github.io/AIppliance-Magic-Stick/handbook/installation/bare-metal/)
+for the current checksum-verified installer candidate. The installer still
+needs Internet access for the remaining Ubuntu packages, container images and
+charts. The previous online-only image is not suitable for Wi-Fi-only setup.
+
+The source tag freezes this version's code; a USB image that follows `main`
+fetches that branch's current source at first boot. Local installer and
+documentation checks cover the packaging change. A physical installation
+using Wi-Fi and hardware-specific inference remain separate acceptance tests.
+Existing license and third-party review findings remain visible.
+
 ## v0.1.1 - 2026-09-24
 
 Magic Stick **v0.1.1 Early Access** is a build-reliability patch for v0.1.0.

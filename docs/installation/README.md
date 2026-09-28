@@ -4,9 +4,11 @@
 
 # Choose your installation path
 
-For a new physical server, **download the prebuilt online USB image** from the
+For a new physical server, **download the prebuilt reduced USB image** from the
 [USB guide](bare-metal.md). Building an image yourself is a development workflow,
-not a normal installation step. The online installer requires network access.
+not a normal installation step. The reduced installer keeps the local Ubuntu
+`main` pool for installer features such as Wi-Fi and requires network access for
+the remaining packages and container images.
 
 | Starting point | Guide | What it installs |
 |---|---|---|

@@ -11,7 +11,7 @@ accepts supported ARM64 Ubuntu hosts, but every selected image and engine must
 support that architecture. Refer to the [installer defaults](../../magic-installer/README.md)
 and [compute targets](../reference/compute-targets.md) rather than assuming parity.
 
-For USB installation, use the [prebuilt online image](../installation/bare-metal.md),
+For USB installation, use the [prebuilt reduced image](../installation/bare-metal.md),
 an empty USB drive of at least 8 GB and a second computer with a disk-image writer.
 Git, Docker and the installer build scripts are not required for this route.
 
@@ -29,7 +29,9 @@ Git, Docker and the installer build scripts are not required for this route.
 You need Internet access during installation for Ubuntu packages, images and charts,
 and during model downloads. Keep the appliance and administration browser on a
 trusted private network for initial setup. Ethernet is preferable for large downloads;
-Wi-Fi requires a driver supported by the installer and your access point.
+Wi-Fi requires a driver supported by the installer and your access point. The
+reduced image keeps Ubuntu's `main` package pool so Subiquity can install its
+Wi-Fi support before an Internet connection exists.
 
 Do not expose the temporary setup port `9443` to the Internet. Cloud/VPN networks
 often do not carry mDNS; use the private setup address printed by the installer.

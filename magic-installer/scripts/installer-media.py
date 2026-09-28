@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: BUSL-1.1
-"""Inspect installer media and reduce or remove its offline package pool.
+"""Inspect installer media and reduce its offline package pool.
 
-The signed local metadata is retained byte-for-byte. Reduced mode disables its
-restricted component; online mode disables the entire file:///cdrom source.
-The online Ubuntu sources are not changed.
+The signed local metadata is retained byte-for-byte. Reduced mode keeps the
+main component, including installer Wi-Fi support, and disables its restricted
+component. The online Ubuntu sources are not changed.
 Run preparation under fakeroot to preserve SquashFS ownership and xattrs without
 requiring a privileged container. No host devices are opened by this helper.
 """
@@ -32,8 +32,7 @@ REMOVED_PREFIX = "pool/restricted/"
 
 
 def removed_pool_file(name, mode):
-    return ((mode == "reduced" and name.startswith(REMOVED_PREFIX))
-            or (mode == "online" and name.startswith("pool/")))
+    return mode == "reduced" and name.startswith(REMOVED_PREFIX)
 
 
 def run(*args, capture=False):
@@ -142,12 +141,8 @@ def configure_local_source(text, mode):
             or "Enabled" in source
             or not source.get("Signed-By", "").lstrip().startswith("-----BEGIN PGP PUBLIC KEY BLOCK-----")):
         raise ValueError("Unsupported ISO APT source; refusing an unreviewed trust/layout change")
-    if mode == "online":
-        # Retain the file: Subiquity 26.04 creates a new, enabled CD-ROM source
-        # when it is absent. APT's standard Enabled field disables the stanza.
-        return "Enabled: no\n" + text, source
     if mode != "reduced":
-        raise ValueError("Only reduced or online media modifies the local source")
+        raise ValueError("Only reduced media modifies the local source")
     patched, count = re.subn(r"(?m)^Components: main restricted$", "Components: main", text)
     if count != 1:
         raise ValueError("Could not restrict the local CD-ROM source to main")
@@ -186,12 +181,7 @@ def validate_selection(before, media, template, mode="reduced"):
         raise ValueError("No matching offline pool found")
     config = yaml.safe_load(template.read_text())["autoinstall"]
     if config.get("apt", {}).get("fallback") != "abort":
-        raise ValueError("Reduced/online media requires apt.fallback: abort and an online installation")
-    if mode == "online":
-        # Nothing remains in the local pool. Dependencies and requested packages
-        # must be resolved against the chosen online mirror, not ISO versions.
-        # Removing an archive is not removing an already installed rootfs package.
-        return removed
+        raise ValueError("Reduced media requires apt.fallback: abort and an online installation")
     removed_names = {pkg["name"] for pkg in removed}
     removed_providers = removed_names | set().union(*(dependency_names(pkg["provides"]) for pkg in removed))
     # Keep all of main, not a guessed list of kernel/GRUB/SSH dependencies.
@@ -281,7 +271,7 @@ def prepare(args):
     write_json(args.work / "pool-before.json", before)
     report = {"mode": args.mode, "removedPackages": [], "filesystemChanges": [],
               "policy": "Full offline pool retained", "installationTested": False}
-    if args.mode in ("reduced", "online"):
+    if args.mode == "reduced":
         current = run("unsquashfs", "-cat", media / BASE_IMAGE, SOURCE_FILE, capture=True).decode()
         new_source, source = configure_local_source(current, args.mode)
         # A later layer must not re-enable a source after the base is patched.
@@ -295,15 +285,11 @@ def prepare(args):
         report["removedPackages"] = validate_selection(before, media, args.template, args.mode)
         report["filesystemChanges"] = [patch_squashfs(media, replacements, args.work, new_source)]
         report["policy"] = (
-            "Remove the entire pool. Retain original signed indices as inactive metadata. "
-            "Disable local cdrom.sources with Enabled: no; remote sources unchanged. "
-            "All additional packages require an online mirror. Installed rootfs packages, "
-            "live kernel and firmware are unchanged; old ISO archive versions are not pinned."
-        ) if args.mode == "online" else (
-            "Retain every main package and original signed index. Remove only pool/restricted; "
-            "change only local cdrom.sources Components to main. Remote sources unchanged. "
-            "The unchanged restricted index is inactive. Old optional driver versions are not "
-            "promised online; third-party/OEM installs require full media."
+            "Retain every main package and original signed index, including installer Wi-Fi "
+            "support. Remove only pool/restricted; change only local cdrom.sources Components "
+            "to main. Remote sources unchanged. The unchanged restricted index is inactive. "
+            "Old optional driver versions are not promised online; third-party/OEM installs "
+            "require full media."
         )
     write_json(args.work / "preparation.json", report)
 
@@ -438,14 +424,12 @@ def verify(args):
         checked += 1
     protected = {name: info for name, info in before["files"].items()
                  if name.startswith(("casper/", "EFI/", "dists/"))
-                 and not (report["mode"] in ("reduced", "online") and name == BASE_IMAGE)}
+                 and not (report["mode"] == "reduced" and name == BASE_IMAGE)}
     for name, info in protected.items():
         if hashes(extracted / name)["sha256"] != info["sha256"]:
             raise ValueError(f"Protected boot/installer file changed: {name}")
     if report["mode"] == "reduced" and (extracted / "pool/restricted").exists():
         raise ValueError("Restricted pool is still present")
-    if report["mode"] == "online" and (extracted / "pool").exists():
-        raise ValueError("Offline pool is still present in online-only media")
     offset = cidata_offset(args.image, args.cidata_partition)
     user_data = run("mtype", "-i", f"{args.image}@@{offset}", "::user-data", capture=True)
     meta_data = run("mtype", "-i", f"{args.image}@@{offset}", "::meta-data", capture=True)
@@ -476,7 +460,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("operation", choices=("prepare", "metadata", "finish", "verify"))
     parser.add_argument("--work", type=Path, required=True)
-    parser.add_argument("--mode", choices=("full", "reduced", "online"), default="full")
+    parser.add_argument("--mode", choices=("full", "reduced"), default="reduced")
     parser.add_argument("--iso", type=Path)
     parser.add_argument("--template", type=Path)
     parser.add_argument("--image", type=Path)

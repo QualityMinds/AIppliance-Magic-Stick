@@ -45,13 +45,13 @@ def plan(root, channel, revision):
         raise ValueError('An exact source commit on main or develop is required')
     root = Path(root)
     config = json.loads((root / 'magic-installer/ci-build.json').read_text())
-    expected = {'schemaVersion': 1, 'architecture': 'amd64', 'offlinePool': 'online',
+    expected = {'schemaVersion': 1, 'architecture': 'amd64', 'offlinePool': 'reduced',
                 'hostname': 'example-host-01', 'releaseStatus': 'test-build',
                 'publicRepository': f'https://github.com/{REPOSITORY}.git'}
     if (set(config) != set(expected) | {'recipeRevision'}
             or any(config.get(k) != v for k, v in expected.items())
             or type(config.get('recipeRevision')) is not int or config['recipeRevision'] < 1):
-        raise ValueError('CI only builds the reviewed public, token-free online installer profile')
+        raise ValueError('CI only builds the reviewed public, token-free reduced installer profile')
     files = {}
     for name in (*INPUTS, *OPTIONAL_INPUTS):
         path = root / name
@@ -72,7 +72,7 @@ def plan(root, channel, revision):
         raise ValueError('CI requires a checksum-pinned official Ubuntu ISO')
     identity = {'schemaVersion': 1, 'channel': channel, 'config': config, 'inputs': files, 'ubuntu': iso}
     fingerprint = hashlib.sha256(json_bytes(identity)).hexdigest()
-    stem = f'magicstick-installer-{channel}-amd64-online-{fingerprint[:16]}'
+    stem = f'magicstick-installer-{channel}-amd64-reduced-{fingerprint[:16]}'
     return {**identity, 'fingerprint': fingerprint, 'sourceRevision': revision,
             'tag': f'installer-{channel}-{fingerprint}', 'stem': stem, 'imageName': stem + '.img'}
 
@@ -198,10 +198,10 @@ def bundle(root, value, directory, run_id):
     report = json.loads((report_dir / 'size-report.json').read_text())
     verified = json.loads((report_dir / 'verification.json').read_text())
     sha = digest(image)
-    if (report.get('mode') != 'online' or report['image']['sha256'] != sha
+    if (report.get('mode') != 'reduced' or report['image']['sha256'] != sha
             or report['image']['bytes'] != image.stat().st_size
             or report['sourceIso']['sha256'] != value['ubuntu']['sha256']
-            or report['poolAfter']['pool'] != 0 or report['poolAfter']['poolPackageCount'] != 0
+            or report['poolAfter']['pool'] <= 0 or report['poolAfter']['poolPackageCount'] <= 0
             or verified.get('biosBootEntry') is not True or verified.get('uefiBootEntry') is not True
             or verified.get('publicBootstrapChannel') != value['channel']
             or verified.get('imageSha256') != sha

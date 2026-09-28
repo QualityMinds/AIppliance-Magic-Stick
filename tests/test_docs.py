@@ -62,7 +62,7 @@ class DocumentationTests(unittest.TestCase):
         self.assertEqual(docs.page_url('installation/README.md'), 'handbook/installation/')
         self.assertEqual(docs.page_url('user-guide/models/manage.md'), 'handbook/user-guide/models/manage/')
 
-    def test_usb_installation_uses_pinned_online_download_not_local_build(self):
+    def test_usb_installation_uses_pinned_reduced_download_not_local_build(self):
         guide = (docs.DOCS / 'installation/bare-metal.md').read_text()
         self.assertIn('## 1. Download the installer', guide)
         self.assertIn('Internet access is required', guide)
@@ -75,7 +75,7 @@ class DocumentationTests(unittest.TestCase):
         images = [url for url in urls if url.endswith('.img')]
         self.assertEqual(len(images), 1)
         self.assertIn(images[0] + '.sha256', urls)
-        identity = re.search(r'/installer-main-([0-9a-f]{64})/magicstick-installer-main-amd64-online-([0-9a-f]{16})\.img$', images[0])
+        identity = re.search(r'/installer-main-([0-9a-f]{64})/magicstick-installer-main-amd64-reduced-([0-9a-f]{16})\.img$', images[0])
         self.assertIsNotNone(identity)
         self.assertEqual(identity.group(1)[:16], identity.group(2))
         self.assertIn('/releases/tag/installer-main-' + identity.group(1), guide)

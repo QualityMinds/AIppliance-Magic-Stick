@@ -47,9 +47,9 @@ to bypass the check. Registry availability does not prove runtime compatibility.
 An actual change still requires host/Flux convergence and ready, matching images.
 See [channel operation and recovery](../administration/updates-rollback.md).
 
-## Reusable online installer images
+## Reusable reduced installer images
 
-The [online installer pipeline](installer-images.md) builds only when installer
+The [reduced installer pipeline](installer-images.md) builds only when installer
 inputs change. It reuses an existing checksum-verified download for identical
 inputs, independently of product version numbers. `main` and `develop` have
 separate, immutable test/prerelease downloads; their first boot follows the

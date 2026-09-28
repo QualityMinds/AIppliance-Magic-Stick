@@ -1,4 +1,4 @@
-name: Build online installer image
+name: Build reduced installer image
 
 on:
   push:
@@ -16,6 +16,7 @@ on:
       - magic-installer/meta-data
       - tests/test_installer_artifact.py
       - tests/test_installer_pool.py
+      - tests/test_installer_network.py
       - LICENSE
       - LICENSING.md
   workflow_dispatch:
@@ -76,20 +77,20 @@ jobs:
         env:
           DOWNLOAD_URL: ${{ steps.lookup.outputs.url }}
         run: |
-          printf '### Online installer reused\n\nBuild inputs are unchanged; no image was rebuilt.\n\n[Existing download](%s)\n' "$DOWNLOAD_URL" >> "$GITHUB_STEP_SUMMARY"
+          printf '### Reduced installer reused\n\nBuild inputs are unchanged; no image was rebuilt.\n\n[Existing download](%s)\n' "$DOWNLOAD_URL" >> "$GITHUB_STEP_SUMMARY"
       - name: Cache checksum-pinned Ubuntu source ISO
         if: steps.lookup.outputs.reused != 'true'
         uses: actions/cache@v4
         with:
           path: .installer-cache
           key: installer-ubuntu-iso-${{ steps.plan.outputs.ubuntu_sha256 }}
-      - name: Build online-only media
+      - name: Build reduced media
         if: steps.lookup.outputs.reused != 'true'
         env:
           IMAGE_NAME: ${{ steps.plan.outputs.image }}
         run: |
           bash magic-installer/build-installer-image.sh \
-            --hostname example-host-01 --offline-pool online \
+            --hostname example-host-01 --offline-pool reduced \
             --flux-bootstrap-mode readonly-public --public-ref "$GITHUB_REF_NAME" \
             --public-ref-kind branch --container-runtime docker \
             --builder-image magicstick-installer-builder:ci \
@@ -155,4 +156,4 @@ jobs:
         env:
           DOWNLOAD_URL: ${{ steps.publish.outputs.url }}
         run: |
-          printf '### Online installer built\n\n[Download image, checksum and evidence](%s)\n\nTest build only; complete installation and hardware acceptance remain separate.\n' "$DOWNLOAD_URL" >> "$GITHUB_STEP_SUMMARY"
+          printf '### Reduced installer built\n\n[Download image, checksum and evidence](%s)\n\nTest build only; complete installation and hardware acceptance remain separate.\n' "$DOWNLOAD_URL" >> "$GITHUB_STEP_SUMMARY"

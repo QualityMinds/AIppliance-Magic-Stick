@@ -40,9 +40,9 @@ class InstallerArtifactTests(unittest.TestCase):
         Path(str(image) + '.sha256').write_text(f'{sha}  {image.name}\n')
         report = Path(str(image) + '.report')
         artifact.save(report / 'size-report.json', {
-            'mode': 'online', 'image': {'sha256': sha, 'bytes': image.stat().st_size},
+            'mode': 'reduced', 'image': {'sha256': sha, 'bytes': image.stat().st_size},
             'sourceIso': {'sha256': self.value['ubuntu']['sha256']},
-            'poolAfter': {'pool': 0, 'poolPackageCount': 0}})
+            'poolAfter': {'pool': 1024, 'poolPackageCount': 2}})
         artifact.save(report / 'verification.json', {
             'biosBootEntry': True, 'uefiBootEntry': True, 'publicBootstrapChannel': 'main',
             'imageSha256': sha, 'checkedIntegrityEntries': 645, 'protectedFilesUnchanged': 27})
@@ -132,7 +132,7 @@ class InstallerArtifactTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'replace existing'):
             artifact.bundle(self.root, self.value, self.directory, '123')
 
-    def test_bundle_requires_verified_online_image_and_public_channel(self):
+    def test_bundle_requires_verified_reduced_image_and_public_channel(self):
         image, report = self.build_fixture()
         original = json.loads((report / 'verification.json').read_text())
         for key, value in (('biosBootEntry', False), ('imageSha256', '0' * 64),
@@ -288,9 +288,9 @@ class InstallerArtifactTests(unittest.TestCase):
         self.assertEqual(jobs['publish']['permissions'], {'contents': 'write', 'actions': 'read'})
         self.assertEqual(jobs['publish']['if'], "needs.build.outputs.reused == 'false'")
         build = jobs['build']['steps']
-        image_step = next(s for s in build if s.get('name') == 'Build online-only media')
+        image_step = next(s for s in build if s.get('name') == 'Build reduced media')
         self.assertEqual(image_step['if'], "steps.lookup.outputs.reused != 'true'")
-        self.assertIn('--offline-pool online', image_step['run'])
+        self.assertIn('--offline-pool reduced', image_step['run'])
         self.assertIn('--public-ref "$GITHUB_REF_NAME"', image_step['run'])
         cache = next(s for s in build if s.get('uses', '').startswith('actions/cache@'))
         self.assertEqual(cache['with']['path'], '.installer-cache')
