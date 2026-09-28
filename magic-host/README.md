@@ -28,6 +28,19 @@ End-user installation steps are collected in
 
 ## GPU compatibility diagnostics
 
+On Ubuntu 24.04/26.04 x86_64 appliances with an NVIDIA PCI display controller, the
+`nvidia-display` role installs the pinned host driver and enables its DRM
+framebuffer. This keeps the local first-run and dashboard text consoles visible
+when the monitor is attached to NVIDIA HDMI/DisplayPort. K3s labels that node
+`nvidia.com/gpu.deploy.driver=false`, so the GPU Operator can still provide its
+toolkit and device plugin without replacing the display-owning driver. The
+installer schedules one clean reboot after its first successful convergence to
+activate the host module. On CPU-only and AMD-only systems, this role installs
+no NVIDIA packages, writes no NVIDIA boot configuration, and schedules no
+NVIDIA reboot. Existing NVIDIA hosts need a separately approved restart after
+convergence. Keep the pinned host package and GPU Operator driver versions in
+sync when upgrading either one.
+
 Live memory counters use a separate `magicstick-memory-sample.timer` (30 seconds).
 It publishes Linux `MemAvailable` and per-PCI AMD VRAM/GTT usage, without engine
 probes or hardware changes. Samples expire after 90 seconds in the dashboard;

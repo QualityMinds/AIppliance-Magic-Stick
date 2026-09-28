@@ -49,7 +49,6 @@
       Description=Display the Magic Stick TUI on the physical monitor
       After=cloud-final.service k3s.service network-online.target magicstick-setup-console.service
       Wants=network-online.target
-      Conflicts=magicstick-setup-console.service
       ConditionPathExists={{ dashboard_console_tty_path }}
       ConditionPathExists=!{{ dashboard_console_setup_claim_file }}
 

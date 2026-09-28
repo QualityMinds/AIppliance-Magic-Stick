@@ -161,7 +161,7 @@ class FirstRunConsoleTests(unittest.TestCase):
     def test_systemd_console_is_deferred_until_cloud_final(self):
         tasks = TASKS.read_text(encoding="utf-8")
         self.assertIn("After=cloud-final.service k3s.service network-online.target", tasks)
-        self.assertIn("Conflicts={{ setup_dashboard_console_service }}", tasks)
+        self.assertNotIn("Conflicts={{ setup_dashboard_console_service }}", tasks)
         self.assertIn("ConditionPathExists={{ setup_claim_file }}", tasks)
         self.assertIn("ExecStartPre=-/usr/bin/chvt 9", tasks)
         self.assertIn("ExecStart=/usr/local/sbin/magicstick setup console --hold", tasks)
@@ -173,6 +173,7 @@ class FirstRunConsoleTests(unittest.TestCase):
         self.assertIn("TTYVTDisallocate=yes", tasks)
         self.assertIn("no_block: true", tasks)
         self.assertNotIn("ExecStart=/usr/local/sbin/magicstick setup show", tasks)
+        self.assertIn("ConditionPathExists=!{{ dashboard_console_setup_claim_file }}", (ROLE_DIR.parent / "dashboard-console/tasks/main.yml").read_text())
 
         template = TEMPLATE.read_text(encoding="utf-8")
         self.assertNotIn("{#", template)

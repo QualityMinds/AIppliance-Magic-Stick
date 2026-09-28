@@ -40,3 +40,34 @@
     name: k3s
     enabled: true
     state: started
+
+- name: Read the local node before enforcing NVIDIA host-driver ownership
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k3s
+      - kubectl
+      - get
+      - node
+      - "{{ ansible_facts['hostname'] | lower }}"
+      - -o
+      - json
+  register: nvidia_display_k3s_node
+  changed_when: false
+  retries: 12
+  delay: 5
+  until: nvidia_display_k3s_node.rc == 0
+  when: nvidia_display_detected | default(false) | bool
+
+- name: Keep an existing NVIDIA display node on the host-owned driver
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k3s
+      - kubectl
+      - label
+      - node
+      - "{{ ansible_facts['hostname'] | lower }}"
+      - nvidia.com/gpu.deploy.driver=false
+      - --overwrite
+  when:
+    - nvidia_display_detected | default(false) | bool
+    - (nvidia_display_k3s_node.stdout | from_json).metadata.labels.get('nvidia.com/gpu.deploy.driver', '') != 'false'

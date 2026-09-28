@@ -22,7 +22,18 @@
    A green driver Pod alone is insufficient. Retain kernel, driver, API,
    preflight, device-registration and model-ready timestamps.
 
-The conventional NVIDIA R595 container still installs/builds its kernel module
+On a local Ubuntu x86_64 appliance with an NVIDIA display controller, the host
+role installs the pinned R595 driver and loads `nvidia-drm` with framebuffer
+support after one installer-scheduled reboot. This lets the physical setup and
+dashboard consoles survive a GPU Operator restart. The node label
+`nvidia.com/gpu.deploy.driver=false` suppresses only the Operator driver pod;
+the Toolkit and Device Plugin remain Operator-managed. CPU-only and AMD-only
+hosts skip the NVIDIA role and do not reboot for it. Check `cat /proc/fb`,
+`modinfo -F version nvidia_drm`, the node label, and the GPU Operator operands
+separately; the visible console is not proof of inference readiness.
+
+On other Kubernetes GPU nodes without this host-display policy, the
+conventional NVIDIA R595 container still installs/builds its kernel module
 after boot. Do not enable precompiled mode solely from the OS support table:
 first verify that an image for the exact running kernel is available. A missing
 precompiled tag would turn a startup delay into a driver outage.

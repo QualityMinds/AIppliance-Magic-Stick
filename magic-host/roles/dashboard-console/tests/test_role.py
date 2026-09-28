@@ -84,7 +84,7 @@ class DashboardConsoleRoleTests(unittest.TestCase):
     def test_systemd_owns_tty9_only_after_the_claim_is_removed(self):
         self.assertIn("ConditionPathExists=!{{ dashboard_console_setup_claim_file }}", TASKS)
         self.assertIn("ConditionPathExists={{ dashboard_console_tty_path }}", TASKS)
-        self.assertIn("Conflicts=magicstick-setup-console.service", TASKS)
+        self.assertNotIn("Conflicts=magicstick-setup-console.service", TASKS)
         self.assertIn("ExecStartPre=-/usr/bin/chvt {{ dashboard_console_virtual_terminal }}", TASKS)
         self.assertIn("TTYPath={{ dashboard_console_tty_path }}", TASKS)
         self.assertIn("Restart=always", TASKS)

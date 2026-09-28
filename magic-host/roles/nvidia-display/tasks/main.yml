@@ -1,0 +1,95 @@
+---
+- name: Detect physical NVIDIA PCI display controllers
+  ansible.builtin.script:
+    cmd: detect.py
+    executable: /usr/bin/python3
+  register: nvidia_display_inventory
+  changed_when: false
+  check_mode: false
+
+- name: Record whether this host needs NVIDIA display ownership
+  ansible.builtin.set_fact:
+    nvidia_display_detected: "{{ (nvidia_display_inventory.stdout | from_json).nvidiaDisplay | bool }}"
+
+- name: Prepare a host-owned NVIDIA console only on matching hardware
+  when: nvidia_display_detected | bool
+  block:
+    - name: Require the reviewed Ubuntu NVIDIA host-driver combination
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['distribution'] == 'Ubuntu'
+          - ansible_facts['distribution_version'] in ['24.04', '26.04']
+          - ansible_facts['architecture'] == 'x86_64'
+          - nvidia_display_driver_version == '595.91.07'
+          - nvidia_display_ubuntu_package_version is match('^595\\.91\\.07-0ubuntu0\\.(24|26)\\.04\\.1$')
+        fail_msg: >-
+          Automatic NVIDIA display preparation is reviewed only for Ubuntu
+          24.04/26.04 x86_64 with the pinned 595 driver. Do not install an unreviewed
+          host driver or let the GPU Operator take over an active console.
+
+    - name: Install the pinned NVIDIA host driver and diagnostic utility
+      ansible.builtin.apt:
+        name:
+          - "nvidia-headless-595-open={{ nvidia_display_ubuntu_package_version }}"
+          - "nvidia-utils-595={{ nvidia_display_ubuntu_package_version }}"
+        state: present
+        install_recommends: false
+        update_cache: false
+        allow_downgrade: false
+        fail_on_autoremove: true
+        allow_unauthenticated: false
+        force_apt_get: true
+      register: nvidia_display_packages
+
+    - name: Configure NVIDIA DRM to retain the Linux framebuffer console
+      ansible.builtin.copy:
+        dest: /etc/modprobe.d/90-magicstick-nvidia-display.conf
+        content: |
+          # Managed by Magic Stick on hosts with an NVIDIA display controller.
+          options nvidia-drm modeset=1 fbdev=1
+        owner: root
+        group: root
+        mode: "0644"
+      register: nvidia_display_modprobe
+
+    - name: Load NVIDIA DRM early on subsequent boots
+      ansible.builtin.copy:
+        dest: /etc/modules-load.d/90-magicstick-nvidia-display.conf
+        content: |
+          # Managed by Magic Stick on hosts with an NVIDIA display controller.
+          nvidia-drm
+        owner: root
+        group: root
+        mode: "0644"
+      register: nvidia_display_modules_load
+
+    - name: Create K3s configuration drop-in directory
+      ansible.builtin.file:
+        path: /etc/rancher/k3s/config.yaml.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Keep the GPU Operator from replacing the host display driver
+      ansible.builtin.copy:
+        dest: /etc/rancher/k3s/config.yaml.d/90-magicstick-nvidia-display.yaml
+        content: |
+          # The host owns NVIDIA DRM so the local setup/TUI console remains visible.
+          node-label:
+            - nvidia.com/gpu.deploy.driver=false
+        owner: root
+        group: root
+        mode: "0644"
+      register: nvidia_display_k3s_policy
+
+    - name: Mark a changed NVIDIA display installation for the first-boot restart
+      ansible.builtin.file:
+        path: "{{ nvidia_display_reboot_marker }}"
+        state: touch
+        owner: root
+        group: root
+        mode: "0600"
+      when: >-
+        nvidia_display_packages.changed or nvidia_display_modprobe.changed
+        or nvidia_display_modules_load.changed or nvidia_display_k3s_policy.changed
