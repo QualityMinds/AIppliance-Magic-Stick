@@ -1,0 +1,95 @@
+name: Azure Static Web Apps
+
+# The landing page and handbook are rendered by tools/docs.py (MkDocs plus the
+# marketing pages) into dist/docs-site. Azure's Oryx build engine cannot
+# reproduce that build, so this workflow builds the site itself and uploads
+# the finished folder with skip_app_build.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/**
+      - tools/docs.py
+      - tools/docs_diagrams.py
+      - tools/docs_hook.py
+      - tools/collect_python_notices.py
+      - requirements-docs.txt
+      - mkdocs.yml
+      - magic-cluster/platform/magicstick-operator/compute-target-catalog.yaml
+      - .github/workflows/azure-static-web-apps.yml
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches: [main]
+    paths:
+      - docs/**
+      - tools/docs.py
+      - tools/docs_diagrams.py
+      - tools/docs_hook.py
+      - tools/collect_python_notices.py
+      - requirements-docs.txt
+      - mkdocs.yml
+      - magic-cluster/platform/magicstick-operator/compute-target-catalog.yaml
+      - .github/workflows/azure-static-web-apps.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: azure-static-web-apps-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build_and_deploy_job:
+    if: github.event_name != 'pull_request' || github.event.action != 'closed'
+    name: Build and Deploy Job
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: write # Preview-environment links on pull requests
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-docs.txt
+      - name: Install documentation-only dependencies
+        run: python -m pip install -r requirements-docs.txt
+      - name: Build the complete static site
+        run: python tools/docs.py build
+      - name: Upload prebuilt site to Azure Static Web Apps
+        id: builddeploy
+        uses: Azure/static-web-apps-deploy@v1
+        env:
+          # Pull requests from forks have no deployment token; build only.
+          SKIP_DEPLOY_ON_MISSING_SECRETS: 'true'
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_CALM_COAST_02F8C4103 }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }} # Used for GitHub integrations (i.e. PR comments)
+          action: upload
+          ###### Repository/Build Configurations ######
+          # For more information regarding Static Web App workflow configurations, please visit: https://aka.ms/swaworkflowconfig
+          app_location: dist/docs-site # Prebuilt output from tools/docs.py build
+          api_location: '' # No API
+          output_location: '' # Must stay empty with skip_app_build
+          skip_app_build: true
+          skip_api_build: true
+          ###### End of Repository/Build Configurations ######
+
+  close_pull_request_job:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    name: Close Pull Request Job
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Close Pull Request
+        id: closepullrequest
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_CALM_COAST_02F8C4103 }}
+          action: close
