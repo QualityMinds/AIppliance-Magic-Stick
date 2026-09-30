@@ -40,7 +40,7 @@ class K3sInstallationContractTests(unittest.TestCase):
 
     def test_existing_cluster_is_not_upgraded_by_host_convergence(self):
         self.assertEqual(self.install["args"]["creates"], "/usr/local/bin/k3s")
-        install_commands = [task for task in self.tasks if "https://get.k3s.io" in task.get("ansible.builtin.shell", "")]
+        install_commands = [task for task in self.tasks if task.get("ansible.builtin.shell", "").strip() == "curl -sfL https://get.k3s.io | sh -"]
         self.assertEqual(install_commands, [self.install])
 
     def test_version_is_passed_as_environment_not_shell_interpolation(self):

@@ -96,10 +96,9 @@ CA has not been installed there, pass its public certificate once with
 `pnpm cli --ca-file /path/to/magicstick-oidc-ca.crt login`. The path is saved
 in the private CLI configuration for later CLI and TUI calls. Alternatively,
 set `MAGICSTICK_CA_FILE` or
-`NODE_EXTRA_CA_CERTS=/path/to/magicstick-oidc-ca.crt`. For a disposable test
-appliance on a trusted network, `--insecure` is an explicit escape hatch: it
-disables TLS verification only for that CLI process, prints a warning, and is
-never saved. Prefer the CA-based path for normal use.
+`NODE_EXTRA_CA_CERTS=/path/to/magicstick-oidc-ca.crt`. The legacy `--insecure`
+escape hatch is rejected; TLS certificate verification is required for all
+CLI and TUI connections.
 
 ### Physical appliance console
 

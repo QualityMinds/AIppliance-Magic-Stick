@@ -113,7 +113,6 @@ Global options:
   --issuer URL         Default: derived id.<domain>/realms/magicstick
   --client-id ID       Default: magicstick-cli
   --ca-file PATH       Trust this public appliance CA; saved after login
-  --insecure           Disable TLS verification for this process (test only)
   --json               Machine-readable JSON output
   --no-color           Disable ANSI colors in the TUI
   --refresh SECONDS    TUI refresh interval; minimum 5, default 15
@@ -505,14 +504,12 @@ export const runCli = async (argv: string[], suppliedIo: Partial<CliIo> = {}, de
     return 0;
   }
   const runtimeFactory = dependencies.createRuntime ?? createRuntime;
-  const insecure = option(parsed, 'insecure') === true;
-  if (insecure) {
-    io.stderr('WARNING: TLS certificate verification is disabled for this process (--insecure). Use only on a trusted test network.\n');
+  if (option(parsed, 'insecure') !== undefined) {
+    throw new Error('--insecure is no longer supported. Trust the appliance CA with --ca-file or MAGICSTICK_CA_FILE.');
   }
   const runtime = await runtimeFactory({
     apiUrl: textOption(parsed, 'api-url'), issuer: textOption(parsed, 'issuer'), clientId: textOption(parsed, 'client-id'),
     caFile: textOption(parsed, 'ca-file'),
-    insecure,
   });
   if (command === 'login') {
     await runtime.login(!option(parsed, 'no-open'), ({verificationUri, userCode, completeUri}) => {

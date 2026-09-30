@@ -76,9 +76,8 @@ short-lived access token without writing it to disk.
 
 The CLI includes the operating-system CA store. If the appliance CA is not
 trusted there, use `--ca-file /path/to/magicstick-oidc-ca.crt` for the first
-login; that public CA path is saved for later calls. On a disposable appliance
-in a trusted test network, `--insecure` bypasses certificate verification only
-for the current process, prints a warning, and is never persisted.
+login; that public CA path is saved for later calls. Certificate verification
+cannot be disabled with `--insecure`; use the appliance CA instead.
 
 The TUI has the same role-filtered areas as the browser: Overview, Services,
 Models, Settings, Users, API Access, License, Kubernetes, Hardware, and System. Use left/right or
