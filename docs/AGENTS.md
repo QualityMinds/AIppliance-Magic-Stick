@@ -33,8 +33,10 @@ README and public product collateral.
   visually check text fit. Do not hand-edit generated output alone.
 - Follow [website maintenance](development/website.md) for the static-only build,
   dashboard-aligned palette, translations, accessible controls and responsive checks.
-- Avoid adding remote tracking, fonts, rendering services or client frameworks
-  merely to publish documentation. Preserve readable content without JavaScript.
+- The only remote script is the cookie-free Umami tag that the build adds from
+  `mkdocs.yml`. Do not add further tracking, fonts, rendering services or client
+  frameworks merely to publish documentation. Preserve readable content without
+  JavaScript. Keep `docs/privacy.html` in step with the Umami configuration.
 
 ## Checks and publication
 

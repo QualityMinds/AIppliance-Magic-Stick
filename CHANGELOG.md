@@ -8,7 +8,12 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
-No unreleased changes.
+### Changed
+
+- The public website and handbook can send cookie-free visitor statistics to a
+  self-hosted Umami instance. The tag is added at build time from the
+  `extra.umami` block in `mkdocs.yml`, honours Do Not Track and is described in
+  the privacy policy.
 
 ## v0.1.2 - 2026-09-25
 

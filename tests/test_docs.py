@@ -115,6 +115,35 @@ class DocumentationTests(unittest.TestCase):
         self.assertIn('href="handbook/installation/bare-metal/#network"', rendered)
         self.assertIn('href="https://example.com/a.md"', rendered)
 
+    def test_analytics_tag_is_built_only_from_complete_configuration(self):
+        self.assertEqual(docs.analytics_tag({}), '')
+        self.assertEqual(docs.analytics_tag({'extra': {'umami': {'script': 'https://stats.example.org/script.js'}}}), '')
+        self.assertEqual(docs.analytics_tag(yaml.safe_load((docs.ROOT / 'mkdocs.yml').read_text())),
+                         docs.analytics_tag({'extra': yaml.safe_load((docs.ROOT / 'mkdocs.yml').read_text())['extra']}))
+        website = '0f4c2c9e-5b7d-4c0a-9f1e-2a6b8c3d4e5f'
+        tag = docs.analytics_tag({'extra': {'umami': {'script': 'https://stats.qualityminds.de/script.js',
+                                                      'website_id': website, 'domains': ['a.example.org', 'b.example.org']}}})
+        self.assertEqual(tag, '<script defer src="https://stats.qualityminds.de/script.js" '
+                              f'data-website-id="{website}" data-do-not-track="true" '
+                              'data-domains="a.example.org,b.example.org"></script>')
+        self.assertNotIn('data-domains', docs.analytics_tag({'extra': {'umami': {
+            'script': 'https://stats.qualityminds.de/script.js', 'website_id': website}}}))
+        for bad in ({'script': 'http://stats.qualityminds.de/script.js', 'website_id': website},
+                    {'script': 'https://localhost/script.js', 'website_id': website},
+                    {'script': 'https://stats.qualityminds.de/script.js', 'website_id': '"><script>'}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                docs.analytics_tag({'extra': {'umami': bad}})
+
+    def test_analytics_tag_is_inserted_once_at_the_end_of_the_head(self):
+        page = '<!doctype html><html><head><title>t</title>\n</head><body></head></body></html>'
+        tag = '<script defer src="https://stats.qualityminds.de/script.js"></script>'
+        rendered = docs.with_analytics(page, tag)
+        self.assertEqual(rendered.count(tag), 1)
+        self.assertTrue(rendered.index(tag) < rendered.index('</head>'))
+        self.assertGreater(rendered.index(tag), rendered.index('</title>'))
+        self.assertEqual(docs.with_analytics(page, ''), page)
+        self.assertEqual(docs.with_analytics('<p>no head</p>', tag), '<p>no head</p>')
+
     def test_link_hook_keeps_markdown_and_rewrites_repository_targets(self):
         source = self.file('docs/guide/topic.md', '')
         self.file('tools/example.py', '# source')
