@@ -11,6 +11,10 @@ See the [installer options and limitations](../../magic-installer/README.md#redu
 These are **test/prerelease downloads**, not a declaration that a complete
 installation or GPU setup passed. The workflow does not create a versioned
 product release, promote container images, write a USB drive or roll out an appliance.
+The separate [VM acceptance workflow](installer-vm-acceptance.md) can boot a
+published candidate, install it onto a blank virtual disk and verify first-run
+readiness. Its result is separate from the image build and from physical
+USB/Wi-Fi/GPU acceptance.
 
 The project owner confirmed a successful installation of the earlier online-only
 candidate on 24 September

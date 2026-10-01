@@ -12,6 +12,7 @@ Start with [development environment](environment.md) and the repository's
 - [Release channels and automation](releases.md), [image promotion](image-promotion.md)
   and [release checklist](release-checklist.md)
 - [Reusable reduced installer images](installer-images.md)
+- [USB installer VM acceptance](installer-vm-acceptance.md)
 - [License audit](license-audit.md) and [issuer/trust tooling](license-issuer.md)
 - [Documentation maintenance](documentation.md) and [marketing website](website.md)
 - [Integration reports](reports/README.md)

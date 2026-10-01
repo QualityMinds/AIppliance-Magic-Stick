@@ -1,0 +1,130 @@
+name: Installer VM acceptance
+
+on:
+  workflow_run:
+    workflows: [Build reduced installer image]
+    branches: [main]
+    types: [completed]
+  schedule:
+    - cron: '17 2 * * 1'
+    - cron: '47 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: installer-vm-acceptance
+  cancel-in-progress: false
+
+jobs:
+  install:
+    name: USB image installation in UEFI VM
+    if: >-
+      github.repository == 'QualityMinds/AIppliance-Magic-Stick' &&
+      (github.event_name == 'workflow_dispatch' ||
+       vars.AZURE_INSTALLER_VM_ENABLED == 'true') &&
+      (github.event_name != 'schedule' || github.event.schedule == '17 2 * * 1') &&
+      (github.event_name != 'workflow_run' ||
+       github.event.workflow_run.conclusion == 'success')
+    environment: installer-vm-acceptance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 210
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Check the VM acceptance harness
+        run: |
+          python -m pip install PyYAML==6.0.2
+          bash -n tools/azure_installer_vm_acceptance.sh
+          python -m unittest tests.test_installer_vm_acceptance
+      - name: Resolve the immutable published installer
+        id: media
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REVISION: ${{ github.event.workflow_run.head_sha || github.sha }}
+          CHANNEL: ${{ github.event.workflow_run.head_branch || github.ref_name }}
+        run: |
+          python tools/installer_artifact.py plan --channel "$CHANNEL" \
+            --revision "$SOURCE_REVISION" --plan "$RUNNER_TEMP/installer-plan.json"
+          python tools/installer_artifact.py lookup --plan "$RUNNER_TEMP/installer-plan.json" \
+            > "$RUNNER_TEMP/installer-lookup.txt"
+          if ! grep -qx 'reused=true' "$RUNNER_TEMP/installer-lookup.txt"; then
+            echo 'No complete published installer matches these exact build inputs.' >&2
+            exit 1
+          fi
+          tag="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["tag"])' "$RUNNER_TEMP/installer-plan.json")"
+          stem="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["stem"])' "$RUNNER_TEMP/installer-plan.json")"
+          gh release download "$tag" --repo QualityMinds/AIppliance-Magic-Stick \
+            --pattern "$stem.build.json" --dir "$RUNNER_TEMP"
+          python - "$RUNNER_TEMP/installer-plan.json" "$RUNNER_TEMP/$stem.build.json" >> "$GITHUB_OUTPUT" <<'PY'
+          import json
+          import sys
+          from tools import installer_artifact
+          plan = json.load(open(sys.argv[1]))
+          manifest = json.load(open(sys.argv[2]))
+          installer_artifact.check_manifest(manifest, plan)
+          image = plan['imageName']
+          print('tag=' + plan['tag'])
+          print('image=' + image)
+          print('sha256=' + manifest['assets'][image]['sha256'])
+          print('revision=' + plan['sourceRevision'])
+          PY
+      - name: Sign in to the approved Azure subscription using OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Install the USB image on an isolated Spot VM
+        env:
+          AZURE_SUBSCRIPTION: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          SOURCE_REVISION: ${{ steps.media.outputs.revision }}
+          INSTALLER_TAG: ${{ steps.media.outputs.tag }}
+          INSTALLER_IMAGE: ${{ steps.media.outputs.image }}
+          INSTALLER_SHA256: ${{ steps.media.outputs.sha256 }}
+          INSTALLER_VM_REPORT: ${{ runner.temp }}/installer-vm-report.json
+        run: bash tools/azure_installer_vm_acceptance.sh
+      - name: Save sanitized acceptance result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-vm-acceptance-result
+          path: ${{ runner.temp }}/installer-vm-report.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+  cleanup-expired:
+    name: Clean expired test resources
+    if: >-
+      github.repository == 'QualityMinds/AIppliance-Magic-Stick' &&
+      vars.AZURE_INSTALLER_VM_ENABLED == 'true' &&
+      github.event_name == 'schedule' &&
+      github.event.schedule == '47 3 * * *'
+    environment: installer-vm-acceptance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Delete only expired, tagged installer test groups
+        env:
+          AZURE_SUBSCRIPTION: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: python3 tools/azure_installer_vm_cleanup.py --subscription "$AZURE_SUBSCRIPTION" --delete-expired
