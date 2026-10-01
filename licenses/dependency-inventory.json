@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "158045c9aae06e3e460799689cfa2e29c2c0a29eebf5aee1ef50927428ddc419",
-  "deploymentReferencesSha256": "39edf8497a3e531c7d42c375b0811de797aaf419bc91ec4b1ee038d3383f94c2",
+  "deploymentReferencesSha256": "34f4182aeae0cb7657c940d54ff4429fced6081a0bc67bda1ee7e5d2046675f6",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -1989,6 +1989,16 @@
       "reference": "\"https://github.com/anchore/syft/releases/download/v1.52.0/syft_1.52.0_linux_${arch}.tar.gz\" \\"
     },
     {
+      "file": ".github/workflows/azure-static-web-apps.yml",
+      "line": 58,
+      "reference": "python-version: '3.12'"
+    },
+    {
+      "file": ".github/workflows/azure-static-web-apps.yml",
+      "line": 62,
+      "reference": "run: python -m pip install -r requirements-docs.txt"
+    },
+    {
       "file": ".github/workflows/build-amd-dra-image.yml",
       "line": 36,
       "reference": "repository: ROCm/k8s-gpu-dra-driver"
@@ -2035,17 +2045,17 @@
     },
     {
       "file": ".github/workflows/build-installer-image.yml",
-      "line": 51,
+      "line": 52,
       "reference": "python-version: '3.13'"
     },
     {
       "file": ".github/workflows/build-installer-image.yml",
-      "line": 54,
+      "line": 55,
       "reference": "python -m pip install PyYAML==6.0.2"
     },
     {
       "file": ".github/workflows/build-installer-image.yml",
-      "line": 138,
+      "line": 139,
       "reference": "python-version: '3.13'"
     },
     {
@@ -2255,7 +2265,7 @@
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 94,
+      "line": 95,
       "reference": "python3 -m pip install -r dashboard/apps/api/requirements.txt pyyaml"
     },
     {
@@ -2436,7 +2446,7 @@
     {
       "file": "magic-cluster/apps/dashboard/api-deployment.yaml",
       "line": 34,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-5a40f6990ad6e737b4d95f166166577453662ca4@sha256:54876913a5ea83c52789dfc9f09d4951411e685eef6e665d9b8f7b19a9e9e3a5"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-6a8ec01c3c5b78e6a0d57cd0c9edb7584cb9596c@sha256:bbdc69057ca4aaa44ead08db100999c7140372c057196d11768d8498f8d92471"
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
@@ -2456,7 +2466,7 @@
     {
       "file": "magic-cluster/apps/dashboard/deployment.yaml",
       "line": 32,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-5a40f6990ad6e737b4d95f166166577453662ca4@sha256:840aefc2a62d87e4c492ca8e052774d2f1071ae84e11276c64e7f09c2f96af2e"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-6a8ec01c3c5b78e6a0d57cd0c9edb7584cb9596c@sha256:fd2d2dd8dfd4cf4b946767963be3116492d7f51777fb567f6ed18e4a6c9edfce"
     },
     {
       "file": "magic-cluster/apps/instances/hermes/Chart.yaml",
@@ -3065,17 +3075,17 @@
     },
     {
       "file": "magic-installer/scripts/build-installer-image-container.sh",
-      "line": 405,
+      "line": 403,
       "reference": "printf 'Created installer image: %s\\n' \"$OUTPUT\""
     },
     {
       "file": "magic-installer/scripts/installer-media.py",
-      "line": 397,
+      "line": 383,
       "reference": "\"MAGICSTICK_PUBLIC_REPO\": \"https://github.com/QualityMinds/AIppliance-Magic-Stick.git\","
     },
     {
       "file": "magic-installer/scripts/installer-media.py",
-      "line": 489,
+      "line": 473,
       "reference": "if args.operation in (\"finish\", \"verify\") and not args.image:"
     }
   ],
