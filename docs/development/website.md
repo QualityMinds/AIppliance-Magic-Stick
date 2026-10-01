@@ -9,7 +9,9 @@ that the build adds; see [Visitor statistics](#visitor-statistics). The applianc
 dashboard is a separate application and is not changed by website updates.
 
 Follow [documentation maintenance](documentation.md) for the combined build, CI
-and the one-time switch of the Pages source to GitHub Actions.
+and the one-time switch of the Pages source to GitHub Actions. The Azure Static
+Web App that hosts the site is defined in
+[infrastructure/landingpage](../../infrastructure/landingpage/README.md).
 
 ## Sources and structure
 
