@@ -115,6 +115,10 @@
     {"Environment": "development/environment.md"},
     {"Checkout and bootstrap": "development/checkout.md"},
     {"Build and test": "development/testing.md"},
+    {"Regression testing": [
+      {"Test concept": "development/regression-test-concept.md"},
+      {"Test case catalog": "development/regression-test-catalog.md"}
+    ]},
     {"Extensions": "development/extensions.md"},
     {"Dashboard": "development/dashboard.md"},
     {"Model integration": "development/model-integration.md"},

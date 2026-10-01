@@ -38,6 +38,8 @@ __pycache__/
 *.py[cod]
 playwright-report/
 test-results/
+.regression/
+dashboard/apps/web/regression/.regression-output/
 
 # Kubernetes local tooling
 kubeconfig

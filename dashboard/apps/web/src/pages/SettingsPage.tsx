@@ -4,16 +4,14 @@ import {canAdminister} from '@magicstick/dashboard-core';
 import type {Session} from '@magicstick/dashboard-contracts';
 import {api} from '../api';
 import {Button, ErrorNotice, Field, Loading, Panel} from '../components';
-import {MeshPage} from './MeshPage';
 import {FederatedSsoPage} from './FederatedSsoPage';
 import {NetworkPage} from './NetworkPage';
 import {UpdatesPage} from './UpdatesPage';
 
-export type SettingsSectionId = 'domains' | 'mesh' | 'federated-sso' | 'network' | 'updates';
+export type SettingsSectionId = 'domains' | 'federated-sso' | 'network' | 'updates';
 
 const sections: Array<{id: SettingsSectionId; label: string; identity?: boolean; entitlement?: string}> = [
   {id: 'domains', label: 'Domains'},
-  {id: 'mesh', label: 'Mesh'},
   {id: 'federated-sso', label: 'Federated SSO', identity: true, entitlement: 'federated-sso'},
   {id: 'network', label: 'Network'},
   {id: 'updates', label: 'Updates'},
@@ -54,9 +52,8 @@ export const SettingsPage = ({session, section, onSectionChange}: {
         >{item.label}</Button>;
       })}
     </div>
-    <div role="tabpanel" aria-label={active === 'mesh' ? 'Mesh' : allowed.find((item) => item.id === active)?.label}>
+    <div role="tabpanel" aria-label={allowed.find((item) => item.id === active)?.label}>
       {active === 'domains' && <DomainSettings />}
-      {active === 'mesh' && <MeshPage />}
       {active === 'federated-sso' && <FederatedSsoPage />}
       {active === 'network' && <NetworkPage />}
       {active === 'updates' && <UpdatesPage />}

@@ -1,0 +1,26 @@
+services:
+  regression:
+    image: magicstick-regression:local
+    pull_policy: never
+    # Reuse Docker's bridge; do not consume another host subnet per checkout.
+    network_mode: bridge
+    init: true
+    user: "${REGRESSION_RUNNER_UID:-1001}:${REGRESSION_RUNNER_GID:-1001}"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    shm_size: 1gb
+    environment:
+      REGRESSION_CONFIG: /inputs/lab.json
+      REGRESSION_OUTPUT_DIR: /private/runs
+    volumes:
+      - type: bind
+        source: ${REGRESSION_INPUT_DIR:?Set REGRESSION_INPUT_DIR}
+        target: /inputs
+        read_only: true
+      - type: bind
+        source: ${REGRESSION_PRIVATE_DIR:?Set REGRESSION_PRIVATE_DIR}
+        target: /private
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,mode=1777,size=512m
+    # No published ports, privileged mode, Docker socket, or host project mount.

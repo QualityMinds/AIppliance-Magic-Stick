@@ -8,19 +8,21 @@ import {OverviewPage} from './pages/OverviewPage';
 import {ServicesPage} from './pages/ServicesPage';
 import {ModelsPage} from './pages/ModelsPage';
 import {ApiAccessPage} from './pages/ApiAccessPage';
+import {MeshPage} from './pages/MeshPage';
 import {KubernetesAccessPage} from './pages/KubernetesAccessPage';
 import {MyInstancesPage} from './pages/MyInstancesPage';
 import {allowedSystemSections, isSystemSection, SystemAreaPage, type SystemSectionId} from './pages/SystemAreaPage';
 import {allowedSettingsSections, isSettingsSection, type SettingsSectionId} from './pages/SettingsPage';
 
-type TabId = 'overview' | 'services' | 'models' | 'api-access' | 'kubernetes-access' | 'system';
+type TabId = 'overview' | 'services' | 'models' | 'api-access' | 'mesh' | 'kubernetes-access' | 'system';
 type DashboardRoute = {tab: TabId; systemSection: SystemSectionId; settingsSection: SettingsSectionId};
 
 const tabs: Array<{id: TabId; label: string; admin?: boolean; identity?: boolean}> = [
   {id: 'overview', label: 'Overview'},
-  {id: 'services', label: 'Services'},
   {id: 'models', label: 'Models'},
+  {id: 'services', label: 'Services'},
   {id: 'api-access', label: 'API Access', admin: true},
+  {id: 'mesh', label: 'Mesh', admin: true},
   {id: 'kubernetes-access', label: 'Kubernetes Access', admin: true, identity: true},
   {id: 'system', label: 'System'},
 ];
@@ -29,6 +31,8 @@ const initialRoute = (): DashboardRoute => {
   const value = window.location.hash.replace(/^#\/?/, '').replace(/\/$/, '');
   const [tab, section, subsection] = value.split('/');
   const systemRoute = (systemSection: SystemSectionId, settingsSection: SettingsSectionId = 'domains'): DashboardRoute => ({tab: 'system', systemSection, settingsSection});
+  const meshRoute: DashboardRoute = {tab: 'mesh', systemSection: 'status', settingsSection: 'domains'};
+  if ((tab === 'settings' && section === 'mesh') || (tab === 'system' && (section === 'mesh' || (section === 'settings' && subsection === 'mesh')))) return meshRoute;
   if (tab === 'settings') return systemRoute('settings', section && isSettingsSection(section) ? section : 'domains');
   if (tab === 'license' || tab === 'users') return systemRoute(tab);
   if (tab === 'federated-sso') return systemRoute('settings', 'federated-sso');
@@ -50,6 +54,7 @@ const ActivePage = ({route, session, onSystemSectionChange, onSettingsSectionCha
     case 'services': return <ServicesPage session={session} />;
     case 'models': return <ModelsPage session={session} />;
     case 'api-access': return <ApiAccessPage />;
+    case 'mesh': return <MeshPage />;
     case 'kubernetes-access': return <KubernetesAccessPage />;
     case 'system': return <SystemAreaPage session={session} section={route.systemSection} settingsSection={route.settingsSection} onSectionChange={onSystemSectionChange} onSettingsSectionChange={onSettingsSectionChange} />;
     default: return <OverviewPage />;
@@ -76,7 +81,11 @@ export const App = () => {
   }, [activeRoute.tab, activeRoute.systemSection, activeRoute.settingsSection, route.systemSection, route.settingsSection, route.tab, session.data]);
 
   useEffect(() => {
-    const followHash = () => setRoute(initialRoute());
+    const followHash = () => {
+      const next = initialRoute();
+      setRoute(next);
+      if (next.tab === 'mesh' && window.location.hash !== '#/mesh') window.history.replaceState(null, '', '#/mesh');
+    };
     window.addEventListener('hashchange', followHash);
     return () => window.removeEventListener('hashchange', followHash);
   }, []);

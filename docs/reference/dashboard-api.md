@@ -87,7 +87,7 @@ installations report the feature unavailable. See
 
 ### Other control-plane operations
 
-Administrators configure **System → Settings → Mesh** through the opt-in
+Administrators configure **Mesh**, a top-level dashboard page, through the opt-in
 core `private-mesh` module. No license file is required.
 The typed `/api/mesh` status reports runtime availability, and `/api/mesh/<action>`
 commands enforce administrator authorization and browser CSRF checks. The

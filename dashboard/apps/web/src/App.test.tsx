@@ -44,9 +44,14 @@ describe('default React dashboard', () => {
     expect(screen.getByRole('link', {name: 'Log out'})).toHaveAttribute('href', '/logout');
     expect(await screen.findByText('magicstick.local', {exact: false})).toBeInTheDocument();
     expect(screen.getByRole('button', {name: 'API Access'})).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Mesh'})).toBeInTheDocument();
     expect(screen.queryByRole('button', {name: 'Federated SSO'})).not.toBeInTheDocument();
     expect(screen.getByRole('button', {name: 'Kubernetes Access'})).toBeInTheDocument();
     const navigation = screen.getByRole('navigation', {name: 'Dashboard pages'});
+    const navigationLabels = within(navigation).getAllByRole('button').map((button) => button.textContent);
+    expect(navigationLabels.indexOf('Models')).toBe(navigationLabels.indexOf('Overview') + 1);
+    expect(navigationLabels.indexOf('Services')).toBe(navigationLabels.indexOf('Models') + 1);
+    expect(navigationLabels.indexOf('Mesh')).toBe(navigationLabels.indexOf('API Access') + 1);
     expect(within(navigation).getByRole('button', {name: 'System'})).toBeInTheDocument();
     expect(within(navigation).queryByRole('button', {name: 'Settings'})).not.toBeInTheDocument();
     expect(within(navigation).queryByRole('button', {name: 'License'})).not.toBeInTheDocument();
@@ -66,9 +71,10 @@ describe('default React dashboard', () => {
     expect(within(systemSections).getByRole('tab', {name: 'System Status'}).nextElementSibling).toBe(within(systemSections).getByRole('tab', {name: 'Computer power'}));
     await userEvent.click(within(systemSections).getByRole('tab', {name: 'Settings'}));
     const settingsSections = screen.getByRole('tablist', {name: 'Settings sections'});
-    for (const label of ['Domains', 'Mesh', 'Network', 'Updates']) {
+    for (const label of ['Domains', 'Network', 'Updates']) {
       expect(within(settingsSections).getByRole('tab', {name: label})).toBeEnabled();
     }
+    expect(within(settingsSections).queryByRole('tab', {name: 'Mesh'})).not.toBeInTheDocument();
     expect(await within(settingsSections).findByRole('tab', {name: 'Federated SSO'})).toBeEnabled();
   });
 
@@ -151,6 +157,24 @@ describe('default React dashboard', () => {
     expect(screen.getByRole('tab', {name: 'Settings'})).toHaveAttribute('aria-selected', 'true');
   });
 
+  it('opens Mesh from the primary navigation and redirects old Mesh links', async () => {
+    payloads['/api/mesh'] = {installed: false, configured: false, phase: 'disconnected', models: []};
+    renderApp();
+    const navigation = await screen.findByRole('navigation', {name: 'Dashboard pages'});
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).startsWith('/api/mesh'))).toBe(false);
+    await userEvent.click(within(navigation).getByRole('button', {name: 'Mesh'}));
+    expect(await screen.findByRole('heading', {name: 'Private Mesh'})).toBeInTheDocument();
+    await waitFor(() => expect(window.location.hash).toBe('#/mesh'));
+    for (const path of ['#/settings/mesh', '#/system/mesh', '#/system/settings/mesh']) {
+      window.location.hash = path;
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+      await waitFor(() => expect(window.location.hash).toBe('#/mesh'));
+      expect(screen.getByRole('heading', {name: 'Private Mesh'})).toBeInTheDocument();
+    }
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).startsWith('/api/mesh'))).toBe(true);
+    expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+  });
+
   it.each(['#/federated-sso', '#/system/federated-sso', '#/system/settings/federated-sso'])('opens Federated SSO under Settings from %s', async (path) => {
     window.history.replaceState(null, '', path);
     renderApp();
@@ -192,11 +216,17 @@ describe('default React dashboard', () => {
     payloads['/api/session'] = {subject: 'example', username: 'example', roles: [role]};
     renderApp();
     await screen.findByRole('heading', {name: 'Overview'});
-    for (const path of ['#/system/model-cache', '#/system/settings', '#/system/settings/mesh', '#/system/settings/federated-sso', '#/system/settings/network', '#/system/settings/updates', '#/system/network', '#/system/updates', '#/system/federated-sso']) {
+    for (const path of ['#/system/model-cache', '#/system/settings', '#/system/settings/federated-sso', '#/system/settings/network', '#/system/settings/updates', '#/system/network', '#/system/updates', '#/system/federated-sso']) {
       window.location.hash = path;
       window.dispatchEvent(new HashChangeEvent('hashchange'));
       await waitFor(() => expect(window.location.hash).toBe('#/system/status'));
       expect(screen.queryByRole('tablist', {name: 'Settings sections'})).not.toBeInTheDocument();
+    }
+    for (const path of ['#/mesh', '#/settings/mesh', '#/system/mesh', '#/system/settings/mesh']) {
+      window.location.hash = path;
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+      await waitFor(() => expect(window.location.hash).toBe('#/overview'));
+      expect(screen.queryByRole('button', {name: 'Mesh'})).not.toBeInTheDocument();
     }
     expect(vi.mocked(fetch).mock.calls.some(([input]) => /^\/api\/(settings|license|federated-sso|mesh|host-management)/.test(String(input)))).toBe(false);
   });
@@ -219,6 +249,7 @@ describe('default React dashboard', () => {
     renderApp();
     expect(await screen.findByRole('heading', {name: 'System Status'})).toBeInTheDocument();
     expect(screen.getByRole('button', {name: 'System'})).toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'Mesh'})).not.toBeInTheDocument();
     const systemSections = screen.getByRole('tablist', {name: 'System sections'});
     expect(within(systemSections).queryByRole('tab', {name: 'Users'})).not.toBeInTheDocument();
     expect(within(systemSections).queryByRole('tab', {name: /Federated SSO/})).not.toBeInTheDocument();

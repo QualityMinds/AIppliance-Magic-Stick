@@ -12,6 +12,8 @@
     "dev": "pnpm --filter @magicstick/dashboard-web dev",
     "test": "pnpm --filter @magicstick/dashboard-web test && pnpm --filter @magicstick/dashboard-cli test",
     "test:browser": "pnpm --filter @magicstick/dashboard-web test:browser",
+    "test:regression:harness": "pnpm --filter @magicstick/dashboard-web exec node regression/launch.mjs selftest",
+    "typecheck:regression": "pnpm --filter @magicstick/dashboard-web exec tsc -p regression/tsconfig.json",
     "test:components": "pnpm --filter @magicstick/dashboard-web test:components",
     "tui": "node apps/cli/dist/magicstick.js tui",
     "tui:demo": "node apps/cli/dist/magicstick.js tui --demo",
