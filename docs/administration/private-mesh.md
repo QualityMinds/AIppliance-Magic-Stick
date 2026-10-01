@@ -2,7 +2,7 @@
 
 ## Private Mesh operation
 
-Use **System → Settings → Mesh** for membership, invitations and per-model sharing.
+Use the top-level **Mesh** page for membership, invitations and per-model sharing.
 To join an existing mesh, use **Join Mesh** with a fresh **Magic Stick** invitation
 from its owner. This action remains visible after setup. The dialog guides module
 activation when needed and requires an explicit leave before switching meshes;

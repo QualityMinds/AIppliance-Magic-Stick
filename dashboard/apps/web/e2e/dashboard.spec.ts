@@ -19,6 +19,7 @@ async function appliance(page: Page, role = 'magicstick-admin', expired = false)
     '/api/models': {activations: [activation], models: [], presets: {}, computeTargets: {targets: []}, computeMemory: {devices: []}},
     '/api/status': {httpRoutes: [], hardwareOperators: {}},
     '/api/settings': {publicDomain: 'example.com', dashboardHost: 'example.com', mdnsDomain: 'example.local', mdnsName: 'example'},
+    '/api/mesh': {installed: false, configured: false, phase: 'disconnected', models: []},
     '/api/license': {state: 'missing', valid: false, features: [], revision: 'fixture'},
     '/api/host-management': {nodes: []},
     '/api/models/example-model/logs': {model: 'example-model', namespace: 'ai', generatedAt: '2026-09-24T00:00:00Z', tailLines: 300,
@@ -56,6 +57,9 @@ test('navigates the built dashboard without side effects', async ({page}) => {
   await expect(page.getByRole('heading', {name: 'Overview', exact: true})).toBeVisible();
   await expect(page.getByText('Signed in: example-admin')).toBeVisible();
   const nav = page.getByRole('navigation', {name: 'Dashboard pages'});
+  const labels = await nav.getByRole('button').allTextContents();
+  expect(labels.indexOf('Models')).toBe(labels.indexOf('Overview') + 1);
+  expect(labels.indexOf('Services')).toBe(labels.indexOf('Models') + 1);
   await nav.getByRole('button', {name: 'Models', exact: true}).click();
   await expect(page.getByRole('heading', {name: 'Installed Models'})).toBeVisible();
   await expect(page).toHaveURL(/#\/models$/);
@@ -68,6 +72,23 @@ test('navigates the built dashboard without side effects', async ({page}) => {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   expect(state.writes).toEqual([]);
   expect(errors).toEqual([]);
+});
+
+test('shows Mesh below API Access and preserves old Mesh links', async ({page}) => {
+  const state = await appliance(page);
+  await page.goto('/');
+  const nav = page.getByRole('navigation', {name: 'Dashboard pages'});
+  await expect(nav.getByRole('button', {name: 'Mesh', exact: true})).toBeVisible();
+  const labels = await nav.getByRole('button').allTextContents();
+  expect(labels.indexOf('Mesh')).toBe(labels.indexOf('API Access') + 1);
+  await nav.getByRole('button', {name: 'Mesh', exact: true}).click();
+  await expect(page.getByRole('heading', {name: 'Private Mesh'})).toBeVisible();
+  await expect(page).toHaveURL(/#\/mesh$/);
+  await page.goto('/#/system/settings/mesh');
+  await expect(page.getByRole('heading', {name: 'Private Mesh'})).toBeVisible();
+  await expect(page).toHaveURL(/#\/mesh$/);
+  await expect(page.getByRole('tablist', {name: 'Settings sections'})).toHaveCount(0);
+  expect(state.writes).toEqual([]);
 });
 
 test('stops and starts a saved model and shows its runtime logs', async ({page}) => {
@@ -105,6 +126,15 @@ test('viewer cannot reach power controls through a direct URL', async ({page}) =
   await expect(page).toHaveURL(/#\/system\/status$/);
   await expect(page.getByRole('tab', {name: 'Computer power'})).toHaveCount(0);
   await expect(page.getByRole('button', {name: 'Restart computer'})).toHaveCount(0);
+  expect(state.writes).toEqual([]);
+});
+
+test('viewer cannot reach Mesh through a direct URL', async ({page}) => {
+  const state = await appliance(page, 'magicstick-viewer');
+  await page.goto('/#/mesh');
+  await expect(page.getByRole('heading', {name: 'Overview', exact: true})).toBeVisible();
+  await expect(page).toHaveURL(/#\/overview$/);
+  await expect(page.getByRole('navigation', {name: 'Dashboard pages'}).getByRole('button', {name: 'Mesh'})).toHaveCount(0);
   expect(state.writes).toEqual([]);
 });
 

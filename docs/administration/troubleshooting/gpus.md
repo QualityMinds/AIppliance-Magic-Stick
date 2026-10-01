@@ -67,9 +67,9 @@ host convergence. See [Ubuntu updates](../ubuntu-updates.md) for held hardware
 packages, service coordination, manual actions and recovery.
 
 Network administration is under **System → Settings → Network**, alongside
-Domains, Mesh, Federated SSO, and Updates. Previous direct links to the moved
-System tabs redirect into Settings; authorization and license checks remain
-unchanged. Follow
+Domains, Federated SSO, and Updates. Mesh is a separate top-level page.
+Previous direct links to the moved System tabs redirect into Settings;
+authorization and license checks remain unchanged. Follow
 [network management and recovery](../network.md) for DHCP/static IPv4,
 Wi-Fi credentials, temporary application and rollback. Page loading and source
 publication must never initiate a network connection change.

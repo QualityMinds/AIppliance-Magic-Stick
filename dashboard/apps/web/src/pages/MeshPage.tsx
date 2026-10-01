@@ -64,7 +64,7 @@ const JoinMeshDialog = ({status, onClose, onJoined}: {status: MeshStatus; onClos
       <ErrorNotice error={install.error} />
       <div className="form-actions"><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={install.isPending || install.isSuccess} onClick={() => install.mutate()}>{install.isPending || install.isSuccess ? 'Installing…' : 'Enable Private Mesh'}</Button></div>
     </div> : <form className="stack" onSubmit={(event) => {event.preventDefault(); if (valid && !join.isPending) join.mutate();}}>
-      <div className="inline-info"><strong>Join with an invitation</strong><InfoPopover label="Mesh invitation"><p>On the mesh owner's dashboard, open System → Settings → Mesh → Invitations and create a Magic Stick invitation. Paste its single-use token here. An expired or already-used invitation must be replaced with a new one.</p></InfoPopover></div>
+      <div className="inline-info"><strong>Join with an invitation</strong><InfoPopover label="Mesh invitation"><p>On the mesh owner's dashboard, open Mesh → Invitations and create a Magic Stick invitation. Paste its single-use token here. An expired or already-used invitation must be replaced with a new one.</p></InfoPopover></div>
       <Field label="Node name"><input autoFocus value={nodeName} required maxLength={63} pattern={nodeNamePattern} disabled={join.isPending} onChange={(event) => setNodeName(event.target.value)} placeholder="magicstick-02" /></Field>
       <Field label="Invite token"><textarea autoComplete="off" spellCheck={false} value={token} required disabled={join.isPending} onChange={(event) => setToken(event.target.value.trim())} /></Field>
       <ErrorNotice error={join.error} />

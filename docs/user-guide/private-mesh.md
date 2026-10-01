@@ -1,7 +1,7 @@
 # Use Private Mesh
 
-Private Mesh is an opt-in core module managed from **System → Settings →
-Mesh**. It shares existing local vLLM, Ollama and FreeToken backends with enrolled appliances and
+Private Mesh is an opt-in core module managed from the top-level **Mesh** page.
+It shares existing local vLLM, Ollama and FreeToken backends with enrolled appliances and
 consume-only employee laptops. It never starts another copy of the model.
 
 ## Core access and security
@@ -23,14 +23,14 @@ their own Apache-2.0 notices. See [third-party obligations](../../THIRD_PARTY_NO
 
 ## User workflow
 
-1. Open **System → Settings → Mesh → Enable Private Mesh** as an administrator.
+1. Open **Mesh → Enable Private Mesh** as an administrator.
    The existing module/Flux lifecycle installs the optional component.
 2. Choose **Create Private Mesh**, enter mesh/device names, select relay settings
    and choose ready local models to share. Sharing is off unless selected.
 3. Under **Invitations**, create a single-use invitation for **Magic Stick** or
    **Employee laptop**. The token is displayed once; send it over a trusted
    channel. Invitations expire and can be revoked before use.
-4. On another appliance, open **System → Settings → Mesh → Join Mesh** and enter
+4. On another appliance, open **Mesh → Join Mesh** and enter
    the device name and the **Magic Stick** invitation token. The join entry stays
    visible after setup, including when disconnected. If the optional module is
    not installed, the dialog first offers **Enable Private Mesh** and waits for
