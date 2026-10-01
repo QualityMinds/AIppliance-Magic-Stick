@@ -8,7 +8,13 @@ post-install preparation cannot repair an installer that cannot boot.
 For an installer-created NVIDIA display host, the base host playbook separately
 installs a pinned display-owning driver and schedules one reboot after successful
 first convergence, so the physical setup/TUI console remains available. The
-media does not select the driver or schedule that reboot. CPU-only and AMD-only
+same host role keeps `nvidia-persistenced` active once the driver is usable. The
+GPU Operator's CDI device specifications refer to its Unix socket, so an
+inactive service can prevent newly created NVIDIA model containers from starting
+even when the operator and `nvidia-smi` appear healthy. Check
+`systemctl is-active nvidia-persistenced` and
+`test -S /run/nvidia-persistenced/socket` before changing the GPU Operator.
+The media does not select the driver or schedule that reboot. CPU-only and AMD-only
 hosts skip it; optional AMD kernel/profile changes remain administrator-confirmed.
 New USB media use Ubuntu 26.04 LTS and its native generic kernel for both the
 installer and installed system. This base-install choice is separate from the

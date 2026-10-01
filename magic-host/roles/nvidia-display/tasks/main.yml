@@ -46,6 +46,55 @@
         force_apt_get: true
       register: nvidia_display_packages
 
+    - name: Create NVIDIA persistence service override directory
+      ansible.builtin.file:
+        path: /etc/systemd/system/nvidia-persistenced.service.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Keep the host NVIDIA persistence socket available for CDI containers
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/nvidia-persistenced.service.d/90-magicstick.conf
+        content: |
+          # The GPU Operator's CDI spec mounts this socket into NVIDIA containers.
+          [Unit]
+          StopWhenUnneeded=false
+
+          [Service]
+          Restart=on-failure
+          RestartSec=5s
+
+          [Install]
+          WantedBy=multi-user.target
+        owner: root
+        group: root
+        mode: "0644"
+      register: nvidia_display_persistenced_override
+
+    - name: Enable NVIDIA persistence daemon across host reboots
+      ansible.builtin.systemd_service:
+        name: nvidia-persistenced.service
+        daemon_reload: "{{ nvidia_display_persistenced_override.changed }}"
+        enabled: true
+
+    - name: Check whether the NVIDIA driver is already usable before starting persistence
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/nvidia-smi
+          - -L
+      register: nvidia_display_gpu_probe
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Start NVIDIA persistence daemon when the driver is usable
+      ansible.builtin.systemd_service:
+        name: nvidia-persistenced.service
+        state: started
+      when: nvidia_display_gpu_probe.rc == 0
+
     - name: Configure NVIDIA DRM to retain the Linux framebuffer console
       ansible.builtin.copy:
         dest: /etc/modprobe.d/90-magicstick-nvidia-display.conf
