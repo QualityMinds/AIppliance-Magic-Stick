@@ -15,7 +15,7 @@ review is available separately; no open item is automatically marked approved.
 The source scan covers tracked files and non-ignored new files, owned package
 metadata, runtime entitlements, build paths and release-date metadata. The
 [`dependency-inventory.json`](../../licenses/dependency-inventory.json) records all
-157 packages in the frozen pnpm lockfile, installed license metadata where
+160 packages in the frozen pnpm lockfile, installed license metadata where
 available, the audit Python environment and deployment/build references.
 Platform-specific npm packages that are not installed locally are explicitly
 `lock-only`, not cleared. The inventory checksums both the pnpm lockfile and the

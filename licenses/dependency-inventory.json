@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
-  "pnpmLockSha256": "158045c9aae06e3e460799689cfa2e29c2c0a29eebf5aee1ef50927428ddc419",
-  "deploymentReferencesSha256": "39edf8497a3e531c7d42c375b0811de797aaf419bc91ec4b1ee038d3383f94c2",
+  "pnpmLockSha256": "4ae55e7f54bc30000b2ff38776d17b228c6fb76ac131b110e0a009cf6a5436b6",
+  "deploymentReferencesSha256": "6cf0144f51edfa13dfb1d598d395be17c2335da879fe7a21ef2dcd6016c4eadf",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -1720,10 +1720,10 @@
     },
     {
       "name": "undici",
-      "version": "8.10.1",
+      "version": "8.10.2",
       "declaredLicense": "MIT",
       "evidence": "installed-package",
-      "integrity": "sha512-YQ3WlbqjYMmNpdvDH64jAgLjxuAR9+649calDWhbshYaeQGO2bR4nI94ORJmwI3J9YhoKQnpyGOK+0zlWS5N5Q==",
+      "integrity": "sha512-/y4/bH9YNU5hi9NIrpOuvGXFcxrj3CMrV+/AYpowAYTpHn8gX/XPFjNy766FPoYY0miQhdW977JFWKGNhBdwyQ==",
       "licenseFiles": [
         {
           "file": "LICENSE",
@@ -2035,17 +2035,17 @@
     },
     {
       "file": ".github/workflows/build-installer-image.yml",
-      "line": 51,
+      "line": 52,
       "reference": "python-version: '3.13'"
     },
     {
       "file": ".github/workflows/build-installer-image.yml",
-      "line": 54,
+      "line": 55,
       "reference": "python -m pip install PyYAML==6.0.2"
     },
     {
       "file": ".github/workflows/build-installer-image.yml",
-      "line": 138,
+      "line": 139,
       "reference": "python-version: '3.13'"
     },
     {
@@ -2179,6 +2179,16 @@
       "reference": "- run: python -m pip install -r requirements-docs.txt"
     },
     {
+      "file": ".github/workflows/installer-vm-acceptance.yml",
+      "line": 43,
+      "reference": "python-version: '3.13'"
+    },
+    {
+      "file": ".github/workflows/installer-vm-acceptance.yml",
+      "line": 46,
+      "reference": "python -m pip install PyYAML==6.0.2"
+    },
+    {
       "file": ".github/workflows/license-audit.yml",
       "line": 52,
       "reference": "with: {node-version: '24'}"
@@ -2255,7 +2265,7 @@
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 94,
+      "line": 95,
       "reference": "python3 -m pip install -r dashboard/apps/api/requirements.txt pyyaml"
     },
     {
@@ -3065,17 +3075,17 @@
     },
     {
       "file": "magic-installer/scripts/build-installer-image-container.sh",
-      "line": 405,
+      "line": 403,
       "reference": "printf 'Created installer image: %s\\n' \"$OUTPUT\""
     },
     {
       "file": "magic-installer/scripts/installer-media.py",
-      "line": 397,
+      "line": 383,
       "reference": "\"MAGICSTICK_PUBLIC_REPO\": \"https://github.com/QualityMinds/AIppliance-Magic-Stick.git\","
     },
     {
       "file": "magic-installer/scripts/installer-media.py",
-      "line": 489,
+      "line": 473,
       "reference": "if args.operation in (\"finish\", \"verify\") and not args.image:"
     }
   ],
