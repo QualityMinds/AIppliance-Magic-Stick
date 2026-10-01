@@ -201,6 +201,32 @@ class UserAdminIdentityTests(unittest.TestCase):
             certificates["identity-pilot"]["spec"]["dnsNames"],
         )
 
+    def test_local_litellm_route_is_covered_by_gateway_certificate(self):
+        certificates = [
+            document for document in load_documents("pilot-certificate.yaml")
+            if document and document["kind"] == "Certificate"
+        ]
+        certificate = next(
+            document for document in certificates
+            if document["metadata"]["name"] == "identity-pilot"
+        )
+        litellm_gateway = (
+            IDENTITY_DIR.parent.parent / "apps" / "ai" / "litellm" / "base" / "gateway.yaml"
+        )
+        routes = [
+            document for document in yaml.safe_load_all(litellm_gateway.read_text(encoding="utf-8"))
+            if document and document["kind"] == "HTTPRoute"
+        ]
+        route = next(
+            document for document in routes
+            if document["metadata"]["name"] == "static-litellm-local"
+        )
+        self.assertEqual(len(route["spec"]["hostnames"]), 1)
+        self.assertIn(
+            route["spec"]["hostnames"][0],
+            certificate["spec"]["dnsNames"],
+        )
+
     def test_kubernetes_group_bindings_have_distinct_least_privilege_levels(self):
         documents = [document for document in load_documents("kubernetes-access-rbac.yaml") if document]
         bindings = {document["metadata"]["name"]: document for document in documents if document["kind"] == "ClusterRoleBinding"}
