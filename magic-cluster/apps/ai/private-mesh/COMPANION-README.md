@@ -33,7 +33,7 @@ success does not establish compatibility with every older OS version.
 
 ## Join your mesh
 
-1. On a Magic Stick, open **System → Settings → Mesh → Invitations**
+1. On a Magic Stick, open **Mesh → Invitations**
    and create a **Client / Employee laptop** invitation.
 2. Start the companion. It opens its local interface in your browser.
 3. Enter a device name and the one-time invitation token, then select **Join
