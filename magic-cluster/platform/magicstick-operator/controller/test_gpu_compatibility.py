@@ -409,6 +409,20 @@ class GpuCompatibilityTests(unittest.TestCase):
         self.assertEqual(probe_role["metadata"]["namespace"], "ai-system")
         self.assertEqual(probe_role["rules"][0]["resources"], ["jobs"])
         self.assertIn("create", probe_role["rules"][0]["verbs"])
+        runtime_probe_role = next(resource for resource in operator_resources if resource["kind"] == "Role"
+                                  and resource["metadata"]["name"] == "magicstick-gpu-validation-runtime")
+        self.assertEqual(runtime_probe_role["metadata"]["namespace"], "ai")
+        self.assertEqual(runtime_probe_role["rules"], [{"apiGroups": ["batch"], "resources": ["jobs"],
+                                                        "verbs": ["get", "list", "create", "patch", "delete"]}])
+        runtime_binding = next(resource for resource in operator_resources if resource["kind"] == "RoleBinding"
+                               and resource["metadata"]["name"] == "magicstick-gpu-validation-runtime")
+        self.assertEqual(runtime_binding["metadata"]["namespace"], "ai")
+        self.assertEqual(runtime_binding["roleRef"]["name"], runtime_probe_role["metadata"]["name"])
+        self.assertEqual(runtime_binding["subjects"], [{"kind": "ServiceAccount", "name": "magicstick-operator",
+                                                         "namespace": "ai-system"}])
+        operator_role = next(resource for resource in operator_resources if resource["kind"] == "ClusterRole"
+                             and resource["metadata"]["name"] == "magicstick-operator")
+        self.assertFalse(any("jobs" in rule.get("resources", []) for rule in operator_role["rules"]))
 
     def test_validation_programs_compile_and_separate_gpu_from_memory_proof(self):
         config = yaml.safe_load((ROOT / "gpu-validation-configmap.yaml").read_text())
