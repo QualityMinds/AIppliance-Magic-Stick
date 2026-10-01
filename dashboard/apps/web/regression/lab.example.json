@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "profile": "preflight",
+  "dashboardUrl": "https://example.local",
+  "identityUrl": "https://id.example.local",
+  "inferenceUrl": "https://inference.example.local",
+  "caFile": "appliance-ca.pem",
+  "usernameFile": "username.txt",
+  "passwordFile": "password.txt",
+  "observerKubeconfig": "observer.yaml",
+  "requestTimeoutMs": 15000,
+  "loginTimeoutMs": 90000,
+  "modelCleanupKubeconfig": "model-cleaner.yaml",
+  "smokeModel": {
+    "engine": "OLlama",
+    "computeTarget": "cpu",
+    "url": "ollama://qwen2.5:0.5b-instruct-q4_K_M",
+    "memoryRequiredMi": 2048,
+    "contextWindow": 2048,
+    "maxNumSeqs": 1
+  },
+  "expected": {
+    "applianceUid": "CHANGEME",
+    "applianceNamespace": "ai-system",
+    "applianceName": "local",
+    "role": "magicstick-admin",
+    "nodes": [{"name": "CHANGEME", "uid": "CHANGEME"}],
+    "capabilities": [{"target": "cpu", "engines": ["OLlama", "VLLM"]}],
+    "images": []
+  }
+}
