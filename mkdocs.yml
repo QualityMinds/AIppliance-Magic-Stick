@@ -50,7 +50,7 @@ extra:
   # Keep docs/privacy.html in step with this block.
   umami:
     script: 'https://magic-stick-landingpage-umami.graybeach-b98ec0d1.germanywestcentral.azurecontainerapps.io/script.js'
-    website_id: 'c399ba2e-789e-4c08-ae54-86ab2f331aa7'
+    website_id: '97e24eee-709d-43f4-a86c-718abd4c0043'
     domains: []     # optional: only count visits on these public hostnames
 validation:
   nav:
