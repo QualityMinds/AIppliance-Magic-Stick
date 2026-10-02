@@ -1,7 +1,8 @@
 // Cookie-free Umami visitor statistics for the landing page and handbook.
 //
 // Owns the PostgreSQL server, the Container Apps environment with its Log
-// Analytics workspace and the Umami container app. The site embeds the script
+// Analytics workspace, the Umami container app and the scheduled job that
+// deletes visitor data after the retention period of docs/privacy.html. The site embeds the script
 // URL from the `extra.umami` block of mkdocs.yml. Subscription and resource group
 // are chosen at deployment time (see README.md); secrets are passed at
 // deployment time and are never stored in this repository.
@@ -38,8 +39,25 @@ param databaseAdminPassword string
 @description('Umami APP_SECRET. Keep the previous value when migrating so existing logins stay valid.')
 param appSecret string
 
+// Pinned by digest: the privacy policy describes what this version collects.
+// Review docs/privacy.html before upgrading; Umami cannot be downgraded after
+// its migrations have run.
 @description('Umami container image.')
-param image string = 'docker.umami.is/umami-software/umami:latest'
+param image string = 'docker.umami.is/umami-software/umami:3.4.0@sha256:85909afc45bdcda1917394594a087421fdbb05610fded0fa9f6fb861abb2f367'
+
+@description('Name of the retention job. Container Apps jobs allow at most 32 characters.')
+@maxLength(32)
+param purgeJobName string = 'magic-stick-umami-retention'
+
+@description('Months after which visitor data is deleted. Must match the retention in docs/privacy.html.')
+@minValue(1)
+param retentionMonths int = 25
+
+@description('PostgreSQL client image of the retention job.')
+param purgeImage string = 'docker.io/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea'
+
+@description('Schedule (cron, UTC) of the retention job.')
+param purgeSchedule string = '17 3 * * *'
 
 @description('Optional resource tags.')
 param tags object = {}
@@ -252,6 +270,88 @@ resource umami 'Microsoft.App/containerApps@2025-01-01' = {
     database::umamiDatabase
     database::allowExtensions
     database::allowAzureServices
+  ]
+}
+
+// Umami has no retention setting, so this job deletes visitor records older than
+// retentionMonths. Tables are checked first because the set differs between
+// Umami versions. Sessions go last and only once no events refer to them.
+var purgeSql = replace('''
+DO $$
+DECLARE
+  cutoff timestamptz := now() - make_interval(months => __MONTHS__);
+  t text;
+  n bigint;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['event_data', 'session_data', 'revenue', 'heatmap_event',
+      'session_replay', 'session_link', 'website_event'] LOOP
+    IF to_regclass('public.' || t) IS NOT NULL THEN
+      EXECUTE format('DELETE FROM %I WHERE created_at < $1', t) USING cutoff;
+      GET DIAGNOSTICS n = ROW_COUNT;
+      RAISE NOTICE '%: % rows deleted', t, n;
+    END IF;
+  END LOOP;
+  DELETE FROM session s WHERE s.created_at < cutoff
+    AND NOT EXISTS (SELECT 1 FROM website_event e WHERE e.session_id = s.session_id);
+  GET DIAGNOSTICS n = ROW_COUNT;
+  RAISE NOTICE 'session: % rows deleted', n;
+END $$;
+''', '__MONTHS__', string(retentionMonths))
+
+resource purge 'Microsoft.App/jobs@2025-01-01' = {
+  name: purgeJobName
+  location: location
+  tags: tags
+  properties: {
+    environmentId: environment.id
+    workloadProfileName: 'Consumption'
+    configuration: {
+      triggerType: 'Schedule'
+      scheduleTriggerConfig: {
+        cronExpression: purgeSchedule
+        parallelism: 1
+        replicaCompletionCount: 1
+      }
+      replicaTimeout: 1800
+      replicaRetryLimit: 1
+      secrets: [
+        {
+          name: 'database-url'
+          value: 'postgresql://${databaseAdminLogin}:${databaseAdminPassword}@${database.properties.fullyQualifiedDomainName}:5432/${databaseName}?sslmode=require'
+        }
+      ]
+    }
+    template: {
+      containers: [
+        {
+          name: 'retention'
+          image: purgeImage
+          command: [
+            '/bin/sh'
+            '-c'
+            'printf \'%s\' "$PURGE_SQL" | psql "$DATABASE_URL" --no-psqlrc -v ON_ERROR_STOP=1'
+          ]
+          env: [
+            {
+              name: 'DATABASE_URL'
+              secretRef: 'database-url'
+            }
+            {
+              name: 'PURGE_SQL'
+              value: purgeSql
+            }
+          ]
+          resources: {
+            cpu: json('0.25')
+            memory: '0.5Gi'
+          }
+        }
+      ]
+    }
+  }
+  // Umami creates the tables on its first start.
+  dependsOn: [
+    umami
   ]
 }
 

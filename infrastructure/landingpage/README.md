@@ -9,7 +9,7 @@ these templates only manage the hosting resources.
 |---|---|
 | `staticwebapp.bicep` | Static Web App resource (resource-group scope) |
 | `staticwebapp.bicepparam` | Public default parameter values |
-| `umami.bicep` | Umami visitor statistics: PostgreSQL, Container Apps environment and app |
+| `umami.bicep` | Umami visitor statistics: PostgreSQL, Container Apps environment, app and retention job |
 | `umami.bicepparam` | Public defaults; secrets are read from environment variables |
 
 The subscription and resource group are deployment targets, not template
@@ -53,6 +53,13 @@ and store it as the `AZURE_STATIC_WEB_APPS_API_TOKEN` repository secret.
 The target subscription needs the `Microsoft.App`, `Microsoft.DBforPostgreSQL`
 and `Microsoft.OperationalInsights` resource providers registered
 (`az provider register -n <namespace> --wait`).
+
+The template also creates the `magic-stick-umami-retention` Container Apps job.
+It runs daily and deletes visitor records older than `retentionMonths` (25), the period
+stated in the privacy policy. Check a run with
+`az containerapp job execution list -g "<resource-group>" -n magic-stick-umami-retention`.
+The Umami image is pinned by digest; update `image` only after checking the
+privacy policy against the new version, as Umami migrations cannot be undone.
 
 ```sh
 # URL-safe characters only: the password becomes part of DATABASE_URL.
