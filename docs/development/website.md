@@ -177,8 +177,9 @@ markup, reviewed image dimensions, authoritative license links and build routing
 They do not prove visual fit or interaction behavior: those need a browser.
 
 Follow the [public release checklist](release-checklist.md). After a push, confirm
-that the Azure Static Web Apps deployment succeeded for the exact commit, that
-published HTML/assets match it and that GitHub Pages forwards to it.
+that the Azure Static Web Apps deployment succeeded for the exact commit and that
+published HTML/assets match it. GitHub Pages only needs the manual redirect
+workflow when the website address or its set of pages changes.
 No dashboard/container rollout is required for a website-only change.
 
 ## Previous artwork provenance

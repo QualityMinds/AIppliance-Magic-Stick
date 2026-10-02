@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "158045c9aae06e3e460799689cfa2e29c2c0a29eebf5aee1ef50927428ddc419",
-  "deploymentReferencesSha256": "34f4182aeae0cb7657c940d54ff4429fced6081a0bc67bda1ee7e5d2046675f6",
+  "deploymentReferencesSha256": "8138fad9996796a1fd33a51187eb46e140b5d86a4755bd1c911b8dcb62871c58",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -2169,23 +2169,23 @@
       "reference": "node-version: '24'"
     },
     {
-      "file": ".github/workflows/docs.yml",
-      "line": 63,
+      "file": ".github/workflows/docs-checks.yml",
+      "line": 66,
       "reference": "python-version: '3.12'"
     },
     {
-      "file": ".github/workflows/docs.yml",
-      "line": 67,
+      "file": ".github/workflows/docs-checks.yml",
+      "line": 70,
       "reference": "run: python -m pip install -r requirements-docs.txt"
     },
     {
-      "file": ".github/workflows/docs.yml",
-      "line": 116,
+      "file": ".github/workflows/docs-checks.yml",
+      "line": 92,
       "reference": "python-version: '3.12'"
     },
     {
-      "file": ".github/workflows/docs.yml",
-      "line": 117,
+      "file": ".github/workflows/docs-checks.yml",
+      "line": 93,
       "reference": "- run: python -m pip install -r requirements-docs.txt"
     },
     {
@@ -2237,6 +2237,16 @@
       "file": ".github/workflows/license-audit.yml",
       "line": 110,
       "reference": "repository: ${{ matrix.repository }}"
+    },
+    {
+      "file": ".github/workflows/pages-redirect.yml",
+      "line": 39,
+      "reference": "python-version: '3.12'"
+    },
+    {
+      "file": ".github/workflows/pages-redirect.yml",
+      "line": 43,
+      "reference": "run: python -m pip install -r requirements-docs.txt"
     },
     {
       "file": ".github/workflows/promote-freetoken-runtime.yml",

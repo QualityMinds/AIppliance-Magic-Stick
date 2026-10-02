@@ -251,7 +251,7 @@ class DocumentationTests(unittest.TestCase):
                 self.assertIn('full-size labels', source)
 
     def test_documentation_workflow_watches_diagram_source_changes(self):
-        workflow = yaml.safe_load((docs.ROOT / '.github/workflows/docs.yml').read_text())
+        workflow = yaml.safe_load((docs.ROOT / '.github/workflows/docs-checks.yml').read_text())
         events = workflow.get('on', workflow.get(True))
         for event in ('pull_request', 'push'):
             self.assertIn('tools/docs_diagrams.py', events[event]['paths'])
@@ -311,17 +311,15 @@ class DocumentationTests(unittest.TestCase):
         self.assertIn('Keep the original image, checksum, build manifest and evidence archive unchanged.', report)
         self.assertIn('../' + path, (docs.DOCS / 'installation/bare-metal.md').read_text())
 
-    def test_ci_checks_pull_requests_but_only_deploys_main(self):
-        workflow = yaml.safe_load((docs.ROOT / '.github/workflows/docs.yml').read_text())
+    def test_ci_checks_pull_requests_without_publishing(self):
+        workflow = yaml.safe_load((docs.ROOT / '.github/workflows/docs-checks.yml').read_text())
         events = workflow.get('on', workflow.get(True))
         self.assertIn('pull_request', events)
         self.assertIn('schedule', events)
         self.assertEqual(workflow['permissions'], {'contents': 'read'})
         jobs = workflow['jobs']
-        self.assertEqual(jobs['build']['permissions']['pages'], 'read')
-        self.assertIn("refs/heads/main", jobs['deploy']['if'])
-        self.assertIn("!= 'pull_request'", jobs['deploy']['if'])
-        self.assertIn("!= 'schedule'", jobs['deploy']['if'])
+        self.assertNotIn('pages', jobs['build']['permissions'])
+        self.assertNotIn('deploy', jobs)
         self.assertTrue(jobs['external-links']['continue-on-error'])
         self.assertNotIn('pull_request', jobs['external-links']['if'])
 
@@ -344,13 +342,18 @@ class DocumentationTests(unittest.TestCase):
         self.assertIn('location.replace("https://website.azurestaticapps.net"+p', fallback)
         self.assertTrue((out / '.nojekyll').exists())
 
-    def test_pages_publishes_only_the_redirect_artifact(self):
-        workflow = yaml.safe_load((docs.ROOT / '.github/workflows/docs.yml').read_text())
-        self.assertIn('azurestaticapps.net', workflow['env']['WEBSITE_URL'])
-        steps = workflow['jobs']['build']['steps']
+    def test_pages_redirect_runs_manually_from_main_only(self):
+        workflow = yaml.safe_load((docs.ROOT / '.github/workflows/pages-redirect.yml').read_text())
+        self.assertEqual(list(workflow.get('on', workflow.get(True))), ['workflow_dispatch'])
+        self.assertEqual(workflow['permissions'], {'contents': 'read'})
+        build = workflow['jobs']['build']
+        self.assertIn('refs/heads/main', build['if'])
+        self.assertIn('azurestaticapps.net', build['env']['WEBSITE_URL'])
+        steps = build['steps']
         self.assertIn('python tools/docs.py redirect', [step.get('run') for step in steps])
         upload = next(step for step in steps if step.get('uses', '').startswith('actions/upload-pages-artifact'))
         self.assertEqual(upload['with']['path'], 'dist/pages-redirect')
+        self.assertEqual(workflow['jobs']['deploy']['environment']['name'], 'github-pages')
 
     def test_all_legacy_paths_anchors_and_targets_survive(self):
         records = json.loads((docs.DOCS / 'migration.json').read_text())
