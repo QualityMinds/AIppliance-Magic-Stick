@@ -226,6 +226,37 @@ def marketing_links(text):
     return re.sub(r'(href=")([^"]+)(")', replace, text)
 
 
+def analytics_tag(config):
+    """Cookie-free Umami tag from the `extra.umami` block of mkdocs.yml, or '' when unset.
+
+    The tag is only added to the built site so that the committed HTML sources,
+    local previews and tests remain free of remote scripts. Umami stores nothing
+    on the visitor's device; `data-do-not-track` additionally honours the
+    browser's Do Not Track setting.
+    """
+    umami = (config.get('extra') or {}).get('umami') or {}
+    script, website_id = umami.get('script') or '', umami.get('website_id') or ''
+    if not script or not website_id:
+        return ''
+    if urlsplit(script).scheme != 'https' or not public_url(script):
+        raise ValueError(f'Umami script must be a public https URL, not {script!r}')
+    if not re.fullmatch(r'[0-9a-fA-F-]{36}', website_id):
+        raise ValueError(f'Umami website_id must be a UUID, not {website_id!r}')
+    attributes = {'src': script, 'data-website-id': website_id, 'data-do-not-track': 'true'}
+    domains = umami.get('domains') or []
+    if domains:
+        # Restricts counting to the public hostnames; preview deployments are ignored.
+        attributes['data-domains'] = ','.join(domains)
+    return '<script defer ' + ' '.join(f'{k}="{html.escape(v, quote=True)}"' for k, v in attributes.items()) + '></script>'
+
+
+def with_analytics(text, tag):
+    """Insert the analytics tag once, at the end of the document head."""
+    if not tag or '</head>' not in text:
+        return text
+    return text.replace('</head>', '  ' + tag + '\n</head>', 1)
+
+
 def check_migration_output():
     errors, cache = [], {}
     for old, record in json.loads((DOCS / 'migration.json').read_text()).items():
@@ -245,10 +276,14 @@ def build():
     if not check(): return False
     if OUT.exists(): shutil.rmtree(OUT)
     OUT.mkdir(parents=True, exist_ok=True)
+    config = yaml.safe_load((ROOT / 'mkdocs.yml').read_text())
+    analytics = analytics_tag(config)
     subprocess.run([sys.executable, '-m', 'mkdocs', 'build', '--strict'], cwd=ROOT, check=True)
+    for page in sorted((OUT / 'handbook').rglob('*.html')):
+        page.write_text(with_analytics(page.read_text(), analytics))
     for name in (*MARKETING_PAGES, 'site.css', 'site.js'):
         if name.endswith('.html'):
-            (OUT / name).write_text(marketing_links((DOCS / name).read_text()))
+            (OUT / name).write_text(with_analytics(marketing_links((DOCS / name).read_text()), analytics))
         else:
             shutil.copy2(DOCS / name, OUT / name)
     shutil.copytree(DOCS / 'assets', OUT / 'assets', dirs_exist_ok=True)
@@ -274,8 +309,7 @@ def build():
         md.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(DOCS / old, md)
     (OUT / '.nojekyll').touch()
-    site_url = yaml.safe_load((ROOT / 'mkdocs.yml').read_text())['site_url']
-    prefix = urlsplit(site_url).path.rstrip('/').rsplit('/', 1)[0]
+    prefix = urlsplit(config['site_url']).path.rstrip('/').rsplit('/', 1)[0]
     errors = check_links(sorted(OUT.rglob('*.html')), OUT, prefix) + check_migration_output()
     if errors:
         print('\n'.join(errors))

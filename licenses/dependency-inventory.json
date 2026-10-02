@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "4ae55e7f54bc30000b2ff38776d17b228c6fb76ac131b110e0a009cf6a5436b6",
-  "deploymentReferencesSha256": "6cf0144f51edfa13dfb1d598d395be17c2335da879fe7a21ef2dcd6016c4eadf",
+  "deploymentReferencesSha256": "cb468d28a933b4ce1790decaee5bda52b9b81834eef9f122a9984086157a94cd",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -1989,6 +1989,16 @@
       "reference": "\"https://github.com/anchore/syft/releases/download/v1.52.0/syft_1.52.0_linux_${arch}.tar.gz\" \\"
     },
     {
+      "file": ".github/workflows/azure-static-web-apps.yml",
+      "line": 58,
+      "reference": "python-version: '3.12'"
+    },
+    {
+      "file": ".github/workflows/azure-static-web-apps.yml",
+      "line": 62,
+      "reference": "run: python -m pip install -r requirements-docs.txt"
+    },
+    {
       "file": ".github/workflows/build-amd-dra-image.yml",
       "line": 36,
       "reference": "repository: ROCm/k8s-gpu-dra-driver"
@@ -2446,7 +2456,7 @@
     {
       "file": "magic-cluster/apps/dashboard/api-deployment.yaml",
       "line": 34,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-5a40f6990ad6e737b4d95f166166577453662ca4@sha256:54876913a5ea83c52789dfc9f09d4951411e685eef6e665d9b8f7b19a9e9e3a5"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-0a4701847ec08562cde16570f6b88057c5c8ea64@sha256:466a7386994ad4b37ff153ba6bf5cac2c6ffce53727f3cd5804a28bcd1ce265a"
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
@@ -2466,7 +2476,7 @@
     {
       "file": "magic-cluster/apps/dashboard/deployment.yaml",
       "line": 32,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-5a40f6990ad6e737b4d95f166166577453662ca4@sha256:840aefc2a62d87e4c492ca8e052774d2f1071ae84e11276c64e7f09c2f96af2e"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-0a4701847ec08562cde16570f6b88057c5c8ea64@sha256:cb25d6f4ab42c1d111e584138a145d16f5ca4458688545ed20fd8d19fab05021"
     },
     {
       "file": "magic-cluster/apps/instances/hermes/Chart.yaml",

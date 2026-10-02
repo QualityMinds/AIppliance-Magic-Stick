@@ -33,8 +33,17 @@ On Ubuntu 24.04/26.04 x86_64 appliances with an NVIDIA PCI display controller, t
 framebuffer. This keeps the local first-run and dashboard text consoles visible
 when the monitor is attached to NVIDIA HDMI/DisplayPort. K3s labels that node
 `nvidia.com/gpu.deploy.driver=false`, so the GPU Operator can still provide its
-toolkit and device plugin without replacing the display-owning driver. After a
-successful first host convergence, Ansible schedules one clean reboot only if
+toolkit and device plugin without replacing the display-owning driver. Once the
+host-owned driver is usable, the role also starts and enables
+`nvidia-persistenced`. Its vendor unit otherwise stops when no other unit needs
+it and removes the socket referenced by the GPU Operator's CDI specifications;
+new NVIDIA containers then fail before their entrypoint starts. The Magic Stick
+systemd drop-in keeps that service active across reboots and restarts it after a
+failure. On a first boot without a usable driver, the role enables the service
+but defers starting it until the driver becomes available; it does not turn that
+condition into an installer failure.
+
+After a successful first host convergence, Ansible schedules one clean reboot only if
 it changed the NVIDIA display setup on an installer-created host. The installer
 media contains no NVIDIA reboot logic: an existing stick following `main` gets
 this behavior from the fetched playbook. A same-boot marker prevents repeated

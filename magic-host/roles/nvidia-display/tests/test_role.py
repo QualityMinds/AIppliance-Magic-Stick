@@ -92,6 +92,30 @@ class NvidiaDisplayRoleContractTests(unittest.TestCase):
         self.assertIn("nvidia-drm", files["/etc/modules-load.d/90-magicstick-nvidia-display.conf"])
         self.assertIn("nvidia.com/gpu.deploy.driver=false", files["/etc/rancher/k3s/config.yaml.d/90-magicstick-nvidia-display.yaml"])
 
+    def test_host_owned_driver_keeps_cdi_persistence_socket_available(self):
+        override = next(task for task in self.inner if task.get("name") == "Keep the host NVIDIA persistence socket available for CDI containers")
+        self.assertEqual(
+            override["ansible.builtin.copy"]["dest"],
+            "/etc/systemd/system/nvidia-persistenced.service.d/90-magicstick.conf",
+        )
+        content = override["ansible.builtin.copy"]["content"]
+        self.assertIn("StopWhenUnneeded=false", content)
+        self.assertIn("Restart=on-failure", content)
+        self.assertIn("WantedBy=multi-user.target", content)
+
+        enabled = next(task for task in self.inner if task.get("name") == "Enable NVIDIA persistence daemon across host reboots")
+        self.assertEqual(enabled["ansible.builtin.systemd_service"]["name"], "nvidia-persistenced.service")
+        self.assertTrue(enabled["ansible.builtin.systemd_service"]["enabled"])
+
+        probe = next(task for task in self.inner if task.get("name") == "Check whether the NVIDIA driver is already usable before starting persistence")
+        self.assertEqual(probe["ansible.builtin.command"]["argv"], ["/usr/bin/nvidia-smi", "-L"])
+        self.assertFalse(probe["failed_when"])
+        start = next(task for task in self.inner if task.get("name") == "Start NVIDIA persistence daemon when the driver is usable")
+        self.assertEqual(start["when"], "nvidia_display_gpu_probe.rc == 0")
+        self.assertEqual(start["ansible.builtin.systemd_service"]["state"], "started")
+        self.assertLess(self.inner.index(enabled), self.inner.index(probe))
+        self.assertLess(self.inner.index(probe), self.inner.index(start))
+
     def test_existing_installation_media_delegates_reboot_to_host_ansible(self):
         usb = (ROOT / "magic-installer/user-data").read_text()
         linux = (ROOT / "install-from-linux.sh").read_text()

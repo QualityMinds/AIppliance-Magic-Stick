@@ -4,11 +4,14 @@ The public marketing site uses plain HTML, CSS and a small progressive-enhanceme
 script. English is the default; German is an explicit language choice. The combined
 Pages build places these pages at the site root and the canonical English Markdown
 handbook under `handbook/`. There is no application server, remote font service,
-build-time frontend framework or analytics dependency. The appliance dashboard is
-a separate application and is not changed by website updates.
+build-time frontend framework. Visitor statistics use one cookie-free Umami tag
+that the build adds; see [Visitor statistics](#visitor-statistics). The appliance
+dashboard is a separate application and is not changed by website updates.
 
 Follow [documentation maintenance](documentation.md) for the combined build, CI
-and the one-time switch of the Pages source to GitHub Actions.
+and the one-time switch of the Pages source to GitHub Actions. The Azure Static
+Web App that hosts the site is defined in
+[infrastructure/landingpage](../../infrastructure/landingpage/README.md).
 
 ## Sources and structure
 
@@ -46,6 +49,23 @@ such as LICENSE and SUPPORT.md use explicit public GitHub links; they are not
 handbook pages. New marketing HTML must be included in `MARKETING_PAGES` and
 excluded from MkDocs in `mkdocs.yml`. Do not collide with legacy redirect routes
 from `docs/migration.json` (in particular `licensing.html`).
+
+## Visitor statistics
+
+`mkdocs.yml` holds an `extra.umami` block with the Umami `script` URL, the
+`website_id` of this site and an optional `domains` list. When both values are
+set, `python tools/docs.py build` adds one `<script defer …>` tag at the end of
+`<head>` on every landing page and handbook page. The committed HTML sources,
+`docs/` previews, legacy redirect stubs and the tests stay free of remote scripts,
+and an empty block builds the site without analytics. The build rejects a script
+URL that is not public HTTPS and a `website_id` that is not a UUID.
+
+The tag sets `data-do-not-track`, so browsers with Do Not Track enabled send
+nothing; Umami itself sets no cookies and stores nothing in the browser. `domains`
+restricts counting to the listed public hostnames so that pull-request preview
+deployments do not appear in the statistics. Change the block and the Umami
+description in [privacy.html](../privacy.html) together, including its
+"Last updated" date.
 
 ## Product and license claims
 

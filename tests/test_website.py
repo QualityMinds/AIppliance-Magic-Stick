@@ -85,6 +85,8 @@ class WebsiteTests(unittest.TestCase):
                 self.assertTrue((docs.DOCS / image_url.removeprefix(self.public)).is_file())
 
     def test_no_external_runtime_or_tracking_dependency(self):
+        # The only remote script, the cookie-free Umami tag, is added by the build
+        # from mkdocs.yml (docs.analytics_tag); the sources never carry it.
         for name in self.pages:
             with self.subTest(page=name):
                 page = self.markup(name)
