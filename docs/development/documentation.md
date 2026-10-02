@@ -132,9 +132,15 @@ reviewing inbound links and updating this mapping.
 
 The documentation workflow runs unit checks, internal links/anchors, catalog
 consistency and a strict static build on pull requests. It uploads a preview artifact.
-Main/manual runs can deploy the combined landing page and handbook through GitHub
-Pages. The repository's Pages source must be **GitHub Actions**; switching that
-remote setting is a separate publication step, not a side effect of editing docs.
+The website itself is hosted on Azure Static Web Apps (see
+[website maintenance](website.md)). GitHub Pages only forwards old addresses:
+main/manual runs turn the built site into a redirect page for every address
+(`python tools/docs.py redirect`) plus a `404.html` fallback, each keeping the
+path, query and fragment. The target is the `WEBSITE_URL` repository variable,
+or the default in `.github/workflows/docs.yml`; change that one value when the
+website address changes. The repository's Pages source must be **GitHub Actions**;
+switching that remote setting is a separate publication step, not a side effect of
+editing docs.
 
 A weekly/manual external-link check reports failures as an advisory artifact;
 temporary Internet failures do not become release gates. Internal broken links

@@ -325,6 +325,33 @@ class DocumentationTests(unittest.TestCase):
         self.assertTrue(jobs['external-links']['continue-on-error'])
         self.assertNotIn('pull_request', jobs['external-links']['if'])
 
+    def test_pages_forwards_every_built_address_to_the_website(self):
+        site, out = self.root / 'site', self.root / 'redirect'
+        self.file('site/index.html', '')
+        self.file('site/de.html', '')
+        self.file('site/handbook/installation/bare-metal/index.html', '')
+        with patch.object(docs, 'OUT', site), patch.object(docs, 'REDIRECT_OUT', out):
+            self.assertTrue(docs.redirect('https://website.azurestaticapps.net'))
+            with self.assertRaises(ValueError):
+                docs.redirect('http://website.azurestaticapps.net')
+        target = 'https://website.azurestaticapps.net/'
+        self.assertIn(f'url={target}"', (out / 'index.html').read_text())
+        self.assertIn(f'url={target}de.html"', (out / 'de.html').read_text())
+        self.assertIn(f'url={target}handbook/installation/bare-metal/"',
+                      (out / 'handbook/installation/bare-metal/index.html').read_text())
+        fallback = (out / '404.html').read_text()
+        self.assertIn('const b="/AIppliance-Magic-Stick"', fallback)
+        self.assertIn('location.replace("https://website.azurestaticapps.net"+p', fallback)
+        self.assertTrue((out / '.nojekyll').exists())
+
+    def test_pages_publishes_only_the_redirect_artifact(self):
+        workflow = yaml.safe_load((docs.ROOT / '.github/workflows/docs.yml').read_text())
+        self.assertIn('azurestaticapps.net', workflow['env']['WEBSITE_URL'])
+        steps = workflow['jobs']['build']['steps']
+        self.assertIn('python tools/docs.py redirect', [step.get('run') for step in steps])
+        upload = next(step for step in steps if step.get('uses', '').startswith('actions/upload-pages-artifact'))
+        self.assertEqual(upload['with']['path'], 'dist/pages-redirect')
+
     def test_all_legacy_paths_anchors_and_targets_survive(self):
         records = json.loads((docs.DOCS / 'migration.json').read_text())
         for old, record in records.items():

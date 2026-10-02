@@ -11,7 +11,8 @@ dashboard is a separate application and is not changed by website updates.
 Follow [documentation maintenance](documentation.md) for the combined build, CI
 and the one-time switch of the Pages source to GitHub Actions. The Azure Static
 Web App that hosts the site is defined in
-[infrastructure/landingpage](../../infrastructure/landingpage/README.md).
+[infrastructure/landingpage](../../infrastructure/landingpage/README.md);
+GitHub Pages only redirects to it.
 
 ## Sources and structure
 
@@ -176,7 +177,8 @@ markup, reviewed image dimensions, authoritative license links and build routing
 They do not prove visual fit or interaction behavior: those need a browser.
 
 Follow the [public release checklist](release-checklist.md). After a push, confirm
-that Pages succeeded for the exact commit and that published HTML/assets match it.
+that the Azure Static Web Apps deployment succeeded for the exact commit, that
+published HTML/assets match it and that GitHub Pages forwards to it.
 No dashboard/container rollout is required for a website-only change.
 
 ## Previous artwork provenance

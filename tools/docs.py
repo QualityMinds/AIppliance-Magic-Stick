@@ -26,6 +26,7 @@ else:
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / 'docs'
 OUT = ROOT / 'dist/docs-site'
+REDIRECT_OUT = ROOT / 'dist/pages-redirect'
 CATALOG = ROOT / 'magic-cluster/platform/magicstick-operator/compute-target-catalog.yaml'
 REPO = 'https://github.com/QualityMinds/AIppliance-Magic-Stick'
 MARKETING_PAGES = ('index.html', 'de.html', 'editions.html', 'editionen.html',
@@ -321,6 +322,46 @@ def build():
     return True
 
 
+def forward_document(target, base=''):
+    """Static page that forwards a GitHub Pages address to the same path on the website.
+
+    With `base` it is the 404 fallback: the requested path is taken from the
+    browser address after removing the Pages project prefix.
+    """
+    escaped = html.escape(target, quote=True)
+    script = (f'let p=location.pathname;const b={json.dumps(base)};if(p.startsWith(b))p=p.slice(b.length);'
+              f'location.replace({json.dumps(target.rstrip("/"))}+p+location.search+location.hash);' if base else
+              f'location.replace({json.dumps(target)}+location.search+location.hash);').replace('<', '\\u003c')
+    return ('<!doctype html><html lang="en"><head><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width">'
+            f'<link rel="canonical" href="{escaped}"><meta http-equiv="refresh" content="0; url={escaped}">'
+            f'<title>Magic Stick has moved</title><script>{script}</script></head>'
+            f'<body><p>This website has moved. <a href="{escaped}">Continue to {escaped}</a>.</p></body></html>')
+
+
+def redirect(target):
+    """Replace the Pages artifact with forwarding pages for every built HTML address."""
+    if urlsplit(target).scheme != 'https' or not public_url(target) or urlsplit(target).path not in ('', '/'):
+        raise ValueError(f'Website URL must be a public https origin, not {target!r}')
+    if not (OUT / 'index.html').exists():
+        print(f'Build the site first: {OUT} is missing')
+        return False
+    target = target.rstrip('/') + '/'
+    if REDIRECT_OUT.exists(): shutil.rmtree(REDIRECT_OUT)
+    for page in sorted(OUT.rglob('*.html')):
+        rel = page.relative_to(OUT).as_posix()
+        path = rel[:-len('index.html')] if rel == 'index.html' or rel.endswith('/index.html') else rel
+        stub = REDIRECT_OUT / rel
+        stub.parent.mkdir(parents=True, exist_ok=True)
+        stub.write_text(forward_document(target + path))
+    config = yaml.safe_load((ROOT / 'mkdocs.yml').read_text())
+    base = urlsplit(config['site_url']).path.rstrip('/').rsplit('/', 1)[0]
+    (REDIRECT_OUT / '404.html').write_text(forward_document(target, base))
+    (REDIRECT_OUT / '.nojekyll').touch()
+    print(f'GitHub Pages redirect to {target} written: {REDIRECT_OUT}')
+    return True
+
+
 def public_url(url):
     """Ignore local/private literal addresses and documentation placeholders."""
     parsed = urlsplit(url)
@@ -356,8 +397,12 @@ def external():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=('check', 'build', 'inventory', 'external'))
+    parser.add_argument('command', choices=('check', 'build', 'inventory', 'external', 'redirect'))
+    parser.add_argument('--target', default=os.environ.get('WEBSITE_URL', ''),
+                        help='redirect: public website origin (default: $WEBSITE_URL)')
     args = parser.parse_args()
+    if args.command == 'redirect':
+        return 0 if redirect(args.target) else 1
     if args.command == 'inventory':
         (DOCS / 'reference/compatibility.md').write_text(compatibility())
         return 0
