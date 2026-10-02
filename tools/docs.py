@@ -113,8 +113,9 @@ def check_links(paths, root, public_prefix=''):
 
 
 def source_files():
+    # docs/overrides/ holds Jinja theme templates; their links are checked in the built output.
     names = subprocess.check_output(['git', 'ls-files', '--cached', '--others', '--exclude-standard', '-z'], cwd=ROOT).decode().split('\0')
-    return sorted({ROOT / n for n in names if n and not n.startswith('.codex/')
+    return sorted({ROOT / n for n in names if n and not n.startswith(('.codex/', 'docs/overrides/'))
                    and (ROOT / n).is_file() and (Path(n).suffix == '.md'
                    or (Path(n).suffix == '.html' and n.startswith('docs/')))})
 
@@ -232,7 +233,8 @@ def analytics_tag(config):
     The tag is only added to the built site so that the committed HTML sources,
     local previews and tests remain free of remote scripts. Umami stores nothing
     on the visitor's device; `data-do-not-track` additionally honours the
-    browser's Do Not Track setting.
+    browser's Do Not Track setting and `data-exclude-search` keeps query strings
+    out of the statistics. The opt-out on privacy.html sets `umami.disabled`.
     """
     umami = (config.get('extra') or {}).get('umami') or {}
     script, website_id = umami.get('script') or '', umami.get('website_id') or ''
@@ -242,7 +244,8 @@ def analytics_tag(config):
         raise ValueError(f'Umami script must be a public https URL, not {script!r}')
     if not re.fullmatch(r'[0-9a-fA-F-]{36}', website_id):
         raise ValueError(f'Umami website_id must be a UUID, not {website_id!r}')
-    attributes = {'src': script, 'data-website-id': website_id, 'data-do-not-track': 'true'}
+    attributes = {'src': script, 'data-website-id': website_id, 'data-do-not-track': 'true',
+                  'data-exclude-search': 'true'}
     domains = umami.get('domains') or []
     if domains:
         # Restricts counting to the public hostnames; preview deployments are ignored.

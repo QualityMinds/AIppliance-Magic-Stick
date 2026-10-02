@@ -23,7 +23,7 @@ Web App that hosts the site is defined in
 | [site.css](../site.css) | Responsive dashboard-aligned navy/cyan/violet design, system fonts, visible focus and reduced motion |
 | [site.js](../site.js) | Mobile navigation and keyboard-accessible product tabs |
 | [assets/favicon.svg](../assets/favicon.svg) | Small self-contained site mark |
-| [legal-notice.html](../legal-notice.html), [privacy.html](../privacy.html) | Existing English legal content, unchanged by this redesign |
+| [legal-notice.html](../legal-notice.html), [privacy.html](../privacy.html) | English legal notice and privacy policy, linked from every landing page and, through the footer override in `docs/overrides/partials/copyright.html`, every handbook page |
 
 The homepage moves from the product definition through a three-step workflow,
 a two-path architecture infographic, dashboard examples, use cases, hardware
@@ -61,11 +61,18 @@ and an empty block builds the site without analytics. The build rejects a script
 URL that is not public HTTPS and a `website_id` that is not a UUID.
 
 The tag sets `data-do-not-track`, so browsers with Do Not Track enabled send
-nothing; Umami itself sets no cookies and stores nothing in the browser. `domains`
-restricts counting to the listed public hostnames so that pull-request preview
-deployments do not appear in the statistics. Change the block and the Umami
-description in [privacy.html](../privacy.html) together, including its
-"Last updated" date.
+nothing, and `data-exclude-search`, so query strings are not recorded. Umami
+itself sets no cookies and stores no identifier in the browser. The opt-out
+button on [privacy.html](../privacy.html#opt-out) sets `umami.disabled` in the
+local storage of the current address, which the Umami script checks before
+sending. `domains` restricts counting to the listed public hostnames so that
+pull-request preview deployments do not appear in the statistics.
+
+The privacy policy names the hosting providers, the Azure regions of the Umami
+app and database in [infrastructure/landingpage](../../infrastructure/landingpage/README.md),
+the collected fields, the monthly session identifier and the retention periods.
+Change those, the `extra.umami` block or the Umami tag attributes together with
+[privacy.html](../privacy.html), including its "Last updated" date.
 
 ## Product and license claims
 

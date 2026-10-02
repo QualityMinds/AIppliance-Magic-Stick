@@ -14,6 +14,11 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
   self-hosted Umami instance. The tag is added at build time from the
   `extra.umami` block in `mkdocs.yml`, honours Do Not Track and is described in
   the privacy policy.
+- Every handbook page now links to the legal notice and privacy policy. The
+  privacy policy describes the Azure and GitHub Pages hosting, the data Umami
+  actually records and its retention, and offers an opt-out button; the Umami
+  tag no longer records query strings. The legal notice covers the whole
+  website and adds the consumer dispute resolution statement.
 
 ## v0.1.2 - 2026-09-25
 

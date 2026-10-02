@@ -193,6 +193,24 @@ class WebsiteTests(unittest.TestCase):
             self.assertTrue(page.matching('a', href='administration/licenses.md'))
             self.assertTrue(page.matching('a', href='legal-notice.html#provider'))
 
+    def test_legal_pages_are_linked_and_privacy_matches_statistics_setup(self):
+        config = yaml.safe_load((docs.ROOT / 'mkdocs.yml').read_text())
+        override = docs.ROOT / config['theme']['custom_dir'] / 'partials/copyright.html'
+        footer = override.read_text()
+        for target in ('legal-notice.html', 'privacy.html'):
+            self.assertIn(f"{{{{ base_url.rstrip('/') }}}}/../{target}", footer)
+        privacy = (docs.DOCS / 'privacy.html').read_text()
+        self.assertIn('data-exclude-search="true"', docs.analytics_tag(config))
+        self.assertIn('without query string', privacy)
+        self.assertIn("'umami.disabled'", privacy)
+        self.assertTrue(Markup(privacy).matching(id='opt-out'))
+        # The policy names the Azure regions of the Umami app and its database.
+        regions = {'germanywestcentral': 'Germany West Central', 'westeurope': 'West Europe'}
+        parameters = (docs.ROOT / 'infrastructure/landingpage/umami.bicepparam').read_text()
+        for name in ('location', 'databaseLocation'):
+            region = re.search(rf"^param {name} = '([a-z]+)'", parameters, re.M)[1]
+            self.assertIn(regions[region], privacy)
+
 
 if __name__ == '__main__':
     unittest.main()

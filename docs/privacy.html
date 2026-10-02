@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="robots" content="index,follow" />
-  <meta name="description" content="Privacy policy for the MagicStick GitHub Pages project site." />
+  <meta name="description" content="Privacy policy for the MagicStick project website and handbook." />
   <meta name="theme-color" content="#050b16" />
   <title>Privacy Policy - MagicStick</title>
   <style>
@@ -123,6 +123,26 @@
     footer a:focus-visible {
       color: var(--text);
     }
+
+    .opt-out button {
+      border: 1px solid var(--teal);
+      border-radius: 6px;
+      padding: 8px 16px;
+      background: transparent;
+      color: var(--text);
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .opt-out button:hover,
+    .opt-out button:focus-visible {
+      background: var(--line);
+    }
+
+    .opt-out [role="status"] {
+      margin-top: 10px;
+      color: var(--text);
+    }
   </style>
 </head>
 <body>
@@ -130,8 +150,10 @@
     <a class="top-link" href="index.html">Back to MagicStick</a>
     <h1>Privacy Policy</h1>
     <p>
-      This privacy policy applies to the static MagicStick GitHub Pages project
-      site in this repository.
+      This privacy policy applies to the MagicStick project website, consisting
+      of the landing pages and the handbook. The same content is published at
+      <a href="https://qualityminds.github.io/AIppliance-Magic-Stick/">qualityminds.github.io/AIppliance-Magic-Stick</a>
+      through GitHub Pages and through Microsoft Azure Static Web Apps.
     </p>
 
     <section class="card" aria-labelledby="controller">
@@ -159,72 +181,122 @@
     <section class="card" aria-labelledby="site-processing">
       <h2 id="site-processing">2. Data processing when visiting this site</h2>
       <p>
-        This project site is static. We do not set our own cookies, use
-        advertising tools, load external fonts, or provide a contact form on
-        this page. For anonymous visitor statistics we use the analytics
-        software Umami, described below.
+        This website is static. We do not set cookies, use advertising tools,
+        load external fonts, or provide a contact form. For visitor statistics
+        we use the self-hosted analytics software Umami, described in section 4.
       </p>
       <p>
-        When the site is requested, technically necessary data is processed so
-        that the page can be delivered. This may include IP address, date and
-        time of access, requested file, referrer, browser and device
-        information, and status codes.
+        When a page is requested, the hosting provider processes technically
+        necessary data so that the page can be delivered: IP address, date and
+        time of access, requested file, referrer, browser and device information
+        (user agent), transferred data volume and status code.
       </p>
       <p>
         The legal basis is Article 6(1)(f) GDPR. Our legitimate interest is the
-        secure, stable, and technically reliable delivery of this project site.
-      </p>
-
-      <h3 id="analytics">Visitor statistics with Umami</h3>
-      <p>
-        We use Umami, an open-source web analytics software, to learn which
-        pages of this site are used and how often. The Umami instance is
-        operated by us on Microsoft Azure infrastructure in the Germany West
-        Central region (Frankfurt am Main); visitor data is not passed to an
-        analytics provider.
-      </p>
-      <p>
-        Umami does not set cookies and does not store any data in your browser.
-        When a page is loaded, the Umami script sends the page address, the
-        referring page, the type of browser and operating system, screen size,
-        language and the country derived from your IP address to our Umami
-        instance. The IP address itself is not stored. To count returning
-        visits, Umami forms a hash from the IP address, browser information and
-        a regularly rotated random value; this hash cannot be traced back to you
-        and is not linked across rotation periods.
-      </p>
-      <p>
-        The legal basis is Article 6(1)(f) GDPR. Our legitimate interest is
-        measuring how the documentation and product pages are used so that we
-        can improve them. You can object at any time by enabling the "Do Not
-        Track" setting in your browser; the script then sends nothing. The
-        resulting statistics are aggregated and contain no personal data.
+        secure, stable and technically reliable delivery of this website.
       </p>
     </section>
 
-    <section class="card" aria-labelledby="github-pages">
-      <h2 id="github-pages">3. Hosting through GitHub Pages</h2>
+    <section class="card" aria-labelledby="hosting">
+      <h2 id="hosting">3. Hosting</h2>
+      <h3 id="azure">Microsoft Azure</h3>
       <p>
-        This site is hosted with GitHub Pages, a service provided by GitHub,
-        Inc., 88 Colin P. Kelly Jr. Street, San Francisco, CA 94107, USA.
-        When you visit the site, GitHub processes technically necessary usage
-        and log data for service delivery, security, troubleshooting, and
-        operation of the service.
+        The website and the Umami statistics service (section 4) run on
+        Microsoft Azure, a service of Microsoft Ireland Operations Limited, One
+        Microsoft Place, South County Business Park, Leopardstown, Dublin 18,
+        D18 P521, Ireland. Microsoft processes data on our behalf as a processor
+        under Article 28 GDPR, based on the Microsoft Products and Services Data
+        Protection Addendum.
+      </p>
+      <p>
+        Our Azure resources are located in the EU regions West Europe
+        (Netherlands) and Germany West Central (Frankfurt am Main). Azure Static
+        Web Apps delivers the static pages through Microsoft's global content
+        distribution network, so connection data may be processed at locations
+        outside the EU, including the United States. Microsoft Corporation is
+        certified under the EU-U.S. Data Privacy Framework, for which the
+        European Commission has adopted an adequacy decision (Article 45 GDPR);
+        Microsoft also uses the EU Standard Contractual Clauses (Article 46(2)(c)
+        GDPR). More information is available in the
+        <a href="https://www.microsoft.com/en-us/privacy/privacystatement">Microsoft Privacy Statement</a>.
+      </p>
+
+      <h3 id="github-pages">GitHub Pages</h3>
+      <p>
+        The copy at qualityminds.github.io is hosted with GitHub Pages, a service
+        provided by GitHub, Inc., 88 Colin P. Kelly Jr. Street, San Francisco,
+        CA 94107, USA. When you visit that address, GitHub processes the
+        technically necessary data listed in section 2 for service delivery,
+        security, troubleshooting and operation of the service.
       </p>
       <p>
         GitHub's processing may involve transfers of personal data to the United
         States. More information is available in the
         <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">GitHub General Privacy Statement</a>.
       </p>
+    </section>
+
+    <section class="card" aria-labelledby="analytics">
+      <h2 id="analytics">4. Visitor statistics with Umami</h2>
       <p>
-        Apart from the cookie-free Umami statistics described in section 2, we
-        do not run visitor analytics on this project site and do not create
-        tracking profiles.
+        We use Umami, an open-source web analytics software, to learn which
+        pages of this website are used and how often. We operate the Umami
+        instance ourselves on Microsoft Azure (section 3): the application runs
+        in Germany West Central (Frankfurt am Main) and its database in West
+        Europe (Netherlands). The data is not passed to an analytics provider.
       </p>
+      <p>
+        When a page is loaded, the Umami script sends the following to our Umami
+        instance: the page address without query string, the page title, the
+        referring page, the screen size and the browser language. The connection
+        itself transmits your IP address and user agent. From these, Umami
+        determines the browser, operating system and device type, and the
+        country, region and city using a geolocation database that runs on our
+        instance. The IP address itself is not stored.
+      </p>
+      <p>
+        To count visits from the same device, Umami forms a session identifier
+        by hashing the IP address, user agent, website, current calendar month
+        and a secret key. The identifier changes every month and is not linked
+        across months. The stored records are pseudonymised: they do not
+        contain your name or IP address, and we do not combine them with other
+        data or try to identify individual visitors.
+      </p>
+      <p>
+        Umami does not set cookies and does not store an identifier in your
+        browser.
+      </p>
+      <p>
+        The legal basis is Article 6(1)(f) GDPR. Our legitimate interest is
+        measuring how the documentation and product pages are used so that we
+        can improve them.
+      </p>
+
+      <h3 id="opt-out">Objecting to visitor statistics</h3>
+      <p>
+        You can object at any time. If your browser sends a "Do Not Track"
+        signal, the script sends nothing. You can also switch off statistics
+        for this browser with the button below. It stores the entry
+        <code>umami.disabled</code> in this website's local storage; the entry
+        contains no identifier and is stored only at your request. The setting
+        applies per browser and per website address, so repeat it for each
+        address you use. Clearing this website's data in your browser removes
+        the setting.
+      </p>
+      <div class="opt-out" data-opt-out hidden>
+        <button type="button" aria-describedby="opt-out-status"></button>
+        <p id="opt-out-status" role="status"></p>
+      </div>
+      <noscript>
+        <p>
+          Without JavaScript the Umami script does not run and no statistics are
+          collected.
+        </p>
+      </noscript>
     </section>
 
     <section class="card" aria-labelledby="repo-interactions">
-      <h2 id="repo-interactions">4. Using GitHub project features</h2>
+      <h2 id="repo-interactions">5. Using GitHub project features</h2>
       <p>
         If you interact with the project through GitHub, for example by opening
         issues, pull requests, discussions, stars, or forks, GitHub processes
@@ -238,23 +310,24 @@
     </section>
 
     <section class="card" aria-labelledby="retention">
-      <h2 id="retention">5. Retention</h2>
+      <h2 id="retention">6. Retention</h2>
       <p>
-        Where we process personal data ourselves in connection with this static
-        project site, we delete it when the processing purpose no longer applies
-        and no statutory retention duties or legitimate interests require
-        further retention.
+        Umami records (page views and the pseudonymised session data described
+        in section 4) are deleted 25 months after collection, so that usage can
+        be compared with the same period of the previous year. Error and
+        operating logs of the Umami service are kept for 30 days and database
+        backups for 7 days.
       </p>
       <p>
-        Hosting and usage data processed by GitHub is subject to GitHub's own
-        retention periods and deletion procedures. Umami stores no IP addresses;
-        its aggregated statistics are kept for as long as the project site is
-        operated.
+        Hosting log data is processed by Microsoft and GitHub under their own
+        retention periods and deletion procedures. Apart from this, we delete
+        personal data when the purpose of processing no longer applies and no
+        statutory retention duties require further retention.
       </p>
     </section>
 
     <section class="card" aria-labelledby="rights">
-      <h2 id="rights">6. Your rights</h2>
+      <h2 id="rights">7. Your rights</h2>
       <p>Subject to the GDPR, you may have the following rights:</p>
       <ul>
         <li>right of access, Article 15 GDPR</li>
@@ -268,11 +341,15 @@
       <p>
         To exercise your rights, contact
         <a href="mailto:privacy@qualityminds.de">privacy@qualityminds.de</a>.
+        The supervisory authority responsible for us is the Bavarian State
+        Office for Data Protection Supervision (Bayerisches Landesamt für
+        Datenschutzaufsicht), Promenade 18, 91522 Ansbach, Germany,
+        <a href="https://www.lda.bayern.de/">www.lda.bayern.de</a>.
       </p>
     </section>
 
     <section class="card" aria-labelledby="security">
-      <h2 id="security">7. Security and external links</h2>
+      <h2 id="security">8. Security and external links</h2>
       <p>
         This site is delivered via HTTPS. External links lead to third-party
         services, especially GitHub. The respective provider's privacy
@@ -281,11 +358,40 @@
     </section>
 
     <footer>
-      <span>Last updated: September 30, 2026</span>
+      <span>Last updated: October 2, 2026</span>
       <a href="index.html">Home</a>
       <a href="legal-notice.html">Legal Notice</a>
       <a href="https://github.com/QualityMinds/AIppliance-Magic-Stick">GitHub</a>
     </footer>
   </main>
+  <script>
+    // Umami skips tracking while localStorage holds `umami.disabled`.
+    (() => {
+      const box = document.querySelector('[data-opt-out]');
+      let storage;
+      try {
+        storage = window.localStorage;
+        storage.getItem('umami.disabled');
+      } catch {
+        return;
+      }
+      const button = box.querySelector('button');
+      const status = box.querySelector('[role="status"]');
+      const render = () => {
+        const disabled = Boolean(storage.getItem('umami.disabled'));
+        button.textContent = disabled ? 'Allow visitor statistics' : 'Switch off visitor statistics';
+        status.textContent = disabled
+          ? 'Visitor statistics are switched off in this browser for this website address.'
+          : 'Visitor statistics are active in this browser.';
+      };
+      button.addEventListener('click', () => {
+        if (storage.getItem('umami.disabled')) storage.removeItem('umami.disabled');
+        else storage.setItem('umami.disabled', '1');
+        render();
+      });
+      render();
+      box.hidden = false;
+    })();
+  </script>
 </body>
 </html>

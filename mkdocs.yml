@@ -8,6 +8,8 @@ site_dir: dist/docs-site/handbook
 strict: true
 theme:
   name: material
+  # Adds the legal notice and privacy links to the footer of every page.
+  custom_dir: docs/overrides
   language: en
   font: false
   palette:
@@ -60,6 +62,7 @@ validation:
     anchors: warn
 exclude_docs: |
   /AGENTS.md
+  /overrides/
   /index.html
   /de.html
   /editions.html
