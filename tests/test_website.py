@@ -201,7 +201,16 @@ class WebsiteTests(unittest.TestCase):
             self.assertIn(f"{{{{ base_url.rstrip('/') }}}}/../{target}", footer)
         privacy = (docs.DOCS / 'privacy.html').read_text()
         self.assertIn('data-exclude-search="true"', docs.analytics_tag(config))
-        self.assertIn('without query string', privacy)
+        tag = docs.analytics_tag(config)
+        self.assertIn('data-exclude-hash="true"', tag)
+        self.assertIn('without query string or fragment', privacy)
+        # The retention job deletes after the period the policy states, and the
+        # Umami version the policy describes is pinned.
+        template = (docs.ROOT / 'infrastructure/landingpage/umami.bicep').read_text()
+        months = re.search(r'^param retentionMonths int = (\d+)$', template, re.M)[1]
+        self.assertIn(f'deleted {months} months after collection', privacy)
+        self.assertIn("resource purge 'Microsoft.App/jobs@", template)
+        self.assertRegex(template, r"(?m)^param image string = '[^']+@sha256:[0-9a-f]{64}'$")
         self.assertIn("'umami.disabled'", privacy)
         self.assertTrue(Markup(privacy).matching(id='opt-out'))
         # The policy names the Azure regions of the Umami app and its database.

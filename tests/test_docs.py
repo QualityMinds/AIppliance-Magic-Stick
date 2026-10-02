@@ -125,6 +125,7 @@ class DocumentationTests(unittest.TestCase):
                                                       'website_id': website, 'domains': ['a.example.org', 'b.example.org']}}})
         self.assertEqual(tag, '<script defer src="https://stats.qualityminds.de/script.js" '
                               f'data-website-id="{website}" data-do-not-track="true" data-exclude-search="true" '
+                              'data-exclude-hash="true" '
                               'data-domains="a.example.org,b.example.org"></script>')
         self.assertNotIn('data-domains', docs.analytics_tag({'extra': {'umami': {
             'script': 'https://stats.qualityminds.de/script.js', 'website_id': website}}}))

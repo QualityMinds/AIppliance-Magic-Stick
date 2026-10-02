@@ -233,8 +233,8 @@ def analytics_tag(config):
     The tag is only added to the built site so that the committed HTML sources,
     local previews and tests remain free of remote scripts. Umami stores nothing
     on the visitor's device; `data-do-not-track` additionally honours the
-    browser's Do Not Track setting and `data-exclude-search` keeps query strings
-    out of the statistics. The opt-out on privacy.html sets `umami.disabled`.
+    browser's Do Not Track setting and `data-exclude-search`/`data-exclude-hash`
+    keep query strings and URL fragments out of the statistics. The opt-out on privacy.html sets `umami.disabled`.
     """
     umami = (config.get('extra') or {}).get('umami') or {}
     script, website_id = umami.get('script') or '', umami.get('website_id') or ''
@@ -245,7 +245,7 @@ def analytics_tag(config):
     if not re.fullmatch(r'[0-9a-fA-F-]{36}', website_id):
         raise ValueError(f'Umami website_id must be a UUID, not {website_id!r}')
     attributes = {'src': script, 'data-website-id': website_id, 'data-do-not-track': 'true',
-                  'data-exclude-search': 'true'}
+                  'data-exclude-search': 'true', 'data-exclude-hash': 'true'}
     domains = umami.get('domains') or []
     if domains:
         # Restricts counting to the public hostnames; preview deployments are ignored.

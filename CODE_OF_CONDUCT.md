@@ -22,7 +22,7 @@ AIppliance-Magic-Stick.
 
 ## Enforcement
 
-Report conduct concerns privately to `hello@qualityminds.de` with the subject
+Report conduct concerns privately to `stick@qualityminds.de` with the subject
 `Code of conduct report: AIppliance-Magic-Stick`. Do not include private
 deployment credentials or secrets in the report.
 

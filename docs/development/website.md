@@ -61,7 +61,8 @@ and an empty block builds the site without analytics. The build rejects a script
 URL that is not public HTTPS and a `website_id` that is not a UUID.
 
 The tag sets `data-do-not-track`, so browsers with Do Not Track enabled send
-nothing, and `data-exclude-search`, so query strings are not recorded. Umami
+nothing, and `data-exclude-search` and `data-exclude-hash`, so query strings and
+URL fragments are not recorded. Umami
 itself sets no cookies and stores no identifier in the browser. The opt-out
 button on [privacy.html](../privacy.html#opt-out) sets `umami.disabled` in the
 local storage of the current address, which the Umami script checks before
@@ -71,6 +72,10 @@ pull-request preview deployments do not appear in the statistics.
 The privacy policy names the hosting providers, the Azure regions of the Umami
 app and database in [infrastructure/landingpage](../../infrastructure/landingpage/README.md),
 the collected fields, the monthly session identifier and the retention periods.
+Umami has no retention setting of its own: the scheduled retention job in
+`umami.bicep` deletes visitor records after `retentionMonths`, the period the
+policy states. The Umami image is pinned by digest because the policy describes
+what that version collects; review the policy before upgrading it.
 Change those, the `extra.umami` block or the Umami tag attributes together with
 [privacy.html](../privacy.html), including its "Last updated" date.
 

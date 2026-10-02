@@ -19,6 +19,9 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
   actually records and its retention, and offers an opt-out button; the Umami
   tag no longer records query strings. The legal notice covers the whole
   website and adds the consumer dispute resolution statement.
+- A daily Container Apps job deletes Umami visitor records after the 25 months
+  stated in the privacy policy. The Umami image is pinned to 3.4.0 by digest and
+  the tag no longer records URL fragments.
 
 ## v0.1.2 - 2026-09-25
 
