@@ -49,7 +49,7 @@ extra:
   # committed HTML sources and local previews stay free of remote scripts.
   # Keep docs/privacy.html in step with this block.
   umami:
-    script: 'https://magic-stick-umami.orangepond-9673f9e6.germanywestcentral.azurecontainerapps.io/script.js'
+    script: 'https://magic-stick-landingpage-umami.graybeach-b98ec0d1.germanywestcentral.azurecontainerapps.io/script.js'
     website_id: 'c399ba2e-789e-4c08-ae54-86ab2f331aa7'
     domains: []     # optional: only count visits on these public hostnames
 validation:
