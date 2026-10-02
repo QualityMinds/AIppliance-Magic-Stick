@@ -800,3 +800,92 @@ index 578ec7b..000cc94 100644
  		if err != nil {
  			return nil, fmt.Errorf("error getting device attrs for %s: %w", kfdPath, err)
  		}
+diff --git a/pkg/amdgpu/amdgpu.go b/pkg/amdgpu/amdgpu.go
+index 076e91f..4a420c8 100644
+--- a/pkg/amdgpu/amdgpu.go
++++ b/pkg/amdgpu/amdgpu.go
+@@ -33,13 +33,23 @@ import (
+ 
+ // GetDriverVersion reads the AMDGPU driver version
+ func GetDriverVersion() string {
+-	matches, _ := filepath.Glob("/sys/class/drm/card*/device/driver/module/version")
++	return getDriverVersion("/sys/class/drm")
++}
++
++func getDriverVersion(drmRoot string) string {
++	matches, _ := filepath.Glob(filepath.Join(drmRoot, "card*", "device"))
+ 	if len(matches) == 0 {
+-		glog.Warningf("No AMD GPU cards found for driver version reading; driverVersion attribute will be omitted")
++		glog.Warningf("No DRM cards found for AMD driver version reading; driverVersion attribute will be omitted")
+ 		return ""
+ 	}
+ 
+-	for _, versionPath := range matches {
++	for _, devicePath := range matches {
++		vendor, err := os.ReadFile(filepath.Join(devicePath, "vendor"))
++		if err != nil || !strings.EqualFold(strings.TrimSpace(string(vendor)), "0x1002") {
++			continue
++		}
++
++		versionPath := filepath.Join(devicePath, "driver", "module", "version")
+ 		b, err := os.ReadFile(versionPath)
+ 		if err != nil {
+ 			continue
+diff --git a/pkg/amdgpu/amdgpu_test.go b/pkg/amdgpu/amdgpu_test.go
+index 5ccafc6..aead272 100644
+--- a/pkg/amdgpu/amdgpu_test.go
++++ b/pkg/amdgpu/amdgpu_test.go
+@@ -16,7 +16,52 @@ limitations under the License.
+ 
+ package amdgpu
+ 
+-import "testing"
++import (
++	"os"
++	"path/filepath"
++	"testing"
++)
++
++func addDRMDevice(t *testing.T, root, card, vendor, version string) {
++	t.Helper()
++	devicePath := filepath.Join(root, card, "device")
++	if err := os.MkdirAll(devicePath, 0o755); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(filepath.Join(devicePath, "vendor"), []byte(vendor+"\n"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	if version == "" {
++		return
++	}
++	modulePath := filepath.Join(devicePath, "driver", "module")
++	if err := os.MkdirAll(modulePath, 0o755); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(filepath.Join(modulePath, "version"), []byte(version+"\n"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++}
++
++func TestGetDriverVersionIgnoresOtherDRMVendors(t *testing.T) {
++	root := t.TempDir()
++	addDRMDevice(t, root, "card1", "0x10de", "595.91.07")
++	addDRMDevice(t, root, "card2", "0x1002", "")
++
++	if got := getDriverVersion(root); got != "" {
++		t.Fatalf("getDriverVersion() = %q, want empty for in-tree amdgpu", got)
++	}
++}
++
++func TestGetDriverVersionUsesAMDDevice(t *testing.T) {
++	root := t.TempDir()
++	addDRMDevice(t, root, "card1", "0x10de", "595.91.07")
++	addDRMDevice(t, root, "card2", "0x1002", "6.19.14.31400000")
++
++	if got := getDriverVersion(root); got != "6.19.14.31400000" {
++		t.Fatalf("getDriverVersion() = %q, want AMD driver version", got)
++	}
++}
+ 
+ func TestSemverDriverVersion(t *testing.T) {
+ 	tests := []struct {

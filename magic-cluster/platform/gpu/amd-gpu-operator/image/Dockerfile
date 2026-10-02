@@ -4,7 +4,7 @@ FROM --platform=$BUILDPLATFORM golang:1.26.5-bookworm AS build
 WORKDIR /src
 COPY . .
 ENV CGO_ENABLED=0
-RUN go test ./cmd/gpu-kubeletplugin
+RUN go test ./cmd/gpu-kubeletplugin ./pkg/amdgpu
 ARG TARGETARCH
 RUN GOOS=linux GOARCH=$TARGETARCH go build -trimpath -o /gpu-kubeletplugin ./cmd/gpu-kubeletplugin
 
