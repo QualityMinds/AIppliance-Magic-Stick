@@ -1315,7 +1315,7 @@ data:
     GPU_PREFLIGHT_ANNOTATION = "appliance.magicstick.dev/gpu-host-preflight"
     GPU_SHARING_STATE = {}
     NVIDIA_SHARING_STATE = {}
-    AMD_DRA_IMAGE = "ghcr.io/qualityminds/magicstick-amd-dra:v1.0.1-cdi-recovery.2"
+    AMD_DRA_IMAGE = "ghcr.io/qualityminds/magicstick-amd-dra:sha-746f3c37154e8e138699f1befa491f1c491d427c"
     DRA_SENTINEL_RESOURCE = "appliance.magicstick.dev/amd-dra"
     DRA_POLICY_NAME = "magicstick-amd-dra"
 
