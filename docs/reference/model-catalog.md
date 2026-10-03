@@ -38,6 +38,7 @@ used. If no model of that type exists, the default is an empty string.
 | `embedding-models.json` | Embedding models plus selected embedding default. |
 | `openclaw.json` | OpenClaw-ready LiteLLM provider fragment. |
 | `hermes.yaml` | Hermes-ready LiteLLM provider fragment. |
+| `pi-models.json` | Pi-ready LiteLLM provider with chat models, environment-based authentication, and bounded context/output budgets. |
 | `opencode-providers.json` | OpenCode provider map for the internal LiteLLM endpoint, including required context and output limits. |
 | `paperclip-opencode-providers.json` | Paperclip-specific OpenCode provider map with additional context headroom for long agent prompts. |
 | `paperclip-adapter-models.json` | Paperclip model-picker entries for OpenCode adapters in `litellm/<model-id>` form. |
@@ -104,6 +105,14 @@ Current consumers include:
   responses, and state.
   Catalog changes include OpenCode limit metadata in the consumer hash, so a
   changed limit follows the normal catalog consumer restart path.
+- Pi Coding Agent reads `pi-models.json` through a managed symlink in its persisted
+  agent directory. The selected model must exist at startup. Known context limits
+  come from the shared catalog; unknown limits use an 8,192-token planning budget.
+  Output is capped at the published model limit, 8,192 tokens and one quarter of
+  context; unknown output limits use 2,048 tokens. These conservative defaults do
+  not establish a model's physical capacity or tool-calling support. Per-model
+  compaction budgets remain within the same context. The API key is resolved from
+  `LITELLM_API_KEY`, and catalog changes use the existing consumer-restart path.
 - Dashboard-created KubeOpenCode `AppInstance` resources are reconciled as Flux
   HelmReleases; the instance chart renders `AgentTemplate` and `Agent`
   resources.

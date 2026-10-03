@@ -63,6 +63,27 @@ Update the matching contract when behavior changes:
 Legacy root documentation pages are compatibility links, not editing targets.
 Preserve old paths/anchors through `docs/migration.json`; do not duplicate guides.
 
+## Adding services
+
+Follow [Adding a Dashboard service](docs/development/extensions.md#adding-a-dashboard-service)
+and the [GitOps/module skill](.agents/skills/magicstick-gitops-module/SKILL.md).
+
+- A Services entry needs module catalog metadata and a reusable module base.
+  A service with **New Instance** also needs an application catalog entry and an
+  instance Helm chart. Keep IDs, dependencies and route targets consistent.
+- Choose an operator-backed chart or a direct workload chart from verified
+  upstream behavior. Reuse generic `ModuleActivation`/`AppInstance` reconciliation;
+  keep new optional services disabled by default unless requested otherwise.
+- Extend the existing Services form for supported application values. Trace them
+  through the shared API, saved `AppInstance.spec.values` and chart schema/templates.
+  Keep discovery catalog-driven and preserve CLI/TUI contracts and authorization.
+- Pin usable runtime versions; use the shared model catalog and Secret references
+  where needed. Preserve operator-owned SSO routes and derived hostnames. Define
+  workspace persistence, update behavior and data retention on removal.
+- Verify creation, missing dependencies, status/URLs and removal at the affected
+  layers. Update user/reference docs and third-party notices as needed; report
+  rendering, container checks and live acceptance separately.
+
 ## Validation and completion
 
 Run checks proportionate to touched behavior and broaden for shared contracts.

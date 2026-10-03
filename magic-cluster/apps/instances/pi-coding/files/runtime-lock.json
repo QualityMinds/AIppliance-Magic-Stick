@@ -1,0 +1,23 @@
+{
+  "image": {
+    "repository": "docker.io/library/node",
+    "tag": "24-bookworm",
+    "digest": "sha256:64af3819f9275802414d7cdc38c27e9d82bd564dec4d4da87d008255d36c63b4"
+  },
+  "pi": {
+    "version": "1.0.0",
+    "source": "https://github.com/earendil-works/pi/tree/v1.0.0",
+    "assets": {
+      "x64": {"url": "https://github.com/earendil-works/pi/releases/download/v1.0.0/pi-linux-x64.tar.gz", "sha256": "8fd5543a52a889d60ad57ccbf6c969e73c75c5240aae18ac40b506947a63dc38"},
+      "arm64": {"url": "https://github.com/earendil-works/pi/releases/download/v1.0.0/pi-linux-arm64.tar.gz", "sha256": "b60b3fda830a43c1dc3f5edb5fc7b681f22a0a930b48cdac13b97570c6045819"}
+    }
+  },
+  "ttyd": {
+    "version": "1.7.7",
+    "source": "https://github.com/tsl0922/ttyd/tree/1.7.7",
+    "assets": {
+      "x64": {"url": "https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.x86_64", "sha256": "8a217c968aba172e0dbf3f34447218dc015bc4d5e59bf51db2f2cd12b7be4f55"},
+      "arm64": {"url": "https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.aarch64", "sha256": "b38acadd89d1d396a0f5649aa52c539edbad07f4bc7348b27b4f4b7219dd4165"}
+    }
+  }
+}

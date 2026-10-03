@@ -25,6 +25,32 @@ Use **Credentials** only when the application exposes a credential panel and you
 role permits access. A URL being present does not bypass SSO or instance access rules.
 See [sharing](sharing.md) to grant selected users or groups access.
 
+## Pi Coding Agent
+
+Pi is a coding agent for the terminal. Magic Stick provides its Pi 1.0.0 interface
+in your browser, with the same SSO and instance-sharing controls as other applications.
+
+1. In **Services**, enable **Pi Coding Agent** and wait for its required services
+   to be ready. Deploy a chat model first if none is available.
+2. Choose **New Instance**, set a name and model, and review access and exposure.
+   **Configure** lets you change the default 5 GiB storage allocation.
+3. Wait for **Ready**, then open the instance URL. The first start downloads the
+   pinned Pi and browser-terminal releases, so GitHub access is required.
+4. Ask Pi to work on a project, or use its `!` shell commands to clone a repository
+   into the workspace. `/new` starts a new conversation; `/resume` selects a saved one.
+
+The workspace, Pi settings, provider sign-ins and sessions survive Pod restarts.
+Reopening the terminal continues the latest conversation. Each instance accepts
+one browser connection at a time; users with access share its files, sessions and
+runtime credentials. Give access to trusted users, and create separate instances
+for separate workspaces. Pi's tools can execute commands inside its container;
+they do not receive host mounts or a Kubernetes API credential.
+
+Removing a Pi instance keeps its data volume. Recreating the same instance name
+reuses it; an administrator must explicitly remove the retained volume to erase it.
+See [Pi configuration](../reference/application-controls.md#pi-coding-instances)
+for runtime requirements and model behavior.
+
 ## Stop or remove components safely
 
 Review instance dependencies and persistent-data retention before removing a

@@ -303,6 +303,19 @@ data:
           "uninstallPolicy": "keep-data",
           "postBuildSubstitution": true
         },
+        "pi-coding": {
+          "displayName": "Pi Coding Agent",
+          "description": "Pi v1.0.0 coding agent with a browser terminal, persistent workspace and sessions, and Magic Stick models.",
+          "group": "apps",
+          "activationMode": "moduleactivation",
+          "order": 120,
+          "path": "magic-cluster/apps/ai/pi-coding",
+          "kustomizationName": "app-pi-coding",
+          "requires": ["basis", "litellm", "model-catalog"],
+          "requiredCrds": [],
+          "default": false,
+          "uninstallPolicy": "keep-data"
+        },
         "odysseus": {
           "displayName": "Odysseus",
           "group": "apps",
