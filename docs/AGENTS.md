@@ -12,6 +12,10 @@ README and public product collateral.
 - The root README is the repository entry point. The landing page explains product
   value and installation choices; task guides explain operation. Link rather than
   copying full procedures between them.
+- For new user-facing features, update the [feature overview](get-started/features.md),
+  [Unreleased changelog](../CHANGELOG.md#unreleased) and affected user/reference
+  guides together. Follow the project's documentation completion check before
+  handoff or publication.
 - Update English and German marketing pages together when claims, sections or
   links change. Keep actual UI labels and commands in their original form.
 - Preserve legal meaning from root license/legal sources. Distinguish shipped
