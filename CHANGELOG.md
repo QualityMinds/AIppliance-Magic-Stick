@@ -8,6 +8,14 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+### Added
+
+- Create Pi Coding Agent 1.0.0 instances from **Services**, with a browser
+  terminal, model selection, SSO, and persistent workspaces and sessions.
+  The service is optional and disabled by default. Pod initialization downloads
+  checksum-verified Pi and ttyd releases and requires GitHub access. See the
+  [Pi Coding Agent guide](docs/user-guide/applications.md#pi-coding-agent).
+
 ### Changed
 
 - The public website and handbook can send cookie-free visitor statistics to a
