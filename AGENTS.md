@@ -81,8 +81,10 @@ and the [GitOps/module skill](.agents/skills/magicstick-gitops-module/SKILL.md).
   where needed. Preserve operator-owned SSO routes and derived hostnames. Define
   workspace persistence, update behavior and data retention on removal.
 - Verify creation, missing dependencies, status/URLs and removal at the affected
-  layers. Update user/reference docs and third-party notices as needed; report
-  rendering, container checks and live acceptance separately.
+  layers. For new features, update the [feature overview](docs/get-started/features.md),
+  [Unreleased changelog](CHANGELOG.md#unreleased) and matching user/reference docs.
+  Update third-party notices as needed; report rendering, container checks and
+  live acceptance separately.
 
 ## Validation and completion
 

@@ -97,8 +97,10 @@ configured `AppInstance` resources.
    For client changes, check the saved create payload, backend authorization and
    loading/empty/error states, then inspect the flow at desktop/mobile widths.
    Test the selected runtime in a container when adding startup scripts or adapting
-   runtime behavior. Update application/module/model references, the user guide
-   and [third-party notices](../../THIRD_PARTY_NOTICES.md) as affected. Report local
+   runtime behavior. Update application/module/model references, the user guide,
+   [feature overview](../get-started/features.md) and
+   [Unreleased changelog](../../CHANGELOG.md#unreleased). Update
+   [third-party notices](../../THIRD_PARTY_NOTICES.md) as affected. Report local
    rendering, runtime checks and live acceptance separately; a healthy web endpoint
    alone does not prove model inference.
 
