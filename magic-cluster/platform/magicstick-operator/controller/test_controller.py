@@ -88,6 +88,7 @@ class HelmAppInstanceTests(unittest.TestCase):
                 "paperclip": "0s",
                 "kubeopencode": "0s",
                 "odysseus": "0s",
+                "pi-coding": "0s",
             },
         )
 

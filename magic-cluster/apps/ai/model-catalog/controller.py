@@ -667,6 +667,21 @@ def opencode_model(model):
     }
 
 
+def pi_model(model):
+    # Pi's upstream defaults are too large for small local models. Keep unknown
+    # limits conservative and leave space for agent instructions and tool output.
+    context = positive_int(model.get("contextWindow")) or 8192
+    output = positive_int(model.get("maxOutputTokens")) or 2048
+    return {
+        "id": model["id"],
+        "name": model.get("name") or model["id"],
+        "contextWindow": context,
+        "maxTokens": min(output, 8192, max(1, context // 4)),
+        "reasoning": False,
+        "input": ["text"],
+    }
+
+
 def paperclip_opencode_model(model):
     generated = opencode_model(model)
     physical_context = generated["limit"]["context"]
@@ -711,6 +726,7 @@ def build_catalog(litellm_models):
         "paperclipOpenCodeContextHeadroomTokens": PAPERCLIP_OPENCODE_CONTEXT_HEADROOM_TOKENS,
         "openclawCompaction": openclaw_compaction_config,
         "openclawToolsProfile": OPENCLAW_TOOLS_PROFILE,
+        "piModelConfigVersion": 1,
     }
     catalog_hash = hashlib.sha256(json.dumps(hash_input, sort_keys=True).encode("utf-8")).hexdigest()[:16]
 
@@ -810,6 +826,16 @@ def build_catalog(litellm_models):
         "defaults.env": defaults_env,
         "openclaw.json": json_dumps(openclaw),
         "hermes.yaml": json_dumps(hermes),
+        "pi-models.json": json_dumps({
+            "providers": {
+                "litellm": {
+                    "baseUrl": LITELLM_API_BASE,
+                    "api": "openai-completions",
+                    "apiKey": "${LITELLM_API_KEY}",
+                    "models": [pi_model(model) for model in chat_models],
+                },
+            },
+        }),
         "opencode-providers.json": json_dumps(opencode_providers),
         "paperclip-opencode-providers.json": json_dumps(paperclip_opencode_providers),
         "paperclip-adapter-models.json": json_dumps(paperclip_adapter_models),

@@ -86,6 +86,17 @@ data:
         }
       }
     }
+  pi-models.json: |
+    {
+      "providers": {
+        "litellm": {
+          "baseUrl": "http://litellm.ai.svc.cluster.local:4000/v1",
+          "api": "openai-completions",
+          "apiKey": "$${LITELLM_API_KEY}",
+          "models": []
+        }
+      }
+    }
   opencode-providers.json: |
     {
       "litellm": {

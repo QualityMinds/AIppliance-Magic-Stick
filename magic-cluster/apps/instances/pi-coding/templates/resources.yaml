@@ -1,0 +1,181 @@
+{{- $instance := required "instance is required" .Values.instance -}}
+{{- $values := default dict $instance.values -}}
+{{- $lock := .Files.Get "files/runtime-lock.json" | fromJson -}}
+{{- $image := printf "%s@%s" $lock.image.repository $lock.image.digest -}}
+{{- $name := $instance.name -}}
+{{- $model := trimPrefix "litellm/" (trimPrefix "openai/" (required "Select a chat model" $values.model)) -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}-data
+  namespace: {{ $instance.namespace }}
+  annotations:
+    helm.sh/resource-policy: keep
+  labels:
+    app.kubernetes.io/name: pi-coding
+    app.kubernetes.io/instance: {{ $name }}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: {{ dig "storage" "size" "5Gi" $values | quote }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-bootstrap
+  namespace: {{ $instance.namespace }}
+data:
+  runtime-lock.json: |-
+{{ .Files.Get "files/runtime-lock.json" | nindent 4 }}
+  install.mjs: |-
+{{ .Files.Get "files/install.mjs" | nindent 4 }}
+  prepare.mjs: |-
+{{ .Files.Get "files/prepare.mjs" | nindent 4 }}
+  start.sh: |-
+{{ .Files.Get "files/start.sh" | nindent 4 }}
+  launch.sh: |-
+{{ .Files.Get "files/launch.sh" | nindent 4 }}
+  LICENSE-pi.txt: |-
+{{ .Files.Get "files/LICENSE-pi.txt" | nindent 4 }}
+  LICENSE-ttyd.txt: |-
+{{ .Files.Get "files/LICENSE-ttyd.txt" | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ $instance.namespace }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: pi-coding
+    app.kubernetes.io/instance: {{ $name }}
+  ports:
+    - name: http
+      port: 7681
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ $instance.namespace }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pi-coding
+      app.kubernetes.io/instance: {{ $name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pi-coding
+        app.kubernetes.io/instance: {{ $name }}
+      annotations:
+        ai-appliance.io/model-catalog-consumer: "true"
+        checksum/bootstrap: {{ (.Files.Glob "files/*").AsConfig | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        kubernetes.io/os: linux
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values: [amd64, arm64]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: install-runtime
+          image: {{ $image | quote }}
+          command: [node, /bootstrap/install.mjs]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+            readOnlyRootFilesystem: true
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          volumeMounts:
+            - name: runtime
+              mountPath: /runtime
+            - name: bootstrap
+              mountPath: /bootstrap
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: pi-coding
+          image: {{ $image | quote }}
+          command: [/bin/sh, /bootstrap/start.sh]
+          ports:
+            - name: http
+              containerPort: 7681
+          env:
+            - name: PI_MODEL
+              value: {{ $model | quote }}
+            - name: PI_CODING_AGENT_DIR
+              value: /home/node/.pi/agent
+            - name: PI_WORKSPACE
+              value: /home/node/workspace
+            - name: LITELLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-masterkey-secret
+                  key: LITELLM_MASTER_KEY
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+            readOnlyRootFilesystem: true
+          startupProbe:
+            httpGet: {path: /token, port: http}
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet: {path: /token, port: http}
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket: {port: http}
+            periodSeconds: 15
+          resources:
+{{ default (dict "requests" (dict "cpu" "250m" "memory" "512Mi") "limits" (dict "cpu" "2" "memory" "2Gi")) $values.resources | toYaml | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /home/node
+            - name: runtime
+              mountPath: /runtime
+              readOnly: true
+            - name: bootstrap
+              mountPath: /bootstrap
+              readOnly: true
+            - name: catalog
+              mountPath: /catalog
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ $name }}-data
+        - name: runtime
+          emptyDir: {}
+        - name: bootstrap
+          configMap:
+            name: {{ $name }}-bootstrap
+        - name: catalog
+          configMap:
+            name: ai-model-catalog
+        - name: tmp
+          emptyDir: {}

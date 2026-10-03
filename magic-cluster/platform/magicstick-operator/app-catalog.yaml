@@ -38,6 +38,13 @@ data:
           "requiredModules": ["kubeopencode", "litellm", "model-catalog"],
           "requiredCrds": ["agenttemplates.kubeopencode.io", "agents.kubeopencode.io"]
         },
+        "pi-coding": {
+          "displayName": "Pi Coding Agent",
+          "chartPath": "magic-cluster/apps/instances/pi-coding",
+          "route": {"serviceName": "instance", "port": 7681, "requestTimeout": "0s"},
+          "requiredModules": ["pi-coding", "litellm", "model-catalog"],
+          "requiredCrds": []
+        },
         "odysseus": {
           "displayName": "Odysseus",
           "chartPath": "magic-cluster/apps/instances/odysseus",

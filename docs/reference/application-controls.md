@@ -106,3 +106,41 @@ selectors list existing matching `AppInstance` resources and are required only
 when their checkbox is enabled. These values are stored under
 `spec.values.agentExecution`; the dashboard does not create Paperclip
 companies, employee agents, or gateway credentials.
+
+## Pi Coding instances
+
+The `pi-coding` application runs the upstream [Pi v1.0.0 release](https://github.com/earendil-works/pi/releases/tag/v1.0.0)
+through ttyd 1.7.7 on service port `7681`. It uses the standard application catalog,
+`AppInstance`, HelmRelease, SSO and instance-sharing flow. The module is optional
+and disabled by default; its dependencies are `basis`, `litellm` and `model-catalog`.
+Pi instances require namespace `ai`, where the model catalog and LiteLLM Secret live.
+
+The form persists `spec.values.model` and `spec.values.storage.size`. Hostnames use
+`<name>.pi-coding.<domain>`. The operator creates the local/public Gateway routes
+with unbounded application request duration for the terminal WebSocket; the chart
+exposes only a ClusterIP Service. The terminal checks WebSocket origins, accepts
+one client at a time, and supplies no URL-controlled command arguments.
+
+The Node 24 Bookworm base image is pinned by OCI digest. An init container downloads
+the official Linux amd64/arm64 Pi and ttyd release assets and verifies their locked
+SHA-256 checksums before extraction or execution. Pod recreation repeats this
+bootstrap and requires GitHub access; Pi's automatic startup network operations are
+disabled with `--offline`, which does not disable inference through LiteLLM.
+Pins and upstream sources are recorded in
+`magic-cluster/apps/instances/pi-coding/files/runtime-lock.json`.
+
+Pi starts with the explicitly selected LiteLLM chat model. It reads the shared
+`pi-models.json` export through its persistent agent directory; credentials are
+environment references, backed by `litellm-masterkey-secret`, and are never copied
+into the model ConfigMap. A missing selected model fails startup instead of choosing
+another provider. Catalog changes follow the existing consumer-restart path, and
+Pi `/model` reloads the mounted provider file. Per-model compaction budgets leave
+space for agent instructions and tool results; other preferences and sessions are retained.
+
+The process runs as UID/GID 1000 with a read-only root filesystem, dropped Linux
+capabilities, and no service-account token or host mounts. Its home directory,
+workspace and sessions live on the instance PVC. Removing the HelmRelease retains
+that PVC through `helm.sh/resource-policy: keep`; deleting retained data is a separate
+administrator operation. Recreating the same instance name reuses the volume.
+Readiness confirms validated model configuration and an available terminal, not a
+successful inference response. Verify inference with a small request after installation.

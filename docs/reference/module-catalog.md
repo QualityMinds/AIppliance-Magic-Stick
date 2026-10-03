@@ -127,6 +127,12 @@ For example, an OpenClaw instance requires `openclaw-operator`, `litellm`, and
 `litellm` and `model-catalog`. Flux renders every instance from its application
 chart; the Magic Stick Operator does not create application workloads directly.
 
+Pi Coding Agent uses the optional `pi-coding` module and instance chart with
+`litellm` and `model-catalog`. It needs no application-specific CRD. The module base
+is an empty capability marker; each instance chart owns its terminal Deployment,
+Service, bootstrap ConfigMap and retained workspace PVC. See
+[Pi configuration](application-controls.md#pi-coding-instances).
+
 The Odysseus instance chart registers the selected `spec.values.model` as a
 shared model on a managed LiteLLM endpoint through the Odysseus API. A small
 in-Pod bootstrap container waits until both Odysseus and the model are ready,

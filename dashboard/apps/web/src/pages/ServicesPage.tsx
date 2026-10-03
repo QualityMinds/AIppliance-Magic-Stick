@@ -31,7 +31,7 @@ type Credentials = {title: string; entries: Array<{key: string; value: string}>}
 
 const defaults: Record<string, {storage: string}> = {
   openclaw: {storage: '20Gi'}, hermes: {storage: '10Gi'}, paperclip: {storage: '5Gi'},
-  odysseus: {storage: '20Gi'}, kubeopencode: {storage: '5Gi'},
+  odysseus: {storage: '20Gi'}, kubeopencode: {storage: '5Gi'}, 'pi-coding': {storage: '5Gi'},
 };
 
 const dnsPart = (value: string, fallback: string) => value.trim().toLowerCase()
@@ -78,7 +78,7 @@ const CreateInstanceDialog = ({open, initialType, applications, models, instance
   const [searxngStorage, setSearxngStorage] = useState('1Gi');
   const [ntfyStorage, setNtfyStorage] = useState('1Gi');
   const current = applications.find((item) => item.id === type);
-  const modelRequired = ['openclaw', 'hermes', 'paperclip', 'kubeopencode', 'odysseus'].includes(type);
+  const modelRequired = ['openclaw', 'hermes', 'paperclip', 'kubeopencode', 'odysseus', 'pi-coding'].includes(type);
   const openClawInstances = instances.filter((item) => item.type === 'openclaw' && item.value.spec?.enabled !== false && String(item.value.status?.phase ?? '').toLowerCase() !== 'removing');
   const hermesInstances = instances.filter((item) => item.type === 'hermes' && item.value.spec?.enabled !== false && String(item.value.status?.phase ?? '').toLowerCase() !== 'removing');
 
@@ -93,7 +93,7 @@ const CreateInstanceDialog = ({open, initialType, applications, models, instance
         name, enabled: true, namespace: 'ai', model: model || 'CHANGEME_MODEL',
         access: {authentication, role, exposure, ...(sharing.mode === 'selected' ? {sharing} : {})},
       } as Record<string, unknown>;
-      if (type === 'openclaw' || type === 'hermes') {
+      if (type === 'openclaw' || type === 'hermes' || type === 'pi-coding') {
         base.storage = {size: storage}; base.ingress = {enabled: false, host};
       }
       if (type === 'paperclip') {

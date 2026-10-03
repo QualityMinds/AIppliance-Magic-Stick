@@ -139,7 +139,7 @@ the appliance service restores the TUI automatically.
 | `GET` | `/api/instance-principals` | Live admin: paginated user/group directory IDs and names. |
 | `GET` / `PUT` | `/api/instances/{name}/access` | Live admin: inspect sharing; updates also require entitlement, ready guard, CSRF and expected resource revision. |
 | `GET` | `/api/instances/{name}/credentials` | Returns supported generated credentials for an instance, currently OpenClaw. |
-| `POST` | `/api/instances/{type}` | Adds or replaces an `AppInstance` for supported types such as `openclaw`, `hermes`, `odysseus`, `paperclip`, or `kubeopencode`. |
+| `POST` | `/api/instances/{type}` | Adds or replaces an `AppInstance` for supported types such as `openclaw`, `hermes`, `odysseus`, `paperclip`, `kubeopencode`, or `pi-coding`. |
 | `DELETE` | `/api/instances/{name}` | Deletes the `AppInstance`; its finalizer removes the generated HelmRelease and Helm cleans the application resources. |
 | `GET` | `/api/models` | Returns model catalog entries, variant-aware presets, compute-target availability including FreeToken GPU capabilities, `ModelActivation` resources, AnythingLLM status, the estimator-compatible VRAM summary, and a `computeMemory.devices` list for the CPU and every discoverable GPU resource. |
 | `GET` | `/api/models/{name}/logs?tailLines=` | Administrator-only bounded snapshot of current and, after restarts, previous output from Pods owned by the named local model. The API derives namespace, Pods, and containers from the activation and Kubernetes ownership; clients cannot select arbitrary Pods. |

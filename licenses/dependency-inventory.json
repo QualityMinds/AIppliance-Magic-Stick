@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "4ae55e7f54bc30000b2ff38776d17b228c6fb76ac131b110e0a009cf6a5436b6",
-  "deploymentReferencesSha256": "cd82fb44f26972616247c2c82b49d9d914da96e6f7d829678c6b09557ccfe0e5",
+  "deploymentReferencesSha256": "dbfdaaeeffcec92f978375a15f3f5945f3fd67dc9f905de74ec393605124298d",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -2592,6 +2592,21 @@
       "file": "magic-cluster/apps/instances/paperclip/templates/instance.yaml",
       "line": 265,
       "reference": "version: pluginPackageVersion,"
+    },
+    {
+      "file": "magic-cluster/apps/instances/pi-coding/Chart.yaml",
+      "line": 5,
+      "reference": "version: 0.1.0"
+    },
+    {
+      "file": "magic-cluster/apps/instances/pi-coding/templates/resources.yaml",
+      "line": 102,
+      "reference": "image: {{ $image | quote }}"
+    },
+    {
+      "file": "magic-cluster/apps/instances/pi-coding/templates/resources.yaml",
+      "line": 121,
+      "reference": "image: {{ $image | quote }}"
     },
     {
       "file": "magic-cluster/platform/ai/agent-sandbox/gitrepository.yaml",
