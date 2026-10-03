@@ -7,6 +7,9 @@
 - Experiment with Realtime through the separate vLLM-Omni profile.
 - Connect external model providers and use a common LiteLLM API.
 - Create applications from the service catalog and grant access to specific users or groups.
+- Run the optional [Pi Coding Agent](../user-guide/applications.md#pi-coding-agent)
+  from **Services**, with a browser terminal, model selection, SSO access controls,
+  and persistent workspaces and sessions.
 - Share running local chat models through the opt-in Private Mesh module.
 - Manage local users, GPU allocation, host networking, model cache and Ubuntu updates.
 - Use the browser dashboard or authenticated CLI/TUI; advanced users can manage runtime resources.
@@ -24,6 +27,9 @@ also need substantial disk space beyond their final size.
 
 FreeToken and vLLM-Omni have their own runtime boundaries. An OpenAI-compatible
 chat endpoint does not automatically provide `/v1/realtime` or audio output.
+
+Pi requires GitHub access when creating or recreating its runtime. Each instance
+accepts one browser connection at a time, and its users share files and sessions.
 
 There is no appliance-wide one-click backup/restore or supported factory-reset
 button. [Backup and recovery](../administration/backup-recovery.md) requires a
