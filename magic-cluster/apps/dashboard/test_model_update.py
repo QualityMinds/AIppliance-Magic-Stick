@@ -96,6 +96,34 @@ class ModelUpdateTests(unittest.TestCase):
                 self.api["update_model_activation"]("qwen", {"expectedRevision": "17", "local": {"engine": "OLlama"}})
             self.assertEqual(immutable.exception.status, 400)
 
+    def test_cpu_ollama_edit_rechecks_memory_for_new_context_before_writing(self):
+        current = local_activation()
+        current["spec"]["local"] = {"url": "ollama://example:small", "engine": "OLlama", "computeTarget": "cpu",
+                                    "contextWindow": 2048, "memoryRequiredMi": 1000, "maxNumSeqs": 1}
+        writes, estimates = [], []
+
+        def estimate(payload, exclude_model=""):
+            estimates.append((payload, exclude_model))
+            return {"minimumMi": 1101 if payload["contextWindow"] == 8192 else 916}
+
+        with patch.dict(self.api, {
+            "model_activation": lambda _: current,
+            "compute_target_catalog": lambda: {"targets": {"cpu": {"kind": "cpu"}}},
+            "estimate_model_memory": estimate,
+            "require_gpu_slot_available": lambda *_: None,
+            "request_json": lambda method, path, body, *_: writes.append((method, path, body)) or body,
+        }):
+            with self.assertRaisesRegex(ValueError, "at least 1200 MiB"):
+                self.api["update_model_activation"]("qwen", {"expectedRevision": "17", "local": {"contextWindow": 8192}})
+            self.assertEqual(writes, [])
+            self.assertEqual(estimates[-1][1], "qwen")
+            result = self.api["update_model_activation"]("qwen", {
+                "expectedRevision": "17", "local": {"contextWindow": 8192, "allowMemoryRisk": True}})
+        self.assertEqual(result["spec"]["local"]["memoryRequiredMi"], 1000)
+        self.assertEqual(result["spec"]["local"]["contextWindow"], 8192)
+        self.assertIs(result["spec"]["local"]["allowMemoryRisk"], True)
+        self.assertEqual(len(writes), 1)
+
     def test_generation_revision_accepts_status_updates_but_rejects_spec_or_identity_changes(self):
         current = local_activation()
         current["metadata"].update(uid="example-model-uid", generation=3, resourceVersion="29")

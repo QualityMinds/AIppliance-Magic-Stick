@@ -272,6 +272,7 @@ select option:disabled { color: var(--muted); }
 .capacity-marker.available span { top: 20px; bottom: auto; color: var(--muted); }
 .discovery-selects > .button { align-self: flex-start; }
 .discovery-meta { margin-bottom: 0; }
+.discovery-meta .tag { max-width: 100%; overflow-wrap: anywhere; }
 
 .api-bases { display: grid; gap: .55rem; }
 .api-base { display: grid; grid-template-columns: minmax(110px, auto) minmax(0, 1fr) auto; align-items: center; gap: .7rem; padding: .7rem; border: 1px solid var(--line); border-radius: 10px; background: #070f1d; }

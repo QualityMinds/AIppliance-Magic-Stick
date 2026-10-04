@@ -6988,18 +6988,24 @@ data:
                     if not memory_required_mi or memory_required_mi < 16:
                         raise ValueError("local.memoryRequiredMi must be an integer of at least 16 MiB")
                     local["memoryRequiredMi"] = memory_required_mi
-                if engine == "VLLM" and resolved_model_url:
+                # CPU Ollama has the same explicit risk contract as CPU vLLM.
+                # Its budget must not silently bypass the estimate simply
+                # because vLLM alone needs a derived, server-owned cache size.
+                needs_cpu_estimate = engine == "VLLM" or (memory_required_mi and not allow_memory_risk)
+                if needs_cpu_estimate and resolved_model_url:
                     estimate = estimate_model_memory({**local, "url": resolved_model_url}, exclude_model)
                     minimum_mi = round_up_mib(estimate.get("minimumMi"))
-                    kv_cache_mi = max(
-                        MEMORY_RESERVATION_STEP_MI,
-                        round_up_mib(estimate.get("kvCacheMi")),
-                    )
-                    local["kvCacheMemoryBytes"] = kv_cache_mi * MIB_BYTES
+                    if engine == "VLLM":
+                        kv_cache_mi = max(
+                            MEMORY_RESERVATION_STEP_MI,
+                            round_up_mib(estimate.get("kvCacheMi")),
+                        )
+                        local["kvCacheMemoryBytes"] = kv_cache_mi * MIB_BYTES
                     if memory_required_mi and memory_required_mi < minimum_mi and not allow_memory_risk:
                         raise ValueError(
                             "local.memoryRequiredMi must be at least " + str(minimum_mi)
-                            + " MiB for this model, context, and CPU vLLM cache."
+                            + " MiB for this model, context, and CPU " + engine
+                            + " runtime. Set local.allowMemoryRisk=true only if you explicitly accept the memory risk."
                         )
             else:
                 if local.get("cpuOffloading"):

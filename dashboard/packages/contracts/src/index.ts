@@ -619,6 +619,7 @@ export interface Quantization {
 export interface DiscoveryItem extends ModelArtifact {
   id: string;
   repo: string;
+  revision?: string;
   name?: string;
   author?: string;
   formats?: string[];

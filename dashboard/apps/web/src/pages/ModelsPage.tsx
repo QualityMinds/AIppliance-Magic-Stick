@@ -139,6 +139,7 @@ const DiscoveryMetadata = ({item}: {item?: DiscoveryItem}) => item ? <div classN
   {quantizationText(item.quantization) && <span className="tag">Quantization: {quantizationText(item.quantization)}</span>}
   {item.trustStatus && <span className="tag">Trust: {item.trustStatus}</span>}
   {(item.sizeLabel || item.downloadBytes) && <span className="tag">Download: {item.sizeLabel ?? formatBytes(item.downloadBytes)}</span>}
+  {item.revision && <span className="tag">Revision: {item.revision}</span>}
   {item.modelMaxContext && <span className="tag">Model context: {item.modelMaxContext.toLocaleString()}{item.modelContextSource === 'base-model' ? ' · base model' : ''}</span>}
 </div> : null;
 

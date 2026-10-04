@@ -36,11 +36,14 @@ beforeEach(() => {
     const repo = params.get('repo') ?? '';
     const context = contextFor(repo);
     return {
-      provider: 'huggingface', total: 1,
+      provider: 'huggingface', total: 2,
       baseModel: {id: repo, repo, modelMaxContext: context},
       artifacts: [{
         id: `${repo}-fp8`, repo: `${repo}-FP8`, url: `hf://${repo}-FP8`,
-        modelMaxContext: 0,
+        modelMaxContext: 0, revision: repo.endsWith('27B') ? 'b'.repeat(40) : 'a'.repeat(40),
+      }, {
+        id: `${repo}-bf16`, repo, url: `hf://${repo}`,
+        modelMaxContext: context, revision: 'c'.repeat(40),
       }],
     };
   });
@@ -51,6 +54,35 @@ beforeEach(() => {
 });
 
 describe('Hugging Face model selection', () => {
+  it('shows the full revision of the selected artifact and updates it with the selection', async () => {
+    const user = userEvent.setup();
+    render(<QueryClientProvider client={new QueryClient({defaultOptions: {queries: {retry: false}}})}>
+      <ModelsPage session={session} />
+    </QueryClientProvider>);
+    await user.click(await screen.findByRole('button', {name: 'Create'}));
+    await user.click(screen.getByRole('button', {name: 'Search'}));
+    await screen.findByText(`Revision: ${'a'.repeat(40)}`);
+    await user.selectOptions(screen.getByLabelText('Quantization / artifact'), 'Qwen/Qwen3.8-9B-bf16');
+    expect(screen.getByText(`Revision: ${'c'.repeat(40)}`)).toBeVisible();
+    expect(screen.queryByText(`Revision: ${'a'.repeat(40)}`)).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText('Matching model'), 'Qwen/Qwen3.8-27B');
+    await screen.findByText(`Revision: ${'b'.repeat(40)}`);
+    expect(screen.queryByText(`Revision: ${'c'.repeat(40)}`)).not.toBeInTheDocument();
+  });
+
+  it('does not invent a revision when the registry did not return one', async () => {
+    vi.mocked(api.modelArtifacts).mockResolvedValue({provider: 'huggingface', total: 1,
+      artifacts: [{id: 'unknown-revision', repo: 'example/model', url: 'hf://example/model'}]});
+    const user = userEvent.setup();
+    render(<QueryClientProvider client={new QueryClient({defaultOptions: {queries: {retry: false}}})}>
+      <ModelsPage session={session} />
+    </QueryClientProvider>);
+    await user.click(await screen.findByRole('button', {name: 'Create'}));
+    await user.click(screen.getByRole('button', {name: 'Search'}));
+    await screen.findByLabelText('Quantization / artifact');
+    expect(screen.queryByText(/^Revision:/)).not.toBeInTheDocument();
+  });
+
   it('uses the selected base model context when its quantization has no context metadata', async () => {
     const user = userEvent.setup();
     render(<QueryClientProvider client={new QueryClient({defaultOptions: {queries: {retry: false}}})}>
