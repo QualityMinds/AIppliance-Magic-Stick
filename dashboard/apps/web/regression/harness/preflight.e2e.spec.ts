@@ -1,15 +1,15 @@
 import {test, type BrowserContext} from '@playwright/test';
-import type {LabConfig} from './core/config.ts';
+import type {LabConfig} from '../core/config.ts';
 import type {ManagedHost, ModelsPayload} from '@magicstick/dashboard-contracts';
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
-import {loadLabConfig} from './core/config.ts';
-import {realLogin} from './core/auth.ts';
-import {readOnlyApi} from './core/transport.ts';
-import {KubectlObserver, KubernetesLeaseStore, type KubeObject} from './core/observer.ts';
-import {safeBaseline, verifiedEndpoint, verifyCapabilities, verifyIdentity, verifyIdle} from './core/preflight.ts';
-import {HarnessError, requireSafe} from './core/errors.ts';
-import {writePrivate} from './core/private-files.ts';
+import {loadLabConfig} from '../core/config.ts';
+import {realLogin} from '../core/auth.ts';
+import {readOnlyApi} from '../core/transport.ts';
+import {KubectlObserver, KubernetesLeaseStore, type KubeObject} from '../core/observer.ts';
+import {safeBaseline, verifiedEndpoint, verifyCapabilities, verifyIdentity, verifyIdle, verifyDeploymentPins} from '../core/preflight.ts';
+import {HarnessError, requireSafe} from '../core/errors.ts';
+import {writePrivate} from '../core/private-files.ts';
 
 test.describe.serial('read-only installed-appliance preflight', () => {
   let config: LabConfig;
@@ -18,7 +18,7 @@ test.describe.serial('read-only installed-appliance preflight', () => {
   let baseline: {hosts: ManagedHost[]; models: ModelsPayload; nodes: KubeObject[]; pods: KubeObject[]; flux: KubeObject[]};
   test.afterAll(async () => { await context?.close(); });
 
-test('HAR-01 verified endpoints and real administrator login', async ({browser}) => {
+test('HAR-01 [p0:verified-login] verified endpoints and real administrator login', async ({browser}) => {
   const filename = process.env.REGRESSION_CONFIG;
   requireSafe(filename, 'CONFIG');
   config = await loadLabConfig(filename);
@@ -30,7 +30,7 @@ test('HAR-01 verified endpoints and real administrator login', async ({browser})
   context = await realLogin(browser, config);
 });
 
-test('HAR-02 independent lab identity, capabilities and requested deployment pins', async () => {
+test('HAR-02 [p0:pinned-baseline] [layer:A] independent lab identity, capabilities and requested deployment pins', async () => {
     requireSafe(context && observer && config, 'CONFIG');
     await observer.verifyConfiguration();
     const api = readOnlyApi(context.request, config.dashboardUrl, config.requestTimeoutMs);
@@ -42,34 +42,17 @@ test('HAR-02 independent lab identity, capabilities and requested deployment pin
     requireSafe(Array.isArray(hostsPayload.nodes), 'API');
     verifyIdentity(config, appliance, observedAppliance, nodes, hostsPayload.nodes);
     verifyCapabilities(config, models);
-    if (config.expected.flux) {
-      const expected = config.expected.flux;
-      const item = flux.find(entry => entry.metadata.name === expected.name && entry.metadata.namespace === expected.namespace);
-      requireSafe(item?.status?.lastAppliedRevision === expected.revision && item.status.conditions?.some(condition =>
-        condition.type === 'Ready' && condition.status === 'True' &&
-        (condition.observedGeneration ?? item.status?.observedGeneration) === item.metadata.generation), 'REVISION');
-    }
-    for (const expected of config.expected.images) {
-      const deployment = await observer.get('deployments.apps', expected.namespace, expected.deployment);
-      const replicasets = await observer.list('replicasets.apps', expected.namespace);
-      const owners = new Set(replicasets.filter(item => item.metadata.ownerReferences?.some(owner => owner.uid === deployment.metadata.uid))
-        .map(item => item.metadata.uid));
-      const containers = pods.filter(item => item.metadata.namespace === expected.namespace && item.metadata.ownerReferences?.some(owner => owners.has(owner.uid)))
-        .flatMap(item => item.status?.containerStatuses ?? []).filter(item => item.name === expected.container);
-      requireSafe(deployment.metadata.generation === deployment.status?.observedGeneration &&
-        Number(deployment.status?.readyReplicas) > 0 && containers.some(item => item.ready && item.imageID?.endsWith(expected.digest)) &&
-        containers.every(item => item.ready && item.imageID?.endsWith(expected.digest)), 'REVISION');
-    }
+    await verifyDeploymentPins(config, observer, pods, flux);
     baseline = {hosts: hostsPayload.nodes, models, nodes, pods, flux};
     requireSafe(process.env.REGRESSION_RUN_DIR, 'CONFIG');
     await writePrivate(join(process.env.REGRESSION_RUN_DIR, 'baseline.json'), safeBaseline(config, nodes, pods, models, flux));
 });
 
-test('HAR-03 idle host and no unrelated active local models or lab owner', async () => {
+test('HAR-03 [p0:idle-baseline] [layer:A] idle host and no unrelated active local models or lab owner', async () => {
     requireSafe(baseline && config, 'CONFIG');
     verifyIdle(baseline.hosts, baseline.models, config);
     if (config.lock) {
-      // Read only: phase 0 never acquires/changes an appliance Lease.
+      // Preflight is read only, including the dedicated test Lease.
       const lease = await new KubernetesLeaseStore(config.lock.kubeconfig, config.lock.namespace, config.lock.name).read();
       requireSafe(lease.metadata.labels['regression.magicstick.dev/appliance-uid'] === config.expected.applianceUid, 'IDENTITY');
       if (lease.spec.holderIdentity) {

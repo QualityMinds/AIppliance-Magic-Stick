@@ -58,8 +58,10 @@ evidence. The strict license review below remains explicitly opt-in.
   then confirm `data.image` is a `@sha256:` reference and
   `imageDigest`/`imageRevision` are populated.
 - Dashboard source publication is not appliance rollout: after a successful
-  client-image workflow, promote the matching Web and API image-index digests
-  and verify Flux, both Deployments and the changed browser screen. Follow
+  client-image workflow, verify its automatic `main`/`develop` promotion (or
+  explicitly promote a reviewed manual candidate). Web, API and CLI image-index
+  digests must belong to the same tested source. Verify host convergence, Flux,
+  running image IDs and the changed browser screen separately. Follow
   [dashboard image promotion](image-promotion.md#dashboard-image-promotion).
 
 ## Value Scan

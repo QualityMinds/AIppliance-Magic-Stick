@@ -19,9 +19,10 @@ not duplicate Kubernetes access, Keycloak administration, model discovery, or
 reconciliation logic in a client. The CLI and TUI reuse the same contracts, API
 client, and core rules without importing React.
 
-Pushing frontend source builds an image but does not promote it to appliances.
-The Web and API Deployments use immutable image digests. After a successful
-build, update both image references and verify the live rollout as described in
+Normal dashboard-source pushes to `main` and `develop` build and automatically
+promote a coordinated Web/API/CLI image set after required CI succeeds. The
+Deployments still use immutable digests, and feature-branch/manual builds remain
+explicit promotion candidates. Verify promotion and live convergence separately in
 [dashboard image promotion](image-promotion.md#dashboard-image-promotion).
 
 The React frontend is the only browser dashboard, deployed as
@@ -107,11 +108,15 @@ The API Dockerfile has one final runtime containing the BSL-licensed
 Only Federated SSO depends on a signed entitlement. Do not split the source or
 images by edition. Follow [the release audit](license-audit.md) before publishing.
 
-For coordinated API/ConfigMap changes, publish the matching immutable images
-before advancing the deployment pins. The dashboard-image workflow can run on
-an integration branch via `workflow_dispatch`; only a `main` build updates the
-mutable `web`, `react-preview`, `console` and `api-licensing-v1` channel tags.
-Branch builds publish SHA tags without moving those installation channels.
+For coordinated API/ConfigMap changes, matching immutable images must publish
+before deployment pins advance. Normal push builds on `main`/`develop` perform
+this promotion automatically only after public and browser checks succeed.
+The workflow can also build an integration branch via `workflow_dispatch`, but
+does not automatically promote manual candidates. `main` builds update mutable
+`web`, `react-preview`, `console` and `api-licensing-v1` aliases; `develop` builds
+update only their development aliases. Integration branches publish SHA tags
+without moving either installation channel. Aliases alone never change a pinned
+Deployment. See [image promotion](image-promotion.md#automatic-promotion).
 
 Software channel selection extends the existing host-operation contract rather
 than creating another update controller. `software_contract.py` is shared by the

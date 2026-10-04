@@ -1,15 +1,15 @@
 import {test, expect, type BrowserContext} from '@playwright/test';
-import {loadLabConfig} from './core/config.ts';
-import {realLogin} from './core/auth.ts';
-import {readOnlyApi} from './core/transport.ts';
-import {KubectlObserver, KubernetesLeaseStore} from './core/observer.ts';
-import {KubernetesModelCleaner} from './core/model-cleanup.ts';
-import {LabLease} from './core/lease.ts';
-import {ResourceJournal} from './core/journal.ts';
-import {OwnedKeyClient} from './core/owned-key.ts';
-import {OwnedModelClient, remainingModelResources} from './core/owned-model.ts';
-import {verifyCapabilities, verifyIdentity} from './core/preflight.ts';
-import {requireSafe} from './core/errors.ts';
+import {loadLabConfig} from '../core/config.ts';
+import {realLogin} from '../core/auth.ts';
+import {readOnlyApi} from '../core/transport.ts';
+import {KubectlObserver, KubernetesLeaseStore} from '../core/observer.ts';
+import {KubernetesModelCleaner} from '../core/model-cleanup.ts';
+import {LabLease} from '../core/lease.ts';
+import {ResourceJournal} from '../core/journal.ts';
+import {OwnedKeyClient} from '../core/owned-key.ts';
+import {OwnedModelClient, remainingModelResources} from '../core/owned-model.ts';
+import {verifyCapabilities, verifyIdentity} from '../core/preflight.ts';
+import {requireSafe} from '../core/errors.ts';
 
 test('HAR-07 explicit recovery resumes one journal and removes only unchanged UID-owned resources', async ({browser}) => {
   requireSafe(process.env.REGRESSION_CONFIG && process.env.REGRESSION_RECOVERY_JOURNAL, 'CONFIG');
@@ -37,10 +37,11 @@ test('HAR-07 explicit recovery resumes one journal and removes only unchanged UI
       ownedNames.has(item.metadata?.name ?? '')), 'BUSY');
     requireSafe(hosts.nodes.every(host => !host.updates?.busy && !host.software?.busy &&
       (!host.operation || ['Succeeded', 'Failed', 'Cancelled'].includes(host.operation.phase))), 'BUSY');
-    const keys = new OwnedKeyClient(context.request, config.dashboardUrl, config.requestTimeoutMs, journal.prefix, journal.entries);
+    const guard = async () => { requireSafe(lock, 'LOCK_LOST'); await lock.assertHeld(); };
+    const keys = new OwnedKeyClient(context.request, config.dashboardUrl, config.requestTimeoutMs, journal.prefix, journal.entries, guard);
     const modelEntry = journal.entries.find(entry => entry.kind === 'model');
     const model = modelEntry ? new OwnedModelClient(context.request, config.dashboardUrl, config.requestTimeoutMs,
-      modelEntry.name, config.smokeModel, journal.prefix) : undefined;
+      modelEntry.name, config.smokeModel, journal.prefix, guard) : undefined;
     if (modelEntry?.uid) model?.adopt(modelEntry.uid);
     lock = new LabLease(new KubernetesLeaseStore(config.lock.kubeconfig, config.lock.namespace, config.lock.name),
       journal.runId, config.expected.applianceUid, Date.now, 120);

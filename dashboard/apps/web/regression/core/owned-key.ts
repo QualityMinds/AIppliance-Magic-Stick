@@ -8,7 +8,10 @@ import type {CleanupAdapter, JournalEntry} from './journal.ts';
 export class OwnedKeyClient {
   private readonly api: MagicStickApi;
   private readonly ownedIds = new Set<string>();
-  constructor(request: APIRequestContext, baseUrl: string, timeoutMs: number, private prefix: string, journal: ReadonlyArray<JournalEntry>) {
+  private readonly prefix: string;
+  constructor(request: APIRequestContext, baseUrl: string, timeoutMs: number, prefix: string, journal: ReadonlyArray<JournalEntry>,
+    assertMutationAllowed: () => Promise<void>) {
+    this.prefix = prefix;
     for (const item of journal) if (item.kind === 'key' && item.uid && item.name.startsWith(prefix)) this.ownedIds.add(item.uid);
     const origin = new URL(baseUrl).origin;
     const transport: typeof fetch = async (input, init = {}) => {
@@ -28,7 +31,7 @@ export class OwnedKeyClient {
         requireSafe(match && this.ownedIds.has(match[1]!) && !init.body, 'MUTATION');
       } else throw new HarnessError('MUTATION');
       const headers = new Headers(init.headers);
-      if (method !== 'GET') headers.set('Origin', origin);
+      if (method !== 'GET') { await assertMutationAllowed(); headers.set('Origin', origin); }
       let response;
       try {
         response = await request.fetch(url.href, {method, headers: Object.fromEntries(headers.entries()),
@@ -55,12 +58,19 @@ export class OwnedKeyClient {
     requireSafe(name.startsWith(this.prefix) && /^[a-z0-9][a-z0-9-]{0,62}$/.test(name), 'OWNERSHIP');
     try {
       const result = await this.api.createApiKey(name);
-      const item = result.item as {id?: unknown; name?: unknown};
-      requireSafe(item && typeof item.id === 'string' && /^[A-Za-z0-9._:-]{16,256}$/.test(item.id) && item.name === name &&
-        typeof result.key === 'string' && result.key.startsWith('sk-'), 'API');
-      this.ownedIds.add(item.id);
-      return {id: item.id, secret: result.key};
+      return this.adoptCredential(name, result);
     } catch (error) { if (error instanceof HarnessError) throw error; throw new HarnessError('API'); }
+  }
+
+  /** A browser create response is adopted only after exact name/ID validation. */
+  adoptCredential(name: string, value: unknown): {id: string; secret: string} {
+    requireSafe(name.startsWith(this.prefix) && /^[a-z0-9][a-z0-9-]{0,62}$/.test(name), 'OWNERSHIP');
+    const result = value as {item?: {id?: unknown; name?: unknown}; key?: unknown} | null;
+    const item = result?.item;
+    requireSafe(item && typeof item.id === 'string' && /^[A-Za-z0-9._:-]{16,256}$/.test(item.id) && item.name === name &&
+      typeof result?.key === 'string' && result.key.startsWith('sk-'), 'API');
+    this.ownedIds.add(item.id);
+    return {id: item.id, secret: result.key};
   }
 
   async create(name: string): Promise<string> { return (await this.createCredential(name)).id; }

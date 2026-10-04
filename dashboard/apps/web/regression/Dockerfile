@@ -10,7 +10,7 @@ LABEL org.opencontainers.image.title="Magic Stick local regression harness" \
 ENV REGRESSION_SOURCE_REVISION=${SOURCE_REVISION}
 WORKDIR /opt/magicstick/dashboard
 USER root
-RUN apt-get update && apt-get install -y --no-install-recommends libnss3-tools \
+RUN apt-get update && apt-get install -y --no-install-recommends libnss3-tools python3 python3-yaml \
     && rm -rf /var/lib/apt/lists/* \
     && curl --fail --location --retry 3 "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl" -o /usr/local/bin/kubectl \
     && curl --fail --location --retry 3 "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl.sha256" -o /tmp/kubectl.sha256 \
@@ -19,7 +19,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends libnss3-tools \
     && npm install --global pnpm@11.19.0
 COPY dashboard/ ./
 COPY LICENSE LICENSING.md THIRD_PARTY_NOTICES.md /opt/magicstick/
+COPY licenses/ /opt/magicstick/licenses/
+COPY magic-cluster/apps/ai/private-mesh/client.html /opt/magicstick/magic-cluster/apps/ai/private-mesh/client.html
+COPY magic-cluster/apps/dashboard/ /opt/magicstick/magic-cluster/apps/dashboard/
+COPY magic-cluster/platform/magicstick-operator/ /opt/magicstick/magic-cluster/platform/magicstick-operator/
 RUN pnpm install --frozen-lockfile --filter @magicstick/dashboard-web... \
+    && pnpm --filter @magicstick/dashboard-web build \
     && node -e "if (Number(process.versions.node.split('.')[0]) < 24) process.exit(1)" \
     && chown -R pwuser:pwuser /opt/magicstick
 WORKDIR /opt/magicstick/dashboard/apps/web

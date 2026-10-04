@@ -1,7 +1,7 @@
 import type {APIRequestContext} from '@playwright/test';
 import {MagicStickApi} from '@magicstick/dashboard-api-client';
 import type {ModelActivation, ModelsPayload} from '@magicstick/dashboard-contracts';
-import type {LabConfig} from './config.ts';
+import type {LocalModelFixture} from './config.ts';
 import {HarnessError, requireSafe} from './errors.ts';
 import type {KubectlObserver, KubeObject} from './observer.ts';
 
@@ -25,8 +25,19 @@ export function activation(payload: ModelsPayload, name: string) {
 export class OwnedModelClient {
   private readonly api: MagicStickApi;
   private ownedUid: string | undefined;
-  constructor(request: APIRequestContext, baseUrl: string, timeoutMs: number, readonly name: string,
-    private fixture: NonNullable<LabConfig['smokeModel']>, prefix: string) {
+  private readonly request: APIRequestContext;
+  private readonly baseUrl: string;
+  private readonly timeoutMs: number;
+  private readonly allowMemoryRisk: boolean;
+  readonly name: string;
+  readonly fixture: LocalModelFixture;
+  private readonly assertMutationAllowed: () => Promise<void>;
+  constructor(request: APIRequestContext, baseUrl: string, timeoutMs: number, name: string,
+    fixture: LocalModelFixture, prefix: string,
+    assertMutationAllowed: () => Promise<void>, allowMemoryRisk = false) {
+    this.request = request; this.baseUrl = baseUrl; this.timeoutMs = timeoutMs;
+    this.name = name; this.fixture = fixture; this.assertMutationAllowed = assertMutationAllowed;
+    this.allowMemoryRisk = allowMemoryRisk;
     modelName(name, prefix);
     const origin = new URL(baseUrl).origin;
     const transport: typeof fetch = async (input, init = {}) => {
@@ -43,7 +54,7 @@ export class OwnedModelClient {
         try { body = JSON.parse(init.body); } catch { throw new HarnessError('MUTATION'); }
         if (url.pathname === '/api/models/local') {
           requireSafe(JSON.stringify(body) === JSON.stringify(this.createPayload()), 'MUTATION');
-        } else if (url.pathname === `/api/models/${encodeURIComponent(name)}/start`) {
+        } else if (['start', 'stop'].some(action => url.pathname === `/api/models/${encodeURIComponent(name)}/${action}`)) {
           const revision = (body as {expectedRevision?: unknown} | null)?.expectedRevision;
           const parts = typeof revision === 'string' ? /^generation:([^:]+):([1-9]\d*)$/.exec(revision) : null;
           requireSafe(this.ownedUid && body && typeof body === 'object' && !Array.isArray(body) &&
@@ -52,7 +63,7 @@ export class OwnedModelClient {
         } else throw new HarnessError('MUTATION');
       } else throw new HarnessError('MUTATION');
       const headers = new Headers(init.headers);
-      if (method !== 'GET') headers.set('Origin', origin);
+      if (method !== 'GET') { await this.assertMutationAllowed(); headers.set('Origin', origin); }
       let response;
       try { response = await request.fetch(url.href, {method, headers: Object.fromEntries(headers.entries()),
         ...(init.body ? {data: String(init.body)} : {}), timeout: timeoutMs, maxRedirects: 0, failOnStatusCode: false}); }
@@ -68,10 +79,15 @@ export class OwnedModelClient {
 
   private createPayload() {
     return {name: this.name, enabled: true, targetNamespace: 'ai', local: {
-      modelType: 'chat', computeTarget: 'cpu', engine: 'OLlama', url: this.fixture.url,
+      modelType: 'chat', computeTarget: this.fixture.computeTarget, engine: this.fixture.engine, url: this.fixture.url,
       contextWindow: this.fixture.contextWindow, maxNumSeqs: 1, memoryRequiredMi: this.fixture.memoryRequiredMi,
+      ...(this.fixture.kvCacheType ? {kvCacheType: this.fixture.kvCacheType} : {}),
+      ...(this.allowMemoryRisk ? {allowMemoryRisk: true} : {}),
     }};
   }
+
+  /** Exact reviewed create intent used by the browser request fence. */
+  payload() { return structuredClone(this.createPayload()); }
 
   async models() { return this.api.models(); }
   async logs() { return this.api.modelLogs(this.name); }
@@ -101,6 +117,36 @@ export class OwnedModelClient {
       Number.isSafeInteger(item.metadata.generation) && Number(item.metadata.generation) > Number(current.metadata.generation), 'API');
     return {uid: this.ownedUid, generation: Number(item.metadata.generation)};
   }
+
+  async stop(current: ModelActivation): Promise<{uid: string; generation: number}> {
+    requireSafe(this.ownedUid && current.metadata?.uid === this.ownedUid && current.spec?.enabled === true &&
+      current.metadata.name === this.name, 'OWNERSHIP');
+    const result = await this.api.request<{activation?: ModelActivation}>(`/api/models/${encodeURIComponent(this.name)}/stop`,
+      {method: 'POST', body: JSON.stringify({expectedRevision: editRevision(current)})});
+    const item = result.activation;
+    requireSafe(item?.metadata?.uid === this.ownedUid && item.spec?.enabled === false &&
+      Number.isSafeInteger(item.metadata.generation) && Number(item.metadata.generation) > Number(current.metadata.generation), 'API');
+    return {uid: this.ownedUid, generation: Number(item.metadata.generation)};
+  }
+
+  async rejectsStaleContextUpdate(expectedRevision: string, contextWindow: number) {
+    const stale = /^generation:([^:]+):([1-9]\d*)$/.exec(expectedRevision);
+    requireSafe(this.ownedUid && stale?.[1] === this.ownedUid && Number.isSafeInteger(contextWindow) &&
+      contextWindow >= 256 && contextWindow <= 4096, 'MUTATION');
+    const current = activation(await this.models(), this.name);
+    requireSafe(current?.metadata?.uid === this.ownedUid && editRevision(current) !== expectedRevision, 'OWNERSHIP');
+    let response;
+    await this.assertMutationAllowed();
+    try {
+      response = await this.request.fetch(`${new URL(this.baseUrl).origin}/api/models/${encodeURIComponent(this.name)}`, {
+        method: 'PUT', headers: {Origin: new URL(this.baseUrl).origin, 'Content-Type': 'application/json',
+          'X-MagicStick-CSRF': 'dashboard'},
+        data: JSON.stringify({expectedRevision, local: {contextWindow}}), timeout: this.timeoutMs,
+        maxRedirects: 0, failOnStatusCode: false,
+      });
+    } catch { throw new HarnessError('API'); }
+    requireSafe(response.status() === 409, 'CONFLICT');
+  }
 }
 
 export function ownedRuntimePods(pods: KubeObject[], name: string) {
@@ -115,7 +161,7 @@ export async function remainingModelResources(observer: KubectlObserver, client:
     catalogCount: (models.models ?? []).filter(item => item.id === name).length};
 }
 
-export function fixtureIsAdvertised(payload: ModelsPayload, fixture: NonNullable<LabConfig['smokeModel']>) {
+export function fixtureIsAdvertised(payload: ModelsPayload, fixture: LocalModelFixture) {
   const target = payload.computeTargets.targets.find(item => item.id === fixture.computeTarget);
   requireSafe(target?.available && target.engines?.includes(fixture.engine) &&
     target.engineAvailability?.[fixture.engine]?.available !== false, 'CAPABILITY');

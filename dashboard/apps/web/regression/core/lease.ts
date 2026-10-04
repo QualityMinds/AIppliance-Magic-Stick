@@ -16,11 +16,19 @@ function leaseTime(milliseconds: number) {
 
 /** CAS on a pre-provisioned, appliance-labelled Lease. Never creates or steals one. */
 export class LabLease {
+  readonly owner: string;
+  private readonly store: LeaseStore;
+  private readonly targetUid: string;
+  private readonly now: () => number;
+  private readonly durationSeconds: number;
   private held = false;
   private fenced = false;
   private lastHeartbeat = 0;
-  constructor(private store: LeaseStore, readonly owner: string, private targetUid: string,
-    private now: () => number = Date.now, private durationSeconds = 60) {}
+  constructor(store: LeaseStore, owner: string, targetUid: string,
+    now: () => number = Date.now, durationSeconds = 60) {
+    this.store = store; this.owner = owner; this.targetUid = targetUid;
+    this.now = now; this.durationSeconds = durationSeconds;
+  }
 
   private validate(lease: Lease) {
     requireSafe(lease.kind === 'Lease' && lease.apiVersion === 'coordination.k8s.io/v1' &&

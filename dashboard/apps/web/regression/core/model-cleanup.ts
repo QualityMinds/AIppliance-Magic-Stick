@@ -9,8 +9,10 @@ const group = 'appliance.magicstick.dev';
 
 /** Only a namespaced ModelActivation DELETE credential; never an admin kubeconfig. */
 export class KubernetesModelCleaner extends KubectlObserver {
-  constructor(kubeconfig: string, readonly namespace: string, timeoutMs = 15_000) {
+  readonly namespace: string;
+  constructor(kubeconfig: string, namespace: string, timeoutMs = 15_000) {
     super(kubeconfig, timeoutMs);
+    this.namespace = namespace;
     requireSafe(namespace === 'ai-system', 'CONFIG');
   }
 
@@ -36,7 +38,7 @@ export class KubernetesModelCleaner extends KubectlObserver {
     const current = await this.find(name);
     requireSafe(current?.metadata.uid === uid && current.metadata.generation === generation &&
       current.metadata.resourceVersion && current.metadata.labels?.['app.kubernetes.io/managed-by'] === 'ai-appliance-dashboard' &&
-      current.spec?.type === 'local' && current.spec?.targetNamespace === 'ai', 'OWNERSHIP');
+      ['local', 'external'].includes(String(current.spec?.type)) && current.spec?.targetNamespace === 'ai', 'OWNERSHIP');
     const path = `/apis/${group}/v1alpha1/namespaces/${this.namespace}/modelactivations/${name}`;
     const options = {apiVersion: 'v1', kind: 'DeleteOptions',
       preconditions: {uid, resourceVersion: current.metadata.resourceVersion}};
@@ -53,7 +55,7 @@ export class KubernetesModelCleaner extends KubectlObserver {
         const item = await this.find(entry.name);
         if (item) requireSafe(item.metadata.generation === entry.generation &&
           item.metadata.labels?.['app.kubernetes.io/managed-by'] === 'ai-appliance-dashboard' &&
-          item.spec?.type === 'local' && item.spec?.targetNamespace === 'ai', 'OWNERSHIP');
+          ['local', 'external'].includes(String(item.spec?.type)) && item.spec?.targetNamespace === 'ai', 'OWNERSHIP');
         return item?.metadata.uid ? {uid: item.metadata.uid} : null;
       },
       removeIfUid: async (entry, uid) => {
@@ -69,7 +71,7 @@ export class KubernetesModelCleaner extends KubectlObserver {
           const [item, remaining] = await Promise.all([this.find(entry.name), readRemaining(entry.name)]);
           return {item, remaining};
         }, result => result.item === null && result.remaining.podCount === 0 && result.remaining.catalogCount === 0,
-        {timeoutMs: 300_000, intervalMs: 1000});
+        {timeoutMs: 300_000, intervalMs: 1000, stage: 'cleanup'});
         return true;
       },
     };

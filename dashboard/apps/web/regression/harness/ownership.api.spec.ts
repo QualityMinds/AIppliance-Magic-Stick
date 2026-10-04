@@ -1,16 +1,16 @@
 import {test, expect, type BrowserContext} from '@playwright/test';
 import {join} from 'node:path';
-import type {LabConfig} from './core/config.ts';
-import {loadLabConfig} from './core/config.ts';
-import {realLogin} from './core/auth.ts';
-import {readOnlyApi} from './core/transport.ts';
-import {KubernetesLeaseStore, KubectlObserver} from './core/observer.ts';
-import {LabLease} from './core/lease.ts';
-import {ResourceJournal, newRunId} from './core/journal.ts';
-import {OwnedKeyClient} from './core/owned-key.ts';
-import {verifyCapabilities, verifyIdentity, verifyIdle} from './core/preflight.ts';
-import {HarnessError, requireSafe} from './core/errors.ts';
-import {summarize} from './core/report.ts';
+import type {LabConfig} from '../core/config.ts';
+import {loadLabConfig} from '../core/config.ts';
+import {realLogin} from '../core/auth.ts';
+import {readOnlyApi} from '../core/transport.ts';
+import {KubernetesLeaseStore, KubectlObserver} from '../core/observer.ts';
+import {LabLease} from '../core/lease.ts';
+import {ResourceJournal, newRunId} from '../core/journal.ts';
+import {OwnedKeyClient} from '../core/owned-key.ts';
+import {verifyCapabilities, verifyIdentity, verifyIdle} from '../core/preflight.ts';
+import {HarnessError, requireSafe} from '../core/errors.ts';
+import {summarize} from '../core/report.ts';
 
 test.describe.serial('live owned API-key cleanup subset', () => {
   let config: LabConfig;
@@ -39,7 +39,8 @@ test.describe.serial('live owned API-key cleanup subset', () => {
     verifyCapabilities(config, models);
     verifyIdle(hosts.nodes, models, config);
     journal = await ResourceJournal.resume(join(process.env.REGRESSION_RUN_DIR, 'journal.json'), config.expected.applianceUid);
-    keys = new OwnedKeyClient(context.request, config.dashboardUrl, config.requestTimeoutMs, journal.prefix, journal.entries);
+    keys = new OwnedKeyClient(context.request, config.dashboardUrl, config.requestTimeoutMs, journal.prefix, journal.entries,
+      async () => { requireSafe(lock, 'LOCK_LOST'); await lock.assertHeld(); });
     baselineIds = new Set((await keys.list()).items.map(item => item.id));
     lock = new LabLease(new KubernetesLeaseStore(config.lock.kubeconfig, config.lock.namespace, config.lock.name),
       newRunId(), config.expected.applianceUid, Date.now, 120);
@@ -91,7 +92,7 @@ test.describe.serial('live owned API-key cleanup subset', () => {
     const original = new HarnessError('DEADLINE', 'Failed');
     await cleanup();
     expect(original.code).toBe('DEADLINE');
-    expect(summarize(['HAR-06'], [{id: 'HAR-06', layer: 'live', outcome: 'Failed', reason: original.code, durationMs: 1}]).acceptable).toBe(false);
+    expect(summarize(['HAR-06'], [{id: 'HAR-06', layer: 'A', environment: 'live', outcome: 'Failed', reason: original.code, durationMs: 1}]).acceptable).toBe(false);
     expect((await keys.list()).items.some(item => item.id === key.uid)).toBe(false);
   });
 

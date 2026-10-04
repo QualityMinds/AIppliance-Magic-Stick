@@ -54,4 +54,16 @@ describe('model runtime logs', () => {
     expect(screen.queryByRole('button', {name: /View logs/})).not.toBeInTheDocument();
     expect(api.modelLogs).not.toHaveBeenCalled();
   });
+
+  it('renders HTML-like long log output as inert text, including control characters', async () => {
+    const hostile = '\u001b[31m<img src=x onerror="window.__logExecuted=true">' + 'x'.repeat(12_000);
+    vi.mocked(api.modelLogs).mockResolvedValue({model: 'qwen-local', namespace: 'ai', generatedAt: '2026-10-02T00:00:00Z', tailLines: 300,
+      pods: [{name: 'fixture-pod', phase: 'Running', deleting: false, containers: [{name: 'server', kind: 'application', state: 'running', restartCount: 0,
+        logs: [{previous: false, text: hostile}]}]}]});
+    const user = userEvent.setup(); renderModels(admin);
+    await user.click(await screen.findByRole('button', {name: 'View logs for qwen-local'}));
+    const output = await screen.findByLabelText('fixture-pod server current logs');
+    expect(output.textContent).toBe(hostile); expect(output.querySelector('img')).toBeNull();
+    expect((window as unknown as {__logExecuted?: boolean}).__logExecuted).toBeUndefined();
+  });
 });

@@ -8,6 +8,7 @@
   "usernameFile": "username.txt",
   "passwordFile": "password.txt",
   "observerKubeconfig": "observer.yaml",
+  "lock": {"namespace": "magicstick-regression", "name": "lab-lock", "kubeconfig": "locker.yaml"},
   "requestTimeoutMs": 15000,
   "loginTimeoutMs": 90000,
   "modelCleanupKubeconfig": "model-cleaner.yaml",
@@ -19,13 +20,57 @@
     "contextWindow": 2048,
     "maxNumSeqs": 1
   },
+  "phase2": {
+    "ollamaModel": {
+      "engine": "OLlama",
+      "computeTarget": "cpu",
+      "url": "ollama://qwen2.5:0.5b-instruct-q4_K_M",
+      "memoryRequiredMi": 2100,
+      "contextWindow": 2048,
+      "maxNumSeqs": 1,
+      "kvCacheType": "f16"
+    },
+    "vllmModel": {
+      "engine": "VLLM",
+      "computeTarget": "cpu",
+      "url": "hf://CHANGEME/SMALL-CPU-MODEL",
+      "memoryRequiredMi": 4100,
+      "contextWindow": 2048,
+      "maxNumSeqs": 1,
+      "kvCacheType": "auto"
+    },
+    "failureModel": {
+      "engine": "OLlama",
+      "computeTarget": "cpu",
+      "url": "ollama://magicstick-regression-missing:never",
+      "memoryRequiredMi": 2100,
+      "contextWindow": 2048,
+      "maxNumSeqs": 1,
+      "expectedReason": "CHANGEME exact expected failure reason"
+    },
+    "externalModel": {
+      "model": "CHANGEME/provider-model",
+      "apiBase": "https://CHANGEME.example.test/v1",
+      "apiKeyFile": "external-provider-key.txt",
+      "contextWindow": 4096
+    },
+    "discovery": {
+      "query": "CHANGEME",
+      "repo": "CHANGEME/SMALL-CPU-MODEL",
+      "artifactUrl": "hf://CHANGEME/SMALL-CPU-MODEL"
+    }
+  },
   "expected": {
     "applianceUid": "CHANGEME",
     "applianceNamespace": "ai-system",
     "applianceName": "local",
     "role": "magicstick-admin",
-    "nodes": [{"name": "CHANGEME", "uid": "CHANGEME"}],
+    "nodes": [{"name": "CHANGEME", "uid": "CHANGEME", "bootId": "CHANGEME"}],
     "capabilities": [{"target": "cpu", "engines": ["OLlama", "VLLM"]}],
-    "images": []
+    "flux": {"namespace": "flux-system", "name": "flux-system", "revision": "sha1:CHANGEME"},
+    "images": [
+      {"namespace": "dashboard", "deployment": "ai-appliance-dashboard", "container": "web", "digest": "sha256:CHANGEME"},
+      {"namespace": "identity-system", "deployment": "ai-appliance-dashboard-api", "container": "api", "digest": "sha256:CHANGEME"}
+    ]
   }
 }

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "4ae55e7f54bc30000b2ff38776d17b228c6fb76ac131b110e0a009cf6a5436b6",
-  "deploymentReferencesSha256": "cb468d28a933b4ce1790decaee5bda52b9b81834eef9f122a9984086157a94cd",
+  "deploymentReferencesSha256": "05216241942020d16423fd0c3e16c702ee38668d3f8817184c803b7464a3f5bb",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -2005,27 +2005,32 @@
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 57,
+      "line": 65,
       "reference": "node-version: \"24\""
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 103,
+      "line": 69,
+      "reference": "python3 -m pip install pyyaml"
+    },
+    {
+      "file": ".github/workflows/build-dashboard-image.yml",
+      "line": 116,
       "reference": "python3 -m pip install -r dashboard/apps/api/requirements.txt pyyaml"
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 135,
+      "line": 148,
       "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 151,
+      "line": 164,
       "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 167,
+      "line": 180,
       "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
     },
     {
@@ -2165,7 +2170,7 @@
     },
     {
       "file": ".github/workflows/dashboard-browser-smoke.yml",
-      "line": 35,
+      "line": 61,
       "reference": "node-version: '24'"
     },
     {
@@ -2275,7 +2280,7 @@
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 95,
+      "line": 96,
       "reference": "python3 -m pip install -r dashboard/apps/api/requirements.txt pyyaml"
     },
     {
@@ -3010,17 +3015,17 @@
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 2892,
+      "line": 2893,
       "reference": "raise ValueError(\"Realtime requires a Hugging Face repository: hf://organization/model\")"
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 2929,
+      "line": 2930,
       "reference": "if image:"
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 4106,
+      "line": 4154,
       "reference": "if not image:"
     },
     {

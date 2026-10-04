@@ -64,6 +64,13 @@ export class ResourceJournal {
     if (generation !== undefined) entry.generation = generation;
     await this.persist();
   }
+  /** Mark a reviewed request as conclusively rejected only after an independent
+   * lookup proved that no object with the run-owned name exists. */
+  async rejected(kind: ResourceKind, name: string) {
+    const entry = this.data.entries.find(item => item.kind === kind && item.name === name);
+    requireSafe(entry?.state === 'requested' && entry.uid === null, 'OWNERSHIP');
+    entry.state = 'removed'; await this.persist();
+  }
   /** A model spec change is journaled immediately after the API acknowledges it. */
   async modelGeneration(name: string, uid: string, previous: number, generation: number) {
     const entry = this.data.entries.find(item => item.kind === 'model' && item.name === name);

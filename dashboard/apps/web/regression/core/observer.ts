@@ -32,7 +32,11 @@ export function verifyObserverRules(value: {status?: {incomplete?: boolean; reso
 
 /** No shell, no Secret reads, no exec/log collection. Output stays in memory. */
 export class KubectlObserver {
-  constructor(readonly kubeconfig: string, readonly timeoutMs = 15_000) {}
+  readonly kubeconfig: string;
+  readonly timeoutMs: number;
+  constructor(kubeconfig: string, timeoutMs = 15_000) {
+    this.kubeconfig = kubeconfig; this.timeoutMs = timeoutMs;
+  }
   protected command(arguments_: string[], input?: string): Promise<string> {
     return new Promise((resolve, reject) => {
       const child = spawn('kubectl', ['--kubeconfig', this.kubeconfig, `--request-timeout=${this.timeoutMs}ms`, ...arguments_],
@@ -85,8 +89,11 @@ export class KubectlObserver {
 
 /** Separate lock credentials can update ONE precreated Lease, not product objects. */
 export class KubernetesLeaseStore extends KubectlObserver implements LeaseStore {
-  constructor(kubeconfig: string, private namespace: string, private name: string, timeoutMs = 15_000) {
+  private readonly namespace: string;
+  private readonly name: string;
+  constructor(kubeconfig: string, namespace: string, name: string, timeoutMs = 15_000) {
     super(kubeconfig, timeoutMs);
+    this.namespace = namespace; this.name = name;
     requireSafe(namespace === 'magicstick-regression' && name === 'lab-lock', 'CONFIG');
   }
   async read(): Promise<Lease> { return await this.get('leases.coordination.k8s.io', this.namespace, this.name) as unknown as Lease; }

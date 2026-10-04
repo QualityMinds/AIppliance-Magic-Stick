@@ -7,28 +7,53 @@ import {X509Certificate} from 'node:crypto';
 import {loadLabConfig} from './core/config.ts';
 import {HarnessError, requireSafe} from './core/errors.ts';
 import {ResourceJournal, newRunId} from './core/journal.ts';
-import {privateDirectory, writePrivate} from './core/private-files.ts';
-import {saveReport} from './core/report.ts';
+import {privateDirectory, writePrivate, readPrivate} from './core/private-files.ts';
+import {saveReport, stepCases} from './core/report.ts';
+import {phase0Ids, requirePhase0Profile} from './profiles/phase0-p0.ts';
+import {phase1Ids, phase1FastVariants, requirePhase1Profile} from './profiles/phase1-p0.ts';
+import {phase2Ids, phase2FastVariants, phase2FixtureVariants, phase2ModelIds, phase2ModelCases, requirePhase2Profile} from './profiles/phase2-p0.ts';
+import {phaseSteps} from './profiles/selections.ts';
 
 process.umask(0o077);
 process.chdir(fileURLToPath(new URL('..', import.meta.url)));
 const mode = process.argv[2], runId = newRunId();
+const modelCase = mode === 'phase2-models' ? process.argv[3] : undefined;
+const selectedModelCase = modelCase && Object.hasOwn(phase2ModelCases, modelCase) ? phase2ModelCases[modelCase] : undefined;
 const output = resolve(process.env.REGRESSION_OUTPUT_DIR ?? '.regression/runs');
 const directory = join(output, runId);
-const required = mode === 'locktest' ? ['HAR-04', 'HAR-08', 'HAR-09'] : mode === 'ownedtest' ? ['HAR-05', 'HAR-06', 'HAR-07'] :
+const playwrightCli = resolve('node_modules/@playwright/test/cli.js');
+const typeScriptCli = resolve('node_modules/typescript/bin/tsc');
+const required = mode === 'phase2' ? phase2Ids : mode === 'phase2-fast' ? [...new Set(Object.values(phase2FastVariants).map(item => item.id))] :
+  mode === 'phase2-fixtures' ? [...new Set(Object.values(phase2FixtureVariants).map(item => item.id))] : mode === 'phase2-readonly' ? ['DISC-03'] :
+  mode === 'phase2-models' ? selectedModelCase?.ids ?? phase2ModelIds :
+  mode === 'phase2-faults' ? ['LIFE-12', 'NAV-06'] :
+  mode === 'phase1' ? phase1Ids : mode === 'session-smoke' ? ['AUTH-01', 'AUTH-02', 'AUTH-06'] :
+  mode === 'smoke-fast' ? [...new Set(Object.values(phase1FastVariants))] :
+  mode === 'core-smoke' || mode === 'smoke-fixtures' ? phase1Ids :
+  mode === 'phase0' ? phase0Ids : mode === 'foundations' ? ['HAR-02', 'HAR-03', 'HAR-04', 'HAR-05', 'HAR-06', 'HAR-07', 'HAR-09'] :
+  mode === 'locktest' ? ['HAR-04', 'HAR-08', 'HAR-09'] : mode === 'ownedtest' ? ['HAR-05', 'HAR-06', 'HAR-07'] :
   mode === 'smoke' ? ['LIFE-01', 'ROUTE-01', 'LIFE-03', 'LIFE-04', 'LIFE-06'] :
+  mode === 'model-edit' ? ['LIFE-01', 'ROUTE-01', 'LIFE-08', 'LIFE-07', 'LIFE-09', 'LIFE-03', 'LIFE-04', 'LIFE-06'] :
   mode === 'recover' ? ['HAR-07'] : ['HAR-01', 'HAR-02', 'HAR-03'];
 let home, child;
 
 try {
-  requireSafe(['selftest', 'preflight', 'locktest', 'ownedtest', 'smoke', 'recover', 'typecheck', 'cleanup-plan'].includes(mode), 'CONFIG');
+  requireSafe(['selftest', 'phase0', 'phase1', 'phase2', 'phase2-fast', 'phase2-fixtures', 'phase2-readonly',
+    'phase2-models', 'phase2-faults', 'smoke-fast', 'smoke-fixtures', 'session-smoke', 'core-smoke', 'foundations',
+    'preflight', 'locktest', 'ownedtest', 'smoke', 'model-edit', 'recover', 'typecheck', 'cleanup-plan'].includes(mode), 'CONFIG');
+  requireSafe(!modelCase || Boolean(selectedModelCase), 'CONFIG');
   await privateDirectory(output); await privateDirectory(directory);
-  const environment = {...process.env, REGRESSION_MODE: mode, REGRESSION_RUN_ID: runId, REGRESSION_RUN_DIR: directory};
+  const environment = {...process.env, REGRESSION_MODE: mode, REGRESSION_RUN_ID: runId, REGRESSION_RUN_DIR: directory,
+    REGRESSION_MODEL_CASE: selectedModelCase ? modelCase : ''};
   home = await mkdtemp(join(tmpdir(), 'magicstick-browser-'));
   if (process.platform === 'linux') environment.HOME = home;
-  if (mode === 'preflight' || mode === 'locktest' || mode === 'ownedtest' || mode === 'smoke' || mode === 'recover' || mode === 'cleanup-plan') {
+  if (['phase0', 'phase1', 'phase2', 'phase2-readonly', 'phase2-models', 'phase2-faults', 'session-smoke',
+    'core-smoke', 'foundations', 'preflight', 'locktest', 'ownedtest', 'smoke', 'model-edit', 'recover', 'cleanup-plan'].includes(mode)) {
     requireSafe(process.env.REGRESSION_CONFIG, 'CONFIG');
     const config = await loadLabConfig(process.env.REGRESSION_CONFIG);
+    if (mode === 'phase0' || mode === 'foundations') requirePhase0Profile(config);
+    if (['phase1', 'core-smoke', 'session-smoke'].includes(mode)) requirePhase1Profile(config);
+    if (['phase2', 'phase2-readonly', 'phase2-models', 'phase2-faults'].includes(mode)) requirePhase2Profile(config);
     if (mode === 'cleanup-plan') {
       requireSafe(process.argv[3], 'CONFIG');
       const journal = await ResourceJournal.resume(resolve(process.argv[3]), config.expected.applianceUid);
@@ -63,10 +88,42 @@ try {
       }
     }
   }
-  if (mode !== 'cleanup-plan') {
-    const arguments_ = mode === 'typecheck' ? ['exec', 'tsc', '-p', 'regression/tsconfig.json'] :
-      ['exec', 'playwright', 'test', '--config', 'regression/playwright.config.ts'];
-    child = spawn('pnpm', arguments_, {env: environment, stdio: 'inherit'});
+  if (mode === 'phase0' || mode === 'phase1' || mode === 'phase2') {
+    const config = await loadLabConfig(process.env.REGRESSION_CONFIG);
+    const collected = [], steps = [];
+    const stepsToRun = phaseSteps[mode];
+    for (const [index, step] of stepsToRun.entries()) {
+      const stepId = newRunId(), stepDirectory = join(output, stepId);
+      await privateDirectory(stepDirectory);
+      if (!['selftest', 'smoke-fast', 'smoke-fixtures', 'phase2-fast', 'phase2-fixtures'].includes(step)) await ResourceJournal.create(join(stepDirectory, 'journal.json'), stepId, config.expected.applianceUid);
+      console.log(`Phase ${mode.slice(-1)} P0 step ${index + 1}/${stepsToRun.length}: ${step}`);
+      child = spawn(process.execPath, [playwrightCli, 'test', '--config', 'regression/playwright.config.ts'], {
+        env: {...environment, REGRESSION_MODE: step, REGRESSION_RUN_ID: stepId, REGRESSION_RUN_DIR: stepDirectory}, stdio: 'inherit',
+      });
+      const stop = signal => child?.kill(signal);
+      process.once('SIGINT', stop); process.once('SIGTERM', stop);
+      const exit = await new Promise(resolveExit => {
+        child.once('error', () => resolveExit(2));
+        child.once('close', (code, signal) => resolveExit(signal ? 2 : code ?? 2));
+      });
+      process.removeListener('SIGINT', stop); process.removeListener('SIGTERM', stop);
+      const report = JSON.parse(await readPrivate(join(stepDirectory, 'summary.json')));
+      requireSafe(Array.isArray(report.cases), 'CONFIG');
+      collected.push(...stepCases(report.cases.map(item => index === stepsToRun.length - 1 && item.variant === 'idle-baseline' ?
+        {...item, variant: 'final-idle'} : item), exit, report.acceptable === true,
+      ['selftest', 'smoke-fast', 'smoke-fixtures', 'phase2-fast', 'phase2-fixtures'].includes(step)));
+      steps.push({mode: step, runId: stepId, passed: exit === 0 && report.acceptable === true});
+      await writePrivate(join(directory, 'steps.json'), steps);
+      if (exit !== 0 || report.acceptable !== true) break;
+    }
+    const report = await saveReport(directory, runId, collected, required, process.env.REGRESSION_SOURCE_REVISION, mode);
+    console.log(`Private Phase ${mode.slice(-1)} P0 report: ${join(directory, 'summary.txt')}`);
+    process.exitCode = (mode === 'phase0' ? report.fullPhase0Accepted : mode === 'phase1' ? report.fullPhase1Accepted : report.fullPhase2Accepted) ? 0 : 2;
+  } else if (mode !== 'cleanup-plan') {
+    const arguments_ = mode === 'typecheck' ? [typeScriptCli, '-p', 'regression/tsconfig.json'] :
+      [playwrightCli, 'test', '--config', 'regression/playwright.config.ts',
+        ...(selectedModelCase ? ['--grep', selectedModelCase.grep] : [])];
+    child = spawn(process.execPath, arguments_, {env: environment, stdio: 'inherit'});
     for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => child?.kill(signal));
     process.exitCode = await new Promise(resolveExit => {
       child.once('error', () => resolveExit(2));
@@ -77,9 +134,9 @@ try {
   const reason = error instanceof HarnessError ? error.code : 'UNEXPECTED';
   console.error(new HarnessError(reason).message);
   try {
-    await saveReport(directory, runId, required.map(id => ({id, outcome: 'Blocked', layer: 'live', durationMs: 0, reason})), required,
-      process.env.REGRESSION_SOURCE_REVISION);
+    await saveReport(directory, runId, required.map(id => ({id, outcome: 'Blocked', layer: 'A', environment: 'live', durationMs: 0, reason})), required,
+      process.env.REGRESSION_SOURCE_REVISION, mode);
     console.log(`Private report: ${join(directory, 'summary.txt')}`);
   } catch { console.error('A safe report could not be written; check private-directory permissions.'); }
   process.exitCode = 2;
-} finally { if (home) await rm(home, {recursive: true, force: true}); }
+} finally { if (home) await rm(home, {recursive: true, force: true, maxRetries: 5, retryDelay: 100}); }

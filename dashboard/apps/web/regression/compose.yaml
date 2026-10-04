@@ -1,6 +1,6 @@
 services:
   regression:
-    image: magicstick-regression:local
+    image: "${REGRESSION_RUNNER_IMAGE:-magicstick-regression:local}"
     pull_policy: never
     # Reuse Docker's bridge; do not consume another host subnet per checkout.
     network_mode: bridge

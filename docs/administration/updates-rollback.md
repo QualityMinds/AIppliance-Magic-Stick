@@ -15,6 +15,15 @@ already makes that configuration eligible for rollout. A tag alone does not
 promote new image digests. Development image builds and digest promotions must
 stay on `develop` until release review. See [release process](../development/releases.md).
 
+Ordinary dashboard-runtime pushes to `main` and `develop` automatically build and,
+after successful required CI, promote a matching Web/API/CLI image set to that
+same branch. The host timer can then pick up the promotion without a manual
+rollout. Builds from feature branches or manual dispatches require an explicit
+promotion; tag/commit-pinned installations remain fixed. A failed CI or promotion
+leaves the previous compatible version in use. See
+[automatic image promotion](../development/image-promotion.md#automatic-promotion)
+for the checks and diagnosis; a green image build alone is not promotion success.
+
 Older installations may still be commit-pinned. They are not silently migrated.
 Once a channel-capable version is installed, use the dashboard to opt in. Do not
 rerun initial setup to change channels.

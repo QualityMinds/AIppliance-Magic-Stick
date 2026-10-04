@@ -2,17 +2,18 @@ import {test, expect} from '@playwright/test';
 import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {join} from 'node:path';
-import {loadLabConfig} from './core/config.ts';
-import {KubernetesLeaseStore, KubectlObserver} from './core/observer.ts';
-import {HarnessError, requireSafe} from './core/errors.ts';
-import {writePrivate} from './core/private-files.ts';
-import {newRunId, restoreRevision} from './core/journal.ts';
-import {LabLease, type Lease} from './core/lease.ts';
-import {poll, currentReady} from './core/poll.ts';
+import {loadLabConfig} from '../core/config.ts';
+import {KubernetesLeaseStore, KubectlObserver} from '../core/observer.ts';
+import {HarnessError, requireSafe} from '../core/errors.ts';
+import {writePrivate} from '../core/private-files.ts';
+import {newRunId, restoreRevision} from '../core/journal.ts';
+import {LabLease, type Lease} from '../core/lease.ts';
+import {poll, currentReady} from '../core/poll.ts';
+import {typeScriptWorkerArgs} from '../core/node-worker.ts';
 
 function contender(): Promise<{code: number | null; result: string}> {
   return new Promise(resolve => {
-    const child = spawn(process.execPath, ['--experimental-transform-types', fileURLToPath(new URL('./lock-contender.mjs', import.meta.url))],
+    const child = spawn(process.execPath, typeScriptWorkerArgs(fileURLToPath(new URL('../lock-contender.mjs', import.meta.url))),
       {env: process.env, stdio: ['ignore', 'pipe', 'ignore']});
     let result = '';
     child.stdout.on('data', (chunk: Buffer) => { result += chunk.toString(); if (result.length > 128) child.kill('SIGKILL'); });
@@ -21,7 +22,7 @@ function contender(): Promise<{code: number | null; result: string}> {
   });
 }
 
-test('HAR-04 separate runner processes race for one real appliance-scoped Lease', async () => {
+test('HAR-04 [p0:lease-race] separate runner processes race for one real appliance-scoped Lease', async () => {
   requireSafe(process.env.REGRESSION_CONFIG, 'CONFIG');
   const config = await loadLabConfig(process.env.REGRESSION_CONFIG);
   requireSafe(config.lock, 'CONFIG');
@@ -40,7 +41,7 @@ test('HAR-04 separate runner processes race for one real appliance-scoped Lease'
   requireSafe(!after.spec.holderIdentity, 'LOCK_LOST');
 });
 
-test('HAR-08 an intervening real API revision prevents automatic test-setting restoration', async () => {
+test('HAR-08 [p0:revision-conflict] an intervening real API revision prevents automatic test-setting restoration', async () => {
   requireSafe(process.env.REGRESSION_CONFIG, 'CONFIG');
   const config = await loadLabConfig(process.env.REGRESSION_CONFIG);
   requireSafe(config.lock, 'CONFIG');
@@ -77,7 +78,7 @@ test('HAR-08 an intervening real API revision prevents automatic test-setting re
   requireSafe(!after.spec.holderIdentity && !after.metadata.annotations?.[key], 'CLEANUP');
 });
 
-test('HAR-09 live Flux polling rejects stale generations and has a bounded deadline', async () => {
+test('HAR-09 [p0:flux-polling] live Flux polling rejects stale generations and has a bounded deadline', async () => {
   requireSafe(process.env.REGRESSION_CONFIG, 'CONFIG');
   const config = await loadLabConfig(process.env.REGRESSION_CONFIG);
   const expected = config.expected.flux;
@@ -98,5 +99,5 @@ test('HAR-09 live Flux polling rejects stale generations and has a bounded deadl
   expect(reads).toBeGreaterThan(2);
   expect(currentReady(accepted, uid, generation!)).toBe(true);
   await expect(poll(() => reader.get(resource, expected.namespace, expected.name),
-    item => currentReady(item, uid, generation! + 1), {timeoutMs: 600, intervalMs: 100})).rejects.toMatchObject({code: 'DEADLINE'});
+    item => currentReady(item, uid, generation! + 1), {timeoutMs: 600, intervalMs: 100, stage: 'flux-ready'})).rejects.toMatchObject({code: 'DEADLINE', stage: 'flux-ready'});
 });

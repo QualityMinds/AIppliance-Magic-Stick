@@ -2,7 +2,7 @@ import type {APIRequestContext} from '@playwright/test';
 import {MagicStickApi} from '@magicstick/dashboard-api-client';
 import {HarnessError, requireSafe} from './errors.ts';
 
-const reads = new Set(['/api/session', '/api/appliance', '/api/models', '/api/status', '/api/host-management']);
+const reads = new Set(['/api/session', '/api/appliance', '/api/models', '/api/modules', '/api/instances', '/api/settings', '/api/status', '/api/host-management']);
 
 export function readOnlyFetch(request: Pick<APIRequestContext, 'fetch'>, baseUrl: string, timeoutMs: number): typeof fetch {
   const origin = new URL(baseUrl).origin;

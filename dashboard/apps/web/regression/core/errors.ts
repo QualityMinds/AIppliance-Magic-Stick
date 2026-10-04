@@ -22,17 +22,23 @@ export const reasons = {
 } as const;
 
 export type ReasonCode = keyof typeof reasons;
+export const stages = ['preflight', 'host-boot', 'host-readiness', 'login-form', 'login-return', 'login-session',
+  'model-ready', 'model-stopped', 'model-failure', 'external-ready', 'external-stopped',
+  'cleanup', 'recovery-barrier', 'flux-ready'] as const;
+export type Stage = typeof stages[number];
 
 /** Messages are fixed, public-safe strings. Never include an upstream body/token. */
 export class HarnessError extends Error {
   readonly code: ReasonCode;
   readonly outcome: 'Blocked' | 'Failed';
+  readonly stage?: Stage;
 
-  constructor(code: ReasonCode, outcome: 'Blocked' | 'Failed' = 'Blocked') {
-    super(`[${code}] ${reasons[code]}`);
+  constructor(code: ReasonCode, outcome: 'Blocked' | 'Failed' = 'Blocked', stage?: Stage) {
+    super(`[${code}] ${reasons[code]}${stage && stages.includes(stage) ? ` [stage:${stage}]` : ''}`);
     this.name = 'HarnessError';
     this.code = code;
     this.outcome = outcome;
+    this.stage = stage;
   }
 }
 

@@ -2,6 +2,7 @@ import {test, expect, type APIRequestContext} from '@playwright/test';
 import {mkdtemp, rm, writeFile, lstat, readFile, chmod, symlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {createServer} from 'node:http';
 import {createServer as secureServer} from 'node:https';
 import {execFile} from 'node:child_process';
@@ -13,15 +14,20 @@ import {ResourceJournal, newRunId, restoreRevision, type CleanupAdapter, type Re
 import {LabLease, type LeaseStore, type Lease} from '../core/lease.ts';
 import {readPrivate, writePrivate} from '../core/private-files.ts';
 import {poll, currentReady} from '../core/poll.ts';
-import {summarize, saveReport, redact, type CaseResult} from '../core/report.ts';
+import {summarize, saveReport, liveReportScope, redact, stepCases, type CaseResult} from '../core/report.ts';
 import {safeBaseline, verifiedEndpoint, verifyCapabilities, verifyIdentity, verifyIdle} from '../core/preflight.ts';
-import {allowedOwnedStop, realLogin} from '../core/auth.ts';
+import {allowedExactDashboardRequest, allowedOwnedContextEdit, allowedOwnedEstimate, allowedOwnedStart, allowedOwnedStop, allowedOwnedKeyChange, realLogin} from '../core/auth.ts';
 import {readOnlyApi, readOnlyFetch} from '../core/transport.ts';
 import {KubernetesLeaseStore, verifyObserverRules, type KubeObject} from '../core/observer.ts';
 import {OwnedKeyClient} from '../core/owned-key.ts';
 import {KubernetesModelCleaner, verifyModelCleanerRules} from '../core/model-cleanup.ts';
 import {OwnedModelClient, activation, editRevision, fixtureIsAdvertised, ownedRuntimePods} from '../core/owned-model.ts';
 import {InferenceProbe} from '../core/inference.ts';
+import {phase0Ids, phase0Variants, phase0Coverage, requirePhase0Profile, type Phase0Variant} from '../profiles/phase0-p0.ts';
+import {phase1Ids, phase1Variants, phase1Requirements, phase1Coverage} from '../profiles/phase1-p0.ts';
+import {phase2Coverage, phase2Ids, phase2ModelCases, phase2ModelIds, phase2Requirements, phase2Variants, requirePhase2Profile} from '../profiles/phase2-p0.ts';
+import {fileLayer} from '../core/evidence.ts';
+import {typeScriptWorkerArgs} from '../core/node-worker.ts';
 
 let directory: string;
 test.beforeEach(async () => { directory = await mkdtemp(join(tmpdir(), 'magicstick-harness-')); });
@@ -32,6 +38,29 @@ function config(): LabConfig {
     usernameFile: 'username.txt', passwordFile: 'password.txt', observerKubeconfig: 'observer.yaml', requestTimeoutMs: 500, loginTimeoutMs: 5000,
     expected: {applianceUid: 'appliance-uid', applianceNamespace: 'ai-system', applianceName: 'local', role: 'magicstick-admin',
       nodes: [{name: 'fixture-node', uid: 'node-uid'}], capabilities: [{target: 'cpu', engines: ['OLlama', 'VLLM']}], images: []}};
+}
+function phase2Config(): LabConfig {
+  const value = config();
+  value.inferenceUrl = 'https://inference.example.local';
+  value.lock = {namespace: 'magicstick-regression', name: 'lab-lock', kubeconfig: 'locker.yaml'};
+  value.modelCleanupKubeconfig = 'cleaner.yaml';
+  value.smokeModel = {engine: 'OLlama', computeTarget: 'cpu', url: 'ollama://synthetic:latest',
+    memoryRequiredMi: 2048, contextWindow: 2048, maxNumSeqs: 1};
+  value.phase2 = {
+    ollamaModel: {engine: 'OLlama', computeTarget: 'cpu', url: 'ollama://synthetic:latest', memoryRequiredMi: 2000,
+      contextWindow: 2048, maxNumSeqs: 1, kvCacheType: 'f16'},
+    vllmModel: {engine: 'VLLM', computeTarget: 'cpu', url: 'hf://example/synthetic', memoryRequiredMi: 4100,
+      contextWindow: 2048, maxNumSeqs: 1, kvCacheType: 'auto'},
+    failureModel: {engine: 'OLlama', computeTarget: 'cpu', url: 'ollama://missing/synthetic:never',
+      memoryRequiredMi: 2048, contextWindow: 2048, maxNumSeqs: 1, expectedReason: 'model download failed'},
+    externalModel: {model: 'provider/synthetic', apiBase: 'https://provider.example.local/v1', contextWindow: 4096},
+    discovery: {query: 'synthetic', repo: 'example/synthetic', artifactUrl: 'hf://example/synthetic'},
+  };
+  value.expected.nodes[0]!.bootId = 'boot-uid';
+  value.expected.flux = {namespace: 'flux-system', name: 'flux-system', revision: 'sha1:' + 'a'.repeat(40)};
+  value.expected.images = ['web', 'api'].map(container => ({namespace: 'fixture', deployment: container, container,
+    digest: 'sha256:' + 'b'.repeat(64)}));
+  return value;
 }
 function host(): ManagedHost {
   return {name: 'fixture-node', nodeUid: 'node-uid', bootId: 'boot-uid', kernel: '7.0.0-test', available: true, message: 'Synthetic'};
@@ -68,6 +97,39 @@ test('HAR-01 strict private config, HTTPS and required identity pins', async () 
   expect((await loadLabConfig(filename)).usernameFile).toBe(join(directory, 'username.txt'));
 });
 
+test('HAR-02 complete Phase 0 refuses inventory-only source, image or boot profiles', () => {
+  const selection = config();
+  expect(() => requirePhase0Profile(selection)).toThrow('[CONFIG]');
+  selection.lock = {namespace: 'magicstick-regression', name: 'lab-lock', kubeconfig: 'locker.yaml'};
+  selection.modelCleanupKubeconfig = 'cleaner.yaml'; selection.inferenceUrl = 'https://inference.example.local';
+  selection.smokeModel = {engine: 'OLlama', computeTarget: 'cpu', url: 'ollama://synthetic', memoryRequiredMi: 2048, contextWindow: 2048, maxNumSeqs: 1};
+  selection.expected.nodes[0]!.bootId = 'boot-uid';
+  selection.expected.flux = {namespace: 'flux-system', name: 'flux-system', revision: 'sha1:' + 'a'.repeat(40)};
+  selection.expected.images = ['web', 'api'].map(container => ({namespace: 'fixture', deployment: container, container, digest: 'sha256:' + 'b'.repeat(64)}));
+  requirePhase0Profile(selection);
+  for (const field of ['images', 'flux'] as const) {
+    const missing = structuredClone(selection);
+    if (field === 'images') missing.expected.images = []; else delete missing.expected.flux;
+    expect(() => requirePhase0Profile(missing)).toThrow('[CONFIG]');
+  }
+});
+
+test('HAR-04 key and model transport guards prevent requests after heartbeat failure', async () => {
+  const prefix = 'reg-aabbccddeeff-', name = prefix + 'cpu';
+  let writes = 0;
+  const request = {fetch: async (_url: string, options: {method: string}) => {
+    if (options.method !== 'GET') writes++;
+    return {status: () => 200, headers: () => ({'content-type': 'application/json'}), body: async () => Buffer.from(JSON.stringify(models()))};
+  }} as unknown as APIRequestContext;
+  const guard = async () => { throw new HarnessError('LOCK_LOST'); };
+  const keys = new OwnedKeyClient(request, 'https://dashboard.example.local', 500, prefix, [], guard);
+  const model = new OwnedModelClient(request, 'https://dashboard.example.local', 500, name,
+    {engine: 'OLlama', computeTarget: 'cpu', url: 'ollama://synthetic', memoryRequiredMi: 2048, contextWindow: 2048, maxNumSeqs: 1}, prefix, guard);
+  await expect(keys.create(prefix + 'key')).rejects.toMatchObject({code: 'LOCK_LOST'});
+  await expect(model.create()).rejects.toMatchObject({code: 'LOCK_LOST'});
+  expect(writes).toBe(0);
+});
+
 test('HAR-01 untrusted TLS, wrong hostname and approved CA are distinct', async () => {
   const key = join(directory, 'key.pem'), certificate = join(directory, 'ca.pem');
   await promisify(execFile)('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', key, '-out', certificate,
@@ -92,6 +154,171 @@ test('LIFE-03 browser mutation fence accepts only Stop for the exact owned UID',
   expect(allowedOwnedStop(url, 'GET', body, origin, 'reg-123-cpu', 'owned-uid')).toBe(false);
   expect(allowedOwnedStop(new URL(url + '?force=true'), 'POST', body, origin, 'reg-123-cpu', 'owned-uid')).toBe(false);
   expect(allowedOwnedStop(url, 'POST', {...body, force: true}, origin, 'reg-123-cpu', 'owned-uid')).toBe(false);
+});
+
+test('KEY-01, KEY-03 UI key fence rejects other names, IDs, hosts and extra fields', () => {
+  const origin = 'https://dashboard.example.local', name = 'reg-aabbccddeeff-key', id = 'owned-key-0123456789';
+  const create = new URL(origin + '/api/api-access'), remove = new URL(origin + '/api/api-access/' + id);
+  expect(allowedOwnedKeyChange(create, 'POST', {name}, origin, name)).toBe(true);
+  expect(allowedOwnedKeyChange(create, 'POST', {name: 'unrelated'}, origin, name)).toBe(false);
+  expect(allowedOwnedKeyChange(create, 'POST', {name, role: 'admin'}, origin, name)).toBe(false);
+  expect(allowedOwnedKeyChange(new URL(create + '?force=true'), 'POST', {name}, origin, name)).toBe(false);
+  expect(allowedOwnedKeyChange(remove, 'DELETE', null, origin, undefined, id)).toBe(true);
+  expect(allowedOwnedKeyChange(remove, 'DELETE', {}, origin, undefined, id)).toBe(false);
+  expect(allowedOwnedKeyChange(remove, 'DELETE', null, origin, undefined, 'other-key-0123456789')).toBe(false);
+  expect(allowedOwnedKeyChange(remove, 'DELETE', null, 'https://other.example.local', undefined, id)).toBe(false);
+});
+
+test('KEY-01 browser key adoption requires the exact requested name and immutable ID', () => {
+  const prefix = 'reg-aabbccddeeff-', name = prefix + 'key';
+  const keys = new OwnedKeyClient({} as APIRequestContext, 'https://dashboard.example.local', 100, prefix, [], async () => {});
+  const response = {item: {id: 'owned-key-0123456789', name}, key: 'sk-synthetic-never-live'};
+  expect(keys.adoptCredential(name, response).id).toBe(response.item.id);
+  expect(() => keys.adoptCredential(name, {...response, item: {...response.item, name: 'unrelated'}})).toThrow('[API]');
+  expect(() => keys.adoptCredential(name, {...response, item: {...response.item, id: '../other'}})).toThrow('[API]');
+  expect(() => keys.adoptCredential('unrelated-key', response)).toThrow('[OWNERSHIP]');
+});
+
+test('HAR-10 Phase 1 requires every Test-ID variant and canonical layer and fails incomplete JUnit', async () => {
+  for (const [suffix, layer] of [['unit', 'U'], ['contract', 'C'], ['browser', 'B'], ['api', 'A'], ['e2e', 'E']]) {
+    expect(fileLayer(`domain/behavior.${suffix}.spec.ts`)).toBe(layer);
+  }
+  expect(fileLayer('phase1.spec.ts')).toBeUndefined();
+  const cases: CaseResult[] = phase1Requirements.map(item => ({id: item.id, variant: item.variant,
+    layer: item.layer, environment: item.environment, outcome: 'Passed', durationMs: 1}));
+  expect((await saveReport(directory, newRunId(), cases, phase1Ids, 'a'.repeat(40), 'phase1')).fullPhase1Accepted).toBe(true);
+  expect(JSON.parse(await readFile(join(directory, 'summary.json'), 'utf8')).version).toBe(2);
+  await expect(saveReport(directory, newRunId(), [{id: 'HAR-10', layer: 'U', environment: 'live', outcome: 'Passed', durationMs: 1}], ['HAR-10'])).rejects.toThrow('[CONFIG]');
+  for (const variant of Object.keys(phase1Variants)) {
+    expect(phase1Coverage(cases.filter(item => item.variant !== variant)).complete).toBe(false);
+  }
+  for (let index = 0; index < cases.length; index++) {
+    expect(phase1Coverage(cases.filter((_item, selected) => selected !== index)).complete).toBe(false);
+  }
+  expect(phase1Coverage(cases.map(item => ({...item, layer: 'A', environment: 'live'}))).complete).toBe(false);
+  expect(phase1Coverage([...cases, {...cases[0]!, outcome: 'Flaky'}]).complete).toBe(false);
+  expect(phase1Coverage(stepCases(cases, 1, true, false)).complete).toBe(false);
+  expect(phase1Coverage(stepCases(cases, 0, false, false)).complete).toBe(false);
+  const blocked: CaseResult[] = [{id: 'HAR-01', outcome: 'Blocked', layer: 'A', environment: 'live', durationMs: 1, reason: 'AUTH'}];
+  expect(stepCases(blocked, 1, false, false)).toEqual(blocked);
+  const partial = await saveReport(directory, newRunId(), cases.filter(item => item.variant !== 'ui-start'), phase1Ids, 'a'.repeat(40), 'phase1');
+  expect(partial.acceptable).toBe(false); expect(partial.fullPhase1Accepted).toBe(false);
+  expect(await readFile(join(directory, 'junit.xml'), 'utf8')).toContain('LIFE-04/ui-start');
+  expect(await readFile(join(directory, 'junit.xml'), 'utf8')).toContain('<failure');
+});
+
+test('ROUTE-06 auth-negative probe cannot accept a success or model-not-found as key rejection', async () => {
+  let status = 401;
+  const seen: Array<Record<string, string>> = [];
+  const request = {fetch: async (_url: string, options: {headers: Record<string, string>}) => {
+    seen.push(options.headers);
+    return {status: () => status, headers: () => ({'content-type': 'application/json'}),
+      body: async () => Buffer.from('{"error":"synthetic"}'), json: async () => ({error: 'synthetic'})};
+  }} as unknown as APIRequestContext;
+  const probe = new InferenceProbe(request, 'https://inference.example.local', 'sk-synthetic-never-live');
+  await probe.refusesUnauthorized('fixture', 'missing'); expect(seen[0]?.Authorization).toBeUndefined();
+  await probe.refusesUnauthorized('fixture', 'invalid'); expect(seen[1]?.Authorization).toBe('Bearer sk-magicstick-regression-invalid');
+  await probe.refusesUnauthorized('fixture', 'revoked'); expect(seen[2]?.Authorization).toBe('Bearer sk-synthetic-never-live');
+  for (const wrong of [200, 400, 404, 500]) {
+    status = wrong; await expect(probe.refusesUnauthorized('fixture', 'invalid')).rejects.toMatchObject({code: 'AUTH'});
+  }
+});
+
+test('LIFE-07, LIFE-04 browser fence accepts only the owned CPU edit, estimate and Start', () => {
+  const origin = 'https://dashboard.example.local', name = 'reg-123-cpu', uid = 'owned-uid';
+  const revision = {expectedRevision: `generation:${uid}:2`};
+  const edit = new URL(`${origin}/api/models/${name}`);
+  const estimate = new URL(`${edit}/estimate-memory`);
+  const start = new URL(`${edit}/start`);
+  const editBody = {...revision, local: {contextWindow: 1024}};
+  const estimateBody = {modelType: 'chat', contextWindow: 1024, maxOutputTokens: null,
+    maxNumSeqs: 1, kvCacheType: 'f16', cpuOffloading: false, memoryRequiredMi: 2048};
+  expect(allowedOwnedContextEdit(edit, 'PUT', editBody, origin, name, uid, 1024)).toBe(true);
+  expect(allowedOwnedContextEdit(edit, 'PUT', {...editBody, local: {contextWindow: 1024, allowMemoryRisk: true}},
+    origin, name, uid, 1024)).toBe(true);
+  expect(allowedOwnedContextEdit(edit, 'PUT', editBody, origin, name, 'replacement-uid', 1024)).toBe(false);
+  expect(allowedOwnedContextEdit(edit, 'PUT', {...editBody, local: {contextWindow: 1024, engine: 'VLLM'}}, origin, name, uid, 1024)).toBe(false);
+  expect(allowedOwnedContextEdit(edit, 'PUT', {...editBody, local: {contextWindow: 1024, allowMemoryRisk: false}},
+    origin, name, uid, 1024)).toBe(false);
+  expect(allowedOwnedContextEdit(edit, 'PUT', editBody, origin, name, uid, 2048)).toBe(false);
+  expect(allowedOwnedEstimate(estimate, 'POST', estimateBody, origin, name, uid, 2048)).toBe(true);
+  expect(allowedOwnedEstimate(estimate, 'POST', {...estimateBody, contextWindow: 0}, origin, name, uid, 2048)).toBe(true);
+  expect(allowedOwnedEstimate(estimate, 'POST', {...estimateBody, contextWindow: -1}, origin, name, uid, 2048)).toBe(false);
+  expect(allowedOwnedEstimate(estimate, 'POST', {...estimateBody, contextWindow: 4097}, origin, name, uid, 2048)).toBe(false);
+  expect(allowedOwnedEstimate(estimate, 'POST', {...estimateBody, memoryRequiredMi: 4096}, origin, name, uid, 2048)).toBe(false);
+  expect(allowedOwnedEstimate(estimate, 'POST', {...estimateBody, cpuOffloading: true}, origin, name, uid, 2048)).toBe(false);
+  expect(allowedOwnedStart(start, 'POST', revision, origin, name, uid)).toBe(true);
+  expect(allowedOwnedStart(start, 'POST', {...revision, force: true}, origin, name, uid)).toBe(false);
+  expect(allowedOwnedStart(start, 'POST', revision, origin, name, 'replacement-uid')).toBe(false);
+});
+
+test('HAR-10 live report scope distinguishes model edits from read-only preflight', () => {
+  expect(liveReportScope('model-edit')).toContain('model edit');
+  expect(liveReportScope('model-edit')).not.toContain('read-only');
+  expect(liveReportScope('preflight')).toBe('read-only live preflight');
+});
+
+test('HAR-04 exact Phase 2 browser fence permits one reviewed request and rejects near matches', () => {
+  const origin = 'https://dashboard.example.local';
+  const expected = [{method: 'POST' as const, path: '/api/models/local', body: {
+    name: 'reg-123-vllm', enabled: true, targetNamespace: 'ai', local: {engine: 'VLLM', computeTarget: 'cpu',
+      url: 'hf://example/synthetic', contextWindow: 2048, maxNumSeqs: 1, kvCacheType: 'auto', memoryRequiredMi: 4096},
+  }}];
+  const url = new URL(origin + '/api/models/local');
+  expect(allowedExactDashboardRequest(url, 'POST', structuredClone(expected[0]!.body), origin, expected)).toBe(expected[0]);
+  expect(allowedExactDashboardRequest(url, 'POST', {...expected[0]!.body, enabled: false}, origin, expected)).toBeUndefined();
+  expect(allowedExactDashboardRequest(new URL(url + '?force=true'), 'POST', expected[0]!.body, origin, expected)).toBeUndefined();
+  expect(allowedExactDashboardRequest(url, 'PUT', expected[0]!.body, origin, expected)).toBeUndefined();
+  expect(allowedExactDashboardRequest(url, 'POST', expected[0]!.body, 'https://other.example.local', expected)).toBeUndefined();
+});
+
+test('HAR-10 Phase 2 profile is strict and every exact variant-layer tuple is mandatory', async () => {
+  const selection = phase2Config(); requirePhase2Profile(selection);
+  const parsed = parseLabConfig(selection, directory); requirePhase2Profile(parsed);
+  expect(parsed.phase2?.externalModel.apiBase).toBe('https://provider.example.local/v1');
+  const owned = {...selection, phase2: {...selection.phase2!, externalModel: {
+    source: 'owned-ollama', apiBase: 'http://kubeai.ai.svc.cluster.local/openai/v1', contextWindow: 4096,
+  }}};
+  expect(parseLabConfig(owned, directory).phase2?.externalModel.source).toBe('owned-ollama');
+  for (const apiBase of ['http://provider.invalid/openai/v1', 'http://kubeai.ai.svc.cluster.local:8080/openai/v1',
+    'http://kubeai.ai.svc.cluster.local/admin', 'http://user:secret@kubeai.ai.svc.cluster.local/openai/v1']) {
+    expect(() => parseLabConfig({...owned, phase2: {...owned.phase2, externalModel: {...owned.phase2.externalModel, apiBase}}}, directory)).toThrow('[CONFIG]');
+  }
+  expect(() => parseLabConfig({...owned, phase2: {...owned.phase2, externalModel: {...owned.phase2.externalModel,
+    model: 'someone-elses-model'}}}, directory)).toThrow('[CONFIG]');
+  for (const invalid of [
+    {...selection, phase2: {...selection.phase2!, externalModel: {...selection.phase2!.externalModel, apiBase: 'http://provider.invalid/v1'}}},
+    {...selection, phase2: {...selection.phase2!, failureModel: {...selection.phase2!.failureModel, expectedReason: 'x'}}},
+    {...selection, phase2: {...selection.phase2!, discovery: {...selection.phase2!.discovery, repo: '../escape'}}},
+  ]) expect(() => parseLabConfig(invalid, directory)).toThrow('[CONFIG]');
+  const cases: CaseResult[] = phase2Requirements.map(item => ({id: item.id, variant: item.variant,
+    layer: item.layer, environment: item.environment, outcome: 'Passed', durationMs: 1}));
+  expect(phase2Coverage(cases).complete).toBe(true);
+  expect((await saveReport(directory, newRunId(), cases, phase2Ids, 'a'.repeat(40), 'phase2')).fullPhase2Accepted).toBe(true);
+  const noFinalPreflight = await saveReport(directory, newRunId(), cases.filter(item => item.variant !== 'final-idle'),
+    phase2Ids, 'a'.repeat(40), 'phase2');
+  expect(noFinalPreflight.fullPhase2Accepted).toBe(false);
+  expect(phase2ModelIds).not.toContain('DISC-01');
+  expect(phase2ModelIds).not.toContain('HAR-03');
+  expect(Object.keys(phase2ModelCases)).toEqual(['ollama', 'vllm', 'admission', 'memory-risk', 'external']);
+  for (const selection of Object.values(phase2ModelCases)) {
+    expect(selection.ids.every(id => phase2ModelIds.includes(id))).toBe(true);
+  }
+  for (const [selection, title] of [
+    ['admission', 'ENG-10 unsupported target is rejected and raw runtime settings never enter saved intent'],
+    ['memory-risk', 'MEM-05 API requires explicit memory-risk acceptance for a legal underbudget CPU definition'],
+    ['external', 'ROUTE-05 external provider create, edit, Stop and Start preserve the controlled route'],
+  ] as const) {
+    // Playwright applies grep to the full title including the describe prefix.
+    expect(new RegExp(phase2ModelCases[selection].grep).test('Phase 2 installed CPU model control ' + title)).toBe(true);
+  }
+  for (const variant of Object.keys(phase2Variants)) {
+    expect(phase2Coverage(cases.filter(item => item.variant !== variant)).complete).toBe(false);
+  }
+  for (let index = 0; index < cases.length; index++) {
+    expect(phase2Coverage(cases.filter((_item, selected) => selected !== index)).complete).toBe(false);
+  }
+  expect(phase2Coverage([...cases, {...cases[0]!, outcome: 'Flaky'}]).complete).toBe(false);
 });
 
 test('HAR-02 identity and boot changes abort before any action', () => {
@@ -222,7 +449,7 @@ test('HAR-05 API-key adapter revokes only an exact run-owned immutable ID', asyn
     items.splice(items.findIndex(item => item.id === id), 1);
     return response(200, {deleted: id});
   }} as unknown as APIRequestContext;
-  const client = new OwnedKeyClient(request, 'https://dashboard.example.local', 500, prefix, []);
+  const client = new OwnedKeyClient(request, 'https://dashboard.example.local', 500, prefix, [], async () => {});
   const entry = {kind: 'key' as const, name, uid: id, state: 'owned' as const};
   await expect(client.adapter().removeIfUid(entry, id)).rejects.toMatchObject({code: 'OWNERSHIP'});
   await expect(client.create('unrelated-key')).rejects.toMatchObject({code: 'OWNERSHIP'});
@@ -239,7 +466,7 @@ test('HAR-06 failed scenario cleans only its owned fixtures; cleanup remains a s
   for (const kind of ['model', 'app', 'key'] as const) {
     const name = journal.prefix + kind; await journal.requested(kind, name); await journal.owned(kind, name, kind + '-uid'); resources.set(name, kind + '-uid');
   }
-  const originalFailure: CaseResult = {id: 'HAR-06', layer: 'fixture', outcome: 'Failed', reason: 'DEADLINE', durationMs: 1};
+  const originalFailure: CaseResult = {id: 'HAR-06', layer: 'U', environment: 'fixture', outcome: 'Failed', reason: 'DEADLINE', durationMs: 1};
   await journal.cleanup(cleanupAdapters(resources, removed), async () => {});
   expect(resources).toEqual(new Map([['unrelated-model', 'keep-me']])); expect(removed).toHaveLength(3);
   expect(summarize(['HAR-06'], [originalFailure]).acceptable).toBe(false);
@@ -277,6 +504,21 @@ test('HAR-07 interrupted owned journal resumes, ambiguous creation is not retrie
   expect(pending.recoveryPlan()[0]?.automaticallyRemovable).toBe(false);
   await expect(pending.cleanup(cleanupAdapters(resources, removed), async () => {})).rejects.toMatchObject({code: 'CLEANUP'});
   expect(removed).toEqual([name]);
+  const rejected = await ResourceJournal.create(join(directory, 'rejected.json'), newRunId(), 'appliance-uid');
+  const rejectedName = rejected.prefix + 'model'; await rejected.requested('model', rejectedName);
+  await rejected.rejected('model', rejectedName);
+  expect(rejected.recoveryPlan()).toEqual([]);
+  await expect(rejected.rejected('model', rejectedName)).rejects.toMatchObject({code: 'OWNERSHIP'});
+});
+
+test('HAR-07 interruption worker imports successfully but refuses a non-IPC invocation before any lab access', async () => {
+  let exit: unknown;
+  try {
+    await promisify(execFile)(process.execPath, typeScriptWorkerArgs(
+      fileURLToPath(new URL('../interruption-worker.mjs', import.meta.url))),
+    {env: {...process.env, REGRESSION_CONFIG: '', REGRESSION_RUN_DIR: ''}, timeout: 10_000});
+  } catch (error) { exit = (error as {code?: unknown}).code; }
+  expect(exit).toBe(2);
 });
 
 test('HAR-05 model cleaner denies excess RBAC and uses atomic UID plus resourceVersion preconditions', async () => {
@@ -291,7 +533,7 @@ test('HAR-05 model cleaner denies excess RBAC and uses atomic UID plus resourceV
   }
   const name = 'reg-aabbccddeeff-cpu', uid = 'owned-model-uid';
   class FakeCleaner extends KubernetesModelCleaner {
-    current = {metadata: {name, namespace: 'ai-system', uid, generation: 3, resourceVersion: '28',
+    current: KubeObject = {metadata: {name, namespace: 'ai-system', uid, generation: 3, resourceVersion: '28',
       labels: {'app.kubernetes.io/managed-by': 'ai-appliance-dashboard'}}, spec: {type: 'local', targetNamespace: 'ai'}};
     deleted = false;
     override async find() { return this.deleted ? null : structuredClone(this.current); }
@@ -308,6 +550,9 @@ test('HAR-05 model cleaner denies excess RBAC and uses atomic UID plus resourceV
   await expect(adapter.removeIfUid({...entry, generation: 2}, uid)).rejects.toMatchObject({code: 'OWNERSHIP'});
   await adapter.removeIfUid(entry, uid);
   expect(await adapter.verifyRemoved(entry)).toBe(true);
+  cleaner.current.spec = {type: 'external', targetNamespace: 'ai'}; cleaner.deleted = false;
+  expect(await adapter.lookup(entry)).toEqual({uid});
+  await adapter.removeIfUid(entry, uid); expect(await adapter.verifyRemoved(entry)).toBe(true);
 });
 
 test('HAR-07 blocked model cleanup can resume only at the journaled generation', async () => {
@@ -350,13 +595,37 @@ test('LIFE-01 CPU smoke fixture is selected from the deployed catalog and API tr
       maxNumSeqs: 1, memoryRequiredMi: 2048}});
     active = true; return response({metadata: {name, uid, namespace: 'ai-system', generation: 1}});
   }} as unknown as APIRequestContext;
-  const client = new OwnedModelClient(request, 'https://dashboard.example.local', 500, name, fixture, prefix);
+  const client = new OwnedModelClient(request, 'https://dashboard.example.local', 500, name, fixture, prefix, async () => {});
   expect(await client.create()).toEqual({uid, generation: 1});
   await expect(client.create()).rejects.toMatchObject({code: 'OWNERSHIP'});
   expect(editRevision({metadata: {uid, generation: 2}})).toBe(`generation:${uid}:2`);
   expect(activation({...payload, activations: []}, name)).toBeNull();
   expect(ownedRuntimePods([{metadata: {name: 'pod', namespace: 'ai', labels: {app: 'model', model: name},
     ownerReferences: [{uid: 'kubeai-uid', kind: 'Model', name, controller: true}]}}], name)).toHaveLength(1);
+});
+
+test('LIFE-09 stale model update sends the dashboard CSRF header and accepts only conflict', async () => {
+  const prefix = 'reg-aabbccddeeff-', name = prefix + 'cpu', uid = 'model-uid';
+  const fixture = {engine: 'OLlama' as const, computeTarget: 'cpu' as const,
+    url: 'ollama://qwen2.5:0.5b-instruct-q4_K_M', memoryRequiredMi: 2048, contextWindow: 2048, maxNumSeqs: 1 as const};
+  let status = 409;
+  const request = {fetch: async (url: string, options: {method: string; headers: Record<string, string>; data?: string}) => {
+    expect(new URL(url).pathname).toBe(options.method === 'GET' ? '/api/models' : `/api/models/${name}`);
+    if (options.method === 'GET') return {status: () => 200, headers: () => ({'content-type': 'application/json'}),
+      body: async () => Buffer.from(JSON.stringify({...models(), activations: [{metadata: {name, uid, generation: 2},
+        spec: {type: 'local', enabled: true, local: {engine: 'OLlama', contextWindow: 1024}}}]}))};
+    expect(options.method).toBe('PUT');
+    expect(options.headers['X-MagicStick-CSRF']).toBe('dashboard');
+    expect(options.headers.Origin).toBe('https://dashboard.example.local');
+    expect(JSON.parse(options.data ?? '{}')).toEqual({expectedRevision: `generation:${uid}:1`, local: {contextWindow: 2048}});
+    return {status: () => status};
+  }} as unknown as APIRequestContext;
+  const client = new OwnedModelClient(request, 'https://dashboard.example.local', 500, name, fixture, prefix, async () => {});
+  client.adopt(uid);
+  await client.rejectsStaleContextUpdate(`generation:${uid}:1`, 2048);
+  status = 200;
+  await expect(client.rejectsStaleContextUpdate(`generation:${uid}:1`, 2048)).rejects.toMatchObject({code: 'CONFLICT'});
+  await expect(client.rejectsStaleContextUpdate('generation:replacement-uid:1', 2048)).rejects.toMatchObject({code: 'MUTATION'});
 });
 
 test('ROUTE-01 inference probe checks bounded chat response without exposing the key', async () => {
@@ -418,11 +687,11 @@ test('HAR-09 polling does not accept old Ready/generation, late evidence or read
   await expect(poll(async () => { now += 100; return ready(2); }, item => currentReady(item, 'uid', 2),
     {timeoutMs: 10, now: () => now})).rejects.toMatchObject({code: 'DEADLINE'});
   await expect(poll(async () => { throw new HarnessError('API'); }, () => true, {timeoutMs: 100})).rejects.toMatchObject({code: 'API'});
-  await expect(poll(() => new Promise(() => {}), () => true, {timeoutMs: 50})).rejects.toMatchObject({code: 'DEADLINE'});
+  await expect(poll(() => new Promise(() => {}), () => true, {timeoutMs: 50, stage: 'model-ready'})).rejects.toMatchObject({code: 'DEADLINE', stage: 'model-ready'});
 });
 
 test('HAR-10 empty, missing, blocked, skipped and flaky results cannot produce green acceptance', async () => {
-  const passed: CaseResult = {id: 'HAR-01', outcome: 'Passed', layer: 'fixture', durationMs: 10};
+  const passed: CaseResult = {id: 'HAR-01', outcome: 'Passed', layer: 'U', environment: 'fixture', durationMs: 10};
   expect(summarize(['HAR-01'], [passed]).acceptable).toBe(true);
   expect(summarize([], []).acceptable).toBe(false);
   expect(summarize(['HAR-01', 'HAR-02'], [passed]).missing).toEqual(['HAR-02']);
@@ -434,11 +703,31 @@ test('HAR-10 empty, missing, blocked, skipped and flaky results cannot produce g
   expect(xml).toContain('failures="2"'); expect(xml).toContain('name="HAR-02"');
 });
 
+test('HAR-10 full Phase 0 requires every fixture ID and live variant including final idle', async () => {
+  const fixtures: CaseResult[] = phase0Ids.map(id => ({id, outcome: 'Passed', layer: 'U', environment: 'fixture', durationMs: 1}));
+  const live: CaseResult[] = Object.entries(phase0Variants).map(([variant, id]) =>
+    ({id, variant: variant as Phase0Variant, layer: 'A', environment: 'live', outcome: 'Passed', durationMs: 1}));
+  expect(phase0Coverage(fixtures).complete).toBe(false);
+  const cases = [...fixtures, ...live];
+  expect((await saveReport(directory, newRunId(), cases, phase0Ids, 'a'.repeat(40), 'phase0')).fullPhase0Accepted).toBe(true);
+  for (const variant of Object.keys(phase0Variants)) {
+    expect(phase0Coverage(cases.filter(item => item.variant !== variant)).complete).toBe(false);
+  }
+  expect(phase0Coverage(cases.filter(item => item.id !== 'HAR-11')).complete).toBe(false);
+  expect(phase0Coverage([...cases, {...fixtures[0]!, outcome: 'Flaky'}]).complete).toBe(false);
+  const partial = await saveReport(directory, newRunId(), cases.filter(item => item.variant !== 'final-idle'), phase0Ids, 'a'.repeat(40), 'phase0');
+  expect(partial.fullPhase0Accepted).toBe(false);
+  expect(partial.acceptable).toBe(false);
+  const report = JSON.parse(await readFile(join(directory, 'summary.json'), 'utf8'));
+  expect(report.phase0Coverage.missingVariants).toEqual(['final-idle']);
+  expect(await readFile(join(directory, 'junit.xml'), 'utf8')).toContain('failures="1"');
+});
+
 test('HAR-11 reports allowlist fields and redact seeded credentials, headers, URLs and auth state', async () => {
   const secret = 'synthetic-secret', seeded = {authorization: 'Bearer ' + secret, cookie: secret, password: secret, invitation: secret,
     storageState: {cookies: [secret]}, nested: {message: `https://example.local/?access_token=${secret} Bearer ${secret}`}};
   expect(JSON.stringify(redact(seeded, [secret]))).not.toContain(secret);
-  const result = {id: 'HAR-11', outcome: 'Passed', layer: 'fixture', durationMs: 1, raw: seeded, password: secret} as CaseResult;
+  const result = {id: 'HAR-11', outcome: 'Passed', layer: 'U', environment: 'fixture', durationMs: 1, raw: seeded, password: secret} as CaseResult;
   await saveReport(directory, newRunId(), [result], ['HAR-11'], secret);
   for (const filename of ['summary.json', 'summary.txt', 'junit.xml']) {
     const text = await readFile(join(directory, filename), 'utf8'); expect(text).not.toContain(secret); expect(text).not.toContain('storageState');
@@ -448,13 +737,14 @@ test('HAR-11 reports allowlist fields and redact seeded credentials, headers, UR
   expect(baseline).not.toContain('fixture-node'); expect(baseline).not.toContain('node-uid'); expect(baseline).not.toContain('appliance-uid');
 });
 
-test('HAR-01 HAR-11 real Chromium fixture login and shared API client; no product writes or traces', async ({browser}) => {
+test('HAR-01 HAR-11 [layer:B] real Chromium fixture login and shared API client; no product writes or traces', async ({browser}) => {
   // Synthetic loopback HTTP fixture only. Production configuration rejects HTTP.
-  let dashboardUrl = '', identityUrl = '', loginPosted = false;
+  let dashboardUrl = '', identityUrl = '', loginPosted = false, identityUnavailable = false;
   const username = 'fixture-admin', password = 'synthetic-password';
   await writeFile(join(directory, 'username.txt'), username, {mode: 0o600});
   await writeFile(join(directory, 'password.txt'), password, {mode: 0o600});
   const identity = createServer((request, response) => {
+    if (identityUnavailable) { response.writeHead(503); response.end('Synthetic unavailable identity'); return; }
     if (request.method === 'POST') {
       let body = ''; request.on('data', chunk => { body += chunk; }); request.on('end', () => {
         const form = new URLSearchParams(body); loginPosted = form.get('username') === username && form.get('password') === password;
@@ -488,6 +778,10 @@ test('HAR-01 HAR-11 real Chromium fixture login and shared API client; no produc
       await expect(api.removeModel('must-not-be-removed')).rejects.toMatchObject({code: 'MUTATION'});
       await expect(readOnlyFetch(context.request, dashboardUrl, 500)(identityUrl + '/api/session')).rejects.toMatchObject({code: 'MUTATION'});
     } finally { await context.close(); }
+    identityUnavailable = true;
+    await expect(realLogin(browser, {...config(), dashboardUrl, identityUrl,
+      usernameFile: join(directory, 'username.txt'), passwordFile: join(directory, 'password.txt')}))
+      .rejects.toMatchObject({code: 'AUTH', stage: 'login-form'});
   } finally {
     await Promise.all([new Promise<void>(resolve => dashboard.close(() => resolve())), new Promise<void>(resolve => identity.close(() => resolve()))]);
   }
