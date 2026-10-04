@@ -81,6 +81,10 @@ and the [GitOps/module skill](.agents/skills/magicstick-gitops-module/SKILL.md).
 - Pin usable runtime versions; use the shared model catalog and Secret references
   where needed. Preserve operator-owned SSO routes and derived hostnames. Define
   workspace persistence, update behavior and data retention on removal.
+- Declare `litellmKey` in the application/module catalog for inference consumers;
+  reuse the common owner-scoped key lifecycle and never mount the admin key into
+  application instances. Forward known model capabilities through the shared
+  catalog and verified native schemas, preserving false versus unknown.
 - Verify creation, missing dependencies, status/URLs and removal at the affected
   layers. For new features, update the [feature overview](docs/get-started/features.md),
   [Unreleased changelog](CHANGELOG.md#unreleased) and matching user/reference docs.

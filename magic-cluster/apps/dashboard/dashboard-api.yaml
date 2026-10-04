@@ -85,11 +85,11 @@ data:
     LOCAL_MODEL_EDIT_FIELDS = {
         "modelType", "contextWindow", "maxOutputTokens", "maxNumSeqs", "kvCacheType",
         "vram", "vramMi", "memoryRequiredMi", "cpuOffloading", "allowMemoryRisk",
-        "minReplicas", "maxReplicas", "freetoken", "cpuResources", "vllm", "realtime",
+        "minReplicas", "maxReplicas", "freetoken", "cpuResources", "vllm", "realtime", "capabilities",
     }
     EXTERNAL_MODEL_EDIT_FIELDS = {
         "model", "apiBase", "modelType", "apiVersion", "customLlmProvider",
-        "tpm", "rpm", "contextWindow", "maxOutputTokens",
+        "tpm", "rpm", "contextWindow", "maxOutputTokens", "capabilities",
     }
     LOCAL_MODEL_DERIVED_FIELDS = {"cpuOffloadMi", "kvCacheMemoryBytes"}
     MEMORY_RESERVATION_STEP_MI = 100
@@ -6896,6 +6896,13 @@ data:
         return {"visionAttention": value}
 
 
+    def model_capabilities(value):
+        if not isinstance(value, dict) or any(key not in ("tools", "vision", "reasoning") or type(enabled) is not bool
+                                              for key, enabled in value.items()):
+            raise ValueError("capabilities accepts tools, vision and reasoning booleans only")
+        return dict(value)
+
+
     def model_activation_payload(model_type, payload, exclude_model=""):
         name = require_name(payload)
         target_namespace = str(payload.get("namespace") or payload.get("targetNamespace") or MODEL_TARGET_NAMESPACE)
@@ -6920,7 +6927,7 @@ data:
             allowed = {
                 "preset", "artifact", "url", "modelType", "engine", "computeTarget", "vram", "vramMi",
                 "memoryRequiredMi", "cpuOffloading", "allowMemoryRisk", "cpuResources",
-                "contextWindow", "maxOutputTokens", "maxNumSeqs", "kvCacheType", "minReplicas", "maxReplicas", "freetoken", "vllm", "realtime",
+                "contextWindow", "maxOutputTokens", "maxNumSeqs", "kvCacheType", "minReplicas", "maxReplicas", "freetoken", "vllm", "realtime", "capabilities",
             }
             for key in allowed:
                 if key in supplied_local:
@@ -6928,6 +6935,8 @@ data:
             for key in allowed:
                 if key in payload and key not in local:
                     local[key] = payload[key]
+            if "capabilities" in local:
+                local["capabilities"] = model_capabilities(local["capabilities"])
             compute_target = str(local.get("computeTarget") or "nvidia-gpu").strip().lower()
             engine = normalize_local_engine(local.get("engine"))
             local["computeTarget"] = compute_target
@@ -7035,9 +7044,11 @@ data:
             spec["local"] = local
         else:
             external = dict(payload.get("external") or {})
-            for key in ("model", "apiBase", "modelType", "apiVersion", "customLlmProvider", "tpm", "rpm", "contextWindow", "maxOutputTokens"):
+            for key in ("model", "apiBase", "modelType", "apiVersion", "customLlmProvider", "tpm", "rpm", "contextWindow", "maxOutputTokens", "capabilities"):
                 if key in payload and key not in external:
                     external[key] = payload[key]
+            if "capabilities" in external:
+                external["capabilities"] = model_capabilities(external["capabilities"])
             if payload.get("apiKey"):
                 external["apiKeySecretRef"] = create_provider_secret(name, payload.get("apiKey"))
             elif payload.get("apiKeySecretRef"):

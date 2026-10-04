@@ -55,9 +55,9 @@ spec:
             - name: AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL
               value: "${AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL:=auto}"
             - name: OPENCODE_DEFAULT_CONTEXT_TOKENS
-              value: "131072"
-            - name: OPENCODE_DEFAULT_OUTPUT_TOKENS
               value: "8192"
+            - name: OPENCODE_DEFAULT_OUTPUT_TOKENS
+              value: "2048"
             - name: PAPERCLIP_OPENCODE_MAX_OUTPUT_TOKENS
               value: "4096"
             - name: PAPERCLIP_OPENCODE_CONTEXT_HEADROOM_TOKENS

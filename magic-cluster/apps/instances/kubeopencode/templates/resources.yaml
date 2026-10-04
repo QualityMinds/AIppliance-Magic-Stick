@@ -1,5 +1,6 @@
 {{- $instance := required "instance is required" .Values.instance -}}
 {{- $values := default dict $instance.values -}}
+{{- $key := default (dict "name" (printf "%s-litellm" $instance.name) "key" "LITELLM_API_KEY" "revision" "") $instance.litellmKey -}}
 {{- $templates := default list $values.agentTemplates -}}
 {{- $templateName := default $instance.name $values.template -}}
 {{- if $templates }}{{- $templateName = default $templateName (index $templates 0).name -}}{{- end }}
@@ -13,7 +14,13 @@ metadata:
   labels:
     appliance.magicstick.dev/appinstance: {{ $instance.name }}
 spec:
+  agentImage: ghcr.io/kubeopencode/kubeopencode-agent-opencode@sha256:0df226ff164a24b40b2694ad9aa6653529d772574c141783735be9cf43e27f12
+  executorImage: ghcr.io/kubeopencode/kubeopencode-agent-devbox@sha256:4408922985ec220a10926af35d7a501cb1f33514a661b3564dc05c48534391d4
+  attachImage: ghcr.io/kubeopencode/kubeopencode-agent-attach@sha256:1e6e6acc70ba5774975ef61c20e15c9b5c84138bffc542044e59a75a55846cc6
   serviceAccountName: default
+  podSpec:
+    annotations:
+      appliance.magicstick.dev/litellm-key-revision: {{ $key.revision | quote }}
   workspaceDir: /workspace
   config:
     provider:
@@ -32,8 +39,8 @@ spec:
   credentials:
     - name: litellm-api-key
       secretRef:
-        name: litellm-masterkey-secret
-        key: LITELLM_MASTER_KEY
+        name: {{ $key.name | quote }}
+        key: {{ $key.key | quote }}
       env: LITELLM_MASTER_KEY
 ---
 apiVersion: kubeopencode.io/v1alpha1

@@ -3,6 +3,13 @@ import {mkdir, readFile, rename, rm, symlink, writeFile} from 'node:fs/promises'
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 
+export function toolMode(catalog, selectedModel) {
+  const model = catalog.models?.find(item => item.id === selectedModel);
+  // Pi has no per-model tools field. Its native CLI flag controls the tools
+  // exposed to the initial session; unknown capability preserves Pi's default.
+  return model?.capabilities?.tools === false ? 'disabled' : 'default';
+}
+
 export async function prepare({agentDir, workspace, modelsPath, selectedModel}) {
   const catalog = JSON.parse(await readFile(modelsPath, 'utf8'));
   const model = catalog.providers?.litellm?.models?.find(item => item.id === selectedModel);
@@ -50,7 +57,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     process.exitCode = 1;
   } else {
     prepare({agentDir: process.env.PI_CODING_AGENT_DIR, workspace: process.env.PI_WORKSPACE,
-      modelsPath: '/catalog/pi-models.json', selectedModel: model}).catch(error => {
+      modelsPath: '/catalog/pi-models.json', selectedModel: model}).then(async () => {
+      if (process.argv.includes('--tool-mode')) {
+        const catalog = JSON.parse(await readFile('/catalog/catalog.json', 'utf8'));
+        console.log(toolMode(catalog, model));
+      }
+    }).catch(error => {
       console.error(error.message);
       process.exitCode = 1;
     });

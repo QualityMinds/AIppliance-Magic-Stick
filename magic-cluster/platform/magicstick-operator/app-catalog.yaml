@@ -11,6 +11,7 @@ data:
     {
       "applications": {
         "openclaw": {
+          "litellmKey": true,
           "displayName": "OpenClaw",
           "chartPath": "magic-cluster/apps/instances/openclaw",
           "route": {"serviceName": "instance", "port": 18789, "requestTimeout": "0s"},
@@ -18,13 +19,18 @@ data:
           "requiredCrds": ["openclawinstances.openclaw.rocks"]
         },
         "hermes": {
+          "litellmKey": true,
           "displayName": "Hermes",
           "chartPath": "magic-cluster/apps/instances/hermes",
+          "modelContextValue": "modelContextTokens",
+          "modelCapabilitiesValue": "modelCapabilities",
+          "minimumModelContextTokens": 64000,
           "route": {"serviceName": "instance", "port": 9119, "stripCookies": true, "requestTimeout": "0s"},
           "requiredModules": ["hermes-operator", "litellm", "model-catalog"],
           "requiredCrds": ["hermesinstances.hermes.agent"]
         },
         "paperclip": {
+          "litellmKey": true,
           "displayName": "Paperclip",
           "chartPath": "magic-cluster/apps/instances/paperclip",
           "route": {"serviceName": "instance", "port": 3100, "requestTimeout": "0s"},
@@ -32,6 +38,7 @@ data:
           "requiredCrds": ["instances.paperclip.inc", "sandboxes.agents.x-k8s.io"]
         },
         "kubeopencode": {
+          "litellmKey": true,
           "displayName": "KubeOpenCode",
           "chartPath": "magic-cluster/apps/instances/kubeopencode",
           "route": {"serviceName": "shortName", "port": 4096, "requestTimeout": "0s"},
@@ -39,6 +46,7 @@ data:
           "requiredCrds": ["agenttemplates.kubeopencode.io", "agents.kubeopencode.io"]
         },
         "pi-coding": {
+          "litellmKey": true,
           "displayName": "Pi Coding Agent",
           "chartPath": "magic-cluster/apps/instances/pi-coding",
           "route": {"serviceName": "instance", "port": 7681, "requestTimeout": "0s"},
@@ -46,6 +54,7 @@ data:
           "requiredCrds": []
         },
         "odysseus": {
+          "litellmKey": true,
           "displayName": "Odysseus",
           "chartPath": "magic-cluster/apps/instances/odysseus",
           "route": {"serviceName": "instance", "port": 7000, "requestTimeout": "0s"},

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "4ae55e7f54bc30000b2ff38776d17b228c6fb76ac131b110e0a009cf6a5436b6",
-  "deploymentReferencesSha256": "dbfdaaeeffcec92f978375a15f3f5945f3fd67dc9f905de74ec393605124298d",
+  "deploymentReferencesSha256": "025a1b02a632e5e381ee5a5b88d289486f7a94106434ed971e55fb2490792e8e",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -2040,6 +2040,11 @@
     },
     {
       "file": ".github/workflows/build-freetoken-image.yml",
+      "line": 102,
+      "reference": "subject-digest: ${{ steps.build.outputs.digest }}"
+    },
+    {
+      "file": ".github/workflows/build-freetoken-image.yml",
       "line": 103,
       "reference": "subject-version: v${{ env.FREETOKEN_VERSION }}"
     },
@@ -2159,14 +2164,9 @@
       "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
     },
     {
-      "file": ".github/workflows/build-paperclip-operator-image.yml",
-      "line": 40,
-      "reference": "repository: paperclipinc/paperclip-operator"
-    },
-    {
-      "file": ".github/workflows/build-paperclip-operator-image.yml",
-      "line": 87,
-      "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
+      "file": ".github/workflows/build-omni-rocm-image.yml",
+      "line": 191,
+      "reference": "subject-digest: ${{ steps.publish.outputs.digest }}"
     },
     {
       "file": ".github/workflows/dashboard-browser-smoke.yml",
@@ -2255,6 +2255,11 @@
     },
     {
       "file": ".github/workflows/promote-freetoken-runtime.yml",
+      "line": 6,
+      "reference": "digest:"
+    },
+    {
+      "file": ".github/workflows/promote-freetoken-runtime.yml",
       "line": 90,
       "reference": "-e \"s|^  image: .*|  image: ${IMAGE_NAME}@${FREETOKEN_DIGEST}|\" \\"
     },
@@ -2300,13 +2305,18 @@
     },
     {
       "file": "magic-cluster/apps/ai/anything-llm/base/deployment.yaml",
-      "line": 27,
+      "line": 30,
       "reference": "image: busybox:1.36"
     },
     {
       "file": "magic-cluster/apps/ai/anything-llm/base/deployment.yaml",
-      "line": 49,
-      "reference": "image: mintplexlabs/anythingllm:1.12.1"
+      "line": 51,
+      "reference": "image: mintplexlabs/anythingllm:1.17.0@sha256:f26f30df46916b6e953e3a47ca98f48817726e3df635e62d4bfdd133292ecfff"
+    },
+    {
+      "file": "magic-cluster/apps/ai/anything-llm/base/deployment.yaml",
+      "line": 67,
+      "reference": "image: mintplexlabs/anythingllm:1.17.0@sha256:f26f30df46916b6e953e3a47ca98f48817726e3df635e62d4bfdd133292ecfff"
     },
     {
       "file": "magic-cluster/apps/ai/anything-llm/qdrant/base/deployment.yaml",
@@ -2326,7 +2336,32 @@
     {
       "file": "magic-cluster/apps/ai/kubeopencode/base/helmrelease.yaml",
       "line": 12,
-      "reference": "version: \"0.1.6\""
+      "reference": "version: \"0.1.9\""
+    },
+    {
+      "file": "magic-cluster/apps/ai/kubeopencode/base/helmrelease.yaml",
+      "line": 24,
+      "reference": "image:"
+    },
+    {
+      "file": "magic-cluster/apps/ai/kubeopencode/base/helmrelease.yaml",
+      "line": 25,
+      "reference": "tag: v0.1.9@sha256:8517fc01a7692b4c6be0f1d42e6c6ebb6f306fc66b86b188ff5298fbba6b3141"
+    },
+    {
+      "file": "magic-cluster/apps/ai/kubeopencode/base/helmrelease.yaml",
+      "line": 28,
+      "reference": "image: ghcr.io/kubeopencode/kubeopencode:v0.1.9@sha256:8517fc01a7692b4c6be0f1d42e6c6ebb6f306fc66b86b188ff5298fbba6b3141"
+    },
+    {
+      "file": "magic-cluster/apps/ai/kubeopencode/base/helmrelease.yaml",
+      "line": 32,
+      "reference": "image:"
+    },
+    {
+      "file": "magic-cluster/apps/ai/kubeopencode/base/helmrelease.yaml",
+      "line": 33,
+      "reference": "tag: v0.1.9@sha256:8517fc01a7692b4c6be0f1d42e6c6ebb6f306fc66b86b188ff5298fbba6b3141"
     },
     {
       "file": "magic-cluster/apps/ai/litellm/base/deployment.yaml",
@@ -2490,23 +2525,48 @@
     },
     {
       "file": "magic-cluster/apps/instances/hermes/templates/instance.yaml",
-      "line": 17,
+      "line": 41,
       "reference": "image:"
     },
     {
       "file": "magic-cluster/apps/instances/hermes/templates/instance.yaml",
-      "line": 18,
-      "reference": "repository: {{ dig \"image\" \"repository\" \"ghcr.io/paperclipinc/hermes-agent\" $values | quote }}"
+      "line": 42,
+      "reference": "repository: {{ $repository | quote }}"
     },
     {
       "file": "magic-cluster/apps/instances/hermes/templates/instance.yaml",
-      "line": 19,
-      "reference": "tag: {{ dig \"image\" \"tag\" \"v0.16.0\" $values | quote }}"
+      "line": 43,
+      "reference": "tag: {{ $tag | quote }}"
+    },
+    {
+      "file": "magic-cluster/apps/instances/hermes/templates/instance.yaml",
+      "line": 45,
+      "reference": "digest: {{ $digest | quote }}"
+    },
+    {
+      "file": "magic-cluster/apps/instances/hermes/templates/instance.yaml",
+      "line": 105,
+      "reference": "image: {{ $image | quote }}"
     },
     {
       "file": "magic-cluster/apps/instances/kubeopencode/Chart.yaml",
       "line": 5,
       "reference": "version: 0.1.0"
+    },
+    {
+      "file": "magic-cluster/apps/instances/kubeopencode/templates/resources.yaml",
+      "line": 17,
+      "reference": "agentImage: ghcr.io/kubeopencode/kubeopencode-agent-opencode@sha256:0df226ff164a24b40b2694ad9aa6653529d772574c141783735be9cf43e27f12"
+    },
+    {
+      "file": "magic-cluster/apps/instances/kubeopencode/templates/resources.yaml",
+      "line": 18,
+      "reference": "executorImage: ghcr.io/kubeopencode/kubeopencode-agent-devbox@sha256:4408922985ec220a10926af35d7a501cb1f33514a661b3564dc05c48534391d4"
+    },
+    {
+      "file": "magic-cluster/apps/instances/kubeopencode/templates/resources.yaml",
+      "line": 19,
+      "reference": "attachImage: ghcr.io/kubeopencode/kubeopencode-agent-attach@sha256:1e6e6acc70ba5774975ef61c20e15c9b5c84138bffc542044e59a75a55846cc6"
     },
     {
       "file": "magic-cluster/apps/instances/odysseus/Chart.yaml",
@@ -2530,27 +2590,27 @@
     },
     {
       "file": "magic-cluster/apps/instances/odysseus/templates/resources.yaml",
-      "line": 139,
+      "line": 140,
       "reference": "image: {{ printf \"%s@%s\" $images.chroma.repository $images.chroma.digest | quote }}"
     },
     {
       "file": "magic-cluster/apps/instances/odysseus/templates/resources.yaml",
-      "line": 141,
+      "line": 142,
       "reference": "image: docker.io/searxng/searxng:2026.5.31-7159b8aed"
     },
     {
       "file": "magic-cluster/apps/instances/odysseus/templates/resources.yaml",
-      "line": 143,
+      "line": 144,
       "reference": "image: {{ printf \"%s@%s\" $images.ntfy.repository $images.ntfy.digest | quote }}"
     },
     {
       "file": "magic-cluster/apps/instances/odysseus/templates/resources.yaml",
-      "line": 205,
+      "line": 207,
       "reference": "image: {{ $appImage | quote }}"
     },
     {
       "file": "magic-cluster/apps/instances/odysseus/templates/resources.yaml",
-      "line": 244,
+      "line": 246,
       "reference": "image: {{ $appImage | quote }}"
     },
     {
@@ -2559,38 +2619,63 @@
       "reference": "version: 0.1.0"
     },
     {
+      "file": "magic-cluster/apps/instances/openclaw/templates/instance.yaml",
+      "line": 19,
+      "reference": "image:"
+    },
+    {
+      "file": "magic-cluster/apps/instances/openclaw/templates/instance.yaml",
+      "line": 20,
+      "reference": "repository: ghcr.io/openclaw/openclaw"
+    },
+    {
+      "file": "magic-cluster/apps/instances/openclaw/templates/instance.yaml",
+      "line": 21,
+      "reference": "tag: \"2026.9.8\""
+    },
+    {
+      "file": "magic-cluster/apps/instances/openclaw/templates/instance.yaml",
+      "line": 22,
+      "reference": "digest: sha256:d0ded1dd76939b2bf4d67ef2d13247b8b160aa5666331d4a0b0e58811182cbb8"
+    },
+    {
       "file": "magic-cluster/apps/instances/paperclip/Chart.yaml",
       "line": 5,
       "reference": "version: 0.1.0"
     },
     {
       "file": "magic-cluster/apps/instances/paperclip/templates/instance.yaml",
-      "line": 21,
+      "line": 38,
       "reference": "image:"
     },
     {
       "file": "magic-cluster/apps/instances/paperclip/templates/instance.yaml",
-      "line": 22,
+      "line": 39,
       "reference": "repository: {{ $imageRepository | quote }}"
     },
     {
       "file": "magic-cluster/apps/instances/paperclip/templates/instance.yaml",
-      "line": 23,
+      "line": 40,
       "reference": "tag: {{ $imageTag | quote }}"
     },
     {
       "file": "magic-cluster/apps/instances/paperclip/templates/instance.yaml",
-      "line": 33,
-      "reference": "image: {{ printf \"%s:%s\" $imageRepository $imageTag | quote }}"
+      "line": 42,
+      "reference": "digest: {{ $imageDigest | quote }}"
     },
     {
       "file": "magic-cluster/apps/instances/paperclip/templates/instance.yaml",
-      "line": 124,
-      "reference": "image: {{ printf \"%s:%s\" $imageRepository $imageTag | quote }}"
+      "line": 53,
+      "reference": "image: {{ $image | quote }}"
     },
     {
       "file": "magic-cluster/apps/instances/paperclip/templates/instance.yaml",
-      "line": 265,
+      "line": 151,
+      "reference": "image: {{ $image | quote }}"
+    },
+    {
+      "file": "magic-cluster/apps/instances/paperclip/templates/instance.yaml",
+      "line": 292,
       "reference": "version: pluginPackageVersion,"
     },
     {
@@ -2600,12 +2685,12 @@
     },
     {
       "file": "magic-cluster/apps/instances/pi-coding/templates/resources.yaml",
-      "line": 102,
+      "line": 104,
       "reference": "image: {{ $image | quote }}"
     },
     {
       "file": "magic-cluster/apps/instances/pi-coding/templates/resources.yaml",
-      "line": 121,
+      "line": 123,
       "reference": "image: {{ $image | quote }}"
     },
     {
@@ -2691,7 +2776,7 @@
     {
       "file": "magic-cluster/platform/ai/hermes-operator/helmrelease.yaml",
       "line": 12,
-      "reference": "version: \"0.1.18\""
+      "reference": "version: \"0.2.0\""
     },
     {
       "file": "magic-cluster/platform/ai/hermes-operator/helmrelease.yaml",
@@ -2701,7 +2786,7 @@
     {
       "file": "magic-cluster/platform/ai/hermes-operator/helmrelease.yaml",
       "line": 25,
-      "reference": "tag: v0.1.18"
+      "reference": "tag: v0.2.0"
     },
     {
       "file": "magic-cluster/platform/ai/kubeai/base/helmrelease.yaml",
@@ -2731,7 +2816,7 @@
     {
       "file": "magic-cluster/platform/ai/openclaw-operator/helmrelease.yaml",
       "line": 12,
-      "reference": "version: \"0.36.4\""
+      "reference": "version: \"0.40.0\""
     },
     {
       "file": "magic-cluster/platform/ai/paperclip-operator/helmrelease.yaml",
@@ -2746,22 +2831,22 @@
     {
       "file": "magic-cluster/platform/ai/paperclip-operator/helmrelease.yaml",
       "line": 12,
-      "reference": "version: \"0.18.0\""
-    },
-    {
-      "file": "magic-cluster/platform/ai/paperclip-operator/helmrelease.yaml",
-      "line": 25,
-      "reference": "image:"
-    },
-    {
-      "file": "magic-cluster/platform/ai/paperclip-operator/helmrelease.yaml",
-      "line": 26,
-      "reference": "repository: ghcr.io/qualityminds/magicstick-paperclip-operator"
+      "reference": "version: \"0.19.1\""
     },
     {
       "file": "magic-cluster/platform/ai/paperclip-operator/helmrelease.yaml",
       "line": 27,
-      "reference": "tag: sha-1f9867b542b9b7b10fbc77f631a97a7cb25324be"
+      "reference": "image:"
+    },
+    {
+      "file": "magic-cluster/platform/ai/paperclip-operator/helmrelease.yaml",
+      "line": 28,
+      "reference": "repository: ghcr.io/paperclipinc/paperclip-operator"
+    },
+    {
+      "file": "magic-cluster/platform/ai/paperclip-operator/helmrelease.yaml",
+      "line": 29,
+      "reference": "tag: v0.19.1"
     },
     {
       "file": "magic-cluster/platform/ai/realtime/image/Dockerfile.rocm",
@@ -3030,17 +3115,17 @@
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 2893,
+      "line": 2902,
       "reference": "raise ValueError(\"Realtime requires a Hugging Face repository: hf://organization/model\")"
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 2930,
+      "line": 2939,
       "reference": "if image:"
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 4154,
+      "line": 4163,
       "reference": "if not image:"
     },
     {
@@ -3107,6 +3192,11 @@
       "file": "magic-installer/scripts/build-installer-image-container.sh",
       "line": 403,
       "reference": "printf 'Created installer image: %s\\n' \"$OUTPUT\""
+    },
+    {
+      "file": "magic-installer/scripts/installer-media.py",
+      "line": 170,
+      "reference": "if target.stat().st_size != int(size) or hashes(target)[\"sha256\"] != digest:"
     },
     {
       "file": "magic-installer/scripts/installer-media.py",

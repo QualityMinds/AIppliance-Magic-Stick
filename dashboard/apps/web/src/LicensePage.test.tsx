@@ -98,7 +98,7 @@ describe('license management', () => {
     expect(text).toContain('Business Source License 1.1');
     expect(text).toContain('EUR 2,000,000');
     expect(await screen.findByRole('heading', {name: 'Free Registered'})).toBeInTheDocument();
-  });
+  }, 20000); // The complete offline notice bundle makes accessible-role queries expensive.
 
   it('keeps software notices readable when entitlement status is unavailable', async () => {
     vi.mocked(api.licenseStatus).mockRejectedValue(new Error('License API unavailable.'));
@@ -107,7 +107,7 @@ describe('license management', () => {
     await waitFor(() => expect(screen.queryByRole('alert')).toHaveTextContent('License API unavailable.'));
     expect(screen.getByRole('heading', {name: 'Software licenses'})).toBeInTheDocument();
     expect(screen.getByRole('link', {name: 'Download Business Source License 1.1', hidden: true})).toHaveAttribute('download', 'MagicStick-BSL.txt');
-  });
+  }, 20000);
 
   it('requires preview and explicit activation, preserving the reviewed revision', async () => {
     const user = userEvent.setup(); mount();

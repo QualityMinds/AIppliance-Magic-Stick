@@ -126,7 +126,7 @@ class OdysseusModelBootstrapTests(unittest.TestCase):
         self.assertIn('.Files.Get "files/model-bootstrap.py"', template)
         self.assertIn("- name: model-bootstrap", template)
         self.assertIn("command: [python, /bootstrap/model-bootstrap.py]", template)
-        self.assertIn("key: LITELLM_MASTER_KEY", template)
+        self.assertIn('key: {{ $key.key | quote }}', template)
         self.assertIn("command: [test, -f, /tmp/ready]", template)
         self.assertNotIn("test-secret-value", template)
 

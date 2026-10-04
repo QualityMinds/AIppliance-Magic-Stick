@@ -10,6 +10,7 @@ data:
   controller.py: |
     #!/usr/bin/env python3
     import json
+    import base64
     import hashlib
     import os
     import re
@@ -21,6 +22,7 @@ data:
     import urllib.request
     from datetime import datetime, timezone
     from decimal import Decimal
+    from service_keys import ServiceKeys, KeyError as ServiceKeyError
 
     APPLIANCE_GROUP = "appliance.magicstick.dev"
     APPLIANCE_VERSION = "v1alpha1"
@@ -882,6 +884,8 @@ data:
                 message = "ModuleActivation is being deleted; generated Kustomization is being removed so Flux can prune resources."
                 patch_module_status(activation, phase, module_spec["kustomizationName"], "Removing", message, generation)
                 return phase, {"phase": phase, "kustomization": module_spec["kustomizationName"], "message": message}
+            if module_spec.get("litellmKey"):
+                reconcile_service_key(activation, module_spec, delete=True)
             remove_module_finalizer(activation)
             phase = "Disabled"
             message = "ModuleActivation is deleted; generated Kustomization has been removed."
@@ -897,6 +901,8 @@ data:
                 return phase, {"phase": phase, "kustomization": module_spec["kustomizationName"], "message": message}
             phase = "Disabled"
             message = "ModuleActivation is disabled; generated Kustomization has been removed."
+            if module_spec.get("litellmKey"):
+                reconcile_service_key(activation, module_spec, delete=True)
             patch_module_status(activation, phase, "", "Disabled", message, generation)
             return phase, {"phase": phase, "kustomization": "", "message": message}
 
@@ -925,6 +931,8 @@ data:
             patch_module_status(activation, phase, module_spec["kustomizationName"], "WaitingForModules", message, generation)
             return phase, {"phase": phase, "kustomization": module_spec["kustomizationName"], "message": message}
 
+        if module_spec.get("litellmKey"):
+            reconcile_service_key(activation, module_spec)
         apply_resource(generated_kustomization(module, module_spec, catalog, enabled, source, parameters))
         kustomization = get_resource("kustomize.toolkit.fluxcd.io", "v1", "kustomizations", FLUX_NAMESPACE, module_spec["kustomizationName"])
 
@@ -2835,6 +2843,7 @@ data:
         local_override_fields = (
             "modelType",
             "features",
+            "capabilities",
             "vram",
             "vramMi",
             "memoryRequiredMi",
@@ -4774,6 +4783,11 @@ data:
             )
             resource_profile, memory_mi = cpu_memory_resource_profile(resource_profile, memory_mi)
         annotations = {}
+        if "capabilities" in local:
+            declared = local["capabilities"]
+            if not isinstance(declared, dict) or any(key not in ("tools", "vision", "reasoning") or type(value) is not bool for key, value in declared.items()):
+                raise ValueError("local.capabilities accepts tools, vision and reasoning booleans only")
+            annotations["ai-appliance.io/capabilities"] = json.dumps(declared, sort_keys=True)
         if vllm_configuration is not None:
             annotations["appliance.magicstick.dev/vllm-vision-attention"] = vllm_configuration["visionAttention"]
         context_window = positive_int(local.get("contextWindow") or local.get("context_window"))
@@ -5593,13 +5607,62 @@ data:
         return access_status
 
 
-    def app_instance_helmrelease(instance, definition, source, suspend=False):
+    def reconcile_service_key(owner, definition, enabled=True, delete=False):
+        configuration = definition.get("litellmKey") or {}
+        if configuration is True:
+            configuration = {}
+        metadata = owner.get("metadata") or {}
+        namespace = configuration.get("namespace") or (owner.get("spec") or {}).get("targetNamespace") or LITELLM_NAMESPACE
+        name = configuration.get("secretName") or metadata["name"] + "-litellm"
+        kind = owner.get("kind") or ("ModuleActivation" if configuration.get("secretName") else "AppInstance")
+        identity = dict(owner, kind=kind)
+        def master_key():
+            secret = get_json(f"/api/v1/namespaces/{LITELLM_NAMESPACE}/secrets/litellm-masterkey-secret")
+            return base64.b64decode(secret["data"]["LITELLM_MASTER_KEY"]).decode()
+        manager = ServiceKeys(request_json, master_key)
+        if delete:
+            manager.delete(identity, namespace, name)
+            return None
+        if enabled:
+            try:
+                get_json("/api/v1/namespaces/" + namespace)
+            except urllib.error.HTTPError as error:
+                if error.code != 404:
+                    raise
+                request_json("POST", "/api/v1/namespaces", {"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": namespace}})
+        return manager.ensure(identity, namespace, name, enabled=enabled)
+
+
+    def app_instance_helmrelease(instance, definition, source, suspend=False, litellm_key=None):
         metadata = instance.get("metadata") or {}
         spec = instance.get("spec") or {}
         values = dict(spec.get("values") or {})
         application = spec.get("application") or ""
         name = metadata.get("name")
         target_namespace = spec.get("targetNamespace") or "ai"
+        context_field = definition.get("modelContextValue")
+        capability_field = definition.get("modelCapabilitiesValue")
+        if capability_field and not suspend:
+            selected_model = str(values.get("model") or "").removeprefix("openai/").removeprefix("litellm/")
+            selected_entry = next((entry for entry in model_catalog_models(target_namespace)
+                                   if entry.get("id") == selected_model), {})
+            declared = selected_entry.get("capabilities") or {}
+            values[capability_field] = {key: value for key, value in declared.items()
+                                       if key in ("tools", "vision", "reasoning") and type(value) is bool}
+        if context_field and not suspend:
+            selected_model = str(values.get("model") or "").removeprefix("openai/").removeprefix("litellm/")
+            configured_context = positive_int(values.get(context_field))
+            if configured_context is None:
+                selected_entry = next((entry for entry in model_catalog_models(target_namespace)
+                                       if entry.get("id") == selected_model), {})
+                configured_context = positive_int(selected_entry.get("contextWindow"))
+            minimum_context = positive_int(definition.get("minimumModelContextTokens")) or 1
+            if configured_context is None or configured_context < minimum_context:
+                actual = str(configured_context) if configured_context is not None else "unknown"
+                raise ValueError(f"{definition.get('displayName') or application} requires a model with at least "
+                                 f"{minimum_context:,} context tokens; selected model context is {actual}. "
+                                 f"Select a suitable model or set values.{context_field} to its actual supported context.")
+            values[context_field] = configured_context
         local_host = app_instance_local_host(instance, application)
         public_host = app_instance_public_host(instance, application)
         ingress = dict(values.get("ingress") or {})
@@ -5657,6 +5720,8 @@ data:
                         "localHost": local_host,
                         "localName": local_mdns_name(local_host),
                         "publicHost": public_host,
+                        **({"litellmKey": litellm_key or {"name": name + "-litellm", "key": "LITELLM_API_KEY", "revision": ""}}
+                           if definition.get("litellmKey") else {}),
                         "values": values,
                     },
                 },
@@ -5687,13 +5752,21 @@ data:
                 delete_applied_resource(reference)
                 patch_instance_status(instance, "Removing", target, "Removing", "Helm release is being removed.", generation=generation)
                 return "Removing", target
+            if definition.get("litellmKey"):
+                reconcile_service_key(instance, definition, delete=True)
             remove_app_instance_finalizer(instance)
             return "Disabled", target
 
         ensure_app_instance_finalizer(instance)
         enabled = spec.get("enabled", True) is not False
-        access_status = sync_app_instance_access(instance, definition, enabled=enabled)
-        release, url = app_instance_helmrelease(instance, definition, source, suspend=not enabled)
+        # Remove external access even if key revocation must retry during a
+        # LiteLLM management outage. Enabling still waits for a registered key.
+        if not enabled:
+            access_status = sync_app_instance_access(instance, definition, enabled=False)
+        litellm_key = reconcile_service_key(instance, definition, enabled=enabled) if definition.get("litellmKey") else None
+        if enabled:
+            access_status = sync_app_instance_access(instance, definition, enabled=True)
+        release, url = app_instance_helmrelease(instance, definition, source, suspend=not enabled, litellm_key=litellm_key)
         apply_resource(release)
         if not enabled:
             patch_instance_status(instance, "Suspended", target, "Suspended", "Helm release is suspended and external routes are removed.", url=url, access=access_status, generation=generation)
@@ -5730,6 +5803,8 @@ data:
         if not definition:
             if metadata.get("deletionTimestamp"):
                 sync_app_instance_access(instance, {}, enabled=False)
+                if metadata.get("uid"):
+                    reconcile_service_key(instance, {"litellmKey": True}, delete=True)
                 remove_app_instance_finalizer(instance)
                 return "Disabled", {"kind": "", "name": metadata.get("name", ""), "namespace": spec.get("targetNamespace") or "ai"}
             patch_instance_status(instance, "Degraded", {}, "UnknownApplication", f"Unknown application '{application}'", generation=generation)
@@ -5858,14 +5933,22 @@ data:
         cleanup_stale_module_kustomizations(catalog, activations, source)
         module_statuses = {}
         for module, activation in sorted(activations.items()):
-            phase, status = reconcile_module(module, activation, catalog, source)
+            try:
+                phase, status = reconcile_module(module, activation, catalog, source)
+            except ServiceKeyError as error:
+                phase, status = "Degraded", {"phase": "Degraded", "message": str(error)}
+                patch_module_status(activation, phase, "", "WaitingForLiteLLMKey", str(error))
             module_statuses[module] = status
 
         instance_statuses = {}
         for instance in instances:
             instance_type = (instance.get("spec") or {}).get("application") or "unknown"
             name = (instance.get("metadata") or {}).get("name")
-            phase, target = reconcile_instance(instance, catalog, app_catalog, source)
+            try:
+                phase, target = reconcile_instance(instance, catalog, app_catalog, source)
+            except ServiceKeyError as error:
+                phase, target = "Degraded", app_instance_helmrelease_ref(instance)
+                patch_instance_status(instance, phase, target, "WaitingForLiteLLMKey", str(error))
             instance_statuses.setdefault(instance_type, {})[name] = {
                 "phase": phase,
                 "namespace": target.get("namespace", ""),

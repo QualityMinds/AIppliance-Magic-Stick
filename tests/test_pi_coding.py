@@ -64,6 +64,7 @@ class PiCodingTests(unittest.TestCase):
         fakes = {"ensure_module_activation": dependencies, "module_ready": lambda name, catalog: name != "litellm",
                  "patch_instance_status": statuses, "crd_exists": lambda name: True,
                  "ensure_app_instance_finalizer": Mock(), "apply_resource": applied,
+                 "reconcile_service_key": Mock(return_value={"name":"pi-coding-example-litellm","key":"LITELLM_API_KEY","revision":"fixture"}),
                  "sync_app_instance_access": Mock(return_value={"accessGuardReady": False}),
                  "get_applied_resource": Mock(return_value={"status": {"conditions": [{"type": "Ready", "status": "True"}]}})}
         with patch.dict(self.controller, fakes):
@@ -148,7 +149,7 @@ class PiCodingTests(unittest.TestCase):
         environment = {item["name"]: item for item in container["env"]}
         self.assertEqual(environment["PI_MODEL"]["value"], "local-coder")
         self.assertEqual(environment["LITELLM_API_KEY"]["valueFrom"]["secretKeyRef"],
-                         {"name": "litellm-masterkey-secret", "key": "LITELLM_MASTER_KEY"})
+                         {"name": "pi-coding-example-litellm", "key": "LITELLM_API_KEY"})
         self.assertTrue(container["securityContext"]["readOnlyRootFilesystem"])
         self.assertEqual(objects["Service"]["spec"]["type"], "ClusterIP")
         self.assertEqual(objects["Service"]["spec"]["ports"][0]["port"], 7681)

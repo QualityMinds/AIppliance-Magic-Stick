@@ -6,7 +6,24 @@
 - Use FreeToken's dedicated configuration on its supported NVIDIA hardware.
 - Experiment with Realtime through the separate vLLM-Omni profile.
 - Connect external model providers and use a common LiteLLM API.
+- Give every application instance its own LiteLLM inference key, with automatic
+  creation, suspension, rotation and cleanup; application workloads receive no
+  LiteLLM administrator key.
+- Preserve known tool, image-input and reasoning capabilities through the
+  [shared model catalog](../reference/model-catalog.md#model-capabilities) and
+  native agent configurations, including explicit unsupported capabilities.
 - Create applications from the service catalog and grant access to specific users or groups.
+- Keep separate OpenClaw and KubeOpenCode model choices while sharing the common
+  model catalog. Catalog updates preserve each instance's selection.
+- Start AnythingLLM with model defaults from the catalog and retain its own model
+  preferences across restarts. Existing installations need the
+  [one-time settings migration](../administration/updates-rollback.md#anythingllm-persistent-settings-migration).
+- Create Hermes instances with an explicit LiteLLM model and open the current
+  Hermes dashboard through the common SSO access controls, with persistent
+  sessions and workspaces.
+- Create [Paperclip](../reference/paperclip-agents.md) instances for companies,
+  tasks and OpenCode agents, with isolated Kubernetes workspaces, LiteLLM models
+  and the common SSO access controls. The current sandbox runtime requires AMD64.
 - Run the optional [Pi Coding Agent](../user-guide/applications.md#pi-coding-agent)
   from **Services**, with a browser terminal, model selection, SSO access controls,
   and persistent workspaces and sessions.
@@ -30,6 +47,10 @@ chat endpoint does not automatically provide `/v1/realtime` or audio output.
 
 Pi requires GitHub access when creating or recreating its runtime. Each instance
 accepts one browser connection at a time, and its users share files and sessions.
+
+Hermes 0.21.5 requires a chat model with at least 64,000 configured context tokens.
+Unknown context metadata needs an administrator to declare the actual supported
+limit before the instance can be installed or upgraded.
 
 There is no appliance-wide one-click backup/restore or supported factory-reset
 button. [Backup and recovery](../administration/backup-recovery.md) requires a

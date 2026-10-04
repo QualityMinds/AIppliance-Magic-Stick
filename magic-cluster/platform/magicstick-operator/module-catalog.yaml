@@ -101,6 +101,7 @@ data:
           "postBuildSubstitution": true
         },
         "anything-llm": {
+          "litellmKey": {"namespace": "ai", "secretName": "anything-llm-litellm"},
           "displayName": "AnythingLLM",
           "group": "apps",
           "aliases": ["anythingllm", "anythingLlm"],

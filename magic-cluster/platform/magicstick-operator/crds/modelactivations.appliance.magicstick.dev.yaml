@@ -99,6 +99,13 @@ spec:
                       type: string
                     modelType:
                       type: string
+                    capabilities:
+                      type: object
+                      description: Explicit effective runtime capabilities; omitted fields remain unknown.
+                      properties:
+                        tools: {type: boolean}
+                        vision: {type: boolean}
+                        reasoning: {type: boolean}
                     features:
                       type: array
                       items:
@@ -300,6 +307,13 @@ spec:
                   description: External LiteLLM provider model settings.
                   x-kubernetes-preserve-unknown-fields: true
                   properties:
+                    capabilities:
+                      type: object
+                      description: Explicit route capabilities, overriding inferred LiteLLM metadata for declared fields.
+                      properties:
+                        tools: {type: boolean}
+                        vision: {type: boolean}
+                        reasoning: {type: boolean}
                     model:
                       type: string
                     apiBase:

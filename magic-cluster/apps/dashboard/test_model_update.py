@@ -32,6 +32,24 @@ class ModelUpdateTests(unittest.TestCase):
     def setUpClass(cls):
         cls.api = load_server()
 
+    def test_capability_declarations_validate_booleans_and_survive_model_edits(self):
+        for invalid in ({'vision':'false'}, {'tools':1}, {'unknown':True}, [], None):
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(ValueError,'capabilities'):
+                self.api['model_activation_payload']('external',{'name':'fixture','external':{
+                    'model':'openai/alias','capabilities':invalid}})
+        known = {'tools':False,'vision':True,'reasoning':False}
+        result = self.api['model_activation_payload']('external',{'name':'fixture','external':{
+            'model':'openai/alias','capabilities':known}})
+        self.assertEqual(result['spec']['external']['capabilities'],known)
+        current = local_activation(); current['spec']['local']['capabilities'] = known
+        with patch.dict(self.api, {'model_activation':lambda _:current,'model_activations':lambda:[],
+            'compute_target_catalog':lambda:{'targets':{'nvidia-gpu':{'kind':'gpu'}}},
+            'gpu_slot_summary':lambda *a,**k:{},'request_json':lambda m,p,body,*a:body}):
+            result = self.api['update_model_activation']('qwen',{'expectedRevision':'17','local':{'contextWindow':8192}})
+            self.assertEqual(result['spec']['local']['capabilities'],known)
+            result = self.api['update_model_activation']('qwen',{'expectedRevision':'17','local':{'capabilities':None}})
+            self.assertIsNone(result['spec']['local'].get('capabilities'))
+
     def test_local_update_is_revision_bound_and_preserves_identity(self):
         calls = []
 

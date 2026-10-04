@@ -101,6 +101,9 @@ jobs:
           python3 -m unittest discover -s magic-cluster/platform/magicstick-operator/controller -p 'test_*.py'
           python3 -m unittest discover -s magic-cluster/apps/ai/model-catalog -p 'test_*.py'
           python3 -m unittest discover -s magic-cluster/apps/ai/tests -p 'test_*.py'
+          node --test --test-isolation=none magic-cluster/apps/ai/tests/anythingllm_model_defaults.test.cjs
+          node --test --test-isolation=none magic-cluster/apps/ai/tests/hermes_dashboard_proxy.test.cjs
+          node --test --test-isolation=none magic-cluster/apps/ai/tests/paperclip_runtime.test.cjs
           python3 -m unittest discover -s magic-cluster/apps/ai/litellm/tests -p 'test_*.py'
           python3 -m unittest discover -s magic-cluster/apps/ai/private-mesh -p 'test_*.py'
 

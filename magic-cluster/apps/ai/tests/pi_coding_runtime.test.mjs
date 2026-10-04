@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {test} from 'node:test';
 import {install, verifyAsset} from '../../instances/pi-coding/files/install.mjs';
-import {prepare} from '../../instances/pi-coding/files/prepare.mjs';
+import {prepare, toolMode} from '../../instances/pi-coding/files/prepare.mjs';
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'pi-coding-test-'));
@@ -77,4 +77,12 @@ test('rejects altered downloads and unsupported architectures before execution',
   await writeFile(asset, 'altered-download');
   await assert.rejects(verifyAsset(asset, digest), /checksum mismatch/);
   await assert.rejects(install(config.workspace, 'riscv64'), /amd64 and arm64 only/);
+});
+
+test('known tool-less models disable native Pi tools without guessing unknown capabilities', () => {
+  const catalog = {models: [{id:'no-tools', capabilities:{tools:false,vision:true}},
+    {id:'tools', capabilities:{tools:true}}, {id:'unknown'}]};
+  assert.equal(toolMode(catalog,'no-tools'), 'disabled');
+  assert.equal(toolMode(catalog,'tools'), 'default');
+  assert.equal(toolMode(catalog,'unknown'), 'default');
 });

@@ -543,18 +543,26 @@ export interface FreeTokenRuntimeStats {
   ttftMs?: number;
 }
 
+/** Omitted fields mean unknown; explicit false disables the advertised capability. */
+export interface ModelCapabilities {
+  tools?: boolean;
+  vision?: boolean;
+  reasoning?: boolean;
+}
+
 export interface ModelActivation {
   metadata?: KubernetesObjectMeta;
   spec?: Record<string, unknown> & {
     type?: string;
     enabled?: boolean;
-    local?: Record<string, unknown> & {freetoken?: FreeTokenConfiguration; vllm?: VllmConfiguration; realtime?: RealtimeConfiguration};
-    external?: Record<string, unknown>;
+    local?: Record<string, unknown> & {freetoken?: FreeTokenConfiguration; vllm?: VllmConfiguration; realtime?: RealtimeConfiguration; capabilities?: ModelCapabilities};
+    external?: Record<string, unknown> & {capabilities?: ModelCapabilities};
   };
   status?: StatusValue;
 }
 
 export interface RegisteredModel {
+  capabilities?: ModelCapabilities;
   id?: string;
   name?: string;
   type?: string;

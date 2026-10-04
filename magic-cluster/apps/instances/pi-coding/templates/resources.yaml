@@ -1,5 +1,6 @@
 {{- $instance := required "instance is required" .Values.instance -}}
 {{- $values := default dict $instance.values -}}
+{{- $key := default (dict "name" (printf "%s-litellm" $instance.name) "key" "LITELLM_API_KEY" "revision" "") $instance.litellmKey -}}
 {{- $lock := .Files.Get "files/runtime-lock.json" | fromJson -}}
 {{- $image := printf "%s@%s" $lock.image.repository $lock.image.digest -}}
 {{- $name := $instance.name -}}
@@ -76,6 +77,7 @@ spec:
         app.kubernetes.io/instance: {{ $name }}
       annotations:
         ai-appliance.io/model-catalog-consumer: "true"
+        appliance.magicstick.dev/litellm-key-revision: {{ $key.revision | quote }}
         checksum/bootstrap: {{ (.Files.Glob "files/*").AsConfig | sha256sum }}
     spec:
       automountServiceAccountToken: false
@@ -133,8 +135,8 @@ spec:
             - name: LITELLM_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: litellm-masterkey-secret
-                  key: LITELLM_MASTER_KEY
+                  name: {{ $key.name | quote }}
+                  key: {{ $key.key | quote }}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: {drop: [ALL]}

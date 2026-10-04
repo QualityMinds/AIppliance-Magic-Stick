@@ -9,17 +9,17 @@ spec:
   chart:
     spec:
       chart: hermes-operator
-      version: "0.1.18"
+      version: "0.2.0"
       sourceRef:
         kind: HelmRepository
         name: hermes-operator
         namespace: flux-system
   install:
     createNamespace: true
+    crds: CreateReplace
   upgrade:
     force: true
+    crds: CreateReplace
   values:
-    # The 0.1.18 chart omits the "v" prefix although the published GHCR image
-    # is tagged v0.1.18. Keep the chart version and runtime image aligned.
     image:
-      tag: v0.1.18
+      tag: v0.2.0

@@ -25,6 +25,49 @@ Use **Credentials** only when the application exposes a credential panel and you
 role permits access. A URL being present does not bypass SSO or instance access rules.
 See [sharing](sharing.md) to grant selected users or groups access.
 
+## OpenClaw, KubeOpenCode and AnythingLLM
+
+Choose a chat model when creating an OpenClaw or KubeOpenCode instance. Each
+instance keeps its selection when the shared catalog or global default changes.
+If that model becomes unavailable, select a replacement explicitly. OpenClaw's
+compaction budget follows the chosen model's context limit.
+
+AnythingLLM starts a fresh installation with the catalog's default chat model.
+When an embedding model is available, it also initializes document-indexing
+preferences. You can change these settings in AnythingLLM; they survive restarts
+and later catalog updates. Keep an existing index's embedding model unless you
+plan to reindex the documents. Before upgrading an older installation, an
+administrator must complete the
+[settings migration](../administration/updates-rollback.md#anythingllm-persistent-settings-migration).
+
+## Hermes
+
+Choose a ready chat model when creating a Hermes instance in **Services**.
+The current Hermes release requires at least 64,000 context tokens; use a model
+with that actual configured capacity. A smaller or unknown context appears as
+an instance status error.
+Its browser link opens the Hermes dashboard through the existing SSO access
+controls. Change the managed model in the instance settings; the operator owns
+that configuration, so editing Hermes' native configuration file is not a
+supported way to change it. Workspaces and sessions remain on the instance's
+persistent volume. See the [configuration reference](../reference/application-controls.md).
+
+## Paperclip
+
+Create a Paperclip instance in **Services**, choose the default chat model and
+review storage and the concurrent-agent limit. Open its browser link once it
+is ready, then create companies, tasks and agents in Paperclip. OpenCode agents
+use isolated Kubernetes sandboxes and keep their own explicit model choices.
+The instance upgrades its Kubernetes plugin before its browser link becomes
+ready; the first installation and a plugin upgrade require npm access. Ordinary
+restarts reuse the installed plugin.
+
+The current OpenCode sandbox image supports AMD64 only. Gateway selections in
+the instance form are stored preferences; configuring gateway agents and their
+credentials in Paperclip remains manual. See the
+[Paperclip execution guide](../reference/paperclip-agents.md) for compatibility,
+workspace persistence and upgrade limits.
+
 ## Pi Coding Agent
 
 Pi is a coding agent for the terminal. Magic Stick provides its Pi 1.0.0 interface

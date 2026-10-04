@@ -84,6 +84,19 @@ class LicenseAuditTests(unittest.TestCase):
                     refresh_references(root)
                 self.assertEqual(inventory.read_bytes(), before)
 
+    def test_native_agent_image_fields_and_separate_digests_are_inventoried(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / 'magic-cluster/apps/instances/example/templates/instance.yaml'
+            path.parent.mkdir(parents=True)
+            lines = [f'{key}: example/{key}@sha256:' + 'a' * 64
+                     for key in ('agentImage', 'executorImage', 'attachImage')]
+            lines.append('digest: sha256:' + 'b' * 64)
+            path.write_text('\n'.join(lines))
+            with patch('license_audit.files', return_value=[path]):
+                refs = deployment_references(root)
+            self.assertEqual([item['reference'] for item in refs], lines)
+
     def test_current_source_consistency(self):
         self.assertEqual(source_checks(), [])
 
@@ -92,7 +105,7 @@ class LicenseAuditTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         for name in ['build-dashboard-image', 'build-freetoken-image', 'build-mesh-image',
                      'build-mesh-companion', 'build-kdns-image', 'build-amd-dra-image',
-                     'build-paperclip-operator-image', 'build-omni-rocm-image']:
+                     'build-omni-rocm-image']:
             with self.subTest(workflow=name):
                 workflow = (root / '.github/workflows' / (name + '.yml')).read_text()
                 self.assertIn('tools/license_audit.py --review', workflow)

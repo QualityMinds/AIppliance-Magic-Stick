@@ -449,11 +449,11 @@ class OpenClawCatalogTests(unittest.TestCase):
         )
         self.assertEqual(
             config["agents"]["defaults"]["compaction"],
-            {"reserveTokens": 4096, "reserveTokensFloor": 0},
+            {"keepRecentTokens": 4096},
         )
         self.assertEqual(config["tools"]["profile"], "coding")
 
-    def test_catalog_keeps_openclaw_default_floor_for_large_context_models(self):
+    def test_catalog_keeps_openclaw_default_recent_history_for_large_context_models(self):
         data, _ = self.controller["build_catalog"](
             [
                 {
@@ -470,10 +470,10 @@ class OpenClawCatalogTests(unittest.TestCase):
         config = json.loads(data["openclaw.json"])
         self.assertEqual(
             config["agents"]["defaults"]["compaction"],
-            {"reserveTokensFloor": 20000},
+            {"keepRecentTokens": 20000},
         )
 
-    def test_small_openclaw_context_scales_the_reserve_below_four_thousand(self):
+    def test_small_openclaw_context_scales_recent_history_below_four_thousand(self):
         generated = self.controller["openclaw_compaction"](
             [{"id": "small", "contextWindow": 8192}],
             "small",
@@ -481,7 +481,7 @@ class OpenClawCatalogTests(unittest.TestCase):
 
         self.assertEqual(
             generated,
-            {"reserveTokens": 2048, "reserveTokensFloor": 0},
+            {"keepRecentTokens": 2048},
         )
 
 

@@ -99,6 +99,43 @@ request for every engine you depend on. A disconnected server can reconcile when
 it returns only if its configured source includes the change; no offline rollout
 is claimed until live state is checked.
 
+## AnythingLLM persistent settings migration
+
+The update to AnythingLLM 1.17.0 persists its native `/app/server/.env` file as
+`anythingllm.env` on the existing storage PVC. Older Magic Stick deployments only
+persisted `/app/server/storage`; global preferences changed in AnythingLLM were
+still in the old container's filesystem. Before replacing that Pod, save those
+preferences inside its storage volume:
+
+```sh
+kubectl -n ai exec deployment/anything-llm -- node -e '
+const fs = require("node:fs");
+const path = require("node:path");
+const target = path.join(process.env.STORAGE_DIR, "anythingllm.env");
+fs.copyFileSync("/app/server/.env", target, fs.constants.COPYFILE_EXCL);
+fs.chmodSync(target, 0o600);
+console.log("AnythingLLM settings saved on persistent storage");
+'
+```
+
+The command copies directly within the Pod and does not display settings or
+credentials. `COPYFILE_EXCL` refuses to overwrite an existing migration file;
+if it already exists, preserve and review that file before proceeding. Back up
+the whole volume, including the database, documents and this settings file,
+using the [backup procedure](backup-recovery.md).
+
+Apply the reviewed update through the normal source/channel path. Initialization
+fills only missing preferences from the model catalog and mounts the saved file
+for the native application. Check the selected chat model, context limit and
+embedding model after startup, then test a chat and document search. Keep the
+embedding model used for existing indexes unless intentionally reindexing them.
+
+If the old Pod has already been replaced without this copy, the update cannot
+recover its ephemeral global preferences. Restore them from a backup or re-enter
+them in AnythingLLM. Persistent documents and workspace data remain on the PVC.
+The new image runs upstream database migrations; an image downgrade alone is
+not a database rollback. Restore a consistent pre-upgrade backup when needed.
+
 ## Rollback
 
 Select a previously reviewed source revision/image set in the authoritative

@@ -38,6 +38,7 @@ Each module definition may contain:
 | `postBuildSubstitution` | Whether to include `ai-appliance-settings` as Flux post-build substitution. |
 | `parameters` | Optional dashboard fields stored in `ModuleActivation.spec.parameters`; each field may declare its Flux `substitution` variable. |
 | `credentials.provider` | Optional fixed dashboard credential provider. The API supports only explicitly implemented providers and never accepts arbitrary Secret names from catalog data. |
+| `litellmKey` | Optional inference-key lifecycle declaration. `true` on an application provisions `<instance-name>-litellm` in its target namespace. A singleton module specifies `{ "namespace": "ai", "secretName": "anything-llm-litellm" }`. The common controller handles creation, suspension/rotation and finalizer cleanup. |
 
 Do not maintain a second hardcoded module list in dashboard code or docs. Add a
 module to the catalog and let the operator and dashboard discover it there.
