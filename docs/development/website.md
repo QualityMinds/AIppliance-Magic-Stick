@@ -21,7 +21,8 @@ GitHub Pages only redirects to it.
 | [index.html](../index.html) | English product homepage |
 | [de.html](../de.html) | Equivalent German homepage; handbook links are marked English |
 | [editions.html](../editions.html), [editionen.html](../editionen.html) | Licensing overview, eligibility and the actual request/activation workflow |
-| [site.css](../site.css) | Responsive navy/violet/cyan design from the October 2026 pitch mockup, system fonts, visible focus and reduced motion |
+| [site.css](../site.css) | Responsive navy/violet/cyan design from the October 2026 pitch mockup, system fonts for text, the local heading font, visible focus and reduced motion |
+| `assets/fonts/` ([tracedsans_700.woff2](../assets/fonts/tracedsans_700.woff2)) | Traced Sans Bold (weight 700) for headings on the landing pages, the legal pages and the handbook; see [Heading font](#heading-font) |
 | [site.js](../site.js) | Mobile navigation and keyboard-accessible dashboard screenshot tabs |
 | `assets/brand/` ([logo.svg](../assets/brand/logo.svg), [brandmark.svg](../assets/brand/brandmark.svg), [core.svg](../assets/brand/core.svg)) | Magic Stick logo, brandmark and core symbol (SVG) from the pitch mockup |
 | `assets/artwork/` ([command-centre.jpg](../assets/artwork/command-centre.jpg) and two WebP backgrounds) | Hero illustration and two blurred section backgrounds; see [Artwork provenance](#artwork-provenance) |
@@ -40,7 +41,8 @@ KubeAI, engines, Keycloak/Envoy) are named in the FAQ and linked to the
 architecture and compatibility references instead of being drawn on the page.
 Every deployment environment links its installation guide; there are no
 "documentation pending" placeholders from the mockup. The mockup's Typekit fonts
-are not used; the site keeps the system font stack.
+are not used; body text keeps the system font stack and only headings use the
+local heading font.
 
 The screenshot switcher is the progressively enhanced tab pattern: three
 `figure` panels with reviewed captures are all readable without JavaScript, and
@@ -62,6 +64,27 @@ such as LICENSE and SUPPORT.md use explicit public GitHub links; they are not
 handbook pages. New marketing HTML must be included in `MARKETING_PAGES` and
 excluded from MkDocs in `mkdocs.yml`. Do not collide with legacy redirect routes
 from `docs/migration.json` (in particular `licensing.html`).
+
+## Heading font
+
+Headings (`h1`–`h3`) use Traced Sans Bold from
+`docs/assets/fonts/tracedsans_700.woff2`, served from the site itself; no remote
+font service is involved. Each stylesheet declares the single `@font-face` with
+weight 700 and `font-display: swap`: [site.css](../site.css) and the inline
+styles of the legal pages reference `assets/fonts/` relative to the site root,
+[handbook.css](../stylesheets/handbook.css) references `../assets/fonts/`
+because MkDocs copies `docs/assets/` under `handbook/`. Body text, buttons and
+navigation stay on the system font stack. Heading rules set `font-weight: 700`
+explicitly because the file contains only that weight and `site.css` disables
+font synthesis.
+
+The committed file is a subset. Characters that it does not contain fall back
+to the next font in the stack glyph by glyph, which is visible in a heading.
+When replacing the file, check that it covers the characters that actual
+headings use (at least Latin-1 letters including German umlauts, typographic
+quotes and dashes) and keep the same file name or update all four references.
+Record the font's source and license terms with the other collateral assets in
+[THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md).
 
 ## Legal pages
 

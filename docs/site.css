@@ -1,4 +1,11 @@
 /* SPDX-License-Identifier: BUSL-1.1 */
+@font-face {
+  font-family: "Traced Sans";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("assets/fonts/tracedsans_700.woff2") format("woff2");
+}
 :root {
   color-scheme: dark;
   --canvas: #080f1c;
@@ -32,7 +39,7 @@ button, a, summary { -webkit-tap-highlight-color: transparent; }
 button { font: inherit; cursor: pointer; }
 button:focus-visible, a:focus-visible, summary:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--cyan); outline-offset: 5px; }
 h1, h2, h3, p, figure { margin: 0; }
-h1, h2, h3 { line-height: 1.15; letter-spacing: -.02em; font-weight: 700; text-wrap: balance; }
+h1, h2, h3 { font-family: "Traced Sans", "Avenir Next", Avenir, "Segoe UI", system-ui, sans-serif; font-weight: 700; line-height: 1.15; letter-spacing: -.02em; text-wrap: balance; }
 h1 { font-size: var(--type-hero); }
 h2 { font-size: var(--type-section); }
 h3 { font-size: var(--type-subheading); line-height: 1.25; }
