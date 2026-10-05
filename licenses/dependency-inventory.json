@@ -2100,32 +2100,32 @@
     },
     {
       "file": ".github/workflows/build-mesh-companion.yml",
-      "line": 117,
+      "line": 128,
       "reference": "OPENSSL_STATIC=1 python -m pip install --no-cache-dir -r magic-cluster/apps/ai/private-mesh/requirements.txt pyinstaller==6.22.3"
     },
     {
       "file": ".github/workflows/build-mesh-companion.yml",
-      "line": 133,
+      "line": 144,
       "reference": "Invoke-WebRequest -Uri \"https://github.com/protocolbuffers/protobuf/releases/download/v${env:PROTOC_VERSION}/protoc-${env:PROTOC_VERSION}-${env:PROTOC_PLATFORM}.zip\" -OutFile $zip"
     },
     {
       "file": ".github/workflows/build-mesh-companion.yml",
-      "line": 139,
+      "line": 150,
       "reference": "& python -m pip install -r magic-cluster/apps/ai/private-mesh/requirements.txt pyinstaller==6.22.3"
     },
     {
       "file": ".github/workflows/build-mesh-companion.yml",
-      "line": 156,
+      "line": 167,
       "reference": "git -c core.autocrlf=false -c core.longpaths=true clone --depth 1 --branch v0.76.2 https://github.com/Mesh-LLM/mesh-llm.git \"$RUNNER_TEMP/mesh-source\""
     },
     {
       "file": ".github/workflows/build-mesh-companion.yml",
-      "line": 177,
+      "line": 188,
       "reference": "& git -c core.autocrlf=false -c core.longpaths=true clone --depth 1 --branch v0.76.2 https://github.com/Mesh-LLM/mesh-llm.git $source"
     },
     {
       "file": ".github/workflows/build-mesh-companion.yml",
-      "line": 246,
+      "line": 257,
       "reference": "with: {python-version: '3.13'}"
     },
     {

@@ -46,6 +46,8 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ### Fixed
 
+- Retry transient Rust toolchain download failures in the Linux/macOS Mesh
+  companion builds, retaining the pinned version and failing after three attempts.
 - Preserve explicit tool, vision and reasoning metadata in the canonical model
   catalog and native OpenClaw, Hermes, OpenCode and Pi configurations. Keep
   unknown capabilities distinct from false, handle fallback routes conservatively,
