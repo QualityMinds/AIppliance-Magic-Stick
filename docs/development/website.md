@@ -21,30 +21,40 @@ GitHub Pages only redirects to it.
 | [index.html](../index.html) | English product homepage |
 | [de.html](../de.html) | Equivalent German homepage; handbook links are marked English |
 | [editions.html](../editions.html), [editionen.html](../editionen.html) | Licensing overview, eligibility and the actual request/activation workflow |
-| [site.css](../site.css) | Responsive dashboard-aligned navy/cyan/violet design, system fonts, visible focus and reduced motion |
-| [site.js](../site.js) | Mobile navigation and keyboard-accessible product tabs |
-| [assets/favicon.svg](../assets/favicon.svg) | Small self-contained site mark |
+| [site.css](../site.css) | Responsive navy/violet/cyan design from the October 2026 pitch mockup, system fonts, visible focus and reduced motion |
+| [site.js](../site.js) | Mobile navigation and keyboard-accessible dashboard screenshot tabs |
+| `assets/brand/` ([logo.svg](../assets/brand/logo.svg), [brandmark.svg](../assets/brand/brandmark.svg), [core.svg](../assets/brand/core.svg)) | Magic Stick logo, brandmark and core symbol (SVG) from the pitch mockup |
+| `assets/artwork/` ([command-centre.jpg](../assets/artwork/command-centre.jpg) and two WebP backgrounds) | Hero illustration and two blurred section backgrounds; see [Artwork provenance](#artwork-provenance) |
+| [assets/favicon.svg](../assets/favicon.svg) | Brandmark on a dark rounded tile |
 | [legal-notice.html](../legal-notice.html), [impressum.html](../impressum.html) | Legal notice in English and German (Impressum), one text in two languages; see [Legal pages](#legal-pages) |
 | [privacy.html](../privacy.html), [datenschutz.html](../datenschutz.html) | Privacy policy in English and German (Datenschutzerklärung), one text in two languages; see [Legal pages](#legal-pages) |
 
-The homepage moves from the product definition through a three-step workflow,
-a two-path architecture infographic, dashboard examples, use cases, hardware
-compatibility and day-to-day operations to installation, a short license summary
-and FAQ. The workflow is an ordinary ordered HTML list styled as a diagram; the
-architecture infographic is semantic HTML and CSS, not a remote renderer or bitmap.
-It distinguishes model setup through the Magic Stick Operator from requests routed
-through LiteLLM, shows their shared local runtimes and identifies the platform
-components without treating Ubuntu/K3s as mandatory for existing clusters. The
-main starting point is the USB guide for a new dedicated physical server; VM, existing Ubuntu and
-existing Kubernetes routes remain directly available.
+The homepage follows the October 2026 pitch mockup. It moves from a full-width
+hero illustration through the product section (intro, dashboard screenshot
+switcher, application catalog cards), a "where would you like to start" choice
+for individuals and teams, the four deployment environments with a GPU note, a
+three-step first-use section, a team-pilot section with the licensing note, the
+FAQ and a closing call to action. Readers without Kubernetes experience are the
+audience: technical components (Kubernetes, Flux, Magic Stick Operator, LiteLLM,
+KubeAI, engines, Keycloak/Envoy) are named in the FAQ and linked to the
+architecture and compatibility references instead of being drawn on the page.
+Every deployment environment links its installation guide; there are no
+"documentation pending" placeholders from the mockup. The mockup's Typekit fonts
+are not used; the site keeps the system font stack.
+
+The screenshot switcher is the progressively enhanced tab pattern: three
+`figure` panels with reviewed captures are all readable without JavaScript, and
+`site.js` turns the toolbar buttons into a keyboard-accessible tablist. "Enlarge
+screenshot" is a plain link to the full image.
 
 Keep both languages in sync when changing claims, links or sections. English pages
 link the English legal pages, German pages the German ones. Language
 switches are ordinary links, with no geolocation, language auto-redirect, cookie or
 stored preference. Each page has a canonical URL, reciprocal English/German
 `hreflang` links, an English `x-default`, descriptive metadata and an existing
-screenshot as the social preview. Existing homepage fragment IDs remain available
-in both languages.
+hero illustration as the social preview. Homepage fragment IDs that other pages
+link (`#produkt`, `#requirements`, `#hardware`, `#starten`, `#teams`,
+`#lizenzen`, `#faq`) remain available in both languages.
 
 The source HTML links to canonical handbook Markdown. `tools/docs.py` converts
 these to `handbook/.../` links in the published artifact. Root repository files
@@ -131,23 +141,24 @@ The site overview does not change the license or replace legal review.
 
 ## Product screenshots
 
-The redesign reuses five unchanged, privacy-reviewed WebP captures from the
-owner-approved test appliance on 24 September 2026:
+The landing page reuses three unchanged, privacy-reviewed WebP captures from the
+owner-approved test appliance on 24 September 2026. The pitch mockup shipped a
+synthetic "Models" dashboard rendering; it is not used, because the website only
+shows actual, reviewed captures. The mockup's overview and application images are
+byte-identical to the reviewed captures below.
 
 | Image | Website placement |
 |---|---|
-| [model-ready.webp](../assets/screenshots/model-ready.webp) | Hero: model lifecycle actions |
-| [model-edit.webp](../assets/screenshots/model-edit.webp) | Models tab: unchanged edit form |
-| [models-memory.webp](../assets/screenshots/models-memory.webp) | Hardware tab: memory and slots |
-| [application-create.webp](../assets/screenshots/application-create.webp) | Apps & access tab: unsubmitted application draft |
-| [model-cache.webp](../assets/screenshots/model-cache.webp) | Operations: disk and cache visibility |
+| [dashboard-overview.webp](../assets/screenshots/dashboard-overview.webp) | Overview tab: summary cards |
+| [models-memory.webp](../assets/screenshots/models-memory.webp) | Models tab (default): memory and slots |
+| [application-create.webp](../assets/screenshots/application-create.webp) | Applications tab: unsubmitted application draft |
 
 The [capture manifest](../assets/screenshots/captures.json) is the provenance and
 integrity source. Captions identify the date and example nature of values; these
-are not sizing recommendations or benchmarks. The hero shows a clipped detail on
-narrow layouts and links to the full unchanged image. Other images scale to the
-layout and also retain full-size links. Dimensions are declared to reserve space.
-Only the hero image loads eagerly; secondary images load lazily.
+are not sizing recommendations or benchmarks. Images scale to the layout and keep
+full-size links. Dimensions are declared to reserve space. Only the hero artwork
+loads eagerly; screenshots load lazily. The remaining handbook captures stay under
+`assets/screenshots/` with their manifest.
 
 No new live-appliance access, workload changes, image generation or pixel
 retouching is needed to rebuild this site. For refreshes, follow the
@@ -157,12 +168,25 @@ test workloads, review final pixels for private data, and update the manifest.
 Do not expose personal model names, credentials, internal addresses or browser
 chrome.
 
-The unused historical dashboard fixture images were removed. Current handbook
-and landing-page captures remain under `assets/screenshots/` with their manifest.
-Sales decks, onepagers and infographic collateral now live under
+Sales decks, onepagers and infographic collateral live under
 [AIMS-000 in Team-Innovation](https://github.com/QualityMinds/Team-Innovation/tree/main/missions/AIMS-000-ai-launch-system/assets/product-collateral).
-They are no longer copied into the public Pages artifact. The import retains
-their source provenance and checksums; moving them does not refresh their claims.
+They are not copied into the public Pages artifact.
+
+## Artwork provenance
+
+The brand files under `assets/brand/` and the artwork under `assets/artwork/`
+were supplied with the Magic Stick pitch mockup (QualityMinds, October 2026).
+They are illustrations and brand assets, not product evidence.
+
+| File | Origin and handling |
+|---|---|
+| `brand/logo.svg`, `brand/brandmark.svg`, `brand/core.svg` | Illustrator exports from the mockup; editor IDs removed, `<title>` added. The favicon reuses the brandmark. |
+| `artwork/command-centre.jpg` | Hero background and social preview, 1670 × 942. Unchanged mockup file (Adobe Photoshop 27.10 export of 2 October 2026 with an Adobe Content Credentials/C2PA manifest, which a re-encode would strip). Decorative (`alt=""`). The screen in the scene shows third-party service marks (among them OpenAI and Kubernetes); review this before a wider campaign use and replace the file if brand clearance is not available. |
+| `artwork/side-workstation.webp`, `artwork/entrance.webp` | Blurred backgrounds of the first-use and closing sections, converted from the mockup PNGs (1672 × 941) with Pillow at WebP quality 78. Used as CSS backgrounds only. |
+
+The generation prompts of the artwork are not part of this repository; the
+mockup owner holds them. The previous generated artwork remains below for the
+record.
 
 ## Preview and checks
 
@@ -181,15 +205,15 @@ Open `http://127.0.0.1:8765/`. To preview only the unbuilt marketing layout, ser
 
 Before publishing:
 
-1. Check all four new pages at desktop, tablet and mobile widths, including 320px.
-   Check actual document width as well as visual layout; a deliberately clipped hero
-   image must not make the page scroll horizontally.
-2. Exercise every product tab by mouse and ArrowLeft/ArrowRight/Home/End. Confirm
+1. Check all four pages at desktop, tablet and mobile widths, including 320px.
+   Check actual document width as well as visual layout; the full-width hero
+   illustration must not make the page scroll horizontally.
+2. Exercise every screenshot tab by mouse and ArrowLeft/ArrowRight/Home/End. Confirm
    selected state, visible panel and focus agree. Check the mobile menu, link-close
    behavior and Escape-to-close with focus returned to its button.
 3. Check language switching, installation routes, licensing/contact, FAQ and
    full-size screenshots. Confirm the built page links into the handbook correctly.
-4. Disable JavaScript and reload: navigation and all three product panels must
+4. Disable JavaScript and reload: navigation and all three screenshot panels must
    remain readable; FAQ uses native details/summary. Restore browser settings.
 5. Check missing images, browser errors, visible focus and reduced-motion behavior.
 6. Run `git diff --check` and the public release scan below. A text scan does not
@@ -212,8 +236,8 @@ No dashboard/container rollout is required for a website-only change.
 
 ## Previous artwork provenance
 
-The original abstract artwork remains in the repository but is no longer shown on
-the website; the product screenshots now take its place.
+The original abstract artwork `ai-infrastructure.webp` remains in the repository
+but is no longer shown on the website.
 
 `ai-infrastructure.webp` was generated with the built-in image-generation tool on
 2026-09-09 and encoded as WebP (`cwebp -q 85`). Original dimensions: 1536 × 1024.

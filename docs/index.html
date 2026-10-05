@@ -3,28 +3,28 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="Run private AI on your own server. Manage models, GPUs, applications and access in one dashboard, from installation to everyday operation." />
-  <meta name="theme-color" content="#070e19" />
+  <meta name="description" content="Bring AI models, applications and central sign-in together on your infrastructure. Explore Magic Stick for yourself or your organisation." />
+  <meta name="theme-color" content="#080f1c" />
   <link rel="canonical" href="https://lively-bay-0b7466603.3.azurestaticapps.net/" />
   <link rel="alternate" hreflang="en" href="https://lively-bay-0b7466603.3.azurestaticapps.net/" />
   <link rel="alternate" hreflang="de" href="https://lively-bay-0b7466603.3.azurestaticapps.net/de.html" />
   <link rel="alternate" hreflang="x-default" href="https://lively-bay-0b7466603.3.azurestaticapps.net/" />
   <meta property="og:type" content="website" />
-  <meta property="og:site_name" content="MagicStick" />
-  <meta property="og:title" content="MagicStick — Your server. Your AI platform." />
-  <meta property="og:description" content="Run private AI on your own server. Manage models, GPUs, applications and access in one dashboard, from installation to everyday operation." />
+  <meta property="og:site_name" content="Magic Stick" />
+  <meta property="og:title" content="Magic Stick — Your own AI platform" />
+  <meta property="og:description" content="Bring AI models, applications and central sign-in together on your infrastructure. Explore Magic Stick for yourself or your organisation." />
   <meta property="og:url" content="https://lively-bay-0b7466603.3.azurestaticapps.net/" />
   <meta property="og:locale" content="en_US" />
-  <meta property="og:image" content="https://lively-bay-0b7466603.3.azurestaticapps.net/assets/screenshots/models-memory.webp" />
-  <meta property="og:image:type" content="image/webp" />
-  <meta property="og:image:width" content="1294" />
-  <meta property="og:image:height" content="550" />
-  <meta property="og:image:alt" content="MagicStick dashboard: CPU, GPU memory and available model slots on a test appliance." />
+  <meta property="og:image" content="https://lively-bay-0b7466603.3.azurestaticapps.net/assets/artwork/command-centre.jpg" />
+  <meta property="og:image:type" content="image/jpeg" />
+  <meta property="og:image:width" content="1670" />
+  <meta property="og:image:height" content="942" />
+  <meta property="og:image:alt" content="Illustration of a dark command centre whose wide screen shows connected AI services." />
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="MagicStick — Your server. Your AI platform." />
-  <meta name="twitter:description" content="Run private AI on your own server. Manage models, GPUs, applications and access in one dashboard, from installation to everyday operation." />
-  <meta name="twitter:image" content="https://lively-bay-0b7466603.3.azurestaticapps.net/assets/screenshots/models-memory.webp" />
-  <title>MagicStick — Your server. Your AI platform.</title>
+  <meta name="twitter:title" content="Magic Stick — Your own AI platform" />
+  <meta name="twitter:description" content="Bring AI models, applications and central sign-in together on your infrastructure. Explore Magic Stick for yourself or your organisation." />
+  <meta name="twitter:image" content="https://lively-bay-0b7466603.3.azurestaticapps.net/assets/artwork/command-centre.jpg" />
+  <title>Magic Stick — Your own AI platform</title>
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="site.css" />
   <script src="site.js" defer></script>
@@ -33,164 +33,173 @@
   <a class="skip-link" href="#main">Skip to content</a>
   <header class="site-header">
     <div class="container nav">
-      <a class="wordmark" href="#top" aria-label="MagicStick home"><span class="brand-symbol" aria-hidden="true">m<span>·</span></span>magicstick<span class="wordmark-dot">.</span></a>
+      <a class="logo" href="#top" aria-label="Magic Stick home"><img src="assets/brand/logo.svg" alt="" width="146" height="22" /></a>
       <button class="menu-toggle" aria-controls="main-navigation" aria-expanded="false" hidden>Menu <span aria-hidden="true">+</span></button>
       <nav id="main-navigation" aria-label="Main navigation">
         <a href="#produkt">Product</a>
-        <a href="#hardware">Hardware</a>
+        <a href="#requirements">Requirements</a>
+        <a href="#teams">For teams</a>
+        <a href="#faq">FAQ</a>
         <a href="README.md">Docs</a>
-        <a href="https://github.com/QualityMinds/AIppliance-Magic-Stick">GitHub <span aria-hidden="true">↗</span></a>
+        <a href="editions.html">Licensing</a>
+        <a class="external" href="https://github.com/QualityMinds/AIppliance-Magic-Stick" rel="noopener">GitHub<span aria-hidden="true">↗</span><span class="visually-hidden"> (external link)</span></a>
         <span class="language-switch"><a href="index.html" lang="en" aria-label="English" aria-current="page">EN</a><a href="de.html" lang="de" aria-label="Deutsch">DE</a></span>
-        <a class="button button-small" href="#starten">Get started <span aria-hidden="true">↗</span></a>
+        <a class="button button-small" href="#starten">Get started</a>
       </nav>
     </div>
   </header>
   <main id="main">
-    <section class="hero container" id="top" aria-labelledby="hero-title">
-      <div class="hero-copy">
-        <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> THE SELF-HOSTED AI APPLIANCE</p>
-        <h1 id="hero-title">Your server.<br /><span>Your AI platform.</span></h1>
-        <p class="hero-description">Models, GPUs, apps and access. MagicStick brings them together in one dashboard, on infrastructure you control.</p>
-        <div class="actions"><a class="button" href="#starten">Install MagicStick <span aria-hidden="true">↗</span></a><a class="text-link" href="#produkt">Explore the dashboard <span aria-hidden="true">↓</span></a></div>
-        <p class="hero-note">Software for your own hardware. <a href="editions.html">Source-available · BSL 1.1</a></p>
-      </div>
-      <figure class="hero-visual">
-        <div class="visual-label"><span>INSIDE MAGICSTICK</span><span class="visual-index">01 / MODELS</span></div>
-        <div class="engine-strip" aria-label="Inference engines"><span>Ollama</span><span>vLLM</span><span>FreeToken</span></div>
-        <a class="hero-image screenshot" href="assets/screenshots/model-ready.webp" aria-label="Open the complete model-management screenshot"><img src="assets/screenshots/model-ready.webp" alt="Ready Ollama test model with saved parameters and Edit, Stop, Logs and Remove buttons." width="1049" height="254" fetchpriority="high" /></a>
-        <div class="visual-outcomes"><span><i aria-hidden="true">↗</i> Start &amp; stop</span><span><i aria-hidden="true">≋</i> Tune resources</span><span><i aria-hidden="true">⌕</i> Inspect logs</span></div>
-        <figcaption>Actual dashboard detail · Test appliance, 24 Sep 2026.<br />Example settings, not sizing advice. Open the image for the full view.</figcaption>
-      </figure>
-    </section>
-
-    <section class="workflow container" id="how-it-works" aria-labelledby="workflow-title">
-      <div class="section-heading compact"><p class="eyebrow">FROM SETUP TO YOUR FIRST RESPONSE</p><h2 id="workflow-title">One path. Not a pile of tools.</h2></div>
-      <ol class="steps">
-        <li><span class="step-number">01</span><div><h3>Prepare your server</h3><p>Install on a dedicated computer or VM. Already have Kubernetes? Bring your cluster.</p></div><span class="step-arrow" aria-hidden="true">→</span></li>
-        <li><span class="step-number">02</span><div><h3>Choose a model</h3><p>Pick an engine, compatible hardware and a memory budget. Follow startup in the dashboard.</p></div><span class="step-arrow" aria-hidden="true">→</span></li>
-        <li><span class="step-number">03</span><div><h3>Put it to work</h3><p>Open an application or connect your own software through the shared API.</p></div></li>
-      </ol>
-      <a class="text-link" href="get-started/first-model.md">Follow the first-model walkthrough <span aria-hidden="true">↗</span></a>
-    </section>
-
-    <section class="architecture-section" id="architecture" aria-labelledby="architecture-title">
-      <div class="container">
-        <div class="section-heading architecture-heading"><p class="eyebrow">WHAT RUNS UNDER THE HOOD</p><h2 id="architecture-title">One system. Two clear paths.</h2><p>One path prepares your models. The other brings requests to them. Both run on infrastructure you control.</p></div>
-        <div class="architecture-diagram" role="group" aria-label="MagicStick architecture: model management and inference requests lead to local model runtimes">
-          <div class="architecture-flow architecture-flow-control">
-            <h3><span>01</span> Manage models</h3>
-            <div class="architecture-flow-steps">
-              <div class="architecture-node"><span class="architecture-node-label">YOU CHOOSE</span><strong>Dashboard</strong><p>Model, hardware and settings</p></div>
-              <span class="architecture-arrow" aria-hidden="true">→</span>
-              <div class="architecture-node"><span class="architecture-node-label">MAGICSTICK PREPARES</span><strong>Magic Stick Operator</strong><p>Sets up the model runtime</p></div>
-              <span class="architecture-arrow architecture-arrow-end" aria-hidden="true">→</span>
-            </div>
-          </div>
-          <div class="architecture-flow architecture-flow-inference">
-            <h3><span>02</span> Use models</h3>
-            <div class="architecture-flow-steps">
-              <div class="architecture-node"><span class="architecture-node-label">YOU CONNECT</span><strong>Apps &amp; API clients</strong><p>Send a request</p></div>
-              <span class="architecture-arrow" aria-hidden="true">→</span>
-              <div class="architecture-node"><span class="architecture-node-label">MAGICSTICK ROUTES</span><strong>LiteLLM</strong><p>Shared model API</p></div>
-              <span class="architecture-arrow architecture-arrow-end" aria-hidden="true">→</span>
-            </div>
-          </div>
-          <div class="architecture-runtime"><span class="architecture-node-label">BOTH PATHS LEAD HERE</span><h3>Local model runtimes</h3><p>Models run on a supported CPU or GPU.</p><ul aria-label="Inference engines"><li>Ollama</li><li>vLLM</li><li>FreeToken</li></ul><p class="architecture-runtime-note">Standard Ollama and vLLM models use KubeAI; FreeToken runs directly.</p></div>
+    <section class="hero" id="top" aria-labelledby="hero-title">
+      <img class="hero-image" src="assets/artwork/command-centre.jpg" alt="" width="1670" height="942" fetchpriority="high" />
+      <div class="hero-content">
+        <p class="hero-eyebrow">Magic Stick. Your AI Appliance.</p>
+        <h1 id="hero-title"><span>Sounds magical&nbsp;...</span><br />your own AI platform.</h1>
+        <div class="hero-copy">
+          <p>Magic Stick brings AI models, applications and central sign-in together on your infrastructure.</p>
+          <p>Manage your AI environment through one interface – on your own hardware, in a cloud environment or in an existing Kubernetes cluster.</p>
+          <p>You remain responsible for the infrastructure and its operation. Magic Stick brings management together.</p>
         </div>
-        <div class="architecture-foundation">
-          <div><h3>Platform &amp; updates</h3><p><span>Kubernetes</span><span>Flux</span><span>Ubuntu 26.04 + K3s*</span></p></div>
-          <div><h3>Access &amp; identity</h3><p><span>Envoy Gateway</span><span>Keycloak</span></p></div>
-        </div>
-        <p class="architecture-footnote">* For a new dedicated server; existing-cluster installs use your Kubernetes infrastructure. <a href="concepts/architecture.md">Explore the detailed architecture <span aria-hidden="true">↗</span></a></p>
+        <div class="actions"><a class="button" href="#starten">Install Magic Stick</a><a class="text-link" href="#produkt">Explore the dashboard</a></div>
+        <p class="hero-footnote">Software for your own infrastructure. <a href="editions.html">Source-available · BSL 1.1</a></p>
       </div>
     </section>
 
-    <section class="section product-section" id="produkt" aria-labelledby="product-title">
-      <div class="container">
-        <div class="section-heading"><p class="eyebrow">ONE PLACE TO RUN IT</p><h2 id="product-title">More than getting<br />a model to start.</h2><p>See what is running, understand the resources it needs, and make it useful to your team.</p></div>
-        <div class="product-tour" data-tabs>
-          <div class="product-tabs" role="tablist" aria-label="Explore the dashboard" hidden>
-            <button id="tab-models" role="tab" aria-controls="tour-models" aria-selected="true" tabindex="0"><span>01</span> Models</button>
-            <button id="tab-hardware" role="tab" aria-controls="tour-hardware" aria-selected="false" tabindex="-1"><span>02</span> Hardware</button>
-            <button id="tab-access" role="tab" aria-controls="tour-access" aria-selected="false" tabindex="-1"><span>03</span> Apps &amp; access</button>
+    <section class="section container product" id="produkt" aria-labelledby="product-title">
+      <div class="section-top"><p class="eyebrow">One place to manage your AI</p><span class="section-index" aria-hidden="true">01 / THE PLATFORM</span></div>
+      <div class="intro-grid">
+        <h2 id="product-title">More than a model.<br /><span class="soft">A platform you can<br class="desktop-break" /> work with.</span></h2>
+        <div class="intro-copy"><p>Models are one part of a usable AI environment. Applications, access and day-to-day management need to work together too.</p><p>Magic Stick brings these elements into a shared dashboard. Activate modules, connect models, create application instances and manage users.</p></div>
+      </div>
+      <div class="dashboard-shell" data-tabs>
+        <div class="dashboard-toolbar">
+          <span class="dashboard-label"><img src="assets/brand/brandmark.svg" alt="" width="22" height="22" /> Your command centre</span>
+          <div class="product-tabs" role="tablist" aria-label="Choose a product screenshot" hidden>
+            <button id="tab-overview" role="tab" aria-controls="tour-overview" aria-selected="false" tabindex="-1">Overview</button>
+            <button id="tab-models" role="tab" aria-controls="tour-models" aria-selected="true" tabindex="0">Models</button>
+            <button id="tab-applications" role="tab" aria-controls="tour-applications" aria-selected="false" tabindex="-1">Applications</button>
           </div>
-          <div class="product-panel" id="tour-models" role="tabpanel" aria-labelledby="tab-models" tabindex="0">
-            <div class="panel-copy"><span class="tag">MODEL LIFECYCLE</span><h3>Find it. Run it.<br />Stay in control.</h3><p>Search model sources, choose a compatible engine and manage its saved configuration.</p><ul class="feature-list"><li>Start and stop without recreating the model</li><li>Edit supported context and memory settings</li><li>Read startup and runtime logs in place</li></ul><a class="text-link" href="user-guide/models/manage.md">See model management <span aria-hidden="true">↗</span></a></div>
-            <figure><a class="screenshot" href="assets/screenshots/model-edit.webp"><img src="assets/screenshots/model-edit.webp" alt="The Edit Model form with context length, concurrency and KV-cache controls." width="900" height="407" loading="lazy" /></a><figcaption>Unchanged model-editing form · Test appliance, 24 Sep 2026. Controls vary by engine.</figcaption></figure>
-          </div>
-          <div class="product-panel" id="tour-hardware" role="tabpanel" aria-labelledby="tab-hardware" tabindex="0">
-            <div class="panel-copy"><span class="tag">RESOURCE VISIBILITY</span><h3>Know what fits.<br />See what is free.</h3><p>CPU and GPU memory, reservations and allocation slots share one view.</p><ul class="feature-list"><li>Select eligible, available compute targets</li><li>Configure sharing where supported</li><li>Distinguish dedicated and shared GPU memory</li></ul><a class="text-link" href="administration/gpu-setup.md">Explore hardware controls <span aria-hidden="true">↗</span></a></div>
-            <figure><a class="screenshot" href="assets/screenshots/models-memory.webp"><img src="assets/screenshots/models-memory.webp" alt="CPU, NVIDIA and AMD memory gauges with free memory, unreserved budgets and GPU slots." width="1294" height="550" loading="lazy" /></a><figcaption>Test appliance, 24 Sep 2026. Values illustrate one machine; they are not hardware requirements.</figcaption></figure>
-          </div>
-          <div class="product-panel" id="tour-access" role="tabpanel" aria-labelledby="tab-access" tabindex="0">
-            <div class="panel-copy"><span class="tag">APPLICATIONS &amp; PEOPLE</span><h3>Your models.<br />Your team’s tools.</h3><p>Create catalog applications, choose their model, and control who can use them.</p><ul class="feature-list"><li>Local users, groups and roles</li><li>Application-sharing policies and named API keys</li><li>Optional federated SSO with license activation</li></ul><a class="text-link" href="user-guide/applications.md">Create an application <span aria-hidden="true">↗</span></a></div>
-            <figure><a class="screenshot" href="assets/screenshots/application-create.webp"><img src="assets/screenshots/application-create.webp" alt="An unsubmitted application form with model selection, SSO protection, roles and sharing controls." width="900" height="506" loading="lazy" /></a><figcaption>Unsubmitted application draft · Test appliance, 24 Sep 2026. No instance was created for this capture.</figcaption></figure>
-          </div>
+        </div>
+        <figure class="product-panel" id="tour-overview" role="tabpanel" aria-labelledby="tab-overview" tabindex="0">
+          <h3>Overview</h3>
+          <div class="dashboard-stage"><a class="screenshot" href="assets/screenshots/dashboard-overview.webp" aria-label="Open the full overview screenshot"><img src="assets/screenshots/dashboard-overview.webp" alt="Magic Stick overview with summary cards for appliance status, modules, instances and models." width="1050" height="216" loading="lazy" /></a></div>
+          <figcaption class="dashboard-caption"><span>Overview · The state of your appliance at a glance.</span><a href="assets/screenshots/dashboard-overview.webp">Enlarge screenshot</a></figcaption>
+        </figure>
+        <figure class="product-panel" id="tour-models" role="tabpanel" aria-labelledby="tab-models" tabindex="0">
+          <h3>Models</h3>
+          <div class="dashboard-stage"><a class="screenshot" href="assets/screenshots/models-memory.webp" aria-label="Open the full models screenshot"><img src="assets/screenshots/models-memory.webp" alt="Magic Stick model dashboard with CPU, NVIDIA and AMD memory gauges, free memory and available model slots." width="1294" height="550" loading="lazy" /></a></div>
+          <figcaption class="dashboard-caption"><span>Models · Compute memory and model slots in one view.</span><a href="assets/screenshots/models-memory.webp">Enlarge screenshot</a></figcaption>
+        </figure>
+        <figure class="product-panel" id="tour-applications" role="tabpanel" aria-labelledby="tab-applications" tabindex="0">
+          <h3>Applications</h3>
+          <div class="dashboard-stage"><a class="screenshot" href="assets/screenshots/application-create.webp" aria-label="Open the full applications screenshot"><img src="assets/screenshots/application-create.webp" alt="Magic Stick application setup form with model selection, SSO protection, roles and sharing controls." width="900" height="506" loading="lazy" /></a></div>
+          <figcaption class="dashboard-caption"><span>Applications · Configure an application instance.</span><a href="assets/screenshots/application-create.webp">Enlarge screenshot</a></figcaption>
+        </figure>
+      </div>
+      <p class="image-note">Product interface · Test appliance, 24 Sep 2026 · Example values, not sizing advice</p>
+      <div class="applications" id="anwendungen" aria-labelledby="apps-title">
+        <p class="eyebrow applications-eyebrow" id="apps-title">Applications from the catalog</p>
+        <article><span class="application-number">01</span><h3>Chat</h3><p>Use conversational applications such as AnythingLLM.</p><span class="app-name">AnythingLLM</span></article>
+        <article><span class="application-number">02</span><h3>Agents</h3><p>Explore agent applications and coordinate their work.</p><span class="app-name">Hermes · OpenClaw · Paperclip</span></article>
+        <article><span class="application-number">03</span><h3>Coding</h3><p>Bring coding workflows into your AI environment.</p><span class="app-name">KubeOpenCode</span></article>
+      </div>
+      <a class="text-link applications-link" href="user-guide/applications.md">Create and open applications</a>
+    </section>
+
+    <section class="path-section" aria-labelledby="path-title">
+      <div class="section container path-inner">
+        <p class="eyebrow">Your next move</p>
+        <h2 id="path-title">Where would you<br />like to start?</h2>
+        <div class="path-grid">
+          <article class="path-card"><span class="path-label">FOR YOURSELF</span><h3>Explore on your own.</h3><p>Learn how an AI environment fits together and try applications on infrastructure you manage.</p><a class="text-link" href="#requirements">Check the requirements</a></article>
+          <article class="path-card"><span class="path-label">FOR YOUR TEAM</span><h3>Plan a team deployment.</h3><p>Prepare a shared AI environment with a clear use case, a defined user group and someone responsible for operations.</p><a class="text-link" href="#teams">Plan your team pilot</a></article>
         </div>
       </div>
     </section>
 
-    <section class="section container" id="anwendungen" aria-labelledby="apps-title">
-      <div class="section-heading split-heading"><div><p class="eyebrow">FROM MODEL TO SOMETHING USEFUL</p><h2 id="apps-title">What will you build with it?</h2></div><p>Start with a catalog application or bring a tool you already use.</p></div>
-      <div class="use-case-grid">
-        <article id="panel-knowledge"><span class="use-case-icon" aria-hidden="true">Aa</span><h3 id="tab-knowledge">Talk to your knowledge</h3><p>Use document workspaces and chat applications with your chosen models.</p><span class="small">AnythingLLM · Hermes</span><a class="card-link" href="user-guide/applications.md">Explore applications <span aria-hidden="true">↗</span></a></article>
-        <article id="panel-code"><span class="use-case-icon" aria-hidden="true">&lt;/&gt;</span><h3 id="tab-code">Run coding workflows</h3><p>Give agents their own application instances and models on your infrastructure.</p><span class="small">KubeOpenCode · Paperclip</span><a class="card-link" href="reference/paperclip-agents.md">Explore agent workflows <span aria-hidden="true">↗</span></a></article>
-        <article id="panel-api"><span class="use-case-icon" aria-hidden="true">{ }</span><h3 id="tab-api">Connect your own tools</h3><p>Reach local models and configured external providers through the LiteLLM-backed API.</p><span class="small">OpenAI-compatible API · Named keys</span><a class="card-link" href="user-guide/api-access.md">Set up API access <span aria-hidden="true">↗</span></a></article>
+    <section class="section container requirements" id="requirements" aria-labelledby="requirements-title">
+      <div class="section-top"><p class="eyebrow">Your infrastructure</p><span class="section-index" aria-hidden="true">02 / THE FOUNDATION</span></div>
+      <div class="intro-grid">
+        <h2 id="requirements-title">Choose your<br />starting point.</h2>
+        <p class="intro-copy">Magic Stick supports several deployment environments. Choose the route that fits the infrastructure you already have or plan to provide.</p>
       </div>
-      <div class="mesh-note"><span class="tag">PRIVATE MESH</span><p>Already running a model? Share selected local chat models with enrolled devices through the opt-in Private Mesh module.</p><a class="text-link" href="user-guide/private-mesh.md">How sharing works <span aria-hidden="true">↗</span></a></div>
-    </section>
-
-    <section class="hardware-section" id="hardware" aria-labelledby="hardware-title">
-      <div class="container hardware-layout">
-        <div><p class="eyebrow">START WITH THE HARDWARE YOU HAVE</p><h2 id="hardware-title">Find your<br />inference path.</h2><p>A GPU is optional. Start with a supported CPU model, use an eligible GPU, or connect an external provider.</p><a class="text-link" href="reference/compatibility.md">Check hardware compatibility <span aria-hidden="true">↗</span></a></div>
-        <div><table class="compatibility-table"><caption>Configured local engine paths</caption><thead><tr><th scope="col">Compute</th><th scope="col">Engines</th></tr></thead><tbody><tr><th scope="row">CPU</th><td>Ollama <span>·</span> vLLM</td></tr><tr><th scope="row">NVIDIA</th><td>Ollama <span>·</span> vLLM <span>·</span> FreeToken*</td></tr><tr><th scope="row">AMD / ROCm</th><td>Ollama <span>·</span> vLLM</td></tr><tr><th scope="row">Intel / XPU</th><td>vLLM</td></tr></tbody></table><p class="small compatibility-note">Support depends on the device, driver, architecture and model. *FreeToken has a separate supported-device policy and requires whole GPUs. Sharing does not add VRAM or provide hard per-model memory isolation.</p></div>
+      <ul class="environment-list">
+        <li><a class="environment-link" href="installation/bare-metal.md"><span class="environment-number" aria-hidden="true">01</span><div><h3>Dedicated hardware</h3><p>Start from a bootable Ubuntu image on a dedicated machine.</p></div><span class="environment-tag">PHYSICAL</span></a></li>
+        <li><a class="environment-link" href="installation/cloud-init-vm.md"><span class="environment-number" aria-hidden="true">02</span><div><h3>A new cloud VM</h3><p>Prepare a new virtual machine using cloud-init.</p></div><span class="environment-tag">VIRTUAL</span></a></li>
+        <li><a class="environment-link" href="installation/existing-vm.md"><span class="environment-number" aria-hidden="true">03</span><div><h3>An existing Ubuntu VM</h3><p>Use an existing Ubuntu virtual machine as your platform base.</p></div><span class="environment-tag">VIRTUAL</span></a></li>
+        <li><a class="environment-link" href="installation/existing-kubernetes.md"><span class="environment-number" aria-hidden="true">04</span><div><h3>An existing Kubernetes cluster</h3><p>Add Magic Stick to a cluster you already operate.</p></div><span class="environment-tag">CLUSTER</span></a></li>
+      </ul>
+      <div class="gpu-note" id="hardware">
+        <div class="gpu-symbol" aria-hidden="true"><img src="assets/brand/core.svg" alt="" width="64" height="64" loading="lazy" /></div>
+        <div>
+          <h3>Start without a GPU.</h3>
+          <p>The base platform does not require a GPU. You can run small models on a supported CPU, connect external model services and add local GPU model serving when suitable hardware and modules are available.</p>
+          <p class="muted">Using external model services means that requests may be processed outside your own infrastructure.</p>
+          <a class="text-link" href="reference/compatibility.md">Check hardware compatibility</a>
+        </div>
       </div>
-    </section>
-
-    <section class="section container operations" aria-labelledby="operate-title">
-      <div class="section-heading"><p class="eyebrow">BUILT FOR THE NEXT DAY, TOO</p><h2 id="operate-title">Keep the whole<br />appliance in view.</h2></div>
-      <div class="operations-layout">
-        <figure><div class="visual-label"><span>SYSTEM / MODEL CACHE</span><span aria-hidden="true">↗</span></div><a class="screenshot" href="assets/screenshots/model-cache.webp"><img src="assets/screenshots/model-cache.webp" alt="Model-cache management showing disk capacity and cache usage by engine." width="1016" height="405" loading="lazy" /></a><figcaption>Test appliance, 24 Sep 2026. Example cache values; no cleanup was run for this capture.</figcaption></figure>
-        <div class="operation-links"><a href="administration/troubleshooting/models.md"><span>01</span><div><h3>Understand startup</h3><p>Follow status and logs before retrying a model.</p></div><i aria-hidden="true">↗</i></a><a href="administration/model-cache.md"><span>02</span><div><h3>Manage disk space</h3><p>Inspect model caches and review cleanup.</p></div><i aria-hidden="true">↗</i></a><a href="administration/network.md"><span>03</span><div><h3>Configure networking</h3><p>Manage supported Ethernet and Wi-Fi connections.</p></div><i aria-hidden="true">↗</i></a><a href="administration/ubuntu-updates.md"><span>04</span><div><h3>Choose an update policy</h3><p>Control Ubuntu security updates and maintenance.</p></div><i aria-hidden="true">↗</i></a></div>
-      </div>
+      <p class="docs-note"><span>Documentation</span><a href="get-started/requirements.md">Hardware and network requirements</a><a href="installation/README.md">Installation overview</a></p>
     </section>
 
     <section class="start-section" id="starten" aria-labelledby="start-title">
-      <div class="container">
-        <div class="section-heading"><p class="eyebrow">YOUR NEXT STEP</p><h2 id="start-title">Give your server<br />a new purpose.</h2><p>Check the requirements, back up existing data, then choose your installation path.</p></div>
-        <div class="installation-layout">
-          <article class="recommended-install"><span class="tag">NEW DEDICATED SERVER</span><h3>Download. Write. Install.</h3><p>Use the prebuilt reduced USB image. It keeps installer Wi-Fi support while optional driver archives are downloaded when needed. No Git, Docker or local build required.</p><a class="button" href="installation/bare-metal.md">Download &amp; installation guide <span aria-hidden="true">↗</span></a><a class="text-link" href="get-started/requirements.md">Check the requirements</a></article>
-          <div class="installation-alternatives"><p>Already have a different starting point?</p><a href="installation/cloud-init-vm.md"><div><h3>New virtual machine</h3><span>Cloud-init / autoinstall</span></div><span aria-hidden="true">↗</span></a><a href="installation/existing-vm.md"><div><h3>Existing Ubuntu host</h3><span>Dedicated Ubuntu 26.04; legacy 24.04 path</span></div><span aria-hidden="true">↗</span></a><a href="installation/existing-kubernetes.md"><div><h3>Existing Kubernetes cluster</h3><span>Cluster components; you manage the hosts</span></div><span aria-hidden="true">↗</span></a></div>
+      <div class="section container">
+        <div class="section-top"><p class="eyebrow">Get started</p><span class="section-index" aria-hidden="true">03 / FIRST USE</span></div>
+        <h2 id="start-title">From setup to<br />your first application.</h2>
+        <ol class="steps">
+          <li><span class="step-number" aria-hidden="true">01</span><h3>Prepare your <br />environment.</h3><p>Choose your deployment route and check the requirements for your hardware or virtual environment.</p></li>
+          <li><span class="step-number" aria-hidden="true">02</span><h3>Connect models <br />and applications.</h3><p>Use the dashboard to configure a model source and set up the application you want to try.</p></li>
+          <li><span class="step-number" aria-hidden="true">03</span><h3>Try a <br />real task.</h3><p>Open your application and test a specific task. Use the result to decide what to configure next.</p></li>
+        </ol>
+        <div class="guide-row"><a class="button" href="installation/README.md">Installation guide</a><a class="text-link" href="get-started/first-model.md">Follow the first-model walkthrough</a></div>
+        <p class="setup-note">Internet access is needed for installation and downloads. Initial setup belongs on a trusted private network. Back up existing data before you install.</p>
+      </div>
+    </section>
+
+    <section class="section container teams" id="teams" aria-labelledby="teams-title">
+      <div class="team-heading">
+        <p class="eyebrow">For your organisation</p>
+        <h2 id="teams-title">Start with<br />a focused pilot.</h2>
+        <p>Bring your IT team, intended users and a concrete use case together. Define what you want to learn before expanding the deployment.</p>
+        <a class="button" href="mailto:stick@qualityminds.de">Discuss team use</a>
+      </div>
+      <div class="pilot-plan-wrap">
+        <ol class="pilot-plan">
+          <li><span aria-hidden="true">01</span><div><h3>Define the use case</h3><p>Choose the task, the user group and the deployment environment.</p></div></li>
+          <li><span aria-hidden="true">02</span><div><h3>Prepare the setup</h3><p>Agree on infrastructure, model sources, access and operational responsibilities.</p></div></li>
+          <li><span aria-hidden="true">03</span><div><h3>Evaluate the outcome</h3><p>Review quality, speed, costs and user acceptance against the goals of your pilot.</p></div></li>
+        </ol>
+        <div class="licensing-note" id="lizenzen"><p>Planning to use Magic Stick with several people? Get in touch to discuss your setup and clarify the applicable licensing terms.</p><p>Magic Stick is source-available under BSL 1.1. Core features need no license file; only federated SSO requires activation. <a href="editions.html">Understand the licenses</a></p></div>
+      </div>
+    </section>
+
+    <section class="faq-section" id="faq" aria-labelledby="faq-title">
+      <div class="section container faq-layout">
+        <div><p class="eyebrow">Good to know</p><h2 id="faq-title">A few things<br />worth knowing.</h2><p class="muted">Your platform. Informed decisions.</p></div>
+        <div class="faq-list">
+          <details><summary>Do I need a GPU?<span aria-hidden="true">+</span></summary><p>Not for the base platform. You can run small models on a supported CPU or connect external model services. Local GPU model serving requires suitable hardware and the relevant configuration. See the <a href="reference/compatibility.md">compatibility reference</a>.</p></details>
+          <details><summary>Where do the models come from?<span aria-hidden="true">+</span></summary><p>Magic Stick can connect external model endpoints through LiteLLM and run local models through KubeAI with Ollama or vLLM, or directly with FreeToken. The model source depends on your setup.</p></details>
+          <details><summary>Does all data stay on my infrastructure?<span aria-hidden="true">+</span></summary><p>Not automatically. If you connect external model services, requests can leave your infrastructure. Data flows depend on the applications, model sources and configuration you choose. Installation and downloads also use external sources.</p></details>
+          <details><summary>Who is responsible for running the platform?<span aria-hidden="true">+</span></summary><p>You or your organisation remain responsible for infrastructure and operations. Your IT team or an external service provider can support you.</p></details>
+          <details><summary>How does sign-in work?<span aria-hidden="true">+</span></summary><p>Magic Stick uses Keycloak and Envoy Gateway for central sign-in to the dashboard and appropriately configured application routes. Application-specific permissions remain within the applications.</p></details>
+          <details><summary>What technical knowledge do I need?<span aria-hidden="true">+</span></summary><p>Installation and ongoing operation need technical ownership. The exact requirements depend on your deployment route. If you are planning a team deployment, involve your IT team or service provider early.</p></details>
+          <details><summary>What runs under the hood?<span aria-hidden="true">+</span></summary><p>Kubernetes with Flux keeps the platform configured. The Magic Stick Operator prepares model runtimes from your dashboard settings, and LiteLLM gives applications one model API. Read the <a href="concepts/architecture.md">architecture overview</a> for the details.</p></details>
+          <details><summary>Where can I get help?<span aria-hidden="true">+</span></summary><p>Start with the <a href="administration/troubleshooting/overview.md">troubleshooting guides</a> and the <a href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/SUPPORT.md">support policy</a>. Project support is best-effort, without a guaranteed response time. Keep credentials and private deployment information out of public issues.</p></details>
         </div>
-        <p class="setup-note">Internet access is needed for installation and downloads. Initial setup belongs on a trusted private network. No shared default dashboard password.</p>
       </div>
     </section>
 
-    <section class="section container license-summary" id="lizenzen" aria-labelledby="open-title">
-      <div><p class="eyebrow">SOURCE-AVAILABLE · BSL 1.1</p><h2 id="open-title">Your platform.<br />Clear terms.</h2></div>
-      <div><p>Core features, including GPU management and Private Mesh, need no license file. Federated SSO requires Free Registered or Commercial activation.</p><p>Free production use is limited by the Additional Use Grant: eligible personal, non-profit, education/research and internal business use up to €2 million consolidated annual group revenue. Certain third-party commercial offerings are excluded regardless of revenue.</p><div class="actions"><a class="button button-secondary" href="editions.html">Understand the licenses <span aria-hidden="true">↗</span></a><a class="text-link" href="legal-notice.html#provider">Contact the team</a></div><p class="small">BSL is not an Open Source license. Each version changes to MIT after three years. The published license terms govern.</p></div>
-    </section>
-
-    <section class="container faq-section" aria-labelledby="faq-title">
-      <div><p class="eyebrow">BEFORE YOU START</p><h2 id="faq-title">A few good questions.</h2></div>
-      <div class="faq-list">
-        <details><summary>Is MagicStick a hardware device?<span aria-hidden="true">+</span></summary><p>No. It is software you install on your own server, VM or Kubernetes cluster. The USB stick is an installation medium, not a special AI accelerator.</p></details>
-        <details><summary>Do my data and models stay local?<span aria-hidden="true">+</span></summary><p>Local inference runs on your infrastructure. External providers receive the requests you send to them, and applications may have their own integrations. Installation and downloads use external sources. Self-hosting is not an automatic offline guarantee.</p></details>
-        <details><summary>Will every model work on every GPU?<span aria-hidden="true">+</span></summary><p>No. Engine, device, drivers, model and memory must match. The dashboard checks capabilities and availability, but a memory estimate is not proof that a workload will fit. Read the <a href="reference/compatibility.md">compatibility reference</a> first.</p></details>
-        <details><summary>What about realtime voice models?<span aria-hidden="true">+</span></summary><p>There is a separate experimental vLLM-Omni path with specific profiles. OpenAI-compatible chat does not imply audio or Realtime support. See the <a href="user-guide/models/realtime.md">Realtime guide</a>.</p></details>
-        <details><summary>Where can I get help?<span aria-hidden="true">+</span></summary><p>Start with the <a href="administration/troubleshooting/overview.md">troubleshooting guides</a> and <a href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/SUPPORT.md">support policy</a>. Project support is best-effort, without a guaranteed response time. Keep credentials and private deployment information out of public issues.</p></details>
+    <section class="closing" aria-labelledby="closing-title">
+      <div class="closing-content">
+        <p class="eyebrow">Take the controls</p>
+        <h2 id="closing-title">Your next step towards<br />your own AI platform.</h2>
+        <p>Explore the setup requirements or talk to us<br class="desktop-break" /> about a pilot for your organisation.</p>
+        <div class="actions"><a class="button" href="#requirements">Check the requirements</a><a class="text-link" href="mailto:stick@qualityminds.de">Discuss team use</a></div>
       </div>
     </section>
-    <section class="final-cta"><div class="container"><div><p class="eyebrow">LESS ASSEMBLY. MORE POSSIBILITY.</p><h2>Your hardware. Your AI.</h2></div><a class="button" href="#starten">Choose your starting point <span aria-hidden="true">↗</span></a></div></section>
   </main>
   <footer class="site-footer container">
-    <div class="footer-main">
-      <div><a class="wordmark" href="index.html#top" aria-label="MagicStick home"><span class="brand-symbol" aria-hidden="true">m<span>·</span></span>magicstick<span class="wordmark-dot">.</span></a><p>Your hardware. Your AI.</p><span class="small">Software by QualityMinds. Self-hosted by you.</span></div>
-      <nav aria-label="Product links"><h3>Explore</h3><a href="index.html#starten">Get started</a><a href="README.md">Handbook</a><a href="reference/compatibility.md">Compatibility</a></nav>
-      <nav aria-label="Project links"><h3>Project</h3><a href="https://github.com/QualityMinds/AIppliance-Magic-Stick">GitHub</a><a href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/CHANGELOG.md">What’s new</a><a href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/SUPPORT.md">Help &amp; contributions</a></nav>
-      <nav aria-label="Licensing and contact"><h3>Good to know</h3><a href="editions.html">Licensing</a><a href="legal-notice.html#provider">Contact</a><a href="https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/main/SECURITY.md">Security</a></nav>
-    </div>
-    <div class="footer-bottom"><span>Source-available · BSL 1.1</span><div><a href="legal-notice.html">Legal notice</a><a href="privacy.html">Privacy</a></div><span>Static website. No first-party tracking cookies.</span></div>
+    <div class="footer-brand"><a class="logo" href="index.html#top" aria-label="Magic Stick home"><img src="assets/brand/logo.svg" alt="" width="146" height="22" loading="lazy" /></a><p>AI on your infrastructure.</p></div>
+    <nav class="footer-links" aria-label="Legal and licensing"><a href="editions.html">License · BSL 1.1</a><a href="legal-notice.html">Imprint</a><a href="privacy.html">Privacy</a></nav>
+    <span class="footer-note">Static website. No first-party tracking cookies.</span>
   </footer>
 </body>
 </html>

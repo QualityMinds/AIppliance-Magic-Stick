@@ -153,42 +153,60 @@ class WebsiteTests(unittest.TestCase):
         for name in ('index.html', 'de.html'):
             with self.subTest(page=name):
                 page = self.markup(name)
-                self.assertEqual(len(page.matching('img')), 5)
-                for img in page.matching('img'):
+                screenshots = [img for img in page.matching('img') if img['src'].startswith('assets/screenshots/')]
+                self.assertEqual(len(screenshots), 3)
+                for img in screenshots:
                     source = img['src']
-                    self.assertTrue(source.startswith('assets/screenshots/'))
                     record = images[Path(source).name]
                     self.assertEqual(int(img['width']), record['width'])
                     self.assertEqual(int(img['height']), record['height'])
                     self.assertGreater(len(img['alt']), 35)
+                    self.assertEqual(img['loading'], 'lazy')
                     self.assertTrue(page.matching('a', href=source))
+                # Brand marks and the hero artwork are decorative: empty alt text,
+                # declared dimensions and a reviewed asset folder.
+                for img in page.matching('img'):
+                    if img in screenshots:
+                        continue
+                    self.assertEqual(img.get('alt'), '')
+                    self.assertTrue(img['src'].startswith(('assets/brand/', 'assets/artwork/')), img['src'])
+                    self.assertTrue((docs.DOCS / img['src']).is_file())
+                    self.assertTrue(img.get('width') and img.get('height'))
                 hero = page.matching('img', fetchpriority='high')
                 self.assertEqual(len(hero), 1)
                 self.assertNotIn('loading', hero[0])
-                self.assertEqual(len(page.matching('img', loading='lazy')), 4)
+                self.assertEqual(hero[0]['src'], 'assets/artwork/command-centre.jpg')
+                # Only the hero artwork is eager; the heading image is a plain <img> (no lazy attribute).
+                eager = [img for img in page.matching('img') if 'loading' not in img and img is not hero[0]]
+                self.assertTrue(all(img['src'] == 'assets/brand/logo.svg' or img['src'] == 'assets/brand/brandmark.svg' for img in eager))
 
     def test_existing_landing_anchors_are_preserved_in_both_languages(self):
-        anchors = {'main-navigation', 'main', 'top', 'hero-title', 'produkt',
-                   'product-title', 'anwendungen', 'apps-title', 'tab-knowledge',
-                   'tab-code', 'tab-api', 'panel-knowledge', 'panel-code', 'panel-api',
-                   'operate-title', 'lizenzen', 'open-title', 'starten', 'start-title',
-                   'faq-title'}
+        # Fragments linked from other pages (editions, handbook, footer) stay stable.
+        anchors = {'main-navigation', 'main', 'top', 'hero-title', 'produkt', 'product-title',
+                   'anwendungen', 'apps-title', 'requirements', 'requirements-title', 'hardware',
+                   'starten', 'start-title', 'teams', 'teams-title', 'lizenzen', 'faq', 'faq-title'}
         for name in ('index.html', 'de.html'):
             self.assertTrue(anchors.issubset({a['id'] for _, a in self.markup(name).elements if 'id' in a}))
 
-    def test_architecture_explains_both_paths_and_local_runtime(self):
+    def test_landing_pages_name_components_and_link_technical_detail(self):
+        """The landing page stays non-technical; the FAQ names the components and links the architecture."""
         for name in ('index.html', 'de.html'):
             with self.subTest(page=name):
                 page = self.markup(name)
-                self.assertEqual(len(page.matching('section', id='architecture')), 1)
-                self.assertEqual(len([attrs for tag, attrs in page.elements
-                                      if tag == 'div' and 'architecture-flow' in attrs.get('class', '').split()]), 2)
-                self.assertEqual(len(page.matching('div', **{'class': 'architecture-runtime'})), 1)
                 self.assertTrue(page.matching('a', href='concepts/architecture.md'))
+                self.assertTrue(page.matching('a', href='reference/compatibility.md'))
+                self.assertTrue(page.matching('a', href='get-started/requirements.md'))
+                for route in ('bare-metal', 'cloud-init-vm', 'existing-vm', 'existing-kubernetes'):
+                    self.assertTrue(page.matching('a', href=f'installation/{route}.md'), route)
+                self.assertGreaterEqual(len(page.matching('details')), 6)
                 text = (docs.DOCS / name).read_text()
-                for component in ('Dashboard', 'Magic Stick Operator', 'LiteLLM',
-                                  'Ollama', 'vLLM', 'FreeToken', 'Flux', 'Keycloak'):
+                for component in ('Magic Stick Operator', 'LiteLLM', 'KubeAI', 'Ollama', 'vLLM',
+                                  'FreeToken', 'Flux', 'Keycloak', 'Envoy'):
                     self.assertIn(component, text)
+                # The only published contact address is the provider address of the legal notice.
+                for a in page.matching('a'):
+                    if a.get('href', '').startswith('mailto:'):
+                        self.assertEqual(a['href'], 'mailto:stick@qualityminds.de')
 
     def test_source_links_and_markdown_conversion(self):
         files = [docs.DOCS / name for name in self.pages]
