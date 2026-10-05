@@ -141,6 +141,12 @@ Change those, the `extra.umami` block or the Umami tag attributes together with
 [privacy.html](../privacy.html) and [datenschutz.html](../datenschutz.html),
 including the update date in both footers (see [Legal pages](#legal-pages)).
 
+The privacy policy also describes the project's social media profiles
+(`#social-media`: Instagram, LinkedIn, YouTube). Adding, removing or moving a
+profile to another platform changes that section in both languages: provider
+address, transfer safeguards, the joint-controller agreement for profile
+statistics and the provider's privacy policy link.
+
 ## Product and license claims
 
 Only implemented functionality is presented as available. Use the current

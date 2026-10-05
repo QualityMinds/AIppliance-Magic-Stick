@@ -16,6 +16,9 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
   EN/DE switch; German landing pages and every handbook page link the German
   versions. A website test fails when the two languages of a legal page drift
   apart in structure, anchors, links, numbers or update date.
+- The privacy policy describes the project's Instagram, LinkedIn and YouTube
+  profiles: provider, legal basis, joint controllership for profile
+  statistics, US transfer safeguards and the providers' privacy policies.
 
 ### Changed
 
