@@ -14,11 +14,21 @@ from tools import docs
 class Markup(HTMLParser):
     def __init__(self, content):
         super().__init__()
-        self.elements = []
+        self.elements, self.text, self.scripts, self.open = [], [], [], None
         self.feed(content)
 
     def handle_starttag(self, tag, attrs):
         self.elements.append((tag, dict(attrs)))
+        self.open = tag
+
+    def handle_endtag(self, tag):
+        self.open = None
+
+    def handle_data(self, data):
+        if self.open == 'script':
+            self.scripts.append(data)
+        elif self.open != 'style':
+            self.text.append(data)
 
     def matching(self, tag=None, **attrs):
         return [a for t, a in self.elements
@@ -32,7 +42,21 @@ class WebsiteTests(unittest.TestCase):
         'editions.html': ('en', 'editions.html', 'editionen.html'),
         'editionen.html': ('de', 'editionen.html', 'editions.html'),
     }
+    # English legal page -> German twin. Both must change together (see
+    # test_legal_pages_stay_in_sync_across_languages).
+    legal_pairs = {'legal-notice.html': 'impressum.html', 'privacy.html': 'datenschutz.html'}
+    # Link targets that differ only by language are compared as their English form.
+    language_pairs = {**legal_pairs, 'de.html': 'index.html', 'editionen.html': 'editions.html',
+                      'https://www.microsoft.com/de-de/': 'https://www.microsoft.com/en-us/'}
     public = 'https://lively-bay-0b7466603.3.azurestaticapps.net/'
+
+    @property
+    def legal(self):
+        pages = {}
+        for english, german in self.legal_pairs.items():
+            pages[english] = ('en', german)
+            pages[german] = ('de', english)
+        return pages
 
     def markup(self, name):
         return Markup((docs.DOCS / name).read_text())
@@ -42,7 +66,7 @@ class WebsiteTests(unittest.TestCase):
         excluded = config['exclude_docs'].splitlines()
         aliases = {str(Path(name).with_suffix('.html')) for name in
                    json.loads((docs.DOCS / 'migration.json').read_text())}
-        for name in self.pages:
+        for name in (*self.pages, *self.legal):
             with self.subTest(page=name):
                 self.assertIn(name, docs.MARKETING_PAGES)
                 self.assertIn('/' + name, excluded)
@@ -191,34 +215,109 @@ class WebsiteTests(unittest.TestCase):
             for target in ('LICENSE', 'LICENSING.md', 'THIRD_PARTY_NOTICES.md', 'SUPPORT.md'):
                 self.assertTrue(page.matching('a', href=docs.REPO + '/blob/main/' + target))
             self.assertTrue(page.matching('a', href='administration/licenses.md'))
-            self.assertTrue(page.matching('a', href='legal-notice.html#provider'))
+            notice = 'legal-notice.html' if name == 'editions.html' else 'impressum.html'
+            self.assertTrue(page.matching('a', href=notice + '#provider'))
 
     def test_legal_pages_are_linked_and_privacy_matches_statistics_setup(self):
         config = yaml.safe_load((docs.ROOT / 'mkdocs.yml').read_text())
         override = docs.ROOT / config['theme']['custom_dir'] / 'partials/copyright.html'
         footer = override.read_text()
-        for target in ('legal-notice.html', 'privacy.html'):
+        for target in self.legal:
             self.assertIn(f"{{{{ base_url.rstrip('/') }}}}/../{target}", footer)
-        privacy = (docs.DOCS / 'privacy.html').read_text()
-        self.assertIn('data-exclude-search="true"', docs.analytics_tag(config))
+        # Landing pages link the legal pages of their own language.
+        for name, (language, _, _) in self.pages.items():
+            page = self.markup(name)
+            for english, german in self.legal_pairs.items():
+                with self.subTest(page=name, target=english):
+                    self.assertTrue(page.matching('a', href=english if language == 'en' else german))
         tag = docs.analytics_tag(config)
+        self.assertIn('data-exclude-search="true"', tag)
         self.assertIn('data-exclude-hash="true"', tag)
-        self.assertIn('without query string or fragment', privacy)
         # The retention job deletes after the period the policy states, and the
         # Umami version the policy describes is pinned.
         template = (docs.ROOT / 'infrastructure/landingpage/umami.bicep').read_text()
         months = re.search(r'^param retentionMonths int = (\d+)$', template, re.M)[1]
-        self.assertIn(f'deleted {months} months after collection', privacy)
         self.assertIn("resource purge 'Microsoft.App/jobs@", template)
         self.assertRegex(template, r"(?m)^param image string = '[^']+@sha256:[0-9a-f]{64}'$")
-        self.assertIn("'umami.disabled'", privacy)
-        self.assertTrue(Markup(privacy).matching(id='opt-out'))
         # The policy names the Azure regions of the Umami app and its database.
         regions = {'germanywestcentral': 'Germany West Central', 'westeurope': 'West Europe'}
         parameters = (docs.ROOT / 'infrastructure/landingpage/umami.bicepparam').read_text()
-        for name in ('location', 'databaseLocation'):
-            region = re.search(rf"^param {name} = '([a-z]+)'", parameters, re.M)[1]
-            self.assertIn(regions[region], privacy)
+        phrases = {
+            'privacy.html': ('without query string or fragment', f'deleted {months} months after collection'),
+            'datenschutz.html': ('ohne Query-String und Fragment', f'{months} Monate nach der Erhebung gelöscht'),
+        }
+        for name, expected in phrases.items():
+            with self.subTest(page=name):
+                privacy = re.sub(r'\s+', ' ', (docs.DOCS / name).read_text())
+                for phrase in expected:
+                    self.assertIn(phrase, privacy)
+                self.assertIn("'umami.disabled'", privacy)
+                self.assertIn('Do Not Track', privacy)
+                self.assertTrue(Markup(privacy).matching(id='opt-out'))
+                for parameter in ('location', 'databaseLocation'):
+                    region = re.search(rf"^param {parameter} = '([a-z]+)'", parameters, re.M)[1]
+                    self.assertIn(regions[region], privacy)
+
+    def test_legal_pages_have_language_metadata_and_switch(self):
+        for name, (language, twin) in self.legal.items():
+            with self.subTest(page=name):
+                page = self.markup(name)
+                other = 'de' if language == 'en' else 'en'
+                english = name if language == 'en' else twin
+                self.assertEqual(page.matching('html')[0]['lang'], language)
+                self.assertEqual(page.matching('link', rel='canonical')[0]['href'], self.public + name)
+                self.assertTrue(page.matching('link', rel='alternate', hreflang=language, href=self.public + name))
+                self.assertTrue(page.matching('link', rel='alternate', hreflang=other, href=self.public + twin))
+                self.assertTrue(page.matching('link', rel='alternate', hreflang='x-default', href=self.public + english))
+                self.assertTrue(page.matching('a', lang=language, href=name, **{'aria-current': 'page'}))
+                self.assertTrue(page.matching('a', lang=other, href=twin))
+                self.assertTrue(page.matching('a', href='index.html' if language == 'en' else 'de.html'))
+                self.assertGreater(len(page.matching('meta', name='description')[0]['content']), 80)
+                self.assertTrue(page.matching('meta', name='robots', content='index,follow'))
+                for tag in ('title', 'h1', 'main', 'footer', 'time'):
+                    self.assertEqual(len(page.matching(tag)), 1, tag)
+                ids = [a['id'] for _, a in page.elements if 'id' in a]
+                self.assertEqual(len(ids), len(set(ids)))
+                for _, attrs in page.elements:
+                    for target in attrs.get('aria-labelledby', '').split():
+                        self.assertIn(target, ids)
+                # Self-contained: inline styles and at most the inline opt-out script.
+                self.assertFalse([a for _, a in page.elements if 'src' in a])
+                self.assertFalse(page.matching('link', rel='stylesheet'))
+                self.assertFalse(page.matching('iframe') or page.matching('form'))
+
+    def test_legal_pages_stay_in_sync_across_languages(self):
+        """The German and English versions are one legal text in two languages.
+
+        A change to one page must be mirrored in the other: same sections and
+        anchors, same element structure, same link targets, same numbers (legal
+        references, addresses, retention periods), same inline script and the
+        same "last updated" date.
+        """
+        def normalise(href):
+            for german, english in self.language_pairs.items():
+                if href.startswith(german):
+                    return english + href[len(german):]
+            return href
+
+        def outline(name):
+            page = self.markup(name)
+            body = page.elements[[tag for tag, _ in page.elements].index('body'):]
+            return {
+                'structure': [tag for tag, _ in body],
+                'ids': [attrs['id'] for _, attrs in body if 'id' in attrs],
+                'links': [normalise(attrs['href']) for tag, attrs in body if tag == 'a'],
+                'updated': page.matching('time')[0]['datetime'],
+                'numbers': sorted(re.findall(r'\d+', ''.join(page.text))),
+                'script': [re.sub(r"'[^']*'", "''", s) for s in page.scripts],
+            }
+
+        for english, german in self.legal_pairs.items():
+            with self.subTest(pages=(english, german)):
+                left, right = outline(english), outline(german)
+                for key in left:
+                    self.assertEqual(left[key], right[key], f'{key} differs between {english} and {german}')
+                self.assertRegex(left['updated'], r'^\d{4}-\d{2}-\d{2}$')
 
 
 if __name__ == '__main__':

@@ -30,7 +30,7 @@ REDIRECT_OUT = ROOT / 'dist/pages-redirect'
 CATALOG = ROOT / 'magic-cluster/platform/magicstick-operator/compute-target-catalog.yaml'
 REPO = 'https://github.com/QualityMinds/AIppliance-Magic-Stick'
 MARKETING_PAGES = ('index.html', 'de.html', 'editions.html', 'editionen.html',
-                   'legal-notice.html', 'privacy.html')
+                   'legal-notice.html', 'impressum.html', 'privacy.html', 'datenschutz.html')
 
 
 class Links(HTMLParser):
@@ -235,7 +235,7 @@ def analytics_tag(config):
     local previews and tests remain free of remote scripts. Umami stores nothing
     on the visitor's device; `data-do-not-track` additionally honours the
     browser's Do Not Track setting and `data-exclude-search`/`data-exclude-hash`
-    keep query strings and URL fragments out of the statistics. The opt-out on privacy.html sets `umami.disabled`.
+    keep query strings and URL fragments out of the statistics. The opt-out on privacy.html/datenschutz.html sets `umami.disabled`.
     """
     umami = (config.get('extra') or {}).get('umami') or {}
     script, website_id = umami.get('script') or '', umami.get('website_id') or ''

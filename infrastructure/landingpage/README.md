@@ -59,7 +59,8 @@ It runs daily and deletes visitor records older than `retentionMonths` (25), the
 stated in the privacy policy. Check a run with
 `az containerapp job execution list -g "<resource-group>" -n magic-stick-umami-retention`.
 The Umami image is pinned by digest; update `image` only after checking the
-privacy policy against the new version, as Umami migrations cannot be undone.
+privacy policy (`docs/privacy.html` and `docs/datenschutz.html`) against the new
+version, as Umami migrations cannot be undone.
 
 ```sh
 # URL-safe characters only: the password becomes part of DATABASE_URL.

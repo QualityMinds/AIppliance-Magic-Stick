@@ -4,8 +4,12 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="robots" content="index,follow" />
-  <meta name="description" content="Privacy policy for the MagicStick project website and handbook." />
+  <meta name="description" content="Privacy policy for the MagicStick project website and handbook: hosting on Azure, cookie-free Umami visitor statistics, GitHub, contact, retention and your rights." />
   <meta name="theme-color" content="#050b16" />
+  <link rel="canonical" href="https://lively-bay-0b7466603.3.azurestaticapps.net/privacy.html" />
+  <link rel="alternate" hreflang="en" href="https://lively-bay-0b7466603.3.azurestaticapps.net/privacy.html" />
+  <link rel="alternate" hreflang="de" href="https://lively-bay-0b7466603.3.azurestaticapps.net/datenschutz.html" />
+  <link rel="alternate" hreflang="x-default" href="https://lively-bay-0b7466603.3.azurestaticapps.net/privacy.html" />
   <title>Privacy Policy - MagicStick</title>
   <style>
     :root {
@@ -48,9 +52,41 @@
       padding: 42px 0 56px;
     }
 
+    .top-bar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px 20px;
+      margin-bottom: 28px;
+    }
+
+    .language-switch {
+      display: inline-flex;
+      gap: 4px;
+      font-size: 0.85rem;
+    }
+
+    .language-switch a {
+      padding: 6px 9px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      color: var(--muted);
+      text-decoration: none;
+    }
+
+    .language-switch a[aria-current="page"] {
+      border-color: var(--teal);
+      color: var(--text);
+    }
+
+    .language-switch a:hover,
+    .language-switch a:focus-visible {
+      color: var(--text);
+    }
+
     .top-link {
       display: inline-flex;
-      margin-bottom: 28px;
       color: var(--muted);
       text-decoration: none;
     }
@@ -62,8 +98,10 @@
 
     h1 {
       margin: 0 0 12px;
-      font-size: 2.5rem;
+      font-size: clamp(1.9rem, 8vw, 2.5rem);
       line-height: 1.1;
+      overflow-wrap: anywhere;
+      hyphens: auto;
     }
 
     h2 {
@@ -147,7 +185,10 @@
 </head>
 <body>
   <main class="shell">
-    <a class="top-link" href="index.html">Back to MagicStick</a>
+    <div class="top-bar">
+      <a class="top-link" href="index.html">Back to MagicStick</a>
+      <span class="language-switch" aria-label="Language"><a href="privacy.html" lang="en" aria-label="English" hreflang="en" aria-current="page">EN</a><a href="datenschutz.html" lang="de" aria-label="Deutsch" hreflang="de">DE</a></span>
+    </div>
     <h1>Privacy Policy</h1>
     <p>
       This privacy policy applies to the MagicStick project website, consisting
@@ -393,7 +434,7 @@
     </section>
 
     <footer>
-      <span>Last updated: October 5, 2026</span>
+      <span>Last updated: <time datetime="2026-10-05">October 5, 2026</time></span>
       <a href="index.html">Home</a>
       <a href="legal-notice.html">Legal Notice</a>
       <a href="https://github.com/QualityMinds/AIppliance-Magic-Stick">GitHub</a>

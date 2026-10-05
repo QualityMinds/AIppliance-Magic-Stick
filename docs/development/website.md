@@ -24,7 +24,8 @@ GitHub Pages only redirects to it.
 | [site.css](../site.css) | Responsive dashboard-aligned navy/cyan/violet design, system fonts, visible focus and reduced motion |
 | [site.js](../site.js) | Mobile navigation and keyboard-accessible product tabs |
 | [assets/favicon.svg](../assets/favicon.svg) | Small self-contained site mark |
-| [legal-notice.html](../legal-notice.html), [privacy.html](../privacy.html) | English legal notice and privacy policy, linked from every landing page and, through the footer override in `docs/overrides/partials/copyright.html`, every handbook page |
+| [legal-notice.html](../legal-notice.html), [impressum.html](../impressum.html) | Legal notice in English and German (Impressum), one text in two languages; see [Legal pages](#legal-pages) |
+| [privacy.html](../privacy.html), [datenschutz.html](../datenschutz.html) | Privacy policy in English and German (Datenschutzerklärung), one text in two languages; see [Legal pages](#legal-pages) |
 
 The homepage moves from the product definition through a three-step workflow,
 a two-path architecture infographic, dashboard examples, use cases, hardware
@@ -37,7 +38,8 @@ components without treating Ubuntu/K3s as mandatory for existing clusters. The
 main starting point is the USB guide for a new dedicated physical server; VM, existing Ubuntu and
 existing Kubernetes routes remain directly available.
 
-Keep both languages in sync when changing claims, links or sections. Language
+Keep both languages in sync when changing claims, links or sections. English pages
+link the English legal pages, German pages the German ones. Language
 switches are ordinary links, with no geolocation, language auto-redirect, cookie or
 stored preference. Each page has a canonical URL, reciprocal English/German
 `hreflang` links, an English `x-default`, descriptive metadata and an existing
@@ -50,6 +52,30 @@ such as LICENSE and SUPPORT.md use explicit public GitHub links; they are not
 handbook pages. New marketing HTML must be included in `MARKETING_PAGES` and
 excluded from MkDocs in `mkdocs.yml`. Do not collide with legacy redirect routes
 from `docs/migration.json` (in particular `licensing.html`).
+
+## Legal pages
+
+The legal notice and the privacy policy each exist as one legal text in two
+languages: [legal-notice.html](../legal-notice.html) with
+[impressum.html](../impressum.html), and [privacy.html](../privacy.html) with
+[datenschutz.html](../datenschutz.html). Every landing page links the pair of its
+own language, and the footer override in `docs/overrides/partials/copyright.html`
+links all four from every handbook page. The pages are self-contained HTML with
+inline styles, reciprocal `hreflang` links, an English `x-default` and an EN/DE
+switch; the German pages keep the English section IDs so that deep links such as
+`#provider` or `#opt-out` work in both languages.
+
+Always change both languages of a pair together, in the same commit, and set the
+same date in the `<time datetime="…">` element of both footers.
+`tests/test_website.py` (`test_legal_pages_stay_in_sync_across_languages`) fails
+when the two versions drift apart: it compares the element structure, section
+IDs, link targets (language-specific targets such as `de.html`/`index.html` are
+treated as equal), every number in the text (legal references, addresses,
+retention periods), the inline opt-out script and the update date. Translate
+legal references with the same numbers (`Article 6(1)(f) GDPR` ↔
+`Art. 6 Abs. 1 lit. f DSGVO`, `Section 5 DDG` ↔ `§ 5 DDG`) and keep paragraph
+boundaries equal. The check is structural; it does not replace a legal review of
+the translation.
 
 ## Visitor statistics
 
@@ -65,7 +91,8 @@ The tag sets `data-do-not-track`, so browsers with Do Not Track enabled send
 nothing, and `data-exclude-search` and `data-exclude-hash`, so query strings and
 URL fragments are not recorded. Umami
 itself sets no cookies and stores no identifier in the browser. The opt-out
-button on [privacy.html](../privacy.html#opt-out) sets `umami.disabled` in the
+button on [privacy.html](../privacy.html#opt-out) and
+[datenschutz.html](../datenschutz.html#opt-out) sets `umami.disabled` in the
 local storage of the current address, which the Umami script checks before
 sending. `domains` restricts counting to the listed public hostnames so that
 pull-request preview deployments do not appear in the statistics.
@@ -78,7 +105,8 @@ Umami has no retention setting of its own: the scheduled retention job in
 policy states. The Umami image is pinned by digest because the policy describes
 what that version collects; review the policy before upgrading it.
 Change those, the `extra.umami` block or the Umami tag attributes together with
-[privacy.html](../privacy.html), including its "Last updated" date.
+[privacy.html](../privacy.html) and [datenschutz.html](../datenschutz.html),
+including the update date in both footers (see [Legal pages](#legal-pages)).
 
 ## Product and license claims
 

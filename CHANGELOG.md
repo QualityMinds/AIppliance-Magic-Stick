@@ -8,6 +8,15 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+### Added
+
+- German legal pages: `impressum.html` and `datenschutz.html` are full
+  translations of the legal notice and privacy policy with the same section
+  anchors. All four legal pages carry canonical and `hreflang` metadata and an
+  EN/DE switch; German landing pages and every handbook page link the German
+  versions. A website test fails when the two languages of a legal page drift
+  apart in structure, anchors, links, numbers or update date.
+
 ### Changed
 
 - The privacy policy, the handbook `site_url` and the landing pages' canonical,

@@ -49,7 +49,7 @@ extra:
   # Cookie-free visitor statistics. tools/docs.py adds the Umami tag to every
   # built page (landing pages and handbook) only when both values are set; the
   # committed HTML sources and local previews stay free of remote scripts.
-  # Keep docs/privacy.html in step with this block.
+  # Keep docs/privacy.html and docs/datenschutz.html in step with this block.
   umami:
     script: 'https://magic-stick-landingpage-umami.graybeach-b98ec0d1.germanywestcentral.azurecontainerapps.io/script.js'
     website_id: '97e24eee-709d-43f4-a86c-718abd4c0043'
@@ -69,6 +69,8 @@ exclude_docs: |
   /editionen.html
   /legal-notice.html
   /privacy.html
+  /impressum.html
+  /datenschutz.html
   /site.css
   /site.js
   /sales-deck/
