@@ -355,7 +355,8 @@ def redirect(target):
         stub.parent.mkdir(parents=True, exist_ok=True)
         stub.write_text(forward_document(target + path))
     config = yaml.safe_load((ROOT / 'mkdocs.yml').read_text())
-    base = urlsplit(config['site_url']).path.rstrip('/').rsplit('/', 1)[0]
+    # GitHub Pages serves a project site under /<repository>/; site_url is the website.
+    base = '/' + urlsplit(config['repo_url']).path.rstrip('/').rsplit('/', 1)[-1]
     (REDIRECT_OUT / '404.html').write_text(forward_document(target, base))
     (REDIRECT_OUT / '.nojekyll').touch()
     print(f'GitHub Pages redirect to {target} written: {REDIRECT_OUT}')

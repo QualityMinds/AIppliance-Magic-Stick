@@ -1,6 +1,6 @@
 site_name: Magic Stick Documentation
 site_description: Install, use and administer your Magic Stick AI appliance.
-site_url: https://qualityminds.github.io/AIppliance-Magic-Stick/handbook/
+site_url: https://lively-bay-0b7466603.3.azurestaticapps.net/handbook/
 repo_url: https://github.com/QualityMinds/AIppliance-Magic-Stick
 edit_uri: edit/main/docs/
 docs_dir: docs

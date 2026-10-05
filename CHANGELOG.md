@@ -10,6 +10,10 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ### Changed
 
+- The privacy policy, the handbook `site_url` and the landing pages' canonical,
+  language-alternate and social-preview addresses name the Azure Static Web
+  App as the website. GitHub Pages is no longer described as a hosting
+  location; it only forwards to the website.
 - The public website and handbook can send cookie-free visitor statistics to a
   self-hosted Umami instance. The tag is added at build time from the
   `extra.umami` block in `mkdocs.yml`, honours Do Not Track and is described in

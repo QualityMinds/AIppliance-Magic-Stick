@@ -32,7 +32,7 @@ class WebsiteTests(unittest.TestCase):
         'editions.html': ('en', 'editions.html', 'editionen.html'),
         'editionen.html': ('de', 'editionen.html', 'editions.html'),
     }
-    public = 'https://qualityminds.github.io/AIppliance-Magic-Stick/'
+    public = 'https://lively-bay-0b7466603.3.azurestaticapps.net/'
 
     def markup(self, name):
         return Markup((docs.DOCS / name).read_text())
