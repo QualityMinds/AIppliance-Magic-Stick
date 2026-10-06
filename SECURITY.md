@@ -20,7 +20,7 @@ Preferred reporting path:
 
 1. Use GitHub Private Vulnerability Reporting for this repository when available:
    `https://github.com/QualityMinds/AIppliance-Magic-Stick/security/advisories/new`.
-2. If that flow is unavailable, email `stick@qualityminds.de` with the subject
+2. If that flow is unavailable, email `info@magic-stick.ai` with the subject
    `Security report: AIppliance-Magic-Stick`.
 
 Please include:

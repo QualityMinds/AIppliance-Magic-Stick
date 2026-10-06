@@ -206,7 +206,7 @@ class WebsiteTests(unittest.TestCase):
                 # The only published contact address is the provider address of the legal notice.
                 for a in page.matching('a'):
                     if a.get('href', '').startswith('mailto:'):
-                        self.assertEqual(a['href'], 'mailto:stick@qualityminds.de')
+                        self.assertEqual(a['href'], 'mailto:info@magic-stick.ai')
 
     def test_source_links_and_markdown_conversion(self):
         files = [docs.DOCS / name for name in self.pages]
