@@ -348,7 +348,7 @@ class DocumentationTests(unittest.TestCase):
         self.assertEqual(workflow['permissions'], {'contents': 'read'})
         build = workflow['jobs']['build']
         self.assertIn('refs/heads/main', build['if'])
-        self.assertIn('azurestaticapps.net', build['env']['WEBSITE_URL'])
+        self.assertIn('magic-stick.ai', build['env']['WEBSITE_URL'])
         steps = build['steps']
         self.assertIn('python tools/docs.py redirect', [step.get('run') for step in steps])
         upload = next(step for step in steps if step.get('uses', '').startswith('actions/upload-pages-artifact'))

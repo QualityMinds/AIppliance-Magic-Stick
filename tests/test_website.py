@@ -48,7 +48,7 @@ class WebsiteTests(unittest.TestCase):
     # Link targets that differ only by language are compared as their English form.
     language_pairs = {**legal_pairs, 'de.html': 'index.html', 'editionen.html': 'editions.html',
                       'https://www.microsoft.com/de-de/': 'https://www.microsoft.com/en-us/'}
-    public = 'https://lively-bay-0b7466603.3.azurestaticapps.net/'
+    public = 'https://magic-stick.ai/'
 
     @property
     def legal(self):

@@ -1,6 +1,6 @@
 site_name: Magic Stick Documentation
 site_description: Install, use and administer your Magic Stick AI appliance.
-site_url: https://lively-bay-0b7466603.3.azurestaticapps.net/handbook/
+site_url: https://magic-stick.ai/handbook/
 repo_url: https://github.com/QualityMinds/AIppliance-Magic-Stick
 edit_uri: edit/main/docs/
 docs_dir: docs
@@ -51,7 +51,7 @@ extra:
   # committed HTML sources and local previews stay free of remote scripts.
   # Keep docs/privacy.html and docs/datenschutz.html in step with this block.
   umami:
-    script: 'https://magic-stick-landingpage-umami.graybeach-b98ec0d1.germanywestcentral.azurecontainerapps.io/script.js'
+    script: 'https://analytics.magic-stick.ai/script.js'
     website_id: '97e24eee-709d-43f4-a86c-718abd4c0043'
     domains: []     # optional: only count visits on these public hostnames
 validation:

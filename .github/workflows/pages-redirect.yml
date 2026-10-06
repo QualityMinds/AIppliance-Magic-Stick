@@ -29,7 +29,7 @@ jobs:
       contents: read
       pages: read
     env:
-      WEBSITE_URL: ${{ inputs.website_url || vars.WEBSITE_URL || 'https://lively-bay-0b7466603.3.azurestaticapps.net' }}
+      WEBSITE_URL: ${{ inputs.website_url || vars.WEBSITE_URL || 'https://magic-stick.ai' }}
     steps:
       - uses: actions/checkout@v6
         with:
