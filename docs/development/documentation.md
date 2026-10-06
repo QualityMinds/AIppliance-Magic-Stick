@@ -139,9 +139,8 @@ hosted on Azure Static Web Apps (see [website maintenance](website.md)). GitHub
 Pages only forwards old addresses: the manual **GitHub Pages redirect to website**
 workflow (`.github/workflows/pages-redirect.yml`, main only) turns the built site
 into a redirect page for every address (`python tools/docs.py redirect`) plus a
-`404.html` fallback, each keeping the path, query and fragment. The target is the
-workflow's `website_url` input, else the `WEBSITE_URL` repository variable, else
-the default in the workflow. Run it again after the website address changes. The
+`404.html` fallback, each keeping the path, query and fragment. The target is fixed
+to `https://magic-stick.ai`; no workflow input or repository variable overrides it. The
 repository's Pages source must be **GitHub Actions**; switching that remote setting
 is a separate publication step, not a side effect of editing docs.
 

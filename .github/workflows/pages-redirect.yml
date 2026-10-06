@@ -1,16 +1,11 @@
 name: GitHub Pages redirect to website
 
 # The website is hosted on Azure Static Web Apps (azure-static-web-apps.yml).
-# GitHub Pages only forwards old qualityminds.github.io addresses there. Run this
-# manually after the website address changes; it is not triggered by commits.
+# GitHub Pages only forwards old qualityminds.github.io addresses to https://magic-stick.ai.
+# Run this manually to publish redirects; it is not triggered by commits.
 
 on:
   workflow_dispatch:
-    inputs:
-      website_url:
-        description: Website origin to forward to (empty uses the WEBSITE_URL variable or the default below)
-        required: false
-        default: ''
 
 permissions:
   contents: read
@@ -29,7 +24,7 @@ jobs:
       contents: read
       pages: read
     env:
-      WEBSITE_URL: ${{ inputs.website_url || vars.WEBSITE_URL || 'https://magic-stick.ai' }}
+      WEBSITE_URL: https://magic-stick.ai
     steps:
       - uses: actions/checkout@v6
         with:
