@@ -22,7 +22,7 @@ GitHub Pages only redirects to it.
 | [de.html](../de.html) | Equivalent German homepage; handbook links are marked English |
 | [editions.html](../editions.html), [editionen.html](../editionen.html) | Licensing overview, eligibility and the actual request/activation workflow |
 | [site.css](../site.css) | Responsive navy/violet/cyan design from the October 2026 pitch mockup, system fonts for text, the local heading font, visible focus and reduced motion |
-| `assets/fonts/` ([tracedsans_700.woff2](../assets/fonts/tracedsans_700.woff2)) | Traced Sans Bold (weight 700) for headings on the landing pages, the legal pages and the handbook; see [Heading font](#heading-font) |
+| `assets/fonts/` ([bricolage-grotesque-qm-600-800.woff2](../assets/fonts/bricolage-grotesque-qm-600-800.woff2), [OFL.txt](../assets/fonts/OFL.txt)) | Bricolage Grotesque (variable, weights 600–800) for headings on the landing pages, the legal pages and the handbook, with its SIL Open Font License text; see [Heading font](#heading-font) |
 | [site.js](../site.js) | Mobile navigation and keyboard-accessible dashboard screenshot tabs |
 | `assets/brand/` ([logo.svg](../assets/brand/logo.svg), [brandmark.svg](../assets/brand/brandmark.svg), [core.svg](../assets/brand/core.svg)) | Magic Stick logo, brandmark and core symbol (SVG) from the pitch mockup |
 | `assets/artwork/` ([command-centre.jpg](../assets/artwork/command-centre.jpg) and two WebP backgrounds) | Hero illustration and two blurred section backgrounds; see [Artwork provenance](#artwork-provenance) |
@@ -67,23 +67,30 @@ from `docs/migration.json` (in particular `licensing.html`).
 
 ## Heading font
 
-Headings (`h1`–`h3`) use Traced Sans Bold from
-`docs/assets/fonts/tracedsans_700.woff2`, served from the site itself; no remote
-font service is involved. Each stylesheet declares the single `@font-face` with
-weight 700 and `font-display: swap`: [site.css](../site.css) and the inline
-styles of the legal pages reference `assets/fonts/` relative to the site root,
+Headings (`h1`–`h3`) use Bricolage Grotesque from
+`docs/assets/fonts/bricolage-grotesque-qm-600-800.woff2`, served from the site
+itself; no remote font service is involved. The file is a variable font
+(`wght` axis) subset by QualityMinds, and its SIL Open Font License 1.1 text
+ships next to it as `docs/assets/fonts/OFL.txt`. Each stylesheet declares the
+single `@font-face` with the weight range `600 800` and `font-display: swap`:
+[site.css](../site.css) and the inline styles of the legal pages reference
+`assets/fonts/` relative to the site root,
 [handbook.css](../stylesheets/handbook.css) references `../assets/fonts/`
 because MkDocs copies `docs/assets/` under `handbook/`. Body text, buttons and
-navigation stay on the system font stack. Heading rules set `font-weight: 700`
-explicitly because the file contains only that weight and `site.css` disables
-font synthesis.
+navigation stay on the system font stack.
+
+Heading rules follow the QualityMinds headline usage: weight 700, tight
+line-height (`.96` for `h1`/`h2` on the landing pages) and `-.015em` letter
+spacing. Weights outside 600–800 would be synthesized or fall back because
+`site.css` disables font synthesis, so keep heading weights inside that range.
 
 The committed file is a subset. Characters that it does not contain fall back
 to the next font in the stack glyph by glyph, which is visible in a heading.
 When replacing the file, check that it covers the characters that actual
 headings use (at least Latin-1 letters including German umlauts, typographic
-quotes and dashes) and keep the same file name or update all four references.
-Record the font's source and license terms with the other collateral assets in
+quotes and dashes) and keep the same file name or update all six references
+(`site.css`, `handbook.css` and the four legal pages). Record the font's source
+and license terms with the other collateral assets in
 [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md).
 
 ## Legal pages

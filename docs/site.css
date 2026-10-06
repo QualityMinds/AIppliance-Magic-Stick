@@ -1,10 +1,10 @@
 /* SPDX-License-Identifier: BUSL-1.1 */
 @font-face {
-  font-family: "Traced Sans";
+  font-family: "Bricolage Grotesque";
   font-style: normal;
-  font-weight: 700;
+  font-weight: 600 800;
   font-display: swap;
-  src: url("assets/fonts/tracedsans_700.woff2") format("woff2");
+  src: url("assets/fonts/bricolage-grotesque-qm-600-800.woff2") format("woff2");
 }
 :root {
   color-scheme: dark;
@@ -39,10 +39,10 @@ button, a, summary { -webkit-tap-highlight-color: transparent; }
 button { font: inherit; cursor: pointer; }
 button:focus-visible, a:focus-visible, summary:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--cyan); outline-offset: 5px; }
 h1, h2, h3, p, figure { margin: 0; }
-h1, h2, h3 { font-family: "Traced Sans", "Avenir Next", Avenir, "Segoe UI", system-ui, sans-serif; font-weight: 700; line-height: 1.15; letter-spacing: -.02em; text-wrap: balance; }
+h1, h2, h3 { font-family: "Bricolage Grotesque", "Avenir Next", Avenir, "Segoe UI", system-ui, sans-serif; font-weight: 700; line-height: .96; letter-spacing: -.015em; text-wrap: balance; }
 h1 { font-size: var(--type-hero); }
 h2 { font-size: var(--type-section); }
-h3 { font-size: var(--type-subheading); line-height: 1.25; }
+h3 { font-size: var(--type-subheading); line-height: 1.2; }
 p { color: var(--muted); }
 strong { color: var(--ink); font-weight: 650; }
 img { display: block; max-width: 100%; height: auto; }
