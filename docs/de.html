@@ -43,7 +43,7 @@
         <a href="README.md">Handbuch (EN)</a>
         <a href="editionen.html">Lizenzen</a>
         <a class="external" href="https://github.com/QualityMinds/AIppliance-Magic-Stick" rel="noopener">GitHub<span aria-hidden="true">↗</span><span class="visually-hidden"> (externer Link)</span></a>
-        <span class="language-switch"><a href="index.html" lang="en" aria-label="English">EN</a><a href="de.html" lang="de" aria-label="Deutsch" aria-current="page">DE</a></span>
+        <span class="language-switch"><a href="index.html" lang="en" aria-label="EN, English">EN</a><a href="de.html" lang="de" aria-label="DE, Deutsch" aria-current="page">DE</a></span>
         <a class="button button-small" href="#starten">Jetzt starten</a>
       </nav>
     </div>
@@ -79,29 +79,29 @@
             <button id="tab-applications" role="tab" aria-controls="tour-applications" aria-selected="false" tabindex="-1">Anwendungen</button>
           </div>
         </div>
-        <figure class="product-panel" id="tour-overview" role="tabpanel" aria-labelledby="tab-overview" tabindex="0">
+        <div class="product-panel" id="tour-overview" role="tabpanel" aria-labelledby="tab-overview" tabindex="0">
           <h3>Übersicht</h3>
           <div class="dashboard-stage"><a class="screenshot" href="assets/screenshots/dashboard-overview.webp" aria-label="Vollständigen Übersichts-Screenshot öffnen"><img src="assets/screenshots/dashboard-overview.webp" alt="Magic-Stick-Übersicht mit Kennzahlen zu Appliance-Status, Modulen, Instanzen und Modellen." width="1050" height="216" loading="lazy" /></a></div>
-          <figcaption class="dashboard-caption"><span>Übersicht · Der Zustand deiner Appliance auf einen Blick.</span><a href="assets/screenshots/dashboard-overview.webp">Screenshot vergrößern</a></figcaption>
-        </figure>
-        <figure class="product-panel" id="tour-models" role="tabpanel" aria-labelledby="tab-models" tabindex="0">
+          <div class="dashboard-caption"><span>Übersicht · Der Zustand deiner Appliance auf einen Blick.</span><a href="assets/screenshots/dashboard-overview.webp">Screenshot vergrößern</a></div>
+        </div>
+        <div class="product-panel" id="tour-models" role="tabpanel" aria-labelledby="tab-models" tabindex="0">
           <h3>Modelle</h3>
           <div class="dashboard-stage"><a class="screenshot" href="assets/screenshots/models-memory.webp" aria-label="Vollständigen Modell-Screenshot öffnen"><img src="assets/screenshots/models-memory.webp" alt="Magic-Stick-Modellansicht mit Speicheranzeigen für CPU, NVIDIA und AMD, freiem Speicher und verfügbaren Modell-Slots." width="1294" height="550" loading="lazy" /></a></div>
-          <figcaption class="dashboard-caption"><span>Modelle · Rechenspeicher und Modell-Slots in einer Ansicht.</span><a href="assets/screenshots/models-memory.webp">Screenshot vergrößern</a></figcaption>
-        </figure>
-        <figure class="product-panel" id="tour-applications" role="tabpanel" aria-labelledby="tab-applications" tabindex="0">
+          <div class="dashboard-caption"><span>Modelle · Rechenspeicher und Modell-Slots in einer Ansicht.</span><a href="assets/screenshots/models-memory.webp">Screenshot vergrößern</a></div>
+        </div>
+        <div class="product-panel" id="tour-applications" role="tabpanel" aria-labelledby="tab-applications" tabindex="0">
           <h3>Anwendungen</h3>
           <div class="dashboard-stage"><a class="screenshot" href="assets/screenshots/application-create.webp" aria-label="Vollständigen Anwendungs-Screenshot öffnen"><img src="assets/screenshots/application-create.webp" alt="Magic-Stick-Formular zum Anlegen einer Anwendung mit Modellauswahl, SSO-Schutz, Rollen und Freigaben." width="900" height="506" loading="lazy" /></a></div>
-          <figcaption class="dashboard-caption"><span>Anwendungen · Eine Anwendungsinstanz konfigurieren.</span><a href="assets/screenshots/application-create.webp">Screenshot vergrößern</a></figcaption>
-        </figure>
+          <div class="dashboard-caption"><span>Anwendungen · Eine Anwendungsinstanz konfigurieren.</span><a href="assets/screenshots/application-create.webp">Screenshot vergrößern</a></div>
+        </div>
       </div>
       <p class="image-note">Produktoberfläche · Testsystem, 24.09.2026 · Beispielwerte, keine Größenempfehlung</p>
-      <div class="applications" id="anwendungen" aria-labelledby="apps-title">
+      <section class="applications" id="anwendungen" aria-labelledby="apps-title">
         <p class="eyebrow applications-eyebrow" id="apps-title">Anwendungen aus dem Katalog</p>
         <article><span class="application-number">01</span><h3>Chat</h3><p>Nutze Chat-Anwendungen wie AnythingLLM.</p><span class="app-name">AnythingLLM</span></article>
         <article><span class="application-number">02</span><h3>Agenten</h3><p>Erkunde Agenten-Anwendungen und koordiniere ihre Arbeit.</p><span class="app-name">Hermes · OpenClaw · Paperclip</span></article>
         <article><span class="application-number">03</span><h3>Coding</h3><p>Hole Coding-Workflows in deine KI-Umgebung.</p><span class="app-name">KubeOpenCode</span></article>
-      </div>
+      </section>
       <a class="text-link applications-link" href="user-guide/applications.md">Anwendungen anlegen und öffnen (EN)</a>
     </section>
 

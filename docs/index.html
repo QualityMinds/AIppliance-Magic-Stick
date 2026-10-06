@@ -43,7 +43,7 @@
         <a href="README.md">Docs</a>
         <a href="editions.html">Licensing</a>
         <a class="external" href="https://github.com/QualityMinds/AIppliance-Magic-Stick" rel="noopener">GitHub<span aria-hidden="true">↗</span><span class="visually-hidden"> (external link)</span></a>
-        <span class="language-switch"><a href="index.html" lang="en" aria-label="English" aria-current="page">EN</a><a href="de.html" lang="de" aria-label="Deutsch">DE</a></span>
+        <span class="language-switch"><a href="index.html" lang="en" aria-label="EN, English" aria-current="page">EN</a><a href="de.html" lang="de" aria-label="DE, Deutsch">DE</a></span>
         <a class="button button-small" href="#starten">Get started</a>
       </nav>
     </div>
@@ -79,29 +79,29 @@
             <button id="tab-applications" role="tab" aria-controls="tour-applications" aria-selected="false" tabindex="-1">Applications</button>
           </div>
         </div>
-        <figure class="product-panel" id="tour-overview" role="tabpanel" aria-labelledby="tab-overview" tabindex="0">
+        <div class="product-panel" id="tour-overview" role="tabpanel" aria-labelledby="tab-overview" tabindex="0">
           <h3>Overview</h3>
           <div class="dashboard-stage"><a class="screenshot" href="assets/screenshots/dashboard-overview.webp" aria-label="Open the full overview screenshot"><img src="assets/screenshots/dashboard-overview.webp" alt="Magic Stick overview with summary cards for appliance status, modules, instances and models." width="1050" height="216" loading="lazy" /></a></div>
-          <figcaption class="dashboard-caption"><span>Overview · The state of your appliance at a glance.</span><a href="assets/screenshots/dashboard-overview.webp">Enlarge screenshot</a></figcaption>
-        </figure>
-        <figure class="product-panel" id="tour-models" role="tabpanel" aria-labelledby="tab-models" tabindex="0">
+          <div class="dashboard-caption"><span>Overview · The state of your appliance at a glance.</span><a href="assets/screenshots/dashboard-overview.webp">Enlarge screenshot</a></div>
+        </div>
+        <div class="product-panel" id="tour-models" role="tabpanel" aria-labelledby="tab-models" tabindex="0">
           <h3>Models</h3>
           <div class="dashboard-stage"><a class="screenshot" href="assets/screenshots/models-memory.webp" aria-label="Open the full models screenshot"><img src="assets/screenshots/models-memory.webp" alt="Magic Stick model dashboard with CPU, NVIDIA and AMD memory gauges, free memory and available model slots." width="1294" height="550" loading="lazy" /></a></div>
-          <figcaption class="dashboard-caption"><span>Models · Compute memory and model slots in one view.</span><a href="assets/screenshots/models-memory.webp">Enlarge screenshot</a></figcaption>
-        </figure>
-        <figure class="product-panel" id="tour-applications" role="tabpanel" aria-labelledby="tab-applications" tabindex="0">
+          <div class="dashboard-caption"><span>Models · Compute memory and model slots in one view.</span><a href="assets/screenshots/models-memory.webp">Enlarge screenshot</a></div>
+        </div>
+        <div class="product-panel" id="tour-applications" role="tabpanel" aria-labelledby="tab-applications" tabindex="0">
           <h3>Applications</h3>
           <div class="dashboard-stage"><a class="screenshot" href="assets/screenshots/application-create.webp" aria-label="Open the full applications screenshot"><img src="assets/screenshots/application-create.webp" alt="Magic Stick application setup form with model selection, SSO protection, roles and sharing controls." width="900" height="506" loading="lazy" /></a></div>
-          <figcaption class="dashboard-caption"><span>Applications · Configure an application instance.</span><a href="assets/screenshots/application-create.webp">Enlarge screenshot</a></figcaption>
-        </figure>
+          <div class="dashboard-caption"><span>Applications · Configure an application instance.</span><a href="assets/screenshots/application-create.webp">Enlarge screenshot</a></div>
+        </div>
       </div>
       <p class="image-note">Product interface · Test appliance, 24 Sep 2026 · Example values, not sizing advice</p>
-      <div class="applications" id="anwendungen" aria-labelledby="apps-title">
+      <section class="applications" id="anwendungen" aria-labelledby="apps-title">
         <p class="eyebrow applications-eyebrow" id="apps-title">Applications from the catalog</p>
         <article><span class="application-number">01</span><h3>Chat</h3><p>Use conversational applications such as AnythingLLM.</p><span class="app-name">AnythingLLM</span></article>
         <article><span class="application-number">02</span><h3>Agents</h3><p>Explore agent applications and coordinate their work.</p><span class="app-name">Hermes · OpenClaw · Paperclip</span></article>
         <article><span class="application-number">03</span><h3>Coding</h3><p>Bring coding workflows into your AI environment.</p><span class="app-name">KubeOpenCode</span></article>
-      </div>
+      </section>
       <a class="text-link applications-link" href="user-guide/applications.md">Create and open applications</a>
     </section>
 

@@ -45,8 +45,9 @@ are not used; body text keeps the system font stack and only headings use the
 local heading font.
 
 The screenshot switcher is the progressively enhanced tab pattern: three
-`figure` panels with reviewed captures are all readable without JavaScript, and
-`site.js` turns the toolbar buttons into a keyboard-accessible tablist. "Enlarge
+`div` panels (not `figure`, which may not carry the `tabpanel` role) with
+reviewed captures are all readable without JavaScript, and `site.js` turns the
+toolbar buttons into a keyboard-accessible tablist. "Enlarge
 screenshot" is a plain link to the full image.
 
 Keep both languages in sync when changing claims, links or sections. English pages
@@ -102,7 +103,9 @@ languages: [imprint.html](../imprint.html) with
 own language. The handbook is English only, so the footer override in
 `docs/overrides/partials/copyright.html` links the English pair ("Imprint" and
 "Privacy", as on the English landing page) from every handbook page; the EN/DE
-switch on those pages leads to the German versions. The pages are self-contained HTML with
+switch on those pages leads to the German versions. `docs/overrides/partials/search.html`
+is a copy of the Material search partial that only adds an accessible name to
+the search dialog; re-sync it when `mkdocs-material` is upgraded. The pages are self-contained HTML with
 inline styles, reciprocal `hreflang` links, an English `x-default` and an EN/DE
 switch; the German pages keep the English section IDs so that deep links such as
 `#provider` or `#opt-out` work in both languages.
@@ -254,6 +257,10 @@ Before publishing:
 4. Disable JavaScript and reload: navigation and all three screenshot panels must
    remain readable; FAQ uses native details/summary. Restore browser settings.
 5. Check missing images, browser errors, visible focus and reduced-motion behavior.
+   Accessibility conventions: every EN/DE switch link keeps its visible text at the
+   start of its `aria-label` ("EN, English"), body links in the handbook stay
+   underlined, and an axe-core run (for example the axe DevTools extension) should
+   report no WCAG A/AA violations on the landing, legal and handbook pages.
 6. Run `git diff --check` and the public release scan below. A text scan does not
    replace screenshot privacy review.
 
