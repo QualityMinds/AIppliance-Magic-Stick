@@ -30,7 +30,7 @@ REDIRECT_OUT = ROOT / 'dist/pages-redirect'
 CATALOG = ROOT / 'magic-cluster/platform/magicstick-operator/compute-target-catalog.yaml'
 REPO = 'https://github.com/QualityMinds/AIppliance-Magic-Stick'
 MARKETING_PAGES = ('index.html', 'de.html', 'editions.html', 'editionen.html',
-                   'legal-notice.html', 'impressum.html', 'privacy.html', 'datenschutz.html')
+                   'imprint.html', 'impressum.html', 'privacy.html', 'datenschutz.html')
 
 
 class Links(HTMLParser):

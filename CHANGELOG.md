@@ -8,6 +8,13 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+### Changed
+
+- The English legal notice is now `imprint.html` with the heading "Imprint",
+  matching the landing page footer; the former `legal-notice.html` address is gone.
+  The handbook footer links only the English imprint and privacy policy, since
+  the handbook is English only; both pages keep their EN/DE switch.
+
 ### Added
 
 - German legal pages: `impressum.html` and `datenschutz.html` are full

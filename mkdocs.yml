@@ -8,7 +8,7 @@ site_dir: dist/docs-site/handbook
 strict: true
 theme:
   name: material
-  # Adds the legal notice and privacy links to the footer of every page.
+  # Adds the Imprint and Privacy links to the footer of every page.
   custom_dir: docs/overrides
   language: en
   font: false
@@ -67,7 +67,7 @@ exclude_docs: |
   /de.html
   /editions.html
   /editionen.html
-  /legal-notice.html
+  /imprint.html
   /privacy.html
   /impressum.html
   /datenschutz.html

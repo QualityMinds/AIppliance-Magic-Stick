@@ -44,7 +44,7 @@ class WebsiteTests(unittest.TestCase):
     }
     # English legal page -> German twin. Both must change together (see
     # test_legal_pages_stay_in_sync_across_languages).
-    legal_pairs = {'legal-notice.html': 'impressum.html', 'privacy.html': 'datenschutz.html'}
+    legal_pairs = {'imprint.html': 'impressum.html', 'privacy.html': 'datenschutz.html'}
     # Link targets that differ only by language are compared as their English form.
     language_pairs = {**legal_pairs, 'de.html': 'index.html', 'editionen.html': 'editions.html',
                       'https://www.microsoft.com/de-de/': 'https://www.microsoft.com/en-us/'}
@@ -203,7 +203,7 @@ class WebsiteTests(unittest.TestCase):
                 for component in ('Magic Stick Operator', 'LiteLLM', 'KubeAI', 'Ollama', 'vLLM',
                                   'FreeToken', 'Flux', 'Keycloak', 'Envoy'):
                     self.assertIn(component, text)
-                # The only published contact address is the provider address of the legal notice.
+                # The only published contact address is the provider address of the imprint.
                 for a in page.matching('a'):
                     if a.get('href', '').startswith('mailto:'):
                         self.assertEqual(a['href'], 'mailto:info@magic-stick.ai')
@@ -233,15 +233,19 @@ class WebsiteTests(unittest.TestCase):
             for target in ('LICENSE', 'LICENSING.md', 'THIRD_PARTY_NOTICES.md', 'SUPPORT.md'):
                 self.assertTrue(page.matching('a', href=docs.REPO + '/blob/main/' + target))
             self.assertTrue(page.matching('a', href='administration/licenses.md'))
-            notice = 'legal-notice.html' if name == 'editions.html' else 'impressum.html'
+            notice = 'imprint.html' if name == 'editions.html' else 'impressum.html'
             self.assertTrue(page.matching('a', href=notice + '#provider'))
 
     def test_legal_pages_are_linked_and_privacy_matches_statistics_setup(self):
         config = yaml.safe_load((docs.ROOT / 'mkdocs.yml').read_text())
         override = docs.ROOT / config['theme']['custom_dir'] / 'partials/copyright.html'
         footer = override.read_text()
-        for target in self.legal:
-            self.assertIn(f"{{{{ base_url.rstrip('/') }}}}/../{target}", footer)
+        # The handbook is English only: its footer links the English legal pages
+        # with the same labels as the English landing page.
+        for target, label in (('imprint.html', 'Imprint'), ('privacy.html', 'Privacy')):
+            self.assertIn(f"{{{{ base_url.rstrip('/') }}}}/../{target}\">{label}</a>", footer)
+        for german in self.legal_pairs.values():
+            self.assertNotIn(german, footer)
         # Landing pages link the legal pages of their own language.
         for name, (language, _, _) in self.pages.items():
             page = self.markup(name)

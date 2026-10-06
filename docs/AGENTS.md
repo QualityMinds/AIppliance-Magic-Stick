@@ -14,7 +14,7 @@ README and public product collateral.
   copying full procedures between them.
 - Update English and German marketing pages together when claims, sections or
   links change. Keep actual UI labels and commands in their original form.
-- The legal notice (`legal-notice.html`/`impressum.html`) and privacy policy
+- The imprint (`imprint.html`/`impressum.html`) and privacy policy
   (`privacy.html`/`datenschutz.html`) are one text in two languages. Change both
   files of a pair in the same commit with the same footer date; the website tests
   fail when structure, anchors, links, numbers or dates differ.

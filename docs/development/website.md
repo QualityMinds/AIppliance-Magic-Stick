@@ -27,7 +27,7 @@ GitHub Pages only redirects to it.
 | `assets/brand/` ([logo.svg](../assets/brand/logo.svg), [brandmark.svg](../assets/brand/brandmark.svg), [core.svg](../assets/brand/core.svg)) | Magic Stick logo, brandmark and core symbol (SVG) from the pitch mockup |
 | `assets/artwork/` ([command-centre.jpg](../assets/artwork/command-centre.jpg) and two WebP backgrounds) | Hero illustration and two blurred section backgrounds; see [Artwork provenance](#artwork-provenance) |
 | [assets/favicon.svg](../assets/favicon.svg) | Brandmark on a dark rounded tile |
-| [legal-notice.html](../legal-notice.html), [impressum.html](../impressum.html) | Legal notice in English and German (Impressum), one text in two languages; see [Legal pages](#legal-pages) |
+| [imprint.html](../imprint.html), [impressum.html](../impressum.html) | Imprint in English and German (Impressum), one text in two languages; see [Legal pages](#legal-pages) |
 | [privacy.html](../privacy.html), [datenschutz.html](../datenschutz.html) | Privacy policy in English and German (Datenschutzerklärung), one text in two languages; see [Legal pages](#legal-pages) |
 
 The homepage follows the October 2026 pitch mockup. It moves from a full-width
@@ -95,12 +95,14 @@ and license terms with the other collateral assets in
 
 ## Legal pages
 
-The legal notice and the privacy policy each exist as one legal text in two
-languages: [legal-notice.html](../legal-notice.html) with
+The imprint and the privacy policy each exist as one legal text in two
+languages: [imprint.html](../imprint.html) with
 [impressum.html](../impressum.html), and [privacy.html](../privacy.html) with
 [datenschutz.html](../datenschutz.html). Every landing page links the pair of its
-own language, and the footer override in `docs/overrides/partials/copyright.html`
-links all four from every handbook page. The pages are self-contained HTML with
+own language. The handbook is English only, so the footer override in
+`docs/overrides/partials/copyright.html` links the English pair ("Imprint" and
+"Privacy", as on the English landing page) from every handbook page; the EN/DE
+switch on those pages leads to the German versions. The pages are self-contained HTML with
 inline styles, reciprocal `hreflang` links, an English `x-default` and an EN/DE
 switch; the German pages keep the English section IDs so that deep links such as
 `#provider` or `#opt-out` work in both languages.
