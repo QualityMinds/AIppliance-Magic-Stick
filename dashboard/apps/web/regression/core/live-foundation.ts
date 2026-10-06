@@ -1,20 +1,26 @@
 import type {Browser, BrowserContext} from '@playwright/test';
-import type {LabConfig, LocalModelFixture} from './config.ts';
+import type {LabConfig, RuntimeModelFixture} from './config.ts';
 import {realLogin, type RealLoginOptions} from './auth.ts';
 import {readOnlyApi} from './transport.ts';
 import {KubernetesLeaseStore, KubectlObserver} from './observer.ts';
 import {KubernetesModelCleaner} from './model-cleanup.ts';
 import {LabLease} from './lease.ts';
-import {ResourceJournal} from './journal.ts';
+import {ResourceJournal, type CleanupAdapter} from './journal.ts';
 import {OwnedKeyClient} from './owned-key.ts';
-import {OwnedModelClient, activation, fixtureIsAdvertised, ownedRuntimePods, remainingModelResources} from './owned-model.ts';
+import {ModelCreateRejected, OwnedModelClient, activation, ownedRuntimePods, remainingModelResources} from './owned-model.ts';
 import {verifyIdentity, verifyCapabilities, verifyIdle, verifyDeploymentPins} from './preflight.ts';
 import {requirePhase0Profile} from '../profiles/phase0-p0.ts';
 import {poll} from './poll.ts';
 import {requireSafe} from './errors.ts';
+import {registeredLab} from './lab-policy.ts';
 
 /** Shared foundation adapter: no GPU, host-maintenance or product-setting writes. */
 export class LiveFoundation {
+  private restorations:Array<()=>Promise<void>>=[];
+  registerRestoration(action:()=>Promise<void>) {
+    this.restorations.push(action);
+    return ()=>{this.restorations=this.restorations.filter(item=>item !== action);};
+  }
   readonly context: BrowserContext;
   readonly config: LabConfig;
   readonly journal: ResourceJournal;
@@ -30,6 +36,12 @@ export class LiveFoundation {
   private beatAt = Date.now();
   private beat: Promise<void> | undefined;
   private acquired = false;
+  private readonly domainCleanup:Partial<Record<'app'|'identity',CleanupAdapter>>={};
+
+  registerDomainCleanup(kind:'app'|'identity',adapter:CleanupAdapter) {
+    requireSafe(!this.domainCleanup[kind] || this.journal.entries.filter(entry=>entry.kind === kind).every(entry=>entry.state === 'removed'),'OWNERSHIP');
+    this.domainCleanup[kind]=adapter;
+  }
 
   private constructor(context: BrowserContext, config: LabConfig, journal: ResourceJournal,
     snapshot: Awaited<ReturnType<typeof LiveFoundation.snapshot>>, baselineKeyIds: Set<string>) {
@@ -54,19 +66,20 @@ export class LiveFoundation {
       observer.list('nodes'), observer.list('pods'), observer.list('kustomizations.kustomize.toolkit.fluxcd.io', 'flux-system'),
     ]);
     verifyIdentity(config, appliance, observed, nodes, hosts.nodes);
+    await registeredLab(config,observer);
     verifyCapabilities(config, models);
     await verifyDeploymentPins(config, observer, pods, flux);
     return {observer, api, appliance, hosts, models, observed, nodes, pods, flux};
   }
 
   static async open(browser: Browser, config: LabConfig, journal: ResourceJournal, loginOptions: RealLoginOptions = {}) {
-    requirePhase0Profile(config);
+    // Base API/identity tests do not need a usable CPU inference fixture.
+    requireSafe(config.lock && config.modelCleanupKubeconfig && config.expected.images.length >= 2,'PREREQUISITE');
     const context = await realLogin(browser, config, loginOptions);
     let live: LiveFoundation | undefined;
     try {
       const snapshot = await LiveFoundation.snapshot(context, config);
       verifyIdle(snapshot.hosts.nodes, snapshot.models, config);
-      fixtureIsAdvertised(snapshot.models, config.smokeModel!);
       const readKeys = new OwnedKeyClient(context.request, config.dashboardUrl, config.requestTimeoutMs, journal.prefix, journal.entries,
         async () => { throw new Error('Read-only baseline'); });
       const baseline = new Set((await readKeys.list()).items.map(item => item.id));
@@ -79,6 +92,28 @@ export class LiveFoundation {
       await context.close();
       throw error;
     }
+  }
+
+  /** Explicit process recovery only. No expired-holder takeover and no adoption
+   * by prefix: every surviving definition must match the recorded UID/spec generation. */
+  static async recover(browser:Browser,config:LabConfig,journal:ResourceJournal) {
+    requirePhase0Profile(config);
+    requireSafe(journal.entries.length <= 64 && journal.entries.every(e=>['model','key'].includes(e.kind)),'OWNERSHIP');
+    const context=await realLogin(browser,config);let live:LiveFoundation|undefined;
+    try {
+      const snapshot=await LiveFoundation.snapshot(context,config);
+      const ownedNames=new Set(journal.entries.filter(e=>e.kind === 'model' && e.state !== 'removed').map(e=>e.name));
+      for(const item of snapshot.models.activations.filter(a=>ownedNames.has(a.metadata?.name ?? ''))) {
+        const entry=journal.entries.find(e=>e.kind === 'model' && e.name === item.metadata?.name);
+        requireSafe(entry?.uid && entry.uid === item.metadata?.uid && entry.generation === item.metadata?.generation,'OWNERSHIP');
+      }
+      verifyIdle(snapshot.hosts.nodes,{...snapshot.models,activations:snapshot.models.activations.filter(a=>!ownedNames.has(a.metadata?.name ?? ''))},config);
+      const readKeys=new OwnedKeyClient(context.request,config.dashboardUrl,config.requestTimeoutMs,journal.prefix,journal.entries,async()=>{throw new Error('Read-only baseline');});
+      const ownedKeyIds=new Set(journal.entries.filter(e=>e.kind === 'key' && e.uid).map(e=>e.uid));
+      const baseline=new Set((await readKeys.list()).items.map(k=>k.id).filter(id=>!ownedKeyIds.has(id)));
+      live=new LiveFoundation(context,config,journal,snapshot,baseline);await live.cleaner.verifyConfiguration();
+      await live.lease.acquire();live.acquired=true;return live;
+    } catch(error) {if(live?.acquired) await live.lease.release();await context.close();throw error;}
   }
 
   guard = async () => {
@@ -98,12 +133,23 @@ export class LiveFoundation {
     return key;
   }
 
-  async createModel(suffix: string, journal = this.journal, fixture: LocalModelFixture = this.config.smokeModel!) {
+  async createModel(suffix: string, journal = this.journal, fixture: RuntimeModelFixture = this.config.smokeModel!,
+    options: {allowMemoryRisk?: boolean} = {}) {
     const name = journal.prefix + suffix;
-    await this.guard(); await journal.requested('model', name);
     const client = new OwnedModelClient(this.context.request, this.config.dashboardUrl, this.config.requestTimeoutMs,
-      name, fixture, journal.prefix, this.guard);
-    const created = await client.create();
+      name, fixture, journal.prefix, this.guard, options.allowMemoryRisk === true);
+    await this.guard(); await journal.requested('model', name);
+    let created;
+    try { created = await client.create(); }
+    catch (error) {
+      if (error instanceof ModelCreateRejected) {
+        await this.guard();
+        // Never infer ownership from a name or treat a timeout as a rejection.
+        // Independent absence is required before cleanup can skip this intent.
+        if (!(await this.cleaner.find(name))) await journal.rejected('model', name);
+      }
+      throw error;
+    }
     await journal.owned('model', name, created.uid, created.generation);
     return {client, ...created};
   }
@@ -126,10 +172,13 @@ export class LiveFoundation {
     {timeoutMs: 900_000, intervalMs: 1000, stage: 'model-ready'});
   }
 
-  async cleanup(journal = this.journal) {
+  async cleanup(journal = this.journal, only?: {kind: 'model'|'app'|'identity'|'key'; name: string}) {
     const key = this.keys.adapter();
     const model = this.cleaner.adapter(journal.prefix, name => remainingModelResources(this.observer, this.api, name), this.guard);
-    await journal.cleanup({key, model, app: key, identity: key}, this.guard);
+    const unavailable:CleanupAdapter={lookup:async()=>{throw new Error('Unregistered cleanup domain');},
+      removeIfUid:async()=>{throw new Error('Unregistered cleanup domain');},verifyRemoved:async()=>false};
+    await journal.cleanup({key, model, app: this.domainCleanup.app ?? unavailable,
+      identity: this.domainCleanup.identity ?? unavailable}, this.guard, only);
   }
 
   /** Only for a no-resource fault proof, after the exact test replacement owner
@@ -144,6 +193,8 @@ export class LiveFoundation {
   async close() {
     try {
       if (this.acquired) {
+        for(const restore of [...this.restorations].reverse())await restore();
+        this.restorations=[];
         for (const journal of [...this.journals].reverse()) await this.cleanup(journal);
         const currentIds = new Set((await this.keys.list()).items.map(item => item.id));
         requireSafe([...this.baselineKeyIds].every(id => currentIds.has(id)) && this.journals.every(journal => journal.recoveryPlan().length === 0), 'CLEANUP');

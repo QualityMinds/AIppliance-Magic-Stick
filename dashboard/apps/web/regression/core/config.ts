@@ -1,6 +1,7 @@
 import {isAbsolute, resolve} from 'node:path';
 import {readPrivate} from './private-files.ts';
 import {HarnessError, requireSafe} from './errors.ts';
+import type {FreeTokenConfiguration,RealtimeConfiguration} from '@magicstick/dashboard-contracts';
 
 export interface LocalModelFixture {
   engine: 'OLlama' | 'VLLM';
@@ -10,6 +11,33 @@ export interface LocalModelFixture {
   contextWindow: number;
   maxNumSeqs: 1;
   kvCacheType?: string;
+  realtime?: RealtimeConfiguration;
+}
+
+/** Explicit, bounded GPU fixtures. Never inherited by CPU smoke profiles. */
+export interface GpuModelFixture {
+  engine: 'OLlama' | 'VLLM' | 'FreeToken';
+  computeTarget: 'amd-gpu' | 'nvidia-gpu';
+  url: string;
+  memoryRequiredMi: number;
+  contextWindow: number;
+  maxNumSeqs: 1;
+  kvCacheType?: string;
+  freetoken?: FreeTokenConfiguration;
+  realtime?: RealtimeConfiguration;
+}
+export type RuntimeModelFixture = LocalModelFixture | GpuModelFixture;
+export interface GpuLabProfile {
+  /** Current task explicitly authorizes temporary backend transitions. */
+  acknowledgeSharingTransitions: true;
+  nodeName: string;
+  nodeUid: string;
+  bootId: string;
+  selection?:'available-providers';
+  devices: {amd?: {id: string; pciAddress: string}; nvidia?: {id: string; pciAddress: string}};
+  models: {amdOllama?: GpuModelFixture; amdVllm?: GpuModelFixture;
+    nvidiaOllama?: GpuModelFixture; nvidiaVllm?: GpuModelFixture; freetoken?: GpuModelFixture};
+  sharedSlots: 2;
 }
 
 export type ExternalModelFixture = {
@@ -25,6 +53,9 @@ export interface LabConfig {
   identityUrl: string;
   inferenceUrl?: string;
   caFile?: string;
+  /** Both a private registration and the independently observed server marker
+   * are required for live writes. Reboots do not change this identity. */
+  registrationFile?:string;
   usernameFile: string;
   passwordFile: string;
   observerKubeconfig: string;
@@ -52,6 +83,7 @@ export interface LabConfig {
     externalModel: ExternalModelFixture;
     discovery: {query: string; repo: string; artifactUrl: string};
   };
+  gpu?: GpuLabProfile;
 }
 
 function object(value: unknown): Record<string, unknown> {
@@ -108,7 +140,9 @@ export function parseLabConfig(value: unknown, directory: string): LabConfig {
     requireSafe(engines.length > 0, 'CONFIG');
     return {target: text(capability.target), engines};
   });
-  requireSafe(capabilities.length > 0, 'CONFIG');
+  // Base identity/API tests can still run when no inference runtime is ready.
+  // Only the registered automatic policy permits this partial inventory.
+  requireSafe(capabilities.length > 0 || typeof source.registrationFile === 'string', 'CONFIG');
   const images = array(expected.images ?? []).map(item => {
     const image = object(item);
     return {namespace: text(image.namespace), deployment: text(image.deployment), container: text(image.container),
@@ -164,9 +198,58 @@ export function parseLabConfig(value: unknown, directory: string): LabConfig {
       vllmModel: localModel(selection.vllmModel, 'VLLM') as NonNullable<LabConfig['phase2']>['vllmModel'],
       failureModel, externalModel, discovery: {query, repo, artifactUrl}};
   }
+  let gpu: GpuLabProfile | undefined;
+  if (source.gpu) {
+    const selection = object(source.gpu), devices = object(selection.devices), models = object(selection.models);
+    const available=selection.selection === 'available-providers' && typeof source.registrationFile === 'string';
+    requireSafe(selection.acknowledgeSharingTransitions === true && selection.sharedSlots === 2 &&
+      (available ? Object.keys(selection).sort().join(',') === 'acknowledgeSharingTransitions,bootId,devices,models,nodeName,nodeUid,selection,sharedSlots' &&
+        Object.keys(devices).length > 0 && Object.keys(devices).every(key=>['amd','nvidia'].includes(key)) &&
+        Object.keys(models).every(key=>['amdOllama','amdVllm','freetoken','nvidiaOllama','nvidiaVllm'].includes(key)) :
+      Object.keys(selection).sort().join(',') === 'acknowledgeSharingTransitions,bootId,devices,models,nodeName,nodeUid,sharedSlots' &&
+      Object.keys(devices).sort().join(',') === 'amd,nvidia' &&
+      Object.keys(models).sort().join(',') === 'amdOllama,amdVllm,freetoken,nvidiaOllama,nvidiaVllm'), 'CONFIG');
+    const device = (value: unknown) => {const d = object(value);requireSafe(Object.keys(d).sort().join(',') === 'id,pciAddress','CONFIG'); return {id: text(d.id, /^[a-zA-Z0-9._:/-]{1,255}$/),
+      pciAddress: text(d.pciAddress, /^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$/)};};
+    const gpuModel = (value: unknown, engine: GpuModelFixture['engine'], target: GpuModelFixture['computeTarget']): GpuModelFixture => {
+      const m = object(value);
+      requireSafe(m.engine === engine && m.computeTarget === target && m.maxNumSeqs === 1 &&
+        Number.isSafeInteger(m.contextWindow) && Number(m.contextWindow) >= 256 && Number(m.contextWindow) <= 4096 &&
+        Number.isSafeInteger(m.memoryRequiredMi) && Number(m.memoryRequiredMi) >= 1024 && Number(m.memoryRequiredMi) <= 32768 &&
+        Object.keys(m).every(key => ['engine','computeTarget','url','contextWindow','maxNumSeqs','memoryRequiredMi','kvCacheType','freetoken'].includes(key)), 'CONFIG');
+      const url = text(m.url, engine === 'OLlama' ? /^ollama:\/\/[a-zA-Z0-9._:/+-]{1,200}$/ : /^hf:\/\/[a-zA-Z0-9._/+-]{3,200}$/);
+      let freetoken: FreeTokenConfiguration | undefined;
+      if (engine === 'FreeToken') {
+        const f = object(m.freetoken);
+        requireSafe(target === 'nvidia-gpu' && m.kvCacheType === undefined && f.gpuCount === 1 &&
+          f.gpuDevice === `node:${selection.nodeName}` && f.memoryStrategy === 'auto' &&
+          Number.isSafeInteger(f.gpuMemoryMi) && Number(f.gpuMemoryMi) >= 1024 && Number(f.gpuMemoryMi) <= 32768 &&
+          Number.isSafeInteger(f.systemMemoryMi) && Number(f.systemMemoryMi) >= 4096 && Number(f.systemMemoryMi) <= 32768 &&
+          Number(m.memoryRequiredMi) === f.systemMemoryMi && Object.keys(object(f.advanced)).every(key => key === 'cacheType') &&
+          (object(f.advanced).cacheType === undefined || ['radix','naive'].includes(String(object(f.advanced).cacheType))) &&
+          Object.keys(f).sort().join(',') === 'advanced,gpuCount,gpuDevice,gpuMemoryMi,memoryStrategy,systemMemoryMi', 'CONFIG');
+        freetoken = {gpuDevice: String(f.gpuDevice), gpuCount:1, gpuMemoryMi:Number(f.gpuMemoryMi),
+          systemMemoryMi:Number(f.systemMemoryMi), memoryStrategy:'auto', advanced:structuredClone(f.advanced) as FreeTokenConfiguration['advanced']};
+      } else requireSafe(m.freetoken === undefined && ['f16','q8_0','auto','fp8'].includes(String(m.kvCacheType)), 'CONFIG');
+      return {engine,computeTarget:target,url,contextWindow:Number(m.contextWindow),maxNumSeqs:1,memoryRequiredMi:Number(m.memoryRequiredMi),
+        ...(freetoken ? {freetoken} : {kvCacheType:String(m.kvCacheType)})};
+    };
+    gpu = {acknowledgeSharingTransitions:true,nodeName:text(selection.nodeName),nodeUid:text(selection.nodeUid),bootId:text(selection.bootId),
+      ...(available ? {selection:'available-providers' as const} : {}),
+      devices:{...(devices.amd ? {amd:device(devices.amd)} : {}),...(devices.nvidia ? {nvidia:device(devices.nvidia)} : {})},sharedSlots:2,
+      models:{...(models.amdOllama ? {amdOllama:gpuModel(models.amdOllama,'OLlama','amd-gpu')} : {}),
+        ...(models.amdVllm ? {amdVllm:gpuModel(models.amdVllm,'VLLM','amd-gpu')} : {}),
+        ...(models.nvidiaOllama ? {nvidiaOllama:gpuModel(models.nvidiaOllama,'OLlama','nvidia-gpu')} : {}),
+        ...(models.nvidiaVllm ? {nvidiaVllm:gpuModel(models.nvidiaVllm,'VLLM','nvidia-gpu')} : {}),
+        ...(models.freetoken ? {freetoken:gpuModel(models.freetoken,'FreeToken','nvidia-gpu')} : {})}};
+    requireSafe((!models.amdOllama && !models.amdVllm || devices.amd) &&
+      (!models.nvidiaOllama && !models.nvidiaVllm && !models.freetoken || devices.nvidia),'CONFIG');
+    requireSafe(nodes.some(node => node.name === gpu!.nodeName && node.uid === gpu!.nodeUid && node.bootId === gpu!.bootId), 'CONFIG');
+  }
   return {version: 1, profile: 'preflight', dashboardUrl: hostname(source.dashboardUrl), identityUrl: hostname(source.identityUrl),
     ...(source.inferenceUrl ? {inferenceUrl: hostname(source.inferenceUrl)} : {}),
     ...(source.caFile ? {caFile: path(source.caFile, directory)} : {}),
+    ...(source.registrationFile ? {registrationFile:path(source.registrationFile,directory)} : {}),
     usernameFile: path(source.usernameFile, directory), passwordFile: path(source.passwordFile, directory),
     observerKubeconfig: path(source.observerKubeconfig, directory),
     requestTimeoutMs: timeout(source.requestTimeoutMs, 15_000, 60_000), loginTimeoutMs: timeout(source.loginTimeoutMs, 90_000, 180_000),
@@ -174,7 +257,7 @@ export function parseLabConfig(value: unknown, directory: string): LabConfig {
       applianceName: text(expected.applianceName), role: 'magicstick-admin', nodes, capabilities, images, ...(flux ? {flux} : {})},
     ...(lock ? {lock} : {}),
     ...(source.modelCleanupKubeconfig ? {modelCleanupKubeconfig: path(source.modelCleanupKubeconfig, directory)} : {}),
-    ...(smokeModel ? {smokeModel} : {}), ...(phase2 ? {phase2} : {})};
+    ...(smokeModel ? {smokeModel} : {}), ...(phase2 ? {phase2} : {}), ...(gpu ? {gpu} : {})};
 }
 
 export async function loadLabConfig(filename: string) {

@@ -46,7 +46,7 @@ export function verifyCapabilities(config: LabConfig, models: ModelsPayload) {
 
 export function verifyIdle(hosts: ManagedHost[], models: ModelsPayload, config: LabConfig) {
   const selected = new Set(config.expected.nodes.map(item => item.name));
-  const terminal = new Set(['Succeeded', 'Failed', 'Cancelled']);
+  const terminal = new Set(['Succeeded', 'Failed', 'Cancelled','RolledBack','Interrupted','Rejected']);
   requireSafe(hosts.filter(host => selected.has(host.name)).every(host => !host.updates?.busy && !host.software?.busy &&
     (!host.operation || terminal.has(host.operation.phase))), 'BUSY');
   // Phase 0 is conservative: active local definitions, even without a Pod, block it.

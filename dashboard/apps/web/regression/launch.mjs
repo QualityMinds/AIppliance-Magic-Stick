@@ -1,29 +1,40 @@
 import {spawn, execFileSync} from 'node:child_process';
-import {mkdtemp, rm, readFile, mkdir} from 'node:fs/promises';
+import {mkdtemp, rm, readFile, mkdir, lstat} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {fileURLToPath} from 'node:url';
 import {join, resolve} from 'node:path';
 import {X509Certificate} from 'node:crypto';
 import {loadLabConfig} from './core/config.ts';
 import {HarnessError, requireSafe} from './core/errors.ts';
-import {ResourceJournal, newRunId} from './core/journal.ts';
+import {ResourceJournal, newRunId, recoveryJournalPath} from './core/journal.ts';
 import {privateDirectory, writePrivate, readPrivate} from './core/private-files.ts';
-import {saveReport, stepCases} from './core/report.ts';
+import {completeCases,saveReport, stepCases,reportExitCode,summarize} from './core/report.ts';
+import {childEvidence} from './core/campaign-evidence.ts';
+import {modeDescription} from './core/case-descriptions.ts';
 import {phase0Ids, requirePhase0Profile} from './profiles/phase0-p0.ts';
 import {phase1Ids, phase1FastVariants, requirePhase1Profile} from './profiles/phase1-p0.ts';
 import {phase2Ids, phase2FastVariants, phase2FixtureVariants, phase2ModelIds, phase2ModelCases, requirePhase2Profile} from './profiles/phase2-p0.ts';
 import {phaseSteps} from './profiles/selections.ts';
+import {gpuModeIds,requireGpuProfile,phase4SharingCases} from './profiles/gpu-p0.ts';
+import {remainingIds,remainingPhase,hostDrillIds} from './profiles/remaining-p0.ts';
+import {recipeBundle} from './core/host-drill-recipes.ts';
+import {preparationArguments} from './core/input-preparation.ts';
+import {verifyHostContinuation} from './core/setup-suite.ts';
 
 process.umask(0o077);
 process.chdir(fileURLToPath(new URL('..', import.meta.url)));
 const mode = process.argv[2], runId = newRunId();
 const modelCase = mode === 'phase2-models' ? process.argv[3] : undefined;
 const selectedModelCase = modelCase && Object.hasOwn(phase2ModelCases, modelCase) ? phase2ModelCases[modelCase] : undefined;
+const gpuCase = mode === 'phase4-sharing' ? process.argv[3] : undefined;
+const selectedGpuCase = gpuCase && Object.hasOwn(phase4SharingCases,gpuCase) ? phase4SharingCases[gpuCase] : undefined;
+const hostCase = mode === 'phase6-drill' ? process.argv[3] : undefined;
 const output = resolve(process.env.REGRESSION_OUTPUT_DIR ?? '.regression/runs');
 const directory = join(output, runId);
 const playwrightCli = resolve('node_modules/@playwright/test/cli.js');
 const typeScriptCli = resolve('node_modules/typescript/bin/tsc');
-const required = mode === 'phase2' ? phase2Ids : mode === 'phase2-fast' ? [...new Set(Object.values(phase2FastVariants).map(item => item.id))] :
+// Invalid drill arguments are handled by the redacted reporting path below.
+const required = (mode === 'phase6-drill' ? hostDrillIds.includes(hostCase) ? [hostCase] : [] : remainingIds(mode)) ?? gpuModeIds(mode,selectedGpuCase ? gpuCase : undefined) ?? (mode === 'phase2' ? phase2Ids : mode === 'phase2-fast' ? [...new Set(Object.values(phase2FastVariants).map(item => item.id))] :
   mode === 'phase2-fixtures' ? [...new Set(Object.values(phase2FixtureVariants).map(item => item.id))] : mode === 'phase2-readonly' ? ['DISC-03'] :
   mode === 'phase2-models' ? selectedModelCase?.ids ?? phase2ModelIds :
   mode === 'phase2-faults' ? ['LIFE-12', 'NAV-06'] :
@@ -34,37 +45,70 @@ const required = mode === 'phase2' ? phase2Ids : mode === 'phase2-fast' ? [...ne
   mode === 'locktest' ? ['HAR-04', 'HAR-08', 'HAR-09'] : mode === 'ownedtest' ? ['HAR-05', 'HAR-06', 'HAR-07'] :
   mode === 'smoke' ? ['LIFE-01', 'ROUTE-01', 'LIFE-03', 'LIFE-04', 'LIFE-06'] :
   mode === 'model-edit' ? ['LIFE-01', 'ROUTE-01', 'LIFE-08', 'LIFE-07', 'LIFE-09', 'LIFE-03', 'LIFE-04', 'LIFE-06'] :
-  mode === 'recover' ? ['HAR-07'] : ['HAR-01', 'HAR-02', 'HAR-03'];
-let home, child;
+  mode === 'gpu-recover' ? ['HAR-07','HAR-08'] : mode === 'recover' ? ['HAR-07'] : ['HAR-01', 'HAR-02', 'HAR-03']);
+let home, child, interruptedSignal;
+const phaseIds=phase=>phase === 0 ? phase0Ids : phase === 1 ? phase1Ids : phase === 2 ? phase2Ids :
+  gpuModeIds(`phase${phase}`) ?? remainingIds(`phase${phase}`) ?? [];
+async function waitChild(current) {
+  const forward=signal=>{interruptedSignal=signal;current.kill(signal);};
+  const interrupt=()=>forward('SIGINT'),terminate=()=>forward('SIGTERM');
+  process.once('SIGINT',interrupt);process.once('SIGTERM',terminate);
+  try {return await new Promise(resolveExit=>{
+    current.once('error',()=>resolveExit(1));current.once('close',(code,signal)=>resolveExit(signal ? 2 : code ?? 1));
+  });} finally {process.removeListener('SIGINT',interrupt);process.removeListener('SIGTERM',terminate);}
+}
 
 try {
-  requireSafe(['selftest', 'phase0', 'phase1', 'phase2', 'phase2-fast', 'phase2-fixtures', 'phase2-readonly',
+  requireSafe([...['5','6','7','8'].flatMap(phase=>[`phase${phase}`,`phase${phase}-fast`,`phase${phase}-fixtures`,`phase${phase}-live`]),'all','selftest', 'phase0', 'phase1', 'phase2','phase3','phase4','phase3-fast','phase4-fast','phase3-fixtures','phase4-fixtures','phase3-gpu','phase3-validation','phase4-sharing', 'phase2-fast', 'phase2-fixtures', 'phase2-readonly',
     'phase2-models', 'phase2-faults', 'smoke-fast', 'smoke-fixtures', 'session-smoke', 'core-smoke', 'foundations',
-    'preflight', 'locktest', 'ownedtest', 'smoke', 'model-edit', 'recover', 'typecheck', 'cleanup-plan'].includes(mode), 'CONFIG');
+    'phase6-drill','preflight', 'locktest', 'ownedtest', 'smoke', 'model-edit', 'recover','gpu-recover', 'typecheck', 'cleanup-plan'].includes(mode), 'CONFIG');
   requireSafe(!modelCase || Boolean(selectedModelCase), 'CONFIG');
+  requireSafe(!gpuCase || Boolean(selectedGpuCase), 'CONFIG');
+  requireSafe(mode !== 'phase6-drill' || hostDrillIds.includes(hostCase),'CONFIG');
+  requireSafe(!process.env.REGRESSION_REMAINING_CASE || mode === 'phase6-drill','CONFIG');
+  if(hostCase)process.env.REGRESSION_REMAINING_CASE=hostCase;
   await privateDirectory(output); await privateDirectory(directory);
   const environment = {...process.env, REGRESSION_MODE: mode, REGRESSION_RUN_ID: runId, REGRESSION_RUN_DIR: directory,
-    REGRESSION_MODEL_CASE: selectedModelCase ? modelCase : ''};
+    REGRESSION_MODEL_CASE: selectedModelCase ? modelCase : '', REGRESSION_GPU_CASE: selectedGpuCase ? gpuCase : '',
+    REGRESSION_REMAINING_CASE:hostCase ?? ''};
   home = await mkdtemp(join(tmpdir(), 'magicstick-browser-'));
   if (process.platform === 'linux') environment.HOME = home;
-  if (['phase0', 'phase1', 'phase2', 'phase2-readonly', 'phase2-models', 'phase2-faults', 'session-smoke',
-    'core-smoke', 'foundations', 'preflight', 'locktest', 'ownedtest', 'smoke', 'model-edit', 'recover', 'cleanup-plan'].includes(mode)) {
+  const aggregate=mode === 'all' || Object.hasOwn(phaseSteps,mode);
+  if (!aggregate && ((remainingPhase(mode) && !/(?:-fast|-fixtures)$/.test(mode)) || ['phase3-gpu','phase3-validation','phase4-sharing', 'phase2-readonly', 'phase2-models', 'phase2-faults', 'session-smoke',
+    'core-smoke', 'foundations', 'preflight', 'locktest', 'ownedtest', 'smoke', 'model-edit', 'recover','gpu-recover', 'cleanup-plan'].includes(mode))) {
     requireSafe(process.env.REGRESSION_CONFIG, 'CONFIG');
+    requireSafe(!process.env.REGRESSION_PREPARATION_FAILED,'PREREQUISITE');
+    requireSafe(!process.env.REGRESSION_RECOVERY_FENCE,'RECOVERY');
+    // An interrupted multi-file input acceptance must never run a partly
+    // updated live profile. Fixtures remain independent of private inputs.
+    for(const name of ['.preparation-accepting.json','.setup-access-restore.json','.setup-bootstrap.kubeconfig',
+        '.setup-license-trust-pending.json','.setup-license-activation-pending.json','.setup-model-stops.json','.setup-module-fixture.json']) {
+        try {await lstat(resolve(process.env.REGRESSION_INPUT_DIR ?? '/inputs',name));throw new HarnessError('CONFIG');}
+        catch(error){if(error.code !== 'ENOENT')throw error;}
+    }
     const config = await loadLabConfig(process.env.REGRESSION_CONFIG);
+    if(['phase6-live','phase6-drill'].includes(mode) && process.env.REGRESSION_HOST_DRILLS_FILE) {
+      let drills;try{drills=JSON.parse(await readPrivate(process.env.REGRESSION_HOST_DRILLS_FILE));}catch{/* Still blocked at the actual drill. */}
+      if(drills?.version === 2) {
+        recipeBundle(drills,config.expected.applianceUid,drills.nodeUid);
+        environment.REGRESSION_HOST_DRILLS='approved';
+      }
+    }
     if (mode === 'phase0' || mode === 'foundations') requirePhase0Profile(config);
     if (['phase1', 'core-smoke', 'session-smoke'].includes(mode)) requirePhase1Profile(config);
     if (['phase2', 'phase2-readonly', 'phase2-models', 'phase2-faults'].includes(mode)) requirePhase2Profile(config);
+    if (['phase3','phase4','phase3-gpu','phase3-validation','phase4-sharing','gpu-recover'].includes(mode)) requireGpuProfile(config);
     if (mode === 'cleanup-plan') {
       requireSafe(process.argv[3], 'CONFIG');
       const journal = await ResourceJournal.resume(resolve(process.argv[3]), config.expected.applianceUid);
       await writePrivate(join(directory, 'recovery-plan.json'), {version: 1, runId: journal.runId, mutationsEnabled: false, entries: journal.recoveryPlan()});
       console.log(`Read-only recovery plan saved (${journal.recoveryPlan().length} remaining entries). Nothing was removed.`);
       process.exitCode = journal.recoveryPlan().length ? 2 : 0;
-    } else if (mode === 'recover') {
+    } else if (mode === 'recover' || mode === 'gpu-recover') {
       const journalPath = process.argv[3];
-      requireSafe(typeof journalPath === 'string' && /^\/private\/runs\/reg-[0-9a-f-]{36}\/journal\.json$/.test(journalPath), 'CONFIG');
+      requireSafe(recoveryJournalPath(journalPath,mode === 'gpu-recover'), 'CONFIG');
       const recovered = await ResourceJournal.resume(journalPath, config.expected.applianceUid);
-      requireSafe(recovered.recoveryPlan().length > 0, 'CONFIG');
+      requireSafe(mode === 'gpu-recover' || recovered.recoveryPlan().length > 0, 'CONFIG');
       environment.REGRESSION_RECOVERY_JOURNAL = journalPath;
     } else {
       await ResourceJournal.create(join(directory, 'journal.json'), runId, config.expected.applianceUid);
@@ -88,55 +132,128 @@ try {
       }
     }
   }
-  if (mode === 'phase0' || mode === 'phase1' || mode === 'phase2') {
-    const config = await loadLabConfig(process.env.REGRESSION_CONFIG);
+  if(mode === 'all') {
+    let selected=[0,1,2,3,4,5,6,7,8];
+    const arguments_=process.argv.slice(3);
+    if(arguments_.length) {
+      requireSafe(arguments_.length === 2 && arguments_[0] === '--phases','CONFIG');
+      selected=preparationArguments(arguments_).phases;
+    }
+    const phases=[],collected=process.env.REGRESSION_PREPARATION_FAILED === 'Failed' ?
+      [{id:'HAR-02',outcome:'Failed',layer:'A',environment:'live',durationMs:0,reason:'API'}] : [];
+    for(const phase of selected) {
+      if(interruptedSignal)break;
+      const receipt=join(directory,'phase-result.json');await rm(receipt,{force:true});
+      console.log(`Regression campaign: Phase ${phase} P0 (isolated + installed layers).`);
+      child=spawn(process.execPath,[fileURLToPath(import.meta.url),`phase${phase}`],{stdio:'inherit',
+        env:{...environment,REGRESSION_CAMPAIGN_RESULT:receipt}});
+      const code=await waitChild(child),ids=phaseIds(phase);
+      const {result,report,recoveryFence}=await childEvidence({output,receipt,mode:`phase${phase}`,required:ids ?? [],
+        fixture:false,sourceRevision:process.env.REGRESSION_SOURCE_REVISION,cancelled:Boolean(interruptedSignal)});
+      const cases=stepCases(report.cases,code,report.acceptable === true,false);
+      if(recoveryFence)environment.REGRESSION_RECOVERY_FENCE='1';
+      if(result.continuation) {
+        try {
+          const next=await loadLabConfig(result.continuation),before=await loadLabConfig(environment.REGRESSION_CONFIG);
+          verifyHostContinuation(before,next);
+          environment.REGRESSION_CONFIG=result.continuation;
+        } catch {
+          cases.push({id:'HAR-10',outcome:'Failed',layer:'A',environment:'live',durationMs:0,reason:'RECOVERY'});
+          environment.REGRESSION_RECOVERY_FENCE='1';
+        }
+      }
+      const outcome=reportExitCode(cases);
+      phases.push({phase,runId:result.runId,state:outcome === 0 ? 'Passed' : outcome === 1 ? 'Failed' : 'Blocked',counts:summarize(ids ?? [],cases).counts});
+      collected.push(...cases);
+      await writePrivate(join(directory,'all-summary.json'),{version:1,phases,selectedPhases:selected,
+        allSelectedPhasesPassed:phases.length === selected.length && phases.every(item=>item.state === 'Passed')});
+      if(report.cases.some(item=>['CLEANUP','OWNERSHIP','CONFLICT','LOCK_LOST','LOCK_STALE','RECOVERY'].includes(item.reason)))
+        environment.REGRESSION_RECOVERY_FENCE='1';
+    }
+    if(interruptedSignal)for(const phase of selected.filter(value=>!phases.some(item=>item.phase === value))) {
+      const cases=completeCases(`phase${phase}`,[],phaseIds(phase),'CANCELLED');
+      collected.push(...cases);phases.push({phase,state:'Blocked',counts:summarize(phaseIds(phase),cases).counts});
+    }
+    const passed=phases.length === selected.length && phases.every(item=>item.state === 'Passed');
+    await writePrivate(join(directory,'all-summary.json'),{version:1,phases,selectedPhases:selected,allSelectedPhasesPassed:passed});
+    await saveReport(directory,runId,collected,[...new Set(collected.map(item=>item.id))],process.env.REGRESSION_SOURCE_REVISION,'all');
+    const counts={Passed:0,Failed:0,Blocked:0};for(const item of collected)if(Object.hasOwn(counts,item.outcome))counts[item.outcome]++;
+    await writePrivate(join(directory,'all-summary.txt'),'Magic Stick complete P0 regression\n'+
+      `Passed: ${counts.Passed}; Failed: ${counts.Failed}; Blocked: ${counts.Blocked}\n`+
+      phases.map(item=>`Phase ${item.phase}: ${item.state} (${item.runId ?? 'not executed: run cancelled'})`).join('\n')+'\nDetailed cases: summary.html; machine results: summary.json and junit.xml\n');
+    console.log('Private campaign report: '+join(directory,'all-summary.txt'));
+    process.exitCode=passed ? 0 : reportExitCode(collected);
+  } else if (Object.hasOwn(phaseSteps,mode)) {
     const collected = [], steps = [];
     const stepsToRun = phaseSteps[mode];
     for (const [index, step] of stepsToRun.entries()) {
-      const stepId = newRunId(), stepDirectory = join(output, stepId);
-      await privateDirectory(stepDirectory);
-      if (!['selftest', 'smoke-fast', 'smoke-fixtures', 'phase2-fast', 'phase2-fixtures'].includes(step)) await ResourceJournal.create(join(stepDirectory, 'journal.json'), stepId, config.expected.applianceUid);
+      if(interruptedSignal)break;
+      const fixture = step === 'selftest' || /(?:-fast|-fixtures)$/.test(step);
+      const receipt=join(directory,'phase-result.json');await rm(receipt,{force:true});
       console.log(`Phase ${mode.slice(-1)} P0 step ${index + 1}/${stepsToRun.length}: ${step}`);
-      child = spawn(process.execPath, [playwrightCli, 'test', '--config', 'regression/playwright.config.ts'], {
-        env: {...environment, REGRESSION_MODE: step, REGRESSION_RUN_ID: stepId, REGRESSION_RUN_DIR: stepDirectory}, stdio: 'inherit',
+      console.log(`  ${modeDescription(step)}`);
+      child = spawn(process.execPath, [fileURLToPath(import.meta.url),step], {
+        env: {...environment,REGRESSION_CAMPAIGN_RESULT:receipt}, stdio: 'inherit',
       });
-      const stop = signal => child?.kill(signal);
-      process.once('SIGINT', stop); process.once('SIGTERM', stop);
-      const exit = await new Promise(resolveExit => {
-        child.once('error', () => resolveExit(2));
-        child.once('close', (code, signal) => resolveExit(signal ? 2 : code ?? 2));
-      });
-      process.removeListener('SIGINT', stop); process.removeListener('SIGTERM', stop);
-      const report = JSON.parse(await readPrivate(join(stepDirectory, 'summary.json')));
-      requireSafe(Array.isArray(report.cases), 'CONFIG');
+      const exit=await waitChild(child);
+      const {result,report,recoveryFence}=await childEvidence({output,receipt,mode:step,required:[],fixture,
+        sourceRevision:process.env.REGRESSION_SOURCE_REVISION,cancelled:Boolean(interruptedSignal)});
+      if(recoveryFence)environment.REGRESSION_RECOVERY_FENCE='1';
       collected.push(...stepCases(report.cases.map(item => index === stepsToRun.length - 1 && item.variant === 'idle-baseline' ?
         {...item, variant: 'final-idle'} : item), exit, report.acceptable === true,
-      ['selftest', 'smoke-fast', 'smoke-fixtures', 'phase2-fast', 'phase2-fixtures'].includes(step)));
-      steps.push({mode: step, runId: stepId, passed: exit === 0 && report.acceptable === true});
+      fixture));
+      let continued=true;
+      if(report.cases.some(item=>['CLEANUP','OWNERSHIP','CONFLICT','LOCK_LOST','LOCK_STALE','RECOVERY'].includes(item.reason)))environment.REGRESSION_RECOVERY_FENCE='1';
+      if(result.continuation) {
+        try {
+          const next=result.continuation,continued=await loadLabConfig(next);
+          verifyHostContinuation(await loadLabConfig(environment.REGRESSION_CONFIG),continued);
+          environment.REGRESSION_CONFIG=next;
+          await writePrivate(join(directory,'post-drill-lab.json'),continued,true);
+        } catch {
+          continued=false;
+          collected.push({id:'HAR-10',outcome:'Failed',layer:'A',environment:'live',durationMs:0,reason:'RECOVERY'});
+          environment.REGRESSION_RECOVERY_FENCE='1';
+        }
+      }
+      steps.push({mode: step, runId: result.runId, passed: exit === 0 && report.acceptable === true && continued});
       await writePrivate(join(directory, 'steps.json'), steps);
-      if (exit !== 0 || report.acceptable !== true) break;
     }
-    const report = await saveReport(directory, runId, collected, required, process.env.REGRESSION_SOURCE_REVISION, mode);
+    const report = await saveReport(directory, runId, interruptedSignal ? completeCases(mode,collected,required,'CANCELLED') : collected,
+      required, process.env.REGRESSION_SOURCE_REVISION, mode);
     console.log(`Private Phase ${mode.slice(-1)} P0 report: ${join(directory, 'summary.txt')}`);
-    process.exitCode = (mode === 'phase0' ? report.fullPhase0Accepted : mode === 'phase1' ? report.fullPhase1Accepted : report.fullPhase2Accepted) ? 0 : 2;
+    const summary=JSON.parse(await readPrivate(join(directory,'summary.json')));
+    process.exitCode = (mode === 'phase4' ? report.installedPhase4Accepted : report[`fullPhase${mode.slice(-1)}Accepted`]) ? 0 : reportExitCode(summary.cases);
   } else if (mode !== 'cleanup-plan') {
     const arguments_ = mode === 'typecheck' ? [typeScriptCli, '-p', 'regression/tsconfig.json'] :
       [playwrightCli, 'test', '--config', 'regression/playwright.config.ts',
-        ...(selectedModelCase ? ['--grep', selectedModelCase.grep] : [])];
+        ...(selectedModelCase ? ['--grep', selectedModelCase.grep] : selectedGpuCase ? ['--grep',selectedGpuCase.grep] : [])];
     child = spawn(process.execPath, arguments_, {env: environment, stdio: 'inherit'});
-    for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => child?.kill(signal));
-    process.exitCode = await new Promise(resolveExit => {
-      child.once('error', () => resolveExit(2));
-      child.once('close', (code, signal) => resolveExit(signal ? 2 : code ?? 2));
-    });
+    process.exitCode=await waitChild(child);
+    if(mode !== 'typecheck') {
+      const report=JSON.parse(await readPrivate(join(directory,'summary.json')));
+      process.exitCode=reportExitCode(stepCases(report.cases,process.exitCode,report.acceptable === true,
+        mode === 'selftest' || /(?:-fast|-fixtures)$/.test(mode)));
+    }
   }
 } catch (error) {
   const reason = error instanceof HarnessError ? error.code : 'UNEXPECTED';
-  console.error(new HarnessError(reason).message);
+  const outcome=error instanceof HarnessError ? error.outcome : 'Failed';
+  console.error(new HarnessError(reason,outcome).message);
   try {
-    await saveReport(directory, runId, required.map(id => ({id, outcome: 'Blocked', layer: 'A', environment: 'live', durationMs: 0, reason})), required,
+    await saveReport(directory, runId, required.map(id => ({id, outcome, layer: 'A', environment: 'live', durationMs: 0, reason})), required,
       process.env.REGRESSION_SOURCE_REVISION, mode);
     console.log(`Private report: ${join(directory, 'summary.txt')}`);
   } catch { console.error('A safe report could not be written; check private-directory permissions.'); }
-  process.exitCode = 2;
-} finally { if (home) await rm(home, {recursive: true, force: true, maxRetries: 5, retryDelay: 100}); }
+  process.exitCode = outcome === 'Failed' ? 1 : 2;
+} finally {
+  if(process.env.REGRESSION_CAMPAIGN_RESULT)try{
+    const receipt=resolve(process.env.REGRESSION_CAMPAIGN_RESULT);
+    requireSafe(receipt.startsWith(output+'/') && receipt.endsWith('/phase-result.json'),'PRIVATE_FILE');
+    let continuation;
+    const next=join(directory,'post-drill-lab.json');
+    try{await readPrivate(next);continuation=next;}catch{/* No verified host transition in this phase. */}
+    await writePrivate(receipt,{version:1,mode,runId,directory,exitCode:process.exitCode ?? 0,...(continuation ? {continuation} : {})});
+  }catch{process.exitCode=2;}
+  if (home) await rm(home, {recursive: true, force: true, maxRetries: 5, retryDelay: 100});
+}

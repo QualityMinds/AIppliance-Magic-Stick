@@ -20,14 +20,16 @@ export class LabLease {
   private readonly store: LeaseStore;
   private readonly targetUid: string;
   private readonly now: () => number;
-  private readonly durationSeconds: number;
+  private durationSeconds: number;
+  private readonly ordinaryDurationSeconds: number;
+  private offlineReserved = false;
   private held = false;
   private fenced = false;
   private lastHeartbeat = 0;
   constructor(store: LeaseStore, owner: string, targetUid: string,
     now: () => number = Date.now, durationSeconds = 60) {
     this.store = store; this.owner = owner; this.targetUid = targetUid;
-    this.now = now; this.durationSeconds = durationSeconds;
+    this.now = now; this.durationSeconds = durationSeconds; this.ordinaryDurationSeconds = durationSeconds;
   }
 
   private validate(lease: Lease) {
@@ -70,6 +72,29 @@ export class LabLease {
     }
     catch { this.held = false; this.fenced = true; throw new HarnessError('LOCK_LOST'); }
     this.lastHeartbeat = this.now();
+  }
+  /** A maintenance test may reserve one bounded outage BEFORE its write. This
+   * is a CAS of our unexpired lease, never takeover or revival after an outage.
+   * Offline observation is read-only; mutations resume only after assertHeld. */
+  async reserveOfflineWindow(seconds: number) {
+    requireSafe(!this.offlineReserved && Number.isInteger(seconds) && seconds >= this.ordinaryDurationSeconds && seconds <= 2100, 'CONFIG');
+    await this.resize(seconds);
+    this.offlineReserved = true;
+  }
+  async finishOfflineWindow() {
+    requireSafe(this.offlineReserved, 'CONFIG');
+    await this.resize(this.ordinaryDurationSeconds);
+    this.offlineReserved = false;
+  }
+  private async resize(seconds: number) {
+    await this.assertHeld();
+    try {
+      const lease = await this.store.read(); this.validate(lease);
+      requireSafe(lease.spec.holderIdentity === this.owner && lease.spec.leaseDurationSeconds === this.durationSeconds &&
+        this.now() < Date.parse(lease.spec.renewTime!) + this.durationSeconds * 1000, 'LOCK_LOST');
+      await this.store.replace({...lease, spec: {...lease.spec, leaseDurationSeconds: seconds, renewTime: leaseTime(this.now())}});
+      this.durationSeconds = seconds; this.lastHeartbeat = this.now();
+    } catch { this.held = false; this.fenced = true; throw new HarnessError('LOCK_LOST'); }
   }
   async release() {
     await this.assertHeld();

@@ -57,6 +57,9 @@ def verify_launcher(launcher):
                 or info.get('launcherVerified') is not True
                 or info.get('transportVerified') is not True
                 or info.get('loopbackAuthVerified') is not True
+                or info.get('inferenceAuthorityVerified') is not True
+                or info.get('originHostVerified') is not True
+                or info.get('isolatedStateVerified') is not True
                 or info.get('meshInferenceVerified') is not False):
             raise ValueError('Packaged client launch checks did not pass.')
         return info
@@ -126,6 +129,12 @@ def archive_companion(bundle, output, target, revision, native_source):
             with tarfile.open(archive, 'w:gz') as tar:
                 tar.add(package, arcname=name)
     write_checksum(archive, archive.with_name(archive.name + '.sha256'))
+    with archive.open('rb') as stream:
+        archive_digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+    (output / (name + '.acceptance.json')).write_text(json.dumps({
+        'version': 1, 'sourceRevision': revision, 'platform': target,
+        'archiveSha256': archive_digest, 'launchCheck': launch_check,
+    }, indent=2) + '\n', encoding='utf-8')
     return archive
 
 
