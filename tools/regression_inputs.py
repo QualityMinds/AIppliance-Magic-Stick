@@ -33,9 +33,10 @@ from urllib.request import Request, HTTPSHandler, HTTPRedirectHandler, build_ope
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLES = ROOT / 'dashboard/apps/web/regression'
 PREPARATION_REASONS = {'TLS', 'AUTH', 'PREREQUISITE', 'IDENTITY', 'API', 'CONFIG', 'PRIVATE_FILE',
-                       'CONFLICT', 'LAB', 'LOCK_BUSY', 'LOCK_STALE', 'DEADLINE', 'UNEXPECTED'}
+                       'CONFLICT', 'LAB', 'LOCK_BUSY', 'LOCK_STALE', 'RECOVERY', 'OWNERSHIP', 'CLEANUP', 'LOCK_LOST', 'DEADLINE', 'UNEXPECTED'}
 PREPARATION_STAGES = {'request', 'tls', 'login', 'discovery', 'kubernetes-access', 'oidc-session',
-                      'bootstrap-file', 'lab-bootstrap', 'license-fixtures', 'license-validation'}
+                      'bootstrap-file', 'lab-bootstrap', 'run-recovery', 'license-fixtures', 'license-validation'}
+RECOVERED_RUN_IDS = []
 PREPARATION_DETAILS = {'ENOENT', 'EACCES', 'ENOSPC', 'TYPE_ERROR', 'SYNTAX_ERROR', 'ERR_FAILED',
                        'ERR_BLOCKED_BY_CLIENT', 'ERR_CONNECTION_REFUSED', 'ERR_NAME_NOT_RESOLVED',
                        'ERR_CERT_AUTHORITY_INVALID', 'ERR_HTTP2_PROTOCOL_ERROR'}
@@ -58,6 +59,8 @@ def preparation_status(outcome, error=None):
     if path.parent != directory or not re.fullmatch(r'\.preparation-[a-zA-Z0-9]{6}', path.name):
         raise SetupError('Invalid private preparation diagnostic destination.', code='PRIVATE_FILE')
     value = {'version': 1, 'outcome': outcome if outcome in ['Passed', 'Failed', 'Blocked'] else 'Blocked'}
+    if RECOVERED_RUN_IDS:
+        value['recoveredRunIds'] = list(RECOVERED_RUN_IDS)
     if error:
         # These fields originate only in this module's fixed diagnostic registry.
         value['reason'] = error.code if error.code in PREPARATION_REASONS else 'PREREQUISITE'
@@ -570,7 +573,7 @@ def setup_api(directory, seed, mode, reviewed=None, approve_admin=False):
         # Worker only emits fixed messages. Do not forward Docker/plugin errors:
         # users receive a deterministic setup reason, not arbitrary private data.
         result = subprocess.run([*command, 'run', '--rm', '--no-deps', '-T', 'setup-api'], env=environment,
-                                capture_output=True, text=True, timeout=900 if mode == 'stop-models' else 240)
+                                capture_output=True, text=True, timeout=900 if mode in ['stop-models', 'register', 'refresh'] else 240)
         if result.returncode:
             if (directory / '.setup-access-restore.json').exists():
                 raise SetupError('Kubernetes access restoration needs review. Run: bash tools/regression.sh setup --restore-kubernetes-access')
@@ -585,6 +588,10 @@ def setup_api(directory, seed, mode, reviewed=None, approve_admin=False):
                        'LAB': 'The registered Appliance/Node identity or immutable test-server marker could not be verified.',
                        'LOCK_BUSY': 'Another test run still owns the registered lab lease.',
                        'LOCK_STALE': 'An expired test lease remains from an interrupted run. Inspect its exact journal and recover owned resources before releasing it.',
+                       'RECOVERY': 'Automatic recovery cannot prove the previous baseline. Keep the same private run directory and inspect its recovery receipt.',
+                       'OWNERSHIP': 'An interrupted test resource has no verified UID or was replaced. Automatic cleanup refused to adopt it.',
+                       'CLEANUP': 'Automatic cleanup could not verify restoration; its recovery receipt is retained for the next attempt.',
+                       'LOCK_LOST': 'The recovery lease was lost. No further cleanup writes were allowed.',
                        'DEADLINE': 'The setup stage timed out before its result could be verified.',
                        'UNEXPECTED': 'The setup worker failed unexpectedly; check the runner bootstrap stage.'}
             # Compose may multiplex container stderr into its stdout stream.
@@ -595,7 +602,7 @@ def setup_api(directory, seed, mode, reviewed=None, approve_admin=False):
             stages = {'request': 'reading the private setup request', 'tls': 'verifying HTTPS', 'login': 'signing in',
                       'discovery': 'discovering Dashboard/API contracts', 'kubernetes-access': 'obtaining Kubernetes access',
                       'oidc-session': 'authorizing the Kubernetes OIDC session', 'bootstrap-file': 'writing the temporary bootstrap access',
-                      'lab-bootstrap': 'provisioning registered lab access', 'license-fixtures': 'preparing test licenses',
+                      'lab-bootstrap': 'provisioning registered lab access', 'run-recovery': 'recovering the exact interrupted regression run', 'license-fixtures': 'preparing test licenses',
                       'license-validation': 'verifying test-license trust'}
             details = {'ENOENT': 'A required runner file is missing.', 'EACCES': 'A required private file is not accessible.',
                        'ENOSPC': 'The runner has no free storage.', 'TYPE_ERROR': 'The setup worker encountered an invalid value.',
@@ -1570,7 +1577,13 @@ def registered_setup(directory, args):
     bootstrap_mode = 'register' if not refresh or pending else 'refresh'
     if bootstrap_mode == 'register':
         private_write(pending_path, {'version': 1, 'registrationId': registration['id']})
-    setup_api(directory, seed, bootstrap_mode, facts, approve_admin=True)
+    bootstrapped = setup_api(directory, seed, bootstrap_mode, facts, approve_admin=True)
+    recovered = bootstrapped.get('recoveredRunIds', [])
+    if not isinstance(recovered, list) or len(recovered) > 64 or any(not isinstance(item, str) or not re.fullmatch(r'reg-[0-9a-f-]{36}', item) for item in recovered):
+        raise SetupError('Invalid automatic recovery confirmation.', code='CONFIG')
+    RECOVERED_RUN_IDS.extend(item for item in recovered if item not in RECOVERED_RUN_IDS)
+    if recovered:
+        print('Previous interrupted regression run automatically restored; original failed report retained.')
     if pending_path.exists():
         private_read(pending_path)
         pending_path.unlink()

@@ -8,6 +8,7 @@ import {requireProof as requireSafe} from '../core/errors.ts';
 import {poll} from '../core/poll.ts';
 import {canonical} from '../core/borrowed-sharing.ts';
 import {BorrowedModule} from '../core/borrowed-module.ts';
+import {browserMutation} from '../core/browser-action.ts';
 
 /** An optional catalog-owned module is borrowed only from a disabled baseline.
  * Never disable identity/dashboard/runtime/GPU or a module used by an app. */
@@ -34,7 +35,7 @@ export async function modulesWorkflow(live:LiveFoundation) {
     const current=(await live.observer.list(intentResource,ns)).find(item=>item.metadata.name === prior.metadata.name);
     requireSafe(current,'OWNERSHIP');return current;
   },set:async(enabled,parameters)=>{
-    const body={parameters};return api.write({method:'POST',path:`/api/modules/${fixture.id}/${enabled ? 'enable' : 'disable'}`,body},
+    const body=enabled&&!Object.keys(parameters).length?{}:{parameters};return api.write({method:'POST',path:`/api/modules/${fixture.id}/${enabled ? 'enable' : 'disable'}`,body},
       ()=>enabled ? api.api.enableModule(fixture.id,parameters) : api.api.disableModule(fixture.id,parameters));
   }},live.guard);
   const unregister=live.registerRestoration(()=>borrowed.restore());
@@ -53,18 +54,13 @@ export async function modulesWorkflow(live:LiveFoundation) {
     if(Object.keys(fixture.parameters).length){await card.locator('summary').filter({hasText:'Configure'}).click();
       for(const [key,value] of Object.entries(fixture.parameters))await card.getByLabel(catalog.parameters!.find(item=>item.name === key)!.label ?? key,{exact:true}).fill(String(value));}
     const payload=Object.keys(fixture.parameters).length ? {parameters:fixture.parameters} : {};
-    const handler=async(route:import('@playwright/test').Route)=>{requireSafe(route.request().method() === 'POST' && JSON.stringify(route.request().postDataJSON()) === JSON.stringify(payload),'MUTATION');await live.guard();await route.continue();};
-    await page.route(live.config.dashboardUrl+`/api/modules/${fixture.id}/enable`,handler);
-    try{await borrowed.change(true,fixture.parameters,async()=>{
-      const [response]=await Promise.all([page.waitForResponse(value=>value.url() === live.config.dashboardUrl+`/api/modules/${fixture.id}/enable` &&
-        value.request().method() === 'POST'),card.getByRole('button',{name:'Enable',exact:true}).click()]);
-      await response.finished();requireSafe(response.ok(),'API');
-    });}
-    finally{await page.unroute(live.config.dashboardUrl+`/api/modules/${fixture.id}/enable`,handler);}
+    await borrowed.change(true,fixture.parameters,()=>browserMutation(page,{url:live.config.dashboardUrl+`/api/modules/${fixture.id}/enable`,
+      body:payload,timeoutMs:live.config.requestTimeoutMs,guard:live.guard},
+      ()=>card.getByRole('button',{name:'Enable',exact:true}).click({timeout:live.config.requestTimeoutMs})));
     const intent=await poll(async()=>{await live.guard();return (await live.observer.list(intentResource,ns)).find(item=>item.spec?.module === fixture.id);},
       value=>Boolean(value?.metadata.uid && value.spec?.enabled === true),{timeoutMs:30_000,intervalMs:500,stage:'model-update'});
     requireSafe(intent?.metadata.uid === prior.metadata.uid,'OWNERSHIP');
-    await poll(()=>api.api.modules(),value=>value.modules[fixture.id]?.enabled === true && value.modules[fixture.id]?.status?.phase === 'Ready',
+    await poll(async()=>{await live.guard();return api.api.modules();},value=>value.modules[fixture.id]?.enabled === true && value.modules[fixture.id]?.status?.phase === 'Ready',
       {timeoutMs:900_000,intervalMs:2000,stage:'model-ready'});
     const ready=(await api.api.modules()).modules[fixture.id]!,status=await live.api.status();
     requireSafe(JSON.stringify(ready.parameters ?? {}) === JSON.stringify(fixture.parameters) && JSON.stringify(await api.api.gpuSharing()) === sharing,'API');
@@ -75,7 +71,7 @@ export async function modulesWorkflow(live:LiveFoundation) {
   } finally {
     await page.close();
     await borrowed.restore(); unregister();
-    await poll(()=>api.api.modules(),value=>value.modules[fixture.id]?.enabled === false && ['Disabled','Suspended'].includes(value.modules[fixture.id]?.status?.phase ?? ''),
+    await poll(async()=>{await live.guard();return api.api.modules();},value=>value.modules[fixture.id]?.enabled === false && ['Disabled','Suspended'].includes(value.modules[fixture.id]?.status?.phase ?? ''),
       {timeoutMs:300_000,intervalMs:1000,stage:'cleanup'});
     requireSafe(JSON.stringify(await api.api.gpuSharing()) === sharing,'CLEANUP');
   }

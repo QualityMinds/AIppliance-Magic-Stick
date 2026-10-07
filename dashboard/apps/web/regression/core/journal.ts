@@ -94,6 +94,14 @@ export class ResourceJournal {
     requireSafe(entry?.state === 'requested' && entry.uid === null, 'OWNERSHIP');
     entry.state = 'removed'; await this.persist();
   }
+  /** Only registered recovery, after fencing/draining the prior runner and
+   * independently proving absence. An existing object without a recorded UID
+   * still cannot be adopted or deleted. */
+  async recoveredAbsent(kind:ResourceKind,name:string) {
+    const entry=this.data.entries.find(item=>item.kind===kind&&item.name===name);
+    requireSafe(entry&&['requested','blocked'].includes(entry.state)&&entry.uid===null,'OWNERSHIP');
+    entry.state='removed';await this.persist();
+  }
   /** A model spec change is journaled immediately after the API acknowledges it. */
   async modelGeneration(name: string, uid: string, previous: number, generation: number) {
     return this.generation('model',name,uid,previous,generation);

@@ -6,7 +6,8 @@ import {HarnessError,requireSafe} from './errors.ts';
 export type Provider = 'amd' | 'nvidia';
 /** A response that explicitly rejects a CAS write, never a transport timeout. */
 export class SharingWriteRejected extends HarnessError {
-  constructor(readonly httpStatus:number) {super(httpStatus === 409 ? 'CONFLICT' : 'API');}
+  readonly httpStatus:number;
+  constructor(httpStatus:number) {super(httpStatus === 409 ? 'CONFLICT' : 'API');this.httpStatus=httpStatus;}
 }
 export interface SharingSnapshot {object: KubeObject; state: GpuSharingState}
 export interface SharingAdapter {
@@ -46,8 +47,13 @@ export function sharingSpec(spec: Record<string, unknown>, request: GpuSharingRe
  * edits; status-only resourceVersion changes do not cause false conflicts.
  * An ambiguous write remains pending and is NEVER automatically adopted. */
 export class BorrowedSharing {
-  private constructor(readonly filename: string, private data: Data, private adapter: SharingAdapter,
-    private assertHeld: () => Promise<void>) {}
+  readonly filename:string;
+  private data:Data;
+  private adapter:SharingAdapter;
+  private assertHeld:()=>Promise<void>;
+  private constructor(filename:string,data:Data,adapter:SharingAdapter,assertHeld:()=>Promise<void>) {
+    this.filename=filename;this.data=data;this.adapter=adapter;this.assertHeld=assertHeld;
+  }
   get entries() {return structuredClone(this.data.entries);}
   static async create(filename: string, identity: Omit<Data,'version'|'entries'>, adapter: SharingAdapter,
     assertHeld: () => Promise<void>) {
@@ -70,6 +76,16 @@ export class BorrowedSharing {
     return new BorrowedSharing(filename,data,adapter,assertHeld);
   }
   private persist() {return writePrivate(this.filename,this.data);}
+  /** No adoption of a lost response. After recovery fencing/drain, a pending
+   * request may be cleared only at the exact last journaled spec generation. */
+  async reconcileUnchanged() {
+    for(const entry of this.data.entries)if(entry.state==='pending') {
+      await this.current(entry);entry.state='borrowed';await this.persist();
+    }
+  }
+  async verifyRecoverable() {
+    for(const entry of this.data.entries)if(entry.state!=='restored')await this.current(entry);
+  }
   private async current(entry: BorrowedEntry) {
     await this.assertHeld();
     const value = await this.adapter.read(entry.provider);

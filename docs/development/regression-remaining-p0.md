@@ -37,6 +37,13 @@ unproved cleanup blocks later live writes. Ctrl+C stops further tests.
 
 Rebuild after changing runner code. Optional subset: `all --phases 2-4`.
 
+The lock is renewed independently of browser/model waits. Browser actions have
+short deadlines; cleanup has its own bounded window. After an interruption,
+the next `all` automatically inspects and restores provably owned resources and
+recorded module/sharing settings, then releases the expired lock. Keep the same
+private directory. A running owner, missing journal or foreign revision remains
+Blocked; the report gives the reason. Original failed results are never changed.
+
 ## Results
 
 - **Passed:** the selected scenario was executed and verified.

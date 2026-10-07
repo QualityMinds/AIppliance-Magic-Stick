@@ -12,6 +12,39 @@ tests and P1 cases remain outside these profiles. The user runs the live suite
 and supplies its results; development uses short local checks instead of hours
 of unattended appliance tests and downloads.
 
+## Automatic lock lifecycle and interrupted-run recovery
+
+On the registered disposable appliance, the runner renews its Lease every
+15 seconds independently of model/status/browser waits. Lease operations are
+serialized to prevent competing renewal/maintenance CAS writes. A reserved
+physical outage suspends network renewal, but retains the bounded local expiry
+fence. Losing ownership permanently prevents new mutations.
+
+UI mutation waits use the configured request timeout (normally 15 seconds),
+not the enclosing hour-long test timeout. A cancelled page proves a write was
+not submitted only when its guarded route never forwarded it. Lost responses
+after submission remain ambiguous. Normal interruption forwards the signal and
+allows two minutes for teardown; cleanup itself has a ten-minute ceiling and
+attempts independently owned resources even if a borrowed-setting restore fails.
+
+The next `all` refresh uses the same persistent private run directory. It checks
+the server marker, expired Lease plus a 60-second drain, parent liveness or a
+completed legacy report, exact root/worker journals and every UID/generation.
+Setup operations and separate lock contenders also persist their exact Lease
+owner before acquisition, including when the acquisition reply is lost.
+Only the recovery CAS winner may delete known model/app/key/user resources or
+restore the recorded optional-module/GPU-sharing baseline. A pending request
+is cleared only after independent absence or exact unchanged-state proof.
+Private `automatic-recovery.json` records the result separately from historical
+test reports. Fresh scoped credentials are used; no administrator deletion fallback.
+
+An active runner, missing evidence, changed resource identity/revision or an
+unsupported unfinished license/federation/physical transaction stays Blocked.
+Do not erase journals or manually clear the Lease to bypass those differences.
+The isolated heartbeat/deadline/recovery tests and the no-resource live Lease
+drill are selected by `selftest`, fixture profiles and `locktest` respectively.
+These targeted checks do not establish full campaign acceptance.
+
 ## Automatic private input preparation (Phases 0–8)
 
 You no longer need to recreate JSON files before each run. The input assistant

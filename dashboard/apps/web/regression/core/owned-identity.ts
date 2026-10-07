@@ -13,8 +13,12 @@ export const ownedLocalIdentity = (user:User) => user.source === 'local' && user
 export class OwnedIdentityClient {
   readonly client:AdministrationApi;
   private readonly ids=new Map<string,string>();
-  constructor(readonly live:LiveFoundation) {
+  readonly live:LiveFoundation;
+  constructor(live:LiveFoundation,resume=false) {
+    this.live=live;
     this.client=new AdministrationApi(live.context.request,live.config.dashboardUrl,live.config.requestTimeoutMs,live.guard);
+    if(resume)for(const entry of live.journal.entries)if(entry.kind==='identity'&&entry.uid&&['owned','blocked'].includes(entry.state))
+      this.ids.set(entry.name,entry.uid);
     live.registerDomainCleanup('identity',this.adapter());
   }
   async create(suffix:string,accessLevel:'user'|'viewer'|'operator'|'admin') {

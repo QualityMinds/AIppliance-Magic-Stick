@@ -47,7 +47,11 @@ services:
     entrypoint: [node, regression/setup.mjs]
     environment:
       REGRESSION_INPUT_DIR: /inputs
+      REGRESSION_OUTPUT_DIR: /private/runs
     volumes:
       - type: bind
         source: ${REGRESSION_INPUT_DIR:?Set REGRESSION_INPUT_DIR}
         target: /inputs
+      - type: bind
+        source: ${REGRESSION_PRIVATE_DIR:?Set REGRESSION_PRIVATE_DIR}
+        target: /private

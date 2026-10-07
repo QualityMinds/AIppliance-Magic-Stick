@@ -67,7 +67,7 @@ export function blockedAction(reason:ReasonCode='PREREQUISITE') {
   if(reason === 'CANCELLED')return 'Repeat all when ready. Interrupted live mutations must prove restoration before further writes.';
   if(reason === 'LAB' || reason === 'IDENTITY')return 'Use the registered test appliance; setup is needed only when intentionally replacing that installation.';
   if(reason === 'TLS')return 'Restore connectivity or the trusted appliance certificate; the runner never disables TLS validation.';
-  if(reason === 'RECOVERY' || reason === 'LOCK_LOST' || reason === 'LOCK_STALE')return 'Restore the recorded test baseline. Do not delete a live operation or take over its Lease.';
+  if(reason === 'RECOVERY' || reason === 'LOCK_LOST' || reason === 'LOCK_STALE')return 'Repeat all with the same persistent private run directory. Automatic recovery inspects the exact previous run; missing journals or changed resources still require review. Do not delete the Lease.';
   if(reason === 'LOCK_BUSY' || reason === 'BUSY')return 'Wait for the other run or host operation to finish; then repeat all.';
   if(reason === 'CAPABILITY')return 'Supply the missing real hardware/runtime; available providers are tested independently.';
   return 'See the automatic preparation report for the missing external prerequisite; no approval form or manual test JSON is required.';
@@ -197,7 +197,7 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     '<title>Magic Stick regression results</title><style>body{font:16px system-ui;max-width:1100px;margin:2rem auto;padding:1rem}'+
     'table{border-collapse:collapse;width:100%}td,th{padding:.6rem;border-bottom:1px solid #ddd;text-align:left}'+
     '.Passed{color:#087343}.Failed{color:#b42030}.Blocked{color:#906100}</style><h1>Regression results</h1>'+
-    (prepared ? `<p>${xml(preparationDescription(prepared))} ${xml(reasons[prepared.reason ?? 'PREREQUISITE'])}</p>` : '')+
+    (prepared ? `<p>${xml(preparationDescription(prepared))}${prepared.outcome==='Passed'?'':' '+xml(reasons[prepared.reason ?? 'PREREQUISITE'])}</p>` : '')+
     `<p>Excluded experimental engine tests: ${xml(disabledExperimentalEngines.join(', '))}. Product engines are unchanged.</p>`+
     `<p>Recorded executable scenarios: ${executionCounts.Passed} passed · ${executionCounts.Failed} failed · ${executionCounts.Blocked} blocked. ${safe.filter(item=>!item.executionId).length} evidence rows have no executable scenario ID (missing or legacy evidence).</p>`+
     `<p>Evidence rows (case × variant × layer): ${summary.counts.Passed} passed · ${summary.counts.Failed} failed · ${summary.counts.Blocked} blocked.</p>`+

@@ -70,8 +70,12 @@ export class GpuScenario {
   readonly inference:InferenceProbe;
   readonly sharing:BorrowedSharing;
   readonly originalModels:Array<{name:string;uid:string;generation:number;spec:unknown}>;
-  private constructor(readonly live:LiveFoundation,sharing:BorrowedSharing,inference:InferenceProbe,
-    readonly allowed:ExactDashboardRequest[],readonly directory:string) {
+  readonly live:LiveFoundation;
+  readonly allowed:ExactDashboardRequest[];
+  readonly directory:string;
+  private constructor(live:LiveFoundation,sharing:BorrowedSharing,inference:InferenceProbe,
+    allowed:ExactDashboardRequest[],directory:string) {
+    this.live=live;this.allowed=allowed;this.directory=directory;
     this.config = live.config; this.sharing = sharing; this.inference = inference;
     this.originalModels = live.snapshot.models.activations.map(item => ({name:item.metadata!.name!,uid:item.metadata!.uid!,
       generation:item.metadata!.generation!,spec:structuredClone(item.spec)}));

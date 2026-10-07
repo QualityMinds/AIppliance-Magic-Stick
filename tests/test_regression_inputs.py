@@ -579,6 +579,16 @@ class RegressionInputTests(unittest.TestCase):
             self.assertEqual(setup.main(['--refresh']), 0)
         self.assertEqual(json.loads(setup.private_read(output)), {'version': 1, 'outcome': 'Passed'})
 
+    def test_refresh_reports_reviewed_automatic_recovery_without_hiding_failed_outcomes(self):
+        output = self.root / '.preparation-ABC123'
+        run_id = 'reg-11111111-1111-4111-8111-111111111111'
+        environment = {'REGRESSION_PRIVATE_DIR': str(self.root), 'REGRESSION_PREPARATION_STATUS_FILE': str(output)}
+        with patch.dict(os.environ, environment), patch.object(setup, 'RECOVERED_RUN_IDS', [run_id]):
+            setup.preparation_status('Passed')
+        self.assertEqual(json.loads(setup.private_read(output)),
+                         {'version': 1, 'outcome': 'Passed', 'recoveredRunIds': [run_id]})
+        self.assertEqual(stat.S_IMODE(output.stat().st_mode), 0o600)
+
     def test_refresh_diagnostic_cannot_write_outside_private_attempt_path(self):
         for filename in ['summary.json', '.preparation-../../other', '.preparation-ABC1234']:
             with self.subTest(filename=filename), patch.dict(os.environ, {'REGRESSION_PRIVATE_DIR': str(self.root),

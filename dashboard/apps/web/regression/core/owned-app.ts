@@ -56,7 +56,10 @@ export class OwnedAppClient {
   readonly api:AdministrationApi;
   readonly permits:ExactDashboardRequest[]=[];
   private readonly owned=new Map<string,{uid:string;generation:number}>();
-  constructor(readonly live:LiveFoundation,readonly cleaner:AppCleaner) {
+  readonly live:LiveFoundation;
+  readonly cleaner:AppCleaner;
+  constructor(live:LiveFoundation,cleaner:AppCleaner) {
+    this.live=live;this.cleaner=cleaner;
     this.api=new AdministrationApi(live.context.request,live.config.dashboardUrl,live.config.requestTimeoutMs,live.guard);
     live.registerDomainCleanup('app',{
       lookup:async entry=>{const item=await cleaner.find(entry.name);return item?.metadata.uid ? {uid:item.metadata.uid} : null;},

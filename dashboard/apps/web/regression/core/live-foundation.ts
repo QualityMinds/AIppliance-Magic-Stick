@@ -13,6 +13,7 @@ import {requirePhase0Profile} from '../profiles/phase0-p0.ts';
 import {poll} from './poll.ts';
 import {requireSafe} from './errors.ts';
 import {registeredLab} from './lab-policy.ts';
+import {HeartbeatLoop,bounded} from './run-lifecycle.ts';
 
 /** Shared foundation adapter: no GPU, host-maintenance or product-setting writes. */
 export class LiveFoundation {
@@ -36,6 +37,8 @@ export class LiveFoundation {
   private beatAt = Date.now();
   private beat: Promise<void> | undefined;
   private acquired = false;
+  private heartbeat?:HeartbeatLoop;
+  private retired=false;
   private readonly domainCleanup:Partial<Record<'app'|'identity',CleanupAdapter>>={};
 
   registerDomainCleanup(kind:'app'|'identity',adapter:CleanupAdapter) {
@@ -85,7 +88,10 @@ export class LiveFoundation {
       const baseline = new Set((await readKeys.list()).items.map(item => item.id));
       live = new LiveFoundation(context, config, journal, snapshot, baseline);
       await live.cleaner.verifyConfiguration();
-      await live.lease.acquire(); live.acquired = true;
+      await live.lease.acquire(process.env.REGRESSION_RUN_ID); live.acquired = true;
+      context.setDefaultTimeout(config.requestTimeoutMs);
+      context.setDefaultNavigationTimeout(config.requestTimeoutMs);
+      live.heartbeat=new HeartbeatLoop(()=>live!.lease.backgroundHeartbeat()).start();
       return live;
     } catch (error) {
       if (live?.acquired) await live.lease.release();
@@ -112,11 +118,15 @@ export class LiveFoundation {
       const ownedKeyIds=new Set(journal.entries.filter(e=>e.kind === 'key' && e.uid).map(e=>e.uid));
       const baseline=new Set((await readKeys.list()).items.map(k=>k.id).filter(id=>!ownedKeyIds.has(id)));
       live=new LiveFoundation(context,config,journal,snapshot,baseline);await live.cleaner.verifyConfiguration();
-      await live.lease.acquire();live.acquired=true;return live;
+      await live.lease.acquire(process.env.REGRESSION_RUN_ID);live.acquired=true;
+      context.setDefaultTimeout(config.requestTimeoutMs);context.setDefaultNavigationTimeout(config.requestTimeoutMs);
+      live.heartbeat=new HeartbeatLoop(()=>live!.lease.backgroundHeartbeat()).start();return live;
     } catch(error) {if(live?.acquired) await live.lease.release();await context.close();throw error;}
   }
 
   guard = async () => {
+    requireSafe(!this.retired,'LOCK_LOST');
+    this.heartbeat?.check();
     if (this.beat) return this.beat;
     this.beat = (async () => {
       if (Date.now() - this.beatAt > 15_000) { await this.lease.heartbeat(); this.beatAt = Date.now(); }
@@ -193,13 +203,18 @@ export class LiveFoundation {
   async close() {
     try {
       if (this.acquired) {
-        for(const restore of [...this.restorations].reverse())await restore();
-        this.restorations=[];
-        for (const journal of [...this.journals].reverse()) await this.cleanup(journal);
-        const currentIds = new Set((await this.keys.list()).items.map(item => item.id));
-        requireSafe([...this.baselineKeyIds].every(id => currentIds.has(id)) && this.journals.every(journal => journal.recoveryPlan().length === 0), 'CLEANUP');
-        await this.lease.release(); this.acquired = false;
+        await bounded(async()=>{
+          let failed=false;
+          for(const restore of [...this.restorations].reverse())try{await restore();}catch{failed=true;}
+          if(!failed)this.restorations=[];
+          // A failed borrowed restore must not skip independently owned cleanup.
+          for(const journal of [...this.journals].reverse())try{await this.cleanup(journal);}catch{failed=true;}
+          requireSafe(!failed,'CLEANUP');
+          const currentIds = new Set((await this.keys.list()).items.map(item => item.id));
+          requireSafe([...this.baselineKeyIds].every(id => currentIds.has(id)) && this.journals.every(journal => journal.recoveryPlan().length === 0), 'CLEANUP');
+          await this.lease.release(); this.acquired = false;
+        },600_000,'cleanup',async()=>{this.retired=true;await this.context.close();});
       }
-    } finally { await this.context.close(); }
+    } finally {this.retired=true;await this.heartbeat?.stop();await this.context.close();}
   }
 }

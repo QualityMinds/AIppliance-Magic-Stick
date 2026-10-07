@@ -21,6 +21,7 @@ import {recipeBundle} from './core/host-drill-recipes.ts';
 import {preparationArguments} from './core/input-preparation.ts';
 import {verifyHostContinuation} from './core/setup-suite.ts';
 import {preparationDiagnostic, requirePreparation, preparationDescription} from './core/preparation-diagnostic.ts';
+import {runnerSession} from './core/runner-session.ts';
 
 process.umask(0o077);
 process.chdir(fileURLToPath(new URL('..', import.meta.url)));
@@ -44,20 +45,25 @@ const required = (mode === 'phase6-drill' ? hostDrillIds.includes(hostCase) ? [h
   mode === 'smoke-fast' ? [...new Set(Object.values(phase1FastVariants))] :
   mode === 'core-smoke' || mode === 'smoke-fixtures' ? phase1Ids :
   mode === 'phase0' ? phase0Ids : mode === 'foundations' ? ['HAR-02', 'HAR-03', 'HAR-04', 'HAR-05', 'HAR-06', 'HAR-07', 'HAR-09'] :
-  mode === 'locktest' ? ['HAR-04', 'HAR-08', 'HAR-09'] : mode === 'ownedtest' ? ['HAR-05', 'HAR-06', 'HAR-07'] :
+  mode === 'locktest' ? ['HAR-04', 'HAR-07', 'HAR-08', 'HAR-09'] : mode === 'ownedtest' ? ['HAR-05', 'HAR-06', 'HAR-07'] :
   mode === 'smoke' ? ['LIFE-01', 'ROUTE-01', 'LIFE-03', 'LIFE-04', 'LIFE-06'] :
   mode === 'model-edit' ? ['LIFE-01', 'ROUTE-01', 'LIFE-08', 'LIFE-07', 'LIFE-09', 'LIFE-03', 'LIFE-04', 'LIFE-06'] :
   mode === 'gpu-recover' ? ['HAR-07','HAR-08'] : mode === 'recover' ? ['HAR-07'] : ['HAR-01', 'HAR-02', 'HAR-03']);
-let home, child, interruptedSignal;
+let home, child, interruptedSignal, session;
 const phaseIds=phase=>phase === 0 ? phase0Ids : phase === 1 ? phase1Ids : phase === 2 ? phase2Ids :
   gpuModeIds(`phase${phase}`) ?? remainingIds(`phase${phase}`) ?? [];
 async function waitChild(current) {
-  const forward=signal=>{interruptedSignal=signal;current.kill(signal);};
+  let force;
+  const forward=signal=>{interruptedSignal=signal;current.kill(signal);
+    // Allow teardown its own window; a second signal or expired grace kills
+    // the worker. The next invocation uses the durable recovery receipts.
+    if(force)current.kill('SIGKILL');else force=setTimeout(()=>current.kill('SIGKILL'),120_000);
+  };
   const interrupt=()=>forward('SIGINT'),terminate=()=>forward('SIGTERM');
-  process.once('SIGINT',interrupt);process.once('SIGTERM',terminate);
+  process.on('SIGINT',interrupt);process.on('SIGTERM',terminate);
   try {return await new Promise(resolveExit=>{
     current.once('error',()=>resolveExit(1));current.once('close',(code,signal)=>resolveExit(signal ? 2 : code ?? 1));
-  });} finally {process.removeListener('SIGINT',interrupt);process.removeListener('SIGTERM',terminate);}
+  });} finally {clearTimeout(force);process.removeListener('SIGINT',interrupt);process.removeListener('SIGTERM',terminate);}
 }
 
 try {
@@ -118,6 +124,7 @@ try {
     } else {
       await ResourceJournal.create(join(directory, 'journal.json'), runId, config.expected.applianceUid);
     }
+    if(mode!=='cleanup-plan')session=await runnerSession(directory,runId,config.expected.applianceUid);
     if (mode !== 'cleanup-plan') {
       if (config.caFile) {
         requireSafe(process.platform === 'linux', 'CONFIG');
@@ -256,6 +263,7 @@ try {
   } catch { console.error('A safe report could not be written; check private-directory permissions.'); }
   process.exitCode = outcome === 'Failed' ? 1 : 2;
 } finally {
+  if(session)try{await session.finish(Boolean(interruptedSignal));}catch{process.exitCode=2;}
   if(process.env.REGRESSION_CAMPAIGN_RESULT)try{
     const receipt=resolve(process.env.REGRESSION_CAMPAIGN_RESULT);
     requireSafe(receipt.startsWith(output+'/') && receipt.endsWith('/phase-result.json'),'PRIVATE_FILE');

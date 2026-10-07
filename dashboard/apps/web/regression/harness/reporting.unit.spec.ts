@@ -54,6 +54,21 @@ test('HAR-02 HAR-10 HAR-11 failed refresh reason and setup stage survive aggrega
   } finally { await rm(directory, {recursive: true, force: true}); }
 });
 
+test('HAR-07 HAR-10 successful automatic recovery is lifecycle evidence and never changes a failed test result',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'magicstick-recovery-report-')),runId=newRunId(),previous=newRunId();
+  try {
+    const diagnostic=parsePreparationDiagnostic({version:1,outcome:'Passed',setupStage:'run-recovery',recoveredRunIds:[previous,previous],raw:'synthetic-secret'});
+    expect(diagnostic.recoveredRunIds).toEqual([previous]);
+    expect(preparationDescription(diagnostic)).toContain('original test outcomes retained');
+    expect(preparationDescription(diagnostic)).not.toContain('PREREQUISITE');
+    expect(parsePreparationDiagnostic({version:1,outcome:'Passed',recoveredRunIds:['../foreign']})).not.toHaveProperty('recoveredRunIds');
+    await saveReport(directory,runId,[{id:'HAR-07',layer:'U',environment:'fixture',durationMs:0,outcome:'Failed',reason:'CLEANUP'}],['HAR-07'],'unknown','all',diagnostic);
+    const value=JSON.parse(await readFile(join(directory,'summary.json'),'utf8'));
+    expect(value.automaticPreparation).toEqual(diagnostic);expect(value.acceptable).toBe(false);expect(value.counts.Failed).toBe(1);
+    expect(await readFile(join(directory,'summary.txt'),'utf8')).not.toContain('synthetic-secret');
+  } finally {await rm(directory,{recursive:true,force:true});}
+});
+
 test('HAR-10 catalogue descriptions cover every registered variant without a duplicate registry', () => {
   expect(Object.keys(caseDescriptions).length).toBeGreaterThan(200);
   for (const id of Object.values(reportVariants)) expect(Object.hasOwn(caseDescriptions, id), id).toBe(true);

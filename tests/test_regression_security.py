@@ -61,8 +61,11 @@ class RegressionSecurityTests(unittest.TestCase):
         compose = yaml.safe_load((ROOT / 'dashboard/apps/web/regression/compose.yaml').read_text())
         services = compose['services']
         self.assertEqual(services['setup-api']['entrypoint'], ['node', 'regression/setup.mjs'])
-        self.assertEqual(len(services['setup-api']['volumes']), 1)
-        self.assertEqual(services['setup-api']['volumes'][0]['target'], '/inputs')
+        self.assertEqual(services['setup-api']['volumes'], [
+            {'type': 'bind', 'source': '${REGRESSION_INPUT_DIR:?Set REGRESSION_INPUT_DIR}', 'target': '/inputs'},
+            {'type': 'bind', 'source': '${REGRESSION_PRIVATE_DIR:?Set REGRESSION_PRIVATE_DIR}', 'target': '/private'},
+        ])
+        self.assertEqual(services['setup-api']['environment']['REGRESSION_OUTPUT_DIR'], '/private/runs')
         self.assertTrue(services['regression']['volumes'][0]['read_only'])
         for service in services.values():
             self.assertTrue(service['read_only'])
@@ -76,6 +79,10 @@ class RegressionSecurityTests(unittest.TestCase):
         self.assertNotIn('ignoreHTTPSErrors', source)
         self.assertNotIn('storageState', source)
         self.assertIn("grantFile = join(directory, '.setup-access-restore.json')", source)
+        recovery = (ROOT / 'dashboard/apps/web/regression/core/recovery-adapters.ts').read_text()
+        self.assertNotIn('.setup-bootstrap.kubeconfig', recovery)
+        for name in ['observer.yaml', 'locker.yaml', 'model-cleaner.yaml', 'app-cleaner.kubeconfig']:
+            self.assertIn(name, recovery)
 
     def test_license_test_reset_grant_cannot_touch_issuer_trust_or_other_secrets(self):
         documents = list(yaml.safe_load_all((ROOT / 'dashboard/apps/web/regression/lab-rbac-license-resetter.example.yaml').read_text()))

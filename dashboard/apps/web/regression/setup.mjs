@@ -15,17 +15,19 @@ import {setupFacts, sameSetupTarget, setupOidcToken, withSetupAdmin, publicIssue
 import {createTestLicenseSigner,validateTestLicenseSigner,testLicenseDocument} from './core/test-license-fixtures.ts';
 import {suiteInventory} from './core/setup-suite.ts';
 import {KubectlObserver,KubernetesLeaseStore} from './core/observer.ts';
-import {LabLease} from './core/lease.ts';
+import {recordedLeaseSession} from './core/runner-session.ts';
 import {createHash,randomUUID} from 'node:crypto';
 import {editRevision} from './core/owned-model.ts';
 import {poll} from './core/poll.ts';
 import {bootstrapRegisteredLab,bootstrapTestLicenses} from './core/automatic-bootstrap.ts';
 import {parseRegistration} from './core/lab-policy.ts';
+import {AutomaticRecovery} from './core/automatic-recovery.ts';
+import {recoveryAdapters} from './core/recovery-adapters.ts';
 
 process.umask(0o077);
 const directory = resolve(process.env.REGRESSION_INPUT_DIR ?? '/inputs');
 const worker = process.argv[2] === '--worker';
-let home, browser, context, client, grantActive = false, facts, journal, request, setupStage = 'request';
+let home, browser, context, client, grantActive = false, facts, journal, request, setupStage = 'request', recoveredRunIds=[];
 const grantFile = join(directory, '.setup-access-restore.json');
 async function exists(path) {try {await lstat(path); return true;} catch (error) {if(error.code === 'ENOENT') return false; throw error;}}
 function inputFile(name) {
@@ -78,11 +80,11 @@ async function stopReviewedModels() {
   await observer.verifyConfiguration();
   const observed=await observer.get('appliances.appliance.magicstick.dev','ai-system','local');
   requireSafe(observed.metadata.uid === facts.applianceUid,'IDENTITY');
-  const lease=new LabLease(new KubernetesLeaseStore(join(directory,'locker.yaml'),'magicstick-regression','lab-lock'),
-    'setup-'+randomUUID(),facts.applianceUid,Date.now,180);
   const filename=join(directory,'.setup-model-stops.json'),items=request.reviewed.inventory.activeModels;
   requireSafe(!await exists(filename),'CONFLICT');
-  await lease.acquire();
+  const reservation=await recordedLeaseSession(new KubernetesLeaseStore(join(directory,'locker.yaml'),'magicstick-regression','lab-lock'),
+    resolve(process.env.REGRESSION_OUTPUT_DIR??'/private/runs'),facts.applianceUid);
+  const {lease}=reservation;
   const receipt={version:1,applianceUid:facts.applianceUid,state:'requested',items:items.map(item=>({...item,stopped:false}))};
   try {
     await writePrivate(filename,receipt,true);
@@ -93,6 +95,7 @@ async function stopReviewedModels() {
       requireSafe(fresh?.spec?.type === 'local' && fresh.metadata?.uid === item.uid && fresh.metadata.generation === item.generation &&
         independent.metadata.uid === item.uid && independent.metadata.generation === item.generation && editRevision(fresh) === item.revision,'CONFLICT');
       const body={expectedRevision:item.revision},path='/api/models/'+encodeURIComponent(item.name)+'/stop';
+      await reservation.guard();
       await client.write({method:'POST',path,body},()=>client.api.request(path,{method:'POST',body:JSON.stringify(body)}));
       await poll(async()=>{await lease.heartbeat();return (await client.api.models()).activations.find(model=>model.metadata?.name === item.name);},
         model=>model?.metadata?.uid === item.uid && model.spec?.enabled === false && model.status?.phase === 'Stopped',
@@ -101,7 +104,7 @@ async function stopReviewedModels() {
     }
     receipt.state='verified';await writePrivate(join(directory,'setup-stopped-models.json'),receipt);
     await rm(filename);
-  }finally {await lease.release();}
+  }finally {await reservation.close();}
 }
 
 const documentHash=value=>createHash('sha256').update(value).digest('hex');
@@ -138,9 +141,9 @@ async function recoverReviewedActions() {
 }
 async function prepareModuleFixture() {
   requireSafe(request.approveModuleFixture === true,'PREREQUISITE');
-  const lease=new LabLease(new KubernetesLeaseStore(join(directory,'locker.yaml'),'magicstick-regression','lab-lock'),
-    'setup-module-'+randomUUID(),facts.applianceUid,Date.now,180);
-  await lease.acquire();
+  const reservation=await recordedLeaseSession(new KubernetesLeaseStore(join(directory,'locker.yaml'),'magicstick-regression','lab-lock'),
+    resolve(process.env.REGRESSION_OUTPUT_DIR??'/private/runs'),facts.applianceUid);
+  const {lease}=reservation;
   try {
   const profile=JSON.parse(await readPrivate(join(directory,'remaining-p0.json'))),id=profile.modules?.id;
   requireSafe(typeof id === 'string' && /^[a-z0-9-]{1,63}$/.test(id) && !/identity|dashboard|basis|kubeai|gpu|amd|nvidia|intel|litellm|private-mesh|model-catalog|magicstick-operator/.test(id),'PREREQUISITE');
@@ -167,13 +170,14 @@ async function prepareModuleFixture() {
   }
   await writePrivate(marker,{version:1,applianceUid:facts.applianceUid,id,parametersHash:documentHash(JSON.stringify(parameters)),state:'requested'},true);
   const body=Object.keys(parameters).length ? {parameters} : {},path='/api/modules/'+id+'/disable';
+  await reservation.guard();
   await client.write({method:'POST',path,body},()=>client.api.request(path,{method:'POST',body:JSON.stringify(body)}));
   const created=await poll(async()=>{await lease.heartbeat();return observer.get('moduleactivations.appliance.magicstick.dev','ai-system',id);},
     item=>item.spec?.enabled === false && JSON.stringify(item.spec.parameters ?? {}) === JSON.stringify(parameters),
     {timeoutMs:30_000,intervalMs:1000,stage:'host-readiness'});
   requireSafe(created.metadata.uid,'OWNERSHIP');
   await writePrivate(join(directory,'setup-module-fixture.json'),{version:1,applianceUid:facts.applianceUid,id,uid:created.metadata.uid,state:'verified-disabled'});await rm(marker);
-  }finally {await lease.release();}
+  }finally {await reservation.close();}
 }
 
 try {
@@ -284,7 +288,16 @@ try {
             requireSafe(registration.applianceUid === facts.applianceUid && registration.dashboardUrl === facts.dashboardUrl &&
               registration.identityUrl === facts.identityUrl,'LAB');
             setupStage = 'lab-bootstrap';
-            await bootstrapRegisteredLab(directory,registration,request.mode === 'register');
+            const bootstrapped=await bootstrapRegisteredLab(directory,registration,request.mode === 'register',async lease=>{
+              setupStage='run-recovery';
+              const plan=await AutomaticRecovery.prepare(resolve(process.env.REGRESSION_OUTPUT_DIR??'/private/runs'),lease,registration);
+              return async()=>{
+                const id=await plan.execute(await recoveryAdapters(directory,context,registration));
+                console.log('Previous interrupted regression run automatically restored; original failed evidence retained.');
+                return id;
+              };
+            });
+            if(bootstrapped.recoveredRunId)recoveredRunIds.push(bootstrapped.recoveredRunId);
             const license=await client.api.licenseStatus();
             setupStage = 'license-fixtures';
             await bootstrapTestLicenses(directory,registration,license.installationId);
@@ -299,7 +312,8 @@ try {
           }finally{await rm(join(directory,'.setup-bootstrap.kubeconfig'),{force:true});}
         }
       }
-      await writePrivate(join(directory, '.setup-api-result.json'), {...facts,...(licenseFixture ? {licenseFixture} : {}),...(suite ? {inventory:suite} : {})}, true);
+      await writePrivate(join(directory, '.setup-api-result.json'), {...facts,...(recoveredRunIds.length?{recoveredRunIds}:{}),
+        ...(licenseFixture ? {licenseFixture} : {}),...(suite ? {inventory:suite} : {})}, true);
       console.log(request.mode === 'inspect' ? 'Dashboard/API discovery completed with verified administrator identity.' :
         request.mode === 'license-fixtures' ? 'Disposable installation-bound license fixtures generated locally. No official key or license was changed.' :
         request.mode !== 'authorize' ? 'Explicit setup action completed; inspect the private setup receipts.' :

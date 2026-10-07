@@ -2,11 +2,11 @@
 export const selections: Record<string, string[]> = {
   ...Object.fromEntries([5,6,7,8].flatMap(phase=>[
     [`phase${phase}-fast`,['administration/owning.unit.spec.ts','administration/matrix.unit.spec.ts','administration/safety.unit.spec.ts','administration/cleanup.unit.spec.ts']],
-    [`phase${phase}-fixtures`,['administration/configuration.browser.spec.ts']],
+    [`phase${phase}-fixtures`,['administration/configuration.browser.spec.ts','harness/actions.browser.spec.ts']],
     [`phase${phase}-live`,['administration/installed.e2e.spec.ts']],
   ])),
   'phase6-drill':['administration/installed.e2e.spec.ts'],
-  selftest: ['harness/safety.unit.spec.ts','harness/input-preparation.unit.spec.ts','harness/reporting.unit.spec.ts','harness/setup-bootstrap.unit.spec.ts','harness/setup-suite.unit.spec.ts','administration/cleanup.unit.spec.ts'],
+  selftest: ['harness/recovery.unit.spec.ts','harness/safety.unit.spec.ts','harness/input-preparation.unit.spec.ts','harness/reporting.unit.spec.ts','harness/setup-bootstrap.unit.spec.ts','harness/setup-suite.unit.spec.ts','administration/cleanup.unit.spec.ts'],
   'smoke-fast': ['auth/session.contract.spec.ts', 'api-access/keys.contract.spec.ts',
     'models/lifecycle.contract.spec.ts', 'navigation/status.unit.spec.ts', 'navigation/status.contract.spec.ts',
     'observability/logs.contract.spec.ts', 'components/installed.unit.spec.ts'],
@@ -27,7 +27,7 @@ export const selections: Record<string, string[]> = {
   'phase4-sharing': ['hardware/sharing.e2e.spec.ts'],
   'gpu-recover': ['hardware/recovery.api.spec.ts'],
   'session-smoke': ['auth/session.e2e.spec.ts'],
-  locktest: ['harness/lease.api.spec.ts'], ownedtest: ['harness/ownership.api.spec.ts'],
+  locktest: ['harness/lease.api.spec.ts','harness/automatic-recovery.api.spec.ts'], ownedtest: ['harness/ownership.api.spec.ts'],
   foundations: ['harness/safety.api.spec.ts'], recover: ['harness/recovery.api.spec.ts'],
   preflight: ['harness/preflight.e2e.spec.ts'], smoke: ['models/cpu-ollama.e2e.spec.ts'],
   'model-edit': ['models/cpu-ollama.e2e.spec.ts'], 'core-smoke': ['models/cpu-ollama.e2e.spec.ts'],
