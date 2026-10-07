@@ -11,7 +11,7 @@ import type {ModelsPayload, ManagedHost} from '@magicstick/dashboard-contracts';
 import {parseLabConfig, loadLabConfig, type LabConfig} from '../core/config.ts';
 import {HarnessError} from '../core/errors.ts';
 import {ResourceJournal, newRunId, restoreRevision, type CleanupAdapter, type ResourceKind} from '../core/journal.ts';
-import {LabLease, type LeaseStore, type Lease} from '../core/lease.ts';
+import {LabLease, leaseHolderReason, type LeaseStore, type Lease} from '../core/lease.ts';
 import {readPrivate, writePrivate} from '../core/private-files.ts';
 import {poll, currentReady} from '../core/poll.ts';
 import {summarize, saveReport, liveReportScope, redact, stepCases, type CaseResult} from '../core/report.ts';
@@ -98,6 +98,22 @@ class MemoryLease implements LeaseStore {
     return this.read();
   }
 }
+
+test('HAR-04 registration refresh distinguishes stale and active leases without granting takeover', () => {
+  const value = lease(), now = Date.parse('2026-01-01T00:02:00Z');
+  expect(leaseHolderReason(value, now)).toBeUndefined();
+  value.spec = {holderIdentity: 'another-run', renewTime: '2026-01-01T00:01:00Z', leaseDurationSeconds: 120};
+  expect(leaseHolderReason(value, now)).toBe('LOCK_BUSY');
+  value.spec.renewTime = '2026-01-01T00:00:00Z';
+  expect(leaseHolderReason(value, now)).toBe('LOCK_STALE');
+  for (const duration of [0, -1, NaN]) {
+    value.spec.leaseDurationSeconds = duration;
+    expect(leaseHolderReason(value, now)).toBe('LOCK_BUSY');
+  }
+  value.spec.leaseDurationSeconds = 120; value.spec.renewTime = 'invalid';
+  expect(leaseHolderReason(value, now)).toBe('LOCK_BUSY');
+  expect(value.spec.holderIdentity).toBe('another-run');
+});
 
 test('HAR-01 strict private config, HTTPS and required identity pins', async () => {
   expect(parseLabConfig(config(), directory).dashboardUrl).toBe(config().dashboardUrl);

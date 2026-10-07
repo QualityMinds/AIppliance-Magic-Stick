@@ -10,6 +10,7 @@ import {join} from 'node:path';
 import {environmentFor, testLayers, type TestEnvironment, type TestLayer} from './evidence.ts';
 import {caseDescription, durationDescription, layerDescriptions} from './case-descriptions.ts';
 import {disabledExperimentalEngines} from './engine-policy.ts';
+import {preparationDiagnostic, preparationDescription, parsePreparationDiagnostic, type PreparationDiagnostic} from './preparation-diagnostic.ts';
 
 export type Outcome = 'Passed' | 'Failed' | 'Blocked' | 'Skipped' | 'Not run' | 'Flaky';
 export interface CaseResult {id: string; outcome: Outcome; layer: TestLayer; environment?: TestEnvironment; durationMs: number; reason?: ReasonCode;
@@ -124,8 +125,10 @@ export function liveReportScope(mode?: string) {
 }
 
 /** Allowlisted output only. Never serialize a Playwright response, error or attachment. */
-export async function saveReport(directory: string, runId: string, cases: CaseResult[], required: string[], sourceRevision = 'unknown', mode = process.env.REGRESSION_MODE) {
+export async function saveReport(directory: string, runId: string, cases: CaseResult[], required: string[], sourceRevision = 'unknown', mode = process.env.REGRESSION_MODE,
+  preparation?: PreparationDiagnostic) {
   requireSafe(/^reg-[0-9a-f-]{36}$/.test(runId), 'CONFIG');
+  const prepared = preparation ? parsePreparationDiagnostic(preparation) : await preparationDiagnostic();
   const safe = completeCases(mode,cases,required).map(item => {
     requireSafe(/^[A-Z][A-Z0-9]+-\d{2}$/.test(item.id), 'CONFIG');
     requireSafe(['Passed', 'Failed', 'Blocked', 'Skipped', 'Not run', 'Flaky'].includes(item.outcome) &&
@@ -168,6 +171,7 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
   const openGates = laterCoverage ? [...new Set(laterCoverage.missingLayers.map(item=>`${item.id}/${item.layer}: ${item.gate ?? item.group} evidence required`))] : mode?.startsWith('phase4') ? ['BOOT-04: separately authorized live driver restart/CDI recovery'] :
     mode?.startsWith('phase3') ? ['Intel: unavailable lab hardware'] : [];
   await writePrivate(join(directory, 'summary.json'), {version: 2, runId, sourceRevision: revision,
+    ...(prepared ? {automaticPreparation: prepared} : {}),
     scope: safe.some(item => item.environment === 'live') ? liveScope : 'isolated owning-layer tests; no appliance acceptance',
     fullPhase0Accepted,
     fullPhase1Accepted,
@@ -193,6 +197,7 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     '<title>Magic Stick regression results</title><style>body{font:16px system-ui;max-width:1100px;margin:2rem auto;padding:1rem}'+
     'table{border-collapse:collapse;width:100%}td,th{padding:.6rem;border-bottom:1px solid #ddd;text-align:left}'+
     '.Passed{color:#087343}.Failed{color:#b42030}.Blocked{color:#906100}</style><h1>Regression results</h1>'+
+    (prepared ? `<p>${xml(preparationDescription(prepared))} ${xml(reasons[prepared.reason ?? 'PREREQUISITE'])}</p>` : '')+
     `<p>Excluded experimental engine tests: ${xml(disabledExperimentalEngines.join(', '))}. Product engines are unchanged.</p>`+
     `<p>Recorded executable scenarios: ${executionCounts.Passed} passed · ${executionCounts.Failed} failed · ${executionCounts.Blocked} blocked. ${safe.filter(item=>!item.executionId).length} evidence rows have no executable scenario ID (missing or legacy evidence).</p>`+
     `<p>Evidence rows (case × variant × layer): ${summary.counts.Passed} passed · ${summary.counts.Failed} failed · ${summary.counts.Blocked} blocked.</p>`+
@@ -201,6 +206,7 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
       `<td class="${item.outcome}">${item.outcome}</td><td>${xml(item.description)}`+
       (item.reason ? `<br>${xml(reasons[item.reason])}` : '')+(item.outcome === 'Blocked' ? `<br>Next: ${xml(blockedAction(item.reason))}` : '')+'</td></tr>').join('')+'</table></html>');
   await writePrivate(join(directory, 'summary.txt'), `Magic Stick selected regression cases: ${summary.acceptable ? 'PASSED' : 'NOT ACCEPTED'}\n` +
+    (prepared ? preparationDescription(prepared)+'\n' : '')+
     `Full Phase 0 P0 gate: ${mode === 'phase0' ? fullPhase0Accepted ? 'PASSED' : 'NOT ACCEPTED' : 'NOT ASSESSED'}\n` +
     `Full Phase 1 P0 gate: ${mode === 'phase1' ? fullPhase1Accepted ? 'PASSED' : 'NOT ACCEPTED' : 'NOT ASSESSED'}\n` +
     `Full Phase 2 P0 gate: ${mode === 'phase2' ? fullPhase2Accepted ? 'PASSED' : 'NOT ACCEPTED' : 'NOT ASSESSED'}\n` +

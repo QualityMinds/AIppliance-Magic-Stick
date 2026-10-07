@@ -28,7 +28,7 @@ if args[:2] == ['image', 'inspect']:
     sys.exit(int(os.environ.get('FAKE_IMAGE_MISSING', '0')))
 if args and args[0] in ['build', 'compose']:
     with open(os.environ['FAKE_RUN_ENV_LOG'], 'a') as output:
-        output.write(json.dumps({key: os.environ.get(key) for key in ['REGRESSION_INPUT_DIR', 'REGRESSION_PREPARATION_FAILED']}) + '\\n')
+        output.write(json.dumps({key: os.environ.get(key) for key in ['REGRESSION_INPUT_DIR', 'REGRESSION_PREPARATION_FAILED', 'REGRESSION_PREPARATION_DIAGNOSTIC', 'REGRESSION_PREPARATION_STATUS_FILE']}) + '\\n')
     sys.exit(0)
 sys.exit(9)
 ''')
@@ -171,6 +171,20 @@ exec bash "$@"
         self.assertEqual(result.returncode, 0, result.stderr)
         environment = json.loads((self.root / 'run-environment.jsonl').read_text().splitlines()[-1])
         self.assertEqual(environment['REGRESSION_PREPARATION_FAILED'], 'Failed')
+
+    def test_each_refresh_has_an_isolated_private_diagnostic_and_drops_old_failure_flags(self):
+        attempts = []
+        for _ in range(2):
+            result = self.run_launcher('all', REGRESSION_PREPARATION_FAILED='Failed')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            environment = json.loads((self.root / 'run-environment.jsonl').read_text().splitlines()[-1])
+            self.assertIsNone(environment['REGRESSION_PREPARATION_FAILED'])
+            filename = Path(environment['REGRESSION_PREPARATION_STATUS_FILE'])
+            self.assertEqual(filename.parent, self.root / 'reports')
+            self.assertEqual(environment['REGRESSION_PREPARATION_DIAGNOSTIC'], '/private/' + filename.name)
+            self.assertEqual(filename.stat().st_mode & 0o777, 0o600)
+            attempts.append(filename)
+        self.assertNotEqual(attempts[0], attempts[1])
 
     def test_accepted_input_presence_does_not_bypass_runner_validation_or_start_a_different_mode(self):
         inputs = self.root / 'inputs'

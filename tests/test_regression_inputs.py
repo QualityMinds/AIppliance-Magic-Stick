@@ -547,7 +547,7 @@ class RegressionInputTests(unittest.TestCase):
         facts, _ = self.auto_inputs()
         seed = {**facts, 'usernameFile': 'username.txt', 'passwordFile': 'password.txt', 'caFile': 'appliance-ca.pem'}
         for code, public_reason in [('AUTH', 'admin login'), ('LAB', 'immutable test-server marker'),
-                                    ('LOCK_BUSY', 'lab lease')]:
+                                    ('LOCK_BUSY', 'lab lease'), ('LOCK_STALE', 'expired test lease')]:
             with self.subTest(code=code):
                 def command(arguments, **unused):
                     return argparse.Namespace(returncode=2 if 'compose' in arguments else 0,
@@ -557,6 +557,33 @@ class RegressionInputTests(unittest.TestCase):
                 self.assertIn(public_reason, str(rejection.exception))
                 self.assertNotIn('synthetic-private-token', str(rejection.exception))
                 self.assertNotIn('Container created', str(rejection.exception))
+                self.assertEqual(rejection.exception.code, code)
+
+    def test_refresh_diagnostic_preserves_current_fixed_reason_stage_and_outcome_only(self):
+        output = self.root / '.preparation-ABC123'
+        environment = {'REGRESSION_INPUT_DIR': str(self.root), 'REGRESSION_PRIVATE_DIR': str(self.root),
+                       'REGRESSION_PREPARATION_STATUS_FILE': str(output)}
+        for code, outcome in [('LOCK_STALE', 'Blocked'), ('API', 'Failed')]:
+            failure = setup.SetupError('Fixed public reason.', outcome, code=code, stage='lab-bootstrap')
+            with patch.dict(os.environ, environment), patch.object(setup, 'registered_setup', side_effect=failure), \
+                    patch('sys.stderr', io.StringIO()):
+                self.assertEqual(setup.main(['--refresh']), 1 if outcome == 'Failed' else 2)
+            self.assertEqual(json.loads(setup.private_read(output)),
+                             {'version': 1, 'outcome': outcome, 'reason': code, 'setupStage': 'lab-bootstrap'})
+            self.assertEqual(stat.S_IMODE(output.stat().st_mode), 0o600)
+        with patch.dict(os.environ, environment):
+            setup.preparation_status('Blocked', setup.SetupError('synthetic-secret', code='synthetic-secret',
+                                                               stage='synthetic-secret', detail='synthetic-secret'))
+        self.assertNotIn('synthetic-secret', setup.private_read(output))
+        with patch.dict(os.environ, environment), patch.object(setup, 'registered_setup', return_value=True):
+            self.assertEqual(setup.main(['--refresh']), 0)
+        self.assertEqual(json.loads(setup.private_read(output)), {'version': 1, 'outcome': 'Passed'})
+
+    def test_refresh_diagnostic_cannot_write_outside_private_attempt_path(self):
+        for filename in ['summary.json', '.preparation-../../other', '.preparation-ABC1234']:
+            with self.subTest(filename=filename), patch.dict(os.environ, {'REGRESSION_PRIVATE_DIR': str(self.root),
+                    'REGRESSION_PREPARATION_STATUS_FILE': str(self.root / filename)}), self.assertRaises(setup.SetupError):
+                setup.preparation_status('Passed')
 
     def test_worker_stage_diagnostic_reports_only_known_steps_and_error_types(self):
         facts, _ = self.auto_inputs()

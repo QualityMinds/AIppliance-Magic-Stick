@@ -1,5 +1,5 @@
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
-import {act, render, screen, waitFor} from '@testing-library/react';
+import {act, render, screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {LicensePage} from './pages/LicensePage';
@@ -91,13 +91,19 @@ describe('license management', () => {
 
   it('bundles scoped license texts for offline inspection and exact download', async () => {
     mount();
-    await screen.findByRole('heading', {name: 'Software licenses'});
-    const link = screen.getByRole('link', {name: 'Download Business Source License 1.1', hidden: true});
+    // Role queries over every bundled third-party notice also compute accessible
+    // names for the large raw texts/data URLs. Scope the download contract to its
+    // own document; keep the ordinary test deadline rather than masking a hang.
+    const heading = await screen.findByText('Software licenses', {selector: 'h2'});
+    expect(heading).toHaveRole('heading');
+    const summary = within(heading.closest('section')!).getByText('Business Source License 1.1', {selector: 'summary'});
+    const document = within(summary.closest('details')!);
+    const link = document.getByRole('link', {name: 'Download Business Source License 1.1', hidden: true});
     expect(link).toHaveAttribute('download', 'MagicStick-BSL.txt');
     const text = decodeURIComponent(link.getAttribute('href')!.split(',', 2)[1]!);
     expect(text).toContain('Business Source License 1.1');
     expect(text).toContain('EUR 2,000,000');
-    expect(await screen.findByRole('heading', {name: 'Free Registered'})).toBeInTheDocument();
+    expect(await screen.findByText('Free Registered', {selector: 'h2'})).toHaveRole('heading');
   });
 
   it('keeps software notices readable when entitlement status is unavailable', async () => {

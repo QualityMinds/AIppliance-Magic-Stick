@@ -7,6 +7,16 @@ export interface Lease {
 }
 export interface LeaseStore {read(): Promise<Lease>; replace(lease: Lease): Promise<Lease>}
 
+/** Shared by ordinary acquisition and registration refresh. Invalid expiry
+ * evidence is busy, never authority to take over or erase a holder. */
+export function leaseHolderReason(lease: Pick<Lease, 'spec'>, now = Date.now()) {
+  if (!lease.spec?.holderIdentity) return undefined;
+  const duration = lease.spec.leaseDurationSeconds;
+  const renewed = Date.parse(lease.spec.renewTime ?? '');
+  return typeof duration === 'number' && Number.isFinite(duration) && duration > 0 &&
+    Number.isFinite(renewed) && now >= renewed + duration * 1000 ? 'LOCK_STALE' : 'LOCK_BUSY';
+}
+
 // Kubernetes metav1.MicroTime requires six fractional digits on Lease writes;
 // Date#toISOString emits only three and the API rejects that otherwise-valid
 // looking timestamp before CAS can take place.
@@ -40,10 +50,8 @@ export class LabLease {
   async acquire() {
     requireSafe(!this.held && !this.fenced, 'LOCK_LOST');
     const lease = await this.store.read(); this.validate(lease);
-    if (lease.spec.holderIdentity) {
-      const expires = Date.parse(lease.spec.renewTime ?? '') + Number(lease.spec.leaseDurationSeconds) * 1000;
-      throw new HarnessError(Number.isFinite(expires) && this.now() >= expires ? 'LOCK_STALE' : 'LOCK_BUSY');
-    }
+    const holderReason = leaseHolderReason(lease, this.now());
+    if (holderReason) throw new HarnessError(holderReason);
     const changed: Lease = {...lease, spec: {...lease.spec, holderIdentity: this.owner,
       renewTime: leaseTime(this.now()), leaseDurationSeconds: this.durationSeconds}};
     try { await this.store.replace(changed); } catch { throw new HarnessError('LOCK_BUSY'); }

@@ -19,6 +19,7 @@ import {writePrivate} from '../core/private-files.ts';
 import {verifyCapabilities} from '../core/preflight.ts';
 import type {LabConfig} from '../core/config.ts';
 import type {ModelsPayload} from '@magicstick/dashboard-contracts';
+import {parsePreparationDiagnostic, preparationDescription} from '../core/preparation-diagnostic.ts';
 
 function capture(action: () => void): string {
   const chunks: string[] = [], original = process.stdout.write;
@@ -32,6 +33,26 @@ function specimen(title: string, annotations: TestCase['annotations'] = []): Tes
 function result(status: TestResult['status'] = 'passed', message?: string): TestResult {
   return {status, duration: 1250, retry: 0, errors: message ? [{message}] : []} as TestResult;
 }
+
+test('HAR-02 HAR-10 HAR-11 failed refresh reason and setup stage survive aggregate reports without raw logs', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'magicstick-preparation-report-'));
+  const secret = 'synthetic-secret-never-store';
+  try {
+    const diagnostic = parsePreparationDiagnostic({version: 1, outcome: 'Blocked', reason: 'LOCK_STALE',
+      setupStage: 'lab-bootstrap', detail: secret, message: secret, stderr: secret});
+    expect(diagnostic).toEqual({version: 1, outcome: 'Blocked', reason: 'LOCK_STALE', setupStage: 'lab-bootstrap'});
+    expect(preparationDescription(diagnostic)).toContain('setup stage: lab-bootstrap');
+    await saveReport(directory, newRunId(), [{id: 'HAR-02', layer: 'A', environment: 'live', durationMs: 0,
+      outcome: 'Blocked', reason: 'LOCK_STALE'}], ['HAR-02'], 'unknown', 'all', diagnostic);
+    const json = JSON.parse(await readFile(join(directory, 'summary.json'), 'utf8'));
+    expect(json.automaticPreparation).toEqual(diagnostic);
+    for (const name of ['summary.json', 'summary.txt', 'summary.html']) {
+      const value = await readFile(join(directory, name), 'utf8');
+      expect(value).toContain('LOCK_STALE'); expect(value).toContain('lab-bootstrap'); expect(value).not.toContain(secret);
+    }
+    expect(() => parsePreparationDiagnostic({version: 1, outcome: secret})).toThrow('[CONFIG]');
+  } finally { await rm(directory, {recursive: true, force: true}); }
+});
 
 test('HAR-10 catalogue descriptions cover every registered variant without a duplicate registry', () => {
   expect(Object.keys(caseDescriptions).length).toBeGreaterThan(200);

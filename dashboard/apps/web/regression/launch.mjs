@@ -20,6 +20,7 @@ import {remainingIds,remainingPhase,hostDrillIds} from './profiles/remaining-p0.
 import {recipeBundle} from './core/host-drill-recipes.ts';
 import {preparationArguments} from './core/input-preparation.ts';
 import {verifyHostContinuation} from './core/setup-suite.ts';
+import {preparationDiagnostic, requirePreparation, preparationDescription} from './core/preparation-diagnostic.ts';
 
 process.umask(0o077);
 process.chdir(fileURLToPath(new URL('..', import.meta.url)));
@@ -81,7 +82,7 @@ try {
   if (!aggregate && ((remainingPhase(mode) && !/(?:-fast|-fixtures)$/.test(mode)) || ['phase3-gpu','phase3-validation','phase4-sharing', 'phase2-readonly', 'phase2-models', 'phase2-faults', 'session-smoke',
     'core-smoke', 'foundations', 'preflight', 'locktest', 'ownedtest', 'smoke', 'model-edit', 'recover','gpu-recover', 'cleanup-plan'].includes(mode))) {
     requireSafe(process.env.REGRESSION_CONFIG, 'CONFIG');
-    requireSafe(!process.env.REGRESSION_PREPARATION_FAILED,'PREREQUISITE');
+    await requirePreparation();
     requireSafe(!process.env.REGRESSION_RECOVERY_FENCE,'RECOVERY');
     // An interrupted multi-file input acceptance must never run a partly
     // updated live profile. Fixtures remain independent of private inputs.
@@ -143,8 +144,9 @@ try {
       requireSafe(arguments_.length === 2 && arguments_[0] === '--phases','CONFIG');
       selected=preparationArguments(arguments_).phases;
     }
-    const phases=[],collected=process.env.REGRESSION_PREPARATION_FAILED === 'Failed' ?
-      [{id:'HAR-02',outcome:'Failed',layer:'A',environment:'live',durationMs:0,reason:'API'}] : [];
+    const preparation=await preparationDiagnostic();
+    const phases=[],collected=preparation?.outcome === 'Failed' ?
+      [{id:'HAR-02',outcome:'Failed',layer:'A',environment:'live',durationMs:0,reason:preparation.reason ?? 'API'}] : [];
     for(const phase of selected) {
       if(interruptedSignal)break;
       const receipt=join(directory,'phase-result.json');await rm(receipt,{force:true});
@@ -184,6 +186,7 @@ try {
     await saveReport(directory,runId,collected,[...new Set(collected.map(item=>item.id))],process.env.REGRESSION_SOURCE_REVISION,'all');
     const counts={Passed:0,Failed:0,Blocked:0};for(const item of collected)if(Object.hasOwn(counts,item.outcome))counts[item.outcome]++;
     await writePrivate(join(directory,'all-summary.txt'),'Magic Stick complete P0 regression\n'+
+      (preparation ? preparationDescription(preparation)+'\n' : '')+
       `Evidence rows (case × variant × layer): Passed: ${counts.Passed}; Failed: ${counts.Failed}; Blocked: ${counts.Blocked}\n`+
       `Recorded executable scenarios: ${JSON.stringify(summarizeExecutions(collected))}\n`+
       phases.map(item=>`Phase ${item.phase}: ${item.state} (${item.runId ?? 'not executed: run cancelled'})`).join('\n')+'\nDetailed cases: summary.html; machine results: summary.json and junit.xml\n');

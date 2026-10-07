@@ -50,6 +50,12 @@ if [[ "$mode" == all || "$mode" =~ ^phase[0-8]$ ]]; then
   # A refresh has no stdin and cannot register a replacement server. Failure
   # blocks installed tests only, never suppressing the isolated case ledger.
   preparation_exit=0
+  unset REGRESSION_PREPARATION_FAILED
+  # Unique per invocation: an old automatic-preparation report must never be
+  # mistaken for this refresh's failure, including concurrent invocations.
+  preparation_status_file="$(mktemp "$REGRESSION_PRIVATE_DIR/.preparation-XXXXXX")"
+  export REGRESSION_PREPARATION_STATUS_FILE="$preparation_status_file"
+  export REGRESSION_PREPARATION_DIAGNOSTIC="/private/$(basename "$preparation_status_file")"
   "${REGRESSION_SETUP_PYTHON:-python3}" "$root/tools/regression_inputs.py" --refresh </dev/null || preparation_exit=$?
   if [[ "$preparation_exit" != 0 ]]; then
     if [[ "$preparation_exit" == 1 ]]; then export REGRESSION_PREPARATION_FAILED=Failed; else export REGRESSION_PREPARATION_FAILED=Blocked; fi

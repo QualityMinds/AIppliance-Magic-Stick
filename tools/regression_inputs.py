@@ -32,12 +32,40 @@ from urllib.request import Request, HTTPSHandler, HTTPRedirectHandler, build_ope
 
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLES = ROOT / 'dashboard/apps/web/regression'
+PREPARATION_REASONS = {'TLS', 'AUTH', 'PREREQUISITE', 'IDENTITY', 'API', 'CONFIG', 'PRIVATE_FILE',
+                       'CONFLICT', 'LAB', 'LOCK_BUSY', 'LOCK_STALE', 'DEADLINE', 'UNEXPECTED'}
+PREPARATION_STAGES = {'request', 'tls', 'login', 'discovery', 'kubernetes-access', 'oidc-session',
+                      'bootstrap-file', 'lab-bootstrap', 'license-fixtures', 'license-validation'}
+PREPARATION_DETAILS = {'ENOENT', 'EACCES', 'ENOSPC', 'TYPE_ERROR', 'SYNTAX_ERROR', 'ERR_FAILED',
+                       'ERR_BLOCKED_BY_CLIENT', 'ERR_CONNECTION_REFUSED', 'ERR_NAME_NOT_RESOLVED',
+                       'ERR_CERT_AUTHORITY_INVALID', 'ERR_HTTP2_PROTOCOL_ERROR'}
 
 
 class SetupError(Exception):
-    def __init__(self, message, outcome='Blocked'):
+    def __init__(self, message, outcome='Blocked', code='PREREQUISITE', stage=None, detail=None):
         super().__init__(message)
         self.outcome = outcome
+        self.code, self.stage, self.detail = code, stage, detail
+
+
+def preparation_status(outcome, error=None):
+    """One launcher-owned attempt, never raw exceptions, credentials or old facts."""
+    filename = os.environ.get('REGRESSION_PREPARATION_STATUS_FILE')
+    if not filename:
+        return
+    path = Path(filename)
+    directory = Path(os.environ.get('REGRESSION_PRIVATE_DIR', str(ROOT / '.regression/private'))).absolute()
+    if path.parent != directory or not re.fullmatch(r'\.preparation-[a-zA-Z0-9]{6}', path.name):
+        raise SetupError('Invalid private preparation diagnostic destination.', code='PRIVATE_FILE')
+    value = {'version': 1, 'outcome': outcome if outcome in ['Passed', 'Failed', 'Blocked'] else 'Blocked'}
+    if error:
+        # These fields originate only in this module's fixed diagnostic registry.
+        value['reason'] = error.code if error.code in PREPARATION_REASONS else 'PREREQUISITE'
+        if error.stage in PREPARATION_STAGES:
+            value['setupStage'] = error.stage
+        if error.detail in PREPARATION_DETAILS:
+            value['detail'] = error.detail
+    private_write(path, value)
 
 
 def private_directory(path):
@@ -556,6 +584,7 @@ def setup_api(directory, seed, mode, reviewed=None, approve_admin=False):
                        'CONFLICT': 'An intervening access change requires private owner review.',
                        'LAB': 'The registered Appliance/Node identity or immutable test-server marker could not be verified.',
                        'LOCK_BUSY': 'Another test run still owns the registered lab lease.',
+                       'LOCK_STALE': 'An expired test lease remains from an interrupted run. Inspect its exact journal and recover owned resources before releasing it.',
                        'DEADLINE': 'The setup stage timed out before its result could be verified.',
                        'UNEXPECTED': 'The setup worker failed unexpectedly; check the runner bootstrap stage.'}
             # Compose may multiplex container stderr into its stdout stream.
@@ -582,7 +611,10 @@ def setup_api(directory, seed, mode, reviewed=None, approve_admin=False):
                     explanation += ' ' + details[stage[-1][1]]
             outcome = 'Failed' if result.returncode == 1 or '[outcome:Failed]' in worker_output or \
                 known and known[-1] in ['API', 'AUTH', 'CONFIG', 'CONFLICT'] else 'Blocked'
-            raise SetupError(explanation + ' No TLS bypass, accepted repinning or retained admin fallback was used.', outcome)
+            raise SetupError(explanation + ' No TLS bypass, accepted repinning or retained admin fallback was used.', outcome,
+                             code=known[-1] if known else 'PREREQUISITE',
+                             stage=stage[-1][0] if stage and stage[-1][0] in stages else None,
+                             detail=stage[-1][1] if stage and stage[-1][0] in stages and stage[-1][1] else None)
         value = json.loads(private_read(result_path))
         if mode == 'restore':
             if value != {'version': 1, 'restored': True}:
@@ -1611,13 +1643,22 @@ def main(argv=None):
         directory = Path(os.environ.get('REGRESSION_INPUT_DIR', str(ROOT / '.regression/inputs'))).absolute()
         legacy = args.manual or args.minimal or args.restore_kubernetes_access or args.provision_rbac or args.bootstrap_kubeconfig or args.ca_kubeconfig or args.advanced
         result = wizard(directory, args) if legacy else registered_setup(directory, args)
+        preparation_status('Blocked' if result is False else 'Passed')
         return 2 if result is False else 0
     except SetupError as error:
+        try:
+            preparation_status(error.outcome, error)
+        except (SetupError, OSError):
+            pass  # Never replace the primary safe reason with raw file errors.
         print(str(error), file=sys.stderr)
         return 1 if error.outcome == 'Failed' else 2
     except (OSError, ValueError, KeyError, TypeError, AttributeError, EOFError, KeyboardInterrupt):
         # Do not stringify arbitrary exceptions: paths and subprocess/API output
         # can contain credentials. All failed writes remain private/recoverable.
+        try:
+            preparation_status('Blocked', SetupError('Setup stopped.', code='PREREQUISITE'))
+        except (SetupError, OSError):
+            pass
         print('Setup stopped. Check test-server reachability, trusted certificates and private file permissions; no insecure or admin fallback.', file=sys.stderr)
         return 2
 

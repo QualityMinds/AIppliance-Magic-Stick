@@ -47,6 +47,9 @@ Missing GPUs/runtimes, a real Mesh peer, test IdP, power controller or current C
 evidence blocks dependent cases only. The report states the reason and next action.
 Current prerequisites and actions: `.regression/inputs/automatic-preparation.txt`.
 
+If automatic preparation fails, reports show the reason and setup stage from
+that attempt. Dependent live checks are Blocked; independent tests still run.
+
 Open `summary.html` under `.regression/private/runs/reg-…/`; the console prints
 the path. `all-summary.txt` gives the overview; JSON/JUnit support CI. Exit codes:
 **0** passed, **1** failures, **2** blocked without failures. Never publish inputs
