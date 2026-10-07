@@ -26,7 +26,7 @@ GitHub Pages only redirects to it.
 | [site.js](../site.js) | Mobile navigation and keyboard-accessible dashboard screenshot tabs |
 | `assets/brand/` ([logo.svg](../assets/brand/logo.svg), [brandmark.svg](../assets/brand/brandmark.svg), [core.svg](../assets/brand/core.svg)) | Magic Stick logo, brandmark and core symbol (SVG) from the pitch mockup |
 | `assets/artwork/` ([command-centre.jpg](../assets/artwork/command-centre.jpg) and two WebP backgrounds) | Hero illustration and two blurred section backgrounds; see [Artwork provenance](#artwork-provenance) |
-| [assets/favicon.svg](../assets/favicon.svg) | Brandmark on a dark rounded tile |
+| [assets/favicon.svg](../assets/favicon.svg) | Picture mark: brandmark on a light rounded tile |
 | [imprint.html](../imprint.html), [impressum.html](../impressum.html) | Imprint in English and German (Impressum), one text in two languages; see [Legal pages](#legal-pages) |
 | [privacy.html](../privacy.html), [datenschutz.html](../datenschutz.html) | Privacy policy in English and German (Datenschutzerklärung), one text in two languages; see [Legal pages](#legal-pages) |
 
@@ -221,7 +221,8 @@ They are illustrations and brand assets, not product evidence.
 
 | File | Origin and handling |
 |---|---|
-| `brand/logo.svg`, `brand/brandmark.svg`, `brand/core.svg` | Illustrator exports from the mockup; editor IDs removed, `<title>` added. The favicon reuses the brandmark. |
+| `brand/logo.svg`, `brand/brandmark.svg`, `brand/core.svg` | Illustrator exports from the mockup; editor IDs removed, `<title>` added. |
+| `favicon.svg` | Picture mark (`MagicStick_picture-mark.svg`) supplied by QualityMinds, October 2026; XML declaration and editor IDs removed, `<title>` added. |
 | `artwork/command-centre.jpg` | Hero background and social preview, 1670 × 942. Unchanged mockup file (Adobe Photoshop 27.10 export of 2 October 2026 with an Adobe Content Credentials/C2PA manifest, which a re-encode would strip). Decorative (`alt=""`). The screen in the scene shows third-party service marks (among them OpenAI and Kubernetes); review this before a wider campaign use and replace the file if brand clearance is not available. |
 | `artwork/side-workstation.webp`, `artwork/entrance.webp` | Blurred backgrounds of the first-use and closing sections, converted from the mockup PNGs (1672 × 941) with Pillow at WebP quality 78. Used as CSS backgrounds only. |
 
