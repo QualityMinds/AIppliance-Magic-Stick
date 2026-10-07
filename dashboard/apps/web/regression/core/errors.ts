@@ -1,10 +1,12 @@
 export const reasons = {
   CONFIG: 'The private lab configuration is missing or invalid.',
   PREREQUISITE: 'This required live case needs a separately prepared identity, application, peer, runtime or maintenance fixture; it was not substituted by a mock or a read-only check.',
+  DEPENDENCY: 'An earlier step in this scenario failed or was blocked. This dependent check was not reached.',
   PRIVATE_FILE: 'A private input or output is missing, unsafe, unreadable or a symbolic link.',
   TLS: 'A configured endpoint failed verified HTTPS/DNS connectivity.',
   AUTH: 'The real dashboard login or expected administrator identity could not be verified.',
   API: 'A required authenticated API read failed or returned an unexpected contract.',
+  COMPONENT: 'An owning UI component suite failed or timed out. A bounded component-failure.json diagnostic is retained when available.',
   IDENTITY: 'The appliance or node does not match the pinned lab identity.',
   CAPABILITY: 'An expected compute target or engine is unavailable.',
   REVISION: 'The requested deployed revision or image digest was not observed.',
@@ -28,7 +30,7 @@ export const reasons = {
 export type ReasonCode = keyof typeof reasons;
 /** Absence of a lab prerequisite is not a product failure. API/authentication,
  * invalid generated configuration, timeouts and assertions are failures. */
-export const blockedReasons: readonly ReasonCode[] = ['PREREQUISITE', 'PRIVATE_FILE', 'TLS', 'IDENTITY', 'CAPABILITY',
+export const blockedReasons: readonly ReasonCode[] = ['PREREQUISITE', 'DEPENDENCY', 'PRIVATE_FILE', 'TLS', 'IDENTITY', 'CAPABILITY',
   'HOST', 'BUSY', 'OBSERVER', 'LOCK_BUSY', 'LOCK_STALE', 'LOCK_LOST', 'LAB', 'RECOVERY', 'CANCELLED'];
 export const stages = ['preflight', 'host-boot', 'host-readiness', 'login-form', 'login-return', 'login-session',
   'model-ready', 'model-stopped', 'model-failure', 'external-ready', 'external-stopped',

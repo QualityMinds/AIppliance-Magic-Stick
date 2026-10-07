@@ -28,6 +28,8 @@ bash tools/regression.sh all
 ```
 
 Every implemented Phase 0–8 P0 test runs or reports its missing prerequisite.
+Experimental **FreeToken tests are currently disabled**, including FreeToken
+cache and Mesh subtests. FreeToken itself remains available in the product.
 Credentials, current boot/revision pins, small models and fixtures are prepared
 automatically. **No repeated setup, approval forms or manual JSON.** Existing
 models are stopped, not deleted. Independent tests continue after failures;
@@ -50,11 +52,22 @@ the path. `all-summary.txt` gives the overview; JSON/JUnit support CI. Exit code
 **0** passed, **1** failures, **2** blocked without failures. Never publish inputs
 or raw private journals.
 
+Reports distinguish executable scenarios from their case/variant/layer evidence
+rows. A late Stop failure does not invalidate earlier successful inference or
+logs; unreached Start checks are Blocked because of that failed prerequisite.
+GPU Stop timeouts save a private `stop-<model>.json` showing whether the saved
+intent, remaining Pods or generated route prevented completion.
+Owning UI-suite failures retain bounded `component-failure.json` diagnostics
+without raw assertion values, logs or secrets. Failed module/user postconditions
+still run UID- and revision-bound cleanup; ambiguous ownership remains Blocked.
+
 ## CI
 
 Use the same commands on a trusted runner with protected, persistent lab inputs;
 never expose it to untrusted forks. First registration can use `setup --url …
 --username … --password-file … --ca-file …`. No prompts occur during `all`.
+The ordinary browser CI also runs the isolated module/user failure-cleanup
+contracts without test-server access.
 
 See the [catalog](regression-test-catalog.md) and [technical reference](regression-runner-reference.md)
 for details. Installation tests and P1 are separate; implementation is not live acceptance.

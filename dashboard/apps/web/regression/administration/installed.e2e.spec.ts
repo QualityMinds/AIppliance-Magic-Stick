@@ -12,7 +12,7 @@ import {realLogin,openInferenceSession} from '../core/auth.ts';
 import {InferenceProbe} from '../core/inference.ts';
 import {poll} from '../core/poll.ts';
 import {evidenceAnnotations} from '../core/evidence.ts';
-import {remainingPhase,remainingVariants,type P0Definition} from '../profiles/remaining-p0.ts';
+import {remainingPhase,remainingVariants,remainingVariantEnabled,type P0Definition} from '../profiles/remaining-p0.ts';
 import {runHostDrill} from '../core/host-drill.ts';
 import {realtimeWorkflow} from './realtime-live.ts';
 import {gpuMemoryDraft,settingsDrafts} from './form-checks.ts';
@@ -327,7 +327,7 @@ test.beforeAll(async({browser},testInfo)=>{
   client=new AdministrationApi(live.context.request,config.dashboardUrl,config.requestTimeoutMs,live.guard);
 });
 test.afterAll(async()=>{for(const context of contexts.splice(0)) await context.close(); if(live) await live.close();});
-for(const [variant,definition] of Object.entries(remainingVariants).filter(([,item])=>item.phase === phase &&
+for(const [variant,definition] of Object.entries(remainingVariants).filter(([,item])=>remainingVariantEnabled(item) && item.phase === phase &&
   (!process.env.REGRESSION_REMAINING_CASE || item.id === process.env.REGRESSION_REMAINING_CASE))
   .sort(([,a],[,b])=>Number(!['LIC-01','SSO-01'].includes(a.id))-Number(!['LIC-01','SSO-01'].includes(b.id)))) {
   const layers=definition.layers.filter(layer=>['A','E','O','N'].includes(layer));

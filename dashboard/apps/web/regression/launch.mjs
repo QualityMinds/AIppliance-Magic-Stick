@@ -8,14 +8,14 @@ import {loadLabConfig} from './core/config.ts';
 import {HarnessError, requireSafe} from './core/errors.ts';
 import {ResourceJournal, newRunId, recoveryJournalPath} from './core/journal.ts';
 import {privateDirectory, writePrivate, readPrivate} from './core/private-files.ts';
-import {completeCases,saveReport, stepCases,reportExitCode,summarize} from './core/report.ts';
+import {completeCases,saveReport, stepCases,reportExitCode,summarize,summarizeExecutions} from './core/report.ts';
 import {childEvidence} from './core/campaign-evidence.ts';
 import {modeDescription} from './core/case-descriptions.ts';
 import {phase0Ids, requirePhase0Profile} from './profiles/phase0-p0.ts';
 import {phase1Ids, phase1FastVariants, requirePhase1Profile} from './profiles/phase1-p0.ts';
 import {phase2Ids, phase2FastVariants, phase2FixtureVariants, phase2ModelIds, phase2ModelCases, requirePhase2Profile} from './profiles/phase2-p0.ts';
 import {phaseSteps} from './profiles/selections.ts';
-import {gpuModeIds,requireGpuProfile,phase4SharingCases} from './profiles/gpu-p0.ts';
+import {gpuModeIds,requireGpuProfile,phase3RuntimeCases,phase4SharingCases} from './profiles/gpu-p0.ts';
 import {remainingIds,remainingPhase,hostDrillIds} from './profiles/remaining-p0.ts';
 import {recipeBundle} from './core/host-drill-recipes.ts';
 import {preparationArguments} from './core/input-preparation.ts';
@@ -26,8 +26,9 @@ process.chdir(fileURLToPath(new URL('..', import.meta.url)));
 const mode = process.argv[2], runId = newRunId();
 const modelCase = mode === 'phase2-models' ? process.argv[3] : undefined;
 const selectedModelCase = modelCase && Object.hasOwn(phase2ModelCases, modelCase) ? phase2ModelCases[modelCase] : undefined;
-const gpuCase = mode === 'phase4-sharing' ? process.argv[3] : undefined;
-const selectedGpuCase = gpuCase && Object.hasOwn(phase4SharingCases,gpuCase) ? phase4SharingCases[gpuCase] : undefined;
+const gpuCase = ['phase3-gpu','phase4-sharing'].includes(mode) ? process.argv[3] : undefined;
+const gpuCases=mode === 'phase3-gpu' ? phase3RuntimeCases : phase4SharingCases;
+const selectedGpuCase = gpuCase && Object.hasOwn(gpuCases,gpuCase) ? gpuCases[gpuCase] : undefined;
 const hostCase = mode === 'phase6-drill' ? process.argv[3] : undefined;
 const output = resolve(process.env.REGRESSION_OUTPUT_DIR ?? '.regression/runs');
 const directory = join(output, runId);
@@ -64,6 +65,9 @@ try {
     'phase6-drill','preflight', 'locktest', 'ownedtest', 'smoke', 'model-edit', 'recover','gpu-recover', 'typecheck', 'cleanup-plan'].includes(mode), 'CONFIG');
   requireSafe(!modelCase || Boolean(selectedModelCase), 'CONFIG');
   requireSafe(!gpuCase || Boolean(selectedGpuCase), 'CONFIG');
+  // Report generation runs in this parent as well as in Playwright children.
+  // Keep the same validated diagnostic scope in both processes.
+  if(selectedGpuCase)process.env.REGRESSION_GPU_CASE=gpuCase;
   requireSafe(mode !== 'phase6-drill' || hostDrillIds.includes(hostCase),'CONFIG');
   requireSafe(!process.env.REGRESSION_REMAINING_CASE || mode === 'phase6-drill','CONFIG');
   if(hostCase)process.env.REGRESSION_REMAINING_CASE=hostCase;
@@ -163,7 +167,8 @@ try {
         }
       }
       const outcome=reportExitCode(cases);
-      phases.push({phase,runId:result.runId,state:outcome === 0 ? 'Passed' : outcome === 1 ? 'Failed' : 'Blocked',counts:summarize(ids ?? [],cases).counts});
+      phases.push({phase,runId:result.runId,state:outcome === 0 ? 'Passed' : outcome === 1 ? 'Failed' : 'Blocked',counts:summarize(ids ?? [],cases).counts,
+        executionCounts:summarizeExecutions(cases)});
       collected.push(...cases);
       await writePrivate(join(directory,'all-summary.json'),{version:1,phases,selectedPhases:selected,
         allSelectedPhasesPassed:phases.length === selected.length && phases.every(item=>item.state === 'Passed')});
@@ -179,7 +184,8 @@ try {
     await saveReport(directory,runId,collected,[...new Set(collected.map(item=>item.id))],process.env.REGRESSION_SOURCE_REVISION,'all');
     const counts={Passed:0,Failed:0,Blocked:0};for(const item of collected)if(Object.hasOwn(counts,item.outcome))counts[item.outcome]++;
     await writePrivate(join(directory,'all-summary.txt'),'Magic Stick complete P0 regression\n'+
-      `Passed: ${counts.Passed}; Failed: ${counts.Failed}; Blocked: ${counts.Blocked}\n`+
+      `Evidence rows (case × variant × layer): Passed: ${counts.Passed}; Failed: ${counts.Failed}; Blocked: ${counts.Blocked}\n`+
+      `Recorded executable scenarios: ${JSON.stringify(summarizeExecutions(collected))}\n`+
       phases.map(item=>`Phase ${item.phase}: ${item.state} (${item.runId ?? 'not executed: run cancelled'})`).join('\n')+'\nDetailed cases: summary.html; machine results: summary.json and junit.xml\n');
     console.log('Private campaign report: '+join(directory,'all-summary.txt'));
     process.exitCode=passed ? 0 : reportExitCode(collected);

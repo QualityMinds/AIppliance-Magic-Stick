@@ -1,4 +1,5 @@
 import {test,expect,type Page,type Request} from '@playwright/test';
+import {freeTokenRegressionEnabled} from '../core/engine-policy.ts';
 import type {ModelsPayload,GpuSharingState,HardwareGpuDevice} from '@magicstick/dashboard-contracts';
 import {fixturePage,origin} from '../fixtures/dashboard.ts';
 import {evidenceAnnotations} from '../core/evidence.ts';
@@ -39,7 +40,7 @@ function models(free=2):ModelsPayload {
 }
 
 if (phase === 3) {
-  test('FT-02 FT-05 FT-06 browser uses separate node VRAM samples and clamps numeric budgets to live capacity',evidenceAnnotations(
+  if(freeTokenRegressionEnabled)test('FT-02 FT-05 FT-06 browser uses separate node VRAM samples and clamps numeric budgets to live capacity',evidenceAnnotations(
     {id:'FT-02',variant:'p3-ft-telemetry',layer:'B'},{id:'FT-05',variant:'p3-ft-vram',layer:'B'},
     {id:'FT-06',variant:'p3-ft-ram',layer:'B'}),async({page})=>{
     const data=models();data.computeTargets.targets.push({id:'nvidia-gpu',kind:'gpu',displayName:'NVIDIA GPU',

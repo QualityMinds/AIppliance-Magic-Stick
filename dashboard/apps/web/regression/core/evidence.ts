@@ -15,3 +15,18 @@ export function fileLayer(file: string): TestLayer | undefined {
 export function evidenceAnnotations(...items: Evidence[]) {
   return {annotation: items.map(item => ({type: 'regression', description: JSON.stringify(item)}))};
 }
+
+/** Record only completed evidence, not a whole scenario's final result for
+ * every earlier assertion. Unreached dependent steps remain Blocked. */
+export async function evidenceStep<T>(info:{annotations:Array<{type:string;description?:string}>},items:Evidence[],action:()=>Promise<T>):Promise<T> {
+  const started=performance.now(),annotation={type:'regression-step',description:JSON.stringify({items,state:'running',durationMs:0})};
+  info.annotations.push(annotation);
+  try {
+    const value=await action();
+    annotation.description=JSON.stringify({items,state:'passed',durationMs:performance.now()-started});
+    return value;
+  } catch(error) {
+    annotation.description=JSON.stringify({items,state:'failed',durationMs:performance.now()-started});
+    throw error;
+  }
+}

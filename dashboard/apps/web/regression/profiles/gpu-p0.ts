@@ -2,6 +2,7 @@ import type {LabConfig} from '../core/config.ts';
 import {environmentFor, type TestLayer} from '../core/evidence.ts';
 import {requireSafe} from '../core/errors.ts';
 import {requirePhase1Profile} from './phase1-p0.ts';
+import {freeTokenRegressionEnabled} from '../core/engine-policy.ts';
 
 type Definition = {id:string; layers:readonly TestLayer[]};
 const row = (id:string,layers:readonly TestLayer[]): Definition => ({id,layers});
@@ -30,6 +31,8 @@ export const phase3Variants = {
   'p3-kv-nvidia-vllm':row('ENG-03',['A','E']),
   'p3-gpu-logs':row('LOG-01',['U','C','A','E']),
   'p3-route':row('ROUTE-01',['A']),
+  'p3-runtime-stop':row('LIFE-03',['A','E']),
+  'p3-runtime-start':row('LIFE-04',['A','E']),
   'p3-ft-capability':row('FT-01',['U','C','A','E']),
   'p3-ft-telemetry':row('FT-02',['U','C','B','A','E']),
   'p3-ft-runtime':row('FT-03',['C','A']),
@@ -72,9 +75,18 @@ export type GpuVariant = keyof typeof phase3Variants | keyof typeof phase4Varian
 const requirements = (variants:Record<string,Definition>,phase:number) => Object.entries(variants).flatMap(([variant,definition]) =>
   definition.layers.map(layer => ({id:definition.id,variant,layer,environment:environmentFor(layer),priority:'P0' as const,phase,
     parameterSet:phase === 3 ? 'installed-exclusive-amd-nvidia' : 'installed-sharing-amd-nvidia'})));
-export const phase3Requirements = requirements(phase3Variants,3);
+export const phase3Requirements = requirements(phase3Variants,3).filter(item=>freeTokenRegressionEnabled ||
+  !item.variant.startsWith('p3-ft-'));
 export const phase4Requirements = requirements(phase4Variants,4);
 export const gpuRequirements = (phase:3|4) => phase === 3 ? phase3Requirements : phase4Requirements;
+/** Bounded diagnosis of classic GPU lifecycle paths; this does not
+ * certify the full Phase 3 hardware/inventory/validation matrix. */
+export const phase3RuntimeCases={
+  'vllm-lifecycle':{ids:['ENG-01','ENG-03','LOG-01','ROUTE-01','SLOT-02','LIFE-03','LIFE-04'],
+    grep:'(amd-vllm|nvidia-vllm) actual'},
+  'nvidia-lifecycle':{ids:['ENG-01','ENG-03','LOG-01','ROUTE-01','SLOT-02','LIFE-03','LIFE-04'],
+    grep:'(nvidia-ollama|nvidia-vllm) actual'},
+} as const;
 /** Fixed diagnostic subset only; canonical phase4 never selects this case. */
 export const phase4SharingCases = {
   remaining:{ids:['SLOT-03','SHR-07','SLOT-09','SHR-12','HAR-08'],grep:'SLOT-03|SHR-07|SLOT-09|SHR-12|HAR-08'},
@@ -82,8 +94,9 @@ export const phase4SharingCases = {
 export const gpuModePhase = (mode?:string):3|4|undefined => /^phase[34](?:-|$)/.test(mode ?? '') ? Number(mode![5]) as 3|4 : undefined;
 export function gpuModeIds(mode?:string,gpuCase?:string) {
   if(gpuCase) {
-    requireSafe(mode === 'phase4-sharing' && Object.hasOwn(phase4SharingCases,gpuCase),'CONFIG');
-    return [...phase4SharingCases[gpuCase as keyof typeof phase4SharingCases].ids];
+    const selections=mode === 'phase3-gpu' ? phase3RuntimeCases : mode === 'phase4-sharing' ? phase4SharingCases : undefined;
+    requireSafe(selections && Object.hasOwn(selections,gpuCase),'CONFIG');
+    return [...(selections as Record<string,{ids:readonly string[]}>)[gpuCase]!.ids];
   }
   const phase = gpuModePhase(mode); if (!phase) return undefined;
   const fixture = mode?.endsWith('-fast') ? ['U','C'] : mode?.endsWith('-fixtures') ? ['B'] : undefined;

@@ -3,6 +3,7 @@ import {spawnSync} from 'node:child_process';
 import {componentSuite,pythonSuite} from '../components/owning.ts';
 import {evidenceAnnotations,type TestLayer} from '../core/evidence.ts';
 import {phase3Variants,phase4Variants} from '../profiles/gpu-p0.ts';
+import {freeTokenRegressionEnabled} from '../core/engine-policy.ts';
 
 const phase = process.env.REGRESSION_MODE === 'phase4-fast' ? 4 : 3;
 const definitions:Record<string,{id:string;layers:readonly TestLayer[]}> = phase === 3 ? phase3Variants : phase4Variants;
@@ -30,7 +31,7 @@ if (phase === 3) {
       'uses driver-bounded shared free rather than Linux free or unreserved budget',
     ]));
   const ft = ['p3-ft-capability','p3-ft-telemetry','p3-ft-whole-device','p3-ft-vram','p3-ft-ram','p3-ft-edit','p3-ft-lifecycle','p3-ft-discovery'];
-  test(title(ft,'owning FreeToken form uses device-specific budgets, distinct settings, logs and lifecycle'),proof(ft,'U'), () =>
+  if(freeTokenRegressionEnabled)test(title(ft,'owning FreeToken form uses device-specific budgets, distinct settings, logs and lifecycle'),proof(ft,'U'), () =>
     componentSuite('src/FreeToken.test.tsx',[
       'searches Hugging Face with the FreeToken engine context and selects a compatible result',
       'uses the engine-specific configuration and excludes KV/offloading fields',
@@ -64,7 +65,7 @@ if (phase === 3) {
       'test_dashboard_api.LocalRuntimeTests.test_gpu_model_payload_drops_cpu_memory_reservation',
     ]));
   const ftContracts = [...ft,'p3-ft-runtime'];
-  test(title(ftContracts,'owning FreeToken admission, CUDA/whole-device entrypoint, health and lifecycle contracts'),proof(ftContracts,'C'), () => {
+  if(freeTokenRegressionEnabled)test(title(ftContracts,'owning FreeToken admission, CUDA/whole-device entrypoint, health and lifecycle contracts'),proof(ftContracts,'C'), () => {
     pythonSuite(api,['test_freetoken_api.FreeTokenDashboardApiTests','test_freetoken_lifecycle.FreeTokenLifecycleTests']);
     pythonSuite(operator,['test_freetoken_runtime.FreeTokenRuntimeTests']);
   });

@@ -2,6 +2,7 @@ import {isAbsolute, resolve} from 'node:path';
 import {readPrivate} from './private-files.ts';
 import {HarnessError, requireSafe} from './errors.ts';
 import type {FreeTokenConfiguration,RealtimeConfiguration} from '@magicstick/dashboard-contracts';
+import {freeTokenRegressionEnabled} from './engine-policy.ts';
 
 export interface LocalModelFixture {
   engine: 'OLlama' | 'VLLM';
@@ -208,7 +209,8 @@ export function parseLabConfig(value: unknown, directory: string): LabConfig {
         Object.keys(models).every(key=>['amdOllama','amdVllm','freetoken','nvidiaOllama','nvidiaVllm'].includes(key)) :
       Object.keys(selection).sort().join(',') === 'acknowledgeSharingTransitions,bootId,devices,models,nodeName,nodeUid,sharedSlots' &&
       Object.keys(devices).sort().join(',') === 'amd,nvidia' &&
-      Object.keys(models).sort().join(',') === 'amdOllama,amdVllm,freetoken,nvidiaOllama,nvidiaVllm'), 'CONFIG');
+      Object.keys(models).filter(key=>freeTokenRegressionEnabled || key !== 'freetoken').sort().join(',') ===
+        ['amdOllama','amdVllm',...(freeTokenRegressionEnabled ? ['freetoken'] : []),'nvidiaOllama','nvidiaVllm'].join(',')), 'CONFIG');
     const device = (value: unknown) => {const d = object(value);requireSafe(Object.keys(d).sort().join(',') === 'id,pciAddress','CONFIG'); return {id: text(d.id, /^[a-zA-Z0-9._:/-]{1,255}$/),
       pciAddress: text(d.pciAddress, /^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$/)};};
     const gpuModel = (value: unknown, engine: GpuModelFixture['engine'], target: GpuModelFixture['computeTarget']): GpuModelFixture => {

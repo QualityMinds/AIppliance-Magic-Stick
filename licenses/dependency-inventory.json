@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
-  "pnpmLockSha256": "4ae55e7f54bc30000b2ff38776d17b228c6fb76ac131b110e0a009cf6a5436b6",
-  "deploymentReferencesSha256": "cd82fb44f26972616247c2c82b49d9d914da96e6f7d829678c6b09557ccfe0e5",
+  "pnpmLockSha256": "6dda8724e63f83d4608f703a3357dc0d2544ff5501e9a32df66a9a90f8d6909e",
+  "deploymentReferencesSha256": "ddd1c48fdf7f3419ef6ece861b9b90f510b24d75e8587c2fdf22dc2e9b48136a",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -1539,10 +1539,10 @@
     },
     {
       "name": "source-map-js",
-      "version": "1.2.1",
+      "version": "1.2.2",
       "declaredLicense": "BSD-3-Clause",
       "evidence": "installed-package",
-      "integrity": "sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==",
+      "integrity": "sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw==",
       "licenseFiles": [
         {
           "file": "LICENSE",
@@ -2120,7 +2120,7 @@
     },
     {
       "file": ".github/workflows/build-mesh-companion.yml",
-      "line": 246,
+      "line": 253,
       "reference": "with: {python-version: '3.13'}"
     },
     {
@@ -2171,6 +2171,11 @@
     {
       "file": ".github/workflows/dashboard-browser-smoke.yml",
       "line": 61,
+      "reference": "node-version: '24'"
+    },
+    {
+      "file": ".github/workflows/dependency-security.yml",
+      "line": 43,
       "reference": "node-version: '24'"
     },
     {
@@ -2470,12 +2475,12 @@
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
-      "line": 6777,
+      "line": 6813,
       "reference": "raise ValueError(\"Realtime requires a Hugging Face repository: hf://organization/model\")"
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
-      "line": 6814,
+      "line": 6850,
       "reference": "if image:"
     },
     {

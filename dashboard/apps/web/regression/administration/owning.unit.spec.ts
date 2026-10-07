@@ -1,8 +1,9 @@
 import {test} from '@playwright/test';
 import {componentSuite,pythonSuite} from '../components/owning.ts';
 import {evidenceAnnotations} from '../core/evidence.ts';
-import {remainingPhase,remainingVariants,validateRemainingRegistry} from '../profiles/remaining-p0.ts';
+import {remainingPhase,remainingVariants,remainingVariantEnabled,validateRemainingRegistry} from '../profiles/remaining-p0.ts';
 import {HarnessError} from '../core/errors.ts';
+import {freeTokenRegressionEnabled} from '../core/engine-policy.ts';
 
 const api='../../../magic-cluster/apps/dashboard';
 const identity='../../../magic-cluster/platform/identity/tests';
@@ -14,7 +15,7 @@ type Proof={python?:Array<[string,string[]]>; components?:Array<[string,string[]
 const proofs:Record<string,Proof>={
   modules:{python:[[operator,['test_controller.HelmAppInstanceTests.test_waiting_module_suspends_kustomization_without_deleting_resources',
     'test_controller.HelmAppInstanceTests.test_model_module_dependencies_separate_local_and_external_models']],
-    [api,['test_gpu_sharing_api.GpuSharingApiTests']]],components:[['src/FeatureParity.test.tsx',['Services restores grouping, nested instances, credentials and every Paperclip field']]]},
+    [api,['test_module_parameters.ModuleParameterTests','test_gpu_sharing_api.GpuSharingApiTests']]],components:[['src/FeatureParity.test.tsx',['Services restores grouping, nested instances, credentials and every Paperclip field']]]},
   apps:{python:[[operator,['test_controller.HelmAppInstanceTests.test_generates_helmrelease_from_app_definition',
     'test_controller.HelmAppInstanceTests.test_generates_sso_protected_local_and_public_routes_by_default',
     'test_controller.HelmAppInstanceTests.test_paperclip_tenant_runtime_resources_are_instance_scoped',
@@ -77,16 +78,20 @@ function execute(group:string) {
   if(!result) {
     result=(async()=>{
       const proof=proofs[group]; if(!proof) throw new HarnessError('CONFIG');
-      for(const [cwd,tests] of proof.python ?? []) pythonSuite(cwd,tests);
-      for(const [file,titles] of proof.components ?? []) await componentSuite(file,titles);
+      for(const [cwd,tests] of proof.python ?? []) {
+        const selected=tests.filter(name=>freeTokenRegressionEnabled || !name.startsWith('test_freetoken_'));
+        if(selected.length)pythonSuite(cwd,selected);
+      }
+      for(const [file,titles] of proof.components ?? [])if(freeTokenRegressionEnabled || file !== 'src/FreeToken.test.tsx')
+        await componentSuite(file,titles);
     })(); cache.set(group,result);
   }
   return result;
 }
 validateRemainingRegistry();
 const phase=remainingPhase(process.env.REGRESSION_MODE);
-for(const group of new Set(Object.values(remainingVariants).filter(item=>item.phase === phase && item.layers.some(layer=>['U','C'].includes(layer))).map(item=>item.group))) {
-  const cases=Object.entries(remainingVariants).filter(([,item])=>item.phase === phase && item.group === group);
+for(const group of new Set(Object.values(remainingVariants).filter(item=>remainingVariantEnabled(item) && item.phase === phase && item.layers.some(layer=>['U','C'].includes(layer))).map(item=>item.group))) {
+  const cases=Object.entries(remainingVariants).filter(([,item])=>remainingVariantEnabled(item) && item.phase === phase && item.group === group);
   test(`${cases[0]![1].id} owning ${group} safety and behavior contracts`,
     evidenceAnnotations(...cases.flatMap(([variant,item])=>item.layers.filter(layer=>layer === 'U' || layer === 'C').map(layer=>({id:item.id,variant,layer})))),()=>execute(group));
 }

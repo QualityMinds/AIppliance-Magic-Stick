@@ -3,6 +3,7 @@ import type {LabConfig,GpuLabProfile,GpuModelFixture,RuntimeModelFixture} from '
 import {catalogFixture,preparedProfile,type PreparationSnapshot,type PreparationOptions} from './input-preparation.ts';
 import {labPolicy} from './lab-policy.ts';
 import {freeTokenNodeCapacity} from './freetoken-inventory.ts';
+import {freeTokenRegressionEnabled} from './engine-policy.ts';
 import type {HostDrillRecipes} from './host-drill-recipes.ts';
 import {requireSafe} from './errors.ts';
 
@@ -33,7 +34,7 @@ export function automaticGpuProfile(snapshot:PreparationSnapshot,defaults:Record
         memoryRequiredMi:Math.ceil(chosen.memoryRequiredMi/100)*100} as GpuModelFixture;
     }
   }
-  if(profile.devices.nvidia && defaults.freetoken)try {
+  if(freeTokenRegressionEnabled && profile.devices.nvidia && defaults.freetoken)try {
     const capacity=freeTokenNodeCapacity(snapshot.models,host.name),fixture=structuredClone(defaults.freetoken);
     fixture.freetoken.gpuDevice=`node:${host.name}`;
     if(capacity.gpuAvailableMi >= fixture.freetoken.gpuMemoryMi && capacity.systemAvailableMi >= fixture.freetoken.systemMemoryMi)

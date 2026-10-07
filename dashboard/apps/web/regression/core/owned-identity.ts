@@ -5,6 +5,11 @@ import {AdministrationApi,AdministrationRejected} from './administration-api.ts'
 import {requireSafe} from './errors.ts';
 import type {CleanupAdapter} from './journal.ts';
 
+/** The shared API identifies local users with source, not a mandatory local flag.
+ * Cleanup requires an explicit local origin; missing or conflicting data is not
+ * a reason to adopt an account. */
+export const ownedLocalIdentity = (user:User) => user.source === 'local' && user.local !== false;
+
 export class OwnedIdentityClient {
   readonly client:AdministrationApi;
   private readonly ids=new Map<string,string>();
@@ -28,8 +33,11 @@ export class OwnedIdentityClient {
         !(await this.client.api.users(username,0,25)).users.some(item=>item.username === username)) await this.live.journal.rejected('identity',username);
       throw error;
     }
-    requireSafe(user.id && user.username === username && user.local === true && user.enabled === true && user.accessLevel === accessLevel,'API');
+    requireSafe(typeof user.id === 'string' && user.id.length > 0 && user.username === username,'OWNERSHIP');
+    // Record an acknowledged creation before checking product postconditions.
+    // A bad enabled/role/source response must not lose the UID needed for cleanup.
     this.ids.set(username,user.id); await this.live.journal.owned('identity',username,user.id);
+    requireSafe(ownedLocalIdentity(user) && user.enabled === true && user.accessLevel === accessLevel,'API');
     return {user,initialPassword,password};
   }
   async current(user:User) {
@@ -60,7 +68,7 @@ export class OwnedIdentityClient {
       requireSafe(entry.kind === 'identity' && entry.name.startsWith(this.live.journal.prefix),'OWNERSHIP');
       const users=(await this.client.api.users(entry.name,0,25)).users.filter(item=>item.username === entry.name);
       requireSafe(users.length <= 1,'OWNERSHIP');
-      if(users.length) requireSafe(users[0]!.id === entry.uid && users[0]!.local === true && users[0]!.capabilities?.isProtected !== true,'OWNERSHIP');
+      if(users.length) requireSafe(users[0]!.id === entry.uid && ownedLocalIdentity(users[0]!) && users[0]!.capabilities?.isProtected !== true,'OWNERSHIP');
       return users.length ? {uid:users[0]!.id} : null;
     },removeIfUid:async(entry,uid)=>{
       requireSafe(uid === entry.uid && this.ids.get(entry.name) === uid,'OWNERSHIP');

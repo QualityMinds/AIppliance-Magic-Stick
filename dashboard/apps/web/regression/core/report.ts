@@ -9,9 +9,11 @@ import {writePrivate} from './private-files.ts';
 import {join} from 'node:path';
 import {environmentFor, testLayers, type TestEnvironment, type TestLayer} from './evidence.ts';
 import {caseDescription, durationDescription, layerDescriptions} from './case-descriptions.ts';
+import {disabledExperimentalEngines} from './engine-policy.ts';
 
 export type Outcome = 'Passed' | 'Failed' | 'Blocked' | 'Skipped' | 'Not run' | 'Flaky';
 export interface CaseResult {id: string; outcome: Outcome; layer: TestLayer; environment?: TestEnvironment; durationMs: number; reason?: ReasonCode;
+  executionId?:string; executionOutcome?:'Passed'|'Failed'|'Blocked';
   stage?: Stage; variant?: Phase0Variant | Phase1Variant | Phase2Variant | GpuVariant | `p${5|6|7|8}-${string}`}
 
 export const reportVariants: Record<string, string> = {...phase0Variants, ...phase1Variants,
@@ -19,6 +21,19 @@ export const reportVariants: Record<string, string> = {...phase0Variants, ...pha
 
 export function terminalOutcome(value: Outcome): 'Passed'|'Failed'|'Blocked' {
   return value === 'Passed' ? 'Passed' : value === 'Failed' || value === 'Flaky' ? 'Failed' : 'Blocked';
+}
+export function summarizeExecutions(cases:Array<{executionId?:string;executionOutcome?:'Passed'|'Failed'|'Blocked';outcome:Outcome}>) {
+  const executions=new Map<string,'Passed'|'Failed'|'Blocked'>();
+  for(const item of cases)if(item.executionId && /^[a-f0-9]{24}$/.test(item.executionId)) {
+    // The scenario can fail during cleanup after every mapped check passed.
+    // Preserve completed checks, but never infer a green execution from them.
+    const prior=executions.get(item.executionId),current=item.executionOutcome ?? terminalOutcome(item.outcome);
+    executions.set(item.executionId,prior === 'Failed' || current === 'Failed' ? 'Failed' :
+      prior === 'Blocked' || current === 'Blocked' ? 'Blocked' : 'Passed');
+  }
+  const counts={Passed:0,Failed:0,Blocked:0};
+  for(const outcome of executions.values())counts[outcome]++;
+  return counts;
 }
 /** Fill the finite matrix, not just one row per catalogue family. A missing
  * prerequisite or interrupted serial group must remain visible in JSON/JUnit. */
@@ -47,6 +62,7 @@ export function reportExitCode(cases:Array<{outcome:Outcome}>) {
     !cases.length || cases.some(item=>terminalOutcome(item.outcome) === 'Blocked') ? 2 : 0;
 }
 export function blockedAction(reason:ReasonCode='PREREQUISITE') {
+  if(reason === 'DEPENDENCY')return 'Fix the earlier failed step in this scenario, then repeat it. This check needs no additional setup.';
   if(reason === 'CANCELLED')return 'Repeat all when ready. Interrupted live mutations must prove restoration before further writes.';
   if(reason === 'LAB' || reason === 'IDENTITY')return 'Use the registered test appliance; setup is needed only when intentionally replacing that installation.';
   if(reason === 'TLS')return 'Restore connectivity or the trusted appliance certificate; the runner never disables TLS validation.';
@@ -81,10 +97,14 @@ export function liveReportScope(mode?: string) {
   const phase=remainingPhase(mode);
   if(phase) return `Phase ${phase} P0 catalogue/layer matrix on the registered disposable lab; fixed lab policy permits owned resources and bounded host operations; missing real prerequisites are Blocked, not passes`;
   if(mode === 'all')return 'All implemented Phase 0–8 P0 scenarios on the registered disposable lab; independent tests continue, missing prerequisites are Blocked and unproved recovery fences later live writes';
+  if(mode === 'phase3-gpu' && process.env.REGRESSION_GPU_CASE === 'vllm-lifecycle')
+    return 'Phase 3 diagnostic subset: AMD/NVIDIA vLLM inference, logs, browser Stop/Start and exact restoration; not complete installed Phase 3 acceptance';
+  if(mode === 'phase3-gpu' && process.env.REGRESSION_GPU_CASE === 'nvidia-lifecycle')
+    return 'Phase 3 diagnostic subset: three independent NVIDIA Ollama and vLLM inference/logs/Stop/Start cycles each; AMD sharing unchanged; not complete installed Phase 3 acceptance';
   if(mode === 'phase4-sharing' && process.env.REGRESSION_GPU_CASE === 'remaining')
     return 'Phase 4 diagnostic subset: verification consumer, provider/CPU independence, last-slot races, reload and exact restoration; not complete installed Phase 4 acceptance';
   if(mode === 'gpu-recover') return 'explicit recovery of one reviewed GPU journal; same node/boot/source/image pins; no Lease takeover, resource adoption or new inference workloads';
-  if (mode?.startsWith('phase3')) return 'Phase 3 P0 installed AMD/NVIDIA exclusive runtimes, FreeToken whole-device runtime, physical inventory, memory, logs and scoped validation; borrowed sharing restored; Intel and reboot acceptance separate';
+  if (mode?.startsWith('phase3')) return 'Phase 3 P0 installed AMD/NVIDIA Ollama/vLLM exclusive runtimes, physical inventory, memory, logs and scoped validation; experimental FreeToken tests disabled; borrowed sharing restored; Intel and reboot acceptance separate';
   if (mode?.startsWith('phase4')) return 'Phase 4 P0 installed AMD DRA/NVIDIA time-slicing transitions, mixed/same-engine pairs, full/released slots, races and cross-provider independence; borrowed sharing restored; reboot/CDI recovery acceptance separate';
   return mode === 'phase2' ? 'Phase 2 P0 installed CPU model control: Ollama and vLLM forms, persistence, conflicts, memory controls, logs, external routing and one run-owned failure; no GPU/global setting changes' :
     mode === 'phase2-readonly' ? 'Phase 2 read-only live model discovery through API and dashboard; no appliance mutations' :
@@ -116,9 +136,13 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     const reason = item.reason && Object.hasOwn(reasons, item.reason) ? item.reason : undefined;
     const stage = item.stage && stages.includes(item.stage) ? item.stage : undefined;
     const variant = item.variant && Object.hasOwn(reportVariants, item.variant) && reportVariants[item.variant] === item.id ? item.variant : undefined;
+    const executionId=item.executionId && /^[a-f0-9]{24}$/.test(item.executionId) ? item.executionId : undefined;
+    const executionOutcome=executionId && ['Passed','Failed','Blocked'].includes(item.executionOutcome ?? '') ? item.executionOutcome : undefined;
     return {id: item.id, description: caseDescription(item.id), outcome: item.outcome, layer: item.layer, environment, durationMs: Math.max(0, Math.round(item.durationMs)),
-      ...(reason ? {reason} : {}), ...(stage ? {stage} : {}), ...(variant ? {variant} : {})};
+      ...(reason ? {reason} : {}), ...(stage ? {stage} : {}), ...(variant ? {variant} : {}),...(executionId ? {executionId} : {}),
+      ...(executionOutcome ? {executionOutcome} : {})};
   });
+  const executionCounts=summarizeExecutions(safe);
   const selectedSummary = summarize(required, safe);
   const coverage = phase0Coverage(safe);
   const smokeCoverage = phase1Coverage(safe);
@@ -126,7 +150,8 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
   const phase3Coverage = gpuCoverage(3,safe), phase4Coverage = gpuCoverage(4,safe);
   const laterPhase=remainingPhase(mode);
   const laterCoverage=laterPhase ? remainingCoverage(mode!,safe) : undefined;
-  const summary = {...selectedSummary, acceptable: selectedSummary.acceptable && (mode !== 'phase0' || coverage.complete) &&
+  const summary = {...selectedSummary, acceptable: selectedSummary.acceptable && executionCounts.Failed === 0 && executionCounts.Blocked === 0 &&
+    (mode !== 'phase0' || coverage.complete) &&
     (mode !== 'phase1' || smokeCoverage.complete) && (mode !== 'phase2' || controlCoverage.complete) &&
     (mode !== 'phase3' || phase3Coverage.complete) && (mode !== 'phase4' || phase4Coverage.complete) &&
     (!laterCoverage || laterCoverage.complete)};
@@ -154,7 +179,7 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     ...(mode === 'phase1' ? {phase1Coverage: smokeCoverage} : {}),
     ...(mode === 'phase2' ? {phase2Coverage: controlCoverage} : {}),
     ...(mode === 'phase3' ? {phase3Coverage} : {}), ...(mode === 'phase4' ? {phase4Coverage} : {}),
-    ...summary, cases: safe});
+    ...summary,executionCounts,excludedEngineTests:disabledExperimentalEngines, cases: safe});
   const entries = safe;
   const suite = entries.map(item => {
     const failed = item.outcome === 'Failed',blocked=item.outcome === 'Blocked';
@@ -168,7 +193,9 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     '<title>Magic Stick regression results</title><style>body{font:16px system-ui;max-width:1100px;margin:2rem auto;padding:1rem}'+
     'table{border-collapse:collapse;width:100%}td,th{padding:.6rem;border-bottom:1px solid #ddd;text-align:left}'+
     '.Passed{color:#087343}.Failed{color:#b42030}.Blocked{color:#906100}</style><h1>Regression results</h1>'+
-    `<p>Passed: ${summary.counts.Passed} · Failed: ${summary.counts.Failed} · Blocked: ${summary.counts.Blocked}</p>`+
+    `<p>Excluded experimental engine tests: ${xml(disabledExperimentalEngines.join(', '))}. Product engines are unchanged.</p>`+
+    `<p>Recorded executable scenarios: ${executionCounts.Passed} passed · ${executionCounts.Failed} failed · ${executionCounts.Blocked} blocked. ${safe.filter(item=>!item.executionId).length} evidence rows have no executable scenario ID (missing or legacy evidence).</p>`+
+    `<p>Evidence rows (case × variant × layer): ${summary.counts.Passed} passed · ${summary.counts.Failed} failed · ${summary.counts.Blocked} blocked.</p>`+
     '<table><tr><th>Case / variant</th><th>Layer</th><th>Result</th><th>Goal / reason</th></tr>'+
     safe.map(item=>`<tr><td>${xml(item.id+(item.variant ? '/'+item.variant : ''))}</td><td>${item.layer} / ${item.environment}</td>`+
       `<td class="${item.outcome}">${item.outcome}</td><td>${xml(item.description)}`+
@@ -183,10 +210,13 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     (openGates.length ? `Separate open gates: ${openGates.join('; ')}\n` : '') +
     `Scope: ${safe.some(item => item.environment === 'live') ? liveScope : 'isolated owning layers only'}\n` +
     'Catalogue goals describe case families; Passed applies only to the recorded variant, layer and environment.\n' +
+    `Excluded experimental engine tests: ${disabledExperimentalEngines.join(', ')}. Product engines are unchanged.\n`+
+    `Recorded executable scenarios: ${executionCounts.Passed} passed; ${executionCounts.Failed} failed; ${executionCounts.Blocked} blocked.\n`+
+    `Evidence rows without executable scenario ID (missing or legacy evidence): ${safe.filter(item=>!item.executionId).length}\n`+
     `Passed: ${summary.counts.Passed}; Failed: ${summary.counts.Failed}; Blocked: ${summary.counts.Blocked}\n` +
     safe.map(item => `${item.id}${item.variant ? ` / ${item.variant}` : ''} [${item.layer} — ${layerDescriptions[item.layer]}; ${item.environment}]: ${item.outcome} — ${durationDescription(item.durationMs)}${item.reason ? ` (${item.reason})` : ''}${item.stage ? ` [${item.stage}]` : ''}\n` +
       `  Catalogue goal: ${item.description}${item.reason ? `\n  Reason: ${reasons[item.reason]}` : ''}${item.outcome === 'Blocked' ? `\n  Next: ${blockedAction(item.reason)}` : ''}`).join('\n') + '\n');
-  return {...summary, fullPhase0Accepted, fullPhase1Accepted, fullPhase2Accepted,fullPhase3Accepted,fullPhase4Accepted,installedPhase4Accepted,
+  return {...summary, executionCounts, fullPhase0Accepted, fullPhase1Accepted, fullPhase2Accepted,fullPhase3Accepted,fullPhase4Accepted,installedPhase4Accepted,
     ...Object.fromEntries([5,6,7,8].map(phase=>[`fullPhase${phase}Accepted`,mode === `phase${phase}` && summary.acceptable && laterCoverage?.complete === true]))};
 }
 

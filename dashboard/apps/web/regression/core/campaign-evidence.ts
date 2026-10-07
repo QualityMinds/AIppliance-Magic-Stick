@@ -25,6 +25,9 @@ export async function childEvidence(options:{output:string;receipt:string;mode:s
       return {id:item.id,outcome:item.outcome,layer:item.layer,environment:item.environment,durationMs:item.durationMs,
         ...(item.reason && Object.hasOwn(reasons,item.reason) ? {reason:item.reason} : {}),
         ...(item.stage && stages.includes(item.stage) ? {stage:item.stage} : {}),
+        ...(item.executionId && /^[a-f0-9]{24}$/.test(item.executionId) ? {executionId:item.executionId} : {}),
+        ...(item.executionId && /^[a-f0-9]{24}$/.test(item.executionId) &&
+          ['Passed','Failed','Blocked'].includes(item.executionOutcome ?? '') ? {executionOutcome:item.executionOutcome} : {}),
         ...(typeof item.variant === 'string' ? {variant:item.variant} : {})};
     });
     return {result:{mode:options.mode,runId:result.runId as string,directory:result.directory as string,

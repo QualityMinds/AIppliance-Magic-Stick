@@ -14,6 +14,7 @@ import {requireProof as requireSafe} from '../core/errors.ts';
 import {BorrowedSharing,canonical} from '../core/borrowed-sharing.ts';
 import {sharingAdapter} from '../core/gpu-scenario.ts';
 import {permittedUiAction} from './ui-actions.ts';
+import {freeTokenRegressionEnabled} from '../core/engine-policy.ts';
 
 export const stableMesh=(status:MeshStatus)=>JSON.stringify({installed:status.installed,configured:status.configured,authority:status.authority,
   mesh:status.mesh,node:status.node,shares:status.shares,relay:status.relay});
@@ -90,7 +91,8 @@ export async function meshWorkflow(live:Foundation,browser:Browser) {
     const fresh=await command(api,'invite',{type:'magic-stick',lifetime:600}) as {token:string};await command(remote,'join',{token:fresh.token,nodeName:journal.prefix+'peer'});
     const key=await live.createKey('mesh-local'),remoteKey=await peer.createKey('mesh-remote');
     const localProbe=new InferenceProbe(live.context.request,live.config.inferenceUrl,key.secret),remoteProbe=new InferenceProbe(peer.context.request,peerConfig.inferenceUrl!,remoteKey.secret);
-    const fixtures=[live.config.smokeModel!,live.config.gpu.models.nvidiaVllm,live.config.gpu.models.freetoken];
+    const fixtures=[live.config.smokeModel!,live.config.gpu.models.nvidiaVllm,
+      ...(freeTokenRegressionEnabled ? [live.config.gpu.models.freetoken] : [])];
     for(let index=0;index<fixtures.length;index++) {
       const model=await live.createModel('mesh-engine-'+index,live.journal,fixtures[index]!);await live.waitReady(model.client,model.uid,model.generation);
       await localProbe.chat(model.client.name,fixtures[index]!.url.split('://')[1]);

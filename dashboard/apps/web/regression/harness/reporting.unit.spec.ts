@@ -4,14 +4,21 @@ import {mkdtemp, readFile, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import SafeReporter from '../reporter.ts';
+import SafeReporter, {failureOutcome, harnessFailure} from '../reporter.ts';
 import {caseDescription, caseDescriptions, durationDescription, layerDescriptions, modeDescription,
   parseCaseDescriptions, publicScenarioTitle, staticScenarioTitles} from '../core/case-descriptions.ts';
-import {reasons} from '../core/errors.ts';
+import {HarnessError,reasons} from '../core/errors.ts';
+import {evidenceAnnotations,evidenceStep} from '../core/evidence.ts';
+import {phase3Requirements,gpuModeIds} from '../profiles/gpu-p0.ts';
+import {remainingRequirements} from '../profiles/remaining-p0.ts';
+import {disabledExperimentalEngines,freeTokenRegressionEnabled} from '../core/engine-policy.ts';
 import {completeCases,reportExitCode,reportVariants, saveReport, type CaseResult} from '../core/report.ts';
 import {newRunId} from '../core/journal.ts';
 import {childEvidence} from '../core/campaign-evidence.ts';
 import {writePrivate} from '../core/private-files.ts';
+import {verifyCapabilities} from '../core/preflight.ts';
+import type {LabConfig} from '../core/config.ts';
+import type {ModelsPayload} from '@magicstick/dashboard-contracts';
 
 function capture(action: () => void): string {
   const chunks: string[] = [], original = process.stdout.write;
@@ -72,6 +79,7 @@ test('HAR-10 reporter shows test progress, exact public scenario, layer, goal an
     reporter.onTestEnd(second, result());
   });
   expect(output).toContain('Selected 2 executable tests');
+  expect(output).toContain('Excluded experimental engine tests: FreeToken. Product engines remain enabled.');
   expect(output).toContain('[1/2] START HAR-10');
   expect(output).toContain(`Scenario: ${title}`);
   expect(output).toContain(`HAR-10 catalogue goal: ${caseDescription('HAR-10')}`);
@@ -89,7 +97,7 @@ test('HAR-11 reporter explains safe failure reasons without printing private tit
     const reporter = new SafeReporter();
     reporter.onBegin({} as FullConfig, {allTests: () => [first]} as Suite);
     reporter.onTestBegin(first);
-    reporter.onTestEnd(first, result('failed', `[TLS] ${secret} [stage:model-ready]`));
+    reporter.onTestEnd(first, result('failed', new HarnessError('TLS','Blocked','model-ready').message));
   });
   expect(output).toContain('HAR-11: Blocked');
   expect(output).toContain(`Reason (TLS): ${reasons.TLS}`);
@@ -97,6 +105,98 @@ test('HAR-11 reporter explains safe failure reasons without printing private tit
   expect(output).not.toContain(secret);
   expect(output).not.toContain('https://private.example.test');
   expect(output).not.toContain('Scenario:');
+});
+
+test('HAR-10 nested HarnessError text in an assertion never changes Failed to Blocked',()=>{
+  const blocked=new HarnessError('PREREQUISITE').message;
+  expect(harnessFailure(blocked)).toMatchObject({code:'PREREQUISITE',outcome:'Blocked'});
+  expect(harnessFailure('HarnessError: '+blocked)).toMatchObject({code:'PREREQUISITE',outcome:'Blocked'});
+  expect(failureOutcome('PREREQUISITE',[blocked])).toBe('Blocked');
+  const assertion=`expect(received).toThrow(expected)\nExpected substring: "[CONFIG]"\nReceived message: "${blocked}"`;
+  expect(harnessFailure(assertion)).toBeUndefined();
+  expect(failureOutcome('PREREQUISITE',[assertion])).toBe('Failed');
+  expect(failureOutcome('PREREQUISITE',[blocked,assertion])).toBe('Failed');
+  expect(harnessFailure(`[TLS] unreviewed upstream text [outcome:Blocked]`)).toBeUndefined();
+});
+
+test('HAR-10 late Stop failure preserves inference evidence and blocks only unreached Start checks',async()=>{
+  const ready={id:'ENG-01',variant:'p3-amd-vllm',layer:'A' as const},
+    route={id:'ROUTE-01',variant:'p3-route',layer:'A' as const},
+    stop={id:'LIFE-03',variant:'p3-runtime-stop',layer:'E' as const},
+    start={id:'LIFE-04',variant:'p3-runtime-start',layer:'E' as const};
+  const selected=specimen('ENG-01 ROUTE-01 LIFE-03 LIFE-04',evidenceAnnotations(ready,route,stop,start).annotation);
+  await evidenceStep(selected,[ready,route],async()=>42);
+  const error=new HarnessError('DEADLINE','Failed','model-stopped');
+  await expect(evidenceStep(selected,[stop],async()=>{throw error;})).rejects.toBe(error);
+  const reporter=new SafeReporter();capture(()=>reporter.onTestEnd(selected,result('failed',error.message)));
+  const cases=(reporter as unknown as {cases:CaseResult[]}).cases;
+  expect(cases.map(item=>({id:item.id,outcome:item.outcome,reason:item.reason,stage:item.stage}))).toEqual([
+    {id:'ENG-01',outcome:'Passed',reason:undefined,stage:undefined},
+    {id:'ROUTE-01',outcome:'Passed',reason:undefined,stage:undefined},
+    {id:'LIFE-03',outcome:'Failed',reason:'DEADLINE',stage:'model-stopped'},
+    {id:'LIFE-04',outcome:'Blocked',reason:'DEPENDENCY',stage:undefined}]);
+  expect(new Set(cases.map(item=>item.executionId)).size).toBe(1);
+  expect(cases[0]?.executionId).toMatch(/^[a-f0-9]{24}$/);
+});
+
+test('HAR-10 disabled experimental FreeToken tests are excluded rather than fabricated as Blocked or Passed',()=>{
+  expect(disabledExperimentalEngines).toEqual(['FreeToken']);
+  expect(freeTokenRegressionEnabled).toBe(false);
+  expect(phase3Requirements.some(item=>item.variant.startsWith('p3-ft-'))).toBe(false);
+  expect(gpuModeIds('phase3-gpu')?.some(id=>id.startsWith('FT-') || id === 'DISC-08')).toBe(false);
+  expect(remainingRequirements('phase6')?.some(item=>item.id === 'CACHE-07')).toBe(false);
+  expect(completeCases('phase3',[],gpuModeIds('phase3')!).some(item=>item.id.startsWith('FT-') || item.id === 'DISC-08')).toBe(false);
+  expect(phase3Requirements.some(item=>item.variant === 'p3-nvidia-vllm')).toBe(true);
+  expect(phase3Requirements.some(item=>item.variant === 'p3-amd-ollama')).toBe(true);
+});
+
+test('HAR-02 unavailable excluded FreeToken capability pins never block classic engines',()=>{
+  const config={expected:{capabilities:[{target:'nvidia-gpu',engines:['VLLM','FreeToken']},
+    {target:'experimental-only',engines:['FreeToken']}]}} as LabConfig;
+  const models={activations:[],computeTargets:{targets:[{id:'nvidia-gpu',available:true,engines:['VLLM'],
+    engineAvailability:{VLLM:{available:true},FreeToken:{available:false}}}]}} as unknown as ModelsPayload;
+  expect(()=>verifyCapabilities(config,models)).not.toThrow();
+  models.computeTargets.targets[0]!.engineAvailability!.VLLM!.available=false;
+  expect(()=>verifyCapabilities(config,models)).toThrow('[CAPABILITY]');
+});
+
+test('HAR-10 reports count executable scenarios independently of their case variant layer evidence',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'magicstick-report-counts-'));
+  try {
+    const executionId='a'.repeat(24),second='b'.repeat(24);
+    const cases:CaseResult[]=[{id:'ENG-01',variant:'p3-amd-vllm',layer:'A',outcome:'Passed',durationMs:1,executionId},
+      {id:'ENG-01',variant:'p3-amd-vllm',layer:'E',outcome:'Passed',durationMs:1,executionId},
+      {id:'LIFE-03',variant:'p3-runtime-stop',layer:'E',outcome:'Failed',durationMs:1,reason:'DEADLINE',executionId},
+      {id:'LIFE-04',variant:'p3-runtime-start',layer:'E',outcome:'Blocked',durationMs:0,reason:'DEPENDENCY',executionId},
+      {id:'HAR-10',layer:'U',outcome:'Passed',durationMs:1,executionId:second}];
+    const summary=await saveReport(directory,newRunId(),cases,['ENG-01','LIFE-03','LIFE-04','HAR-10'],'unknown','selftest');
+    expect(summary.counts).toMatchObject({Passed:3,Failed:1,Blocked:1});
+    expect(summary.executionCounts).toEqual({Passed:1,Failed:1,Blocked:0});
+    const json=JSON.parse(await readFile(join(directory,'summary.json'),'utf8'));
+    expect(json.executionCounts).toEqual(summary.executionCounts);
+    const html=await readFile(join(directory,'summary.html'),'utf8');
+    expect(html).toContain('Recorded executable scenarios: 1 passed · 1 failed · 0 blocked');
+    expect(html).toContain('Evidence rows (case × variant × layer): 3 passed · 1 failed · 1 blocked');
+    expect(html).toContain('Fix the earlier failed step');
+  }finally{await rm(directory,{recursive:true,force:true});}
+});
+
+test('HAR-10 a cleanup failure cannot turn completed checks into a successful executable scenario',async()=>{
+  const ready={id:'ENG-01',variant:'p3-amd-vllm',layer:'A' as const};
+  const selected=specimen('ENG-01',evidenceAnnotations(ready).annotation);
+  await evidenceStep(selected,[ready],async()=>42);
+  const reporter=new SafeReporter();
+  capture(()=>reporter.onTestEnd(selected,result('failed',new HarnessError('CLEANUP','Failed','cleanup').message)));
+  const cases=(reporter as unknown as {cases:CaseResult[]}).cases;
+  expect(cases).toHaveLength(1);
+  expect(cases[0]).toMatchObject({outcome:'Passed',executionOutcome:'Failed'});
+  const directory=await mkdtemp(join(tmpdir(),'magicstick-report-cleanup-'));
+  try {
+    const summary=await saveReport(directory,newRunId(),cases,['ENG-01'],'unknown','phase3-gpu');
+    expect(summary.counts.Passed).toBe(1);
+    expect(summary.executionCounts).toEqual({Passed:0,Failed:1,Blocked:0});
+    expect(summary.acceptable).toBe(false);
+  }finally{await rm(directory,{recursive:true,force:true});}
 });
 
 test('HAR-10 reporter describes each complementary case layer separately', () => {

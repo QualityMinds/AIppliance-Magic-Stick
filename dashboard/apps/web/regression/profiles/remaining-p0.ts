@@ -1,5 +1,6 @@
 import {environmentFor, type TestLayer} from '../core/evidence.ts';
 import {requireSafe} from '../core/errors.ts';
+import {freeTokenRegressionEnabled} from '../core/engine-policy.ts';
 
 export type RemainingPhase = 5 | 6 | 7 | 8;
 export type LiveGate = 'applications' | 'identity' | 'license' | 'federation' | 'maintenance' | 'network' | 'channel' | 'cache' | 'reboot' | 'mesh' | 'companion' | 'realtime' | 'repeat' | 'supply-chain';
@@ -55,6 +56,9 @@ const definitions:P0Definition[] = [
 ];
 export const remainingVariants:Record<string,P0Definition> = Object.fromEntries(definitions.map(definition =>
   [`p${definition.phase}-${definition.id.toLowerCase()}`,definition]));
+/** Keep historical definitions readable, but do not execute or require an
+ * experimental engine's dedicated cache scenario in the normal campaign. */
+export const remainingVariantEnabled=(definition:P0Definition)=>freeTokenRegressionEnabled || definition.id !== 'CACHE-07';
 export const remainingPhases = [5,6,7,8] as const;
 export function remainingPhase(mode?:string):RemainingPhase|undefined {
   return /^phase[5-8](?:-fast|-fixtures|-live)?$/.test(mode ?? '') || mode === 'phase6-drill' ? Number(mode![5]) as RemainingPhase : undefined;
@@ -65,7 +69,7 @@ export function remainingRequirements(mode:string,selectedId=mode === 'phase6-dr
   if(mode === 'phase6-drill')requireSafe(selectedId && hostDrillIds.includes(selectedId),'CONFIG');
   const layers = mode.endsWith('-fast') ? ['U','C'] : mode.endsWith('-fixtures') ? ['B'] :
     mode.endsWith('-live') || mode === 'phase6-drill' ? ['A','E','O','N'] : undefined;
-  const required=Object.entries(remainingVariants).filter(([,definition]) => definition.phase === phase && (!selectedId || definition.id === selectedId))
+  const required=Object.entries(remainingVariants).filter(([,definition]) => remainingVariantEnabled(definition) && definition.phase === phase && (!selectedId || definition.id === selectedId))
     .flatMap(([variant,definition]) => definition.layers.filter(layer => !layers || layers.includes(layer))
       .map(layer => ({id:definition.id,variant,layer,environment:environmentFor(layer),phase,priority:'P0' as const,
         group:definition.group,...(definition.gate ? {gate:definition.gate} : {})})));

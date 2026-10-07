@@ -4,6 +4,7 @@ import type {Appliance, ManagedHost, ModelsPayload} from '@magicstick/dashboard-
 import type {LabConfig} from './config.ts';
 import type {KubeObject, KubectlObserver} from './observer.ts';
 import {HarnessError, requireSafe} from './errors.ts';
+import {engineRegressionEnabled} from './engine-policy.ts';
 
 export async function verifiedEndpoint(url: string, timeoutMs: number, ca?: string): Promise<void> {
   requireSafe(new URL(url).protocol === 'https:', 'TLS');
@@ -38,8 +39,12 @@ export function verifyIdentity(config: LabConfig, appliance: Appliance, observed
 export function verifyCapabilities(config: LabConfig, models: ModelsPayload) {
   requireSafe(Array.isArray(models.computeTargets?.targets) && Array.isArray(models.activations), 'API');
   for (const expected of config.expected.capabilities) {
+    const engines=expected.engines.filter(engineRegressionEnabled);
+    // Old saved inputs can pin an excluded experimental engine. Its absence
+    // must not block unrelated classic-engine tests or change product settings.
+    if(!engines.length)continue;
     const target = models.computeTargets.targets.find(item => item.id === expected.target);
-    requireSafe(target?.available === true && expected.engines.every(engine => target.engines?.includes(engine) &&
+    requireSafe(target?.available === true && engines.every(engine => target.engines?.includes(engine) &&
       target.engineAvailability?.[engine]?.available !== false), 'CAPABILITY');
   }
 }

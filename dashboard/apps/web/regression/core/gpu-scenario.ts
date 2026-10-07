@@ -14,6 +14,7 @@ import {activation,fixtureIsAdvertised,OwnedModelClient} from './owned-model.ts'
 import type {KubeObject} from './observer.ts';
 import {openInferenceSession,type ExactDashboardRequest} from './auth.ts';
 import {privateDirectory,readPrivate,writePrivate} from './private-files.ts';
+import {waitModelStopped} from './model-stop.ts';
 
 export interface GpuCreated {client:OwnedModelClient;fixture:RuntimeModelFixture;uid:string;generation:number}
 type Container = {name:string;image:string;args?:string[];env?:Array<{name:string;value?:string}>;
@@ -281,11 +282,14 @@ export class GpuScenario {
       await model.client[action](current);
     await this.live.journal.modelGeneration(model.client.name,model.uid,previous,after.generation); model.generation = after.generation;
     if (action === 'stop') {
-      await poll(() => this.live.modelState(model.client,model.uid),state => state.item?.spec?.enabled === false &&
-        state.pods.length === 0 && !state.models.models?.some(item=>item.id === model.client.name),
-      {timeoutMs:300_000,intervalMs:1000,stage:'model-stopped'});
-      requireSafe(!(await this.inference.advertised(model.client.name)),'API'); await this.inference.refusesStopped(model.client.name);
+      await this.waitStopped(model);
     } else await this.ready(model);
+  }
+  async waitStopped(model:GpuCreated) {
+    await waitModelStopped(()=>this.live.modelState(model.client,model.uid),model.client.name,
+      value=>writePrivate(join(this.directory,`stop-${model.client.name}.json`),value));
+    requireSafe(!(await this.inference.advertised(model.client.name)),'API');
+    await this.inference.refusesStopped(model.client.name);
   }
   async remove(model:GpuCreated) {
     await this.live.cleanup(this.live.journal,{kind:'model',name:model.client.name});

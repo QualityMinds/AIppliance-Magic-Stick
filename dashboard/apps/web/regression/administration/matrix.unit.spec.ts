@@ -1,5 +1,5 @@
 import {test,expect} from '@playwright/test';
-import {remainingCoverage,remainingIds,remainingPhases,remainingRequirements,remainingVariants,validateRemainingRegistry} from '../profiles/remaining-p0.ts';
+import {remainingCoverage,remainingIds,remainingPhases,remainingRequirements,remainingVariants,remainingVariantEnabled,validateRemainingRegistry} from '../profiles/remaining-p0.ts';
 import {evidenceAnnotations} from '../core/evidence.ts';
 import {readFile} from 'node:fs/promises';
 
@@ -16,7 +16,7 @@ test('HAR-10 remaining P0 selections are finite, unique and require their exact 
     expect(remainingCoverage(mode,[...passed,{...passed[0]!,outcome:'Blocked'}]).complete).toBe(false);
     expect(remainingCoverage(mode,[...passed,{...passed[0]!,outcome:'Skipped'}]).complete).toBe(false);
     expect(remainingCoverage(mode,[...passed,{...passed[0]!,outcome:'Flaky'}]).complete).toBe(false);
-    expect(remainingIds(mode)?.length).toBe(Object.values(remainingVariants).filter(item=>item.phase === phase).length+1);
+    expect(remainingIds(mode)?.length).toBe(Object.values(remainingVariants).filter(item=>remainingVariantEnabled(item) && item.phase === phase).length+1);
     expect(remainingCoverage(mode,passed.filter(item=>item.variant !== 'final-idle')).complete).toBe(false);
     const fast=remainingRequirements(mode+'-fast')!;
     expect(fast.every(item=>['U','C'].includes(item.layer) && item.environment === 'fixture')).toBe(true);

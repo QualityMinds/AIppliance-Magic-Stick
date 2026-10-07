@@ -42,8 +42,7 @@ const definitions={
   ]),
   'gpu-profile':definition('Current mixed-GPU profile, fixtures, telemetry and sharing approval',[
     'Check System > Hardware for one detected AMD GPU and one NVIDIA GPU on the same managed Ready node. This installed mixed-GPU profile cannot be accepted on a CPU-only or single-vendor lab.',
-    'Check Models for available AMD/NVIDIA Ollama and vLLM fixtures plus a supported NVIDIA FreeToken fixture. Retained models must fit the reviewed budgets.',
-    'FreeToken needs current physical NVIDIA VRAM and system-RAM telemetry. Restore missing metrics or reduce an over-capacity fixture; never substitute host RAM for VRAM.',
+    'Check Models for available AMD/NVIDIA Ollama and vLLM fixtures. Retained models must fit the reviewed budgets. Experimental FreeToken cases are currently outside the regression scope.',
     'Review the candidate gpu section and inventory. Device selection changes require a newly reviewed GPU profile, not reuse of another GPU\'s identity or consent.',
   ],'gpu'),
   'app-cleaner':definition('App-intent cleaner credential',[

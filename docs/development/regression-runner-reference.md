@@ -664,3 +664,83 @@ check. Targeted generator/wizard/launcher tests and TypeScript/syntax checks are
 local implementation checks only. They do not replace that run, certify a rebuilt
 Linux image, or record live acceptance of any phase. Building and executing the
 updated suite remains the lab owner's next step.
+
+## Experimental engine test scope
+
+The current repository policy excludes FreeToken-specific regression cases;
+this does not disable the product engine or its builds. The policy is defined in
+`dashboard/apps/web/regression/core/lab-policy.ts`, shared by preparation,
+selection and reporting. Historical FreeToken case definitions remain readable.
+
+For a bounded check of only the two classic vLLM GPU lifecycles:
+
+```bash
+bash tools/regression.sh phase3-gpu vllm-lifecycle
+```
+
+This diagnostic subset cannot accept the complete Phase 3 gate. Stop timeouts
+save `stop-<model>.json` in the private run directory before cleanup, separating
+disabled intent, remaining Pods and remaining generated catalog routes.
+
+To investigate the classic NVIDIA paths independently of AMD:
+
+```bash
+bash tools/regression.sh phase3-gpu nvidia-lifecycle
+```
+
+Rebuild the local runner after changing its source (`bash tools/regression.sh
+build`). Test-only changes do not require an appliance rollout.
+
+This selects three separate Ollama executions and three separate vLLM executions.
+Each creates a small run-owned model, verifies real inference and browser logs,
+stops it, checks route/Pod removal and slot release, starts the same saved model,
+infers again and removes only its own definition. These are repetitions, not
+retries: a failed execution stays failed. AMD sharing remains unchanged; NVIDIA
+sharing is temporarily exclusive and then restored to its original configuration.
+Image/model caches are retained. The existing five-minute Stop deadline is not
+increased and no Pod is force-deleted. Successful as well as failed Stop checks
+record timing and bounded Pod/container identity in private `stop-<model>.json`
+files, for correlation with host-runtime diagnostics. Six successful executions
+are a targeted result, not complete Phase 3 acceptance.
+
+### Targeted diagnostic — 2026-10-06
+
+The updated, uncommitted regression source was checked against the installed lab
+using only the AMD/NVIDIA vLLM lifecycle subset with small model fixtures. AMD
+passed inference, logs, Stop and Start. NVIDIA passed inference and logs, but Stop
+failed the existing five-minute deadline; its dependent Start checks were blocked.
+The report contains **one passed and one failed executable scenario**, represented
+by 20 passed, two failed and two dependent-blocked evidence rows. This is not a
+complete Phase 3 acceptance or evidence of a published runner image.
+
+NVIDIA's saved intent and catalog route were already disabled. The server process
+exited successfully, but containerd logged TaskExit handling timeouts and a closed
+shim connection while retaining stale running-container state. The terminating
+Pod was eventually removed without a forced deletion. This remaining host-runtime
+failure is not marked fixed and the Stop assertion was not relaxed. Run-owned
+models and the API key were removed, the lab lock was released, and the original
+AMD DRA/NVIDIA time-slicing settings were restored.
+
+### NVIDIA lifecycle follow-up — 2026-10-07
+
+The `nvidia-lifecycle` diagnostic was run against the dedicated lab with the
+updated, uncommitted source mounted read-only into the local Linux runner. Its
+source revision is `unknown`; this does not certify a published image or commit.
+Run `reg-1afd9981-ba41-4cbe-9317-e646acef1b49` completed **six passed executable
+scenarios** (three Ollama and three vLLM), represented by 72 passed evidence rows,
+zero failures and zero blocked checks. Complete Phase 3 acceptance remains false.
+
+Every execution verified GPU-bound inference, browser logs, Stop, Pod and catalog
+withdrawal, slot release, Start of the same saved configuration, and inference
+again. Stop completed in 16–60 seconds with the unchanged five-minute deadline;
+no Pod was force-deleted. All six owned models and the test API key were removed,
+the lab lock was released, AMD sharing stayed unchanged, and NVIDIA time-slicing
+was restored to its original five slots. Existing model definitions were retained.
+
+The earlier containerd failure did **not** recur. Historical host logs also show
+the same CRI violation for a CPU-only AnythingLLM Pod during the earlier failure,
+so it is not established as a NVIDIA-only fault. No driver or host-runtime fix
+was applied, and the underlying intermittent failure is **not marked resolved**.
+The added timing and Pod/container identifiers make a recurrence diagnosable
+without weakening lifecycle assertions. The private run directory retains the
+summary and bounded Stop diagnostics; it is not published with the documentation.

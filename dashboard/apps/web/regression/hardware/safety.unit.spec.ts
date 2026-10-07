@@ -5,14 +5,16 @@ import {join} from 'node:path';
 import {parseLabConfig,type LabConfig} from '../core/config.ts';
 import {ResourceJournal,newRunId,recoveryJournalPath} from '../core/journal.ts';
 import {saveReport,type CaseResult} from '../core/report.ts';
-import {phase3Requirements,phase4Requirements,gpuCoverage,requireGpuProfile,gpuIds,gpuModeIds,phase4SharingCases} from '../profiles/gpu-p0.ts';
+import {phase3Requirements,phase4Requirements,gpuCoverage,requireGpuProfile,gpuIds,gpuModeIds,phase3RuntimeCases,phase4SharingCases} from '../profiles/gpu-p0.ts';
 import {BorrowedSharing,SharingWriteRejected,sharingSpec,type SharingSnapshot,type SharingAdapter} from '../core/borrowed-sharing.ts';
 import {GpuScenario,gpuWorkerJournal,unfinishedJob,runtimePodConverged,type GpuCreated} from '../core/gpu-scenario.ts';
 import type {KubeObject} from '../core/observer.ts';
 import type {ModelsPayload,ModelActivation} from '@magicstick/dashboard-contracts';
 import {freeTokenNodeCapacity} from '../core/freetoken-inventory.ts';
+import {freeTokenRegressionEnabled} from '../core/engine-policy.ts';
 import {OwnedModelClient,modelContextUpdateReceipt} from '../core/owned-model.ts';
 import {LiveFoundation} from '../core/live-foundation.ts';
+import {modelStopped,stopDiagnostic,waitModelStopped,type ModelStopState} from '../core/model-stop.ts';
 
 let directory:string;
 test.beforeEach(async()=>{directory=await mkdtemp(join(tmpdir(),'gpu-safety-'));});
@@ -53,7 +55,7 @@ test('HAR-02 GPU profile rejects missing consent, stale boot, unbounded fixtures
     (c:LabConfig)=>{(c.gpu! as unknown as Record<string,unknown>).ignoreBoot=true;},
   ]) {
     const value=config();change(value);
-    expect(()=>requireGpuProfile(parseLabConfig(value,directory))).toThrow('[CONFIG]');
+    expect(()=>requireGpuProfile(parseLabConfig(value,directory))).toThrow(value.gpu ? '[CONFIG]' : '[PREREQUISITE]');
   }
 });
 test('HAR-08 a failed attempt is still an active diagnostic until its Job has a terminal condition',()=>{
@@ -63,6 +65,58 @@ test('HAR-08 a failed attempt is still an active diagnostic until its Job has a 
     expect(unfinishedJob({metadata:{},status:{conditions:[{type,status:'False'}]}})).toBe(true);
     expect(unfinishedJob({metadata:{},status:{conditions:[{type,status:'True'}]}})).toBe(false);
   }
+});
+test('HAR-10 Stop acceptance retains configuration and separately verifies runtime and catalog withdrawal',()=>{
+  const stopped={item:{metadata:{generation:2},spec:{type:'local',enabled:false}},pods:[],models:{models:[]}} as unknown as ModelStopState;
+  expect(modelStopped(stopped,'reg-fixture')).toBe(true);
+  expect(modelStopped({...stopped,item:undefined},'reg-fixture')).toBe(false);
+  expect(modelStopped({...stopped,pods:[{metadata:{deletionTimestamp:'2026-10-06T12:00:00Z'}}]},'reg-fixture')).toBe(false);
+  const catalog=structuredClone(stopped);catalog.models.models=[{id:'reg-fixture'}] as ModelsPayload['models'];
+  expect(modelStopped(catalog,'reg-fixture')).toBe(false);
+});
+test('HAR-10 Stop timeout records the unfulfilled predicate without raw Pod or activation secrets',async()=>{
+  let now=0;
+  const name='reg-fixture',state={item:{metadata:{generation:2},spec:{type:'local',enabled:false,secret:'synthetic-secret'}},
+    observed:{metadata:{generation:2},spec:{enabled:false},status:{observedGeneration:2}},
+    pods:[{metadata:{name,uid:'fixture-pod',deletionTimestamp:'2026-10-06T12:00:00Z',annotations:{token:'synthetic-secret'}},
+      spec:{terminationGracePeriodSeconds:30,containers:[{env:[{name:'TOKEN',value:'synthetic-secret'}]}]},
+      status:{phase:'Running',message:'synthetic-secret',containerStatuses:[{name:'server',ready:false,restartCount:0}]}}],
+    models:{models:[]}} as unknown as ModelStopState;
+  const records:unknown[]=[];
+  await expect(waitModelStopped(async()=>state,name,async value=>{records.push(value);},
+    {timeoutMs:100,now:()=>now,wait:async value=>{now+=value;}})).rejects.toMatchObject({code:'DEADLINE',stage:'model-stopped'});
+  expect(records).toHaveLength(1);
+  expect(records[0]).toMatchObject({checks:{intentDisabled:true,runtimePodsGone:false,catalogEntryGone:true},
+    pods:[{deleting:true,terminationGracePeriodSeconds:30}]});
+  expect(JSON.stringify(records)).not.toContain('synthetic-secret');
+  expect(stopDiagnostic(undefined,name)).toMatchObject({sampled:false});
+});
+test('HAR-10 a missing generated catalog is unknown rather than successful Stop evidence',()=>{
+  const state={item:{spec:{enabled:false}},pods:[],models:{}} as unknown as ModelStopState;
+  expect(modelStopped(state,'reg-fixture')).toBe(false);
+  expect(stopDiagnostic(state,'reg-fixture').checks.catalogEntryGone).toBe(false);
+});
+test('HAR-10 a Stop diagnostic write failure never masks the actual lifecycle deadline',async()=>{
+  let now=0;
+  const state={item:{spec:{enabled:false}},pods:[{metadata:{}}],models:{models:[]}} as unknown as ModelStopState;
+  await expect(waitModelStopped(async()=>state,'reg-fixture',async()=>{throw new Error('private write failure');},
+    {timeoutMs:10,now:()=>now,wait:async value=>{now+=value;}})).rejects.toMatchObject({code:'DEADLINE',stage:'model-stopped'});
+});
+test('HAR-10 successful Stop records its duration and safe initial Pod/container identity',async()=>{
+  let now=0,reads=0;const records:unknown[]=[];
+  const initial={item:{spec:{enabled:false}},models:{models:[]},pods:[{
+    metadata:{uid:'12345678-1234-1234-1234-123456789abc'},status:{containerStatuses:[{
+      name:'server',containerID:'containerd://'+'a'.repeat(64),ready:false,restartCount:0,
+    }]},
+  }]} as unknown as ModelStopState;
+  const stopped={...initial,pods:[]};
+  await waitModelStopped(async()=>++reads === 1 ? initial : stopped,'reg-fixture',async value=>{records.push(value);},
+    {timeoutMs:5000,now:()=>now,wait:async value=>{now+=value;}});
+  expect(records).toHaveLength(1);
+  expect(records[0]).toMatchObject({observation:{elapsedMs:1000,completed:true},
+    checks:{intentDisabled:true,runtimePodsGone:true,catalogEntryGone:true},initial:{pods:[{
+      uid:'12345678-1234-1234-1234-123456789abc',containers:[{containerID:'containerd://'+'a'.repeat(64)}],
+    }]}});
 });
 test('HAR-05 classic fixture names obey KubeAI bounds before any write intent without truncating FreeToken names',async()=>{
   const journal=await ResourceJournal.create(join(directory,'name-bounds.json'),newRunId(),'fixture-appliance');
@@ -140,7 +194,7 @@ test('HAR-07 a context PUT accepts only the direct same-UID next-generation rece
     catch(error) {expect(error).toMatchObject({code:'API',outcome:'Failed',stage:'model-update'});}
   }
 });
-test('FT-02 scheduler-only capability inventory resolves independent live VRAM without cross-node or CPU fallback',()=>{
+if(freeTokenRegressionEnabled)test('FT-02 scheduler-only capability inventory resolves independent live VRAM without cross-node or CPU fallback',()=>{
   const data:ModelsPayload={activations:[],models:[],presets:{},computeTargets:{default:'cpu',targets:[
     {id:'nvidia-gpu',kind:'gpu',engines:['FreeToken'],available:true}],freeTokenCapabilities:{available:true,supportedVendors:['nvidia'],
     devices:[{id:'node:fixture-node',node:'fixture-node',supported:true,gpuCount:1,maxGpuCount:1,
@@ -219,6 +273,24 @@ test('HAR-10 the fixed sharing diagnostic uses its selected IDs and can never ce
   expect(selected.fullPhase4Accepted).toBe(false);
   const canonical=await saveReport(directory,newRunId(),cases,gpuIds(4),'unknown','phase4');
   expect(canonical.acceptable).toBe(false);expect(canonical.installedPhase4Accepted).toBe(false);
+});
+test('HAR-10 the bounded vLLM lifecycle diagnostic does not select experimental engines or certify Phase 3',async()=>{
+  const ids=gpuModeIds('phase3-gpu','vllm-lifecycle')!;
+  expect(ids).toEqual(phase3RuntimeCases['vllm-lifecycle'].ids);
+  expect(ids.some(id=>id.startsWith('FT-'))).toBe(false);
+  expect(()=>gpuModeIds('phase3','vllm-lifecycle')).toThrow('[CONFIG]');
+  expect(()=>gpuModeIds('phase3-gpu','freetoken')).toThrow('[CONFIG]');
+  const cases:CaseResult[]=phase3Requirements.filter(r=>ids.includes(r.id) && ['A','E'].includes(r.layer))
+    .map(r=>({...r,variant:r.variant as CaseResult['variant'],outcome:'Passed',durationMs:1}));
+  const selected=await saveReport(directory,newRunId(),cases,ids,'unknown','phase3-gpu');
+  expect(selected.acceptable).toBe(true);expect(selected.fullPhase3Accepted).toBe(false);
+});
+test('HAR-10 repeated NVIDIA lifecycle diagnosis selects only the two classic NVIDIA runtimes',()=>{
+  expect(gpuModeIds('phase3-gpu','nvidia-lifecycle')).toEqual(phase3RuntimeCases['vllm-lifecycle'].ids);
+  const selection=new RegExp(phase3RuntimeCases['nvidia-lifecycle'].grep);
+  for(const label of ['nvidia-ollama','nvidia-vllm'])expect(selection.test(`${label} actual cycle 1`)).toBe(true);
+  for(const label of ['amd-ollama','amd-vllm','freetoken'])expect(selection.test(`${label} actual cycle 1`)).toBe(false);
+  for(const mode of ['phase3','phase4-sharing'])expect(()=>gpuModeIds(mode,'nvidia-lifecycle')).toThrow('[CONFIG]');
 });
 test('HAR-07 concurrent admissions persist all immutable ownership receipts and exact single-model cleanup retains the key',async()=>{
   const filename=join(directory,'journal.json'),journal=await ResourceJournal.create(filename,newRunId(),'fixture-appliance');

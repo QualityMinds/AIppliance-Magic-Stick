@@ -8,6 +8,7 @@ import {automaticPreparationMeasure,readinessLines} from '../core/preparation-me
 import {hostDrillIds} from '../profiles/remaining-p0.ts';
 import {automaticGpuProfile,automaticHostRecipes,automaticProfile} from '../core/automatic-fixtures.ts';
 import {labPolicy,parseRegistration,verifyRegistration} from '../core/lab-policy.ts';
+import {freeTokenRegressionEnabled} from '../core/engine-policy.ts';
 
 const digest='sha256:'+'a'.repeat(64),revision='develop@sha1:'+'b'.repeat(40);
 const options:PreparationOptions={phases:[0,1,2,3,4,5,6,7,8],approve:[],independentRecovery:false};
@@ -325,7 +326,7 @@ test('HAR-10 reboot generation needs exact scope and independent recovery; it is
   expect(()=>preparedReboot(lab,observed,{...options,drill:'BOOT-02',approve:['reboot'],independentRecovery:true})).toThrow();
 });
 
-test('HAR-10 accepted mixed GPU pins and fixture budgets are retained only with current FreeToken telemetry',async()=>{
+test('HAR-10 accepted mixed GPU pins and classic fixture budgets do not require disabled experimental telemetry',async()=>{
   const example=JSON.parse(await readFile(new URL('../gpu-profile.example.json',import.meta.url),'utf8')).gpu;
   const observed=snapshot();
   for(const provider of ['amd','nvidia'])observed.status.hardwareOperators ??= {},observed.status.hardwareOperators[provider]={devices:[{
@@ -370,12 +371,16 @@ test('HAR-10 accepted mixed GPU pins and fixture budgets are retained only with 
   expect(prepareInputs(replaced,observed,{...options,approve:['gpu']},{}).parsed.gpu?.nodeUid).toBe('node-uid');
   observed.models.computeMemory!.devices![0]!.metricsAvailable=false;
   const blocked=prepareInputs(previous,observed,options,{});
-  expect(blocked.parsed.gpu).toBeUndefined();expect(blocked.gpuProblem).toBe(true);
-  expect(blocked.gpuIssues).toEqual(['freetoken-telemetry']);
-  observed.gpuIssues=blocked.gpuIssues;
-  const telemetry=inputReadiness(blocked.parsed,{},observed,{...options,phases:[3]})[0]!.measures.find(item=>item.id === 'gpu-profile')!;
-  expect(telemetry.missing).toEqual(['The FreeToken capability or current physical NVIDIA VRAM/system-RAM telemetry could not be verified.']);
-  expect(telemetry.approval).toBeUndefined();
+  if(freeTokenRegressionEnabled) {
+    expect(blocked.parsed.gpu).toBeUndefined();expect(blocked.gpuProblem).toBe(true);
+    expect(blocked.gpuIssues).toEqual(['freetoken-telemetry']);
+  } else {
+    expect(blocked.parsed.gpu?.models.nvidiaVllm?.url).toBe('hf://example/small');
+    expect(blocked.parsed.gpu?.models.freetoken).toBeUndefined();
+    expect(blocked.gpuProblem).toBe(false);expect(blocked.gpuIssues).toEqual([]);
+    // Preparation copied rather than mutating the accepted private input.
+    expect(inputHash(previous)).toBe(before);
+  }
   observed.models.computeMemory!.devices![0]!.metricsAvailable=true;
   const noApproval=structuredClone(previous);noApproval.gpu.acknowledgeSharingTransitions=false;
   const unapproved=prepareInputs(noApproval,observed,options,{});
@@ -384,5 +389,5 @@ test('HAR-10 accepted mixed GPU pins and fixture budgets are retained only with 
   const consent=inputReadiness(unapproved.parsed,{},observed,{...options,phases:[4]})[0]!.measures.find(item=>item.id === 'gpu-profile')!;
   expect(consent.approval?.command).toBe('bash tools/regression.sh prepare --phases 4 --approve gpu');
   observed.models.computeMemory!.devices![0]!.freeMi=1000;
-  expect(prepareInputs(previous,observed,options,{}).gpuIssues).toEqual(['freetoken-budget']);
+  expect(prepareInputs(previous,observed,options,{}).gpuIssues).toEqual(freeTokenRegressionEnabled ? ['freetoken-budget'] : []);
 });

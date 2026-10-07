@@ -1,4 +1,5 @@
 import type {FullConfig, FullResult, Reporter, Suite, TestCase, TestResult} from '@playwright/test/reporter';
+import {createHash} from 'node:crypto';
 import {join} from 'node:path';
 import {HarnessError, reasons, stages, blockedReasons, type ReasonCode, type Stage} from './core/errors.ts';
 import {phase1FastVariants, phase1FixtureVariants, phase1LiveVariants} from './profiles/phase1-p0.ts';
@@ -8,13 +9,26 @@ import {remainingIds} from './profiles/remaining-p0.ts';
 import {reportVariants, saveReport, type CaseResult} from './core/report.ts';
 import {environmentFor, fileLayer, testLayers, type Evidence} from './core/evidence.ts';
 import {caseDescription, durationDescription, layerDescriptions, publicScenarioTitle} from './core/case-descriptions.ts';
+import {disabledExperimentalEngines} from './core/engine-policy.ts';
 
 /** Playwright serializes Errors without our custom outcome property. Only a
  * fixed allowlisted marker can carry an explicit failure into safe reports. */
 export function failureOutcome(code:ReasonCode|undefined,messages:readonly (string|undefined)[]) {
-  if(messages.some(message=>message?.includes('[outcome:Failed]')))return 'Failed' as const;
-  if(messages.some(message=>message?.includes('[outcome:Blocked]')))return 'Blocked' as const;
+  const failures=messages.map(harnessFailure);
+  // An assertion may quote a caught HarnessError in its expected/received
+  // diff. Such embedded text must never turn a failed assertion into Blocked.
+  if(failures.some(failure=>!failure))return 'Failed' as const;
+  if(failures.some(failure=>failure?.outcome === 'Failed'))return 'Failed' as const;
+  if(failures.some(failure=>failure?.outcome === 'Blocked'))return 'Blocked' as const;
   return code && blockedReasons.includes(code) ? 'Blocked' as const : 'Failed' as const;
+}
+
+export function harnessFailure(message:string|undefined) {
+  const value=message?.trim().replace(/^HarnessError:\s*/,''),match=value?.match(/^\[([A-Z_]+)\] [^\r\n]* \[outcome:(Failed|Blocked)\](?: \[stage:([a-z-]+)\])?$/);
+  if(!match || !Object.hasOwn(reasons,match[1]!) || match[3] && !stages.includes(match[3] as Stage))return;
+  const code=match[1] as ReasonCode,outcome=match[2] as 'Failed'|'Blocked',stage=match[3] as Stage|undefined;
+  if(value !== new HarnessError(code,outcome,stage).message)return;
+  return {code,outcome,stage};
 }
 
 export default class SafeReporter implements Reporter {
@@ -26,6 +40,8 @@ export default class SafeReporter implements Reporter {
   onBegin(_config: FullConfig, suite: Suite) {
     this.total = suite.allTests().length;
     process.stdout.write(`Selected ${this.total} executable tests. Catalogue goals describe case families, not full acceptance.\n`);
+    if(disabledExperimentalEngines.length)process.stdout.write(
+      `Excluded experimental engine tests: ${disabledExperimentalEngines.join(', ')}. Product engines remain enabled.\n`);
   }
   onError() { this.unexpected = true; process.stderr.write('Harness infrastructure error; no raw live details were printed.\n'); }
   private mapping(test: TestCase) {
@@ -64,16 +80,33 @@ export default class SafeReporter implements Reporter {
   }
   onTestEnd(test: TestCase, result: TestResult) {
     const {ids, evidence} = this.mapping(test);
-    const code = result.errors.map(error => error.message?.match(/\[([A-Z_]+)\]/)?.[1])
-      .find(value => value && Object.hasOwn(reasons, value)) as ReasonCode | undefined;
+    const failures=result.errors.map(error=>harnessFailure(error.message));
+    const failure=failures.find(value=>value?.outcome === 'Failed') ?? failures.find(Boolean);
+    const code=failures.some(value=>!value) ? 'UNEXPECTED' : failure?.code;
     const outcome = result.status === 'passed' ? (result.retry > 0 ? 'Failed' : 'Passed') : result.status === 'skipped' ? 'Blocked' :
       failureOutcome(code,result.errors.map(error=>error.message));
-    const stage = result.errors.map(error => error.message?.match(/\[stage:([a-z-]+)\]/)?.[1])
-      .find(value => stages.includes(value as Stage)) as Stage | undefined;
+    const stage=failure?.stage;
+    const key=(item:Evidence)=>`${item.id}/${item.variant ?? ''}/${item.layer}`;
+    const progressed=new Map<string,{state:string;durationMs:number}>();
+    const stepAnnotations=test.annotations.filter(item=>item.type === 'regression-step');
+    for(const annotation of stepAnnotations)try {
+      const step=JSON.parse(annotation.description ?? '');
+      if(!['running','passed','failed'].includes(step.state) || !Number.isFinite(step.durationMs) || step.durationMs < 0 ||
+        !Array.isArray(step.items) || !step.items.length || step.items.some((item:Evidence)=>!evidence.some(e=>key(e) === key(item)))) {
+        this.unexpected=true;continue;
+      }
+      for(const item of step.items)progressed.set(key(item),step);
+    }catch{this.unexpected=true;}
+    const executionId=createHash('sha256').update(process.env.REGRESSION_RUN_ID ?? 'fixture')
+      .update(String(test.id ?? test.title)).digest('hex').slice(0,24);
     for (const item of evidence) {
-      this.cases.push({id: item.id, outcome, layer: item.layer, environment: environmentFor(item.layer),
-      durationMs: result.duration, ...(code ? {reason: code} : outcome === 'Failed' ? {reason: 'UNEXPECTED' as const} : {}),
-      ...(item.variant ? {variant: item.variant as CaseResult['variant']} : {}), ...(stage ? {stage} : {})});
+      const step=progressed.get(key(item)),passed=step?.state === 'passed' && result.retry === 0;
+      const dependent=stepAnnotations.length > 0 && !step;
+      const itemOutcome=passed ? 'Passed' : dependent ? 'Blocked' : outcome;
+      this.cases.push({id:item.id,outcome:itemOutcome,layer:item.layer,environment:environmentFor(item.layer),executionId,executionOutcome:outcome,
+        durationMs:step?.durationMs ?? (dependent ? 0 : result.duration),
+        ...(passed ? {} : dependent ? {reason:'DEPENDENCY' as const} : code ? {reason:code} : itemOutcome === 'Failed' ? {reason:'UNEXPECTED' as const} : {}),
+        ...(item.variant ? {variant:item.variant as CaseResult['variant']} : {}),...(!passed && !dependent && stage ? {stage} : {})});
     }
     const position = this.positions.get(test);
     const reason = code ?? (outcome === 'Failed' ? 'UNEXPECTED' : undefined);

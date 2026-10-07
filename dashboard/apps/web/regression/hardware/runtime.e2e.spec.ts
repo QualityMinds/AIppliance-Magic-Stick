@@ -1,9 +1,10 @@
-import {test,expect,type Page} from '@playwright/test';
+import {test,expect,type Page,type TestInfo} from '@playwright/test';
 import {GpuScenario,physicalDevice,type GpuCreated} from '../core/gpu-scenario.ts';
 import {activation,ModelCreateRejected,modelContextUpdateReceipt} from '../core/owned-model.ts';
 import {canonical} from '../core/borrowed-sharing.ts';
 import {requireSafe} from '../core/errors.ts';
-import {evidenceAnnotations,type TestLayer} from '../core/evidence.ts';
+import {evidenceAnnotations,evidenceStep,type TestLayer} from '../core/evidence.ts';
+import {freeTokenRegressionEnabled} from '../core/engine-policy.ts';
 import {phase3Variants,type GpuVariant} from '../profiles/gpu-p0.ts';
 import type {GpuModelFixture} from '../core/config.ts';
 import {createFreeTokenUi,installedReadyUi,lifecycleUi,logsUi,modelCard} from './live-ui.ts';
@@ -13,13 +14,17 @@ function proof(keys:GpuVariant[],layers:TestLayer[]=['A','E']) {
   return evidenceAnnotations(...keys.flatMap(variant=>layers.filter(layer=>(phase3Variants[variant as keyof typeof phase3Variants].layers as readonly TestLayer[]).includes(layer))
     .map(layer=>({id:phase3Variants[variant as keyof typeof phase3Variants].id,variant,layer}))));
 }
+const step=<T>(info:TestInfo,keys:GpuVariant[],action:()=>Promise<T>)=>
+  evidenceStep(info,proof(keys).annotation.map(item=>JSON.parse(item.description!)),action);
 test.describe('Installed exclusive physical GPU runtimes',()=>{
   let scenario:GpuScenario|undefined; let page:Page; let ft:GpuCreated;
+  const nvidiaDiagnostic=process.env.REGRESSION_MODE === 'phase3-gpu' && process.env.REGRESSION_GPU_CASE === 'nvidia-lifecycle';
   test.beforeAll(async ({browser},info)=>{
     scenario=await GpuScenario.open(browser,info.workerIndex);
     // A replacement worker sees the restored original settings, not the
     // previous worker's exclusive backend. Establish its own observed backend.
-    for(const provider of ['amd','nvidia'] as const)if(scenario.config.gpu!.devices[provider])await scenario.transition(provider,'exclusive');
+    for(const provider of ['amd','nvidia'] as const)if((!nvidiaDiagnostic || provider === 'nvidia') &&
+      scenario.config.gpu!.devices[provider])await scenario.transition(provider,'exclusive');
     page=await scenario.live.context.newPage();
   });
   test.afterAll(async ()=>{if (scenario) await scenario.close();});
@@ -72,18 +77,26 @@ test.describe('Installed exclusive physical GPU runtimes',()=>{
   });
 
   const combinations=[['amdOllama','amd-ollama'],['amdVllm','amd-vllm'],['nvidiaOllama','nvidia-ollama'],['nvidiaVllm','nvidia-vllm']] as const;
-  for (const [key,label] of combinations) test(`ENG-01 ENG-03 LOG-01 ROUTE-01 SLOT-02 ${label} actual device, cache, routed inference and browser logs`,
-    proof([`p3-${label}` as GpuVariant,`p3-kv-${label}` as GpuVariant,'p3-gpu-logs','p3-route','p3-pending-slot']),async ()=>{
+  // Repetitions are separate executions, not retries: a failed Stop remains
+  // failed and the next cycle cannot erase it. NVIDIA diagnosis never changes
+  // the AMD sharing backend or launches an AMD model.
+  for (const [key,label] of combinations) for(let cycle=1;cycle<=(nvidiaDiagnostic ? 3 : 1);cycle++)
+    test(`ENG-01 ENG-03 LOG-01 ROUTE-01 SLOT-02 LIFE-03 LIFE-04 ${label} actual device, cache, routed inference, logs and lifecycle${nvidiaDiagnostic ? ` cycle ${cycle}` : ''}`,
+    proof([`p3-${label}` as GpuVariant,`p3-kv-${label}` as GpuVariant,'p3-gpu-logs','p3-route','p3-pending-slot',
+      'p3-runtime-stop','p3-runtime-start']),async ({},info)=>{
       const s=scenario!,fixture=s.config.gpu!.models[key];
       requireSafe(fixture,'PREREQUISITE');
-      const model=await s.create(label,fixture,true);
+      const model=await s.create(nvidiaDiagnostic ? `${label}-cycle-${cycle}` : label,fixture,true);
       try {
       // Enabled intent reserves immediately and must not be counted again
       // once the actual allocation is observed. The deterministic before-Pod
       // timing is covered separately in U/C; live scheduling can be faster.
-      await s.slots(fixture.computeTarget,1,1);
-      const pending=await s.live.modelState(model.client,model.uid);
-      requireSafe(pending.item?.spec?.enabled === true && pending.item.spec.local?.kvCacheType === fixture.kvCacheType,'API');
+      await step(info,['p3-pending-slot'],async()=>{
+        await s.slots(fixture.computeTarget,1,1);
+        const pending=await s.live.modelState(model.client,model.uid);
+        requireSafe(pending.item?.spec?.enabled === true && pending.item.spec.local?.kvCacheType === fixture.kvCacheType,'API');
+      });
+      await step(info,[`p3-${label}` as GpuVariant,`p3-kv-${label}` as GpuVariant,'p3-route'],async()=>{
       const ready=await s.ready(model);
       const status=ready.item?.status;
       requireSafe(status && status.requestedKvCacheType === fixture.kvCacheType &&
@@ -97,13 +110,19 @@ test.describe('Installed exclusive physical GPU runtimes',()=>{
       await expect(card.getByText(`Engine: ${fixture.engine}`,{exact:true})).toBeVisible();
       await expect(card.getByText(`KV requested: ${fixture.kvCacheType}`,{exact:true})).toBeVisible();
       await expect(card.getByText(`KV active: ${status.effectiveKvCacheType}`,{exact:true})).toBeVisible({timeout:60_000});
-      await logsUi(s,page,model); await lifecycleUi(s,page,model,'stop'); await s.slots(fixture.computeTarget,0,1);
-      await lifecycleUi(s,page,model,'start'); await s.slots(fixture.computeTarget,1,1);
+      });
+      await step(info,['p3-gpu-logs'],()=>logsUi(s,page,model));
+      await step(info,['p3-runtime-stop'],async()=>{
+        await lifecycleUi(s,page,model,'stop'); await s.slots(fixture.computeTarget,0,1);
+      });
+      await step(info,['p3-runtime-start'],async()=>{
+        await lifecycleUi(s,page,model,'start'); await s.slots(fixture.computeTarget,1,1);
+      });
       } finally {await s.remove(model);}
       await s.slots(fixture.computeTarget,0,1);
     });
 
-  test.describe.serial('FreeToken whole-device lifecycle',()=>{
+  if(freeTokenRegressionEnabled)test.describe.serial('FreeToken whole-device lifecycle',()=>{
   test('FT-01 FT-02 FT-04 FT-05 FT-06 DISC-08 real FreeToken discovery, bounded distinct form and whole-device admission',
     proof(['p3-ft-capability','p3-ft-telemetry','p3-ft-whole-device','p3-ft-vram','p3-ft-ram','p3-ft-discovery']),async ()=>{
       const s=scenario!,fixture=s.config.gpu!.models.freetoken;

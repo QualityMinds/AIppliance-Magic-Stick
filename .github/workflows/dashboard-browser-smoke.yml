@@ -68,6 +68,12 @@ jobs:
       - name: Exercise built UI with isolated API fixtures
         working-directory: dashboard
         run: pnpm test:browser
+      - name: Verify regression types and failure-cleanup contracts without a lab
+        working-directory: dashboard
+        run: |
+          pnpm typecheck:regression
+          REGRESSION_MODE=selftest pnpm --filter @magicstick/dashboard-web exec playwright test \
+            regression/administration/cleanup.unit.spec.ts --config regression/playwright.config.ts --reporter=line
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -5,6 +5,7 @@ import type {KubeObject} from './observer.ts';
 import {requireSafe} from './errors.ts';
 import {verifyIdentity, verifyCapabilities, verifyIdle} from './preflight.ts';
 import {freeTokenNodeCapacity} from './freetoken-inventory.ts';
+import {engineRegressionEnabled,freeTokenRegressionEnabled} from './engine-policy.ts';
 import {requirePhase0Profile} from '../profiles/phase0-p0.ts';
 import {requirePhase1Profile} from '../profiles/phase1-p0.ts';
 import {requirePhase2Profile} from '../profiles/phase2-p0.ts';
@@ -103,13 +104,17 @@ function gpuProfile(previous:Json,snapshot:PreparationSnapshot,options:Preparati
   const models=previous.gpu?.models ? structuredClone(previous.gpu.models) : {
     amdOllama:catalogFixture(snapshot.models,'OLlama','amd-gpu'),amdVllm:catalogFixture(snapshot.models,'VLLM','amd-gpu'),
     nvidiaOllama:catalogFixture(snapshot.models,'OLlama','nvidia-gpu'),nvidiaVllm:catalogFixture(snapshot.models,'VLLM','nvidia-gpu'),
-    freetoken:structuredClone(defaults.freetoken),
+    ...(freeTokenRegressionEnabled ? {freetoken:structuredClone(defaults.freetoken)} : {}),
   };
-  if(!Object.values(models).every(Boolean) || !models.freetoken?.freetoken) {issues.push('fixtures');return {issues};}
-  models.freetoken.freetoken.gpuDevice=`node:${pair.host.name}`;
+  // Old accepted inputs may contain a FreeToken fixture. It is not a
+  // prerequisite for the currently selected classic-engine regression scope.
+  if(!freeTokenRegressionEnabled)delete models.freetoken;
+  if(!['amdOllama','amdVllm','nvidiaOllama','nvidiaVllm'].every(key=>models[key]) ||
+    freeTokenRegressionEnabled && !models.freetoken?.freetoken) {issues.push('fixtures');return {issues};}
   // The catalog and separate current telemetry must both support the fixture.
   // Do not turn unknown VRAM into host RAM or borrow another GPU's counters.
-  try {
+  if(freeTokenRegressionEnabled)try {
+    models.freetoken.freetoken.gpuDevice=`node:${pair.host.name}`;
     const ft=freeTokenNodeCapacity(snapshot.models,pair.host.name);
     if(!ft.capability.memoryStrategies?.includes(models.freetoken.freetoken.memoryStrategy) ||
       ft.gpuAvailableMi < models.freetoken.freetoken.gpuMemoryMi || ft.systemAvailableMi < models.freetoken.freetoken.systemMemoryMi)
@@ -297,7 +302,8 @@ export function prepareInputs(previous:Json,snapshot:PreparationSnapshot,options
   lab.expected={applianceUid:metadata.uid,applianceName:metadata.name,applianceNamespace:metadata.namespace,role:'magicstick-admin',
     nodes:nodes.map(node=>({name:node.metadata.name,uid:node.metadata.uid,bootId:node.status?.nodeInfo?.bootID})),
     capabilities:(!options.automatic ? previous.expected?.capabilities : undefined) ?? snapshot.models.computeTargets.targets.filter(item=>item.available).map(item=>
-      ({target:item.id,engines:(item.engines ?? []).filter(engine=>item.engineAvailability?.[engine]?.available !== false)})).filter(item=>item.engines.length),
+      ({target:item.id,engines:(item.engines ?? []).filter(engine=>engineRegressionEnabled(engine) &&
+        item.engineAvailability?.[engine]?.available !== false)})).filter(item=>item.engines.length),
     flux:snapshot.flux,images:snapshot.images};
   // First setup uses catalog defaults; repeat prepare retains reviewed fixtures.
   lab.smokeModel ??= catalogFixture(snapshot.models,'OLlama','cpu');

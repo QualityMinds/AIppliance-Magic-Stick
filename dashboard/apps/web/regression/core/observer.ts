@@ -4,8 +4,8 @@ import {readPrivate} from './private-files.ts';
 import type {Lease, LeaseStore} from './lease.ts';
 
 interface ContainerStatus {
-  name: string; image?: string; imageID?: string; ready?: boolean; restartCount?: number;
-  state?: {waiting?: {reason?: string}; terminated?: {exitCode?: number}};
+  name: string; image?: string; imageID?: string; containerID?: string; ready?: boolean; restartCount?: number;
+  state?: {waiting?: {reason?: string}; terminated?: {exitCode?: number; startedAt?: string; finishedAt?: string}};
   lastState?: {terminated?: {exitCode?: number}};
 }
 

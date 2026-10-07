@@ -5,7 +5,6 @@ import {GpuScenario,type GpuCreated} from '../core/gpu-scenario.ts';
 import {OwnedModelClient,activation,editRevision} from '../core/owned-model.ts';
 import {canonical} from '../core/borrowed-sharing.ts';
 import {requireSafe} from '../core/errors.ts';
-import {poll} from '../core/poll.ts';
 import {freeTokenNodeCapacity} from '../core/freetoken-inventory.ts';
 
 export function modelCard(page:Page,name:string) {
@@ -40,9 +39,7 @@ export async function lifecycleUi(scenario:GpuScenario,page:Page,model:GpuCreate
   await scenario.live.journal.modelGeneration(model.client.name,model.uid,model.generation,Number(after.metadata.generation));
   model.generation = Number(after.metadata.generation); scenario.allowed.length = 0;
   if (action !== 'stop') {await scenario.ready(model); return;}
-  await poll(()=>scenario.live.modelState(model.client,model.uid),state=>state.item?.spec?.enabled === false && state.pods.length === 0 &&
-    !state.models.models?.some(item=>item.id === model.client.name),{timeoutMs:300_000,intervalMs:1000,stage:'model-stopped'});
-  requireSafe(!(await scenario.inference.advertised(model.client.name)),'API'); await scenario.inference.refusesStopped(model.client.name);
+  await scenario.waitStopped(model);
 }
 
 export async function freeTokenForm(scenario:GpuScenario,page:Page,fixture:GpuModelFixture) {
