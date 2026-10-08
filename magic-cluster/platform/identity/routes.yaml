@@ -122,10 +122,17 @@ spec:
             - name: content
               mountPath: /usr/share/nginx/html
               readOnly: true
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+              readOnly: true
       volumes:
         - name: content
           configMap:
             name: auth-pilot-content
+        - name: nginx-config
+          configMap:
+            name: auth-pilot-nginx
 ---
 apiVersion: v1
 kind: Service

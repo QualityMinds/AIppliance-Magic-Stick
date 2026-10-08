@@ -104,6 +104,11 @@ jobs:
           python3 -m unittest discover -s magic-cluster/apps/ai/litellm/tests -p 'test_*.py'
           python3 -m unittest discover -s magic-cluster/apps/ai/private-mesh -p 'test_*.py'
 
+      - name: Check nginx worker and memory bounds
+        env:
+          MAGICSTICK_RUN_NGINX_CONTAINER_TESTS: "1"
+        run: python3 -m unittest -v tests.test_nginx_runtime
+
       - name: Check dashboard clients
         working-directory: dashboard
         run: |
