@@ -33,6 +33,7 @@ async function appliance(page: Page, role = 'magicstick-admin', expired = false)
     const path = new URL(request.url()).pathname;
     const reply = (body: unknown, status = 200) => route.fulfill({status, contentType: 'application/json', body: JSON.stringify(body)});
     if (expired && path === '/api/session') return reply({error: 'Session expired. Sign in again.'}, 401);
+    if (path === '/api/models/estimate-memory' && path in payloads) return reply(payloads[path]);
     if (request.method() !== 'GET') {
       writes.push({path, method: request.method(), body: request.postDataJSON(), csrf: request.headers()['x-magicstick-csrf']});
       if (rejectMutation) return reply({error: 'The model changed. Refresh and try again.'}, 409);
@@ -46,8 +47,60 @@ async function appliance(page: Page, role = 'magicstick-admin', expired = false)
     }
     return reply(payloads[path] ?? {error: 'Unexpected fixture endpoint'}, path in payloads ? 200 : 404);
   });
-  return {writes, activation, rejectMutations: () => {rejectMutation = true;}};
+  return {writes, activation, payloads, rejectMutations: () => {rejectMutation = true;}};
 }
+
+test('shows the selected Hugging Face revision in the create dialog without mobile overflow', async ({page}, testInfo) => {
+  const state = await appliance(page);
+  const revision = 'a'.repeat(40), otherRevision = 'b'.repeat(40);
+  state.payloads['/api/models'] = {activations: [], models: [], presets: {},
+    computeTargets: {default: 'cpu', targets: [{id: 'cpu', kind: 'cpu', available: true, engines: ['VLLM'],
+      kvCacheTypes: {VLLM: [{value: 'auto', label: 'Standard - model precision'}]}}]},
+    computeMemory: {devices: [{id: 'cpu', computeTarget: 'cpu', totalMi: 16384, unreservedMi: 15000, freeMi: 14000}]}};
+  state.payloads['/api/model-discovery/popular'] = {provider: 'huggingface', results: [], total: 0};
+  state.payloads['/api/model-discovery/search'] = {provider: 'huggingface', total: 1,
+    results: [{id: 'example/model', repo: 'example/model'}]};
+  state.payloads['/api/model-discovery/artifacts'] = {provider: 'huggingface', total: 2, artifacts: [
+    {id: 'fp8', repo: 'example/model-FP8', url: 'hf://example/model-FP8', revision},
+    {id: 'bf16', repo: 'example/model', url: 'hf://example/model', revision: otherRevision},
+  ]};
+  state.payloads['/api/models/estimate-memory'] = {minimumMi: 1000, recommendedMi: 2000, maximumMi: 15000,
+    computeTarget: 'cpu', weightsMi: 500, kvCacheMi: 250, reserveMi: 250, confidence: 'estimated'};
+  await page.goto('/#/models');
+  await page.getByRole('button', {name: 'Create', exact: true}).click();
+  const dialog = page.getByRole('dialog', {name: 'Create Model'});
+  await dialog.getByRole('button', {name: 'Search', exact: true}).click();
+  const metadata = dialog.locator('.discovery-meta');
+  await expect(metadata.getByText(`Revision: ${revision}`, {exact: true})).toBeVisible();
+  await expect(dialog.getByLabel('Selected URL')).toHaveValue('hf://example/model-FP8');
+  await expect(metadata).not.toContainText('Revision: ' + otherRevision);
+  expect(await metadata.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await metadata.scrollIntoViewIfNeeded();
+  await page.screenshot({path: testInfo.outputPath('model-discovery-revision.png'), fullPage: true});
+  await dialog.getByLabel('Quantization / artifact').selectOption('bf16');
+  await expect(metadata.getByText(`Revision: ${otherRevision}`, {exact: true})).toBeVisible();
+  await expect(metadata).not.toContainText('Revision: ' + revision);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await dialog.getByRole('button', {name: 'Cancel', exact: true}).click();
+  expect(state.writes).toEqual([]);
+});
+
+test('keeps offline license notices available after a status failure without overflow or writes', async ({page}) => {
+  const state=await appliance(page);
+  await page.route('**/api/license',route=>route.fulfill({status:503,contentType:'application/json',
+    body:JSON.stringify({error:'License API unavailable.'})}));
+  await page.goto('/#/system/license');
+  await expect(page.getByRole('alert')).toContainText('License API unavailable.');
+  await expect(page.getByRole('heading',{name:'Software licenses'})).toBeVisible();
+  await page.locator('summary').getByText('Business Source License 1.1',{exact:true}).click();
+  const download=page.getByRole('link',{name:'Download Business Source License 1.1'});
+  await expect(download).toBeVisible();
+  await expect(download).toHaveAttribute('download','MagicStick-BSL.txt');
+  const href=await download.getAttribute('href');
+  expect(decodeURIComponent(href!.split(',',2)[1]!)).toContain('EUR 2,000,000');
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect(state.writes).toEqual([]);
+});
 
 test('navigates the built dashboard without side effects', async ({page}) => {
   const state = await appliance(page);

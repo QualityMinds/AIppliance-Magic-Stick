@@ -84,6 +84,7 @@ jobs:
           bash -n deploy-on-k8s.sh
           python3 -m unittest tests/test_install_entrypoints.py
           python3 -m unittest tests.test_install_channels tests.test_runtime_image_updates tests.test_release tests.test_repository_hygiene
+          python3 -m unittest tests.test_dashboard_image_promotion
           python3 -m unittest tests/test_installer_network.py
           python3 -m unittest tests/test_installer_boot.py
           python3 -m unittest tests/test_installer_pool.py

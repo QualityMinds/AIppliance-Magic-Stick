@@ -99,6 +99,97 @@ class ModelPodStatusTests(unittest.TestCase):
         self.pods[0]['status']['phase'] = 'Pending'
         self.assertEqual(self.recover(), (tracker, None))
 
+    def crash_loop_pod(self, restarts=3):
+        pod = self.terminal_pod()
+        pod['status'] = {'phase': 'Running', 'containerStatuses': [{
+            'name': 'server', 'restartCount': restarts,
+            'state': {'waiting': {'reason': 'CrashLoopBackOff', 'message': 'private runtime detail'}},
+            'lastState': {'terminated': {'reason': 'Error', 'exitCode': 1}},
+        }]}
+        return pod
+
+    def runtime_failure(self):
+        self.paths = []
+        def list_pods(path):
+            self.paths.append(path)
+            return self.pods
+        with patch.dict(self.c, {'list_items': list_pods}):
+            return self.c['model_pod_runtime_failure'](self.model, 'ai', 'example-model')
+
+    def test_repeated_crashloop_reports_failed_startup_and_scoped_query_without_writes(self):
+        self.model['spec'] = {'engine': 'OLlama'}
+        self.pods = [self.crash_loop_pod()]
+        with patch.dict(self.c, {'delete_json': lambda *_: self.fail('Do not delete a crash-looping Pod'),
+                                 'patch_json': lambda *_: self.fail('Failure detection must be read-only')}):
+            state = self.runtime_failure()
+        self.assertEqual(state[:2], ('Degraded', 'ModelRuntimeCrashLoop'))
+        self.assertIn('startup failed', state[2])
+        self.assertIn('OLlama runtime has restarted 3 times', state[2])
+        self.assertIn('verify the model reference', state[2])
+        self.assertNotIn('private runtime detail', state[2])
+        self.assertEqual(self.paths, ['/api/v1/namespaces/ai/pods?labelSelector=app%3Dmodel%2Cmodel%3Dexample-model'])
+
+    def test_transient_restarts_and_slow_running_download_do_not_get_a_startup_timeout(self):
+        for restarts in (0, 1, 2):
+            self.pods = [self.crash_loop_pod(restarts)]
+            self.assertIsNone(self.runtime_failure())
+        pod = self.crash_loop_pod(0)
+        pod['metadata']['creationTimestamp'] = '2020-01-01T00:00:00Z'
+        pod['status']['containerStatuses'][0].update(state={'running': {}}, lastState={})
+        self.pods = [pod]
+        self.assertIsNone(self.runtime_failure())
+
+    def test_repeated_failure_stays_degraded_during_retry_then_recovers_on_ready_or_replacement(self):
+        pod = self.crash_loop_pod()
+        self.pods = [pod]
+        pod['status']['containerStatuses'][0]['state'] = {'running': {}}
+        self.assertEqual(self.runtime_failure()[1], 'ModelRuntimeCrashLoop')
+        pod['status']['conditions'] = [{'type': 'Ready', 'status': 'True'}]
+        self.assertIsNone(self.runtime_failure())
+        self.pods = [self.crash_loop_pod(0)]
+        self.pods[0]['metadata']['uid'] = 'replacement-pod'
+        self.assertIsNone(self.runtime_failure())
+
+    def test_failure_detection_requires_exact_model_controller_ownership(self):
+        for mutation in ('old-uid', 'wrong-name', 'wrong-api', 'unowned', 'no-controller', 'terminating', 'terminal'):
+            pod = self.crash_loop_pod()
+            owner = pod['metadata']['ownerReferences'][0]
+            if mutation == 'old-uid':
+                owner['uid'] = 'previous-model-uid'
+            elif mutation == 'wrong-name':
+                owner['name'] = 'another-model'
+            elif mutation == 'wrong-api':
+                owner['apiVersion'] = 'another.example/v1'
+            elif mutation == 'unowned':
+                pod['metadata']['ownerReferences'] = []
+            elif mutation == 'no-controller':
+                owner['controller'] = False
+            elif mutation == 'terminating':
+                pod['metadata']['deletionTimestamp'] = '2026-01-01T12:00:00Z'
+            else:
+                pod['status']['phase'] = 'Failed'
+            self.pods = [pod]
+            self.assertIsNone(self.runtime_failure(), mutation)
+        self.pods = [self.crash_loop_pod()]
+        self.model['metadata']['uid'] = 'replacement-model-uid'
+        self.assertIsNone(self.runtime_failure())
+
+    def test_oom_and_container_configuration_errors_have_actionable_status(self):
+        for field in ('containerStatuses', 'initContainerStatuses'):
+            pod = self.crash_loop_pod(0)
+            container = pod['status'].pop('containerStatuses')[0]
+            pod['status'][field] = [container]
+            container.update(state={'running': {}}, lastState={'terminated': {'reason': 'OOMKilled', 'exitCode': 137}})
+            self.pods = [pod]
+            self.assertEqual(self.runtime_failure()[1], 'ModelRuntimeOOMKilled')
+            self.assertIn('Increase the RAM budget', self.runtime_failure()[2])
+            for reason in ('ImagePullBackOff', 'CreateContainerConfigError', 'CreateContainerError', 'RunContainerError'):
+                container.update(state={'waiting': {'reason': reason}}, lastState={})
+                self.assertEqual(self.runtime_failure()[1], 'ModelContainerStartupFailed')
+                self.assertIn(reason, self.runtime_failure()[2])
+            container.update(state={'terminated': {'reason': 'Completed', 'exitCode': 0}}, lastState={}, restartCount=4)
+            self.assertIsNone(self.runtime_failure(), 'Completed init containers are not failures')
+
     def test_completed_owned_pod_is_also_replaced(self):
         self.pods = [self.terminal_pod()]
         self.pods[0]['status'] = {'phase': 'Succeeded'}
@@ -224,6 +315,13 @@ class ModelPodStatusTests(unittest.TestCase):
             self.assertEqual(phase, 'Starting')
             self.assertIsNone(status['podCreation'])
             self.assertIsNone(statuses[-1][1]['pod_creation'])
+            self.pods = [self.crash_loop_pod(6)]
+            phase, status = self.c['reconcile_model_activation'](self.activation, {'modules': {}}, {})
+            self.assertEqual(phase, 'Degraded')
+            self.assertEqual(statuses[-1][0][2], 'ModelRuntimeCrashLoop')
+            self.assertIn('startup failed', status['message'])
+            self.assertEqual(status['catalogId'], 'example-model')
+            self.assertEqual(status['effectiveKvCacheType'], '')
             self.model['status']['replicas'] = {'all': 1, 'ready': 1}
             phase, status = self.c['reconcile_model_activation'](self.activation, {'modules': {}}, {})
             self.assertEqual(phase, 'Ready')

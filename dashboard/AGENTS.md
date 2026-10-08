@@ -55,6 +55,11 @@ and `dashboard/apps/api` from the repository root, using the documented API
 requirements. Add behavior tests for authorization, invalid inputs, saved-state
 compatibility and relevant loading/empty/error states.
 
+Apply the [regression coverage rule](../AGENTS.md#regression-coverage-for-behavior-changes)
+in the same change. Review affected UI/API scenarios, fixtures, selectors and
+engine/role variants with the [regression skill](../.agents/skills/magicstick-regression/SKILL.md);
+do not stop at a new component test when the installed workflow also changed.
+
 Inspect changed browser flows at desktop and narrow mobile widths, including
 focus, help, dirty/reverted forms and overflow. A jsdom/component test is not a
 real-browser or live-inference test. Use fixture-backed previews where practical;

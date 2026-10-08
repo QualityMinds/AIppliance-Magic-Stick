@@ -1,0 +1,51 @@
+name: Dependency security
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - dashboard/package.json
+      - dashboard/pnpm-lock.yaml
+      - dashboard/pnpm-workspace.yaml
+      - dashboard/**/package.json
+      - .github/workflows/dependency-security.yml
+  pull_request:
+    paths:
+      - dashboard/package.json
+      - dashboard/pnpm-lock.yaml
+      - dashboard/pnpm-workspace.yaml
+      - dashboard/**/package.json
+      - .github/workflows/dependency-security.yml
+  schedule:
+    - cron: '41 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  advisories:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install locked dependency graph
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile --ignore-scripts
+      - name: Query current registry advisories
+        # Network/registry failure must not turn into a green security result.
+        # No --fix, ignored advisories, registry-error bypass or || true here.
+        run: pnpm audit --audit-level high

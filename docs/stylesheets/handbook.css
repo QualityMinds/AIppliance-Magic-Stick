@@ -29,6 +29,12 @@
 .md-typeset blockquote { border-left-color: #35cfe6; }
 .md-content { min-width: 0; }
 .md-grid { max-width: 76rem; }
+@media (max-width: 60em) {
+  /* Keep long regression outcomes readable; tables retain their own scrolling. */
+  .md-content:has(#installed-appliance-regression-test-case-catalog) th:nth-child(2) {
+    min-width: 16rem;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
 }

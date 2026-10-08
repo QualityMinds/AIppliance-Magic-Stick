@@ -65,6 +65,7 @@ data:
     FREETOKEN_HEALTH_TIMEOUT_SECONDS = 5
     OLLAMA_MODEL_API_TIMEOUT_SECONDS = 5
     MODEL_POD_CREATION_TIMEOUT_SECONDS = 120
+    MODEL_RUNTIME_FAILURE_RESTARTS = 3
     PLURALS = {
         ("appliance.magicstick.dev", "ModuleActivation"): "moduleactivations",
         ("appliance.magicstick.dev", "AppInstance"): "appinstances",
@@ -1315,7 +1316,7 @@ data:
     GPU_PREFLIGHT_ANNOTATION = "appliance.magicstick.dev/gpu-host-preflight"
     GPU_SHARING_STATE = {}
     NVIDIA_SHARING_STATE = {}
-    AMD_DRA_IMAGE = "ghcr.io/qualityminds/magicstick-amd-dra:v1.0.1-cdi-recovery.2"
+    AMD_DRA_IMAGE = "ghcr.io/qualityminds/magicstick-amd-dra:sha-746f3c37154e8e138699f1befa491f1c491d427c"
     DRA_SENTINEL_RESOURCE = "appliance.magicstick.dev/amd-dra"
     DRA_POLICY_NAME = "magicstick-amd-dra"
 
@@ -3425,6 +3426,53 @@ data:
             "Waiting for KubeAI to create the model Pod; the inference runtime has not started yet.")
 
 
+    def model_pod_runtime_failure(model, namespace, model_name):
+        """Report failed startup without imposing a timeout on healthy downloads.
+
+        KubeAI can retain zero ready replicas while a Running Pod crash-loops.
+        Inspect only Pods owned by this exact Model; do not read logs, expose
+        arbitrary container messages, delete Pods or modify the retry policy.
+        Restart counts survive operator reconciliation and reset for a new Pod.
+        """
+        uid = (model.get("metadata") or {}).get("uid")
+        if not uid:
+            return None
+        selector = urllib.parse.urlencode({"labelSelector": "app=model,model=" + model_name})
+        pods = list_items(f"/api/v1/namespaces/{namespace}/pods?{selector}")
+        for pod in pods:
+            metadata = pod.get("metadata") or {}
+            status = pod.get("status") or {}
+            if metadata.get("deletionTimestamp") or status.get("phase") in ("Failed", "Succeeded") or pod_is_ready(pod):
+                continue
+            if not any(owner.get("apiVersion") == "kubeai.org/v1" and owner.get("kind") == "Model"
+                       and owner.get("uid") == uid and owner.get("name") == model_name
+                       and owner.get("controller") is True
+                       for owner in metadata.get("ownerReferences") or []):
+                continue
+            for container in (status.get("initContainerStatuses") or []) + (status.get("containerStatuses") or []):
+                state = container.get("state") or {}
+                waiting = state.get("waiting") or {}
+                terminated = state.get("terminated") or (container.get("lastState") or {}).get("terminated") or {}
+                reason = waiting.get("reason") or terminated.get("reason")
+                if terminated.get("reason") == "OOMKilled":
+                    return "Degraded", "ModelRuntimeOOMKilled", (
+                        "Model startup failed: Kubernetes killed a runtime container after it ran out of memory. "
+                        "Increase the RAM budget or reduce context/concurrency and inspect Logs. Retrying automatically.")
+                if reason in ("ImagePullBackOff", "CreateContainerConfigError", "CreateContainerError", "RunContainerError"):
+                    return "Degraded", "ModelContainerStartupFailed", (
+                        "Model container startup failed: " + str(reason) + ". "
+                        "Check the runtime image, configuration and Kubernetes Pod events. Retrying automatically.")
+                restarts = non_negative_int(container.get("restartCount"), 0)
+                failed_exit = non_negative_int(terminated.get("exitCode"), 0) != 0
+                if restarts >= MODEL_RUNTIME_FAILURE_RESTARTS and (reason == "CrashLoopBackOff" or failed_exit):
+                    engine = str((model.get("spec") or {}).get("engine") or "inference")
+                    return "Degraded", "ModelRuntimeCrashLoop", (
+                        "Model startup failed: the " + engine + " runtime has restarted " + str(restarts)
+                        + " times without becoming ready. Check Logs and startup-probe events; "
+                        "if the model download failed, verify the model reference and registry access. Retrying automatically.")
+        return None
+
+
     def recover_terminal_model_pod(activation, model, namespace, model_name):
         """Replace only terminal Pods owned by this exact KubeAI Model, with backoff.
 
@@ -5130,6 +5178,11 @@ data:
                 runtime["podRecovery"], recovery_wait = recover_terminal_model_pod(activation, kubeai_model, namespace, name)
                 if recovery_wait:
                     phase, reason, message = recovery_wait
+                    patch_status(phase, reason, message, name)
+                    return phase, status_payload(phase, message, name)
+                runtime_failure = model_pod_runtime_failure(kubeai_model, namespace, name)
+                if runtime_failure:
+                    phase, reason, message = runtime_failure
                     patch_status(phase, reason, message, name)
                     return phase, status_payload(phase, message, name)
                 runtime["podCreation"], pod_wait = model_pod_creation_status(activation, kubeai_model, namespace, name)

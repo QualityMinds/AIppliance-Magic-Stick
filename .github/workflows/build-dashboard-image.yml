@@ -8,6 +8,10 @@ on:
     paths:
       - .dockerignore
       - .github/workflows/build-dashboard-image.yml
+      - .github/workflows/public-release-checks.yml
+      - .github/workflows/dashboard-browser-smoke.yml
+      - tools/promote_dashboard_images.py
+      - tests/test_dashboard_image_promotion.py
       - dashboard/**
       - '!dashboard/**/*.md'
       - magic-host/roles/host-management/files/network_contract.py
@@ -47,6 +51,10 @@ jobs:
   build:
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/'))
     runs-on: ubuntu-24.04
+    outputs:
+      web_digest: ${{ steps.web-image.outputs.digest }}
+      api_digest: ${{ steps.api-image.outputs.digest }}
+      cli_digest: ${{ steps.cli-image.outputs.digest }}
     steps:
       - name: Check out MagicStick
         uses: actions/checkout@v4
@@ -55,6 +63,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "24"
+
+      - name: Test automatic dashboard promotion safety
+        run: |
+          python3 -m pip install pyyaml
+          python3 -m unittest tests.test_dashboard_image_promotion
 
       - name: Enable pnpm
         run: corepack enable
@@ -169,6 +182,7 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
 
       - name: Build and push multi-architecture image
+        id: web-image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -183,6 +197,7 @@ jobs:
           sbom: true
 
       - name: Build and push multi-architecture CLI runtime image
+        id: cli-image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -197,6 +212,7 @@ jobs:
           sbom: true
 
       - name: Build and push dashboard API runtime
+        id: api-image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -209,3 +225,36 @@ jobs:
           cache-to: type=gha,mode=max,scope=magicstick-dashboard-api
           provenance: mode=max
           sbom: true
+
+  promote:
+    name: Promote tested dashboard images to their channel
+    needs: build
+    # Manual/no-tests and feature-branch builds remain unpromoted candidates.
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Check out the exact build source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify required CI, registry provenance and publish the scoped pins
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_REVISION: ${{ github.sha }}
+          CHANNEL: ${{ github.ref_name }}
+          WEB_DIGEST: ${{ needs.build.outputs.web_digest }}
+          API_DIGEST: ${{ needs.build.outputs.api_digest }}
+          CLI_DIGEST: ${{ needs.build.outputs.cli_digest }}
+        run: |
+          python3 tools/promote_dashboard_images.py \
+            --branch "$CHANNEL" --source "$SOURCE_REVISION" \
+            --web-digest "$WEB_DIGEST" --api-digest "$API_DIGEST" \
+            --cli-digest "$CLI_DIGEST" --push >> "$GITHUB_STEP_SUMMARY"
+          # GITHUB_TOKEN pushes do not trigger another push workflow. No PAT,
+          # skip-ci override or force-push is used to avoid recursive builds.

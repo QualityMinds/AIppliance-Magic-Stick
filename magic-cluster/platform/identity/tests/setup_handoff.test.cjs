@@ -105,7 +105,7 @@ async function testDirectSetupGatewayCloses() {
   await page.timers.shift()();
   assert.equal(page.elements.login.disabled, false,
     'the direct setup page must enable login after its listener closes');
-  assert.ok(page.requests.includes('https://magicstick.local/'));
+  assert.equal(page.requests.filter(request => request === 'https://magicstick.local/').length, 1);
 }
 
 async function testSuccessfulCompletionKeepsRecoveryVisible() {

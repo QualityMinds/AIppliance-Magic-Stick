@@ -135,6 +135,7 @@ def run():
         server = BoundedHTTPServer(('127.0.0.1', port), handle)
         if tls:
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
             context.load_cert_chain(ROOT / 'ca.pem', ROOT / 'key.pem')
             server.socket = context.wrap_socket(server.socket, server_side=True)
         threading.Thread(target=server.serve_forever, daemon=True).start()

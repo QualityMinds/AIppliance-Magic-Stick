@@ -10,6 +10,17 @@
 4. Review any copied output before sharing it. Logs can contain user input,
    credentials or internal addresses.
 
+A model marked `Degraded` / `ModelRuntimeCrashLoop` has restarted unsuccessfully
+at least three times, even if Kubernetes still labels its Pod `Running`.
+Check the model reference and registry access when this happens during download.
+For Ollama, the useful error may be in the Pod's **startup-probe events**, for
+example a missing model manifest, rather than the daemon's ordinary log tail.
+An OOM failure calls for more RAM or less context/concurrency. A failed image
+pull or container configuration calls for checking the image and Pod events.
+Retries continue automatically and readiness clears the error; a slow download
+without failing containers remains `Starting`. See the
+[model controls reference](../../reference/model-controls.md) for exact states.
+
 [![Runtime log excerpt showing an Ollama container's context and CPU KV-cache initialization.](../../assets/screenshots/model-logs.webp)](../../assets/screenshots/model-logs.webp)
 
 *Live excerpt from the owner-authorized CPU test model, 24 September 2026. This

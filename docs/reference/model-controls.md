@@ -82,7 +82,11 @@ Quantizations must declare a direct `quantized` relationship to the exact
 selected model; name similarity, adapter, fine-tune, and merge relationships do
 not qualify. Publisher, formats, parameter metadata, revision, trust
 classification, and runtime-compatibility guidance remain visible after
-selection. When Hugging Face publishes `usedStorage`, the dashboard also shows
+selection. **Revision** displays the full SHA returned for the currently selected
+artifact, including when a different quantization is selected. It is discovery
+metadata, not a guarantee that the runtime download is pinned to that commit.
+If the registry returns no revision, the dashboard does not invent one.
+When Hugging Face publishes `usedStorage`, the dashboard also shows
 the repository download size. The artifact resolver and estimator read the
 selected repository's public `config.json`, including nested language-model
 configuration such as `text_config`; this is necessary because Hugging Face
@@ -291,6 +295,12 @@ returned in `runtimeDetails`, while `recommendedReserveMi` is the separate
 recommendation headroom. CPU reservations below the computed minimum require
 the explicit memory-risk acceptance described above. API/CLI clients that omit
 `local.allowMemoryRisk` retain the stricter preflight checks.
+This applies to **both CPU Ollama and CPU vLLM**, on creation and editing:
+the minimum is rounded up to the same 100 MiB step as the form. An explicit
+Ollama risk acceptance retains the requested budget without requiring public
+registry metadata; it does not inject vLLM cache parameters or bypass invalid
+RAM values. Legacy Ollama definitions without an explicit RAM budget keep their
+runtime defaults.
 
 Accelerator availability uses the Ready, schedulable node's allocatable vendor
 resource as the final runtime signal. An enabled vendor operator that is
@@ -489,6 +499,15 @@ An owned Pod that has permanently failed is automatically replaced with bounded
 backoff. Its original failure appears in the model message; after five failed
 recovery attempts the model stays Degraded until its configuration is reviewed.
 A local model with a Pod is shown as `Starting` until KubeAI reports a ready vLLM or Ollama replica.
+If a container in an exactly owned model Pod restarts unsuccessfully three or
+more times without readiness, the model instead becomes `Degraded` with reason
+`ModelRuntimeCrashLoop` and a hint to inspect runtime logs, startup-probe events,
+the model reference and registry access. This also covers an Ollama download
+failure that leaves the Pod in `Running` / `CrashLoopBackOff`. Explicit OOM,
+image-pull backoff and container-configuration failures are reported separately.
+Kubernetes retries continue; the status check does not delete Pods. Readiness
+clears the failure, and a replacement Pod starts with its own restart count.
+A healthy, slow download is not subject to a blanket startup timeout.
 The status message includes the ready-replica count, for example `0/1 replicas
 ready`. `Ready` therefore means both that the local runtime is serving its
 health endpoint and that the generated catalog has published the model.

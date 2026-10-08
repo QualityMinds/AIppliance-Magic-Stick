@@ -42,9 +42,8 @@ store. If the appliance-local CA is not installed there, export its public
 certificate and run the first login with
 `pnpm cli --ca-file /path/to/magicstick-oidc-ca.crt login`; the CLI saves the
 path for later calls. `MAGICSTICK_CA_FILE` and `NODE_EXTRA_CA_CERTS` are also
-supported. On a disposable appliance in a trusted test network, `--insecure`
-disables TLS verification for the current process only, emits a warning, and
-is not persisted. Do not use it for production access.
+supported. The legacy `--insecure` switch is rejected; install or explicitly
+provide the appliance CA instead.
 
 The primary command groups are `service`, `instance`, `model`, `settings`,
 `user`, `api-key`, and `kubernetes-access`. Destructive and configuration

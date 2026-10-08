@@ -3220,9 +3220,36 @@ data:
             return {"models": []}
 
 
-    def module_activation_payload(module, enabled, payload=None):
+    def validate_module_parameters(module, parameters, catalog_spec=None):
+        if not isinstance(parameters, dict):
+            raise ValueError("parameters must be an object")
+        if module in ("amd-gpu", "gpu") and "gpuSharing" in parameters:
+            raise ValueError("Unsupported module parameter: use Hardware GPU sharing")
+        definition = catalog_spec
+        if definition is None:
+            definition = (catalog_json().get("modules") or {}).get(module)
+        if not isinstance(definition, dict):
+            raise RequestError(503, "module parameter catalog is unavailable")
+        allowed = {item["name"] for item in definition.get("parameters", [])
+                   if isinstance(item, dict) and isinstance(item.get("name"), str)}
+        if set(parameters) - allowed:
+            raise ValueError("Unsupported module parameter")
+        result = dict(parameters)
+        if module == "amd-gpu":
+            result = validate_gpu_compatibility_parameters(result)
+        # ModuleActivation's parameter map is string-valued. GPU profile input
+        # normalization above retains its existing boolean compatibility.
+        if any(not isinstance(value, str) or len(value) > 4096 or "\x00" in value
+               for value in result.values()):
+            raise ValueError("module parameters must be strings of at most 4096 characters")
+        return result
+
+
+    def module_activation_payload(module, enabled, payload=None, catalog_spec=None):
         name = module
-        payload = payload or {}
+        payload = {} if payload is None else payload
+        if not isinstance(payload, dict) or set(payload) - {"parameters"}:
+            raise ValueError("Unsupported module activation field")
         spec = {
             "module": module,
             "enabled": enabled,
@@ -3232,18 +3259,7 @@ data:
             },
         }
         if "parameters" in payload:
-            if not isinstance(payload.get("parameters"), dict):
-                raise ValueError("parameters must be an object")
-            spec["parameters"] = dict(payload["parameters"])
-            if module == "amd-gpu":
-                spec["parameters"] = validate_gpu_compatibility_parameters(spec["parameters"])
-            if module in ("amd-gpu", "gpu"):
-                if "gpuSharing" in payload["parameters"]:
-                    raise ValueError("Unsupported module parameter: use Hardware GPU sharing")
-                # Generic module/profile edits preserve independent sharing intent.
-                sharing = (((module_activation(module) or {}).get("spec") or {}).get("parameters") or {}).get("gpuSharing")
-                if sharing:
-                    spec["parameters"]["gpuSharing"] = sharing
+            spec["parameters"] = validate_module_parameters(module, payload["parameters"], catalog_spec)
         return {
             "apiVersion": f"{APPLIANCE_GROUP}/{APPLIANCE_VERSION}",
             "kind": "ModuleActivation",
@@ -3531,9 +3547,9 @@ data:
         return "admin" if module == "amd-gpu" and "parameters" in payload else "operator"
 
 
-    def manual_module_activation_patch(resource):
+    def manual_module_activation_patch(resource, current=None):
         metadata = resource["metadata"]
-        return {
+        patch = {
             "metadata": {
                 "labels": metadata["labels"],
                 "annotations": {
@@ -3543,6 +3559,26 @@ data:
             },
             "spec": resource["spec"],
         }
+        if current:
+            revision = (current.get("metadata") or {}).get("resourceVersion")
+            if not revision:
+                raise RequestError(409, "Module revision is unavailable. Reload and retry.")
+            patch["metadata"]["resourceVersion"] = revision
+            if "parameters" in resource["spec"]:
+                previous = (current.get("spec") or {}).get("parameters") or {}
+                parameters = dict(resource["spec"]["parameters"])
+                if resource["spec"]["module"] in ("amd-gpu", "gpu") and "gpuSharing" in previous:
+                    # Preserve sharing from the same revision we fence below,
+                    # never from a separate, potentially stale intent lookup.
+                    parameters["gpuSharing"] = previous["gpuSharing"]
+                # Merge-patch otherwise retains omitted keys, including legacy
+                # invalid fields. An explicit parameter map replaces that map;
+                # requests without one keep saved parameters unchanged.
+                patch["spec"] = {**resource["spec"], "parameters": {
+                    **{key: None for key in previous if key not in parameters},
+                    **parameters,
+                }}
+        return patch
 
 
     def app_instance_name(instance_type, requested_name):
@@ -6988,18 +7024,24 @@ data:
                     if not memory_required_mi or memory_required_mi < 16:
                         raise ValueError("local.memoryRequiredMi must be an integer of at least 16 MiB")
                     local["memoryRequiredMi"] = memory_required_mi
-                if engine == "VLLM" and resolved_model_url:
+                # CPU Ollama has the same explicit risk contract as CPU vLLM.
+                # Its budget must not silently bypass the estimate simply
+                # because vLLM alone needs a derived, server-owned cache size.
+                needs_cpu_estimate = engine == "VLLM" or (memory_required_mi and not allow_memory_risk)
+                if needs_cpu_estimate and resolved_model_url:
                     estimate = estimate_model_memory({**local, "url": resolved_model_url}, exclude_model)
                     minimum_mi = round_up_mib(estimate.get("minimumMi"))
-                    kv_cache_mi = max(
-                        MEMORY_RESERVATION_STEP_MI,
-                        round_up_mib(estimate.get("kvCacheMi")),
-                    )
-                    local["kvCacheMemoryBytes"] = kv_cache_mi * MIB_BYTES
+                    if engine == "VLLM":
+                        kv_cache_mi = max(
+                            MEMORY_RESERVATION_STEP_MI,
+                            round_up_mib(estimate.get("kvCacheMi")),
+                        )
+                        local["kvCacheMemoryBytes"] = kv_cache_mi * MIB_BYTES
                     if memory_required_mi and memory_required_mi < minimum_mi and not allow_memory_risk:
                         raise ValueError(
                             "local.memoryRequiredMi must be at least " + str(minimum_mi)
-                            + " MiB for this model, context, and CPU vLLM cache."
+                            + " MiB for this model, context, and CPU " + engine
+                            + " runtime. Set local.allowMemoryRisk=true only if you explicitly accept the memory risk."
                         )
             else:
                 if local.get("cpuOffloading"):
@@ -9416,11 +9458,16 @@ data:
                     if module_mutation_access(module, payload) == "admin":
                         self.require_access("admin")
                         validate_dashboard_mutation_request(self)
-                    resource = module_activation_payload(module, enabled, payload)
+                    resource = module_activation_payload(module, enabled, payload, catalog_spec)
                     name = resource["metadata"]["name"]
                     collection = f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/moduleactivations"
                     item = collection + "/" + name
-                    self.send_json(create_or_patch(collection, item, resource, manual_module_activation_patch(resource)))
+                    current = get_resource(item)
+                    if current:
+                        self.send_json(request_json("PATCH", item, manual_module_activation_patch(resource, current),
+                                                    "application/merge-patch+json"))
+                    else:
+                        self.send_json(request_json("POST", collection, resource))
                     return
 
                 applications = app_catalog_json().get("applications") or {}

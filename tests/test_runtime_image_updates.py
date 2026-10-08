@@ -5,6 +5,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import unittest
+from urllib.parse import urlsplit
 
 from tools import update_runtime_images as updates
 
@@ -43,7 +44,7 @@ class RuntimeImageTests(unittest.TestCase):
         calls = []
         def fetch(url, headers=None):
             calls.append((url, headers))
-            if "auth.docker.io" in url:
+            if urlsplit(url).hostname == "auth.docker.io":
                 return b'{"token":"synthetic-pull-token"}', {}
             return body, {"Docker-Content-Digest": digest}
         self.assertEqual(updates.resolve("docker.io/example/app", "stable", fetch), digest)
@@ -69,9 +70,9 @@ class RuntimeImageTests(unittest.TestCase):
             body = json.dumps({'schemaVersion': 2, 'config': {
                 'digest': 'sha256:' + hashlib.sha256(config).hexdigest()}}).encode()
             def fetch(url, headers=None):
-                if 'auth.docker.io' in url:
+                if urlsplit(url).hostname == 'auth.docker.io':
                     return b'{"token":"fixture"}', {}
-                return (config if '/blobs/' in url else body), {}
+                return (config if urlsplit(url).path.startswith('/v2/example/app/blobs/') else body), {}
             if architecture == 'amd64':
                 self.assertEqual(updates.resolve('docker.io/example/app', 'stable', fetch),
                                  'sha256:' + hashlib.sha256(body).hexdigest())

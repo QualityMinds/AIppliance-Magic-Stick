@@ -6,6 +6,7 @@ import threading
 import time
 import unittest
 import urllib.error
+from unittest.mock import patch
 
 import yaml
 
@@ -182,6 +183,11 @@ class LocalRuntimeTests(unittest.TestCase):
                 "allocatable": {},
             },
         }]
+        # CPU model admission now estimates Ollama budgets, too. Keep these
+        # tests offline instead of reaching the public registry from fixtures.
+        self.server["ollama_metadata"] = lambda reference: {
+            "reference": reference["reference"], "modelBytes": 384 * 1024 * 1024,
+        }
 
     def tearDown(self):
         self.server.update(self.originals)
@@ -801,6 +807,61 @@ class LocalRuntimeTests(unittest.TestCase):
         self.assertEqual(resource["spec"]["local"]["memoryRequiredMi"], 3000)
         self.assertEqual(resource["spec"]["local"]["kvCacheMemoryBytes"], 100 * mib)
 
+    def test_cpu_ollama_payload_enforces_rounded_minimum_without_explicit_risk(self):
+        payload = {"name": "cpu-ollama", "local": {
+            "engine": "OLlama", "computeTarget": "cpu", "url": "ollama://example:small",
+            "memoryRequiredMi": 900, "contextWindow": 2048, "maxNumSeqs": 1, "kvCacheType": "q8_0",
+        }}
+        seen = []
+
+        def estimate(local, exclude_model=""):
+            seen.append((local, exclude_model))
+            return {"minimumMi": 916, "kvCacheMi": 32}
+
+        with patch.dict(self.server, {"estimate_model_memory": estimate}):
+            for risk in (None, False):
+                if risk is not None:
+                    payload["local"]["allowMemoryRisk"] = risk
+                with self.assertRaisesRegex(ValueError, "at least 1000 MiB.*allowMemoryRisk=true"):
+                    self.server["model_activation_payload"]("local", payload, "cpu-ollama")
+            payload["local"]["memoryRequiredMi"] = 1000
+            resource = self.server["model_activation_payload"]("local", payload)
+        self.assertEqual(resource["spec"]["local"]["memoryRequiredMi"], 1000)
+        self.assertNotIn("kvCacheMemoryBytes", resource["spec"]["local"])
+        self.assertEqual(seen[0][0]["contextWindow"], 2048)
+        self.assertEqual(seen[0][0]["maxNumSeqs"], 1)
+        self.assertEqual(seen[0][0]["kvCacheType"], "q8_0")
+        self.assertEqual(seen[0][1], "cpu-ollama")
+
+    def test_cpu_ollama_explicit_risk_preserves_budget_but_not_invalid_input(self):
+        payload = {"name": "cpu-ollama", "local": {
+            "engine": "OLlama", "computeTarget": "cpu", "url": "ollama://example:small",
+            "memoryRequiredMi": 900, "allowMemoryRisk": True,
+        }}
+        with patch.dict(self.server, {"estimate_model_memory": lambda *_: self.fail("Risk was already explicitly accepted")}):
+            resource = self.server["model_activation_payload"]("local", payload)
+            self.assertEqual(resource["spec"]["local"]["memoryRequiredMi"], 900)
+            self.assertIs(resource["spec"]["local"]["allowMemoryRisk"], True)
+            self.assertNotIn("kvCacheMemoryBytes", resource["spec"]["local"])
+            for changes in ({"memoryRequiredMi": 0}, {"memoryRequiredMi": True}, {"allowMemoryRisk": "true"}, {"cpuOffloading": True}):
+                with self.subTest(changes=changes), self.assertRaises(ValueError):
+                    self.server["model_activation_payload"]("local", {
+                        "name": "cpu-ollama", "local": {**payload["local"], **changes}})
+
+    def test_legacy_cpu_ollama_without_budget_keeps_runtime_defaults(self):
+        with patch.dict(self.server, {"estimate_model_memory": lambda *_: self.fail("No explicit RAM budget was supplied")}):
+            resource = self.server["model_activation_payload"]("local", {"name": "cpu-ollama", "local": {
+                "engine": "OLlama", "computeTarget": "cpu", "url": "ollama://example:small"}})
+        self.assertNotIn("memoryRequiredMi", resource["spec"]["local"])
+
+    def test_cpu_ollama_unknown_estimate_does_not_silently_accept_budget(self):
+        def unavailable(*_):
+            raise ValueError("public Ollama registry metadata is not available for this model")
+        with patch.dict(self.server, {"estimate_model_memory": unavailable}):
+            with self.assertRaisesRegex(ValueError, "registry metadata is not available"):
+                self.server["model_activation_payload"]("local", {"name": "cpu-ollama", "local": {
+                    "engine": "OLlama", "computeTarget": "cpu", "url": "ollama://example:missing", "memoryRequiredMi": 900}})
+
     def test_ollama_memory_estimate_supports_cpu_nvidia_and_amd_without_huggingface(self):
         self.server["hf_metadata"] = lambda _repo: self.fail("Ollama estimation must not call HuggingFace")
         self.server["ollama_metadata"] = lambda reference: {
@@ -914,6 +975,7 @@ class LocalRuntimeTests(unittest.TestCase):
         self.assertIn("not supported", str(raised.exception))
 
     def test_ollama_registry_manifest_counts_only_runtime_model_layers(self):
+        self.server["ollama_metadata"] = self.originals["ollama_metadata"]
         self.server["OLLAMA_METADATA_CACHE"].clear()
         requested = []
 
@@ -937,6 +999,7 @@ class LocalRuntimeTests(unittest.TestCase):
         self.assertEqual(requested, ["https://registry.ollama.ai/v2/team/model/manifests/v1"])
 
     def test_ollama_registry_reads_bounded_gguf_architecture_metadata(self):
+        self.server["ollama_metadata"] = self.originals["ollama_metadata"]
         self.server["OLLAMA_METADATA_CACHE"].clear()
         document = gguf_metadata_document([
             ("general.architecture", "qwen35moe"),

@@ -2,6 +2,10 @@ packages:
   - apps/*
   - packages/*
 
+overrides:
+  undici: 8.10.2
+  source-map-js: 1.2.2
+
 catalog:
   react: 19.2.8
   react-dom: 19.2.8

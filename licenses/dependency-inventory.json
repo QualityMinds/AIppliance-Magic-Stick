@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
-  "pnpmLockSha256": "158045c9aae06e3e460799689cfa2e29c2c0a29eebf5aee1ef50927428ddc419",
-  "deploymentReferencesSha256": "8138fad9996796a1fd33a51187eb46e140b5d86a4755bd1c911b8dcb62871c58",
+  "pnpmLockSha256": "6dda8724e63f83d4608f703a3357dc0d2544ff5501e9a32df66a9a90f8d6909e",
+  "deploymentReferencesSha256": "4135af321c81715d74fbcd75ed0eec7c64051f8f69067cd304b24ca4d31d6e4d",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -1539,10 +1539,10 @@
     },
     {
       "name": "source-map-js",
-      "version": "1.2.1",
+      "version": "1.2.2",
       "declaredLicense": "BSD-3-Clause",
       "evidence": "installed-package",
-      "integrity": "sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==",
+      "integrity": "sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw==",
       "licenseFiles": [
         {
           "file": "LICENSE",
@@ -1720,10 +1720,10 @@
     },
     {
       "name": "undici",
-      "version": "8.10.1",
+      "version": "8.10.2",
       "declaredLicense": "MIT",
       "evidence": "installed-package",
-      "integrity": "sha512-YQ3WlbqjYMmNpdvDH64jAgLjxuAR9+649calDWhbshYaeQGO2bR4nI94ORJmwI3J9YhoKQnpyGOK+0zlWS5N5Q==",
+      "integrity": "sha512-/y4/bH9YNU5hi9NIrpOuvGXFcxrj3CMrV+/AYpowAYTpHn8gX/XPFjNy766FPoYY0miQhdW977JFWKGNhBdwyQ==",
       "licenseFiles": [
         {
           "file": "LICENSE",
@@ -2005,27 +2005,32 @@
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 57,
+      "line": 65,
       "reference": "node-version: \"24\""
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 103,
+      "line": 69,
+      "reference": "python3 -m pip install pyyaml"
+    },
+    {
+      "file": ".github/workflows/build-dashboard-image.yml",
+      "line": 116,
       "reference": "python3 -m pip install -r dashboard/apps/api/requirements.txt pyyaml"
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 135,
+      "line": 148,
       "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 151,
+      "line": 164,
       "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 167,
+      "line": 180,
       "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
     },
     {
@@ -2115,7 +2120,7 @@
     },
     {
       "file": ".github/workflows/build-mesh-companion.yml",
-      "line": 246,
+      "line": 253,
       "reference": "with: {python-version: '3.13'}"
     },
     {
@@ -2165,7 +2170,12 @@
     },
     {
       "file": ".github/workflows/dashboard-browser-smoke.yml",
-      "line": 35,
+      "line": 61,
+      "reference": "node-version: '24'"
+    },
+    {
+      "file": ".github/workflows/dependency-security.yml",
+      "line": 43,
       "reference": "node-version: '24'"
     },
     {
@@ -2187,6 +2197,16 @@
       "file": ".github/workflows/docs-checks.yml",
       "line": 93,
       "reference": "- run: python -m pip install -r requirements-docs.txt"
+    },
+    {
+      "file": ".github/workflows/installer-vm-acceptance.yml",
+      "line": 43,
+      "reference": "python-version: '3.13'"
+    },
+    {
+      "file": ".github/workflows/installer-vm-acceptance.yml",
+      "line": 46,
+      "reference": "python -m pip install PyYAML==6.0.2"
     },
     {
       "file": ".github/workflows/license-audit.yml",
@@ -2240,12 +2260,12 @@
     },
     {
       "file": ".github/workflows/pages-redirect.yml",
-      "line": 39,
+      "line": 34,
       "reference": "python-version: '3.12'"
     },
     {
       "file": ".github/workflows/pages-redirect.yml",
-      "line": 43,
+      "line": 38,
       "reference": "run: python -m pip install -r requirements-docs.txt"
     },
     {
@@ -2275,7 +2295,7 @@
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 95,
+      "line": 96,
       "reference": "python3 -m pip install -r dashboard/apps/api/requirements.txt pyyaml"
     },
     {
@@ -2456,7 +2476,7 @@
     {
       "file": "magic-cluster/apps/dashboard/api-deployment.yaml",
       "line": 34,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-6a8ec01c3c5b78e6a0d57cd0c9edb7584cb9596c@sha256:bbdc69057ca4aaa44ead08db100999c7140372c057196d11768d8498f8d92471"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-d342c4a33c1f17df6974769b72830ab8e1d2cbfd@sha256:4ae1f1e58e88b1e512f4c5fb999833677d1449bdd317e1b2fbe23b8da2f6c707"
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
@@ -2465,18 +2485,18 @@
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
-      "line": 6777,
+      "line": 6813,
       "reference": "raise ValueError(\"Realtime requires a Hugging Face repository: hf://organization/model\")"
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
-      "line": 6814,
+      "line": 6850,
       "reference": "if image:"
     },
     {
       "file": "magic-cluster/apps/dashboard/deployment.yaml",
       "line": 32,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-6a8ec01c3c5b78e6a0d57cd0c9edb7584cb9596c@sha256:fd2d2dd8dfd4cf4b946767963be3116492d7f51777fb567f6ed18e4a6c9edfce"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-d342c4a33c1f17df6974769b72830ab8e1d2cbfd@sha256:53d57b2f6daa5140e13d3f08e4d1d4d32effc51dd77bae87c413de508d58599e"
     },
     {
       "file": "magic-cluster/apps/instances/hermes/Chart.yaml",
@@ -3010,17 +3030,17 @@
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 2892,
+      "line": 2893,
       "reference": "raise ValueError(\"Realtime requires a Hugging Face repository: hf://organization/model\")"
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 2929,
+      "line": 2930,
       "reference": "if image:"
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 4106,
+      "line": 4154,
       "reference": "if not image:"
     },
     {

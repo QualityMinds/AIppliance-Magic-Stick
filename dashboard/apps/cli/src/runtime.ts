@@ -19,7 +19,6 @@ export interface RuntimeOptions {
   issuer?: string;
   clientId?: string;
   caFile?: string;
-  insecure?: boolean;
   accessToken?: string;
   oidcNetworkUrl?: string;
 }
@@ -90,8 +89,7 @@ export const createOidcNetworkFetch = (
 
 export const createRuntime = async (options: RuntimeOptions = {}): Promise<Runtime> => {
   const settings = defaults(options, await readConfig());
-  if (options.insecure) process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-  await configureTlsTrust(options.insecure ? undefined : settings.caFile);
+  await configureTlsTrust(settings.caFile);
   const environmentToken = options.accessToken ?? process.env.MAGICSTICK_ACCESS_TOKEN;
   const oidcNetworkUrl = (options.oidcNetworkUrl ?? process.env.MAGICSTICK_OIDC_NETWORK_URL)?.replace(/\/$/, '');
   const oidcFetch = createOidcNetworkFetch(settings.issuer, oidcNetworkUrl);

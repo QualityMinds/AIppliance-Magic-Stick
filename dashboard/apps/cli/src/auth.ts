@@ -138,7 +138,7 @@ export const certificateHint = (error: unknown) => {
     return `${value.message ?? ''} ${value.code ?? ''}`;
   }).join(' ');
   if (/certificate|self[- ]signed|unable to verify|UNABLE_TO_VERIFY_LEAF_SIGNATURE|CERT_/i.test(details)) {
-    return `${message}\nThe appliance CA is not trusted by Node.js. Trust it in the operating system, use --ca-file /path/to/magicstick-oidc-ca.crt, set MAGICSTICK_CA_FILE, or set NODE_EXTRA_CA_CERTS. For a disposable test system only, --insecure bypasses verification.`;
+    return `${message}\nThe appliance CA is not trusted by Node.js. Trust it in the operating system, use --ca-file /path/to/magicstick-oidc-ca.crt, set MAGICSTICK_CA_FILE, or set NODE_EXTRA_CA_CERTS.`;
   }
   return message;
 };

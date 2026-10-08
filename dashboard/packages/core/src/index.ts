@@ -131,7 +131,13 @@ const httpUrl = (value?: unknown) => {
 const hostOf = (value?: unknown) => {
   const url = httpUrl(value);
   if (!url) return '';
-  try { return new URL(url).host; } catch { return String(value ?? '').replace(/^https?:\/\//i, '').replace(/\/.*$/, ''); }
+  try { return new URL(url).host; } catch {
+    const raw = String(value ?? '');
+    const schemeLength = raw.toLowerCase().startsWith('https://') ? 8 : raw.toLowerCase().startsWith('http://') ? 7 : 0;
+    const authority = raw.slice(schemeLength);
+    const pathStart = authority.indexOf('/');
+    return pathStart < 0 ? authority : authority.slice(0, pathStart);
+  }
 };
 
 const hostnameOf = (value?: unknown) => {
@@ -265,5 +271,10 @@ export const selectedArtifact = (variant?: ModelVariant, id?: string): ModelArti
 
 export const safeModelName = (reference: string) => {
   const tail = reference.replace(/^[a-z]+:\/\//i, '').split('/').pop() ?? 'model';
-  return tail.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) || 'model';
+  const normalized = tail.toLowerCase().replace(/[^a-z0-9-]+/g, '-');
+  let start = 0;
+  let end = normalized.length;
+  while (start < end && normalized[start] === '-') start += 1;
+  while (end > start && normalized[end - 1] === '-') end -= 1;
+  return normalized.slice(start, Math.min(end, start + 48)) || 'model';
 };

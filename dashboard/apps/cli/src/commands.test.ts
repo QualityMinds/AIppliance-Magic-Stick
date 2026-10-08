@@ -179,14 +179,12 @@ describe('runCli', () => {
     expect(createRuntime).toHaveBeenCalledWith(expect.objectContaining({caFile: '/tmp/magicstick-ca.crt'}));
   });
 
-  it('requires an explicit warning when TLS verification is disabled', async () => {
+  it('rejects the legacy TLS-verification bypass before constructing a runtime', async () => {
     const output = io();
-    const modules = vi.fn(async () => ({modules: {}}));
-    const createRuntime = vi.fn(async () => runtime({modules} as Partial<MagicStickApi>));
+    const createRuntime = vi.fn();
 
-    await runCli(['--insecure', 'service', 'list'], output.supplied, {createRuntime});
+    await expect(runCli(['--insecure', 'service', 'list'], output.supplied, {createRuntime})).rejects.toThrow('--insecure is no longer supported');
 
-    expect(output.stderr()).toContain('TLS certificate verification is disabled');
-    expect(createRuntime).toHaveBeenCalledWith(expect.objectContaining({insecure: true}));
+    expect(createRuntime).not.toHaveBeenCalled();
   });
 });

@@ -30,6 +30,7 @@ tmp
 **/venv
 **/playwright-report
 **/test-results
+**/.regression
 **/*.log
 private
 private/**

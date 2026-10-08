@@ -117,7 +117,7 @@ def amd_node():
     node = nvidia_node(name="amd-one")
     labels = node["metadata"]["labels"]
     for key in list(labels):
-        if key.startswith("nvidia.com/"):
+        if key.partition("/")[:2] == ("nvidia.com", "/"):
             labels.pop(key)
     node["status"]["capacity"].pop("nvidia.com/gpu")
     node["status"]["allocatable"].pop("nvidia.com/gpu")

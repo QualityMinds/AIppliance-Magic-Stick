@@ -1,0 +1,110 @@
+# Repository-owned grants, applied only while registering/refreshing the exact
+# disposable lab. CHANGEME is replaced by its independently verified UID.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: magicstick-regression
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: regression-observer
+  namespace: magicstick-regression
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: magicstick-regression-observer
+rules:
+  - apiGroups: [""]
+    resources: [namespaces, nodes, pods, events, services]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets]
+    verbs: [get, list, watch]
+  - apiGroups: [appliance.magicstick.dev]
+    resources: [appliances, moduleactivations, modelactivations, appinstances, hostoperations]
+    verbs: [get, list, watch]
+  - apiGroups: [kustomize.toolkit.fluxcd.io]
+    resources: [kustomizations]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: magicstick-regression-observer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: magicstick-regression-observer
+subjects:
+  - kind: ServiceAccount
+    name: regression-observer
+    namespace: magicstick-regression
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: regression-registration-observer
+  namespace: magicstick-regression
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [registered-lab]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: regression-registration-observer
+  namespace: magicstick-regression
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: regression-registration-observer
+subjects:
+  - kind: ServiceAccount
+    name: regression-observer
+    namespace: magicstick-regression
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: regression-locker
+  namespace: magicstick-regression
+automountServiceAccountToken: false
+---
+apiVersion: coordination.k8s.io/v1
+kind: Lease
+metadata:
+  name: lab-lock
+  namespace: magicstick-regression
+  labels:
+    regression.magicstick.dev/appliance-uid: CHANGEME
+spec: {}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: regression-locker
+  namespace: magicstick-regression
+rules:
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    resourceNames: [lab-lock]
+    verbs: [get, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: regression-locker
+  namespace: magicstick-regression
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: regression-locker
+subjects:
+  - kind: ServiceAccount
+    name: regression-locker
+    namespace: magicstick-regression

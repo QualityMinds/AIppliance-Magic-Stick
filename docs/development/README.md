@@ -5,6 +5,9 @@ Start with [development environment](environment.md) and the repository's
 
 - [Checkout and bootstrap checks](checkout.md)
 - [Build and test](testing.md)
+- [Installed-appliance regression test concept](regression-test-concept.md) and
+  [incremental test case catalog](regression-test-catalog.md), with the
+  [short regression runner guide](regression-remaining-p0.md)
 - [Extend Magic Stick](extensions.md)
 - [Dashboard development](dashboard.md)
 - [Model catalog integration](model-integration.md)
@@ -12,6 +15,7 @@ Start with [development environment](environment.md) and the repository's
 - [Release channels and automation](releases.md), [image promotion](image-promotion.md)
   and [release checklist](release-checklist.md)
 - [Reusable reduced installer images](installer-images.md)
+- [USB installer VM acceptance](installer-vm-acceptance.md)
 - [License audit](license-audit.md) and [issuer/trust tooling](license-issuer.md)
 - [Documentation maintenance](documentation.md) and [marketing website](website.md)
 - [Integration reports](reports/README.md)

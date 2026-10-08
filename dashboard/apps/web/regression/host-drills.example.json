@@ -1,0 +1,21 @@
+{
+  "version":1,
+  "cases":{
+    "BOOT-02":{
+      "caseId":"BOOT-02",
+      "acknowledgeDisruption":false,
+      "independentRecoveryAvailable":false,
+      "request":{
+        "action":"reboot",
+        "nodeName":"CHANGEME",
+        "nodeUid":"CHANGEME",
+        "bootId":"CHANGEME",
+        "confirmation":"CHANGEME",
+        "acknowledgeDisruption":true,
+        "allowExperimental":false,
+        "experimentMode":false
+      },
+      "expected":{"bootChanges":1,"kernel":"CHANGEME","terminal":"Succeeded"}
+    }
+  }
+}

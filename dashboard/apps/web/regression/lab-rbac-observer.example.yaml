@@ -1,0 +1,44 @@
+# Phase 0 observer only. Apply to a dedicated test appliance with its owner.
+# No workload or Secret writes; no lock or mutation credential is provisioned.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: magicstick-regression
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: regression-observer
+  namespace: magicstick-regression
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: magicstick-regression-observer
+rules:
+  - apiGroups: [""]
+    resources: [namespaces, nodes, pods]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets]
+    verbs: [get, list, watch]
+  - apiGroups: [appliance.magicstick.dev]
+    resources: [appliances]
+    verbs: [get, list, watch]
+  - apiGroups: [kustomize.toolkit.fluxcd.io]
+    resources: [kustomizations]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: magicstick-regression-observer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: magicstick-regression-observer
+subjects:
+  - kind: ServiceAccount
+    name: regression-observer
+    namespace: magicstick-regression
