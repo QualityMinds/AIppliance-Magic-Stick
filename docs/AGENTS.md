@@ -14,6 +14,10 @@ README and public product collateral.
   copying full procedures between them.
 - Update English and German marketing pages together when claims, sections or
   links change. Keep actual UI labels and commands in their original form.
+- The imprint (`imprint.html`/`impressum.html`) and privacy policy
+  (`privacy.html`/`datenschutz.html`) are one text in two languages. Change both
+  files of a pair in the same commit with the same footer date; the website tests
+  fail when structure, anchors, links, numbers or dates differ.
 - Preserve legal meaning from root license/legal sources. Distinguish shipped
   functions, experimental paths, roadmap ideas and dated acceptance evidence.
 - Keep compatibility redirects/anchors through `migration.json`. Update canonical
@@ -36,7 +40,8 @@ README and public product collateral.
 - The only remote script is the cookie-free Umami tag that the build adds from
   `mkdocs.yml`. Do not add further tracking, fonts, rendering services or client
   frameworks merely to publish documentation. Preserve readable content without
-  JavaScript. Keep `docs/privacy.html` in step with the Umami configuration.
+  JavaScript. Keep `docs/privacy.html` and `docs/datenschutz.html` in step with
+  the Umami configuration.
 
 ## Checks and publication
 

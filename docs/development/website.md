@@ -11,7 +11,8 @@ dashboard is a separate application and is not changed by website updates.
 Follow [documentation maintenance](documentation.md) for the combined build, CI
 and the one-time switch of the Pages source to GitHub Actions. The Azure Static
 Web App that hosts the site is defined in
-[infrastructure/landingpage](../../infrastructure/landingpage/README.md).
+[infrastructure/landingpage](../../infrastructure/landingpage/README.md);
+GitHub Pages only redirects to it.
 
 ## Sources and structure
 
@@ -20,28 +21,43 @@ Web App that hosts the site is defined in
 | [index.html](../index.html) | English product homepage |
 | [de.html](../de.html) | Equivalent German homepage; handbook links are marked English |
 | [editions.html](../editions.html), [editionen.html](../editionen.html) | Licensing overview, eligibility and the actual request/activation workflow |
-| [site.css](../site.css) | Responsive dashboard-aligned navy/cyan/violet design, system fonts, visible focus and reduced motion |
-| [site.js](../site.js) | Mobile navigation and keyboard-accessible product tabs |
-| [assets/favicon.svg](../assets/favicon.svg) | Small self-contained site mark |
-| [legal-notice.html](../legal-notice.html), [privacy.html](../privacy.html) | Existing English legal content, unchanged by this redesign |
+| [site.css](../site.css) | Responsive navy/violet/cyan design from the October 2026 pitch mockup, system fonts for text, the local heading font, visible focus and reduced motion |
+| `assets/fonts/` ([bricolage-grotesque-qm-600-800.woff2](../assets/fonts/bricolage-grotesque-qm-600-800.woff2), [OFL.txt](../assets/fonts/OFL.txt)) | Bricolage Grotesque (variable, weights 600–800) for headings on the landing pages, the legal pages and the handbook, with its SIL Open Font License text; see [Heading font](#heading-font) |
+| [site.js](../site.js) | Mobile navigation and keyboard-accessible dashboard screenshot tabs |
+| `assets/brand/` ([logo.svg](../assets/brand/logo.svg), [brandmark.svg](../assets/brand/brandmark.svg), [core.svg](../assets/brand/core.svg)) | Magic Stick logo, brandmark and core symbol (SVG) from the pitch mockup |
+| `assets/artwork/` ([command-centre.jpg](../assets/artwork/command-centre.jpg) and two WebP backgrounds) | Hero illustration and two blurred section backgrounds; see [Artwork provenance](#artwork-provenance) |
+| [assets/favicon.svg](../assets/favicon.svg) | Picture mark: brandmark on a light rounded tile |
+| [imprint.html](../imprint.html), [impressum.html](../impressum.html) | Imprint in English and German (Impressum), one text in two languages; see [Legal pages](#legal-pages) |
+| [privacy.html](../privacy.html), [datenschutz.html](../datenschutz.html) | Privacy policy in English and German (Datenschutzerklärung), one text in two languages; see [Legal pages](#legal-pages) |
 
-The homepage moves from the product definition through a three-step workflow,
-a two-path architecture infographic, dashboard examples, use cases, hardware
-compatibility and day-to-day operations to installation, a short license summary
-and FAQ. The workflow is an ordinary ordered HTML list styled as a diagram; the
-architecture infographic is semantic HTML and CSS, not a remote renderer or bitmap.
-It distinguishes model setup through the Magic Stick Operator from requests routed
-through LiteLLM, shows their shared local runtimes and identifies the platform
-components without treating Ubuntu/K3s as mandatory for existing clusters. The
-main starting point is the USB guide for a new dedicated physical server; VM, existing Ubuntu and
-existing Kubernetes routes remain directly available.
+The homepage follows the October 2026 pitch mockup. It moves from a full-width
+hero illustration through the product section (intro, dashboard screenshot
+switcher, application catalog cards), a "where would you like to start" choice
+for individuals and teams, the four deployment environments with a GPU note, a
+three-step first-use section, a team-pilot section with the licensing note, the
+FAQ and a closing call to action. Readers without Kubernetes experience are the
+audience: technical components (Kubernetes, Flux, Magic Stick Operator, LiteLLM,
+KubeAI, engines, Keycloak/Envoy) are named in the FAQ and linked to the
+architecture and compatibility references instead of being drawn on the page.
+Every deployment environment links its installation guide; there are no
+"documentation pending" placeholders from the mockup. The mockup's Typekit fonts
+are not used; body text keeps the system font stack and only headings use the
+local heading font.
 
-Keep both languages in sync when changing claims, links or sections. Language
+The screenshot switcher is the progressively enhanced tab pattern: three
+`div` panels (not `figure`, which may not carry the `tabpanel` role) with
+reviewed captures are all readable without JavaScript, and `site.js` turns the
+toolbar buttons into a keyboard-accessible tablist. "Enlarge
+screenshot" is a plain link to the full image.
+
+Keep both languages in sync when changing claims, links or sections. English pages
+link the English legal pages, German pages the German ones. Language
 switches are ordinary links, with no geolocation, language auto-redirect, cookie or
 stored preference. Each page has a canonical URL, reciprocal English/German
 `hreflang` links, an English `x-default`, descriptive metadata and an existing
-screenshot as the social preview. Existing homepage fragment IDs remain available
-in both languages.
+hero illustration as the social preview. Homepage fragment IDs that other pages
+link (`#produkt`, `#requirements`, `#hardware`, `#starten`, `#teams`,
+`#lizenzen`, `#faq`) remain available in both languages.
 
 The source HTML links to canonical handbook Markdown. `tools/docs.py` converts
 these to `handbook/.../` links in the published artifact. Root repository files
@@ -49,6 +65,62 @@ such as LICENSE and SUPPORT.md use explicit public GitHub links; they are not
 handbook pages. New marketing HTML must be included in `MARKETING_PAGES` and
 excluded from MkDocs in `mkdocs.yml`. Do not collide with legacy redirect routes
 from `docs/migration.json` (in particular `licensing.html`).
+
+## Heading font
+
+Headings (`h1`–`h3`) use Bricolage Grotesque from
+`docs/assets/fonts/bricolage-grotesque-qm-600-800.woff2`, served from the site
+itself; no remote font service is involved. The file is a variable font
+(`wght` axis) subset by QualityMinds, and its SIL Open Font License 1.1 text
+ships next to it as `docs/assets/fonts/OFL.txt`. Each stylesheet declares the
+single `@font-face` with the weight range `600 800` and `font-display: swap`:
+[site.css](../site.css) and the inline styles of the legal pages reference
+`assets/fonts/` relative to the site root,
+[handbook.css](../stylesheets/handbook.css) references `../assets/fonts/`
+because MkDocs copies `docs/assets/` under `handbook/`. Body text, buttons and
+navigation stay on the system font stack.
+
+Heading rules follow the QualityMinds headline usage: weight 700, tight
+line-height (`.96` for `h1`/`h2` on the landing pages) and `-.015em` letter
+spacing. Weights outside 600–800 would be synthesized or fall back because
+`site.css` disables font synthesis, so keep heading weights inside that range.
+
+The committed file is a subset. Characters that it does not contain fall back
+to the next font in the stack glyph by glyph, which is visible in a heading.
+When replacing the file, check that it covers the characters that actual
+headings use (at least Latin-1 letters including German umlauts, typographic
+quotes and dashes) and keep the same file name or update all six references
+(`site.css`, `handbook.css` and the four legal pages). Record the font's source
+and license terms with the other collateral assets in
+[THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md).
+
+## Legal pages
+
+The imprint and the privacy policy each exist as one legal text in two
+languages: [imprint.html](../imprint.html) with
+[impressum.html](../impressum.html), and [privacy.html](../privacy.html) with
+[datenschutz.html](../datenschutz.html). Every landing page links the pair of its
+own language. The handbook is English only, so the footer override in
+`docs/overrides/partials/copyright.html` links the English pair ("Imprint" and
+"Privacy", as on the English landing page) from every handbook page; the EN/DE
+switch on those pages leads to the German versions. `docs/overrides/partials/search.html`
+is a copy of the Material search partial that only adds an accessible name to
+the search dialog; re-sync it when `mkdocs-material` is upgraded. The pages are self-contained HTML with
+inline styles, reciprocal `hreflang` links, an English `x-default` and an EN/DE
+switch; the German pages keep the English section IDs so that deep links such as
+`#provider` or `#opt-out` work in both languages.
+
+Always change both languages of a pair together, in the same commit, and set the
+same date in the `<time datetime="…">` element of both footers.
+`tests/test_website.py` (`test_legal_pages_stay_in_sync_across_languages`) fails
+when the two versions drift apart: it compares the element structure, section
+IDs, link targets (language-specific targets such as `de.html`/`index.html` are
+treated as equal), every number in the text (legal references, addresses,
+retention periods), the inline opt-out script and the update date. Translate
+legal references with the same numbers (`Article 6(1)(f) GDPR` ↔
+`Art. 6 Abs. 1 lit. f DSGVO`, `Section 5 DDG` ↔ `§ 5 DDG`) and keep paragraph
+boundaries equal. The check is structural; it does not replace a legal review of
+the translation.
 
 ## Visitor statistics
 
@@ -61,11 +133,31 @@ and an empty block builds the site without analytics. The build rejects a script
 URL that is not public HTTPS and a `website_id` that is not a UUID.
 
 The tag sets `data-do-not-track`, so browsers with Do Not Track enabled send
-nothing; Umami itself sets no cookies and stores nothing in the browser. `domains`
-restricts counting to the listed public hostnames so that pull-request preview
-deployments do not appear in the statistics. Change the block and the Umami
-description in [privacy.html](../privacy.html) together, including its
-"Last updated" date.
+nothing, and `data-exclude-search` and `data-exclude-hash`, so query strings and
+URL fragments are not recorded. Umami
+itself sets no cookies and stores no identifier in the browser. The opt-out
+button on [privacy.html](../privacy.html#opt-out) and
+[datenschutz.html](../datenschutz.html#opt-out) sets `umami.disabled` in the
+local storage of the current address, which the Umami script checks before
+sending. `domains` restricts counting to the listed public hostnames so that
+pull-request preview deployments do not appear in the statistics.
+
+The privacy policy names the hosting providers, the Azure regions of the Umami
+app and database in [infrastructure/landingpage](../../infrastructure/landingpage/README.md),
+the collected fields, the monthly session identifier and the retention periods.
+Umami has no retention setting of its own: the scheduled retention job in
+`umami.bicep` deletes visitor records after `retentionMonths`, the period the
+policy states. The Umami image is pinned by digest because the policy describes
+what that version collects; review the policy before upgrading it.
+Change those, the `extra.umami` block or the Umami tag attributes together with
+[privacy.html](../privacy.html) and [datenschutz.html](../datenschutz.html),
+including the update date in both footers (see [Legal pages](#legal-pages)).
+
+The privacy policy also describes the project's social media profiles
+(`#social-media`: Instagram, LinkedIn, YouTube). Adding, removing or moving a
+profile to another platform changes that section in both languages: provider
+address, transfer safeguards, the joint-controller agreement for profile
+statistics and the provider's privacy policy link.
 
 ## Product and license claims
 
@@ -90,23 +182,24 @@ The site overview does not change the license or replace legal review.
 
 ## Product screenshots
 
-The redesign reuses five unchanged, privacy-reviewed WebP captures from the
-owner-approved test appliance on 24 September 2026:
+The landing page reuses three unchanged, privacy-reviewed WebP captures from the
+owner-approved test appliance on 24 September 2026. The pitch mockup shipped a
+synthetic "Models" dashboard rendering; it is not used, because the website only
+shows actual, reviewed captures. The mockup's overview and application images are
+byte-identical to the reviewed captures below.
 
 | Image | Website placement |
 |---|---|
-| [model-ready.webp](../assets/screenshots/model-ready.webp) | Hero: model lifecycle actions |
-| [model-edit.webp](../assets/screenshots/model-edit.webp) | Models tab: unchanged edit form |
-| [models-memory.webp](../assets/screenshots/models-memory.webp) | Hardware tab: memory and slots |
-| [application-create.webp](../assets/screenshots/application-create.webp) | Apps & access tab: unsubmitted application draft |
-| [model-cache.webp](../assets/screenshots/model-cache.webp) | Operations: disk and cache visibility |
+| [dashboard-overview.webp](../assets/screenshots/dashboard-overview.webp) | Overview tab: summary cards |
+| [models-memory.webp](../assets/screenshots/models-memory.webp) | Models tab (default): memory and slots |
+| [application-create.webp](../assets/screenshots/application-create.webp) | Applications tab: unsubmitted application draft |
 
 The [capture manifest](../assets/screenshots/captures.json) is the provenance and
 integrity source. Captions identify the date and example nature of values; these
-are not sizing recommendations or benchmarks. The hero shows a clipped detail on
-narrow layouts and links to the full unchanged image. Other images scale to the
-layout and also retain full-size links. Dimensions are declared to reserve space.
-Only the hero image loads eagerly; secondary images load lazily.
+are not sizing recommendations or benchmarks. Images scale to the layout and keep
+full-size links. Dimensions are declared to reserve space. Only the hero artwork
+loads eagerly; screenshots load lazily. The remaining handbook captures stay under
+`assets/screenshots/` with their manifest.
 
 No new live-appliance access, workload changes, image generation or pixel
 retouching is needed to rebuild this site. For refreshes, follow the
@@ -116,12 +209,26 @@ test workloads, review final pixels for private data, and update the manifest.
 Do not expose personal model names, credentials, internal addresses or browser
 chrome.
 
-The unused historical dashboard fixture images were removed. Current handbook
-and landing-page captures remain under `assets/screenshots/` with their manifest.
-Sales decks, onepagers and infographic collateral now live under
+Sales decks, onepagers and infographic collateral live under
 [AIMS-000 in Team-Innovation](https://github.com/QualityMinds/Team-Innovation/tree/main/missions/AIMS-000-ai-launch-system/assets/product-collateral).
-They are no longer copied into the public Pages artifact. The import retains
-their source provenance and checksums; moving them does not refresh their claims.
+They are not copied into the public Pages artifact.
+
+## Artwork provenance
+
+The brand files under `assets/brand/` and the artwork under `assets/artwork/`
+were supplied with the Magic Stick pitch mockup (QualityMinds, October 2026).
+They are illustrations and brand assets, not product evidence.
+
+| File | Origin and handling |
+|---|---|
+| `brand/logo.svg`, `brand/brandmark.svg`, `brand/core.svg` | Illustrator exports from the mockup; editor IDs removed, `<title>` added. |
+| `favicon.svg` | Picture mark (`MagicStick_picture-mark.svg`) supplied by QualityMinds, October 2026; XML declaration and editor IDs removed, `<title>` added. |
+| `artwork/command-centre.jpg` | Hero background and social preview, 1670 × 942. Unchanged mockup file (Adobe Photoshop 27.10 export of 2 October 2026 with an Adobe Content Credentials/C2PA manifest, which a re-encode would strip). Decorative (`alt=""`). The screen in the scene shows third-party service marks (among them OpenAI and Kubernetes); review this before a wider campaign use and replace the file if brand clearance is not available. |
+| `artwork/side-workstation.webp`, `artwork/entrance.webp` | Blurred backgrounds of the first-use and closing sections, converted from the mockup PNGs (1672 × 941) with Pillow at WebP quality 78. Used as CSS backgrounds only. |
+
+The generation prompts of the artwork are not part of this repository; the
+mockup owner holds them. The previous generated artwork remains below for the
+record.
 
 ## Preview and checks
 
@@ -140,17 +247,21 @@ Open `http://127.0.0.1:8765/`. To preview only the unbuilt marketing layout, ser
 
 Before publishing:
 
-1. Check all four new pages at desktop, tablet and mobile widths, including 320px.
-   Check actual document width as well as visual layout; a deliberately clipped hero
-   image must not make the page scroll horizontally.
-2. Exercise every product tab by mouse and ArrowLeft/ArrowRight/Home/End. Confirm
+1. Check all four pages at desktop, tablet and mobile widths, including 320px.
+   Check actual document width as well as visual layout; the full-width hero
+   illustration must not make the page scroll horizontally.
+2. Exercise every screenshot tab by mouse and ArrowLeft/ArrowRight/Home/End. Confirm
    selected state, visible panel and focus agree. Check the mobile menu, link-close
    behavior and Escape-to-close with focus returned to its button.
 3. Check language switching, installation routes, licensing/contact, FAQ and
    full-size screenshots. Confirm the built page links into the handbook correctly.
-4. Disable JavaScript and reload: navigation and all three product panels must
+4. Disable JavaScript and reload: navigation and all three screenshot panels must
    remain readable; FAQ uses native details/summary. Restore browser settings.
 5. Check missing images, browser errors, visible focus and reduced-motion behavior.
+   Accessibility conventions: every EN/DE switch link keeps its visible text at the
+   start of its `aria-label` ("EN, English"), body links in the handbook stay
+   underlined, and an axe-core run (for example the axe DevTools extension) should
+   report no WCAG A/AA violations on the landing, legal and handbook pages.
 6. Run `git diff --check` and the public release scan below. A text scan does not
    replace screenshot privacy review.
 
@@ -164,13 +275,15 @@ markup, reviewed image dimensions, authoritative license links and build routing
 They do not prove visual fit or interaction behavior: those need a browser.
 
 Follow the [public release checklist](release-checklist.md). After a push, confirm
-that Pages succeeded for the exact commit and that published HTML/assets match it.
+that the Azure Static Web Apps deployment succeeded for the exact commit and that
+published HTML/assets match it. GitHub Pages only needs the manual redirect
+workflow when the website address or its set of pages changes.
 No dashboard/container rollout is required for a website-only change.
 
 ## Previous artwork provenance
 
-The original abstract artwork remains in the repository but is no longer shown on
-the website; the product screenshots now take its place.
+The original abstract artwork `ai-infrastructure.webp` remains in the repository
+but is no longer shown on the website.
 
 `ai-infrastructure.webp` was generated with the built-in image-generation tool on
 2026-09-09 and encoded as WebP (`cwebp -q 85`). Original dimensions: 1536 × 1024.

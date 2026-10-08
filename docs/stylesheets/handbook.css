@@ -1,3 +1,10 @@
+@font-face {
+  font-family: "Bricolage Grotesque";
+  font-style: normal;
+  font-weight: 600 800;
+  font-display: swap;
+  src: url("../assets/fonts/bricolage-grotesque-qm-600-800.woff2") format("woff2");
+}
 :root {
   --md-text-font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --md-code-font: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -14,7 +21,7 @@
   --md-typeset-a-color: #35cfe6;
 }
 .md-header { border-bottom: 1px solid #29405a; }
-.md-typeset h1, .md-typeset h2, .md-typeset h3 { font-weight: 650; }
+.md-typeset h1, .md-typeset h2, .md-typeset h3 { font-family: "Bricolage Grotesque", var(--md-text-font); font-weight: 700; letter-spacing: -.015em; }
 .md-typeset h1 { color: var(--md-default-fg-color); }
 .md-typeset table:not([class]) { display: block; max-width: 100%; overflow-x: auto; }
 .md-typeset a, .md-typeset code { overflow-wrap: anywhere; }
@@ -31,3 +38,5 @@
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
 }
+/* Body links are underlined so they do not rely on colour alone (WCAG 1.4.1). */
+.md-typeset a:not(.headerlink):not(.md-button) { text-decoration: underline; text-underline-offset: .2em; }

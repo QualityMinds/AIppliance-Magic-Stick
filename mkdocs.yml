@@ -1,6 +1,6 @@
 site_name: Magic Stick Documentation
 site_description: Install, use and administer your Magic Stick AI appliance.
-site_url: https://qualityminds.github.io/AIppliance-Magic-Stick/handbook/
+site_url: https://magic-stick.ai/handbook/
 repo_url: https://github.com/QualityMinds/AIppliance-Magic-Stick
 edit_uri: edit/main/docs/
 docs_dir: docs
@@ -8,6 +8,8 @@ site_dir: dist/docs-site/handbook
 strict: true
 theme:
   name: material
+  # Adds the Imprint and Privacy links to the footer of every page.
+  custom_dir: docs/overrides
   language: en
   font: false
   palette:
@@ -47,10 +49,10 @@ extra:
   # Cookie-free visitor statistics. tools/docs.py adds the Umami tag to every
   # built page (landing pages and handbook) only when both values are set; the
   # committed HTML sources and local previews stay free of remote scripts.
-  # Keep docs/privacy.html in step with this block.
+  # Keep docs/privacy.html and docs/datenschutz.html in step with this block.
   umami:
-    script: 'https://magic-stick-umami.orangepond-9673f9e6.germanywestcentral.azurecontainerapps.io/script.js'
-    website_id: 'c399ba2e-789e-4c08-ae54-86ab2f331aa7'
+    script: 'https://analytics.magic-stick.ai/script.js'
+    website_id: '97e24eee-709d-43f4-a86c-718abd4c0043'
     domains: []     # optional: only count visits on these public hostnames
 validation:
   nav:
@@ -60,12 +62,15 @@ validation:
     anchors: warn
 exclude_docs: |
   /AGENTS.md
+  /overrides/
   /index.html
   /de.html
   /editions.html
   /editionen.html
-  /legal-notice.html
+  /imprint.html
   /privacy.html
+  /impressum.html
+  /datenschutz.html
   /site.css
   /site.js
   /sales-deck/

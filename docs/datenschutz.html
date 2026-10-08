@@ -1,0 +1,600 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="index,follow" />
+  <meta name="description" content="Datenschutzerklärung der MagicStick-Projektwebsite und des Handbuchs: Hosting auf Azure, cookiefreie Besucherstatistik mit Umami, GitHub, Social-Media-Auftritte, Kontakt, Speicherdauer und Ihre Rechte." />
+  <meta name="theme-color" content="#050b16" />
+  <link rel="canonical" href="https://magic-stick.ai/datenschutz.html" />
+  <link rel="alternate" hreflang="en" href="https://magic-stick.ai/privacy.html" />
+  <link rel="alternate" hreflang="de" href="https://magic-stick.ai/datenschutz.html" />
+  <link rel="alternate" hreflang="x-default" href="https://magic-stick.ai/privacy.html" />
+  <title>Datenschutzerklärung - MagicStick</title>
+  <style>
+    @font-face {
+      font-family: "Bricolage Grotesque";
+      font-style: normal;
+      font-weight: 600 800;
+      font-display: swap;
+      src: url("assets/fonts/bricolage-grotesque-qm-600-800.woff2") format("woff2");
+    }
+
+    :root {
+      color-scheme: dark;
+      --bg: #050b16;
+      --surface: #091321;
+      --text: #eef3ff;
+      --muted: #aebdd4;
+      --line: #263a57;
+      --teal: #2ed2ed;
+      --max: 900px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+      line-height: 1.65;
+    }
+
+    a {
+      color: var(--teal);
+    }
+
+    :focus-visible {
+      outline: 3px solid #2ed2ed;
+      outline-offset: 5px;
+    }
+
+    .shell {
+      width: min(var(--max), calc(100% - 40px));
+      margin: 0 auto;
+      padding: 42px 0 56px;
+    }
+
+    .top-bar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px 20px;
+      margin-bottom: 28px;
+    }
+
+    .language-switch {
+      display: inline-flex;
+      gap: 4px;
+      font-size: 0.85rem;
+    }
+
+    .language-switch a {
+      padding: 6px 9px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      color: var(--muted);
+      text-decoration: none;
+    }
+
+    .language-switch a[aria-current="page"] {
+      border-color: var(--teal);
+      color: var(--text);
+    }
+
+    .language-switch a:hover,
+    .language-switch a:focus-visible {
+      color: var(--text);
+    }
+
+    .top-link {
+      display: inline-flex;
+      color: var(--muted);
+      text-decoration: none;
+    }
+
+    .top-link:hover,
+    .top-link:focus-visible {
+      color: var(--text);
+    }
+
+    h1 {
+      font-family: "Bricolage Grotesque", "Avenir Next", Avenir, "Segoe UI", sans-serif;
+      font-weight: 700;
+      margin: 0 0 12px;
+      font-size: clamp(1.9rem, 8vw, 2.5rem);
+      line-height: 1.1;
+      overflow-wrap: anywhere;
+      hyphens: auto;
+    }
+
+    h2 {
+      font-family: "Bricolage Grotesque", "Avenir Next", Avenir, "Segoe UI", sans-serif;
+      font-weight: 700;
+      margin: 34px 0 10px;
+      font-size: 1.25rem;
+    }
+
+    h3 {
+      margin: 24px 0 8px;
+      font-size: 1.04rem;
+    }
+
+    p,
+    li {
+      color: var(--muted);
+    }
+
+    p {
+      margin: 0 0 14px;
+    }
+
+    ul {
+      margin: 0 0 14px;
+      padding-left: 1.2rem;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      margin-top: 24px;
+      padding: 22px;
+      background: var(--surface);
+    }
+
+    .address {
+      color: var(--text);
+      font-style: normal;
+    }
+
+    footer {
+      border-top: 1px solid var(--line);
+      margin-top: 42px;
+      padding-top: 22px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    footer a {
+      color: var(--muted);
+      text-decoration: none;
+    }
+
+    footer a:hover,
+    footer a:focus-visible {
+      color: var(--text);
+    }
+
+    .opt-out button {
+      border: 1px solid var(--teal);
+      border-radius: 6px;
+      padding: 8px 16px;
+      background: transparent;
+      color: var(--text);
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .opt-out button:hover,
+    .opt-out button:focus-visible {
+      background: var(--line);
+    }
+
+    .opt-out [role="status"] {
+      margin-top: 10px;
+      color: var(--text);
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="top-bar">
+      <a class="top-link" href="de.html">Zurück zu MagicStick</a>
+      <span class="language-switch" aria-label="Sprache"><a href="privacy.html" lang="en" aria-label="EN, English" hreflang="en">EN</a><a href="datenschutz.html" lang="de" aria-label="DE, Deutsch" hreflang="de" aria-current="page">DE</a></span>
+    </div>
+    <h1>Datenschutzerklärung</h1>
+    <p>
+      Diese Datenschutzerklärung gilt für die MagicStick-Projektwebsite, bestehend
+      aus den Startseiten und dem Handbuch, gehostet auf Microsoft Azure Static
+      Web Apps, sowie für unsere Social-Media-Auftritte (Abschnitt 7).
+    </p>
+
+    <section class="card" aria-labelledby="controller">
+      <h2 id="controller">1. Verantwortlicher</h2>
+      <address class="address">
+        QualityMinds GmbH<br />
+        Business Tower Nürnberg<br />
+        Ostendstraße 100 // 16. Stock<br />
+        90482 Nürnberg<br />
+        Deutschland
+      </address>
+      <p>
+        Telefon: <a href="tel:+49911660732011">+49 911 6607320-11</a><br />
+        E-Mail: <a href="mailto:info@magic-stick.ai">info@magic-stick.ai</a>
+      </p>
+
+      <h3>Datenschutzbeauftragter</h3>
+      <p>
+        QualityMinds GmbH - Datenschutzbeauftragter<br />
+        Anschrift wie oben<br />
+        E-Mail: <a href="mailto:privacy@qualityminds.de">privacy@qualityminds.de</a>
+      </p>
+    </section>
+
+    <section class="card" aria-labelledby="legal-basis">
+      <h2 id="legal-basis">2. Allgemeine Hinweise zu den Rechtsgrundlagen der Datenverarbeitung auf dieser Website</h2>
+      <p>
+        Sofern Sie in die Datenverarbeitung eingewilligt haben, verarbeiten wir
+        Ihre personenbezogenen Daten auf Grundlage von Art. 6 Abs. 1 lit. a DSGVO
+        bzw. Art. 9 Abs. 2 lit. a DSGVO, sofern besondere Datenkategorien nach
+        Art. 9 Abs. 1 DSGVO verarbeitet werden. Im Falle einer ausdrücklichen
+        Einwilligung in die Übertragung personenbezogener Daten in Drittstaaten
+        erfolgt die Datenverarbeitung außerdem auf Grundlage von Art. 49 Abs. 1
+        lit. a DSGVO. Sofern Sie in die Speicherung von Cookies oder in den
+        Zugriff auf Informationen in Ihr Endgerät (z. B. via
+        Device-Fingerprinting) eingewilligt haben, erfolgt die Datenverarbeitung
+        zusätzlich auf Grundlage von § 25 Abs. 1 TDDDG. Die Einwilligung ist
+        jederzeit widerrufbar. Sind Ihre Daten zur Vertragserfüllung oder zur
+        Durchführung vorvertraglicher Maßnahmen erforderlich, verarbeiten wir
+        Ihre Daten auf Grundlage des Art. 6 Abs. 1 lit. b DSGVO. Des Weiteren
+        verarbeiten wir Ihre Daten, sofern diese zur Erfüllung einer rechtlichen
+        Verpflichtung erforderlich sind, auf Grundlage von Art. 6 Abs. 1 lit. c
+        DSGVO. Die Datenverarbeitung kann ferner auf Grundlage unseres
+        berechtigten Interesses nach Art. 6 Abs. 1 lit. f DSGVO erfolgen. Über
+        die jeweils im Einzelfall einschlägigen Rechtsgrundlagen wird in den
+        folgenden Absätzen dieser Datenschutzerklärung informiert.
+      </p>
+    </section>
+
+    <section class="card" aria-labelledby="site-processing">
+      <h2 id="site-processing">3. Datenverarbeitung beim Besuch dieser Website</h2>
+      <p>
+        Diese Website ist statisch. Wir setzen keine Cookies, nutzen keine
+        Werbewerkzeuge, laden keine externen Schriftarten und bieten kein
+        Kontaktformular an. Für die Besucherstatistik nutzen wir die selbst
+        gehostete Analysesoftware Umami, beschrieben in Abschnitt 5.
+      </p>
+      <p>
+        Beim Aufruf einer Seite verarbeitet der Hosting-Anbieter technisch
+        notwendige Daten, damit die Seite ausgeliefert werden kann: IP-Adresse,
+        Datum und Uhrzeit des Zugriffs, aufgerufene Datei, Referrer, Browser- und
+        Geräteinformationen (User Agent), übertragene Datenmenge und Statuscode.
+      </p>
+      <p>
+        Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO. Unser berechtigtes
+        Interesse ist die sichere, stabile und technisch zuverlässige
+        Bereitstellung dieser Website.
+      </p>
+    </section>
+
+    <section class="card" aria-labelledby="hosting">
+      <h2 id="hosting">4. Hosting</h2>
+      <h3 id="azure">Microsoft Azure</h3>
+      <p>
+        Die Website und der Umami-Statistikdienst (Abschnitt 5) laufen auf
+        Microsoft Azure, einem Dienst der Microsoft Ireland Operations Limited,
+        One Microsoft Place, South County Business Park, Leopardstown, Dublin 18,
+        D18 P521, Irland. Microsoft verarbeitet Daten in unserem Auftrag als
+        Auftragsverarbeiter nach Art. 28 DSGVO auf Grundlage des Microsoft
+        Products and Services Data Protection Addendum.
+      </p>
+      <p>
+        Unsere Azure-Ressourcen befinden sich in den EU-Regionen West Europe
+        (Niederlande) und Germany West Central (Frankfurt am Main). Azure Static
+        Web Apps liefert die statischen Seiten über das weltweite
+        Content-Delivery-Netzwerk von Microsoft aus, sodass Verbindungsdaten auch
+        an Standorten außerhalb der EU, einschließlich der Vereinigten Staaten,
+        verarbeitet werden können. Die Microsoft Corporation ist unter dem EU-U.S.
+        Data Privacy Framework zertifiziert, für das die Europäische Kommission
+        einen Angemessenheitsbeschluss erlassen hat (Art. 45 DSGVO); zusätzlich
+        verwendet Microsoft die EU-Standardvertragsklauseln (Art. 46 Abs. 2 lit. c
+        DSGVO). Weitere Informationen enthält die
+        <a href="https://www.microsoft.com/de-de/privacy/privacystatement">Datenschutzerklärung von Microsoft</a>.
+      </p>
+    </section>
+
+    <section class="card" aria-labelledby="analytics">
+      <h2 id="analytics">5. Besucherstatistik mit Umami</h2>
+      <p>
+        Wir nutzen Umami, eine quelloffene Webanalyse-Software, um zu erfahren,
+        welche Seiten dieser Website wie häufig genutzt werden. Wir betreiben die
+        Umami-Instanz selbst auf Microsoft Azure (Abschnitt 4): Die Anwendung
+        läuft in Germany West Central (Frankfurt am Main), ihre Datenbank in West
+        Europe (Niederlande). Die Daten werden nicht an einen Analyseanbieter
+        weitergegeben.
+      </p>
+      <p>
+        Beim Laden einer Seite sendet das Umami-Skript Folgendes an unsere
+        Umami-Instanz: die Seitenadresse ohne Query-String und Fragment, den
+        Seitentitel, die verweisende Seite, die Bildschirmgröße und die
+        Browsersprache. Die Verbindung selbst überträgt Ihre IP-Adresse und Ihren
+        User Agent. Daraus ermittelt Umami Browser, Betriebssystem und Gerätetyp
+        sowie Land, Region und Stadt mithilfe einer Geolokalisierungsdatenbank,
+        die auf unserer Instanz läuft. Die IP-Adresse selbst wird nicht
+        gespeichert.
+      </p>
+      <p>
+        Um Besuche desselben Geräts zu zählen, bildet Umami eine Sitzungskennung
+        als Hash aus IP-Adresse, User Agent, Website, aktuellem Kalendermonat und
+        einem geheimen Schlüssel. Die Kennung ändert sich jeden Monat und wird
+        nicht über Monate hinweg verknüpft. Die gespeicherten Datensätze sind
+        pseudonymisiert: Sie enthalten weder Ihren Namen noch Ihre IP-Adresse,
+        und wir führen sie nicht mit anderen Daten zusammen oder versuchen,
+        einzelne Besucher zu identifizieren.
+      </p>
+      <p>
+        Umami setzt keine Cookies und speichert keine Kennung in Ihrem Browser.
+      </p>
+      <p>
+        Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO. Unser berechtigtes
+        Interesse ist es zu messen, wie die Dokumentation und die Produktseiten
+        genutzt werden, um sie zu verbessern.
+      </p>
+
+      <h3 id="opt-out">Widerspruch gegen die Besucherstatistik</h3>
+      <p>
+        Sie können jederzeit widersprechen. Sendet Ihr Browser ein
+        "Do Not Track"-Signal, sendet das Skript nichts. Sie können die Statistik
+        für diesen Browser auch mit der Schaltfläche unten abschalten. Sie
+        speichert den Eintrag <code>umami.disabled</code> im Local Storage dieser
+        Website; der Eintrag enthält keine Kennung und wird nur auf Ihren Wunsch
+        gespeichert. Die Einstellung gilt je Browser und je Website-Adresse,
+        wiederholen Sie sie daher für jede Adresse, die Sie nutzen. Das Löschen
+        der Website-Daten in Ihrem Browser entfernt die Einstellung.
+      </p>
+      <div class="opt-out" data-opt-out hidden>
+        <button type="button" aria-describedby="opt-out-status"></button>
+        <p id="opt-out-status" role="status"></p>
+      </div>
+      <noscript>
+        <p>
+          Ohne JavaScript läuft das Umami-Skript nicht und es wird keine
+          Statistik erhoben.
+        </p>
+      </noscript>
+    </section>
+
+    <section class="card" aria-labelledby="repo-interactions">
+      <h2 id="repo-interactions">6. Nutzung der GitHub-Projektfunktionen</h2>
+      <p>
+        Wenn Sie über GitHub mit dem Projekt interagieren, etwa durch Issues,
+        Pull Requests, Discussions, Stars oder Forks, verarbeitet GitHub die
+        zugehörigen Daten nach den eigenen Bedingungen und Datenschutzhinweisen
+        von GitHub. Beiträge in öffentlichen Repositories können öffentlich
+        sichtbar sein.
+      </p>
+      <p>
+        Bitte veröffentlichen Sie keine Passwörter, Tokens, privaten
+        Cluster-Werte oder andere vertrauliche Informationen in Issues oder Pull
+        Requests.
+      </p>
+    </section>
+
+    <section class="card" aria-labelledby="social-media">
+      <h2 id="social-media">7. Social-Media-Auftritte</h2>
+      <p>
+        Wir betreiben Profile bei Instagram, LinkedIn und YouTube, um über das
+        Projekt zu informieren und mit Interessierten in Kontakt zu treten. Wenn
+        Sie eines dieser Profile aufrufen, verarbeitet der jeweilige Anbieter
+        Ihre Daten nach seinen eigenen Bedingungen und Datenschutzhinweisen, in
+        der Regel auch dann, wenn Sie dort kein Konto haben oder nicht
+        angemeldet sind. Dazu können Cookies und vergleichbare Techniken sowie
+        die Auswertung Ihrer Nutzung für Werbezwecke gehören, auf die wir keinen
+        Einfluss haben.
+      </p>
+      <p>
+        Wir selbst erhalten von den Anbietern nur zusammengefasste Statistiken
+        über die Nutzung unserer Profile, ohne Zugriff auf einzelne Nutzende.
+        Wenn Sie uns über ein Profil Nachrichten senden oder Beiträge
+        kommentieren, verarbeiten wir diese Inhalte, um Ihnen zu antworten; für
+        Anfragen gilt ergänzend Abschnitt 8. Rechtsgrundlage ist Art. 6 Abs. 1
+        lit. f DSGVO; unser berechtigtes Interesse ist die Öffentlichkeitsarbeit
+        für das Projekt und der Austausch mit Nutzenden und Interessierten.
+      </p>
+      <p>
+        Soweit der Anbieter uns Profilstatistiken bereitstellt, sind wir mit ihm
+        nach Art. 26 DSGVO gemeinsam Verantwortliche für diese Erhebung; die
+        jeweilige Vereinbarung ist unten verlinkt. Ihre Betroffenenrechte können
+        Sie sowohl gegenüber uns als auch gegenüber dem Anbieter geltend machen.
+        Da nur der Anbieter vollständigen Zugriff auf Ihre Daten hat, ist es
+        meist wirksamer, sich direkt an ihn zu wenden.
+      </p>
+
+      <h3 id="instagram">Instagram</h3>
+      <p>
+        Anbieter ist die Meta Platforms Ireland Limited, Merrion Road, Dublin 4,
+        D04 X2K5, Irland. Die Datenübertragung in die USA wird auf die
+        Standardvertragsklauseln der EU-Kommission gestützt (Art. 46 Abs. 2 lit. c
+        DSGVO); Details enthalten der
+        <a href="https://www.facebook.com/legal/EU_data_transfer_addendum">Meta-Zusatz zur EU-Datenübermittlung</a>
+        und die <a href="https://www.facebook.com/help/566994660333381">Meta-Hilfe zur Datenübermittlung</a>.
+        Die Meta Platforms, Inc. ist unter dem EU-U.S. Data Privacy Framework
+        zertifiziert, für das die Europäische Kommission einen
+        Angemessenheitsbeschluss erlassen hat (Art. 45 DSGVO); siehe den
+        <a href="https://www.dataprivacyframework.gov/participant/4452">DPF-Eintrag von Meta</a>.
+        Für die Statistiken unseres Profils gilt der
+        <a href="https://www.facebook.com/legal/terms/page_controller_addendum">Zusatz für Verantwortliche bezüglich Seiten-Insights</a>.
+        Details zum Umgang mit Ihren Daten enthält die
+        <a href="https://privacycenter.instagram.com/policy/">Datenschutzrichtlinie von Instagram</a>.
+      </p>
+
+      <h3 id="linkedin">LinkedIn</h3>
+      <p>
+        Anbieter ist die LinkedIn Ireland Unlimited Company, Wilton Plaza, Wilton
+        Place, Dublin 2, Irland. LinkedIn verwendet Werbecookies; Sie können
+        diese über die
+        <a href="https://www.linkedin.com/psettings/guest-controls/retargeting-opt-out">LinkedIn-Einstellungen für Gäste</a>
+        abschalten. Die Datenübertragung in die USA wird auf die
+        Standardvertragsklauseln der EU-Kommission gestützt (Art. 46 Abs. 2 lit. c
+        DSGVO); Details enthalten die
+        <a href="https://www.linkedin.com/legal/l/dpa">LinkedIn-Datenverarbeitungsvereinbarung</a>
+        und die <a href="https://www.linkedin.com/legal/l/eu-sccs">LinkedIn-EU-Standardvertragsklauseln</a>.
+        Die LinkedIn Corporation ist unter dem EU-U.S. Data Privacy Framework
+        zertifiziert (Art. 45 DSGVO); siehe den
+        <a href="https://www.dataprivacyframework.gov/participant/5448">DPF-Eintrag von LinkedIn</a>.
+        Für die Statistiken unseres Profils gilt das
+        <a href="https://legal.linkedin.com/pages-joint-controller-addendum">LinkedIn Pages Joint Controller Addendum</a>.
+        Details zum Umgang mit Ihren Daten enthält die
+        <a href="https://www.linkedin.com/legal/privacy-policy">Datenschutzrichtlinie von LinkedIn</a>.
+      </p>
+
+      <h3 id="youtube">YouTube</h3>
+      <p>
+        Anbieter ist die Google Ireland Limited, Gordon House, Barrow Street,
+        Dublin 4, Irland. Daten können auch auf Servern der Google LLC in den USA
+        verarbeitet werden. Die Google LLC ist unter dem EU-U.S. Data Privacy
+        Framework zertifiziert (Art. 45 DSGVO); siehe den
+        <a href="https://www.dataprivacyframework.gov/participant/5780">DPF-Eintrag von Google</a>.
+        Details zum Umgang mit Ihren Daten enthält die
+        <a href="https://policies.google.com/privacy">Datenschutzerklärung von Google</a>.
+      </p>
+    </section>
+
+    <section class="card" aria-labelledby="contact">
+      <h2 id="contact">8. Kontaktaufnahme per E-Mail oder Telefon</h2>
+      <p>
+        Diese Website bietet kein Kontaktformular. Wenn Sie uns per E-Mail oder
+        Telefon kontaktieren, etwa mit einer Frage zum Projekt, einer
+        Sicherheitsmeldung oder einer aus dem Dashboard heruntergeladenen
+        Lizenzanfrage, verarbeiten wir die von Ihnen übermittelten Daten (etwa
+        Name, E-Mail-Adresse, Telefonnummer, Organisation oder Kundenreferenz und
+        den Inhalt Ihrer Nachricht), um Ihr Anliegen zu bearbeiten und für
+        Rückfragen. Wir geben diese Daten ohne Ihre Einwilligung nicht weiter,
+        es sei denn, wir sind gesetzlich dazu verpflichtet.
+      </p>
+      <p>
+        Betrifft Ihre Anfrage eine Lizenz oder einen anderen Vertrag oder dessen
+        Anbahnung, ist Rechtsgrundlage Art. 6 Abs. 1 lit. b DSGVO. In allen
+        anderen Fällen ist Rechtsgrundlage Art. 6 Abs. 1 lit. f DSGVO; unser
+        berechtigtes Interesse ist die wirksame Bearbeitung der an uns
+        gerichteten Anfragen.
+      </p>
+      <p>
+        Wir bewahren diese Daten auf, bis Ihr Anliegen erledigt ist und keine
+        Rückfragen mehr zu erwarten sind, oder bis Sie uns um Löschung bitten.
+        Gesetzliche Aufbewahrungspflichten, etwa aus Handels- und Steuerrecht
+        für Lizenzverträge, bleiben unberührt.
+      </p>
+      <p>
+        Per Internet versandte E-Mails sind nicht vollständig vor dem Zugriff
+        Dritter geschützt. Senden Sie keine Passwörter, Tokens, privaten
+        Cluster-Werte oder andere vertrauliche Informationen per unverschlüsselter
+        E-Mail.
+      </p>
+    </section>
+
+    <section class="card" aria-labelledby="retention">
+      <h2 id="retention">9. Speicherdauer</h2>
+      <p>
+        Umami-Datensätze (Seitenaufrufe und die in Abschnitt 5 beschriebenen
+        pseudonymisierten Sitzungsdaten) werden 25 Monate nach der Erhebung
+        gelöscht, damit die Nutzung mit dem gleichen Zeitraum des Vorjahres
+        verglichen werden kann. Fehler- und Betriebsprotokolle des Umami-Dienstes
+        werden 30 Tage und Datenbanksicherungen 7 Tage aufbewahrt.
+      </p>
+      <p>
+        Hosting-Protokolldaten verarbeitet Microsoft nach eigenen Speicherfristen
+        und Löschverfahren. Darüber hinaus löschen wir personenbezogene Daten,
+        wenn der Zweck der Verarbeitung entfällt und keine gesetzlichen
+        Aufbewahrungspflichten eine weitere Speicherung verlangen.
+      </p>
+    </section>
+
+    <section class="card" aria-labelledby="rights">
+      <h2 id="rights">10. Ihre Rechte</h2>
+      <p>Nach Maßgabe der DSGVO stehen Ihnen folgende Rechte zu:</p>
+      <ul>
+        <li>Recht auf Auskunft, Art. 15 DSGVO</li>
+        <li>Recht auf Berichtigung, Art. 16 DSGVO</li>
+        <li>Recht auf Löschung, Art. 17 DSGVO</li>
+        <li>Recht auf Einschränkung der Verarbeitung, Art. 18 DSGVO</li>
+        <li>Recht auf Datenübertragbarkeit, Art. 20 DSGVO</li>
+        <li>Recht auf Beschwerde bei einer Datenschutzaufsichtsbehörde, Art. 77 DSGVO</li>
+      </ul>
+      <p>
+        Zur Ausübung Ihrer Rechte wenden Sie sich an
+        <a href="mailto:privacy@qualityminds.de">privacy@qualityminds.de</a>.
+        Die für uns zuständige Aufsichtsbehörde ist das Bayerische Landesamt für
+        Datenschutzaufsicht, Promenade 18, 91522 Ansbach, Deutschland,
+        <a href="https://www.lda.bayern.de/">www.lda.bayern.de</a>.
+      </p>
+
+      <h3 id="right-to-object">Widerspruchsrecht (Art. 21 DSGVO)</h3>
+      <p>
+        Alle in dieser Erklärung beschriebenen Verarbeitungen, die auf unseren
+        berechtigten Interessen beruhen (Art. 6 Abs. 1 lit. f DSGVO), unterliegen
+        Ihrem Widerspruchsrecht. Sie können aus Gründen, die sich aus Ihrer
+        besonderen Situation ergeben, jederzeit gegen die Verarbeitung Ihrer
+        personenbezogenen Daten auf dieser Grundlage Widerspruch einlegen. Im
+        Fall Ihres Widerspruchs verarbeiten wir die betroffenen Daten nicht mehr,
+        es sei denn, wir können zwingende schutzwürdige Gründe für die
+        Verarbeitung nachweisen, die Ihre Interessen, Rechte und Freiheiten
+        überwiegen, oder die Verarbeitung dient der Geltendmachung, Ausübung
+        oder Verteidigung von Rechtsansprüchen.
+      </p>
+      <p>
+        Der Besucherstatistik können Sie direkt in Ihrem Browser über die
+        Schaltfläche in <a href="#opt-out">Abschnitt 5</a> widersprechen. Für
+        alles Weitere senden Sie Ihren Widerspruch an
+        <a href="mailto:privacy@qualityminds.de">privacy@qualityminds.de</a>.
+        Wir nutzen Ihre Daten nicht für Direktwerbung.
+      </p>
+    </section>
+
+    <section class="card" aria-labelledby="security">
+      <h2 id="security">11. Sicherheit und externe Links</h2>
+      <p>
+        Diese Seite wird über HTTPS ausgeliefert. Externe Links führen zu
+        Diensten Dritter, etwa GitHub oder den in Abschnitt 7 genannten
+        Social-Media-Plattformen. Für diese Dienste gelten die
+        Datenschutzhinweise des jeweiligen Anbieters.
+      </p>
+    </section>
+
+    <footer>
+      <span>Stand: <time datetime="2026-10-06">6. Oktober 2026</time></span>
+      <a href="de.html">Startseite</a>
+      <a href="impressum.html">Impressum</a>
+      <a href="https://github.com/QualityMinds/AIppliance-Magic-Stick">GitHub</a>
+    </footer>
+  </main>
+  <script>
+    // Umami skips tracking while localStorage holds `umami.disabled`.
+    (() => {
+      const box = document.querySelector('[data-opt-out]');
+      let storage;
+      try {
+        storage = window.localStorage;
+        storage.getItem('umami.disabled');
+      } catch {
+        return;
+      }
+      const button = box.querySelector('button');
+      const status = box.querySelector('[role="status"]');
+      const render = () => {
+        const disabled = Boolean(storage.getItem('umami.disabled'));
+        button.textContent = disabled ? 'Besucherstatistik zulassen' : 'Besucherstatistik abschalten';
+        status.textContent = disabled
+          ? 'Die Besucherstatistik ist in diesem Browser für diese Website-Adresse abgeschaltet.'
+          : 'Die Besucherstatistik ist in diesem Browser aktiv.';
+      };
+      button.addEventListener('click', () => {
+        if (storage.getItem('umami.disabled')) storage.removeItem('umami.disabled');
+        else storage.setItem('umami.disabled', '1');
+        render();
+      });
+      render();
+      box.hidden = false;
+    })();
+  </script>
+</body>
+</html>

@@ -2179,23 +2179,23 @@
       "reference": "node-version: '24'"
     },
     {
-      "file": ".github/workflows/docs.yml",
-      "line": 63,
+      "file": ".github/workflows/docs-checks.yml",
+      "line": 66,
       "reference": "python-version: '3.12'"
     },
     {
-      "file": ".github/workflows/docs.yml",
-      "line": 67,
+      "file": ".github/workflows/docs-checks.yml",
+      "line": 70,
       "reference": "run: python -m pip install -r requirements-docs.txt"
     },
     {
-      "file": ".github/workflows/docs.yml",
-      "line": 116,
+      "file": ".github/workflows/docs-checks.yml",
+      "line": 92,
       "reference": "python-version: '3.12'"
     },
     {
-      "file": ".github/workflows/docs.yml",
-      "line": 117,
+      "file": ".github/workflows/docs-checks.yml",
+      "line": 93,
       "reference": "- run: python -m pip install -r requirements-docs.txt"
     },
     {
@@ -2257,6 +2257,16 @@
       "file": ".github/workflows/license-audit.yml",
       "line": 110,
       "reference": "repository: ${{ matrix.repository }}"
+    },
+    {
+      "file": ".github/workflows/pages-redirect.yml",
+      "line": 39,
+      "reference": "python-version: '3.12'"
+    },
+    {
+      "file": ".github/workflows/pages-redirect.yml",
+      "line": 43,
+      "reference": "run: python -m pip install -r requirements-docs.txt"
     },
     {
       "file": ".github/workflows/promote-freetoken-runtime.yml",

@@ -49,7 +49,7 @@ evidence. The strict license review below remains explicitly opt-in.
 - `CONTRIBUTING.md`, `SUPPORT.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`,
   `GOVERNANCE.md`, `MAINTAINERS.md`, `CHANGELOG.md`, `ROADMAP.md`, and
   `THIRD_PARTY_NOTICES.md` reflect the current public release posture.
-- `docs/index.html`, `docs/legal-notice.html`, and `docs/privacy.html` are
+- `docs/index.html`, `docs/imprint.html`, and `docs/privacy.html` are
   present when GitHub Pages is published from `docs/`.
 - CI release checks are present under `.github/workflows/`.
 - Runtime images and chart versions avoid mutable tags such as `latest` where practical.
