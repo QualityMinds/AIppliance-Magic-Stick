@@ -3,7 +3,7 @@ import {privateDirectory,readPrivate} from './private-files.ts';
 import {newRunId} from './journal.ts';
 import {reasons,stages,requireSafe} from './errors.ts';
 import {testLayers,environmentFor} from './evidence.ts';
-import {saveReport,summarize,type CaseResult} from './report.ts';
+import {saveReport,summarize,needsRecovery,type CaseResult,type RecoveryAttempt} from './report.ts';
 
 /** A crashed child is a harness failure, not permission to abandon the other
  * phases or silently report its missing scenarios as successful. */
@@ -26,13 +26,19 @@ export async function childEvidence(options:{output:string;receipt:string;mode:s
         ...(item.reason && Object.hasOwn(reasons,item.reason) ? {reason:item.reason} : {}),
         ...(item.stage && stages.includes(item.stage) ? {stage:item.stage} : {}),
         ...(item.executionId && /^[a-f0-9]{24}$/.test(item.executionId) ? {executionId:item.executionId} : {}),
+        ...(item.executionId&&typeof item.traceRunId==='string'&&/^reg-[0-9a-f-]{36}$/.test(item.traceRunId)?{traceRunId:item.traceRunId}:{}),
+        ...(item.recoveryRequired===true?{recoveryRequired:true}:{}),
         ...(item.executionId && /^[a-f0-9]{24}$/.test(item.executionId) &&
           ['Passed','Failed','Blocked'].includes(item.executionOutcome ?? '') ? {executionOutcome:item.executionOutcome} : {}),
         ...(typeof item.variant === 'string' ? {variant:item.variant} : {})};
     });
+    const recoveryAttempts:RecoveryAttempt[]=[];
+    for(const item of report.recoveryAttempts??[])if(item&&/^reg-[0-9a-f-]{36}$/.test(item.runId)&&['restored','blocked'].includes(item.state))
+      recoveryAttempts.push({runId:item.runId,state:item.state,...(item.reason&&Object.hasOwn(reasons,item.reason)?{reason:item.reason}:{})});
     return {result:{mode:options.mode,runId:result.runId as string,directory:result.directory as string,
       continuation:result.continuation as string|undefined},report:{cases,acceptable:report.acceptable,
-      counts:summarize(options.required,cases).counts},recoveryFence:false};
+      recoveryAttempts,counts:summarize(options.required,cases).counts},
+      recoveryFence:typeof report.recoveryFenceActive==='boolean'?report.recoveryFenceActive:needsRecovery(cases)};
   } catch {
     const runId=newRunId(),directory=join(options.output,runId);
     await privateDirectory(directory);
@@ -42,6 +48,6 @@ export async function childEvidence(options:{output:string;receipt:string;mode:s
       options.required,options.sourceRevision,options.mode);
     const report=JSON.parse(await readPrivate(join(directory,'summary.json')));
     return {result:{mode:options.mode,runId,directory,continuation:undefined},
-      report:{cases:report.cases as CaseResult[],acceptable:false,counts:report.counts},recoveryFence:!options.fixture};
+      report:{cases:report.cases as CaseResult[],acceptable:false,recoveryAttempts:[] as RecoveryAttempt[],counts:report.counts},recoveryFence:!options.fixture};
   }
 }

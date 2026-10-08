@@ -33,7 +33,7 @@ export type ReasonCode = keyof typeof reasons;
 export const blockedReasons: readonly ReasonCode[] = ['PREREQUISITE', 'DEPENDENCY', 'PRIVATE_FILE', 'TLS', 'IDENTITY', 'CAPABILITY',
   'HOST', 'BUSY', 'OBSERVER', 'LOCK_BUSY', 'LOCK_STALE', 'LOCK_LOST', 'LAB', 'RECOVERY', 'CANCELLED'];
 export const stages = ['preflight', 'host-boot', 'host-readiness', 'login-form', 'login-return', 'login-session',
-  'model-ready', 'model-stopped', 'model-failure', 'external-ready', 'external-stopped',
+  'model-estimate', 'model-create', 'model-ready', 'model-stopped', 'model-failure', 'external-ready', 'external-stopped',
   'cleanup', 'recovery-barrier', 'flux-ready', 'gpu-backend', 'gpu-binding', 'gpu-validation', 'gpu-slots', 'model-inference', 'model-update'] as const;
 export type Stage = typeof stages[number];
 

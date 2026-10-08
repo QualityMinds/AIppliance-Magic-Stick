@@ -39,7 +39,8 @@ Rebuild after changing runner code. Optional subset: `all --phases 2-4`.
 
 The lock is renewed independently of browser/model waits. Browser actions have
 short deadlines; cleanup has its own bounded window. After an interruption,
-the next `all` automatically inspects and restores provably owned resources and
+the campaign attempts one exact finished-child recovery before later live tests;
+the next `all` also inspects and restores provably owned resources and
 recorded module/sharing settings, then releases the expired lock. Keep the same
 private directory. A running owner, missing journal or foreign revision remains
 Blocked; the report gives the reason. Original failed results are never changed.
@@ -58,7 +59,12 @@ If automatic preparation fails, reports show the reason and setup stage from
 that attempt. Dependent live checks are Blocked; independent tests still run.
 
 Open `summary.html` under `.regression/private/runs/reg-…/`; the console prints
-the path. `all-summary.txt` gives the overview; JSON/JUnit support CI. Exit codes:
+the path. `all-summary.txt` gives the overview. `junit.xml` includes separate
+case/layer, scenario and step suites with outcomes, durations and filtered trace
+attachments. `report-artifacts.tar.gz` bundles the summaries, JUnit and those
+attachments for each full phase/campaign. Extract it before importing JUnit;
+trace links are relative. These are safe call traces, **not** native Playwright
+trace-viewer files. Exit codes:
 **0** passed, **1** failures, **2** blocked without failures. Never publish inputs
 or raw private journals.
 
@@ -70,6 +76,7 @@ intent, remaining Pods or generated route prevented completion.
 Owning UI-suite failures retain bounded `component-failure.json` diagnostics
 without raw assertion values, logs or secrets. Failed module/user postconditions
 still run UID- and revision-bound cleanup; ambiguous ownership remains Blocked.
+Share only the generated archive after review, never the whole private folder.
 
 ## CI
 

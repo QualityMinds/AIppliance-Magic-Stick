@@ -1,4 +1,4 @@
-import type {FullConfig, FullResult, Reporter, Suite, TestCase, TestResult} from '@playwright/test/reporter';
+import type {FullConfig, FullResult, Reporter, Suite, TestCase, TestResult,TestStep} from '@playwright/test/reporter';
 import {createHash} from 'node:crypto';
 import {join} from 'node:path';
 import {HarnessError, reasons, stages, blockedReasons, type ReasonCode, type Stage} from './core/errors.ts';
@@ -10,6 +10,7 @@ import {reportVariants, saveReport, type CaseResult} from './core/report.ts';
 import {environmentFor, fileLayer, testLayers, type Evidence} from './core/evidence.ts';
 import {caseDescription, durationDescription, layerDescriptions, publicScenarioTitle} from './core/case-descriptions.ts';
 import {disabledExperimentalEngines} from './core/engine-policy.ts';
+import {safeStepTitle,safeTraceSource,saveExecutionTrace,traceCategories,type ExecutionTrace,type TraceStep} from './core/execution-trace.ts';
 
 /** Playwright serializes Errors without our custom outcome property. Only a
  * fixed allowlisted marker can carry an explicit failure into safe reports. */
@@ -37,6 +38,17 @@ export default class SafeReporter implements Reporter {
   private total = 0;
   private started = 0;
   private positions = new Map<TestCase, number>();
+  private steps=new Map<TestCase,Map<TestStep,{index:number;finished:boolean}>>();
+  private omittedSteps=new Map<TestCase,number>();
+  private traces:ExecutionTrace[]=[];
+  onStepBegin(test:TestCase,_result:TestResult,step:TestStep) {
+    let items=this.steps.get(test);if(!items){items=new Map();this.steps.set(test,items);}
+    if(items.size<2000)items.set(step,{index:items.size+1,finished:false});
+    else this.omittedSteps.set(test,(this.omittedSteps.get(test)??0)+1);
+  }
+  onStepEnd(test:TestCase,_result:TestResult,step:TestStep) {
+    const item=this.steps.get(test)?.get(step);if(item)item.finished=true;
+  }
   onBegin(_config: FullConfig, suite: Suite) {
     this.total = suite.allTests().length;
     process.stdout.write(`Selected ${this.total} executable tests. Catalogue goals describe case families, not full acceptance.\n`);
@@ -82,6 +94,8 @@ export default class SafeReporter implements Reporter {
     const {ids, evidence} = this.mapping(test);
     const failures=result.errors.map(error=>harnessFailure(error.message));
     const failure=failures.find(value=>value?.outcome === 'Failed') ?? failures.find(Boolean);
+    // A primary assertion/timeout must not hide a secondary teardown fence.
+    const recoveryRequired=failures.some(value=>value&&['CLEANUP','OWNERSHIP','CONFLICT','LOCK_LOST','LOCK_STALE','RECOVERY'].includes(value.code));
     const code=failures.some(value=>!value) ? 'UNEXPECTED' : failure?.code;
     const outcome = result.status === 'passed' ? (result.retry > 0 ? 'Failed' : 'Passed') : result.status === 'skipped' ? 'Blocked' :
       failureOutcome(code,result.errors.map(error=>error.message));
@@ -99,11 +113,32 @@ export default class SafeReporter implements Reporter {
     }catch{this.unexpected=true;}
     const executionId=createHash('sha256').update(process.env.REGRESSION_RUN_ID ?? 'fixture')
       .update(String(test.id ?? test.title)).digest('hex').slice(0,24);
+    const runId=process.env.REGRESSION_RUN_ID,traceRunId=this.positions.has(test)?runId:undefined,
+      source=safeTraceSource(test.location),scenario=publicScenarioTitle(test.title,test.location.file);
+    const recorded=this.steps.get(test)??new Map<TestStep,{index:number;finished:boolean}>();
+    const steps:TraceStep[]=[...recorded].map(([step,entry])=>{
+      const at=safeTraceSource(step.location),category=traceCategories.includes(step.category as TraceStep['category'])?
+        step.category as TraceStep['category']:'test.step';
+      const error=harnessFailure(step.error?.message),parent=step.parent?recorded.get(step.parent)?.index:undefined;
+      return {index:entry.index,category,title:safeStepTitle(step.title,category,at),durationMs:Math.max(0,step.duration??0),
+        outcome:!entry.finished?'Blocked' as const:!step.error||outcome==='Passed'?'Passed' as const:
+          error?.outcome==='Blocked'?'Blocked' as const:'Failed' as const,
+        ...(parent?{parentIndex:parent}:{}),...(at?{source:at}:{}),
+        ...(step.error&&outcome==='Passed'?{handledError:true as const}:{}),
+        ...(error?{reason:error.code,...(error.stage?{stage:error.stage}:{})}:
+          step.error&&outcome!=='Passed'?{reason:'UNEXPECTED' as const}:{} )};
+    });
+    const omittedSteps=this.omittedSteps.get(test);
+    if(traceRunId)this.traces.push({version:1,runId:traceRunId,executionId,outcome,durationMs:Math.max(0,result.duration),steps,
+      ...(omittedSteps?{omittedSteps}:{}),...(source?{source}:{}),...(scenario?{scenario}:{}),
+      ...(recoveryRequired?{recoveryRequired:true}:{} )});
+    this.steps.delete(test);this.omittedSteps.delete(test);
     for (const item of evidence) {
       const step=progressed.get(key(item)),passed=step?.state === 'passed' && result.retry === 0;
       const dependent=stepAnnotations.length > 0 && !step;
       const itemOutcome=passed ? 'Passed' : dependent ? 'Blocked' : outcome;
       this.cases.push({id:item.id,outcome:itemOutcome,layer:item.layer,environment:environmentFor(item.layer),executionId,executionOutcome:outcome,
+        ...(traceRunId?{traceRunId}:{}),...(recoveryRequired?{recoveryRequired:true}:{}),
         durationMs:step?.durationMs ?? (dependent ? 0 : result.duration),
         ...(passed ? {} : dependent ? {reason:'DEPENDENCY' as const} : code ? {reason:code} : itemOutcome === 'Failed' ? {reason:'UNEXPECTED' as const} : {}),
         ...(item.variant ? {variant:item.variant as CaseResult['variant']} : {}),...(!passed && !dependent && stage ? {stage} : {})});
@@ -117,9 +152,10 @@ export default class SafeReporter implements Reporter {
   async onEnd(result: FullResult) {
     const directory = process.env.REGRESSION_RUN_DIR, runId = process.env.REGRESSION_RUN_ID;
     if (!directory || !runId) throw new HarnessError('CONFIG');
+    for(const trace of this.traces)await saveExecutionTrace(directory,trace);
     const modelCase = process.env.REGRESSION_MODEL_CASE as keyof typeof phase2ModelCases | undefined;
     if (modelCase && !Object.hasOwn(phase2ModelCases, modelCase)) throw new HarnessError('CONFIG');
-    const required = remainingIds(process.env.REGRESSION_MODE) ?? gpuModeIds(process.env.REGRESSION_MODE,process.env.REGRESSION_GPU_CASE || undefined) ?? (process.env.REGRESSION_MODE === 'selftest' ? Array.from({length: 11}, (_, index) => `HAR-${String(index + 1).padStart(2, '0')}`) :
+    const required = remainingIds(process.env.REGRESSION_MODE) ?? gpuModeIds(process.env.REGRESSION_MODE,process.env.REGRESSION_GPU_CASE || undefined) ?? (process.env.REGRESSION_MODE==='campaign-recover'?['HAR-07']:process.env.REGRESSION_MODE === 'selftest' ? Array.from({length: 11}, (_, index) => `HAR-${String(index + 1).padStart(2, '0')}`) :
       process.env.REGRESSION_MODE === 'phase2-fast' ? [...new Set(Object.values(phase2FastVariants).map(item => item.id))] :
       process.env.REGRESSION_MODE === 'phase2-fixtures' ? [...new Set(Object.values(phase2FixtureVariants).map(item => item.id))] :
       process.env.REGRESSION_MODE === 'phase2-readonly' ? ['DISC-03'] :

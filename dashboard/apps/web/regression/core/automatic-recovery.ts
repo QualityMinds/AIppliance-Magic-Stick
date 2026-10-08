@@ -14,6 +14,26 @@ import {poll} from './poll.ts';
 
 const runPattern=/^reg-[0-9a-f-]{36}$/;
 const drainMs=60_000;
+/** A campaign may recover only its exact, finished child. Wait for real expiry
+ * and the normal drain; never rewrite renewTime to force a takeover. */
+export async function campaignRecoveryLease(root:string,runId:string,targetUid:string,store:LeaseStore,
+  options:{timeoutMs?:number;intervalMs?:number;now?:()=>number}={}) {
+  requireSafe(runPattern.test(runId),'RECOVERY');
+  const session=JSON.parse(await readPrivate(join(root,runId,'runner-session.json'))) as RunnerSession;
+  requireSafe(session.version===1&&session.runId===runId&&session.targetUid===targetUid&&session.state==='finished','LOCK_BUSY');
+  const now=options.now??Date.now;
+  try {
+    return await poll(()=>store.read(),lease=>{
+      requireSafe(lease.metadata.labels['regression.magicstick.dev/appliance-uid']===targetUid&&
+        lease.metadata.annotations?.['regression.magicstick.dev/run-id']===runId,'RECOVERY');
+      return !lease.spec.holderIdentity||leaseHolderReason(lease,now())==='LOCK_STALE'&&
+        now()>=Date.parse(lease.spec.renewTime!)+lease.spec.leaseDurationSeconds!*1000+drainMs;
+    },{timeoutMs:options.timeoutMs??190_000,intervalMs:options.intervalMs??1000,stage:'recovery-barrier'});
+  }catch(error) {
+    if(error instanceof HarnessError&&error.code==='DEADLINE')throw new HarnessError('LOCK_STALE','Blocked','recovery-barrier');
+    throw error;
+  }
+}
 interface ModuleReceipt {filename:string;original:KubeObject;applied?:KubeObject}
 interface SharingReceipt {filename:string;identity:{runId:string;targetUid:string;nodeName:string;nodeUid:string}}
 export interface RecoveryAdapters {
@@ -42,7 +62,7 @@ export class AutomaticRecovery {
   }
   static async prepare(root:string,lease:Lease,registration:LabRegistration,now=Date.now()) {
     requireSafe(lease.metadata.labels['regression.magicstick.dev/appliance-uid']===registration.applianceUid,'LAB');
-    requireSafe(leaseHolderReason(lease,now)==='LOCK_STALE'&&
+    requireSafe(!lease.spec.holderIdentity||leaseHolderReason(lease,now)==='LOCK_STALE'&&
       now>=Date.parse(lease.spec.renewTime!)+lease.spec.leaseDurationSeconds!*1000+drainMs,'LOCK_STALE');
     const runId=lease.metadata.annotations?.['regression.magicstick.dev/run-id']??lease.spec.holderIdentity!;
     requireSafe(runPattern.test(runId),'RECOVERY');
@@ -70,7 +90,17 @@ export class AutomaticRecovery {
       const journal=await ResourceJournal.resume(join(path,'journal.json'),registration.applianceUid);journals.push(journal);
       for(const name of await readdir(path)) {
         const filename=join(path,name);
-        if(name==='borrowed-module.json') {
+        if(name.endsWith('.journal.json')) {
+          // Phase-2 CPU workflows keep one ownership journal per model. Read
+          // only files inside this exact lease-referenced private run; the
+          // filename owner, document owner, target, prefix and live UID must
+          // all agree. Unknown/malformed journals are a gate, never ignored.
+          const match=/^(?:ollama|vllm|unsupported|sanitized|risk-reject|risk-accept|external|provider)-(reg-[0-9a-f-]{36})\.journal\.json$/.exec(name);
+          requireSafe(match&&journals.length<128,'RECOVERY');
+          const auxiliary=await ResourceJournal.resume(filename,registration.applianceUid);
+          requireSafe(auxiliary.runId===match[1]&&!journals.some(item=>item.runId===auxiliary.runId),'RECOVERY');
+          journals.push(auxiliary);
+        } else if(name==='borrowed-module.json') {
           const value=JSON.parse(await readPrivate(filename));
           requireSafe(value.version===1&&value.original?.metadata?.namespace==='ai-system'&&
             value.original.spec?.enabled===false&&typeof value.original.spec?.module==='string'&&
@@ -98,11 +128,31 @@ export class AutomaticRecovery {
     }
     requireSafe(journals.some(journal=>journal.runId===lease.spec.holderIdentity)||recoveryOwner===lease.spec.holderIdentity||
       lease.metadata.annotations?.['regression.magicstick.dev/recovering']==='true'&&
-      journals.some(journal=>journal.runId===lease.metadata.annotations?.['regression.magicstick.dev/recovery-original-owner']),'RECOVERY');
+      journals.some(journal=>journal.runId===lease.metadata.annotations?.['regression.magicstick.dev/recovery-original-owner'])||
+      !lease.spec.holderIdentity&&journals.some(journal=>journal.runId===runId),'RECOVERY');
+    if(!lease.spec.holderIdentity)requireSafe(journals.every(journal=>journal.recoveryPlan().length===0)&&
+      modules.length===0&&sharing.length===0,'RECOVERY');
     return new AutomaticRecovery(runId,directory,lease,registration,journals,modules,sharing);
   }
   async execute(adapters:RecoveryAdapters) {
     await adapters.verifyTarget();
+    if(!this.expected.spec.holderIdentity) {
+      // Teardown may have failed once, then succeeded in afterAll. A free Lease
+      // is not enough: exact durable journals and independent absence must agree.
+      const free=async()=>{
+        const current=await adapters.store.read();
+        requireSafe(current.metadata.uid===this.expected.metadata.uid&&current.metadata.resourceVersion===this.expected.metadata.resourceVersion&&
+          !current.spec.holderIdentity,'LOCK_BUSY');
+      };
+      await bounded(async()=>{
+        await free();
+        for(const journal of this.journals)for(const entry of journal.entries)if(entry.uid!==null) {
+          await free();requireSafe(await adapters.cleanup(journal,free)[entry.kind].verifyRemoved(entry),'CLEANUP');
+        }
+        await adapters.verifyTarget();await free();
+      },600_000,'cleanup',()=>adapters.cancel());
+      return this.runId;
+    }
     const owner=newRunId(),lease=new LabLease(adapters.store,owner,this.registration.applianceUid,Date.now,120);
     const readonly=async()=>{};
     // Validate every owned/borrowed object before claiming recovery or deleting

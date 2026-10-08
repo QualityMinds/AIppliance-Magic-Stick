@@ -313,3 +313,29 @@ test('HAR-10 valid blocked child evidence is retained and a later independent ch
     expect(forged.report.acceptable).toBe(false);expect(forged.report.cases[0]?.outcome).toBe('Failed');
   }finally{await rm(output,{recursive:true,force:true});}
 });
+
+test('HAR-07 HAR-10 proven campaign restoration clears only the live fence while retaining failed history',async()=>{
+  const output=await mkdtemp(join(tmpdir(),'magicstick-campaign-restored-'));
+  try {
+    const runId=newRunId(),previous=newRunId(),directory=join(output,runId),receipt=join(output,'phase-result.json');
+    const rows:CaseResult[]=[{id:'HAR-07',layer:'A',environment:'live',durationMs:1,outcome:'Failed',reason:'CLEANUP',recoveryRequired:true}];
+    await saveReport(directory,runId,rows,['HAR-07'],'unknown','all',undefined,
+      {recoveryFenceActive:false,recoveryAttempts:[{runId:previous,state:'restored'}]});
+    await writePrivate(receipt,{version:1,mode:'all',runId,directory,exitCode:1});
+    const value=await childEvidence({output,receipt,mode:'all',required:['HAR-07'],fixture:false});
+    expect(value.recoveryFence).toBe(false);expect(value.report.acceptable).toBe(false);
+    expect(value.report.cases[0]).toMatchObject({outcome:'Failed',reason:'CLEANUP',recoveryRequired:true});
+    expect(value.report.recoveryAttempts).toEqual([{runId:previous,state:'restored'}]);
+    expect(await readFile(join(directory,'summary.txt'),'utf8')).toContain('Live restoration fence: clear');
+    expect(await readFile(join(directory,'summary.html'),'utf8')).toContain('Historical failed outcomes are retained');
+  }finally{await rm(output,{recursive:true,force:true});}
+});
+
+test('HAR-07 HAR-10 an active restoration fence prevents accepting otherwise passed evidence',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'magicstick-active-fence-'));
+  try {
+    const value=await saveReport(directory,newRunId(),[{id:'HAR-07',layer:'U',durationMs:1,outcome:'Passed',recoveryRequired:true}],
+      ['HAR-07'],'unknown','selftest');
+    expect(value.recoveryFenceActive).toBe(true);expect(value.acceptable).toBe(false);expect(value.counts.Passed).toBe(1);
+  }finally{await rm(directory,{recursive:true,force:true});}
+});

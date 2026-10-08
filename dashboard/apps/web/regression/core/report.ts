@@ -11,11 +11,19 @@ import {environmentFor, testLayers, type TestEnvironment, type TestLayer} from '
 import {caseDescription, durationDescription, layerDescriptions} from './case-descriptions.ts';
 import {disabledExperimentalEngines} from './engine-policy.ts';
 import {preparationDiagnostic, preparationDescription, parsePreparationDiagnostic, type PreparationDiagnostic} from './preparation-diagnostic.ts';
+import {collectReportArtifacts,archiveReport} from './report-artifacts.ts';
+import {junitReport} from './junit.ts';
 
 export type Outcome = 'Passed' | 'Failed' | 'Blocked' | 'Skipped' | 'Not run' | 'Flaky';
 export interface CaseResult {id: string; outcome: Outcome; layer: TestLayer; environment?: TestEnvironment; durationMs: number; reason?: ReasonCode;
   executionId?:string; executionOutcome?:'Passed'|'Failed'|'Blocked';
+  traceRunId?:string;recoveryRequired?:true;
   stage?: Stage; variant?: Phase0Variant | Phase1Variant | Phase2Variant | GpuVariant | `p${5|6|7|8}-${string}`}
+export interface RecoveryAttempt {runId:string;state:'restored'|'blocked';reason?:ReasonCode}
+export function needsRecovery(cases:CaseResult[]) {
+  return cases.some(item=>item.recoveryRequired===true||item.reason&&
+    ['CLEANUP','OWNERSHIP','CONFLICT','LOCK_LOST','LOCK_STALE','RECOVERY'].includes(item.reason));
+}
 
 export const reportVariants: Record<string, string> = {...phase0Variants, ...phase1Variants,
   ...Object.fromEntries(Object.entries({...phase2Variants,...phase3Variants,...phase4Variants,...remainingVariants}).map(([variant, definition]) => [variant, definition.id]))};
@@ -98,6 +106,7 @@ export function liveReportScope(mode?: string) {
   const phase=remainingPhase(mode);
   if(phase) return `Phase ${phase} P0 catalogue/layer matrix on the registered disposable lab; fixed lab policy permits owned resources and bounded host operations; missing real prerequisites are Blocked, not passes`;
   if(mode === 'all')return 'All implemented Phase 0–8 P0 scenarios on the registered disposable lab; independent tests continue, missing prerequisites are Blocked and unproved recovery fences later live writes';
+  if(mode === 'campaign-recover')return 'Automatic restoration of the exact finished campaign child after real lease expiry and drain; owned UID receipts only; no new workloads or rewritten test outcomes';
   if(mode === 'phase3-gpu' && process.env.REGRESSION_GPU_CASE === 'vllm-lifecycle')
     return 'Phase 3 diagnostic subset: AMD/NVIDIA vLLM inference, logs, browser Stop/Start and exact restoration; not complete installed Phase 3 acceptance';
   if(mode === 'phase3-gpu' && process.env.REGRESSION_GPU_CASE === 'nvidia-lifecycle')
@@ -126,7 +135,7 @@ export function liveReportScope(mode?: string) {
 
 /** Allowlisted output only. Never serialize a Playwright response, error or attachment. */
 export async function saveReport(directory: string, runId: string, cases: CaseResult[], required: string[], sourceRevision = 'unknown', mode = process.env.REGRESSION_MODE,
-  preparation?: PreparationDiagnostic) {
+  preparation?: PreparationDiagnostic,lifecycle?:{recoveryFenceActive:boolean;recoveryAttempts:RecoveryAttempt[]}) {
   requireSafe(/^reg-[0-9a-f-]{36}$/.test(runId), 'CONFIG');
   const prepared = preparation ? parsePreparationDiagnostic(preparation) : await preparationDiagnostic();
   const safe = completeCases(mode,cases,required).map(item => {
@@ -143,7 +152,15 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     const executionOutcome=executionId && ['Passed','Failed','Blocked'].includes(item.executionOutcome ?? '') ? item.executionOutcome : undefined;
     return {id: item.id, description: caseDescription(item.id), outcome: item.outcome, layer: item.layer, environment, durationMs: Math.max(0, Math.round(item.durationMs)),
       ...(reason ? {reason} : {}), ...(stage ? {stage} : {}), ...(variant ? {variant} : {}),...(executionId ? {executionId} : {}),
-      ...(executionOutcome ? {executionOutcome} : {})};
+      ...(executionOutcome ? {executionOutcome} : {}),
+      ...(executionId&&item.traceRunId&&/^reg-[0-9a-f-]{36}$/.test(item.traceRunId)?{traceRunId:item.traceRunId}:{}),
+      ...(item.recoveryRequired===true?{recoveryRequired:true as const}:{})};
+  });
+  const artifacts=await collectReportArtifacts(directory,runId,safe);
+  const recoveryFenceActive=lifecycle?.recoveryFenceActive??needsRecovery(safe);
+  const recoveryAttempts=(lifecycle?.recoveryAttempts??[]).map(item=>{
+    requireSafe(/^reg-[0-9a-f-]{36}$/.test(item.runId)&&['restored','blocked'].includes(item.state),'CONFIG');
+    return {runId:item.runId,state:item.state,...(item.reason&&Object.hasOwn(reasons,item.reason)?{reason:item.reason}:{})};
   });
   const executionCounts=summarizeExecutions(safe);
   const selectedSummary = summarize(required, safe);
@@ -153,7 +170,7 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
   const phase3Coverage = gpuCoverage(3,safe), phase4Coverage = gpuCoverage(4,safe);
   const laterPhase=remainingPhase(mode);
   const laterCoverage=laterPhase ? remainingCoverage(mode!,safe) : undefined;
-  const summary = {...selectedSummary, acceptable: selectedSummary.acceptable && executionCounts.Failed === 0 && executionCounts.Blocked === 0 &&
+  const summary = {...selectedSummary, acceptable: selectedSummary.acceptable && !recoveryFenceActive && executionCounts.Failed === 0 && executionCounts.Blocked === 0 &&
     (mode !== 'phase0' || coverage.complete) &&
     (mode !== 'phase1' || smokeCoverage.complete) && (mode !== 'phase2' || controlCoverage.complete) &&
     (mode !== 'phase3' || phase3Coverage.complete) && (mode !== 'phase4' || phase4Coverage.complete) &&
@@ -183,16 +200,8 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     ...(mode === 'phase1' ? {phase1Coverage: smokeCoverage} : {}),
     ...(mode === 'phase2' ? {phase2Coverage: controlCoverage} : {}),
     ...(mode === 'phase3' ? {phase3Coverage} : {}), ...(mode === 'phase4' ? {phase4Coverage} : {}),
-    ...summary,executionCounts,excludedEngineTests:disabledExperimentalEngines, cases: safe});
-  const entries = safe;
-  const suite = entries.map(item => {
-    const failed = item.outcome === 'Failed',blocked=item.outcome === 'Blocked';
-    const detail = 'reason' in item && item.reason ? reasons[item.reason] : item.outcome;
-    return `<testcase classname="${item.environment}.${item.layer}" name="${xml(item.id + ('variant' in item && item.variant ? '/' + item.variant : ''))}" time="${(item.durationMs / 1000).toFixed(3)}">` +
-      `<properties><property name="catalogueGoal" value="${xml(caseDescription(item.id))}"/></properties>` +
-      (failed ? `<failure type="Failed" message="${xml(detail)}"/>` : blocked ? `<skipped type="Blocked" message="${xml(detail)}"/>` : '') + '</testcase>';
-  }).join('\n');
-  await writePrivate(join(directory, 'junit.xml'), `<?xml version="1.0" encoding="UTF-8"?>\n<testsuite name="magicstick-selected-regression" tests="${entries.length}" failures="${entries.filter(item => item.outcome === 'Failed').length}" skipped="${entries.filter(item=>item.outcome === 'Blocked').length}">\n${suite}\n</testsuite>\n`);
+    ...summary,executionCounts,recoveryFenceActive,recoveryAttempts,excludedEngineTests:disabledExperimentalEngines, cases: safe});
+  await writePrivate(join(directory, 'junit.xml'),junitReport(safe,artifacts));
   await writePrivate(join(directory,'summary.html'),'<!doctype html><html lang="en"><meta charset="utf-8">'+
     '<title>Magic Stick regression results</title><style>body{font:16px system-ui;max-width:1100px;margin:2rem auto;padding:1rem}'+
     'table{border-collapse:collapse;width:100%}td,th{padding:.6rem;border-bottom:1px solid #ddd;text-align:left}'+
@@ -201,10 +210,20 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     `<p>Excluded experimental engine tests: ${xml(disabledExperimentalEngines.join(', '))}. Product engines are unchanged.</p>`+
     `<p>Recorded executable scenarios: ${executionCounts.Passed} passed · ${executionCounts.Failed} failed · ${executionCounts.Blocked} blocked. ${safe.filter(item=>!item.executionId).length} evidence rows have no executable scenario ID (missing or legacy evidence).</p>`+
     `<p>Evidence rows (case × variant × layer): ${summary.counts.Passed} passed · ${summary.counts.Failed} failed · ${summary.counts.Blocked} blocked.</p>`+
+    `<p>Live restoration fence: ${recoveryFenceActive?'active':'clear'}. Historical failed outcomes are retained.</p>`+
+    recoveryAttempts.map(item=>`<p>Automatic recovery ${item.runId}: ${item.state}${item.reason?` (${item.reason})`:''}.</p>`).join('')+
     '<table><tr><th>Case / variant</th><th>Layer</th><th>Result</th><th>Goal / reason</th></tr>'+
     safe.map(item=>`<tr><td>${xml(item.id+(item.variant ? '/'+item.variant : ''))}</td><td>${item.layer} / ${item.environment}</td>`+
       `<td class="${item.outcome}">${item.outcome}</td><td>${xml(item.description)}`+
-      (item.reason ? `<br>${xml(reasons[item.reason])}` : '')+(item.outcome === 'Blocked' ? `<br>Next: ${xml(blockedAction(item.reason))}` : '')+'</td></tr>').join('')+'</table></html>');
+      (item.reason ? `<br>${xml(reasons[item.reason])}` : '')+(item.outcome === 'Blocked' ? `<br>Next: ${xml(blockedAction(item.reason))}` : '')+'</td></tr>').join('')+'</table>'+
+    '<h2>Execution steps and diagnostics</h2><p>Filtered call traces omit credentials, selectors, URLs and raw responses.</p>'+
+    (mode==='all'||/^phase[0-8]$/.test(mode??'')?'<p><a href="report-artifacts.tar.gz">Download sanitized report archive</a></p>':'')+
+    artifacts.map(({trace,path,componentPath})=>`<details><summary>${xml(trace.scenario??trace.executionId)} — ${trace.outcome}</summary>`+
+      `<p><a href="${path}">Filtered trace JSON</a>${componentPath?` · <a href="${componentPath}">Component diagnostic</a>`:''}</p><ol>`+
+      trace.steps.map(step=>`<li class="${step.outcome}">${xml(step.title)} — ${step.outcome} · ${durationDescription(step.durationMs)}`+
+        (step.reason?` · ${step.reason}`:'')+(step.stage?` · ${step.stage}`:'')+
+        (step.source?` · ${xml(step.source.file)}:${step.source.line}`:'')+'</li>').join('')+'</ol>'+
+      (trace.omittedSteps?`<p>Trace limit reached: ${trace.omittedSteps} additional steps omitted; scenario outcome is retained.</p>`:'')+'</details>').join('')+'</html>');
   await writePrivate(join(directory, 'summary.txt'), `Magic Stick selected regression cases: ${summary.acceptable ? 'PASSED' : 'NOT ACCEPTED'}\n` +
     (prepared ? preparationDescription(prepared)+'\n' : '')+
     `Full Phase 0 P0 gate: ${mode === 'phase0' ? fullPhase0Accepted ? 'PASSED' : 'NOT ACCEPTED' : 'NOT ASSESSED'}\n` +
@@ -220,9 +239,12 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     `Recorded executable scenarios: ${executionCounts.Passed} passed; ${executionCounts.Failed} failed; ${executionCounts.Blocked} blocked.\n`+
     `Evidence rows without executable scenario ID (missing or legacy evidence): ${safe.filter(item=>!item.executionId).length}\n`+
     `Passed: ${summary.counts.Passed}; Failed: ${summary.counts.Failed}; Blocked: ${summary.counts.Blocked}\n` +
+    `Live restoration fence: ${recoveryFenceActive?'active':'clear'}. Historical failed outcomes are retained.\n`+
+    recoveryAttempts.map(item=>`Automatic recovery ${item.runId}: ${item.state}${item.reason?` (${item.reason})`:''}.\n`).join('')+
     safe.map(item => `${item.id}${item.variant ? ` / ${item.variant}` : ''} [${item.layer} — ${layerDescriptions[item.layer]}; ${item.environment}]: ${item.outcome} — ${durationDescription(item.durationMs)}${item.reason ? ` (${item.reason})` : ''}${item.stage ? ` [${item.stage}]` : ''}\n` +
       `  Catalogue goal: ${item.description}${item.reason ? `\n  Reason: ${reasons[item.reason]}` : ''}${item.outcome === 'Blocked' ? `\n  Next: ${blockedAction(item.reason)}` : ''}`).join('\n') + '\n');
-  return {...summary, executionCounts, fullPhase0Accepted, fullPhase1Accepted, fullPhase2Accepted,fullPhase3Accepted,fullPhase4Accepted,installedPhase4Accepted,
+  await archiveReport(directory,runId,artifacts,mode==='all'||/^phase[0-8]$/.test(mode??''));
+  return {...summary, executionCounts,recoveryFenceActive,recoveryAttempts, fullPhase0Accepted, fullPhase1Accepted, fullPhase2Accepted,fullPhase3Accepted,fullPhase4Accepted,installedPhase4Accepted,
     ...Object.fromEntries([5,6,7,8].map(phase=>[`fullPhase${phase}Accepted`,mode === `phase${phase}` && summary.acceptable && laterCoverage?.complete === true]))};
 }
 

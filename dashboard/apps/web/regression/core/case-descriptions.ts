@@ -42,8 +42,31 @@ export function staticScenarioTitles(source: string): ReadonlySet<string> {
   return titles;
 }
 
+/** Component and explicit step titles use the same literal-only policy. */
+export function staticDiagnosticTitles(source:string,kind:'component'|'step'):ReadonlySet<string> {
+  const titles=new Set<string>();
+  const pattern=kind==='component' ? /\b(?:it|test)\(\s*(?:'([^'\\\r\n]*)'|"([^"\\\r\n]*)"|`([^`\\\r\n]*)`)\s*,/g :
+    /\btest\.step\(\s*(?:'([^'\\\r\n]*)'|"([^"\\\r\n]*)"|`([^`\\\r\n]*)`)\s*,/g;
+  for(const match of source.matchAll(pattern)) {
+    const title=match[1]??match[2]??match[3]!;
+    if(title.length>0&&title.length<=500&&!title.includes('${')&&!/[\x00-\x1f\x7f-\x9f]/.test(title))titles.add(title);
+  }
+  return titles;
+}
+
 const sourceTitles = new Map<string, ReadonlySet<string>>();
+const diagnosticTitles=new Map<string,ReadonlySet<string>>();
 const regressionSource = realpathSync(fileURLToPath(new URL('..', import.meta.url)));
+export const webSource=realpathSync(fileURLToPath(new URL('../..',import.meta.url)));
+export function publicDiagnosticTitle(title:string,file:string,kind:'component'|'step') {
+  try {
+    const source=realpathSync(file);
+    if(!source.startsWith(webSource+sep)||!(kind==='component' ? /[/\\]src[/\\].*\.test\.tsx?$/ : /[/\\]regression[/\\].*\.(?:spec|cases)\.ts$/).test(source))return;
+    const key=kind+'/'+source;let titles=diagnosticTitles.get(key);
+    if(!titles){titles=staticDiagnosticTitles(readFileSync(source,'utf8'),kind);diagnosticTitles.set(key,titles);}
+    return titles.has(title)?title:undefined;
+  }catch{return;}
+}
 export function publicScenarioTitle(runtimeTitle: string, sourceFile: string): string | undefined {
   try {
     const file = realpathSync(sourceFile);
@@ -70,6 +93,7 @@ const modeDescriptions: Record<string, string> = {
   preflight: 'Verify HTTPS, login, appliance identity, deployed versions and idle state; read-only.',
   locktest: 'Verify exclusive lab locking, revision conflicts and current-generation polling.',
   foundations: 'Exercise safety faults, owned-resource cleanup and interrupted-run recovery.',
+  'campaign-recover': 'Restore the exact finished campaign child after expiry and drain; retain its original failure.',
   'smoke-fast': 'Check authentication, keys, model lifecycle, status and logs at their owning unit/contract layer.',
   'smoke-fixtures': 'Check navigation, sessions, keys, model forms and logs in an isolated browser.',
   'session-smoke': 'Check real sign-in, unauthenticated access and sign-out.',

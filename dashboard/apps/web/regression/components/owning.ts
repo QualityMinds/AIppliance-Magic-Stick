@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {writePrivate} from '../core/private-files.ts';
 import {HarnessError} from '../core/errors.ts';
+import {componentDiagnostic} from '../core/component-diagnostic.ts';
 
 /** Execute the owning Vitest suite without duplicating product behavior here. */
 export async function componentSuite(file: string, requiredTitles: string[]) {
@@ -16,15 +17,18 @@ export async function componentSuite(file: string, requiredTitles: string[]) {
     {timeout: 180_000, stdio: 'pipe', maxBuffer: 1024 * 1024,
       env: {...process.env, HOME: directory, XDG_CONFIG_HOME:directory, XDG_DATA_HOME:directory,
         REGRESSION_UNIT_CACHE_DIR: join(directory, 'cache')}});
-    let result:{success:boolean;testResults:Array<{assertionResults:Array<{fullName:string;status:string}>}>};
+    let result:{success:boolean;testResults:Array<{assertionResults:Array<{title?:string;fullName:string;status:string;failureMessages?:string[];location?:{line?:number}}>}>};
     try {result=JSON.parse(await readFile(report,'utf8'));}
-    catch {throw new HarnessError('COMPONENT');}
+    catch {
+      if(process.env.REGRESSION_RUN_DIR)await writePrivate(join(process.env.REGRESSION_RUN_DIR,'component-failure.json'),
+        componentDiagnostic(file,{},processResult));
+      throw new HarnessError('COMPONENT');
+    }
     if(processResult.error || processResult.status !== 0 || !result.success) {
-      // Retain only bounded structured status, never captured stdout, exception
-      // bodies, assertion values, stack traces or dynamically interpolated titles.
-      if(process.env.REGRESSION_RUN_DIR)await writePrivate(join(process.env.REGRESSION_RUN_DIR,'component-failure.json'),{
-        version:1,suite:file,status:processResult.status,failedAssertions:result.testResults.flatMap(item=>item.assertionResults)
-          .filter(item=>item.status !== 'passed').map((_item,index)=>({index,status:'failed'}))});
+      // Source-literal title/index/category identify the failing test without
+      // retaining assertion values, exception bodies or dynamically interpolated titles.
+      if(process.env.REGRESSION_RUN_DIR)await writePrivate(join(process.env.REGRESSION_RUN_DIR,'component-failure.json'),
+        componentDiagnostic(file,result,processResult));
       throw new HarnessError('COMPONENT');
     }
     expect(result.success).toBe(true);

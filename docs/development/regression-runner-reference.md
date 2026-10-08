@@ -30,6 +30,8 @@ attempts independently owned resources even if a borrowed-setting restore fails.
 The next `all` refresh uses the same persistent private run directory. It checks
 the server marker, expired Lease plus a 60-second drain, parent liveness or a
 completed legacy report, exact root/worker journals and every UID/generation.
+Phase-2 auxiliary model journals are included only when their filename, recorded
+owner and target agree inside that exact run directory.
 Setup operations and separate lock contenders also persist their exact Lease
 owner before acquisition, including when the acquisition reply is lost.
 Only the recovery CAS winner may delete known model/app/key/user resources or
@@ -44,6 +46,50 @@ Do not erase journals or manually clear the Lease to bypass those differences.
 The isolated heartbeat/deadline/recovery tests and the no-resource live Lease
 drill are selected by `selftest`, fixture profiles and `locktest` respectively.
 These targeted checks do not establish full campaign acceptance.
+
+After a new live cleanup fence, a phase attempts one `campaign-recover` child.
+It requires the original child to be finished, waits for real Lease expiry plus
+the drain window and never edits `renewTime` to force acquisition. Proven
+restoration clears only the current live-write fence, not historical failures.
+If teardown already released the Lease, every durable journal must be restored
+and independent resource absence must still be proved. Ambiguous ownership or
+unfinished unsupported transactions keep subsequent live writes Blocked;
+independent isolated tests continue. The report records the recovery attempt.
+
+## JUnit steps and portable report archives
+
+`junit.xml` contains three deliberately separate suites:
+
+- `magicstick-selected-regression`: case × variant × layer evidence.
+- `magicstick-executable-scenarios`: one result per executed Playwright scenario.
+- `magicstick-test-steps`: observed nested steps, outcomes, durations and safe
+  source locations; `parentStep` preserves nesting.
+
+JUnit properties and `system-out` reference filtered trace JSON by relative path;
+the conventional `[[ATTACHMENT|…]]` marker helps consumers that support it. JUnit
+has no universal attachment format, so unsupported CI viewers can use the
+property/path or open `summary.html`. Step counts are diagnostics, not additional
+catalogue acceptance or a replacement for the scenario/evidence counts.
+
+Each canonical phase and `all` produces `report-artifacts.tar.gz`. It includes
+only summaries, JUnit, its manifest and re-validated trace/component attachments.
+The aggregate copies child attachments into its own archive, so extracting one
+archive is sufficient; sibling private run directories are not required.
+
+Filtered traces retain literal source-reviewed `test.step` labels, generic
+browser-operation labels, outcome, duration, allowlisted reason/stage and source
+line. Expected negative assertions that are handled by a passing scenario are
+marked `handledError`, not a failing scenario. Each trace has a 2,000-step limit;
+any excess is explicitly counted as `omittedSteps`, never advertised as complete.
+Component failures retain the source-literal assertion name, original index,
+category and source line when available, not the expected/received values.
+
+Raw Playwright tracing, video and screenshots remain off. These JSON traces do
+**not** work in the native Playwright trace viewer. Selectors, input values,
+URLs, headers, response bodies, auth storage, journals, backups and browser-temp
+files are never added to the archive. Files remain private (0600, directories
+0700); review before publishing. CI should archive this generated file only,
+never recursively upload `.regression/private` or `.regression/inputs`.
 
 ## Automatic private input preparation (Phases 0–8)
 

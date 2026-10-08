@@ -7,6 +7,13 @@ Independent cases continue; results are Passed, Failed or Blocked. Historic
 opt-in/proposal workflows below describe the earlier implementation, not the
 current normal command. This change has not yet received live acceptance.
 
+Scope update, 6 October 2026: experimental FreeToken-specific regression cases
+are temporarily excluded by the runner's repository policy, not reported as
+missing prerequisites. FreeToken remains available in the product. Historical
+matrices and findings below retain their original wider scope. Current reports
+list the excluded engine tests and distinguish executable scenarios from their
+case/variant/layer evidence rows.
+
 Design baseline: 1 October 2026; evidence reviewed through 5 October 2026.
 Status: **Phase 0 and finite Phase 1 P0 accepted on 4 October; finite Phase 2 P0
 accepted on 5 October 2026**.
@@ -1513,6 +1520,13 @@ Each run should produce:
    bounded current/previous/init-container logs on failure where authorized.
 5. Baseline/cleanup differences and the safe next recovery action if cleanup
    could not complete.
+
+The implemented reporter also records bounded, allowlisted call traces. JUnit
+keeps evidence, executable scenarios and individual nested steps in separate
+suites, with outcome/duration and relative attachment references. Canonical
+phase/campaign archives copy those sanitized child attachments alongside the
+report; they are not raw Playwright trace-viewer archives. See the
+[archive contract](regression-runner-reference.md#junit-steps-and-portable-report-archives).
 
 Failure classification distinguishes authentication/TLS, validation/conflict,
 dependency/permission/admission, scheduling/claim/device binding, image pull,

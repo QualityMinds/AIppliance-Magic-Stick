@@ -1,8 +1,8 @@
 import {test,expect} from '@playwright/test';
-import {mkdtemp,rm,lstat} from 'node:fs/promises';
+import {mkdtemp,rm,lstat,symlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {AutomaticRecovery,type RecoveryAdapters} from '../core/automatic-recovery.ts';
+import {AutomaticRecovery,campaignRecoveryLease,type RecoveryAdapters} from '../core/automatic-recovery.ts';
 import {LabLease,type Lease,type LeaseStore} from '../core/lease.ts';
 import {HeartbeatLoop,bounded} from '../core/run-lifecycle.ts';
 import {runnerSession,recordedLeaseSession} from '../core/runner-session.ts';
@@ -210,3 +210,69 @@ test('HAR-08 proven non-submitted browser write permits cleanup without changing
   await expect(borrowed.change(true,{},async()=>{throw new MutationNotSubmitted('MUTATION');})).rejects.toMatchObject({outcome:'Failed'});
   await borrowed.restore();expect(f.module.writes).toBe(0);expect(f.module.current).toEqual(f.original);
 }));
+
+test('HAR-07 CPU auxiliary journals are recovered only inside the exact finished run and preserve other resources',async()=>isolated(async directory=>{
+  const f=await fixture(directory),auxiliaryId=newRunId(),auxiliary=await ResourceJournal.create(
+    join(f.path,'ollama-'+auxiliaryId+'.journal.json'),auxiliaryId,registration.applianceUid);
+  const name=auxiliary.prefix+'cpu';await auxiliary.requested('model',name);await auxiliary.owned('model',name,'cpu-uid',1);
+  f.resources.set(name,'cpu-uid');const foreign='existing-model';f.resources.set(foreign,'foreign-uid');
+  const plan=await AutomaticRecovery.prepare(f.root,await f.store.read(),registration);
+  expect(plan.journals.map(item=>item.runId)).toEqual([f.runId,auxiliaryId]);
+  await plan.execute(f.adapters);
+  expect(f.deleted).toEqual([name]);expect(f.resources.get(foreign)).toBe('foreign-uid');
+  expect(f.store.value.spec.holderIdentity).toBe('');
+  expect((await ResourceJournal.resume(auxiliary.filename,registration.applianceUid)).recoveryPlan()).toEqual([]);
+}));
+
+test('HAR-07 malformed mismatched duplicate and symlink CPU journals block before recovery claims or deletions',async()=>{
+  for(const fault of ['unknown','owner','target','duplicate','symlink'] as const)await isolated(async directory=>{
+    const f=await fixture(directory),id=newRunId(),filename=join(f.path,'ollama-'+id+'.journal.json');
+    if(fault==='unknown')await writePrivate(join(f.path,'unknown-'+id+'.journal.json'),{});
+    else if(fault==='symlink')await symlink(f.journal.filename,filename);
+    else await ResourceJournal.create(filename,fault==='owner'?newRunId():fault==='duplicate'?f.runId:id,
+      fault==='target'?'foreign-appliance':registration.applianceUid);
+    await expect(AutomaticRecovery.prepare(f.root,await f.store.read(),registration)).rejects.toThrow();
+    expect(f.store.replacements).toBe(0);expect(f.deleted).toEqual([]);
+  });
+});
+
+test('HAR-07 released leases require restored journals and independent absence before the campaign fence clears',async()=>{
+  for(const fault of ['none','unrestored','reappeared','competing'] as const)await isolated(async directory=>{
+    const f=await fixture(directory),name=f.journal.prefix+'model';await f.journal.requested('model',name);
+    await f.journal.owned('model',name,'owned-uid',1);f.resources.set(name,'owned-uid');
+    if(fault!=='unrestored')await f.journal.cleanup(f.adapters.cleanup(f.journal,async()=>{}),async()=>{});
+    f.store.value.spec.holderIdentity='';
+    if(fault==='unrestored')await expect(AutomaticRecovery.prepare(f.root,await f.store.read(),registration)).rejects.toMatchObject({code:'RECOVERY'});
+    else {
+      const plan=await AutomaticRecovery.prepare(f.root,await f.store.read(),registration);
+      if(fault==='reappeared')f.resources.set(name,'replacement-uid');
+      if(fault==='competing')f.store.value.spec.holderIdentity=newRunId();
+      if(fault==='none')expect(await plan.execute(f.adapters)).toBe(f.runId);
+      else await expect(plan.execute(f.adapters)).rejects.toMatchObject({code:fault==='reappeared'?'CLEANUP':'LOCK_BUSY'});
+      expect(f.deleted).toEqual([name]);
+      if(fault==='reappeared')expect(f.resources.get(name)).toBe('replacement-uid');
+    }
+    expect(f.store.replacements).toBe(0);
+  });
+});
+
+test('HAR-04 HAR-07 campaign recovery waits for real expiry and drain without editing renewTime',async()=>isolated(async directory=>{
+  const f=await fixture(directory);let now=Date.now(),reads=0;
+  const renewed=new Date(now).toISOString();f.store.value.spec.renewTime=renewed;
+  const store:LeaseStore={read:async()=>{reads++;now+=60_000;return f.store.read();},replace:value=>f.store.replace(value)};
+  const expired=await campaignRecoveryLease(f.root,f.runId,registration.applianceUid,store,{timeoutMs:1000,intervalMs:1,now:()=>now});
+  expect(reads).toBe(3);expect(expired.spec.renewTime).toBe(renewed);expect(f.store.replacements).toBe(0);
+}));
+
+test('HAR-04 HAR-07 campaign recovery never takes over a live runner foreign child or renewed lease',async()=>{
+  for(const fault of ['running','foreign','renewed'] as const)await isolated(async directory=>{
+    const f=await fixture(directory);
+    if(fault==='running')await writePrivate(join(f.path,'runner-session.json'),{version:1,runId:f.runId,
+      targetUid:registration.applianceUid,state:'running',updatedAt:new Date().toISOString()});
+    if(fault==='foreign')f.store.value.metadata.annotations!['regression.magicstick.dev/run-id']=newRunId();
+    if(fault==='renewed')f.store.value.spec.renewTime=new Date().toISOString();
+    await expect(campaignRecoveryLease(f.root,f.runId,registration.applianceUid,f.store,{timeoutMs:25,intervalMs:1}))
+      .rejects.toMatchObject({code:fault==='running'?'LOCK_BUSY':fault==='foreign'?'RECOVERY':'LOCK_STALE'});
+    expect(f.store.replacements).toBe(0);expect(f.deleted).toEqual([]);
+  });
+});

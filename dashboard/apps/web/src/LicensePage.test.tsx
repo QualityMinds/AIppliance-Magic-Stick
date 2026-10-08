@@ -111,8 +111,11 @@ describe('license management', () => {
     mount();
     // Avoid formatting all bundled notices on every retry before the rejection renders.
     await waitFor(() => expect(screen.queryByRole('alert')).toHaveTextContent('License API unavailable.'));
-    expect(screen.getByRole('heading', {name: 'Software licenses'})).toBeInTheDocument();
-    expect(screen.getByRole('link', {name: 'Download Business Source License 1.1', hidden: true})).toHaveAttribute('download', 'MagicStick-BSL.txt');
+    const heading=screen.getByText('Software licenses',{selector:'h2'});
+    expect(heading).toHaveRole('heading');
+    const summary=within(heading.closest('section')!).getByText('Business Source License 1.1',{selector:'summary'});
+    expect(within(summary.closest('details')!).getByRole('link', {name: 'Download Business Source License 1.1', hidden: true}))
+      .toHaveAttribute('download', 'MagicStick-BSL.txt');
   });
 
   it('requires preview and explicit activation, preserving the reviewed revision', async () => {

@@ -8,10 +8,11 @@ import {ResourceJournal, newRunId} from '../core/journal.ts';
 import {OwnedModelClient, activation, editRevision, fixtureIsAdvertised} from '../core/owned-model.ts';
 import {InferenceProbe} from '../core/inference.ts';
 import {poll} from '../core/poll.ts';
-import {HarnessError, requireSafe} from '../core/errors.ts';
+import {HarnessError, requireSafe,type Stage} from '../core/errors.ts';
 import {requirePhase2Profile} from '../profiles/phase2-p0.ts';
 import {evidenceAnnotations, type Evidence} from '../core/evidence.ts';
 import {readPrivate} from '../core/private-files.ts';
+import {browserMutation,MutationNotSubmitted} from '../core/browser-action.ts';
 
 type Created = {client: OwnedModelClient; journal: ResourceJournal; name: string; uid: string; generation: number;
   fixture: LocalModelFixture; estimate: MemoryEstimate};
@@ -62,6 +63,12 @@ test.describe.serial('Phase 2 installed CPU model control', () => {
     catch { throw new HarnessError('API'); }
   }
 
+  async function browserRequest(page:Page,method:ExactDashboardRequest['method'],path:string,body:unknown,
+    action:()=>Promise<void>,stage:Stage='model-update') {
+    return browserMutation(page,{url:config.dashboardUrl+path,method,body,timeoutMs:config.requestTimeoutMs,
+      guard:live!.guard,stage},action);
+  }
+
   async function recordCreated(response: JsonHttpResponse, item: ResourceJournal, name: string, client?: OwnedModelClient) {
     let created: ModelActivation | undefined;
     if (response.status() >= 200 && response.status() < 300) {
@@ -96,10 +103,8 @@ test.describe.serial('Phase 2 installed CPU model control', () => {
     await dialog.getByLabel('Context Size').fill(String(fixture.contextWindow));
     await dialog.getByLabel('Max Num Seqs').fill('1');
     await dialog.getByLabel('KV Cache').selectOption(fixture.kvCacheType!);
-    const estimateResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/api/models/estimate-memory' &&
-      response.request().method() === 'POST');
-    await dialog.getByLabel(fixture.engine === 'OLlama' ? 'Ollama model reference' : 'Hugging Face URL').fill(fixture.url);
-    const estimateHttp = await estimateResponse;
+    const estimateHttp=await test.step('Estimate CPU model memory',()=>browserRequest(page,'POST','/api/models/estimate-memory',
+      creationEstimateBody(fixture),()=>dialog.getByLabel(fixture.engine==='OLlama'?'Ollama model reference':'Hugging Face URL').fill(fixture.url),'model-estimate'));
     requireSafe(estimateHttp.status() === 200, 'API');
     const estimate = await estimateHttp.json() as MemoryEstimate;
     const currentModels = await client.models();
@@ -117,10 +122,14 @@ test.describe.serial('Phase 2 installed CPU model control', () => {
     const payload = client.payload();
     allowed = [{method: 'POST', path: '/api/models/local', body: payload}];
     await item.requested('model', name);
-    const responsePromise = page.waitForResponse(response => new URL(response.url()).pathname === '/api/models/local' &&
-      response.request().method() === 'POST');
-    await dialog.getByRole('button', {name: 'Add Local Model'}).click();
-    const response = await responsePromise;
+    let response:JsonHttpResponse;
+    try {
+      response=await test.step('Submit CPU model creation',()=>browserRequest(page,'POST','/api/models/local',payload,
+        ()=>dialog.getByRole('button',{name:'Add Local Model'}).click(),'model-create'));
+    }catch(error) {
+      if(error instanceof MutationNotSubmitted&&!(await live!.cleaner.find(name)))await item.rejected('model',name);
+      throw error;
+    }
     const created = await recordCreated(response, item, name, client);
     allowed = [];
     return {client, journal: item, name, fixture, estimate, ...created};
@@ -145,17 +154,19 @@ test.describe.serial('Phase 2 installed CPU model control', () => {
   async function exerciseLocal(fixture: LocalModelFixture, label: string) {
     const page = await context.newPage(); let model: Created | undefined;
     try {
-      model = await createLocal(page, fixture, label);
+      model = await test.step('Create CPU model through the dashboard',()=>createLocal(page, fixture, label));
       const starting = activation(await model.client.models(), model.name);
       requireSafe(starting?.metadata?.uid === model.uid && starting.spec?.local?.engine === fixture.engine &&
         starting.spec.local.computeTarget === 'cpu' && starting.spec.local.url === fixture.url &&
         starting.spec.local.kvCacheType === fixture.kvCacheType, 'API');
-      const ready = await live!.waitReady(model.client, model.uid, model.generation);
+      const ready = await test.step('Wait for current CPU runtime generation',()=>live!.waitReady(model!.client, model!.uid, model!.generation));
       const readyItem = ready.item;
       requireSafe(readyItem && readyItem.status?.requestedKvCacheType === fixture.kvCacheType, 'API');
       requireSafe(typeof readyItem.status?.effectiveKvCacheType === 'string' &&
         readyItem.status.effectiveKvCacheType.length > 0, 'API');
-      requireSafe(await inference.advertised(model.name), 'API'); await inference.chat(model.name);
+      await test.step('Verify routed CPU model inference',async()=>{
+        requireSafe(await inference.advertised(model!.name), 'API'); await inference.chat(model!.name);
+      });
       const logs = await model.client.logs();
       requireSafe(logs.model === model.name && logs.tailLines === 300 && logs.pods.length > 0, 'API');
       await page.reload({waitUntil: 'domcontentloaded'});
@@ -199,13 +210,25 @@ test.describe.serial('Phase 2 installed CPU model control', () => {
       const current = activation(await model.client.models(), model.name);
       requireSafe(current?.metadata?.uid === model.uid && current.metadata.generation === model.generation, 'OWNERSHIP');
       const staleRevision = editRevision(current);
+      // The real form also changes the advisory risk flag when its estimate
+      // changes. Derive the exact reviewed payload from this bounded estimate,
+      // rather than aborting a valid UI request and hiding it as a timeout.
+      const estimateResponse=await exactRequest('POST',`/api/models/${model.name}/estimate-memory`,estimatorBody(fixture,changedContext,changedMemory));
+      requireSafe(estimateResponse.status()===200,'API');
+      const editEstimate=await estimateResponse.json() as MemoryEstimate;
+      const memory=(await model.client.models()).computeMemory?.devices?.filter(device=>device.computeTarget==='cpu'||device.id==='cpu')??[];
+      const fallback=memory.reduce((maximum,device)=>Math.max(maximum,Number(device.unreservedMi??0)),0)+fixture.memoryRequiredMi;
+      const known=typeof editEstimate.maximumMi==='number'||fallback>fixture.memoryRequiredMi;
+      const risky=editEstimate.confidence!=='high'||changedMemory<Math.ceil(editEstimate.minimumMi/100)*100||
+        !known||changedMemory>(typeof editEstimate.maximumMi==='number'?editEstimate.maximumMi:fallback);
       const updateBody = {expectedRevision: staleRevision,
-        local: {contextWindow: changedContext, memoryRequiredMi: changedMemory}};
+        local: {contextWindow: changedContext, memoryRequiredMi: changedMemory,
+          ...(risky!==(current.spec?.local?.allowMemoryRisk===true)?{allowMemoryRisk:risky}:{})}};
       allowed.push({method: 'PUT', path: `/api/models/${model.name}`, body: updateBody});
-      const updatePromise = page.waitForResponse(response => new URL(response.url()).pathname === `/api/models/${model!.name}` &&
-        response.request().method() === 'PUT');
-      await expect(save).toBeEnabled(); await save.click();
-      await updateGeneration(model, await updatePromise); allowed = [];
+      await expect(save).toBeEnabled();
+      const updateResponse=await test.step('Save CPU model parameters',()=>browserRequest(page,'PUT',`/api/models/${model!.name}`,updateBody,
+        ()=>save.click()));
+      await updateGeneration(model,updateResponse); allowed = [];
       const updatedReady = await live!.waitReady(model.client, model.uid, model.generation);
       requireSafe(updatedReady.item?.spec?.local?.contextWindow === changedContext &&
         updatedReady.item.spec.local.memoryRequiredMi === changedMemory, 'API');
@@ -221,25 +244,29 @@ test.describe.serial('Phase 2 installed CPU model control', () => {
       await page.getByRole('dialog', {name: `Edit Model · ${model.name}`}).getByRole('button', {name: 'Cancel'}).click();
       const beforeStop = activation(await model.client.models(), model.name)!;
       allowed = [{method: 'POST', path: `/api/models/${model.name}/stop`, body: {expectedRevision: editRevision(beforeStop)}}];
-      const stopPromise = page.waitForResponse(response => new URL(response.url()).pathname === `/api/models/${model!.name}/stop`);
-      await page.getByRole('button', {name: `Stop ${model.name}`}).click();
-      await updateGeneration(model, await stopPromise); allowed = []; await waitStopped(model);
+      const stopResponse=await test.step('Stop CPU model through the dashboard',()=>browserRequest(page,'POST',`/api/models/${model!.name}/stop`,allowed[0]!.body,
+        ()=>page.getByRole('button',{name:`Stop ${model!.name}`}).click(),'model-stopped'));
+      await updateGeneration(model,stopResponse); allowed = [];
+      await test.step('Verify CPU runtime and route are stopped',()=>waitStopped(model!));
       requireSafe(!(await inference.advertised(model.name)), 'API'); await inference.refusesStopped(model.name);
       await page.reload({waitUntil: 'domcontentloaded'});
       await expect(page.getByRole('button', {name: `Start ${model.name}`})).toBeVisible();
       const beforeStart = activation(await model.client.models(), model.name)!;
       allowed = [{method: 'POST', path: `/api/models/${model.name}/start`, body: {expectedRevision: editRevision(beforeStart)}}];
-      const startPromise = page.waitForResponse(response => new URL(response.url()).pathname === `/api/models/${model!.name}/start`);
-      await page.getByRole('button', {name: `Start ${model.name}`}).click();
-      await updateGeneration(model, await startPromise); allowed = [];
+      const startResponse=await test.step('Start CPU model through the dashboard',()=>browserRequest(page,'POST',`/api/models/${model!.name}/start`,allowed[0]!.body,
+        ()=>page.getByRole('button',{name:`Start ${model!.name}`}).click(),'model-ready'));
+      await updateGeneration(model,startResponse); allowed = [];
       const restartedReady = await live!.waitReady(model.client, model.uid, model.generation);
       requireSafe(restartedReady.item?.spec?.local?.contextWindow === changedContext &&
         restartedReady.item.spec.local.memoryRequiredMi === changedMemory, 'API');
       await inference.chat(model.name);
     } finally {
       allowed = [];
-      if (model) { await live!.cleanup(model.journal); requireSafe(!(await inference.advertised(model.name)), 'CLEANUP'); }
-      await page.close();
+      try {
+        if (model)await test.step('Remove the owned CPU model and verify route absence',async()=>{
+          await live!.cleanup(model!.journal); requireSafe(!(await inference.advertised(model!.name)), 'CLEANUP');
+        });
+      }finally{await page.close();}
     }
   }
 
@@ -388,9 +415,9 @@ test.describe.serial('Phase 2 installed CPU model control', () => {
       await dialog.getByLabel('Context Size').fill(String(fixture.contextWindow));
       if (providerKey) await dialog.getByLabel('API Key').fill(providerKey);
       await item.requested('model', name);
-      const createPromise = page.waitForResponse(response => new URL(response.url()).pathname === '/api/models/external');
-      await dialog.getByRole('button', {name: 'Add External Model'}).click();
-      const created = await recordCreated(await createPromise, item, name); allowed = [];
+      const createResponse=await test.step('Create the controlled external model',()=>browserRequest(page,'POST','/api/models/external',payload,
+        ()=>dialog.getByRole('button',{name:'Add External Model'}).click(),'model-create'));
+      const created = await recordCreated(createResponse, item, name); allowed = [];
       let generation = created.generation;
       await poll(() => live!.api.models(), payload => {
         const saved = activation(payload, name); return saved?.metadata?.uid === created.uid && saved.status?.phase === 'Ready' &&
@@ -404,18 +431,17 @@ test.describe.serial('Phase 2 installed CPU model control', () => {
       await page.getByRole('button', {name: `Edit ${name}`}).click();
       const edit = page.getByRole('dialog', {name: `Edit Model · ${name}`});
       await edit.getByLabel('Context Size').fill(String(changedContext));
-      const editPromise = page.waitForResponse(response => new URL(response.url()).pathname === `/api/models/${name}` &&
-        response.request().method() === 'PUT');
-      await edit.getByRole('button', {name: 'Save changes'}).click();
-      const edited = responseActivation(await (await editPromise).json());
+      const editResponse=await test.step('Edit the controlled external model',()=>browserRequest(page,'PUT',`/api/models/${name}`,editBody,
+        ()=>edit.getByRole('button',{name:'Save changes'}).click()));
+      const edited = responseActivation(await editResponse.json());
       requireSafe(edited.metadata?.uid === created.uid && Number(edited.metadata.generation) > generation &&
         edited.spec?.external?.contextWindow === changedContext && edited.spec.external.apiBase === fixture.apiBase, 'API');
       await item.modelGeneration(name, created.uid, generation, Number(edited.metadata.generation)); generation = Number(edited.metadata.generation); allowed = [];
       const stopBody = {expectedRevision: editRevision(edited)};
       allowed = [{method: 'POST', path: `/api/models/${name}/stop`, body: stopBody}];
-      const stopPromise = page.waitForResponse(response => new URL(response.url()).pathname === `/api/models/${name}/stop`);
-      await page.getByRole('button', {name: `Stop ${name}`}).click();
-      const stopped = responseActivation(await (await stopPromise).json());
+      const stopResponse=await test.step('Stop the controlled external model',()=>browserRequest(page,'POST',`/api/models/${name}/stop`,stopBody,
+        ()=>page.getByRole('button',{name:`Stop ${name}`}).click(),'external-stopped'));
+      const stopped = responseActivation(await stopResponse.json());
       requireSafe(stopped.metadata?.uid === created.uid && stopped.spec?.enabled === false && Number(stopped.metadata.generation) > generation, 'API');
       await item.modelGeneration(name, created.uid, generation, Number(stopped.metadata.generation)); generation = Number(stopped.metadata.generation); allowed = [];
       await poll(() => inference.advertised(name), value => value === false,
@@ -428,9 +454,9 @@ test.describe.serial('Phase 2 installed CPU model control', () => {
       const startBody = {expectedRevision: editRevision(stopped)};
       allowed = [{method: 'POST', path: `/api/models/${name}/start`, body: startBody}];
       await page.reload({waitUntil: 'domcontentloaded'});
-      const startPromise = page.waitForResponse(response => new URL(response.url()).pathname === `/api/models/${name}/start`);
-      await page.getByRole('button', {name: `Start ${name}`}).click();
-      const started = responseActivation(await (await startPromise).json());
+      const startResponse=await test.step('Start the controlled external model',()=>browserRequest(page,'POST',`/api/models/${name}/start`,startBody,
+        ()=>page.getByRole('button',{name:`Start ${name}`}).click(),'external-ready'));
+      const started = responseActivation(await startResponse.json());
       requireSafe(started.metadata?.uid === created.uid && started.spec?.enabled === true && Number(started.metadata.generation) > generation, 'API');
       await item.modelGeneration(name, created.uid, generation, Number(started.metadata.generation)); allowed = [];
       await poll(() => inference.advertised(name), value => value === true,
