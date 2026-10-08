@@ -1,10 +1,29 @@
-import type {ComputeTarget, GpuSlots} from '@magicstick/dashboard-contracts';
+import type {ComputeMemoryDevice, ComputeTarget, GpuSlots} from '@magicstick/dashboard-contracts';
 import {InfoPopover} from './InfoPopover';
 
 export const targetSlots = (target: ComputeTarget | undefined, engine: string) =>
   target?.engineAvailability?.[engine]?.slots ?? target?.slots;
 export const slotsFull = (target: ComputeTarget | undefined, engine: string) =>
   targetSlots(target, engine)?.free === 0;
+
+/** Presentation groups only: the API remains the authority for slot counts. */
+export function sharedSlotPools(devices: ComputeMemoryDevice[]) {
+  const groups = new Map<string, {key: string; name: string; slots: GpuSlots; deviceIds: string[]}>();
+  for (const device of devices) {
+    const slots = device.slots;
+    if (device.kind !== 'gpu' || !slots || slots.scope === 'device' || !slots.scope) continue;
+    const node = slots.node ?? (device.nodes?.length === 1 ? device.nodes[0] : undefined);
+    // An unidentified node pool cannot be safely merged with another node.
+    if (slots.scope === 'node' && !node) continue;
+    const target = device.computeTarget ?? device.vendor ?? device.id;
+    const key = JSON.stringify([target, slots.scope, slots.scope === 'node' ? node : '']);
+    const group = groups.get(key);
+    if (group) group.deviceIds.push(device.id);
+    else groups.set(key, {key, name: `${device.vendor ? device.vendor.toUpperCase() + ' GPU' : target} pool${node ? ' · ' + node : ''}`,
+      slots, deviceIds: [device.id]});
+  }
+  return [...groups.values()].filter((group) => group.deviceIds.length > 1);
+}
 
 export const SlotRing = ({slots}: {slots: GpuSlots}) => {
   // Larger node pools retain exact counts in the legend and group slots

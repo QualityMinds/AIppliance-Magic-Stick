@@ -325,11 +325,15 @@ Ordinary nodes retain the Kubelet summary/metrics API fallback. Unified-memory
 nodes never use that fallback: driver-owned GPU allocations can be absent from
 Kubelet working-set accounting, overstating both CPU and shared GPU availability.
 
-NVIDIA gauges use one DCGM record per physical GPU. Kubernetes exposes the
-whole-GPU request but not the chosen GPU UUID on the `ModelActivation`, so the
-dashboard packs planned `vramRequiredMi` reservations deterministically across
-the detected devices; the actually-free inner ring always comes directly from
-DCGM. AMD and Intel device-plugin resources are also listed individually. Until their installed
+NVIDIA gauges use one DCGM record per physical GPU. With the default device
+plugin, Kubernetes exposes a whole-GPU request but not the chosen GPU UUID on
+the `ModelActivation`; the dashboard packs planned `vramRequiredMi` reservations
+deterministically across detected devices. That packing is not a binding.
+With opt-in NVIDIA DRA, `local.gpuDevice` binds the model to a verified card and
+its node UID. Its reservation is charged only to that card, never a sibling or
+a replacement node. The actually-free inner ring always comes from DCGM.
+ResourceSlice capacity without DCGM yields a known total but unknown free
+memory. AMD and Intel device-plugin resources are also listed individually. Until their installed
 operator supplies a compatible memory exporter, unavailable readings use a
 dashed ring and `—`, not an invented zero, total, percentage, or free value.
 This preserves an honest UI while keeping the response contract
@@ -346,6 +350,12 @@ unverified GPU cgroup accounting remain explicit.
 GPU gauges add an outer segmented **model-slot** ring (gold: free, grey: occupied)
 and exact free/total counts, independently of memory. Fully occupied GPUs remain
 visible but disabled in the Hardware selector, with a `no free slots` hint.
+For multiple NVIDIA device-plugin cards, an aggregate **Node slots** ring is
+shown once above their memory gauges; the runtime chooses the physical card.
+NVIDIA DRA instead gives each card its own ring and a **NVIDIA card** selector in
+Create / Edit with name, PCI address, VRAM and free slots. Editing an active model
+may reuse its own card's slot. Stopped models have no such credit. A lost card or
+changed node UID remains visibly blocked rather than selecting another card.
 The model form refreshes every 15 seconds; if its selected GPU becomes full,
 submission is disabled without clearing the form or switching hardware.
 The API also checks current slots before writing a local model; accepting a

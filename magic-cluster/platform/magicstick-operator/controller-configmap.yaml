@@ -1183,6 +1183,8 @@ data:
 
 
     def nvidia_gpu_capacity():
+        if NVIDIA_SHARING_STATE.get("allocationBackend") == "dra":
+            return int(NVIDIA_SHARING_STATE.get("slotLimit") or 0) if NVIDIA_SHARING_STATE.get("phase") == "Ready" else 0
         total = 0
         for node in list_items("/api/v1/nodes"):
             status = node.get("status") or {}
@@ -1329,9 +1331,11 @@ data:
             config = json.loads(raw)
         except (ValueError, TypeError):
             raise ValueError("GPU sharing configuration is not valid JSON")
-        if not isinstance(config, dict) or set(config) - {"mode", "nodeName", "nodeUid", "namespace", "maxModels", "allowExperimental"}:
+        if not isinstance(config, dict) or set(config) - {"mode", "nodeName", "nodeUid", "namespace", "maxModels", "allowExperimental", "allocationBackend"}:
             raise ValueError("Unsupported GPU sharing configuration")
-        shared_mode = "dra-shared" if provider == "amd" else "time-slicing"
+        if config.get("allocationBackend", "device-plugin") not in ("device-plugin", "dra") or provider == "amd" and "allocationBackend" in config:
+            raise ValueError("Unsupported GPU allocation backend")
+        shared_mode = "dra-shared" if provider == "amd" or config.get("allocationBackend") == "dra" else "time-slicing"
         if config.get("mode") not in ("exclusive", shared_mode):
             raise ValueError("Unknown GPU sharing mode")
         if config["mode"] != "exclusive" or provider == "nvidia":
@@ -1413,7 +1417,7 @@ data:
 
 
     def reconcile_nvidia_sharing(nodes, activation):
-        """Select a shipped device-plugin config, never migrate ClusterPolicy to DRA."""
+        """Keep ClusterPolicy; optionally hand off node allocation to standalone DRA."""
         NVIDIA_SHARING_STATE.clear()
         state = NVIDIA_SHARING_STATE
         state.update(managed=False, phase="Ready", memoryIsolation=False)
@@ -1425,6 +1429,9 @@ data:
                 raise ValueError("NVIDIA module is disabled; sharing configuration was not applied")
             config = gpu_sharing_config(activation, "nvidia")
             state.update(config)
+            if config.get("allocationBackend") == "dra" or any(
+                    node_labels(n).get("appliance.magicstick.dev/nvidia-dra-config") for n in nodes):
+                return reconcile_nvidia_dra(nodes, activation, config, state)
             candidates = [n for n in nodes if positive_int(node_labels(n).get("nvidia.com/gpu.count"))]
             if len(candidates) != 1 or not node_ready(candidates[0]):
                 raise ValueError("Sharing management currently requires one ready NVIDIA GPU node")
@@ -1432,8 +1439,9 @@ data:
             labels = node_labels(node)
             if node_name(node) != config["nodeName"] or node.get("metadata", {}).get("uid") != config["nodeUid"]:
                 raise ValueError("The saved NVIDIA node identity changed; refresh Hardware")
-            if positive_int(labels.get("nvidia.com/gpu.count")) != 1 or not nvidia_whole_gpu_available(node):
-                raise ValueError("NVIDIA sharing management currently requires one physical GPU without MIG")
+            physical_count = positive_int(labels.get("nvidia.com/gpu.count"))
+            if not physical_count or not nvidia_whole_gpu_available(node):
+                raise ValueError("NVIDIA sharing requires whole physical GPUs without MIG")
             key = "magicstick-exclusive" if config["mode"] == "exclusive" else "magicstick-shared-" + str(config["maxModels"])
             current_key = labels.get("nvidia.com/device-plugin.config", "")
             if current_key not in ("", "any", "magicstick-exclusive") and not re.fullmatch(r"magicstick-shared-(?:[2-9]|1[0-6])", current_key):
@@ -1468,14 +1476,14 @@ data:
                            {"metadata": {"labels": {"nvidia.com/device-plugin.config": key}}})
                 state.update(phase="Starting", message="Waiting for NVIDIA to apply the selected sharing configuration.")
                 return state
-            slots = config["maxModels"] if config["mode"] == "time-slicing" else 1
+            slots = physical_count * (config["maxModels"] if config["mode"] == "time-slicing" else 1)
             plugin_ready = any(p.get("spec", {}).get("nodeName") == node_name(node)
                                and p.get("metadata", {}).get("namespace") == "gpu-operator"
                                and not p.get("metadata", {}).get("deletionTimestamp") and pod_is_ready(p)
                                and any(o.get("kind") == "DaemonSet" and o.get("name") == "nvidia-device-plugin-daemonset"
                                        for o in p.get("metadata", {}).get("ownerReferences") or []) for p in all_pods)
             if (not plugin_ready or positive_int((node.get("status", {}).get("allocatable") or {}).get("nvidia.com/gpu")) != slots
-                    or (positive_int(labels.get("nvidia.com/gpu.replicas")) or 1) != slots):
+                    or (positive_int(labels.get("nvidia.com/gpu.replicas")) or 1) != slots // physical_count):
                 state.update(phase="Starting", message="Waiting for NVIDIA device-plugin readiness and matching advertised slots.")
                 return state
             state.update(phase="Ready", slotLimit=slots, admittedModels=sharing_admitted_models(models, config["namespace"], slots),
@@ -1492,6 +1500,8 @@ data:
         state = NVIDIA_SHARING_STATE
         if runtime.get("computeTarget") != "nvidia-gpu" or not state.get("managed"):
             return
+        if state.get("allocationBackend") == "dra":
+            return apply_nvidia_dra_profile(resource, runtime)
         require_sharing_slot(resource, state)
         release = get_resource("helm.toolkit.fluxcd.io", "v2", "helmreleases", FLUX_NAMESPACE, "kubeai") or {}
         base_name = runtime["baseResourceProfile"].rsplit(":", 1)[0]
@@ -1517,6 +1527,355 @@ data:
         resource["spec"]["resourceProfile"] = runtime["resourceProfile"] = key + ":1"
         runtime["gpuSharing"] = {"mode": state["mode"], "node": state["nodeName"]}
         resource["metadata"].setdefault("annotations", {})["appliance.magicstick.dev/gpu-sharing-mode"] = state["mode"]
+
+
+
+    def nvidia_dra_inventory(slices, node):
+        """Only complete, current-generation full-GPU pools; UUID is the binding."""
+        pools = {}
+        for item in slices:
+            spec = item.get("spec") or {}
+            if spec.get("driver") != "gpu.nvidia.com" or spec.get("nodeName") != node_name(node):
+                continue
+            pool = spec.get("pool") or {}
+            pools.setdefault(pool.get("name"), []).append(item)
+        devices = []
+        for name, items in pools.items():
+            if not name:
+                continue
+            generation = max(int(i["spec"].get("pool", {}).get("generation") or 0) for i in items)
+            current = [i for i in items if int(i["spec"]["pool"].get("generation") or 0) == generation]
+            counts = {int(i["spec"]["pool"].get("resourceSliceCount") or 0) for i in current}
+            if counts != {len(current)}:
+                raise ValueError("Waiting for complete NVIDIA DRA inventory")
+            for item in current:
+                for device in item["spec"].get("devices") or []:
+                    attrs = device.get("attributes") or (device.get("basic") or {}).get("attributes") or {}
+                    if (attrs.get("type") or {}).get("string") != "gpu":
+                        continue
+                    uuid = (attrs.get("uuid") or {}).get("string", "")
+                    if not re.fullmatch(r"GPU-[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}", uuid) or not device.get("name"):
+                        raise ValueError("NVIDIA DRA did not publish a stable GPU UUID")
+                    capacity = device.get("capacity") or (device.get("basic") or {}).get("capacity") or {}
+                    devices.append({"uuid": uuid, "name": device["name"], "pool": name,
+                        "node": node_name(node), "nodeUid": node["metadata"]["uid"],
+                        "productName": (attrs.get("productName") or {}).get("string", "NVIDIA GPU"),
+                        "pciAddress": (attrs.get("resource.kubernetes.io/pciBusID") or {}).get("string", ""),
+                        "totalMi": freetoken_node_memory_mi((capacity.get("memory") or {}).get("value")) or 0})
+        if len({d["uuid"] for d in devices}) != len(devices):
+            raise ValueError("NVIDIA DRA inventory contains duplicate GPU identities")
+        return sorted(devices, key=lambda d: (d["pciAddress"], d["uuid"]))
+
+
+    def nvidia_dra_claim(config, device):
+        identity = config["nodeUid"] + ":" + device["uuid"] + ":" + config["namespace"]
+        name = "magicstick-nvidia-" + hashlib.sha256(identity.encode()).hexdigest()[:20]
+        return {"apiVersion": "resource.k8s.io/v1", "kind": "ResourceClaim", "metadata": {
+            "name": name, "namespace": config["namespace"],
+            "labels": {"app.kubernetes.io/managed-by": FIELD_MANAGER, "appliance.magicstick.dev/gpu-sharing": "nvidia"},
+            "annotations": {"appliance.magicstick.dev/node-uid": config["nodeUid"],
+                            "appliance.magicstick.dev/gpu-identity": device["uuid"]}},
+            "spec": {"devices": {"requests": [{"name": "gpu", "exactly": {
+                "deviceClassName": "gpu.nvidia.com", "allocationMode": "ExactCount", "count": 1,
+                "selectors": [{"cel": {"expression": "device.attributes['gpu.nvidia.com'].uuid == " + json.dumps(device["uuid"])}}]}}]}}}
+
+
+    def nvidia_dra_assignments(models, devices, pods, limit):
+        """Reserve enabled intents once; terminating/foreign Pods retain their slots."""
+        by_uuid = {d["uuid"]: d for d in devices}
+        claim_devices = {d["claimName"]: d["uuid"] for d in devices}
+        used = {uuid: 0 for uuid in by_uuid}
+        placements = {}
+        for pod in pods:
+            if pod.get("status", {}).get("phase") in ("Succeeded", "Failed"):
+                continue
+            claims = (pod.get("spec") or {}).get("resourceClaims") or []
+            metadata = pod.get("metadata") or {}
+            if metadata.get("namespace") != "ai":
+                continue  # Claim names are namespace-local, not global GPU IDs.
+            model = (metadata.get("labels") or {}).get("appliance.magicstick.dev/modelactivation")
+            for claim in claims:
+                uuid = claim_devices.get(claim.get("resourceClaimName"))
+                if uuid:
+                    used[uuid] += 1
+                    if model and managed_gpu_sharing_pod(pod) and metadata.get("namespace") == "ai":
+                        placements.setdefault(model, set()).add(uuid)
+        assigned = {}
+        errors = {}
+        for model in sorted(models, key=lambda m: (m.get("metadata", {}).get("creationTimestamp", ""), m["metadata"]["name"])):
+            spec, metadata = model.get("spec") or {}, model["metadata"]
+            if spec.get("enabled", True) is False or metadata.get("deletionTimestamp"):
+                continue
+            name = metadata["name"]
+            local = spec.get("local") or {}
+            if spec.get("targetNamespace", "ai") != "ai":
+                errors[name] = "NVIDIA card selection requires the ai namespace."
+                continue
+            if "realtime" in local or str(local.get("engine", "VLLM")).upper() not in ("VLLM", "OLLAMA"):
+                errors[name] = "NVIDIA card selection currently supports ordinary vLLM and Ollama models. Use device-plugin allocation for this runtime."
+                continue
+            if max(int(local.get("minReplicas", 1)), int(local.get("maxReplicas", 1))) != 1:
+                errors[name] = "NVIDIA DRA card selection requires one replica per model."
+                continue
+            selection = local.get("gpuDevice")
+            previous = (model.get("status") or {}).get("gpuSharing") or {}
+            uuid = (selection or {}).get("uuid") or previous.get("device")
+            if selection and not any(d["uuid"] == uuid and d["nodeUid"] == selection.get("nodeUid")
+                                     and d["node"] == selection.get("nodeName") for d in devices):
+                errors[name] = "The selected NVIDIA GPU identity changed. Refresh Models and choose the card again."
+                continue
+            live = placements.get(name, set())
+            if live and (len(live) > 1 or uuid and uuid not in live):
+                errors[name] = "Waiting for the previous NVIDIA GPU Pod to stop before changing cards."
+                continue
+            if live:
+                uuid = next(iter(live))
+                assigned[name] = by_uuid[uuid]
+                continue
+            if uuid not in by_uuid:
+                uuid = next((u for u in used if used[u] < limit), None)
+            if not uuid or used[uuid] >= limit:
+                errors[name] = "Waiting for a free slot on the selected NVIDIA GPU."
+                continue
+            used[uuid] += 1
+            assigned[name] = by_uuid[uuid]
+        return assigned, errors
+
+
+    def nvidia_dra_slot_usage(assignments, devices, pods):
+        claims = {d["claimName"]: d["uuid"] for d in devices}
+        used = {d["uuid"]: 0 for d in devices}
+        live = set()
+        for pod in pods:
+            meta = pod.get("metadata") or {}
+            if meta.get("namespace") != "ai" or pod.get("status", {}).get("phase") in ("Succeeded", "Failed"):
+                continue
+            model = meta.get("labels", {}).get("appliance.magicstick.dev/modelactivation")
+            for claim in pod.get("spec", {}).get("resourceClaims", []):
+                uuid = claims.get(claim.get("resourceClaimName"))
+                if uuid:
+                    used[uuid] += 1
+                    if model and managed_gpu_sharing_pod(pod):
+                        live.add((model, uuid))
+        for name, device in assignments.items():
+            if (name, device["uuid"]) not in live:
+                used[device["uuid"]] += 1
+        return used
+
+
+    def nvidia_dra_policies():
+        # Reuse the existing fail-closed KubeAI adapter. The server validates the
+        # UUID and the controller supplies a claim, never a user CUDA env override.
+        policy, binding = dra_admission_resources()
+        serialized = json.dumps([policy, binding]).replace("magicstick-amd-dra", "magicstick-nvidia-dra")
+        serialized = serialized.replace("amd-gpu", "nvidia-gpu").replace("appliance.magicstick.dev/amd-dra", "appliance.magicstick.dev/nvidia-dra")
+        serialized = serialized.replace("~1amd-dra", "~1nvidia-dra").replace("magicstick-amd-shared-", "magicstick-nvidia-")
+        return json.loads(serialized)
+
+
+    def reconcile_nvidia_dra(nodes, activation, config, state):
+        desired = config.get("allocationBackend") == "dra"
+        state.update(allocationBackend="dra" if desired else "device-plugin", devices=[], assignments={}, admittedModels=[])
+        candidates = [n for n in nodes if positive_int(node_labels(n).get("nvidia.com/gpu.count"))]
+        if len(candidates) != 1 or not node_ready(candidates[0]):
+            raise ValueError("NVIDIA DRA currently requires one ready node with one or more whole GPUs")
+        node = candidates[0]
+        labels = node_labels(node)
+        if node_name(node) != config["nodeName"] or node["metadata"].get("uid") != config["nodeUid"]:
+            raise ValueError("The saved NVIDIA node identity changed; refresh Hardware")
+        if desired and (not version_at_least(node.get("status", {}).get("nodeInfo", {}).get("kubeletVersion", ""), "1.36.0")
+                        or not nvidia_whole_gpu_available(node)):
+            raise ValueError("NVIDIA card selection requires Kubernetes 1.36+ and full GPUs without MIG")
+        policy = get_json("/apis/nvidia.com/v1/clusterpolicies/cluster-policy") or {}
+        current_key = labels.get("nvidia.com/device-plugin.config", "")
+        if ((policy.get("spec", {}).get("devicePlugin", {}).get("config") or {}).get("name") != "time-slicing-config"
+                or current_key not in ("", "any", "magicstick-exclusive") and not re.fullmatch(r"magicstick-shared-(?:[2-9]|1[0-6])", current_key)):
+            raise ValueError("External NVIDIA allocation configuration was not modified")
+        pods = list_items("/api/v1/pods")
+        active = [p for p in pods if p.get("status", {}).get("phase") not in ("Succeeded", "Failed")]
+        managed = [p for p in active if managed_gpu_sharing_pod(p)
+                   and p.get("metadata", {}).get("labels", {}).get("appliance.magicstick.dev/compute-target") == "nvidia-gpu"]
+        models = [m for m in model_activations() if m.get("spec", {}).get("type", "local") == "local" and local_compute_target(m) == "nvidia-gpu"]
+        digest = hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()[:20] if desired else ""
+        changing = labels.get("appliance.magicstick.dev/nvidia-dra-config", "") != digest
+        if changing:
+            # Include claims owned by other applications. An allocated claim
+            # may have no Pod yet; removing its driver would strand Unprepare.
+            all_claims = list_items("/apis/resource.k8s.io/v1/resourceclaims")
+            foreign_claims = set()
+            for claim in all_claims:
+                meta = claim.get("metadata") or {}
+                gpu = any(r.get("driver") == "gpu.nvidia.com"
+                          for r in claim.get("status", {}).get("allocation", {}).get("devices", {}).get("results", []))
+                requested = any((r.get("exactly") or r).get("deviceClassName") == "gpu.nvidia.com"
+                                for r in claim.get("spec", {}).get("devices", {}).get("requests", []))
+                owned = meta.get("namespace") == "ai" and (meta.get("labels") or {}).get("app.kubernetes.io/managed-by") == FIELD_MANAGER and (meta.get("labels") or {}).get("appliance.magicstick.dev/gpu-sharing") == "nvidia"
+                if (gpu or requested) and not owned:
+                    foreign_claims.add((meta.get("namespace", "default"), meta.get("name", "")))
+                    if gpu or claim.get("status", {}).get("reservedFor"):
+                        raise ValueError("Release external NVIDIA DRA claims before changing allocation backend")
+            for pod in active:
+                if pod in managed:
+                    continue
+                spec = pod.get("spec") or {}
+                uses_gpu = any(positive_int((c.get("resources", {}).get(k) or {}).get("nvidia.com/gpu"))
+                    for c in spec.get("containers", []) + spec.get("initContainers", []) for k in ("limits", "requests"))
+                uses_claim = any(str(c.get("resourceClaimName", "")).startswith("magicstick-nvidia-")
+                    or (pod.get("metadata", {}).get("namespace", "default"), c.get("resourceClaimName")) in foreign_claims
+                    for c in spec.get("resourceClaims", []))
+                if uses_gpu or uses_claim:
+                    raise ValueError("Stop unmanaged NVIDIA GPU workloads before changing allocation backend")
+            incompatible = [m for m in models if m.get("spec", {}).get("enabled", True) is not False
+                and ("realtime" in (m.get("spec", {}).get("local") or {}) or str(m.get("spec", {}).get("local", {}).get("engine", "")).upper() == "FREETOKEN")]
+            if desired and incompatible:
+                raise ValueError("Stop FreeToken and Realtime models before switching NVIDIA to DRA; their device-plugin configurations are retained")
+            for model in models:
+                retire_gpu_sharing_model(model)
+            if managed:
+                state.update(phase="Switching", message="Waiting for NVIDIA models to stop; settings and cached downloads are retained.")
+                return state
+        claims = list_items("/apis/resource.k8s.io/v1/namespaces/ai/resourceclaims?labelSelector=appliance.magicstick.dev%2Fgpu-sharing%3Dnvidia")
+        if not desired:
+            for claim in claims:
+                meta = claim.get("metadata") or {}
+                if (meta.get("labels") or {}).get("app.kubernetes.io/managed-by") != FIELD_MANAGER or (meta.get("annotations") or {}).get("appliance.magicstick.dev/node-uid") != config["nodeUid"]:
+                    raise ValueError("An external or stale NVIDIA claim needs manual review")
+                if claim.get("status", {}).get("reservedFor") or any(
+                    c.get("resourceClaimName") == meta.get("name") for p in active for c in p.get("spec", {}).get("resourceClaims", [])):
+                    state.update(phase="Switching", message="Waiting for NVIDIA claims to be released; the DRA driver stays registered for Unprepare.")
+                    return state
+                if not meta.get("uid") or not meta.get("resourceVersion"):
+                    raise ValueError("Cannot safely remove a NVIDIA claim without its Kubernetes identity")
+                if not meta.get("deletionTimestamp"):
+                    delete_json("/apis/resource.k8s.io/v1/namespaces/ai/resourceclaims/" + meta["name"],
+                        {"apiVersion": "v1", "kind": "DeleteOptions", "preconditions": {"uid": meta["uid"], "resourceVersion": meta["resourceVersion"]}})
+            if claims:
+                state.update(phase="Switching", message="Waiting for unused NVIDIA claims to be deleted.")
+                return state
+            if labels.get("nvidia.com/dra-kubelet-plugin") == "true":
+                patch_json("/api/v1/nodes/" + node_name(node), {"metadata": {"labels": {"nvidia.com/dra-kubelet-plugin": "false",
+                    "appliance.magicstick.dev/nvidia-dra-ready": "false"}}})
+                state.update(phase="Switching", message="Stopping NVIDIA DRA before restoring the device plugin.")
+                return state
+            if any(p.get("metadata", {}).get("namespace") == "nvidia-dra-driver" and p.get("spec", {}).get("nodeName") == node_name(node) for p in active):
+                state.update(phase="Switching", message="Waiting for the NVIDIA DRA kubelet plugin to stop.")
+                return state
+            values = get_core_resource("v1", "configmaps", FLUX_NAMESPACE, "magicstick-nvidia-dra-values") or {}
+            raw = json.loads((values.get("data") or {}).get("values.json") or "{}")
+            if raw.get("resources", {}).get("gpus", {}).get("enabled") is not False:
+                raw.setdefault("resources", {}).setdefault("gpus", {})["enabled"] = False
+                patch_json("/api/v1/namespaces/" + FLUX_NAMESPACE + "/configmaps/magicstick-nvidia-dra-values", {"data": {"values.json": json.dumps(raw, sort_keys=True)}})
+            patch_json("/api/v1/nodes/" + node_name(node), {"metadata": {"labels": {
+                "nvidia.com/gpu.deploy.device-plugin": "true", "appliance.magicstick.dev/nvidia-dra-config": None}}})
+            state.update(phase="Starting", message="Restoring NVIDIA device-plugin allocation. Clear exact card selection in Edit before restarting card-bound models.")
+            return state
+        if labels.get("nvidia.com/gpu.deploy.device-plugin") != "false":
+            patch_json("/api/v1/nodes/" + node_name(node), {"metadata": {"labels": {
+                "nvidia.com/gpu.deploy.device-plugin": "false", "appliance.magicstick.dev/nvidia-dra-ready": "false"}}})
+            state.update(phase="Switching", message="Stopping NVIDIA device-plugin allocation before starting DRA.")
+            return state
+        if positive_int(node.get("status", {}).get("allocatable", {}).get("nvidia.com/gpu")) or any(
+                any(o.get("name") == "nvidia-device-plugin-daemonset" for o in p.get("metadata", {}).get("ownerReferences", []))
+                and p.get("spec", {}).get("nodeName") == node_name(node) for p in active):
+            state.update(phase="Switching", message="Waiting for legacy NVIDIA allocations and device-plugin Pods to disappear.")
+            return state
+        root = "/" if labels.get("nvidia.com/gpu.deploy.driver") in ("false", "pre-installed") else "/run/nvidia/driver"
+        values = get_core_resource("v1", "configmaps", FLUX_NAMESPACE, "magicstick-nvidia-dra-values") or {}
+        desired_values = json.dumps({"nvidiaDriverRoot": root, "resources": {"gpus": {"enabled": True}}}, sort_keys=True)
+        if (values.get("data") or {}).get("values.json") != desired_values:
+            patch_json("/api/v1/namespaces/" + FLUX_NAMESPACE + "/configmaps/magicstick-nvidia-dra-values",
+                       {"data": {"values.json": desired_values}})
+            state.update(phase="Starting", message="Waiting for Flux to enable the pinned NVIDIA DRA chart with the current driver path.")
+            return state
+        if labels.get("nvidia.com/dra-kubelet-plugin") != "true":
+            patch_json("/api/v1/nodes/" + node_name(node), {"metadata": {"labels": {"nvidia.com/dra-kubelet-plugin": "true"}}})
+            state.update(phase="Starting", message="Starting the pinned NVIDIA DRA driver.")
+            return state
+        release = get_resource("helm.toolkit.fluxcd.io", "v2", "helmreleases", FLUX_NAMESPACE, "nvidia-dra-driver") or {}
+        ready = ready_condition(release)
+        driver_ready = ready.get("status") == "True" and release.get("status", {}).get("observedGeneration") == release.get("metadata", {}).get("generation") and any(
+            p.get("metadata", {}).get("namespace") == "nvidia-dra-driver" and p.get("spec", {}).get("nodeName") == node_name(node)
+            and pod_is_ready(p) and not p.get("metadata", {}).get("deletionTimestamp")
+            and any(o.get("kind") == "DaemonSet" and o.get("name") == "dra-driver-nvidia-gpu-kubelet-plugin" for o in p.get("metadata", {}).get("ownerReferences", []))
+            and any(c.get("name") == "gpus" and c.get("image") == "registry.k8s.io/dra-driver-nvidia/dra-driver-nvidia-gpu:v0.5.0"
+                and any(e.get("name") == "NVIDIA_DRIVER_ROOT" and e.get("value") == root for e in c.get("env", []))
+                for c in p.get("spec", {}).get("containers", [])) for p in pods)
+        if not driver_ready:
+            state.update(phase="Starting", message="Waiting for the pinned NVIDIA DRA driver and current Helm configuration.")
+            return state
+        devices = nvidia_dra_inventory(list_items("/apis/resource.k8s.io/v1/resourceslices"), node)
+        if len(devices) != positive_int(labels.get("nvidia.com/gpu.count")):
+            state.update(phase="Starting", message="Waiting for all physical NVIDIA GPU UUIDs in the DRA inventory.")
+            return state
+        for obj in nvidia_dra_policies():
+            apply_resource(obj)
+        for device in devices:
+            desired_claim = nvidia_dra_claim(config, device)
+            existing = get_applied_resource(desired_claim)
+            if existing and (existing.get("spec") != desired_claim["spec"] or existing.get("metadata", {}).get("deletionTimestamp")
+                or existing.get("metadata", {}).get("labels", {}).get("app.kubernetes.io/managed-by") != FIELD_MANAGER
+                or existing.get("metadata", {}).get("annotations", {}) != desired_claim["metadata"]["annotations"]):
+                raise ValueError("The NVIDIA claim differs from its verified GPU selection; it was not overwritten")
+            results = (existing or {}).get("status", {}).get("allocation", {}).get("devices", {}).get("results", [])
+            if results and (len(results) != 1 or any(r.get("driver") != "gpu.nvidia.com" or r.get("pool") != device["pool"] or r.get("device") != device["name"] for r in results)):
+                raise ValueError("NVIDIA DRA claim allocation does not match the selected card")
+            if not existing:
+                apply_resource(desired_claim)
+            device["claimName"] = desired_claim["metadata"]["name"]
+        limit = config["maxModels"] if config["mode"] == "dra-shared" else 1
+        assigned, errors = nvidia_dra_assignments(models, devices, active, limit)
+        for model in models:
+            if errors.get(model["metadata"]["name"], "").startswith("Waiting for the previous NVIDIA"):
+                retire_gpu_sharing_model(model)
+        state.update(phase="Ready", devices=devices, assignments=assigned, assignmentErrors=errors,
+            admittedModels=list(assigned), slotLimit=limit * len(devices), slotsPerDevice=limit,
+            usedByDevice=nvidia_dra_slot_usage(assigned, devices, active),
+            activeModels=len(managed), bootId=node.get("status", {}).get("nodeInfo", {}).get("bootID", ""),
+            message="NVIDIA card selection is ready. Each card has its own slots; shared claims have no memory isolation.",
+            activationGeneration=activation.get("metadata", {}).get("generation"))
+        if labels.get("appliance.magicstick.dev/nvidia-dra-config") != digest or labels.get("appliance.magicstick.dev/nvidia-dra-ready") != "true":
+            patch_json("/api/v1/nodes/" + node_name(node), {"metadata": {"labels": {
+                "appliance.magicstick.dev/nvidia-dra-config": digest, "appliance.magicstick.dev/nvidia-dra-ready": "true"}}})
+        return state
+
+
+    def apply_nvidia_dra_profile(resource, runtime):
+        state = NVIDIA_SHARING_STATE
+        name = resource["metadata"]["name"]
+        if state.get("phase") != "Ready" or name not in state.get("assignments", {}):
+            raise ValueError(state.get("assignmentErrors", {}).get(name) or state.get("message") or "Waiting for NVIDIA GPU allocation")
+        device = state["assignments"][name]
+        release = get_resource("helm.toolkit.fluxcd.io", "v2", "helmreleases", FLUX_NAMESPACE, "kubeai") or {}
+        base_name = runtime["baseResourceProfile"].rsplit(":", 1)[0]
+        base = release.get("spec", {}).get("values", {}).get("resourceProfiles", {}).get(base_name)
+        if not base or str((base.get("requests") or {}).get("nvidia.com/gpu")) != "1":
+            raise ValueError("Waiting for the NVIDIA KubeAI profile")
+        profile = json.loads(json.dumps(base))
+        for key in ("requests", "limits"):
+            profile.setdefault(key, {}).pop("nvidia.com/gpu", None)
+            profile[key]["appliance.magicstick.dev/nvidia-dra"] = "1"
+        profile.setdefault("nodeSelector", {})["kubernetes.io/hostname"] = device["node"]
+        # DRA injects CDI devices into ordinary containers; the NVIDIA legacy
+        # runtime must not additionally inject an arbitrary device-plugin GPU.
+        profile.pop("runtimeClassName", None)
+        if (runtime.get("offloading") or {}).get("enabled"):
+            profile["requests"]["memory"] = profile["limits"]["memory"] = str(runtime["memoryMi"]) + "Mi"
+        key = base_name + "-dra-" + hashlib.sha256(json.dumps(profile, sort_keys=True).encode()).hexdigest()[:16]
+        store = get_core_resource("v1", "configmaps", FLUX_NAMESPACE, "magicstick-offloading-profiles") or {}
+        values = json.loads(store.get("data", {}).get("values.json") or "{}")
+        if values.get("resourceProfiles", {}).get(key) != profile:
+            values.setdefault("resourceProfiles", {})[key] = profile
+            encoded = json.dumps(values, sort_keys=True)
+            if len(encoded) > 750000:
+                raise ValueError("Runtime resource-profile storage is full")
+            patch_json("/api/v1/namespaces/" + FLUX_NAMESPACE + "/configmaps/magicstick-offloading-profiles", {"data": {"values.json": encoded}})
+        resource["spec"]["resourceProfile"] = runtime["resourceProfile"] = key + ":1"
+        resource["spec"].setdefault("env", {}).update({"MAGICSTICK_DRA_CLAIM": device["claimName"], "NVIDIA_VISIBLE_DEVICES": "void"})
+        runtime["gpuSharing"] = {"mode": state["mode"], "backend": "dra", "claimName": device["claimName"],
+                                "node": device["node"], "nodeUid": device["nodeUid"], "device": device["uuid"]}
+        resource["metadata"].setdefault("annotations", {}).update({
+            "appliance.magicstick.dev/gpu-sharing-mode": state["mode"],
+            "appliance.magicstick.dev/gpu-claim": device["claimName"], "appliance.magicstick.dev/gpu-device": device["uuid"]})
 
 
     def amd_dra_devices(slices, node):
@@ -1896,8 +2255,10 @@ data:
         return request if isinstance(request, str) and re.fullmatch(r"dashboard-[A-Za-z0-9._-]{1,70}", request) else ""
 
 
-    def gpu_validation_job(node, profile, engine, request_id, host, activation):
+    def gpu_validation_job(node, profile, engine, request_id, host, activation, device_identity=""):
         key = gpu_validation_key(node, profile, engine, request_id, host)
+        if device_identity:
+            key = hashlib.sha256((key + ":" + device_identity).encode()).hexdigest()[:24]
         definition = profile["engines"][engine]
         provider = profile.get("vendor", "amd")
         resource = "nvidia.com/gpu" if provider == "nvidia" else "amd.com/gpu"
@@ -2069,6 +2430,9 @@ data:
                 registered = extended_resource_capacity([node], [resource]) > 0 if resource else False
                 if vendor == "amd" and GPU_SHARING_STATE.get("nodeUid") == metadata.get("uid") and (GPU_SHARING_STATE.get("device") or {}).get("pciAddress") == pci:
                     registered = GPU_SHARING_STATE.get("phase") == "Ready"
+                if vendor == "nvidia" and NVIDIA_SHARING_STATE.get("allocationBackend") == "dra":
+                    registered = NVIDIA_SHARING_STATE.get("phase") == "Ready" and any(
+                        d.get("pciAddress") == pci and d.get("nodeUid") == metadata.get("uid") for d in NVIDIA_SHARING_STATE.get("devices", []))
                 if vendor == "intel":
                     registered = extended_resource_capacity([node], ["gpu.intel.com/xe", "gpu.intel.com/i915"]) > 0
                 host_ready = gpu.get("driver") in ("i915", "xe") if vendor == "intel" else bool(driver and gpu.get("driver") == driver)
@@ -2081,19 +2445,26 @@ data:
                                "expectedArchitecture": gpu.get("architecture", ""),
                                "engines": (catalog.get("diagnostics", {}).get(vendor) or {}).get("engines", {})}
                 device_id = metadata.get("uid", "") + "/" + pci
-                context = hashlib.sha256(json.dumps({"id": device_id, "boot": info.get("bootID"),
-                    "fingerprint": host.get("fingerprint"), "profile": profile,
-                    "generation": activation.get("metadata", {}).get("generation")}, sort_keys=True).encode()).hexdigest()
-                reason = ("" if eligible else "Fresh host evidence, an enabled operator and a registered GPU are required.")
                 # Legacy device plugins select a GPU themselves. Do not present
                 # a node-level allocation as a test of an arbitrarily chosen GPU.
-                if count != 1:
+                dra_device = next((d for d in NVIDIA_SHARING_STATE.get("devices", []) if vendor == "nvidia"
+                    and NVIDIA_SHARING_STATE.get("allocationBackend") == "dra" and NVIDIA_SHARING_STATE.get("phase") == "Ready"
+                    and d.get("nodeUid") == metadata.get("uid") and d.get("pciAddress") == pci), None)
+                context_data = {"id": device_id, "boot": info.get("bootID"), "fingerprint": host.get("fingerprint"),
+                    "profile": profile, "generation": activation.get("metadata", {}).get("generation")}
+                if dra_device:
+                    context_data["gpuUuid"] = dra_device["uuid"]
+                context = hashlib.sha256(json.dumps(context_data, sort_keys=True).encode()).hexdigest()
+                reason = ("" if eligible else "Fresh host evidence, an enabled operator and a registered GPU are required.")
+                if count != 1 and not dra_device:
                     reason = "Exact-device validation requires one physical GPU per vendor on this node; sharing replicas do not count as GPUs."
                 if vendor == "nvidia" and not nvidia_whole_gpu_available(node):
                     reason = "NVIDIA diagnostics require a whole GPU resource without MIG."
                 if not profile.get("engines"):
                     reason = "No approved engine diagnostic is configured for this GPU."
                 total = gpu.get("memoryTotalMi")
+                if dra_device:
+                    total = dra_device.get("totalMi") or total
                 if vendor == "nvidia" and count == 1:
                     total = positive_int(node_labels(node).get("nvidia.com/gpu.memory")) or total
                 architecture = gpu.get("architecture", "")
@@ -2134,7 +2505,8 @@ data:
                 else:
                     node.setdefault("metadata", {}).setdefault("labels", {}).pop(identity_label, None)
         query = urllib.parse.urlencode({"labelSelector": GPU_VALIDATION_LABEL + "=true"})
-        namespaces = {APPLIANCE_NAMESPACE, GPU_SHARING_STATE.get("namespace") or APPLIANCE_NAMESPACE}
+        namespaces = {APPLIANCE_NAMESPACE, GPU_SHARING_STATE.get("namespace") or APPLIANCE_NAMESPACE,
+                      NVIDIA_SHARING_STATE.get("namespace") or APPLIANCE_NAMESPACE}
         jobs = [j for ns in namespaces for j in list_items(f"/apis/batch/v1/namespaces/{ns}/jobs?{query}")]
         pods = [p for ns in namespaces for p in list_items(f"/api/v1/namespaces/{ns}/pods?{query}")]
         jobs = gpu_validation_history(jobs, pods)
@@ -2164,11 +2536,35 @@ data:
                 if request.get("context") != item["validationContext"] or not item["validationAvailable"]:
                     report.update(state="stale", message="Device, host or configuration changed. Review and request a new test manually.")
                     continue
-                desired = gpu_validation_job(node, profile, engine, request["requestId"], host, activation)
+                device_identity = ""
+                if item["vendor"] == "nvidia" and NVIDIA_SHARING_STATE.get("allocationBackend") == "dra":
+                    device = next((d for d in NVIDIA_SHARING_STATE.get("devices", []) if d.get("nodeUid") == item["nodeUid"] and d.get("pciAddress") == item["pciAddress"]), None)
+                    if NVIDIA_SHARING_STATE.get("phase") != "Ready" or not device:
+                        report.update(state="stale", message="The NVIDIA DRA card identity is not ready; no diagnostic was started.")
+                        continue
+                    device_identity = item["id"] + "/" + device["uuid"]
+                desired = gpu_validation_job(node, profile, engine, request["requestId"], host, activation, device_identity)
+                if device_identity:
+                    limit = NVIDIA_SHARING_STATE.get("slotsPerDevice", 0)
+                    used = NVIDIA_SHARING_STATE.get("usedByDevice", {}).get(device["uuid"], limit)
+                    desired["metadata"]["namespace"] = NVIDIA_SHARING_STATE["namespace"]
+                    desired["metadata"].pop("ownerReferences", None)
+                    pod = desired["spec"]["template"]["spec"]
+                    pod.pop("runtimeClassName", None)
+                    pod["resourceClaims"] = [{"name": "gpu", "resourceClaimName": device["claimName"]}]
+                    engine_resources = pod["initContainers"][0]["resources"]
+                    for key in ("requests", "limits"):
+                        engine_resources[key].pop("nvidia.com/gpu", None)
+                    engine_resources["claims"] = [{"name": "gpu"}]
+                    pod["initContainers"][0].setdefault("env", []).append({"name": "NVIDIA_VISIBLE_DEVICES", "value": "void"})
                 desired["spec"]["template"]["spec"]["nodeSelector"][identity_label] = node_labels(node)[identity_label]
                 annotations = desired["metadata"]["annotations"]
                 annotations["appliance.magicstick.dev/validation-device"] = item["id"]
-                job = next((j for j in jobs if j.get("metadata", {}).get("name") == desired["metadata"]["name"]), None)
+                job = next((j for j in jobs if j.get("metadata", {}).get("name") == desired["metadata"]["name"]
+                    and j.get("metadata", {}).get("namespace") == desired["metadata"]["namespace"]), None)
+                if job and job.get("metadata", {}).get("annotations", {}).get("appliance.magicstick.dev/validation-device") != item["id"]:
+                    report.update(state="stale", message="The diagnostic belongs to another physical GPU; request a new test manually.")
+                    continue
                 report["state"] = gpu_job_state(job)
                 report["jobName"] = desired["metadata"]["name"]
                 if job:
@@ -2179,6 +2575,8 @@ data:
                     report["imageId"] = next((s.get("imageID", "") for p in owned for s in p.get("status", {}).get("initContainerStatuses", []) if s.get("name") == "engine"), job.get("_imageId", ""))
                     if report["state"] == "passed" and not validated_image_digest(report["image"], report["imageId"]):
                         report.update(state="stale", message="The completed diagnostic's runtime image identity is unavailable; no verified result is claimed.")
+                elif device_identity and used >= limit:
+                    report.update(state="queued", message="Waiting for a free diagnostic slot on this NVIDIA card; no model is stopped automatically.")
                 elif running:
                     report.update(state="queued", message="Waiting for the current GPU diagnostic to finish.")
                 else:
@@ -2600,6 +2998,8 @@ data:
             allocatable = extended_resource_capacity(supported if module == "amd-gpu" and compatibility is not None else compatible, resource_names)
             if module == "amd-gpu" and GPU_SHARING_STATE.get("mode") == "dra-shared":
                 allocatable = int(GPU_SHARING_STATE.get("phase") == "Ready")
+            if module == "gpu" and NVIDIA_SHARING_STATE.get("allocationBackend") == "dra":
+                allocatable = nvidia_gpu_capacity()
             activation = activations.get(module)
             activation_spec = (activation or {}).get("spec") or {}
             activation_metadata = (activation or {}).get("metadata") or {}
@@ -5027,6 +5427,21 @@ data:
             phase = "Degraded" if GPU_SHARING_STATE.get("phase") == "Blocked" else "Starting"
             patch_status(phase, "GpuSharingBlocked" if phase == "Degraded" else "WaitingForGpuSharing", message, name)
             return phase, status_payload(phase, message, name)
+
+        if model_type == "local" and (spec.get("local") or {}).get("gpuDevice") and (
+                runtime["computeTarget"] != "nvidia-gpu" or NVIDIA_SHARING_STATE.get("allocationBackend") != "dra"):
+            message = "The selected NVIDIA card requires DRA allocation. Refresh Hardware and choose a supported allocation backend; no automatic card substitution is made."
+            cleanup_runtime()
+            patch_status("Degraded", "GpuSelectionRequiresDra", message, name)
+            return "Degraded", status_payload("Degraded", message, name)
+
+        if (model_type == "local" and runtime["computeTarget"] == "nvidia-gpu"
+                and NVIDIA_SHARING_STATE.get("allocationBackend") == "dra"
+                and (is_realtime or requested_engine_name.strip().upper() not in ("VLLM", "OLLAMA"))):
+            message = "This runtime requires NVIDIA device-plugin allocation. Stop NVIDIA models and switch the backend in Hardware; the saved configuration is retained."
+            cleanup_runtime()
+            patch_status("Degraded", "RuntimeRequiresDevicePlugin", message, name)
+            return "Degraded", status_payload("Degraded", message, name)
 
         if (model_type == "local" and requested_engine_name.strip().upper() == "FREETOKEN"
                 and runtime["computeTarget"] == "nvidia-gpu" and NVIDIA_SHARING_STATE.get("managed")

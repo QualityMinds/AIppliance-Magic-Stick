@@ -140,6 +140,29 @@ class PhysicalGpuTests(unittest.TestCase):
         self.assertTrue(devices[0]['validationAvailable'])
         self.assertTrue(all(not x['validationAvailable'] for x in devices[1:]))
 
+    def test_nvidia_dra_diagnostics_bind_the_selected_physical_card_and_wait_for_slots(self):
+        self.host['displayDevices'].append({**self.host['displayDevices'][1], 'pciAddress': '0000:03:00.0'})
+        card = {'uuid': 'GPU-00000000-0000-0000-0000-000000000001', 'nodeUid': 'example-uid',
+                'pciAddress': '0000:03:00.0', 'claimName': 'fixture-nvidia-claim', 'totalMi': 49152}
+        self.c['NVIDIA_SHARING_STATE'] = {'allocationBackend': 'dra', 'phase': 'Ready', 'namespace': 'ai',
+            'nodeUid': 'example-uid', 'devices': [card], 'slotsPerDevice': 2, 'usedByDevice': {card['uuid']: 0}}
+        inventory = self.inventory()
+        self.assertTrue(inventory[2][0]['validationAvailable'])
+        self.assertFalse(inventory[1][0]['validationAvailable'])
+        self.request(engine='VLLM', vendor='nvidia')
+        result = self.reconcile()
+        job = next(x for x in self.writes if x['kind'] == 'Job')
+        self.assertEqual(job['metadata']['namespace'], 'ai')
+        pod = job['spec']['template']['spec']
+        self.assertNotIn('runtimeClassName', pod)
+        self.assertEqual(pod['resourceClaims'], [{'name': 'gpu', 'resourceClaimName': 'fixture-nvidia-claim'}])
+        self.assertNotIn('nvidia.com/gpu', pod['initContainers'][0]['resources']['limits'])
+        self.assertEqual(pod['initContainers'][0]['resources']['claims'], [{'name': 'gpu'}])
+        self.assertEqual(result[2]['validation']['VLLM']['state'], 'running')
+        self.writes.clear(); self.c['NVIDIA_SHARING_STATE']['usedByDevice'][card['uuid']] = 2
+        self.assertEqual(self.reconcile()[2]['validation']['VLLM']['state'], 'queued')
+        self.assertEqual(self.writes, [])
+
     def test_stale_host_inventory_and_mig_do_not_claim_exact_gpu_readiness(self):
         self.host['bootId'] = 'old-boot'
         self.assertEqual(self.inventory(), [])
@@ -152,6 +175,37 @@ class PhysicalGpuTests(unittest.TestCase):
         servers = release['spec']['values']['modelServers']
         for engine, prefix in [('OLlama', 'ollama'), ('VLLM', 'vllm')]:
             self.assertEqual(self.catalog['diagnostics']['nvidia']['engines'][engine]['image'], servers[engine]['images']['magicstick-' + prefix + '-nvidia'])
+
+    def test_all_nvidia_cards_receive_distinct_jobs_and_results_for_one_request(self):
+        self.host['displayDevices'].append({**self.host['displayDevices'][1], 'pciAddress': '0000:03:00.0'})
+        cards = [{'uuid': 'GPU-00000000-0000-0000-0000-' + str(i).zfill(12), 'nodeUid': 'example-uid',
+                  'pciAddress': pci, 'claimName': 'fixture-claim-' + str(i), 'totalMi': 49152}
+                 for i, pci in enumerate(('0000:02:00.0', '0000:03:00.0'))]
+        self.c['NVIDIA_SHARING_STATE'] = {'allocationBackend': 'dra', 'phase': 'Ready', 'namespace': 'ai',
+            'nodeUid': 'example-uid', 'devices': cards, 'slotsPerDevice': 1, 'usedByDevice': {d['uuid']: 0 for d in cards}}
+        self.c['list_items'] = lambda path: self.jobs if '/namespaces/ai/jobs?' in path else []
+        self.c['gpu_validation_history'] = lambda jobs, _pods: jobs
+        self.request(engine='VLLM', vendor='nvidia')
+        result = self.reconcile()
+        self.assertEqual([d['validation']['VLLM']['state'] for d in result[1:]], ['running', 'queued'])
+        first = next(x for x in self.writes if x['kind'] == 'Job')
+        self.jobs.append(first)
+        self.c['NVIDIA_SHARING_STATE']['usedByDevice'][cards[0]['uuid']] = 1
+        # Its own running diagnostic fills the slot, but still has a running result.
+        self.assertEqual(self.reconcile()[1]['validation']['VLLM']['state'], 'running')
+        first['status'] = {'conditions': [{'type': 'Complete', 'status': 'True'}]}
+        first['_imageId'] = 'fixture/runtime@sha256:' + 'a' * 64
+        self.writes.clear()
+        result = self.reconcile()
+        second = next(x for x in self.writes if x['kind'] == 'Job')
+        self.assertNotEqual(first['metadata']['name'], second['metadata']['name'])
+        self.assertEqual([d['validation']['VLLM']['state'] for d in result[1:]], ['passed', 'running'])
+        self.assertEqual(second['spec']['template']['spec']['resourceClaims'][0]['resourceClaimName'], cards[1]['claimName'])
+        # A replacement GPU at the same PCI address invalidates the old request.
+        cards[1]['uuid'] = 'GPU-00000000-0000-0000-0000-000000000099'
+        self.writes.clear()
+        self.assertEqual(self.reconcile()[2]['validation']['VLLM']['state'], 'stale')
+        self.assertEqual(self.writes, [])
 
 
 if __name__ == '__main__':

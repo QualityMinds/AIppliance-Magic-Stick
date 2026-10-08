@@ -147,4 +147,23 @@ describe('model parameter editing', () => {
       expectedRevision: '8', external: {contextWindow: 64000},
     }));
   });
+
+  it('keeps an AMD shared-claim PCI identity out of the NVIDIA card selector', async () => {
+    const saved = structuredClone(models);
+    saved.activations[0]!.spec!.local!.computeTarget = 'amd-gpu';
+    saved.activations[0]!.status = {phase: 'Ready', gpuSharing: {mode: 'dra-shared', node: 'example-node', device: '0000:66:00.0'}};
+    saved.computeTargets.targets[0]!.id = 'amd-gpu';
+    saved.computeMemory!.devices![0]!.computeTarget = 'amd-gpu';
+    vi.mocked(api.models).mockResolvedValue(saved);
+    const user = userEvent.setup();
+    renderModels();
+    await user.click(await screen.findByRole('button', {name: 'Edit qwen-local'}));
+    const dialog = within(screen.getByRole('dialog', {name: 'Edit Model · qwen-local'}));
+    expect(dialog.queryByLabelText('NVIDIA card')).not.toBeInTheDocument();
+    await user.clear(dialog.getByLabelText('Context Size'));
+    await user.type(dialog.getByLabelText('Context Size'), '8192');
+    await waitFor(() => expect(dialog.getByRole('button', {name: 'Save changes'})).toBeEnabled());
+    await user.click(dialog.getByRole('button', {name: 'Save changes'}));
+    await waitFor(() => expect(api.updateModel).toHaveBeenCalledWith('qwen-local', {expectedRevision: '17', local: {contextWindow: 8192}}));
+  });
 });

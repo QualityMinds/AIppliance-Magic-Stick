@@ -373,6 +373,11 @@ hardware acceptance boundaries.
 [GPU sharing](../administration/gpu-sharing.md) is independent of CPU offloading. Managed NVIDIA
 time-slicing/exclusive profiles keep the selected node, runtime and offloading
 RAM requests/limits while requesting one device-plugin allocation per model.
+Opt-in NVIDIA DRA profiles retain the same CPU/RAM/offloading settings but use
+one explicit claim for the selected physical card. Their Ready ResourceSlice
+inventory and node identity replace the legacy extended-resource readiness
+check. They do not advertise a synthetic `nvidia.com/gpu` resource or extend the
+FreeToken/Realtime adapter. See [exact-card allocation](../administration/gpu-sharing.md#opting-into-exact-card-dra-allocation).
 Sharing slots do not create VRAM partitions or additional physical GPUs.
 
 The browser and TUI offer **Use additional system RAM** for a single NVIDIA

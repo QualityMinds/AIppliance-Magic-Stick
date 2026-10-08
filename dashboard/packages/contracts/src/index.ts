@@ -138,7 +138,7 @@ export interface KubernetesObjectMeta {
 }
 
 export interface StatusValue {
-  gpuSharing?: {mode: 'dra-shared' | 'time-slicing' | 'exclusive'; claimName?: string; node: string; device?: string; slotCount?: number; memoryIsolation?: boolean} | null;
+  gpuSharing?: {mode: 'dra-shared' | 'time-slicing' | 'exclusive'; backend?: 'dra' | 'device-plugin'; claimName?: string; node: string; nodeUid?: string; device?: string; slotCount?: number; memoryIsolation?: boolean} | null;
   /** Optional normalized observations from a FreeToken local runtime. */
   freeTokenStats?: FreeTokenRuntimeStats | null;
   phase?: string;
@@ -283,6 +283,12 @@ export interface SharedMemoryPool extends SharedMemoryInventory {
   systemReserveMi?: number | null;
 }
 
+export interface NvidiaGpuSelection {
+  nodeName: string;
+  nodeUid: string;
+  uuid: string;
+}
+
 export interface ComputeMemoryDevice extends GpuAllocationEvidence {
   id: string;
   kind?: string;
@@ -291,6 +297,8 @@ export interface ComputeMemoryDevice extends GpuAllocationEvidence {
   name?: string;
   /** Nodes reporting this physical device; used to show a scheduler node, never a GPU UUID. */
   nodes?: string[];
+  /** DRA-verified full GPU, never a guessed device-plugin assignment. */
+  gpuDevice?: NvidiaGpuSelection;
   totalMi?: number;
   reservedMi?: number;
   unreservedMi?: number | null;
@@ -455,6 +463,7 @@ export interface GpuSlots {
   queued?: number;
   scope?: 'device' | 'node' | 'target';
   node?: string;
+  uuid?: string;
   mode?: string;
 }
 
@@ -806,6 +815,8 @@ export interface GpuSharingState {
   phase: string;
   message: string;
   device?: {name: string; pool: string; pciAddress: string} | null;
+  draAvailable?: boolean;
+  devices?: Array<{uuid: string; name: string; pool: string; node: string; nodeUid: string; pciAddress?: string; totalMi?: number; claimName: string}>;
   claimName: string;
   activeModels: number;
   admittedModels: string[];
@@ -821,6 +832,7 @@ export interface GpuSharingRequest {
   expectedRevision: string;
   acknowledgeSharing: boolean;
   acknowledgeRestart: boolean;
+  allocationBackend?: 'device-plugin' | 'dra';
 }
 
 export interface HardwareOperator {
