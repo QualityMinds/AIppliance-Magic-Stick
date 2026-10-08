@@ -19,24 +19,38 @@
         path: "{{ nvidia_display_new_install_marker }}"
       register: nvidia_display_new_install
 
-    - name: Require the reviewed Ubuntu NVIDIA host-driver combination
+    - name: Require a supported Ubuntu host for automatic NVIDIA driver selection
       ansible.builtin.assert:
         that:
           - ansible_facts['distribution'] == 'Ubuntu'
           - ansible_facts['distribution_version'] in ['24.04', '26.04']
           - ansible_facts['architecture'] == 'x86_64'
-          - nvidia_display_driver_version == '595.91.07'
-          - nvidia_display_ubuntu_package_version is match('^595\\.91\\.07-0ubuntu0\\.(24|26)\\.04\\.1$')
         fail_msg: >-
-          Automatic NVIDIA display preparation is reviewed only for Ubuntu
-          24.04/26.04 x86_64 with the pinned 595 driver. Do not install an unreviewed
-          host driver or let the GPU Operator take over an active console.
+          Automatic NVIDIA host-driver selection requires Ubuntu 24.04/26.04
+          x86_64. Keep the GPU Operator from taking over an active console.
 
-    - name: Install the pinned NVIDIA host driver and diagnostic utility
+    - name: Install Ubuntu hardware-based driver selection
       ansible.builtin.apt:
-        name:
-          - "nvidia-headless-595-open={{ nvidia_display_ubuntu_package_version }}"
-          - "nvidia-utils-595={{ nvidia_display_ubuntu_package_version }}"
+        name: ubuntu-drivers-common
+        state: present
+        install_recommends: false
+        update_cache: false
+        allow_downgrade: false
+        fail_on_autoremove: true
+        allow_unauthenticated: false
+        force_apt_get: true
+
+    - name: Select Ubuntu's recommended NVIDIA packages or retain the installed driver
+      ansible.builtin.script:
+        cmd: select-driver.py
+        executable: /usr/bin/python3
+      register: nvidia_display_driver_plan
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Install the recommended NVIDIA host-driver package set
+      ansible.builtin.apt:
+        name: "{{ (nvidia_display_driver_plan.stdout | from_json).packages }}"
         state: present
         install_recommends: false
         update_cache: false
@@ -45,6 +59,9 @@
         allow_unauthenticated: false
         force_apt_get: true
       register: nvidia_display_packages
+      when:
+        - not ansible_check_mode
+        - (nvidia_display_driver_plan.stdout | from_json).packages | length > 0
 
     - name: Create NVIDIA persistence service override directory
       ansible.builtin.file:

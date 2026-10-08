@@ -29,7 +29,7 @@ End-user installation steps are collected in
 ## GPU compatibility diagnostics
 
 On Ubuntu 24.04/26.04 x86_64 appliances with an NVIDIA PCI display controller, the
-`nvidia-display` role installs the pinned host driver and enables its DRM
+`nvidia-display` role installs Ubuntu's recommended host driver and enables its DRM
 framebuffer. This keeps the local first-run and dashboard text consoles visible
 when the monitor is attached to NVIDIA HDMI/DisplayPort. K3s labels that node
 `nvidia.com/gpu.deploy.driver=false`, so the GPU Operator can still provide its
@@ -50,9 +50,19 @@ this behavior from the fetched playbook. A same-boot marker prevents repeated
 scheduling; an interrupted playbook can finish on a later convergence in that
 boot. On CPU-only and AMD-only systems, the role installs no NVIDIA packages,
 writes no NVIDIA boot configuration, and schedules no NVIDIA reboot. Existing
-NVIDIA hosts need a separately approved restart after convergence. Keep the
-pinned host package and GPU Operator driver versions in sync when upgrading
-either one.
+NVIDIA hosts need a separately approved restart after convergence. On a new host,
+the role reads `ubuntu-drivers devices` and `ubuntu-drivers list --recommended
+--include-dkms`: Ubuntu chooses the driver series and matching kernel-module
+packages, while APT selects current package versions from the configured archives.
+There is no fixed driver series or patch version. The display-driver metapackage
+also supplies the matching user-space utilities; this is not a desktop-environment
+installation. Missing/conflicting recommendations fail before driver installation.
+Existing fully installed Ubuntu NVIDIA driver metapackages are retained without
+reselection or upgrading. The GPU Operator's separately pinned container driver
+is not used on these host-owned nodes. Package selection alone is not proof of
+kernel, console or inference compatibility; validate those on the target hardware.
+GPU/kernel exclusions in [Ubuntu updates](../docs/administration/ubuntu-updates.md)
+remain unchanged.
 
 Live memory counters use a separate `magicstick-memory-sample.timer` (30 seconds).
 It publishes Linux `MemAvailable` and per-PCI AMD VRAM/GTT usage, without engine

@@ -23,7 +23,7 @@
    preflight, device-registration and model-ready timestamps.
 
 On a local Ubuntu x86_64 appliance with an NVIDIA display controller, the host
-role installs the pinned R595 driver and loads `nvidia-drm` with framebuffer
+role installs Ubuntu's recommended NVIDIA host driver and loads `nvidia-drm` with framebuffer
 support after one Ansible-scheduled first-install reboot. The playbook schedules
 it only after successful host convergence and only when it changed a new
 installation; the USB image itself has no NVIDIA reboot logic. This lets the
@@ -33,6 +33,16 @@ the Toolkit and Device Plugin remain Operator-managed. CPU-only and AMD-only
 hosts skip the NVIDIA role and do not reboot for it. Check `cat /proc/fb`,
 `modinfo -F version nvidia_drm`, the node label, and the GPU Operator operands
 separately; the visible console is not proof of inference readiness.
+
+Driver series and patch versions are not fixed in this host role. On a fresh
+host, `ubuntu-drivers` supplies the hardware recommendation and matching kernel
+packages; APT resolves the coherent current dependency set. A configured Ubuntu
+NVIDIA driver metapackage is retained on later convergence. If installation stops
+in this role, inspect `ubuntu-drivers devices`, `ubuntu-drivers list --recommended
+--include-dkms`, and APT's local logs. Every NVIDIA GPU needs the same distro
+recommendation; missing, conflicting or third-party recommendations are not
+silently replaced with an arbitrary series. No package-signature check is disabled,
+and the role does not permit downgrades or automatic package removal.
 
 On other Kubernetes GPU nodes without this host-display policy, the
 conventional NVIDIA R595 container still installs/builds its kernel module

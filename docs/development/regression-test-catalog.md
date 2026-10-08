@@ -464,6 +464,16 @@ branch is not permission to execute arbitrary unreviewed code on the runner/host
 Physical restart tests need explicit consent; power-off additionally needs a
 known independent power-on path. An unreachable host does not prove power-off.
 
+The NVIDIA owning suite in
+[`nvidia-display/tests/test_role.py`](../../magic-host/roles/nvidia-display/tests/test_role.py)
+also covers fresh-install driver selection: Ubuntu's hardware recommendation,
+unversioned APT package names, matching kernel modules, multi-GPU agreement,
+retained existing driver packages and fail-closed recommendation errors. The
+suite is already selected by the Phase 6 `boot` owning group and Public release
+checks. These are local support contracts for boot recovery, not USB/VM install
+acceptance or a live BOOT-03 inference result. The physical target must still
+pass console, driver, toolkit/device registration and inference checks.
+
 | ID | Action and expected proof | Layers | Gate |
 |---|---|---|---|
 | BOOT-01 | Open power tab as each role, review/cancel/wrong-name/confirmed request. Only administrator exact-host confirmation schedules one orderly action; stale/busy hosts are blocked. | U+C+B | P0 · fast |
