@@ -6,7 +6,8 @@ Start with [development environment](environment.md) and the repository's
 - [Checkout and bootstrap checks](checkout.md)
 - [Build and test](testing.md)
 - [Installed-appliance regression test concept](regression-test-concept.md) and
-  [incremental test case catalog](regression-test-catalog.md)
+  [incremental test case catalog](regression-test-catalog.md), with the
+  [short regression runner guide](regression-remaining-p0.md)
 - [Extend Magic Stick](extensions.md)
 - [Dashboard development](dashboard.md)
 - [Model catalog integration](model-integration.md)

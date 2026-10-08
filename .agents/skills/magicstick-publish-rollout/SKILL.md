@@ -27,6 +27,12 @@ explicitly deferred, record them as skipped, not passed. Do not silently disable
 CI. Normal CI triggered by an authorized push may publish Pages/images; inspect
 and report only the stages relevant to the user's request.
 
+For behavior changes, review the coverage decision required by the
+[regression skill](../magicstick-regression/SKILL.md): affected tests and their
+selection must accompany the change, or adequate existing coverage must be named.
+Report unrun live checks separately; a commit-only request does not require or
+authorize a full campaign.
+
 ## Image and live acceptance
 
 A source build or mutable tag does not replace a deployment's pinned image. Match

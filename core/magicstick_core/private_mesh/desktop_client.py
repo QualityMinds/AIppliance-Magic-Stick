@@ -222,12 +222,18 @@ def companion_self_test(bundle):
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
 
-            def request(path, token=None, method='GET'):
+            def request(path, token=None, method='GET', bearer=None, origin=None, host=None):
                 connection = http.client.HTTPConnection('127.0.0.1', server.server_port, timeout=5)
                 try:
                     headers = {'Content-Type': 'application/json'}
                     if token:
                         headers['X-MagicStick-Session'] = token
+                    if bearer:
+                        headers['Authorization'] = 'Bearer ' + bearer
+                    if origin:
+                        headers['Origin'] = origin
+                    if host:
+                        headers['Host'] = host
                     connection.request(method, path, b'{}' if method == 'POST' else None, headers)
                     response = connection.getresponse()
                     return response.status, response.read()
@@ -243,6 +249,18 @@ def companion_self_test(bundle):
             status = json.loads(data)
             if code != 200 or status.get('configured') or status.get('role') != 'client':
                 raise ValueError('Client startup status is invalid.')
+            if request('/v1/models', bearer=app.api_token)[0] != 200:
+                raise ValueError('Inference-only model listing failed.')
+            for path in ('/status', '/connection', '/join', '/leave', '/quit', '/invite', '/share', '/relay'):
+                method = 'GET' if path in ('/status', '/connection') else 'POST'
+                if request(path, method=method, bearer=app.api_token)[0] != 403:
+                    raise ValueError('Inference key crossed the management boundary.')
+            if (request('/v1/models', bearer='invalid')[0] != 401
+                    or request('/v1/models', bearer=app.api_token, origin='https://example.invalid')[0] != 403
+                    or request('/v1/models', bearer=app.api_token, host='example.invalid')[0] != 403):
+                raise ValueError('Client host/origin/key protection failed.')
+            if app.stop.is_set():
+                raise ValueError('An inference key stopped the application.')
             if request('/quit', app.token, 'POST')[0] != 200 or not app.stop.is_set():
                 raise ValueError('Client shutdown check failed.')
         finally:
@@ -254,7 +272,8 @@ def companion_self_test(bundle):
             app.runtime.stop()
             app.service.store.db.close()
     return {'version': 1, 'platform': sys.platform, 'launcherVerified': True,
-            'transportVerified': True, 'loopbackAuthVerified': True, 'meshInferenceVerified': False}
+            'transportVerified': True, 'loopbackAuthVerified': True, 'inferenceAuthorityVerified': True,
+            'originHostVerified': True, 'isolatedStateVerified': True, 'meshInferenceVerified': False}
 
 
 def main():

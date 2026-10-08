@@ -210,7 +210,8 @@ class FrozenLaunchCheckTests(unittest.TestCase):
                     patch('runtime.subprocess.Popen') as transport:
                 report = companion_self_test(bundle)
             self.assertEqual(report, {'version': 1, 'platform': sys.platform, 'launcherVerified': True,
-                                     'transportVerified': True, 'loopbackAuthVerified': True, 'meshInferenceVerified': False})
+                                     'transportVerified': True, 'loopbackAuthVerified': True, 'inferenceAuthorityVerified': True,
+                                     'originHostVerified': True, 'isolatedStateVerified': True, 'meshInferenceVerified': False})
             self.assertEqual(native.call_args.args[0], [str(binary), '--version'])
             self.assertFalse(Path(native.call_args.kwargs['env']['MESH_LLM_DATA_DIR']).parent.exists())
             self.assertFalse((bundle / 'client.db').exists())

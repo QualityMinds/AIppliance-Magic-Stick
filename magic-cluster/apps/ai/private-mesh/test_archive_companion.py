@@ -15,7 +15,8 @@ from archive_companion import archive_companion, UPSTREAM_REVISION, verify_launc
 
 def launch_report(platform):
     return {'version': 1, 'platform': platform, 'launcherVerified': True,
-            'transportVerified': True, 'loopbackAuthVerified': True, 'meshInferenceVerified': False}
+            'transportVerified': True, 'loopbackAuthVerified': True, 'inferenceAuthorityVerified': True,
+            'originHostVerified': True, 'isolatedStateVerified': True, 'meshInferenceVerified': False}
 
 
 class CompanionArchiveTests(unittest.TestCase):

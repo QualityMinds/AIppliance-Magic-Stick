@@ -195,8 +195,10 @@ export class MagicStickApi {
     });
   }
 
-  disableModule(name: string) {
-    return this.request(`/api/modules/${encodeURIComponent(name)}/disable`, {method: 'POST', body: '{}'});
+  disableModule(name: string, parameters?: Record<string, string>) {
+    return this.request(`/api/modules/${encodeURIComponent(name)}/disable`, {
+      method: 'POST', body: JSON.stringify(parameters === undefined ? {} : {parameters}),
+    });
   }
 
   moduleCredentials(name: string) {

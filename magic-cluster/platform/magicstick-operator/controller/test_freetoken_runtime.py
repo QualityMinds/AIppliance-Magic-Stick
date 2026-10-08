@@ -419,7 +419,12 @@ nvcc() { printf 'Cuda compilation tools, release %s, V%s.88\n' "${TEST_TOOLKIT:-
                 ft.write_text("#!" + sys.executable + "\nimport json, sys\nprint(json.dumps(sys.argv[1:]))\n")
                 ft.chmod(0o755)
                 env.update(FREETOKEN_HOME=temporary, HF_HOME=temporary, XDG_CACHE_HOME=temporary, HOME=temporary)
-                script = hardware + entrypoint.replace("/opt/freetoken/bin/python", sys.executable).replace("/opt/freetoken/bin/ft", str(ft))
+                # The hardened regression runner has a noexec /tmp. Only the
+                # synthetic CLI is interpreted here; the real entrypoint, CUDA
+                # preflight and generated argv remain under test.
+                self.assertIn("exec /opt/freetoken/bin/ft ", entrypoint)
+                script = hardware + entrypoint.replace("/opt/freetoken/bin/python", sys.executable).replace(
+                    "exec /opt/freetoken/bin/ft ", "exec " + sys.executable + " " + str(ft) + " ")
             return subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True)
 
     def test_full_entrypoint_starts_with_unset_optional_parameters(self):

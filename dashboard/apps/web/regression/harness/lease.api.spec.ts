@@ -6,15 +6,15 @@ import {loadLabConfig} from '../core/config.ts';
 import {KubernetesLeaseStore, KubectlObserver} from '../core/observer.ts';
 import {HarnessError, requireSafe} from '../core/errors.ts';
 import {writePrivate} from '../core/private-files.ts';
-import {newRunId, restoreRevision} from '../core/journal.ts';
+import {restoreRevision} from '../core/journal.ts';
 import {LabLease, type Lease} from '../core/lease.ts';
 import {poll, currentReady} from '../core/poll.ts';
 import {typeScriptWorkerArgs} from '../core/node-worker.ts';
 
-function contender(): Promise<{code: number | null; result: string}> {
+function contender(index:1|2): Promise<{code: number | null; result: string}> {
   return new Promise(resolve => {
     const child = spawn(process.execPath, typeScriptWorkerArgs(fileURLToPath(new URL('../lock-contender.mjs', import.meta.url))),
-      {env: process.env, stdio: ['ignore', 'pipe', 'ignore']});
+      {env: {...process.env,REGRESSION_LOCK_CONTENDER_INDEX:String(index)}, stdio: ['ignore', 'pipe', 'ignore']});
     let result = '';
     child.stdout.on('data', (chunk: Buffer) => { result += chunk.toString(); if (result.length > 128) child.kill('SIGKILL'); });
     child.once('error', () => resolve({code: 2, result: 'unexpected'}));
@@ -30,7 +30,7 @@ test('HAR-04 [p0:lease-race] separate runner processes race for one real applian
   const before = await store.read();
   requireSafe(before.metadata.labels['regression.magicstick.dev/appliance-uid'] === config.expected.applianceUid, 'IDENTITY');
   requireSafe(!before.spec.holderIdentity, 'LOCK_BUSY');
-  const results = await Promise.all([contender(), contender()]);
+  const results = await Promise.all([contender(1), contender(2)]);
   requireSafe(process.env.REGRESSION_RUN_DIR, 'CONFIG');
   await writePrivate(join(process.env.REGRESSION_RUN_DIR, 'lock-outcomes.json'), results.map(item =>
     ({code: item.code, result: /^(won-and-released|busy|failed-[A-Z_]+|unexpected)$/.test(item.result) ? item.result : 'unexpected'})));
@@ -46,8 +46,9 @@ test('HAR-08 [p0:revision-conflict] an intervening real API revision prevents au
   const config = await loadLabConfig(process.env.REGRESSION_CONFIG);
   requireSafe(config.lock, 'CONFIG');
   const store = new KubernetesLeaseStore(config.lock.kubeconfig, config.lock.namespace, config.lock.name);
-  const owner = new LabLease(store, newRunId(), config.expected.applianceUid, Date.now, 60);
-  await owner.acquire();
+  requireSafe(process.env.REGRESSION_RUN_ID,'CONFIG');
+  const owner = new LabLease(store, process.env.REGRESSION_RUN_ID, config.expected.applianceUid, Date.now, 60);
+  await owner.acquire(process.env.REGRESSION_RUN_ID);
   const key = 'regression.magicstick.dev/revision-probe';
   type Annotated = Lease & {metadata: Lease['metadata'] & {annotations?: Record<string, string>}};
   let safeToRelease = false;

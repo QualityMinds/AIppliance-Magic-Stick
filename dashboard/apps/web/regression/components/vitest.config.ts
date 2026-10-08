@@ -12,4 +12,4 @@ const resolvedCache = cacheDir ? resolve(cacheDir) : '';
 requireSafe(Boolean(resolvedCache && resolvedCache.startsWith(temporaryRoot + sep) &&
   /^magicstick-units-[a-zA-Z0-9]+$/.test(basename(dirname(resolvedCache))) && basename(resolvedCache) === 'cache'), 'CONFIG');
 
-export default mergeConfig(dashboardConfig, {cacheDir: resolvedCache, test: {cache: false}});
+export default mergeConfig(dashboardConfig, {cacheDir: resolvedCache, test: {cache: false, includeTaskLocation: true}});

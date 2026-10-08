@@ -1,4 +1,4 @@
-import {test, expect, type APIRequestContext} from '@playwright/test';
+import {test, expect, type APIRequestContext,type BrowserContext} from '@playwright/test';
 import {mkdtemp, rm, writeFile, lstat, readFile, chmod, symlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -11,17 +11,19 @@ import type {ModelsPayload, ManagedHost} from '@magicstick/dashboard-contracts';
 import {parseLabConfig, loadLabConfig, type LabConfig} from '../core/config.ts';
 import {HarnessError} from '../core/errors.ts';
 import {ResourceJournal, newRunId, restoreRevision, type CleanupAdapter, type ResourceKind} from '../core/journal.ts';
-import {LabLease, type LeaseStore, type Lease} from '../core/lease.ts';
+import {LabLease, leaseHolderReason, type LeaseStore, type Lease} from '../core/lease.ts';
 import {readPrivate, writePrivate} from '../core/private-files.ts';
 import {poll, currentReady} from '../core/poll.ts';
 import {summarize, saveReport, liveReportScope, redact, stepCases, type CaseResult} from '../core/report.ts';
 import {safeBaseline, verifiedEndpoint, verifyCapabilities, verifyIdentity, verifyIdle} from '../core/preflight.ts';
-import {allowedExactDashboardRequest, allowedOwnedContextEdit, allowedOwnedEstimate, allowedOwnedStart, allowedOwnedStop, allowedOwnedKeyChange, realLogin} from '../core/auth.ts';
+import {allowedExactDashboardRequest, allowedOwnedContextEdit, allowedOwnedEstimate, allowedOwnedStart, allowedOwnedStop, allowedOwnedKeyChange, realLogin,openInferenceSession} from '../core/auth.ts';
+import {failureOutcome} from '../reporter.ts';
 import {readOnlyApi, readOnlyFetch} from '../core/transport.ts';
 import {KubernetesLeaseStore, verifyObserverRules, type KubeObject} from '../core/observer.ts';
 import {OwnedKeyClient} from '../core/owned-key.ts';
 import {KubernetesModelCleaner, verifyModelCleanerRules} from '../core/model-cleanup.ts';
-import {OwnedModelClient, activation, editRevision, fixtureIsAdvertised, ownedRuntimePods} from '../core/owned-model.ts';
+import {ModelCreateRejected, OwnedModelClient, activation, editRevision, fixtureIsAdvertised, hasRuntimeCrashLoop, ownedRuntimePods} from '../core/owned-model.ts';
+import {LiveFoundation} from '../core/live-foundation.ts';
 import {InferenceProbe} from '../core/inference.ts';
 import {phase0Ids, phase0Variants, phase0Coverage, requirePhase0Profile, type Phase0Variant} from '../profiles/phase0-p0.ts';
 import {phase1Ids, phase1Variants, phase1Requirements, phase1Coverage} from '../profiles/phase1-p0.ts';
@@ -69,6 +71,19 @@ function node(): KubeObject {
   return {metadata: {name: 'fixture-node', uid: 'node-uid'}, status: {nodeInfo: {bootID: 'boot-uid', kernelVersion: '7.0.0-test'}, conditions: [{type: 'Ready', status: 'True'}]}};
 }
 function models(): ModelsPayload { return {activations: [], presets: {}, computeTargets: {targets: [{id: 'cpu', available: true, engines: ['OLlama', 'VLLM']}]}}; }
+// Exercise the real create orchestration with inert adapters, without opening a
+// browser session or granting any cluster credentials to an isolated test.
+function creationFoundation(request: APIRequestContext, journal: ResourceJournal,
+  find: (name: string) => Promise<KubeObject | null> = async () => null,
+  guard: () => Promise<void> = async () => {}) {
+  return Object.assign(Object.create(LiveFoundation.prototype), {
+    context: {request}, config: phase2Config(), journal, cleaner: {find}, guard,
+  }) as LiveFoundation;
+}
+function jsonResponse(value: unknown, status = 200) {
+  return {status: () => status, headers: () => ({'content-type': 'application/json'}),
+    body: async () => Buffer.from(JSON.stringify(value))};
+}
 function appliance() { return {metadata: {uid: 'appliance-uid', name: 'local', namespace: 'ai-system'}}; }
 function lease(): Lease {
   return {kind: 'Lease', apiVersion: 'coordination.k8s.io/v1', metadata: {name: 'lab-lock', namespace: 'magicstick-regression', resourceVersion: '1',
@@ -83,6 +98,22 @@ class MemoryLease implements LeaseStore {
     return this.read();
   }
 }
+
+test('HAR-04 registration refresh distinguishes stale and active leases without granting takeover', () => {
+  const value = lease(), now = Date.parse('2026-01-01T00:02:00Z');
+  expect(leaseHolderReason(value, now)).toBeUndefined();
+  value.spec = {holderIdentity: 'another-run', renewTime: '2026-01-01T00:01:00Z', leaseDurationSeconds: 120};
+  expect(leaseHolderReason(value, now)).toBe('LOCK_BUSY');
+  value.spec.renewTime = '2026-01-01T00:00:00Z';
+  expect(leaseHolderReason(value, now)).toBe('LOCK_STALE');
+  for (const duration of [0, -1, NaN]) {
+    value.spec.leaseDurationSeconds = duration;
+    expect(leaseHolderReason(value, now)).toBe('LOCK_BUSY');
+  }
+  value.spec.leaseDurationSeconds = 120; value.spec.renewTime = 'invalid';
+  expect(leaseHolderReason(value, now)).toBe('LOCK_BUSY');
+  expect(value.spec.holderIdentity).toBe('another-run');
+});
 
 test('HAR-01 strict private config, HTTPS and required identity pins', async () => {
   expect(parseLabConfig(config(), directory).dashboardUrl).toBe(config().dashboardUrl);
@@ -204,7 +235,7 @@ test('HAR-10 Phase 1 requires every Test-ID variant and canonical layer and fail
   const partial = await saveReport(directory, newRunId(), cases.filter(item => item.variant !== 'ui-start'), phase1Ids, 'a'.repeat(40), 'phase1');
   expect(partial.acceptable).toBe(false); expect(partial.fullPhase1Accepted).toBe(false);
   expect(await readFile(join(directory, 'junit.xml'), 'utf8')).toContain('LIFE-04/ui-start');
-  expect(await readFile(join(directory, 'junit.xml'), 'utf8')).toContain('<failure');
+  expect(await readFile(join(directory, 'junit.xml'), 'utf8')).toContain('<skipped type="Blocked"');
 });
 
 test('ROUTE-06 auth-negative probe cannot accept a success or model-not-found as key rejection', async () => {
@@ -409,6 +440,32 @@ test('HAR-04 a read failure between ownership check and heartbeat permanently fe
   expect(store.value.spec.holderIdentity).toBe(owner.owner);
 });
 
+test('HAR-04 bounded maintenance reservation keeps one owner and returns to the ordinary deadline', async () => {
+  let now=1_000_000;
+  const store=new MemoryLease(),owner=new LabLease(store,newRunId(),'appliance-uid',()=>now,120);
+  await owner.acquire();
+  await expect(owner.reserveOfflineWindow(2101)).rejects.toMatchObject({code:'CONFIG'});
+  await owner.reserveOfflineWindow(2100);
+  await expect(owner.reserveOfflineWindow(2100)).rejects.toMatchObject({code:'CONFIG'});
+  now+=600_000;await owner.assertHeld();
+  await expect(new LabLease(store,newRunId(),'appliance-uid',()=>now).acquire()).rejects.toMatchObject({code:'LOCK_BUSY'});
+  await owner.finishOfflineWindow();expect(store.value.spec.leaseDurationSeconds).toBe(120);
+  await owner.release();expect(store.value.spec.holderIdentity).toBe('');
+});
+
+test('HAR-04 maintenance expiry or replacement cannot revive ownership for cleanup', async () => {
+  for(const kind of ['expired','replaced']) {
+    let now=1_000_000;
+    const store=new MemoryLease(),owner=new LabLease(store,newRunId(),'appliance-uid',()=>now,120);
+    await owner.acquire();await owner.reserveOfflineWindow(2100);
+    if(kind === 'expired')now+=2100_000;else store.value.spec.holderIdentity='another-owner';
+    await expect(owner.finishOfflineWindow()).rejects.toMatchObject({code:'LOCK_LOST'});
+    await expect(owner.heartbeat()).rejects.toMatchObject({code:'LOCK_LOST'});
+    await expect(owner.release()).rejects.toMatchObject({code:'LOCK_LOST'});
+    expect(store.value.spec.holderIdentity).toBe(kind === 'expired' ? owner.owner : 'another-owner');
+  }
+});
+
 function cleanupAdapters(resources: Map<string, string>, removed: string[]): Record<ResourceKind, CleanupAdapter> {
   const adapter: CleanupAdapter = {
     async lookup(entry) { const uid = resources.get(entry.name); return uid ? {uid} : null; },
@@ -509,6 +566,119 @@ test('HAR-07 interrupted owned journal resumes, ambiguous creation is not retrie
   await rejected.rejected('model', rejectedName);
   expect(rejected.recoveryPlan()).toEqual([]);
   await expect(rejected.rejected('model', rejectedName)).rejects.toMatchObject({code: 'OWNERSHIP'});
+  const resumedRejected = await ResourceJournal.resume(rejected.filename, 'appliance-uid');
+  expect(resumedRejected.entries).toEqual([{kind: 'model', name: rejectedName, uid: null, state: 'removed'}]);
+  await resumedRejected.cleanup(cleanupAdapters(resources, removed), async () => {});
+  expect(removed).toEqual([name]);
+});
+
+test('LIFE-12 RAM-risk opt-in is explicit and does not change normal model-create defaults', async () => {
+  for (const allowMemoryRisk of [false, true]) {
+    const journal = await ResourceJournal.create(join(directory, `risk-${allowMemoryRisk}.json`), newRunId(), 'appliance-uid');
+    const name = journal.prefix + 'cpu'; let creates = 0;
+    const request = {fetch: async (_url: string, options: {method: string; data?: string}) => {
+      if (options.method === 'GET') return jsonResponse(models());
+      const local = JSON.parse(options.data ?? '{}').local;
+      expect(local.allowMemoryRisk).toBe(allowMemoryRisk ? true : undefined);
+      expect(local.computeTarget).toBe('cpu'); expect(local.memoryRequiredMi).toBe(2048);
+      creates++;
+      return jsonResponse({metadata: {name, namespace: 'ai-system', uid: 'owned-uid', generation: 1}});
+    }} as unknown as APIRequestContext;
+    const live = creationFoundation(request, journal);
+    const created = allowMemoryRisk
+      ? await live.createModel('cpu', journal, live.config.smokeModel!, {allowMemoryRisk: true})
+      : await live.createModel('cpu');
+    expect(created.uid).toBe('owned-uid'); expect(creates).toBe(1);
+    expect(journal.entries[0]).toMatchObject({state: 'owned', uid: 'owned-uid', generation: 1});
+  }
+});
+
+test('HAR-07 definite model admission rejection is independently verified and survives journal resume', async () => {
+  for (const status of [400, 401, 403, 404, 409, 422]) {
+    const journal = await ResourceJournal.create(join(directory, `rejected-${status}.json`), newRunId(), 'appliance-uid');
+    const name = journal.prefix + 'cpu'; let creates = 0, lookups = 0;
+    const request = {fetch: async (_url: string, options: {method: string}) => {
+      if (options.method === 'GET') return jsonResponse(models());
+      creates++;
+      return {...jsonResponse({}, status), body: async () => { throw new Error('Private upstream detail must not be read'); }};
+    }} as unknown as APIRequestContext;
+    const live = creationFoundation(request, journal, async actual => { expect(actual).toBe(name); lookups++; return null; });
+    let rejection: unknown;
+    try { await live.createModel('cpu'); } catch (error) { rejection = error; }
+    expect(rejection).toBeInstanceOf(ModelCreateRejected);
+    expect(rejection).toMatchObject({code: 'API', httpStatus: status});
+    expect(String(rejection)).not.toContain('Private upstream detail');
+    expect(creates).toBe(1); expect(lookups).toBe(1);
+    const resumed = await ResourceJournal.resume(journal.filename, 'appliance-uid');
+    expect(resumed.entries).toEqual([{kind: 'model', name, state: 'removed', uid: null}]);
+    expect(resumed.recoveryPlan()).toEqual([]);
+    const removed: string[] = [], resources = new Map([['unrelated', 'keep']]);
+    await resumed.cleanup(cleanupAdapters(resources, removed), async () => {});
+    expect(removed).toEqual([]); expect(resources.get('unrelated')).toBe('keep');
+  }
+});
+
+test('HAR-07 timeout, server failure, throttling and malformed success retain ambiguous create ownership', async () => {
+  for (const scenario of ['network', '500', '408', '429', 'html-400', 'malformed-success']) {
+    const journal = await ResourceJournal.create(join(directory, `ambiguous-${scenario}.json`), newRunId(), 'appliance-uid');
+    let creates = 0, lookups = 0;
+    const request = {fetch: async (_url: string, options: {method: string}) => {
+      if (options.method === 'GET') return jsonResponse(models());
+      creates++;
+      if (scenario === 'network') throw new Error('Private network detail');
+      if (scenario === 'html-400') return {...jsonResponse({}, 400), headers: () => ({'content-type': 'text/html'})};
+      return jsonResponse({}, scenario === 'malformed-success' ? 200 : Number(scenario));
+    }} as unknown as APIRequestContext;
+    const live = creationFoundation(request, journal, async () => { lookups++; return null; });
+    await expect(live.createModel('cpu')).rejects.toBeInstanceOf(HarnessError);
+    expect(creates).toBe(1); expect(lookups).toBe(0);
+    expect(journal.entries[0]).toMatchObject({state: 'requested', uid: null});
+    const removed: string[] = [];
+    await expect(journal.cleanup(cleanupAdapters(new Map(), removed), async () => {})).rejects.toMatchObject({code: 'CLEANUP'});
+    expect(removed).toEqual([]); expect(journal.recoveryPlan()[0]?.automaticallyRemovable).toBe(false);
+  }
+});
+
+test('HAR-07 rejected create cannot adopt another UID or skip independent lookup and lease guards', async () => {
+  for (const scenario of ['replacement', 'lookup-failure', 'lease-lost']) {
+    const journal = await ResourceJournal.create(join(directory, `fenced-${scenario}.json`), newRunId(), 'appliance-uid');
+    const name = journal.prefix + 'cpu'; let guards = 0, lookups = 0;
+    const request = {fetch: async (_url: string, options: {method: string}) =>
+      options.method === 'GET' ? jsonResponse(models()) : jsonResponse({}, 409)} as unknown as APIRequestContext;
+    const live = creationFoundation(request, journal, async () => {
+      lookups++;
+      if (scenario === 'lookup-failure') throw new HarnessError('OBSERVER');
+      return {metadata: {name, uid: 'someone-else'}};
+    }, async () => { if (++guards === 3 && scenario === 'lease-lost') throw new HarnessError('LOCK_LOST'); });
+    await expect(live.createModel('cpu')).rejects.toBeInstanceOf(HarnessError);
+    expect(lookups).toBe(scenario === 'lease-lost' ? 0 : 1);
+    expect(journal.entries[0]).toMatchObject({state: 'requested', uid: null});
+    expect(journal.recoveryPlan()[0]?.automaticallyRemovable).toBe(false);
+  }
+});
+
+test('LIFE-12 CrashLoop proof requires repeated failed Pod restarts, not slow startup or a Ready Pod', () => {
+  const pod: KubeObject = {metadata: {name: 'synthetic-pod'}, status: {containerStatuses: [{name: 'server', restartCount: 3,
+    state: {waiting: {reason: 'CrashLoopBackOff'}}, lastState: {terminated: {exitCode: 1}}}]}};
+  expect(hasRuntimeCrashLoop(pod)).toBe(true);
+  for (const restartCount of [0, 1, 2]) {
+    const transient = structuredClone(pod); transient.status!.containerStatuses![0]!.restartCount = restartCount;
+    expect(hasRuntimeCrashLoop(transient)).toBe(false);
+  }
+  const retry = structuredClone(pod); retry.status!.containerStatuses![0]!.state = {};
+  expect(hasRuntimeCrashLoop(retry)).toBe(true);
+  const slow = structuredClone(retry); slow.status!.containerStatuses![0]!.lastState = {};
+  expect(hasRuntimeCrashLoop(slow)).toBe(false);
+  const ready = structuredClone(pod); ready.status!.conditions = [{type: 'Ready', status: 'True'}];
+  expect(hasRuntimeCrashLoop(ready)).toBe(false);
+  const completed = structuredClone(pod); completed.status!.containerStatuses![0]!.state = {terminated: {exitCode: 0}};
+  expect(hasRuntimeCrashLoop(completed)).toBe(false);
+  const init = structuredClone(pod); init.status!.initContainerStatuses = init.status!.containerStatuses; delete init.status!.containerStatuses;
+  expect(hasRuntimeCrashLoop(init)).toBe(true);
+  const bounded = phase2Config(); bounded.phase2!.failureModel.memoryRequiredMi = 8193;
+  expect(() => requirePhase2Profile(bounded)).toThrow('[CONFIG]');
+  bounded.phase2!.failureModel.memoryRequiredMi = 2048; bounded.phase2!.failureModel.contextWindow = 4097;
+  expect(() => requirePhase2Profile(bounded)).toThrow('[CONFIG]');
 });
 
 test('HAR-07 interruption worker imports successfully but refuses a non-IPC invocation before any lab access', async () => {
@@ -642,6 +812,34 @@ test('ROUTE-01 inference probe checks bounded chat response without exposing the
   await probe.chat(name);
 });
 
+test('HAR-02 LiteLLM uses the actual SSO route before GPU work; a redirect is not an inference session',async ()=>{
+  const origin='https://inference.example.local';let url=origin+'/ui/playground/',status=200,closed=0;
+  const context={newPage:async()=>({goto:async(path:string)=>{expect(path).toBe(origin+'/ui/playground/');return {status:()=>status};},
+    url:()=>url,close:async()=>{closed++;}})} as unknown as BrowserContext;
+  await openInferenceSession(context,origin,500);expect(closed).toBe(1);
+  url='https://id.example.local/login';
+  await expect(openInferenceSession(context,origin,500)).rejects.toMatchObject({code:'AUTH',stage:'login-session'});
+  url=origin+'/ui/playground/';status=302;
+  await expect(openInferenceSession(context,origin,500)).rejects.toMatchObject({code:'AUTH'});expect(closed).toBe(3);
+});
+
+test('HAR-10 API inference failures retain a Failed outcome and bounded diagnostics without response or key data',async ()=>{
+  const messages=[new HarnessError('API','Failed','model-inference').message];
+  expect(failureOutcome('API',messages)).toBe('Failed');
+  expect(failureOutcome('API',[new HarnessError('API').message])).toBe('Failed');
+  const seen:unknown[]=[];
+  const request={fetch:async()=>({status:()=>302,headers:()=>({'content-type':'text/html'}),
+    body:async()=>Buffer.from('<html>synthetic private upstream</html>')})} as unknown as APIRequestContext;
+  const probe=new InferenceProbe(request,'https://inference.example.local','sk-synthetic-private');
+  await expect(probe.chat('reg-fixture',undefined,8,async value=>{seen.push(value);})).rejects.toMatchObject({code:'API'});
+  expect(seen).toEqual([{httpStatus:302,hasContent:false,modelMatches:false,failure:'non-json'}]);
+  const failed={fetch:async()=>{throw new Error('TLS certificate failure containing sk-synthetic-private');}} as unknown as APIRequestContext;
+  await expect(new InferenceProbe(failed,'https://inference.example.local','sk-synthetic-private')
+    .chat('reg-fixture',undefined,8,async value=>{seen.push(value);})).rejects.toMatchObject({code:'API'});
+  expect(seen[1]).toEqual({httpStatus:0,hasContent:false,modelMatches:false,failure:'transport',transportReason:'tls'});
+  expect(JSON.stringify(seen)).not.toMatch(/sk-synthetic-private|upstream/);
+});
+
 test('HAR-07 symlinked journal and public-readable credentials are rejected', async () => {
   const target = join(directory, 'private.json'), link = join(directory, 'symlink.json');
   await writePrivate(target, {password: 'synthetic-secret'}); await symlink(target, link);
@@ -700,7 +898,7 @@ test('HAR-10 empty, missing, blocked, skipped and flaky results cannot produce g
   }
   await saveReport(directory, newRunId(), [{...passed, outcome: 'Blocked', reason: 'TLS'}], ['HAR-01', 'HAR-02']);
   const xml = await readFile(join(directory, 'junit.xml'), 'utf8');
-  expect(xml).toContain('failures="2"'); expect(xml).toContain('name="HAR-02"');
+  expect(xml).toContain('failures="0"');expect(xml).toContain('skipped="2"');expect(xml).toContain('name="HAR-02"');
 });
 
 test('HAR-10 full Phase 0 requires every fixture ID and live variant including final idle', async () => {
@@ -720,7 +918,7 @@ test('HAR-10 full Phase 0 requires every fixture ID and live variant including f
   expect(partial.acceptable).toBe(false);
   const report = JSON.parse(await readFile(join(directory, 'summary.json'), 'utf8'));
   expect(report.phase0Coverage.missingVariants).toEqual(['final-idle']);
-  expect(await readFile(join(directory, 'junit.xml'), 'utf8')).toContain('failures="1"');
+  expect(await readFile(join(directory, 'junit.xml'), 'utf8')).toContain('skipped="1"');
 });
 
 test('HAR-11 reports allowlist fields and redact seeded credentials, headers, URLs and auth state', async () => {

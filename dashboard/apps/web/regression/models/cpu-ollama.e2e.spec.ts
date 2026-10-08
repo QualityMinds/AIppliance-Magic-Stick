@@ -167,7 +167,7 @@ test.describe.serial('installed CPU model smoke', () => {
     requireSafe(!(await cleaner.find(name)), 'OWNERSHIP');
     lock = new LabLease(new KubernetesLeaseStore(config.lock.kubeconfig, config.lock.namespace, config.lock.name),
       process.env.REGRESSION_RUN_ID, config.expected.applianceUid, Date.now, 120);
-    await lock.acquire(); lockAcquired = true; beatAt = Date.now();
+    await lock.acquire(process.env.REGRESSION_RUN_ID); lockAcquired = true; beatAt = Date.now();
     heartbeatTimer = setInterval(() => { void heartbeat().catch(() => { leaseFailed = true; }); }, 10_000);
   });
 

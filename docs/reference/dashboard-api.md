@@ -62,6 +62,24 @@ Paperclip, KubeOpenCode, KubeAI, LiteLLM, or direct app instance reconcilers.
 
 ## Backend API
 
+### Module parameters and local identities
+
+Module enable/disable requests accept only a `parameters` object with fields
+declared by that module in the shared catalog. Values are strings (maximum 4096
+characters); the AMD profile validator retains its existing boolean normalization.
+Unknown fields and invalid values receive HTTP 400 before runtime intent is
+written. Hardware GPU sharing still uses its dedicated, revision-safe endpoint.
+
+An explicit parameter map replaces the previous map, including removal of legacy
+unknown fields. Omitting the map preserves saved parameters. Updates carry the
+current Kubernetes resource version so concurrent edits fail rather than being
+overwritten. Independently configured GPU sharing is retained by profile edits.
+
+The user API identifies locally managed accounts with `source: "local"`. Clients
+must not require a separate `local: true` property. Regression-created accounts
+record the acknowledged exact user ID before checking enabled state and roles;
+cleanup independently checks that ID, local origin and protected-account status.
+
 ### Software channel operations
 
 `GET /api/host-management` includes each managed host's sanitized `software`
