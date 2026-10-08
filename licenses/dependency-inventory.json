@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "6dda8724e63f83d4608f703a3357dc0d2544ff5501e9a32df66a9a90f8d6909e",
-  "deploymentReferencesSha256": "5ff2317e4b92af2bf2cbd3738a230b70332170640aece90e5c16698b5dfbd10f",
+  "deploymentReferencesSha256": "4135af321c81715d74fbcd75ed0eec7c64051f8f69067cd304b24ca4d31d6e4d",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -2260,12 +2260,12 @@
     },
     {
       "file": ".github/workflows/pages-redirect.yml",
-      "line": 39,
+      "line": 34,
       "reference": "python-version: '3.12'"
     },
     {
       "file": ".github/workflows/pages-redirect.yml",
-      "line": 43,
+      "line": 38,
       "reference": "run: python -m pip install -r requirements-docs.txt"
     },
     {
