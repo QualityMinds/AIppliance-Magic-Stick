@@ -43,6 +43,23 @@ failure. On a first boot without a usable driver, the role enables the service
 but defers starting it until the driver becomes available; it does not turn that
 condition into an installer failure.
 
+Nouveau can still own the cards during that first boot. A sysfs-only guard is
+installed **before** the NVIDIA packages: persistence services started by package
+scripts skip cleanly until every NVIDIA display GPU is bound to `nvidia`.
+The role explicitly prepares the next-boot Nouveau denylist and refreshes
+initramfs; it never unloads the live console's driver. A fresh, unready K3s Node
+starts with `nvidia.com/gpu.deploy.operands=false` and an owned startup annotation.
+After the planned reboot, `magicstick-nvidia-handoff.timer` checks driver bindings,
+NVML health and the real persistence socket, then releases only that owned gate.
+The release restores `nvidia.com/gpu.deploy.driver=false` in the same atomic patch:
+the Operator removes individual deploy labels while all operands are disabled.
+Manual operand disablement and other vendors are not changed. The handoff uses
+the existing maintenance lock and waits out an already scheduled shutdown.
+Later convergence removes the no-longer-needed bootstrap operand label from the
+K3s drop-in. Failed health, missing socket or changed Node metadata keeps the
+gate closed; inspect `journalctl -u magicstick-nvidia-handoff` rather than forcing
+a label or repeatedly loading a module. Existing hosts are not newly startup-gated.
+
 After a successful first host convergence, Ansible schedules one clean reboot only if
 it changed the NVIDIA display setup on an installer-created host. The installer
 media contains no NVIDIA reboot logic: an existing stick following `main` gets

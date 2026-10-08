@@ -551,6 +551,14 @@ through the existing boot owning-suite selection. Public CI also runs
 OOM/restart counters. This focused deployment regression does not replace the
 installed reboot, authentication or inference requirements of BOOT-02.
 
+The same boot owning-suite selects `NvidiaStartupHandoffTests` in the NVIDIA
+host-role tests. Synthetic PCI bindings reproduce Nouveau/unbound first boot,
+mixed AMD/NVIDIA and post-boot release, including NVML/socket failures, manual
+operand disablement, UID/version-bound patch conflicts, maintenance and scheduled
+restart deferral. Role contracts verify package-service guard ordering and the
+fresh-node gate. These are C-layer startup checks, not a physical USB installation
+or a completed live BOOT-02 reboot/inference run.
+
 Add one entry per implemented case or parameterized case group. Do not mark an
 entire family implemented because one representative happy path exists. Link
 to actual source tests/procedures and a sanitized dated report; a result applies

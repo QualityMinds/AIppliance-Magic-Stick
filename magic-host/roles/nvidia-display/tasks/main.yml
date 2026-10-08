@@ -48,20 +48,21 @@
       changed_when: false
       when: not ansible_check_mode
 
-    - name: Install the recommended NVIDIA host-driver package set
-      ansible.builtin.apt:
-        name: "{{ (nvidia_display_driver_plan.stdout | from_json).packages }}"
-        state: present
-        install_recommends: false
-        update_cache: false
-        allow_downgrade: false
-        fail_on_autoremove: true
-        allow_unauthenticated: false
-        force_apt_get: true
-      register: nvidia_display_packages
-      when:
-        - not ansible_check_mode
-        - (nvidia_display_driver_plan.stdout | from_json).packages | length > 0
+    - name: Create the root-owned NVIDIA handoff helper directory
+      ansible.builtin.file:
+        path: /usr/local/lib/magicstick/nvidia-display
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install the sysfs-only NVIDIA readiness and first-boot handoff helper
+      ansible.builtin.copy:
+        src: driver_ready.py
+        dest: /usr/local/lib/magicstick/nvidia-display/driver_ready.py
+        owner: root
+        group: root
+        mode: "0755"
 
     - name: Create NVIDIA persistence service override directory
       ansible.builtin.file:
@@ -78,8 +79,10 @@
           # The GPU Operator's CDI spec mounts this socket into NVIDIA containers.
           [Unit]
           StopWhenUnneeded=false
+          After=systemd-modules-load.service
 
           [Service]
+          ExecCondition=/usr/bin/python3 /usr/local/lib/magicstick/nvidia-display/driver_ready.py --ready
           Restart=on-failure
           RestartSec=5s
 
@@ -90,11 +93,55 @@
         mode: "0644"
       register: nvidia_display_persistenced_override
 
+    - name: Load the persistence guard before NVIDIA package post-install services run
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+      when: nvidia_display_persistenced_override.changed
+
+    - name: Install the recommended NVIDIA host-driver package set
+      ansible.builtin.apt:
+        name: "{{ (nvidia_display_driver_plan.stdout | from_json).packages }}"
+        state: present
+        install_recommends: false
+        update_cache: false
+        allow_downgrade: false
+        fail_on_autoremove: true
+        allow_unauthenticated: false
+        force_apt_get: true
+      register: nvidia_display_packages
+      when:
+        - not ansible_check_mode
+        - (nvidia_display_driver_plan.stdout | from_json).packages | length > 0
+
+    - name: Denylist Nouveau for the next boot without unloading the active console
+      ansible.builtin.copy:
+        dest: /etc/modprobe.d/90-magicstick-nouveau.conf
+        content: |
+          # The installed host NVIDIA driver owns subsequent boots, not the live installer.
+          blacklist nouveau
+          options nouveau modeset=0
+        owner: root
+        group: root
+        mode: "0644"
+      register: nvidia_display_nouveau_policy
+
     - name: Enable NVIDIA persistence daemon across host reboots
       ansible.builtin.systemd_service:
         name: nvidia-persistenced.service
         daemon_reload: "{{ nvidia_display_persistenced_override.changed }}"
         enabled: true
+
+    - name: Read NVIDIA PCI driver bindings without loading any driver
+      ansible.builtin.script:
+        cmd: "driver_ready.py --status{{ ' --fresh-install' if nvidia_display_new_install.stat.exists else '' }}"
+        executable: /usr/bin/python3
+      register: nvidia_display_driver_bindings
+      changed_when: false
+      check_mode: false
+
+    - name: Record whether every NVIDIA display GPU is host-driver bound
+      ansible.builtin.set_fact:
+        nvidia_display_driver_ready: "{{ (nvidia_display_driver_bindings.stdout | from_json).ready | bool }}"
 
     - name: Check whether the NVIDIA driver is already usable before starting persistence
       ansible.builtin.command:
@@ -105,12 +152,64 @@
       changed_when: false
       failed_when: false
       check_mode: false
+      when: nvidia_display_driver_ready | bool
 
     - name: Start NVIDIA persistence daemon when the driver is usable
       ansible.builtin.systemd_service:
         name: nvidia-persistenced.service
         state: started
-      when: nvidia_display_gpu_probe.rc == 0
+      when:
+        - nvidia_display_driver_ready | bool
+        - nvidia_display_gpu_probe.rc | default(1) == 0
+
+    - name: Report the expected first-boot NVIDIA driver transition
+      ansible.builtin.debug:
+        msg: >-
+          Waiting for the host NVIDIA driver handoff. Nouveau is not unloaded
+          from the active console. NVIDIA services and first-install Operator
+          operands remain deferred until the planned restart activates the driver.
+      when: not nvidia_display_driver_ready | bool
+
+    - name: Install the bounded NVIDIA first-boot release service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/magicstick-nvidia-handoff.service
+        content: |
+          [Unit]
+          Description=Release the first-install NVIDIA startup gate after driver handoff
+          After=k3s.service systemd-modules-load.service
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/bin/python3 /usr/local/lib/magicstick/nvidia-display/driver_ready.py --release --node {{ ansible_facts['hostname'] | lower }}
+          TimeoutStartSec=45s
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Install the NVIDIA first-boot release timer
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/magicstick-nvidia-handoff.timer
+        content: |
+          [Unit]
+          Description=Retry the managed NVIDIA startup handoff without driver-loading loops
+
+          [Timer]
+          OnBootSec=20s
+          OnUnitInactiveSec=30s
+          Unit=magicstick-nvidia-handoff.service
+
+          [Install]
+          WantedBy=timers.target
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Enable the NVIDIA handoff timer across the planned first restart
+      ansible.builtin.systemd_service:
+        name: magicstick-nvidia-handoff.timer
+        daemon_reload: true
+        enabled: true
+        state: started
 
     - name: Configure NVIDIA DRM to retain the Linux framebuffer console
       ansible.builtin.copy:
@@ -134,6 +233,15 @@
         mode: "0644"
       register: nvidia_display_modules_load
 
+    - name: Refresh initramfs after preparing the complete NVIDIA boot configuration
+      ansible.builtin.command:
+        argv:
+          - /usr/sbin/update-initramfs
+          - -u
+      when: >-
+        nvidia_display_nouveau_policy.changed or nvidia_display_modprobe.changed
+        or nvidia_display_modules_load.changed
+
     - name: Create K3s configuration drop-in directory
       ansible.builtin.file:
         path: /etc/rancher/k3s/config.yaml.d
@@ -145,10 +253,7 @@
     - name: Keep the GPU Operator from replacing the host display driver
       ansible.builtin.copy:
         dest: /etc/rancher/k3s/config.yaml.d/90-magicstick-nvidia-display.yaml
-        content: |
-          # The host owns NVIDIA DRM so the local setup/TUI console remains visible.
-          node-label:
-            - nvidia.com/gpu.deploy.driver=false
+        content: "{{ (nvidia_display_driver_bindings.stdout | from_json).bootstrapConfig }}"
         owner: root
         group: root
         mode: "0644"
@@ -165,4 +270,6 @@
         - nvidia_display_new_install.stat.exists
         - >-
           nvidia_display_packages.changed or nvidia_display_modprobe.changed
-          or nvidia_display_modules_load.changed or nvidia_display_k3s_policy.changed
+          or nvidia_display_modules_load.changed
+          or (nvidia_display_k3s_policy.changed and not nvidia_display_driver_ready)
+          or (nvidia_display_nouveau_policy.changed and not nvidia_display_driver_ready)
