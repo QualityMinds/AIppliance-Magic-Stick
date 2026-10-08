@@ -62,13 +62,22 @@ class GpuSharingApiTests(unittest.TestCase):
 
     def test_profile_edits_preserve_sharing_and_do_not_offer_a_backdoor(self):
         sharing = json.dumps({'mode': 'dra-shared', 'maxModels': 2})
-        with patch.dict(self.api, {'module_activation': lambda _: {'spec': {'parameters': {'gpuSharing': sharing}}}}):
+        catalog = {'modules': {'amd-gpu': {'parameters': [{'name': name} for name in
+                   ('compatibilityProfile', 'allowExperimental', 'validationRequest')]}, 'gpu': {}}}
+        current = {'metadata': {'resourceVersion': '7'}, 'spec': {'parameters': {'gpuSharing': sharing}}}
+        with patch.dict(self.api, {'catalog_json': lambda: catalog,
+                                  'module_activation': lambda _: self.fail('Use the fenced revision, not a second lookup')}):
             resource = self.api['module_activation_payload']('amd-gpu', True, {'parameters': {}})
-            self.assertEqual(resource['spec']['parameters']['gpuSharing'], sharing)
+            result = self.api['manual_module_activation_patch'](resource, current)
+            self.assertEqual(result['spec']['parameters']['gpuSharing'], sharing)
+            self.assertEqual(result['metadata']['resourceVersion'], '7')
             with self.assertRaisesRegex(ValueError, 'Unsupported'):
                 self.api['module_activation_payload']('amd-gpu', True, {'parameters': {'gpuSharing': sharing}})
-            resource = self.api['module_activation_payload']('gpu', True, {'parameters': {'other': 'unchanged'}})
-            self.assertEqual(resource['spec']['parameters'], {'gpuSharing': sharing, 'other': 'unchanged'})
+            resource = self.api['module_activation_payload']('gpu', True, {'parameters': {}})
+            result = self.api['manual_module_activation_patch'](resource, current)
+            self.assertEqual(result['spec']['parameters'], {'gpuSharing': sharing})
+            with self.assertRaises(ValueError):
+                self.api['module_activation_payload']('gpu', True, {'parameters': {'other': 'invalid'}})
             with self.assertRaises(ValueError):
                 self.api['module_activation_payload']('gpu', True, {'parameters': {'gpuSharing': sharing}})
 

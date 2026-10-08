@@ -264,7 +264,12 @@ host playbook, including its one-time reboot finalizer, from
 host/operator changes to that ref
 before installing. New host installs pin K3s to `v1.36.4+k3s1`; existing clusters
 are not automatically upgraded. NVIDIA 26.7 needs the compatible containerd 2.x
-runtime/drop-in setup, and its R595 driver does not support pre-Turing GPUs.
+runtime/drop-in setup, and its containerized R595 driver does not support
+pre-Turing GPUs. On managed Ubuntu NVIDIA hosts, Ansible instead installs the
+hardware recommendation from `ubuntu-drivers` through APT, without fixing a
+driver series or patch version. That host-owned path disables only the Operator
+driver on the node. Actual console, kernel and inference compatibility still
+require hardware acceptance; selecting a package is not that acceptance.
 
 ### Network configuration
 

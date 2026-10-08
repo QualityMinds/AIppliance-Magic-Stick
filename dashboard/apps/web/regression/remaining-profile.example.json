@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "identity": {"approveDisposableUsers": false},
+  "applications": {
+    "cleanerKubeconfig": "/inputs/app-cleaner.kubeconfig",
+    "fixtures": [
+      {"type":"openclaw","originTemplate":"https://{name}.openclaw.example.local","promptLabel":"CHANGEME","sendButton":"CHANGEME","responseSelector":"CHANGEME","responseMarker":"REGRESSION"},
+      {"type":"hermes","originTemplate":"https://{name}.hermes.example.local","promptLabel":"CHANGEME","sendButton":"CHANGEME","responseSelector":"CHANGEME","responseMarker":"REGRESSION"},
+      {"type":"paperclip","originTemplate":"https://{name}.paperclip.example.local","promptLabel":"CHANGEME","sendButton":"CHANGEME","responseSelector":"CHANGEME","responseMarker":"REGRESSION"},
+      {"type":"kubeopencode","originTemplate":"https://{name}.kubeopencode.example.local","promptLabel":"CHANGEME","sendButton":"CHANGEME","responseSelector":"CHANGEME","responseMarker":"REGRESSION"},
+      {"type":"odysseus","originTemplate":"https://{name}.odysseus.example.local","promptLabel":"CHANGEME","sendButton":"CHANGEME","responseSelector":"CHANGEME","responseMarker":"REGRESSION"}
+    ]
+  },
+  "modules": {"approveOptionalModule":false,"id":"CHANGEME","parameters":{}},
+  "moduleProfile": {"approveTemporaryProfile":false,"profileId":"","allowExperimental":false},
+  "kubernetes": {"approveAdminGrant":false,"plugin":{"filename":"/inputs/kubectl-oidc_login","sha256":"CHANGEME"}},
+  "license": {
+    "approveLicenseReplacement":false,
+    "allowFirstActivation":false,
+    "validFile":"/inputs/license-valid.license",
+    "invalidFiles":["/inputs/license-expired.license","/inputs/license-wrong-installation.license","/inputs/license-tampered.license"],
+    "baseline":{"approveNoFileBaseline":false,"kubeconfig":"/inputs/license-resetter.kubeconfig"},
+    "restart":{"approveApiRestart":false,"kubeconfig":"/inputs/api-restarter.kubeconfig"}
+  },
+  "federation": {
+    "approveDisposableProviders":false,
+    "upstream":{"origin":"https://test-idp.example.local","realm":"regression","clientId":"regression-users","clientSecretFile":"/inputs/idp-users.secret"},
+    "brokerCleaner":{"origin":"https://id.example.local","realm":"magicstick","clientId":"regression-broker-cleaner","clientSecretFile":"/inputs/broker-cleaner.secret"},
+    "expiringLicenseFile":"/inputs/license-short-lived.license",
+    "restoreLicenseFile":"/inputs/license-original.license",
+    "fixtures":[
+      {"protocol":"oidc","metadataUrl":"https://test-idp.example.local/realms/regression/.well-known/openid-configuration","clientId":"regression-broker","clientSecretFile":"/inputs/idp-broker.secret","claim":"regressionAccess"},
+      {"protocol":"saml","metadataUrl":"https://test-idp.example.local/realms/regression/protocol/saml/descriptor","claim":"regressionAccess"}
+    ]
+  },
+  "mesh": {"approveTwoAppliances":false,"approveGpuTransitions":false,"peerConfig":"/inputs/peer-lab.json","enrollmentOrigin":"https://mesh.example.local"},
+  "companion": {"runId":0,"sourceRevision":"CHANGEME"},
+  "realtime": {"approveGpuTransitions":false,"fixtures":[]},
+  "unmanagedKey": {"approveDisposableProbe":false,"id":"CHANGEME"},
+  "cache": {"approveFreeToken":false},
+  "securityCi": {"sourceRevision":"CHANGEME","dependenciesRunId":0,"publicationRunId":0},
+  "repeat": {"cycles":3,"maximumMemoryGrowthMi":1024,"maximumNonCacheDiskGrowthBytes":268435456}
+}

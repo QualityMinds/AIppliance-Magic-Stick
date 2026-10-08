@@ -113,6 +113,7 @@ export function requirePhase2Profile(config: LabConfig) {
   requireSafe(Boolean(profile?.ollamaModel && profile.vllmModel && profile.failureModel && profile.externalModel &&
     profile.discovery && profile.ollamaModel.kvCacheType && profile.vllmModel.kvCacheType &&
     profile.ollamaModel.contextWindow <= 4096 && profile.vllmModel.contextWindow <= 4096 &&
+    profile.failureModel.contextWindow <= 4096 && profile.failureModel.memoryRequiredMi <= 8192 &&
     profile.ollamaModel.memoryRequiredMi % 100 === 0 && profile.vllmModel.memoryRequiredMi % 100 === 0 &&
     (profile.discovery.artifactUrl === `hf://${profile.discovery.repo}` ||
       profile.discovery.artifactUrl.startsWith(`hf://${profile.discovery.repo}/`))), 'CONFIG');

@@ -42,6 +42,11 @@ do not call an unfinished feature complete.
    and any necessary user decisions. Normal reviews stay advisory; strict
    full-distribution approval is only required when explicitly selected.
 
+Review changed features against the [regression skill](../magicstick-regression/SKILL.md)
+and select relevant release coverage. Distinguish newly implemented tests, isolated
+results and dated live evidence for the actual source/images and hardware. Missing
+or blocked variants remain visible; do not infer full acceptance from a smoke run.
+
 ## Publish only when requested
 
 Follow [publication and rollout](../magicstick-publish-rollout/SKILL.md) for any

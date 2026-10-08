@@ -1,5 +1,5 @@
 services:
-  regression:
+  regression: &runner
     image: "${REGRESSION_RUNNER_IMAGE:-magicstick-regression:local}"
     pull_policy: never
     # Reuse Docker's bridge; do not consume another host subnet per checkout.
@@ -11,8 +11,14 @@ services:
     security_opt: [no-new-privileges:true]
     shm_size: 1gb
     environment:
+      REGRESSION_INPUT_DIR: /inputs
       REGRESSION_CONFIG: /inputs/lab.json
       REGRESSION_OUTPUT_DIR: /private/runs
+      REGRESSION_REMAINING_PROFILE: /inputs/remaining-p0.json
+      REGRESSION_HOST_DRILLS: "${REGRESSION_HOST_DRILLS:-disabled}"
+      REGRESSION_HOST_DRILLS_FILE: /inputs/host-drills.json
+      REGRESSION_PREPARATION_FAILED: "${REGRESSION_PREPARATION_FAILED:-}"
+      REGRESSION_PREPARATION_DIAGNOSTIC: "${REGRESSION_PREPARATION_DIAGNOSTIC:-}"
     volumes:
       - type: bind
         source: ${REGRESSION_INPUT_DIR:?Set REGRESSION_INPUT_DIR}
@@ -24,3 +30,28 @@ services:
     tmpfs:
       - /tmp:rw,nosuid,nodev,mode=1777,size=512m
     # No published ports, privileged mode, Docker socket, or host project mount.
+  # Only the explicit preparation command may write private input candidates.
+  # Normal suites continue to see the same directory read-only.
+  prepare:
+    <<: *runner
+    entrypoint: [node, regression/prepare.mjs]
+    environment:
+      REGRESSION_INPUT_DIR: /inputs
+    volumes:
+      - type: bind
+        source: ${REGRESSION_INPUT_DIR:?Set REGRESSION_INPUT_DIR}
+        target: /inputs
+  # This is explicit bootstrap tooling, not an administrator fallback in suites.
+  setup-api:
+    <<: *runner
+    entrypoint: [node, regression/setup.mjs]
+    environment:
+      REGRESSION_INPUT_DIR: /inputs
+      REGRESSION_OUTPUT_DIR: /private/runs
+    volumes:
+      - type: bind
+        source: ${REGRESSION_INPUT_DIR:?Set REGRESSION_INPUT_DIR}
+        target: /inputs
+      - type: bind
+        source: ${REGRESSION_PRIVATE_DIR:?Set REGRESSION_PRIVATE_DIR}
+        target: /private

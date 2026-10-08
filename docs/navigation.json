@@ -117,7 +117,9 @@
     {"Build and test": "development/testing.md"},
     {"Regression testing": [
       {"Test concept": "development/regression-test-concept.md"},
-      {"Test case catalog": "development/regression-test-catalog.md"}
+      {"Test case catalog": "development/regression-test-catalog.md"},
+      {"Run regression tests": "development/regression-remaining-p0.md"},
+      {"Technical runner reference": "development/regression-runner-reference.md"}
     ]},
     {"Extensions": "development/extensions.md"},
     {"Dashboard": "development/dashboard.md"},

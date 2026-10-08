@@ -40,6 +40,11 @@ configured ownership and be reconciled with Git after the fix.
 
 ## Verify
 
+Use the [regression skill](../magicstick-regression/SKILL.md) for behavior changes.
+Review module/app activation, permissions, dependencies and lifecycle cases as
+affected; update controller/render tests and installed-workflow coverage together.
+A render-only check cannot replace a required reconciliation or cleanup assertion.
+
 Run relevant tests under `magic-cluster/platform/magicstick-operator/controller`
 and other affected consumers. Render the operator base and touched module bases
 with `kubectl kustomize`; render both Flux entrypoints for graph/default changes

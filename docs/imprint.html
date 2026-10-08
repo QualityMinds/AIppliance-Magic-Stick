@@ -4,10 +4,22 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="robots" content="index,follow" />
-  <meta name="description" content="Legal notice for the MagicStick GitHub Pages project site." />
+  <meta name="description" content="Imprint for the MagicStick project website and handbook: provider information under Section 5 DDG, contact, register and responsible persons." />
   <meta name="theme-color" content="#050b16" />
-  <title>Legal Notice - MagicStick</title>
+  <link rel="canonical" href="https://magic-stick.ai/imprint.html" />
+  <link rel="alternate" hreflang="en" href="https://magic-stick.ai/imprint.html" />
+  <link rel="alternate" hreflang="de" href="https://magic-stick.ai/impressum.html" />
+  <link rel="alternate" hreflang="x-default" href="https://magic-stick.ai/imprint.html" />
+  <title>Imprint - MagicStick</title>
   <style>
+    @font-face {
+      font-family: "Bricolage Grotesque";
+      font-style: normal;
+      font-weight: 600 800;
+      font-display: swap;
+      src: url("assets/fonts/bricolage-grotesque-qm-600-800.woff2") format("woff2");
+    }
+
     :root {
       color-scheme: dark;
       --bg: #050b16;
@@ -48,9 +60,41 @@
       padding: 42px 0 56px;
     }
 
+    .top-bar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px 20px;
+      margin-bottom: 28px;
+    }
+
+    .language-switch {
+      display: inline-flex;
+      gap: 4px;
+      font-size: 0.85rem;
+    }
+
+    .language-switch a {
+      padding: 6px 9px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      color: var(--muted);
+      text-decoration: none;
+    }
+
+    .language-switch a[aria-current="page"] {
+      border-color: var(--teal);
+      color: var(--text);
+    }
+
+    .language-switch a:hover,
+    .language-switch a:focus-visible {
+      color: var(--text);
+    }
+
     .top-link {
       display: inline-flex;
-      margin-bottom: 28px;
       color: var(--muted);
       text-decoration: none;
     }
@@ -61,12 +105,18 @@
     }
 
     h1 {
+      font-family: "Bricolage Grotesque", "Avenir Next", Avenir, "Segoe UI", sans-serif;
+      font-weight: 700;
       margin: 0 0 12px;
-      font-size: 2.5rem;
+      font-size: clamp(1.9rem, 8vw, 2.5rem);
       line-height: 1.1;
+      overflow-wrap: anywhere;
+      hyphens: auto;
     }
 
     h2 {
+      font-family: "Bricolage Grotesque", "Avenir Next", Avenir, "Segoe UI", sans-serif;
+      font-weight: 700;
       margin: 34px 0 10px;
       font-size: 1.25rem;
     }
@@ -113,9 +163,12 @@
 </head>
 <body>
   <main class="shell">
-    <a class="top-link" href="index.html">Back to MagicStick</a>
-    <h1>Legal Notice</h1>
-    <p>Provider information according to Section 5 DDG for the MagicStick GitHub Pages project site.</p>
+    <div class="top-bar">
+      <a class="top-link" href="index.html">Back to MagicStick</a>
+      <span class="language-switch" aria-label="Language"><a href="imprint.html" lang="en" aria-label="EN, English" hreflang="en" aria-current="page">EN</a><a href="impressum.html" lang="de" aria-label="DE, Deutsch" hreflang="de">DE</a></span>
+    </div>
+    <h1>Imprint</h1>
+    <p>Provider information according to Section 5 DDG for the MagicStick project website and handbook.</p>
 
     <section class="card" aria-labelledby="provider">
       <h2 id="provider">Provider</h2>
@@ -133,7 +186,7 @@
       <h2>Contact</h2>
       <p>
         Phone: <a href="tel:+49911660732011">+49 911 6607320-11</a><br />
-        Email: <a href="mailto:hello@qualityminds.de">hello@qualityminds.de</a>
+        Email: <a href="mailto:info@magic-stick.ai">info@magic-stick.ai</a>
       </p>
 
       <h2>Register and VAT</h2>
@@ -168,8 +221,16 @@
       </p>
     </section>
 
+    <section class="card" aria-labelledby="dispute-resolution">
+      <h2 id="dispute-resolution">Consumer dispute resolution</h2>
+      <p>
+        We are neither willing nor obliged to participate in dispute resolution
+        proceedings before a consumer arbitration board (Section 36 VSBG).
+      </p>
+    </section>
+
     <footer>
-      <span>Last updated: July 7, 2026</span>
+      <span>Last updated: <time datetime="2026-10-05">October 5, 2026</time></span>
       <a href="index.html">Home</a>
       <a href="privacy.html">Privacy Policy</a>
       <a href="https://github.com/QualityMinds/AIppliance-Magic-Stick">GitHub</a>

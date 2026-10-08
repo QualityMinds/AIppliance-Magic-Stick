@@ -5,7 +5,7 @@ import {HarnessError, requireSafe, type Stage} from './errors.ts';
 import {readOnlyApi} from './transport.ts';
 
 export interface ExactDashboardRequest {
-  method: 'POST' | 'PUT' | 'DELETE';
+  method: 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   path: string;
   body: unknown;
   /** Estimators and discovery helpers use POST but do not persist intent. */
@@ -94,6 +94,8 @@ export function allowedOwnedEstimate(url: URL, method: string, body: unknown, da
 }
 
 export interface RealLoginOptions {
+  /** Disposable run-owned actor; never stored in storageState or reports. */
+  actor?: {username:string;password:string;initialPassword?:string;subject:string;role:'magicstick-admin'|'magicstick-operator'|'magicstick-viewer'|'magicstick-user'};
   allowedStopName?: () => string | undefined;
   allowedStopUid?: () => string | undefined;
   allowedStart?: () => boolean;
@@ -107,8 +109,20 @@ export interface RealLoginOptions {
   inferenceOrigin?: string;
 }
 
+/** Follow the existing human SSO route; never synthesize or export cookies. */
+export async function openInferenceSession(context: BrowserContext, origin: string, timeoutMs: number) {
+  requireSafe(new URL(origin).protocol === 'https:' && new URL(origin).origin === origin,'CONFIG');
+  const page=await context.newPage();
+  try {
+    const response=await page.goto(origin+'/ui/playground/',{waitUntil:'domcontentloaded',timeout:timeoutMs});
+    requireSafe(response?.status() === 200 && new URL(page.url()).origin === origin,'AUTH');
+  } catch {throw new HarnessError('AUTH','Blocked','login-session');}
+  finally {await page.close();}
+}
+
 export async function realLogin(browser: Browser, config: LabConfig, options: RealLoginOptions = {}): Promise<BrowserContext> {
-  const username = (await readPrivate(config.usernameFile)).trim(), password = (await readPrivate(config.passwordFile)).trimEnd();
+  const username = options.actor?.username ?? (await readPrivate(config.usernameFile)).trim(),
+    password = options.actor?.initialPassword ?? options.actor?.password ?? (await readPrivate(config.passwordFile)).trimEnd();
   requireSafe(username.length > 0 && password.length > 0, 'AUTH');
   const context = await browser.newContext({serviceWorkers: 'block', acceptDownloads: false});
   const origins = new Set([config.dashboardUrl, config.identityUrl,
@@ -156,13 +170,27 @@ export async function realLogin(browser: Browser, config: LabConfig, options: Re
     await page.locator('#username').fill(username, {timeout: config.loginTimeoutMs});
     await page.locator('#password').fill(password);
     stage = 'login-return';
-    await Promise.all([
-      page.waitForURL(url => url.origin === config.dashboardUrl, {timeout: config.loginTimeoutMs, waitUntil: 'domcontentloaded'}),
-      page.locator('#kc-login').click(),
-    ]);
+    if(options.actor?.initialPassword) {
+      await page.locator('#kc-login').click();
+      const input=page.locator('input[name="password-new"]');
+      await input.waitFor({state:'visible',timeout:config.loginTimeoutMs});
+      requireSafe(new URL(page.url()).origin === config.identityUrl,'AUTH');
+      await input.fill(options.actor.password);
+      await page.locator('input[name="password-confirm"]').fill(options.actor.password);
+      await Promise.all([
+        page.waitForURL(url=>url.origin === config.dashboardUrl,{timeout:config.loginTimeoutMs,waitUntil:'domcontentloaded'}),
+        input.locator('xpath=ancestor::form').locator('input[type="submit"],button[type="submit"]').click(),
+      ]);
+    } else await Promise.all([
+        page.waitForURL(url => url.origin === config.dashboardUrl, {timeout: config.loginTimeoutMs, waitUntil: 'domcontentloaded'}),
+        page.locator('#kc-login').click(),
+      ]);
     stage = 'login-session';
     const session = await readOnlyApi(context.request, config.dashboardUrl, config.requestTimeoutMs).session();
-    requireSafe(session.subject && session.username === username && session.roles.includes(config.expected.role), 'AUTH');
+    requireSafe(session.subject && session.username === username && session.roles.includes(options.actor?.role ?? config.expected.role) &&
+      (!options.actor || session.subject === options.actor.subject),'AUTH');
+    if(options.actor && options.actor.role !== 'magicstick-admin') requireSafe(!session.roles.includes('magicstick-admin') &&
+      (options.actor.role === 'magicstick-operator' || !session.roles.includes('magicstick-operator')),'AUTH');
     await page.close();
     return context;
   } catch {

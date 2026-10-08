@@ -1,4 +1,7 @@
-name: Documentation
+name: Documentation checks
+
+# Checks only; nothing is published. The website is deployed by
+# azure-static-web-apps.yml, the GitHub Pages redirect by pages-redirect.yml.
 
 on:
   pull_request:
@@ -17,7 +20,7 @@ on:
       - requirements-docs.txt
       - mkdocs.yml
       - magic-cluster/platform/magicstick-operator/compute-target-catalog.yaml
-      - .github/workflows/docs.yml
+      - .github/workflows/docs-checks.yml
   push:
     branches: [main]
     paths:
@@ -35,7 +38,7 @@ on:
       - requirements-docs.txt
       - mkdocs.yml
       - magic-cluster/platform/magicstick-operator/compute-target-catalog.yaml
-      - .github/workflows/docs.yml
+      - .github/workflows/docs-checks.yml
   workflow_dispatch:
   schedule:
     - cron: '41 5 * * 1'
@@ -49,11 +52,11 @@ concurrency:
 
 jobs:
   build:
+    name: Test, check links and build
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
-      pages: read
     steps:
       - uses: actions/checkout@v6
         with:
@@ -73,36 +76,9 @@ jobs:
         run: |
           python tools/docs.py build
           git diff --check
-      - uses: actions/upload-artifact@v4
-        with:
-          name: documentation-preview
-          path: dist/docs-site/
-          include-hidden-files: true
-          retention-days: 14
-      - uses: actions/configure-pages@v5
-        if: github.ref == 'refs/heads/main' && github.event_name != 'schedule' && github.event_name != 'pull_request'
-      - uses: actions/upload-pages-artifact@v4
-        if: github.ref == 'refs/heads/main' && github.event_name != 'schedule' && github.event_name != 'pull_request'
-        with:
-          path: dist/docs-site
-
-  deploy:
-    needs: build
-    if: github.ref == 'refs/heads/main' && github.event_name != 'schedule' && github.event_name != 'pull_request'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Publish static documentation and landing page
-        id: deployment
-        uses: actions/deploy-pages@v4
 
   external-links:
+    name: External links (advisory)
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 15

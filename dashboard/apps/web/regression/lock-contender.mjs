@@ -1,6 +1,7 @@
 import {loadLabConfig} from './core/config.ts';
 import {HarnessError, requireSafe} from './core/errors.ts';
-import {newRunId} from './core/journal.ts';
+import {newRunId,ResourceJournal} from './core/journal.ts';
+import {join} from 'node:path';
 import {LabLease} from './core/lease.ts';
 import {KubernetesLeaseStore} from './core/observer.ts';
 
@@ -12,9 +13,13 @@ try {
   requireSafe(process.env.REGRESSION_CONFIG, 'CONFIG');
   const config = await loadLabConfig(process.env.REGRESSION_CONFIG);
   requireSafe(config.lock, 'CONFIG');
+  const index=process.env.REGRESSION_LOCK_CONTENDER_INDEX;
+  requireSafe(process.env.REGRESSION_RUN_DIR&&process.env.REGRESSION_RUN_ID&&['1','2'].includes(index),'CONFIG');
+  const journal=await ResourceJournal.create(join(process.env.REGRESSION_RUN_DIR,'worker-'+index,'journal.json'),
+    newRunId(),config.expected.applianceUid);
   lease = new LabLease(new KubernetesLeaseStore(config.lock.kubeconfig, config.lock.namespace, config.lock.name),
-    newRunId(), config.expected.applianceUid, Date.now, 30);
-  await lease.acquire();
+    journal.runId, config.expected.applianceUid, Date.now, 30);
+  await lease.acquire(process.env.REGRESSION_RUN_ID);
   held = true;
   await new Promise(resolve => setTimeout(resolve, 2500));
   await lease.heartbeat();

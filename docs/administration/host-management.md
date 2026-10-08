@@ -6,7 +6,7 @@ worker. It does not contain a second GPU package-selection or reboot path.
 The base kernel must already boot the computer and reach storage/network;
 post-install preparation cannot repair an installer that cannot boot.
 For an installer-created NVIDIA display host, the base host playbook separately
-installs a pinned display-owning driver and schedules one reboot after successful
+installs Ubuntu's recommended display-owning driver and schedules one reboot after successful
 first convergence, so the physical setup/TUI console remains available. The
 same host role keeps `nvidia-persistenced` active once the driver is usable. The
 GPU Operator's CDI device specifications refer to its Unix socket, so an
@@ -14,8 +14,27 @@ inactive service can prevent newly created NVIDIA model containers from starting
 even when the operator and `nvidia-smi` appear healthy. Check
 `systemctl is-active nvidia-persistenced` and
 `test -S /run/nvidia-persistenced/socket` before changing the GPU Operator.
+On a fresh first boot, a sysfs-only service guard and a temporary owned Operator
+startup gate defer NVIDIA access while Nouveau still holds a card. The role
+prepares the next boot without unloading the live console. After the planned
+restart, `magicstick-nvidia-handoff.timer` verifies all NVIDIA bindings, NVML and
+the persistence socket before releasing its own gate. It respects the host
+maintenance lock and scheduled shutdown, never enables manually disabled
+operands and never schedules another reboot. See
+[startup diagnostics](troubleshooting/gpus.md#reboot-recovery-and-rollout-order).
 The media does not select the driver or schedule that reboot. CPU-only and AMD-only
 hosts skip it; optional AMD kernel/profile changes remain administrator-confirmed.
+Ubuntu's hardware-based recommendation selects the NVIDIA driver series, and APT
+resolves its current package versions with the matching dependencies. Neither the
+series nor the patch version is fixed by Magic Stick. Existing fully installed
+Ubuntu NVIDIA driver metapackages are left unchanged by ordinary convergence;
+this change is not an automatic driver-upgrade policy. The node remains labelled
+`nvidia.com/gpu.deploy.driver=false`: the Operator handles the Kubernetes runtime,
+not the host's driver. Kernel/GPU package exclusions in
+[Ubuntu updates](ubuntu-updates.md) still apply, including manual dashboard updates.
+See [Ubuntu's driver installation guidance](https://ubuntu.com/server/docs/nvidia-drivers-installation/)
+for hardware-based selection; Magic Stick retains its own package-removal,
+reboot and host/operator ownership boundaries.
 New USB media use Ubuntu 26.04 LTS and its native generic kernel for both the
 installer and installed system. This base-install choice is separate from the
 reviewed GPU package profiles below; it does not upgrade an existing appliance

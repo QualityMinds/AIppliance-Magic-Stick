@@ -6,7 +6,7 @@ import {realLogin} from '../core/auth.ts';
 import {readOnlyApi} from '../core/transport.ts';
 import {KubernetesLeaseStore, KubectlObserver} from '../core/observer.ts';
 import {LabLease} from '../core/lease.ts';
-import {ResourceJournal, newRunId} from '../core/journal.ts';
+import {ResourceJournal} from '../core/journal.ts';
 import {OwnedKeyClient} from '../core/owned-key.ts';
 import {verifyCapabilities, verifyIdentity, verifyIdle} from '../core/preflight.ts';
 import {HarnessError, requireSafe} from '../core/errors.ts';
@@ -43,8 +43,8 @@ test.describe.serial('live owned API-key cleanup subset', () => {
       async () => { requireSafe(lock, 'LOCK_LOST'); await lock.assertHeld(); });
     baselineIds = new Set((await keys.list()).items.map(item => item.id));
     lock = new LabLease(new KubernetesLeaseStore(config.lock.kubeconfig, config.lock.namespace, config.lock.name),
-      newRunId(), config.expected.applianceUid, Date.now, 120);
-    await lock.acquire();
+      journal.runId, config.expected.applianceUid, Date.now, 120);
+    await lock.acquire(process.env.REGRESSION_RUN_ID);
     lockAcquired = true;
   });
 

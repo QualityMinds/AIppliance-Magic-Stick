@@ -36,7 +36,7 @@ Each module definition may contain:
 | `waitForReady` | Makes the generated Flux Kustomization wait for the vendor HelmRelease and operands instead of accepting CRD creation as readiness. |
 | `uninstallPolicy` | Public metadata for data-retention choices. |
 | `postBuildSubstitution` | Whether to include `ai-appliance-settings` as Flux post-build substitution. |
-| `parameters` | Optional dashboard fields stored in `ModuleActivation.spec.parameters`; each field may declare its Flux `substitution` variable. |
+| `parameters` | Allowed dashboard fields stored in `ModuleActivation.spec.parameters`; unknown names/non-string values are rejected before a write. Each field may declare its Flux `substitution` variable. |
 | `credentials.provider` | Optional fixed dashboard credential provider. The API supports only explicitly implemented providers and never accepts arbitrary Secret names from catalog data. |
 | `litellmKey` | Optional inference-key lifecycle declaration. `true` on an application provisions `<instance-name>-litellm` in its target namespace. A singleton module specifies `{ "namespace": "ai", "secretName": "anything-llm-litellm" }`. The common controller handles creation, suspension/rotation and finalizer cleanup. |
 

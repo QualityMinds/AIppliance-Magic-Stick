@@ -91,6 +91,26 @@ and the [GitOps/module skill](.agents/skills/magicstick-gitops-module/SKILL.md).
   Update third-party notices as needed; report rendering, container checks and
   live acceptance separately.
 
+## Regression coverage for behavior changes
+
+- For every new or changed feature and bug fix, use the
+  [regression skill](.agents/skills/magicstick-regression/SKILL.md) to review affected
+  cases in the [test catalog](docs/development/regression-test-catalog.md).
+  Make the coverage decision in the same change, not as an unspecified follow-up.
+- Add or update focused owning-layer tests and affected regression scenarios,
+  fixtures, selectors and contracts. For a bug fix, cover the failure that prompted
+  it. Preserve relevant existing engines, roles, hardware variants and saved settings.
+- Keep case IDs, variant/layer requirements, selection profiles and the catalog's
+  implementation ledger in sync when coverage changes. A test file that is never
+  selected is not implemented campaign coverage; fixtures are not live acceptance.
+- If existing tests already cover the change, explain which ones and why. If a
+  needed test cannot be implemented or run, state the gap; do not weaken assertions
+  or hide required cases. Prose-only changes normally need no appliance regression.
+- Report the regression impact and actual checks at handoff. Select proportionate
+  isolated checks; do not automatically build, deploy or run a disruptive full
+  campaign. Live runs remain within the task's authorized test-server scope and
+  use the [current runner procedure](docs/development/regression-remaining-p0.md).
+
 ## Validation and completion
 
 Run checks proportionate to touched behavior and broaden for shared contracts.
@@ -101,6 +121,7 @@ environment/locked dependencies; a missing tool is a reported gap, not a pass.
 |---|---|
 | Instructions/skills | `python tools/check_agent_guidance.py`; `python -m unittest tests.test_agent_guidance` |
 | Docs/website | With `requirements-docs.txt`: `python -m unittest tests.test_docs tests.test_website`; `python tools/docs.py build`; changed site JS: `node --check docs/site.js` |
+| Regression runner/scenarios | `bash tools/regression.sh typecheck`, `selftest` and affected `phaseN-fast` / `phaseN-fixtures`; rebuild the runner after source changes. Live phases / `all` only within authorized registered-lab scope |
 | Dashboard clients | In `dashboard/`: `pnpm typecheck`, `pnpm test`, `pnpm build`; inspect changed UI at desktop/mobile sizes |
 | Dashboard API | Relevant tests in `magic-cluster/apps/dashboard` and `dashboard/apps/api`; render `magic-cluster/apps/dashboard` if deployment/RBAC changes |
 | Operator/catalog/CRDs | Relevant tests in `magic-cluster/platform/magicstick-operator/controller`; render that base and affected modules |
@@ -130,6 +151,7 @@ Skills live in `.agents/skills/`, without duplicate copies in `.codex/skills/`:
 - [Dashboard/runtime](.agents/skills/magicstick-dashboard-runtime/SKILL.md)
 - [GitOps/modules](.agents/skills/magicstick-gitops-module/SKILL.md)
 - [Host/hardware](.agents/skills/magicstick-host-hardware/SKILL.md)
+- [Regression coverage/tests](.agents/skills/magicstick-regression/SKILL.md)
 - [Documentation/website](.agents/skills/magicstick-docs-website/SKILL.md)
 - [Publication/rollout](.agents/skills/magicstick-publish-rollout/SKILL.md)
 - [Versioned releases](.agents/skills/magicstick-release/SKILL.md)

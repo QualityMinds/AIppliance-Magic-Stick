@@ -85,6 +85,23 @@ test('shows the selected Hugging Face revision in the create dialog without mobi
   expect(state.writes).toEqual([]);
 });
 
+test('keeps offline license notices available after a status failure without overflow or writes', async ({page}) => {
+  const state=await appliance(page);
+  await page.route('**/api/license',route=>route.fulfill({status:503,contentType:'application/json',
+    body:JSON.stringify({error:'License API unavailable.'})}));
+  await page.goto('/#/system/license');
+  await expect(page.getByRole('alert')).toContainText('License API unavailable.');
+  await expect(page.getByRole('heading',{name:'Software licenses'})).toBeVisible();
+  await page.locator('summary').getByText('Business Source License 1.1',{exact:true}).click();
+  const download=page.getByRole('link',{name:'Download Business Source License 1.1'});
+  await expect(download).toBeVisible();
+  await expect(download).toHaveAttribute('download','MagicStick-BSL.txt');
+  const href=await download.getAttribute('href');
+  expect(decodeURIComponent(href!.split(',',2)[1]!)).toContain('EUR 2,000,000');
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect(state.writes).toEqual([]);
+});
+
 test('navigates the built dashboard without side effects', async ({page}) => {
   const state = await appliance(page);
   const errors: string[] = [];

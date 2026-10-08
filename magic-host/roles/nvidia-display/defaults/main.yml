@@ -1,8 +1,6 @@
 ---
-# Keep this upstream version aligned with the GPU Operator driver version.
-nvidia_display_driver_version: "595.91.07"
-# Reviewed Ubuntu 24.04/26.04 package releases for the appliance installer.
-nvidia_display_ubuntu_package_version: "{{ nvidia_display_driver_version }}-0ubuntu0.{{ ansible_facts['distribution_version'] }}.1"
+# Ubuntu recommends the host driver for the detected hardware; APT selects its
+# current package versions. The Operator's containerized driver is independent.
 nvidia_display_new_install_marker: /var/lib/magicstick/setup/new-install
 nvidia_display_reboot_marker: /run/magicstick-nvidia-display-first-install-reboot-required
 nvidia_display_reboot_scheduled_marker: /run/magicstick-nvidia-display-first-install-reboot-scheduled

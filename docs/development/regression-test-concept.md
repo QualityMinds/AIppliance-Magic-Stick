@@ -1,14 +1,30 @@
 # Installed-appliance regression test concept
 
-Design baseline: 1 October 2026; evidence reviewed through 4 October 2026.
-Status: **Phase 0 and the finite Phase 1 P0 profiles accepted on 4 October 2026**.
+Normal operation: [short regression runner guide](regression-remaining-p0.md).
+The registered disposable-lab policy now enables automatic Phase 0–8 P0
+preparation and execution without per-scope approvals or manual configuration.
+Independent cases continue; results are Passed, Failed or Blocked. Historic
+opt-in/proposal workflows below describe the earlier implementation, not the
+current normal command. This change has not yet received live acceptance.
+
+Scope update, 6 October 2026: experimental FreeToken-specific regression cases
+are temporarily excluded by the runner's repository policy, not reported as
+missing prerequisites. FreeToken remains available in the product. Historical
+matrices and findings below retain their original wider scope. Current reports
+list the excluded engine tests and distinguish executable scenarios from their
+case/variant/layer evidence rows.
+
+Design baseline: 1 October 2026; evidence reviewed through 5 October 2026.
+Status: **Phase 0 and finite Phase 1 P0 accepted on 4 October; finite Phase 2 P0
+accepted on 5 October 2026**.
 The complete foundation profile passed on the test appliance, including its
 required live negative/fault/recovery variants and final pinned preflight.
 Phase 1 P0 has a finite implemented and accepted CPU/Ollama smoke profile; dated
 live evidence is recorded separately below. Selected CPU/Ollama smoke and model-edit subsets
 have also passed. Phase 2 P0 now has a finite implemented CPU model-control
-profile for Ollama, vLLM, discovery and an external route. Its local U/C/B
-layers pass, while its full live acceptance is not yet achieved. The wider Phase 2–8 product
+profile for Ollama, vLLM, discovery and an external route. Its canonical
+eight-stage repeat passed all 85 required U/C/B/A/E evidence tuples, including
+the actual runtime-failure case and final pinned preflight. The wider Phase 2–8 product
 matrices and other engine/app/GPU/host-maintenance workflows are not therefore
 accepted. Domain-specific variants remain in their later phases.
 The [test case catalog](regression-test-catalog.md)
@@ -36,9 +52,9 @@ Explicit boundaries:
   VM provisioning are deferred. They need a separate installation suite once the
   quota/environment issue is resolved. An already configured login session and
   setup-to-dashboard handoff can still have browser regressions tested here.
-- Ordinary regression runs must not change firmware, switch networks, install OS
-  packages, change software channels or restart/power off the appliance.
-  Deliberate maintenance profiles cover those operations separately.
+- Full runs on a registered disposable lab include supported maintenance and
+  reboot cases automatically. Missing physical recovery/control prerequisites
+  block only dependent cases; unregistered targets never receive live writes.
 - Verify Magic Stick's provisioning, access, routing and basic model-backed
   operation of bundled applications, not every upstream application's internal
   feature. Each app adapter defines its smallest meaningful functional probe.
@@ -143,6 +159,39 @@ This is deliberately broader than checking that the Save button returns HTTP
 200. Playwright supports direct API requests for setup and postconditions,
 including [API and UI tests in one suite](https://playwright.dev/docs/api-testing).
 Use that mechanism without bypassing the product's authentication boundary.
+
+### Console progress and report descriptions
+
+The runner prints a start line **before** each executable test, including its
+position in the selected sub-run. A static scenario name, when available, makes
+repeated IDs such as `HAR-10` distinguishable. The catalogue goal explains the
+action and expected proof; evidence lines identify the actual layer, environment
+and reviewed variant. Completion lines include outcome and elapsed time. Failed
+or blocked checks show a fixed, public-safe reason and the stalled stage when
+known, rather than a raw server response.
+
+Illustrative isolated-fixture output; counters and durations vary:
+
+```text
+[3/12] START HAR-03
+  Scenario: HAR-03 pending operation, active local model and busy updates block safely
+  HAR-03 catalogue goal: Observe an offline API/host, pending maintenance or unrelated busy workloads at preflight. Report Blocked with a reason; do not reboot, delete workloads or force a lock.
+  Evidence: U — unit/component; fixture
+[3/12] HAR-03: Passed — 0.2s
+```
+
+Descriptions are read directly from the public
+[case catalogue](regression-test-catalog.md), not a second maintained list.
+Only simple literal scenario titles verified against public test source are
+printed; interpolated/private titles fall back to the catalogue and allowlisted
+variant. Credentials, upstream error bodies and raw annotations are not printed.
+
+Private `summary.txt` includes catalogue goals, expanded layer names, elapsed
+times and safe failure reasons. Schema-2 `summary.json` adds a catalogue-derived
+`description` to each recorded case; `junit.xml` keeps the stable ID/variant test
+name and adds a `catalogueGoal` property. Caller-supplied description fields are
+ignored. A goal describes the **case family**, not proof that every engine,
+hardware parameter or complementary layer passed. Acceptance gates are unchanged.
 
 ## 4. Execution profiles and gates
 
@@ -550,7 +599,7 @@ The finite P0 parameter set is intentionally CPU-only:
 | Local engines | Create one reviewed CPU Ollama and one CPU vLLM model through the browser; independently verify saved intent, current-generation runtime, catalog publication, routed inference and bounded logs |
 | Edit and persistence | Save context and memory changes, reload, Stop/Start, and verify the same UID plus increasing generation; dirty/reverted/invalid form states remain correct through polling |
 | Conflicts and admission | Reject stale revisions, unsupported raw settings and an explicit memory-risk request without accepting a partial model |
-| Failure status | A run-owned failing Ollama reference reaches a bounded actionable Degraded reason and is never shown as Ready/100 percent |
+| Failure status | A run-owned failing Ollama reference produces at least three failed Pod restarts and the current-generation `ModelRuntimeCrashLoop` Ready condition; API and browser report Degraded with the real cause, never Ready/100 percent |
 | External route | Create/edit/Stop/Start a reviewed OpenAI-compatible route, using a configured HTTPS provider or a separate run-owned CPU/Ollama provider; stopping the route must leave its provider serving |
 | Cleanup | Every accepted create records namespace, name, UID and generation before further work; deletion is UID/resourceVersion fenced and verifies intent, Pods and catalog route are absent |
 
@@ -559,7 +608,14 @@ The private lab profile must add `phase2.ollamaModel`, `phase2.vllmModel`,
 complete Phase 1 profile. The positive local model fixtures must be advertised
 by the deployed catalog, explicitly select KV cache settings, use a context of
 at most 4096 for this bounded suite and a memory budget in 100 MiB steps. The
-failure fixture includes an expected user-visible reason. The discovery query
+failure fixture includes an expected user-visible reason, uses at most 8192 MiB
+RAM and a context of at most 4096. Its intentionally missing Ollama manifest
+cannot supply a memory estimate, so this one fixture explicitly sends
+`allowMemoryRisk: true` after checking the currently unreserved CPU capacity.
+Normal model creation keeps the risk opt-in off. Admission rejection alone
+cannot pass the runtime-failure test: the Pod failure, current Ready condition,
+API status and visible browser cause must all agree within the existing
+15-minute deadline. The discovery query
 must have a reviewed second page and pin the expected repository and artifact
 URL. The configured external fixture uses an HTTPS origin; an optional API key
 is read from a mode-`0600` private file and is never written to reports.
@@ -580,6 +636,15 @@ step. Estimation requests are non-mutating; persistent writes require the
 appliance-scoped Lease. It never changes GPU sharing, firmware, host memory,
 software channels, modules, global settings or unrelated models. GPU engines,
 FreeToken, slots and DRA/time-slicing remain Phase 3–4.
+
+A definite JSON create rejection (HTTP 400/401/403/404/409/422) is recorded as
+rejected only after the independent Kubernetes reader proves that the exact
+run-owned name is absent under the held Lease. The journal can resume this
+no-UID terminal entry without attempting deletion. Network timeouts, 5xx,
+throttling, malformed success responses, lost Lease ownership and existing
+same-name objects remain ambiguous: no retry, UID adoption or name-only cleanup
+is permitted. The original error remains a failing/blocked test result; a clean
+journal does not convert the assertion into success.
 
 Implementation validation on 2 October 2026 passed:
 
@@ -674,6 +739,50 @@ assertions in that test are not automatically considered independently
 executed. These findings do not certify every parameter variant of the broader
 catalog, GPU/FreeToken/sharing workflows, or the whole frontend test suite.
 
+<a id="phase-2-live-acceptance-2026-10-05"></a>
+#### Phase 2 P0 live acceptance — 2026-10-05
+
+Canonical repeat `reg-19887a26-0dc3-4b13-b419-7b849d247b0f` passed all
+**140/140 selected results** and all **85 required evidence tuples**:
+9 U, 22 C, 11 B, 23 A and 20 E. `fullPhase2Accepted: true`; all eight stages
+passed, with no missing, failed, blocked, skipped or flaky result.
+
+- Harness selftest passed 50 selected results, fast U/C passed 31, and
+  isolated Chromium fixtures passed 11.
+- Discovery `reg-d690b102-0223-49a5-96cc-e0a4a98a33b4` passed the three
+  mapped live results, including the selected Hugging Face revision in the UI.
+- CPU model control `reg-69aa2349-faf7-4aea-9650-75ef0a43f4c7` passed all
+  36 mapped results: Ollama, vLLM, revision-safe parameter changes,
+  Stop/Start, saved settings, inference, logs, admission/risk negatives and
+  controlled external routing.
+- Failure `reg-7cbbda0a-0f2f-49e7-a809-d649ff51cf68` passed LIFE-12 A/E
+  and NAV-06 A. The bounded missing-manifest fixture explicitly opted into
+  estimation risk, produced repeated Pod failures and a current-generation
+  `ModelRuntimeCrashLoop` condition, and displayed Degraded plus its real cause
+  in the browser, without Ready/100-percent success. Product RAM admission was
+  not relaxed; its separate rejection/explicit-risk test also passed.
+- Final preflight `reg-5cac1c0b-bdcd-48db-a973-1bcb80c34f50` passed all
+  three checks. Every canonical-run journal has zero remaining entries; test
+  models, Pods, catalog routes and key were removed, the lab Lease is free, and
+  the two existing vLLM definitions retain their original UIDs, generation 4,
+  `enabled: false` and Disabled status.
+
+The deployed Flux revision was
+`274d3ed94eb078176e9e5e5391bb6d3dcca750a8`; the pinned Web/API images derive
+from `1e7e2bafe69ac4709ca40fb7fc48f33e8af9182f`. Appliance/node identity,
+current boot identity and both running image digests were independently checked.
+The runner used local, uncommitted test-fixture/cleanup corrections on that base;
+its private `source-provenance.json` records the local image and test-diff hash
+instead of presenting the changes as a published source commit. Nothing was
+committed, pushed or rolled out by this acceptance run.
+
+A preliminary interrupted diagnostic was independently recovered by its recorded
+UID/generation before this clean canonical run. Its failed report, the earlier
+RAM-admission-blocked failure fixture and historical product findings remain
+unchanged evidence; they are not merged into this passing gate. This accepts
+only the finite CPU model-control profile. GPU, FreeToken, sharing, global
+settings and the wider Phase 2–8 parameter matrices remain separate gates.
+
 `selftest` runs only synthetic harness cases: identity/capability rejection,
 verified TLS, offline/busy errors, independent lease-owner CAS races, expired/lost
 leases, owned UID cleanup, atomic-delete conflicts, interrupted journals,
@@ -682,7 +791,24 @@ secret redaction and an actual Chromium login to a loopback fixture. This is
 **not** proof of real dashboard authentication, model cleanup or GPU behavior.
 There is no GitHub registration, CI schedule, model start or host operation.
 
-For the optional live read-only check, copy
+For normal setup, use the [short runner guide](regression-remaining-p0.md#once).
+The commands in this historical section describe the legacy diagnostic path:
+`setup` starts with only the Dashboard URL and admin login, discovers the other
+endpoints and obtains the account's OIDC kubeconfig through the existing API.
+After explicit CA-trust and lab-grant review, it generates the separate scoped
+test credentials automatically. It then asks for the selected phases, warned
+installation-bound operation approvals and every required fixture, generating
+local foundations where possible. Temporary self-account Kubernetes admin access,
+if needed, requires `GRANT` and is restored before bootstrap. The final checked
+proposal is accepted only after `ACCEPT`; missing prerequisites leave setup
+incomplete with actionable measures. `all` executes the selected complete P0
+phases sequentially and stops at the first failure. `setup --minimal` skips suite
+forms/acceptance; `setup --manual` retains externally managed access inputs.
+Standalone `prepare`/`prepare --accept` remain available. Neither discovery nor
+acceptance executes tests or certifies the installed version as the intended
+deployment. Real external infrastructure remains a prerequisite.
+
+For advanced manual setup of the optional live read-only check, copy
 [`lab.example.json`](../../dashboard/apps/web/regression/lab.example.json) to
 `.regression/inputs/lab.json`, fill the approved hosts, Appliance UID, node
 names/UIDs and expected engine matrix, and supply:
@@ -826,6 +952,329 @@ and led to fixes for Kubernetes' six-digit `renewTime` format and `kubectl
 replace` JSON output; those failed attempts are not counted as a clean first
 pass. No GPU sharing, model, app, host setting or inference was exercised.
 
+#### Phase 3 and 4 P0 installed GPU profiles
+
+The local Linux runner has explicit installed GPU profiles. The shared
+[acceptance matrix](../../dashboard/apps/web/regression/profiles/gpu-p0.ts)
+requires every named variant at its owning layer. Component and synthetic browser
+passes cannot replace real API, device-binding or inference evidence. These
+profiles do not install/upgrade the appliance, publish images, reboot the host,
+change firmware/network settings or clear caches.
+
+| Selection | Implemented scope |
+|---|---|
+| `phase3-fast` | Existing hardware/memory/FreeToken components and API/controller contracts; bounded fixtures, ownership, concurrent journals and evidence safety |
+| `phase3-fixtures` | Chromium unknown/stale hardware, separate memory/budget/slot denominators and FreeToken scheduler-node/physical-telemetry joining with numeric budget clamping; no live appliance credentials |
+| `phase3-gpu` | Pinned AMD/NVIDIA inventory; exclusive Ollama/vLLM on each vendor; requested/effective cache, routed inference, UI logs and Stop/Start; FreeToken discovery, whole-GPU create/edit/Stop/Start/Restart/inference |
+| `phase3-validation` | Real Hardware confirmation and Ollama/vLLM diagnostics for one NVIDIA GPU and all pinned GPUs; exact Job/Pod device binding and completed image evidence |
+| `phase4-fast` | Existing sharing/slot API/controller/component contracts; native tests of the pinned AMD DRA recovery patch with isolated sysfs, checkpoints and CDI |
+| `phase4-fixtures` | Exclusive defaults, dirty/reverted/cancelled forms, native disabled options, invalid counts, custom/unavailable backends and a retained draft after polling to zero free slots |
+| `phase4-sharing` | NVIDIA time-slicing and AMD DRA transitions; mixed/same-engine pairs; exhaustion/release, retained drafts, own-slot edit, diagnostic consumer, last-slot race and cross-provider/CPU non-interference |
+| `phase4-sharing remaining` | Fixed diagnostic subset: consumer, independence, race, reload and restoration, with its own temporary two-slot setup; never installed Phase 4 acceptance |
+| `gpu-recover` | Exact baseline restoration and owned-resource cleanup for one reviewed journal; no new workloads, adoption or stale-Lease takeover |
+
+`phase3` runs self-tests, fast contracts, browser fixtures, pinned preflight,
+GPU runtimes, explicit validation and a final pinned idle preflight. `phase4`
+runs self-tests, fast contracts, browser fixtures, pinned preflight, sharing/slots
+and a final pinned idle preflight. They stop at the first unsuccessful stage.
+Diagnostic subset reports never replace a canonical aggregate.
+
+The Phase 4 live suite groups each provider's pair/full-slot cases together and
+tests the NVIDIA last-slot race before the AMD race to reduce cold runtime-image
+swaps. All device, persistence, slot and inference assertions remain unchanged;
+no image or model cache is cleared. Classic owned fixture names must fit the
+pinned KubeAI CRD's 40-character limit, including the durable run prefix. An
+invalid fixture is rejected before a create intent is journaled, not truncated
+or repaired by adopting a different resource.
+
+Additional prerequisites beyond Phase 0:
+
+- An idle reserved mixed AMD/NVIDIA node, exactly one physical GPU per provider.
+  Pin node name/UID/boot, PCI addresses and physical device IDs independently.
+  Replicated slots are not extra devices; a missing vendor is Blocked, not a
+  reduced test selection.
+- Both vendor settings already managed, Ready and exactly restorable through
+  the product API; custom/unmanaged profiles and pending legacy validation intents
+  are not adopted. Explicitly consent to temporary sharing transitions in the
+  private lab profile; unrelated models/diagnostics/operations must be inactive.
+- Reviewed small Ollama/vLLM fixtures per provider, a catalog-admitted FreeToken
+  model, and sufficient actual storage/VRAM/RAM. Cold downloads and FreeToken
+  restarts can take considerably longer than CPU smoke.
+- The separate [GPU observer RBAC](../../dashboard/apps/web/regression/lab-rbac-gpu-observer.example.yaml)
+  added to the existing observer. It grants only get/list/watch for ModuleActivations,
+  ResourceSlices/Claims, Jobs and KubeAI Models, not Secrets/logs/exec or workload/node
+  writes. Logs still use the authenticated product API.
+
+Copy only the `gpu` object from the [public example](../../dashboard/apps/web/regression/gpu-profile.example.json)
+into private `lab.json`; replace placeholders after inspection. Positive GPU
+runtime fixtures are capped at 32 GiB, context at 4096 and model concurrency at
+one. Negative API cases submit impossible bounds and require independent proof
+that no model was created. Sharing uses
+two slots. FreeToken requests one whole NVIDIA GPU, Auto strategy and distinct
+settings; ordinary KV/offloading fields are prohibited. These test bounds do not
+invent hardware support or replace the API's live capability/telemetry checks.
+
+Use the smallest reviewed fixture admitted by the pinned engine and installed
+catalog, not an unsupported model solely to reduce downloads. The current lab
+uses already-cached Qwen2.5 0.5B fixtures for Ollama/vLLM and
+`Qwen/Qwen3-VL-8B-Instruct` for FreeToken, which is listed in the
+[FreeToken v0.1.3 model documentation](https://github.com/FlashML-org/FreeToken/blob/v0.1.3/docs/models.md)
+and admitted by the installed catalog. The Hugging Face search derives its query
+from the selected fixture rather than hardcoding a different model family.
+Smaller parameter counts do not remove cold runtime-image downloads or guarantee
+smaller weight downloads. Recheck live admission when changing the fixture or
+engine version; do not widen production capabilities for a test.
+
+FreeToken's scheduling capability entries need not contain `vendor` or VRAM
+counters. The harness joins the selected `node:<name>` with independently
+reported NVIDIA GPU samples in `computeMemory`, requiring the correct node,
+engine eligibility, known telemetry and a matching FreeToken scheduler identity.
+The [read-only test resolver](../../dashboard/apps/web/regression/core/freetoken-inventory.ts)
+never uses cluster CPU RAM or a different node as a VRAM fallback. The
+frontend clamps numeric GPU/RAM inputs to current capacity; the API separately
+rejects impossible direct-create budgets. Isolated tests cover this actual
+split contract and preserve explicit zero/unknown memory semantics.
+
+```sh
+bash tools/regression.sh build
+bash tools/regression.sh phase3
+bash tools/regression.sh phase4
+# Only after reviewing the specific interrupted/failed journal:
+bash tools/regression.sh gpu-recover /private/runs/reg-<uuid>/journal.json
+```
+
+Use `REGRESSION_INPUT_DIR`, `REGRESSION_PRIVATE_DIR` and the optional private
+`REGRESSION_COMPOSE_OVERRIDE` for existing lab inputs/output/DNS. Never commit
+those files. Execution remains unprivileged, read-only, with no Docker socket
+or executable `/tmp`. The FreeToken owning preflight interprets its synthetic
+temporary CLI with Python rather than weakening these protections.
+
+**Borrowed settings:** each run durably saves initial full ModuleActivation
+specs, UIDs, spec generations, provider mode/count and existing model definitions.
+Only authenticated product API intents create workloads. Lease/identity checks
+precede mutations; exact independently observed spec/generation checks follow.
+`202 Accepted` confirms intent, not completion: node allocatable resources,
+device-plugin profiles or AMD DRA slice/claim identity and Models slots must
+subsequently match. A displayed historical claim name alone is not DRA binding.
+
+Cleanup removes only UID/generation-journaled models, verifies Pod/route withdrawal,
+restores full original provider specs through the same API, compares unrelated
+definitions and removes keys before releasing the Lease. Explicit diagnostic
+receipts can remain in ordinary product history; they are not cache cleanup.
+Active diagnostics prevent backend restoration. Foreign edits, replacement,
+lost Lease and ambiguous writes block automatic restoration and retain private
+recovery journals. Confirmed CAS `409` retries require independent unchanged
+UID/spec/generation proof; transport failures are not adopted or blindly retried.
+Concurrent model admissions serialize journal writes to preserve all receipts.
+Playwright replaces a worker after a failed test even without retries. Subsequent
+workers keep separate private `worker-<index>/journal.json`, sharing and baseline
+receipts rather than overwriting the failed worker's files. Surviving resources
+or a held Lease still block the replacement; recovery always names the exact
+journal. Browser readiness waits allow the real 15-second Models refresh to
+converge. API readiness independently requires the current spec generation and
+its observed Ready condition, not stale status after an edit or restart. Before
+inference, GPU tests also require exactly one Running, Ready, non-terminating
+owned Pod with the current saved context/concurrency, KV settings and restart
+configuration. KubeAI replica counters alone can still reflect an old Pod during
+a parameter rollout. Terminating Pods remain in the cleanup inventory; they are
+not silently filtered away to claim completed convergence.
+
+The native recovery binary uses the same upstream commit/patch as
+`build-amd-dra-image.yml` and a pinned Go builder. BOOT-04 U/C checks physical
+identity through DRM renumbering and recreated CDI. BOOT-05 U/C checks stale,
+legacy and malformed checkpoints, missing/replaced hardware, quarantine,
+multiple consumers and cleanup without clearing checkpoints. All files are
+isolated fixtures, never a live checkpoint or device.
+
+The installed Phase 4 gate is `installedPhase4Accepted`. It does not certify
+maintenance: `fullPhase4Accepted` stays false and BOOT-04 live driver restart/CDI
+recovery is a separately authorized gate. Intel acceptance remains deferred.
+Keep local source/container checks, deployed source/image pins and genuine live
+acceptance separate.
+
+<a id="phase-4-installed-acceptance-2026-10-05"></a>
+#### Phase 4 P0 installed-sharing acceptance — 2026-10-05
+
+The corrected canonical run `reg-5a2457ea-b62e-41ab-85eb-2b629ae63138`
+passed **154/154 selected results**, all **71 required U/C/B/A/E/O tuples**
+across 23 variants, all six stages and the final pinned idle preflight.
+There were no failed, blocked, skipped, missing or flaky results;
+`installedPhase4Accepted: true`. This is one complete run, not an aggregate of
+earlier partial attempts.
+
+Real AMD DRA and NVIDIA time-slicing transitions, mixed-engine and same-engine
+inference, full/released slots, retained browser drafts, own-slot edits, a real
+diagnostic Job as an additional consumer, last-slot races, provider/CPU
+non-interference and persisted reload all passed. The live sharing child was
+`reg-1626ea71-990a-4ff4-a6fd-1131b4917e5a`; the final preflight was
+`reg-a54aaa59-c18c-4b9a-ac99-b949bda4bd02`.
+
+A separate read-only audit confirmed the same pinned node/boot identity, an idle
+Lease, a clean ownership journal, no remaining run-owned Pods, unchanged original
+model definitions and exact restoration of the original sharing specifications.
+NVIDIA's restored backend advertised five slots and five replicas; AMD's original
+four-slot configuration was restored. No foreign model or cache was deleted.
+Cold runtime-image downloads were observed separately from model readiness.
+
+The runner changes remain local and uncommitted; the local Linux image and the
+appliance's deployed source/image/boot pins are separate evidence. No product
+image was published or appliance rollout performed by this acceptance run.
+`fullPhase4Accepted` remains **false**: live BOOT-04 driver restart/CDI recovery
+still needs a separately authorized maintenance window. Intel remains deferred.
+The earlier overlong KubeAI model-name admission/status finding also remains open;
+shortening a test fixture did not fix that product behavior.
+
+#### Phase 3 and 4 implementation review (2026-10-05)
+
+The installed profiles above are implemented locally. Phase 4's complete
+installed-sharing run is accepted above; Phase 3's corrected complete live repeat
+is still pending. TypeScript checks, the strict handbook
+build and 39 documentation/website tests passed. The owning component/API suites,
+synthetic Chromium cases and native AMD checkpoint/CDI tests passed in the Linux
+runner. Full-profile reports additionally require all live tuples and final
+pinned idle preflight, not just those isolated checks.
+
+The latest isolated profiles include the current-runtime readiness regression
+and the fixture name-admission and diagnostic-selection guards: Phase 3 fast
+passed 60/60 results (`reg-0b6147ed-86cb-4ca7-8539-5922bfe7da46`), and Phase 4
+fast passed 45/45 (`reg-d8d36e7d-7bd9-4ed3-a99e-8eeb3e1ff324`). These are fixture/owning-layer
+results, not substitutes for a complete installed acceptance run.
+
+Earlier live attempts are retained, not relabelled:
+
+- The new sharing adapter initially expected HTTP `200`; the existing product
+  accepts sharing and verification intents with `202`. The adapter now verifies
+  acceptance separately from independently observed backend completion. An
+  accepted write with an ambiguous local receipt was reviewed explicitly before
+  recovery; routine recovery still refuses automatic adoption.
+- AMD's exclusive DTO can retain a historical shared-claim name. Exclusive
+  acceptance now checks actual `amd.com/gpu` registration and effective mode,
+  not disappearance of a diagnostic name. DRA acceptance still requires the
+  actual current physical claim/slice and runtime binding.
+- The first AMD Ollama runtime reached Ready with real GPU binding, but the
+  new test had not opened the separate LiteLLM SSO route. A fresh dashboard
+  session's inference read returned `302` to identity, not model JSON. The GPU
+  fixture now follows the same real SSO preparation as the accepted CPU flow,
+  before creating a key or borrowing settings. Redirect/transport/schema
+  diagnostics are bounded categories, not saved response bodies or credentials.
+- Explicit inference failures now retain a `Failed` outcome through Playwright
+  Error serialization instead of being misclassified as infrastructure Blocked.
+- The corrected Phase 3 attempt reached real inference on AMD/Ollama,
+  AMD/vLLM and NVIDIA/Ollama. Its NVIDIA browser assertion raced the 15-second
+  Models refresh with a 5-second deadline; the subsequent replacement worker
+  also refused to overwrite existing private receipts. UI convergence now has
+  an explicit bounded wait, and replacement workers preserve separate journals.
+  This attempt remains failed, not a complete runtime acceptance.
+- The subsequent attempt used an ambiguous `Ready` text locator (both the
+  status badge and progress caption match). It was stopped after the first
+  real AMD inference pass and all worker receipts were restored/removed. The
+  wait now targets the unique accessible `Ready: 100%` progressbar; an isolated
+  Chromium test reproduces the duplicate labels and the delayed Models poll.
+  Replacement workers also establish their own exclusive backend after the
+  previous worker has restored the original settings.
+- The next canonical Phase 3 run `reg-52952552-c12f-4e66-bb51-a02e10768db5`
+  passed all four complete classic GPU combinations (AMD/NVIDIA with Ollama and
+  vLLM), including inference, logs and browser Stop/Start. FreeToken was blocked
+  before model creation because the new test required an absent optional
+  `engineAvailability.FreeToken.available: false` field on the AMD target and
+  expected VRAM in the scheduler catalog. The product instead excludes FreeToken
+  through the target's engine list and publishes live VRAM separately. The test
+  now joins that actual split contract and checks frontend clamping separately
+  from API rejection. All worker-owned resources were removed and both original
+  provider specs restored. This failed aggregate remains retained; corrected
+  FreeToken and verification live acceptance are still required.
+
+- The next canonical Phase 4 attempt
+  `reg-7c56fb41-ded7-45f0-8d04-dabd0f71d30e` passed both provider transitions
+  and real mixed/same-engine pairs on AMD and NVIDIA. Its aggregate had 122
+  Passed, eight Failed and 17 Skipped results. The grouped AMD full-slot/edit
+  scenario exposed an incorrect test-adapter receipt: model `PUT` returns the
+  changed `ModelActivation` directly, whereas lifecycle `POST` wraps it in
+  `activation`. The product saved the requested context change, but the test
+  failed before recording its new generation. The helper and FreeToken browser
+  edit now validate the direct receipt, same UID/name, exact next generation,
+  requested context and unchanged enabled state. A focused owning helper/journal
+  regression rejects the wrong envelope and altered identities/generations.
+  The corrected isolated Phase 4 fast profile passed 42/42 results
+  (`reg-506c4fd8-47a3-4e0b-b857-d1a663735632`).
+- Recovery of that failed run required explicit review of the complete expected
+  model spec and the pinned appliance/node/boot/source/images before recording
+  the one acknowledged context change. Routine recovery still does not adopt
+  an ambiguous write or take over an expired Lease. An initial recovery failed
+  cleanup (`reg-c45fbdd0-6542-4226-847d-b125c8136062`); a subsequent reviewed
+  retry passed HAR-07/HAR-08
+  (`reg-7c1e0691-c0ff-4562-ae1e-a94497a649af`), removed all journal-owned
+  models/key and restored both exact original provider specs. These failed
+  reports are retained; neither retry converts them into an accepted Phase 4
+  aggregate.
+- The subsequent canonical Phase 4 run
+  `reg-9fb5c1a7-de0f-47dd-8cf9-cd3bca0a5b92` passed the corrected direct edit
+  receipt but failed actual AMD/Ollama inference after that edit with HTTP 502.
+  Aggregate: 123 Passed, eight Failed, 17 Skipped. The saved generation was 2;
+  the private bounded log snapshot showed four startup Pods with the same new
+  template hash, three already terminating and none Ready. This is not evidence
+  of a changed template on every reconcile or a persistent memory failure. The
+  harness had accepted old replica readiness before the current Pod converged.
+  It now observes the current Pod/configuration as described above, with a
+  targeted regression for old context, terminating replicas and stale restart
+  configuration. Inference failures are still failures, not automatically
+  retried. All own resources were removed normally, both original sharing specs
+  restored, original model definitions unchanged and the Lease independently
+  observed idle. The failed aggregate remains retained; a complete corrected
+  repeat is required.
+- The next canonical run `reg-a6e08bdb-6613-41fa-8b26-e344fdd50e64`
+  passed both full-slot/edit/Stop/Start scenarios, including actual inference
+  with the changed context on AMD and NVIDIA. Aggregate: 140 Passed, one Failed,
+  eight Skipped. The SLOT-03 fixture generated a 42-character KubeAI model name;
+  the installed `models.kubeai.org` CRD explicitly requires
+  `size(self.metadata.name) <= 40`. The product API accepted the activation,
+  but the controller's KubeAI apply returned HTTP 422 before publishing model
+  status. The harness now uses a shorter valid name and rejects overlong
+  classic fixture names before recording a create intent. This does not change
+  product naming policy or count that failed fixture as a pass. Missing API
+  validation/actionable status for overlong KubeAI names is a separate product
+  finding; no product fix or rollout is claimed by this runner correction.
+- The following fixed diagnostic subset,
+  `reg-c3b2dd62-4214-44ad-b4a7-109f614b1ad0`, passed all nine executed live
+  case/layer results: a real verification consumer, provider/CPU independence,
+  both last-slot races, reload and exact restoration. An independent read
+  confirmed no owned Pods, a clean journal, idle Lease, unchanged original
+  model definitions and restored full provider specs. Its aggregate remains
+  **Not accepted**: the runner image used for that attempt still required IDs
+  outside the selected subset. The launcher/reporter now use one guarded ID
+  selector, with isolated tests proving that a diagnostic subset cannot certify
+  canonical Phase 4. The retained report is not relabelled, nor is its partial
+  live evidence combined with previous attempts to claim full acceptance.
+
+The preceding Phase 4 attempt `reg-f92221e8-336e-47b7-8198-d25c4e61bcd4`
+passed its isolated stages, pinned preflight and both actual provider transitions,
+then stopped at the first pair's inference gate. Its live child
+`reg-23c2c1d9-e2fa-4ccf-9e08-b33b148705cf` restored full original provider
+specs and removed its owned model/key. It is **not accepted**; skipped pair,
+exhaustion, race and independence variants are not passes. A corrected canonical
+repeat is required. Existing disabled model definitions remain unchanged and
+caches are not cleared; ordinary model starts may add downloaded artifacts or
+aliases. Optional verification receipts can remain ordinary product history.
+
+### Phase 5–8 P0 implementation
+
+The remaining installed-appliance P0 profiles now have a finite executable
+matrix: **99 domain cases / 321 domain layer/environment tuples** across Phase 5
+(42/138), Phase 6 (39/123), Phase 7 (12/42) and Phase 8 (6/18), plus one required
+`HAR-03 / final-idle` live tuple per canonical phase.
+See the [Phase 5–8 runner guide](regression-remaining-p0.md) for commands,
+private examples, cleanup authority and prerequisites. Missing lab fixtures or
+approval are blocking results, not successful skips. Full-phase flags require
+every exact tuple and a final clean pinned preflight; local fixtures and
+diagnostic subsets do not establish live acceptance.
+
+Implementation follows the agreed workflow: short local checks now; the lab
+owner executes long live suites and provides their results. No testserver
+mutation, source publication or rollout is implied by this implementation.
+Physical Phase 6 cases run one approved current-boot plan at a time; no silent
+boot/source re-pinning or manual aggregation into full acceptance. Existing
+dated Phase 0–4 evidence above remains unchanged.
+
 ### Opt-in CPU model smoke and recovery
 
 `smoke` implements one deliberately narrow lifecycle parameter set:
@@ -944,6 +1393,10 @@ cases deliberately do not reuse an old successful session.
   leak checks. Secret lifecycle assertions belong in isolated API/controller
   fixtures or an explicitly approved diagnostic boundary. Host journal collection
   is separately scoped.
+  The optional license-baseline diagnostic is such a boundary: a distinct
+  get/patch grant for only `identity-system/Secret/magicstick-license`, used with
+  exact UID/resourceVersion/data tests to remove/restore only its document. It
+  does not broaden the observer, delete installation identity or modify trust.
 - Small compatible, explicitly reviewed model fixtures per engine/target, plus
   chat and embedding types where supported. Record exact repository/tag/revision,
   quantization, source license, download bytes, context and expected budget.
@@ -1068,6 +1521,13 @@ Each run should produce:
 5. Baseline/cleanup differences and the safe next recovery action if cleanup
    could not complete.
 
+The implemented reporter also records bounded, allowlisted call traces. JUnit
+keeps evidence, executable scenarios and individual nested steps in separate
+suites, with outcome/duration and relative attachment references. Canonical
+phase/campaign archives copy those sanitized child attachments alongside the
+report; they are not raw Playwright trace-viewer archives. See the
+[archive contract](regression-runner-reference.md#junit-steps-and-portable-report-archives).
+
 Failure classification distinguishes authentication/TLS, validation/conflict,
 dependency/permission/admission, scheduling/claim/device binding, image pull,
 download/storage, runtime load/OOM, health/catalog/routing and browser rendering.
@@ -1177,9 +1637,9 @@ Track these initial implementation gates as work is completed:
 
 - [x] Phase 0 P0: harness and lab contract accepted; repeat passed 2026-10-04.
 - [x] Phase 1 P0: finite CPU/Ollama installed-appliance smoke accepted 2026-10-04.
-- [ ] Phase 2: model control/forms and external routing accepted.
+- [x] Phase 2 P0: finite CPU model control/forms and external routing accepted 2026-10-05.
 - [ ] Phase 3: exclusive engine/GPU matrix accepted for available hardware.
-- [ ] Phase 4: sharing/slots/mixed-vendor regressions accepted.
+- [x] Phase 4 installed P0: sharing/slots/mixed-vendor regressions accepted 2026-10-05; live driver restart/CDI maintenance remains separate.
 - [ ] Phase 5: service/app/access and identity matrix accepted.
 - [ ] Phase 6: approved host-maintenance cases accepted.
 - [ ] Phase 7: optional Mesh/Realtime environments accepted where available.

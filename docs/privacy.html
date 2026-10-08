@@ -4,10 +4,22 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="robots" content="index,follow" />
-  <meta name="description" content="Privacy policy for the MagicStick GitHub Pages project site." />
+  <meta name="description" content="Privacy policy for the MagicStick project website and handbook: hosting on Azure, cookie-free Umami visitor statistics, GitHub, social media profiles, contact, retention and your rights." />
   <meta name="theme-color" content="#050b16" />
+  <link rel="canonical" href="https://magic-stick.ai/privacy.html" />
+  <link rel="alternate" hreflang="en" href="https://magic-stick.ai/privacy.html" />
+  <link rel="alternate" hreflang="de" href="https://magic-stick.ai/datenschutz.html" />
+  <link rel="alternate" hreflang="x-default" href="https://magic-stick.ai/privacy.html" />
   <title>Privacy Policy - MagicStick</title>
   <style>
+    @font-face {
+      font-family: "Bricolage Grotesque";
+      font-style: normal;
+      font-weight: 600 800;
+      font-display: swap;
+      src: url("assets/fonts/bricolage-grotesque-qm-600-800.woff2") format("woff2");
+    }
+
     :root {
       color-scheme: dark;
       --bg: #050b16;
@@ -48,9 +60,41 @@
       padding: 42px 0 56px;
     }
 
+    .top-bar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px 20px;
+      margin-bottom: 28px;
+    }
+
+    .language-switch {
+      display: inline-flex;
+      gap: 4px;
+      font-size: 0.85rem;
+    }
+
+    .language-switch a {
+      padding: 6px 9px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      color: var(--muted);
+      text-decoration: none;
+    }
+
+    .language-switch a[aria-current="page"] {
+      border-color: var(--teal);
+      color: var(--text);
+    }
+
+    .language-switch a:hover,
+    .language-switch a:focus-visible {
+      color: var(--text);
+    }
+
     .top-link {
       display: inline-flex;
-      margin-bottom: 28px;
       color: var(--muted);
       text-decoration: none;
     }
@@ -61,12 +105,18 @@
     }
 
     h1 {
+      font-family: "Bricolage Grotesque", "Avenir Next", Avenir, "Segoe UI", sans-serif;
+      font-weight: 700;
       margin: 0 0 12px;
-      font-size: 2.5rem;
+      font-size: clamp(1.9rem, 8vw, 2.5rem);
       line-height: 1.1;
+      overflow-wrap: anywhere;
+      hyphens: auto;
     }
 
     h2 {
+      font-family: "Bricolage Grotesque", "Avenir Next", Avenir, "Segoe UI", sans-serif;
+      font-weight: 700;
       margin: 34px 0 10px;
       font-size: 1.25rem;
     }
@@ -123,15 +173,39 @@
     footer a:focus-visible {
       color: var(--text);
     }
+
+    .opt-out button {
+      border: 1px solid var(--teal);
+      border-radius: 6px;
+      padding: 8px 16px;
+      background: transparent;
+      color: var(--text);
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .opt-out button:hover,
+    .opt-out button:focus-visible {
+      background: var(--line);
+    }
+
+    .opt-out [role="status"] {
+      margin-top: 10px;
+      color: var(--text);
+    }
   </style>
 </head>
 <body>
   <main class="shell">
-    <a class="top-link" href="index.html">Back to MagicStick</a>
+    <div class="top-bar">
+      <a class="top-link" href="index.html">Back to MagicStick</a>
+      <span class="language-switch" aria-label="Language"><a href="privacy.html" lang="en" aria-label="EN, English" hreflang="en" aria-current="page">EN</a><a href="datenschutz.html" lang="de" aria-label="DE, Deutsch" hreflang="de">DE</a></span>
+    </div>
     <h1>Privacy Policy</h1>
     <p>
-      This privacy policy applies to the static MagicStick GitHub Pages project
-      site in this repository.
+      This privacy policy applies to the MagicStick project website, consisting
+      of the landing pages and the handbook, hosted on Microsoft Azure Static
+      Web Apps, and to our social media profiles (section 7).
     </p>
 
     <section class="card" aria-labelledby="controller">
@@ -145,7 +219,7 @@
       </address>
       <p>
         Phone: <a href="tel:+49911660732011">+49 911 6607320-11</a><br />
-        Email: <a href="mailto:hello@qualityminds.de">hello@qualityminds.de</a>
+        Email: <a href="mailto:info@magic-stick.ai">info@magic-stick.ai</a>
       </p>
 
       <h3>Data protection officer</h3>
@@ -156,75 +230,134 @@
       </p>
     </section>
 
-    <section class="card" aria-labelledby="site-processing">
-      <h2 id="site-processing">2. Data processing when visiting this site</h2>
+    <section class="card" aria-labelledby="legal-basis">
+      <h2 id="legal-basis">2. General information on the legal basis for the data processing on this website</h2>
       <p>
-        This project site is static. We do not set our own cookies, use
-        advertising tools, load external fonts, or provide a contact form on
-        this page. For anonymous visitor statistics we use the analytics
-        software Umami, described below.
+        If you have consented to data processing, we process your personal data
+        on the basis of Art. 6(1)(a) GDPR or Art. 9(2)(a) GDPR, if special
+        categories of data are processed according to Art. 9(1) GDPR. In the
+        case of explicit consent to the transfer of personal data to third
+        countries, the data processing is also based on Art. 49(1)(a) GDPR. If
+        you have consented to the storage of cookies or to the access to
+        information in your end device (e.g., via device fingerprinting), the
+        data processing is additionally based on § 25(1) TDDDG. The consent can
+        be revoked at any time. If your data is required for the fulfillment of
+        a contract or for the implementation of pre-contractual measures, we
+        process your data on the basis of Art. 6(1)(b) GDPR. Furthermore, if
+        your data is required for the fulfillment of a legal obligation, we
+        process it on the basis of Art. 6(1)(c) GDPR. Furthermore, the data
+        processing may be carried out on the basis of our legitimate interest
+        according to Art. 6(1)(f) GDPR. Information on the relevant legal basis
+        in each individual case is provided in the following paragraphs of this
+        privacy policy.
+      </p>
+    </section>
+
+    <section class="card" aria-labelledby="site-processing">
+      <h2 id="site-processing">3. Data processing when visiting this site</h2>
+      <p>
+        This website is static. We do not set cookies, use advertising tools,
+        load external fonts, or provide a contact form. For visitor statistics
+        we use the self-hosted analytics software Umami, described in section 5.
       </p>
       <p>
-        When the site is requested, technically necessary data is processed so
-        that the page can be delivered. This may include IP address, date and
-        time of access, requested file, referrer, browser and device
-        information, and status codes.
+        When a page is requested, the hosting provider processes technically
+        necessary data so that the page can be delivered: IP address, date and
+        time of access, requested file, referrer, browser and device information
+        (user agent), transferred data volume and status code.
       </p>
       <p>
         The legal basis is Article 6(1)(f) GDPR. Our legitimate interest is the
-        secure, stable, and technically reliable delivery of this project site.
+        secure, stable and technically reliable delivery of this website.
       </p>
+    </section>
 
-      <h3 id="analytics">Visitor statistics with Umami</h3>
+    <section class="card" aria-labelledby="hosting">
+      <h2 id="hosting">4. Hosting</h2>
+      <h3 id="azure">Microsoft Azure</h3>
+      <p>
+        The website and the Umami statistics service (section 5) run on
+        Microsoft Azure, a service of Microsoft Ireland Operations Limited, One
+        Microsoft Place, South County Business Park, Leopardstown, Dublin 18,
+        D18 P521, Ireland. Microsoft processes data on our behalf as a processor
+        under Article 28 GDPR, based on the Microsoft Products and Services Data
+        Protection Addendum.
+      </p>
+      <p>
+        Our Azure resources are located in the EU regions West Europe
+        (Netherlands) and Germany West Central (Frankfurt am Main). Azure Static
+        Web Apps delivers the static pages through Microsoft's global content
+        distribution network, so connection data may be processed at locations
+        outside the EU, including the United States. Microsoft Corporation is
+        certified under the EU-U.S. Data Privacy Framework, for which the
+        European Commission has adopted an adequacy decision (Article 45 GDPR);
+        Microsoft also uses the EU Standard Contractual Clauses (Article 46(2)(c)
+        GDPR). More information is available in the
+        <a href="https://www.microsoft.com/en-us/privacy/privacystatement">Microsoft Privacy Statement</a>.
+      </p>
+    </section>
+
+    <section class="card" aria-labelledby="analytics">
+      <h2 id="analytics">5. Visitor statistics with Umami</h2>
       <p>
         We use Umami, an open-source web analytics software, to learn which
-        pages of this site are used and how often. The Umami instance is
-        operated by us on Microsoft Azure infrastructure in the Germany West
-        Central region (Frankfurt am Main); visitor data is not passed to an
-        analytics provider.
+        pages of this website are used and how often. We operate the Umami
+        instance ourselves on Microsoft Azure (section 4): the application runs
+        in Germany West Central (Frankfurt am Main) and its database in West
+        Europe (Netherlands). The data is not passed to an analytics provider.
       </p>
       <p>
-        Umami does not set cookies and does not store any data in your browser.
-        When a page is loaded, the Umami script sends the page address, the
-        referring page, the type of browser and operating system, screen size,
-        language and the country derived from your IP address to our Umami
-        instance. The IP address itself is not stored. To count returning
-        visits, Umami forms a hash from the IP address, browser information and
-        a regularly rotated random value; this hash cannot be traced back to you
-        and is not linked across rotation periods.
+        When a page is loaded, the Umami script sends the following to our Umami
+        instance: the page address without query string or fragment, the page
+        title, the referring page, the screen size and the browser language. The connection
+        itself transmits your IP address and user agent. From these, Umami
+        determines the browser, operating system and device type, and the
+        country, region and city using a geolocation database that runs on our
+        instance. The IP address itself is not stored.
+      </p>
+      <p>
+        To count visits from the same device, Umami forms a session identifier
+        by hashing the IP address, user agent, website, current calendar month
+        and a secret key. The identifier changes every month and is not linked
+        across months. The stored records are pseudonymised: they do not
+        contain your name or IP address, and we do not combine them with other
+        data or try to identify individual visitors.
+      </p>
+      <p>
+        Umami does not set cookies and does not store an identifier in your
+        browser.
       </p>
       <p>
         The legal basis is Article 6(1)(f) GDPR. Our legitimate interest is
         measuring how the documentation and product pages are used so that we
-        can improve them. You can object at any time by enabling the "Do Not
-        Track" setting in your browser; the script then sends nothing. The
-        resulting statistics are aggregated and contain no personal data.
+        can improve them.
       </p>
-    </section>
 
-    <section class="card" aria-labelledby="github-pages">
-      <h2 id="github-pages">3. Hosting through GitHub Pages</h2>
+      <h3 id="opt-out">Objecting to visitor statistics</h3>
       <p>
-        This site is hosted with GitHub Pages, a service provided by GitHub,
-        Inc., 88 Colin P. Kelly Jr. Street, San Francisco, CA 94107, USA.
-        When you visit the site, GitHub processes technically necessary usage
-        and log data for service delivery, security, troubleshooting, and
-        operation of the service.
+        You can object at any time. If your browser sends a "Do Not Track"
+        signal, the script sends nothing. You can also switch off statistics
+        for this browser with the button below. It stores the entry
+        <code>umami.disabled</code> in this website's local storage; the entry
+        contains no identifier and is stored only at your request. The setting
+        applies per browser and per website address, so repeat it for each
+        address you use. Clearing this website's data in your browser removes
+        the setting.
       </p>
-      <p>
-        GitHub's processing may involve transfers of personal data to the United
-        States. More information is available in the
-        <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">GitHub General Privacy Statement</a>.
-      </p>
-      <p>
-        Apart from the cookie-free Umami statistics described in section 2, we
-        do not run visitor analytics on this project site and do not create
-        tracking profiles.
-      </p>
+      <div class="opt-out" data-opt-out hidden>
+        <button type="button" aria-describedby="opt-out-status"></button>
+        <p id="opt-out-status" role="status"></p>
+      </div>
+      <noscript>
+        <p>
+          Without JavaScript the Umami script does not run and no statistics are
+          collected.
+        </p>
+      </noscript>
     </section>
 
     <section class="card" aria-labelledby="repo-interactions">
-      <h2 id="repo-interactions">4. Using GitHub project features</h2>
+      <h2 id="repo-interactions">6. Using GitHub project features</h2>
       <p>
         If you interact with the project through GitHub, for example by opening
         issues, pull requests, discussions, stars, or forks, GitHub processes
@@ -237,24 +370,136 @@
       </p>
     </section>
 
-    <section class="card" aria-labelledby="retention">
-      <h2 id="retention">5. Retention</h2>
+    <section class="card" aria-labelledby="social-media">
+      <h2 id="social-media">7. Social media profiles</h2>
       <p>
-        Where we process personal data ourselves in connection with this static
-        project site, we delete it when the processing purpose no longer applies
-        and no statutory retention duties or legitimate interests require
-        further retention.
+        We maintain profiles on Instagram, LinkedIn and YouTube to share
+        information about the project and to stay in touch with interested
+        people. When you visit one of these profiles, the respective provider
+        processes your data under its own terms and privacy information, usually
+        even if you have no account there or are not logged in. This may include
+        cookies and similar techniques as well as the analysis of your usage for
+        advertising purposes, over which we have no control.
       </p>
       <p>
-        Hosting and usage data processed by GitHub is subject to GitHub's own
-        retention periods and deletion procedures. Umami stores no IP addresses;
-        its aggregated statistics are kept for as long as the project site is
-        operated.
+        We ourselves receive only aggregated statistics about the use of our
+        profiles from the providers, without access to individual users. If you
+        send us messages through a profile or comment on posts, we process this
+        content in order to reply to you; section 8 also applies to requests.
+        The legal basis is Article 6(1)(f) GDPR; our legitimate interest is
+        public relations for the project and the exchange with users and
+        interested people.
+      </p>
+      <p>
+        Where the provider supplies us with profile statistics, we and the
+        provider are joint controllers for this collection under Article 26
+        GDPR; the respective agreement is linked below. You can exercise your
+        data subject rights towards us as well as towards the provider. Since
+        only the provider has full access to your data, contacting the provider
+        directly is usually more effective.
+      </p>
+
+      <h3 id="instagram">Instagram</h3>
+      <p>
+        The provider is Meta Platforms Ireland Limited, Merrion Road, Dublin 4,
+        D04 X2K5, Ireland. Data transfers to the United States are based on the
+        EU Commission's Standard Contractual Clauses (Article 46(2)(c) GDPR);
+        details are in the
+        <a href="https://www.facebook.com/legal/EU_data_transfer_addendum">Meta EU Data Transfer Addendum</a>
+        and the <a href="https://www.facebook.com/help/566994660333381">Meta help on data transfers</a>.
+        Meta Platforms, Inc. is certified under the EU-U.S. Data Privacy
+        Framework, for which the European Commission has adopted an adequacy
+        decision (Article 45 GDPR); see the
+        <a href="https://www.dataprivacyframework.gov/participant/4452">DPF entry for Meta</a>.
+        The
+        <a href="https://www.facebook.com/legal/terms/page_controller_addendum">Page Insights Controller Addendum</a>
+        applies to the statistics of our profile. Details on how your data is
+        handled are in the
+        <a href="https://privacycenter.instagram.com/policy/">Instagram Privacy Policy</a>.
+      </p>
+
+      <h3 id="linkedin">LinkedIn</h3>
+      <p>
+        The provider is LinkedIn Ireland Unlimited Company, Wilton Plaza, Wilton
+        Place, Dublin 2, Ireland. LinkedIn uses advertising cookies; you can
+        switch them off in the
+        <a href="https://www.linkedin.com/psettings/guest-controls/retargeting-opt-out">LinkedIn guest settings</a>.
+        Data transfers to the United States are based on the EU Commission's
+        Standard Contractual Clauses (Article 46(2)(c) GDPR); details are in the
+        <a href="https://www.linkedin.com/legal/l/dpa">LinkedIn Data Processing Agreement</a>
+        and the <a href="https://www.linkedin.com/legal/l/eu-sccs">LinkedIn EU Standard Contractual Clauses</a>.
+        LinkedIn Corporation is certified under the EU-U.S. Data Privacy
+        Framework (Article 45 GDPR); see the
+        <a href="https://www.dataprivacyframework.gov/participant/5448">DPF entry for LinkedIn</a>.
+        The
+        <a href="https://legal.linkedin.com/pages-joint-controller-addendum">LinkedIn Pages Joint Controller Addendum</a>
+        applies to the statistics of our profile. Details on how your data is
+        handled are in the
+        <a href="https://www.linkedin.com/legal/privacy-policy">LinkedIn Privacy Policy</a>.
+      </p>
+
+      <h3 id="youtube">YouTube</h3>
+      <p>
+        The provider is Google Ireland Limited, Gordon House, Barrow Street,
+        Dublin 4, Ireland. Data may also be processed on servers of Google LLC in
+        the United States. Google LLC is certified under the EU-U.S. Data
+        Privacy Framework (Article 45 GDPR); see the
+        <a href="https://www.dataprivacyframework.gov/participant/5780">DPF entry for Google</a>.
+        Details on how your data is handled are in the
+        <a href="https://policies.google.com/privacy">Google Privacy Policy</a>.
+      </p>
+    </section>
+
+    <section class="card" aria-labelledby="contact">
+      <h2 id="contact">8. Contacting us by email or telephone</h2>
+      <p>
+        This website provides no contact form. If you contact us by email or
+        telephone, for example with a question about the project, a security
+        report, or a license request downloaded from the dashboard, we process
+        the data you send us (such as your name, email address, telephone
+        number, organisation or customer reference and the content of your
+        message) to handle your request and for follow-up questions. We do not
+        pass this data on without your consent, unless we are legally required
+        to do so.
+      </p>
+      <p>
+        If your request concerns a license or another contract, or steps
+        leading to one, the legal basis is Article 6(1)(b) GDPR. In all other
+        cases the legal basis is Article 6(1)(f) GDPR; our legitimate interest
+        is handling the requests addressed to us effectively.
+      </p>
+      <p>
+        We keep this data until your request has been dealt with and no
+        follow-up is expected, or until you ask us to delete it. Statutory
+        retention duties, for example under commercial and tax law for license
+        agreements, remain unaffected.
+      </p>
+      <p>
+        Email sent over the internet is not fully protected against access by
+        third parties. Do not send passwords, tokens, private cluster values or
+        other confidential information by unencrypted email.
+      </p>
+    </section>
+
+    <section class="card" aria-labelledby="retention">
+      <h2 id="retention">9. Retention</h2>
+      <p>
+        Umami records (page views and the pseudonymised session data described
+        in section 5) are deleted 25 months after collection, so that usage can
+        be compared with the same period of the previous year. Error and
+        operating logs of the Umami service are kept for 30 days and database
+        backups for 7 days.
+      </p>
+      <p>
+        Hosting log data is processed by Microsoft under its own
+        retention periods and deletion procedures. Apart from this, we delete
+        personal data when the purpose of processing no longer applies and no
+        statutory retention duties require further retention.
       </p>
     </section>
 
     <section class="card" aria-labelledby="rights">
-      <h2 id="rights">6. Your rights</h2>
+      <h2 id="rights">10. Your rights</h2>
       <p>Subject to the GDPR, you may have the following rights:</p>
       <ul>
         <li>right of access, Article 15 GDPR</li>
@@ -262,30 +507,83 @@
         <li>right to erasure, Article 17 GDPR</li>
         <li>right to restriction of processing, Article 18 GDPR</li>
         <li>right to data portability, Article 20 GDPR</li>
-        <li>right to object to processing based on Article 6(1)(f) GDPR, Article 21 GDPR</li>
         <li>right to lodge a complaint with a data protection supervisory authority, Article 77 GDPR</li>
       </ul>
       <p>
         To exercise your rights, contact
         <a href="mailto:privacy@qualityminds.de">privacy@qualityminds.de</a>.
+        The supervisory authority responsible for us is the Bavarian State
+        Office for Data Protection Supervision (Bayerisches Landesamt für
+        Datenschutzaufsicht), Promenade 18, 91522 Ansbach, Germany,
+        <a href="https://www.lda.bayern.de/">www.lda.bayern.de</a>.
+      </p>
+
+      <h3 id="right-to-object">Right to object (Article 21 GDPR)</h3>
+      <p>
+        All processing described in this policy that is based on our
+        legitimate interests (Article 6(1)(f) GDPR) is subject to your right to
+        object. You may object at any time, on grounds relating to your
+        particular situation, to the processing of your personal data on that
+        basis. If you object, we will no longer process the data concerned
+        unless we can demonstrate compelling legitimate grounds for the
+        processing which override your interests, rights and freedoms, or the
+        processing serves the establishment, exercise or defence of legal
+        claims.
+      </p>
+      <p>
+        You can object to visitor statistics directly in your browser using
+        the controls in <a href="#opt-out">section 5</a>. For everything else,
+        send your objection to
+        <a href="mailto:privacy@qualityminds.de">privacy@qualityminds.de</a>.
+        We do not use your data for direct marketing.
       </p>
     </section>
 
     <section class="card" aria-labelledby="security">
-      <h2 id="security">7. Security and external links</h2>
+      <h2 id="security">11. Security and external links</h2>
       <p>
         This site is delivered via HTTPS. External links lead to third-party
-        services, especially GitHub. The respective provider's privacy
-        information applies to those services.
+        services, such as GitHub or the social media platforms named in
+        section 7. The respective provider's privacy information applies to
+        those services.
       </p>
     </section>
 
     <footer>
-      <span>Last updated: September 30, 2026</span>
+      <span>Last updated: <time datetime="2026-10-06">October 6, 2026</time></span>
       <a href="index.html">Home</a>
-      <a href="legal-notice.html">Legal Notice</a>
+      <a href="imprint.html">Imprint</a>
       <a href="https://github.com/QualityMinds/AIppliance-Magic-Stick">GitHub</a>
     </footer>
   </main>
+  <script>
+    // Umami skips tracking while localStorage holds `umami.disabled`.
+    (() => {
+      const box = document.querySelector('[data-opt-out]');
+      let storage;
+      try {
+        storage = window.localStorage;
+        storage.getItem('umami.disabled');
+      } catch {
+        return;
+      }
+      const button = box.querySelector('button');
+      const status = box.querySelector('[role="status"]');
+      const render = () => {
+        const disabled = Boolean(storage.getItem('umami.disabled'));
+        button.textContent = disabled ? 'Allow visitor statistics' : 'Switch off visitor statistics';
+        status.textContent = disabled
+          ? 'Visitor statistics are switched off in this browser for this website address.'
+          : 'Visitor statistics are active in this browser.';
+      };
+      button.addEventListener('click', () => {
+        if (storage.getItem('umami.disabled')) storage.removeItem('umami.disabled');
+        else storage.setItem('umami.disabled', '1');
+        render();
+      });
+      render();
+      box.hidden = false;
+    })();
+  </script>
 </body>
 </html>

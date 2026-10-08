@@ -24,7 +24,9 @@ in the English handbook. Link technical contracts rather than copying them.
 Update navigation and migration anchors when reorganizing pages. Preserve dated
 reports as evidence. For marketing changes, keep English and German claims,
 installation paths, licensing summaries and links equivalent without silently
-changing legal meaning or promising unimplemented behavior.
+changing legal meaning or promising unimplemented behavior. Edit the English and
+German legal notice and privacy policy as pairs with the same footer date; see
+[Legal pages](../../../docs/development/website.md#legal-pages).
 
 Reuse suitable reviewed images. Capture new UI views only within the requested
 access/workload scope and follow the capture manifest/privacy rules. Do not start

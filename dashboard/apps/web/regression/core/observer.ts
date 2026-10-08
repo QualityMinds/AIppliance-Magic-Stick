@@ -3,14 +3,24 @@ import {HarnessError, requireSafe} from './errors.ts';
 import {readPrivate} from './private-files.ts';
 import type {Lease, LeaseStore} from './lease.ts';
 
+interface ContainerStatus {
+  name: string; image?: string; imageID?: string; containerID?: string; ready?: boolean; restartCount?: number;
+  state?: {waiting?: {reason?: string}; terminated?: {exitCode?: number; startedAt?: string; finishedAt?: string}};
+  lastState?: {terminated?: {exitCode?: number}};
+}
+
 export interface KubeObject {
-  metadata: {uid?: string; name?: string; namespace?: string; generation?: number; resourceVersion?: string; labels?: Record<string, string>;
+  metadata: {uid?: string; name?: string; namespace?: string; generation?: number; resourceVersion?: string;
+    creationTimestamp?: string; deletionTimestamp?: string; labels?: Record<string, string>;
+    annotations?: Record<string, string>;
     ownerReferences?: Array<{uid: string; kind: string; name?: string; controller?: boolean}>};
   spec?: Record<string, unknown>;
   status?: {nodeInfo?: {bootID?: string; kernelVersion?: string}; observedGeneration?: number;
-    conditions?: Array<{type: string; status: string; observedGeneration?: number}>; phase?: string;
+    conditions?: Array<{type: string; status: string; reason?: string; observedGeneration?: number}>; phase?: string;
     readyReplicas?: number; replicas?: number; lastAppliedRevision?: string;
-    containerStatuses?: Array<{name: string; image?: string; imageID?: string; ready?: boolean}>};
+    allocatable?: Record<string, string>; capacity?: Record<string, string>;
+    allocation?: Record<string, unknown>; devices?: Record<string, unknown>; active?: number; succeeded?: number; failed?: number;
+    containerStatuses?: ContainerStatus[]; initContainerStatuses?: ContainerStatus[]};
 }
 
 export function verifyObserverRules(value: {status?: {incomplete?: boolean; resourceRules?: Array<{verbs: string[]; apiGroups: string[]; resources: string[]}>;

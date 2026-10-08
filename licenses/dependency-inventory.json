@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
-  "pnpmLockSha256": "4ae55e7f54bc30000b2ff38776d17b228c6fb76ac131b110e0a009cf6a5436b6",
-  "deploymentReferencesSha256": "025a1b02a632e5e381ee5a5b88d289486f7a94106434ed971e55fb2490792e8e",
+  "pnpmLockSha256": "6dda8724e63f83d4608f703a3357dc0d2544ff5501e9a32df66a9a90f8d6909e",
+  "deploymentReferencesSha256": "ffbe40b3c7e0a3644f511fdc3af55d55910192af289015ab6e5ca0cc00a3d5c2",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -1539,10 +1539,10 @@
     },
     {
       "name": "source-map-js",
-      "version": "1.2.1",
+      "version": "1.2.2",
       "declaredLicense": "BSD-3-Clause",
       "evidence": "installed-package",
-      "integrity": "sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==",
+      "integrity": "sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw==",
       "licenseFiles": [
         {
           "file": "LICENSE",
@@ -2125,7 +2125,7 @@
     },
     {
       "file": ".github/workflows/build-mesh-companion.yml",
-      "line": 257,
+      "line": 264,
       "reference": "with: {python-version: '3.13'}"
     },
     {
@@ -2174,23 +2174,28 @@
       "reference": "node-version: '24'"
     },
     {
-      "file": ".github/workflows/docs.yml",
-      "line": 63,
+      "file": ".github/workflows/dependency-security.yml",
+      "line": 43,
+      "reference": "node-version: '24'"
+    },
+    {
+      "file": ".github/workflows/docs-checks.yml",
+      "line": 66,
       "reference": "python-version: '3.12'"
     },
     {
-      "file": ".github/workflows/docs.yml",
-      "line": 67,
+      "file": ".github/workflows/docs-checks.yml",
+      "line": 70,
       "reference": "run: python -m pip install -r requirements-docs.txt"
     },
     {
-      "file": ".github/workflows/docs.yml",
-      "line": 116,
+      "file": ".github/workflows/docs-checks.yml",
+      "line": 92,
       "reference": "python-version: '3.12'"
     },
     {
-      "file": ".github/workflows/docs.yml",
-      "line": 117,
+      "file": ".github/workflows/docs-checks.yml",
+      "line": 93,
       "reference": "- run: python -m pip install -r requirements-docs.txt"
     },
     {
@@ -2252,6 +2257,16 @@
       "file": ".github/workflows/license-audit.yml",
       "line": 110,
       "reference": "repository: ${{ matrix.repository }}"
+    },
+    {
+      "file": ".github/workflows/pages-redirect.yml",
+      "line": 34,
+      "reference": "python-version: '3.12'"
+    },
+    {
+      "file": ".github/workflows/pages-redirect.yml",
+      "line": 38,
+      "reference": "run: python -m pip install -r requirements-docs.txt"
     },
     {
       "file": ".github/workflows/promote-freetoken-runtime.yml",
@@ -2496,7 +2511,7 @@
     {
       "file": "magic-cluster/apps/dashboard/api-deployment.yaml",
       "line": 34,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-1e7e2bafe69ac4709ca40fb7fc48f33e8af9182f@sha256:b4ddd1ead4af5de30e943275566bb6b67faa709dca1afcd12fb9d2a9227462c1"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-90e70d9b465613b87f0f6444eaa0b7e27f9bce3c@sha256:146ffd9a581610fc91cf89e070b1ef18ce3cbf541a0e863473216149f9127002"
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
@@ -2505,18 +2520,18 @@
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
-      "line": 6777,
+      "line": 6813,
       "reference": "raise ValueError(\"Realtime requires a Hugging Face repository: hf://organization/model\")"
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
-      "line": 6814,
+      "line": 6850,
       "reference": "if image:"
     },
     {
       "file": "magic-cluster/apps/dashboard/deployment.yaml",
       "line": 32,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-1e7e2bafe69ac4709ca40fb7fc48f33e8af9182f@sha256:06d9fb469949b17559cbed9921f4da5a1fa8fec5d0bcf551c548ddaa42a3653a"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-90e70d9b465613b87f0f6444eaa0b7e27f9bce3c@sha256:55f84268c00c53eef46b916cdc451e5b1fc897f58887fb2427d8dec82cd6078c"
     },
     {
       "file": "magic-cluster/apps/instances/hermes/Chart.yaml",

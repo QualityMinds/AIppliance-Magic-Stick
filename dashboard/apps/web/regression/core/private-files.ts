@@ -1,6 +1,7 @@
 import {constants} from 'node:fs';
-import {link, lstat, mkdir, open, rename, rm} from 'node:fs/promises';
+import {link, lstat, mkdir, mkdtemp, open, rename, rm} from 'node:fs/promises';
 import {dirname, join} from 'node:path';
+import {tmpdir} from 'node:os';
 import {randomUUID} from 'node:crypto';
 import {HarnessError, requireSafe} from './errors.ts';
 
@@ -48,4 +49,16 @@ export async function writePrivate(path: string, value: unknown, exclusive = fal
     if (error instanceof HarnessError) throw error;
     throw new HarnessError('PRIVATE_FILE');
   } finally { await rm(temporary, {force: true}); }
+}
+
+/** Tools that reopen a filename cannot use /dev/stdin: Node child stdin is a
+ * socket on Linux. Use a 0600 file in a unique 0700 directory, never argv data,
+ * and remove it after success or failure. */
+export async function withPrivateCommandInput<T>(value: unknown, action: (filename: string) => Promise<T>): Promise<T> {
+  const directory = await mkdtemp(join(tmpdir(), 'magicstick-regression-input-'));
+  try {
+    const filename = join(directory, 'input.json');
+    await writePrivate(filename, value, true);
+    return await action(filename);
+  } finally {await rm(directory, {recursive: true, force: true});}
 }

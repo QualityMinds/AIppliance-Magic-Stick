@@ -29,7 +29,7 @@ End-user installation steps are collected in
 ## GPU compatibility diagnostics
 
 On Ubuntu 24.04/26.04 x86_64 appliances with an NVIDIA PCI display controller, the
-`nvidia-display` role installs the pinned host driver and enables its DRM
+`nvidia-display` role installs Ubuntu's recommended host driver and enables its DRM
 framebuffer. This keeps the local first-run and dashboard text consoles visible
 when the monitor is attached to NVIDIA HDMI/DisplayPort. K3s labels that node
 `nvidia.com/gpu.deploy.driver=false`, so the GPU Operator can still provide its
@@ -43,6 +43,23 @@ failure. On a first boot without a usable driver, the role enables the service
 but defers starting it until the driver becomes available; it does not turn that
 condition into an installer failure.
 
+Nouveau can still own the cards during that first boot. A sysfs-only guard is
+installed **before** the NVIDIA packages: persistence services started by package
+scripts skip cleanly until every NVIDIA display GPU is bound to `nvidia`.
+The role explicitly prepares the next-boot Nouveau denylist and refreshes
+initramfs; it never unloads the live console's driver. A fresh, unready K3s Node
+starts with `nvidia.com/gpu.deploy.operands=false` and an owned startup annotation.
+After the planned reboot, `magicstick-nvidia-handoff.timer` checks driver bindings,
+NVML health and the real persistence socket, then releases only that owned gate.
+The release restores `nvidia.com/gpu.deploy.driver=false` in the same atomic patch:
+the Operator removes individual deploy labels while all operands are disabled.
+Manual operand disablement and other vendors are not changed. The handoff uses
+the existing maintenance lock and waits out an already scheduled shutdown.
+Later convergence removes the no-longer-needed bootstrap operand label from the
+K3s drop-in. Failed health, missing socket or changed Node metadata keeps the
+gate closed; inspect `journalctl -u magicstick-nvidia-handoff` rather than forcing
+a label or repeatedly loading a module. Existing hosts are not newly startup-gated.
+
 After a successful first host convergence, Ansible schedules one clean reboot only if
 it changed the NVIDIA display setup on an installer-created host. The installer
 media contains no NVIDIA reboot logic: an existing stick following `main` gets
@@ -50,9 +67,19 @@ this behavior from the fetched playbook. A same-boot marker prevents repeated
 scheduling; an interrupted playbook can finish on a later convergence in that
 boot. On CPU-only and AMD-only systems, the role installs no NVIDIA packages,
 writes no NVIDIA boot configuration, and schedules no NVIDIA reboot. Existing
-NVIDIA hosts need a separately approved restart after convergence. Keep the
-pinned host package and GPU Operator driver versions in sync when upgrading
-either one.
+NVIDIA hosts need a separately approved restart after convergence. On a new host,
+the role reads `ubuntu-drivers devices` and `ubuntu-drivers list --recommended
+--include-dkms`: Ubuntu chooses the driver series and matching kernel-module
+packages, while APT selects current package versions from the configured archives.
+There is no fixed driver series or patch version. The display-driver metapackage
+also supplies the matching user-space utilities; this is not a desktop-environment
+installation. Missing/conflicting recommendations fail before driver installation.
+Existing fully installed Ubuntu NVIDIA driver metapackages are retained without
+reselection or upgrading. The GPU Operator's separately pinned container driver
+is not used on these host-owned nodes. Package selection alone is not proof of
+kernel, console or inference compatibility; validate those on the target hardware.
+GPU/kernel exclusions in [Ubuntu updates](../docs/administration/ubuntu-updates.md)
+remain unchanged.
 
 Live memory counters use a separate `magicstick-memory-sample.timer` (30 seconds).
 It publishes Linux `MemAvailable` and per-PCI AMD VRAM/GTT usage, without engine

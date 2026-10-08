@@ -130,11 +130,19 @@ reviewing inbound links and updating this mapping.
 
 ## CI and publication
 
-The documentation workflow runs unit checks, internal links/anchors, catalog
-consistency and a strict static build on pull requests. It uploads a preview artifact.
-Main/manual runs can deploy the combined landing page and handbook through GitHub
-Pages. The repository's Pages source must be **GitHub Actions**; switching that
-remote setting is a separate publication step, not a side effect of editing docs.
+The **Documentation checks** workflow (`.github/workflows/docs-checks.yml`) runs
+unit checks, internal links/anchors in all repository Markdown, catalog consistency
+and a strict static build on pull requests and main. It publishes nothing; the Azure
+Static Web Apps workflow builds a preview environment for pull requests that change
+the website. The website itself is
+hosted on Azure Static Web Apps (see [website maintenance](website.md)). GitHub
+Pages only forwards old addresses: the manual **GitHub Pages redirect to website**
+workflow (`.github/workflows/pages-redirect.yml`, main only) turns the built site
+into a redirect page for every address (`python tools/docs.py redirect`) plus a
+`404.html` fallback, each keeping the path, query and fragment. The target is fixed
+to `https://magic-stick.ai`; no workflow input or repository variable overrides it. The
+repository's Pages source must be **GitHub Actions**; switching that remote setting
+is a separate publication step, not a side effect of editing docs.
 
 A weekly/manual external-link check reports failures as an advisory artifact;
 temporary Internet failures do not become release gates. Internal broken links

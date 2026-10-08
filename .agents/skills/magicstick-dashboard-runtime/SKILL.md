@@ -41,6 +41,12 @@ and a successful inference response are separate acceptance steps.
 
 ## Verify and hand off
 
+For behavior changes, use the [regression skill](../magicstick-regression/SKILL.md)
+to map affected user flows and case variants. Update owning tests plus affected
+browser/API workflows and their fixtures in the same change, or identify existing
+coverage that already proves the contract. Include old saved models and unaffected
+engine paths when shared settings or lifecycle code changes.
+
 Follow the dashboard instructions for workspace typecheck/tests/build and relevant
 API tests. Render affected deployment/RBAC manifests and operator bases when their
 contracts change. Use [model troubleshooting](../../../docs/administration/troubleshooting/models.md)

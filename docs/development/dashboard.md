@@ -103,6 +103,20 @@ docker build -f dashboard/apps/cli/Dockerfile -t magicstick-cli:local .
 docker build -f dashboard/apps/api/Dockerfile -t magicstick-api:local .
 ```
 
+The dashboard nginx configuration and the identity `auth-pilot` use one worker,
+matching their fractional CPU budgets. Do not scale their workers to the host's
+CPU count: that can exceed the Pod's memory limit on a many-core appliance.
+The pilot mounts a hash-named generated ConfigMap, so configuration changes roll
+its Pod. Keep the existing CPU/RAM limits and the dashboard's non-root, read-only
+runtime. CI runs both nginx configurations inside their declared resource budgets:
+
+```bash
+MAGICSTICK_RUN_NGINX_CONTAINER_TESTS=1 python3 -m unittest -v tests.test_nginx_runtime
+```
+
+The tests check HTTP responses, exactly one worker, no cgroup OOM events and no
+container restarts; they need Docker and no appliance access.
+
 The API Dockerfile has one final runtime containing the BSL-licensed
 `magicstick_core` package, license texts and third-party notices.
 Only Federated SSO depends on a signed entitlement. Do not split the source or

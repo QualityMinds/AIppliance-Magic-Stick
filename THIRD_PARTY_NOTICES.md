@@ -189,10 +189,15 @@ enters a shipped artifact, apply that license's distribution/source obligations.
 
 ## Assets And Models
 
-The dashboard uses system font stacks; the landing page and marketing materials
-also contain local screenshots, raster illustrations and brand assets. Their
-creator/source rights, font embedding and trademark approvals are separate
-review items for that collateral, not global runtime-image gates. Third-party
+The dashboard uses system font stacks. The website and handbook headings use
+Bricolage Grotesque (Copyright 2022 The Bricolage Grotesque Project Authors,
+<https://github.com/ateliertriay/bricolage>), licensed under the SIL Open Font
+License 1.1; a subset variable font (weights 600–800) is committed as
+`docs/assets/fonts/bricolage-grotesque-qm-600-800.woff2` together with the
+license text `docs/assets/fonts/OFL.txt`. The landing page and marketing
+materials also contain local screenshots, raster illustrations and brand
+assets. Their creator/source rights, font embedding and trademark approvals are
+separate review items for that collateral, not global runtime-image gates. Third-party
 logos in screenshots do not become Magic Stick-owned.
 No model weights are committed or included in the standard source distribution.
 Models fetched by runtimes remain subject to their model-specific terms, even

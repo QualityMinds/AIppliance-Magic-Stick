@@ -20,6 +20,18 @@ Kubernetes minimum is 1.33. Existing clusters are not upgraded merely by changin
 a chart pin. Check their Kubernetes/containerd versions before reconciling this
 baseline, and do not interpret a PCI detection label as complete hardware support.
 
+The table's NVIDIA driver pin applies to Operator-managed driver containers.
+Managed Ubuntu hosts with an NVIDIA PCI display controller use the host-owned
+driver path instead: `ubuntu-drivers` recommends the series and kernel packages,
+and APT selects the current versions. No series or patch version is forced by
+Magic Stick for that fresh-install path. Existing host-driver metapackages are
+retained by ordinary convergence. `nvidia.com/gpu.deploy.driver=false` prevents
+the Operator from replacing this driver; its toolkit/device plugin still run.
+This is a supported preinstalled-driver deployment model, not proof that any
+Ubuntu recommendation is validated with every inference image. See
+[NVIDIA's preinstalled-driver guidance](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/26.7/getting-started.html#pre-installed-nvidia-gpu-drivers)
+and [host-driver recovery](../administration/troubleshooting/gpus.md).
+
 The NVIDIA toolkit uses K3s' actual containerd config and socket, with a drop-in
 at `/var/lib/rancher/k3s/agent/etc/containerd/config-v3.toml.d/99-nvidia.toml`.
 The selected K3s 1.36.4 release imports this directory in its native v3 template,
@@ -53,7 +65,7 @@ auto-enabled vendor `ModuleActivation` only when compatible hardware is present.
 
 | Module | Detection | Vendor support gate | Allocatable resource | Driver behavior |
 |---|---|---|---|---|
-| `gpu` | `feature.node.kubernetes.io/pci-10de.present` | same label; NVIDIA validates through ClusterPolicy | `nvidia.com/gpu` | NVIDIA GPU Operator managed |
+| `gpu` | `feature.node.kubernetes.io/pci-10de.present` | same label; NVIDIA validates through ClusterPolicy | `nvidia.com/gpu` | Host-owned on managed Ubuntu NVIDIA-display nodes; Operator-managed elsewhere |
 | `amd-gpu` | `feature.node.kubernetes.io/pci-1002.present` | AMD's NFD support rule, or an explicitly acknowledged compatibility profile with host evidence | `amd.com/gpu` | portable baseline uses the host/inbox `amdgpu` driver |
 | `intel-gpu` | `feature.node.kubernetes.io/pci-8086.present` | `intel.feature.node.kubernetes.io/gpu` from Intel's NFD rule | `gpu.intel.com/i915` or `gpu.intel.com/xe` | Linux kernel driver plus Intel device plugin |
 

@@ -19,6 +19,15 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
   The service is optional and disabled by default. Pod initialization downloads
   checksum-verified Pi and ttyd releases and requires GitHub access. See the
   [Pi Coding Agent guide](docs/user-guide/applications.md#pi-coding-agent).
+- German legal pages: `impressum.html` and `datenschutz.html` are full
+  translations of the legal notice and privacy policy with the same section
+  anchors. All four legal pages carry canonical and `hreflang` metadata and an
+  EN/DE switch; German landing pages and every handbook page link the German
+  versions. A website test fails when the two languages of a legal page drift
+  apart in structure, anchors, links, numbers or update date.
+- The privacy policy describes the project's Instagram, LinkedIn and YouTube
+  profiles: provider, legal basis, joint controllership for profile
+  statistics, US transfer safeguards and the providers' privacy policies.
 
 ### Changed
 
@@ -39,10 +48,27 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
   digest, and update KubeOpenCode CRDs during Flux upgrades.
 - Use conservative OpenCode fallback budgets of 8,192 context and 2,048 output
   tokens when model metadata is missing, including the shared Paperclip export.
+- The English legal notice is now `imprint.html` with the heading "Imprint",
+  matching the landing page footer; the former `legal-notice.html` address is gone.
+  The handbook footer links only the English imprint and privacy policy, since
+  the handbook is English only; both pages keep their EN/DE switch.
+
+- The privacy policy, the handbook `site_url` and the landing pages' canonical,
+  language-alternate and social-preview addresses name the Azure Static Web
+  App as the website. GitHub Pages is no longer described as a hosting
+  location; it only forwards to the website.
 - The public website and handbook can send cookie-free visitor statistics to a
   self-hosted Umami instance. The tag is added at build time from the
   `extra.umami` block in `mkdocs.yml`, honours Do Not Track and is described in
   the privacy policy.
+- Every handbook page now links to the legal notice and privacy policy. The
+  privacy policy describes the Azure and GitHub Pages hosting, the data Umami
+  actually records and its retention, and offers an opt-out button; the Umami
+  tag no longer records query strings. The legal notice covers the whole
+  website and adds the consumer dispute resolution statement.
+- A daily Container Apps job deletes Umami visitor records after the 25 months
+  stated in the privacy policy. The Umami image is pinned to 3.4.0 by digest and
+  the tag no longer records URL fragments.
 
 ### Fixed
 

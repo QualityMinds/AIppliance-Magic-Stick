@@ -53,6 +53,12 @@ combination or justify silently adding it to default support.
 
 ## Verify
 
+For behavior changes, use the [regression skill](../magicstick-regression/SKILL.md)
+to review the affected hardware, sharing, memory, network, update or recovery cases.
+Keep vendor/engine variants explicit; include failure and restoration checks for
+changed operational paths. USB/VM installation tests remain a separate suite,
+not evidence from the installed-appliance campaign.
+
 Use affected role suites under `magic-host/roles/*/tests`, installer tests in
 `tests/`, shell syntax checks and Ansible syntax validation as relevant. API or
 controller changes also need their consumer tests. A CLI `--help` check alone is
