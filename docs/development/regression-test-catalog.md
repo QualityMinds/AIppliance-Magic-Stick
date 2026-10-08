@@ -543,6 +543,14 @@ as unmeasured product performance. Existing security/release CI remains required
 
 ## Implementation ledger
 
+Supporting BOOT-02 startup/resource coverage runs
+[`NginxWorkerContractTests`](../../magic-cluster/platform/identity/tests/test_nginx_workers.py)
+through the existing boot owning-suite selection. Public CI also runs
+[real nginx container tests](../../tests/test_nginx_runtime.py) with the Pilot's
+64 MiB and dashboard's 128 MiB limits, checking HTTP health, one worker and zero
+OOM/restart counters. This focused deployment regression does not replace the
+installed reboot, authentication or inference requirements of BOOT-02.
+
 Add one entry per implemented case or parameterized case group. Do not mark an
 entire family implemented because one representative happy path exists. Link
 to actual source tests/procedures and a sanitized dated report; a result applies
