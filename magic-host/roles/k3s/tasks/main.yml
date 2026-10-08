@@ -71,3 +71,21 @@
   when:
     - nvidia_display_detected | default(false) | bool
     - (nvidia_display_k3s_node.stdout | from_json).metadata.labels.get('nvidia.com/gpu.deploy.driver', '') != 'false'
+
+- name: Own the fresh NVIDIA startup gate before Flux installs GPU operands
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - /usr/local/lib/magicstick/nvidia-display/driver_ready.py
+      - --arm
+      - --node
+      - "{{ ansible_facts['hostname'] | lower }}"
+  register: nvidia_display_startup_gate
+  changed_when: nvidia_display_startup_gate.rc == 0 and (nvidia_display_startup_gate.stdout | from_json).changed | bool
+  retries: 6
+  delay: 2
+  until: nvidia_display_startup_gate.rc == 0
+  when:
+    - nvidia_display_detected | default(false) | bool
+    - nvidia_display_new_install.stat.exists
+    - not nvidia_display_driver_ready | bool

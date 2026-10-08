@@ -1,10 +1,15 @@
 from pathlib import Path
 import importlib.util
 import json
+import contextlib
+import fcntl
+import io
+import socket
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import yaml
 
@@ -16,6 +21,9 @@ SELECTOR = ROLE / "files/select-driver.py"
 selection_spec = importlib.util.spec_from_file_location("nvidia_driver_selection", SELECTOR)
 selection = importlib.util.module_from_spec(selection_spec)
 selection_spec.loader.exec_module(selection)
+readiness_spec = importlib.util.spec_from_file_location("nvidia_driver_readiness", ROLE / "files/driver_ready.py")
+handoff = importlib.util.module_from_spec(readiness_spec)
+readiness_spec.loader.exec_module(handoff)
 
 
 def add_pci_device(root: Path, name: str, vendor: str, class_code: str) -> None:
@@ -103,11 +111,12 @@ class NvidiaDisplayRoleContractTests(unittest.TestCase):
     def test_boot_configuration_is_nvidia_only_and_keeps_drm_console(self):
         files = {
             task["ansible.builtin.copy"]["dest"]: task["ansible.builtin.copy"]["content"]
-            for task in self.inner if "ansible.builtin.copy" in task
+            for task in self.inner if "content" in task.get("ansible.builtin.copy", {})
         }
         self.assertIn("options nvidia-drm modeset=1 fbdev=1", files["/etc/modprobe.d/90-magicstick-nvidia-display.conf"])
         self.assertIn("nvidia-drm", files["/etc/modules-load.d/90-magicstick-nvidia-display.conf"])
-        self.assertIn("nvidia.com/gpu.deploy.driver=false", files["/etc/rancher/k3s/config.yaml.d/90-magicstick-nvidia-display.yaml"])
+        self.assertIn("nvidia_display_driver_bindings.stdout", files["/etc/rancher/k3s/config.yaml.d/90-magicstick-nvidia-display.yaml"])
+        self.assertIn("bootstrapConfig", files["/etc/rancher/k3s/config.yaml.d/90-magicstick-nvidia-display.yaml"])
 
     def test_host_owned_driver_keeps_cdi_persistence_socket_available(self):
         override = next(task for task in self.inner if task.get("name") == "Keep the host NVIDIA persistence socket available for CDI containers")
@@ -119,6 +128,14 @@ class NvidiaDisplayRoleContractTests(unittest.TestCase):
         self.assertIn("StopWhenUnneeded=false", content)
         self.assertIn("Restart=on-failure", content)
         self.assertIn("WantedBy=multi-user.target", content)
+        self.assertIn("ExecCondition=/usr/bin/python3 /usr/local/lib/magicstick/nvidia-display/driver_ready.py --ready", content)
+        self.assertIn("After=systemd-modules-load.service", content)
+        install = next(task for task in self.inner if task.get("register") == "nvidia_display_packages")
+        reload_guard = next(task for task in self.inner if task.get("name") == "Load the persistence guard before NVIDIA package post-install services run")
+        helper = next(task for task in self.inner if task.get("name") == "Install the sysfs-only NVIDIA readiness and first-boot handoff helper")
+        self.assertLess(self.inner.index(helper), self.inner.index(override))
+        self.assertLess(self.inner.index(override), self.inner.index(reload_guard))
+        self.assertLess(self.inner.index(reload_guard), self.inner.index(install))
 
         enabled = next(task for task in self.inner if task.get("name") == "Enable NVIDIA persistence daemon across host reboots")
         self.assertEqual(enabled["ansible.builtin.systemd_service"]["name"], "nvidia-persistenced.service")
@@ -127,11 +144,50 @@ class NvidiaDisplayRoleContractTests(unittest.TestCase):
         probe = next(task for task in self.inner if task.get("name") == "Check whether the NVIDIA driver is already usable before starting persistence")
         self.assertEqual(probe["ansible.builtin.command"]["argv"], ["/usr/bin/nvidia-smi", "-L"])
         self.assertFalse(probe["failed_when"])
+        self.assertEqual(probe["when"], "nvidia_display_driver_ready | bool")
         start = next(task for task in self.inner if task.get("name") == "Start NVIDIA persistence daemon when the driver is usable")
-        self.assertEqual(start["when"], "nvidia_display_gpu_probe.rc == 0")
+        self.assertIn("nvidia_display_driver_ready | bool", start["when"])
+        self.assertIn("nvidia_display_gpu_probe.rc | default(1) == 0", start["when"])
         self.assertEqual(start["ansible.builtin.systemd_service"]["state"], "started")
         self.assertLess(self.inner.index(enabled), self.inner.index(probe))
         self.assertLess(self.inner.index(probe), self.inner.index(start))
+
+    def test_boot_policy_refreshes_initramfs_without_unloading_the_console(self):
+        policy = next(task for task in self.inner if task.get("register") == "nvidia_display_nouveau_policy")
+        self.assertEqual(policy["ansible.builtin.copy"]["dest"], "/etc/modprobe.d/90-magicstick-nouveau.conf")
+        self.assertIn("blacklist nouveau", policy["ansible.builtin.copy"]["content"])
+        refresh = next(task for task in self.inner if task.get("name") == "Refresh initramfs after preparing the complete NVIDIA boot configuration")
+        self.assertEqual(refresh["ansible.builtin.command"]["argv"], ["/usr/sbin/update-initramfs", "-u"])
+        self.assertIn("nvidia_display_nouveau_policy.changed", refresh["when"])
+        drm = next(task for task in self.inner if task.get("register") == "nvidia_display_modprobe")
+        self.assertLess(self.inner.index(drm), self.inner.index(refresh))
+        self.assertNotIn("modprobe -r", (ROLE / "tasks/main.yml").read_text())
+        bindings = next(task for task in self.inner if task.get("register") == "nvidia_display_driver_bindings")
+        self.assertIn("driver_ready.py --status", bindings["ansible.builtin.script"]["cmd"])
+        self.assertIn("nvidia_display_new_install.stat.exists", bindings["ansible.builtin.script"]["cmd"])
+
+    def test_fresh_unready_nodes_are_gated_but_existing_or_ready_nodes_are_not(self):
+        policy = next(task for task in self.inner if task.get("register") == "nvidia_display_k3s_policy")
+        self.assertIn("bootstrapConfig", policy["ansible.builtin.copy"]["content"])
+        for new, ready, gated in ((True, False, True), (True, True, False), (False, False, False), (False, True, False)):
+            with self.subTest(new=new, ready=ready):
+                rendered = yaml.safe_load(handoff.bootstrap_config(new, ready))
+                self.assertIn("nvidia.com/gpu.deploy.driver=false", rendered["node-label"])
+                self.assertEqual("nvidia.com/gpu.deploy.operands=false" in rendered["node-label"], gated)
+
+    def test_handoff_is_periodic_and_respects_existing_reboot_ownership(self):
+        service = next(task for task in self.inner if task.get("name") == "Install the bounded NVIDIA first-boot release service")["ansible.builtin.copy"]["content"]
+        timer = next(task for task in self.inner if task.get("name") == "Install the NVIDIA first-boot release timer")["ansible.builtin.copy"]["content"]
+        self.assertIn("After=k3s.service systemd-modules-load.service", service)
+        self.assertIn("--release --node", service)
+        self.assertIn("TimeoutStartSec=45s", service)
+        self.assertIn("OnUnitInactiveSec=30s", timer)
+        k3s = yaml.safe_load((ROOT / "magic-host/roles/k3s/tasks/main.yml").read_text())
+        gate = next(task for task in k3s if task.get("register") == "nvidia_display_startup_gate")
+        self.assertIn("nvidia_display_new_install.stat.exists", gate["when"])
+        self.assertIn("not nvidia_display_driver_ready | bool", gate["when"])
+        self.assertIn("--arm", gate["ansible.builtin.command"]["argv"])
+        self.assertNotIn("shutdown", service)
 
     def test_existing_installation_media_delegates_reboot_to_host_ansible(self):
         usb = (ROOT / "magic-installer/user-data").read_text()
@@ -152,6 +208,12 @@ class NvidiaDisplayRoleContractTests(unittest.TestCase):
         marker = next(task for task in self.inner if task.get("name") == "Mark a changed first installation for the host-managed reboot")
         self.assertIn("nvidia_display_new_install.stat.exists", marker["when"])
         self.assertTrue(any("nvidia_display_packages.changed" in condition for condition in marker["when"]))
+
+    def test_removing_the_bootstrap_gate_does_not_schedule_a_second_reboot(self):
+        marker = next(task for task in self.inner if task.get("name") == "Mark a changed first installation for the host-managed reboot")
+        condition = next(item for item in marker["when"] if "nvidia_display_packages.changed" in item)
+        self.assertIn("(nvidia_display_k3s_policy.changed and not nvidia_display_driver_ready)", condition)
+        self.assertNotIn("or nvidia_display_k3s_policy.changed", condition)
 
     def test_finalizer_runs_after_roles_and_schedules_at_most_once_per_boot(self):
         playbook = yaml.safe_load((ROOT / "magic-host/playbooks/local.yml").read_text())[0]
@@ -182,6 +244,176 @@ class NvidiaDisplayRoleContractTests(unittest.TestCase):
         label = next(task for task in k3s if task.get("name") == "Keep an existing NVIDIA display node on the host-owned driver")
         self.assertIn("nvidia_display_detected", " ".join(label["when"]))
         self.assertIn("nvidia.com/gpu.deploy.driver=false", label["ansible.builtin.command"]["argv"])
+
+
+class NvidiaStartupHandoffTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="ms-nv-", dir="/tmp")
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.pci = self.root / "sys/bus/pci/devices"
+        self.pci.mkdir(parents=True)
+        self.node = {"metadata": {"name": "example-host-01", "uid": "fixture-node-uid", "resourceVersion": "17",
+                                 "annotations": {handoff.GATE: handoff.PENDING, "example.com/retain": "yes"},
+                                 "labels": {handoff.OPERANDS: "false", "nvidia.com/gpu.deploy.driver": "false"}}}
+        self.calls = []
+
+    def gpu(self, pci="0000:01:00.0", driver="nvidia", vendor="0x10de"):
+        add_pci_device(self.root, pci, vendor, "0x030000")
+        if driver:
+            target = self.root / "sys/bus/pci/drivers" / driver
+            target.mkdir(parents=True, exist_ok=True)
+            (self.pci / pci / "driver").symlink_to(target, target_is_directory=True)
+
+    def invoke(self, argv):
+        self.calls.append(argv)
+        if "get" in argv:
+            return json.dumps(self.node)
+        return ""
+
+    def persistence_socket(self):
+        path = self.root / "run/nvidia-persistenced/socket"
+        path.parent.mkdir(parents=True)
+        connection = socket.socket(socket.AF_UNIX)
+        self.addCleanup(connection.close)
+        connection.bind(str(path))
+
+    def test_nouveau_and_unbound_gpus_defer_all_probes_and_writes(self):
+        self.gpu(driver="nouveau")
+        self.gpu("0000:02:00.0", driver=None)
+        state = handoff.release_gate("example-host-01", self.invoke, self.root)
+        self.assertEqual(state["state"], handoff.PENDING)
+        self.assertFalse(state["changed"])
+        self.assertEqual(self.calls, [])
+        with patch.object(handoff.subprocess, "run", side_effect=AssertionError("driver probe")):
+            self.assertFalse(handoff.readiness(self.root)["ready"])
+
+    def test_every_nvidia_gpu_must_be_bound_and_amd_is_independent(self):
+        self.gpu()
+        self.gpu("0000:02:00.0", vendor="0x1002", driver="amdgpu")
+        self.assertTrue(handoff.readiness(self.root)["ready"])
+        self.gpu("0000:03:00.0", driver="nouveau")
+        self.assertFalse(handoff.readiness(self.root)["ready"])
+
+    def test_incomplete_inventory_never_reports_ready(self):
+        self.gpu()
+        (self.pci / "0000:01:00.0/class").write_text("broken")
+        self.assertFalse(handoff.readiness(self.root)["ready"])
+        self.assertFalse(handoff.readiness(self.root)["inventoryComplete"])
+
+    def test_cpu_only_and_non_pci_hosts_never_release_a_gpu_gate(self):
+        self.assertFalse(handoff.readiness(self.root)["ready"])
+        self.pci.rmdir()
+        self.assertFalse(handoff.readiness(self.root)["ready"])
+
+    def test_arm_is_idempotent_and_uid_version_bound(self):
+        self.assertFalse(handoff.arm_gate("example-host-01", self.invoke)["changed"])
+        self.node["metadata"]["annotations"].pop(handoff.GATE)
+        self.assertTrue(handoff.arm_gate("example-host-01", self.invoke)["changed"])
+        patch_ops = json.loads(self.calls[-1][-1])
+        self.assertEqual(patch_ops[:2], [
+            {"op": "test", "path": "/metadata/uid", "value": "fixture-node-uid"},
+            {"op": "test", "path": "/metadata/resourceVersion", "value": "17"},
+        ])
+        self.assertNotIn("example.com/retain", json.dumps(patch_ops))
+
+    def test_arm_handles_absent_maps_without_replacing_other_metadata(self):
+        self.node["metadata"].pop("annotations")
+        self.node["metadata"].pop("labels")
+        handoff.arm_gate("example-host-01", self.invoke)
+        operations = json.loads(self.calls[-1][-1])
+        self.assertIn({"op": "add", "path": "/metadata/annotations", "value": {}}, operations)
+        self.assertIn({"op": "add", "path": "/metadata/labels", "value": {}}, operations)
+
+    def test_healthy_post_boot_releases_only_the_owned_gate(self):
+        self.gpu()
+        self.persistence_socket()
+        result = handoff.release_gate("example-host-01", self.invoke, self.root)
+        self.assertEqual(result["state"], "ready")
+        self.assertTrue(result["changed"])
+        self.assertEqual(self.calls[1], ["/usr/bin/nvidia-smi", "-L"])
+        self.assertEqual(self.calls[2], ["/usr/bin/systemctl", "start", "nvidia-persistenced.service"])
+        operations = json.loads(self.calls[-1][-1])
+        self.assertIn({"op": "test", "path": "/metadata/labels/nvidia.com~1gpu.deploy.operands", "value": "false"}, operations)
+        self.assertIn({"op": "replace", "path": "/metadata/labels/nvidia.com~1gpu.deploy.operands", "value": "true"}, operations)
+        self.assertIn({"op": "remove", "path": "/metadata/annotations/appliance.magicstick.dev~1nvidia-startup-gate"}, operations)
+        self.assertIn({"op": "add", "path": "/metadata/labels/nvidia.com~1gpu.deploy.driver", "value": "false"}, operations)
+
+    def test_operator_removed_driver_label_is_restored_in_the_release_patch(self):
+        self.gpu()
+        self.persistence_socket()
+        self.node["metadata"]["labels"].pop(handoff.DRIVER)
+        handoff.release_gate("example-host-01", self.invoke, self.root)
+        operations = json.loads(self.calls[-1][-1])
+        restore = {"op": "add", "path": "/metadata/labels/nvidia.com~1gpu.deploy.driver", "value": "false"}
+        release = {"op": "replace", "path": "/metadata/labels/nvidia.com~1gpu.deploy.operands", "value": "true"}
+        self.assertLess(operations.index(restore), operations.index(release))
+        self.assertEqual(sum("patch" in call for call in self.calls), 1)
+
+    def test_manually_disabled_or_foreign_gates_are_not_enabled(self):
+        self.gpu()
+        for annotation in (None, "other-owner"):
+            with self.subTest(annotation=annotation):
+                self.calls.clear()
+                self.node["metadata"]["annotations"][handoff.GATE] = annotation
+                self.assertEqual(handoff.release_gate("example-host-01", self.invoke, self.root)["state"], "unmanaged")
+                self.assertEqual(len(self.calls), 1)
+
+    def test_modified_owned_gate_is_not_overwritten(self):
+        self.gpu()
+        self.node["metadata"]["labels"][handoff.OPERANDS] = "true"
+        with self.assertRaises(ValueError):
+            handoff.release_gate("example-host-01", self.invoke, self.root)
+        self.assertEqual(len(self.calls), 1)
+
+    def test_health_failure_and_missing_socket_keep_gate_closed(self):
+        self.gpu()
+        with self.assertRaisesRegex(ValueError, "socket"):
+            handoff.release_gate("example-host-01", self.invoke, self.root)
+        self.assertFalse(any("patch" in call for call in self.calls))
+        self.calls.clear()
+        def failing(argv):
+            if argv[0] == "/usr/bin/nvidia-smi":
+                raise subprocess.CalledProcessError(1, argv)
+            return self.invoke(argv)
+        with self.assertRaises(subprocess.CalledProcessError):
+            handoff.release_gate("example-host-01", failing, self.root)
+        self.assertFalse(any("patch" in call for call in self.calls))
+
+    def test_concurrent_patch_failure_does_not_retry_by_overwriting(self):
+        self.gpu()
+        self.persistence_socket()
+        def conflicting(argv):
+            if "patch" in argv:
+                raise subprocess.CalledProcessError(1, argv)
+            return self.invoke(argv)
+        with self.assertRaises(subprocess.CalledProcessError):
+            handoff.release_gate("example-host-01", conflicting, self.root)
+        self.assertEqual(self.node["metadata"]["labels"][handoff.OPERANDS], "false")
+
+    def test_timer_defers_during_maintenance_and_a_scheduled_restart(self):
+        lock = self.root / "maintenance.lock"
+        shutdown = self.root / "scheduled"
+        with patch.object(handoff, "LOCK", lock), patch.object(handoff, "SHUTDOWN", shutdown), \
+             patch.object(handoff.os, "geteuid", return_value=0), \
+             patch.object(sys, "argv", ["driver_ready.py", "--release", "--node", "example-host-01"]), \
+             patch.object(handoff, "release_gate", side_effect=AssertionError("must defer")):
+            with lock.open("w") as owner:
+                fcntl.flock(owner, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                with contextlib.redirect_stdout(io.StringIO()) as output:
+                    self.assertEqual(handoff.main(), 0)
+                self.assertEqual(json.loads(output.getvalue())["state"], "maintenance-active")
+            shutdown.touch()
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(handoff.main(), 0)
+            self.assertEqual(json.loads(output.getvalue())["state"], "reboot-pending")
+
+    def test_ready_cli_skips_nouveau_without_loading_a_driver(self):
+        self.gpu(driver="nouveau")
+        result = subprocess.run([sys.executable, str(ROLE / "files/driver_ready.py"), "--ready", "--root", str(self.root)],
+                                capture_output=True, text=True, check=False)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "")
 
 
 def ubuntu_device(driver="nvidia-driver-610-open", pci="0000:01:00.0", flags="distro non-free recommended"):

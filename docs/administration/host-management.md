@@ -14,6 +14,14 @@ inactive service can prevent newly created NVIDIA model containers from starting
 even when the operator and `nvidia-smi` appear healthy. Check
 `systemctl is-active nvidia-persistenced` and
 `test -S /run/nvidia-persistenced/socket` before changing the GPU Operator.
+On a fresh first boot, a sysfs-only service guard and a temporary owned Operator
+startup gate defer NVIDIA access while Nouveau still holds a card. The role
+prepares the next boot without unloading the live console. After the planned
+restart, `magicstick-nvidia-handoff.timer` verifies all NVIDIA bindings, NVML and
+the persistence socket before releasing its own gate. It respects the host
+maintenance lock and scheduled shutdown, never enables manually disabled
+operands and never schedules another reboot. See
+[startup diagnostics](troubleshooting/gpus.md#reboot-recovery-and-rollout-order).
 The media does not select the driver or schedule that reboot. CPU-only and AMD-only
 hosts skip it; optional AMD kernel/profile changes remain administrator-confirmed.
 Ubuntu's hardware-based recommendation selects the NVIDIA driver series, and APT
