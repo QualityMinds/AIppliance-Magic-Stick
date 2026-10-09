@@ -84,12 +84,24 @@ test image, script or node selector. Profile selection does not itself mean
 that a driver, GPU resource or inference engine is ready.
 
 `ModuleActivation/gpu.spec.parameters.gpuSharing` holds the independent NVIDIA
-configuration: `exclusive` or `time-slicing`, selected node name/UID, namespace
-`ai` and 2–16 shared slots. The common GPU-sharing API translates its public
+configuration: `allocationBackend` (`device-plugin` by default, or `dra`),
+`exclusive`, `time-slicing` or `dra-shared`, selected node name/UID, namespace
+`ai` and 2–16 shared slots per physical GPU. The common GPU-sharing API translates its public
 `exclusive`/`shared` modes into these provider-specific values. Missing settings
 preserve the existing NVIDIA device-plugin default. Hardware operator status
 `hardwareOperators.gpu.sharing` reports management, desired mode, observed phase,
-slot limit and admitted models. No NVIDIA DRA migration is implied.
+slot limit and admitted models. Opt-in NVIDIA DRA additionally reports verified
+card UUIDs, claim names, per-card capacity, assignments and transition errors.
+The controller coordinates device-plugin/DRA handoff; it does not replace
+ClusterPolicy with GPUCluster. See the [controlled transition](../administration/gpu-sharing.md#opting-into-exact-card-dra-allocation).
+
+For ordinary NVIDIA vLLM/Ollama models, optional `ModelActivation.spec.local.gpuDevice`
+contains `nodeName`, `nodeUid` and `uuid` (a whole `GPU-…` UUID). Create/Edit persist
+that identity; the API rejects missing/full/unready cards and the controller
+fails closed if the backend or selected hardware changes. The nullable Edit
+field explicitly clears a DRA selection when returning to automatic
+device-plugin placement. CPU, AMD, FreeToken and Realtime do not accept this
+NVIDIA exact-card contract. Existing settings without it remain compatible.
 
 `Appliance.status.hardwareOperators.amd-gpu.compatibility` contains the selected
 profile, catalog profiles and per-node evidence including `profileId`,
@@ -100,7 +112,8 @@ profile, catalog profiles and per-node evidence including `profileId`,
 Upstream support is reported distinctly from a locally passed validation.
 `compatibility.sharing` records the allocation transition and actual DRA device
 inventory. `ModelActivation.status.gpuSharing` records allocation mode and node,
-plus the shared claim and PCI device for AMD DRA. See [GPU sharing](../administration/gpu-sharing.md) for these optional
+plus the shared claim and PCI device for AMD DRA, or `backend`, node UID and GPU
+UUID for NVIDIA DRA. See [GPU sharing](../administration/gpu-sharing.md) for these optional
 contracts and their non-isolating memory semantics.
 `compatibility.validationRequired` is `false`. Host/driver and resource eligibility
 remain required; engine tests are advisory. `runtimeReady` describes adoption of

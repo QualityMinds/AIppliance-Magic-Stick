@@ -15,6 +15,15 @@ const api = '../../../magic-cluster/apps/dashboard';
 const operator = '../../../magic-cluster/platform/magicstick-operator/controller';
 
 if (phase === 3) {
+  test('SLOT-01 owning four NVIDIA cards render either one node pool or independent UUID slot rings',proof(['p3-nvidia-multicard-slots'],'U'), () =>
+    componentSuite('src/ComputeMemory.test.tsx',[
+      'counts a four-card legacy node slot pool once rather than once on every card',
+      'charges the slot ring only on the selected DRA card while preserving all VRAM readings',
+    ]));
+  test('SLOT-01 owning four-card allocation is namespace- and UUID-bound before and after Pod creation',proof(['p3-nvidia-multicard-slots'],'C'), () =>
+    pythonSuite(api,['test_nvidia_card_api.NvidiaCardApiTests']));
+  test('HW-02 owning AMD shared-claim editing never adopts NVIDIA card selection',proof(['p3-mixed-vendor'],'U'), () =>
+    componentSuite('src/ModelEdit.test.tsx',['keeps an AMD shared-claim PCI identity out of the NVIDIA card selector']));
   const hardware = ['p3-inventory','p3-mixed-vendor','p3-readiness','p3-validation-single','p3-identity'];
   test(title(hardware,'owning physical GPU view separates node identity, providers, readiness and explicit diagnostic scope'),proof(hardware,'U'), () =>
     componentSuite('src/pages/HardwarePage.test.tsx',[
@@ -72,6 +81,24 @@ if (phase === 3) {
   test('LOG-01 owning API log resolver uses current model UID and authorized Pods',proof(['p3-gpu-logs'],'C'), () =>
     pythonSuite(api,['test_model_logs.ModelLogsTests']));
 } else {
+  const cards = ['p4-nvidia-card-choice','p4-nvidia-card-release','p4-nvidia-card-edit'];
+  test(title(cards,'owning four-card form retains binding, disables exhausted cards and reuses only the edited allocation'),proof(cards,'U'), () =>
+    componentSuite('src/NvidiaCards.test.tsx',[
+      'offers four identical cards with distinct identities and persists only the chosen binding',
+      'keeps the selected card and draft when it fills despite free siblings, then releases it',
+      'requires a new choice after node replacement and never drops a disappeared binding',
+      'credits an active edit only on its own full card, not on its full siblings',
+      'explicitly clears a saved binding after returning to legacy allocation',
+    ]));
+  test(title(cards,'owning NVIDIA admission and termination contracts never charge free sibling cards'),proof(cards,'C'), () =>
+    pythonSuite(api,['test_nvidia_card_api.NvidiaCardApiTests']));
+  test('SHR-03 owning NVIDIA DRA handoff requires an explicit dirty backend and final confirmation',proof(['p4-nvidia-dra-handoff'],'U'), () =>
+    componentSuite('src/pages/GpuSharingControls.test.tsx',[
+      'requires a confirmed backend change for exact NVIDIA cards and keeps legacy defaults',
+      'does not offer NVIDIA DRA below the supported hardware and Kubernetes floor',
+    ]));
+  test('SHR-03 owning pinned NVIDIA DRA drains and releases claims before changing allocators',proof(['p4-nvidia-dra-handoff'],'C'), () =>
+    pythonSuite(operator,['test_nvidia_dra.NvidiaDraTests']));
   const recovery=(titles:string[])=>{
     const result=spawnSync('/opt/magicstick/regression-runtime/amd-recovery.test',[
       '-test.v','-test.run',`^(${titles.join('|')})$`],{timeout:60_000,encoding:'utf8',maxBuffer:1024*1024,

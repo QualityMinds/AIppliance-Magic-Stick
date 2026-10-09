@@ -123,7 +123,7 @@ class NvidiaGpuSharingTests(unittest.TestCase):
 
     def test_unsupported_node_identities_and_custom_profiles_are_never_modified(self):
         original = copy.deepcopy(self.node)
-        changes = ({'nvidia.com/gpu.count': '2'}, {'nvidia.com/mig.strategy': 'mixed'},
+        changes = ({'nvidia.com/gpu.count': '0'}, {'nvidia.com/mig.strategy': 'mixed'},
                    {'nvidia.com/device-plugin.config': 'custom-config'})
         for change in changes:
             self.node = copy.deepcopy(original)

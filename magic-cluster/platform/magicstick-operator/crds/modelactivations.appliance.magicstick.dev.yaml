@@ -129,6 +129,20 @@ spec:
                       x-kubernetes-validations:
                         - rule: self == oldSelf
                           message: computeTarget is immutable; recreate the ModelActivation to change it
+                    gpuDevice:
+                      type: object
+                      description: Exact NVIDIA full-GPU selection through managed DRA (ordinary vLLM/Ollama, one replica).
+                      required: [nodeName, nodeUid, uuid]
+                      properties:
+                        nodeName:
+                          type: string
+                          minLength: 1
+                        nodeUid:
+                          type: string
+                          minLength: 1
+                        uuid:
+                          type: string
+                          pattern: '^GPU-[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$'
                     resourceProfile:
                       type: string
                     vram:
@@ -421,6 +435,11 @@ spec:
                       type: string
                       enum: [dra-shared, time-slicing, exclusive]
                     claimName:
+                      type: string
+                    backend:
+                      type: string
+                      enum: [dra, device-plugin]
+                    nodeUid:
                       type: string
                     node:
                       type: string

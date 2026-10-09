@@ -44,7 +44,7 @@ rules:
     verbs: [create]
   - apiGroups: [admissionregistration.k8s.io]
     resources: [mutatingadmissionpolicies, mutatingadmissionpolicybindings]
-    resourceNames: [magicstick-amd-dra]
+    resourceNames: [magicstick-amd-dra, magicstick-nvidia-dra]
     verbs: [get, patch]
   - apiGroups:
       - appliance.magicstick.dev
@@ -363,7 +363,7 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: [configmaps]
-    resourceNames: [magicstick-offloading-profiles, magicstick-gpu-runtime-images]
+    resourceNames: [magicstick-offloading-profiles, magicstick-gpu-runtime-images, magicstick-nvidia-dra-values]
     verbs: [get, patch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "6dda8724e63f83d4608f703a3357dc0d2544ff5501e9a32df66a9a90f8d6909e",
-  "deploymentReferencesSha256": "ffbe40b3c7e0a3644f511fdc3af55d55910192af289015ab6e5ca0cc00a3d5c2",
+  "deploymentReferencesSha256": "2eb206ce3a7bb99c2f99cd89817404147061ac450a3dc77ed7c91d79e365951c",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -2511,7 +2511,7 @@
     {
       "file": "magic-cluster/apps/dashboard/api-deployment.yaml",
       "line": 34,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-90e70d9b465613b87f0f6444eaa0b7e27f9bce3c@sha256:146ffd9a581610fc91cf89e070b1ef18ce3cbf541a0e863473216149f9127002"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-f4082edbabddb6429b8151f7bdaf41289653e1f7@sha256:41977657cfede2f4212dd87d9678d2fd6844f7d4211004adadabdee028fd4bcd"
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
@@ -2520,18 +2520,18 @@
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
-      "line": 6813,
+      "line": 6848,
       "reference": "raise ValueError(\"Realtime requires a Hugging Face repository: hf://organization/model\")"
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
-      "line": 6850,
+      "line": 6885,
       "reference": "if image:"
     },
     {
       "file": "magic-cluster/apps/dashboard/deployment.yaml",
       "line": 32,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-90e70d9b465613b87f0f6444eaa0b7e27f9bce3c@sha256:55f84268c00c53eef46b916cdc451e5b1fc897f58887fb2427d8dec82cd6078c"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-f4082edbabddb6429b8151f7bdaf41289653e1f7@sha256:ad35e9b72127dc219e24c81c7ebde80b4cab2cfbaebb3ad5840f34e6a4b70d11"
     },
     {
       "file": "magic-cluster/apps/instances/hermes/Chart.yaml",
@@ -3064,6 +3064,21 @@
       "reference": "version: 0.36.0"
     },
     {
+      "file": "magic-cluster/platform/gpu/nvidia-gpu-operator/dra.yaml",
+      "line": 44,
+      "reference": "chart:"
+    },
+    {
+      "file": "magic-cluster/platform/gpu/nvidia-gpu-operator/dra.yaml",
+      "line": 46,
+      "reference": "chart: dra-driver-nvidia-gpu"
+    },
+    {
+      "file": "magic-cluster/platform/gpu/nvidia-gpu-operator/dra.yaml",
+      "line": 47,
+      "reference": "version: 0.5.0"
+    },
+    {
       "file": "magic-cluster/platform/gpu/nvidia-gpu-operator/helmrelease.yaml",
       "line": 9,
       "reference": "chart:"
@@ -3130,17 +3145,17 @@
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 2902,
+      "line": 3302,
       "reference": "raise ValueError(\"Realtime requires a Hugging Face repository: hf://organization/model\")"
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 2939,
+      "line": 3339,
       "reference": "if image:"
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 4163,
+      "line": 4563,
       "reference": "if not image:"
     },
     {

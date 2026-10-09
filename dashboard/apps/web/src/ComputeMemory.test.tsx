@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import {describe, expect, it} from 'vitest';
 import type {ComputeMemoryDevice, SharedMemoryPool} from '@magicstick/dashboard-contracts';
 import {ComputeMemory, MemoryGauge} from './ComputeMemory';
+import {fourNvidiaCards} from '../regression/fixtures/nvidia-cards';
 
 const pool: SharedMemoryPool = {id: 'shared-example', node: 'example-node', installedMemoryMi: 131072,
   firmwareReservedMi: 65536, physicalMemoryMi: 65536, gpuAccessibleMi: 47104,
@@ -15,6 +16,28 @@ const gpu: ComputeMemoryDevice = {id: 'amd-example', name: 'Example GPU', kind: 
 const reading = (container: HTMLElement, id: string) => container.querySelector(`[data-reading="${id}"]`)!;
 
 describe('compact compute memory gauges', () => {
+  it('counts a four-card legacy node slot pool once rather than once on every card', () => {
+    const {container} = render(<ComputeMemory memory={fourNvidiaCards(undefined, false).computeMemory} />);
+    const nodePool = screen.getByRole('article', {name: 'NVIDIA GPU pool · fixture-node'});
+    expect(within(nodePool).getByText('15 / 16 free')).toBeInTheDocument();
+    expect(container.querySelectorAll('[data-slot="used"]')).toHaveLength(1);
+    expect(container.querySelectorAll('[data-slot="free"]')).toHaveLength(15);
+    for (const gauge of screen.getAllByRole('article').filter((a) => a !== nodePool)) {
+      expect(gauge.querySelector('[data-ring="slots"]')).toBeNull();
+      expect(reading(gauge, 'free')).toHaveTextContent('47 GiB');
+    }
+  });
+
+  it('charges the slot ring only on the selected DRA card while preserving all VRAM readings', () => {
+    render(<ComputeMemory memory={fourNvidiaCards().computeMemory} />);
+    expect(screen.queryByRole('article', {name: /GPU pool/})).not.toBeInTheDocument();
+    const cards = screen.getAllByRole('article');
+    expect(cards.map((card) => card.querySelectorAll('[data-slot="used"]').length)).toEqual([0, 0, 1, 0]);
+    expect(cards.map((card) => card.querySelectorAll('[data-slot="free"]').length)).toEqual([4, 4, 3, 4]);
+    expect(cards.map((card) => reading(card, 'free').textContent)).toEqual(Array(4).fill('Free47 GiB'));
+    expect(reading(cards[2]!, 'unreserved')).toHaveTextContent('40 GiB');
+  });
+
   it('adds a segmented model-slot ring without changing memory readings', () => {
     const {container} = render(<MemoryGauge device={{...gpu, slots: {total: 3, used: 2, free: 1, scope: 'device'}}} pool={pool} />);
     expect(container.querySelectorAll('[data-ring]')).toHaveLength(5);
