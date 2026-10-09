@@ -204,6 +204,7 @@ data:
         if group:
             if compute_target != "nvidia-gpu" or len(group) < 2 or len(set(group)) != len(group):
                 die("Invalid NVIDIA multi-GPU assignment")
+            os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
             args, total_mib = configure_parallelism(args, group)
         else:
             total_mib = gpu_total_mib(compute_target, device)
@@ -303,8 +304,9 @@ data:
         if len(devices) != len(expected) or {identity(d['uuid']) for d in devices} != {identity(uuid) for uuid in expected}:
             die("CUDA-visible GPU identities do not match the complete requested DRA group; refusing partial placement")
         capacities = [int(d['totalMi']) for d in devices]
-        if min(capacities) <= 0 or max(capacities) != min(capacities):
-            die("Multi-GPU currently requires matching GPU memory capacities")
+        if min(capacities) <= 0:
+            die("Multi-GPU requires a verified physical capacity for every GPU")
+        unequal_capacities = len(set(capacities)) > 1
         count = len(devices)
         heads, hidden, layers = (int(probe.get(key) or 0) for key in ("heads", "hidden", "layers"))
         tensor = heads > 0 and hidden > 0 and heads % count == 0 and hidden % count == 0
@@ -314,6 +316,8 @@ data:
         if strategy not in ("tensor", "pipeline") or (strategy == "tensor" and not tensor) or (strategy == "pipeline" and (not probe.get('pipeline') or layers < count)):
             die("The model does not support the selected GPU count/parallelism. Choose fewer GPUs or a supported strategy")
         controlled = {"--tensor-parallel-size", "--pipeline-parallel-size", "--distributed-executor-backend", "--data-parallel-size", "-tp", "-pp", "-dp"}
+        if unequal_capacities:
+            controlled.add("--worker-cls")
         filtered, skip = [], False
         for arg in args:
             if skip:
@@ -327,8 +331,12 @@ data:
         filtered += [f"--tensor-parallel-size={count if strategy == 'tensor' else 1}",
                      f"--pipeline-parallel-size={count if strategy == 'pipeline' else 1}",
                      "--distributed-executor-backend=mp", "--data-parallel-size=1"]
+        if unequal_capacities:
+            # Native worker selection keeps one MiB budget on each GPU instead
+            # of applying one percentage to differently sized physical devices.
+            filtered.append("--worker-cls=budget_worker.BudgetWorker")
         log(f"gpu_count={count} parallelism={strategy} (same-node, per-device VRAM budget)")
-        return filtered, max(capacities)
+        return filtered, min(capacities)
 
 
     def main():
@@ -337,3 +345,33 @@ data:
 
     if __name__ == "__main__":
         main()
+  budget_worker.py: |-
+    import torch
+    from vllm.v1.worker.gpu_worker import Worker
+    from wrapper import log, parse_mib
+
+
+    class BudgetWorker(Worker):
+        """vLLM 0.23.0 native worker with equal MiB budgets on unequal GPUs."""
+
+        def init_device(self):
+            if self.parallel_config.data_parallel_size != 1:
+                raise ValueError("Magic Stick GPU groups require one same-node runtime")
+            if self.cache_config.kv_cache_memory_bytes is not None or self.cache_config.num_gpu_blocks_override is not None:
+                raise ValueError("Use the VRAM budget control rather than overriding KV cache memory or block counts")
+            budget_mib = parse_mib("MAGICSTICK_VLLM_VRAM_LIMIT")
+            if not budget_mib or budget_mib <= 0:
+                raise ValueError("A positive per-GPU VRAM budget is required")
+            # This runs in the CUDA worker child, never in the parent process.
+            # The wrapper forces mp and data-parallel-size=1, so local_rank is
+            # already the CUDA ordinal used by native Worker.init_device.
+            torch.cuda.set_device(self.local_rank)
+            total_bytes = torch.cuda.get_device_properties(self.local_rank).total_memory
+            budget_bytes = budget_mib * 1048576
+            if total_bytes <= 0 or budget_bytes > total_bytes:
+                raise ValueError("The per-GPU budget exceeds this worker's physical VRAM")
+            self.cache_config.gpu_memory_utilization = min(0.98, budget_bytes / total_bytes)
+            log(f"worker_gpu={self.local_rank} budget_mib={budget_mib} gpu_memory_utilization={self.cache_config.gpu_memory_utilization:.6f}")
+            # Native startup rechecks free memory after NCCL initialization;
+            # native profiling subtracts model/runtime usage from this budget.
+            super().init_device()

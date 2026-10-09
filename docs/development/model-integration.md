@@ -29,6 +29,30 @@ once for a split Pod or once per replicated copy. See
 [model controls](../reference/model-controls.md) and
 [GPU sharing](../administration/gpu-sharing.md#one-model-across-several-nvidia-gpus).
 
+NVIDIA group eligibility uses one source for all cards: the current DRA
+inventory's exact node identity and known positive physical `gpuCapacityMi`
+(`gpuCapacitySource: nvidia-dra-inventory`). Keep DCGM `totalMi`/`freeMi` and
+reservation budgets separate. Equal inventory cards may have different live
+totals or no live sample. Different GPU models and capacities are also allowed;
+the smallest unreserved/physical ceiling bounds an equal budget on every card.
+Unknown inventory capacity still blocks group
+selection and is checked again by API/controller admission. Older API responses
+without inventory-capacity metadata use `totalMi` as a legacy fallback;
+different-card grouping requires the updated API and controller. Never compare
+one inventory value against another card's legacy telemetry value.
+
+For differently sized NVIDIA GPUs, the wrapper uses vLLM 0.23.0's native
+`--worker-cls` extension point to select `budget_worker.BudgetWorker`. Each CUDA
+worker converts the saved MiB budget to its own physical-memory utilization
+before native startup checks free memory after NCCL initialization and profiles
+model/runtime memory. Explicit KV-cache byte/block overrides are rejected on
+this path because they bypass the total budget. Identical capacities retain the
+standard worker. Parent processes never initialize CUDA; exact UUID/count and
+model tensor/pipeline checks remain in the child probe. Upstream contracts:
+[worker selection](https://github.com/vllm-project/vllm/blob/v0.23.0/vllm/v1/worker/worker_base.py),
+[memory request](https://github.com/vllm-project/vllm/blob/v0.23.0/vllm/v1/worker/utils.py),
+[GPU worker](https://github.com/vllm-project/vllm/blob/v0.23.0/vllm/v1/worker/gpu_worker.py).
+
 ## Application defaults and regression checks
 
 The [generated catalog contract](../reference/model-catalog.md) defines the

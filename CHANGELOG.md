@@ -10,7 +10,7 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ### Added
 
-- Place ordinary vLLM/Ollama models on multiple matching NVIDIA GPUs on one node
+- Place ordinary vLLM/Ollama models on multiple NVIDIA GPUs on one node
   through DRA: split one runtime across the selected cards or run a full copy on
   each card behind one LiteLLM model name. Preserve per-card slots, memory budgets,
   lifecycle controls and logs. Multi-node/mixed-vendor groups and physical
@@ -37,6 +37,10 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ### Changed
 
+- Allow different NVIDIA GPU models and memory capacities in same-node DRA
+  groups. Bound the evenly divided split-model budget by the smallest selected
+  card's unreserved and physical capacity; preserve a full budget per copy for
+  replication. vLLM applies the same MiB budget to each differently sized GPU.
 - Replace shared LiteLLM administrator credentials in application instances and
   AnythingLLM with owner-scoped inference-only virtual keys. Provision keys
   durably, block suspended instances, roll workloads on rotation with a 15-minute
@@ -78,6 +82,10 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ### Fixed
 
+- Verify NVIDIA multi-GPU selections using node identity and physical capacity
+  from DRA inventory. Cards remain selectable when live memory totals differ or
+  one card has no DCGM sample; missing capacity and wrong-node selections retain
+  explicit disabled reasons.
 - Show the combined VRAM budget and 100% maximum when splitting one model across
   multiple NVIDIA GPUs in Create and Edit. Convert total inputs to per-card
   reservations so models larger than one card can be configured while retaining

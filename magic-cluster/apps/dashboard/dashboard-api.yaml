@@ -6451,6 +6451,8 @@ data:
             memory = compute_memory_summary(activations, vram)
             selected_memory = [next((d for d in memory.get("devices", []) if d.get("gpuDevice") == selection), {}) for selection in selections]
             maximum_mi = min(d["unreservedMi"] for d in selected_memory) if all(d.get("unreservedMi") is not None for d in selected_memory) else None
+            if len(selections) > 1 and maximum_mi is not None:
+                maximum_mi = min(maximum_mi, *(nvidia_physical_capacity_mi(d) or 0 for d in selected_memory))
         shared_pools = []
         if compute_target == "amd-gpu":
             definition = (compute_target_catalog().get("targets") or {}).get(compute_target) or {}
@@ -6521,7 +6523,8 @@ data:
                 replicaCount=replica_count,
                 systemMemoryMaximumMi=host_maximum // replica_count if host_maximum is not None else None,
                 totalWeightsMi=estimate.get("totalWeightsMi"), devices=[{
-                    "gpuDevice": s, "totalMi": d.get("totalMi"), "freeMi": d.get("freeMi"), "unreservedMi": d.get("unreservedMi")
+                    "gpuDevice": s, "totalMi": d.get("totalMi"), "freeMi": d.get("freeMi"), "unreservedMi": d.get("unreservedMi"),
+                    "gpuCapacityMi": d.get("gpuCapacityMi"), "gpuCapacitySource": d.get("gpuCapacitySource")
                 } for s, d in zip(selections, selected_memory)])
         if "cpuOffloading" in payload and not isinstance(payload["cpuOffloading"], bool):
             raise RequestError(400, "cpuOffloading must be a boolean")
@@ -7207,7 +7210,7 @@ data:
                     budget = positive_int(local.get("vramMi")) or parse_mib(local.get("vram")) or parse_mib((selected_artifact or {}).get("vram"))
                     if not budget:
                         raise ValueError("Choose a positive VRAM budget per GPU")
-                    if len(estimate.get("devices", [])) != gpu_count or any(not d.get("totalMi") or budget > d["totalMi"] for d in estimate.get("devices", [])):
+                    if len(estimate.get("devices", [])) != gpu_count or any(not nvidia_physical_capacity_mi(d) or budget > nvidia_physical_capacity_mi(d) for d in estimate.get("devices", [])):
                         raise ValueError("The per-GPU budget exceeds physical memory on a selected card")
                     if not allow_memory_risk and (estimate.get("maximumMi") is None or budget > estimate["maximumMi"]):
                         raise ValueError("The per-GPU budget exceeds unreserved memory on a selected card")
@@ -8473,12 +8476,15 @@ data:
                 for d in state.get("devices", [])) for selection in selections):
             raise RequestError(409, "The selected NVIDIA GPU is no longer available through DRA. Refresh Models or enable DRA in System > Hardware.")
         cards = [d for d in state.get("devices", []) if d.get("uuid") in {s["uuid"] for s in selections}]
-        if len(cards) > 1 and (any(not d.get("productName") or d.get("productName") == "NVIDIA GPU" or not d.get("totalMi") for d in cards)
-                              or len({(d.get("productName"), d.get("totalMi")) for d in cards}) != 1):
-            raise ValueError("Multi-GPU models currently require matching NVIDIA cards with equal physical memory")
+        if len(cards) > 1 and any(not positive_int(d.get("totalMi")) for d in cards):
+            raise ValueError("Multi-GPU models require a verified physical capacity for every NVIDIA card")
         if any((positive_int(local.get(key)) or 1) != 1 for key in ("minReplicas", "maxReplicas")):
             raise ValueError("NVIDIA card selection supports exactly one model replica")
         return selections[0] if "gpuDevice" in local else selections
+
+
+    def nvidia_physical_capacity_mi(device):
+        return positive_int(device.get("gpuCapacityMi") if device.get("gpuCapacitySource") == "nvidia-dra-inventory" else device.get("totalMi"))
 
 
     def attach_nvidia_dra_memory(devices, nodes):
@@ -8495,6 +8501,7 @@ data:
                             "metricsAvailable": False, "metricsSource": "dra-inventory", "reservedMi": 0, "reservations": []}
                 devices.append(measured)
             measured.update(productName=card.get("productName"), name=card.get("productName", "NVIDIA GPU") + " · " + (card.get("pciAddress") or card["name"]),
+                            gpuCapacityMi=card.get("totalMi") or None, gpuCapacitySource="nvidia-dra-inventory",
                             gpuDevice={"uuid": card["uuid"], "nodeName": card["node"], "nodeUid": card["nodeUid"]})
         return devices
 

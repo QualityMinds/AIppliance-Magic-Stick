@@ -107,10 +107,12 @@ NVIDIA exact-card contract. Existing settings without it remain compatible.
 one selected card means single and multiple selected cards mean split, preserving
 existing configurations. Explicit modes require exact NVIDIA DRA selection.
 
-For one model distributed over multiple matching cards (`split`), use `local.gpuDevices`
+For one model distributed over multiple NVIDIA cards (`split`), use `local.gpuDevices`
 instead of `gpuDevice`. Both representations are mutually exclusive. The list
 contains 1–16 distinct `{nodeName, nodeUid, uuid}` objects on one node; every
-card must have a verified matching product and physical capacity. There is one
+card must have a verified positive physical capacity; GPU models and capacities
+may differ. The smallest unreserved/physical ceiling bounds the equal per-card
+budget. There is one
 model replica and one Pod. A group is admitted only when every selected card
 has a free slot. `vramMi` is the budget **per card**; `memoryRequiredMi` and
 `cpuResources` apply once to the whole Pod. This is not cross-node placement or
@@ -141,7 +143,7 @@ local:
 Use verified inventory values for the placeholders and a supported model URL or
 preset. See [multi-GPU operation](../administration/gpu-sharing.md#one-model-across-several-nvidia-gpus).
 
-For `gpuDeployment: replicated`, select 2–16 matching cards and omit
+For `gpuDeployment: replicated`, select 2–16 same-node NVIDIA cards and omit
 `vllm.parallelism`. Every card runs a complete independent copy. VRAM, RAM and
 CPU settings apply **per copy**, so total host RAM/CPU scale with selected-card
 count. `minReplicas`/`maxReplicas` must remain 1; they apply to each internal

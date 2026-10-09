@@ -157,7 +157,7 @@ spec:
                       maxItems: 16
                       x-kubernetes-list-type: map
                       x-kubernetes-list-map-keys: [uuid]
-                      description: Atomic same-node, matching-card NVIDIA DRA group. Each card consumes one slot; vramMi is per card, host RAM is per model Pod.
+                      description: Atomic same-node NVIDIA DRA group; GPU models and capacities may differ. Each card consumes one slot; vramMi is an equal per-card budget bounded by each card, host RAM is per model Pod.
                       items:
                         type: object
                         required: [nodeName, nodeUid, uuid]

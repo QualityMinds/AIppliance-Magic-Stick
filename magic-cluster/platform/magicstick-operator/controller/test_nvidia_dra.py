@@ -47,19 +47,33 @@ class NvidiaDraTests(unittest.TestCase):
         assigned, errors = self.c["nvidia_dra_assignments"](groups, self.devices, [pod], 1)
         self.assertNotIn("a", assigned); self.assertIn("previous NVIDIA GPU Pod", errors["a"])
 
-    def test_group_rejects_duplicate_replaced_mixed_or_missing_cards(self):
-        for change in ("duplicate", "node", "missing", "heterogeneous", "unknown-product", "unknown-memory"):
+    def test_group_rejects_duplicate_replaced_or_missing_cards_and_unknown_capacity(self):
+        for change in ("duplicate", "node", "missing", "unknown-memory", "zero-memory", "negative-memory"):
             group = self.group(); devices = copy.deepcopy(self.devices)
             if change == "duplicate": group["spec"]["local"]["gpuDevices"][1] = group["spec"]["local"]["gpuDevices"][0]
             if change == "node": group["spec"]["local"]["gpuDevices"][1]["nodeUid"] = "replaced"
             if change == "missing": devices.pop(1)
-            if change == "heterogeneous": devices[1]["productName"] = "Other GPU"
-            if change == "unknown-product":
-                for device in devices: device["productName"] = "NVIDIA GPU"
             if change == "unknown-memory":
                 for device in devices: device["totalMi"] = None
+            if change == "zero-memory": devices[1]["totalMi"] = 0
+            if change == "negative-memory": devices[1]["totalMi"] = -1
             assigned, errors = self.c["nvidia_dra_assignments"]([group], devices, [], 4)
             self.assertFalse(assigned, change); self.assertIn("fixture-model", errors)
+
+    def test_different_nvidia_models_and_capacities_preserve_atomic_exact_groups(self):
+        devices = copy.deepcopy(self.devices)
+        devices[1].update(productName="NVIDIA RTX A5000", totalMi=24576)
+        devices[3].update(productName="NVIDIA RTX A4000", totalMi=16384)
+        for engine in ("VLLM", "OLlama"):
+            for mode in ("split", "replicated"):
+                group = self.group(range(4), engine=engine); group["spec"]["local"]["gpuDeployment"] = mode
+                assigned, errors = self.c["nvidia_dra_assignments"]([group], devices, [], 4)
+                self.assertFalse(errors)
+                self.assertEqual([d["uuid"] for d in assigned["fixture-model"]["devices"]], UUIDS)
+                self.assertEqual(list(self.c["nvidia_dra_slot_usage"](assigned, devices, []).values()), [1] * 4)
+                self.c["NVIDIA_SHARING_STATE"] = {"phase": "Ready", "assignments": assigned}
+                with self.assertRaisesRegex(ValueError, "physical memory"):
+                    self.c["apply_nvidia_dra_profile"]({"metadata": {"name": "fixture-model"}}, {"vramMi": 17000})
 
     def test_group_runtime_keeps_one_profile_replica_and_one_host_ram_budget(self):
         import pathlib

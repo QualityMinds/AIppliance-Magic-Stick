@@ -3,7 +3,7 @@ import {act, fireEvent, render, screen, waitFor, within} from '@testing-library/
 import userEvent from '@testing-library/user-event';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import type {ModelsPayload} from '@magicstick/dashboard-contracts';
-import {fourNvidiaCards, nvidiaSelection} from '../regression/fixtures/nvidia-cards';
+import {fourNvidiaCards, fourNvidiaCardsWithMixedTelemetry, heterogeneousNvidiaCards, nvidiaSelection} from '../regression/fixtures/nvidia-cards';
 import {api} from './api';
 import {nvidiaCardKey} from './NvidiaGpuSelect';
 import {ModelsPage} from './pages/ModelsPage';
@@ -46,11 +46,73 @@ beforeEach(() => {
 });
 
 describe('NVIDIA physical card selection', () => {
+  it.each(['split', 'replicated'])('selects all four identical inventory cards in %s mode despite different telemetry totals', async (mode) => {
+    const data = fourNvidiaCardsWithMixedTelemetry();
+    mount(data); const submit = await create();
+    await userEvent.selectOptions(screen.getByLabelText('GPU deployment'), mode);
+    expect(screen.getByRole('checkbox', {name: /0000:04:00.0/})).toBeEnabled();
+    fireEvent.change(screen.getByLabelText('Automatic GPU count'), {target: {value: '4'}});
+    await userEvent.click(screen.getByRole('button', {name: 'Select GPUs'}));
+    await waitFor(() => expect(api.estimateMemory).toHaveBeenLastCalledWith(expect.objectContaining({gpuDeployment: mode,
+      gpuDevices: [0, 1, 2, 3].map(i => nvidiaSelection(i))})));
+    await waitFor(() => expect(submit).toBeEnabled()); await userEvent.click(submit);
+    expect(api.createLocalModel).toHaveBeenCalledWith(expect.objectContaining({local: expect.objectContaining({gpuDeployment: mode,
+      gpuDevices: [0, 1, 2, 3].map(i => nvidiaSelection(i)), vram: '6000Mi'})}));
+  });
+
+  it('rejects a GPU with unknown inventory capacity even when its telemetry total matches', async () => {
+    const capacity = null;
+    const data = fourNvidiaCards(); data.computeMemory!.devices![1]!.gpuCapacityMi = capacity;
+    mount(data); await create();
+    const blocked = screen.getByRole('checkbox', {name: /0000:02:00.0/});
+    expect(blocked).toBeDisabled();
+    expect(blocked.closest('label')).toHaveTextContent('Physical GPU capacity could not be verified');
+    expect(screen.getByRole('checkbox', {name: /0000:04:00.0/})).toBeEnabled();
+  });
+
+  it.each(['VLLM', 'OLlama'])('groups different NVIDIA models and capacities for %s using the smallest unreserved budget', async (engine) => {
+    mount(heterogeneousNvidiaCards()); const submit = await create(engine);
+    fireEvent.change(screen.getByLabelText('Automatic GPU count'), {target: {value: '4'}});
+    await userEvent.click(screen.getByRole('button', {name: 'Select GPUs'}));
+    await waitFor(() => expect(api.estimateMemory).toHaveBeenLastCalledWith(expect.objectContaining({gpuDevices: [0, 1, 2, 3].map(i => nvidiaSelection(i))})));
+    const budget = screen.getByLabelText('Total VRAM budget (MiB)');
+    expect(screen.getByRole('slider', {name: 'Memory reservation'})).toHaveAttribute('max', '48800');
+    await userEvent.click(screen.getByRole('button', {name: '100%'})); expect(budget).toHaveValue(48800);
+    fireEvent.change(budget, {target: {value: '68000'}}); expect(submit).toBeDisabled();
+    fireEvent.change(budget, {target: {value: '48800'}}); await waitFor(() => expect(submit).toBeEnabled());
+    await userEvent.click(submit);
+    expect(api.createLocalModel).toHaveBeenCalledWith(expect.objectContaining({local: expect.objectContaining({gpuDevices: [0, 1, 2, 3].map(i => nvidiaSelection(i)), vram: '12200Mi'})}));
+  });
+
+  it('bounds group planning by physical inventory even when telemetry reports a larger card', async () => {
+    const data = heterogeneousNvidiaCards();
+    Object.assign(data.computeMemory!.devices![3]!, {totalMi: 49152, unreservedMi: 32768});
+    mount(data); const submit = await create();
+    fireEvent.change(screen.getByLabelText('Automatic GPU count'), {target: {value: '4'}});
+    await userEvent.click(screen.getByRole('button', {name: 'Select GPUs'}));
+    await waitFor(() => expect(screen.getByRole('slider', {name: 'Memory reservation'})).toHaveAttribute('max', '65200'));
+    fireEvent.change(screen.getByLabelText('Total VRAM budget (MiB)'), {target: {value: '68000'}});
+    expect(submit).toBeDisabled();
+  });
+
+  it('keeps equal legacy API cards selectable and rejects mixed inventory sources', async () => {
+    const data = fourNvidiaCards();
+    data.computeMemory!.devices!.forEach(card => {delete card.gpuCapacityMi; delete card.gpuCapacitySource;});
+    const client = mount(data); await create();
+    expect(screen.getByRole('checkbox', {name: /0000:02:00.0/})).toBeEnabled();
+    const mixed = structuredClone(data);
+    Object.assign(mixed.computeMemory!.devices![1]!, {gpuCapacityMi: 49152, gpuCapacitySource: 'nvidia-dra-inventory'});
+    await act(async () => {client.setQueryData(['models'], mixed);});
+    const blocked = screen.getByRole('checkbox', {name: /0000:02:00.0/});
+    await waitFor(() => expect(blocked).toBeDisabled());
+    expect(blocked.closest('label')).toHaveTextContent('GPU inventory capacity could not be verified');
+  });
+
   it.each([['VLLM', 2], ['VLLM', 4], ['OLlama', 2], ['OLlama', 4]] as const)(
     'uses combined capacity for a %s model split across %i GPUs and saves per-card reservations', async (engine, count) => {
       mount(fourNvidiaCards()); const submit = await create(engine);
       fireEvent.change(screen.getByLabelText('Automatic GPU count'), {target: {value: String(count)}});
-      await userEvent.click(screen.getByRole('button', {name: 'Select matching GPUs'}));
+      await userEvent.click(screen.getByRole('button', {name: 'Select GPUs'}));
       await waitFor(() => expect(api.estimateMemory).toHaveBeenLastCalledWith(expect.objectContaining({gpuDevices: Array.from({length: count}, (_, i) => nvidiaSelection(i))})));
       const slider = screen.getByRole('slider', {name: 'Memory reservation'});
       const perCardMaximum = count === 4 ? 40900 : 49100;
@@ -182,7 +244,7 @@ describe('NVIDIA physical card selection', () => {
   it('automatically chooses four matching cards and preserves a blocked group during polling', async () => {
     const client = mount(fourNvidiaCards()); const submit = await create();
     fireEvent.change(screen.getByLabelText('Automatic GPU count'), {target: {value: '4'}});
-    await userEvent.click(screen.getByRole('button', {name: 'Select matching GPUs'}));
+    await userEvent.click(screen.getByRole('button', {name: 'Select GPUs'}));
     await waitFor(() => expect(api.estimateMemory).toHaveBeenLastCalledWith(expect.objectContaining({gpuDevices: [0,1,2,3].map(i=>nvidiaSelection(i))})));
     await act(async () => {client.setQueryData(['models'], fourNvidiaCards([4,4,0,4]));});
     await waitFor(() => expect(submit).toBeDisabled());
@@ -191,11 +253,11 @@ describe('NVIDIA physical card selection', () => {
     await waitFor(() => expect(submit).toBeEnabled());
   });
 
-  it('disables other nodes and nonmatching cards instead of silently mixing a group', async () => {
+  it('disables other nodes and allows different card models on the selected node', async () => {
     const data = fourNvidiaCards(); data.computeMemory!.devices![1]!.productName = 'Other GPU';
     data.computeMemory!.devices![2]!.gpuDevice!.nodeUid = 'different-node';
     mount(data); await create();
-    expect(screen.getByRole('checkbox', {name: /0000:02:00.0/})).toBeDisabled();
+    expect(screen.getByRole('checkbox', {name: /0000:02:00.0/})).toBeEnabled();
     expect(screen.getByRole('checkbox', {name: /0000:03:00.0/})).toBeDisabled();
     expect(screen.getByRole('checkbox', {name: /0000:04:00.0/})).toBeEnabled();
   });

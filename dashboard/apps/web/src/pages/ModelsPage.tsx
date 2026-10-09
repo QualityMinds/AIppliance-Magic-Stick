@@ -14,6 +14,7 @@ import {MemoryInfo, unreservedCalculation} from '../MemoryInfo';
 import {ComputeMemory} from '../ComputeMemory';
 import {sharedSlotPools, slotsFull, targetSlots} from '../GpuSlots';
 import {NvidiaGpuGroupSelect, matchingNvidiaCards, nvidiaCardKey} from '../NvidiaGpuSelect';
+import {nvidiaPhysicalCapacityMi} from '../NvidiaGpuSelection';
 import {useCpuSettings} from '../CpuSettings';
 import {useVllmDeploymentSettings} from '../VllmDeploymentSettings';
 import {AdvancedModelSettings} from '../AdvancedModelSettings';
@@ -28,7 +29,7 @@ const GpuDeploymentSelect = ({mode, onChange, replication, count}: {mode: GpuDep
     {replication && <option value="replicated">Replicate model copies · one per GPU</option>}
   </select></Field>
   {mode === 'replicated' && <p>One API model name, with requests balanced across healthy copies. Each copy needs the full model memory budget; system RAM and CPU are reserved per copy.</p>}
-  {mode !== 'single' && count < 2 && <p role="status">Select at least two matching GPUs for this deployment mode.</p>}
+  {mode !== 'single' && count < 2 && <p role="status">Select at least two GPUs on the same node for this deployment mode.</p>}
 </section>;
 const savedGpuKeys = (local: Record<string, unknown>, status: Record<string, unknown>) => {
   const sharing = asRecord(status.gpuSharing);
@@ -578,7 +579,9 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
   const selectedPresetArtifact = selectedArtifact(selectedPreset?.variant, artifactId);
   const selectedSearchModel = searchResults.find((item) => item.repo === searchModel);
   const targetDevices = selectedCard ? selectedCards : models.computeMemory?.devices?.filter((device) => device.computeTarget === computeTarget || device.id === computeTarget) ?? [];
-  const capacities = [...targetDevices.map((device) => device.unreservedMi), ...(cardRequired ? [] : [estimate?.maximumMi])].filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0);
+  const capacities = [...targetDevices.map((device) => gpuCount > 1 && typeof device.unreservedMi === 'number'
+    ? Math.min(device.unreservedMi, nvidiaPhysicalCapacityMi(device) ?? 0) : device.unreservedMi),
+    ...(cardRequired ? [] : [estimate?.maximumMi])].filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0);
   const capacityKnown = capacities.length > 0 && (!cardRequired || capacities.length === selectedCards.length);
   const availableMi = capacityKnown ? (cardRequired ? Math.min(...capacities) : Math.max(...capacities)) : 0;
   const selectedDiscoveryArtifact = artifacts.find((item) => item.id === selectedSearchArtifact);
@@ -620,7 +623,7 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
     || (freeToken.advanced.maxPrefillLength !== null && (!Number.isInteger(freeToken.advanced.maxPrefillLength) || freeToken.advanced.maxPrefillLength < 1));
   const invalidBudget = isFreeToken ? invalidFreeToken : (cardRequired && gpuDeployment !== 'single' && gpuCount < 2) || !Number.isInteger(selectedMi) || selectedMi < 100 || selectedMi % 100 !== 0
     || ((cpuOffloading || gpuCount > 1) && (!Number.isInteger(hostMemoryMi) || hostMemoryMi < (gpuCount > 1 ? 1100 : 100) || hostMemoryMi % 100 !== 0))
-    || (gpuCount > 1 && (selectedCards.some((device) => selectedMi > Number(device.totalMi ?? 0))
+    || (gpuCount > 1 && (selectedCards.some((device) => selectedMi > Number(nvidiaPhysicalCapacityMi(device) ?? 0))
       || (typeof activeEstimate?.systemMemoryMaximumMi === 'number' && hostMemoryMi > activeEstimate.systemMemoryMaximumMi)));
 
   useEffect(() => { setCpuOffloading(false); setOffloadEstimate(undefined); setHostMemoryEdited(false); }, [engine, computeTarget]);
@@ -1015,7 +1018,7 @@ const StandardLocalModelEditForm = ({activation, models, onClose, onUpdated}: {a
     || (maxOutputTokens !== '' && (!Number.isInteger(Number(maxOutputTokens)) || Number(maxOutputTokens) < 1))
     || !Number.isInteger(selectedMi) || selectedMi < 100 || (selectedMi !== initial.selectedMi && selectedMi % 100 !== 0)
     || ((cpuOffloading || gpuCount > 1) && (!Number.isInteger(hostMemoryMi) || hostMemoryMi < (gpuCount > 1 ? 1100 : 100) || (hostMemoryMi !== initial.hostMemoryMi && hostMemoryMi % 100 !== 0)))
-    || (gpuCount > 1 && (selectedCards.some((device) => selectedMi > Number(device.totalMi ?? 0))
+    || (gpuCount > 1 && (selectedCards.some((device) => selectedMi > Number(nvidiaPhysicalCapacityMi(device) ?? 0))
       || (typeof estimate?.systemMemoryMaximumMi === 'number' && hostMemoryMi > estimate.systemMemoryMaximumMi)));
   const mutation = useMutation({
     mutationFn: () => {if (noCardSlot) throw new Error('No free slot on the selected NVIDIA card.'); return api.updateModel(name, {expectedRevision: initial.revision, local: changes});},

@@ -131,11 +131,53 @@ class NvidiaCardApiTests(unittest.TestCase):
                     with self.subTest(engine=engine, bad=bad), self.assertRaises(ValueError):
                         self.api["model_activation_payload"]("local", {"name": "fixture-model", "local": {**local, **bad}})
 
-    def test_group_requires_verified_matching_product_and_memory(self):
-        for field, value in (("productName", None), ("productName", "NVIDIA GPU"), ("productName", "Other GPU"), ("totalMi", None), ("totalMi", 24000)):
-            state = copy.deepcopy(self.state); state["devices"][1][field] = value
+    def test_group_requires_known_positive_inventory_capacity(self):
+        for value in (None, 0, -1):
+            state = copy.deepcopy(self.state); state["devices"][1]["totalMi"] = value
             with patch.dict(self.api, {"gpu_sharing_status": lambda _: state}), self.assertRaises(ValueError):
                 self.api["validate_nvidia_gpu_selection"](self.group()["spec"]["local"])
+
+    def test_different_cards_are_admitted_but_each_budget_must_fit_the_smallest_inventory_capacity(self):
+        state = copy.deepcopy(self.state)
+        state["devices"][1].update(productName="NVIDIA RTX A4000", totalMi=16384)
+        capability = {"computeTargets": ["nvidia-gpu"], "maxDevices": 16, "deploymentModes": ["single", "split", "replicated"]}
+        catalog = {"targets": {"nvidia-gpu": {"kind": "gpu"}}, "engines": {e: {"multiGpu": capability} for e in ("VLLM", "OLlama")}}
+        estimate = {"minimumMi": 2000, "maximumMi": 20000, "devices": [
+            {"totalMi": 49152, "gpuCapacityMi": capacity, "gpuCapacitySource": "nvidia-dra-inventory"} for capacity in (49152, 16384)]}
+        with patch.dict(self.api, {"gpu_sharing_status": lambda _: state, "compute_target_catalog": lambda: catalog,
+                "estimate_model_memory": lambda *_: estimate, "offloading_host_memory_available": lambda *_: 40000}):
+            for engine in ("VLLM", "OLlama"):
+                for mode in ("split", "replicated"):
+                    local = {**self.group()["spec"]["local"], "engine": engine, "gpuDeployment": mode,
+                             "url": "hf://fixture/small" if engine == "VLLM" else "ollama://fixture:small"}
+                    self.assertEqual(len(self.api["validate_nvidia_gpu_selection"](local)), 2)
+                    self.assertEqual(self.api["model_activation_payload"]("local", {"name": "fixture-model", "local": local})["spec"]["local"]["vramMi"], 10000)
+                    with self.assertRaises(ValueError):
+                        self.api["model_activation_payload"]("local", {"name": "fixture-model", "local": {**local, "vramMi": 17000, "allowMemoryRisk": True}})
+
+    def test_estimator_uses_the_smallest_unreserved_budget_and_never_exceeds_inventory_capacity(self):
+        state = copy.deepcopy(self.state); state["devices"][1].update(productName="NVIDIA RTX A4000", totalMi=16384)
+        capability = {"computeTargets": ["nvidia-gpu"], "maxDevices": 16, "strategies": ["auto", "tensor", "pipeline"], "deploymentModes": ["single", "split", "replicated"]}
+        catalog = {"targets": {"nvidia-gpu": {"kind": "gpu"}}, "engines": {e: {"multiGpu": capability} for e in ("VLLM", "OLlama")}}
+        cards = [{"gpuDevice": selection, "totalMi": 49152, "gpuCapacityMi": capacity, "gpuCapacitySource": "nvidia-dra-inventory",
+                  "unreservedMi": 30000, "freeMi": 29000} for selection, capacity in zip(self.group()["spec"]["local"]["gpuDevices"], (49152, 16384))]
+        base = {"weightsMi": 2000, "kvCacheMi": 500, "runtimeReserveMi": 512}
+        with patch.dict(self.api, {"gpu_sharing_status": lambda _: state, "compute_target_catalog": lambda: catalog,
+                "estimate_vllm_memory": lambda *_: base, "estimate_ollama_memory": lambda *_: base,
+                "hf_metadata": lambda *_: {"config": {"num_attention_heads": 8, "hidden_size": 1024, "num_hidden_layers": 32}},
+                "model_activations": lambda: [], "vram_summary": lambda *_: {"available": True, "plannedRemainingMi": 30000},
+                "compute_memory_summary": lambda *_: {"devices": cards}, "offloading_host_memory_available": lambda *_: 40000}):
+            for engine in ("VLLM", "OLlama"):
+                local = {**self.group()["spec"]["local"], "engine": engine, "url": "hf://fixture/small" if engine == "VLLM" else "ollama://fixture:small"}
+                estimate = self.api["estimate_model_memory"](local)
+                self.assertEqual(estimate["maximumMi"], 16384)
+                self.assertEqual([d["gpuCapacityMi"] for d in estimate["devices"]], [49152, 16384])
+                cards[0]["unreservedMi"] = 8000
+                self.assertEqual(self.api["estimate_model_memory"](local)["maximumMi"], 8000)
+                cards[0]["unreservedMi"] = 30000
+                cards[1]["unreservedMi"] = None
+                self.assertIsNone(self.api["estimate_model_memory"](local)["maximumMi"])
+                cards[1]["unreservedMi"] = 30000
 
     def setUp(self):
         self.api = load_server()
@@ -250,6 +292,30 @@ class NvidiaCardApiTests(unittest.TestCase):
         memory = {"devices": devices}; targets = {"targets": [{"id": "nvidia-gpu"}]}
         self.api["attach_gpu_slots"](memory, targets, {"nvidia-gpu": self.summary()})
         self.assertTrue(all(d["slots"]["scope"] == "device" for d in devices))
+
+    def test_card_compatibility_uses_inventory_capacity_without_overwriting_live_memory(self):
+        measured = [{"id": "nvidia-" + u, "nodes": ["fixture-node"], "totalMi": 49140,
+                     "freeMi": 40000, "metricsAvailable": True, "metricsSource": "dcgm"} for u in UUIDS[:3]]
+        with patch.dict(self.api, {"gpu_sharing_status": lambda _: self.state}):
+            devices = self.api["attach_nvidia_dra_memory"](measured, [self.node])
+            self.assertEqual(len(self.api["validate_nvidia_gpu_selection"](self.group(range(4))["spec"]["local"])), 4)
+        self.assertEqual(len(devices), 4)
+        self.assertEqual([d["gpuCapacityMi"] for d in devices], [49152] * 4)
+        self.assertTrue(all(d["gpuCapacitySource"] == "nvidia-dra-inventory" for d in devices))
+        self.assertEqual([d["totalMi"] for d in devices], [49140] * 3 + [49152])
+        self.assertEqual([d["freeMi"] for d in devices], [40000] * 3 + [None])
+        self.assertEqual([d["metricsAvailable"] for d in devices], [True] * 3 + [False])
+
+    def test_unknown_inventory_capacity_never_falls_back_to_matching_telemetry(self):
+        state = copy.deepcopy(self.state); state["devices"][1]["totalMi"] = None
+        measured = [{"id": "nvidia-" + u, "nodes": ["fixture-node"], "totalMi": 49152,
+                     "freeMi": 40000, "metricsAvailable": True} for u in UUIDS]
+        with patch.dict(self.api, {"gpu_sharing_status": lambda _: state}):
+            devices = self.api["attach_nvidia_dra_memory"](measured, [self.node])
+            with self.assertRaises(ValueError):
+                self.api["validate_nvidia_gpu_selection"](self.group()["spec"]["local"])
+        self.assertIsNone(devices[1]["gpuCapacityMi"])
+        self.assertEqual(devices[1]["totalMi"], 49152)
 
     def test_selection_validation_and_persistence_never_become_cuda_environment_overrides(self):
         local = {**self.model()["spec"]["local"], "url": "hf://fixture/small"}

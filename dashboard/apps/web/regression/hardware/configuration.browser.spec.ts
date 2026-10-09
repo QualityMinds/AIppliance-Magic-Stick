@@ -6,24 +6,25 @@ import {evidenceAnnotations} from '../core/evidence.ts';
 import {installedReadyUi,freeTokenForm} from './live-ui.ts';
 import type {GpuScenario} from '../core/gpu-scenario.ts';
 import type {GpuModelFixture} from '../core/config.ts';
-import {fourNvidiaCards,nvidiaSelection} from '../fixtures/nvidia-cards.ts';
+import {fourNvidiaCards,fourNvidiaCardsWithMixedTelemetry,heterogeneousNvidiaCards,nvidiaSelection} from '../fixtures/nvidia-cards.ts';
 
 const phase = process.env.REGRESSION_MODE === 'phase4-fixtures' ? 4 : 3;
-for (const viewport of ['desktop','mobile'] as const) for (const engine of ['VLLM','OLlama'] as const)
-test(`MGPU-02 ${engine} ${viewport} browser creates copies then edits mode and reads individual logs`, evidenceAnnotations(
+for (const viewport of ['desktop','mobile'] as const) for (const engine of ['VLLM','OLlama'] as const) for (const different of [false,true])
+test(`MGPU-02 ${engine} ${different?'different':'identical'} cards ${viewport} browser creates copies then edits mode and reads individual logs`, evidenceAnnotations(
   {id:'MGPU-02',variant:`p${phase}-replicated-config`,layer:'B'}), async ({page}, info) => {
   await page.setViewportSize(viewport === 'mobile' ? {width:390,height:844} : {width:1440,height:1000});
-  const data=fourNvidiaCards(),writes:Array<{local:Record<string,unknown>}> = [],logQueries:string[]=[];
+  const data=different?heterogeneousNvidiaCards():fourNvidiaCardsWithMixedTelemetry(),writes:Array<{local:Record<string,unknown>}> = [],logQueries:string[]=[];
+  const estimate={minimumMi:2000,recommendedMi:6000,maximumMi:different?12288:40960,systemMemoryMaximumMi:32000,confidence:'high'};
   await fixturePage(page,{'/api/models':()=>data, '/api/models/local':(request:Request)=>{
     const payload=request.postDataJSON();writes.push(payload);
     data.activations=[{metadata:{name:payload.name,uid:'parent-fixture',generation:1,resourceVersion:'1'},spec:{...payload,type:'local'},
       status:{phase:'Degraded',replication:{desired:2,ready:1,instances:[{name:'copy-a',uuid:nvidiaSelection(0).uuid,nodeName:'fixture-node',phase:'Ready'},
-        {name:'copy-b',uuid:nvidiaSelection(1).uuid,nodeName:'fixture-node',phase:'Degraded',message:'Copy failed; inspect Logs.'}]}}}];return {};},
+        {name:'copy-b',uuid:nvidiaSelection(3).uuid,nodeName:'fixture-node',phase:'Degraded',message:'Copy failed; inspect Logs.'}]}}}];return {};},
     '/api/model-discovery/popular':{results:[]},
-    '/api/models/estimate-memory':{minimumMi:2000,recommendedMi:6000,maximumMi:40960,systemMemoryMaximumMi:32000,confidence:'high'},
-    '/api/models/replica-fixture/estimate-memory':{minimumMi:2000,recommendedMi:6000,maximumMi:40960,systemMemoryMaximumMi:32000,confidence:'high'},
+    '/api/models/estimate-memory':estimate,
+    '/api/models/replica-fixture/estimate-memory':estimate,
     '/api/models/replica-fixture/logs':(request:Request)=>{logQueries.push(request.url());return {model:'replica-fixture',namespace:'ai',generatedAt:'2026-10-09T00:00:00Z',tailLines:300,
-      replicas:[{name:'copy-a',uuid:nvidiaSelection(0).uuid},{name:'copy-b',uuid:nvidiaSelection(1).uuid}],pods:[]};},
+      replicas:[{name:'copy-a',uuid:nvidiaSelection(0).uuid},{name:'copy-b',uuid:nvidiaSelection(3).uuid}],pods:[]};},
   });
   await page.goto(origin+'/#/models');await page.getByRole('button',{name:'Create',exact:true}).click();
   let dialog=page.getByRole('dialog');await dialog.getByLabel('Inference Engine').selectOption(engine);
@@ -32,7 +33,7 @@ test(`MGPU-02 ${engine} ${viewport} browser creates copies then edits mode and r
   await dialog.getByLabel('Name',{exact:true}).fill('replica-fixture');
   await dialog.getByLabel('GPU deployment').selectOption('replicated');
   await expect(dialog.getByRole('button',{name:'Add Local Model'})).toBeDisabled();
-  await dialog.getByRole('checkbox',{name:/0000:02:00.0/}).check();
+  await dialog.getByRole('checkbox',{name:/0000:04:00.0/}).check();
   await dialog.getByText('Advanced',{exact:true}).click();
   await expect(dialog.getByLabel('System RAM per copy (MiB)')).toHaveValue('16400');
   await expect(dialog.getByLabel('GPU parallelism')).toHaveCount(0);
@@ -44,7 +45,7 @@ test(`MGPU-02 ${engine} ${viewport} browser creates copies then edits mode and r
   await page.screenshot({path:info.outputPath(`replicated-ram-${engine}-${viewport}.png`)});
   await dialog.getByRole('button',{name:'Add Local Model'}).click();
   await expect.poll(()=>writes.length).toBe(1);
-  expect(writes[0]!.local).toMatchObject({gpuDeployment:'replicated',gpuDevices:[0,1].map(i=>nvidiaSelection(i)),memoryRequiredMi:16400,vram:'6000Mi'});
+  expect(writes[0]!.local).toMatchObject({gpuDeployment:'replicated',gpuDevices:[0,3].map(i=>nvidiaSelection(i)),memoryRequiredMi:16400,vram:'6000Mi'});
   expect(writes[0]!.local).not.toHaveProperty('vllm');
   await expect(page.getByText('2 model copies · one API name · 1/2 ready')).toBeVisible();
   await page.getByText('Model copies',{exact:true}).click();await expect(page.getByText('Copy failed; inspect Logs.')).toBeVisible();
@@ -61,13 +62,15 @@ test(`MGPU-02 ${engine} ${viewport} browser creates copies then edits mode and r
   await expect.poll(()=>logQueries.some(q=>new URL(q).searchParams.get('replica')==='copy-b')).toBe(true);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
-for (const viewport of ['desktop','mobile'] as const) for (const engine of ['VLLM','OLlama'] as const) for (const count of [2,4])
-test(`MGPU-01 ${engine} ${count} GPUs ${viewport} browser creates and edits total budgets with per-card persistence`, evidenceAnnotations(
+for (const viewport of ['desktop','mobile'] as const) for (const engine of ['VLLM','OLlama'] as const) for (const count of [2,4]) for (const different of [false,true])
+test(`MGPU-01 ${engine} ${count} ${different?'different':'identical'} GPUs ${viewport} browser creates and edits total budgets with per-card persistence`, evidenceAnnotations(
   {id:'MGPU-01',variant:`p${phase}-multigpu-config`,layer:'B'}), async ({page}, info) => {
   await page.setViewportSize(viewport === 'mobile' ? {width:390,height:844} : {width:1440,height:1000});
-  const data=fourNvidiaCards(),writes: Array<{local:Record<string,unknown>}> = [],updates:Array<{local:Record<string,unknown>}> = [];
-  const perCardMaximum=count === 4 ? 40900 : 49100;
-  const estimate={minimumMi:2000,recommendedMi:6000,maximumMi:count === 4 ? 40960 : 49152,systemMemoryMaximumMi:32000,confidence:'high'};
+  const data=different?heterogeneousNvidiaCards():fourNvidiaCardsWithMixedTelemetry(),writes: Array<{local:Record<string,unknown>}> = [],updates:Array<{local:Record<string,unknown>}> = [];
+  const perCardMaximum=different?(count===4?12200:20400):(count===4?40900:49100);
+  const savedPerCard=different?10000:40000,editedPerCard=different?8000:38000;
+  const oversizedPerCard=different?(count===4?16400:24600):49200;
+  const estimate={minimumMi:2000,recommendedMi:6000,maximumMi:different?(count===4?12288:20480):(count===4?40960:49152),systemMemoryMaximumMi:32000,confidence:'high'};
   await fixturePage(page,{'/api/models':()=>data, '/api/models/local':(request:Request)=>{
     const payload=request.postDataJSON();writes.push(payload);
     data.activations=[{metadata:{name:'split-fixture',uid:'split-fixture-uid',generation:1,resourceVersion:'1'},
@@ -80,7 +83,8 @@ test(`MGPU-01 ${engine} ${count} GPUs ${viewport} browser creates and edits tota
   await dialog.getByRole('combobox',{name:'Hardware',exact:true}).selectOption('nvidia-gpu'); await dialog.getByLabel('Model source').selectOption('direct');
   await dialog.getByLabel(engine === 'VLLM' ? 'Hugging Face URL' : 'Ollama model reference').fill(engine === 'VLLM' ? 'hf://fixture/small' : 'ollama://fixture:small');
   await dialog.getByLabel('Name',{exact:true}).fill('split-fixture');
-  await dialog.getByLabel('Automatic GPU count').fill(String(count)); await dialog.getByRole('button',{name:'Select matching GPUs'}).click();
+  await expect(dialog.getByRole('checkbox',{name:/0000:04:00.0/})).toBeEnabled();
+  await dialog.getByLabel('Automatic GPU count').fill(String(count)); await dialog.getByRole('button',{name:'Select GPUs'}).click();
   await expect(dialog.getByText(`${count} GPUs selected.`,{exact:false})).toBeVisible();
   await dialog.getByText('Advanced',{exact:true}).click();
   if(engine === 'VLLM') await dialog.getByLabel('GPU parallelism').selectOption('pipeline');
@@ -96,25 +100,25 @@ test(`MGPU-01 ${engine} ${count} GPUs ${viewport} browser creates and edits tota
   await expect(calculation).toContainText(`${count} × floor(`);
   await expect(calculation).toContainText('divided equally across the selected GPUs');await page.keyboard.press('Escape');
   await expect(dialog).toBeVisible();
-  await budget.fill(String(49200*count));await expect(dialog.getByRole('button',{name:'Add Local Model'})).toBeDisabled();
-  await budget.fill(String(40000*count));await expect(dialog.getByRole('button',{name:'Add Local Model'})).toBeEnabled();
+  await budget.fill(String(oversizedPerCard*count));await expect(dialog.getByRole('button',{name:'Add Local Model'})).toBeDisabled();
+  await budget.fill(String(savedPerCard*count));await expect(dialog.getByRole('button',{name:'Add Local Model'})).toBeEnabled();
   await budget.scrollIntoViewIfNeeded();
   await page.screenshot({path:info.outputPath(`multi-gpu-${engine}-${count}-${viewport}.png`),fullPage:true});
   await dialog.getByRole('button',{name:'Add Local Model'}).click();
   await expect.poll(()=>writes.length).toBe(1);
   expect(writes).toHaveLength(1); expect(writes[0]!.local.gpuDevices).toEqual(Array.from({length:count},(_,i)=>nvidiaSelection(i)));
-  expect(writes[0]!.local.vram).toBe('40000Mi');
+  expect(writes[0]!.local.vram).toBe(`${savedPerCard}Mi`);
   expect(writes[0]!.local.memoryRequiredMi).toBe(16400); expect(writes[0]!.local).not.toHaveProperty('gpuDevice');
   if(engine === 'VLLM') expect(writes[0]!.local.vllm).toEqual({parallelism:'pipeline'});
   else expect(writes[0]!.local).not.toHaveProperty('vllm');
   await page.getByRole('button',{name:'Edit split-fixture'}).click();dialog=page.getByRole('dialog',{name:'Edit Model · split-fixture'});
   const savedBudget=dialog.getByLabel('Total VRAM budget (MiB)'),save=dialog.getByRole('button',{name:'Save changes'});
-  await expect(savedBudget).toHaveValue(String(40000*count));await expect(save).toBeDisabled();
-  await savedBudget.fill(String(38000*count));await expect(save).toBeEnabled();
-  await savedBudget.fill(String(40000*count));await expect(save).toBeDisabled();
-  await savedBudget.fill(String(38000*count));await expect(save).toBeEnabled();
+  await expect(savedBudget).toHaveValue(String(savedPerCard*count));await expect(save).toBeDisabled();
+  await savedBudget.fill(String(editedPerCard*count));await expect(save).toBeEnabled();
+  await savedBudget.fill(String(savedPerCard*count));await expect(save).toBeDisabled();
+  await savedBudget.fill(String(editedPerCard*count));await expect(save).toBeEnabled();
   await savedBudget.scrollIntoViewIfNeeded();await page.screenshot({path:info.outputPath(`multi-gpu-edit-${engine}-${count}-${viewport}.png`)});
-  await save.click();await expect.poll(()=>updates.length).toBe(1);expect(updates[0]!.local).toMatchObject({vramMi:38000,memoryRequiredMi:16400});
+  await save.click();await expect.poll(()=>updates.length).toBe(1);expect(updates[0]!.local).toMatchObject({vramMi:editedPerCard,memoryRequiredMi:16400});
   expect(updates[0]!.local).not.toHaveProperty('gpuDevices');
   expect(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });

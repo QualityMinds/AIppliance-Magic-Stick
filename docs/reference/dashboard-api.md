@@ -77,10 +77,22 @@ the only control path. Optional `local.gpuDeployment` selects `single`, `split`
 or `replicated`. Omission preserves existing single/split behavior; replication
 must be explicit. A local model may supply `gpuDevices` instead of
 `gpuDevice`; both contain exact node-UID/GPU-UUID identities from `/api/models`.
-The API validates the entire same-node matching-card group, its live DRA state,
+The API validates the entire same-node NVIDIA group, its live DRA state,
 every slot, per-card physical/unreserved VRAM and the combined host RAM budget. A memory
 risk acknowledgement cannot bypass slot admission, hardware identity, physical
 VRAM capacity or the group's verifiable host RAM ceiling.
+
+For DRA-bound `computeMemory.devices`, `gpuCapacityMi` and
+`gpuCapacitySource: nvidia-dra-inventory` expose physical capacity from the
+current NVIDIA DRA inventory. Group exact identities on the same node with known
+positive capacities; GPU models and capacities may differ. `productName` is a
+display value rather than an equality requirement. An unknown inventory capacity
+must not fall back to a telemetry value. `totalMi` retains its live/planning
+meaning: DCGM free plus used memory when measured, or inventory capacity when
+no sample exists; the latter keeps `freeMi: null` and `metricsAvailable: false`.
+Different live totals do not determine group eligibility. The maximum equal
+per-card budget is the minimum unreserved capacity across selected cards, also
+bounded by every card's physical inventory capacity.
 
 `/api/models/estimate-memory` returns `gpuCount`, `gpuParallelism`,
 `memoryBudgetScope: per-device`, `devices` and `systemMemoryMaximumMi` for a
@@ -88,6 +100,8 @@ group. Weight estimates account for sharding with headroom; KV cache/runtime
 remain conservative per-card estimates. vLLM model dimensions are checked during
 estimation and the pinned runtime rechecks model support before loading. A
 successful estimate is not proof of successful inference.
+Each `devices` entry retains live/planning counters and also returns physical
+`gpuCapacityMi`/`gpuCapacitySource`; physical admission uses the inventory value.
 
 In `replicated` mode each card receives the full weights/cache estimate, not a
 shard. The estimate includes `replicaCount`; `systemMemoryMaximumMi` is the

@@ -4,7 +4,9 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
+from unittest.mock import patch
 
 import yaml
 
@@ -20,6 +22,50 @@ def load_wrapper():
 
 
 class VllmWrapperTests(unittest.TestCase):
+    def test_unequal_card_capacities_use_a_native_worker_and_the_smallest_physical_ceiling(self):
+        group = ["GPU-0", "GPU-1"]
+        self.wrapper["parallelism_probe"] = lambda _: {"devices": [{"uuid": group[i], "totalMi": capacity} for i, capacity in enumerate((24576, 49152))],
+            "heads": 8, "hidden": 1024, "layers": 32, "pipeline": True}
+        self.wrapper["os"].environ.update(MAGICSTICK_GPU_UUIDS=",".join(group), MAGICSTICK_VLLM_PARALLELISM="auto",
+            MAGICSTICK_COMPUTE_TARGET="nvidia-gpu", MAGICSTICK_VLLM_VRAM_LIMIT="12288Mi")
+        self.wrapper["sys"].argv[:] = ["wrapper.py", "--model=fixture/small", "--worker-cls=custom.Worker"]
+        self.wrapper["configure_argv"]()
+        self.assertIn("--worker-cls=budget_worker.BudgetWorker", self.wrapper["sys"].argv)
+        self.assertNotIn("--worker-cls=custom.Worker", self.wrapper["sys"].argv)
+        self.wrapper["os"].environ["MAGICSTICK_VLLM_VRAM_LIMIT"] = "30000Mi"
+        with self.assertRaises(SystemExit): self.wrapper["configure_argv"]()
+
+    def test_each_native_worker_gets_the_same_mib_budget_on_different_size_cards(self):
+        manifest = yaml.safe_load((ROOT / "vllm-wrapper-configmap.yaml").read_text())
+        capacities = [24576 * 1048576, 49152 * 1048576]
+        calls = []
+        class NativeWorker:
+            def init_device(self): calls.append((self.local_rank, self.cache_config.gpu_memory_utilization))
+        torch = types.ModuleType("torch")
+        torch.cuda = types.SimpleNamespace(set_device=lambda rank: None,
+            get_device_properties=lambda rank: types.SimpleNamespace(total_memory=capacities[rank]))
+        native = types.ModuleType("vllm.v1.worker.gpu_worker"); native.Worker = NativeWorker
+        wrapper = types.ModuleType("wrapper"); wrapper.parse_mib = self.wrapper["parse_mib"]; wrapper.log = self.wrapper["log"]
+        modules = {"torch": torch, "vllm": types.ModuleType("vllm"), "vllm.v1": types.ModuleType("vllm.v1"),
+            "vllm.v1.worker": types.ModuleType("vllm.v1.worker"), "vllm.v1.worker.gpu_worker": native, "wrapper": wrapper}
+        with patch.dict(sys.modules, modules), patch.dict(os.environ, {"MAGICSTICK_VLLM_VRAM_LIMIT": "12288Mi"}):
+            worker_module = {"__name__": "budget_worker"}
+            exec(compile(manifest["data"]["budget_worker.py"], "budget_worker.py", "exec"), worker_module)
+            for rank in range(2):
+                worker = worker_module["BudgetWorker"]()
+                worker.local_rank = rank; worker.parallel_config = types.SimpleNamespace(data_parallel_size=1)
+                worker.cache_config = types.SimpleNamespace(gpu_memory_utilization=0.5, kv_cache_memory_bytes=None, num_gpu_blocks_override=None)
+                worker.init_device()
+                self.assertAlmostEqual(capacities[rank] * worker.cache_config.gpu_memory_utilization, 12288 * 1048576)
+            self.assertEqual(calls, [(0, 0.5), (1, 0.25)])
+            worker.cache_config.kv_cache_memory_bytes = 40000 * 1048576
+            with self.assertRaises(ValueError): worker.init_device()
+            worker.cache_config.kv_cache_memory_bytes = None; worker.cache_config.num_gpu_blocks_override = 999999
+            with self.assertRaises(ValueError): worker.init_device()
+            worker.cache_config.num_gpu_blocks_override = None; worker.local_rank = 0
+            os.environ["MAGICSTICK_VLLM_VRAM_LIMIT"] = "30000Mi"
+            with self.assertRaises(ValueError): worker.init_device()
+
     def test_cuda_uuid_format_without_nvidia_prefix_is_the_same_identity(self):
         ids = ["00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002"]
         self.wrapper["parallelism_probe"] = lambda _: {"devices": [{"uuid": value, "totalMi": 24000} for value in reversed(ids)],
@@ -179,6 +225,10 @@ class VllmWrapperTests(unittest.TestCase):
 
         self.assertEqual(images["magicstick-vllm-cpu"], "vllm/vllm-openai-cpu:v0.23.0")
         self.assertEqual(images["magicstick-vllm-nvidia"], "vllm/vllm-openai:v0.23.0")
+        catalog = json.loads(yaml.safe_load((ROOT.parents[2] / "magicstick-operator" / "compute-target-catalog.yaml").read_text())["data"]["targets.json"])
+        for engine in ("VLLM", "OLlama"):
+            self.assertFalse(catalog["engines"][engine]["multiGpu"]["matchingCardsOnly"])
+            self.assertTrue(catalog["engines"][engine]["multiGpu"]["sameNodeOnly"])
         self.assertNotIn("magicstick-vllm-amd", images)
         self.assertEqual(amd_images["vllm-amd"], "vllm/vllm-openai-rocm:v0.26.0")
         self.assertEqual(images["magicstick-vllm-intel"], "vllm/vllm-openai-xpu:v0.26.0")

@@ -56,31 +56,40 @@ deployment** separates three uses of the selected cards:
 
 Replication does not make a large model fit on smaller cards and does not
 guarantee faster individual responses or linear throughput gains. Both multi-card
-modes require matching GPUs on the same node. They are separate from **Shared**
+modes require NVIDIA GPUs on the same node. They are separate from **Shared**
 allocation, which lets different deployments share each physical card.
 
 ### One model across several NVIDIA GPUs
 
 Enable **NVIDIA DRA** first. In **Models → Create → NVIDIA card**, choose the
-first card and add matching cards, or enter an **Automatic GPU count** and
-choose **Select matching GPUs**. Automatic selection resolves and saves exact
+first card and add cards on that node, or enter an **Automatic GPU count** and
+choose **Select GPUs**. Automatic selection resolves and saves exact
 identities now; it does not silently move a running model later.
 Choose **Split one model** to distribute model weights rather than create copies.
 
-- Ordinary vLLM and Ollama support same-node groups of matching GPU models and
-  physical capacities (up to the catalog limit of 16). Two- and four-card
+- Ordinary vLLM and Ollama support same-node groups with different GPU models
+  and physical capacities (up to the catalog limit of 16). Two- and four-card
   configurations have dedicated regression cases. This is not multi-node
   inference, mixed-vendor pooling, MIG, or a FreeToken/Omni setting.
+- Card eligibility comes from NVIDIA DRA hardware inventory: current identity,
+  the same node and a known positive physical capacity. Live memory totals or
+  missing live samples do not determine which cards can be grouped. A disabled
+  card explains a different node, missing verified capacity or exhausted slots.
+  The engine and model/quantization must still support every selected GPU.
 - A group consumes **one slot on each selected card**. For example, a model on
   two of four GPUs leaves the other two cards untouched. Admission waits for
   the whole group; it does not hold free partial groups while waiting for a busy
   card. Both Exclusive and Shared modes support groups.
 - In Create and Edit, **Total VRAM budget (MiB)** covers all selected GPUs.
   The budget is divided equally across the cards. **100% unreserved** is the
-  smallest selected card's unreserved budget, rounded down to 100 MiB, multiplied
+  smallest selected card's unreserved budget (bounded by its physical capacity),
+  rounded down to 100 MiB, multiplied
   by the selected GPU count. For example, two otherwise unreserved 48 GiB cards
   provide about 96 GiB on this scale; a reservation on either card lowers the
   maximum for the whole group. The total changes in steps of 100 MiB per GPU.
+  For different-sized cards, spare memory on a larger card does not increase
+  this evenly divided budget. For example, 20 GiB and 12 GiB unreserved on two
+  cards provide about 24 GiB on the total scale, rather than 32 GiB.
   Minimum and Recommended also show group totals; **Breakdown** shows GPU
   estimates per card and keeps host RAM and download size separate.
   Estimates shard weights with 10% headroom and conservatively retain the full
@@ -92,6 +101,9 @@ Choose **Split one model** to distribute model weights rather than create copies
   Pipeline. It does not benchmark topology. Pipeline may perform better without
   a fast interconnect; model and quantization support are validated again at
   runtime. Unsupported models fail visibly rather than falling back to one GPU.
+  vLLM converts the per-card MiB budget separately for differently sized GPUs;
+  model loading still needs runtime memory headroom. Ollama manages its own
+  layer placement and does not enforce a byte-exact per-card cap.
 - System RAM is one Pod reservation/limit (default 16 GiB, rounded to the UI's
   100 MiB step), independent of GPU count and the CPU reservation. With CPU
   offloading enabled, its host-RAM estimate includes every GPU worker.

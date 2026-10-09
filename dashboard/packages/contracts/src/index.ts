@@ -301,6 +301,7 @@ export interface ComputeMemoryDevice extends GpuAllocationEvidence {
   /** DRA-verified full GPU, never a guessed device-plugin assignment. */
   gpuDevice?: NvidiaGpuSelection;
   productName?: string;
+  /** Live/planning total; NVIDIA DRA compatibility uses gpuCapacityMi from its inventory instead. */
   totalMi?: number;
   reservedMi?: number;
   unreservedMi?: number | null;
@@ -397,6 +398,8 @@ export interface VllmConfiguration {
 }
 
 export interface MultiGpuCapability {
+  sameNodeOnly?: boolean;
+  matchingCardsOnly?: boolean;
   deploymentModes?: Array<'single' | 'split' | 'replicated'>;
   computeTargets: string[];
   maxDevices: number;
@@ -706,6 +709,7 @@ export interface MemoryEstimate {
   gpuCount?: number;
   gpuParallelism?: 'tensor' | 'pipeline' | 'spread' | 'replicated';
   memoryBudgetScope?: 'per-device';
+  devices?: Array<GpuAllocationEvidence & {gpuDevice: NvidiaGpuSelection; totalMi?: number | null; freeMi?: number | null; unreservedMi?: number | null}>;
   systemMemoryMaximumMi?: number | null;
   replicaCount?: number;
   weightsMi?: number;

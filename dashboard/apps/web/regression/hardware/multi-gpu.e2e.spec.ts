@@ -10,7 +10,7 @@ import type {GpuModelFixture} from '../core/config.ts';
 const phase = process.env.REGRESSION_MODE === 'phase4-sharing' ? 4 : 3;
 const mode = phase === 4 ? 'shared' : 'exclusive';
 // Reuses the registered lab, Lease, reviewed small models and cleanup journal.
-// A lab without enough matching cards remains Blocked, never a synthetic pass.
+// A lab without enough eligible same-node cards remains Blocked, never a synthetic pass.
 for (const deployment of ['split', 'replicated'] as const) for (const engine of ['VLLM', 'OLlama'] as const) for (const count of [2, 4]) {
   const replicated=deployment === 'replicated',id=replicated?'MGPU-02':'MGPU-01';
   const variant = `p${phase}-${replicated?'replicated':'multigpu'}-${engine === 'VLLM' ? 'vllm' : 'ollama'}-${count}`;

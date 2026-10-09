@@ -2,7 +2,7 @@ import {useState} from 'react';
 import type {ComputeMemoryDevice, NvidiaGpuSelection} from '@magicstick/dashboard-contracts';
 import {Button, Field} from './components';
 import {formatMi} from '@magicstick/dashboard-core';
-import {matchingNvidiaCards} from './NvidiaGpuSelection';
+import {matchingNvidiaCards, nvidiaCardMismatch, nvidiaPhysicalCapacityMi} from './NvidiaGpuSelection';
 export {matchingNvidiaCards} from './NvidiaGpuSelection';
 
 // Include installation identity: a replacement node must require a new choice,
@@ -18,7 +18,7 @@ export const NvidiaGpuSelect = ({cards, value, onChange, ownKey, ownActive = fal
     const credit = ownActive && nvidiaCardKey(card.gpuDevice!) === ownKey ? 1 : 0;
     const free = Math.min(card.slots?.total ?? 0, (card.slots?.free ?? 0) + credit);
     return <option key={card.id} value={nvidiaCardKey(card.gpuDevice!)} disabled={free === 0}>
-      {card.name} · {card.gpuDevice!.nodeName} · {free === 0 ? 'no free slots' : `${free}/${card.slots?.total} slots free`} · {formatMi(card.totalMi ?? 0)} VRAM
+      {card.name} · {card.gpuDevice!.nodeName} · {free === 0 ? 'no free slots' : `${free}/${card.slots?.total} slots free`} · {formatMi(nvidiaPhysicalCapacityMi(card))} VRAM
     </option>;
   })}
 </select></Field><p id="nvidia-card-help" className="muted">{allowAutomatic ? 'Device-plugin allocation cannot bind individual cards. Choose automatic assignment to clear the saved DRA selection.' : 'DRA assigns this exact physical GPU. Slots and memory reservations apply only to the selected card. Shared slots do not isolate VRAM.'}</p></>;
@@ -41,15 +41,15 @@ export const NvidiaGpuGroupSelect = ({cards, values, onChange, ownKeys = [], own
     {maximum > 1 && primary && <fieldset className="stack compact"><legend>Additional GPUs for this model</legend>
       {cards.filter((card) => nvidiaCardKey(card.gpuDevice!) !== values[0]).map((card) => {
         const key = nvidiaCardKey(card.gpuDevice!); const selected = values.includes(key);
-        const reason = !matchingNvidiaCards(primary, card) ? 'Requires matching cards on the same node' : free(card) <= 0 ? 'No free slots' : values.length >= maximum && !selected ? 'Maximum GPU count reached' : '';
+        const reason = nvidiaCardMismatch(primary, card) ?? (free(card) <= 0 ? 'No free slots' : values.length >= maximum && !selected ? 'Maximum GPU count reached' : '');
         return <label className="check-field" key={key}><input type="checkbox" checked={selected} disabled={!selected && !!reason}
           onChange={() => onChange(selected ? values.filter((value) => value !== key) : [...values, key])} />
-          {card.name} · {card.gpuDevice!.nodeName} · {reason || `${free(card)} slots free`} · {formatMi(card.totalMi)} VRAM</label>;
+          {card.name} · {card.gpuDevice!.nodeName} · {reason || `${free(card)} slots free`} · {formatMi(nvidiaPhysicalCapacityMi(card))} VRAM</label>;
       })}
       {values.slice(1).filter((key) => !cards.some((card) => nvidiaCardKey(card.gpuDevice!) === key)).map((key) =>
         <p role="alert" key={key}>Selected GPU {key} is no longer available. <Button type="button" onClick={() => onChange(values.filter((value) => value !== key))}>Remove missing GPU</Button></p>)}
       <div className="form-grid"><Field label="Automatic GPU count"><input type="number" value={autoCount} onChange={(event) => setAutoCount(Number(event.target.value))} /></Field>
-        <Button type="button" onClick={automatic} disabled={!Number.isInteger(autoCount) || autoCount < 1 || autoCount > maximum || autoCount > compatible.length}>Select matching GPUs</Button></div>
+        <Button type="button" onClick={automatic} disabled={!Number.isInteger(autoCount) || autoCount < 1 || autoCount > maximum || autoCount > compatible.length}>Select GPUs</Button></div>
       <p className="muted">{values.length} GPU{values.length === 1 ? '' : 's'} selected. {replicated ? 'One complete model copy and one Pod per card, behind one API name.' : 'One model, one Pod.'} One slot per card; the entire group must be available. VRAM is budgeted per card; shared slots do not isolate memory.</p>
     </fieldset>}
   </section>;

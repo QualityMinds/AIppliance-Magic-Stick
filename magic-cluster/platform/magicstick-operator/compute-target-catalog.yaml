@@ -15,7 +15,7 @@ data:
           "displayName": "vLLM",
           "multiGpu": {
             "computeTargets": ["nvidia-gpu"], "allocationBackend": "dra",
-            "sameNodeOnly": true, "matchingCardsOnly": true, "maxDevices": 16,
+            "sameNodeOnly": true, "matchingCardsOnly": false, "maxDevices": 16,
             "runtimeVersion": "0.23.0", "defaultStrategy": "auto",
             "deploymentModes": ["single", "split", "replicated"],
             "strategies": ["auto", "tensor", "pipeline"],
@@ -124,7 +124,7 @@ data:
           "displayName": "Ollama",
           "multiGpu": {
             "computeTargets": ["nvidia-gpu"], "allocationBackend": "dra",
-            "sameNodeOnly": true, "matchingCardsOnly": true, "maxDevices": 16,
+            "sameNodeOnly": true, "matchingCardsOnly": false, "maxDevices": 16,
             "runtimeVersion": "0.33.2", "defaultStrategy": "spread",
             "deploymentModes": ["single", "split", "replicated"],
             "strategies": ["spread"], "supportsShared": true, "memoryBudgetScope": "per-device"

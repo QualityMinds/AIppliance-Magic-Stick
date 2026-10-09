@@ -1663,9 +1663,8 @@ data:
                                      and d["node"] == selection["nodeName"] for d in devices) for selection in selections):
                 errors[name] = "The selected NVIDIA GPU identity changed. Refresh Models and choose the card again."
                 continue
-            if len(uuids) > 1 and (any(not by_uuid[u].get("productName") or by_uuid[u].get("productName") == "NVIDIA GPU" or not by_uuid[u].get("totalMi") for u in uuids)
-                                  or len({(by_uuid[u].get("productName"), by_uuid[u].get("totalMi")) for u in uuids}) != 1):
-                errors[name] = "Multi-GPU models currently require matching NVIDIA cards with equal physical memory."
+            if len(uuids) > 1 and any(not positive_int(by_uuid[u].get("totalMi")) for u in uuids):
+                errors[name] = "Multi-GPU models require a verified physical capacity for every NVIDIA card."
                 continue
             live = placements.get(name, set())
             replicated = local.get("gpuDeployment") == "replicated"

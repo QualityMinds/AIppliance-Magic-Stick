@@ -28,6 +28,13 @@ test('MGPU-02 owning admission, lifecycle, per-card runtime, routing and logs pr
 });
 test('MGPU-01 owning group selection persists identity, per-card memory and edit credits',proof([`p${phase}-multigpu-config`],'U'), () =>
   componentSuite('src/NvidiaCards.test.tsx',[
+    'selects all four identical inventory cards in split mode despite different telemetry totals',
+    'selects all four identical inventory cards in replicated mode despite different telemetry totals',
+    'rejects a GPU with unknown inventory capacity even when its telemetry total matches',
+    'groups different NVIDIA models and capacities for VLLM using the smallest unreserved budget',
+    'groups different NVIDIA models and capacities for OLlama using the smallest unreserved budget',
+    'bounds group planning by physical inventory even when telemetry reports a larger card',
+    'keeps equal legacy API cards selectable and rejects mixed inventory sources',
     'uses combined capacity for a VLLM model split across 2 GPUs and saves per-card reservations',
     'uses combined capacity for a VLLM model split across 4 GPUs and saves per-card reservations',
     'uses combined capacity for a OLlama model split across 2 GPUs and saves per-card reservations',
@@ -37,7 +44,7 @@ test('MGPU-01 owning group selection persists identity, per-card memory and edit
     'rejects group budgets above physical VRAM or verified host RAM in the form',
     'persists a two-card group and per-device budget without multiplying CPU or RAM',
     'automatically chooses four matching cards and preserves a blocked group during polling',
-    'disables other nodes and nonmatching cards instead of silently mixing a group',
+    'disables other nodes and allows different card models on the selected node',
     'edits a full active group using only its own credits and can shrink to one GPU',
   ]));
 test('MGPU-01 owning API/controller/runtime enforce atomic groups and model parallelism',proof([`p${phase}-multigpu-config`],'C'), () => {
