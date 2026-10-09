@@ -13,6 +13,19 @@ function proof(keys:string[],layer:'U'|'C') {
 function title(keys:string[],description:string) {return [...new Set(keys.map(key => definitions[key]!.id))].join(' ')+' '+description;}
 const api = '../../../magic-cluster/apps/dashboard';
 const operator = '../../../magic-cluster/platform/magicstick-operator/controller';
+test('MGPU-01 owning group selection persists identity, per-card memory and edit credits',proof([`p${phase}-multigpu-config`],'U'), () =>
+  componentSuite('src/NvidiaCards.test.tsx',[
+    'rejects group budgets above physical VRAM or verified host RAM in the form',
+    'persists a two-card group and per-device budget without multiplying CPU or RAM',
+    'automatically chooses four matching cards and preserves a blocked group during polling',
+    'disables other nodes and nonmatching cards instead of silently mixing a group',
+    'edits a full active group using only its own credits and can shrink to one GPU',
+  ]));
+test('MGPU-01 owning API/controller/runtime enforce atomic groups and model parallelism',proof([`p${phase}-multigpu-config`],'C'), () => {
+  pythonSuite(api,['test_nvidia_card_api.NvidiaCardApiTests']);
+  pythonSuite(operator,['test_nvidia_dra.NvidiaDraTests']);
+  pythonSuite('../../../magic-cluster/platform/ai/kubeai/base',['test_vllm_wrapper.VllmWrapperTests']);
+});
 
 if (phase === 3) {
   test('SLOT-01 owning four NVIDIA cards render either one node pool or independent UUID slot rings',proof(['p3-nvidia-multicard-slots'],'U'), () =>

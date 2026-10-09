@@ -9,6 +9,95 @@ UUIDS = ["GPU-00000000-0000-0000-0000-" + str(i).zfill(12) for i in range(4)]
 
 
 class NvidiaCardApiTests(unittest.TestCase):
+    def group(self, cards=(0, 1), enabled=True):
+        model = self.model(enabled=enabled)
+        local = model["spec"]["local"]
+        local.pop("gpuDevice")
+        local.update(gpuDevices=[{"uuid": UUIDS[i], "nodeName": "fixture-node", "nodeUid": "fixture-uid"} for i in cards], memoryRequiredMi=16400)
+        return model
+
+    def test_group_slots_memory_stop_restart_and_edit_credit_are_per_card(self):
+        for count in (2, 4):
+            self.models = [self.group(range(count))]; self.pods = []
+            self.assertEqual([d["used"] for d in self.summary()["devices"]], [1]*count + [0]*(4-count))
+            pod = self.pod(); pod["spec"]["resourceClaims"] = [{"name": f"gpu-{i}", "resourceClaimName": f"fixture-claim-{i}"} for i in range(count)]
+            self.pods = [pod]
+            self.assertEqual([d["used"] for d in self.summary()["devices"]], [1]*count + [0]*(4-count))
+            self.assertEqual([d["used"] for d in self.summary("fixture-model")["devices"]], [0]*4)
+            memory = self.api["active_model_memory_reservations"](self.models)
+            self.assertEqual(len(memory["cpu"]), 1)
+            self.assertEqual(memory["cpu"][0]["reservedMi"], 16400)
+            self.assertEqual(memory["cpu"][0]["node"], "fixture-node")
+            devices = [{"computeTarget": "nvidia-gpu", "nodes": ["fixture-node"], "totalMi": 49152,
+                "gpuDevice": {"uuid": u, "nodeName": "fixture-node", "nodeUid": "fixture-uid"}} for u in UUIDS]
+            self.assertEqual([d["reservedMi"] for d in self.api["assign_gpu_reservations"](devices, memory)], [10000]*count + [0]*(4-count))
+            self.models[0]["spec"]["enabled"] = False
+            self.assertEqual(self.summary()["used"], count)
+            self.pods = []; self.assertEqual(self.summary()["used"], 0)
+            self.models[0]["spec"]["enabled"] = True; self.assertEqual(self.summary()["used"], count)
+
+    def test_full_group_waits_without_reserving_free_sibling_cards(self):
+        self.state["mode"] = "exclusive"
+        self.models = [self.group()]; pod = self.pod(); pod["spec"]["resourceClaims"][0]["resourceClaimName"] = "fixture-claim-1"
+        pod["metadata"]["labels"] = {}; self.pods = [pod]
+        self.assertEqual([d["used"] for d in self.summary()["devices"]], [0, 1, 0, 0])
+        self.assertEqual(self.summary()["queued"], 1)
+        with patch.dict(self.api, {"gpu_sharing_status": lambda _: self.state, "model_activations": lambda: self.models,
+                "gpu_slot_summary": lambda *_a, **_kw: {"nvidia-gpu": self.summary()}}):
+            with self.assertRaises(self.api["RequestError"]): self.api["require_gpu_slot_available"](self.group())
+
+    def test_group_shape_fail_closed_and_single_group_edits_remain_compatible(self):
+        local = self.group()["spec"]["local"]
+        with patch.dict(self.api, {"gpu_sharing_status": lambda _: self.state}):
+            self.assertEqual(len(self.api["validate_nvidia_gpu_selection"](local)), 2)
+            for selections in ([], [local["gpuDevices"][0]]*2, [*local["gpuDevices"], {"uuid": UUIDS[3], "nodeName": "other", "nodeUid": "other"}]):
+                with self.assertRaises(ValueError): self.api["validate_nvidia_gpu_selection"]({**local, "gpuDevices": selections})
+        original = self.model()
+        _, edited = self.api["merged_local_model_settings"](original, {"gpuDevices": local["gpuDevices"]})
+        self.assertNotIn("gpuDevice", edited)
+        original["spec"]["local"] = edited
+        _, reverted = self.api["merged_local_model_settings"](original, {"gpuDevice": local["gpuDevices"][0]})
+        self.assertNotIn("gpuDevices", reverted)
+
+    def test_multi_gpu_estimator_preserves_full_kv_cache_per_card_and_checks_dimensions(self):
+        capability = {"computeTargets": ["nvidia-gpu"], "maxDevices": 16, "strategies": ["auto", "tensor", "pipeline"]}
+        local = {**self.group()["spec"]["local"], "url": "hf://fixture/small"}
+        config = {"num_attention_heads": 8, "hidden_size": 1024, "num_hidden_layers": 9}
+        with patch.dict(self.api, {"compute_target_catalog": lambda: {"engines": {"VLLM": {"multiGpu": capability}}},
+                "hf_metadata": lambda *_: {"config": config}}):
+            estimate = self.api["multi_gpu_estimate"](local, {"weightsMi": 10000, "kvCacheMi": 1000, "runtimeReserveMi": 512})
+            self.assertEqual(estimate["weightsMi"], 5500)
+            self.assertEqual(estimate["kvCacheMi"], 1000)
+            self.assertEqual(estimate["gpuParallelism"], "tensor")
+            config["num_attention_heads"] = 7
+            estimate = self.api["multi_gpu_estimate"](local, {"weightsMi": 10000})
+            self.assertEqual(estimate["gpuParallelism"], "pipeline")
+            self.assertGreater(estimate["weightsMi"], 5500)
+            with self.assertRaises(ValueError): self.api["multi_gpu_estimate"]({**local, "vllm": {"parallelism": "tensor"}}, {})
+
+    def test_group_creation_persists_budgets_and_never_overrides_physical_limits(self):
+        catalog = {"targets": {"nvidia-gpu": {"kind": "gpu"}}}
+        estimate = {"minimumMi": 2000, "maximumMi": 20000, "devices": [{"totalMi": 49152}]*2}
+        with patch.dict(self.api, {"gpu_sharing_status": lambda _: self.state, "compute_target_catalog": lambda: catalog,
+                "estimate_model_memory": lambda *_: estimate, "offloading_host_memory_available": lambda *_: 24000}):
+            for engine in ("VLLM", "OLlama"):
+                local = {**self.group()["spec"]["local"], "engine": engine,
+                    "url": "hf://fixture/small" if engine == "VLLM" else "ollama://fixture:small"}
+                resource = self.api["model_activation_payload"]("local", {"name": "fixture-model", "local": local})
+                self.assertEqual(resource["spec"]["local"]["gpuDevices"], local["gpuDevices"])
+                self.assertEqual(resource["spec"]["local"]["memoryRequiredMi"], 16400)
+                self.assertEqual(resource["spec"]["local"]["vramMi"], 10000)
+                for bad in ({"vramMi": 49200, "allowMemoryRisk": True}, {"memoryRequiredMi": 24100, "allowMemoryRisk": True},
+                            {"memoryRequiredMi": 0}, {"vramMi": 21000}, {"vramMi": 100}):
+                    with self.subTest(engine=engine, bad=bad), self.assertRaises(ValueError):
+                        self.api["model_activation_payload"]("local", {"name": "fixture-model", "local": {**local, **bad}})
+
+    def test_group_requires_verified_matching_product_and_memory(self):
+        for field, value in (("productName", None), ("productName", "NVIDIA GPU"), ("productName", "Other GPU"), ("totalMi", None), ("totalMi", 24000)):
+            state = copy.deepcopy(self.state); state["devices"][1][field] = value
+            with patch.dict(self.api, {"gpu_sharing_status": lambda _: state}), self.assertRaises(ValueError):
+                self.api["validate_nvidia_gpu_selection"](self.group()["spec"]["local"])
+
     def setUp(self):
         self.api = load_server()
         self.node = {"metadata": {"name": "fixture-node", "uid": "fixture-uid", "labels": {"appliance.magicstick.dev/nvidia-dra-ready": "true"}},
@@ -16,7 +105,7 @@ class NvidiaCardApiTests(unittest.TestCase):
         self.state = {"provider": "nvidia", "backend": "dra", "mode": "shared", "phase": "Ready",
             "nodeName": "fixture-node", "nodeUid": "fixture-uid", "maxModels": 4,
             "devices": [{"uuid": u, "name": "gpu-" + str(i), "pool": "fixture-node", "node": "fixture-node",
-                         "nodeUid": "fixture-uid", "claimName": "fixture-claim-" + str(i), "totalMi": 49152} for i, u in enumerate(UUIDS)]}
+                         "nodeUid": "fixture-uid", "claimName": "fixture-claim-" + str(i), "productName": "NVIDIA RTX A6000", "totalMi": 49152} for i, u in enumerate(UUIDS)]}
         self.models, self.pods = [], []
 
     def model(self, card=2, enabled=True):

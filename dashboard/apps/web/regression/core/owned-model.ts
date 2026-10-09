@@ -125,6 +125,8 @@ export class OwnedModelClient {
           {vram:`${this.fixture.memoryRequiredMi}Mi`,...(this.fixture.computeTarget === 'nvidia-gpu' ? {cpuOffloading:false} : {})}),
         ...(this.fixture.kvCacheType ? {kvCacheType: this.fixture.kvCacheType} : {})}),
       ...(this.allowMemoryRisk ? {allowMemoryRisk: true} : {}),
+      ...('gpuDevices' in this.fixture && this.fixture.gpuDevices ? {gpuDevices:this.fixture.gpuDevices,
+        memoryRequiredMi:this.fixture.systemMemoryMi, ...(this.fixture.vllm ? {vllm:this.fixture.vllm} : {})} : {}),
     }};
   }
 

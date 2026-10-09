@@ -11,7 +11,7 @@ status and explicit restart confirmation. The backend stays visible:
 | --- | --- | --- |
 | AMD | AMD device plugin | Experimental AMD DRA, one shared claim |
 | NVIDIA, Device plugin (default) | One allocation per physical GPU | Device-plugin time-slicing |
-| NVIDIA, DRA (opt-in) | One selected physical GPU per model | One shared claim and bounded slots per selected card |
+| NVIDIA, DRA (opt-in) | One model per selected physical GPU; a model can select several GPUs | One shared claim and bounded slots per selected card, including multi-GPU groups |
 
 The settings are independent, including on mixed NVIDIA/Strix Halo hosts.
 New installations use **Exclusive · one model per GPU** for both providers.
@@ -42,6 +42,50 @@ Four slots are this device's saved setting, not the installation default or a
 guarantee that four arbitrary models fit. No sharing transition was requested.*
 
 ## Model-slot accounting
+
+### One model across several NVIDIA GPUs
+
+Enable **NVIDIA DRA** first. In **Models → Create → NVIDIA card**, choose the
+first card and add matching cards, or enter an **Automatic GPU count** and
+choose **Select matching GPUs**. Automatic selection resolves and saves exact
+identities now; it does not silently move a running model later.
+
+- Ordinary vLLM and Ollama support same-node groups of matching GPU models and
+  physical capacities (up to the catalog limit of 16). Two- and four-card
+  configurations have dedicated regression cases. This is not multi-node
+  inference, mixed-vendor pooling, MIG, or a FreeToken/Omni setting.
+- A group consumes **one slot on each selected card**. For example, a model on
+  two of four GPUs leaves the other two cards untouched. Admission waits for
+  the whole group; it does not hold free partial groups while waiting for a busy
+  card. Both Exclusive and Shared modes support groups.
+- The VRAM control is **per GPU**, bounded by the smallest selected card.
+  Estimates shard weights with 10% headroom and conservatively retain the full
+  cache/runtime allowance per card. These are estimates, not proof a model fits.
+  Shared DRA does not isolate GPU memory. Ollama's layer placement remains
+  runtime-managed, not a byte-exact VRAM cap.
+- **Advanced → Multi-GPU runtime** offers vLLM Auto, Tensor, or Pipeline.
+  Auto chooses Tensor when model dimensions divide evenly, otherwise supported
+  Pipeline. It does not benchmark topology. Pipeline may perform better without
+  a fast interconnect; model and quantization support are validated again at
+  runtime. Unsupported models fail visibly rather than falling back to one GPU.
+- System RAM is one Pod reservation/limit (default 16 GiB, rounded to the UI's
+  100 MiB step), independent of GPU count and the CPU reservation. With CPU
+  offloading enabled, its host-RAM estimate includes every GPU worker.
+- Edit can change the group or strategy. The old Pod stops before the new
+  placement; Stop releases all group slots after termination. Start reuses the
+  saved group and waits if it is unavailable. A removed card or replaced node
+  requires a new explicit selection. Logs and the routed API remain the same.
+
+The runtime mappings are verified against
+[vLLM 0.23.0 parallelism](https://docs.vllm.ai/en/v0.23.0/serving/parallelism_scaling/)
+(`--tensor-parallel-size`, `--pipeline-parallel-size`, local `mp` executor) and
+[Ollama 0.33.2 settings](https://github.com/ollama/ollama/blob/v0.33.2/envconfig/config.go)
+(`OLLAMA_SCHED_SPREAD=true`). vLLM checks CUDA-visible UUIDs against the complete
+DRA group before loading. Its model probe does not enable `trust_remote_code`.
+Hardware performance and successful multi-GPU inference require a live run;
+local contract/browser tests alone are not hardware acceptance.
+
+### Accounting rules
 
 Models shows a segmented outer GPU ring with free/total slots; memory rings
 remain separate. Full GPUs are greyed out in the model form with a clear hint.

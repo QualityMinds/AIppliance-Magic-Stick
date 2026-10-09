@@ -138,7 +138,7 @@ export interface KubernetesObjectMeta {
 }
 
 export interface StatusValue {
-  gpuSharing?: {mode: 'dra-shared' | 'time-slicing' | 'exclusive'; backend?: 'dra' | 'device-plugin'; claimName?: string; node: string; nodeUid?: string; device?: string; slotCount?: number; memoryIsolation?: boolean} | null;
+  gpuSharing?: {mode: 'dra-shared' | 'time-slicing' | 'exclusive'; backend?: 'dra' | 'device-plugin'; claimName?: string; node: string; nodeUid?: string; device?: string; devices?: NvidiaGpuSelection[]; gpuCount?: number; claimNames?: string[]; slotCount?: number; memoryIsolation?: boolean} | null;
   /** Optional normalized observations from a FreeToken local runtime. */
   freeTokenStats?: FreeTokenRuntimeStats | null;
   phase?: string;
@@ -299,6 +299,7 @@ export interface ComputeMemoryDevice extends GpuAllocationEvidence {
   nodes?: string[];
   /** DRA-verified full GPU, never a guessed device-plugin assignment. */
   gpuDevice?: NvidiaGpuSelection;
+  productName?: string;
   totalMi?: number;
   reservedMi?: number;
   unreservedMi?: number | null;
@@ -390,7 +391,15 @@ export interface CpuResources {
 }
 
 export interface VllmConfiguration {
-  visionAttention: 'auto' | 'aotriton' | 'triton' | 'flash-attn-triton';
+  visionAttention?: 'auto' | 'aotriton' | 'triton' | 'flash-attn-triton';
+  parallelism?: 'auto' | 'tensor' | 'pipeline';
+}
+
+export interface MultiGpuCapability {
+  computeTargets: string[];
+  maxDevices: number;
+  strategies: string[];
+  memoryBudgetScope: 'per-device';
 }
 
 export interface RealtimeConfiguration {
@@ -449,7 +458,7 @@ export interface VisionAttentionSettings {
 export interface ComputeTargetsPayload {
   default?: string;
   defaultEngine?: string;
-  engineCatalog?: Record<string, {displayName?: string; available?: boolean; message?: string; cpuDefaults?: Partial<Record<'cpu' | 'gpu', CpuResources>>; deploymentSettings?: {visionAttention?: VisionAttentionSettings}; realtimeProfiles?: Record<string, RealtimeProfile>}>;
+  engineCatalog?: Record<string, {displayName?: string; available?: boolean; message?: string; cpuDefaults?: Partial<Record<'cpu' | 'gpu', CpuResources>>; deploymentSettings?: {visionAttention?: VisionAttentionSettings}; multiGpu?: MultiGpuCapability; realtimeProfiles?: Record<string, RealtimeProfile>}>;
   realtimeDevices?: RealtimeDevice[];
   freeTokenCapabilities?: FreeTokenCapabilities;
   targets: ComputeTarget[];
@@ -690,6 +699,10 @@ export interface MemoryEstimate {
   minimumMi: number;
   recommendedMi: number;
   maximumMi?: number | null;
+  gpuCount?: number;
+  gpuParallelism?: 'tensor' | 'pipeline' | 'spread';
+  memoryBudgetScope?: 'per-device';
+  systemMemoryMaximumMi?: number | null;
   weightsMi?: number;
   downloadBytes?: number;
   quantization?: Quantization | null;

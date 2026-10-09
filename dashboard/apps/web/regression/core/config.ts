@@ -1,7 +1,7 @@
 import {isAbsolute, resolve} from 'node:path';
 import {readPrivate} from './private-files.ts';
 import {HarnessError, requireSafe} from './errors.ts';
-import type {FreeTokenConfiguration,RealtimeConfiguration} from '@magicstick/dashboard-contracts';
+import type {FreeTokenConfiguration,RealtimeConfiguration,NvidiaGpuSelection,VllmConfiguration} from '@magicstick/dashboard-contracts';
 import {freeTokenRegressionEnabled} from './engine-policy.ts';
 
 export interface LocalModelFixture {
@@ -26,6 +26,10 @@ export interface GpuModelFixture {
   kvCacheType?: string;
   freetoken?: FreeTokenConfiguration;
   realtime?: RealtimeConfiguration;
+  /** Derived from current DRA inventory by the registered-lab multi-GPU case. */
+  gpuDevices?: NvidiaGpuSelection[];
+  systemMemoryMi?: number;
+  vllm?: VllmConfiguration;
 }
 export type RuntimeModelFixture = LocalModelFixture | GpuModelFixture;
 export interface GpuLabProfile {

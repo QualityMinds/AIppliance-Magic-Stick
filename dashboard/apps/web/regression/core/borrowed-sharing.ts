@@ -17,6 +17,7 @@ export interface SharingAdapter {
 interface BorrowedEntry {
   provider: Provider; uid: string; originalSpec: Record<string, unknown>;
   originalMode: GpuSharingState['mode']; originalCount: number;
+  originalBackend?: 'dra' | 'device-plugin';
   generation: number; lastSpec: Record<string, unknown>;
   state: 'borrowed' | 'pending' | 'restored';
 }
@@ -36,9 +37,10 @@ export function sharingSpec(spec: Record<string, unknown>, request: GpuSharingRe
   // This is the existing product API's canonical persisted representation, not
   // a second backend. The API performs the actual CAS patch and reconciliation.
   const config = {allowExperimental:request.provider === 'amd' && request.mode === 'shared',
-    maxModels:request.maxModels, mode:request.mode === 'exclusive' ? 'exclusive' : request.provider === 'amd' ? 'dra-shared' : 'time-slicing',
-    namespace:'ai',nodeName:request.nodeName,nodeUid:request.nodeUid};
-  parameters.gpuSharing = '{' + Object.entries(config).map(([key,value]) => JSON.stringify(key) + ': ' + JSON.stringify(value)).join(', ') + '}';
+    maxModels:request.maxModels, mode:request.mode === 'exclusive' ? 'exclusive' : request.provider === 'amd' || request.allocationBackend === 'dra' ? 'dra-shared' : 'time-slicing',
+    namespace:'ai',nodeName:request.nodeName,nodeUid:request.nodeUid,
+    ...(request.provider === 'nvidia' && request.allocationBackend === 'dra' ? {allocationBackend:'dra'} : {})};
+  parameters.gpuSharing = '{' + Object.entries(config).sort(([a],[b])=>a<b?-1:a>b?1:0).map(([key,value]) => JSON.stringify(key) + ': ' + JSON.stringify(value)).join(', ') + '}';
   if (request.provider === 'amd') parameters.validationRequest = '';
   next.parameters = parameters; return next;
 }
@@ -71,6 +73,7 @@ export class BorrowedSharing {
     for (const entry of data.entries) requireSafe(['amd','nvidia'].includes(entry.provider) && typeof entry.uid === 'string' &&
       Number.isSafeInteger(entry.generation) && entry.generation > 0 && ['borrowed','pending','restored'].includes(entry.state) &&
       ['exclusive','shared'].includes(entry.originalMode) && Number.isSafeInteger(entry.originalCount) && entry.originalCount >= 2 &&
+      (entry.originalBackend === undefined || ['dra','device-plugin'].includes(entry.originalBackend)) &&
       entry.originalCount <= 16 && entry.originalSpec && entry.lastSpec && typeof entry.originalSpec === 'object' &&
       typeof entry.lastSpec === 'object' && !Array.isArray(entry.originalSpec) && !Array.isArray(entry.lastSpec), 'OWNERSHIP');
     return new BorrowedSharing(filename,data,adapter,assertHeld);
@@ -108,19 +111,20 @@ export class BorrowedSharing {
     const request = this.request(value.state,value.state.mode,value.state.maxModels);
     requireSafe(canonical(sharingSpec(value.object.spec!,request)) === canonical(value.object.spec), 'CAPABILITY');
     this.data.entries.push({provider,uid,originalSpec:structuredClone(value.object.spec!),originalMode:value.state.mode,
-      originalCount:value.state.maxModels,generation,lastSpec:structuredClone(value.object.spec!),state:'borrowed'});
+      originalCount:value.state.maxModels, originalBackend:provider === 'nvidia' && value.state.backend === 'dra' ? 'dra' : 'device-plugin', generation,lastSpec:structuredClone(value.object.spec!),state:'borrowed'});
     await this.persist();
   }
   private request(state: GpuSharingState, mode: GpuSharingState['mode'], maxModels: number): GpuSharingRequest {
     return {provider:state.provider,mode,maxModels,nodeName:this.data.nodeName,nodeUid:this.data.nodeUid,
-      expectedRevision:state.expectedRevision,acknowledgeSharing:mode === 'shared',acknowledgeRestart:true};
+      expectedRevision:state.expectedRevision,acknowledgeSharing:mode === 'shared',acknowledgeRestart:true,
+      ...(state.provider === 'nvidia' ? {allocationBackend:state.backend === 'dra' ? 'dra' : 'device-plugin'} : {})};
   }
-  async change(provider: Provider, mode: GpuSharingState['mode'], maxModels: number) {
+  async change(provider: Provider, mode: GpuSharingState['mode'], maxModels: number, backend?: 'dra' | 'device-plugin') {
     requireSafe(['exclusive','shared'].includes(mode) && Number.isSafeInteger(maxModels) && maxModels >= 2 && maxModels <= 16, 'CONFIG');
     const entry = this.data.entries.find(item => item.provider === provider);
     requireSafe(entry?.state === 'borrowed', 'OWNERSHIP');
     const current = await this.current(entry);
-    const request = this.request(current.state,mode,maxModels), expectedSpec = sharingSpec(entry.lastSpec,request);
+    const request = {...this.request(current.state,mode,maxModels), ...(provider === 'nvidia' && backend ? {allocationBackend:backend} : {})}, expectedSpec = sharingSpec(entry.lastSpec,request);
     if (canonical(expectedSpec) === canonical(entry.lastSpec)) return;
     entry.state = 'pending'; await this.persist(); await this.assertHeld();
     try {await this.adapter.apply(request);}
@@ -143,7 +147,7 @@ export class BorrowedSharing {
       if (entry.state === 'restored') continue;
       requireSafe(entry.state === 'borrowed', 'CONFLICT');
       for (let attempt=0;attempt<3;attempt++) {
-        try {await this.change(entry.provider,entry.originalMode,entry.originalCount);break;}
+        try {await this.change(entry.provider,entry.originalMode,entry.originalCount,entry.originalBackend ?? 'device-plugin');break;}
         catch(error) {
           // A 409 is retriable only after change() independently proved that
           // the previously owned UID/generation/spec was not changed.

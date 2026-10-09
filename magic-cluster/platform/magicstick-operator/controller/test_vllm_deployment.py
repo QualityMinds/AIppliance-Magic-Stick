@@ -106,8 +106,10 @@ class VllmDeploymentTests(unittest.TestCase):
         crd = yaml.safe_load((ROOT / "crds/modelactivations.appliance.magicstick.dev.yaml").read_text())
         schema = crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]["properties"]["local"]["properties"]["vllm"]["properties"]["visionAttention"]
         self.assertEqual(set(schema["enum"]), {item["value"] for item in self.definition["options"]})
-        self.assertEqual(schema["default"], self.definition["default"])
-        self.assertEqual(schema["default"], "triton")
+        # Do not inject AMD vision settings into a NVIDIA parallelism-only
+        # object. The engine/target-aware normalizer still supplies this default.
+        self.assertNotIn("default", schema)
+        self.assertEqual(self.definition["default"], "triton")
         self.assertEqual(self.definition["computeTargets"], ["amd-gpu"])
 
     def test_api_and_controller_share_the_validation_contract(self):

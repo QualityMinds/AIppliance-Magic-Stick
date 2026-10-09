@@ -20,6 +20,43 @@ def load_wrapper():
 
 
 class VllmWrapperTests(unittest.TestCase):
+    def test_cuda_uuid_format_without_nvidia_prefix_is_the_same_identity(self):
+        ids = ["00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002"]
+        self.wrapper["parallelism_probe"] = lambda _: {"devices": [{"uuid": value, "totalMi": 24000} for value in reversed(ids)],
+            "heads": 8, "hidden": 1024, "layers": 32, "pipeline": True}
+        args, _ = self.wrapper["configure_parallelism"]([], ["GPU-" + value for value in ids])
+        self.assertIn("--tensor-parallel-size=2", args)
+
+    def test_two_and_four_gpu_tensor_pipeline_and_auto_are_runtime_validated(self):
+        for count in (2, 4):
+            for strategy in ("auto", "tensor", "pipeline"):
+                group = [f"GPU-{i}" for i in range(count)]
+                self.wrapper["parallelism_probe"] = lambda _: {"devices": [{"uuid": uuid, "totalMi": 24000} for uuid in group],
+                    "heads": 16, "hidden": 2048, "layers": 32, "pipeline": True}
+                self.wrapper["os"].environ.update(MAGICSTICK_GPU_UUIDS=",".join(group), MAGICSTICK_VLLM_PARALLELISM=strategy,
+                    MAGICSTICK_COMPUTE_TARGET="nvidia-gpu", MAGICSTICK_VLLM_VRAM_LIMIT="12000Mi", MAGICSTICK_CPU_OFFLOAD_MI="1024")
+                self.wrapper["sys"].argv[:] = ["wrapper.py", "--model=fixture/small", "--tensor-parallel-size=99", "-pp", "99"]
+                self.wrapper["configure_argv"]()
+                args = self.wrapper["sys"].argv
+                self.assertIn(f"--tensor-parallel-size={1 if strategy == 'pipeline' else count}", args)
+                self.assertIn(f"--pipeline-parallel-size={count if strategy == 'pipeline' else 1}", args)
+                self.assertIn("--distributed-executor-backend=mp", args)
+                self.assertIn("--gpu-memory-utilization=0.5000", args)
+                self.assertIn("--cpu-offload-gb=1.000000", args)
+                self.assertNotIn("99", args)
+
+    def test_group_probe_rejects_partial_cuda_placement_and_unsupported_models(self):
+        good = {"devices": [{"uuid": "GPU-0", "totalMi": 24000}, {"uuid": "GPU-1", "totalMi": 24000}],
+                "heads": 8, "hidden": 1024, "layers": 32, "pipeline": True}
+        for changed in ({"devices": good["devices"][:1]}, {"devices": [good["devices"][0]]*2},
+                        {"heads": 7, "pipeline": False}, {"hidden": 0, "layers": 1}):
+            self.wrapper["parallelism_probe"] = lambda _, changed=changed: {**good, **changed}
+            self.wrapper["os"].environ["MAGICSTICK_VLLM_PARALLELISM"] = "auto"
+            with self.assertRaises(SystemExit): self.wrapper["configure_parallelism"]([], ["GPU-0", "GPU-1"])
+        self.wrapper["parallelism_probe"] = lambda _: {**good, "heads": 7}
+        args, _ = self.wrapper["configure_parallelism"]([], ["GPU-0", "GPU-1"])
+        self.assertIn("--pipeline-parallel-size=2", args)
+
     def setUp(self):
         self.wrapper = load_wrapper()
         self.original_environ = dict(self.wrapper["os"].environ)
