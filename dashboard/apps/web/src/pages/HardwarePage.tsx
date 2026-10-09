@@ -38,7 +38,8 @@ const HardwareNode = ({node, host, compatibility, devices, session, stale}: {nod
     {devices.map((device) => {
       const singleProviderDevice = devices.filter((item) => item.vendor === device.vendor).length === 1;
       const ownsMemory = device.vendor === 'amd' && host && (host.gpuMemory?.pciAddress === device.pciAddress || !host.gpuMemory?.pciAddress && singleProviderDevice && device.memoryArchitecture === 'unified');
-      return <GpuSharingControls key={device.id} nodeUid={node.nodeUid} session={session} device={device} singleProviderDevice={singleProviderDevice}
+      const ownsSharing = singleProviderDevice || device.vendor === 'nvidia' && devices.find((d) => d.vendor === 'nvidia')?.id === device.id;
+      return <GpuSharingControls key={device.id} nodeUid={node.nodeUid} session={session} device={device} singleProviderDevice={ownsSharing}
         leadingControls={<><DeviceMemory device={device} /><DeviceFacts device={device} /></>}
         amdControls={device.vendor === 'amd' ? <>
           {compatibility && singleProviderDevice && <ProfileControls key={`${compatibility.selectedProfile}:${compatibility.allowExperimental}`} compatibility={compatibility} admin={canAdminister(session)} />}

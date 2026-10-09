@@ -12,7 +12,8 @@ import {api} from '../api';
 import {Button, ConfirmDialog, CopyButton, Dialog, Empty, ErrorNotice, Field, Loading, Panel, ProgressBar, StatusBadge} from '../components';
 import {MemoryInfo, unreservedCalculation} from '../MemoryInfo';
 import {ComputeMemory} from '../ComputeMemory';
-import {slotsFull, targetSlots} from '../GpuSlots';
+import {sharedSlotPools, slotsFull, targetSlots} from '../GpuSlots';
+import {NvidiaGpuSelect, nvidiaCardKey} from '../NvidiaGpuSelect';
 import {useCpuSettings} from '../CpuSettings';
 import {useVllmDeploymentSettings} from '../VllmDeploymentSettings';
 import {AdvancedModelSettings} from '../AdvancedModelSettings';
@@ -480,7 +481,13 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
   const selectedTarget = availableTargets.find((target) => target.id === computeTarget);
   const cpuSettings = useCpuSettings(undefined, models, engine, computeTarget);
   const deploymentSettings = useVllmDeploymentSettings(undefined, models, engine, computeTarget);
-  const noSlots = slotsFull(selectedTarget, engine);
+  const nvidiaCards = (models.computeMemory?.devices ?? []).filter((d) => d.computeTarget === 'nvidia-gpu' && d.gpuDevice && d.slots?.scope === 'device');
+  const [gpuKey, setGpuKey] = useState(() => {const card = nvidiaCards.find((d) => (d.slots?.free ?? 0) > 0); return card?.gpuDevice ? nvidiaCardKey(card.gpuDevice) : '';});
+  const selectedCard = computeTarget === 'nvidia-gpu' ? nvidiaCards.find((d) => nvidiaCardKey(d.gpuDevice!) === gpuKey) : undefined;
+  const cardRequired = computeTarget === 'nvidia-gpu' && (nvidiaCards.length > 0 || !!gpuKey) && engine !== 'FreeToken';
+  const noSlots = slotsFull(selectedTarget, engine) || cardRequired && (!selectedCard || !selectedCard.slots?.free);
+  const automaticGpuPool = computeTarget === 'nvidia-gpu' && sharedSlotPools(models.computeMemory?.devices ?? []).some((pool) =>
+    pool.deviceIds.some((id) => models.computeMemory?.devices?.some((device) => device.id === id && device.computeTarget === computeTarget)));
   const engineUnavailable = !targetEngineAvailable(selectedTarget, engine);
   const isFreeToken = isFreeTokenEngine(engine);
   const kvCacheOptions = useMemo(
@@ -532,8 +539,8 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
   const selectedPreset = presets.find((item) => item.id === presetId);
   const selectedPresetArtifact = selectedArtifact(selectedPreset?.variant, artifactId);
   const selectedSearchModel = searchResults.find((item) => item.repo === searchModel);
-  const targetDevices = models.computeMemory?.devices?.filter((device) => device.computeTarget === computeTarget || device.id === computeTarget) ?? [];
-  const capacities = [...targetDevices.map((device) => device.unreservedMi), estimate?.maximumMi].filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0);
+  const targetDevices = selectedCard ? [selectedCard] : models.computeMemory?.devices?.filter((device) => device.computeTarget === computeTarget || device.id === computeTarget) ?? [];
+  const capacities = [...targetDevices.map((device) => device.unreservedMi), ...(cardRequired ? [] : [estimate?.maximumMi])].filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0);
   const capacityKnown = capacities.length > 0;
   const availableMi = capacityKnown ? Math.max(...capacities) : 0;
   const selectedDiscoveryArtifact = artifacts.find((item) => item.id === selectedSearchArtifact);
@@ -587,12 +594,12 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
     let cancelled = false;
     const timer = window.setTimeout(async () => {
       try {
-        const result = await api.estimateMemory({engine, computeTarget, url, contextWindow, maxNumSeqs, modelType, kvCacheType, cpuOffloading: true, vramMi: selectedMi});
+        const result = await api.estimateMemory({engine, computeTarget, url, contextWindow, maxNumSeqs, modelType, kvCacheType, cpuOffloading: true, vramMi: selectedMi, ...(selectedCard ? {gpuDevice: selectedCard.gpuDevice} : {})});
         if (!cancelled) setOffloadEstimate(result);
       } catch (reason) { if (!cancelled) setOffloadError(reason); }
     }, 350);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [cpuOffloading, supportsOffloading, engine, computeTarget, url, contextWindow, maxNumSeqs, modelType, kvCacheType, selectedMi]);
+  }, [cpuOffloading, supportsOffloading, engine, computeTarget, url, contextWindow, maxNumSeqs, modelType, kvCacheType, selectedMi, gpuKey]);
 
   const applyModel = (nextUrl: string, artifact?: ModelArtifact, variant?: ModelVariant, baseModel?: DiscoveryItem) => {
     setUrl(nextUrl); setName((current) => current || safeModelName(nextUrl));
@@ -619,7 +626,7 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
     let cancelled = false;
     const timer = window.setTimeout(async () => {
       try {
-        const result = await api.estimateMemory({engine, computeTarget, url, contextWindow, maxNumSeqs, modelType, kvCacheType});
+        const result = await api.estimateMemory({engine, computeTarget, url, contextWindow, maxNumSeqs, modelType, kvCacheType, ...(selectedCard ? {gpuDevice: selectedCard.gpuDevice} : {})});
         if (!cancelled) {
           setEstimate(result);
           const maximum = capacityKnown ? Math.max(100, Math.floor(availableMi / 100) * 100) : roundMemory(result.recommendedMi);
@@ -629,7 +636,7 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
       } catch (reason) { if (!cancelled) setFormError(reason); }
     }, 350);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [computeTarget, contextWindow, engine, isFreeToken, kvCacheType, maxNumSeqs, modelType, url, cpuOffloading]);
+  }, [computeTarget, contextWindow, engine, isFreeToken, kvCacheType, maxNumSeqs, modelType, url, cpuOffloading, gpuKey]);
 
   const searchParams = (query: string, cursor?: string | null) => {
     const params = new URLSearchParams({provider, q: query, engine, computeTarget, modelType, limit: '20'});
@@ -677,6 +684,7 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
       const target = availableTargets.find((item) => item.id === computeTarget);
       if (!target?.available || !targetSupportsEngine(target, engine)) throw new Error('The selected engine and hardware combination is not available.');
       const local: Record<string, unknown> = {modelType, computeTarget, engine};
+      if (cardRequired && selectedCard) local.gpuDevice = selectedCard.gpuDevice;
       if (cpuSettings.payload) local.cpuResources = cpuSettings.payload;
       if (deploymentSettings.payload) local.vllm = deploymentSettings.payload;
       if (isFreeToken) {
@@ -705,14 +713,16 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
 
   return <form className="stack" onSubmit={(event) => { event.preventDefault(); createMutation.mutate(); }}>
     <div className="form-grid">
-      <Field label="Hardware"><select value={computeTarget} aria-describedby={noSlots ? 'model-slots-full' : undefined} onChange={(event) => setComputeTarget(event.target.value)}>
+      <Field label="Hardware"><select value={computeTarget} aria-describedby={[noSlots ? 'model-slots-full' : '', automaticGpuPool ? 'model-automatic-gpu' : ''].filter(Boolean).join(' ') || undefined} onChange={(event) => setComputeTarget(event.target.value)}>
         {!computeTarget && <option value="" disabled>No hardware with free slots</option>}
         {targets.map((target) => {const slots = targetSlots(target, engine); const available = targetEngineAvailable(target, engine); return <option key={target.id} value={target.id} disabled={!available || slotsFull(target, engine)}>{target.displayName ?? target.id}{!available ? ` · unavailable: ${target.engineAvailability?.[engine]?.message ?? 'engine is not eligible'}` : slots ? slots.free === 0 ? ` · no free slots (${slots.used}/${slots.total} occupied)` : ` · ${slots.free}/${slots.total} slots free` : ''}</option>;})}
       </select></Field>
       <Field label="Model source"><select value={source} onChange={(event) => setSource(event.target.value as typeof source)}><option value="search">{provider === 'ollama' ? 'Ollama Library' : 'Hugging Face search'}</option><option value="preset">Tested preset</option><option value="direct">Direct reference</option></select></Field>
     </div>
 
+    {cardRequired && <NvidiaGpuSelect cards={nvidiaCards} value={gpuKey} onChange={setGpuKey} />}
     {noSlots && <p id="model-slots-full" className="notice notice-warn" role="status">No free GPU model slots. Remove a model or change GPU sharing in System &gt; Hardware.</p>}
+    {automaticGpuPool && <p id="model-automatic-gpu" className="notice" role="status">Automatic GPU assignment: this hardware choice selects a node scheduling pool, not an individual card. Enable NVIDIA DRA card selection in System &gt; Hardware to choose a specific card.</p>}
     {engineUnavailable && <p className="notice notice-warn" role="status">{selectedTarget?.engineAvailability?.[engine]?.message ?? `${engine} is not available on the selected hardware.`}</p>}
 
     {source === 'search' && <Panel title={provider === 'ollama' ? 'Ollama Library' : 'Hugging Face'} className="nested-panel">
@@ -855,6 +865,12 @@ const StandardLocalModelEditForm = ({activation, models, onClose, onUpdated}: {a
       selectedMi: Math.max(100, budget || 100), cpuOffloading: local.cpuOffloading === true,
       hostMemoryMi: Math.max(100, parseMemoryMi(local.memoryRequiredMi ?? status.memoryRequiredMi) || 100),
       allowMemoryRisk: local.allowMemoryRisk === true,
+      gpuKey: computeTarget === 'nvidia-gpu' && (asRecord(local.gpuDevice).uuid ?? asRecord(status.gpuSharing).device) ? nvidiaCardKey({
+        uuid: String(asRecord(local.gpuDevice).uuid ?? asRecord(status.gpuSharing).device),
+        nodeUid: String(asRecord(local.gpuDevice).nodeUid ?? asRecord(status.gpuSharing).nodeUid ?? ''),
+        nodeName: String(asRecord(local.gpuDevice).nodeName ?? asRecord(status.gpuSharing).node ?? ''),
+      }) : '',
+      ownActive: activation.spec?.enabled !== false,
     };
   });
   const [modelType, setModelType] = useState(initial.modelType);
@@ -865,23 +881,30 @@ const StandardLocalModelEditForm = ({activation, models, onClose, onUpdated}: {a
   const [selectedMi, setSelectedMi] = useState(initial.selectedMi);
   const [cpuOffloading, setCpuOffloading] = useState(initial.cpuOffloading);
   const [hostMemoryMi, setHostMemoryMi] = useState(initial.hostMemoryMi);
+  const [gpuKey, setGpuKey] = useState(initial.gpuKey);
+  const cards = (models.computeMemory?.devices ?? []).filter((d) => initial.computeTarget === 'nvidia-gpu' && d.gpuDevice && d.slots?.scope === 'device');
+  const card = cards.find((d) => nvidiaCardKey(d.gpuDevice!) === gpuKey);
+  const ownCard = gpuKey === initial.gpuKey && initial.ownActive;
+  const noCardSlot = (cards.length > 0 || !!gpuKey) && (!card || (card.slots?.free ?? 0) + (ownCard ? 1 : 0) <= 0);
   const cpuSettings = useCpuSettings(local.cpuResources, models, initial.engine, initial.computeTarget);
   const deploymentSettings = useVllmDeploymentSettings(local.vllm, models, initial.engine, initial.computeTarget);
   const target = models.computeTargets.targets.find((item) => item.id === initial.computeTarget);
+  const legacyAllocation = initial.computeTarget === 'nvidia-gpu' && target?.available === true && !cards.length;
   const advertisedKvCacheOptions = target?.kvCacheTypes?.[initial.engine] ?? fallbackKvCacheOptions(initial.engine);
   const kvCacheOptions = advertisedKvCacheOptions.some((option) => option.value === initial.kvCacheType)
     ? advertisedKvCacheOptions
     : [{value: initial.kvCacheType, label: `Current - ${initial.kvCacheType}`, description: 'Currently stored value.'}, ...advertisedKvCacheOptions];
   const supportsOffloading = initial.computeTarget === 'nvidia-gpu';
-  const userChanged = cpuSettings.changed || deploymentSettings.changed || modelType !== initial.modelType || contextWindow !== initial.contextWindow
+  const userChanged = gpuKey !== initial.gpuKey || cpuSettings.changed || deploymentSettings.changed || modelType !== initial.modelType || contextWindow !== initial.contextWindow
     || maxOutputTokens !== initial.maxOutputTokens || maxNumSeqs !== initial.maxNumSeqs
     || kvCacheType !== initial.kvCacheType || selectedMi !== initial.selectedMi
     || cpuOffloading !== initial.cpuOffloading || (cpuOffloading && hostMemoryMi !== initial.hostMemoryMi);
   const estimateQuery = useQuery({
-    queryKey: ['model-edit-estimate', name, modelType, contextWindow, maxOutputTokens, maxNumSeqs, kvCacheType, selectedMi, cpuOffloading],
+    queryKey: ['model-edit-estimate', name, modelType, contextWindow, maxOutputTokens, maxNumSeqs, kvCacheType, selectedMi, cpuOffloading, gpuKey],
     queryFn: () => api.estimateModelUpdate(name, {
       modelType, contextWindow, maxOutputTokens: maxOutputTokens ? Number(maxOutputTokens) : null,
       maxNumSeqs, kvCacheType, cpuOffloading, ...(initial.computeTarget === 'cpu' ? {memoryRequiredMi: selectedMi} : {vramMi: selectedMi}),
+      ...(card ? {gpuDevice: card.gpuDevice} : gpuKey !== initial.gpuKey ? {gpuDevice: null} : {}),
     }),
     enabled: Boolean(name), retry: false,
     // Keep the range input mounted while a changed budget is re-estimated. If
@@ -890,8 +913,8 @@ const StandardLocalModelEditForm = ({activation, models, onClose, onUpdated}: {a
     placeholderData: (previousData) => previousData,
   });
   const estimate = estimateQuery.data;
-  const targetDevices = models.computeMemory?.devices?.filter((device) => device.computeTarget === initial.computeTarget || device.id === initial.computeTarget) ?? [];
-  const fallbackAvailable = targetDevices.reduce((maximum, device) => Math.max(maximum, Number(device.unreservedMi ?? 0)), 0) + initial.selectedMi;
+  const targetDevices = card ? [card] : models.computeMemory?.devices?.filter((device) => device.computeTarget === initial.computeTarget || device.id === initial.computeTarget) ?? [];
+  const fallbackAvailable = targetDevices.reduce((maximum, device) => Math.max(maximum, Number(device.unreservedMi ?? 0)), 0) + (cards.length ? ownCard ? initial.selectedMi : 0 : initial.selectedMi);
   const capacityKnown = typeof estimate?.maximumMi === 'number' || fallbackAvailable > initial.selectedMi;
   const availableMi = typeof estimate?.maximumMi === 'number' ? estimate.maximumMi : fallbackAvailable;
   const offload = cpuOffloading ? estimate?.offloading : undefined;
@@ -909,6 +932,7 @@ const StandardLocalModelEditForm = ({activation, models, onClose, onUpdated}: {a
   const hasMemoryRisk = memoryRisks.length > 0;
   const changes = useMemo(() => {
     const next: Record<string, unknown> = {};
+    if (gpuKey !== initial.gpuKey) next.gpuDevice = card?.gpuDevice ?? null;
     if (modelType !== initial.modelType) next.modelType = modelType;
     if (contextWindow !== initial.contextWindow) next.contextWindow = contextWindow;
     if (maxOutputTokens !== initial.maxOutputTokens) next.maxOutputTokens = maxOutputTokens ? Number(maxOutputTokens) : null;
@@ -922,18 +946,19 @@ const StandardLocalModelEditForm = ({activation, models, onClose, onUpdated}: {a
     if (cpuSettings.changed) next.cpuResources = cpuSettings.payload;
     if (deploymentSettings.changed) next.vllm = deploymentSettings.payload;
     return next;
-  }, [cpuOffloading, contextWindow, hasMemoryRisk, hostMemoryMi, initial, kvCacheType, maxNumSeqs, maxOutputTokens, modelType, selectedMi, userChanged, cpuSettings.changed, cpuSettings.payload, deploymentSettings.changed, deploymentSettings.payload]);
-  const invalid = cpuSettings.invalid || deploymentSettings.invalid || !initial.revision || !Number.isInteger(contextWindow) || contextWindow < 1
+  }, [gpuKey, card, cpuOffloading, contextWindow, hasMemoryRisk, hostMemoryMi, initial, kvCacheType, maxNumSeqs, maxOutputTokens, modelType, selectedMi, userChanged, cpuSettings.changed, cpuSettings.payload, deploymentSettings.changed, deploymentSettings.payload]);
+  const invalid = noCardSlot || cpuSettings.invalid || deploymentSettings.invalid || !initial.revision || !Number.isInteger(contextWindow) || contextWindow < 1
     || !Number.isInteger(maxNumSeqs) || maxNumSeqs < 1
     || (maxOutputTokens !== '' && (!Number.isInteger(Number(maxOutputTokens)) || Number(maxOutputTokens) < 1))
     || !Number.isInteger(selectedMi) || selectedMi < 100 || (selectedMi !== initial.selectedMi && selectedMi % 100 !== 0)
     || (cpuOffloading && (!Number.isInteger(hostMemoryMi) || hostMemoryMi < 100 || (hostMemoryMi !== initial.hostMemoryMi && hostMemoryMi % 100 !== 0)));
   const mutation = useMutation({
-    mutationFn: () => api.updateModel(name, {expectedRevision: initial.revision, local: changes}),
+    mutationFn: () => {if (noCardSlot) throw new Error('No free slot on the selected NVIDIA card.'); return api.updateModel(name, {expectedRevision: initial.revision, local: changes});},
     onSuccess: async () => { await onUpdated(); onClose(); },
   });
   return <form className="stack" onSubmit={(event) => { event.preventDefault(); mutation.mutate(); }}>
     <div className="tag-list"><span className="tag">Model: {name}</span><span className="tag">Engine: {initial.engine}</span><span className="tag">Compute: {initial.computeTarget}</span><span className="tag">Source unchanged</span></div>
+    {(!!cards.length || !!initial.gpuKey) && <NvidiaGpuSelect cards={cards} value={gpuKey} onChange={setGpuKey} ownKey={initial.gpuKey} ownActive={initial.ownActive} allowAutomatic={legacyAllocation} />}
     <div className="form-grid"><Field label="Type"><select value={modelType} onChange={(event) => setModelType(event.target.value)}><option value="chat">Chat</option><option value="embedding">Embedding</option></select></Field><Field label="Context Size"><input type="number" min="1" value={contextWindow} onChange={(event) => setContextWindow(Number(event.target.value))} /></Field><Field label="Max Output Tokens"><input type="number" min="1" value={maxOutputTokens} placeholder="Runtime default" onChange={(event) => setMaxOutputTokens(event.target.value)} /></Field><Field label="Max Num Seqs"><input type="number" min="1" value={maxNumSeqs} onChange={(event) => setMaxNumSeqs(Number(event.target.value))} /></Field><Field label="KV Cache"><select value={kvCacheType} onChange={(event) => setKvCacheType(event.target.value)}>{kvCacheOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field></div>
     <p className="muted">{kvCacheOptions.find((option) => option.value === kvCacheType)?.description}</p>
     {estimateQuery.isPending && <p role="status">Recalculating memory…</p>}

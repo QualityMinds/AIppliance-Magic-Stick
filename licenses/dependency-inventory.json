@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "6dda8724e63f83d4608f703a3357dc0d2544ff5501e9a32df66a9a90f8d6909e",
-  "deploymentReferencesSha256": "4971d325fd7e2160377d72877af211b59164c2f935db5427c154df29a9c6e880",
+  "deploymentReferencesSha256": "0aa11bdbebf65a3096de3f9075fb2f853a616c895a5d6c55e31ef9aec66da7eb",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -2485,12 +2485,12 @@
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
-      "line": 6813,
+      "line": 6848,
       "reference": "raise ValueError(\"Realtime requires a Hugging Face repository: hf://organization/model\")"
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
-      "line": 6850,
+      "line": 6885,
       "reference": "if image:"
     },
     {
@@ -2964,6 +2964,21 @@
       "reference": "version: 0.36.0"
     },
     {
+      "file": "magic-cluster/platform/gpu/nvidia-gpu-operator/dra.yaml",
+      "line": 44,
+      "reference": "chart:"
+    },
+    {
+      "file": "magic-cluster/platform/gpu/nvidia-gpu-operator/dra.yaml",
+      "line": 46,
+      "reference": "chart: dra-driver-nvidia-gpu"
+    },
+    {
+      "file": "magic-cluster/platform/gpu/nvidia-gpu-operator/dra.yaml",
+      "line": 47,
+      "reference": "version: 0.5.0"
+    },
+    {
       "file": "magic-cluster/platform/gpu/nvidia-gpu-operator/helmrelease.yaml",
       "line": 9,
       "reference": "chart:"
@@ -3030,17 +3045,17 @@
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 2893,
+      "line": 3293,
       "reference": "raise ValueError(\"Realtime requires a Hugging Face repository: hf://organization/model\")"
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 2930,
+      "line": 3330,
       "reference": "if image:"
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 4154,
+      "line": 4554,
       "reference": "if not image:"
     },
     {

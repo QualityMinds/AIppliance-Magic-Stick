@@ -1,0 +1,95 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: nvidia-dra
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 24h
+  url: oci://registry.k8s.io/dra-driver-nvidia/charts
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nvidia-dra-driver
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: magicstick-nvidia-dra-values
+  namespace: flux-system
+  labels:
+    reconcile.fluxcd.io/watch: Enabled
+  annotations:
+    # The controller owns the host/container driver-root selection. Flux must
+    # not reset it during a source reconciliation (same as runtime profiles).
+    kustomize.toolkit.fluxcd.io/ssa: IfNotPresent
+data:
+  # Inactive until the controlled handoff. Older device-plugin installations
+  # do not acquire DeviceClasses or a second GPU allocator on reconciliation.
+  values.json: '{"nvidiaDriverRoot":"/","resources":{"gpus":{"enabled":false}}}'
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: nvidia-dra-driver
+  namespace: flux-system
+spec:
+  interval: 10m
+  targetNamespace: nvidia-dra-driver
+  chart:
+    spec:
+      chart: dra-driver-nvidia-gpu
+      version: 0.5.0
+      sourceRef:
+        kind: HelmRepository
+        name: nvidia-dra
+        namespace: flux-system
+  valuesFrom:
+    - kind: ConfigMap
+      name: magicstick-nvidia-dra-values
+      valuesKey: values.json
+  values:
+    fullnameOverride: magicstick-nvidia-dra
+    gpuResourcesEnabledOverride: true
+    resourceApiVersion: resource.k8s.io/v1
+    resources:
+      computeDomains:
+        enabled: false
+    # Ordinary shared ResourceClaims use the driver's default time slicing.
+    # No alpha consumable shares, custom intervals, MPS or dynamic MIG.
+    featureGates:
+      ConsumableShares: false
+      TimeSlicingSettings: false
+    kubeletPlugin:
+      # No node opts in by default. The controller stops the device plugin
+      # before setting this label, and reverses that order on recovery.
+      nodeSelector:
+        nvidia.com/dra-kubelet-plugin: "true"
+      containers:
+        gpus:
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              memory: 512Mi
+  postRenderers:
+    - kustomize:
+        patches:
+          # Use explicit claims only, not the upstream opt-in extended-resource
+          # shim. FreeToken/Omni retain their legacy device-plugin contract.
+          - target:
+              kind: DeviceClass
+              name: gpu.nvidia.com
+            patch: |
+              apiVersion: resource.k8s.io/v1
+              kind: DeviceClass
+              metadata:
+                name: gpu.nvidia.com
+              spec:
+                extendedResourceName: null

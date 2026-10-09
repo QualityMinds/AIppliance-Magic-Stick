@@ -78,6 +78,9 @@ existing shared ResourceClaim without an additional extended-resource request.
 Shared mode uses exactly one slot: replicas of one GPU are not multiple GPUs.
 Exclusive allocation supports the shipped one-/two-device stage plans.
 Selecting Omni does not stop other models or change the sharing policy.
+NVIDIA exact-card DRA is currently an ordinary vLLM/Ollama adapter, not an Omni
+adapter. Keep **Device plugin** selected for NVIDIA Realtime, and stop Realtime
+models before changing to DRA. Existing AMD DRA Realtime support is unchanged.
 
 Memory and compute are not isolated between consumers. Users must coordinate
 budgets themselves; the 90% default is not automatically reduced in shared mode.

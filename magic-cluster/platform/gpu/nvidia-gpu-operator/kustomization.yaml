@@ -5,3 +5,4 @@ resources:
   - helmrepository.yaml
   - helmrelease.yaml
   - time-slicing-config.yaml
+  - dra.yaml

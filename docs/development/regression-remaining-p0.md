@@ -36,6 +36,11 @@ models are stopped, not deleted. Independent tests continue after failures;
 unproved cleanup blocks later live writes. Ctrl+C stops further tests.
 
 Rebuild after changing runner code. Optional subset: `all --phases 2-4`.
+The Phase 3/4 fast and Chromium-fixture selections also cover four synthetic
+NVIDIA cards: one legacy node pool, independent DRA slots and exact-card
+Create/Edit. They need no real four-card server. Physical UUID binding, inference
+and device-plugin/DRA handoff still require separate multi-card hardware
+acceptance; the normal single-GPU lab cannot certify those paths.
 
 The lock is renewed independently of browser/model waits. Browser actions have
 short deadlines; cleanup has its own bounded window. After an interruption,
