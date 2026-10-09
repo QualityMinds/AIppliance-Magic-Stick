@@ -914,7 +914,9 @@ def build_catalog(litellm_models):
                 "litellm": {
                     "baseUrl": LITELLM_API_BASE,
                     "api": "openai-completions",
-                    "apiKey": "${LITELLM_API_KEY}",
+                    # Keep this consumer placeholder out of Flux substitution
+                    # while this Python source is deployed via a ConfigMap.
+                    "apiKey": "$" + "{LITELLM_API_KEY}",
                     "models": [pi_model(model) for model in chat_models],
                 },
             },

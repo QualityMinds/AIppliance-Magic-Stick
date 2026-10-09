@@ -32,6 +32,11 @@ jobs:
         with:
           version: v1.36.0
 
+      - name: Set up Flux for strict post-build render tests
+        uses: fluxcd/flux2/action@v2.9.2
+        with:
+          version: v2.9.2
+
       - name: Install Ansible
         run: |
           python3 -m pip install --user ansible-core

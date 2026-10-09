@@ -6,8 +6,10 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parent
 
 
-def load_controller():
-    source = (ROOT / "controller.py").read_text(encoding="utf-8").replace(
+def load_controller(source=None):
+    if source is None:
+        source = (ROOT / "controller.py").read_text(encoding="utf-8")
+    source = source.replace(
         "K8S_SSL = ssl.create_default_context(cafile=SA_CA_PATH)",
         "K8S_SSL = None",
     )
