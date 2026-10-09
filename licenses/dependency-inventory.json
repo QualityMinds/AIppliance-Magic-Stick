@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "6dda8724e63f83d4608f703a3357dc0d2544ff5501e9a32df66a9a90f8d6909e",
-  "deploymentReferencesSha256": "c16e1cc1a27f701213e1a43739f4225f4994264b43db33be5fdfd0447aa8c21e",
+  "deploymentReferencesSha256": "9b9171465a352d287cefaf9cea4aae22e0964123f380900eba2c57d00b154d25",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -2290,17 +2290,22 @@
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 37,
+      "line": 38,
+      "reference": "version: v2.9.2"
+    },
+    {
+      "file": ".github/workflows/public-release-checks.yml",
+      "line": 42,
       "reference": "python3 -m pip install --user ansible-core"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 41,
+      "line": 46,
       "reference": "run: ansible-galaxy collection install -r magic-host/requirements.yml"
     },
     {
       "file": ".github/workflows/public-release-checks.yml",
-      "line": 96,
+      "line": 101,
       "reference": "python3 -m pip install -r dashboard/apps/api/requirements.txt pyyaml"
     },
     {
@@ -2520,12 +2525,12 @@
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
-      "line": 6848,
+      "line": 6951,
       "reference": "raise ValueError(\"Realtime requires a Hugging Face repository: hf://organization/model\")"
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
-      "line": 6885,
+      "line": 6988,
       "reference": "if image:"
     },
     {
@@ -3140,22 +3145,22 @@
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/compute-target-catalog.yaml",
-      "line": 127,
+      "line": 142,
       "reference": "\"source\": \"https://github.com/FlashML-org/FreeToken\","
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 3302,
+      "line": 3375,
       "reference": "raise ValueError(\"Realtime requires a Hugging Face repository: hf://organization/model\")"
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 3339,
+      "line": 3412,
       "reference": "if image:"
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 4563,
+      "line": 4648,
       "reference": "if not image:"
     },
     {
