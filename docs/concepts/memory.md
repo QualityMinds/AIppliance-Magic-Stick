@@ -49,5 +49,12 @@ reserves RAM/CPU separately for each copy. Adding copies increases concurrent
 serving capacity; it does not lower the VRAM needed by a copy. Both modes consume
 one slot on each selected card, not on unselected GPUs.
 
+For a split model, the dashboard's memory control shows the total VRAM budget
+across the selected cards and divides it equally when saving. Its 100% maximum
+is the GPU count times the least unreserved card's budget, rounded down to
+100 MiB per card. It does not pool RAM from other nodes or let a larger card
+cover another card's missing capacity. Replicated copies retain a full budget
+per copy. Saved settings and capacity checks remain per GPU in both modes.
+
 For actions, see [GPU memory](../administration/gpu-memory.md),
 [GPU sharing](../administration/gpu-sharing.md) and [engine selection](../user-guide/models/choose-engine.md).

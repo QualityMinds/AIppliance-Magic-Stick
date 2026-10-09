@@ -210,6 +210,13 @@ values are marked on the same scale. If either estimate exceeds unreserved
 capacity, its marker remains visible in a gray overflow section to the right of
 the slider. The slider stays bounded; the numeric field also accepts larger
 budgets, with an explicit memory-risk warning before creation.
+For **Split one model** across several selected NVIDIA GPUs, Create and Edit
+show a **Total VRAM budget (MiB)**, including total Minimum, Recommended and
+100% markers. The maximum is the smallest selected card's unreserved budget,
+rounded down to 100 MiB per card, multiplied by the number of selected cards.
+The input divides that total equally into per-card reservations; each share
+must still fit its physical GPU. **Replicate model copies** retains a budget
+for each full copy, and a single GPU retains its individual budget.
 The React dashboard's collapsible **Breakdown** separates model weights, the base KV-cache
 estimate, recurrent state where applicable, hybrid-allocator safety, engine
 runtime components, recommendation headroom, and download size. For vLLM hybrid models, the UI labels the
@@ -334,7 +341,10 @@ its node UID. Its reservation is charged only to that card, never a sibling or
 a replacement node. The actually-free inner ring always comes from DCGM.
 `local.gpuDevices` extends this to a same-node, matching-card group: one slot and
 the per-card VRAM reservation are charged to each selected UUID, not every GPU on
-the node. In **Split one model**, system RAM/CPU are reserved once for the Pod.
+the node. In **Split one model**, the dialog shows the combined VRAM budget and
+converts it to the per-card `local.vram`/`local.vramMi` contract when saving.
+Existing saved per-card budgets need no migration. System RAM/CPU are reserved
+once for the Pod.
 In **Replicate model copies**, the full model runs on each selected GPU and
 system RAM/CPU are reserved per copy. The UI shows the combined host-RAM budget
 and the per-copy ready state; Logs can select an individual copy. **Additional GPUs for this

@@ -43,6 +43,7 @@ test(`MGPU-02 ${engine} ${viewport} browser creates copies then edits mode and r
   await dialog.getByLabel('System RAM per copy (MiB)').scrollIntoViewIfNeeded();
   await page.screenshot({path:info.outputPath(`replicated-ram-${engine}-${viewport}.png`)});
   await dialog.getByRole('button',{name:'Add Local Model'}).click();
+  await expect.poll(()=>writes.length).toBe(1);
   expect(writes[0]!.local).toMatchObject({gpuDeployment:'replicated',gpuDevices:[0,1].map(i=>nvidiaSelection(i)),memoryRequiredMi:16400,vram:'6000Mi'});
   expect(writes[0]!.local).not.toHaveProperty('vllm');
   await expect(page.getByText('2 model copies · one API name · 1/2 ready')).toBeVisible();
@@ -51,38 +52,70 @@ test(`MGPU-02 ${engine} ${viewport} browser creates copies then edits mode and r
   await expect(dialog.getByLabel('GPU deployment')).toHaveValue('replicated');
   await expect(dialog.getByRole('button',{name:'Save changes'})).toBeDisabled();
   await dialog.getByLabel('GPU deployment').selectOption('split');await expect(dialog.getByRole('button',{name:'Save changes'})).toBeEnabled();
+  await expect(dialog.getByLabel('Total VRAM budget (MiB)')).toHaveValue('12000');
   await dialog.getByLabel('GPU deployment').selectOption('replicated');await expect(dialog.getByRole('button',{name:'Save changes'})).toBeDisabled();
+  await expect(dialog.getByLabel('VRAM budget (MiB)',{exact:true})).toHaveValue('6000');
   await dialog.getByRole('button',{name:'Cancel',exact:true}).click();
   await page.getByRole('button',{name:'View logs for replica-fixture'}).click();
   await page.getByRole('combobox',{name:'Model copy',exact:true}).selectOption('copy-b');
   await expect.poll(()=>logQueries.some(q=>new URL(q).searchParams.get('replica')==='copy-b')).toBe(true);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
-for (const viewport of ['desktop','mobile'] as const) for (const engine of ['VLLM','OLlama'] as const)
-test(`MGPU-01 ${engine} ${viewport} browser selects an exact group and per-card budget`, evidenceAnnotations(
+for (const viewport of ['desktop','mobile'] as const) for (const engine of ['VLLM','OLlama'] as const) for (const count of [2,4])
+test(`MGPU-01 ${engine} ${count} GPUs ${viewport} browser creates and edits total budgets with per-card persistence`, evidenceAnnotations(
   {id:'MGPU-01',variant:`p${phase}-multigpu-config`,layer:'B'}), async ({page}, info) => {
   await page.setViewportSize(viewport === 'mobile' ? {width:390,height:844} : {width:1440,height:1000});
-  const writes: Array<{local:Record<string,unknown>}> = [];
-  await fixturePage(page,{'/api/models':fourNvidiaCards(), '/api/models/local':(request:Request)=>{writes.push(request.postDataJSON());return {};},
-    '/api/model-discovery/popular':{results:[]}, '/api/models/estimate-memory':{minimumMi:2000,recommendedMi:6000,maximumMi:40960,systemMemoryMaximumMi:32000,confidence:'high'}});
+  const data=fourNvidiaCards(),writes: Array<{local:Record<string,unknown>}> = [],updates:Array<{local:Record<string,unknown>}> = [];
+  const perCardMaximum=count === 4 ? 40900 : 49100;
+  const estimate={minimumMi:2000,recommendedMi:6000,maximumMi:count === 4 ? 40960 : 49152,systemMemoryMaximumMi:32000,confidence:'high'};
+  await fixturePage(page,{'/api/models':()=>data, '/api/models/local':(request:Request)=>{
+    const payload=request.postDataJSON();writes.push(payload);
+    data.activations=[{metadata:{name:'split-fixture',uid:'split-fixture-uid',generation:1,resourceVersion:'1'},
+      spec:{...payload,type:'local'},status:{phase:'Disabled'}}];return {};},
+    '/api/models/split-fixture':(request:Request)=>{updates.push(request.postDataJSON());return {};},
+    '/api/models/split-fixture/estimate-memory':estimate,
+    '/api/model-discovery/popular':{results:[]}, '/api/models/estimate-memory':estimate});
   await page.goto(origin+'/#/models'); await page.getByRole('button',{name:'Create',exact:true}).click();
-  const dialog=page.getByRole('dialog'); await dialog.getByLabel('Inference Engine').selectOption(engine);
+  let dialog=page.getByRole('dialog',{name:'Create Model'}); await dialog.getByLabel('Inference Engine').selectOption(engine);
   await dialog.getByRole('combobox',{name:'Hardware',exact:true}).selectOption('nvidia-gpu'); await dialog.getByLabel('Model source').selectOption('direct');
   await dialog.getByLabel(engine === 'VLLM' ? 'Hugging Face URL' : 'Ollama model reference').fill(engine === 'VLLM' ? 'hf://fixture/small' : 'ollama://fixture:small');
-  await dialog.getByLabel('Automatic GPU count').fill('4'); await dialog.getByRole('button',{name:'Select matching GPUs'}).click();
-  await expect(dialog.getByText('4 GPUs selected.',{exact:false})).toBeVisible();
+  await dialog.getByLabel('Name',{exact:true}).fill('split-fixture');
+  await dialog.getByLabel('Automatic GPU count').fill(String(count)); await dialog.getByRole('button',{name:'Select matching GPUs'}).click();
+  await expect(dialog.getByText(`${count} GPUs selected.`,{exact:false})).toBeVisible();
   await dialog.getByText('Advanced',{exact:true}).click();
   if(engine === 'VLLM') await dialog.getByLabel('GPU parallelism').selectOption('pipeline');
   else await expect(dialog.getByText('Ollama spreads the model', {exact:false})).toBeVisible();
   await expect(dialog.getByLabel('Multi-GPU system RAM (MiB)')).toHaveValue('16400');
-  await expect(dialog.getByRole('slider',{name:'Memory reservation'})).toHaveValue('6000');
-  await page.screenshot({path:info.outputPath(`multi-gpu-${engine}-${viewport}.png`),fullPage:true});
+  const slider=dialog.getByRole('slider',{name:'Memory reservation'}),budget=dialog.getByLabel('Total VRAM budget (MiB)');
+  await expect(slider).toHaveAttribute('max',String(perCardMaximum*count));
+  await expect(slider).toHaveAttribute('step',String(100*count));
+  await expect(budget).toHaveValue(String(6000*count));
+  await dialog.getByRole('button',{name:'100%',exact:true}).click();await expect(budget).toHaveValue(String(perCardMaximum*count));
+  await dialog.getByRole('button',{name:'Explain 100% unreserved',exact:true}).focus();await page.keyboard.press('Enter');
+  const calculation=page.getByRole('dialog',{name:'100% unreserved calculation'});
+  await expect(calculation).toContainText(`${count} × floor(`);
+  await expect(calculation).toContainText('divided equally across the selected GPUs');await page.keyboard.press('Escape');
+  await expect(dialog).toBeVisible();
+  await budget.fill(String(49200*count));await expect(dialog.getByRole('button',{name:'Add Local Model'})).toBeDisabled();
+  await budget.fill(String(40000*count));await expect(dialog.getByRole('button',{name:'Add Local Model'})).toBeEnabled();
+  await budget.scrollIntoViewIfNeeded();
+  await page.screenshot({path:info.outputPath(`multi-gpu-${engine}-${count}-${viewport}.png`),fullPage:true});
   await dialog.getByRole('button',{name:'Add Local Model'}).click();
-  expect(writes).toHaveLength(1); expect(writes[0]!.local.gpuDevices).toEqual([0,1,2,3].map(i=>nvidiaSelection(i)));
-  expect(writes[0]!.local.vram).toBe('6000Mi');
+  await expect.poll(()=>writes.length).toBe(1);
+  expect(writes).toHaveLength(1); expect(writes[0]!.local.gpuDevices).toEqual(Array.from({length:count},(_,i)=>nvidiaSelection(i)));
+  expect(writes[0]!.local.vram).toBe('40000Mi');
   expect(writes[0]!.local.memoryRequiredMi).toBe(16400); expect(writes[0]!.local).not.toHaveProperty('gpuDevice');
   if(engine === 'VLLM') expect(writes[0]!.local.vllm).toEqual({parallelism:'pipeline'});
   else expect(writes[0]!.local).not.toHaveProperty('vllm');
+  await page.getByRole('button',{name:'Edit split-fixture'}).click();dialog=page.getByRole('dialog',{name:'Edit Model · split-fixture'});
+  const savedBudget=dialog.getByLabel('Total VRAM budget (MiB)'),save=dialog.getByRole('button',{name:'Save changes'});
+  await expect(savedBudget).toHaveValue(String(40000*count));await expect(save).toBeDisabled();
+  await savedBudget.fill(String(38000*count));await expect(save).toBeEnabled();
+  await savedBudget.fill(String(40000*count));await expect(save).toBeDisabled();
+  await savedBudget.fill(String(38000*count));await expect(save).toBeEnabled();
+  await savedBudget.scrollIntoViewIfNeeded();await page.screenshot({path:info.outputPath(`multi-gpu-edit-${engine}-${count}-${viewport}.png`)});
+  await save.click();await expect.poll(()=>updates.length).toBe(1);expect(updates[0]!.local).toMatchObject({vramMi:38000,memoryRequiredMi:16400});
+  expect(updates[0]!.local).not.toHaveProperty('gpuDevices');
   expect(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 const host = {name:'fixture-node',nodeUid:'fixture-node-uid',bootId:'fixture-boot',kernel:'7.0-fixture',available:true,message:'Fixture host available.'};

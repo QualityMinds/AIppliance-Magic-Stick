@@ -19,6 +19,16 @@ The public repository must keep `ai-external-models` empty and must not commit
 real API keys. Store provider keys in Kubernetes Secrets created by a private
 overlay, secret manager, or runtime bootstrap process.
 
+For ordinary NVIDIA DRA groups, `local.vram`/`local.vramMi` and memory estimates
+remain **per device**. The split-model Create/Edit control displays group totals:
+multiply per-card estimates and the smallest selected card's rounded unreserved
+maximum by the GPU count, and divide numeric/slider input by that count before
+saving. Preserve individual-card validation and existing saved definitions.
+Replicated copies keep their full per-copy control; host RAM/CPU are reserved
+once for a split Pod or once per replicated copy. See
+[model controls](../reference/model-controls.md) and
+[GPU sharing](../administration/gpu-sharing.md#one-model-across-several-nvidia-gpus).
+
 ## Application defaults and regression checks
 
 The [generated catalog contract](../reference/model-catalog.md) defines the

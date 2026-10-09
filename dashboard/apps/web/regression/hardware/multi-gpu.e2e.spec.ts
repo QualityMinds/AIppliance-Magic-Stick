@@ -33,6 +33,12 @@ for (const deployment of ['split', 'replicated'] as const) for (const engine of 
       const first = await s.create(`mg${count}-${engine === 'VLLM' ? 'v' : 'o'}`, runtime, true);
       await s.ready(first); // independently resolves every ResourceClaim against current ResourceSlices, then routes inference
       const page = await s.live.context.newPage(); await s.openModels(page); await installedReadyUi(page, first.client.name);
+      await page.getByRole('button',{name:`Edit ${first.client.name}`}).click();
+      const dialog=page.getByRole('dialog',{name:`Edit Model · ${first.client.name}`});
+      await expect(dialog.getByLabel(replicated ? 'VRAM budget (MiB)' : 'Total VRAM budget (MiB)',{exact:true}))
+        .toHaveValue(String(runtime.memoryRequiredMi*(replicated ? 1 : count)));
+      await expect(dialog.getByRole('button',{name:'Save changes'})).toBeDisabled();
+      await dialog.getByRole('button',{name:'Cancel',exact:true}).click();
       await logsUi(s, page, first);
       if(replicated) {
         const logs=await first.client.logs(); expect(logs.replicas).toHaveLength(count);

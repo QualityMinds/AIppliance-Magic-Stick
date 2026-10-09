@@ -28,6 +28,12 @@ test('MGPU-02 owning admission, lifecycle, per-card runtime, routing and logs pr
 });
 test('MGPU-01 owning group selection persists identity, per-card memory and edit credits',proof([`p${phase}-multigpu-config`],'U'), () =>
   componentSuite('src/NvidiaCards.test.tsx',[
+    'uses combined capacity for a VLLM model split across 2 GPUs and saves per-card reservations',
+    'uses combined capacity for a VLLM model split across 4 GPUs and saves per-card reservations',
+    'uses combined capacity for a OLlama model split across 2 GPUs and saves per-card reservations',
+    'uses combined capacity for a OLlama model split across 4 GPUs and saves per-card reservations',
+    'keeps unknown capacity unknown when one card in a split group lacks reservation data',
+    'edits saved per-card budgets as totals without changing an untouched or reverted definition',
     'rejects group budgets above physical VRAM or verified host RAM in the form',
     'persists a two-card group and per-device budget without multiplying CPU or RAM',
     'automatically chooses four matching cards and preserves a blocked group during polling',

@@ -75,7 +75,14 @@ Choose **Split one model** to distribute model weights rather than create copies
   two of four GPUs leaves the other two cards untouched. Admission waits for
   the whole group; it does not hold free partial groups while waiting for a busy
   card. Both Exclusive and Shared modes support groups.
-- The VRAM control is **per GPU**, bounded by the smallest selected card.
+- In Create and Edit, **Total VRAM budget (MiB)** covers all selected GPUs.
+  The budget is divided equally across the cards. **100% unreserved** is the
+  smallest selected card's unreserved budget, rounded down to 100 MiB, multiplied
+  by the selected GPU count. For example, two otherwise unreserved 48 GiB cards
+  provide about 96 GiB on this scale; a reservation on either card lowers the
+  maximum for the whole group. The total changes in steps of 100 MiB per GPU.
+  Minimum and Recommended also show group totals; **Breakdown** shows GPU
+  estimates per card and keeps host RAM and download size separate.
   Estimates shard weights with 10% headroom and conservatively retain the full
   cache/runtime allowance per card. These are estimates, not proof a model fits.
   Shared DRA does not isolate GPU memory. Ollama's layer placement remains

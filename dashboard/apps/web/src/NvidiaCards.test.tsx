@@ -19,12 +19,13 @@ function mount(data: ModelsPayload) {
   render(<QueryClientProvider client={client}><ModelsPage session={session} /></QueryClientProvider>);
   return client;
 }
-async function create() {
+async function create(engine = 'VLLM') {
   await userEvent.click(await screen.findByRole('button', {name: 'Create'}));
-  await userEvent.selectOptions(screen.getByLabelText('Inference Engine'), 'VLLM');
+  await userEvent.selectOptions(screen.getByLabelText('Inference Engine'), engine);
   await userEvent.selectOptions(screen.getByLabelText('Hardware'), 'nvidia-gpu');
   await userEvent.selectOptions(screen.getByLabelText('Model source'), 'direct');
-  await userEvent.type(screen.getByLabelText('Hugging Face URL'), 'hf://fixture/small-model');
+  fireEvent.change(screen.getByLabelText(engine === 'OLlama' ? 'Ollama model reference' : 'Hugging Face URL'),
+    {target: {value: engine === 'OLlama' ? 'ollama://fixture:small' : 'hf://fixture/small-model'}});
   return screen.getByRole('button', {name: 'Add Local Model'});
 }
 function deployed(enabled = true) {
@@ -45,17 +46,66 @@ beforeEach(() => {
 });
 
 describe('NVIDIA physical card selection', () => {
+  it.each([['VLLM', 2], ['VLLM', 4], ['OLlama', 2], ['OLlama', 4]] as const)(
+    'uses combined capacity for a %s model split across %i GPUs and saves per-card reservations', async (engine, count) => {
+      mount(fourNvidiaCards()); const submit = await create(engine);
+      fireEvent.change(screen.getByLabelText('Automatic GPU count'), {target: {value: String(count)}});
+      await userEvent.click(screen.getByRole('button', {name: 'Select matching GPUs'}));
+      await waitFor(() => expect(api.estimateMemory).toHaveBeenLastCalledWith(expect.objectContaining({gpuDevices: Array.from({length: count}, (_, i) => nvidiaSelection(i))})));
+      const slider = screen.getByRole('slider', {name: 'Memory reservation'});
+      const perCardMaximum = count === 4 ? 40900 : 49100;
+      expect(slider).toHaveAttribute('max', String(perCardMaximum * count));
+      expect(slider).toHaveAttribute('step', String(100 * count));
+      const budget = screen.getByRole('spinbutton', {name: /VRAM budget/});
+      expect(budget).toHaveValue(6000 * count);
+      await userEvent.click(screen.getByRole('button', {name: '100%'}));
+      expect(budget).toHaveValue(perCardMaximum * count);
+      await userEvent.click(screen.getByRole('button', {name: 'Minimum'}));
+      expect(budget).toHaveValue(5000 * count);
+      await userEvent.click(screen.getByRole('button', {name: 'Recommended'}));
+      expect(budget).toHaveValue(6000 * count);
+      fireEvent.change(budget, {target: {value: String(40000 * count + 1)}});
+      expect(submit).toBeDisabled();
+      fireEvent.change(budget, {target: {value: String(40000 * count)}});
+      await waitFor(() => expect(submit).toBeEnabled()); await userEvent.click(submit);
+      expect(api.createLocalModel).toHaveBeenCalledWith(expect.objectContaining({local: expect.objectContaining({
+        engine, gpuDevices: Array.from({length: count}, (_, i) => nvidiaSelection(i)), vram: '40000Mi', memoryRequiredMi: 16400,
+      })}));
+    });
+
+  it('keeps unknown capacity unknown when one card in a split group lacks reservation data', async () => {
+    const data = fourNvidiaCards(); data.computeMemory!.devices![1]!.unreservedMi = undefined;
+    mount(data); await create(); await userEvent.click(screen.getByRole('checkbox', {name: /0000:02:00.0/}));
+    await waitFor(() => expect(api.estimateMemory).toHaveBeenLastCalledWith(expect.objectContaining({gpuDevices: [nvidiaSelection(0), nvidiaSelection(1)]})));
+    expect(screen.getByRole('slider', {name: 'Memory reservation'})).toBeDisabled();
+    expect(screen.getByRole('button', {name: '100%'})).toBeDisabled();
+    expect(screen.getByText('Unknown', {exact: true})).toBeInTheDocument();
+  });
+
+  it('edits saved per-card budgets as totals without changing an untouched or reverted definition', async () => {
+    const data = deployed();
+    Object.assign(data.activations[0]!.spec!.local!, {gpuDevices: [nvidiaSelection(0), nvidiaSelection(1)], gpuDevice: undefined,
+      gpuDeployment: 'split', memoryRequiredMi: 16400});
+    mount(data); await userEvent.click(await screen.findByRole('button', {name: 'Edit fixture-model'}));
+    const budget = await screen.findByLabelText('Total VRAM budget (MiB)'), save = screen.getByRole('button', {name: 'Save changes'});
+    expect(budget).toHaveValue(16384);
+    expect(budget).toHaveAttribute('step', '2');
+    await waitFor(() => expect(api.estimateModelUpdate).toHaveBeenCalled()); expect(save).toBeDisabled();
+    fireEvent.change(budget, {target: {value: '80000'}}); await waitFor(() => expect(save).toBeEnabled());
+    await waitFor(() => expect(api.estimateModelUpdate).toHaveBeenLastCalledWith('fixture-model', expect.objectContaining({vramMi: 40000})));
+    fireEvent.change(budget, {target: {value: '16384'}}); await waitFor(() => expect(save).toBeDisabled());
+    fireEvent.change(screen.getByRole('slider', {name: 'Memory reservation'}), {target: {value: '80000'}});
+    await waitFor(() => expect(save).toBeEnabled()); await userEvent.click(save);
+    expect(api.updateModel).toHaveBeenCalledWith('fixture-model', {expectedRevision: '9', local: {vramMi: 40000, memoryRequiredMi: 16400}});
+  });
+
   it.each(['VLLM', 'OLlama'])('creates independent %s copies with per-copy RAM and no split settings', async (engine) => {
-    mount(fourNvidiaCards()); await create();
-    if (engine === 'OLlama') {
-      await userEvent.selectOptions(screen.getByLabelText('Inference Engine'), engine);
-      await userEvent.selectOptions(screen.getByLabelText('Hardware'), 'nvidia-gpu');
-      await userEvent.selectOptions(screen.getByLabelText('Model source'), 'direct');
-      fireEvent.change(screen.getByLabelText('Ollama model reference'), {target: {value: 'ollama://fixture:small'}});
-    }
+    mount(fourNvidiaCards()); await create(engine);
     await userEvent.selectOptions(screen.getByLabelText('GPU deployment'), 'replicated');
     expect(screen.getByRole('button', {name: 'Add Local Model'})).toBeDisabled();
     await userEvent.click(screen.getByRole('checkbox', {name: /0000:02:00.0/}));
+    expect(screen.queryByLabelText('Total VRAM budget (MiB)')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('slider', {name: 'Memory reservation'})).toHaveAttribute('max', '49100'));
     expect(screen.getByText(/One complete model copy and one Pod per card/)).toBeInTheDocument();
     expect(screen.queryByText(/One model, one Pod/)).not.toBeInTheDocument();
     await userEvent.click(screen.getByText('Advanced', {exact: true}));
@@ -110,7 +160,7 @@ describe('NVIDIA physical card selection', () => {
     expect(submit).toBeDisabled();
     fireEvent.change(screen.getByLabelText('Multi-GPU system RAM (MiB)'), {target: {value: '16400'}});
     await waitFor(() => expect(submit).toBeEnabled());
-    fireEvent.change(screen.getByLabelText('VRAM budget (MiB)'), {target: {value: '49200'}});
+    fireEvent.change(screen.getByLabelText('Total VRAM budget (MiB)'), {target: {value: '98400'}});
     expect(submit).toBeDisabled(); expect(api.createLocalModel).not.toHaveBeenCalled();
   });
   it('persists a two-card group and per-device budget without multiplying CPU or RAM', async () => {

@@ -78,6 +78,10 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ### Fixed
 
+- Show the combined VRAM budget and 100% maximum when splitting one model across
+  multiple NVIDIA GPUs in Create and Edit. Convert total inputs to per-card
+  reservations so models larger than one card can be configured while retaining
+  each GPU's physical capacity checks and saved-model compatibility.
 - Retry transient Rust toolchain download failures in the Linux/macOS Mesh
   companion builds, retaining the pinned version and failing after three attempts.
 - Preserve explicit tool, vision and reasoning metadata in the canonical model

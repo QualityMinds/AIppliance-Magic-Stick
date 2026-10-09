@@ -71,7 +71,7 @@ const fallbackKvCacheOptions = (engine: string) => engine === 'OLlama'
   ? [{value: 'f16', label: 'Standard - F16', description: 'Highest cache precision.'}]
   : [{value: 'auto', label: 'Standard - model precision', description: 'Uses the model precision selected by vLLM.'}];
 
-const EstimateBreakdown = ({estimate}: {estimate: MemoryEstimate}) => {
+const EstimateBreakdown = ({estimate, budgetDevices = 1}: {estimate: MemoryEstimate; budgetDevices?: number}) => {
   const offloading = estimate.offloading;
   const runtime = estimate.runtimeDetails ?? {};
   const kvBudgetMi = Number(estimate.kvCacheMi ?? 0);
@@ -123,6 +123,7 @@ const EstimateBreakdown = ({estimate}: {estimate: MemoryEstimate}) => {
   ] : [];
   return <details>
     <summary>Breakdown</summary>
+    {budgetDevices > 1 && <p className="muted">GPU estimates below are per GPU. The total VRAM budget covers {budgetDevices} GPUs; host RAM and download size remain separate.</p>}
     <dl className="facts">{(offloading ? offloadCards : cards).map((item) => <div key={item.key}><dt>{item.label}</dt><dd><MemoryInfo label={item.label} value={item.value} calculation={calculations[item.key]} /></dd></div>)}</dl>
     {offloading && <p className="muted">Planning estimates, not measured usage. Host RAM includes offloaded weights and runtime. Ollama uses GPU-first auto-fit; its displayed weight/cache split is proportional and the exact placement is confirmed only after loading. vLLM weight offloading does not offload KV cache.</p>}
     {hybridSafetyMi > 0 && <p className="muted">Configured KV budget: {formatMi(kvBudgetMi)} = {formatMi(baseKvMi)} theoretical cache + {formatMi(hybridSafetyMi)} compatibility safety for the hybrid vLLM allocator.</p>}
@@ -131,33 +132,35 @@ const EstimateBreakdown = ({estimate}: {estimate: MemoryEstimate}) => {
   </details>;
 };
 
-const EstimatePanel = ({estimate, availableMi, capacityKnown = true, selectedMi, onSelected, hideBreakdown = false, preserveSelectedMi}: {estimate?: MemoryEstimate; availableMi: number; capacityKnown?: boolean; selectedMi: number; onSelected: (value: number) => void; hideBreakdown?: boolean; preserveSelectedMi?: number}) => {
+const EstimatePanel = ({estimate, availableMi, capacityKnown = true, selectedMi, onSelected, hideBreakdown = false, preserveSelectedMi, budgetDevices = 1}: {estimate?: MemoryEstimate; availableMi: number; capacityKnown?: boolean; selectedMi: number; onSelected: (value: number) => void; hideBreakdown?: boolean; preserveSelectedMi?: number; budgetDevices?: number}) => {
   if (!estimate) return <div className="empty compact-empty">Choose a model reference to calculate memory.</div>;
   const minimum = roundMemory(estimate.minimumMi);
   const recommended = roundMemory(estimate.recommendedMi);
   const maximum = Math.max(0, Math.floor(availableMi / 100) * 100);
   const scaleMaximum = Math.max(100, maximum, minimum, recommended);
   const selectedStep = preserveSelectedMi === selectedMi ? 1 : 100;
+  // State, estimates and saved intent remain per device; split-model controls show the group total.
+  const total = (value: number) => value * budgetDevices;
   const availablePercent = maximum / scaleMaximum * 100;
   const marker = (value: number) => {
     const percent = Math.min(100, value / scaleMaximum * 100);
     return {left: `${percent}%`, '--marker-label-shift': percent > 85 ? '-100%' : percent < 15 ? '0%' : '-50%'} as CSSProperties;
   };
   return <section className="estimate">
-    <header><div><strong>{estimate.computeTarget === 'cpu' ? 'RAM' : 'VRAM'} reservation</strong><span className="muted">{estimate.confidence ?? 'estimated'} confidence</span></div></header>
-    <div className="estimate-metrics"><div><span>Minimum</span><strong><MemoryInfo label="Minimum" value={formatMi(minimum)} calculation={estimate.calculations?.minimumMi} roundedMi={estimate.minimumMi} /></strong></div><div><span>Recommended</span><strong><MemoryInfo label="Recommended" value={formatMi(recommended)} calculation={estimate.calculations?.recommendedMi} roundedMi={estimate.recommendedMi} /></strong></div><div><span>100% unreserved</span><strong><MemoryInfo label="100% unreserved" value={capacityKnown ? formatMi(maximum) : 'Unknown'} calculation={unreservedCalculation(capacityKnown ? availableMi : null)} /></strong></div></div>
+    <header><div><strong>{budgetDevices > 1 ? 'Total VRAM' : estimate.computeTarget === 'cpu' ? 'RAM' : 'VRAM'} reservation</strong><span className="muted">{estimate.confidence ?? 'estimated'} confidence</span></div></header>
+    <div className="estimate-metrics"><div><span>Minimum</span><strong><MemoryInfo label="Minimum" value={formatMi(total(minimum))} calculation={estimate.calculations?.minimumMi} roundedMi={estimate.minimumMi} budgetDevices={budgetDevices} /></strong></div><div><span>Recommended</span><strong><MemoryInfo label="Recommended" value={formatMi(total(recommended))} calculation={estimate.calculations?.recommendedMi} roundedMi={estimate.recommendedMi} budgetDevices={budgetDevices} /></strong></div><div><span>100% unreserved</span><strong><MemoryInfo label="100% unreserved" value={capacityKnown ? formatMi(total(maximum)) : 'Unknown'} calculation={unreservedCalculation(capacityKnown ? availableMi : null, budgetDevices)} /></strong></div></div>
     <div className="capacity-scale">
-      <div className="capacity-available" style={{width: `${availablePercent}%`}}><input aria-label="Memory reservation" type="range" min="100" max={Math.max(100, maximum)} step={selectedStep} disabled={!capacityKnown || maximum < 100} value={Math.min(Math.max(100, maximum), Math.max(100, selectedMi))} onChange={(event) => onSelected(Number(event.target.value))} /></div>
+      <div className="capacity-available" style={{width: `${availablePercent}%`}}><input aria-label="Memory reservation" type="range" min={total(100)} max={total(Math.max(100, maximum))} step={total(selectedStep)} disabled={!capacityKnown || maximum < 100} value={total(Math.min(Math.max(100, maximum), Math.max(100, selectedMi)))} onChange={(event) => onSelected(Number(event.target.value) / budgetDevices)} /></div>
       {availablePercent < 100 && <div className="capacity-overflow" style={{left: `${availablePercent}%`}} />}
-      <span className="capacity-marker minimum" style={marker(minimum)}><span>Minimum {formatMi(minimum)}</span></span>
-      <span className="capacity-marker recommended" style={marker(recommended)}><span>Recommended {formatMi(recommended)}</span></span>
-      <span className="capacity-marker available" style={marker(maximum)}><span>{capacityKnown ? `100% ${formatMi(maximum)}` : 'Capacity unknown'}</span></span>
+      <span className="capacity-marker minimum" style={marker(minimum)}><span>Minimum {formatMi(total(minimum))}</span></span>
+      <span className="capacity-marker recommended" style={marker(recommended)}><span>Recommended {formatMi(total(recommended))}</span></span>
+      <span className="capacity-marker available" style={marker(maximum)}><span>{capacityKnown ? `100% ${formatMi(total(maximum))}` : 'Capacity unknown'}</span></span>
     </div>
-    <div className="slider-labels"><span>Selected: {formatMi(selectedMi)}</span><span>{!capacityKnown ? 'Capacity unknown' : maximum > 0 ? `${Math.round(selectedMi / maximum * 100)}% of unreserved memory` : '< 100 MiB unreserved'}</span></div>
-    <Field label={estimate.computeTarget === 'cpu' ? 'RAM budget (MiB)' : 'VRAM budget (MiB)'}><input type="number" min="100" step={selectedStep} value={selectedMi} onChange={(event) => onSelected(Number(event.target.value))} /></Field>
+    <div className="slider-labels"><span>Selected: {formatMi(total(selectedMi))}</span><span>{!capacityKnown ? 'Capacity unknown' : maximum > 0 ? `${Math.round(selectedMi / maximum * 100)}% of unreserved memory` : `< ${total(100)} MiB unreserved`}</span></div>
+    <Field label={budgetDevices > 1 ? 'Total VRAM budget (MiB)' : estimate.computeTarget === 'cpu' ? 'RAM budget (MiB)' : 'VRAM budget (MiB)'}><input type="number" min={total(100)} step={total(selectedStep)} value={total(selectedMi)} onChange={(event) => onSelected(Number(event.target.value) / budgetDevices)} /></Field>
     <div className="button-grid three"><Button type="button" onClick={() => onSelected(capacityKnown && maximum >= 100 ? Math.min(maximum, minimum) : minimum)}>Minimum</Button><Button type="button" variant="primary" onClick={() => onSelected(capacityKnown && maximum >= 100 ? Math.min(maximum, recommended) : recommended)}>Recommended</Button><Button type="button" disabled={!capacityKnown || maximum < 100} onClick={() => onSelected(maximum)}>100%</Button></div>
     {capacityKnown && (minimum > maximum || recommended > maximum) && <div className="notice notice-warn">{minimum > maximum ? 'Minimum and recommended' : 'Recommended'} memory extends into the grey area beyond currently unreserved capacity.</div>}
-    {!hideBreakdown && <EstimateBreakdown estimate={estimate} />}
+    {!hideBreakdown && <EstimateBreakdown estimate={estimate} budgetDevices={budgetDevices} />}
   </section>;
 };
 
@@ -791,7 +794,7 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
     {isFreeToken ? <FreeTokenSettingsPanel models={models} computeTarget={computeTarget} value={freeToken} onChange={setFreeToken} /> : <>
       <p className="muted">{kvCacheOptions.find((option) => option.value === kvCacheType)?.description} Attention-cache values are recalculated immediately; recurrent state and runtime reserve remain separate.</p>
       {gpuCount > 1 && <p role="status">VRAM per GPU: {formatMi(selectedMi)} · {gpuCount} GPUs · {formatMi(selectedMi * gpuCount)} planned total. The smallest selected card limits this control.</p>}
-      <EstimatePanel estimate={cpuOffloading ? offloadEstimate ?? estimate : estimate} availableMi={availableMi} capacityKnown={capacityKnown} selectedMi={selectedMi} onSelected={setSelectedMi} hideBreakdown={cpuOffloading} />
+      <EstimatePanel estimate={cpuOffloading ? offloadEstimate ?? estimate : estimate} availableMi={availableMi} capacityKnown={capacityKnown} selectedMi={selectedMi} onSelected={setSelectedMi} hideBreakdown={cpuOffloading} budgetDevices={replicated ? 1 : gpuCount} />
     </>}
     {supportsOffloading && <Panel title="CPU offloading" className="nested-panel">
       <label className="check-field"><input type="checkbox" checked={cpuOffloading} onChange={(event) => setCpuOffloading(event.target.checked)} />Use additional system RAM</label>
@@ -807,7 +810,7 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
           <p className="muted">The GPU budget above is preserved. Kubernetes reserves this host RAM on the same node as the GPU; the estimate uses the largest eligible node, not a cluster-wide sum.</p>
           {engine === 'OLlama' && <p className="muted">Ollama always uses GPU-first auto-fit and places as many layers in actual free VRAM as possible. The selected values remain planning and Kubernetes host-memory budgets; the loaded model's effective split is shown separately.</p>}
         </section>}
-        {offloadEstimate && <EstimateBreakdown estimate={offloadEstimate} />}
+        {offloadEstimate && <EstimateBreakdown estimate={offloadEstimate} budgetDevices={replicated ? 1 : gpuCount} />}
       </>}
       <ErrorNotice error={offloadError} />
     </Panel>}
@@ -1028,7 +1031,7 @@ const StandardLocalModelEditForm = ({activation, models, onClose, onUpdated}: {a
     <p className="muted">{kvCacheOptions.find((option) => option.value === kvCacheType)?.description}</p>
     {estimateQuery.isPending && <p role="status">Recalculating memory…</p>}
     {gpuCount > 1 && <p role="status">VRAM per GPU: {formatMi(selectedMi)} · {gpuCount} GPUs · {formatMi(selectedMi * gpuCount)} planned total.</p>}
-    <EstimatePanel estimate={estimate} availableMi={availableMi} capacityKnown={capacityKnown} selectedMi={selectedMi} onSelected={setSelectedMi} hideBreakdown={cpuOffloading} preserveSelectedMi={initial.selectedMi} />
+    <EstimatePanel estimate={estimate} availableMi={availableMi} capacityKnown={capacityKnown} selectedMi={selectedMi} onSelected={setSelectedMi} hideBreakdown={cpuOffloading} preserveSelectedMi={initial.selectedMi} budgetDevices={replicated ? 1 : gpuCount} />
     {supportsOffloading && <Panel title="CPU offloading" className="nested-panel"><label className="check-field"><input type="checkbox" checked={cpuOffloading} onChange={(event) => setCpuOffloading(event.target.checked)} />Use additional system RAM</label>{cpuOffloading && offload && <div className="stack compact"><div className="estimate-metrics"><div><span>Minimum</span><strong>{formatMi(offload.ramMinimumMi)}</strong></div><div><span>Recommended</span><strong>{formatMi(offload.ramRecommendedMi)}</strong></div><div><span>Unreserved</span><strong>{offload.ramMaximumMi === null ? 'Unknown' : formatMi(hostMaximum)}</strong></div></div><Field label="Host RAM budget (MiB)"><input type="number" min="100" step={hostMemoryMi === initial.hostMemoryMi ? 1 : 100} value={hostMemoryMi} onChange={(event) => setHostMemoryMi(Number(event.target.value))} /></Field><Button type="button" onClick={() => setHostMemoryMi(roundMemory(offload.ramRecommendedMi))}>Use recommended RAM allocation</Button></div>}</Panel>}
     {hasMemoryRisk && <div className="notice notice-warn" role="note"><strong>Memory warning — this change can still be applied.</strong><ul>{memoryRisks.map((risk) => <li key={risk}>{risk}</li>)}</ul></div>}
     <AdvancedModelSettings cpuSettings={cpuSettings} deploymentSettings={deploymentSettings}><MultiGpuSettings count={gpuCount} engine={initial.engine} strategy={parallelism} onStrategy={setParallelism} ramMi={hostMemoryMi} onRam={setHostMemoryMi} offloading={cpuOffloading} ramMaximumMi={estimate?.systemMemoryMaximumMi} replicated={replicated} /></AdvancedModelSettings>
