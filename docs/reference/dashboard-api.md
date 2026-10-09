@@ -73,10 +73,12 @@ Paperclip, KubeOpenCode, KubeAI, LiteLLM, or direct app instance reconcilers.
 ### NVIDIA multi-GPU models
 
 The existing local-model create, estimate, edit, start and stop endpoints remain
-the only control path. A local model may supply `gpuDevices` instead of
+the only control path. Optional `local.gpuDeployment` selects `single`, `split`
+or `replicated`. Omission preserves existing single/split behavior; replication
+must be explicit. A local model may supply `gpuDevices` instead of
 `gpuDevice`; both contain exact node-UID/GPU-UUID identities from `/api/models`.
 The API validates the entire same-node matching-card group, its live DRA state,
-every slot, per-card physical/unreserved VRAM and one host RAM budget. A memory
+every slot, per-card physical/unreserved VRAM and the combined host RAM budget. A memory
 risk acknowledgement cannot bypass slot admission, hardware identity, physical
 VRAM capacity or the group's verifiable host RAM ceiling.
 
@@ -86,6 +88,19 @@ group. Weight estimates account for sharding with headroom; KV cache/runtime
 remain conservative per-card estimates. vLLM model dimensions are checked during
 estimation and the pinned runtime rechecks model support before loading. A
 successful estimate is not proof of successful inference.
+
+In `replicated` mode each card receives the full weights/cache estimate, not a
+shard. The estimate includes `replicaCount`; `systemMemoryMaximumMi` is the
+per-copy RAM ceiling (node budget divided by copy count). `memoryRequiredMi`
+and `cpuResources` apply per copy. `vllm.parallelism` is invalid in this mode,
+and `minReplicas`/`maxReplicas` remain 1 per internal runtime; card count determines
+the number of copies. Capabilities advertise supported `deploymentModes` centrally.
+
+`status.replication` reports ready/desired copies and individual status. The
+existing administrator-only logs endpoint accepts optional
+`?replica=<internal-copy-name>` from its `replicas` response list; it checks
+parent UID, child ownership and exact Pod owner UID. The response remains
+bounded, and arbitrary Pod names or another activation's copies are not accepted.
 
 Edit preserves the same activation and uses the existing optimistic revision
 check. Setting one selection representation replaces the other. Stop retains the

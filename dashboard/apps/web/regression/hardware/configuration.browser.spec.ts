@@ -10,6 +10,55 @@ import {fourNvidiaCards,nvidiaSelection} from '../fixtures/nvidia-cards.ts';
 
 const phase = process.env.REGRESSION_MODE === 'phase4-fixtures' ? 4 : 3;
 for (const viewport of ['desktop','mobile'] as const) for (const engine of ['VLLM','OLlama'] as const)
+test(`MGPU-02 ${engine} ${viewport} browser creates copies then edits mode and reads individual logs`, evidenceAnnotations(
+  {id:'MGPU-02',variant:`p${phase}-replicated-config`,layer:'B'}), async ({page}, info) => {
+  await page.setViewportSize(viewport === 'mobile' ? {width:390,height:844} : {width:1440,height:1000});
+  const data=fourNvidiaCards(),writes:Array<{local:Record<string,unknown>}> = [],logQueries:string[]=[];
+  await fixturePage(page,{'/api/models':()=>data, '/api/models/local':(request:Request)=>{
+    const payload=request.postDataJSON();writes.push(payload);
+    data.activations=[{metadata:{name:payload.name,uid:'parent-fixture',generation:1,resourceVersion:'1'},spec:{...payload,type:'local'},
+      status:{phase:'Degraded',replication:{desired:2,ready:1,instances:[{name:'copy-a',uuid:nvidiaSelection(0).uuid,nodeName:'fixture-node',phase:'Ready'},
+        {name:'copy-b',uuid:nvidiaSelection(1).uuid,nodeName:'fixture-node',phase:'Degraded',message:'Copy failed; inspect Logs.'}]}}}];return {};},
+    '/api/model-discovery/popular':{results:[]},
+    '/api/models/estimate-memory':{minimumMi:2000,recommendedMi:6000,maximumMi:40960,systemMemoryMaximumMi:32000,confidence:'high'},
+    '/api/models/replica-fixture/estimate-memory':{minimumMi:2000,recommendedMi:6000,maximumMi:40960,systemMemoryMaximumMi:32000,confidence:'high'},
+    '/api/models/replica-fixture/logs':(request:Request)=>{logQueries.push(request.url());return {model:'replica-fixture',namespace:'ai',generatedAt:'2026-10-09T00:00:00Z',tailLines:300,
+      replicas:[{name:'copy-a',uuid:nvidiaSelection(0).uuid},{name:'copy-b',uuid:nvidiaSelection(1).uuid}],pods:[]};},
+  });
+  await page.goto(origin+'/#/models');await page.getByRole('button',{name:'Create',exact:true}).click();
+  let dialog=page.getByRole('dialog');await dialog.getByLabel('Inference Engine').selectOption(engine);
+  await dialog.getByRole('combobox',{name:'Hardware',exact:true}).selectOption('nvidia-gpu');await dialog.getByLabel('Model source').selectOption('direct');
+  await dialog.getByLabel(engine==='VLLM'?'Hugging Face URL':'Ollama model reference').fill(engine==='VLLM'?'hf://fixture/small':'ollama://fixture:small');
+  await dialog.getByLabel('Name',{exact:true}).fill('replica-fixture');
+  await dialog.getByLabel('GPU deployment').selectOption('replicated');
+  await expect(dialog.getByRole('button',{name:'Add Local Model'})).toBeDisabled();
+  await dialog.getByRole('checkbox',{name:/0000:02:00.0/}).check();
+  await dialog.getByText('Advanced',{exact:true}).click();
+  await expect(dialog.getByLabel('System RAM per copy (MiB)')).toHaveValue('16400');
+  await expect(dialog.getByLabel('GPU parallelism')).toHaveCount(0);
+  await expect(dialog.getByRole('slider',{name:'Memory reservation'})).toHaveValue('6000');
+  await expect(dialog.getByRole('button',{name:'Add Local Model'})).toBeEnabled();
+  await dialog.getByLabel('GPU deployment').scrollIntoViewIfNeeded();
+  await page.screenshot({path:info.outputPath(`replicated-${engine}-${viewport}.png`)});
+  await dialog.getByLabel('System RAM per copy (MiB)').scrollIntoViewIfNeeded();
+  await page.screenshot({path:info.outputPath(`replicated-ram-${engine}-${viewport}.png`)});
+  await dialog.getByRole('button',{name:'Add Local Model'}).click();
+  expect(writes[0]!.local).toMatchObject({gpuDeployment:'replicated',gpuDevices:[0,1].map(i=>nvidiaSelection(i)),memoryRequiredMi:16400,vram:'6000Mi'});
+  expect(writes[0]!.local).not.toHaveProperty('vllm');
+  await expect(page.getByText('2 model copies · one API name · 1/2 ready')).toBeVisible();
+  await page.getByText('Model copies',{exact:true}).click();await expect(page.getByText('Copy failed; inspect Logs.')).toBeVisible();
+  await page.getByRole('button',{name:'Edit replica-fixture'}).click();dialog=page.getByRole('dialog');
+  await expect(dialog.getByLabel('GPU deployment')).toHaveValue('replicated');
+  await expect(dialog.getByRole('button',{name:'Save changes'})).toBeDisabled();
+  await dialog.getByLabel('GPU deployment').selectOption('split');await expect(dialog.getByRole('button',{name:'Save changes'})).toBeEnabled();
+  await dialog.getByLabel('GPU deployment').selectOption('replicated');await expect(dialog.getByRole('button',{name:'Save changes'})).toBeDisabled();
+  await dialog.getByRole('button',{name:'Cancel',exact:true}).click();
+  await page.getByRole('button',{name:'View logs for replica-fixture'}).click();
+  await page.getByRole('combobox',{name:'Model copy',exact:true}).selectOption('copy-b');
+  await expect.poll(()=>logQueries.some(q=>new URL(q).searchParams.get('replica')==='copy-b')).toBe(true);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+for (const viewport of ['desktop','mobile'] as const) for (const engine of ['VLLM','OLlama'] as const)
 test(`MGPU-01 ${engine} ${viewport} browser selects an exact group and per-card budget`, evidenceAnnotations(
   {id:'MGPU-01',variant:`p${phase}-multigpu-config`,layer:'B'}), async ({page}, info) => {
   await page.setViewportSize(viewport === 'mobile' ? {width:390,height:844} : {width:1440,height:1000});

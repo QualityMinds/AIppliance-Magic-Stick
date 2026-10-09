@@ -168,6 +168,26 @@ test('HAR-10 rollout readiness rejects old context, terminating replicas and sta
   (fpod.spec.containers as Array<{env:Array<{name:string;value:string}>}>)[0]!.env[0]!.value='1024';
   expect(runtimePodConverged([fpod],ft)).toBe(false);
 });
+test('HAR-10 replica readiness requires every current child UID, matching runtime and non-terminating Pod',()=>{
+  const item:ModelActivation={metadata:{uid:'parent',generation:1},spec:{type:'local',local:{engine:'OLlama',computeTarget:'nvidia-gpu',
+    gpuDeployment:'replicated',gpuDevices:[{uuid:'gpu-a'},{uuid:'gpu-b'}],contextWindow:2048,maxNumSeqs:1}},status:{replication:{desired:2,ready:2,
+    instances:['a','b'].map(id=>({name:`copy-${id}`,uuid:`gpu-${id}`,nodeName:'fixture-node',modelUid:`uid-${id}`,phase:'Ready'}))}}};
+  const pods:KubeObject[]=['a','b'].map(id=>({metadata:{uid:`pod-${id}`,labels:{'appliance.magicstick.dev/activation-uid':'parent'},
+    ownerReferences:[{apiVersion:'kubeai.org/v1',kind:'Model',name:`copy-${id}`,uid:`uid-${id}`,controller:true}]},
+    status:{phase:'Running',conditions:[{type:'Ready',status:'True'}]},spec:{containers:[{name:'server',image:'fixture:local',env:[
+      {name:'MAGICSTICK_ENGINE',value:'OLlama'},{name:'MAGICSTICK_COMPUTE_TARGET',value:'nvidia-gpu'},
+      {name:'OLLAMA_CONTEXT_LENGTH',value:'2048'},{name:'OLLAMA_NUM_PARALLEL',value:'1'}]}]}}));
+  expect(runtimePodConverged(pods,item)).toBe(true);
+  expect(runtimePodConverged(pods.slice(0,1),item)).toBe(false);
+  for(const change of [
+    (pod:KubeObject)=>{pod.metadata.ownerReferences![0]!.uid='old-child';},
+    (pod:KubeObject)=>{pod.metadata.labels!['appliance.magicstick.dev/activation-uid']='foreign-parent';},
+    (pod:KubeObject)=>{pod.metadata.deletionTimestamp='now';},
+    (pod:KubeObject)=>{pod.status!.conditions![0]!.status='False';},
+  ]) {const invalid=structuredClone(pods);change(invalid[0]!);expect(runtimePodConverged(invalid,item)).toBe(false);}
+  const failed=structuredClone(item);failed.status!.replication!.instances![1]!.phase='Degraded';
+  expect(runtimePodConverged(pods,failed)).toBe(false);
+});
 test('HAR-07 a context PUT accepts only the direct same-UID next-generation receipt and journals it before cleanup',async()=>{
   const journal=await ResourceJournal.create(join(directory,'journal.json'),newRunId(),'fixture-appliance');
   const name=journal.prefix+'context',uid='fixture-model';

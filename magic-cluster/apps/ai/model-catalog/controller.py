@@ -533,10 +533,49 @@ def freetoken_deployment(activation):
     return direct_runtime_deployment(activation) if local_engine(activation) == "freetoken" else None
 
 
+def replicated_deployment(model, parents):
+    """Expose healthy, current, UID-owned copies only under the public parent name."""
+    meta = model.get("metadata") or {}
+    labels, annotations = meta.get("labels") or {}, meta.get("annotations") or {}
+    parent = parents.get(labels.get("appliance.magicstick.dev/modelactivation")) or {}
+    pm, spec, status = parent.get("metadata") or {}, parent.get("spec") or {}, parent.get("status") or {}
+    local = spec.get("local") or {}
+    if (not pm.get("uid") or pm.get("deletionTimestamp") or meta.get("deletionTimestamp")
+            or spec.get("enabled", True) is False or local.get("gpuDeployment") != "replicated"
+            or spec.get("type") != "local" or labels.get("app.kubernetes.io/managed-by") != "magicstick-operator"
+            or labels.get("appliance.magicstick.dev/activation-uid") != pm["uid"]
+            or meta.get("namespace") != spec.get("targetNamespace", "ai")
+            or annotations.get("appliance.magicstick.dev/activation-generation") != str(pm.get("generation"))
+            or status.get("observedGeneration") != pm.get("generation")
+            or kubeai_ready_replicas(model) < 1):
+        return None
+    cards = {d.get("uuid") for d in local.get("gpuDevices", [])}
+    if annotations.get("appliance.magicstick.dev/replica-gpu") not in cards:
+        return None
+    ready = any(i.get("name") == meta.get("name") and i.get("modelUid") == meta.get("uid")
+                and i.get("phase") == "Ready" for i in (status.get("replication") or {}).get("instances", []))
+    if not ready or not meta.get("uid"):
+        return None
+    deployment = kubeai_deployment(model)
+    deployment["model_name"] = pm["name"]
+    deployment["model_info"]["magicstick_replica_parent"] = pm["name"]
+    deployment["model_info"]["magicstick_replica_model"] = meta["name"]
+    return deployment
+
+
 def desired_deployments():
     deployments = []
+    activations = read_model_activations()
+    parents = {a.get("metadata", {}).get("name"): a for a in activations}
     for model in list_kubeai_models():
         name = ((model.get("metadata") or {}).get("name") or "").strip()
+        if model.get("metadata", {}).get("labels", {}).get("appliance.magicstick.dev/model-replica") == "true":
+            deployment = replicated_deployment(model, parents)
+            if deployment:
+                deployments.append(deployment)
+            continue  # Never leak internal replica names as public models.
+        if parents.get(name, {}).get("spec", {}).get("local", {}).get("gpuDeployment") == "replicated":
+            continue  # Retiring legacy single/split runtime.
         if name and kubeai_ready_replicas(model) > 0:
             deployments.append(kubeai_deployment(model))
     for item in read_external_models():
@@ -545,7 +584,7 @@ def desired_deployments():
         name = str(item.get("name") or "").strip()
         if name:
             deployments.append(external_deployment(item))
-    for activation in read_model_activations():
+    for activation in activations:
         if (activation.get("metadata") or {}).get("deletionTimestamp"):
             continue
         spec = activation.get("spec") or {}
@@ -559,7 +598,7 @@ def desired_deployments():
         deployment = direct_runtime_deployment(activation)
         if deployment:
             deployments.append(deployment)
-    return {deployment["model_name"]: deployment for deployment in deployments}
+    return {("replica:" + deployment_id(d) if d["model_info"].get("magicstick_replica_parent") else d["model_name"]): d for d in deployments}
 
 
 def fetch_litellm_models():
@@ -580,12 +619,22 @@ def sync_litellm():
     desired = desired_deployments()
     existing = fetch_litellm_models()
     existing_by_name = {model.get("model_name"): model for model in existing
-                        if model.get("model_name") and not (model.get("model_info") or {}).get("magicstick_mesh_owner")}
+                        if model.get("model_name") and not (model.get("model_info") or {}).get("magicstick_mesh_owner")
+                        and not (model.get("model_info") or {}).get("magicstick_replica_parent")}
+    existing_by_id = {deployment_id(model): model for model in existing if deployment_id(model)}
+    retained = set()
 
-    for name, deployment in desired.items():
-        existing_model = existing_by_name.get(name)
+    for deployment in desired.values():
+        name = deployment["model_name"]
+        replica = bool(deployment["model_info"].get("magicstick_replica_parent"))
+        existing_model = existing_by_id.get(deployment_id(deployment)) if replica else existing_by_name.get(name)
+        if replica and existing_model and (not is_managed(existing_model)
+                or (existing_model.get("model_info") or {}).get("magicstick_replica_parent") != name
+                or (existing_model.get("model_info") or {}).get("magicstick_mesh_owner")):
+            raise ValueError("A foreign deployment occupies a reserved model replica ID")
         if existing_model and deployment_id(existing_model):
             deployment["model_info"]["id"] = deployment_id(existing_model)
+        retained.add(deployment_id(deployment))
         try:
             if existing_model:
                 previous_info = existing_model.get("model_info") or {}
@@ -605,14 +654,14 @@ def sync_litellm():
                 litellm_request("POST", "/model/new", deployment)
                 log("added LiteLLM model " + name)
         except Exception as error:
-            if existing_model:
+            if existing_model or replica:
                 raise
             log("model/new failed for " + name + ", trying model/update: " + str(error))
             litellm_request("POST", "/model/update", deployment)
 
     for model in existing:
         name = model.get("model_name")
-        if name in desired or not is_managed(model):
+        if deployment_id(model) in retained or not is_managed(model) or (model.get("model_info") or {}).get("magicstick_mesh_owner"):
             continue
         model_id = deployment_id(model)
         if not model_id:

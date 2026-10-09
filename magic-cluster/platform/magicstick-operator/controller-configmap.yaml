@@ -1027,6 +1027,7 @@ data:
         runtime_endpoint="",
         free_token_stats=None,
         cpu_resources=None,
+        replication=None,
     ):
         metadata = activation.get("metadata") or {}
         path = f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{metadata.get('namespace')}/modelactivations/{metadata.get('name')}/status"
@@ -1046,6 +1047,7 @@ data:
             "vramRequiredMi": int(vram_mi or 0),
             "memoryRequiredMi": int(memory_mi or 0),
             "cpuResources": cpu_resources,
+            "replication": replication,
             "cpuOffloading": bool(((activation.get("spec") or {}).get("local") or {}).get("cpuOffloading")),
             "memoryUsage": memory_usage,
             # FreeToken owns a separate, stable status contract.  Do not put
@@ -1421,6 +1423,8 @@ data:
         namespace = model.get("spec", {}).get("targetNamespace") or "ai"
         if "realtime" in (model.get("spec", {}).get("local") or {}):
             return delete_realtime_runtime(name, namespace)
+        if (model.get("spec", {}).get("local") or {}).get("gpuDeployment") == "replicated" or (model.get("status") or {}).get("replication"):
+            retire_model_replicas(model)
         return delete_kubeai_model(name, namespace)
 
 
@@ -1664,10 +1668,11 @@ data:
                 errors[name] = "Multi-GPU models currently require matching NVIDIA cards with equal physical memory."
                 continue
             live = placements.get(name, set())
-            if live and (uuids and set(uuids) != live or not uuids and len(live) > 1):
+            replicated = local.get("gpuDeployment") == "replicated"
+            if live and (uuids and (not live.issubset(set(uuids)) if replicated else set(uuids) != live) or not uuids and len(live) > 1):
                 errors[name] = "Waiting for the previous NVIDIA GPU Pod to stop before changing cards."
                 continue
-            if live:
+            if live and not replicated:
                 selected = [by_uuid[u] for u in sorted(live)]
                 assigned[name] = {**selected[0], "devices": selected} if len(selected) > 1 else selected[0]
                 continue
@@ -1675,12 +1680,13 @@ data:
                 previous_uuid = previous.get("device")
                 uuid = previous_uuid if previous_uuid in by_uuid else next((u for u in used if used[u] < limit), None)
                 uuids = [uuid] if uuid else []
-            if not uuids or any(used[u] >= limit for u in uuids):
+            pending = [u for u in uuids if u not in live]
+            if not uuids or any(used[u] >= limit for u in pending):
                 errors[name] = "Waiting for a free slot on the selected NVIDIA GPU."
                 continue
             # Reserve the complete group or nothing. Never hold one card while
             # waiting for another; the single controller serializes admission.
-            for uuid in uuids:
+            for uuid in pending:
                 used[uuid] += 1
             selected = [by_uuid[u] for u in uuids]
             assigned[name] = {**selected[0], "devices": selected} if len(selected) > 1 else selected[0]
@@ -1898,13 +1904,18 @@ data:
 
     def apply_nvidia_dra_profile(resource, runtime):
         state = NVIDIA_SHARING_STATE
-        name = resource["metadata"]["name"]
+        name = runtime.get("replicaParent") or resource["metadata"]["name"]
         if state.get("phase") != "Ready" or name not in state.get("assignments", {}):
             raise ValueError(state.get("assignmentErrors", {}).get(name) or state.get("message") or "Waiting for NVIDIA GPU allocation")
         device = state["assignments"][name]
         devices = nvidia_assignment_devices(device)
+        if runtime.get("replicaDevice"):
+            devices = [d for d in devices if d["uuid"] == runtime["replicaDevice"]]
+            if len(devices) != 1:
+                raise ValueError("The model replica has no admitted NVIDIA card")
+            device = devices[0]
         count = len(devices)
-        if count > 1 and any(not d.get("totalMi") or runtime["vramMi"] > d["totalMi"] for d in devices):
+        if (count > 1 or runtime.get("replicaParent")) and any(not d.get("totalMi") or runtime["vramMi"] > d["totalMi"] for d in devices):
             raise ValueError("The per-GPU budget exceeds the physical memory of a selected NVIDIA card")
         release = get_resource("helm.toolkit.fluxcd.io", "v2", "helmreleases", FLUX_NAMESPACE, "kubeai") or {}
         base_name = runtime["baseResourceProfile"].rsplit(":", 1)[0]
@@ -1919,7 +1930,7 @@ data:
         # DRA injects CDI devices into ordinary containers; the NVIDIA legacy
         # runtime must not additionally inject an arbitrary device-plugin GPU.
         profile.pop("runtimeClassName", None)
-        if (runtime.get("offloading") or {}).get("enabled") or count > 1:
+        if (runtime.get("offloading") or {}).get("enabled") or count > 1 or runtime.get("replicaParent"):
             profile["requests"]["memory"] = profile["limits"]["memory"] = str(runtime["memoryMi"]) + "Mi"
         key = base_name + "-dra-" + hashlib.sha256(json.dumps(profile, sort_keys=True).encode()).hexdigest()[:16]
         store = get_core_resource("v1", "configmaps", FLUX_NAMESPACE, "magicstick-offloading-profiles") or {}
@@ -1933,8 +1944,9 @@ data:
         resource["spec"]["resourceProfile"] = runtime["resourceProfile"] = key + ":1"
         resource["spec"].setdefault("env", {}).update({"MAGICSTICK_DRA_CLAIM": device["claimName"],
             "MAGICSTICK_DRA_CLAIMS": ",".join(d["claimName"] for d in devices), "NVIDIA_VISIBLE_DEVICES": "void"})
-        if count > 1:
+        if count > 1 or runtime.get("replicaParent"):
             resource["spec"]["env"]["MAGICSTICK_GPU_UUIDS"] = ",".join(d["uuid"] for d in devices)
+            resource["spec"]["env"]["MAGICSTICK_GPU_COUNT"] = str(count)
         runtime["gpuSharing"] = {"mode": state["mode"], "backend": "dra", "claimName": device["claimName"],
             "node": device["node"], "nodeUid": device["nodeUid"], "device": device["uuid"], "gpuCount": count,
             "devices": [{"uuid": d["uuid"], "nodeName": d["node"], "nodeUid": d["nodeUid"]} for d in devices],
@@ -3329,7 +3341,7 @@ data:
         if not artifact_controls_url:
             local_override_fields = ("url",) + local_override_fields
         merged.update({key: local[key] for key in local_override_fields if key in local})
-        for key in ("gpuDevice", "gpuDevices"):
+        for key in ("gpuDevice", "gpuDevices", "gpuDeployment"):
             if key in local:
                 merged[key] = local[key]
         if local.get("preset"):
@@ -3600,7 +3612,7 @@ data:
         raw_offload = local.get("cpuOffloadMi", 0)
         if isinstance(raw_offload, bool) or not isinstance(raw_offload, int) or raw_offload < 0:
             raise ValueError("local.cpuOffloadMi must be a non-negative integer")
-        gpu_count = len(nvidia_model_devices(local)) or 1
+        gpu_count = 1 if local.get("gpuDeployment") == "replicated" else (len(nvidia_model_devices(local)) or 1)
         host_base = (6144 if engine == "VLLM" else 4096) + (gpu_count - 1) * 2048
         if "allowMemoryRisk" in local and not isinstance(local["allowMemoryRisk"], bool):
             raise ValueError("local.allowMemoryRisk must be a boolean")
@@ -3952,7 +3964,7 @@ data:
         return None
 
 
-    def recover_terminal_model_pod(activation, model, namespace, model_name):
+    def recover_terminal_model_pod(activation, model, namespace, model_name, replica_name=None):
         """Replace only terminal Pods owned by this exact KubeAI Model, with backoff.
 
         KubeAI 0.23.2 counts terminal Pods towards minReplicas. Never touch live,
@@ -4000,7 +4012,10 @@ data:
             # Persist before deletion: a controller crash must not reset the retry bound.
             activation_meta = activation.get("metadata") or {}
             path = f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{activation_meta.get('namespace')}/modelactivations/{activation_meta.get('name')}/status"
-            patch_json(path, {"status": {"podRecovery": tracker}})
+            if replica_name:
+                patch_json(path, {"status": {"replication": {"recovery": {replica_name: tracker}}}})
+            else:
+                patch_json(path, {"status": {"podRecovery": tracker}})
             try:
                 delete_json(f"/api/v1/namespaces/{namespace}/pods/{pod_meta['name']}", {
                     "apiVersion": "v1", "kind": "DeleteOptions",
@@ -5222,6 +5237,16 @@ data:
         engine = local.get("engine") or "VLLM"
         selections = nvidia_model_devices(local)
         gpu_count = len(selections) or 1
+        deployment_mode = local.get("gpuDeployment", "split" if gpu_count > 1 else "single")
+        if deployment_mode not in ("single", "split", "replicated"):
+            raise ValueError("Unknown GPU deployment mode")
+        if "gpuDeployment" in local and not selections:
+            raise ValueError("GPU deployment mode requires explicitly selected NVIDIA cards")
+        if deployment_mode == "single" and gpu_count > 1:
+            raise ValueError("Single-GPU deployment requires one selected card")
+        if deployment_mode == "replicated":
+            # Build per-card runtimes, never a split model with N workers.
+            return replica_model_resources(activation, presets, compute_catalog)[0][:2]
         if selections and (compute_target != "nvidia-gpu" or engine not in ("VLLM", "OLlama") or "realtime" in local):
             raise ValueError("NVIDIA GPU groups support ordinary vLLM and Ollama only")
         if gpu_count > 1:
@@ -5397,6 +5422,177 @@ data:
                    and item.get("status", {}).get("phase") not in terminal for item in operations)
 
 
+    def replica_model_name(activation, uuid):
+        identity = str(activation.get("metadata", {}).get("uid") or "")
+        if not identity:
+            raise ValueError("Replication requires the saved ModelActivation identity")
+        return "msr-" + hashlib.sha256((identity + ":" + uuid).encode()).hexdigest()[:32]
+
+
+    def owned_replica_models(activation):
+        meta, spec = activation.get("metadata") or {}, activation.get("spec") or {}
+        namespace = spec.get("targetNamespace") or "ai"
+        selector = urllib.parse.urlencode({"labelSelector": "appliance.magicstick.dev/modelactivation=" + meta["name"] + ",appliance.magicstick.dev/model-replica=true"})
+        models = list_items(f"/apis/kubeai.org/v1/namespaces/{namespace}/models?{selector}")
+        return [m for m in models if m.get("metadata", {}).get("namespace") == namespace
+                and m.get("metadata", {}).get("labels", {}).get("app.kubernetes.io/managed-by") == FIELD_MANAGER
+                and m.get("metadata", {}).get("labels", {}).get("appliance.magicstick.dev/modelactivation") == meta["name"]
+                and m.get("metadata", {}).get("labels", {}).get("appliance.magicstick.dev/model-replica") == "true"
+                and meta.get("uid") and m.get("metadata", {}).get("labels", {}).get("appliance.magicstick.dev/activation-uid") == meta["uid"]]
+
+
+    def replica_runtime_pods(activation):
+        meta, spec = activation.get("metadata") or {}, activation.get("spec") or {}
+        namespace = spec.get("targetNamespace") or "ai"
+        selector = urllib.parse.urlencode({"labelSelector": "appliance.magicstick.dev/modelactivation=" + meta["name"]})
+        return [p for p in list_items(f"/api/v1/namespaces/{namespace}/pods?{selector}")
+                if p.get("metadata", {}).get("namespace") == namespace
+                and p.get("metadata", {}).get("labels", {}).get("appliance.magicstick.dev/modelactivation") == meta["name"]
+                and p.get("metadata", {}).get("labels", {}).get("appliance.magicstick.dev/activation-uid") == meta.get("uid")
+                and p.get("metadata", {}).get("labels", {}).get("appliance.magicstick.dev/model-replica") == "true"]
+
+
+    def retire_model_replicas(activation):
+        models = owned_replica_models(activation)
+        for model in models:
+            meta = model["metadata"]
+            if meta.get("deletionTimestamp"):
+                continue
+            if not meta.get("uid") or not meta.get("resourceVersion"):
+                raise ValueError("Cannot retire a model replica without its current Kubernetes identity")
+            delete_json(f"/apis/kubeai.org/v1/namespaces/{meta['namespace']}/models/{meta['name']}", {
+                "apiVersion": "v1", "kind": "DeleteOptions", "propagationPolicy": "Foreground",
+                "preconditions": {"uid": meta["uid"], "resourceVersion": meta["resourceVersion"]}})
+        # Keep the activation finalizer and slot accounting until Pods, including
+        # terminating Pods, are actually gone. Do not delete claims or caches.
+        return bool(models or replica_runtime_pods(activation))
+
+
+    def replica_model_resources(activation, presets, compute_catalog):
+        local = merged_local_model(activation, presets, compute_catalog)
+        selections = nvidia_model_devices(local)
+        engine, target = local.get("engine"), local.get("computeTarget")
+        capability = (compute_catalog or {}).get("engines", {}).get(engine, {}).get("multiGpu") or {}
+        if (local.get("gpuDeployment") != "replicated" or target != "nvidia-gpu" or engine not in ("VLLM", "OLlama")
+                or "replicated" not in capability.get("deploymentModes", []) or not 2 <= len(selections) <= capability.get("maxDevices", 1)
+                or "realtime" in local or (local.get("vllm") or {}).get("parallelism") is not None):
+            raise ValueError("Replication requires ordinary vLLM/Ollama and at least two selected NVIDIA cards, without model splitting")
+        if any(local.get(k, 1) != 1 for k in ("minReplicas", "maxReplicas")):
+            raise ValueError("Replica count is derived from selected cards; minReplicas/maxReplicas must remain 1")
+        ram = local.get("memoryRequiredMi", 16384)
+        if type(ram) is not int or ram < 1024:
+            raise ValueError("Choose at least 1024 MiB system RAM per model replica")
+        result = []
+        meta = activation["metadata"]
+        for selection in selections:
+            child = json.loads(json.dumps(activation))
+            child["metadata"]["name"] = replica_model_name(activation, selection["uuid"])
+            child_local = {**local, "gpuDevice": selection, "memoryRequiredMi": ram}
+            for key in ("gpuDevices", "gpuDeployment"):
+                child_local.pop(key, None)
+            child["spec"]["local"] = child_local
+            resource, runtime = kubeai_model_resource(child, presets, compute_catalog)
+            resource["metadata"]["labels"].update({
+                "appliance.magicstick.dev/modelactivation": meta["name"],
+                "appliance.magicstick.dev/activation-uid": meta["uid"],
+                "appliance.magicstick.dev/model-replica": "true"})
+            resource["metadata"]["annotations"].update({
+                "appliance.magicstick.dev/activation-generation": str(meta.get("generation", 0)),
+                "appliance.magicstick.dev/replica-gpu": selection["uuid"]})
+            resource["spec"].update(minReplicas=1, maxReplicas=1)
+            runtime.update(replicaParent=meta["name"], replicaDevice=selection["uuid"], memoryMi=ram)
+            result.append((resource, runtime, selection))
+        return result
+
+
+    def reconcile_model_replicas(activation, presets, compute_catalog, runtime):
+        resources = replica_model_resources(activation, presets, compute_catalog)
+        namespace = activation.get("spec", {}).get("targetNamespace") or "ai"
+        name = activation["metadata"]["name"]
+        generation = str(activation["metadata"].get("generation", 0))
+        expected = {r["metadata"]["name"] for r, _, _ in resources}
+        old = owned_replica_models(activation)
+        legacy = get_resource("kubeai.org", "v1", "models", namespace, name)
+        if legacy:
+            labels = legacy.get("metadata", {}).get("labels") or {}
+            if labels.get("app.kubernetes.io/managed-by") != FIELD_MANAGER or labels.get("appliance.magicstick.dev/modelactivation") != name:
+                raise ValueError("A foreign model uses this name; it was not replaced")
+            delete_kubeai_model(name, namespace)
+            return "Starting", "RetiringPreviousRuntime", "Stopping the previous single/split runtime before creating model copies."
+        selector = urllib.parse.urlencode({"labelSelector": "app=model,model=" + name})
+        if list_items(f"/api/v1/namespaces/{namespace}/pods?{selector}"):
+            return "Starting", "RetiringPreviousRuntime", "Waiting for the previous single/split model Pod to terminate."
+        if any(m.get("metadata", {}).get("deletionTimestamp") or m["metadata"]["name"] not in expected
+               or m.get("metadata", {}).get("annotations", {}).get("appliance.magicstick.dev/activation-generation") != generation for m in old):
+            retire_model_replicas(activation)
+            return "Starting", "ReplacingReplicas", "Stopping the previous replicas before applying changed cards or settings."
+        if not old and replica_runtime_pods(activation):
+            return "Starting", "ReplacingReplicas", "Waiting for previous model replica Pods to terminate."
+        assignment = NVIDIA_SHARING_STATE.get("assignments", {}).get(name)
+        if NVIDIA_SHARING_STATE.get("phase") != "Ready" or not assignment:
+            raise ValueError(NVIDIA_SHARING_STATE.get("assignmentErrors", {}).get(name) or "Waiting for all selected NVIDIA cards")
+        observed = {m["metadata"]["name"]: m for m in old}
+        previous = (activation.get("status") or {}).get("replication") or {}
+        replication = {"desired": len(resources), "ready": 0, "instances": [], "recovery": {}}
+        runtime.update(resources[0][1])
+        runtime["replication"] = replication
+        for resource, replica_runtime, selection in resources:
+            child_name = resource["metadata"]["name"]
+            current = get_resource("kubeai.org", "v1", "models", namespace, child_name)
+            if current and child_name not in observed:
+                raise ValueError("A foreign resource occupies a model replica name; it was not changed")
+            apply_nvidia_dra_profile(resource, replica_runtime)
+            apply_cpu_resource_profile(resource, replica_runtime)
+            # Cross-namespace ownerReferences are invalid. Ownership is bound
+            # to the parent UID and deletion is controlled by its finalizer.
+            applied = apply_resource(resource)
+            current = get_resource("kubeai.org", "v1", "models", namespace, child_name) or applied
+            entry = {"name": child_name, **selection, "modelUid": current.get("metadata", {}).get("uid", ""),
+                     "phase": "Starting", "reason": "WaitingForReadyReplica", "message": "Waiting for the model copy to start."}
+            old_entry = next((i for i in previous.get("instances", []) if i.get("name") == child_name), {})
+            tracker_activation = {**activation, "status": {**(activation.get("status") or {}),
+                "podCreation": old_entry.get("podCreation"),
+                "podRecovery": previous.get("recovery", {}).get(child_name)}}
+            ready, _ = kubeai_model_replica_counts(current)
+            # A changed Model can retain stale ready counters. Require a live,
+            # Ready Pod owned by this exact child Model before advertising it.
+            query = urllib.parse.urlencode({"labelSelector": "app=model,model=" + child_name})
+            ready = ready and any(pod_is_ready(p) and not p.get("metadata", {}).get("deletionTimestamp")
+                and any(o.get("uid") == entry["modelUid"] and o.get("name") == child_name
+                        and o.get("kind") == "Model" and o.get("apiVersion") == "kubeai.org/v1" and o.get("controller") is True
+                        for o in p.get("metadata", {}).get("ownerReferences", []))
+                for p in list_items(f"/api/v1/namespaces/{namespace}/pods?{query}"))
+            if ready:
+                alias, message = (ensure_ollama_model_alias(namespace, child_name, resource["spec"]["url"])
+                                  if replica_runtime["engine"] == "OLlama" else (True, "Model copy is ready."))
+                entry.update(phase="Ready" if alias else "Starting", reason="ReplicaReady" if alias else "WaitingForOllamaAlias", message=message)
+                replication["ready"] += int(alias)
+            else:
+                tracker, wait = recover_terminal_model_pod(tracker_activation, current, namespace, child_name, replica_name=child_name)
+                if tracker:
+                    replication["recovery"][child_name] = tracker
+                failure = wait or model_pod_runtime_failure(current, namespace, child_name)
+                if not failure:
+                    entry["podCreation"], failure = model_pod_creation_status(tracker_activation, current, namespace, child_name)
+                if failure:
+                    entry.update(zip(("phase", "reason", "message"), failure))
+            replication["instances"].append(entry)
+        devices = nvidia_assignment_devices(assignment)
+        runtime["gpuSharing"] = {"mode": NVIDIA_SHARING_STATE["mode"], "backend": "dra", "node": devices[0]["node"],
+            "nodeUid": devices[0]["nodeUid"], "devices": [{"uuid": d["uuid"], "nodeName": d["node"], "nodeUid": d["nodeUid"]} for d in devices],
+            "gpuCount": len(devices), "slotCount": len(devices), "claimNames": [d["claimName"] for d in devices], "memoryIsolation": False}
+        runtime["runtimeReady"] = replication["ready"] > 0
+        ready, desired = replication["ready"], replication["desired"]
+        message = f"{ready}/{desired} model copies ready. Requests use the healthy copies through the common API model name."
+        if any(i["phase"] == "Degraded" for i in replication["instances"]):
+            return "Degraded", "ModelReplicaFailed", message + " Inspect the affected instance and its Logs."
+        if ready != desired:
+            return "Starting", "WaitingForModelReplicas", message
+        # Catalog consumes per-instance readiness; do not create a circular
+        # dependency between publishing a route and the parent Ready state.
+        return "Ready", "ModelReplicasReady", message
+
+
     def reconcile_model_activation(activation, catalog, presets, compute_catalog=None):
         metadata = activation.get("metadata") or {}
         spec = activation.get("spec") or {}
@@ -5430,6 +5626,7 @@ data:
             "memoryMi": 0,
             "runtimeEndpoint": "",
             "podRecovery": (activation.get("status") or {}).get("podRecovery"),
+            "replication": (activation.get("status") or {}).get("replication"),
         }
 
         def status_payload(phase, message, catalog_id=""):
@@ -5452,6 +5649,7 @@ data:
                 "sharedPoolId": runtime.get("sharedPoolId", ""),
                 "gpuAllocationMode": runtime.get("gpuAllocationMode", ""),
                 "gpuSharing": runtime.get("gpuSharing"),
+                "replication": runtime.get("replication"),
                 "podCreation": runtime.get("podCreation"),
                 "podRecovery": runtime.get("podRecovery"),
                 "cpuOffloading": bool((runtime.get("offloading") or {}).get("enabled")),
@@ -5486,6 +5684,7 @@ data:
                 shared_pool_id=runtime.get("sharedPoolId", ""),
                 gpu_allocation_mode=runtime.get("gpuAllocationMode", ""),
                 gpu_sharing=runtime.get("gpuSharing"),
+                replication=runtime.get("replication"),
                 pod_creation=runtime.get("podCreation"),
                 pod_recovery=runtime.get("podRecovery"),
                 runtime_endpoint=runtime.get("runtimeEndpoint", ""),
@@ -5493,6 +5692,10 @@ data:
             )
 
         def cleanup_runtime():
+            if metadata.get("uid") and crd_exists("models.kubeai.org"):
+                if retire_model_replicas(activation):
+                    return True
+            runtime["replication"] = None
             previous_realtime = str((activation.get("status") or {}).get("modelRef") or "").startswith("vllm-omni/")
             if is_realtime or previous_realtime:
                 return delete_realtime_runtime(name, namespace)
@@ -5574,6 +5777,7 @@ data:
                 else:
                     resource, runtime = kubeai_model_resource(activation, presets, compute_catalog)
                 runtime["podRecovery"] = (activation.get("status") or {}).get("podRecovery")
+                runtime["replication"] = (activation.get("status") or {}).get("replication")
             except ValueError as error:
                 message = str(error)
                 patch_status("Degraded", "InvalidModelSpec", message)
@@ -5600,6 +5804,12 @@ data:
             return "WaitingForModules", status_payload("WaitingForModules", message, name)
 
         if model_type == "local":
+            if (spec.get("local") or {}).get("gpuDeployment") != "replicated":
+                if metadata.get("uid") and crd_exists("models.kubeai.org") and retire_model_replicas(activation):
+                    message = "Stopping model copies before starting the changed deployment."
+                    patch_status("Starting", "RetiringReplicas", message, name)
+                    return "Starting", status_payload("Starting", message, name)
+                runtime["replication"] = None
             target_definition = compute_target_definition(
                 runtime["computeTarget"], compute_catalog, runtime["engine"]
             ) if compute_catalog else {
@@ -5666,6 +5876,13 @@ data:
                 message = "Waiting for required CRDs: models.kubeai.org"
                 patch_status("WaitingForCRDs", "WaitingForCRDs", message, name)
                 return "WaitingForCRDs", status_payload("WaitingForCRDs", message, name)
+            if (spec.get("local") or {}).get("gpuDeployment") == "replicated":
+                try:
+                    phase, reason, message = reconcile_model_replicas(activation, presets, compute_catalog, runtime)
+                except ValueError as error:
+                    phase, reason, message = "Degraded", "ModelReplicationBlocked", str(error)
+                patch_status(phase, reason, message, name)
+                return phase, status_payload(phase, message, name)
             if (runtime.get("offloading") or {}).get("enabled"):
                 try:
                     ensure_offloading_profile(runtime["baseResourceProfile"], runtime["memoryMi"])

@@ -30,7 +30,16 @@ export const unfinishedJob = (job:KubeObject) => !job.status?.conditions?.some(c
  * Pods in the ownership inventory so teardown and convergence cannot mistake
  * their continued presence for completed deletion. These mappings assert the
  * existing Magic Stick runtime contract; they are not a new launch policy. */
-export function runtimePodConverged(pods:KubeObject[],item:ModelActivation|undefined) {
+export function runtimePodConverged(pods:KubeObject[],item:ModelActivation|undefined):boolean {
+  if(item?.spec?.local?.gpuDeployment === 'replicated') {
+    const devices=item.spec.local.gpuDevices as Array<{uuid:string}>,instances=item.status?.replication?.instances ?? [];
+    return Array.isArray(devices) && devices.length >= 2 && pods.length === devices.length && instances.length === devices.length && devices.every(d=>{
+      const instance=instances.find(i=>i.uuid === d.uuid && i.phase === 'Ready');
+      const matches=pods.filter(p=>p.metadata.labels?.['appliance.magicstick.dev/activation-uid'] === item.metadata?.uid &&
+        p.metadata.ownerReferences?.some(o=>o.kind === 'Model' && o.controller && o.uid === instance?.modelUid && o.name === instance?.name));
+      return matches.length === 1 && runtimePodConverged(matches,{...item,spec:{...item.spec,local:{...item.spec!.local,gpuDeployment:'single'}}});
+    });
+  }
   if(pods.length !== 1 || !item?.spec?.local) return false;
   const pod=pods[0]!,local=item.spec.local;
   if(pod.metadata.deletionTimestamp || pod.status?.phase !== 'Running' ||
@@ -242,6 +251,29 @@ export class GpuScenario {
   async binding(model:GpuCreated,pods:KubeObject[]) {
     const ready = pods.filter(pod=>!pod.metadata.deletionTimestamp && pod.status?.phase === 'Running' &&
       pod.status.conditions?.some(condition=>condition.type === 'Ready' && condition.status === 'True'));
+    const fixture=model.fixture as GpuModelFixture;
+    if(fixture.gpuDeployment === 'replicated') {
+      const selected=fixture.gpuDevices;
+      requireSafe(selected?.length && ready.length === selected.length,'CAPABILITY');
+      const seen=new Set<string>();
+      for(const pod of ready) {
+        const owner=pod.metadata.ownerReferences?.find(o=>o.kind === 'Model' && o.controller);
+        requireSafe(owner?.name && owner.uid,'OWNERSHIP');
+        const child=await this.live.observer.get('models.kubeai.org','ai',owner.name);
+        requireSafe(child.metadata.uid === owner.uid && child.metadata.labels?.['appliance.magicstick.dev/activation-uid'] === model.uid &&
+          child.metadata.annotations?.['appliance.magicstick.dev/activation-generation'] === String(model.generation),'OWNERSHIP');
+        const uuid=child.metadata.annotations?.['appliance.magicstick.dev/replica-gpu'];
+        const selection=selected.find(d=>d.uuid === uuid);requireSafe(selection && !seen.has(selection.uuid),'CAPABILITY');seen.add(selection.uuid);
+        const runtime=podSpec(pod).containers?.find(c=>c.name === 'server');
+        const env=Object.fromEntries((runtime?.env ?? []).map(e=>[e.name,e.value]));
+        requireSafe(env.MAGICSTICK_GPU_COUNT === '1' && env.MAGICSTICK_GPU_UUIDS === selection.uuid &&
+          !env.MAGICSTICK_VLLM_PARALLELISM && runtime?.resources?.requests?.memory === `${fixture.systemMemoryMi}Mi` &&
+          runtime.resources.limits?.memory === `${fixture.systemMemoryMi}Mi` &&
+          (fixture.engine !== 'OLlama' || env.OLLAMA_SCHED_SPREAD === 'false'),'CAPABILITY');
+        await this.binding({...model,fixture:{...fixture,gpuDeployment:undefined,gpuDevices:[selection]}},[pod]);
+      }
+      return;
+    }
     requireSafe(ready.length === 1,'CAPABILITY'); const pod = ready[0]!,spec = podSpec(pod);
     requireSafe(spec.nodeName === this.config.gpu!.nodeName && Array.isArray(spec.containers),'CAPABILITY');
     const gpu = model.fixture.computeTarget !== 'cpu';

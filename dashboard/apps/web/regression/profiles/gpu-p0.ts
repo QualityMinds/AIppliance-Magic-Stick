@@ -9,6 +9,11 @@ const row = (id:string,layers:readonly TestLayer[]): Definition => ({id,layers})
 /** Finite installed mixed-node GPU matrix. Intel and reboot acceptance are
  * separate, explicit hardware/maintenance gates, never synthetic live passes. */
 export const phase3Variants = {
+  'p3-replicated-config':row('MGPU-02',['U','C','B']),
+  'p3-replicated-vllm-2':row('MGPU-02',['A','E','O']),
+  'p3-replicated-vllm-4':row('MGPU-02',['A','E','O']),
+  'p3-replicated-ollama-2':row('MGPU-02',['A','E','O']),
+  'p3-replicated-ollama-4':row('MGPU-02',['A','E','O']),
   'p3-multigpu-config':row('MGPU-01',['U','C','B']),
   'p3-multigpu-vllm-2':row('MGPU-01',['A','E','O']),
   'p3-multigpu-vllm-4':row('MGPU-01',['A','E','O']),
@@ -52,6 +57,11 @@ export const phase3Variants = {
 } as const;
 
 export const phase4Variants = {
+  'p4-replicated-config':row('MGPU-02',['U','C','B']),
+  'p4-replicated-vllm-2':row('MGPU-02',['A','E','O']),
+  'p4-replicated-vllm-4':row('MGPU-02',['A','E','O']),
+  'p4-replicated-ollama-2':row('MGPU-02',['A','E','O']),
+  'p4-replicated-ollama-4':row('MGPU-02',['A','E','O']),
   'p4-multigpu-config':row('MGPU-01',['U','C','B']),
   'p4-multigpu-vllm-2':row('MGPU-01',['A','E','O']),
   'p4-multigpu-vllm-4':row('MGPU-01',['A','E','O']),

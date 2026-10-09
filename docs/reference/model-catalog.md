@@ -122,6 +122,31 @@ integrations have no supported per-model configuration fields for all three
 capabilities. They still share the canonical catalog and instance authentication.
 No unsupported native configuration fields are injected into these applications.
 
+## Replicated local models
+
+An ordinary NVIDIA DRA vLLM/Ollama activation with `local.gpuDeployment: replicated`
+has several internal KubeAI Models but **one public model name**. Each ready
+copy becomes a LiteLLM deployment with a distinct stable `model_info.id` and
+the same `model_name`. Its internal KubeAI model name is the upstream request
+target, not another user-visible model entry. Existing LiteLLM load balancing
+distributes independent requests; no client-side fan-out is required.
+
+The controller checks parent UID, selected GPU, parent/child generation,
+enabled/deletion state and per-copy readiness before publishing a deployment.
+An unhealthy copy is withdrawn individually. Healthy copies remain available
+even while the parent is Starting or Degraded. Stop withdraws all copies; Remove
+also deletes their owned runtimes. Reconciliation is asynchronous and does not
+rescue already failing or in-flight requests.
+
+Synchronization updates and removes replica deployments by ID rather than by
+their shared alias. It does not adopt unmanaged or Private Mesh deployments
+that happen to share a name. The generated catalog deduplicates replicas into
+one model entry, so consumers continue using `litellm/<activation-name>`.
+
+This reuses [LiteLLM model groups](https://docs.litellm.ai/docs/proxy/load_balancing)
+and the existing KubeAI runtime integration. A local routing-contract test is not
+proof of live multi-GPU inference or throughput scaling.
+
 ## Consumers
 
 Apps should treat `ConfigMap/ai-model-catalog` as the model source of truth
