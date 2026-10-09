@@ -2,14 +2,12 @@ import type {ManagedHost,NetworkSettings,HostOperationRequest} from '@magicstick
 import type {LabConfig,GpuLabProfile,GpuModelFixture,RuntimeModelFixture} from './config.ts';
 import {catalogFixture,preparedProfile,type PreparationSnapshot,type PreparationOptions} from './input-preparation.ts';
 import {labPolicy} from './lab-policy.ts';
-import {freeTokenNodeCapacity} from './freetoken-inventory.ts';
-import {freeTokenRegressionEnabled} from './engine-policy.ts';
 import type {HostDrillRecipes} from './host-drill-recipes.ts';
 import {requireSafe} from './errors.ts';
 
 /** Choose test fixtures from the deployed product catalog, including its small
  * CPU text fixtures for compatible GPU runtimes. No user-maintained model list. */
-export function automaticGpuProfile(snapshot:PreparationSnapshot,defaults:Record<string,any>):GpuLabProfile|undefined {
+export function automaticGpuProfile(snapshot:PreparationSnapshot,_defaults:Record<string,any>):GpuLabProfile|undefined {
   const devices=Object.values(snapshot.status.hardwareOperators ?? {}).flatMap(item=>item.devices ?? []);
   const host=snapshot.hosts.filter(h=>h.available && snapshot.nodes.some(n=>n.metadata.uid === h.nodeUid))
     .sort((a,b)=>a.name.localeCompare(b.name)).find(h=>devices.some(d=>d.nodeUid === h.nodeUid && ['amd','nvidia'].includes(d.vendor)));
@@ -34,12 +32,6 @@ export function automaticGpuProfile(snapshot:PreparationSnapshot,defaults:Record
         memoryRequiredMi:Math.ceil(chosen.memoryRequiredMi/100)*100} as GpuModelFixture;
     }
   }
-  if(freeTokenRegressionEnabled && profile.devices.nvidia && defaults.freetoken)try {
-    const capacity=freeTokenNodeCapacity(snapshot.models,host.name),fixture=structuredClone(defaults.freetoken);
-    fixture.freetoken.gpuDevice=`node:${host.name}`;
-    if(capacity.gpuAvailableMi >= fixture.freetoken.gpuMemoryMi && capacity.systemAvailableMi >= fixture.freetoken.systemMemoryMi)
-      profile.models.freetoken=fixture;
-  }catch{/* Only FreeToken-dependent cases are blocked by absent VRAM telemetry. */}
   return Object.keys(profile.devices).length ? profile : undefined;
 }
 

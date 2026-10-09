@@ -39,7 +39,7 @@ def vllm_activation():
     }
 
 
-class FreeTokenLifecycleTests(unittest.TestCase):
+class ModelLifecycleApiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.api = load_server()
@@ -53,34 +53,47 @@ class FreeTokenLifecycleTests(unittest.TestCase):
             "request_json": lambda *args: self.writes.append(args) or args[2],
         })
 
-    def test_restart_is_freetoken_only_and_safely_rolls_out_the_runtime(self):
-        with patch.object(self.api["secrets"], "token_hex", return_value="a" * 32) as nonce, self.patch_action(freetoken_activation()):
-            result = self.api["model_lifecycle_action"](
-                "freetoken-chat", "restart", {"expectedRevision": "17"}
-            )
+    def test_retired_engine_cannot_be_created_discovered_or_estimated(self):
+        for engine in ("FreeToken", "freetoken", "FREETOKEN"):
+            local = {"engine": engine, "computeTarget": "nvidia-gpu", "url": "hf://example/model"}
+            for operation in (
+                lambda: self.api["model_activation_payload"]("local", {"name": "retired", "local": local}),
+                lambda: self.api["estimate_model_memory"](local),
+                lambda: self.api["hf_discovery_context"]({"engine": [engine]}),
+            ):
+                with self.subTest(engine=engine), self.assertRaises(self.api["RequestError"]) as raised:
+                    operation()
+                self.assertEqual(raised.exception.status, 400)
 
-        nonce.assert_called_once_with(16)
-        self.assertEqual(result["action"], "restart")
-        self.assertEqual(result["model"], "freetoken-chat")
-        method, path, body, content_type = self.writes[0]
-        self.assertEqual(method, "PATCH")
-        self.assertTrue(path.endswith("/modelactivations/freetoken-chat"))
-        self.assertEqual(content_type, "application/merge-patch+json")
-        self.assertEqual(body["metadata"]["resourceVersion"], "17")
-        self.assertTrue(body["spec"]["enabled"])
-        self.assertEqual(body["spec"]["local"]["freetoken"]["restartNonce"], "a" * 32)
-        self.assertEqual(body["spec"]["local"]["freetoken"]["advanced"], {"cacheType": "radix"})
+    def test_retired_settings_cannot_be_inherited_by_supported_engines(self):
+        for engine in ("VLLM", "OLlama"):
+            with self.subTest(engine=engine), self.assertRaisesRegex(self.api["RequestError"], "removed"):
+                self.api["model_activation_payload"]("local", {"name": "example", "local": {
+                    "engine": engine, "freetoken": {"gpuMemoryMi": 16384},
+                }})
 
-    def test_restart_rejects_non_freetoken_models_without_writing(self):
+    def test_retired_model_can_stop_but_cannot_start_or_restart(self):
+        current = freetoken_activation(enabled=True)
+        saved = copy.deepcopy(current)
+        with self.patch_action(current):
+            for action in ("start", "restart"):
+                with self.subTest(action=action), self.assertRaisesRegex(self.api["RequestError"], "unsupported local engine"):
+                    self.api["model_lifecycle_action"]("freetoken-chat", action, {"expectedRevision": "17"})
+            self.assertEqual(self.writes, [])
+            self.api["model_lifecycle_action"]("freetoken-chat", "stop", {"expectedRevision": "17"})
+        self.assertEqual(self.writes[0][2]["spec"], {"enabled": False})
+        self.assertEqual(current, saved)
+
+    def test_restart_rejects_ordinary_models_without_writing(self):
         with self.patch_action(vllm_activation()):
-            with self.assertRaisesRegex(self.api["RequestError"], "FreeToken") as raised:
+            with self.assertRaisesRegex(self.api["RequestError"], "Realtime") as raised:
                 self.api["model_lifecycle_action"]("vllm-chat", "restart", {"expectedRevision": "17"})
 
         self.assertEqual(raised.exception.status, 409)
         self.assertEqual(self.writes, [])
 
     def test_stop_and_start_toggle_only_the_durable_enabled_flag(self):
-        activations = [freetoken_activation()]
+        activations = []
         for engine in ("VLLM", "OLlama"):
             for target in ("cpu", "nvidia-gpu", "amd-gpu"):
                 activation = vllm_activation()
@@ -140,16 +153,17 @@ class FreeTokenLifecycleTests(unittest.TestCase):
         self.assertEqual(self.writes, [])
 
     def test_lifecycle_uses_configuration_generation_not_background_status_revision(self):
-        current = freetoken_activation(revision="29")
+        current = vllm_activation()
+        current["metadata"]["resourceVersion"] = "29"
         current["metadata"].update(uid="example-model-uid", generation=3)
-        for action in ("start", "stop", "restart"):
+        for action in ("start", "stop"):
             with self.subTest(action=action), self.patch_action(current):
-                self.api["model_lifecycle_action"]("freetoken-chat", action, {
+                self.api["model_lifecycle_action"]("vllm-chat", action, {
                     "expectedRevision": "generation:example-model-uid:3",
                 })
                 self.assertEqual(self.writes[-1][2]["metadata"]["resourceVersion"], "29")
                 with self.assertRaisesRegex(self.api["RequestError"], "changed after"):
-                    self.api["model_lifecycle_action"]("freetoken-chat", action, {
+                    self.api["model_lifecycle_action"]("vllm-chat", action, {
                         "expectedRevision": "generation:example-model-uid:2",
                     })
 

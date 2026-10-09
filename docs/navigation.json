@@ -22,7 +22,6 @@
       {"Choose an engine": "user-guide/models/choose-engine.md"},
       {"Ollama": "user-guide/models/ollama.md"},
       {"vLLM": "user-guide/models/vllm.md"},
-      {"FreeToken": "user-guide/models/freetoken.md"},
       {"Realtime": "user-guide/models/realtime.md"},
       {"External providers": "user-guide/models/external.md"},
       {"Model lifecycle": "user-guide/models/manage.md"}
@@ -57,7 +56,6 @@
       {"Start here": "administration/troubleshooting/overview.md"},
       {"Models": "administration/troubleshooting/models.md"},
       {"GPU runtimes": "administration/troubleshooting/gpus.md"},
-      {"FreeToken": "administration/troubleshooting/freetoken.md"},
       {"Realtime": "administration/troubleshooting/realtime.md"},
       {"CPU offloading": "administration/troubleshooting/offloading.md"},
       {"Host and Flux": "administration/troubleshooting/platform.md"},
@@ -83,6 +81,7 @@
   ]},
   {"Reference": [
     {"Overview": "reference/README.md"},
+    {"Retired engines": "reference/retired-engines.md"},
     {"Compatibility": "reference/compatibility.md"},
     {"Configuration": "reference/configuration.md"},
     {"Kubernetes resources": "reference/kubernetes-resources.md"},
@@ -92,7 +91,6 @@
       {"Configuration and API": "reference/model-controls.md"},
       {"Lifecycle": "reference/model-lifecycle.md"},
       {"vLLM and Ollama": "reference/kubeai-models.md"},
-      {"FreeToken": "reference/freetoken.md"},
       {"Realtime": "reference/realtime.md"},
       {"External providers": "reference/external-models.md"},
       {"Compute targets": "reference/compute-targets.md"},

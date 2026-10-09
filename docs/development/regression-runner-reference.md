@@ -350,7 +350,7 @@ particular consent is missing, is scoped to the phase/operation, and is labelled
 as a proposal-only command to run after review. The same measures are saved in
 `readiness.txt` and structured `plan.json`; none is executed automatically.
 The mixed-GPU blocker distinguishes missing hardware/selection, sharing consent,
-fixtures, FreeToken telemetry and unsupported/over-capacity memory settings.
+fixtures and unsupported/over-capacity memory settings.
 Private inventories contain no raw
 API responses, user lists, license documents, invitations, cookies or Secrets.
 Accepted files are never overwritten by discovery alone.
@@ -377,7 +377,7 @@ Use the printed reasons rather than granting every scope at once:
 
 | Phase | Measures for complete live prerequisites |
 |---|---|
-| 3, 4; also GPU-dependent 6–8 | Use a Ready managed node with one AMD and one NVIDIA GPU, advertised Ollama/vLLM/FreeToken fixtures and current physical VRAM/system-RAM telemetry. Review the GPU proposal and approve sharing transitions with `prepare --phases 3-4 --approve gpu` only if allowed. Approval alone cannot repair missing metrics, insufficient memory or unsupported hardware. |
+| 3, 4; also GPU-dependent 6–8 | Use a Ready managed node with one AMD and one NVIDIA GPU, advertised Ollama/vLLM fixtures and current physical VRAM/system-RAM telemetry. Review the GPU proposal and approve sharing transitions with `prepare --phases 3-4 --approve gpu` only if allowed. Approval alone cannot repair missing metrics, insufficient memory or unsupported hardware. |
 | 5: applications/modules | Answer ordinary setup's five actual UI adapter questions; select an advertised disabled non-critical optional module and alternate AMD profile. Approved setup prepares/verifies the disabled intent and creates the separate app cleaner. Actual application controls still need review. |
 | 5: users/Kubernetes | Approve disposable users/grants and the verified architecture-specific Linux plugin download, or select a reviewed binary. The wizard saves its checksum and the private typed configuration. |
 | 5: licenses/API restart | Approve generated test issuer/local public trust, document-only no-file baseline, replacement and separate API restart. Scoped credentials and signed rejection files are created automatically. First activation retention remains a separate answer. |
@@ -434,13 +434,12 @@ bash tools/regression.sh prepare --phases 3-5 --approve gpu,identity,kubernetes
 
 | Scope | Future test operation it approves |
 |---|---|
-| `gpu` | Managed AMD/NVIDIA sharing transitions; matching devices and current FreeToken telemetry are still required |
+| `gpu` | Managed AMD/NVIDIA sharing transitions; matching devices and current memory telemetry are still required |
 | `identity`, `kubernetes` | Disposable actors and grants to those actors |
 | `modules`, `amd-profile` | Previously reviewed disabled optional module / advertised alternate AMD profile |
 | `license`, `api-restart`, `first-license` | License replacement, separate API-Pod restart, or retention after first activation; independently selected |
 | `federation` | Previously supplied controlled test IdP/provider fixtures |
 | `mesh`, `realtime` | Previously supplied second-appliance / exclusive-and-shared runtime fixtures and transitions |
-| `cache` | FreeToken cache test on owned inactive test data |
 
 These flags generate consent in a proposal; they do **not** execute the operation.
 Unknown scopes and blanket `all` approval are rejected. If prerequisites are
@@ -654,7 +653,7 @@ is not evidence that these external conditions or their outcomes exist.
 `mesh` needs **two distinct, pinned and leased appliances**, Mesh installed but
 no existing membership, shared verified CA trust and reachable enrollment origin.
 A one-node simulation is not remote inference. Tests join through UI, reject
-revoked/reused invites, export CPU/Ollama, NVIDIA/vLLM and FreeToken one at a time,
+revoked/reused invites, export CPU/Ollama, NVIDIA/vLLM one at a time,
 infer remotely without a second model Pod, change limits/relay, revoke/unshare
 and clean only owned membership and models.
 
@@ -746,10 +745,9 @@ updated suite remains the lab owner's next step.
 
 ## Experimental engine test scope
 
-The current repository policy excludes FreeToken-specific regression cases;
-this does not disable the product engine or its builds. The policy is defined in
-`dashboard/apps/web/regression/core/lab-policy.ts`, shared by preparation,
-selection and reporting. Historical FreeToken case definitions remain readable.
+FreeToken has been removed from the product and active regression profiles.
+The retired IDs remain documented for historical report interpretation; removal
+and legacy-model cleanup are covered by the owning lifecycle suites.
 
 For a bounded check of only the two classic vLLM GPU lifecycles:
 

@@ -33,7 +33,7 @@ ROLES = {"magic-stick", "client"}
 NAME = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\Z")
 MODEL = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}\Z")
 ENDPOINT = re.compile(r"[a-f0-9]{64}\Z")
-LOCAL_ENGINES = {"kubeai": {"VLLM", "OLLAMA"}, "freetoken": {"FREETOKEN"}}
+LOCAL_ENGINES = {"kubeai": {"VLLM", "OLLAMA"}}
 
 
 def ready_local_model(model):

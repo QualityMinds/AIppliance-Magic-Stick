@@ -57,7 +57,6 @@ Mirroring, preloading or distributing a USB/appliance changes that assessment.
 | Ollama 0.33.2 | [MIT](https://github.com/ollama/ollama/blob/v0.33.2/LICENSE) | Separate model runtime / referenced | Keep project notices and audit GPU/native dependencies and each model's terms. MIT engine terms do not license model weights or drivers. |
 | vLLM 0.23.0 / 0.26.0 / 0.29.0 | [Apache-2.0 project license](https://github.com/vllm-project/vllm/blob/v0.23.0/LICENSE); exact tags in manifests | Separate model runtimes / referenced | Inspect each CUDA/ROCm/XPU image, license/NOTICE, source modifications and model licenses. No blanket approval of all image contents. |
 | vLLM-Omni pinned `f3f8ebfc…` | Apache-2.0 project license, pinned source/hash-guarded repair | CUDA image referenced; ROCm recipe and runtime source repair | Preserve upstream notices and identify modifications. FFmpeg, espeak-ng, TorchCodec, Pycairo and native libraries require exact build/codec/linkage review. Pycairo 1.28.0 is LGPL-2.1-only OR MPL-1.1. |
-| FreeToken 0.1.3 | [Apache-2.0](https://github.com/FlashML-org/FreeToken/blob/v0.1.3/LICENSE) | Custom GPU runtime image / yes | Include upstream license and BSL adapter notice. Review resolved Python/native/CUDA dependencies, EULA redistribution list and final SBOM before publishing. |
 | Keycloak 26.6.3 | [Apache-2.0](https://github.com/keycloak/keycloak/blob/26.6.3/LICENSE.txt) | Separate identity service / referenced | Retain notices. Magic Stick's Federation entitlement does not change Keycloak's license. Audit image dependencies. |
 | Kubernetes/K3s/containerd/Flux/Envoy and charts | Project Apache-2.0, package-specific transitive terms | Separate infrastructure / referenced and installed | Preserve exact chart/source/license versions and notices. Audit shipped binaries/images, not only project headings. |
 | NVIDIA/AMD/Intel operators | Operator project terms, exact versions in `THIRD_PARTY_NOTICES.md` | Separate controllers and drivers / referenced | An open-source operator does not grant redistribution rights for proprietary drivers, firmware or CUDA. Inspect vendor EULAs and each installed package. |
@@ -143,7 +142,7 @@ The jobs perform:
 1. Source/SPDX/entitlement/release-record checks, frozen dependency inventory,
    original npm notice comparison, and immutable kdns evidence verification.
 2. SPDX, CycloneDX and Syft JSON inventories of the source tree and the pinned
-   kdns, AMD DRA, Paperclip operator, MeshLLM, openai-endpoint and FreeToken
+   kdns, AMD DRA, Paperclip operator, MeshLLM and openai-endpoint
    upstream trees. Upstream code is scanned, not executed. Registry enrichment
    uses the resolved package versions; it does not supply distribution approval.
 3. Fresh API, Web and CLI container builds and final-image inventories on

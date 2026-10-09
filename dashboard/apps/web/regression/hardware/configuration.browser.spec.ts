@@ -1,14 +1,37 @@
 import {test,expect,type Page,type Request} from '@playwright/test';
-import {freeTokenRegressionEnabled} from '../core/engine-policy.ts';
 import type {ModelsPayload,GpuSharingState,HardwareGpuDevice} from '@magicstick/dashboard-contracts';
 import {fixturePage,origin} from '../fixtures/dashboard.ts';
 import {evidenceAnnotations} from '../core/evidence.ts';
-import {installedReadyUi,freeTokenForm} from './live-ui.ts';
-import type {GpuScenario} from '../core/gpu-scenario.ts';
-import type {GpuModelFixture} from '../core/config.ts';
+import {installedReadyUi} from './live-ui.ts';
 import {fourNvidiaCards,fourNvidiaCardsWithMixedTelemetry,heterogeneousNvidiaCards,nvidiaSelection} from '../fixtures/nvidia-cards.ts';
 
 const phase = process.env.REGRESSION_MODE === 'phase4-fixtures' ? 4 : 3;
+if (phase === 3) for (const viewport of ['desktop', 'mobile'] as const)
+test(`ENG-01 ${viewport} offers supported engines and retains cleanup for a retired model`, evidenceAnnotations(
+  {id: 'ENG-01', variant: 'p3-engine-selection', layer: 'B'}), async ({page}, info) => {
+  await page.setViewportSize(viewport === 'mobile' ? {width:390,height:844} : {width:1440,height:1000});
+  const data = fourNvidiaCards();
+  data.activations = [{metadata:{name:'retired-model',uid:'retired-model-uid',generation:1,resourceVersion:'1'},
+    spec:{type:'local',enabled:false,local:{engine:'FreeToken',computeTarget:'nvidia-gpu'}},status:{phase:'Disabled'}}];
+  await fixturePage(page, {'/api/models':data, '/api/model-discovery/popular':{results:[]}});
+  await page.goto(origin+'/#/models');
+  await expect(page.getByText('This engine is no longer supported.', {exact:false})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Start retired-model'})).toBeDisabled();
+  await expect(page.getByRole('button',{name:'Edit retired-model'})).toBeDisabled();
+  await expect(page.getByRole('button',{name:'Restart retired-model'})).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'Remove',exact:true})).toBeEnabled();
+  await page.getByRole('button',{name:'Create',exact:true}).click();
+  const engine = page.getByLabel('Inference Engine');
+  await expect(engine.locator('option')).toHaveText(['OLlama','VLLM']);
+  for (const value of ['OLlama','VLLM']) {
+    await engine.selectOption(value);
+    await expect(page.getByLabel('KV Cache')).toBeVisible();
+  }
+  await engine.focus();
+  await page.screenshot({path:info.outputPath(`engine-selection-${viewport}.png`),fullPage:true});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
 for (const viewport of ['desktop','mobile'] as const) for (const engine of ['VLLM','OLlama'] as const) for (const different of [false,true])
 test(`MGPU-02 ${engine} ${different?'different':'identical'} cards ${viewport} browser creates copies then edits mode and reads individual logs`, evidenceAnnotations(
   {id:'MGPU-02',variant:`p${phase}-replicated-config`,layer:'B'}), async ({page}, info) => {
@@ -170,31 +193,7 @@ if (phase === 3) {
       await expect(card.locator('[data-reading="free"]')).toContainText('47 GiB');
     }
   });
-  if(freeTokenRegressionEnabled)test('FT-02 FT-05 FT-06 browser uses separate node VRAM samples and clamps numeric budgets to live capacity',evidenceAnnotations(
-    {id:'FT-02',variant:'p3-ft-telemetry',layer:'B'},{id:'FT-05',variant:'p3-ft-vram',layer:'B'},
-    {id:'FT-06',variant:'p3-ft-ram',layer:'B'}),async({page})=>{
-    const data=models();data.computeTargets.targets.push({id:'nvidia-gpu',kind:'gpu',displayName:'NVIDIA GPU',
-      engines:['OLlama','VLLM','FreeToken'],available:true,slots:{total:1,free:1,used:0,scope:'node'}});
-    data.computeTargets.freeTokenCapabilities={available:true,supportedVendors:['nvidia'],defaultMemoryRatio:0.9,
-      minimumGpuMemoryMi:256,minimumSystemMemoryMi:256,memoryStrategies:['auto'],advanced:{cacheType:['radix']},
-      devices:[{id:'node:fixture-node',node:'fixture-node',supported:true,gpuCount:1,maxGpuCount:1,
-        systemMemoryMi:125629,systemAvailableMi:116746}]};
-    data.computeMemory!.devices!.push({id:'nvidia-physical',kind:'gpu',vendor:'nvidia',name:'NVIDIA Fixture GPU',
-      computeTarget:'nvidia-gpu',nodes:['fixture-node'],totalMi:48540,unreservedMi:42000,freeMi:41000,metricsAvailable:true,
-      freeToken:{id:'node:fixture-node',supported:true}});
-    const writes:unknown[]=[];
-    await fixturePage(page,{'/api/models':data,'/api/models/local':(request:Request)=>{writes.push(request.postDataJSON());return {};}});
-    const scenario={config:{gpu:{nodeName:'fixture-node'}},live:{api:{models:async()=>data}},
-      openModels:async()=>{await page.goto(origin+'/#/models');}} as unknown as GpuScenario;
-    const fixture:GpuModelFixture={engine:'FreeToken',computeTarget:'nvidia-gpu',url:'hf://fixture/supported',
-      memoryRequiredMi:32768,contextWindow:1024,maxNumSeqs:1,freetoken:{gpuDevice:'node:fixture-node',gpuCount:1,
-        memoryStrategy:'auto',gpuMemoryMi:24576,systemMemoryMi:32768,advanced:{cacheType:'radix'}}};
-    const dialog=await freeTokenForm(scenario,page,fixture);
-    await expect(dialog.getByRole('slider',{name:'FreeToken GPU memory'})).toHaveAttribute('max','41000');
-    await expect(dialog.getByRole('slider',{name:'FreeToken system RAM'})).toHaveAttribute('max','116746');
-    await expect(dialog.getByRole('button',{name:'Add Local Model'})).toBeEnabled();expect(writes).toEqual([]);
-    await dialog.getByRole('button',{name:'Cancel'}).click();
-  });
+
   test('HAR-10 browser runtime wait follows polling and disambiguates duplicate Ready labels',async({page})=>{
     await page.clock.install();let ready=false;
     await fixturePage(page,{'/api/models':()=>{

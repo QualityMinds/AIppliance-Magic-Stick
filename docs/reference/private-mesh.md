@@ -15,7 +15,7 @@ router deployment. It strips client priorities. Local vLLM requests get priority
 is not a GPU partition or an unconditional preemption/latency guarantee.
 Existing already-running model pods need a normal controlled rollout to acquire
 the new scheduler argument. Do not claim priority enforcement on old pods.
-Ollama and FreeToken aliases never receive vLLM's `priority` parameter. They
+Ollama aliases never receive vLLM's `priority` parameter. They
 retain the same remote concurrency/rate limits, but do not promise a lower
 engine-internal queue priority. Logical local-first routing and remote fallback
 work for catalog-managed local routes of all three engines.

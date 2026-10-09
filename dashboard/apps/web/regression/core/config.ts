@@ -1,8 +1,7 @@
 import {isAbsolute, resolve} from 'node:path';
 import {readPrivate} from './private-files.ts';
 import {HarnessError, requireSafe} from './errors.ts';
-import type {FreeTokenConfiguration,RealtimeConfiguration,NvidiaGpuSelection,VllmConfiguration} from '@magicstick/dashboard-contracts';
-import {freeTokenRegressionEnabled} from './engine-policy.ts';
+import type {RealtimeConfiguration,NvidiaGpuSelection,VllmConfiguration} from '@magicstick/dashboard-contracts';
 
 export interface LocalModelFixture {
   engine: 'OLlama' | 'VLLM';
@@ -17,14 +16,13 @@ export interface LocalModelFixture {
 
 /** Explicit, bounded GPU fixtures. Never inherited by CPU smoke profiles. */
 export interface GpuModelFixture {
-  engine: 'OLlama' | 'VLLM' | 'FreeToken';
+  engine: 'OLlama' | 'VLLM';
   computeTarget: 'amd-gpu' | 'nvidia-gpu';
   url: string;
   memoryRequiredMi: number;
   contextWindow: number;
   maxNumSeqs: 1;
   kvCacheType?: string;
-  freetoken?: FreeTokenConfiguration;
   realtime?: RealtimeConfiguration;
   /** Derived from current DRA inventory by the registered-lab multi-GPU case. */
   gpuDevices?: NvidiaGpuSelection[];
@@ -42,7 +40,7 @@ export interface GpuLabProfile {
   selection?:'available-providers';
   devices: {amd?: {id: string; pciAddress: string}; nvidia?: {id: string; pciAddress: string}};
   models: {amdOllama?: GpuModelFixture; amdVllm?: GpuModelFixture;
-    nvidiaOllama?: GpuModelFixture; nvidiaVllm?: GpuModelFixture; freetoken?: GpuModelFixture};
+    nvidiaOllama?: GpuModelFixture; nvidiaVllm?: GpuModelFixture};
   sharedSlots: 2;
 }
 
@@ -211,35 +209,23 @@ export function parseLabConfig(value: unknown, directory: string): LabConfig {
     requireSafe(selection.acknowledgeSharingTransitions === true && selection.sharedSlots === 2 &&
       (available ? Object.keys(selection).sort().join(',') === 'acknowledgeSharingTransitions,bootId,devices,models,nodeName,nodeUid,selection,sharedSlots' &&
         Object.keys(devices).length > 0 && Object.keys(devices).every(key=>['amd','nvidia'].includes(key)) &&
-        Object.keys(models).every(key=>['amdOllama','amdVllm','freetoken','nvidiaOllama','nvidiaVllm'].includes(key)) :
+        Object.keys(models).every(key=>['amdOllama','amdVllm','nvidiaOllama','nvidiaVllm'].includes(key)) :
       Object.keys(selection).sort().join(',') === 'acknowledgeSharingTransitions,bootId,devices,models,nodeName,nodeUid,sharedSlots' &&
       Object.keys(devices).sort().join(',') === 'amd,nvidia' &&
-      Object.keys(models).filter(key=>freeTokenRegressionEnabled || key !== 'freetoken').sort().join(',') ===
-        ['amdOllama','amdVllm',...(freeTokenRegressionEnabled ? ['freetoken'] : []),'nvidiaOllama','nvidiaVllm'].join(',')), 'CONFIG');
+      Object.keys(models).sort().join(',') ===
+        ['amdOllama','amdVllm','nvidiaOllama','nvidiaVllm'].join(',')), 'CONFIG');
     const device = (value: unknown) => {const d = object(value);requireSafe(Object.keys(d).sort().join(',') === 'id,pciAddress','CONFIG'); return {id: text(d.id, /^[a-zA-Z0-9._:/-]{1,255}$/),
-      pciAddress: text(d.pciAddress, /^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$/)};};
+      pciAddress: text(d.pciAddress, /^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$/)}};
     const gpuModel = (value: unknown, engine: GpuModelFixture['engine'], target: GpuModelFixture['computeTarget']): GpuModelFixture => {
       const m = object(value);
       requireSafe(m.engine === engine && m.computeTarget === target && m.maxNumSeqs === 1 &&
         Number.isSafeInteger(m.contextWindow) && Number(m.contextWindow) >= 256 && Number(m.contextWindow) <= 4096 &&
         Number.isSafeInteger(m.memoryRequiredMi) && Number(m.memoryRequiredMi) >= 1024 && Number(m.memoryRequiredMi) <= 32768 &&
-        Object.keys(m).every(key => ['engine','computeTarget','url','contextWindow','maxNumSeqs','memoryRequiredMi','kvCacheType','freetoken'].includes(key)), 'CONFIG');
+        Object.keys(m).every(key => ['engine','computeTarget','url','contextWindow','maxNumSeqs','memoryRequiredMi','kvCacheType'].includes(key)), 'CONFIG');
       const url = text(m.url, engine === 'OLlama' ? /^ollama:\/\/[a-zA-Z0-9._:/+-]{1,200}$/ : /^hf:\/\/[a-zA-Z0-9._/+-]{3,200}$/);
-      let freetoken: FreeTokenConfiguration | undefined;
-      if (engine === 'FreeToken') {
-        const f = object(m.freetoken);
-        requireSafe(target === 'nvidia-gpu' && m.kvCacheType === undefined && f.gpuCount === 1 &&
-          f.gpuDevice === `node:${selection.nodeName}` && f.memoryStrategy === 'auto' &&
-          Number.isSafeInteger(f.gpuMemoryMi) && Number(f.gpuMemoryMi) >= 1024 && Number(f.gpuMemoryMi) <= 32768 &&
-          Number.isSafeInteger(f.systemMemoryMi) && Number(f.systemMemoryMi) >= 4096 && Number(f.systemMemoryMi) <= 32768 &&
-          Number(m.memoryRequiredMi) === f.systemMemoryMi && Object.keys(object(f.advanced)).every(key => key === 'cacheType') &&
-          (object(f.advanced).cacheType === undefined || ['radix','naive'].includes(String(object(f.advanced).cacheType))) &&
-          Object.keys(f).sort().join(',') === 'advanced,gpuCount,gpuDevice,gpuMemoryMi,memoryStrategy,systemMemoryMi', 'CONFIG');
-        freetoken = {gpuDevice: String(f.gpuDevice), gpuCount:1, gpuMemoryMi:Number(f.gpuMemoryMi),
-          systemMemoryMi:Number(f.systemMemoryMi), memoryStrategy:'auto', advanced:structuredClone(f.advanced) as FreeTokenConfiguration['advanced']};
-      } else requireSafe(m.freetoken === undefined && ['f16','q8_0','auto','fp8'].includes(String(m.kvCacheType)), 'CONFIG');
+      requireSafe(['f16','q8_0','auto','fp8'].includes(String(m.kvCacheType)), 'CONFIG');
       return {engine,computeTarget:target,url,contextWindow:Number(m.contextWindow),maxNumSeqs:1,memoryRequiredMi:Number(m.memoryRequiredMi),
-        ...(freetoken ? {freetoken} : {kvCacheType:String(m.kvCacheType)})};
+        kvCacheType:String(m.kvCacheType)};
     };
     gpu = {acknowledgeSharingTransitions:true,nodeName:text(selection.nodeName),nodeUid:text(selection.nodeUid),bootId:text(selection.bootId),
       ...(available ? {selection:'available-providers' as const} : {}),
@@ -247,10 +233,10 @@ export function parseLabConfig(value: unknown, directory: string): LabConfig {
       models:{...(models.amdOllama ? {amdOllama:gpuModel(models.amdOllama,'OLlama','amd-gpu')} : {}),
         ...(models.amdVllm ? {amdVllm:gpuModel(models.amdVllm,'VLLM','amd-gpu')} : {}),
         ...(models.nvidiaOllama ? {nvidiaOllama:gpuModel(models.nvidiaOllama,'OLlama','nvidia-gpu')} : {}),
-        ...(models.nvidiaVllm ? {nvidiaVllm:gpuModel(models.nvidiaVllm,'VLLM','nvidia-gpu')} : {}),
-        ...(models.freetoken ? {freetoken:gpuModel(models.freetoken,'FreeToken','nvidia-gpu')} : {})}};
+        ...(models.nvidiaVllm ? {nvidiaVllm:gpuModel(models.nvidiaVllm,'VLLM','nvidia-gpu')} : {})}};
+
     requireSafe((!models.amdOllama && !models.amdVllm || devices.amd) &&
-      (!models.nvidiaOllama && !models.nvidiaVllm && !models.freetoken || devices.nvidia),'CONFIG');
+      (!models.nvidiaOllama && !models.nvidiaVllm || devices.nvidia),'CONFIG');
     requireSafe(nodes.some(node => node.name === gpu!.nodeName && node.uid === gpu!.nodeUid && node.bootId === gpu!.bootId), 'CONFIG');
   }
   return {version: 1, profile: 'preflight', dashboardUrl: hostname(source.dashboardUrl), identityUrl: hostname(source.identityUrl),

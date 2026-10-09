@@ -14,12 +14,7 @@
       "amdOllama": {"engine": "OLlama", "computeTarget": "amd-gpu", "url": "ollama://qwen2.5:0.5b-instruct-q4_K_M", "memoryRequiredMi": 8200, "contextWindow": 1024, "maxNumSeqs": 1, "kvCacheType": "q8_0"},
       "amdVllm": {"engine": "VLLM", "computeTarget": "amd-gpu", "url": "hf://CHANGEME/SMALL-COMPATIBLE-MODEL", "memoryRequiredMi": 8200, "contextWindow": 1024, "maxNumSeqs": 1, "kvCacheType": "fp8"},
       "nvidiaOllama": {"engine": "OLlama", "computeTarget": "nvidia-gpu", "url": "ollama://qwen2.5:0.5b-instruct-q4_K_M", "memoryRequiredMi": 8200, "contextWindow": 1024, "maxNumSeqs": 1, "kvCacheType": "q8_0"},
-      "nvidiaVllm": {"engine": "VLLM", "computeTarget": "nvidia-gpu", "url": "hf://CHANGEME/SMALL-COMPATIBLE-MODEL", "memoryRequiredMi": 8200, "contextWindow": 1024, "maxNumSeqs": 1, "kvCacheType": "fp8"},
-      "freetoken": {
-        "engine": "FreeToken", "computeTarget": "nvidia-gpu", "url": "hf://Qwen/Qwen3-VL-8B-Instruct",
-        "memoryRequiredMi": 32768, "contextWindow": 1024, "maxNumSeqs": 1,
-        "freetoken": {"gpuDevice": "node:CHANGEME", "gpuCount": 1, "gpuMemoryMi": 24576, "systemMemoryMi": 32768, "memoryStrategy": "auto", "advanced": {"cacheType": "radix"}}
-      }
+      "nvidiaVllm": {"engine": "VLLM", "computeTarget": "nvidia-gpu", "url": "hf://CHANGEME/SMALL-COMPATIBLE-MODEL", "memoryRequiredMi": 8200, "contextWindow": 1024, "maxNumSeqs": 1, "kvCacheType": "fp8"}
     }
   }
 }

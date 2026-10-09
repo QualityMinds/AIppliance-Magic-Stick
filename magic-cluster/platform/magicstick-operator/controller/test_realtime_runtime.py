@@ -14,7 +14,56 @@ from unittest.mock import Mock, patch
 import yaml
 
 from test_controller import CLUSTER_ROOT, ROOT, load_controller
-from test_freetoken_runtime import nvidia_node
+
+
+
+def nvidia_node(
+    *,
+    name="nvidia-node",
+    gpu_count="1",
+    replicas=None,
+    driver="580.12",
+    compute_major="8",
+    compute_minor="9",
+    gpu_memory_mi=24576,
+    system_memory="65536Mi",
+    device_ids=None,
+    device_names=None,
+    extra_labels=None,
+):
+    count = int(gpu_count)
+    labels = {
+        "kubernetes.io/os": "linux",
+        "kubernetes.io/arch": "amd64",
+        "nvidia.com/gpu.count": gpu_count,
+        "nvidia.com/gpu.compute.major": compute_major,
+        "nvidia.com/gpu.compute.minor": compute_minor,
+        "nvidia.com/mig.strategy": "none",
+        "nvidia.com/gpu.memory": str(gpu_memory_mi),
+    }
+    if replicas is not None:
+        labels["nvidia.com/gpu.replicas"] = str(replicas)
+    labels.update(extra_labels or {})
+    device_ids = device_ids or ["1eb8"] * count
+    device_names = device_names or ["NVIDIA RTX"] * count
+    devices = [
+        {
+            "vendorId": "10de", "deviceId": device_ids[index], "name": device_names[index],
+            "driverVersion": driver, "memoryTotalMi": gpu_memory_mi,
+        }
+        for index in range(count)
+    ]
+    return {
+        "metadata": {"name": name, "uid": name + "-uid", "labels": labels},
+        "status": {
+            "nodeInfo": {"architecture": "amd64"},
+            "conditions": [{"type": "Ready", "status": "True"}],
+            "allocatable": {"nvidia.com/gpu": gpu_count, "memory": system_memory},
+        },
+        "_gpu_host": {
+            "displayDevices": devices,
+        },
+    }
 
 
 def activation():
@@ -31,7 +80,7 @@ def amd_node():
         "kubernetes.io/os": "linux", "appliance.magicstick.dev/amd-gpu-eligible": "true"}},
         "status": {"nodeInfo": {"architecture": "amd64"}, "conditions": [{"type": "Ready", "status": "True"}],
                    "allocatable": {"memory": "120Gi", "amd.com/gpu": "1"}},
-        "_freetoken_host": {"profileId": "strix-halo", "detectedArchitecture": "gfx1151", "hostDriverReady": True,
+        "_gpu_host": {"profileId": "strix-halo", "detectedArchitecture": "gfx1151", "hostDriverReady": True,
                             "memoryArchitecture": "unified", "gpuAllocationMode": "shared-gtt",
                             "gpuCapacitySource": "kfd-topology", "gpuCapacityMi": 102400,
                             "gpuAccessibleMi": 102400, "firmwareReservedMi": 512,
@@ -55,7 +104,7 @@ class RealtimeRuntimeTests(unittest.TestCase):
     def resource(self, item=None, node=None, catalog=None):
         node = node or nvidia_node(gpu_count="2")
         with patch.dict(self.c, {"compute_target_nodes": lambda *_: [node],
-                                "gpu_host_preflight": lambda value: value["_freetoken_host"]}):
+                                "gpu_host_preflight": lambda value: value["_gpu_host"]}):
             return self.c["realtime_runtime_resources"](item or activation(), catalog or self.catalog)
 
     def test_immutable_image_and_explicit_cuda_device_binding(self):
@@ -201,7 +250,7 @@ class RealtimeRuntimeTests(unittest.TestCase):
     def test_runtime_not_magicstick_decides_chip_driver_and_inventory_compatibility(self):
         for node in (nvidia_node(driver="570.0"), nvidia_node(compute_major="7"),
                      nvidia_node(extra_labels={"nvidia.com/gpu.product": "NVIDIA-MIG-1g"}), nvidia_node()):
-            node["_freetoken_host"] = {}
+            node["_gpu_host"] = {}
             deployment, _, _ = self.resource(node=node)
             self.assertEqual(deployment["spec"]["template"]["spec"]["containers"][0]["resources"]["limits"]["nvidia.com/gpu"], "1")
         node = nvidia_node()
@@ -257,7 +306,8 @@ class RealtimeRuntimeTests(unittest.TestCase):
         self.assertEqual(required("local", "amd-gpu", "VLLM", realtime=True), ["amd-gpu", "litellm", "model-catalog"])
         self.assertIn("kubeai", required("local", "nvidia-gpu", "VLLM"))
         self.assertIn("kubeai", required("local", "nvidia-gpu", "OLlama"))
-        self.assertIn("freetoken", required("local", "nvidia-gpu", "FreeToken"))
+        with self.assertRaisesRegex(ValueError, "unsupported local.engine"):
+            required("local", "nvidia-gpu", "FreeToken")
 
     def rocm_catalog(self):
         catalog = copy.deepcopy(self.catalog)
@@ -287,7 +337,7 @@ class RealtimeRuntimeTests(unittest.TestCase):
 
     def test_generic_rocm_resources_do_not_require_strix_halo_inventory(self):
         node = amd_node()
-        node["_freetoken_host"] = {}
+        node["_gpu_host"] = {}
         node["metadata"]["labels"] = {"kubernetes.io/os": "linux"}
         node["status"]["allocatable"]["amd.com/gpu"] = "2"
         item = amd_activation()

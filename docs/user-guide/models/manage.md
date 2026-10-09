@@ -20,7 +20,7 @@ without a Magic Stick activation can be read-only.
 *Live test-appliance capture, 24 September 2026. This small, owner-authorized
 test model illustrates the controls; its parameters are not sizing recommendations.*
 
-The common **Start/Stop** workflow covers Ollama, vLLM, FreeToken, Realtime and
+The common **Start/Stop** workflow covers Ollama, vLLM, Realtime and
 external activations. For external models it changes local routing only.
 Restart controls depend on the engine; Stop followed by Start is the common
 reload workflow when no separate Restart action is offered.
@@ -70,7 +70,7 @@ No edits were saved for this capture.*
 
 Stop passes through removal while Pods and GPU allocations terminate. Memory and
 slots may not become free immediately. Start can download weights again, especially
-for temporary FreeToken caches. **Ready** means routable; test an inference request
+when replacing runtime Pods. **Ready** means routable; test an inference request
 before returning the model to users.
 
 If another administrator changed the model while you were editing, refresh the

@@ -5,8 +5,7 @@ optional `ModelActivation.spec.local.cpuResources` overrides. After memory and
 GPU-sharing resolution, the controller materializes a count-one KubeAI profile
 in the existing runtime-profile ConfigMap. Only CPU requests/limits change;
 RAM quantities, GPU resources, selectors and DRA bindings are preserved.
-This avoids multiplying CPU by CPU-model RAM units. FreeToken applies the
-resolved policy to its own Deployment. See the
+This avoids multiplying CPU by CPU-model RAM units. See the
 [CPU scheduling policy](../reference/compute-targets.md#cpu-scheduling-policy).
 
 The Magic Stick Operator is a meta-operator. It orchestrates platform modules

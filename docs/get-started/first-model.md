@@ -28,7 +28,7 @@ action are not available. The fields change with the selected engine.*
 For a local model, choose a compatible registry result/tag or a direct reference.
 Review the selected artifact, context length, concurrency and memory budget.
 For the first test, keep concurrency at one and choose a modest context rather
-than the model's largest advertised window. FreeToken has a separate memory form.
+than the model's largest advertised window.
 
 Create the model and wait for **Ready**. The first start may download large files.
 Use **Logs** on the model card to distinguish downloading, initialization and failure.

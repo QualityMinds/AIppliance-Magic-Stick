@@ -53,8 +53,8 @@ The CRD is namespaced, with plural `appliances` and short names `msapp` and
 The default public install uses the GPU-neutral profile `ai-workstation` and
 `spec.source.name: flux-system` because readonly-public mode creates that Git
 source. It seeds LiteLLM and the model catalog for external providers. KubeAI
-is requested for ordinary vLLM/Ollama `ModelActivation` resources. FreeToken
-and Realtime use direct Deployments instead. An
+is requested for ordinary vLLM/Ollama `ModelActivation` resources. Realtime uses
+direct Deployments instead. An
 accelerator-backed model additionally depends on the matching NVIDIA, AMD, or
 Intel module. Independently, the shared NFD module is static and vendor
 operator activations are created when their hardware is detected.
@@ -100,7 +100,7 @@ contains `nodeName`, `nodeUid` and `uuid` (a whole `GPU-…` UUID). Create/Edit 
 that identity; the API rejects missing/full/unready cards and the controller
 fails closed if the backend or selected hardware changes. The nullable Edit
 field explicitly clears a DRA selection when returning to automatic
-device-plugin placement. CPU, AMD, FreeToken and Realtime do not accept this
+device-plugin placement. CPU, AMD, Realtime do not accept this
 NVIDIA exact-card contract. Existing settings without it remain compatible.
 
 `local.gpuDeployment` selects `single`, `split` or `replicated`. If omitted,
@@ -494,21 +494,6 @@ edit API accepts `local: {vllm: {visionAttention: "auto"}}` (or a manual value).
 The controller applies the same catalog validation to direct CR requests.
 See [vision attention deployment](compute-targets.md#vllm-vision-attention-deployment)
 for exact CLI/environment mappings and runtime requirements.
-
-### FreeToken deployment fields
-
-`spec.local.engine: FreeToken` selects the dedicated runtime. Settings live only
-under `spec.local.freetoken`; vLLM/Ollama offloading and KV-cache controls do not
-apply. `gpuDevice` selects the node inventory entry, `gpuCount` requests whole
-NVIDIA devices, and `gpuMemoryMi` is an aggregate planned VRAM budget.
-`systemMemoryMi` is the Pod RAM request and limit, not a native FreeToken flag.
-`memoryStrategy` accepts the catalog's bounded choices and defaults to `auto`.
-
-Context and concurrency remain `local.contextWindow` and `local.maxNumSeqs`.
-Optional `advanced` values and `restartNonce` are defined in the
-[ModelActivation schema](../../magic-cluster/platform/magicstick-operator/crds/modelactivations.appliance.magicstick.dev.yaml).
-API/controller capability checks remain stricter than the structural schema.
-See [FreeToken runtime mapping](freetoken.md) for exact flags and limitations.
 
 ### Realtime profile fields
 

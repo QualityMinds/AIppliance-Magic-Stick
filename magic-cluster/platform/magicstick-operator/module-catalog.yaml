@@ -270,20 +270,6 @@ data:
           "default": false,
           "uninstallPolicy": "keep-data"
         },
-        "freetoken": {
-          "displayName": "FreeToken",
-          "description": "Pinned FreeToken v0.1.3 NVIDIA runtime for supported whole-GPU local models, including same-node tensor parallelism.",
-          "group": "runtime",
-          "activationMode": "moduleactivation",
-          "activationPolicy": "local-model",
-          "order": 45,
-          "path": "magic-cluster/platform/ai/freetoken",
-          "kustomizationName": "platform-freetoken",
-          "requires": ["basis"],
-          "requiredCrds": [],
-          "default": false,
-          "uninstallPolicy": "keep-data"
-        },
         "kubeopencode": {
           "displayName": "KubeOpenCode",
           "group": "apps",

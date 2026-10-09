@@ -170,11 +170,9 @@ class MeshTests(unittest.TestCase):
         self.assertEqual(self.a.exportModels(), {})
 
     def test_every_engine_shares_existing_backend_with_engine_specific_priority(self):
-        for engine, source in [('VLLM', 'kubeai'), ('OLLAMA', 'kubeai'), ('FREETOKEN', 'freetoken')]:
+        for engine, source in [('VLLM', 'kubeai'), ('OLLAMA', 'kubeai')]:
             with self.subTest(engine=engine):
                 backend = {'uid': 'fixture-' + engine, 'source': source, 'engine': engine, 'ready': True}
-                if source == 'freetoken':
-                    backend['apiBase'] = 'http://freetoken.ai.svc.cluster.local:8000/v1'
                 self.inventory['qwen'] = backend
                 self.a.shareModel('qwen', {'enabled': True})
                 sync, provider = self.synchronizer(self.a, [])
@@ -389,9 +387,9 @@ class MeshTests(unittest.TestCase):
         self.assertEqual(len([m for m in provider.models if m["model_name"] == "qwen"]), 1)
         self.assertTrue(any(m["model_name"] == "mesh/stick-a/qwen" for m in provider.models))
 
-    def test_logical_fallback_also_supports_ollama_and_freetoken_catalog_routes(self):
+    def test_logical_fallback_supports_ollama_catalog_routes(self):
         self.join(self.b)
-        for source in ['kubeai', 'freetoken']:
+        for source in ['kubeai']:
             with self.subTest(source=source):
                 sync, provider = self.synchronizer(self.b, ['share/stick-a/qwen'])
                 local = {'model_name': 'qwen', 'model_info': {'id': 'catalog-local', 'ai_appliance_managed': True,

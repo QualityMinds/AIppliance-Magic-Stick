@@ -83,7 +83,7 @@ spec:
                       default: ai-system
                 local:
                   type: object
-                  description: Local model settings for vLLM, Ollama, or FreeToken. FreeToken uses its own runtime adapter and nested configuration.
+                  description: Local model settings for vLLM and Ollama, including the vLLM-Omni Realtime profile.
                   x-kubernetes-preserve-unknown-fields: true
                   x-kubernetes-validations:
                     - rule: "!has(self.vllm) || (has(self.engine) && self.engine == 'VLLM')"
@@ -118,7 +118,6 @@ spec:
                       enum:
                         - VLLM
                         - OLlama
-                        - FreeToken
                     computeTarget:
                       type: string
                       description: Logical compute backend. Missing values on legacy resources are interpreted as nvidia-gpu.
@@ -292,60 +291,6 @@ spec:
                           type: string
                           enum: [auto, tensor, pipeline]
                           description: Ordinary NVIDIA DRA groups only. Auto selects tensor parallelism when model dimensions divide evenly, otherwise supported pipeline parallelism. Omitted means auto.
-                    freetoken:
-                      type: object
-                      description: Strictly engine-specific FreeToken v0.1.3 settings. These settings do not affect vLLM or Ollama runtimes.
-                      properties:
-                        gpuDevice:
-                          type: string
-                          description: Selected eligible NVIDIA GPU node inventory ID. FreeToken binds one or more whole NVIDIA GPUs on this one node.
-                        gpuCount:
-                          type: integer
-                          minimum: 1
-                          default: 1
-                          description: Number of whole NVIDIA GPUs requested on the selected node. FreeToken maps this directly to tensor parallelism; MIG and time-sliced GPU slots are not valid.
-                        gpuMemoryMi:
-                          type: integer
-                          minimum: 256
-                          description: Aggregate planned FreeToken VRAM budget in MiB across all requested GPUs. The runtime maps it conservatively per GPU to FreeToken memory-ratio against free VRAM at startup.
-                        systemMemoryMi:
-                          type: integer
-                          minimum: 256
-                          description: Kubernetes memory reservation and limit for the FreeToken Pod; FreeToken has no native total-host-RAM limit flag.
-                        memoryStrategy:
-                          type: string
-                          enum: [auto, fused, offload, cpu, hybrid]
-                          default: auto
-                        restartNonce:
-                          type: string
-                          description: Changes this value to request a Kubernetes rollout restart of the FreeToken runtime.
-                        advanced:
-                          type: object
-                          properties:
-                            cacheType:
-                              type: string
-                              enum: [radix, naive]
-                            kvReserveTokens:
-                              type: integer
-                              minimum: 1
-                            moeCacheSize:
-                              type: integer
-                              minimum: 0
-                            maxPrefillLength:
-                              type: integer
-                              minimum: 1
-                            cudaGraphMaxBatchSize:
-                              type: integer
-                              minimum: 1
-                            cpuThreads:
-                              type: integer
-                              minimum: 1
-                            expertLoad:
-                              type: string
-                              enum: [auto, serial, parallel]
-                            dtype:
-                              type: string
-                              enum: [auto, float16, bfloat16, float32]
                 external:
                   type: object
                   description: External LiteLLM provider model settings.
@@ -449,11 +394,6 @@ spec:
                   type: object
                   x-kubernetes-preserve-unknown-fields: true
                   description: Engine-reported usage, separate from reservations. Missing values mean unknown, not zero.
-                freeTokenStats:
-                  type: object
-                  nullable: true
-                  x-kubernetes-preserve-unknown-fields: true
-                  description: Normalized optional observations from the pinned FreeToken /v1/stats response. Values are not scheduler reservations or limits.
                 runtimeEndpoint:
                   type: string
                   description: Internal OpenAI-compatible endpoint published only after the local runtime is ready.
@@ -510,14 +450,6 @@ spec:
                       type: integer
                       minimum: 1
                       description: Number of whole GPUs reserved for this runtime on the selected node.
-                    tensorParallelSize:
-                      type: integer
-                      minimum: 1
-                      description: FreeToken tensor-parallel size; equals wholeGpuCount for a multi-GPU FreeToken runtime.
-                    vramMiPerDevice:
-                      type: integer
-                      minimum: 0
-                      description: FreeToken's conservative planned VRAM budget for each assigned GPU. vramRequiredMi remains the aggregate budget.
                   description: Requested GPU sharing assignment; readiness confirms the model pod started with this allocation. Sharing does not isolate GPU memory.
                 message:
                   type: string

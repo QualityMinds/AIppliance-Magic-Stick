@@ -11,7 +11,7 @@ bootstrap, runtime configuration, and optional advanced GitOps overlays.
 
 The dashboard changes the desired configuration; it does not forward inference
 requests or create Pods directly. The Magic Stick Operator manages ordinary
-Ollama/vLLM models through KubeAI and FreeToken/Realtime through direct workloads.
+Ollama/vLLM models through KubeAI and Realtime through direct workloads.
 The model catalog publishes ready local routes to LiteLLM, which handles requests
 from applications and API clients. Each engine retains its own hardware support.
 
@@ -81,7 +81,7 @@ The shared, lightweight NFD service is part of the static graph. Optional AI,
 vendor GPU, and instance resources are not. The Magic Stick Operator creates generated Flux
 `Kustomization` resources from `ModuleActivation`, runtime resources from
 `ModelActivation`, and Flux `HelmRelease` resources from `AppInstance` CRs. Ordinary
-vLLM/Ollama use KubeAI; FreeToken and Realtime use direct managed Deployments/Services.
+vLLM/Ollama use KubeAI; Realtime uses direct managed Deployments/Services.
 
 The first-run namespace and `ApplianceSetup` CRD are intentionally reconciled
 before and independently of Envoy Gateway. Host automation can therefore

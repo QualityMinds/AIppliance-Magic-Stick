@@ -5,6 +5,10 @@ search:
 
 # FreeToken integration review — 21 September 2026
 
+> 9 October 2026: FreeToken has been [removed](../../reference/retired-engines.md).
+> This dated report records the earlier integration only.
+
+
 This dated review preserves the implementation evidence recorded at that time.
 It is not a current hardware certification. Use the [current guide](../../user-guide/models/freetoken.md)
 and [catalog-derived compatibility](../../reference/compatibility.md) for today's configuration.
@@ -115,3 +119,10 @@ the controller rejects MIG/time-slicing and mixed cards, and the image adapter
 maps the assigned container-local devices to `--gpu 0,1,…` and the matching
 `--tensor-parallel-size`. Cross-node placement and synthetic GPU slots remain
 unsupported.
+
+## Archived UI capture — 24 September 2026
+
+[![Historical FreeToken memory form, removed from the current dashboard.](../../assets/screenshots/freetoken-memory.webp)](../../assets/screenshots/freetoken-memory.webp)
+
+*Unsubmitted test-appliance form captured on 24 September 2026. This archived
+image records the former engine; it is not a current configuration guide.*

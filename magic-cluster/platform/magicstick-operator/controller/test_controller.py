@@ -776,8 +776,12 @@ class HelmAppInstanceTests(unittest.TestCase):
             crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]
             ["properties"]["local"]
         )
-        self.assertEqual(local_schema["properties"]["engine"]["enum"], ["VLLM", "OLlama", "FreeToken"])
+        self.assertEqual(local_schema["properties"]["engine"]["enum"], ["VLLM", "OLlama"])
         self.assertEqual(local_schema["properties"]["artifact"]["type"], "string")
+        self.assertNotIn("freetoken", local_schema["properties"])
+        spec_fields = crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]["properties"]
+        self.assertTrue(spec_fields["external"]["x-kubernetes-preserve-unknown-fields"])
+        self.assertEqual(spec_fields["external"]["properties"]["capabilities"]["type"], "object")
         status_schema = (
             crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]
             ["status"]["properties"]
@@ -790,7 +794,7 @@ class HelmAppInstanceTests(unittest.TestCase):
         catalog = yaml.safe_load(manifest["data"]["targets.json"])
         self.assertEqual(catalog["schemaVersion"], 3)
         self.assertEqual(catalog["targets"]["cpu"]["engines"], ["VLLM", "OLlama"])
-        self.assertEqual(catalog["targets"]["nvidia-gpu"]["engines"], ["VLLM", "OLlama", "FreeToken"])
+        self.assertEqual(catalog["targets"]["nvidia-gpu"]["engines"], ["VLLM", "OLlama"])
         self.assertEqual(catalog["targets"]["amd-gpu"]["engines"], ["VLLM", "OLlama"])
         self.assertEqual(catalog["targets"]["intel-gpu"]["engines"], ["VLLM"])
 

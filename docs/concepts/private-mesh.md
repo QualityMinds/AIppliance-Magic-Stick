@@ -16,8 +16,7 @@ Dashboard → authenticated Dashboard API → MeshService
 ```
 
 The bridge's only inference upstream is LiteLLM. vLLM and Ollama use
-**Bridge → LiteLLM A → KubeAI → model runtime A**; FreeToken uses
-**Bridge → LiteLLM A → the operator-managed FreeToken Service**. The bridge
+**Bridge → LiteLLM A → KubeAI → model runtime A**. The bridge
 never connects directly to an inference engine. The module's
 NetworkPolicy permits LiteLLM but not direct model-runtime HTTP egress. A NetworkPolicy-
 enforcing CNI is required; Kubernetes administrator and host-root privileges are
@@ -37,9 +36,7 @@ multiple deployments under one public model name. Owned deployments use stable
 IDs and fingerprints; repeated syncs do not duplicate them or restart LiteLLM.
 
 Ready local `kubeai.org/Model` resources with an actual UID and engine VLLM or
-OLlama are eligible. FreeToken is discovered from enabled, Ready local
-`ModelActivation` resources with a UID and an operator-reported `/v1` Service
-endpoint inside their target namespace. No extra model instance is started.
+OLlama are eligible. No extra model instance is started.
 Deleting, stopping or losing readiness removes the active export; its saved
 sharing settings remain for the next start. Discovery failure clears the local
 allowlist instead of continuing to export stale backends. Conflicting local

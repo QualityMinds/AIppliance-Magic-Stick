@@ -9,7 +9,7 @@ recommended first installation or model-creation workflow.
 - [Dashboard API and authorization](dashboard-api.md)
 - [CLI and TUI](cli.md)
 - [Model configuration](model-controls.md), [lifecycle](model-lifecycle.md),
-  [FreeToken](freetoken.md), [Realtime](realtime.md) and [external models](external-models.md)
+  [Realtime](realtime.md) and [external models](external-models.md)
 - [GPU operators](gpu-operators.md), [compatibility contracts](gpu-compatibility.md)
   and [hardware controls](hardware-controls.md)
 - [Module catalog](module-catalog.md), [compute targets](compute-targets.md)

@@ -76,7 +76,7 @@ def architecture():
     d = Diagram('architecture', 1110, 'One platform, two paths',
                 'Configuration: the dashboard saves ModelActivation settings; the Magic Stick '
                 'Operator reconciles local runtimes through KubeAI for Ollama and ordinary vLLM, '
-                'or direct workloads for FreeToken and Realtime vLLM-Omni. Inference: applications '
+                'or direct workloads for Realtime vLLM-Omni. Inference: applications '
                 'and API clients call LiteLLM, which routes to the local runtime. The model catalog '
                 'publishes ready local routes. Each runtime uses its supported CPU or GPU target. '
                 'Authentication, module provisioning and external-provider routes are omitted.',
@@ -104,7 +104,7 @@ def architecture():
     d.rect(32, 665, 576, 203)
     d.text(56, 709, 'Local inference runtimes', size=26, weight=650)
     d.text(56, 758, ['Ollama / vLLM', 'KubeAI-managed'])
-    d.text(342, 758, ['FreeToken /', 'Realtime (Omni)', 'Direct workloads'])
+    d.text(342, 758, ['Realtime (Omni)', 'Direct workloads'])
     d.arrow([(320, 868), (320, 930)])
     d.rect(32, 930, 576, 112)
     d.text(320, 974, 'CPU or supported GPU', size=26, weight=650, anchor='middle')

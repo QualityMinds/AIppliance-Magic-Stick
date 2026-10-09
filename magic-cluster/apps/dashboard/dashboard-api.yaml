@@ -85,7 +85,7 @@ data:
     LOCAL_MODEL_EDIT_FIELDS = {
         "modelType", "contextWindow", "maxOutputTokens", "maxNumSeqs", "kvCacheType",
         "vram", "vramMi", "memoryRequiredMi", "cpuOffloading", "allowMemoryRisk",
-        "minReplicas", "maxReplicas", "freetoken", "cpuResources", "vllm", "realtime", "capabilities", "gpuDevice", "gpuDevices", "gpuDeployment",
+        "minReplicas", "maxReplicas", "cpuResources", "vllm", "realtime", "capabilities", "gpuDevice", "gpuDevices", "gpuDeployment",
     }
     EXTERNAL_MODEL_EDIT_FIELDS = {
         "model", "apiBase", "modelType", "apiVersion", "customLlmProvider",
@@ -2012,7 +2012,7 @@ data:
             return False
         if (labels.get("app.kubernetes.io/managed-by") == "magicstick-operator"
                 and labels.get("appliance.magicstick.dev/modelactivation") == model_name
-                and labels.get("appliance.magicstick.dev/runtime-backend") in ("freetoken", "vllm-omni")):
+                and labels.get("appliance.magicstick.dev/runtime-backend") == "vllm-omni"):
             return True
         return any(
             owner.get("apiVersion") == "kubeai.org/v1"
@@ -2652,24 +2652,16 @@ data:
             return "VLLM"
         if normalized == "OLLAMA":
             return "OLlama"
-        if normalized == "FREETOKEN":
-            return "FreeToken"
         raise RequestError(400, "unsupported local engine: " + str(value))
 
 
     def default_kv_cache_type(engine):
         normalized = normalize_local_engine(engine)
-        if normalized == "FreeToken":
-            return ""
         return "f16" if normalized == "OLlama" else "auto"
 
 
     def normalize_kv_cache_type(engine, value):
         engine = normalize_local_engine(engine)
-        if engine == "FreeToken":
-            if value not in (None, ""):
-                raise RequestError(400, "FreeToken uses local.freetoken.advanced cache settings, not kvCacheType")
-            return ""
         normalized = str(value or default_kv_cache_type(engine)).strip().lower().replace("-", "_")
         aliases = {"standard": default_kv_cache_type(engine), "q8": "q8_0", "q4": "q4_0"}
         normalized = aliases.get(normalized, normalized)
@@ -2681,8 +2673,6 @@ data:
 
     def kv_cache_options(engine, compute_target, matching_nodes=None):
         engine = normalize_local_engine(engine)
-        if engine == "FreeToken":
-            return []
         if engine == "OLlama":
             return [
                 {"value": "f16", "label": "Standard - F16", "relativeSize": 1.0,
@@ -2775,13 +2765,6 @@ data:
         return {}
 
 
-    def freetoken_capabilities(catalog=None):
-        catalog = compute_target_catalog() if catalog is None else catalog
-        engine = ((catalog.get("engines") or {}).get("FreeToken") or {}) if isinstance(catalog, dict) else {}
-        capabilities = engine.get("capabilities") or {}
-        return capabilities if isinstance(capabilities, dict) else {}
-
-
     def gpu_host_preflight(node):
         """Return only current node/boot-bound GPU inventory evidence."""
         raw = ((node.get("metadata") or {}).get("annotations") or {}).get(
@@ -2806,168 +2789,6 @@ data:
         except (TypeError, ValueError):
             return {}
         return report
-
-
-    def freetoken_driver_major(value):
-        match = re.match(r"\s*(\d+)", str(value or ""))
-        return int(match.group(1)) if match else 0
-
-
-    def freetoken_node_eligibility(node, capabilities):
-        """FreeToken v0.1.3 schedules one or more verified whole GPUs on one node.
-
-        The Kubernetes device-plugin API owns the concrete UUID allocation.
-        The persisted node choice and requested whole-GPU count therefore stay
-        truthful without pretending that a dashboard UUID is a reservation.
-        MIG and time-sliced resources remain excluded.
-        """
-        metadata, status = node.get("metadata") or {}, node.get("status") or {}
-        labels = metadata.get("labels") or {}
-        info = status.get("nodeInfo") or {}
-        name = str(metadata.get("name") or "this node")
-        required_architectures = {str(item) for item in capabilities.get("supportedArchitectures") or []}
-        architecture = str(info.get("architecture") or labels.get("kubernetes.io/arch") or "")
-        if required_architectures and architecture not in required_architectures:
-            return False, name + " is " + (architecture or "unknown") + "; FreeToken requires " + ", ".join(sorted(required_architectures)) + "."
-        operating_system = str(info.get("operatingSystem") or labels.get("kubernetes.io/os") or "")
-        if "linux" not in {str(item).lower() for item in capabilities.get("operatingSystems") or ["linux"]} or operating_system.lower() != "linux":
-            return False, name + " is not a Linux node supported by FreeToken."
-        capacity, allocatable = status.get("capacity") or {}, status.get("allocatable") or {}
-        count = positive_int(labels.get("nvidia.com/gpu.count")) or positive_int(capacity.get("nvidia.com/gpu")) or positive_int(allocatable.get("nvidia.com/gpu")) or 0
-        allocatable_count = positive_int(allocatable.get("nvidia.com/gpu")) or 0
-        maximum = min(positive_int(capabilities.get("maxDevicesPerRuntime")) or count, count, allocatable_count)
-        if count < 1:
-            return False, name + " exposes no allocatable NVIDIA GPU for FreeToken."
-        if maximum < 1 or allocatable_count < 1:
-            return False, name + " has no FreeToken whole-GPU allocation capacity."
-        replicas = positive_int(labels.get("nvidia.com/gpu.replicas")) or 1
-        if replicas != 1 or allocatable_count > count:
-            return False, name + " uses NVIDIA time-slicing; FreeToken requires one whole GPU."
-        if not nvidia_whole_gpu_available(node):
-            return False, name + " exposes a MIG or non-whole NVIDIA GPU resource."
-        major = str(labels.get("nvidia.com/gpu.compute.major") or "").strip()
-        minor = str(labels.get("nvidia.com/gpu.compute.minor") or "0").strip()
-        compute_capability = major + "." + minor if major else ""
-        supported_cc = {str(item) for item in capabilities.get("supportedComputeCapabilities") or []}
-        if not compute_capability or supported_cc and compute_capability not in supported_cc:
-            return False, name + " has unsupported or unreported NVIDIA compute capability " + (compute_capability or "unknown") + "."
-        host = gpu_host_preflight(node)
-        nvidia_devices = [device for device in host.get("displayDevices") or []
-                          if isinstance(device, dict) and str(device.get("vendorId") or "").lower() == "10de"]
-        # The host inventory is the source of truth for the physical topology.
-        # Do not let the UI offer a node whose inventory disagrees with the
-        # allocatable whole-GPU count: the operator rejects that combination
-        # too, and accepting it here would defer a deterministic error until
-        # after the user pressed Start.
-        if len(nvidia_devices) != count:
-            return False, name + " has incomplete NVIDIA GPU host inventory for FreeToken."
-        identities = {
-            (str(device.get("deviceId") or "").lower(), str(device.get("name") or "").strip().lower())
-            for device in nvidia_devices
-        }
-        if any(not device_id and not model_name for device_id, model_name in identities):
-            return False, name + " has incomplete NVIDIA GPU model inventory; refresh hardware before using FreeToken."
-        if len(identities) != 1:
-            return False, name + " has mixed NVIDIA GPU models; FreeToken tensor parallelism requires homogeneous whole GPUs."
-        minimum_driver = positive_int(capabilities.get("minimumNvidiaDriverMajor")) or 0
-        driver_versions = [str(device.get("driverVersion") or "") for device in nvidia_devices]
-        if any(freetoken_driver_major(version) < minimum_driver for version in driver_versions):
-            return False, name + " reports NVIDIA driver " + (driver_versions[0] or "unknown") + "; FreeToken requires r" + str(minimum_driver) + "+."
-        exposed = min(count, maximum)
-        return True, "Ready on " + name + " with up to " + str(exposed) + " whole supported NVIDIA GPU(s)."
-
-
-    def freetoken_ui_capabilities(catalog, nodes):
-        capabilities = freetoken_capabilities(catalog)
-        # Older/appliance-specific catalogs can legitimately omit FreeToken.
-        # Do not fetch node-side RAM telemetry merely to describe an engine
-        # that is not configured; that would make the existing vLLM/Ollama
-        # target view depend on a FreeToken-only host-agent endpoint.
-        if not capabilities:
-            return {
-                "available": False,
-                "version": "",
-                "supportedVendors": [],
-                "supportedArchitectures": [],
-                "supportedComputeCapabilities": [],
-                "supportedPrecisionModes": [],
-                "memoryStrategies": ["auto"],
-                "cacheTypes": [],
-                "advanced": {},
-                "minimumGpuMemoryMi": 256,
-                "minimumSystemMemoryMi": 256,
-                "defaultMemoryRatio": 0.9,
-                "defaults": {"memoryStrategy": "auto", "contextWindow": 4096, "maxNumSeqs": 1},
-                "deviceBinding": "whole-gpus-on-one-node",
-                "devices": [],
-                "unavailableDevices": [],
-                "message": "FreeToken is not configured in this appliance catalog.",
-            }
-        eligible, unavailable = [], []
-        samples = node_memory_samples(nodes)
-        for node in nodes:
-            supported, message = freetoken_node_eligibility(node, capabilities)
-            metadata = node.get("metadata") or {}
-            node_name = str(metadata.get("name") or "")
-            sample = samples.get(node_name) or {}
-            item = {
-                "id": "node:" + node_name,
-                "node": node_name,
-                "supported": supported,
-                "reason": message,
-                # Keep per-node host capacity alongside the selectable GPU.
-                # The generic CPU ring is intentionally cluster-wide and must
-                # never become a larger RAM limit for a selected GPU node.
-                "systemMemoryMi": quantity_mi(((node.get("status") or {}).get("capacity") or {}).get("memory")),
-                "systemAvailableMi": freetoken_non_negative_mi(sample.get("availableMi")),
-                "gpuCount": positive_int(((node.get("status") or {}).get("allocatable") or {}).get("nvidia.com/gpu"))
-                    or positive_int((metadata.get("labels") or {}).get("nvidia.com/gpu.count"))
-                    or 0,
-                "maxGpuCount": min(
-                    positive_int(((node.get("status") or {}).get("allocatable") or {}).get("nvidia.com/gpu"))
-                    or 0,
-                    positive_int((metadata.get("labels") or {}).get("nvidia.com/gpu.count"))
-                    or positive_int(((node.get("status") or {}).get("capacity") or {}).get("nvidia.com/gpu"))
-                    or 0,
-                    positive_int(capabilities.get("maxDevicesPerRuntime"))
-                    or positive_int(((node.get("status") or {}).get("allocatable") or {}).get("nvidia.com/gpu"))
-                    or 0,
-                ),
-            }
-            (eligible if supported else unavailable).append(item)
-        advanced = {
-            "cacheType": ["radix", "naive"],
-            "kvReserveTokens": True,
-            "moeCacheSize": True,
-            "maxPrefillLength": True,
-            "cudaGraphMaxBatchSize": True,
-            "cpuThreads": True,
-            "expertLoad": ["auto", "serial", "parallel"],
-            "dtype": ["auto", "float16", "bfloat16", "float32"],
-        }
-        return {
-            "available": bool(eligible),
-            "version": str(capabilities.get("version") or ""),
-            "supportedVendors": list(capabilities.get("supportedVendors") or []),
-            "supportedArchitectures": list(capabilities.get("supportedArchitectures") or []),
-            "supportedComputeCapabilities": list(capabilities.get("supportedComputeCapabilities") or []),
-            "supportedPrecisionModes": list(capabilities.get("supportedPrecisionModes") or []),
-            "memoryStrategies": list(capabilities.get("memoryStrategies") or []),
-            "cacheTypes": ["radix", "naive"],
-            "advanced": advanced,
-            "minimumGpuMemoryMi": 256,
-            "minimumSystemMemoryMi": 256,
-            "defaultMemoryRatio": 0.9,
-            "defaults": {
-                "memoryStrategy": "auto",
-                "contextWindow": 4096,
-                "maxNumSeqs": 1,
-            },
-            "deviceBinding": str(capabilities.get("deviceBinding") or "whole-gpus-on-one-node"),
-            "devices": eligible,
-            "unavailableDevices": unavailable,
-            "message": ("Ready." if eligible else (unavailable[0]["reason"] if unavailable else "No Ready, schedulable NVIDIA GPU node was found.")),
-        }
 
 
     def ready_schedulable_nodes():
@@ -3004,12 +2825,6 @@ data:
         definitions = catalog.get("targets") or {}
         modules_payload = modules_payload if modules_payload is not None else summarized_modules()
         nodes = ready_schedulable_nodes()
-        freetoken_ui = freetoken_ui_capabilities(catalog, nodes)
-        freetoken_nodes = {
-            str(item.get("node") or "")
-            for item in freetoken_ui.get("devices") or []
-            if item.get("supported")
-        }
         result = []
         for target_id, definition in definitions.items():
             if not isinstance(definition, dict):
@@ -3145,11 +2960,6 @@ data:
                     str(((node.get("metadata") or {}).get("labels") or {}).get(key) or "") == str(value)
                     for key, value in selector.items()
                 )]
-                if engine == "FreeToken":
-                    # A target may have allocatable NVIDIA slots while still
-                    # being unsafe for FreeToken (MIG, time-slicing, unknown
-                    # driver evidence, or a non-supported compute capability).
-                    engine_nodes = [node for node in engine_nodes if str((node.get("metadata") or {}).get("name") or "") in freetoken_nodes]
                 if dra_nodes:
                     engine_nodes = [node for node in engine_nodes if node in dra_nodes]
                 engine_capacity = sum(
@@ -3162,9 +2972,7 @@ data:
                     "compatibleNodes": len(engine_nodes),
                     "nodeSelector": selector,
                     "reason": "ready" if engine_ready else ("engine-not-eligible" if available else reason),
-                    "message": (
-                        freetoken_ui.get("message") if engine == "FreeToken" else message
-                    ) if engine_ready or not available or engine == "FreeToken" else (
+                    "message": message if engine_ready or not available else (
                         engine + " has no eligible GPU node for its runtime profile. See System > Hardware. Engine validation is optional."
                     ),
                 }
@@ -3215,7 +3023,7 @@ data:
             "engineCatalog": catalog.get("engines") or {
                 "VLLM": {"displayName": "vLLM", "urlScheme": "hf://", "supportsVramEstimate": True}
             },
-            "freeTokenCapabilities": freetoken_ui,
+
             "realtimeDevices": realtime_device_options(catalog, nodes),
             "targets": result,
         }
@@ -3913,11 +3721,7 @@ data:
             ("config", "true"),
             ("cardData", "true"),
         ]
-        # Hugging Face's `apps=vllm` is a vLLM-specific Hub filter. FreeToken
-        # has its own pinned model policy, so applying that filter would hide
-        # valid FreeToken models before our capability catalog can evaluate
-        # them. Keep the established filter for the existing discovery path.
-        if str(engine or "").strip().lower() not in {"freetoken", "vllm-omni"}:
+        if str(engine or "").strip().lower() not in {"vllm-omni"}:
             params.append(("apps", "vllm"))
         if search:
             params.append(("search", search))
@@ -3994,13 +3798,11 @@ data:
         if sort not in {"relevance", "downloads", "likes", "updated", "trending"}:
             raise RequestError(400, "sort must be relevance, downloads, likes, updated, or trending")
         engine = hf_discovery_query_value(query, "engine", "").lower()
-        if engine and engine not in {"vllm", "ollama", "freetoken"}:
-            raise RequestError(400, "engine must be VLLM, OLlama, or FreeToken")
+        if engine and engine not in {"vllm", "ollama"}:
+            raise RequestError(400, "engine must be VLLM or OLlama")
         compute_target = hf_discovery_query_value(query, "computeTarget", "").lower()
         if compute_target and compute_target not in {"cpu", "nvidia-gpu", "amd-gpu", "intel-gpu"}:
             raise RequestError(400, "computeTarget is unsupported")
-        if engine == "freetoken" and compute_target and compute_target != "nvidia-gpu":
-            raise RequestError(400, "FreeToken discovery requires computeTarget nvidia-gpu")
         model_type = hf_discovery_query_value(query, "modelType", "").lower()
         if model_type and model_type not in {"chat", "embedding"}:
             raise RequestError(400, "modelType must be chat or embedding")
@@ -4019,44 +3821,11 @@ data:
             "computeTarget": compute_target,
             "modelType": model_type,
             "realtimeProfile": realtime_profile,
-            # Resolve the catalog once per discovery request. It is the same
-            # source used by ModelActivation admission, so search never offers
-            # a model which a later FreeToken start would deterministically
-            # reject.
-            "freeTokenPolicy": hf_freetoken_discovery_policy() if engine == "freetoken" else None,
             "filters": {
                 name: hf_discovery_query_value(query, name, "")
                 for name in ("author", "pipeline", "library", "quantization", "format")
             },
         }
-
-
-    def hf_freetoken_discovery_policy():
-        capabilities = freetoken_capabilities()
-        version = str(capabilities.get("version") or "").strip()
-        raw_matchers = capabilities.get("modelIdMatchers") or []
-        if not isinstance(raw_matchers, list) or not raw_matchers:
-            raise RequestError(503, "FreeToken discovery is unavailable because its supported-model policy is not configured.")
-        matchers = []
-        for raw_matcher in raw_matchers:
-            matcher = str(raw_matcher or "").strip()
-            if not matcher:
-                continue
-            try:
-                matchers.append(re.compile(matcher, re.IGNORECASE))
-            except re.error as error:
-                raise RequestError(503, "FreeToken discovery has an invalid supported-model policy: " + str(error)) from error
-        if not matchers:
-            raise RequestError(503, "FreeToken discovery is unavailable because its supported-model policy is empty.")
-        fingerprint = hashlib.sha256(json.dumps({
-            "version": version,
-            "modelIdMatchers": [matcher.pattern for matcher in matchers],
-        }, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
-        return {"version": version, "matchers": matchers, "fingerprint": fingerprint}
-
-
-    def hf_freetoken_model_matches(repo, policy):
-        return bool(policy and any(matcher.search(repo) for matcher in policy.get("matchers") or []))
 
 
     def hf_model_base_relations(model):
@@ -4257,7 +4026,7 @@ data:
         pipeline_tag="",
         model_type="",
         model_id="",
-        freetoken_policy=None,
+
     ):
         available_formats = set(formats or [])
         quantization_method = str((quantization or {}).get("method") or "")
@@ -4272,15 +4041,6 @@ data:
             return "incompatible", "The selected Hub model does not expose a supported embedding pipeline."
         if engine == "ollama":
             return "incompatible", "The current Ollama runtime accepts ollama:// registry models, not Hugging Face artifacts."
-        if engine == "freetoken":
-            if compute_target and compute_target != "nvidia-gpu":
-                return "incompatible", "FreeToken is available only on supported NVIDIA GPUs."
-            if not hf_freetoken_model_matches(model_id, freetoken_policy):
-                version = str((freetoken_policy or {}).get("version") or "the pinned")
-                return "incompatible", "This model is not in the documented FreeToken " + version + " supported-model policy."
-            if available_formats and not ({"safetensors", "ftw"} & available_formats):
-                return "incompatible", "The pinned FreeToken runtime requires a safetensors or FTW model artifact."
-            return "compatible", "Matches the documented FreeToken " + str((freetoken_policy or {}).get("version") or "runtime") + " model policy."
         if engine == "vllm":
             if "gguf" in available_formats or quantization_method == "gguf":
                 return "incompatible", "The current vLLM path cannot select the required GGUF file or runtime plugin."
@@ -4291,7 +4051,7 @@ data:
         return "experimental", "Dynamic Hub artifacts require a runtime compatibility check."
 
 
-    def hf_model_summary(model, engine="", compute_target="", model_type="", freetoken_policy=None):
+    def hf_model_summary(model, engine="", compute_target="", model_type=""):
         if not isinstance(model, dict):
             return None
         identifier = str(model.get("id") or model.get("modelId") or "").strip()
@@ -4314,7 +4074,7 @@ data:
             pipeline_tag,
             model_type,
             repo,
-            freetoken_policy,
+
         )
         author, name = repo.split("/", 1)
         safetensors = model.get("safetensors") or {}
@@ -4360,8 +4120,8 @@ data:
         }
 
 
-    def hf_model_summary_with_resolved_config(model, repo, engine="", compute_target="", model_type="", freetoken_policy=None):
-        summary = hf_model_summary(model, engine, compute_target, model_type, freetoken_policy)
+    def hf_model_summary_with_resolved_config(model, repo, engine="", compute_target="", model_type=""):
+        summary = hf_model_summary(model, engine, compute_target, model_type)
         if not summary or positive_int(summary.get("modelMaxContext")):
             return summary
         try:
@@ -4372,7 +4132,7 @@ data:
             return summary
         enriched = dict(model or {})
         enriched["config"] = config
-        return hf_model_summary(enriched, engine, compute_target, model_type, freetoken_policy) or summary
+        return hf_model_summary(enriched, engine, compute_target, model_type) or summary
 
 
     def hf_artifact_context(artifact, base_model):
@@ -4505,7 +4265,7 @@ data:
                     context["engine"],
                     context["computeTarget"],
                     context["modelType"],
-                    context.get("freeTokenPolicy"),
+
                 )
                 if summary and context.get("realtimeProfile"):
                     summary = realtime_model_summary(model, summary, context["realtimeProfile"])
@@ -4514,7 +4274,7 @@ data:
                     or summary["private"]
                     or summary["gated"]
                     or summary["disabled"]
-                    or (context["engine"] == "freetoken" and summary["compatibility"] == "incompatible")
+
                 ):
                     continue
                 existing = merged.get(summary["repo"].casefold())
@@ -4563,7 +4323,7 @@ data:
                 context["engine"],
                 context["computeTarget"],
                 context["modelType"],
-                context.get("freeTokenPolicy"),
+
             )
             if (
                 not summary
@@ -4619,7 +4379,7 @@ data:
             context["engine"],
             context["computeTarget"],
             context["modelType"],
-            str((context.get("freeTokenPolicy") or {}).get("fingerprint") or ""),
+
         )
         cached = hf_discovery_cache_get(cache_key)
         if cached is None:
@@ -4630,7 +4390,7 @@ data:
                 context["engine"],
                 context["computeTarget"],
                 context["modelType"],
-                context.get("freeTokenPolicy"),
+
             )
             if (
                 not selected
@@ -4639,8 +4399,6 @@ data:
                 or selected["disabled"]
             ):
                 raise RequestError(404, "public Hugging Face model metadata is unavailable")
-            if context["engine"] == "freetoken" and selected["compatibility"] == "incompatible":
-                raise RequestError(409, selected["compatibilityReason"])
             selected_relations = selected.get("baseModels") or []
             quantized_bases = [
                 item["repo"]
@@ -4658,7 +4416,7 @@ data:
                     context["engine"],
                     context["computeTarget"],
                     context["modelType"],
-                    context.get("freeTokenPolicy"),
+
                 )
                 if (
                     not base_model
@@ -4694,14 +4452,14 @@ data:
                     context["engine"],
                     context["computeTarget"],
                     context["modelType"],
-                    context.get("freeTokenPolicy"),
+
                 )
                 if (
                     not summary
                     or summary["private"]
                     or summary["gated"]
                     or summary["disabled"]
-                    or (context["engine"] == "freetoken" and summary["compatibility"] == "incompatible")
+
                     or summary["repo"].casefold() in seen
                     or not hf_relation_to(summary, base_repo)
                 ):
@@ -6281,77 +6039,6 @@ data:
         return calculations
 
 
-    def estimate_freetoken_memory(payload, exclude_model=""):
-        """Return configuration capacity, not an invented checkpoint formula.
-
-        FreeToken does not publish a generic architecture-to-memory estimator.
-        Its memory-ratio mechanism is based on free VRAM at server start, so we
-        report the configured/possible bounds and leave model admission to the
-        documented runtime loader and its explicit health/status diagnostics.
-        """
-        compute_target = str(payload.get("computeTarget") or "nvidia-gpu").strip().lower()
-        if compute_target != "nvidia-gpu":
-            raise RequestError(400, "FreeToken memory configuration is supported only for NVIDIA GPUs.")
-        require_compute_target_available("nvidia-gpu", "FreeToken")
-        availability = compute_target_availability()
-        devices = list((availability.get("freeTokenCapabilities") or {}).get("devices") or [])
-        requested = str(((payload.get("freetoken") or {}).get("gpuDevice") or "").strip())
-        device = next((item for item in devices if item.get("id") == requested), None) if requested else None
-        if requested and not device:
-            raise RequestError(409, "The selected FreeToken GPU is no longer eligible. Refresh the hardware inventory.")
-        if not device:
-            device = devices[0] if devices else None
-        if not device:
-            raise RequestError(409, str((availability.get("freeTokenCapabilities") or {}).get("message") or "No supported FreeToken GPU is available."))
-        activations = [activation for activation in model_activations()
-                       if not exclude_model or (activation.get("metadata") or {}).get("name") != exclude_model]
-        memory = compute_memory_summary(activations)
-        node_name = str(device.get("node") or "")
-        gpu_count = positive_int(((payload.get("freetoken") or {}).get("gpuCount"))) or 1
-        maximum_count = positive_int(device.get("maxGpuCount")) or positive_int(device.get("gpuCount")) or 1
-        if gpu_count > maximum_count:
-            raise RequestError(409, "The selected FreeToken node cannot allocate " + str(gpu_count) + " whole GPUs. Refresh the hardware inventory.")
-        selected_devices = freetoken_selected_memory_devices(memory, node_name)
-        total_per_device, maximum_per_device = freetoken_gpu_memory_limits(selected_devices, {})
-        total = total_per_device * gpu_count
-        maximum = maximum_per_device * gpu_count if maximum_per_device is not None else None
-        # A measured zero is a real exhausted budget, not absent telemetry.
-        # Only fall back to the physical node label when no capacity reading is
-        # available at all.
-        if maximum is None:
-            node = next((item for item in ready_schedulable_nodes() if (item.get("metadata") or {}).get("name") == node_name), {})
-            node_labels = (node.get("metadata") or {}).get("labels") or {}
-            per_device = positive_int(node_labels.get("nvidia.com/gpu.memory")) or None
-            maximum = per_device * gpu_count if per_device else None
-        requested_budget = positive_int(((payload.get("freetoken") or {}).get("gpuMemoryMi")) or payload.get("gpuMemoryMi"))
-        budget = requested_budget or (max(256, int(maximum * 0.9)) if maximum else 0)
-        return {
-            "engine": "FreeToken",
-            "computeTarget": "nvidia-gpu",
-            "memoryKind": "vram",
-            "minimumMi": 256,
-            "recommendedMi": budget,
-            "maximumMi": maximum,
-            "configuredMi": budget or None,
-            "gpuCount": gpu_count,
-            "gpuMemoryPerDeviceMi": (budget // gpu_count) if budget else None,
-            "gpuAvailable": bool(maximum),
-            "contextWindow": positive_int(payload.get("contextWindow")) or 4096,
-            "maxNumSeqs": positive_int(payload.get("maxNumSeqs")) or 1,
-            "confidence": "runtime-configured",
-            "calculationSource": "FreeToken v0.1.3 memory-ratio against live free VRAM",
-            "warnings": [
-                "FreeToken derives --memory-ratio from the selected VRAM budget and free VRAM when the process starts.",
-                "The upstream runtime does not publish a generic model-size memory formula; model loading remains validated by the runtime health and logs.",
-            ],
-            "calculations": {
-                "configuredMi": memory_calculation(
-                    "FreeToken total GPU budget", str(budget or 0) + " MiB across " + str(gpu_count) + " GPU(s)", "Mapped by the pinned runtime to the per-GPU --memory-ratio using the current minimum free VRAM of its assigned GPUs."
-                ),
-            },
-        }
-
-
     def multi_gpu_estimate(payload, estimate):
         """Per-device conservative plan, not an aggregate VRAM fit promise."""
         count = len(payload.get("gpuDevices") or [])
@@ -6406,8 +6093,6 @@ data:
     def estimate_model_memory(payload, exclude_model=""):
         payload = payload or {}
         engine = normalize_local_engine(payload.get("engine"))
-        if engine == "FreeToken":
-            return estimate_freetoken_memory(payload, exclude_model)
         compute_target = str(payload.get("computeTarget") or "nvidia-gpu").strip().lower()
         supported_targets = {
             "VLLM": {"cpu", "nvidia-gpu", "amd-gpu", "intel-gpu"},
@@ -6583,41 +6268,7 @@ data:
         return {"name": secret_name, "key": "api-key"}
 
 
-    def freetoken_model_id(value):
-        url = str(value or "").strip()
-        if not url.startswith("hf://"):
-            raise ValueError("FreeToken models must use a Hugging Face model reference (hf://organization/model).")
-        model_id = url.removeprefix("hf://").strip().strip("/")
-        parts = model_id.split("/")
-        if (len(parts) != 2 or not all(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", part or "") for part in parts)):
-            raise ValueError("FreeToken requires a valid Hugging Face organization/model reference.")
-        return model_id
-
-
-    def freetoken_model_is_supported(model_id, capabilities):
-        matchers = capabilities.get("modelIdMatchers") or []
-        try:
-            supported = any(re.search(str(pattern), model_id, re.IGNORECASE) for pattern in matchers)
-        except re.error as error:
-            raise ValueError("The FreeToken capability catalog contains an invalid model policy: " + str(error))
-        if not supported:
-            families = ", ".join(str(item) for item in capabilities.get("modelFamilies") or [])
-            raise ValueError("This model is not in the documented FreeToken " + str(capabilities.get("version") or "") + " supported-family policy. Choose " + (families or "a documented FreeToken model family") + ".")
-
-
-    def freetoken_positive(value, field, *, minimum=1, allow_zero=False):
-        if isinstance(value, bool):
-            raise ValueError(field + " must be an integer.")
-        try:
-            result = int(value)
-        except (TypeError, ValueError):
-            raise ValueError(field + " must be an integer.")
-        if result < 0 or result == 0 and not allow_zero or result < minimum:
-            raise ValueError(field + " must be at least " + str(minimum) + ".")
-        return result
-
-
-    def freetoken_non_negative_mi(value):
+    def non_negative_memory_mi(value):
         if isinstance(value, bool):
             return None
         if isinstance(value, int):
@@ -6625,212 +6276,6 @@ data:
         if isinstance(value, str) and value.strip().isdigit():
             return int(value.strip())
         return None
-
-
-    def freetoken_advanced_settings(value):
-        raw = value or {}
-        if not isinstance(raw, dict):
-            raise ValueError("local.freetoken.advanced must be an object.")
-        allowed = {
-            "cacheType", "kvReserveTokens", "moeCacheSize", "maxPrefillLength",
-            "cudaGraphMaxBatchSize", "cpuThreads", "expertLoad", "dtype",
-        }
-        unknown = sorted(set(raw) - allowed)
-        if unknown:
-            raise ValueError("Unsupported FreeToken advanced setting(s): " + ", ".join(unknown) + ".")
-        normalized = {}
-        if raw.get("cacheType") is not None:
-            cache_type = str(raw.get("cacheType") or "").strip().lower()
-            if cache_type not in ("radix", "naive"):
-                raise ValueError("FreeToken cache type must be radix or naive.")
-            normalized["cacheType"] = cache_type
-        for key in ("kvReserveTokens", "maxPrefillLength", "cudaGraphMaxBatchSize", "cpuThreads"):
-            if raw.get(key) is not None:
-                normalized[key] = freetoken_positive(raw[key], "FreeToken " + key)
-        if raw.get("moeCacheSize") is not None:
-            normalized["moeCacheSize"] = freetoken_positive(raw["moeCacheSize"], "FreeToken moeCacheSize", minimum=0, allow_zero=True)
-        if raw.get("expertLoad") is not None:
-            expert_load = str(raw.get("expertLoad") or "").strip().lower()
-            if expert_load not in ("auto", "serial", "parallel"):
-                raise ValueError("FreeToken expert load must be auto, serial, or parallel.")
-            normalized["expertLoad"] = expert_load
-        if raw.get("dtype") is not None:
-            dtype = str(raw.get("dtype") or "").strip().lower()
-            if dtype not in ("auto", "float16", "bfloat16", "float32"):
-                raise ValueError("FreeToken dtype must be auto, float16, bfloat16, or float32.")
-            normalized["dtype"] = dtype
-        return normalized
-
-
-    def freetoken_selected_memory_devices(memory, node_name):
-        """All physical NVIDIA devices eligible for one node-local FreeToken Pod.
-
-        Kubernetes selects the concrete whole devices.  The dashboard must use
-        the conservative minimum across the node rather than pretending that a
-        DCGM UUID in the form is a scheduler reservation.
-        """
-        return [device for device in memory.get("devices") or []
-                if device.get("computeTarget") == "nvidia-gpu"
-                and node_name in (device.get("nodes") or [])]
-
-
-    def freetoken_gpu_memory_limits(devices, node_labels, retained_per_device=0):
-        """Return conservative per-device physical and currently usable MiB."""
-        physical, current = [], []
-        for device in devices:
-            total = positive_int(device.get("totalMi"))
-            if not total:
-                continue
-            physical.append(total)
-            limits = [total]
-            free = freetoken_non_negative_mi(device.get("freeMi"))
-            if free is not None:
-                # Recreate releases this model's previous allocation before
-                # starting the replacement. Retain that budget, never add it
-                # to measured free VRAM as if it were extra physical memory.
-                free = max(free, retained_per_device)
-            for value in (free, freetoken_non_negative_mi(device.get("unreservedMi"))):
-                if value is not None:
-                    limits.append(value)
-            current.append(min(limits))
-        fallback = positive_int((node_labels or {}).get("nvidia.com/gpu.memory"))
-        if not physical and fallback:
-            physical.append(fallback)
-            current.append(fallback)
-        return (min(physical) if physical else 0,
-                min(current) if current else None)
-
-
-    def freetoken_local_settings(local, exclude_model=""):
-        """Validate and normalize the FreeToken-only ModelActivation contract.
-
-        GPU MiB is a user-visible budget.  The pinned runtime derives its
-        documented memory ratio from live free VRAM when the process starts;
-        systemMemoryMi is deliberately a Kubernetes Pod request/limit because
-        FreeToken has no native total-host-RAM CLI setting.
-        """
-        if str(local.get("computeTarget") or "").strip().lower() != "nvidia-gpu":
-            raise ValueError("FreeToken v0.1.3 supports NVIDIA GPUs only.")
-        for field in ("kvCacheType", "cpuOffloading", "allowMemoryRisk", "vram", "vramMi", "memoryRequiredMi"):
-            # Engine-specific state must not accidentally inherit vLLM/Ollama
-            # planning controls. A visible legacy value is rejected rather
-            # than silently changing the requested runtime.
-            if local.get(field) not in (None, "", False):
-                raise ValueError("FreeToken uses its own memory settings; remove local." + field + ".")
-            local.pop(field, None)
-        if local.get("minReplicas") not in (None, 1, "1") or local.get("maxReplicas") not in (None, 1, "1"):
-            raise ValueError("FreeToken v0.1.3 supports exactly one model-server replica.")
-        local["minReplicas"] = 1
-        local["maxReplicas"] = 1
-        raw = local.get("freetoken") or {}
-        if not isinstance(raw, dict):
-            raise ValueError("local.freetoken must be an object.")
-        allowed = {"gpuDevice", "gpuCount", "gpuMemoryMi", "systemMemoryMi", "memoryStrategy", "restartNonce", "advanced"}
-        unknown = sorted(set(raw) - allowed)
-        if unknown:
-            raise ValueError("Unsupported FreeToken setting(s): " + ", ".join(unknown) + ".")
-
-        catalog = compute_target_catalog()
-        capabilities = freetoken_capabilities(catalog)
-        target = require_compute_target_available("nvidia-gpu", "FreeToken")
-        availability = compute_target_availability()
-        ui_capabilities = availability.get("freeTokenCapabilities") or {}
-        devices = list(ui_capabilities.get("devices") or [])
-        if not devices:
-            raise RequestError(409, str(ui_capabilities.get("message") or "No supported FreeToken GPU is available."))
-        requested_device = str(raw.get("gpuDevice") or "").strip()
-        device = next((item for item in devices if item.get("id") == requested_device), None) if requested_device else None
-        if requested_device and not device:
-            raise RequestError(409, "The selected FreeToken GPU is no longer eligible. Refresh the hardware inventory.")
-        if not device:
-            device = devices[0]
-        node_name = str(device.get("node") or "")
-        node = next((item for item in ready_schedulable_nodes() if (item.get("metadata") or {}).get("name") == node_name), None)
-        if not node:
-            raise RequestError(409, "The selected FreeToken GPU node is no longer Ready. Refresh the hardware inventory.")
-
-        current_activations = model_activations()
-        previous = next((activation for activation in current_activations
-                         if exclude_model and (activation.get("metadata") or {}).get("name") == exclude_model), {})
-        previous_spec = previous.get("spec") or {}
-        previous_local = previous_spec.get("local") or {}
-        previous_config = previous_local.get("freetoken") or {}
-        replacing_same_node = (previous_spec.get("enabled", True) is not False
-                               and previous_local.get("engine") == "FreeToken"
-                               and previous_config.get("gpuDevice") == device.get("id"))
-        activations = [activation for activation in current_activations
-                       if not exclude_model or (activation.get("metadata") or {}).get("name") != exclude_model]
-        memory = compute_memory_summary(activations)
-        attach_freetoken_devices(memory, availability)
-        node_labels = (node.get("metadata") or {}).get("labels") or {}
-        gpu_count = freetoken_positive(raw.get("gpuCount"), "FreeToken GPU count") if raw.get("gpuCount") is not None else 1
-        maximum_gpu_count = positive_int(device.get("maxGpuCount")) or positive_int(device.get("gpuCount")) or 1
-        if gpu_count > maximum_gpu_count:
-            raise RequestError(409, "The selected FreeToken node has only " + str(maximum_gpu_count) + " allocatable whole GPU(s).")
-        selected_devices = freetoken_selected_memory_devices(memory, node_name)
-        if len(selected_devices) < gpu_count:
-            raise RequestError(409, "FreeToken needs fresh VRAM telemetry for all " + str(gpu_count) + " selected GPUs on " + node_name + ".")
-        retained_per_device = (positive_int(previous_config.get("gpuMemoryMi")) // gpu_count
-                               if replacing_same_node and (positive_int(previous_config.get("gpuCount")) or 1) == gpu_count else 0)
-        total_per_device, maximum_per_device = freetoken_gpu_memory_limits(selected_devices, node_labels, retained_per_device)
-        if not total_per_device:
-            raise RequestError(409, "FreeToken needs the physical NVIDIA VRAM capacity. Wait for GPU memory telemetry or refresh hardware.")
-        total_vram = total_per_device * gpu_count
-        maximum_vram = maximum_per_device * gpu_count if maximum_per_device is not None else total_vram
-        requested_vram = raw.get("gpuMemoryMi")
-        gpu_memory_mi = (freetoken_positive(requested_vram, "FreeToken GPU memory", minimum=256 * gpu_count)
-                         if requested_vram is not None else max(256 * gpu_count, int(maximum_vram * 0.9)))
-        if gpu_memory_mi > total_vram:
-            raise ValueError("FreeToken GPU memory cannot exceed the physical " + str(total_vram) + " MiB VRAM across the selected GPUs.")
-        if gpu_memory_mi > maximum_vram:
-            raise RequestError(409, "FreeToken GPU memory exceeds currently free or unreserved VRAM across the selected GPUs (" + str(maximum_vram) + " MiB).")
-
-        node_total_ram = quantity_mi(((node.get("status") or {}).get("capacity") or {}).get("memory"))
-        samples = node_memory_samples([node])
-        node_free_ram = freetoken_non_negative_mi((samples.get(node_name) or {}).get("availableMi"))
-        if node_free_ram is None:
-            raise RequestError(409, "FreeToken needs current system RAM capacity for the selected GPU node.")
-        if replacing_same_node:
-            node_free_ram = min(node_total_ram, max(node_free_ram, positive_int(previous_config.get("systemMemoryMi"))))
-        ram_limits = [node_total_ram, node_free_ram] if node_total_ram > 0 else [node_free_ram]
-        ram_ceiling = min(ram_limits)
-        if not ram_ceiling:
-            raise RequestError(409, "FreeToken needs current system RAM capacity for the selected GPU node.")
-        requested_ram = raw.get("systemMemoryMi")
-        auto_ram = min(ram_ceiling, max(256, min(32768, max(8192, node_total_ram // 4))))
-        system_memory_mi = (freetoken_positive(requested_ram, "FreeToken system RAM", minimum=256)
-                            if requested_ram is not None else auto_ram)
-        if system_memory_mi > node_total_ram:
-            raise ValueError("FreeToken system RAM cannot exceed the physical " + str(node_total_ram) + " MiB on the selected GPU node.")
-        if system_memory_mi > node_free_ram:
-            raise RequestError(409, "FreeToken system RAM exceeds currently available RAM on the selected GPU node (" + str(node_free_ram) + " MiB).")
-
-        strategies = {str(value).lower() for value in capabilities.get("memoryStrategies") or []}
-        strategy = str(raw.get("memoryStrategy") or "auto").strip().lower()
-        if strategy not in strategies:
-            raise ValueError("Unsupported FreeToken memory strategy: " + str(raw.get("memoryStrategy")) + ".")
-        restart_nonce = str(raw.get("restartNonce") or "").strip()
-        if len(restart_nonce) > 128:
-            raise ValueError("FreeToken restart nonce is too long.")
-        local["freetoken"] = {
-            "gpuDevice": str(device.get("id") or ""),
-            "gpuCount": gpu_count,
-            "gpuMemoryMi": gpu_memory_mi,
-            "systemMemoryMi": system_memory_mi,
-            "memoryStrategy": strategy,
-            **({"restartNonce": restart_nonce} if restart_nonce else {}),
-            "advanced": freetoken_advanced_settings(raw.get("advanced")),
-        }
-        for field, default in (("contextWindow", 4096), ("maxNumSeqs", 1)):
-            if local.get(field) is None:
-                local[field] = default
-            else:
-                local[field] = freetoken_positive(local[field], "FreeToken " + field)
-        if local.get("maxOutputTokens") is not None:
-            local["maxOutputTokens"] = freetoken_positive(local["maxOutputTokens"], "FreeToken maxOutputTokens")
-        local["computeTarget"] = "nvidia-gpu"
-        local["engine"] = "FreeToken"
-        return local, target
 
 
     def model_cpu_resources(local, engine, compute_target, catalog=None):
@@ -6841,7 +6286,7 @@ data:
         """
         kind = "cpu" if compute_target == "cpu" else "gpu"
         fallback = ({"requestMillicores": 2000, "limitMillicores": 8000} if kind == "cpu"
-                    else {"requestMillicores": 4000, "limitMillicores": 8000} if engine == "FreeToken"
+
                     else {"requestMillicores": 500 if engine == "OLlama" else 1000, "limitMillicores": 0})
         defaults = ((((catalog or {}).get("engines") or {}).get(engine) or {}).get("cpuDefaults") or {}).get(kind) or fallback
         supplied = local.get("cpuResources")
@@ -6891,8 +6336,6 @@ data:
                                "memoryArchitecture": host.get("memoryArchitecture", "dedicated"), "gpuAllocationMode": mode,
                                "systemMemoryMi": quantity_mi(((node.get("status") or {}).get("allocatable") or {}).get("memory"))})
         return result
-
-
 
 
     def realtime_model_summary(raw, summary, profile, full_config=False):
@@ -6945,7 +6388,7 @@ data:
         if set(raw) - allowed:
             raise ValueError("Unknown Realtime setting: " + ", ".join(sorted(set(raw) - allowed)))
         if str(local.get("engine") or "VLLM") != "VLLM":
-            raise ValueError("Realtime requires the vLLM-Omni profile, not Ollama or FreeToken")
+            raise ValueError("Realtime requires the vLLM-Omni profile, not Ollama")
         profiles = (((catalog or {}).get("engines") or {}).get("VLLM") or {}).get("realtimeProfiles") or {}
         profile = profiles.get(raw.get("profile")) or {}
         if not profile or local.get("computeTarget") not in profile.get("computeTargets", []):
@@ -6953,8 +6396,8 @@ data:
         if not re.fullmatch(r"hf://[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*", str(local.get("url") or "")):
             raise ValueError("Realtime requires a Hugging Face repository: hf://organization/model")
         if any(local.get(key) not in (None, "", {}, [], False) for key in (
-                "vllm", "freetoken", "args", "env", "cpuOffloading", "kvCacheType", "vram", "vramMi", "memoryRequiredMi", "maxOutputTokens")):
-            raise ValueError("Realtime has its own stage memory settings; ordinary vLLM/FreeToken/offloading settings cannot be inherited")
+                "vllm", "args", "env", "cpuOffloading", "kvCacheType", "vram", "vramMi", "memoryRequiredMi", "maxOutputTokens")):
+            raise ValueError("Realtime has its own stage memory settings; ordinary vLLM/offloading settings cannot be inherited")
         if local.get("preset") or local.get("artifact"):
             raise ValueError("Realtime uses a Hugging Face repository directly, not an ordinary engine preset")
         if local.get("modelType", "chat") != "chat":
@@ -7108,11 +6551,13 @@ data:
             supplied_local = payload.get("local") or {}
             if not isinstance(supplied_local, dict):
                 raise ValueError("local must be an object")
+            if "freetoken" in supplied_local or "freetoken" in payload:
+                raise RequestError(400, "FreeToken has been removed; choose vLLM or Ollama without FreeToken settings.")
             local = {}
             allowed = {
                 "preset", "artifact", "url", "modelType", "engine", "computeTarget", "vram", "vramMi",
                 "memoryRequiredMi", "cpuOffloading", "allowMemoryRisk", "cpuResources",
-                "contextWindow", "maxOutputTokens", "maxNumSeqs", "kvCacheType", "minReplicas", "maxReplicas", "freetoken", "vllm", "realtime", "capabilities", "gpuDevice", "gpuDevices", "gpuDeployment",
+                "contextWindow", "maxOutputTokens", "maxNumSeqs", "kvCacheType", "minReplicas", "maxReplicas", "vllm", "realtime", "capabilities", "gpuDevice", "gpuDevices", "gpuDeployment",
             }
             for key in allowed:
                 if key in supplied_local:
@@ -7141,29 +6586,6 @@ data:
                                "appliance.magicstick.dev/engine": "vllm-omni"})
                 return {"apiVersion": f"{APPLIANCE_GROUP}/{APPLIANCE_VERSION}", "kind": "ModelActivation",
                         "metadata": {"name": name, "namespace": APPLIANCE_NAMESPACE, "labels": labels}, "spec": spec}
-            if engine == "FreeToken":
-                local, _target = freetoken_local_settings(local, exclude_model)
-                selected_artifact = resolve_local_preset_artifact(local)
-                resolved_model_url = str((selected_artifact or {}).get("url") or local.get("url") or "").strip()
-                model_id = freetoken_model_id(resolved_model_url)
-                freetoken_model_is_supported(model_id, freetoken_capabilities())
-                # Keep the resolved model ID canonical even if it came through
-                # a future preset artifact. The runtime accepts Hugging Face
-                # safetensors/FTW references, never an Ollama/GGUF URL.
-                local["url"] = "hf://" + model_id
-                labels["appliance.magicstick.dev/compute-target"] = "nvidia-gpu"
-                labels["appliance.magicstick.dev/engine"] = "freetoken"
-                spec["local"] = local
-                return {
-                    "apiVersion": f"{APPLIANCE_GROUP}/{APPLIANCE_VERSION}",
-                    "kind": "ModelActivation",
-                    "metadata": {
-                        "name": name,
-                        "namespace": APPLIANCE_NAMESPACE,
-                        "labels": labels,
-                    },
-                    "spec": spec,
-                }
             local["kvCacheType"] = normalize_kv_cache_type(engine, local.get("kvCacheType"))
             if "allowMemoryRisk" in local and not isinstance(local["allowMemoryRisk"], bool):
                 raise ValueError("local.allowMemoryRisk must be a boolean")
@@ -7463,7 +6885,7 @@ data:
         """Safely start, stop, or restart a deployed model runtime.
 
         Start and stop keep the existing ModelActivation as the durable
-        configuration and only toggle its reconciled state.  A FreeToken
+        configuration and only toggle its reconciled state. A Realtime
         restart is deliberately an operator-owned rollout nonce: it never
         exposes an arbitrary command or pod-level control endpoint.
         """
@@ -7480,6 +6902,8 @@ data:
             raise RequestError(409, "The current model revision is unavailable. Reload and retry.")
         spec = activation.get("spec") or {}
         patch_spec = {}
+        if action in {"start", "restart"} and spec.get("type") == "local":
+            normalize_local_engine((spec.get("local") or {}).get("engine"))
         if action in {"start", "restart"} and "realtime" in (spec.get("local") or {}):
             validate_realtime_local(spec["local"])
             require_gpu_slot_available({**activation, "spec": {**spec, "enabled": True}})
@@ -7487,14 +6911,13 @@ data:
             patch_spec["enabled"] = action == "start"
         elif action == "restart":
             local = dict(spec.get("local") or {})
-            runtime_key = "realtime" if "realtime" in local else "freetoken"
-            if str(spec.get("type") or "") != "local" or (runtime_key != "realtime" and normalize_local_engine(local.get("engine")) != "FreeToken"):
-                raise RequestError(409, "Restart is available for FreeToken and Realtime local runtimes only.")
-            freetoken = dict(local.get(runtime_key) or {})
+            if str(spec.get("type") or "") != "local" or "realtime" not in local:
+                raise RequestError(409, "Restart is available for Realtime local runtimes only.")
+            realtime = dict(local.get("realtime") or {})
             # This non-secret nonce is copied to the Deployment pod-template
             # annotation by the operator, which safely causes a rollout.
-            freetoken["restartNonce"] = secrets.token_hex(16)
-            local[runtime_key] = freetoken
+            realtime["restartNonce"] = secrets.token_hex(16)
+            local["realtime"] = realtime
             patch_spec["enabled"] = True
             patch_spec["local"] = local
         else:
@@ -8363,7 +7786,6 @@ data:
         return max(extended, int(dra))
 
 
-
     def nvidia_card_slots(activations, nodes, pods, state, exclude_model=None):
         """Count a selected card, not all sibling cards on its node."""
         devices = state.get("devices") or []
@@ -8570,7 +7992,7 @@ data:
                     and (
                         managed_by == "kubeai"
                         or (managed_by == "magicstick-operator"
-                            and labels.get("appliance.magicstick.dev/runtime-backend") in ("freetoken", "vllm-omni"))
+                            and labels.get("appliance.magicstick.dev/runtime-backend") == "vllm-omni")
                     )
                 )
                 if managed and model_key == exclude_model:
@@ -8597,7 +8019,7 @@ data:
                     continue
                 replicas = max(1, positive_int(local.get("maxReplicas")) or positive_int(local.get("minReplicas")) or 1)
                 requested_slots = replicas
-                if normalize_local_engine(local.get("engine")) == "FreeToken":
+                if str(local.get("engine") or "").upper() == "FREETOKEN":
                     requested_slots = positive_int((local.get("freetoken") or {}).get("gpuCount")) or 1
                 if isinstance(local.get("realtime"), dict):
                     requested_slots = positive_int(local["realtime"].get("gpuCount")) or 1
@@ -8623,14 +8045,6 @@ data:
                 engine_selector = target_engine_profile(definition, engine).get("nodeSelector") or {}
                 eligible = [pool for pool in pools.values() if all(str(pool["labels"].get(key, "")) == str(value)
                                                                   for key, value in engine_selector.items())]
-                if normalize_local_engine(engine) == "FreeToken":
-                    capabilities = freetoken_capabilities(catalog)
-                    eligible_names = {
-                        str((node.get("metadata") or {}).get("name") or "")
-                        for node in nodes
-                        if freetoken_node_eligibility(node, capabilities)[0]
-                    }
-                    eligible = [pool for pool in eligible if pool["node"] in eligible_names]
                 entry["engines"][engine] = {**counts(eligible, unassigned), "scope": "target"}
             result[target_id] = entry
         return result
@@ -8661,38 +8075,6 @@ data:
                 device["slots"] = {**node, "scope": "device" if len(siblings) == 1 else "node"}
             else:
                 device["slots"] = {key: value for key, value in summary.items() if key not in ("engines", "nodes")}
-
-
-    def attach_freetoken_devices(memory, targets):
-        """Annotate the existing hardware inventory; never duplicate a GPU.
-
-        `node:<name>` is an auditable scheduler choice, not a CUDA UUID.  The
-        direct FreeToken Deployment selects that node and asks the device
-        plugin for one whole GPU.
-        """
-        capability = (targets or {}).get("freeTokenCapabilities") or {}
-        eligible = {
-            str(item.get("node") or ""): item
-            for item in capability.get("devices") or []
-            if item.get("supported")
-        }
-        unavailable = {
-            str(item.get("node") or ""): str(item.get("reason") or "")
-            for item in capability.get("unavailableDevices") or []
-        }
-        default_reason = str(capability.get("message") or "FreeToken is not available on this GPU.")
-        for device in memory.get("devices") or []:
-            if device.get("kind") != "gpu":
-                continue
-            node = next(iter(device.get("nodes") or []), "")
-            supported = device.get("computeTarget") == "nvidia-gpu" and node in eligible
-            device["freeToken"] = {
-                "supported": supported,
-                "id": "node:" + node if supported and node else "",
-                "reason": (eligible.get(node) or {}).get("reason", "") if supported else (
-                    unavailable.get(node) or ("FreeToken v" + str(capability.get("version") or "") + " supports NVIDIA whole GPUs only." if device.get("vendor") != "nvidia" else default_reason)
-                ),
-            }
 
 
     def require_gpu_slot_available(resource):
@@ -8730,14 +8112,6 @@ data:
                     raise RequestError(409, "The selected Realtime node does not have enough free GPU slots.")
                 if node_slots.get("mode") != "exclusive" and required != 1:
                     raise RequestError(409, "Shared Realtime uses one GPU slot per model, not multiple physical GPUs.")
-            if str(local.get("engine") or "").upper() == "FREETOKEN":
-                required = positive_int(((local.get("freetoken") or {}).get("gpuCount"))) or 1
-                gpu_device = ((local.get("freetoken") or {}).get("gpuDevice") or "") if isinstance(local.get("freetoken"), dict) else ""
-                if str(gpu_device).startswith("node:"):
-                    selected_node = str(gpu_device).removeprefix("node:")
-                    node_slots = next((item for item in slots.get("nodes") or [] if item.get("node") == selected_node), None)
-                    if not node_slots or node_slots.get("free", 0) < required:
-                        raise RequestError(409, "The selected FreeToken node does not have " + str(required) + " free whole-GPU slots. Remove a model or choose another eligible node.")
             if engine_slots["free"] < required:
                 raise RequestError(409, "No free GPU model slots for " + target + ". Remove a model or change GPU sharing in System > Hardware.")
 
@@ -8745,7 +8119,7 @@ data:
     def summarized_models():
         activations = model_activations()
         modules_payload = summarized_modules()
-        stack_names = ["gpu", "kubeai", "freetoken", "litellm", "model-catalog", "anything-llm"]
+        stack_names = ["gpu", "kubeai", "litellm", "model-catalog", "anything-llm"]
         stack = {
             name: module_state(modules_payload, name)
             for name in stack_names
@@ -8761,7 +8135,6 @@ data:
         for device in targets.get("realtimeDevices") or []:
             node_slots = next((item for item in (realtime_slots.get(device.get("computeTarget", "nvidia-gpu")) or {}).get("nodes") or [] if item.get("node") == device.get("node")), {})
             device["freeGpuCount"] = 1 if device.get("computeTarget") == "cpu" else node_slots.get("free", 0)
-        attach_freetoken_devices(memory, targets)
         return {
             "catalog": generated_model_catalog(),
             "models": (generated_model_catalog().get("models") or []),
@@ -9914,16 +9287,11 @@ data:
                             local.get("engine") or payload.get("engine") or "VLLM"
                         )
                         target = require_compute_target_available(compute_target, engine)
-                        # FreeToken deliberately owns cache configuration in
-                        # local.freetoken.advanced.  Unlike vLLM and Ollama it
-                        # has no shared kvCacheType selector, so do not route
-                        # it through the legacy engine cache gate.
-                        if engine != "FreeToken":
-                            require_kv_cache_type_available(
-                                target,
-                                engine,
-                                local.get("kvCacheType") or payload.get("kvCacheType"),
-                            )
+                        require_kv_cache_type_available(
+                            target,
+                            engine,
+                            local.get("kvCacheType") or payload.get("kvCacheType"),
+                        )
                     else:
                         payload = read_body(self)
                     resource = model_activation_payload(model_type, payload)

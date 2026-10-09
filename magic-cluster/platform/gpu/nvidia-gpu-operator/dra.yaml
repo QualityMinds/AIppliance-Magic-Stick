@@ -82,7 +82,7 @@ spec:
     - kustomize:
         patches:
           # Use explicit claims only, not the upstream opt-in extended-resource
-          # shim. FreeToken/Omni retain their legacy device-plugin contract.
+          # shim. Realtime (Omni) retains its device-plugin contract.
           - target:
               kind: DeviceClass
               name: gpu.nvidia.com

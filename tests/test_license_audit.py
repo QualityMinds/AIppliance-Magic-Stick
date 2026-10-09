@@ -103,7 +103,7 @@ class LicenseAuditTests(unittest.TestCase):
     def test_publication_workflows_check_source_and_report_reviews_without_global_veto(self):
         import yaml
         root = Path(__file__).resolve().parents[1]
-        for name in ['build-dashboard-image', 'build-freetoken-image', 'build-mesh-image',
+        for name in ['build-dashboard-image', 'build-mesh-image',
                      'build-mesh-companion', 'build-kdns-image', 'build-amd-dra-image',
                      'build-omni-rocm-image']:
             with self.subTest(workflow=name):

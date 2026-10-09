@@ -212,24 +212,22 @@ describe('Realtime model profile', () => {
   it('switches between local engines and external providers without leaking Realtime settings', async () => {
     const data = models();
     data.computeTargets.engineCatalog!.OLlama = {displayName: 'Ollama'};
-    data.computeTargets.engineCatalog!.FreeToken = {displayName: 'FreeToken'};
-    data.computeTargets.targets[0]!.engines = ['VLLM', 'OLlama', 'FreeToken'];
+    data.computeTargets.targets[0]!.engines = ['VLLM', 'OLlama'];
     vi.mocked(api.models).mockResolvedValue(data);
     wrapper(<ModelsPage session={{subject: 'admin', username: 'admin', roles: ['magicstick-admin'], identityManagementAvailable: true, identityManagementMode: 'keycloak'}} />);
     await userEvent.click(await screen.findByRole('button', {name: 'Create'}));
     expect(within(screen.getByLabelText('Inference Engine')).getAllByRole('option').map((option) => option.textContent))
-      .toEqual(['Ollama', 'vLLM', '(Experimental) FreeToken', '(Experimental) vLLM-Omni']);
+      .toEqual(['Ollama', 'vLLM', '(Experimental) vLLM-Omni']);
     expect(screen.getByLabelText('Inference Engine')).toHaveValue('OLlama');
-    for (const engine of ['OLlama', 'FreeToken', 'VLLM']) {
+    for (const engine of ['OLlama', 'VLLM']) {
       await userEvent.selectOptions(screen.getByLabelText('Inference Engine'), 'VLLM-Omni');
       fireEvent.change(screen.getByLabelText('Context Size'), {target: {value: '2048'}});
       expect(screen.queryByLabelText('KV Cache')).not.toBeInTheDocument();
       await userEvent.selectOptions(screen.getByLabelText('Inference Engine'), engine);
       expect(screen.queryByLabelText('Realtime profile')).not.toBeInTheDocument();
       expect(screen.getByRole('button', {name: 'Add Local Model'})).toBeInTheDocument();
-      expect(screen.getByLabelText(engine === 'FreeToken' ? 'Context length' : 'Context Size')).toHaveValue(4096);
+      expect(screen.getByLabelText('Context Size')).toHaveValue(4096);
       if (engine === 'OLlama') expect(screen.getByRole('heading', {name: 'Ollama Library'})).toBeVisible();
-      if (engine === 'FreeToken') expect(screen.getByRole('heading', {name: 'FreeToken'})).toBeVisible();
       if (engine === 'VLLM') expect(screen.getByLabelText('KV Cache')).toHaveValue('auto');
     }
     await userEvent.selectOptions(screen.getByLabelText('Inference Engine'), 'VLLM-Omni');

@@ -3,8 +3,7 @@
 ## On-Demand Local Model Runtime
 
 `kubeai` uses `activationPolicy: local-model` and is not part of a fresh
-installation. Ordinary vLLM and Ollama models require KubeAI. FreeToken and
-Realtime vLLM-Omni use operator-managed Deployments and Services instead. Accelerator targets resolve a
+installation. Ordinary vLLM and Ollama models require KubeAI. Realtime vLLM-Omni use operator-managed Deployments and Services instead. Accelerator targets resolve a
 vendor capability: `nvidia-gpu` to `compute.gpu.nvidia`, `amd-gpu` to
 `compute.gpu.amd`, and `intel-gpu` to `compute.gpu.intel`. A CPU activation
 using ordinary vLLM/Ollama therefore installs KubeAI without installing a GPU driver. External

@@ -4,8 +4,7 @@ import {parseLabConfig, type LabConfig, type RuntimeModelFixture} from './config
 import type {KubeObject} from './observer.ts';
 import {requireSafe} from './errors.ts';
 import {verifyIdentity, verifyCapabilities, verifyIdle} from './preflight.ts';
-import {freeTokenNodeCapacity} from './freetoken-inventory.ts';
-import {engineRegressionEnabled,freeTokenRegressionEnabled} from './engine-policy.ts';
+import {engineRegressionEnabled} from './engine-policy.ts';
 import {requirePhase0Profile} from '../profiles/phase0-p0.ts';
 import {requirePhase1Profile} from '../profiles/phase1-p0.ts';
 import {requirePhase2Profile} from '../profiles/phase2-p0.ts';
@@ -18,7 +17,7 @@ type Json = Record<string, any>;
 export const approvals = ['gpu','identity','kubernetes','license','api-restart','first-license','modules','amd-profile','federation','mesh','realtime','cache','reboot','unmanaged-key','host-drills'] as const;
 export type Approval = typeof approvals[number];
 export interface PreparationOptions {phases:number[]; approve:Approval[]; drill?:'BOOT-02'; independentRecovery:boolean; automatic?:boolean}
-export type GpuInputIssue='mixed-hardware'|'device-selection'|'sharing-approval'|'fixtures'|'freetoken-telemetry'|'freetoken-budget';
+export type GpuInputIssue='mixed-hardware'|'device-selection'|'sharing-approval'|'fixtures';
 export interface PreparationSnapshot {
   appliance:Appliance; observedAppliance:KubeObject; nodes:KubeObject[]; hosts:ManagedHost[];
   models:ModelsPayload; status:SystemStatusPayload; modules:ModulesPayload;
@@ -86,7 +85,7 @@ export function catalogFixture(models:ModelsPayload,engine:'OLlama'|'VLLM',targe
     contextWindow:Math.min(2048,Number(chosen.contextWindow ?? 1024)),maxNumSeqs:1,kvCacheType:preferred} as RuntimeModelFixture;
 }
 
-function gpuProfile(previous:Json,snapshot:PreparationSnapshot,options:PreparationOptions,defaults:Json):{profile?:Json;issues:GpuInputIssue[]} {
+function gpuProfile(previous:Json,snapshot:PreparationSnapshot,options:PreparationOptions,_defaults:Json):{profile?:Json;issues:GpuInputIssue[]} {
   const issues:GpuInputIssue[]=[];
   const devices=Object.values(snapshot.status.hardwareOperators ?? {}).flatMap(item=>item.devices ?? []);
   const hosts=snapshot.hosts.filter(host=>snapshot.nodes.some(node=>node.metadata.uid === host.nodeUid));
@@ -104,22 +103,10 @@ function gpuProfile(previous:Json,snapshot:PreparationSnapshot,options:Preparati
   const models=previous.gpu?.models ? structuredClone(previous.gpu.models) : {
     amdOllama:catalogFixture(snapshot.models,'OLlama','amd-gpu'),amdVllm:catalogFixture(snapshot.models,'VLLM','amd-gpu'),
     nvidiaOllama:catalogFixture(snapshot.models,'OLlama','nvidia-gpu'),nvidiaVllm:catalogFixture(snapshot.models,'VLLM','nvidia-gpu'),
-    ...(freeTokenRegressionEnabled ? {freetoken:structuredClone(defaults.freetoken)} : {}),
   };
-  // Old accepted inputs may contain a FreeToken fixture. It is not a
-  // prerequisite for the currently selected classic-engine regression scope.
-  if(!freeTokenRegressionEnabled)delete models.freetoken;
-  if(!['amdOllama','amdVllm','nvidiaOllama','nvidiaVllm'].every(key=>models[key]) ||
-    freeTokenRegressionEnabled && !models.freetoken?.freetoken) {issues.push('fixtures');return {issues};}
-  // The catalog and separate current telemetry must both support the fixture.
-  // Do not turn unknown VRAM into host RAM or borrow another GPU's counters.
-  if(freeTokenRegressionEnabled)try {
-    models.freetoken.freetoken.gpuDevice=`node:${pair.host.name}`;
-    const ft=freeTokenNodeCapacity(snapshot.models,pair.host.name);
-    if(!ft.capability.memoryStrategies?.includes(models.freetoken.freetoken.memoryStrategy) ||
-      ft.gpuAvailableMi < models.freetoken.freetoken.gpuMemoryMi || ft.systemAvailableMi < models.freetoken.freetoken.systemMemoryMi)
-      issues.push('freetoken-budget');
-  } catch {issues.push('freetoken-telemetry');}
+  // Accepted profiles from older releases may still contain this retired fixture.
+  delete models.freetoken;
+  if(!['amdOllama','amdVllm','nvidiaOllama','nvidiaVllm'].every(key=>models[key])) {issues.push('fixtures');return {issues};}
   if(issues.length)return {issues};
   return {issues,profile:{acknowledgeSharingTransitions:true,nodeName:pair.host.name,nodeUid:pair.host.nodeUid,bootId:pair.host.bootId,
     sharedSlots:2,devices:{amd:selected(pair.amd[0]!),nvidia:selected(pair.nvidia[0]!)},models}};
@@ -216,9 +203,7 @@ export function inputReadiness(lab:LabConfig,profile:Json,snapshot:PreparationSn
     'mixed-hardware':'No unambiguous managed node with exactly one detected AMD GPU and one NVIDIA GPU is available.',
     'device-selection':'The retained GPU identities no longer match, or more than one mixed node needs an explicit reviewed selection.',
     'sharing-approval':'Temporary AMD/NVIDIA sharing transitions have not been approved for this installation.',
-    fixtures:'The advertised small AMD/NVIDIA Ollama/vLLM fixtures or the reviewed FreeToken fixture are incomplete.',
-    'freetoken-telemetry':'The FreeToken capability or current physical NVIDIA VRAM/system-RAM telemetry could not be verified.',
-    'freetoken-budget':'The FreeToken memory strategy or retained GPU/RAM budget does not fit current supported capacity.',
+    fixtures:'The advertised small AMD/NVIDIA Ollama/vLLM fixtures are incomplete.',
   };
   return options.phases.map(phase=>{
     const shared=[...base],gpuPhase=[3,4,6,7,8].includes(phase);
@@ -275,13 +260,13 @@ export function preparedProfile(previous:Json,snapshot:PreparationSnapshot,optio
     invalidFiles:['/inputs/license-expired.license','/inputs/license-wrong-installation.license','/inputs/license-tampered.license'],
     restart:{approveApiRestart:false,kubeconfig:'/inputs/api-restarter.kubeconfig'}};
   profile.license.baseline ??= {approveNoFileBaseline:false,kubeconfig:'/inputs/license-resetter.kubeconfig'};
-  profile.cache ??= {approveFreeToken:false};
+  profile.cache ??= {};
   profile.repeat ??= {cycles:3,maximumMemoryGrowthMi:1024,maximumNonCacheDiskGrowthBytes:268435456};
   const flags:Record<string,[string,string][]>={identity:[['identity','approveDisposableUsers']],kubernetes:[['kubernetes','approveAdminGrant']],
     license:[['license','approveLicenseReplacement'],['license.baseline','approveNoFileBaseline']],federation:[['federation','approveDisposableProviders']],
     'api-restart':[['license.restart','approveApiRestart']],'first-license':[['license','allowFirstActivation']],
     modules:[['modules','approveOptionalModule']],'amd-profile':[['moduleProfile','approveTemporaryProfile']],
-    mesh:[['mesh','approveTwoAppliances'],['mesh','approveGpuTransitions']],realtime:[['realtime','approveGpuTransitions']],cache:[['cache','approveFreeToken']],
+    mesh:[['mesh','approveTwoAppliances'],['mesh','approveGpuTransitions']],realtime:[['realtime','approveGpuTransitions']],cache:[],
     'unmanaged-key':[['unmanagedKey','approveDisposableProbe']]};
   for(const flag of options.approve)for(const [section,field] of flags[flag] ?? []) {
     let object=profile;for(const part of section.split('.')) {object[part] ??= {};object=object[part];}object[field]=true;

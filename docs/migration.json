@@ -556,5 +556,30 @@
       "reading-path": "README.md#reading-path",
       "quick-commands": "development/testing.md"
     }
+  },
+  "user-guide/models/freetoken.md": {
+    "target": "reference/retired-engines.md",
+    "anchors": {
+      "run-a-freetoken-model": "reference/retired-engines.md#freetoken-removal",
+      "before-you-start": "reference/retired-engines.md#freetoken-removal",
+      "create-with-automatic-settings": "reference/retired-engines.md#freetoken-removal",
+      "what-the-memory-controls-mean": "reference/retired-engines.md#freetoken-removal",
+      "if-startup-fails": "reference/retired-engines.md#freetoken-removal"
+    }
+  },
+  "administration/troubleshooting/freetoken.md": {
+    "target": "reference/retired-engines.md",
+    "anchors": {
+      "freetoken-troubleshooting": "reference/retired-engines.md#freetoken-removal",
+      "freetoken-v013": "reference/retired-engines.md#freetoken-removal",
+      "freetoken-runtime-image-promotion": "reference/retired-engines.md#freetoken-removal"
+    }
+  },
+  "reference/freetoken.md": {
+    "target": "reference/retired-engines.md",
+    "anchors": {
+      "freetoken-configuration": "reference/retired-engines.md#freetoken-removal",
+      "freetoken-runtimes": "reference/retired-engines.md#freetoken-removal"
+    }
   }
 }

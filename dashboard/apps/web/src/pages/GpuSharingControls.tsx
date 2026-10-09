@@ -32,7 +32,7 @@ const SharingForm = ({state, session}: {state: GpuSharingState; session: Session
     <summary><strong>GPU sharing</strong> <InfoPopover label={`${vendor} GPU sharing`}>
       <p className="memory-info-note">Several model pods can share one physical GPU. This does not partition GPU memory or guarantee throughput. Model memory budgets and CPU offloading settings remain separate.</p>
       <p className="memory-info-note">{vendor} uses {backend}. Changes apply only to this provider. Managed {vendor} model pods may restart; model settings and downloads remain. AMD supports one GPU; NVIDIA supports multiple whole GPUs on one node.</p>
-      {state.provider === 'nvidia' && <p className="memory-info-note">DRA enables exact card selection for ordinary vLLM and Ollama models. Device-plugin mode automatically assigns a card from the node pool. Stop FreeToken, Realtime and unmanaged NVIDIA workloads before switching to DRA. The driver and toolkit remain installed; allocation backends never run together.</p>}
+      {state.provider === 'nvidia' && <p className="memory-info-note">DRA enables exact card selection for ordinary vLLM and Ollama models. Device-plugin mode automatically assigns a card from the node pool. Stop Realtime and other NVIDIA workloads before switching to DRA. The driver and toolkit remain installed; allocation backends never run together.</p>}
       {state.reason && <p className="memory-info-note">{state.reason}</p>}{state.message && <p className="memory-info-note">{state.message}</p>}
     </InfoPopover> <StatusBadge phase={state.phase} /></summary>
     <div className="stack compact gpu-configuration-content">

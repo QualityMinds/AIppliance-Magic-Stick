@@ -1029,7 +1029,7 @@ FreeToken's scheduling capability entries need not contain `vendor` or VRAM
 counters. The harness joins the selected `node:<name>` with independently
 reported NVIDIA GPU samples in `computeMemory`, requiring the correct node,
 engine eligibility, known telemetry and a matching FreeToken scheduler identity.
-The [read-only test resolver](../../dashboard/apps/web/regression/core/freetoken-inventory.ts)
+The [read-only test resolver](https://github.com/QualityMinds/AIppliance-Magic-Stick/blob/7ff5312e3819f497a9c451434d0f28668df18fb6/dashboard/apps/web/regression/core/freetoken-inventory.ts)
 never uses cluster CPU RAM or a different node as a VRAM fallback. The
 frontend clamps numeric GPU/RAM inputs to current capacity; the API separately
 rejects impossible direct-create budgets. Isolated tests cover this actual

@@ -11,14 +11,11 @@ import {HarnessError,reasons} from '../core/errors.ts';
 import {evidenceAnnotations,evidenceStep} from '../core/evidence.ts';
 import {phase3Requirements,gpuModeIds} from '../profiles/gpu-p0.ts';
 import {remainingRequirements} from '../profiles/remaining-p0.ts';
-import {disabledExperimentalEngines,freeTokenRegressionEnabled} from '../core/engine-policy.ts';
+import {disabledExperimentalEngines} from '../core/engine-policy.ts';
 import {completeCases,reportExitCode,reportVariants, saveReport, type CaseResult} from '../core/report.ts';
 import {newRunId} from '../core/journal.ts';
 import {childEvidence} from '../core/campaign-evidence.ts';
 import {writePrivate} from '../core/private-files.ts';
-import {verifyCapabilities} from '../core/preflight.ts';
-import type {LabConfig} from '../core/config.ts';
-import type {ModelsPayload} from '@magicstick/dashboard-contracts';
 import {parsePreparationDiagnostic, preparationDescription} from '../core/preparation-diagnostic.ts';
 
 function capture(action: () => void): string {
@@ -115,7 +112,7 @@ test('HAR-10 reporter shows test progress, exact public scenario, layer, goal an
     reporter.onTestEnd(second, result());
   });
   expect(output).toContain('Selected 2 executable tests');
-  expect(output).toContain('Excluded experimental engine tests: FreeToken. Product engines remain enabled.');
+  expect(output).not.toContain('Excluded experimental engine tests:');
   expect(output).toContain('[1/2] START HAR-10');
   expect(output).toContain(`Scenario: ${title}`);
   expect(output).toContain(`HAR-10 catalogue goal: ${caseDescription('HAR-10')}`);
@@ -175,25 +172,14 @@ test('HAR-10 late Stop failure preserves inference evidence and blocks only unre
   expect(cases[0]?.executionId).toMatch(/^[a-f0-9]{24}$/);
 });
 
-test('HAR-10 disabled experimental FreeToken tests are excluded rather than fabricated as Blocked or Passed',()=>{
-  expect(disabledExperimentalEngines).toEqual(['FreeToken']);
-  expect(freeTokenRegressionEnabled).toBe(false);
+test('HAR-10 retired FreeToken cases are absent from executable coverage',()=>{
+  expect(disabledExperimentalEngines).toEqual([]);
   expect(phase3Requirements.some(item=>item.variant.startsWith('p3-ft-'))).toBe(false);
   expect(gpuModeIds('phase3-gpu')?.some(id=>id.startsWith('FT-') || id === 'DISC-08')).toBe(false);
   expect(remainingRequirements('phase6')?.some(item=>item.id === 'CACHE-07')).toBe(false);
   expect(completeCases('phase3',[],gpuModeIds('phase3')!).some(item=>item.id.startsWith('FT-') || item.id === 'DISC-08')).toBe(false);
   expect(phase3Requirements.some(item=>item.variant === 'p3-nvidia-vllm')).toBe(true);
   expect(phase3Requirements.some(item=>item.variant === 'p3-amd-ollama')).toBe(true);
-});
-
-test('HAR-02 unavailable excluded FreeToken capability pins never block classic engines',()=>{
-  const config={expected:{capabilities:[{target:'nvidia-gpu',engines:['VLLM','FreeToken']},
-    {target:'experimental-only',engines:['FreeToken']}]}} as LabConfig;
-  const models={activations:[],computeTargets:{targets:[{id:'nvidia-gpu',available:true,engines:['VLLM'],
-    engineAvailability:{VLLM:{available:true},FreeToken:{available:false}}}]}} as unknown as ModelsPayload;
-  expect(()=>verifyCapabilities(config,models)).not.toThrow();
-  models.computeTargets.targets[0]!.engineAvailability!.VLLM!.available=false;
-  expect(()=>verifyCapabilities(config,models)).toThrow('[CAPABILITY]');
 });
 
 test('HAR-10 reports count executable scenarios independently of their case variant layer evidence',async()=>{

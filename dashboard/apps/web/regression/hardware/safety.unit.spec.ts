@@ -10,8 +10,6 @@ import {BorrowedSharing,SharingWriteRejected,sharingSpec,type SharingSnapshot,ty
 import {GpuScenario,gpuWorkerJournal,unfinishedJob,runtimePodConverged,type GpuCreated} from '../core/gpu-scenario.ts';
 import type {KubeObject} from '../core/observer.ts';
 import type {ModelsPayload,ModelActivation} from '@magicstick/dashboard-contracts';
-import {freeTokenNodeCapacity} from '../core/freetoken-inventory.ts';
-import {freeTokenRegressionEnabled} from '../core/engine-policy.ts';
 import {OwnedModelClient,modelContextUpdateReceipt} from '../core/owned-model.ts';
 import {LiveFoundation} from '../core/live-foundation.ts';
 import {modelStopped,stopDiagnostic,waitModelStopped,type ModelStopState} from '../core/model-stop.ts';
@@ -36,9 +34,7 @@ function config():LabConfig {
       devices:{amd:{id:'fixture-uid/0000:01:00.0',pciAddress:'0000:01:00.0'},nvidia:{id:'fixture-uid/0000:02:00.0',pciAddress:'0000:02:00.0'}},
       models:{amdOllama:classic('OLlama','amd-gpu'),amdVllm:classic('VLLM','amd-gpu'),
         nvidiaOllama:classic('OLlama','nvidia-gpu'),nvidiaVllm:classic('VLLM','nvidia-gpu'),
-        freetoken:{engine:'FreeToken',computeTarget:'nvidia-gpu',url:'hf://fixture/supported',memoryRequiredMi:32768,
-          contextWindow:1024,maxNumSeqs:1,freetoken:{gpuDevice:'node:fixture-node',gpuCount:1,memoryStrategy:'auto',
-            gpuMemoryMi:24576,systemMemoryMi:32768,advanced:{cacheType:'radix'}}}}}};
+        }}};
 }
 test('HAR-02 GPU profile rejects missing consent, stale boot, unbounded fixtures and cross-engine settings',()=>{
   const parsed=parseLabConfig(config(),directory);requireGpuProfile(parsed);
@@ -47,9 +43,6 @@ test('HAR-02 GPU profile rejects missing consent, stale boot, unbounded fixtures
     (c:LabConfig)=>{(c.gpu!.acknowledgeSharingTransitions as boolean)=false;},
     (c:LabConfig)=>{c.gpu!.bootId='stale-boot';},
     (c:LabConfig)=>{c.gpu!.devices.nvidia=c.gpu!.devices.amd;},
-    (c:LabConfig)=>{c.gpu!.models.freetoken!.kvCacheType='fp8';},
-    (c:LabConfig)=>{c.gpu!.models.freetoken!.freetoken!.gpuCount=2;},
-    (c:LabConfig)=>{c.gpu!.models.freetoken!.freetoken!.gpuMemoryMi=32769;},
     (c:LabConfig)=>{c.gpu!.models.amdOllama!.memoryRequiredMi=32769;},
     (c:LabConfig)=>{c.gpu!.models.nvidiaVllm!.contextWindow=262144;},
     (c:LabConfig)=>{(c.gpu! as unknown as Record<string,unknown>).ignoreBoot=true;},
@@ -118,7 +111,7 @@ test('HAR-10 successful Stop records its duration and safe initial Pod/container
       uid:'12345678-1234-1234-1234-123456789abc',containers:[{containerID:'containerd://'+'a'.repeat(64)}],
     }]}});
 });
-test('HAR-05 classic fixture names obey KubeAI bounds before any write intent without truncating FreeToken names',async()=>{
+test('HAR-05 classic fixture names obey KubeAI bounds before any write intent',async()=>{
   const journal=await ResourceJournal.create(join(directory,'name-bounds.json'),newRunId(),'fixture-appliance');
   const prefix=journal.prefix,name=prefix+'a'.repeat(40-prefix.length);let requests=0,guards=0;
   const request={fetch:async()=>{requests++;throw new Error('No request is allowed.');}} as unknown as APIRequestContext;
@@ -126,8 +119,6 @@ test('HAR-05 classic fixture names obey KubeAI bounds before any write intent wi
     expect(new OwnedModelClient(request,'https://dashboard.example.local',1000,name,fixture,prefix,async()=>{}).payload().name).toBe(name);
     expect(()=>new OwnedModelClient(request,'https://dashboard.example.local',1000,name+'a',fixture,prefix,async()=>{})).toThrow('[CONFIG]');
   }
-  expect(new OwnedModelClient(request,'https://dashboard.example.local',1000,name+'aa',config().gpu!.models.freetoken!,
-    prefix,async()=>{}).payload().name).toBe(name+'aa');
   const live={context:{request},config:config(),guard:async()=>{guards++;}} as unknown as LiveFoundation;
   await expect(LiveFoundation.prototype.createModel.call(live,'a'.repeat(41-prefix.length),journal,
     config().gpu!.models.nvidiaOllama!)).rejects.toMatchObject({code:'CONFIG'});
@@ -161,12 +152,6 @@ test('HAR-10 rollout readiness rejects old context, terminating replicas and sta
   expect(runtimePodConverged([vpod],vllm)).toBe(true);
   (vpod.spec.containers as Array<{args:string[]}>)[0]!.args[0]='--max-model-len=1024';
   expect(runtimePodConverged([vpod],vllm)).toBe(false);
-  const ft=structuredClone(item);ft.spec!.local!.engine='FreeToken';
-  const fpod=structuredClone(pod);fpod.spec={containers:[{name:'freetoken',image:'fixture:local',env:[
-    {name:'MAGICSTICK_FREETOKEN_CONTEXT_LENGTH',value:'2048'},{name:'MAGICSTICK_FREETOKEN_MAX_RUNNING_REQUESTS',value:'1'}]}]};
-  expect(runtimePodConverged([fpod],ft)).toBe(true);
-  (fpod.spec.containers as Array<{env:Array<{name:string;value:string}>}>)[0]!.env[0]!.value='1024';
-  expect(runtimePodConverged([fpod],ft)).toBe(false);
 });
 test('HAR-10 replica readiness requires every current child UID, matching runtime and non-terminating Pod',()=>{
   const item:ModelActivation={metadata:{uid:'parent',generation:1},spec:{type:'local',local:{engine:'OLlama',computeTarget:'nvidia-gpu',
@@ -214,26 +199,7 @@ test('HAR-07 a context PUT accepts only the direct same-UID next-generation rece
     catch(error) {expect(error).toMatchObject({code:'API',outcome:'Failed',stage:'model-update'});}
   }
 });
-if(freeTokenRegressionEnabled)test('FT-02 scheduler-only capability inventory resolves independent live VRAM without cross-node or CPU fallback',()=>{
-  const data:ModelsPayload={activations:[],models:[],presets:{},computeTargets:{default:'cpu',targets:[
-    {id:'nvidia-gpu',kind:'gpu',engines:['FreeToken'],available:true}],freeTokenCapabilities:{available:true,supportedVendors:['nvidia'],
-    devices:[{id:'node:fixture-node',node:'fixture-node',supported:true,gpuCount:1,maxGpuCount:1,
-      systemMemoryMi:125629,systemAvailableMi:116746}]}},computeMemory:{devices:[
-      {id:'nvidia-physical',kind:'gpu',vendor:'nvidia',computeTarget:'nvidia-gpu',nodes:['fixture-node'],metricsAvailable:true,
-        totalMi:48540,unreservedMi:42000,freeMi:41000,freeToken:{id:'node:fixture-node',supported:true}}]}};
-  expect(freeTokenNodeCapacity(data,'fixture-node')).toMatchObject({gpuPhysicalMi:48540,gpuAvailableMi:41000,
-    systemPhysicalMi:125629,systemAvailableMi:116746,maxGpuCount:1});
-  const zero=structuredClone(data);zero.computeMemory!.devices![0]!.freeMi=0;
-  expect(freeTokenNodeCapacity(zero,'fixture-node').gpuAvailableMi).toBe(0);
-  for(const change of [
-    (d:ModelsPayload)=>{d.computeMemory!.devices![0]!.freeMi=null;},
-    (d:ModelsPayload)=>{d.computeMemory!.devices![0]!.metricsAvailable=false;},
-    (d:ModelsPayload)=>{d.computeMemory!.devices![0]!.nodes=['other-node'];},
-    (d:ModelsPayload)=>{d.computeMemory!.devices![0]!.kind='cpu';},
-    (d:ModelsPayload)=>{d.computeMemory!.devices![0]!.freeToken!.id='node:other-node';},
-    (d:ModelsPayload)=>{d.computeTargets.freeTokenCapabilities!.devices![0]!.systemAvailableMi=null;},
-  ]) {const invalid=structuredClone(data);change(invalid);expect(()=>freeTokenNodeCapacity(invalid,'fixture-node')).toThrow('[CAPABILITY]');}
-});
+
 test('HAR-07 worker replacement cannot overwrite or adopt earlier ownership and restore receipts',async()=>{
   const original=await ResourceJournal.create(join(directory,'journal.json'),newRunId(),'fixture-appliance');
   await original.requested('model',original.prefix+'model');

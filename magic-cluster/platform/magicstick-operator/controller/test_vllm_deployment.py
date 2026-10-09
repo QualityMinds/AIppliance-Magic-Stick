@@ -91,8 +91,8 @@ class VllmDeploymentTests(unittest.TestCase):
         for engine, target in (("VLLM", "nvidia-gpu"), ("VLLM", "cpu"), ("VLLM", "intel-gpu"), ("OLlama", "amd-gpu")):
             with self.subTest(engine=engine, target=target), self.assertRaises(ValueError):
                 self.resource({"engine": engine, "computeTarget": target, "vllm": {"visionAttention": "triton"}})
-        with self.assertRaisesRegex(ValueError, "only for vLLM"):
-            self.c["freetoken_runtime_resources"]({"metadata": {"name": "example"}, "spec": {"local": {
+        with self.assertRaisesRegex(ValueError, "unsupported local.engine"):
+            self.c["kubeai_model_resource"]({"metadata": {"name": "example"}, "spec": {"local": {
                 "engine": "FreeToken", "computeTarget": "nvidia-gpu", "url": "hf://example/model",
                 "vllm": {"visionAttention": "triton"}}}}, {}, self.catalog)
 

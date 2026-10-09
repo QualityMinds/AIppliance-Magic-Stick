@@ -4,19 +4,18 @@
 
 Use **System → Model cache** to inspect disk space and clear downloaded model
 files after stopping local models. It preserves model definitions, credentials,
-container images and application data. FreeToken's temporary cache is released
-with its Pod when the model is stopped. See [Scope](#scope) for the cleanup boundaries.
+container images and application data. See [Scope](#scope) for the cleanup boundaries.
 
 Administrators open **System → Model cache** (`#/system/model-cache`). Each
 managed computer reports system-disk capacity/free space and cached model sizes
-for Hugging Face/vLLM, Ollama and FreeToken. This is **disk space**, not RAM or
+for Hugging Face/vLLM and Ollama. This is **disk space**, not RAM or
 VRAM. Help is behind information icons. Refresh reads the latest host report;
 the host worker samples it on its normal inspection cycle.
 
 [![Model cache disk-space summary, per-engine cache sizes and a disabled Clear model cache button with an information icon.](../assets/screenshots/model-cache.webp)](../assets/screenshots/model-cache.webp)
 
 *Cropped test-appliance view, captured 24 September 2026. Sizes are examples of
-disk usage, not RAM or VRAM. Cleanup was not run. When Clear model cache is
+disk usage, not RAM or VRAM. The retired FreeToken cache row belongs to that older version. Cleanup was not run. When Clear model cache is
 disabled, use the adjacent information icon to read the blocking reason.*
 
 **Clear model cache** requires the exact computer name in a confirmation dialog.
@@ -32,9 +31,6 @@ Pods must also disappear before cleanup.
 
 - Hugging Face: only `models--*` entries in `/root/.cache/huggingface/hub`.
 - Ollama: only `blobs` and `manifests` in `/root/.ollama/models`.
-- FreeToken: reports its current `runtime-cache` emptyDir. Stop the FreeToken
-  model to release its Pod and temporary cache; this cleanup action never deletes
-  a live Kubernetes volume.
 
 Credentials, other user files, dataset/compiler caches, container images,
 application databases and model configuration are not removed. Model files must

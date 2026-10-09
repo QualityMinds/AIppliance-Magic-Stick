@@ -1,7 +1,7 @@
 # Inference engines and model routing
 
 The AI model catalog is the central model registry for the AI Appliance. It
-turns selected KubeAI `Model` resources, Magic Stick-managed FreeToken
+turns selected KubeAI `Model` resources, Magic Stick-managed Realtime
 runtimes, and optional external model entries into LiteLLM deployments, then
 publishes a generated `ai-model-catalog` ConfigMap for apps that need a stable
 source of model metadata.
@@ -9,8 +9,7 @@ source of model metadata.
 The catalog is accelerator-neutral. External models work with LiteLLM alone.
 Local `ModelActivation` resources use vLLM or Ollama through KubeAI on an
 explicit `cpu`, `nvidia-gpu`, `amd-gpu`, or `intel-gpu` compute target.
-FreeToken uses the same `ModelActivation` contract but its own direct runtime
-adapter on its supported NVIDIA target. KubeAI is installed for the former
+Realtime uses a direct runtime adapter under the same `ModelActivation` contract. KubeAI is installed for the former
 engines; the matching vendor provider is required only for an accelerator
 target.
 
@@ -22,7 +21,7 @@ replace those deployments, hides export-only routes and deduplicates logical
 model names. Its ready local vLLM routes carry order 0 and trusted scheduler
 metadata; Mesh fallbacks carry order 1. Aliases do not create new KubeAI models.
 
-- Watch KubeAI `Model` resources and FreeToken runtime Deployments, publishing
+- Watch KubeAI `Model` resources and Realtime runtime activations, publishing
   only a ready, healthy local model.
 - Read optional external model definitions from `ConfigMap/ai-external-models`.
 - Read external runtime model requests from `ModelActivation` resources in
@@ -49,8 +48,8 @@ public `magic-cluster/apps/ai` base.
 
 1. The controller lists KubeAI `Model` resources when the KubeAI CRD exists
    and selects only resources with `status.replicas.ready` greater than zero.
-   It also reads a FreeToken activation's generated runtime endpoint only after
-   its Deployment is Ready and the engine's `/health` endpoint reports success.
+   It also reads a Realtime activation's generated runtime endpoint only after
+   the controller reports Ready for the current generation.
 2. It reads `ai-external-models.data["models.json"]` when present.
 3. It reads enabled external `ModelActivation` resources when present.
 4. It builds the desired LiteLLM model set and marks those models with

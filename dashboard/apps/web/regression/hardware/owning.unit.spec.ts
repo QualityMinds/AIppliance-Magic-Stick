@@ -3,7 +3,6 @@ import {spawnSync} from 'node:child_process';
 import {componentSuite,pythonSuite} from '../components/owning.ts';
 import {evidenceAnnotations,type TestLayer} from '../core/evidence.ts';
 import {phase3Variants,phase4Variants} from '../profiles/gpu-p0.ts';
-import {freeTokenRegressionEnabled} from '../core/engine-policy.ts';
 
 const phase = process.env.REGRESSION_MODE === 'phase4-fast' ? 4 : 3;
 const definitions:Record<string,{id:string;layers:readonly TestLayer[]}> = phase === 3 ? phase3Variants : phase4Variants;
@@ -13,6 +12,18 @@ function proof(keys:string[],layer:'U'|'C') {
 function title(keys:string[],description:string) {return [...new Set(keys.map(key => definitions[key]!.id))].join(' ')+' '+description;}
 const api = '../../../magic-cluster/apps/dashboard';
 const operator = '../../../magic-cluster/platform/magicstick-operator/controller';
+if (phase === 3) {
+  test('ENG-01 supported engine forms and retired model cleanup',proof(['p3-engine-selection'],'U'),async () => {
+    await componentSuite('src/ModelLifecycle.test.tsx',[]);
+    await componentSuite('src/RealtimeModelForm.test.tsx',[]);
+  });
+  test('ENG-01 retired engine rejects writes and cannot create or export a runtime',proof(['p3-engine-selection'],'C'),() => {
+    pythonSuite(api,['test_model_lifecycle_api.ModelLifecycleApiTests']);
+    pythonSuite(operator,['test_model_lifecycle.ModelLifecycleTests']);
+    pythonSuite('../../../magic-cluster/apps/ai/model-catalog',['test_controller.DirectRuntimeCatalogTests']);
+    pythonSuite('../../../magic-cluster/apps/ai/private-mesh',['test_inventory']);
+  });
+}
 test('MGPU-02 owning replicated create/edit separates budgets and split strategy',proof([`p${phase}-replicated-config`],'U'), async () => {
   await componentSuite('src/NvidiaCards.test.tsx',[
     'creates independent VLLM copies with per-copy RAM and no split settings',
@@ -78,16 +89,8 @@ if (phase === 3) {
       'never substitutes another node or missing counters for the selected shared pool',
       'uses driver-bounded shared free rather than Linux free or unreserved budget',
     ]));
-  const ft = ['p3-ft-capability','p3-ft-telemetry','p3-ft-whole-device','p3-ft-vram','p3-ft-ram','p3-ft-edit','p3-ft-lifecycle','p3-ft-discovery'];
-  if(freeTokenRegressionEnabled)test(title(ft,'owning FreeToken form uses device-specific budgets, distinct settings, logs and lifecycle'),proof(ft,'U'), () =>
-    componentSuite('src/FreeToken.test.tsx',[
-      'searches Hugging Face with the FreeToken engine context and selects a compatible result',
-      'uses the engine-specific configuration and excludes KV/offloading fields',
-      'does not fall back to cluster-wide CPU capacity when selected-node RAM telemetry is unavailable',
-      'does not substitute total VRAM when live FreeToken GPU capacity is explicitly zero',
-      'edits only FreeToken runtime settings for a deployed FreeToken model',
-      'restarts a running FreeToken model with its current revision',
-    ]));
+
+
   test('ENG-03 owning GPU cache controls offer only compatible formats',proof(['p3-kv-controls'],'U'), () =>
     componentSuite('src/Offloading.test.tsx',['offers compatible cache formats and recalculates for the selected value']));
   test('LOG-01 owning runtime output remains bounded and inert',proof(['p3-gpu-logs'],'U'), () =>
@@ -112,11 +115,8 @@ if (phase === 3) {
       'test_dashboard_api.LocalRuntimeTests.test_incompatible_cache_type_is_rejected_against_target_contract',
       'test_dashboard_api.LocalRuntimeTests.test_gpu_model_payload_drops_cpu_memory_reservation',
     ]));
-  const ftContracts = [...ft,'p3-ft-runtime'];
-  if(freeTokenRegressionEnabled)test(title(ftContracts,'owning FreeToken admission, CUDA/whole-device entrypoint, health and lifecycle contracts'),proof(ftContracts,'C'), () => {
-    pythonSuite(api,['test_freetoken_api.FreeTokenDashboardApiTests','test_freetoken_lifecycle.FreeTokenLifecycleTests']);
-    pythonSuite(operator,['test_freetoken_runtime.FreeTokenRuntimeTests']);
-  });
+
+
   test('LOG-01 owning API log resolver uses current model UID and authorized Pods',proof(['p3-gpu-logs'],'C'), () =>
     pythonSuite(api,['test_model_logs.ModelLogsTests']));
 } else {

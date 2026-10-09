@@ -6,7 +6,6 @@
 |---|---|
 | Run a model from the Ollama library with simple tag selection | [Ollama](ollama.md) |
 | Serve a supported Hugging Face model with configurable concurrency/context | [vLLM](vllm.md) |
-| Use FreeToken's model formats and MoE memory strategies on supported NVIDIA devices | [FreeToken](freetoken.md) |
 | Experiment with duplex audio and `/v1/realtime` | [vLLM-Omni](realtime.md) |
 | Use an existing remote model endpoint | [External provider](external.md) |
 
@@ -20,10 +19,11 @@ Open **Services → AI Runtime** to inspect the shared inference services. A ser
 marked **Ready** is not the same as a loaded, working model; verify a model with
 an actual request after creation.
 
-[![Services filtered to AI Runtime, with Ready status on the KubeAI and FreeToken module cards.](../../assets/screenshots/services-runtimes.webp)](../../assets/screenshots/services-runtimes.webp)
+[![Older Services view filtered to AI Runtime, with KubeAI and the retired FreeToken module cards.](../../assets/screenshots/services-runtimes.webp)](../../assets/screenshots/services-runtimes.webp)
 
-*Cropped test-appliance view, captured 24 September 2026. Other runtime cards
-continue below. No service was enabled or disabled for this capture.*
+*Cropped test-appliance view, captured 24 September 2026. The FreeToken card
+belongs to that older version; the engine was removed on 9 October 2026.
+No service was enabled or disabled for this capture.*
 
 ## Choose hardware
 
@@ -47,6 +47,3 @@ Choose a model artifact that fits the selected engine, then review context lengt
 and concurrency. Long contexts and simultaneous requests increase runtime memory.
 Use the information icons to distinguish physical capacity, live free memory and
 unreserved planning budgets. [Memory concepts](../../concepts/memory.md) explains the differences.
-
-FreeToken uses its own form. Its GPU budget and Pod RAM limit are not vLLM's
-offload parameters or Ollama's KV-cache settings.

@@ -140,8 +140,6 @@ export interface KubernetesObjectMeta {
 export interface StatusValue {
   replication?: {desired: number; ready: number; instances: Array<{name: string; uuid: string; nodeName: string; phase: string; reason?: string; message?: string; modelUid?: string}>} | null;
   gpuSharing?: {mode: 'dra-shared' | 'time-slicing' | 'exclusive'; backend?: 'dra' | 'device-plugin'; claimName?: string; node: string; nodeUid?: string; device?: string; devices?: NvidiaGpuSelection[]; gpuCount?: number; claimNames?: string[]; slotCount?: number; memoryIsolation?: boolean} | null;
-  /** Optional normalized observations from a FreeToken local runtime. */
-  freeTokenStats?: FreeTokenRuntimeStats | null;
   phase?: string;
   message?: string;
   [key: string]: unknown;
@@ -315,75 +313,6 @@ export interface ComputeMemoryDevice extends GpuAllocationEvidence {
   warning?: string;
   message?: string;
   slots?: GpuSlots;
-  /** Engine-specific device eligibility, populated when the runtime exposes it. */
-  freeToken?: {
-    /** A scheduler node key (`node:<name>`), never a CUDA UUID. */
-    id?: string;
-    supported?: boolean;
-    reason?: string;
-    architecture?: string;
-  };
-}
-
-/** One GPU as evaluated by the pinned FreeToken runtime capability catalog. */
-export interface FreeTokenGpuCapability {
-  id: string;
-  name?: string;
-  /** Scheduling node, when a whole-GPU FreeToken allocation is selectable. */
-  node?: string;
-  computeTarget?: string;
-  vendor?: string;
-  architecture?: string;
-  supported: boolean;
-  reason?: string;
-  totalMi?: number;
-  freeMi?: number | null;
-  unreservedMi?: number | null;
-  /** Host RAM on this scheduling node, not a cluster-wide CPU aggregate. */
-  systemMemoryMi?: number | null;
-  /** Currently usable host RAM on this scheduling node. An explicit zero is capacity zero. */
-  systemAvailableMi?: number | null;
-  /** Whole NVIDIA GPUs that Kubernetes can allocate on this selected node. */
-  gpuCount?: number;
-  /** Maximum whole GPUs a single FreeToken runtime may request on this node. */
-  maxGpuCount?: number;
-}
-
-/**
- * Server-supplied FreeToken limits. The dashboard deliberately treats this as
- * data rather than duplicating a vendor/architecture allow-list in the UI.
- */
-export interface FreeTokenCapabilities {
-  available?: boolean;
-  message?: string;
-  version?: string;
-  supportedVendors?: string[];
-  supportedArchitectures?: string[];
-  supportedPrecisionModes?: string[];
-  devices?: FreeTokenGpuCapability[];
-  unavailableDevices?: FreeTokenGpuCapability[];
-  memoryStrategies?: Array<'auto' | 'offload' | 'cpu' | 'hybrid' | 'fused' | string>;
-  cacheTypes?: Array<'radix' | 'naive' | string>;
-  defaultMemoryRatio?: number;
-  defaultSystemMemoryMi?: number;
-  minimumGpuMemoryMi?: number;
-  minimumSystemMemoryMi?: number;
-  defaults?: {
-    memoryStrategy?: string;
-    systemMemoryMi?: number;
-    contextWindow?: number;
-    maxNumSeqs?: number;
-  };
-  advanced?: {
-    cacheType?: string[];
-    kvReserveTokens?: boolean;
-    cudaGraphMaxBatchSize?: boolean;
-    moeCacheSize?: boolean;
-    maxPrefillLength?: boolean;
-    cpuThreads?: boolean;
-    expertLoad?: boolean | string[];
-    dtype?: boolean | string[];
-  };
 }
 
 export interface CpuResources {
@@ -465,7 +394,6 @@ export interface ComputeTargetsPayload {
   defaultEngine?: string;
   engineCatalog?: Record<string, {displayName?: string; available?: boolean; message?: string; cpuDefaults?: Partial<Record<'cpu' | 'gpu', CpuResources>>; deploymentSettings?: {visionAttention?: VisionAttentionSettings}; multiGpu?: MultiGpuCapability; realtimeProfiles?: Record<string, RealtimeProfile>}>;
   realtimeDevices?: RealtimeDevice[];
-  freeTokenCapabilities?: FreeTokenCapabilities;
   targets: ComputeTarget[];
 }
 
@@ -521,51 +449,6 @@ export interface ModelPreset {
   [key: string]: unknown;
 }
 
-/** Persisted FreeToken-only runtime settings; no vLLM/Ollama settings apply here. */
-export interface FreeTokenAdvancedConfiguration {
-  cacheType?: 'radix' | 'naive' | string;
-  kvReserveTokens?: number | null;
-  cpuThreads?: number | null;
-  cudaGraphMaxBatchSize?: number | null;
-  moeCacheSize?: number | null;
-  maxPrefillLength?: number | null;
-  expertLoad?: string | null;
-  dtype?: string | null;
-}
-
-export interface FreeTokenConfiguration {
-  gpuDevice: string;
-  /** Whole GPUs requested from the selected Kubernetes node. Defaults to one. */
-  gpuCount?: number;
-  /** Aggregate VRAM budget across all requested whole GPUs, in MiB. */
-  gpuMemoryMi: number;
-  /** Kubernetes host-RAM reservation; FreeToken itself has no separate RAM-limit flag. */
-  systemMemoryMi: number;
-  memoryStrategy: 'auto' | 'offload' | 'cpu' | 'hybrid' | 'fused' | string;
-  advanced: FreeTokenAdvancedConfiguration;
-}
-
-/**
- * Normalized optional telemetry from FreeToken's versioned `/v1/stats`
- * endpoint. Values are observations, not scheduler reservations or limits.
- */
-export interface FreeTokenRuntimeStats {
-  source?: string;
-  sampledAt?: string;
-  vramMi?: number;
-  cacheBudgetMi?: number;
-  kvPoolMi?: number;
-  moeCacheMi?: number;
-  tokensPerSecond?: number;
-  decodeTokensPerSecond?: number;
-  prefillTokensPerSecond?: number;
-  activeRequests?: number;
-  completedRequests?: number;
-  lifetimeTokens?: number;
-  p95LatencyMs?: number;
-  ttftMs?: number;
-}
-
 /** Omitted fields mean unknown; explicit false disables the advertised capability. */
 export interface ModelCapabilities {
   tools?: boolean;
@@ -578,7 +461,7 @@ export interface ModelActivation {
   spec?: Record<string, unknown> & {
     type?: string;
     enabled?: boolean;
-    local?: Record<string, unknown> & {freetoken?: FreeTokenConfiguration; vllm?: VllmConfiguration; realtime?: RealtimeConfiguration; capabilities?: ModelCapabilities};
+    local?: Record<string, unknown> & {vllm?: VllmConfiguration; realtime?: RealtimeConfiguration; capabilities?: ModelCapabilities};
     external?: Record<string, unknown> & {capabilities?: ModelCapabilities};
   };
   status?: StatusValue;

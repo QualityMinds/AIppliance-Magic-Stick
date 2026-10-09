@@ -28,8 +28,8 @@ bash tools/regression.sh all
 ```
 
 Every implemented Phase 0–8 P0 test runs or reports its missing prerequisite.
-Experimental **FreeToken tests are currently disabled**, including FreeToken
-cache and Mesh subtests. FreeToken itself remains available in the product.
+FreeToken has been removed. Its old FT-01–09, DISC-08 and CACHE-07 cases are
+retired; supported-engine workflows and legacy-model cleanup remain covered.
 Credentials, current boot/revision pins, small models and fixtures are prepared
 automatically. **No repeated setup, approval forms or manual JSON.** Existing
 models are stopped, not deleted. Independent tests continue after failures;

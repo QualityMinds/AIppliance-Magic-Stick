@@ -135,17 +135,7 @@ def compatibility():
     for target in data['targets'].values():
         rows.append('| ' + target['displayName'] + ' | ' + ', '.join(target['architectures']) + ' | ' +
                     ', '.join(engines[e]['displayName'] for e in target.get('engines', [])) + ' |')
-    cap = engines['FreeToken']['capabilities']
-    rows += ['', '## FreeToken admission policy', '',
-             f"- Upstream version: `{cap['version']}`.",
-             f"- OS / host architecture: {', '.join(cap['operatingSystems'])} / {', '.join(cap['supportedArchitectures'])}.",
-             f"- Vendor: {', '.join(cap['supportedVendors'])}; NVIDIA driver major at least {cap['minimumNvidiaDriverMajor']}; CUDA major {cap['requiredCudaMajor']}.",
-             f"- Admitted compute capabilities: {', '.join(cap['supportedComputeCapabilities'])}.",
-             f"- Allocation contract: `{cap['deviceBinding']}`; whole homogeneous GPUs, not MIG or time-slicing slots.",
-             f"- Memory strategies: {', '.join(cap['memoryStrategies'])}; start with `auto`.",
-             f"- Precision choices: {', '.join(cap['supportedPrecisionModes'])}.",
-             '- Model IDs are checked against the catalog policy; a family name is not blanket approval.', '',
-             'See [FreeToken configuration](freetoken.md) and the [user guide](../user-guide/models/freetoken.md).', '',
+    rows += ['',
              '## Experimental Realtime profiles', '',
              'These are runtime selections, not hardware or model certifications. An empty image needs an explicitly compatible runtime.', '',
              '| Profile | Compute target | Requested device counts | Bundled image |', '|---|---|---|---|']

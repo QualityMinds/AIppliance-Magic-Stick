@@ -114,7 +114,7 @@ export function liveReportScope(mode?: string) {
   if(mode === 'phase4-sharing' && process.env.REGRESSION_GPU_CASE === 'remaining')
     return 'Phase 4 diagnostic subset: verification consumer, provider/CPU independence, last-slot races, reload and exact restoration; not complete installed Phase 4 acceptance';
   if(mode === 'gpu-recover') return 'explicit recovery of one reviewed GPU journal; same node/boot/source/image pins; no Lease takeover, resource adoption or new inference workloads';
-  if (mode?.startsWith('phase3')) return 'Phase 3 P0 installed AMD/NVIDIA Ollama/vLLM exclusive runtimes, physical inventory, memory, logs and scoped validation; experimental FreeToken tests disabled; borrowed sharing restored; Intel and reboot acceptance separate';
+  if (mode?.startsWith('phase3')) return 'Phase 3 P0 installed AMD/NVIDIA Ollama/vLLM exclusive runtimes, physical inventory, memory, logs and scoped validation; borrowed sharing restored; Intel and reboot acceptance separate';
   if (mode?.startsWith('phase4')) return 'Phase 4 P0 installed AMD DRA/NVIDIA time-slicing transitions, mixed/same-engine pairs, full/released slots, races and cross-provider independence; borrowed sharing restored; reboot/CDI recovery acceptance separate';
   return mode === 'phase2' ? 'Phase 2 P0 installed CPU model control: Ollama and vLLM forms, persistence, conflicts, memory controls, logs, external routing and one run-owned failure; no GPU/global setting changes' :
     mode === 'phase2-readonly' ? 'Phase 2 read-only live model discovery through API and dashboard; no appliance mutations' :

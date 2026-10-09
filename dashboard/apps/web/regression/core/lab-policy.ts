@@ -6,8 +6,7 @@ import {requireSafe} from './errors.ts';
 /** Versioned repository policy. Permissions are not user-maintained switches.
  * Registering a disposable lab authorizes these operations, not other targets. */
 export const labPolicy = Object.freeze({version:1,phases:Object.freeze([0,1,2,3,4,5,6,7,8]),
-  // Suite scope only: the product engine, its UI and runtime remain enabled.
-  disabledExperimentalEngines:Object.freeze(['FreeToken']),
+  disabledExperimentalEngines:Object.freeze([] as string[]),
   scopes:Object.freeze(['gpu','identity','kubernetes','license','api-restart','first-license','modules','amd-profile',
     'federation','mesh','realtime','cache','reboot','unmanaged-key','host-drills']),
   credentialSeconds:86_400,namespace:'magicstick-regression',marker:'registered-lab'});

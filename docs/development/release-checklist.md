@@ -53,10 +53,6 @@ evidence. The strict license review below remains explicitly opt-in.
   present when GitHub Pages is published from `docs/`.
 - CI release checks are present under `.github/workflows/`.
 - Runtime images and chart versions avoid mutable tags such as `latest` where practical.
-- For FreeToken, do not enable the module from the public `promotionState: pending`
-  descriptor. Build, attest, and review the dedicated digest-promotion PR first;
-  then confirm `data.image` is a `@sha256:` reference and
-  `imageDigest`/`imageRevision` are populated.
 - Dashboard source publication is not appliance rollout: after a successful
   client-image workflow, verify its automatic `main`/`develop` promotion (or
   explicitly promote a reviewed manual candidate). Web, API and CLI image-index
@@ -170,10 +166,6 @@ Do not commit generated Kubernetes Secrets, Flux bootstrap token secrets, privat
 - Confirm upstream artifact licenses and terms are acceptable for the intended release.
 - Confirm brand and project names are used only to identify integrations.
 - Confirm pinned images or digest references are still intentionally selected.
-- Run `bash magic-cluster/platform/ai/freetoken/verify-runtime-descriptor.sh` if
-  the FreeToken runtime is included. A pending descriptor is valid only before
-  the feature is enabled; a release descriptor must be `verified` and digest-pinned.
-
 ### Realtime acceptance
 
 - Use the dedicated **Build MagicStick Omni ROCm runtime image** workflow for AMD

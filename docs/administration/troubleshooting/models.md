@@ -31,7 +31,7 @@ are outside the crop.*
 ## Stop and resume models
 
 In **Models → Installed Models**, operators and administrators can use **Stop**
-for Ollama, vLLM (including Realtime), or FreeToken. This interrupts local inference and removes the
+for Ollama, vLLM (including Realtime). This interrupts local inference and removes the
 model's runtime without deleting its saved model definition or settings. Wait
 for stopping to finish, then use **Start** to deploy the same configuration again.
 GPU slots and CPU/GPU memory become available as the runtime Pods and allocations
@@ -39,12 +39,7 @@ are released, not necessarily as soon as the button is pressed. Starting again
 can wait for capacity or download/initialization work; inspect the status and
 **Logs** if needed.
 
-FreeToken's Pod-local temporary model cache is deleted with its Pod, so Start may
-download those weights again. Stopping does not clear shared persistent model
-caches, credentials, or container images. External-provider Start/Stop controls
-only the Magic Stick route, never the remote provider process. Use **Remove**
-only when the saved activation itself should be deleted. See
-[model lifecycle](../../reference/model-lifecycle.md#saved-model-lifecycle).
+
 
 ## Model Catalog
 

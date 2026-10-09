@@ -4,7 +4,7 @@
 
 `spec.local.realtime` selects the catalog-owned Qwen3-Omni duplex profile under
 the existing `VLLM` engine. Its managed Deployment/Service use the same direct
-runtime catalog path as FreeToken, not KubeAI. Current-generation Ready evidence
+runtime catalog path, outside KubeAI. Current-generation Ready evidence
 and a namespace-local runtime endpoint are required before publication. The
 generated LiteLLM `model_info.mode` and catalog type are `realtime`; it is not a
 default ordinary chat model. Disabled or unready activations are withdrawn.
@@ -93,7 +93,7 @@ drain managed Omni and KubeAI workloads while retaining activations/downloads.
 Existing profile IDs and saved configurations remain readable. The default
 repository is a convenience, not an allowlist. Model source/profile remain
 immutable in the existing editor; create a new activation to switch either.
-Realtime uses its own typed settings, not ordinary vLLM/Ollama/FreeToken knobs.
+Realtime uses its own typed settings, not ordinary vLLM/Ollama knobs.
 
 ```yaml
 apiVersion: appliance.magicstick.dev/v1alpha1
@@ -162,7 +162,7 @@ scoped compatibility repair to the container's `config/omni_config.py`:
   ownership checks are never disabled. Talker/codec retain zero offload.
 - Unknown or inconsistently patched source fails closed. The repair is
   idempotent and affects only the ephemeral Realtime container, not the host,
-  base image, ordinary vLLM, Ollama or FreeToken. Zero offload does not patch.
+  base image, ordinary vLLM or Ollama. Zero offload does not patch.
 
 This is a Magic Stick compatibility change, **not upstream Omni support** for
 the argument in that revision. A runtime upgrade requires reviewing/removing
@@ -180,7 +180,7 @@ runtime image the upstream parser owns its fields and no source is patched.
 
 ## Lifecycle and routing
 
-Like the direct FreeToken runtime, the Magic Stick operator creates a managed
+The Magic Stick operator creates a managed
 Deployment and ClusterIP Service. Realtime also owns a generated ConfigMap for
 the stage configuration. KubeAI is neither provisioned for this profile nor
 placed in its WebSocket path. Existing RBAC, model slots, revision-bound edits,

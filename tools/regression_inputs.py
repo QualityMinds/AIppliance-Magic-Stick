@@ -775,7 +775,6 @@ def suite_consent(facts, previous=None):
         ('mesh', [7], 'Create/join/leave a disposable Mesh on TWO separately selected test appliances'),
         ('realtime', [7], 'Temporarily switch sharing and start advertised Omni Realtime models'),
         ('unmanaged-key', [5, 8], 'Create a one-hour disposable unmanaged LiteLLM key for the denied-delete probe, then remove ONLY that fixture; master key stays in memory'),
-        ('cache', [8], 'Clear the selected test FreeToken model cache; downloads will be needed again'),
         ('host-drills', [6], 'DESTRUCTIVE host drills: reboots, GPU memory, network rollback, updates, channel changes and model-cache deletion'),
     ]
     scopes = []
@@ -1245,7 +1244,7 @@ def complete_fixtures(directory, seed, facts, consent):
             filename = reusable_secret(directory, 'github-readonly.token', 'read-only GitHub Actions metadata token')
             for section in ['securityCi', 'companion']:
                 profile.setdefault(section, {})['tokenFile'] = filename
-    profile.setdefault('cache', {'approveFreeToken': False})
+    profile.setdefault('cache', {})
     private_write(directory / 'remaining-p0.json', profile)
     if 'host-drills' in scopes:
         host_drill_questions(directory, facts, consent)

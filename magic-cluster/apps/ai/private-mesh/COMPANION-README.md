@@ -43,7 +43,7 @@ success does not establish compatibility with every older OS version.
 Your laptop needs no appliance license, Kubernetes credentials or LiteLLM
 administration key. Participating appliances require the `private-mesh`
 Private Mesh module. If the model list is empty, an appliance must explicitly
-share a ready local **vLLM**, **Ollama** or **FreeToken** chat model. The appliance
+share a ready local **vLLM** or **Ollama** chat model. The appliance
 must run a Mesh version with engine-independent sharing; no engine or model
 installation is needed on the consuming notebook.
 

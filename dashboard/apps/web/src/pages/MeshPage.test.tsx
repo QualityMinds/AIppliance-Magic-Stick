@@ -187,7 +187,7 @@ describe('Private Mesh', () => {
     await waitFor(() => expect(writes[0]).toMatchObject({url: '/api/mesh/share', body: {model: 'qwen', settings: {enabled: true, maxConcurrent: 2}}}));
   });
 
-  it.each(['ollama-model', 'vllm-model', 'freetoken-model'])('offers %s for sharing without an engine restriction', async (name) => {
+  it.each(['ollama-model', 'vllm-model'])('offers %s for sharing without an engine restriction', async (name) => {
     status.models = [name];
     status.components = {models: 'ready', mesh: 'ready'};
     mount();

@@ -44,13 +44,9 @@ export function runtimePodConverged(pods:KubeObject[],item:ModelActivation|undef
   const pod=pods[0]!,local=item.spec.local;
   if(pod.metadata.deletionTimestamp || pod.status?.phase !== 'Running' ||
     !pod.status.conditions?.some(c=>c.type === 'Ready' && c.status === 'True')) return false;
-  const engine=local.engine,runtime=podSpec(pod).containers?.find(c=>c.name === (engine === 'FreeToken' ? 'freetoken' : 'server'));
+  const engine=local.engine,runtime=podSpec(pod).containers?.find(c=>c.name === 'server');
   if(!runtime) return false;
   const env=Object.fromEntries((runtime.env ?? []).map(e=>[e.name,e.value]));
-  const nonce=(local.freetoken as {restartNonce?:string}|undefined)?.restartNonce;
-  if(engine === 'FreeToken') return env.MAGICSTICK_FREETOKEN_CONTEXT_LENGTH === String(local.contextWindow) &&
-    env.MAGICSTICK_FREETOKEN_MAX_RUNNING_REQUESTS === String(local.maxNumSeqs) &&
-    (!nonce || pod.metadata.annotations?.['appliance.magicstick.dev/restart-nonce'] === nonce);
   if(env.MAGICSTICK_ENGINE !== engine || env.MAGICSTICK_COMPUTE_TARGET !== local.computeTarget ||
     Object.entries(local.env ?? {}).some(([name,value])=>env[name] !== value)) return false;
   if(engine === 'OLlama') return env.OLLAMA_CONTEXT_LENGTH === String(local.contextWindow) &&
@@ -215,7 +211,7 @@ export class GpuScenario {
       currentReady(value.observed ?? {},model.uid,model.generation) &&
       runtimePodConverged(value.pods,value.item) &&
       value.models.models?.some(item=>item.id === model.client.name) === true,
-    {timeoutMs:model.fixture.engine === 'FreeToken' ? 2_700_000 : 900_000,intervalMs:1000,stage:'model-ready'});}
+    {timeoutMs:900_000,intervalMs:1000,stage:'model-ready'});}
     catch(error) {await this.runtimeFailure(model,'model-ready',error);throw error;}
     const filename=join(this.directory,`runtime-${model.client.name}.json`);
     await writePrivate(filename,{version:1,runId:this.live.journal.runId,engine:model.fixture.engine,
@@ -227,7 +223,7 @@ export class GpuScenario {
     }
     await writePrivate(filename,{version:1,runId:this.live.journal.runId,engine:model.fixture.engine,
       target:model.fixture.computeTarget,generation:model.generation,stage:'binding-observed'});
-    try {await this.inference.chat(model.client.name,undefined,model.fixture.engine === 'FreeToken' ? 256 : 8,
+    try {await this.inference.chat(model.client.name,undefined,8,
       async result=>writePrivate(filename,{version:1,runId:this.live.journal.runId,engine:model.fixture.engine,
         target:model.fixture.computeTarget,generation:model.generation,stage:'inference-response',...result}));}
     catch(error) {
@@ -311,25 +307,6 @@ export class GpuScenario {
     const item = activation(await model.client.models(),model.client.name);
     requireSafe(item?.metadata?.uid === model.uid && item.spec?.local?.computeTarget === model.fixture.computeTarget &&
       item.spec.local.engine === model.fixture.engine,'CAPABILITY');
-    if (model.fixture.engine === 'FreeToken') {
-      const owner = pod.metadata.ownerReferences?.find(ref=>ref.kind === 'ReplicaSet' && ref.controller);
-      requireSafe(owner?.name && owner.uid,'OWNERSHIP');
-      const rs = await this.live.observer.get('replicasets.apps','ai',owner.name);
-      requireSafe(rs.metadata.uid === owner.uid,'OWNERSHIP');
-      const deploymentOwner = rs.metadata.ownerReferences?.find(ref=>ref.kind === 'Deployment' && ref.controller);
-      requireSafe(deploymentOwner?.name && deploymentOwner.uid,'OWNERSHIP');
-      const deployment = await this.live.observer.get('deployments.apps','ai',deploymentOwner.name);
-      requireSafe(deployment.metadata.uid === deploymentOwner.uid && deployment.metadata.name === `${model.client.name}-freetoken` &&
-        deployment.metadata.labels?.['appliance.magicstick.dev/modelactivation'] === model.client.name &&
-        deployment.metadata.labels?.['app.kubernetes.io/managed-by'] === 'magicstick-operator','OWNERSHIP');
-      const runtime = spec.containers.find(container=>container.name === 'freetoken');
-      requireSafe(sharing.mode === 'exclusive' && spec.runtimeClassName === 'nvidia' && runtime &&
-        runtime.resources?.requests?.memory === `${(model.fixture as GpuModelFixture).freetoken!.systemMemoryMi}Mi` &&
-        runtime.resources?.limits?.memory === runtime.resources?.requests?.memory && /@sha256:[a-f0-9]{64}$/.test(runtime.image),'CAPABILITY');
-      const logs = await model.client.logs();
-      const text = logs.pods.flatMap(p=>p.containers.flatMap(c=>c.logs.map(log=>log.text ?? ''))).join('\n');
-      requireSafe(text.includes('[magicstick-freetoken] validated 1 whole NVIDIA GPU') && !text.includes('no CUDA-visible GPU was assigned'),'CAPABILITY');
-    }
   }
   async lifecycle(model:GpuCreated,action:'start'|'stop'|'restart'|'edit') {
     await this.inventory(); const current = activation(await model.client.models(),model.client.name); requireSafe(current,'OWNERSHIP');

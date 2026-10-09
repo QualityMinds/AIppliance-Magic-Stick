@@ -20,7 +20,7 @@ Actions permissions, merge a release or switch an existing appliance.
 Development dashboard builds publish commit-addressed images and separate
 `web-develop`, `api-develop` and `console-develop` aliases. They cannot overwrite
 the main aliases. Other container builders also accept develop and publish
-commit-addressed candidates; AMD DRA, Mesh and FreeToken keep development aliases
+commit-addressed candidates; AMD DRA and Mesh keep development aliases
 separate. Companion develop builds provide CI artifacts, not published main
 downloads. Promote tested digests into the descriptor on the intended
 branch; do not insert mutable aliases into runtime manifests. Other image-specific

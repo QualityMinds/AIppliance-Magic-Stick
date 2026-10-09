@@ -2,13 +2,13 @@ import type {LabConfig} from '../core/config.ts';
 import {environmentFor, type TestLayer} from '../core/evidence.ts';
 import {requireSafe} from '../core/errors.ts';
 import {requirePhase1Profile} from './phase1-p0.ts';
-import {freeTokenRegressionEnabled} from '../core/engine-policy.ts';
 
 type Definition = {id:string; layers:readonly TestLayer[]};
 const row = (id:string,layers:readonly TestLayer[]): Definition => ({id,layers});
 /** Finite installed mixed-node GPU matrix. Intel and reboot acceptance are
  * separate, explicit hardware/maintenance gates, never synthetic live passes. */
 export const phase3Variants = {
+  'p3-engine-selection':row('ENG-01',['U','C','B']),
   'p3-replicated-config':row('MGPU-02',['U','C','B']),
   'p3-replicated-vllm-2':row('MGPU-02',['A','E','O']),
   'p3-replicated-vllm-4':row('MGPU-02',['A','E','O']),
@@ -44,15 +44,6 @@ export const phase3Variants = {
   'p3-route':row('ROUTE-01',['A']),
   'p3-runtime-stop':row('LIFE-03',['A','E']),
   'p3-runtime-start':row('LIFE-04',['A','E']),
-  'p3-ft-capability':row('FT-01',['U','C','A','E']),
-  'p3-ft-telemetry':row('FT-02',['U','C','B','A','E']),
-  'p3-ft-runtime':row('FT-03',['C','A']),
-  'p3-ft-whole-device':row('FT-04',['U','C','A','E']),
-  'p3-ft-vram':row('FT-05',['U','C','B','A','E']),
-  'p3-ft-ram':row('FT-06',['U','C','B','A','E']),
-  'p3-ft-edit':row('FT-08',['U','C','A','E']),
-  'p3-ft-lifecycle':row('FT-09',['U','C','A','E']),
-  'p3-ft-discovery':row('DISC-08',['U','C','A','E']),
   'p3-restoration':row('HAR-08',['U','A']),
 } as const;
 
@@ -100,8 +91,7 @@ export type GpuVariant = keyof typeof phase3Variants | keyof typeof phase4Varian
 const requirements = (variants:Record<string,Definition>,phase:number) => Object.entries(variants).flatMap(([variant,definition]) =>
   definition.layers.map(layer => ({id:definition.id,variant,layer,environment:environmentFor(layer),priority:'P0' as const,phase,
     parameterSet:phase === 3 ? 'installed-exclusive-amd-nvidia' : 'installed-sharing-amd-nvidia'})));
-export const phase3Requirements = requirements(phase3Variants,3).filter(item=>freeTokenRegressionEnabled ||
-  !item.variant.startsWith('p3-ft-'));
+export const phase3Requirements = requirements(phase3Variants,3);
 export const phase4Requirements = requirements(phase4Variants,4);
 export const gpuRequirements = (phase:3|4) => phase === 3 ? phase3Requirements : phase4Requirements;
 /** Bounded diagnosis of classic GPU lifecycle paths; this does not

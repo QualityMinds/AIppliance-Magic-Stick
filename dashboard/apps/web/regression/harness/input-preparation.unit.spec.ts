@@ -8,7 +8,6 @@ import {automaticPreparationMeasure,readinessLines} from '../core/preparation-me
 import {hostDrillIds} from '../profiles/remaining-p0.ts';
 import {automaticGpuProfile,automaticHostRecipes,automaticProfile} from '../core/automatic-fixtures.ts';
 import {labPolicy,parseRegistration,verifyRegistration} from '../core/lab-policy.ts';
-import {freeTokenRegressionEnabled} from '../core/engine-policy.ts';
 
 const digest='sha256:'+'a'.repeat(64),revision='develop@sha1:'+'b'.repeat(40);
 const options:PreparationOptions={phases:[0,1,2,3,4,5,6,7,8],approve:[],independentRecovery:false};
@@ -58,7 +57,7 @@ test('HAR-10 automatic input recovery regenerates only its own interrupted trans
   expect(preparationArguments(['--automatic']).automatic).toBe(true);
 });
 
-test('HAR-10 automatic discovery keeps NVIDIA tests available without AMD or FreeToken telemetry',()=>{
+test('HAR-10 automatic discovery keeps NVIDIA tests available without AMD telemetry',()=>{
   const observed=snapshot(),host=observed.hosts[0]!;
   observed.status.hardwareOperators={'nvidia-gpu':{devices:[{id:'node-uid/0000:01:00.0',vendor:'nvidia',
     node:host.name,nodeUid:host.nodeUid,pciAddress:'0000:01:00.0',name:'Synthetic NVIDIA'}]}} as any;
@@ -67,7 +66,7 @@ test('HAR-10 automatic discovery keeps NVIDIA tests available without AMD or Fre
   const gpu=automaticGpuProfile(observed,{});
   expect(gpu?.devices.nvidia?.id).toBe('node-uid/0000:01:00.0');expect(gpu?.devices.amd).toBeUndefined();
   expect(gpu?.models.nvidiaOllama?.url).toBe('ollama://small:latest');
-  expect(gpu?.models.nvidiaVllm?.contextWindow).toBe(1024);expect(gpu?.models.freetoken).toBeUndefined();
+  expect(gpu?.models.nvidiaVllm?.contextWindow).toBe(1024);
   const prepared=prepareInputs({...source(),registrationFile:'lab-registration.json',gpu},observed,{...options,automatic:true},{});
   const profile=automaticProfile(observed,{},prepared.parsed);
   expect(profile.identity.approveDisposableUsers).toBe(true);expect(profile.license.approveLicenseReplacement).toBe(true);
@@ -154,7 +153,7 @@ test('HAR-10 repeated prepare preserves reviewed models, endpoints, budgets and 
   expect(profile.applications.fixtures).toEqual(previous.applications.fixtures);
   expect(profile.repeat.cycles).toBe(5);expect(profile.identity.approveDisposableUsers).toBe(false);
   expect(profile.license.approveLicenseReplacement).toBe(false);expect(profile.kubernetes.approveAdminGrant).toBe(false);
-  expect(profile.cache.approveFreeToken).toBe(false);
+  expect(profile.cache).toEqual({});
 });
 
 test('HAR-10 read-only prerequisite report cannot become Passed regression evidence or omit missing external infrastructure',()=>{
@@ -245,7 +244,7 @@ test('HAR-10 approvals apply only to named future scenarios, never to license re
   const profile=preparedProfile({},snapshot(),{...options,approve:['identity','license']});
   expect(profile.identity.approveDisposableUsers).toBe(true);expect(profile.license.approveLicenseReplacement).toBe(true);
   expect(profile.license.restart.approveApiRestart).toBe(false);expect(profile.kubernetes.approveAdminGrant).toBe(false);
-  expect(profile.cache.approveFreeToken).toBe(false);expect(profile.mesh).toBeUndefined();
+  expect(profile.cache).toEqual({});expect(profile.mesh).toBeUndefined();
 });
 
 test('HAR-10 retained CI run IDs are not fresh evidence until current read-only metadata confirms them',()=>{
@@ -326,25 +325,29 @@ test('HAR-10 reboot generation needs exact scope and independent recovery; it is
   expect(()=>preparedReboot(lab,observed,{...options,drill:'BOOT-02',approve:['reboot'],independentRecovery:true})).toThrow();
 });
 
-test('HAR-10 accepted mixed GPU pins and classic fixture budgets do not require disabled experimental telemetry',async()=>{
+test('HAR-10 accepted mixed GPU pins and classic fixture budgets retain configured budgets',async()=>{
   const example=JSON.parse(await readFile(new URL('../gpu-profile.example.json',import.meta.url),'utf8')).gpu;
   const observed=snapshot();
   for(const provider of ['amd','nvidia'])observed.status.hardwareOperators ??= {},observed.status.hardwareOperators[provider]={devices:[{
     id:`node-uid/0000:0${provider === 'amd' ? 1 : 2}:00.0`,node:'lab-node',nodeUid:'node-uid',vendor:provider,name:'synthetic',
     pciAddress:`0000:0${provider === 'amd' ? 1 : 2}:00.0`,pciId:'synthetic',validationAvailable:true}]};
-  observed.models.computeTargets.targets.push(...(['amd','nvidia'] as const).map(provider=>({id:provider+'-gpu',available:true,engines:['OLlama','VLLM','FreeToken']})));
-  observed.models.computeTargets.freeTokenCapabilities={available:true,supportedVendors:['nvidia'],memoryStrategies:['auto'],devices:[{
-    id:'node:lab-node',node:'lab-node',supported:true,systemMemoryMi:131072,systemAvailableMi:100000,maxGpuCount:1}]};
+  observed.models.computeTargets.targets.push(...(['amd','nvidia'] as const).map(provider=>({id:provider+'-gpu',available:true,engines:['OLlama','VLLM']})));
   observed.models.computeMemory={devices:[{id:'physical',kind:'gpu',vendor:'nvidia',computeTarget:'nvidia-gpu',nodes:['lab-node'],
-    totalMi:49152,freeMi:48000,unreservedMi:48000,metricsAvailable:true,freeToken:{id:'node:lab-node',supported:true}}]};
+    totalMi:49152,freeMi:48000,unreservedMi:48000,metricsAvailable:true}]};
   const previous=prepareInputs(source(),observed,{...options,phases:[0]},{}).lab;
   const gpu={...example,nodeName:'lab-node',nodeUid:'node-uid',bootId:'boot-uid',devices:{
     amd:{id:'node-uid/0000:01:00.0',pciAddress:'0000:01:00.0'},nvidia:{id:'node-uid/0000:02:00.0',pciAddress:'0000:02:00.0'}}};
   gpu.models.amdVllm!.url='hf://example/small';gpu.models.nvidiaVllm!.url='hf://example/small';
-  gpu.models.freetoken!.freetoken.gpuDevice='node:lab-node';previous.gpu=gpu;
+  previous.gpu=gpu;
   parseLabConfig(previous,'/inputs');
   const before=inputHash(previous),candidate=prepareInputs(previous,observed,options,{});
   expect(inputHash(previous)).toBe(before);expect(candidate.parsed.gpu?.models.nvidiaVllm!.url).toBe('hf://example/small');
+  const legacy=structuredClone(previous);
+  legacy.gpu.models.freetoken={engine:'FreeToken',url:'hf://example/retired'};
+  const legacyBefore=inputHash(legacy),migrated=prepareInputs(legacy,observed,options,{});
+  expect(migrated.parsed.gpu?.models).toEqual(candidate.parsed.gpu?.models);
+  expect(migrated.lab.gpu.models).not.toHaveProperty('freetoken');
+  expect(inputHash(legacy)).toBe(legacyBefore);
   const campaignOptions={...options,phases:[6],approve:['host-drills'] as PreparationOptions['approve']};
   const action=(id:string)=>id.startsWith('BOOT-') ? 'reboot' : id.startsWith('GPUHOST-') ? 'configure-gpu-memory' :
     id.startsWith('HOST-') ? 'prepare-gpu' : id.startsWith('NET-') ? 'configure-network' : id.startsWith('CHANNEL-') ?
@@ -371,16 +374,9 @@ test('HAR-10 accepted mixed GPU pins and classic fixture budgets do not require 
   expect(prepareInputs(replaced,observed,{...options,approve:['gpu']},{}).parsed.gpu?.nodeUid).toBe('node-uid');
   observed.models.computeMemory!.devices![0]!.metricsAvailable=false;
   const blocked=prepareInputs(previous,observed,options,{});
-  if(freeTokenRegressionEnabled) {
-    expect(blocked.parsed.gpu).toBeUndefined();expect(blocked.gpuProblem).toBe(true);
-    expect(blocked.gpuIssues).toEqual(['freetoken-telemetry']);
-  } else {
-    expect(blocked.parsed.gpu?.models.nvidiaVllm?.url).toBe('hf://example/small');
-    expect(blocked.parsed.gpu?.models.freetoken).toBeUndefined();
-    expect(blocked.gpuProblem).toBe(false);expect(blocked.gpuIssues).toEqual([]);
-    // Preparation copied rather than mutating the accepted private input.
-    expect(inputHash(previous)).toBe(before);
-  }
+  expect(blocked.parsed.gpu?.models.nvidiaVllm?.url).toBe('hf://example/small');
+  expect(blocked.gpuProblem).toBe(false);expect(blocked.gpuIssues).toEqual([]);
+  expect(inputHash(previous)).toBe(before);
   observed.models.computeMemory!.devices![0]!.metricsAvailable=true;
   const noApproval=structuredClone(previous);noApproval.gpu.acknowledgeSharingTransitions=false;
   const unapproved=prepareInputs(noApproval,observed,options,{});
@@ -389,5 +385,5 @@ test('HAR-10 accepted mixed GPU pins and classic fixture budgets do not require 
   const consent=inputReadiness(unapproved.parsed,{},observed,{...options,phases:[4]})[0]!.measures.find(item=>item.id === 'gpu-profile')!;
   expect(consent.approval?.command).toBe('bash tools/regression.sh prepare --phases 4 --approve gpu');
   observed.models.computeMemory!.devices![0]!.freeMi=1000;
-  expect(prepareInputs(previous,observed,options,{}).gpuIssues).toEqual(freeTokenRegressionEnabled ? ['freetoken-budget'] : []);
+  expect(prepareInputs(previous,observed,options,{}).gpuIssues).toEqual([]);
 });

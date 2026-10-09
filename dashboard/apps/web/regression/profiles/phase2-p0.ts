@@ -6,7 +6,7 @@ import {requirePhase1Profile} from './phase1-p0.ts';
 type VariantDefinition = {id: string; layers: readonly TestLayer[]};
 
 /**
- * Phase 2 is the finite CPU model-control profile. GPU binding, FreeToken and
+ * Phase 2 is the finite CPU model-control profile. GPU binding and
  * provider sharing remain Phase 3/4 even when their fast contracts are covered
  * by the repository's ordinary test suites.
  */

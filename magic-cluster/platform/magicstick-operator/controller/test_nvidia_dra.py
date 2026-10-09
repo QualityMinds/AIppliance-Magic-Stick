@@ -284,7 +284,8 @@ class NvidiaDraTests(unittest.TestCase):
         saved = copy.deepcopy(self.models[0])
         cleanup, statuses = [], []
         for backend, engine, reason in (("device-plugin", "VLLM", "GpuSelectionRequiresDra"),
-                                       ("dra", "FreeToken", "RuntimeRequiresDevicePlugin")):
+                                       ("dra", "FreeToken", "UnsupportedEngine")):
+            cleanup.clear()
             model = copy.deepcopy(saved); model["spec"]["local"]["engine"] = engine
             with patch.dict(self.c, {"NVIDIA_SHARING_STATE": {"allocationBackend": backend, "phase": "Ready", "managed": True},
                     "ensure_model_finalizer": lambda *_: None, "patch_model_status": lambda *a, **_k: statuses.append(a),
@@ -292,7 +293,10 @@ class NvidiaDraTests(unittest.TestCase):
                 phase, _ = self.c["reconcile_model_activation"](model, {}, {})
             self.assertEqual(phase, "Degraded")
             self.assertEqual(statuses[-1][2], reason)
-            self.assertEqual(cleanup[-1], ("fixture-model", "ai", engine))
+            if engine == "FreeToken":
+                self.assertEqual(cleanup, [])
+            else:
+                self.assertEqual(cleanup[-1], ("fixture-model", "ai", engine))
 
     def test_reverse_handoff_keeps_driver_until_kubelet_releases_claim(self):
         self.config.update(allocationBackend="device-plugin", mode="exclusive")

@@ -26,17 +26,17 @@ class LocalInventoryTests(unittest.TestCase):
         self.reader = Mock(side_effect=lambda path: copy.deepcopy(self.resources[path]))
         self.inventory = LocalInventory(self.reader)
 
-    def test_discovers_all_three_engines_and_service_lists_them(self):
+    def test_discovers_supported_engines_without_reading_retired_activations(self):
         self.resources[LocalInventory.MODEL_PATH] = [kubeai(), kubeai('vllm-chat', 'VLLM')]
         self.resources[LocalInventory.ACTIVATION_PATH] = [freetoken()]
         self.inventory.refresh()
         self.assertEqual(self.inventory.status(), 'ready')
-        self.assertEqual({model['engine'] for model in self.inventory().values()}, {'OLLAMA', 'VLLM', 'FREETOKEN'})
-        self.assertEqual(self.inventory()['freetoken-chat']['apiBase'], 'http://freetoken-chat.ai.svc.cluster.local:8000/v1')
+        self.assertEqual({model['engine'] for model in self.inventory().values()}, {'OLLAMA', 'VLLM'})
+        self.assertNotIn('freetoken-chat', self.inventory())
         service = MeshService(Store(':memory:'), self.inventory)
         self.addCleanup(service.store.db.close)
-        self.assertEqual(set(service.getStatus()['models']), {'ollama-chat', 'vllm-chat', 'freetoken-chat'})
-        self.assertEqual({call.args[0] for call in self.reader.call_args_list}, set(self.resources))
+        self.assertEqual(set(service.getStatus()['models']), {'ollama-chat', 'vllm-chat'})
+        self.assertEqual({call.args[0] for call in self.reader.call_args_list}, {LocalInventory.MODEL_PATH})
 
     def test_only_ready_models_may_be_shared(self):
         self.resources[LocalInventory.MODEL_PATH] = [kubeai(ready=0)]
@@ -66,8 +66,8 @@ class LocalInventoryTests(unittest.TestCase):
         self.inventory.refresh()
         self.assertEqual(self.inventory(), {})
 
-    def test_freetoken_endpoint_must_be_a_versioned_service_in_its_target_namespace(self):
-        for endpoint in ['', 'https://example.com/v1', 'http://backend.other.svc.cluster.local/v1',
+    def test_retired_engine_is_never_exported_even_with_a_ready_service_endpoint(self):
+        for endpoint in ['http://backend.ai.svc.cluster.local/v1', '', 'https://example.com/v1', 'http://backend.other.svc.cluster.local/v1',
                          'http://backend.ai.svc.cluster.local.evil.example.com/v1',
                          'http://user@backend.ai.svc.cluster.local/v1',
                          'http://backend.ai.svc.cluster.local/v1?model=external',
@@ -91,11 +91,12 @@ class LocalInventoryTests(unittest.TestCase):
         self.assertEqual(self.inventory(), {})
         self.assertEqual(self.inventory.status(), 'unavailable')
 
-    def test_does_not_guess_between_conflicting_local_backends(self):
+    def test_retired_activation_does_not_shadow_a_supported_backend(self):
         self.resources[LocalInventory.MODEL_PATH] = [kubeai('same-name')]
         self.resources[LocalInventory.ACTIVATION_PATH] = [freetoken('same-name')]
         self.inventory.refresh()
-        self.assertEqual(self.inventory(), {})
+        self.assertEqual(set(self.inventory()), {'same-name'})
+        self.assertEqual(self.inventory()['same-name']['source'], 'kubeai')
 
     def test_partial_status_is_not_ready_and_malformed_responses_clear_old_data(self):
         pending = kubeai()
@@ -106,7 +107,7 @@ class LocalInventoryTests(unittest.TestCase):
         self.resources[LocalInventory.MODEL_PATH] = [kubeai()]
         self.inventory.refresh()
         self.assertEqual(self.inventory.status(), 'ready')
-        self.resources[LocalInventory.ACTIVATION_PATH] = [None]
+        self.resources[LocalInventory.MODEL_PATH] = [None]
         self.inventory.refresh()
         self.assertEqual(self.inventory(), {})
         self.assertEqual(self.inventory.status(), 'unavailable')

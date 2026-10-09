@@ -1,7 +1,7 @@
 # Use Private Mesh
 
 Private Mesh is an opt-in core module managed from the top-level **Mesh** page.
-It shares existing local vLLM, Ollama and FreeToken backends with enrolled appliances and
+It shares existing local vLLM and Ollama backends with enrolled appliances and
 consume-only employee laptops. It never starts another copy of the model.
 
 ## Core access and security

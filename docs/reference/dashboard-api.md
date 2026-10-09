@@ -173,7 +173,7 @@ backend supplies creator identity and appliance TLS trust; the browser cannot
 choose upstream service credentials. See [Private Mesh](../user-guide/private-mesh.md) for
 device roles, invitations, sharing limits, relay reachability and release gates.
 Mesh's **Local model sharing** lists ready local chat models from vLLM, Ollama
-and FreeToken; the overview reports **Local models** rather than an individual
+and Realtime; the overview reports **Local models** rather than an individual
 engine. Sharing uses the existing backend through LiteLLM, never a second copy.
 **Join Mesh** remains visible in the Mesh view before and after setup.
 Its dialog enables the module if needed, then accepts a device name and a

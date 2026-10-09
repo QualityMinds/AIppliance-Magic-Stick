@@ -24,7 +24,7 @@ import {withUnlicensedBaseline} from '../core/license-baseline.ts';
 import {meshWorkflow,stableMesh} from './mesh-live.ts';
 import {federationWorkflow} from './federation-live.ts';
 import {rbacWorkflow,unmanagedKeyWorkflow,securityCiWorkflow} from './security-live.ts';
-import {cacheProtection,freeTokenCache} from './cache-live.ts';
+import {cacheProtection} from './cache-live.ts';
 import {companionWorkflow} from './companion-live.ts';
 
 type Profile={version:1;identity?:{approveDisposableUsers:true};repeat?:{cycles:number;maximumMemoryGrowthMi:number;maximumNonCacheDiskGrowthBytes:number}};
@@ -230,7 +230,6 @@ async function runCase(definition:P0Definition,browser:Browser) {
   if(id === 'SEC-04')return rbacWorkflow(live!);
   if(id === 'SEC-03')return securityCiWorkflow(live!);
   if(id === 'CACHE-02')return cacheProtection(live!);
-  if(id === 'CACHE-07')return freeTokenCache(live!);
   if(id === 'MESH-09')return companionWorkflow(live!);
   if(id === 'UX-02') {
     const page=await live!.context.newPage(),host=(await live!.api.hostManagement()).nodes.find(item=>item.available);

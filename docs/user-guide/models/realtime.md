@@ -21,7 +21,7 @@
    Edit, Stop, Start, Restart and Remove. Once Ready, test through the existing
    **LiteLLM → Playground → Realtime** interface.
 
-Ordinary vLLM, Ollama and FreeToken policies are unchanged. In particular,
+Ordinary vLLM and Ollama policies are unchanged. In particular,
 selecting Omni does not opt another engine into untested hardware.
 
 ## Experimentation boundary

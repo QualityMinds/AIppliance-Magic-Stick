@@ -18,7 +18,7 @@ function modelName(name: string, prefix: string) {
 
 /** The pinned KubeAI v0.23.2 Model CRD has the root CEL rule
  * `size(self.metadata.name) <= 40`. This is a fixture-admission guard, not a
- * new product naming policy. FreeToken's direct Deployment is not a KubeAI
+ * new product naming policy. Realtime's direct Deployment is not a KubeAI
  * Model. Reject invalid classic fixture names before recording a write intent. */
 export const kubeaiModelNameLimit = 40;
 
@@ -66,7 +66,7 @@ export class OwnedModelClient {
     this.name = name; this.fixture = fixture; this.assertMutationAllowed = assertMutationAllowed;
     this.allowMemoryRisk = allowMemoryRisk;
     modelName(name, prefix);
-    requireSafe(fixture.engine === 'FreeToken' || fixture.realtime || name.length <= kubeaiModelNameLimit, 'CONFIG');
+    requireSafe(fixture.realtime || name.length <= kubeaiModelNameLimit, 'CONFIG');
     const origin = new URL(baseUrl).origin;
     const transport: typeof fetch = async (input, init = {}) => {
       const url = new URL(typeof input === 'string' || input instanceof URL ? String(input) : input.url);
@@ -82,7 +82,7 @@ export class OwnedModelClient {
         try { body = JSON.parse(init.body); } catch { throw new HarnessError('MUTATION'); }
         if (url.pathname === '/api/models/local') {
           requireSafe(JSON.stringify(body) === JSON.stringify(this.createPayload()), 'MUTATION');
-        } else if (['start', 'stop', ...(fixture.engine === 'FreeToken' || fixture.realtime ? ['restart'] : [])].some(action => url.pathname === `/api/models/${encodeURIComponent(name)}/${action}`)) {
+        } else if (['start', 'stop', ...(fixture.realtime ? ['restart'] : [])].some(action => url.pathname === `/api/models/${encodeURIComponent(name)}/${action}`)) {
           const revision = (body as {expectedRevision?: unknown} | null)?.expectedRevision;
           const parts = typeof revision === 'string' ? /^generation:([^:]+):([1-9]\d*)$/.exec(revision) : null;
           requireSafe(this.ownedUid && body && typeof body === 'object' && !Array.isArray(body) &&
@@ -120,7 +120,7 @@ export class OwnedModelClient {
     return {name: this.name, enabled: true, targetNamespace: 'ai', local: {
       modelType: 'chat', computeTarget: this.fixture.computeTarget, engine: this.fixture.engine, url: this.fixture.url,
       contextWindow: this.fixture.contextWindow, maxNumSeqs: 1,
-      ...(this.fixture.realtime ? {realtime:this.fixture.realtime} : this.fixture.engine === 'FreeToken' ? {freetoken: this.fixture.freetoken} : {
+      ...(this.fixture.realtime ? {realtime:this.fixture.realtime} : {
         ...(this.fixture.computeTarget === 'cpu' ? {memoryRequiredMi:this.fixture.memoryRequiredMi} :
           {vram:`${this.fixture.memoryRequiredMi}Mi`,...(this.fixture.computeTarget === 'nvidia-gpu' ? {cpuOffloading:false} : {})}),
         ...(this.fixture.kvCacheType ? {kvCacheType: this.fixture.kvCacheType} : {})}),
@@ -176,7 +176,7 @@ export class OwnedModelClient {
 
   async restart(current: ModelActivation) {
     const metadata = current.metadata;
-    requireSafe((this.fixture.engine === 'FreeToken' || this.fixture.realtime) && this.ownedUid && metadata && metadata.uid === this.ownedUid &&
+    requireSafe((this.fixture.realtime) && this.ownedUid && metadata && metadata.uid === this.ownedUid &&
       current.spec?.enabled === true, 'OWNERSHIP');
     const result = await this.api.request<{activation?: ModelActivation}>(`/api/models/${encodeURIComponent(this.name)}/restart`,
       {method:'POST',body:JSON.stringify({expectedRevision:editRevision(current)})});
@@ -225,7 +225,7 @@ export function ownedRuntimePods(pods: KubeObject[], name: string) {
     (pod.metadata.ownerReferences?.some(owner => owner.kind === 'Model' && owner.name === name && owner.controller === true) ||
       pod.metadata.labels['appliance.magicstick.dev/modelactivation'] === name &&
       pod.metadata.labels['app.kubernetes.io/managed-by'] === 'magicstick-operator' &&
-      ['freetoken','realtime'].includes(pod.metadata.labels['appliance.magicstick.dev/runtime-backend'] ?? '') &&
+      ['realtime'].includes(pod.metadata.labels['appliance.magicstick.dev/runtime-backend'] ?? '') &&
       pod.metadata.ownerReferences?.some(owner => owner.kind === 'ReplicaSet' && owner.controller === true)))];
 }
 

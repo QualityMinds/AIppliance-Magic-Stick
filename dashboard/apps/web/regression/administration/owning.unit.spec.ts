@@ -3,7 +3,6 @@ import {componentSuite,pythonSuite} from '../components/owning.ts';
 import {evidenceAnnotations} from '../core/evidence.ts';
 import {remainingPhase,remainingVariants,remainingVariantEnabled,validateRemainingRegistry} from '../profiles/remaining-p0.ts';
 import {HarnessError} from '../core/errors.ts';
-import {freeTokenRegressionEnabled} from '../core/engine-policy.ts';
 
 const api='../../../magic-cluster/apps/dashboard';
 const identity='../../../magic-cluster/platform/identity/tests';
@@ -50,7 +49,7 @@ const proofs:Record<string,Proof>={
   channel:{python:[[api,['test_software_channel_api.SoftwareChannelApiTests']],
     [host,['test_software_channel.ContractTests','test_software_channel.HostTests']]],components:[['src/pages/SoftwareChannelEditor.test.tsx',[]]]},
   cache:{python:[[api,['test_model_cache_api.ModelCacheApiTests']],
-    [host,['test_model_cache.ModelCacheTests']], [operator,['test_model_cache.ModelCacheGateTests','test_freetoken_runtime.FreeTokenRuntimeTests']]],components:[['src/pages/ModelCachePage.test.tsx',[]]]},
+    [host,['test_model_cache.ModelCacheTests']], [operator,['test_model_cache.ModelCacheGateTests']]],components:[['src/pages/ModelCachePage.test.tsx',[]]]},
   boot:{python:[[host,['test_host_management.WorkerTests','test_gpu_memory.MemoryWorkerTests']],
     ['../../../magic-host/roles/k3s/tests',['test_role']], ['../../../magic-host/roles/nvidia-display/tests',['test_role']],
     [identity,['test_nginx_workers.NginxWorkerContractTests']]]},
@@ -69,8 +68,8 @@ const proofs:Record<string,Proof>={
   'supply-chain':{python:[['../../../tests',['test_release.ReleaseTests','test_runtime_image_updates.RuntimeImageTests','test_license_release.ReleaseMetadataTests','test_license_ci','test_regression_security','test_regression_launcher','test_regression_inputs']]],components:[['src/CoreSafety.test.ts',[]]]},
   forms:{components:[['src/pages/GpuSharingControls.test.tsx',[]],['src/pages/SoftwareChannelEditor.test.tsx',[]],
     ['src/pages/HostGpuMemory.test.tsx',[]],['src/pages/NetworkPage.test.tsx',[]],['src/pages/UpdatesPage.test.tsx',[]],
-    ['src/pages/SettingsPage.test.tsx',[]],['src/pages/MeshPage.test.tsx',[]],['src/FreeToken.test.tsx',[]],['src/RealtimeModelForm.test.tsx',[]]]},
-  repeat:{python:[[operator,['test_model_lifecycle.ModelLifecycleTests','test_freetoken_runtime.FreeTokenRuntimeTests',
+    ['src/pages/SettingsPage.test.tsx',[]],['src/pages/MeshPage.test.tsx',[]],['src/RealtimeModelForm.test.tsx',[]]]},
+  repeat:{python:[[operator,['test_model_lifecycle.ModelLifecycleTests',
     'test_realtime_runtime.RealtimeRuntimeTests']], [api,['test_model_update.ModelUpdateTests']]]},
 };
 const cache=new Map<string,Promise<void>>();
@@ -80,10 +79,10 @@ function execute(group:string) {
     result=(async()=>{
       const proof=proofs[group]; if(!proof) throw new HarnessError('CONFIG');
       for(const [cwd,tests] of proof.python ?? []) {
-        const selected=tests.filter(name=>freeTokenRegressionEnabled || !name.startsWith('test_freetoken_'));
+        const selected=tests;
         if(selected.length)pythonSuite(cwd,selected);
       }
-      for(const [file,titles] of proof.components ?? [])if(freeTokenRegressionEnabled || file !== 'src/FreeToken.test.tsx')
+      for(const [file,titles] of proof.components ?? [])
         await componentSuite(file,titles);
     })(); cache.set(group,result);
   }

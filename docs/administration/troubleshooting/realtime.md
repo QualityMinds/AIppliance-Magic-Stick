@@ -4,7 +4,7 @@
 
 Open **Models → Create → Location: Local → Inference Engine: (Experimental) vLLM-Omni**.
 Location is not an engine selector and contains only Local and External.
-Regular engines appear alphabetically above the experimental FreeToken and
+Regular engines appear alphabetically above the experimental
 vLLM-Omni options; the labels do not change saved model configurations.
 
 Omni supports **Hugging Face search** and **Direct reference** just like the

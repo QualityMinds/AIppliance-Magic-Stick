@@ -159,10 +159,10 @@ class RepositoryHygieneTests(unittest.TestCase):
 
     def test_development_builds_do_not_publish_production_aliases(self):
         for name in ('build-dashboard-image', 'build-mesh-image', 'build-amd-dra-image',
-                     'build-freetoken-image', 'build-omni-rocm-image', 'build-kdns-image',
+                     'build-omni-rocm-image', 'build-kdns-image',
                      'build-mesh-companion'):
             self.assertEqual(workflow(name)['on']['push']['branches'], ['main', 'develop'], name)
-        for name in ('build-dashboard-image', 'build-freetoken-image', 'build-kdns-image'):
+        for name in ('build-dashboard-image', 'build-kdns-image'):
             value = (ROOT / '.github/workflows' / (name + '.yml')).read_text()
             raw = [line for line in value.splitlines() if 'type=raw,value=' in line]
             for line in raw:

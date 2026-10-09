@@ -16,8 +16,7 @@ describe('Model cache management', () => {
     host = {name: 'example-node', nodeUid: 'node-uid', bootId: 'boot-a', kernel: 'test', available: true, message: '', modelCache: {
       id: 'a'.repeat(64), supported: true, blocked: false, reclaimableBytes: 30e9, totalBytes: 250e9, freeBytes: 50e9,
       caches: [{id: 'huggingface', name: 'Hugging Face / vLLM', usedBytes: 20e9, clearable: true},
-        {id: 'ollama', name: 'Ollama', usedBytes: 10e9, clearable: true},
-        {id: 'freetoken', name: 'FreeToken (temporary)', usedBytes: 0, clearable: false}],
+        {id: 'ollama', name: 'Ollama', usedBytes: 10e9, clearable: true}],
     }};
     vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method === 'POST') {
@@ -33,8 +32,7 @@ describe('Model cache management', () => {
     mount();
     expect(await screen.findByText('Hugging Face / vLLM')).toBeInTheDocument();
     expect(screen.getByText('Free disk space')).toBeInTheDocument();
-    expect(screen.getByText('FreeToken (temporary)')).toBeInTheDocument();
-    expect(screen.getByText('0 B')).toBeInTheDocument();
+    expect(screen.queryByText('FreeToken (temporary)')).not.toBeInTheDocument();
     expect(writes).toEqual([]);
     await userEvent.click(screen.getByRole('button', {name: 'Refresh cache'}));
     expect(writes).toEqual([]);

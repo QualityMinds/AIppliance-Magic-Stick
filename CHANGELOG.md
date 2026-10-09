@@ -80,6 +80,13 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
   stated in the privacy policy. The Umami image is pinned to 3.4.0 by digest and
   the tag no longer records URL fragments.
 
+### Removed
+
+- Remove the experimental FreeToken engine from model creation, Services, runtime
+  builds, routing and active regression profiles. Existing definitions remain
+  stoppable/removable; new starts and edits are rejected. See
+  [retired engines](docs/reference/retired-engines.md).
+
 ### Fixed
 
 - Verify NVIDIA multi-GPU selections using node identity and physical capacity

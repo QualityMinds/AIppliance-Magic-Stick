@@ -19,7 +19,7 @@ hardware/model support guarantee. The selected repository is saved in
 Location distinguishes only Local and External; vLLM-Omni is offered
 alongside the other local engines when the catalog advertises a Realtime profile.
 It still persists as `engine: VLLM` with `local.realtime`, not a new backend engine
-type. It does not inherit the normal model form's vLLM/Ollama/FreeToken
+type. It does not inherit the normal model form's vLLM/Ollama
 knobs. Installed Realtime models reuse Edit, Logs, Start/Stop, Restart and
 Remove. Speech testing uses LiteLLM's existing Realtime Playground, not a new
 dashboard conversation UI. See [Realtime](realtime.md), including the pinned
@@ -60,8 +60,7 @@ changed directly; there are no wizard steps or back buttons. Engine and hardware
 choices are filtered by current cluster capability. Unavailable CPU or
 accelerator targets are omitted instead of being presented as disabled choices.
 The engine dropdown sorts regular engines alphabetically first (**Ollama**,
-**vLLM**), followed by **(Experimental) FreeToken** and
-**(Experimental) vLLM-Omni**, also alphabetically. The first offered engine is the
+**vLLM**), followed by **(Experimental) vLLM-Omni**, also alphabetically. The first offered engine is the
 default for a new form. These are display labels only; catalog availability and
 persisted engine identifiers are unchanged.
 
@@ -122,51 +121,14 @@ direct references available when discovery fails. Hugging Face discovery remains
 separate because the current runtime contract pulls `ollama://` registry models
 and cannot import an arbitrary Hugging Face GGUF repository automatically.
 
-For **FreeToken**, the model source is a capability-approved `hf://` Hugging
-Face safetensors or FTW checkpoint. The form does not treat a broad Hugging Face
-search result as a compatibility promise: it shows only the documented
-FreeToken-family policy returned by the server, and the API repeats that check
-before it accepts a write. FreeToken `v0.1.3` is shown only for its supported
-Linux `amd64` NVIDIA path. AMD/ROCm, Intel, CPU, a GPU slice, an unavailable
-device, and a node whose standard FreeToken adapter cannot receive one whole
-GPU are not selectable; the GPU choice explains the non-sensitive reason.
-
-The FreeToken form replaces the vLLM/Ollama memory controls with **GPU**,
-**VRAM**, **System RAM**, and **Memory Strategy**. It exposes one
-capability-approved whole GPU per runtime. The VRAM slider is bounded by the
-selected device's physical/currently usable memory and stores a planned budget.
-NVIDIA DCGM samples retain their node association with either the current
-`hostname` label or the legacy `Hostname` label, so FreeToken uses the same
-measured VRAM shown in the device gauge.
-When editing an active FreeToken model on the same node and GPU count, its own
-reservation is reusable by the replacement Pod. The form labels this as
-**available on restart**, keeps the existing limits unchanged, and does not add
-the old allocation to live free memory. Physical capacity and other models'
-reservations still bound the replacement. New or stopped models cannot borrow
-an active model's allocation.
-At startup the runtime converts that budget to FreeToken's documented fraction
-of *current free* VRAM. A race or another workload can therefore still make a
-previously valid budget fail clearly at start rather than silently growing it.
-The System RAM value is the Pod's Kubernetes reservation and limit, not an
-invented FreeToken host-RAM flag. It is bound to a fresh available-RAM reading
-from the selected GPU node; it is intentionally unavailable rather than
-falling back to a cluster-wide CPU aggregate when that reading is absent.
-**Auto** is the default strategy; the only
-additional choices are the documented FreeToken `fused`, `offload`, `cpu`, and
-`hybrid` strategies. **Advanced Settings** is collapsed initially and contains
-only documented options such as cache mode, cache/graph sizing, CPU workers,
-expert loading, and dtype.
-
-vLLM and FreeToken accept `hf://` model references; Ollama uses `ollama://`
+vLLM accepts `hf://` model references; Ollama uses `ollama://`
 references.
 `cpu` is available on a compatible Ready Linux node. `nvidia-gpu`, `amd-gpu`,
 and `intel-gpu` are shown only when the matching provider is `Ready` and
 Kubernetes reports its allocatable resource. Intel automatically resolves
 `gpu.intel.com/xe` or `gpu.intel.com/i915`. vLLM supports all four targets.
 Ollama supports CPU, NVIDIA, and AMD; Intel is absent from the Ollama choices
-because no validated KubeAI/Ollama Intel profile is bundled. FreeToken supports
-only its capability-approved NVIDIA option and never falls back to another
-engine or hardware target.
+because no validated KubeAI/Ollama Intel profile is bundled.
 
 For an experimental AMD profile, the selected engine needs current host evidence
 and an adopted runtime configuration; GPU validation remains optional. Upstream provider readiness and an allocatable
@@ -195,13 +157,6 @@ context dimensions from the GGUF header. Only the first bounded header range is
 requested; model tensors are not downloaded by the estimator. If a registry
 proxy cannot serve that range, the API retains the conservative manifest-only
 calculation and reports that fallback explicitly.
-
-FreeToken does not reuse that vLLM/Ollama estimator because its documented
-`--memory-ratio` spans weights, MoE cache, and KV cache together. Its form uses
-the selected GPU's live capacity plus the requested FreeToken budget and marks
-the result as a runtime allocation plan, not an engine-independent fit proof.
-The API rejects impossible values and lets the runtime make a second check
-against the live device immediately before `ft serve` starts.
 
 Both the RAM and VRAM controls use unreserved memory (`total memory - active
 model reservations`) as their 100-percent slider maximum. The separate live
@@ -488,24 +443,22 @@ only for `ModelActivation` rows that the dashboard can delete.
 
 Operators and administrators can **Stop** and **Start** every managed model from
 its installed-model card. This uses the existing `spec.enabled` flag for Ollama,
-vLLM, FreeToken, and external providers, preserving the activation and all saved
+vLLM, Realtime, and external providers, preserving the activation and all saved
 settings. Local runtimes are removed on Stop; their resources become available
 as the Pods and allocations are released. Start recreates the runtime with its
 saved settings through the normal readiness and scheduling checks. For external
 providers, Stop only withdraws the Magic Stick route; it does not shut down the
-remote service. FreeToken also retains its existing **Restart** action.
+remote service. Realtime also provides a **Restart** action.
 The button follows the desired enabled state, prevents duplicate requests, and
 waits for runtime removal before allowing Start. Writes carry the current
 configuration revision; errors remain visible without removing the model card.
-See [stopping and resuming models](../administration/troubleshooting/models.md#stop-and-resume-models), including
-the temporary FreeToken cache behavior.
+See [stopping and resuming models](../administration/troubleshooting/models.md#stop-and-resume-models).
 
 Operators can open **Edit** on every managed installed model. Local edits keep
 the model reference, inference engine, hardware target, name, and namespace
 fixed while exposing the applicable engine settings: context/output limits,
-sequence concurrency, KV-cache/memory/offloading controls for vLLM/Ollama, or
-FreeToken's GPU budget, Kubernetes system-RAM reservation, strategy, and
-advanced settings. The memory estimate is recalculated against capacity with the
+sequence concurrency, KV-cache/memory/offloading controls for vLLM/Ollama, and
+Realtime stage settings. The memory estimate is recalculated against capacity with the
 model's own existing reservation removed, so an unchanged deployment is not
 counted twice. External edits cover provider parameters and can replace an API
 key; leaving the key blank preserves the existing Secret. **Save changes**
@@ -519,7 +472,7 @@ one status-only race can be retried without accepting a concurrent spec edit.
 Administrators can open **Logs** on each local installed-model card. The dialog
 refreshes a bounded tail from every declared runtime and init container and also
 shows the previous container run after a restart. It remains useful while a
-model is starting; if KubeAI or the FreeToken adapter has not created a Pod, or
+model is starting; if the runtime controller has not created a Pod, or
 Kubernetes has no output yet, the dialog says so without turning that expected
 state into a dashboard failure. External providers have no local Pod and
 therefore no Logs button.

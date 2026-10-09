@@ -70,7 +70,7 @@ Choose **Split one model** to distribute model weights rather than create copies
 - Ordinary vLLM and Ollama support same-node groups with different GPU models
   and physical capacities (up to the catalog limit of 16). Two- and four-card
   configurations have dedicated regression cases. This is not multi-node
-  inference, mixed-vendor pooling, MIG, or a FreeToken/Omni setting.
+  inference, mixed-vendor pooling, MIG, or a Omni setting.
 - Card eligibility comes from NVIDIA DRA hardware inventory: current identity,
   the same node and a known positive physical capacity. Live memory totals or
   missing live samples do not determine which cards can be grouped. A disabled
@@ -153,7 +153,7 @@ not need to choose a copy or change their API configuration.
 
 This implementation uses existing KubeAI runtimes and LiteLLM routing, not a new
 inference engine. It does not combine splitting and replication, autoscale copies,
-span nodes, or enable this mode for AMD, FreeToken, or Realtime. Two/four-card,
+span nodes, or enable this mode for AMD or Realtime. Two/four-card,
 both-engine regression workflows are defined for Exclusive and Shared allocation;
 physical inference acceptance still requires running them on suitable hardware.
 
@@ -203,7 +203,7 @@ authoritative if concurrent clients race for the last slot.
   and CDI. Existing Strix Halo host/profile checks remain required.
 - NVIDIA DRA also requires Kubernetes 1.36+, native mutating admission policies
   and CDI. It supports ordinary vLLM/Ollama single-card, split-model and
-  replicated-copy deployments in `ai`. FreeToken and vLLM-Omni Realtime currently
+  replicated-copy deployments in `ai`. vLLM-Omni Realtime currently
   retain their NVIDIA device-plugin contract; stop those models before opting
   into DRA, or keep Device plugin selected.
 - AMD DRA uses `ghcr.io/qualityminds/magicstick-amd-dra:v1.0.1-cdi-recovery.2`,
@@ -223,7 +223,7 @@ two arbitrary large models fit together.
 The [vLLM-Omni Realtime profiles](../reference/realtime.md#cooperative-gpu-sharing) accept
 AMD DRA and NVIDIA device-plugin sharing, using one slot per model and user-configured GPU-memory
 budgets. Shared replicas cannot form a two-physical-GPU stage plan. This does
-not change FreeToken's whole-GPU requirements. Omni planning estimates are
+not imply memory isolation. Omni planning estimates are
 advisory for experimentation; real free-slot and device-binding checks remain.
 
 ## Common API and configuration
@@ -328,7 +328,7 @@ Select **DRA · select individual cards** and the desired per-card slot count in
 Hardware, then review and confirm the restart. The controller:
 
 1. Rejects unmanaged NVIDIA workloads, foreign allocated claims, active
-   FreeToken/Realtime models and unsupported/custom allocator configuration.
+   Realtime models and unsupported/custom allocator configuration.
 2. Stops only managed NVIDIA model runtimes and waits for their Pods to disappear.
    Saved settings, downloads, AMD models and CPU models remain intact.
 3. Disables the selected node's device plugin and waits for its Pods and legacy

@@ -50,7 +50,7 @@ class ModelCapabilitiesTests(unittest.TestCase):
 
     def test_direct_runtime_declaration_preserves_realtime_metadata(self):
         self.controller['direct_runtime_activation_ready'] = lambda activation: True
-        self.controller['freetoken_runtime_endpoint'] = lambda activation: 'http://fixture/v1'
+        self.controller['direct_runtime_endpoint'] = lambda activation: 'http://fixture/v1'
         self.controller['direct_runtime_backend'] = lambda activation: 'vllm-omni'
         result = self.controller['direct_runtime_deployment']({'metadata':{'name':'omni'},
             'spec':{'local':{'capabilities':{'vision':True,'tools':False}}}})

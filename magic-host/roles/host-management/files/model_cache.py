@@ -141,22 +141,6 @@ def collect(node, kube):
                 identities.append([kind, None])
             result["caches"].append({"id": kind, "name": label, "usedBytes": used, "clearable": True})
             result["reclaimableBytes"] += used
-        temporary = 0
-        for pod in pods:
-            meta, spec = pod.get("metadata", {}), pod.get("spec", {})
-            if (spec.get("nodeName") != node["metadata"]["name"]
-                    or meta.get("labels", {}).get("app.kubernetes.io/name") != "freetoken"
-                    or not re.fullmatch(r"[a-f0-9-]{36}", str(meta.get("uid", "")))
-                    or not any(v.get("name") == "runtime-cache" and v.get("emptyDir") == {} for v in spec.get("volumes", []))):
-                continue
-            path = "/var/lib/kubelet/pods/" + meta["uid"] + "/volumes/kubernetes.io~empty-dir/runtime-cache"
-            try:
-                with directory(path) as fd:
-                    seen = set()
-                    temporary += sum(allocated(fd, name, os.fstat(fd).st_dev, seen, deadline) for name in os.listdir(fd))
-            except FileNotFoundError:
-                pass
-        result["caches"].append({"id": "freetoken", "name": "FreeToken (temporary)", "usedBytes": temporary, "clearable": False})
         result.update(supported=True, blocked=busy, message="Stop local model deployments before clearing shared caches." if busy else "",
                       id=hashlib.sha256(json.dumps([1, node["metadata"]["uid"], identities], sort_keys=True).encode()).hexdigest())
     except (OSError, ValueError, RuntimeError, KeyError, TypeError, AttributeError, subprocess.SubprocessError):
@@ -171,7 +155,7 @@ def clear(node, kube, payload):
     if not shutil.rmtree.avoids_symlink_attacks:
         raise ValueError("Safe cache deletion is unavailable on this host.")
     for kind, _label, path in CACHES:
-        # Never clear FreeToken's live emptyDir or entire HOME/cache directories.
+        # Clear only the documented shared cache paths, never Pod volumes or home directories.
         try:
             with directory(path) as fd:
                 for name in entries(kind, fd):

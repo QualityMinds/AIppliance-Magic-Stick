@@ -175,314 +175,14 @@ const DiscoveryMetadata = ({item}: {item?: DiscoveryItem}) => item ? <div classN
   {item.modelMaxContext && <span className="tag">Model context: {item.modelMaxContext.toLocaleString()}{item.modelContextSource === 'base-model' ? ' · base model' : ''}</span>}
 </div> : null;
 
-type FreeTokenMemoryStrategy = 'auto' | 'offload' | 'cpu' | 'hybrid' | 'fused';
 type ModelLifecycleAction = 'start' | 'stop' | 'restart';
-const freeTokenMinimumMemoryMi = 256;
 
-interface FreeTokenSettingsValue {
-  gpuDevice: string;
-  gpuCount: number;
-  gpuMemoryMi: number;
-  systemMemoryMi: number;
-  memoryStrategy: FreeTokenMemoryStrategy;
-  advanced: {
-    contextWindow: number;
-    maxNumSeqs: number;
-    maxOutputTokens: number | null;
-    cacheType: 'radix' | 'naive' | string;
-    kvReserveTokens: number | null;
-    cpuThreads: number | null;
-    cudaGraphMaxBatchSize: number | null;
-    moeCacheSize: number | null;
-    maxPrefillLength: number | null;
-    expertLoad: string | null;
-    dtype: string | null;
-  };
-}
-
-const isFreeTokenEngine = (engine: string) => engine.trim().toLowerCase() === 'freetoken';
-const freeTokenNodeName = (value: unknown) => {
-  const node = String(value ?? '').trim();
-  return node.startsWith('node:') ? node.slice('node:'.length) : node;
-};
 const asRecord = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value)
   ? value as Record<string, unknown> : {};
-const boundedInteger = (value: unknown, fallback: number, minimum = 1) => {
-  const numeric = Number(value);
-  return Number.isInteger(numeric) && numeric >= minimum ? numeric : fallback;
-};
-const optionalInteger = (value: unknown): number | null => {
-  if (value === null || value === undefined || value === '') return null;
-  const numeric = Number(value);
-  return Number.isInteger(numeric) && numeric > 0 ? numeric : null;
-};
-const optionalNonnegativeInteger = (value: unknown): number | null => {
-  if (value === null || value === undefined || value === '') return null;
-  const numeric = Number(value);
-  return Number.isInteger(numeric) && numeric >= 0 ? numeric : null;
-};
-const clamp = (value: number, minimum: number, maximum: number) => Math.min(maximum, Math.max(minimum, value));
-const freeTokenMinimumMi = (value: unknown) => Math.max(
-  freeTokenMinimumMemoryMi,
-  boundedInteger(value, freeTokenMinimumMemoryMi, freeTokenMinimumMemoryMi),
-);
-const positiveCapacity = (...values: Array<number | null | undefined>) => values.find((value) => typeof value === 'number' && Number.isFinite(value) && value > 0) ?? 0;
-const smallestPositiveCapacity = (values: Array<number | null | undefined>) => {
-  const known = values.filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0);
-  return known.length ? Math.min(...known) : 0;
-};
-const safeAvailableCapacity = (...values: Array<number | null | undefined>) => {
-  // An explicit zero is a real measurement, not a missing value.  In that
-  // case the runtime must not fall back to physical capacity and overcommit.
-  const known = values.filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
-  return known.length ? Math.max(0, Math.floor(Math.min(...known))) : 0;
-};
-// FreeToken pins a model server to one GPU node. Its RAM controls must never
-// inherit a cluster-wide CPU total when that node's live memory sample is
-// absent; unknown node capacity is deliberately not configurable.
-const freeTokenNodeAvailableMemoryMi = (value: number | null | undefined) => (
-  typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
-);
-const freeTokenStrategyLabels: Record<FreeTokenMemoryStrategy, string> = {
-  auto: 'Auto',
-  offload: 'GPU cache + streaming',
-  cpu: 'CPU execution',
-  hybrid: 'Hybrid GPU + CPU',
-  fused: 'GPU-resident experts',
-};
-
-const emptyFreeTokenSettings = (contextWindow = 4096, maxNumSeqs = 1): FreeTokenSettingsValue => ({
-  gpuDevice: '', gpuCount: 1, gpuMemoryMi: 0, systemMemoryMi: 0, memoryStrategy: 'auto',
-  advanced: {contextWindow, maxNumSeqs, maxOutputTokens: null, cacheType: 'radix', kvReserveTokens: null, cpuThreads: null,
-    cudaGraphMaxBatchSize: null, moeCacheSize: null, maxPrefillLength: null, expertLoad: null, dtype: null},
-});
-
-const freeTokenSettingsFrom = (value: unknown, contextWindow = 4096, maxNumSeqs = 1): FreeTokenSettingsValue => {
-  const raw = asRecord(value); const advanced = asRecord(raw.advanced);
-  const memoryStrategy = String(raw.memoryStrategy ?? 'auto') as FreeTokenMemoryStrategy;
-  return {
-    gpuDevice: String(raw.gpuDevice ?? ''),
-    gpuCount: boundedInteger(raw.gpuCount, 1),
-    gpuMemoryMi: Math.max(0, parseMemoryMi(raw.gpuMemoryMi)),
-    systemMemoryMi: Math.max(0, parseMemoryMi(raw.systemMemoryMi)),
-    memoryStrategy: Object.hasOwn(freeTokenStrategyLabels, memoryStrategy) ? memoryStrategy : 'auto',
-    advanced: {
-      contextWindow: boundedInteger(advanced.contextWindow ?? raw.contextWindow, contextWindow),
-      maxNumSeqs: boundedInteger(advanced.maxNumSeqs ?? raw.maxNumSeqs, maxNumSeqs),
-      maxOutputTokens: optionalInteger(advanced.maxOutputTokens ?? raw.maxOutputTokens),
-      cacheType: String(advanced.cacheType ?? raw.cacheType ?? 'radix'),
-      kvReserveTokens: optionalInteger(advanced.kvReserveTokens ?? raw.kvReserveTokens),
-      cpuThreads: optionalInteger(advanced.cpuThreads ?? raw.cpuThreads),
-      cudaGraphMaxBatchSize: optionalInteger(advanced.cudaGraphMaxBatchSize ?? raw.cudaGraphMaxBatchSize),
-      moeCacheSize: optionalNonnegativeInteger(advanced.moeCacheSize ?? raw.moeCacheSize),
-      maxPrefillLength: optionalInteger(advanced.maxPrefillLength ?? raw.maxPrefillLength),
-      expertLoad: advanced.expertLoad === null || advanced.expertLoad === undefined || advanced.expertLoad === '' ? null : String(advanced.expertLoad),
-      dtype: advanced.dtype === null || advanced.dtype === undefined || advanced.dtype === '' ? null : String(advanced.dtype),
-    },
-  };
-};
-
-const freeTokenPayload = (value: FreeTokenSettingsValue, models: ModelsPayload) => {
-  const advertised = asRecord(models.computeTargets.freeTokenCapabilities?.advanced);
-  const cacheTypes = Array.isArray(advertised.cacheType)
-    ? advertised.cacheType
-    : models.computeTargets.freeTokenCapabilities?.cacheTypes ?? [];
-  const advanced: Record<string, unknown> = {};
-  if (cacheTypes.some((cacheType) => cacheType === value.advanced.cacheType)) {
-    advanced.cacheType = value.advanced.cacheType;
-  }
-  for (const key of ['kvReserveTokens', 'cpuThreads'] as const) {
-    if (advertised[key] === true && value.advanced[key] !== null) advanced[key] = value.advanced[key];
-  }
-  for (const key of ['cudaGraphMaxBatchSize', 'moeCacheSize', 'maxPrefillLength'] as const) {
-    if (advertised[key] && value.advanced[key] !== null) advanced[key] = value.advanced[key];
-  }
-  for (const key of ['expertLoad', 'dtype'] as const) {
-    if (advertised[key] && value.advanced[key]) advanced[key] = value.advanced[key];
-  }
-  return {...value, advanced};
-};
-
-const freeTokenDeviceOptions = (models: ModelsPayload, computeTarget: string, replacement?: FreeTokenSettingsValue, gpuCount = replacement?.gpuCount) => {
-  const capability = models.computeTargets.freeTokenCapabilities;
-  const catalogDevices = [...(capability?.devices ?? []), ...(capability?.unavailableDevices ?? [])];
-  const catalogById = new Map(catalogDevices.map((device) => [device.id, device]));
-  const physicalDevices = models.computeMemory?.devices?.filter((device) => device.kind === 'gpu'
-    && (device.computeTarget === computeTarget || device.id === computeTarget)) ?? [];
-  const catalogIds = catalogDevices.filter((device) => !device.computeTarget || device.computeTarget === computeTarget).map((device) => device.id);
-  // When the server supplies capability inventory, it is authoritative. This
-  // avoids presenting raw GPU UUIDs as a selectable scheduling mechanism.
-  const ids = new Set(catalogIds.length ? catalogIds : physicalDevices.map((device) => device.id));
-  return [...ids].map((id) => {
-    const catalog = catalogById.get(id);
-    const node = catalog?.node ?? (id.startsWith('node:') ? id.slice('node:'.length) : undefined);
-    const nodeDevices = physicalDevices.filter((item) => Boolean(node && item.nodes?.includes(node)));
-    const device = nodeDevices.find((item) => item.id === id || item.freeToken?.id === id) ?? nodeDevices[0];
-    const supported = catalog?.supported ?? device?.freeToken?.supported ?? false;
-    const replacingNode = replacement?.gpuDevice === id;
-    const retainedGpuMi = replacingNode && replacement.gpuCount === gpuCount
-      ? Math.floor(replacement.gpuMemoryMi / replacement.gpuCount) : 0;
-    const availableGpuMi = (item: typeof physicalDevices[number]) => safeAvailableCapacity(
-      typeof item.unreservedMi === 'number' ? item.unreservedMi + retainedGpuMi : item.unreservedMi,
-      typeof item.freeMi === 'number' ? Math.max(item.freeMi, retainedGpuMi) : item.freeMi,
-      item.totalMi,
-    );
-    return {
-      id,
-      name: catalog?.name ?? device?.name ?? id,
-      node,
-      supported,
-      reason: catalog?.reason ?? device?.freeToken?.reason ?? capability?.message ?? 'This GPU is not supported by the selected FreeToken runtime.',
-      // A multi-GPU allocation is made by Kubernetes, not by a raw UUID. Use
-      // the smallest physical/available card on the selected node so one
-      // per-GPU FreeToken limit is valid for every card that may be assigned.
-      totalMi: nodeDevices.length
-        ? smallestPositiveCapacity(nodeDevices.map((item) => positiveCapacity(item.totalMi)))
-        : positiveCapacity(device?.totalMi, catalog?.totalMi),
-      // The physical/DCGM device is the source for VRAM. Capability inventory
-      // only supplies a fallback when that device is not reported yet.
-      availableMi: nodeDevices.length
-        ? Math.min(...nodeDevices.map(availableGpuMi))
-        : device
-        ? availableGpuMi(device)
-        : safeAvailableCapacity(catalog?.unreservedMi, catalog?.freeMi, catalog?.totalMi),
-      gpuCount: boundedInteger(catalog?.gpuCount, Math.max(1, nodeDevices.length || 1)),
-      maxGpuCount: Math.max(1, Math.min(
-        boundedInteger(catalog?.maxGpuCount ?? catalog?.gpuCount, Math.max(1, nodeDevices.length || 1)),
-        nodeDevices.length || boundedInteger(catalog?.gpuCount, 1),
-      )),
-      systemMemoryMi: catalog?.systemMemoryMi,
-      systemAvailableMi: replacingNode && typeof catalog?.systemAvailableMi === 'number'
-        ? Math.min(catalog.systemMemoryMi ?? catalog.systemAvailableMi, Math.max(catalog.systemAvailableMi, replacement.systemMemoryMi))
-        : catalog?.systemAvailableMi,
-    };
-  });
-};
-
-const FreeTokenSettingsPanel = ({models, computeTarget, value, onChange, replacement}: {
-  models: ModelsPayload;
-  computeTarget: string;
-  value: FreeTokenSettingsValue;
-  onChange: (value: FreeTokenSettingsValue) => void;
-  replacement?: FreeTokenSettingsValue;
-}) => {
-  const capability = models.computeTargets.freeTokenCapabilities;
-  const devices = freeTokenDeviceOptions(models, computeTarget, replacement, value.gpuCount);
-  const capacityLabel = replacement ? 'available on restart' : 'currently available';
-  const supportedDevices = devices.filter((device) => device.supported);
-  const selectedDevice = devices.find((device) => device.id === value.gpuDevice) ?? supportedDevices[0];
-  const gpuMaximumPerDeviceMi = Math.floor(selectedDevice?.availableMi ?? 0);
-  const gpuPhysicalPerDeviceMi = selectedDevice?.totalMi ?? 0;
-  const maximumGpuCount = Math.max(1, selectedDevice?.maxGpuCount ?? selectedDevice?.gpuCount ?? 1);
-  const selectedGpuCount = clamp(boundedInteger(value.gpuCount, 1), 1, maximumGpuCount);
-  const gpuMinimumPerDeviceMi = freeTokenMinimumMi(capability?.minimumGpuMemoryMi);
-  const gpuMinimumMi = gpuMinimumPerDeviceMi * selectedGpuCount;
-  const gpuMaximumMi = gpuMaximumPerDeviceMi * selectedGpuCount;
-  const gpuPhysicalMi = gpuPhysicalPerDeviceMi * selectedGpuCount;
-  const systemRequiredMinimumMi = freeTokenMinimumMi(capability?.minimumSystemMemoryMi);
-  const systemTotalMi = positiveCapacity(selectedDevice?.systemMemoryMi);
-  const systemMaximumMi = freeTokenNodeAvailableMemoryMi(selectedDevice?.systemAvailableMi);
-  const gpuCapacitySatisfiesMinimum = gpuMaximumPerDeviceMi >= gpuMinimumPerDeviceMi;
-  const systemCapacitySatisfiesMinimum = systemMaximumMi >= systemRequiredMinimumMi;
-  const defaultRatio = clamp(Number(capability?.defaultMemoryRatio ?? 0.9), 0.01, 1);
-  // Keep the first-render value aligned with the server-side auto policy:
-  // a quarter of this node's installed RAM, bounded to 8–32 GiB.  It must
-  // never use the cluster-wide CPU aggregate or exceed live node capacity.
-  const automaticSystemMi = Math.min(32768, Math.max(8192, Math.floor((systemTotalMi || systemMaximumMi) / 4)));
-  const defaultSystemMi = systemCapacitySatisfiesMinimum
-    ? clamp(automaticSystemMi, systemRequiredMinimumMi, systemMaximumMi)
-    : 0;
-  const advertisedStrategies = capability?.memoryStrategies?.filter((strategy): strategy is FreeTokenMemoryStrategy => Object.hasOwn(freeTokenStrategyLabels, strategy)) ?? [];
-  const memoryStrategies: FreeTokenMemoryStrategy[] = advertisedStrategies.length ? advertisedStrategies : ['auto'];
-  const advancedCapabilities = asRecord(capability?.advanced);
-  const cacheTypes = Array.isArray(advancedCapabilities.cacheType) ? advancedCapabilities.cacheType.filter((item): item is string => typeof item === 'string' && Boolean(item)) : capability?.cacheTypes ?? [];
-  const optionValues = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && Boolean(item)) : [];
-  const expertLoadOptions = optionValues(advancedCapabilities.expertLoad);
-  const dtypeOptions = optionValues(advancedCapabilities.dtype).length
-    ? optionValues(advancedCapabilities.dtype)
-    : optionValues(capability?.supportedPrecisionModes);
-  const freeTokenAvailable = capability?.available !== false && supportedDevices.length > 0;
-
-  useEffect(() => {
-    const nextDevice = supportedDevices.find((device) => device.id === value.gpuDevice) ?? supportedDevices[0];
-    const nextGpuCount = clamp(boundedInteger(value.gpuCount, 1), 1, Math.max(1, nextDevice?.maxGpuCount ?? nextDevice?.gpuCount ?? 1));
-    const nextGpuMaximum = Math.floor(nextDevice?.availableMi ?? 0) * nextGpuCount;
-    const nextGpuMinimum = gpuMinimumPerDeviceMi * nextGpuCount;
-    const nextGpu = nextGpuMaximum >= nextGpuMinimum
-      ? clamp(value.gpuMemoryMi || Math.max(nextGpuMinimum, Math.floor(nextGpuMaximum * defaultRatio)), nextGpuMinimum, nextGpuMaximum)
-      : 0;
-    const nextSystem = systemMaximumMi >= systemRequiredMinimumMi
-      ? clamp(value.systemMemoryMi || defaultSystemMi, systemRequiredMinimumMi, systemMaximumMi)
-      : 0;
-    const nextStrategy = memoryStrategies.includes(value.memoryStrategy) ? value.memoryStrategy : 'auto';
-    if ((nextDevice?.id ?? '') !== value.gpuDevice || nextGpu !== value.gpuMemoryMi || nextSystem !== value.systemMemoryMi
-      || nextGpuCount !== value.gpuCount || nextStrategy !== value.memoryStrategy) {
-      onChange({...value, gpuDevice: nextDevice?.id ?? '', gpuCount: nextGpuCount, gpuMemoryMi: nextGpu, systemMemoryMi: nextSystem,
-        memoryStrategy: nextStrategy});
-    }
-  }, [computeTarget, defaultRatio, defaultSystemMi, gpuMinimumPerDeviceMi, memoryStrategies, onChange, supportedDevices, systemMaximumMi, systemRequiredMinimumMi, value]);
-
-  const updateAdvanced = (advanced: Partial<FreeTokenSettingsValue['advanced']>) => onChange({...value, advanced: {...value.advanced, ...advanced}});
-  return <Panel title="FreeToken" className="nested-panel">
-    <div className="stack compact">
-      <div className="form-grid">
-        {supportedDevices.length > 1 ? <Field label="GPU node"><select value={value.gpuDevice} onChange={(event) => onChange({...value, gpuDevice: event.target.value})}>
-          {supportedDevices.map((device) => <option key={device.id} value={device.id}>{device.node ? `${device.node} · ` : ''}{device.name}</option>)}
-        </select></Field> : <div className="field" aria-label="FreeToken GPU allocation"><span>GPU allocation</span><strong>{selectedDevice?.supported ? `${selectedDevice.node ? `${selectedDevice.node} · ` : ''}${selectedDevice.name}` : 'No eligible GPU'}</strong></div>}
-        <Field label="GPUs on node"><select aria-label="FreeToken GPU count" value={selectedGpuCount} disabled={!freeTokenAvailable || maximumGpuCount < 2} onChange={(event) => onChange({...value, gpuCount: Number(event.target.value)})}>
-          {Array.from({length: maximumGpuCount}, (_, index) => index + 1).map((count) => <option key={count} value={count}>{count} {count === 1 ? 'GPU' : 'GPUs'}</option>)}
-        </select></Field>
-        <Field label="Memory strategy"><select value={value.memoryStrategy} onChange={(event) => onChange({...value, memoryStrategy: event.target.value as FreeTokenMemoryStrategy})} disabled={!freeTokenAvailable}>
-          {memoryStrategies.map((strategy) => <option value={strategy} key={strategy}>{freeTokenStrategyLabels[strategy]}</option>)}
-        </select></Field>
-      </div>
-      {!freeTokenAvailable && <div className="notice notice-warn" role="status">{capability?.message ?? 'No GPU supported by the installed FreeToken runtime is available on this target.'}</div>}
-      {freeTokenAvailable && (!gpuCapacitySatisfiesMinimum || !systemCapacitySatisfiesMinimum) && <div className="notice notice-warn" role="status">{!gpuCapacitySatisfiesMinimum
-        ? `FreeToken requires at least ${formatMi(gpuMinimumPerDeviceMi)} currently available GPU memory on every selected GPU.`
-        : `FreeToken requires at least ${formatMi(systemRequiredMinimumMi)} currently available system RAM on the selected node.`}</div>}
-      {devices.some((device) => !device.supported) && <div className="tag-list">{devices.filter((device) => !device.supported).map((device) => <span className="tag" key={device.id} title={device.reason}>{device.node ? `${device.node} · ` : ''}{device.name} · unavailable</span>)}</div>}
-      <section className="estimate stack compact">
-        <header><strong>GPU memory</strong><span className="muted">{gpuPhysicalMi ? `${formatMi(gpuPhysicalMi)} physical · ` : ''}{gpuMaximumMi ? `${formatMi(gpuMaximumMi)} ${capacityLabel}` : 'Capacity unavailable'}</span></header>
-        <input aria-label="FreeToken GPU memory" type="range" min={gpuCapacitySatisfiesMinimum ? gpuMinimumMi : 0} max={gpuCapacitySatisfiesMinimum ? gpuMaximumMi : 0} step="1" disabled={!freeTokenAvailable || !gpuCapacitySatisfiesMinimum} value={gpuCapacitySatisfiesMinimum ? clamp(value.gpuMemoryMi, gpuMinimumMi, gpuMaximumMi) : 0} onChange={(event) => {
-          const gpuMemoryMi = Number(event.target.value);
-          onChange({...value, gpuMemoryMi});
-        }} />
-        <div className="slider-labels"><span>FreeToken total limit: {value.gpuMemoryMi ? formatMi(value.gpuMemoryMi) : '—'}</span><span>{gpuMaximumMi ? `${Math.round(value.gpuMemoryMi / gpuMaximumMi * 100)}% of ${capacityLabel} VRAM` : '—'}</span></div>
-        <Field label="GPU memory limit total (MiB)"><input type="number" min={gpuMinimumMi} max={gpuMaximumMi || undefined} step="1" value={gpuCapacitySatisfiesMinimum ? value.gpuMemoryMi || '' : ''} disabled={!freeTokenAvailable || !gpuCapacitySatisfiesMinimum} onChange={(event) => {
-          const gpuMemoryMi = Number(event.target.value);
-          onChange({...value, gpuMemoryMi: gpuCapacitySatisfiesMinimum ? clamp(gpuMemoryMi, gpuMinimumMi, gpuMaximumMi) : gpuMemoryMi});
-        }} /></Field>
-      </section>
-      <section className="estimate stack compact">
-        <header><strong>System RAM</strong><span className="muted">{systemTotalMi ? `${formatMi(systemTotalMi)} installed · ` : ''}{systemMaximumMi ? `${formatMi(systemMaximumMi)} ${capacityLabel}` : 'Capacity unavailable'}</span></header>
-        <input aria-label="FreeToken system RAM" type="range" min={systemCapacitySatisfiesMinimum ? systemRequiredMinimumMi : 0} max={systemCapacitySatisfiesMinimum ? systemMaximumMi : 0} step="1" disabled={!freeTokenAvailable || !systemCapacitySatisfiesMinimum} value={systemCapacitySatisfiesMinimum ? clamp(value.systemMemoryMi, systemRequiredMinimumMi, systemMaximumMi) : 0} onChange={(event) => onChange({...value, systemMemoryMi: Number(event.target.value)})} />
-        <div className="slider-labels"><span>Pod RAM reservation: {value.systemMemoryMi ? formatMi(value.systemMemoryMi) : '—'}</span><span>{systemMaximumMi ? `${Math.round(value.systemMemoryMi / systemMaximumMi * 100)}% of available RAM` : '—'}</span></div>
-        <Field label="System RAM reservation (MiB)"><input type="number" min={systemRequiredMinimumMi} max={systemMaximumMi || undefined} step="1" value={systemCapacitySatisfiesMinimum ? value.systemMemoryMi || '' : ''} disabled={!freeTokenAvailable || !systemCapacitySatisfiesMinimum} onChange={(event) => onChange({...value, systemMemoryMi: systemCapacitySatisfiesMinimum ? clamp(Number(event.target.value), systemRequiredMinimumMi, systemMaximumMi) : Number(event.target.value)})} /></Field>
-      </section>
-      <details>
-        <summary><strong>Advanced Settings</strong></summary>
-        <div className="form-grid stack compact">
-          <Field label="Context length"><input type="number" min="1" value={value.advanced.contextWindow} onChange={(event) => updateAdvanced({contextWindow: Number(event.target.value)})} /></Field>
-          <Field label="Maximum running requests"><input type="number" min="1" value={value.advanced.maxNumSeqs} onChange={(event) => updateAdvanced({maxNumSeqs: Number(event.target.value)})} /></Field>
-          <Field label="Maximum output tokens"><input type="number" min="1" value={value.advanced.maxOutputTokens ?? ''} placeholder="Runtime default" onChange={(event) => updateAdvanced({maxOutputTokens: optionalInteger(event.target.value)})} /></Field>
-          {cacheTypes.length > 0 && <Field label="Cache type"><select value={value.advanced.cacheType} onChange={(event) => updateAdvanced({cacheType: event.target.value})}>{cacheTypes.map((cacheType) => <option key={cacheType} value={cacheType}>{cacheType}</option>)}</select></Field>}
-          {advancedCapabilities.kvReserveTokens === true && <Field label="KV reserve tokens"><input type="number" min="1" value={value.advanced.kvReserveTokens ?? ''} placeholder="Runtime default" onChange={(event) => updateAdvanced({kvReserveTokens: optionalInteger(event.target.value)})} /></Field>}
-          {advancedCapabilities.cpuThreads === true && <Field label="MoE CPU threads"><input type="number" min="1" value={value.advanced.cpuThreads ?? ''} placeholder="Runtime default" onChange={(event) => updateAdvanced({cpuThreads: optionalInteger(event.target.value)})} /></Field>}
-          {advancedCapabilities.cudaGraphMaxBatchSize === true && <Field label="CUDA graph maximum batch size"><input type="number" min="1" value={value.advanced.cudaGraphMaxBatchSize ?? ''} placeholder="Runtime default" onChange={(event) => updateAdvanced({cudaGraphMaxBatchSize: optionalInteger(event.target.value)})} /></Field>}
-          {advancedCapabilities.moeCacheSize === true && <Field label="MoE cache size"><input type="number" min="0" value={value.advanced.moeCacheSize ?? ''} placeholder="Runtime default" onChange={(event) => updateAdvanced({moeCacheSize: optionalNonnegativeInteger(event.target.value)})} /></Field>}
-          {advancedCapabilities.maxPrefillLength === true && <Field label="Maximum prefill length"><input type="number" min="1" value={value.advanced.maxPrefillLength ?? ''} placeholder="Runtime default" onChange={(event) => updateAdvanced({maxPrefillLength: optionalInteger(event.target.value)})} /></Field>}
-          {Boolean(advancedCapabilities.expertLoad) && <Field label="Expert load"><select value={value.advanced.expertLoad ?? ''} onChange={(event) => updateAdvanced({expertLoad: event.target.value || null})}><option value="">Runtime default</option>{expertLoadOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></Field>}
-          {Boolean(advancedCapabilities.dtype) && <Field label="Precision"><select value={value.advanced.dtype ?? ''} onChange={(event) => updateAdvanced({dtype: event.target.value || null})}><option value="">Runtime default</option>{dtypeOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></Field>}
-        </div>
-      </details>
-    </div>
-  </Panel>;
-};
-
 const LocalModelForm = ({models, onClose, onCreated}: {models: ModelsPayload; onClose: () => void; onCreated: () => Promise<void>}) => {
   const availableTargets = models.computeTargets.targets.filter((target) => target.available);
   const hasRealtime = Object.keys(models.computeTargets.engineCatalog?.VLLM?.realtimeProfiles ?? {}).length > 0;
-  const experimentalEngines = new Set(['FreeToken', 'VLLM-Omni']);
+  const experimentalEngines = new Set(['VLLM-Omni']);
   const engineDisplayName = (engine: string) => engine === 'VLLM-Omni' ? 'vLLM-Omni' : models.computeTargets.engineCatalog?.[engine]?.displayName ?? engine;
   const engineOptions = [...new Set([
     ...Object.keys(models.computeTargets.engineCatalog ?? {}),
@@ -523,12 +223,11 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
   const [gpuDeployment, setGpuDeployment] = useState<GpuDeployment>('single');
   const replicated = gpuDeployment === 'replicated';
   const gpuPayload = groupSettings(selectedCards.map((card) => card.gpuDevice!), gpuDeployment);
-  const cardRequired = computeTarget === 'nvidia-gpu' && (nvidiaCards.length > 0 || !!gpuKey) && engine !== 'FreeToken';
+  const cardRequired = computeTarget === 'nvidia-gpu' && (nvidiaCards.length > 0 || !!gpuKey);
   const noSlots = slotsFull(selectedTarget, engine) || cardRequired && (!selectedCard || selectedCards.length !== gpuKeys.length || selectedCards.some((card) => !card.slots?.free || card !== selectedCard && !matchingNvidiaCards(selectedCard, card)));
   const automaticGpuPool = computeTarget === 'nvidia-gpu' && sharedSlotPools(models.computeMemory?.devices ?? []).some((pool) =>
     pool.deviceIds.some((id) => models.computeMemory?.devices?.some((device) => device.id === id && device.computeTarget === computeTarget)));
   const engineUnavailable = !targetEngineAvailable(selectedTarget, engine);
-  const isFreeToken = isFreeTokenEngine(engine);
   const kvCacheOptions = useMemo(
     () => selectedTarget?.kvCacheTypes?.[engine] ?? fallbackKvCacheOptions(engine),
     [engine, selectedTarget],
@@ -551,7 +250,6 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
   const [hostMemoryEdited, setHostMemoryEdited] = useState(false);
   const [offloadError, setOffloadError] = useState<unknown>(null);
   const [formError, setFormError] = useState<unknown>(null); const [searching, setSearching] = useState(false); const [loadingArtifacts, setLoadingArtifacts] = useState(false);
-  const [freeToken, setFreeToken] = useState<FreeTokenSettingsValue>(() => emptyFreeTokenSettings());
 
   useEffect(() => {
     const declaredTargets = availableTargets.filter((target) => targetSupportsEngine(target, engine));
@@ -585,11 +283,11 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
   const capacityKnown = capacities.length > 0 && (!cardRequired || capacities.length === selectedCards.length);
   const availableMi = capacityKnown ? (cardRequired ? Math.min(...capacities) : Math.max(...capacities)) : 0;
   const selectedDiscoveryArtifact = artifacts.find((item) => item.id === selectedSearchArtifact);
-  const supportsOffloading = !isFreeToken && computeTarget === 'nvidia-gpu';
+  const supportsOffloading = computeTarget === 'nvidia-gpu';
   const offload = supportsOffloading && cpuOffloading ? offloadEstimate?.offloading : undefined;
   const hostMaximum = Math.max(0, Math.floor((offload?.ramMaximumMi ?? 0) / 100) * 100);
   const activeEstimate = cpuOffloading ? offloadEstimate : estimate;
-  const memoryRisks = !isFreeToken && activeEstimate ? [
+  const memoryRisks = activeEstimate ? [
     ...(activeEstimate.confidence !== 'high' ? ['Memory requirements are estimated and may differ at runtime.'] : []),
     ...(selectedMi < roundMemory(activeEstimate.minimumMi) ? ['The selected memory is below the estimated minimum.'] : []),
     ...(capacityKnown && selectedMi > availableMi ? ['The selected memory exceeds currently unreserved capacity.'] : []),
@@ -600,28 +298,7 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
     ...(offload && offload.ramMaximumMi !== null && hostMemoryMi > hostMaximum ? ['Host RAM exceeds currently unreserved capacity.'] : []),
   ] : [];
   const hasMemoryRisk = memoryRisks.length > 0;
-  const selectedFreeTokenDevice = freeTokenDeviceOptions(models, computeTarget).find((device) => device.id === freeToken.gpuDevice);
-  const freeTokenCapability = models.computeTargets.freeTokenCapabilities;
-  const freeTokenGpuMinimumPerDevice = freeTokenMinimumMi(freeTokenCapability?.minimumGpuMemoryMi);
-  const freeTokenSystemMinimum = freeTokenMinimumMi(freeTokenCapability?.minimumSystemMemoryMi);
-  const freeTokenGpuMaximumPerDevice = Math.floor(selectedFreeTokenDevice?.availableMi ?? 0);
-  const freeTokenSystemMaximum = freeTokenNodeAvailableMemoryMi(selectedFreeTokenDevice?.systemAvailableMi);
-  const freeTokenMaximumGpuCount = Math.max(1, selectedFreeTokenDevice?.maxGpuCount ?? selectedFreeTokenDevice?.gpuCount ?? 1);
-  const selectedFreeTokenGpuCount = clamp(boundedInteger(freeToken.gpuCount, 1), 1, freeTokenMaximumGpuCount);
-  const freeTokenGpuMinimum = freeTokenGpuMinimumPerDevice * selectedFreeTokenGpuCount;
-  const freeTokenGpuMaximum = freeTokenGpuMaximumPerDevice * selectedFreeTokenGpuCount;
-  const invalidFreeToken = !selectedFreeTokenDevice?.supported || !Number.isInteger(freeToken.gpuCount) || freeToken.gpuCount < 1 || freeToken.gpuCount > freeTokenMaximumGpuCount || !Number.isInteger(freeToken.gpuMemoryMi)
-    || freeToken.gpuMemoryMi < freeTokenGpuMinimum || freeToken.gpuMemoryMi > freeTokenGpuMaximum
-    || !Number.isInteger(freeToken.systemMemoryMi) || freeToken.systemMemoryMi < freeTokenSystemMinimum || freeToken.systemMemoryMi > freeTokenSystemMaximum
-    || !Number.isInteger(freeToken.advanced.contextWindow) || freeToken.advanced.contextWindow < 1
-    || !Number.isInteger(freeToken.advanced.maxNumSeqs) || freeToken.advanced.maxNumSeqs < 1
-    || (freeToken.advanced.maxOutputTokens !== null && (!Number.isInteger(freeToken.advanced.maxOutputTokens) || freeToken.advanced.maxOutputTokens < 1))
-    || (freeToken.advanced.kvReserveTokens !== null && (!Number.isInteger(freeToken.advanced.kvReserveTokens) || freeToken.advanced.kvReserveTokens < 1))
-    || (freeToken.advanced.cpuThreads !== null && (!Number.isInteger(freeToken.advanced.cpuThreads) || freeToken.advanced.cpuThreads < 1))
-    || (freeToken.advanced.cudaGraphMaxBatchSize !== null && (!Number.isInteger(freeToken.advanced.cudaGraphMaxBatchSize) || freeToken.advanced.cudaGraphMaxBatchSize < 1))
-    || (freeToken.advanced.moeCacheSize !== null && (!Number.isInteger(freeToken.advanced.moeCacheSize) || freeToken.advanced.moeCacheSize < 0))
-    || (freeToken.advanced.maxPrefillLength !== null && (!Number.isInteger(freeToken.advanced.maxPrefillLength) || freeToken.advanced.maxPrefillLength < 1));
-  const invalidBudget = isFreeToken ? invalidFreeToken : (cardRequired && gpuDeployment !== 'single' && gpuCount < 2) || !Number.isInteger(selectedMi) || selectedMi < 100 || selectedMi % 100 !== 0
+  const invalidBudget = (cardRequired && gpuDeployment !== 'single' && gpuCount < 2) || !Number.isInteger(selectedMi) || selectedMi < 100 || selectedMi % 100 !== 0
     || ((cpuOffloading || gpuCount > 1) && (!Number.isInteger(hostMemoryMi) || hostMemoryMi < (gpuCount > 1 ? 1100 : 100) || hostMemoryMi % 100 !== 0))
     || (gpuCount > 1 && (selectedCards.some((device) => selectedMi > Number(nvidiaPhysicalCapacityMi(device) ?? 0))
       || (typeof activeEstimate?.systemMemoryMaximumMi === 'number' && hostMemoryMi > activeEstimate.systemMemoryMaximumMi)));
@@ -651,11 +328,9 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
       .find((value) => Number.isFinite(value) && value > 0) ?? 0;
     if (context > 0) {
       setContextWindow(context);
-      if (isFreeToken) setFreeToken((current) => ({...current, advanced: {...current.advanced, contextWindow: context}}));
     }
     if (variant?.maxNumSeqs) {
       setMaxNumSeqs(variant.maxNumSeqs);
-      if (isFreeToken) setFreeToken((current) => ({...current, advanced: {...current.advanced, maxNumSeqs: variant.maxNumSeqs!}}));
     }
   };
 
@@ -665,7 +340,7 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
   }, [artifactId, presetId, source]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!url || isFreeToken) { setEstimate(undefined); return; }
+    if (!url) { setEstimate(undefined); return; }
     let cancelled = false;
     const timer = window.setTimeout(async () => {
       try {
@@ -679,7 +354,7 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
       } catch (reason) { if (!cancelled) setFormError(reason); }
     }, 350);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [computeTarget, contextWindow, engine, isFreeToken, kvCacheType, maxNumSeqs, modelType, url, cpuOffloading, gpuKey, parallelism, gpuDeployment]);
+  }, [computeTarget, contextWindow, engine,  kvCacheType, maxNumSeqs, modelType, url, cpuOffloading, gpuKey, parallelism, gpuDeployment]);
 
   const searchParams = (query: string, cursor?: string | null) => {
     const params = new URLSearchParams({provider, q: query, engine, computeTarget, modelType, limit: '20'});
@@ -721,9 +396,7 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
       if (deploymentSettings.invalid) throw new Error('Select a vision attention backend offered by the runtime catalog.');
       if (noSlots) throw new Error('No free GPU model slots. Remove a model or change GPU sharing in System > Hardware.');
       if (engineUnavailable) throw new Error(selectedTarget?.engineAvailability?.[engine]?.message ?? 'The selected engine and hardware combination is not available.');
-      if (invalidBudget) throw new Error(isFreeToken
-        ? 'Select a supported FreeToken GPU node and memory budgets that meet the runtime minimums and currently available capacity.'
-        : 'Enter positive memory budgets in steps of 100 MiB.');
+      if (invalidBudget) throw new Error('Enter positive memory budgets in steps of 100 MiB.');
       const target = availableTargets.find((item) => item.id === computeTarget);
       if (!target?.available || !targetSupportsEngine(target, engine)) throw new Error('The selected engine and hardware combination is not available.');
       const local: Record<string, unknown> = {modelType, computeTarget, engine};
@@ -734,22 +407,15 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
         local.memoryRequiredMi = hostMemoryMi;
         if (engine === 'VLLM' && !replicated) local.vllm = {parallelism};
       }
-      if (isFreeToken) {
-        local.contextWindow = freeToken.advanced.contextWindow;
-        local.maxNumSeqs = freeToken.advanced.maxNumSeqs;
-        if (freeToken.advanced.maxOutputTokens !== null) local.maxOutputTokens = freeToken.advanced.maxOutputTokens;
-        local.freetoken = freeTokenPayload(freeToken, models);
-      } else {
-        local.contextWindow = contextWindow;
-        local.maxNumSeqs = maxNumSeqs;
-        local.kvCacheType = kvCacheType;
-        if (hasMemoryRisk) local.allowMemoryRisk = true;
-        if (target.kind === 'cpu' || computeTarget === 'cpu') local.memoryRequiredMi = selectedMi; else local.vram = `${selectedMi}Mi`;
-        if (supportsOffloading) {
-          local.cpuOffloading = cpuOffloading;
-          if (cpuOffloading) {
-            local.memoryRequiredMi = hostMemoryMi;
-          }
+      local.contextWindow = contextWindow;
+      local.maxNumSeqs = maxNumSeqs;
+      local.kvCacheType = kvCacheType;
+      if (hasMemoryRisk) local.allowMemoryRisk = true;
+      if (target.kind === 'cpu' || computeTarget === 'cpu') local.memoryRequiredMi = selectedMi; else local.vram = `${selectedMi}Mi`;
+      if (supportsOffloading) {
+        local.cpuOffloading = cpuOffloading;
+        if (cpuOffloading) {
+          local.memoryRequiredMi = hostMemoryMi;
         }
       }
       if (source === 'preset' && presetId) { local.preset = presetId; if (artifactId) local.artifact = artifactId; } else local.url = url;
@@ -791,14 +457,14 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
     </Panel>}
 
     {source === 'preset' && <div className="stack compact discovery-selects"><Field label="Preset"><select value={presetId} onChange={(event) => { setPresetId(event.target.value); setArtifactId(''); }}><option value="">Select a tested preset</option>{presets.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></Field><Field label="Precision / Quantization"><select value={artifactId} onChange={(event) => setArtifactId(event.target.value)} disabled={!selectedPreset}><option value="">Default artifact</option>{selectedPreset?.variant.artifacts?.map((item) => <option key={item.id} value={item.id}>{item.title ?? item.id}</option>)}</select></Field></div>}
-    {source === 'direct' && <Field label={engine === 'OLlama' ? 'Ollama model reference' : isFreeToken ? 'Hugging Face model reference' : 'Hugging Face URL'}><input value={url} onChange={(event) => { const nextUrl = event.target.value; setUrl(nextUrl); if (nextUrl) setName((current) => current || safeModelName(nextUrl)); }} placeholder={engine === 'OLlama' ? 'ollama://qwen3.5:9b' : 'hf://Qwen/Qwen3.6-27B'} required /></Field>}
+    {source === 'direct' && <Field label={engine === 'OLlama' ? 'Ollama model reference' : 'Hugging Face URL'}><input value={url} onChange={(event) => { const nextUrl = event.target.value; setUrl(nextUrl); if (nextUrl) setName((current) => current || safeModelName(nextUrl)); }} placeholder={engine === 'OLlama' ? 'ollama://qwen3.5:9b' : 'hf://Qwen/Qwen3.6-27B'} required /></Field>}
 
-    <div className="form-grid three"><Field label="Name"><input value={name} onChange={(event) => setName(event.target.value)} required /></Field><Field label="Type"><select value={modelType} onChange={(event) => setModelType(event.target.value)}><option value="chat">Chat</option><option value="embedding">Embedding</option></select></Field><Field label="Selected URL"><input value={url} readOnly /></Field>{!isFreeToken && <><Field label="Max Num Seqs"><input type="number" min="1" value={maxNumSeqs} onChange={(event) => setMaxNumSeqs(Number(event.target.value))} /></Field><Field label="Context Size"><input type="number" min="1" value={contextWindow} onChange={(event) => setContextWindow(Number(event.target.value))} /></Field><Field label="KV Cache"><select value={kvCacheType} onChange={(event) => setKvCacheType(event.target.value)}>{kvCacheOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field></>}</div>
-    {isFreeToken ? <FreeTokenSettingsPanel models={models} computeTarget={computeTarget} value={freeToken} onChange={setFreeToken} /> : <>
+    <div className="form-grid three"><Field label="Name"><input value={name} onChange={(event) => setName(event.target.value)} required /></Field><Field label="Type"><select value={modelType} onChange={(event) => setModelType(event.target.value)}><option value="chat">Chat</option><option value="embedding">Embedding</option></select></Field><Field label="Selected URL"><input value={url} readOnly /></Field><><Field label="Max Num Seqs"><input type="number" min="1" value={maxNumSeqs} onChange={(event) => setMaxNumSeqs(Number(event.target.value))} /></Field><Field label="Context Size"><input type="number" min="1" value={contextWindow} onChange={(event) => setContextWindow(Number(event.target.value))} /></Field><Field label="KV Cache"><select value={kvCacheType} onChange={(event) => setKvCacheType(event.target.value)}>{kvCacheOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field></></div>
+    <>
       <p className="muted">{kvCacheOptions.find((option) => option.value === kvCacheType)?.description} Attention-cache values are recalculated immediately; recurrent state and runtime reserve remain separate.</p>
       {gpuCount > 1 && <p role="status">VRAM per GPU: {formatMi(selectedMi)} · {gpuCount} GPUs · {formatMi(selectedMi * gpuCount)} planned total. The smallest selected card limits this control.</p>}
       <EstimatePanel estimate={cpuOffloading ? offloadEstimate ?? estimate : estimate} availableMi={availableMi} capacityKnown={capacityKnown} selectedMi={selectedMi} onSelected={setSelectedMi} hideBreakdown={cpuOffloading} budgetDevices={replicated ? 1 : gpuCount} />
-    </>}
+    </>
     {supportsOffloading && <Panel title="CPU offloading" className="nested-panel">
       <label className="check-field"><input type="checkbox" checked={cpuOffloading} onChange={(event) => setCpuOffloading(event.target.checked)} />Use additional system RAM</label>
       <p className="muted">Stores part of the model in this GPU node's RAM. This can run larger models, but may substantially reduce response speed. No disk swap or RAM from another node is used.</p>
@@ -828,74 +494,6 @@ const ExternalModelForm = ({onClose, onCreated}: {onClose: () => void; onCreated
   const [name, setName] = useState(''); const [model, setModel] = useState('openai/gpt-4o-mini'); const [apiBase, setApiBase] = useState('https://api.openai.com/v1'); const [apiKey, setApiKey] = useState(''); const [modelType, setModelType] = useState('chat'); const [contextWindow, setContextWindow] = useState(128000);
   const mutation = useMutation({mutationFn: () => api.createExternalModel({name, enabled: true, targetNamespace: 'ai', external: {model, apiBase, modelType, contextWindow}, ...(apiKey ? {apiKey} : {})}), onSuccess: async () => { await onCreated(); onClose(); }});
   return <form className="stack" onSubmit={(event) => { event.preventDefault(); mutation.mutate(); }}><div className="form-grid"><Field label="Name"><input value={name} onChange={(event) => setName(event.target.value)} required /></Field><Field label="Provider Model"><input value={model} onChange={(event) => setModel(event.target.value)} required /></Field><Field label="API Base"><input value={apiBase} onChange={(event) => setApiBase(event.target.value)} type="url" required /></Field><Field label="Type"><select value={modelType} onChange={(event) => setModelType(event.target.value)}><option value="chat">Chat</option><option value="embedding">Embedding</option></select></Field><Field label="Context Size"><input type="number" min="1" value={contextWindow} onChange={(event) => setContextWindow(Number(event.target.value))} /></Field><Field label="API Key"><input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} autoComplete="new-password" placeholder="Optional when supplied elsewhere" /></Field></div><ErrorNotice error={mutation.error} /><div className="form-actions"><Button type="button" variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" disabled={mutation.isPending}>Add External Model</Button></div></form>;
-};
-
-const FreeTokenModelEditForm = ({activation, models, onClose, onUpdated}: {activation: ModelActivation; models: ModelsPayload; onClose: () => void; onUpdated: () => Promise<void>}) => {
-  const name = String(activation.metadata?.name ?? '');
-  const local = asRecord(activation.spec?.local);
-  const status = asRecord(activation.status);
-  const [initial] = useState(() => {
-    const contextWindow = boundedInteger(local.contextWindow ?? status.contextWindow, 4096);
-    const maxNumSeqs = boundedInteger(local.maxNumSeqs ?? status.maxNumSeqs, 1);
-    return {
-      revision: modelEditRevision(activation),
-      computeTarget: String(local.computeTarget ?? status.computeTarget ?? 'nvidia-gpu'),
-      modelType: String(local.modelType ?? 'chat'),
-      freetoken: freeTokenSettingsFrom(local.freetoken, contextWindow, maxNumSeqs),
-    };
-  });
-  const [modelType, setModelType] = useState(initial.modelType);
-  const [freetoken, setFreeToken] = useState(initial.freetoken);
-  const cpuSettings = useCpuSettings(local.cpuResources, models, 'FreeToken', initial.computeTarget);
-  const replacement = activation.spec?.enabled !== false ? initial.freetoken : undefined;
-  const selectedDevice = freeTokenDeviceOptions(models, initial.computeTarget, replacement, freetoken.gpuCount).find((device) => device.id === freetoken.gpuDevice);
-  const freeTokenCapability = models.computeTargets.freeTokenCapabilities;
-  const gpuMinimumPerDeviceMi = freeTokenMinimumMi(freeTokenCapability?.minimumGpuMemoryMi);
-  const systemMinimumMi = freeTokenMinimumMi(freeTokenCapability?.minimumSystemMemoryMi);
-  const gpuMaximumPerDeviceMi = Math.floor(selectedDevice?.availableMi ?? 0);
-  const systemMaximumMi = freeTokenNodeAvailableMemoryMi(selectedDevice?.systemAvailableMi);
-  const maximumGpuCount = Math.max(1, selectedDevice?.maxGpuCount ?? selectedDevice?.gpuCount ?? 1);
-  const selectedGpuCount = clamp(boundedInteger(freetoken.gpuCount, 1), 1, maximumGpuCount);
-  const gpuMinimumMi = gpuMinimumPerDeviceMi * selectedGpuCount;
-  const gpuMaximumMi = gpuMaximumPerDeviceMi * selectedGpuCount;
-  const rootRuntimeChanged = freetoken.advanced.contextWindow !== initial.freetoken.advanced.contextWindow
-    || freetoken.advanced.maxNumSeqs !== initial.freetoken.advanced.maxNumSeqs
-    || freetoken.advanced.maxOutputTokens !== initial.freetoken.advanced.maxOutputTokens;
-  const freeTokenRuntimeChanged = JSON.stringify(freeTokenPayload(freetoken, models)) !== JSON.stringify(freeTokenPayload(initial.freetoken, models));
-  const changed = cpuSettings.changed || modelType !== initial.modelType || rootRuntimeChanged || freeTokenRuntimeChanged;
-  const invalid = cpuSettings.invalid || !initial.revision || !selectedDevice?.supported || !Number.isInteger(freetoken.gpuCount) || freetoken.gpuCount < 1 || freetoken.gpuCount > maximumGpuCount || !Number.isInteger(freetoken.gpuMemoryMi)
-    || freetoken.gpuMemoryMi < gpuMinimumMi || freetoken.gpuMemoryMi > gpuMaximumMi
-    || !Number.isInteger(freetoken.systemMemoryMi) || freetoken.systemMemoryMi < systemMinimumMi || freetoken.systemMemoryMi > systemMaximumMi
-    || !Number.isInteger(freetoken.advanced.contextWindow) || freetoken.advanced.contextWindow < 1
-    || !Number.isInteger(freetoken.advanced.maxNumSeqs) || freetoken.advanced.maxNumSeqs < 1
-    || (freetoken.advanced.maxOutputTokens !== null && (!Number.isInteger(freetoken.advanced.maxOutputTokens) || freetoken.advanced.maxOutputTokens < 1))
-    || (freetoken.advanced.kvReserveTokens !== null && (!Number.isInteger(freetoken.advanced.kvReserveTokens) || freetoken.advanced.kvReserveTokens < 1))
-    || (freetoken.advanced.cpuThreads !== null && (!Number.isInteger(freetoken.advanced.cpuThreads) || freetoken.advanced.cpuThreads < 1))
-    || (freetoken.advanced.cudaGraphMaxBatchSize !== null && (!Number.isInteger(freetoken.advanced.cudaGraphMaxBatchSize) || freetoken.advanced.cudaGraphMaxBatchSize < 1))
-    || (freetoken.advanced.moeCacheSize !== null && (!Number.isInteger(freetoken.advanced.moeCacheSize) || freetoken.advanced.moeCacheSize < 0))
-    || (freetoken.advanced.maxPrefillLength !== null && (!Number.isInteger(freetoken.advanced.maxPrefillLength) || freetoken.advanced.maxPrefillLength < 1));
-  const mutation = useMutation({
-    mutationFn: () => {
-      const next: Record<string, unknown> = {};
-      if (modelType !== initial.modelType) next.modelType = modelType;
-      if (freetoken.advanced.contextWindow !== initial.freetoken.advanced.contextWindow) next.contextWindow = freetoken.advanced.contextWindow;
-      if (freetoken.advanced.maxNumSeqs !== initial.freetoken.advanced.maxNumSeqs) next.maxNumSeqs = freetoken.advanced.maxNumSeqs;
-      if (freetoken.advanced.maxOutputTokens !== initial.freetoken.advanced.maxOutputTokens) next.maxOutputTokens = freetoken.advanced.maxOutputTokens;
-      if (freeTokenRuntimeChanged) next.freetoken = freeTokenPayload(freetoken, models);
-      if (cpuSettings.changed) next.cpuResources = cpuSettings.payload;
-      return api.updateModel(name, {expectedRevision: initial.revision, local: next});
-    },
-    onSuccess: async () => { await onUpdated(); onClose(); },
-  });
-  return <form className="stack" onSubmit={(event) => { event.preventDefault(); mutation.mutate(); }}>
-    <div className="tag-list"><span className="tag">Model: {name}</span><span className="tag">Engine: FreeToken</span><span className="tag">Compute: {initial.computeTarget}</span><span className="tag">Source unchanged</span></div>
-    <Field label="Type"><select value={modelType} onChange={(event) => setModelType(event.target.value)}><option value="chat">Chat</option><option value="embedding">Embedding</option></select></Field>
-    <FreeTokenSettingsPanel models={models} computeTarget={initial.computeTarget} value={freetoken} onChange={setFreeToken} replacement={replacement} />
-    <AdvancedModelSettings cpuSettings={cpuSettings} />
-    <p className="muted">Saving reconciles the FreeToken runtime. The Pod restarts while the new parameters are applied.</p>
-    <ErrorNotice error={mutation.error} />
-    <div className="form-actions"><Button type="button" variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!changed || invalid || mutation.isPending}>{mutation.isPending ? 'Saving…' : 'Save changes'}</Button></div>
-  </form>;
 };
 
 const StandardLocalModelEditForm = ({activation, models, onClose, onUpdated}: {activation: ModelActivation; models: ModelsPayload; onClose: () => void; onUpdated: () => Promise<void>}) => {
@@ -1046,11 +644,8 @@ const StandardLocalModelEditForm = ({activation, models, onClose, onUpdated}: {a
 
 const LocalModelEditForm = ({activation, models, onClose, onUpdated}: {activation: ModelActivation; models: ModelsPayload; onClose: () => void; onUpdated: () => Promise<void>}) => {
   const local = asRecord(activation.spec?.local);
-  const status = asRecord(activation.status);
   if (local.realtime) return <RealtimeModelForm activation={activation} models={models} onClose={onClose} onSaved={onUpdated} />;
-  return isFreeTokenEngine(String(local.engine ?? status.engine ?? ''))
-    ? <FreeTokenModelEditForm activation={activation} models={models} onClose={onClose} onUpdated={onUpdated} />
-    : <StandardLocalModelEditForm activation={activation} models={models} onClose={onClose} onUpdated={onUpdated} />;
+  return <StandardLocalModelEditForm activation={activation} models={models} onClose={onClose} onUpdated={onUpdated} />;
 };
 
 const optionalPositive = (value: string) => value ? Number(value) : null;
@@ -1100,31 +695,6 @@ const OffloadingStatus = ({local, status}: {local: Record<string, unknown>; stat
     <div className="tag-list"><span className="tag">CPU offloading enabled</span><span className="tag">Host RAM reserved: {formatMi(Number(status?.memoryRequiredMi ?? local.memoryRequiredMi))}</span></div>
     {usage ? <p className="muted">Engine-reported buffers: {formatMi(usage.ramMi)} RAM · {formatMi(usage.vramMi)} VRAM. Source: {usage.source}. These are not reservations or total process memory.</p> : <p className="muted">Actual RAM / VRAM split is not currently reported. The values above are reservations, not measured usage.</p>}
     {exceedsBudget && <p className="notice notice-warn">The engine reports more memory than the planned budget. Increase the allocation or reduce model size/context; the Ollama layer split is not a byte-exact VRAM limit.</p>}
-  </div>;
-};
-
-const FreeTokenStatus = ({status}: {status?: Record<string, unknown>}) => {
-  // `freeTokenStats` is normalized by the operator from the version-pinned
-  // FreeToken `/v1/stats` schema. Do not reach into the raw response here:
-  // that keeps a future upstream schema change from silently changing the UI.
-  const stats = asRecord(status?.freeTokenStats);
-  const numeric = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : 0;
-  const decodeTokensPerSecond = numeric(stats.decodeTokensPerSecond);
-  const prefillTokensPerSecond = numeric(stats.prefillTokensPerSecond);
-  const tokensPerSecond = numeric(stats.tokensPerSecond) || decodeTokensPerSecond || prefillTokensPerSecond;
-  const vramMi = numeric(stats.vramMi);
-  const cacheBudgetMi = numeric(stats.cacheBudgetMi);
-  const activeRequests = numeric(stats.activeRequests);
-  const p95LatencyMs = numeric(stats.p95LatencyMs);
-  if (tokensPerSecond <= 0 && vramMi <= 0 && cacheBudgetMi <= 0 && activeRequests <= 0 && p95LatencyMs <= 0) return null;
-  return <div className="stack compact">
-    <div className="tag-list">
-      {tokensPerSecond > 0 && <span className="tag">{tokensPerSecond.toFixed(1)} tokens/s</span>}
-      {decodeTokensPerSecond > 0 && prefillTokensPerSecond > 0 && <span className="tag">Decode {decodeTokensPerSecond.toFixed(1)} · Prefill {prefillTokensPerSecond.toFixed(1)}</span>}
-      {activeRequests > 0 && <span className="tag">{activeRequests} active request{activeRequests === 1 ? '' : 's'}</span>}
-      {p95LatencyMs > 0 && <span className="tag">p95 {Math.round(p95LatencyMs)} ms</span>}
-    </div>
-    {(vramMi > 0 || cacheBudgetMi > 0) && <p className="muted" title={`${String(stats.source ?? 'FreeToken /v1/stats')}${stats.sampledAt ? ` · ${String(stats.sampledAt)}` : ''}`}>FreeToken runtime: {vramMi > 0 ? `${formatMi(vramMi)} VRAM in use` : 'VRAM unavailable'}{cacheBudgetMi > 0 ? ` · ${formatMi(cacheBudgetMi)} cache budget` : ''}.</p>}
   </div>;
 };
 
@@ -1205,7 +775,7 @@ export const ModelsPage = ({session}: {session: Session}) => {
   const registered = (query.data.models ?? []).filter((item) => !activationNames.has(item.id));
   const localModels = activations.filter((activation) => activation.spec?.type === 'local' && (activation.spec?.enabled !== false || activation.metadata?.deletionTimestamp || activation.status?.phase === 'Removing'));
   const runtimeModules = query.data.modules as Record<string, {enabled?: boolean; autoEnabled?: boolean}> | undefined;
-  const showRuntimeRemoval = mutable && localModels.length === 0 && ['gpu', 'kubeai', 'freetoken'].some((id) => runtimeModules?.[id]?.enabled && runtimeModules[id]?.autoEnabled);
+  const showRuntimeRemoval = mutable && localModels.length === 0 && ['gpu', 'kubeai'].some((id) => runtimeModules?.[id]?.enabled && runtimeModules[id]?.autoEnabled);
 
   return <div className="stack">
     <div className="section-title"><div><h2>Models</h2><p>Local inference and external OpenAI-compatible providers.</p></div></div>
@@ -1225,21 +795,16 @@ export const ModelsPage = ({session}: {session: Session}) => {
       const lifecycleBusy = lifecycleMutation.isPending || removeMutation.isPending || runtimeMutation.isPending;
       const pendingAction = lifecycleMutation.isPending && lifecycleMutation.variables?.name === activationName ? lifecycleMutation.variables.action : undefined;
       const lifecycleDisabled = lifecycleBusy || stopping || phaseName === 'removing' || !modelEditRevision(activation);
+      const unsupportedEngine = Boolean(local && !['VLLM', 'OLLAMA'].includes(engine.toUpperCase()));
       const lifecycleHint = stopping ? 'Waiting for this model to finish stopping.'
         : external ? 'Start or stop this provider route in Magic Stick. The remote provider itself is not shut down.'
         : stopped ? 'Start the model with its saved settings.'
-        : isFreeTokenEngine(engine) ? 'Stop the model and release its runtime resources. Saved settings are kept; temporary model downloads are cleared and may need to be downloaded again.'
         : 'Stop the model and release its runtime resources. Saved settings are kept.';
       const runLifecycle = (action: ModelLifecycleAction) => lifecycleMutation.mutate({
         name: activationName,
         action,
         expectedRevision: modelEditRevision(activation),
       });
-      const freeToken = isFreeTokenEngine(engine) ? asRecord(local?.freetoken) : {};
-      const freeTokenAdvanced = asRecord(freeToken.advanced);
-      const freeTokenContext = local?.contextWindow ?? freeTokenAdvanced.contextWindow;
-      const freeTokenMaxRequests = local?.maxNumSeqs ?? freeTokenAdvanced.maxNumSeqs;
-      const freeTokenGpuCount = boundedInteger(freeToken.gpuCount, 1);
       const group = (local?.gpuDevices ?? activation.status?.gpuSharing?.devices ?? []) as NvidiaGpuSelection[];
       const replicated = local?.gpuDeployment === 'replicated';
       const replication = activation.status?.replication;
@@ -1252,16 +817,17 @@ export const ModelsPage = ({session}: {session: Session}) => {
             return <section key={device.uuid}><strong>{device.nodeName} · {device.uuid}</strong><StatusBadge phase={stopped ? phase : instance?.phase ?? 'Requested'} /><p>{stopped ? activation.status?.message : instance?.message ?? 'Waiting for replica reconciliation.'}</p></section>;
           })}</div></details>}
         </div>}
-        <div className="tag-list">{local && <><span className="tag">Compute: {target}</span><span className="tag">Engine: {engine}</span>{(activation.status?.artifact || local.artifact) && <span className="tag">Artifact: {String(activation.status?.artifact ?? local.artifact)}</span>}{(activation.status?.format || local.format) && <span className="tag">Format: {String(activation.status?.format ?? local.format)}</span>}{(activation.status?.quantization || local.quantization) && <span className="tag">Quantization: {quantizationText(activation.status?.quantization ?? local.quantization)}</span>}{isFreeTokenEngine(engine) ? <><span className="tag">GPU node: {freeTokenNodeName(freeToken.gpuDevice) || 'pending'}</span><span className="tag">GPUs: {freeTokenGpuCount}</span><span className="tag">GPU memory: {freeToken.gpuMemoryMi ? `${formatMi(parseMemoryMi(freeToken.gpuMemoryMi))} total` : 'default'}</span><span className="tag">System RAM: {freeToken.systemMemoryMi ? formatMi(parseMemoryMi(freeToken.systemMemoryMi)) : 'default'}</span><span className="tag">Strategy: {freeTokenStrategyLabels[String(freeToken.memoryStrategy) as FreeTokenMemoryStrategy] ?? String(freeToken.memoryStrategy ?? 'auto')}</span><span className="tag">Context: {String(freeTokenContext ?? 'default')}</span><span className="tag">Max requests: {String(freeTokenMaxRequests ?? 'default')}</span></> : local.realtime ? <><span className="tag">Profile: vLLM-Omni Realtime</span><span className="tag">Compute node: {String(asRecord(local.realtime).gpuNode ?? 'pending')}</span>{!isCpu && <span className="tag">GPUs: {String(asRecord(local.realtime).gpuCount ?? 1)}</span>}<span className="tag">Context: {String(local.contextWindow ?? 8192)}</span><span className="tag">System RAM: {formatMi(Number(asRecord(local.realtime).systemMemoryMi ?? 16384))}</span></> : <><span className="tag">KV requested: {String(activation.status?.requestedKvCacheType ?? local.kvCacheType ?? (String(local.engine ?? 'VLLM') === 'OLlama' ? 'f16' : 'auto'))}</span><span className="tag">KV active: {String(activation.status?.effectiveKvCacheType || 'pending confirmation')}</span><span className="tag">{isCpu ? 'RAM' : 'VRAM'}: {isCpu ? formatMi(Number(activation.status?.memoryRequiredMi ?? local.memoryRequiredMi)) : activation.status?.vramRequiredMi ? formatMi(Number(activation.status.vramRequiredMi)) : String(local.vram ?? 'default')}</span><span className="tag">Context: {String(local.contextWindow ?? 'default')}</span><span className="tag">Max seqs: {String(local.maxNumSeqs ?? 'default')}</span></>}<span className="tag">Target: {String(activation.spec?.targetNamespace ?? 'ai')}</span></>}{external && <><span className="tag">Provider: {String(external.model ?? 'external')}</span><span className="tag">Context: {String(external.contextWindow ?? 'default')}</span></>}</div>
+        <div className="tag-list">{local && <><span className="tag">Compute: {target}</span><span className="tag">Engine: {engine}</span>{(activation.status?.artifact || local.artifact) && <span className="tag">Artifact: {String(activation.status?.artifact ?? local.artifact)}</span>}{(activation.status?.format || local.format) && <span className="tag">Format: {String(activation.status?.format ?? local.format)}</span>}{(activation.status?.quantization || local.quantization) && <span className="tag">Quantization: {quantizationText(activation.status?.quantization ?? local.quantization)}</span>}{local.realtime ? <><span className="tag">Profile: vLLM-Omni Realtime</span><span className="tag">Compute node: {String(asRecord(local.realtime).gpuNode ?? 'pending')}</span>{!isCpu && <span className="tag">GPUs: {String(asRecord(local.realtime).gpuCount ?? 1)}</span>}<span className="tag">Context: {String(local.contextWindow ?? 8192)}</span><span className="tag">System RAM: {formatMi(Number(asRecord(local.realtime).systemMemoryMi ?? 16384))}</span></> : <><span className="tag">KV requested: {String(activation.status?.requestedKvCacheType ?? local.kvCacheType ?? (String(local.engine ?? 'VLLM') === 'OLlama' ? 'f16' : 'auto'))}</span><span className="tag">KV active: {String(activation.status?.effectiveKvCacheType || 'pending confirmation')}</span><span className="tag">{isCpu ? 'RAM' : 'VRAM'}: {isCpu ? formatMi(Number(activation.status?.memoryRequiredMi ?? local.memoryRequiredMi)) : activation.status?.vramRequiredMi ? formatMi(Number(activation.status.vramRequiredMi)) : String(local.vram ?? 'default')}</span><span className="tag">Context: {String(local.contextWindow ?? 'default')}</span><span className="tag">Max seqs: {String(local.maxNumSeqs ?? 'default')}</span></>}<span className="tag">Target: {String(activation.spec?.targetNamespace ?? 'ai')}</span></>}{external && <><span className="tag">Provider: {String(external.model ?? 'external')}</span><span className="tag">Context: {String(external.contextWindow ?? 'default')}</span></>}</div>
+        {unsupportedEngine && <p className="notice notice-warn">This engine is no longer supported. Remove this definition and create a model with a supported engine.</p>}
         <ProgressBar phase={phase} enabled={activation.spec?.enabled !== false} message={activation.status?.message} />
         {activation.status?.gpuSharing && <div className="tag-list"><span className="tag" title={activation.status.gpuSharing.mode === 'exclusive' ? 'Exclusive GPU allocation.' : `Shared GPU access; no isolated GPU memory limit.${activation.status.gpuSharing.claimName ? ` Claim: ${activation.status.gpuSharing.claimName}` : ''}`}>GPU allocation: {activation.status.gpuSharing.mode === 'dra-shared' ? 'Shared · DRA' : activation.status.gpuSharing.mode === 'time-slicing' ? 'Shared · Time-slicing' : 'Exclusive'}</span><span className="tag">GPU node: {activation.status.gpuSharing.node}{activation.status.gpuSharing.device ? ` · ${activation.status.gpuSharing.device}` : ''}</span></div>}
-        {local && (isFreeTokenEngine(engine) ? <FreeTokenStatus status={activation.status} /> : <OffloadingStatus local={local} status={activation.status} />)}
+        {local && <OffloadingStatus local={local} status={activation.status} />}
         <p className="muted">{String(activation.status?.message ?? activation.status?.modelRef ?? 'Waiting for catalog registration.')}</p>
         <div className="actions">
-          {mutable && <Button type="button" disabled={lifecycleBusy || stopping || phaseName === 'removing'} onClick={() => setEditTarget(activationName)} aria-label={`Edit ${activationName || 'model'}`}>Edit</Button>}
+          {mutable && <Button type="button" disabled={unsupportedEngine || lifecycleBusy || stopping || phaseName === 'removing'} onClick={() => setEditTarget(activationName)} aria-label={`Edit ${activationName || 'model'}`}>Edit</Button>}
           {lifecycleControls && <>
-            {!stopped && local && (isFreeTokenEngine(engine) || Boolean(local.realtime)) && <Button type="button" disabled={lifecycleDisabled} onClick={() => runLifecycle('restart')} aria-label={`Restart ${activationName}`}>{pendingAction === 'restart' ? 'Restarting…' : 'Restart'}</Button>}
-            <Button type="button" variant={stopped ? 'default' : 'ghost'} disabled={lifecycleDisabled} title={lifecycleHint}
+            {!stopped && local && Boolean(local.realtime) && <Button type="button" disabled={lifecycleDisabled} onClick={() => runLifecycle('restart')} aria-label={`Restart ${activationName}`}>{pendingAction === 'restart' ? 'Restarting…' : 'Restart'}</Button>}
+            <Button type="button" variant={stopped ? 'default' : 'ghost'} disabled={lifecycleDisabled || stopped && unsupportedEngine} title={lifecycleHint}
               onClick={() => runLifecycle(stopped ? 'start' : 'stop')} aria-label={`${stopped ? 'Start' : 'Stop'} ${activationName}`}>
               {pendingAction === 'start' ? 'Starting…' : pendingAction === 'stop' || stopping ? 'Stopping…' : stopped ? 'Start' : 'Stop'}
             </Button>

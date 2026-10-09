@@ -6,7 +6,6 @@
 - Use NVIDIA GPUs on one node, including different GPU models and capacities, to
   [split one model or run independent copies](../administration/gpu-sharing.md#one-model-across-several-nvidia-gpus)
   behind one LiteLLM model name, with explicit per-card allocation through NVIDIA DRA.
-- Use FreeToken's dedicated configuration on its supported NVIDIA hardware.
 - Experiment with Realtime through the separate vLLM-Omni profile.
 - Connect external model providers and use a common LiteLLM API.
 - Give every application instance its own LiteLLM inference key, with automatic
@@ -53,7 +52,7 @@ and quantizations must work on every selected card; mixed-vendor and multi-node
 groups are unsupported. Physical multi-GPU inference and throughput still
 require acceptance on the intended hardware.
 
-FreeToken and vLLM-Omni have their own runtime boundaries. An OpenAI-compatible
+vLLM-Omni has its own runtime boundaries. An OpenAI-compatible
 chat endpoint does not automatically provide `/v1/realtime` or audio output.
 
 Pi requires GitHub access when creating or recreating its runtime. Each instance

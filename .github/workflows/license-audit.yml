@@ -100,7 +100,6 @@ jobs:
           - {id: paperclip-operator, repository: paperclipinc/paperclip-operator, revision: 66c1ddf277697952d9e87723dcd26edb5b635c69}
           - {id: mesh-llm, repository: Mesh-LLM/mesh-llm, revision: a0c1e66b0ac037dd56544b9e2d94969ea43d694f}
           - {id: openai-endpoint, repository: Mesh-LLM/openai-endpoint, revision: 9166c6a918cda73fe4c05912ed9b06446bb95e60}
-          - {id: freetoken, repository: FlashML-org/FreeToken, revision: cac247a860e316e06580d05aeb05f2e647bde214}
     steps:
       - uses: actions/checkout@v4
         with: {persist-credentials: false}

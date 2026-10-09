@@ -1,6 +1,5 @@
 import {environmentFor, type TestLayer} from '../core/evidence.ts';
 import {requireSafe} from '../core/errors.ts';
-import {freeTokenRegressionEnabled} from '../core/engine-policy.ts';
 
 export type RemainingPhase = 5 | 6 | 7 | 8;
 export type LiveGate = 'applications' | 'identity' | 'license' | 'federation' | 'maintenance' | 'network' | 'channel' | 'cache' | 'reboot' | 'mesh' | 'companion' | 'realtime' | 'repeat' | 'supply-chain';
@@ -41,7 +40,7 @@ const definitions:P0Definition[] = [
   row(6,'CHANNEL-02','UCB','channel'), row(6,'CHANNEL-04','UC','channel'), row(6,'CHANNEL-05','UC','channel'),
   row(6,'CHANNEL-06','CAEO','channel','channel'), row(6,'CHANNEL-07','UCO','channel','channel'), row(6,'CHANNEL-08','UCAO','channel','channel'),
   row(6,'CACHE-02','UCAB','cache'), row(6,'CACHE-03','UCB','cache'), row(6,'CACHE-04','UCAEO','cache','cache'),
-  row(6,'CACHE-05','UC','cache'), row(6,'CACHE-06','UCA','cache','cache'), row(6,'CACHE-07','UCA','cache','cache'),
+  row(6,'CACHE-05','UC','cache'), row(6,'CACHE-06','UCA','cache','cache'),
   row(6,'BOOT-01','UCB','host'), row(6,'BOOT-02','CAO','boot','reboot'), row(6,'BOOT-03','CAO','boot','reboot'),
   row(6,'BOOT-04','UCAO','boot','reboot'), row(6,'BOOT-05','UC','boot'),
 
@@ -58,12 +57,12 @@ export const remainingVariants:Record<string,P0Definition> = Object.fromEntries(
   [`p${definition.phase}-${definition.id.toLowerCase()}`,definition]));
 /** Keep historical definitions readable, but do not execute or require an
  * experimental engine's dedicated cache scenario in the normal campaign. */
-export const remainingVariantEnabled=(definition:P0Definition)=>freeTokenRegressionEnabled || definition.id !== 'CACHE-07';
+export const remainingVariantEnabled=(definition:P0Definition)=>definitions.includes(definition);
 export const remainingPhases = [5,6,7,8] as const;
 export function remainingPhase(mode?:string):RemainingPhase|undefined {
   return /^phase[5-8](?:-fast|-fixtures|-live)?$/.test(mode ?? '') || mode === 'phase6-drill' ? Number(mode![5]) as RemainingPhase : undefined;
 }
-export const hostDrillIds=definitions.filter(item=>item.phase === 6 && item.gate && item.id !== 'CACHE-07').map(item=>item.id);
+export const hostDrillIds=definitions.filter(item=>item.phase === 6 && item.gate).map(item=>item.id);
 export function remainingRequirements(mode:string,selectedId=mode === 'phase6-drill' ? process.env.REGRESSION_REMAINING_CASE : undefined) {
   const phase = remainingPhase(mode); if (!phase) return undefined;
   if(mode === 'phase6-drill')requireSafe(selectedId && hostDrillIds.includes(selectedId),'CONFIG');

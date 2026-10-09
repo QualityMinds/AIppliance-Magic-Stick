@@ -12,22 +12,9 @@ Source: [compute-target catalog](../../magic-cluster/platform/magicstick-operato
 | Compute target | Architecture | Configured engines |
 |---|---|---|
 | CPU | amd64, arm64 | vLLM, Ollama |
-| NVIDIA GPU | amd64, arm64 | vLLM, Ollama, FreeToken |
+| NVIDIA GPU | amd64, arm64 | vLLM, Ollama |
 | AMD GPU (ROCm) | amd64 | vLLM, Ollama |
 | Intel GPU (XPU) | amd64 | vLLM |
-
-## FreeToken admission policy
-
-- Upstream version: `0.1.3`.
-- OS / host architecture: linux / amd64.
-- Vendor: nvidia; NVIDIA driver major at least 580; CUDA major 13.
-- Admitted compute capabilities: 8.6, 8.9, 12.0.
-- Allocation contract: `whole-gpus-single-node`; whole homogeneous GPUs, not MIG or time-slicing slots.
-- Memory strategies: auto, fused, offload, cpu, hybrid; start with `auto`.
-- Precision choices: auto, float16, bfloat16, float32.
-- Model IDs are checked against the catalog policy; a family name is not blanket approval.
-
-See [FreeToken configuration](freetoken.md) and the [user guide](../user-guide/models/freetoken.md).
 
 ## Experimental Realtime profiles
 

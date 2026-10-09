@@ -409,14 +409,8 @@ def local_engine(activation):
     return str(local.get("engine") or "VLLM").strip().lower()
 
 
-def freetoken_runtime_endpoint(activation):
-    """Return a safe, versioned FreeToken OpenAI endpoint from operator status.
-
-    The FreeToken runtime is not a KubeAI backend.  The Magic Stick operator
-    owns its Deployment and writes the internal OpenAI-compatible endpoint only
-    after it has created the matching Service.  The catalog deliberately trusts
-    that status field rather than reconstructing a URL from the model name.
-    """
+def direct_runtime_endpoint(activation):
+    """Validate the operator-owned Realtime Service endpoint before routing."""
     endpoint = str(((activation.get("status") or {}).get("runtimeEndpoint") or "")).strip().rstrip("/")
     if not endpoint:
         return None
@@ -448,8 +442,6 @@ def freetoken_runtime_endpoint(activation):
 
 def direct_runtime_backend(activation):
     local = (activation.get("spec") or {}).get("local") or {}
-    if local_engine(activation) == "freetoken":
-        return "freetoken"
     if local_engine(activation) == "vllm" and (local.get("realtime") or {}).get("profile") == "qwen3-omni":
         return "vllm-omni"
     return ""
@@ -473,7 +465,7 @@ def direct_runtime_activation_ready(activation):
     ):
         # An edit/restart invalidates the old Ready evidence immediately.
         return False
-    return bool(freetoken_runtime_endpoint(activation))
+    return bool(direct_runtime_endpoint(activation))
 
 
 def direct_runtime_deployment(activation):
@@ -483,7 +475,7 @@ def direct_runtime_deployment(activation):
     metadata = activation.get("metadata") or {}
     local = ((activation.get("spec") or {}).get("local") or {})
     name = str(metadata.get("name") or "").strip()
-    endpoint = freetoken_runtime_endpoint(activation)
+    endpoint = direct_runtime_endpoint(activation)
     if not name or not endpoint:
         return None
     features = local.get("features") or []
@@ -523,14 +515,6 @@ def direct_runtime_deployment(activation):
         },
         "model_info": model_info,
     }
-
-
-def freetoken_activation_ready(activation):
-    return local_engine(activation) == "freetoken" and direct_runtime_activation_ready(activation)
-
-
-def freetoken_deployment(activation):
-    return direct_runtime_deployment(activation) if local_engine(activation) == "freetoken" else None
 
 
 def replicated_deployment(model, parents):

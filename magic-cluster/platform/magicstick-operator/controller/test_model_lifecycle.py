@@ -10,6 +10,24 @@ class ModelLifecycleTests(unittest.TestCase):
     def setUpClass(cls):
         cls.controller = load_controller()
 
+    def test_retired_engine_never_recreates_a_runtime_or_installs_modules(self):
+        activation = {"metadata": {"name": "retired", "generation": 2}, "spec": {
+            "type": "local", "enabled": True, "local": {"engine": "FreeToken"},
+        }}
+        saved = copy.deepcopy(activation)
+        apply = Mock()
+        modules = Mock()
+        with patch.dict(self.controller, {
+            "ensure_model_finalizer": Mock(), "patch_model_status": Mock(),
+            "apply_resource": apply, "ensure_model_module_activations": modules,
+        }):
+            phase, status = self.controller["reconcile_model_activation"](activation, {}, {})
+        self.assertEqual(phase, "Degraded")
+        self.assertIn("no longer supported", status["message"])
+        apply.assert_not_called()
+        modules.assert_not_called()
+        self.assertEqual(activation, saved)
+
     def test_stop_removes_each_local_backend_without_deleting_its_saved_activation(self):
         for engine in ("OLlama", "VLLM", "FreeToken"):
             for target in (("nvidia-gpu",) if engine == "FreeToken" else ("cpu", "amd-gpu", "nvidia-gpu")):

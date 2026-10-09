@@ -38,8 +38,7 @@ deployment targets and cannot be blindly summed into a model-fit guarantee.
 
 vLLM/Ollama memory estimates include model and context/runtime assumptions.
 Supported CPU offloading uses host RAM on the selected GPU node, not memory from
-another node or an implicit disk-swap pool. FreeToken maps its own memory settings
-to runtime parameters and Kubernetes Pod resources. GPU budgets are not universal
+another node or an implicit disk-swap pool. GPU budgets are not universal
 hardware-enforced VRAM partitions.
 
 Splitting one model across several GPUs and replicating it are different budgets.

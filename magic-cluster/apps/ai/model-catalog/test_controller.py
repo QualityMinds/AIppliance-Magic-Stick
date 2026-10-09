@@ -131,7 +131,7 @@ class KubeAIReadinessTests(unittest.TestCase):
         self.assertEqual(synchronized, [])
 
 
-class FreeTokenCatalogTests(unittest.TestCase):
+class DirectRuntimeCatalogTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.controller = load_controller()
@@ -151,51 +151,65 @@ class FreeTokenCatalogTests(unittest.TestCase):
         self.controller.update(self.originals)
 
     @staticmethod
-    def freetoken_activation(phase="Ready", endpoint="http://qwen.ai.svc.cluster.local:1919/v1"):
+    def realtime_activation(phase="Ready", endpoint="http://qwen.ai.svc.cluster.local:1919/v1"):
         return {
-            "metadata": {"name": "qwen-freetoken"},
+            "metadata": {"name": "qwen-vllm-omni", "generation": 1},
             "spec": {
                 "type": "local",
                 "enabled": True,
                 "local": {
-                    "engine": "FreeToken",
+                    "engine": "VLLM",
+                    "realtime": {"profile": "qwen3-omni"},
                     "modelType": "chat",
                     "contextWindow": 32768,
                     "maxOutputTokens": 4096,
                 },
             },
-            "status": {"phase": phase, "runtimeEndpoint": endpoint},
+            "status": {"phase": phase, "runtimeEndpoint": endpoint, "observedGeneration": 1},
         }
 
-    def test_ready_freetoken_activation_is_published_with_its_runtime_endpoint(self):
-        self.controller["read_model_activations"] = lambda: [self.freetoken_activation()]
+    def test_retired_engine_is_not_published_even_with_old_ready_status(self):
+        activation = self.realtime_activation()
+        activation["spec"]["local"] = {"engine": "FreeToken", "modelType": "chat"}
+        self.controller["read_model_activations"] = lambda: [activation]
+        self.assertEqual(self.controller["desired_deployments"](), {})
+        self.controller["fetch_litellm_models"] = lambda: [{"model_name": "qwen-vllm-omni", "model_info": {
+            "id": "retired-route", "ai_appliance_managed": True, "ai_appliance_source": "freetoken",
+        }}]
+        deleted = []
+        self.controller["litellm_request"] = lambda method, path, body: deleted.append((method, path, body))
+        self.controller["sync_litellm"]()
+        self.assertIn(("POST", "/model/delete", {"id": "retired-route"}), deleted)
+
+    def test_ready_realtime_activation_is_published_with_its_runtime_endpoint(self):
+        self.controller["read_model_activations"] = lambda: [self.realtime_activation()]
 
         deployments = self.controller["desired_deployments"]()
 
-        deployment = deployments["qwen-freetoken"]
+        deployment = deployments["qwen-vllm-omni"]
         self.assertEqual(deployment["litellm_params"], {
-            "model": "openai/qwen-freetoken",
+            "model": "openai/qwen-vllm-omni",
             "api_base": "http://qwen.ai.svc.cluster.local:1919/v1",
             "api_key": "none",
             "order": 0,
         })
-        self.assertEqual(deployment["model_info"]["ai_appliance_source"], "freetoken")
+        self.assertEqual(deployment["model_info"]["ai_appliance_source"], "vllm-omni")
         self.assertEqual(deployment["model_info"]["max_input_tokens"], 32768)
         self.assertEqual(deployment["model_info"]["max_output_tokens"], 4096)
 
-    def test_starting_failed_or_endpointless_freetoken_activation_is_not_published(self):
+    def test_starting_failed_or_endpointless_realtime_activation_is_not_published(self):
         activations = [
-            self.freetoken_activation(phase="Starting"),
-            self.freetoken_activation(phase="Failed"),
-            self.freetoken_activation(phase="Degraded"),
-            self.freetoken_activation(endpoint=""),
+            self.realtime_activation(phase="Starting"),
+            self.realtime_activation(phase="Failed"),
+            self.realtime_activation(phase="Degraded"),
+            self.realtime_activation(endpoint=""),
         ]
         self.controller["read_model_activations"] = lambda: activations
 
         self.assertEqual(self.controller["desired_deployments"](), {})
 
-    def test_disabled_freetoken_route_stays_hidden_even_with_an_old_ready_status(self):
-        activation = self.freetoken_activation()
+    def test_disabled_vllm_omni_route_stays_hidden_even_with_an_old_ready_status(self):
+        activation = self.realtime_activation()
         activation["spec"]["enabled"] = False
         self.controller["read_model_activations"] = lambda: [activation]
         self.assertEqual(self.controller["desired_deployments"](), {})
@@ -203,35 +217,35 @@ class FreeTokenCatalogTests(unittest.TestCase):
         activation["status"]["phase"] = "Starting"
         self.assertEqual(self.controller["desired_deployments"](), {})
         activation["status"]["phase"] = "Ready"
-        self.assertIn("qwen-freetoken", self.controller["desired_deployments"]())
+        self.assertIn("qwen-vllm-omni", self.controller["desired_deployments"]())
 
-    def test_freetoken_requires_a_standard_versioned_openai_endpoint(self):
+    def test_vllm_omni_requires_a_standard_versioned_openai_endpoint(self):
         invalid_endpoints = (
             "http://qwen.ai.svc.cluster.local:1919",
             "http://qwen.ai.svc.cluster.local:1919/v1?token=not-allowed",
-            "file:///tmp/freetoken/v1",
+            "file:///tmp/vllm-omni/v1",
             "http://user:password@qwen.ai.svc.cluster.local:1919/v1",
             "http://outside.example.test:1919/v1",
         )
         for endpoint in invalid_endpoints:
             with self.subTest(endpoint=endpoint):
-                self.assertFalse(self.controller["freetoken_activation_ready"](
-                    self.freetoken_activation(endpoint=endpoint)
+                self.assertFalse(self.controller["direct_runtime_activation_ready"](
+                    self.realtime_activation(endpoint=endpoint)
                 ))
 
-    def test_unready_freetoken_model_is_withdrawn_from_litellm(self):
+    def test_unready_vllm_omni_model_is_withdrawn_from_litellm(self):
         deleted = []
         existing = [
             {
-                "model_name": "qwen-freetoken",
+                "model_name": "qwen-vllm-omni",
                 "model_info": {
-                    "id": "ai-appliance-freetoken-qwen-freetoken",
+                    "id": "ai-appliance-vllm-omni-qwen-vllm-omni",
                     "ai_appliance_managed": True,
-                    "ai_appliance_source": "freetoken",
+                    "ai_appliance_source": "vllm-omni",
                 },
             }
         ]
-        self.controller["read_model_activations"] = lambda: [self.freetoken_activation(phase="Degraded")]
+        self.controller["read_model_activations"] = lambda: [self.realtime_activation(phase="Degraded")]
         self.controller["fetch_litellm_models"] = lambda: [] if deleted else existing
 
         def litellm_request(method, path, body=None, ok=(200, 201, 202)):
@@ -243,7 +257,7 @@ class FreeTokenCatalogTests(unittest.TestCase):
 
         synchronized = self.controller["sync_litellm"]()
 
-        self.assertEqual(deleted, [{"id": "ai-appliance-freetoken-qwen-freetoken"}])
+        self.assertEqual(deleted, [{"id": "ai-appliance-vllm-omni-qwen-vllm-omni"}])
         self.assertEqual(synchronized, [])
 
 

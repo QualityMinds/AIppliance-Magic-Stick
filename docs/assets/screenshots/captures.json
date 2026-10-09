@@ -113,7 +113,7 @@
     {
       "file": "freetoken-memory.webp",
       "view": "Models / Create / FreeToken, unsubmitted memory controls with Auto strategy",
-      "guides": ["user-guide/models/freetoken.md"],
+      "guides": ["development/reports/2026-09-21-freetoken.md"],
       "width": 837,
       "height": 511,
       "sha256": "b06e47c71a85857fec3a924da2f81064315635c01e0863213b8bb799f01efb9e",

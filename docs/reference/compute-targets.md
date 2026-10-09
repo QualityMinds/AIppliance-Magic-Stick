@@ -128,13 +128,6 @@ possible. NVIDIA models also expose the opt-in **Use additional system RAM**
 choice and a separate total host-RAM budget. Leaving that budget empty uses the
 server recommendation; inadequate or unverifiable budgets are rejected.
 
-The FreeToken form is intentionally separate: it permits only a live
-capability-approved NVIDIA GPU and a capability-approved `hf://` model, shows
-the engine's own VRAM and Kubernetes system-RAM budgets, defaults its strategy
-to `Auto`, and keeps documented runtime controls under **Advanced Settings**.
-The RAM control requires a fresh capacity reading from that exact GPU node; it
-never substitutes a cluster-wide CPU total when node telemetry is missing.
-It does not display vLLM CPU-offloading controls or Ollama cache-format choices.
 Dynamic catalog search and tested-preset browsing remain richer in
 the browser; the non-interactive CLI continues to accept the complete API
 payload with `model create-local --file`.
@@ -160,7 +153,6 @@ engine catalog publishes these automatic defaults:
 | Ollama on a GPU | 0.5 cores | none |
 | vLLM on a GPU (NVIDIA, AMD or Intel) | 1 core | none |
 | Ollama or vLLM on CPU | 2 cores | 8 cores |
-| FreeToken (including CPU-assisted strategies) | 4 cores | 8 cores |
 
 Requests affect placement and relative CPU time under contention; they do not
 pin dedicated cores. GPU models can burst into spare capacity without a CPU
@@ -179,8 +171,7 @@ For KubeAI the final profile is derived after UMA, offloading and sharing
 placement, preserving all non-CPU resource quantities and DRA references.
 Existing activations without CPU overrides automatically adopt this policy;
 their model Pods may restart during migration. Existing memory budgets and
-limits do not change. FreeToken applies the same policy directly to its
-Deployment, with its more conservative CPU-assisted default unchanged.
+limits do not change.
 
 Host reservations remain separate: the K3s configuration reserves 250m CPU
 for system services and 250m for Kubernetes. Those 500m are excluded from
@@ -237,7 +228,7 @@ and end-to-end acceptance.
 `spec.local.computeTarget` is immutable; recreate the activation to move a
 model between CPU and an accelerator, or between accelerator vendors. Missing
 values on existing resources keep legacy `nvidia-gpu` and `VLLM` behavior. The
-engine enum contains `VLLM`, KubeAI's exact `OLlama` value, and `FreeToken`.
+engine enum contains `VLLM` and KubeAI's exact `OLlama` value.
 The Dashboard **Edit** action follows that boundary: it keeps the activation
 name, namespace, model URL/preset/artifact, engine, and compute target fixed,
 but can update context/output limits, maximum sequences, KV-cache type, memory
@@ -286,7 +277,7 @@ path for vLLM on AMD. The compute-target catalog publishes the default, target
 allowlist, option labels, and runtime mapping under
 `engines.VLLM.deploymentSettings.visionAttention`. Both dashboard API and
 controller validate against it. The CRD restricts the values and engine.
-Ollama, FreeToken, CPU, NVIDIA and Intel do not receive these AMD overrides.
+Ollama, CPU, NVIDIA and Intel do not receive these AMD overrides.
 
 | Stored value | vLLM vision backend | Additional Pod environment |
 |---|---|---|
@@ -377,7 +368,7 @@ Opt-in NVIDIA DRA profiles retain the same CPU/RAM/offloading settings but use
 one explicit claim for the selected physical card. Their Ready ResourceSlice
 inventory and node identity replace the legacy extended-resource readiness
 check. They do not advertise a synthetic `nvidia.com/gpu` resource or extend the
-FreeToken/Realtime adapter. See [exact-card allocation](../administration/gpu-sharing.md#opting-into-exact-card-dra-allocation).
+Realtime adapter. See [exact-card allocation](../administration/gpu-sharing.md#opting-into-exact-card-dra-allocation).
 Sharing slots do not create VRAM partitions or additional physical GPUs.
 
 The browser and TUI offer **Use additional system RAM** for a single NVIDIA
