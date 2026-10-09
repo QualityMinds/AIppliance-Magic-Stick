@@ -3,6 +3,9 @@
 ## What you can do
 
 - Run local models with Ollama or vLLM on eligible CPU/GPU targets.
+- Use matching NVIDIA GPUs on one node either to
+  [split one model or run independent copies](../administration/gpu-sharing.md#one-model-across-several-nvidia-gpus)
+  behind one LiteLLM model name, with explicit per-card allocation through NVIDIA DRA.
 - Use FreeToken's dedicated configuration on its supported NVIDIA hardware.
 - Experiment with Realtime through the separate vLLM-Omni profile.
 - Connect external model providers and use a common LiteLLM API.
@@ -41,6 +44,11 @@ GPU sharing permits more workloads to use a device; it does not multiply its
 physical memory or provide isolated VRAM limits. Memory estimates do not prove
 that a particular context length will fit. Downloading large checkpoints may
 also need substantial disk space beyond their final size.
+
+Multi-GPU placement requires matching NVIDIA cards on the same node and DRA;
+it does not support mixed-vendor or multi-node groups. Each independent copy
+needs its own full memory budget. Physical multi-GPU inference and throughput
+still require acceptance on the intended hardware.
 
 FreeToken and vLLM-Omni have their own runtime boundaries. An OpenAI-compatible
 chat endpoint does not automatically provide `/v1/realtime` or audio output.

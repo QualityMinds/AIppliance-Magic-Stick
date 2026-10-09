@@ -10,6 +10,12 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ### Added
 
+- Place ordinary vLLM/Ollama models on multiple matching NVIDIA GPUs on one node
+  through DRA: split one runtime across the selected cards or run a full copy on
+  each card behind one LiteLLM model name. Preserve per-card slots, memory budgets,
+  lifecycle controls and logs. Multi-node/mixed-vendor groups and physical
+  multi-GPU acceptance remain outside this source-validation scope. See
+  [GPU placement](docs/administration/gpu-sharing.md#one-model-across-several-nvidia-gpus).
 - Initialize new AnythingLLM installations with catalogued chat/context and
   embedding defaults, and persist native preferences across Pod restarts.
   Older installations require the documented

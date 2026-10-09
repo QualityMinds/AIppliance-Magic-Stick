@@ -59,8 +59,12 @@ class ReplicatedRoutingTests(unittest.TestCase):
         mesh = {"model_name": "public-model", "model_info": {"id": "mesh", "ai_appliance_managed": True, "magicstick_mesh_owner": "peer"}}
         with patch.dict(self.c, {**self.mocks, "fetch_litellm_models": lambda: existing + [unmanaged, mesh]}):
             self.c["sync_litellm"]()
-        updated = [body for _, route, body in self.calls if route == "/model/update"]
-        deleted = [body for _, route, body in self.calls if route == "/model/delete"]
+        surviving_id = existing[1]["model_info"]["id"]
+        updated = [body for method, route, body in self.calls
+                   if method == "PATCH" and route == f"/model/{surviving_id}/update"]
+        deleted = [body for method, route, body in self.calls
+                   if method == "POST" and route == "/model/delete"]
+        self.assertEqual(len(self.calls), 2)
         self.assertEqual([d["model_info"]["id"] for d in updated], [existing[1]["model_info"]["id"]])
         self.assertEqual(deleted, [{"id": existing[0]["model_info"]["id"]}])
 
