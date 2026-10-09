@@ -53,6 +53,7 @@ Update the matching contract when behavior changes:
 
 | Change | Canonical sources |
 |---|---|
+| New user-facing feature | [Feature overview](docs/get-started/features.md), [Unreleased changelog](CHANGELOG.md#unreleased), affected user/reference guides |
 | Dashboard, API, authorization | [Development](docs/development/dashboard.md), [API](docs/reference/dashboard-api.md), [user guide](docs/user-guide/dashboard.md) |
 | Model configuration/lifecycle/routing | [Model integration](docs/development/model-integration.md), [controls](docs/reference/model-controls.md), [catalog](docs/reference/model-catalog.md), `docs/user-guide/models/` |
 | Catalogs, controllers, CRDs, modules | [Modules](docs/reference/module-catalog.md), [resources](docs/reference/kubernetes-resources.md), [controllers](docs/concepts/controllers.md), [application controls](docs/reference/application-controls.md) |
@@ -62,6 +63,33 @@ Update the matching contract when behavior changes:
 
 Legacy root documentation pages are compatibility links, not editing targets.
 Preserve old paths/anchors through `docs/migration.json`; do not duplicate guides.
+
+## Adding services
+
+Follow [Adding a Dashboard service](docs/development/extensions.md#adding-a-dashboard-service)
+and the [GitOps/module skill](.agents/skills/magicstick-gitops-module/SKILL.md).
+
+- A Services entry needs module catalog metadata and a reusable module base.
+  A service with **New Instance** also needs an application catalog entry and an
+  instance Helm chart. Keep IDs, dependencies and route targets consistent.
+- Choose an operator-backed chart or a direct workload chart from verified
+  upstream behavior. Reuse generic `ModuleActivation`/`AppInstance` reconciliation;
+  keep new optional services disabled by default unless requested otherwise.
+- Extend the existing Services form for supported application values. Trace them
+  through the shared API, saved `AppInstance.spec.values` and chart schema/templates.
+  Keep discovery catalog-driven and preserve CLI/TUI contracts and authorization.
+- Pin usable runtime versions; use the shared model catalog and Secret references
+  where needed. Preserve operator-owned SSO routes and derived hostnames. Define
+  workspace persistence, update behavior and data retention on removal.
+- Declare `litellmKey` in the application/module catalog for inference consumers;
+  reuse the common owner-scoped key lifecycle and never mount the admin key into
+  application instances. Forward known model capabilities through the shared
+  catalog and verified native schemas, preserving false versus unknown.
+- Verify creation, missing dependencies, status/URLs and removal at the affected
+  layers. For new features, update the [feature overview](docs/get-started/features.md),
+  [Unreleased changelog](CHANGELOG.md#unreleased) and matching user/reference docs.
+  Update third-party notices as needed; report rendering, container checks and
+  live acceptance separately.
 
 ## Regression coverage for behavior changes
 
@@ -102,6 +130,10 @@ environment/locked dependencies; a missing tool is a reported gap, not a pass.
 | Installer | Shell syntax/CLI checks and relevant `tests/test_install_entrypoints.py`, `tests/test_installer_network.py`, `tests/test_installer_boot.py`, `tests/test_git_http_fallback.py` |
 
 - Use `kubectl kustomize <base>` for a local render; it does not validate a live cluster.
+- Before reporting a new user-facing feature as complete or publishing its source,
+  check the feature overview, Unreleased changelog and affected user/reference
+  guides listed above. Record the updated pages in the PR or handoff and explain
+  any item that does not apply. Review coverage separately from link/build checks.
 - Run `git diff --check`; scan public changes with
   `gitleaks detect --source . --config .gitleaks.toml --no-git --redact` before publishing.
 - Select applicable sections of the [release checklist](docs/development/release-checklist.md).

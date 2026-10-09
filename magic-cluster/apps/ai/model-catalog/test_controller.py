@@ -245,6 +245,39 @@ class FreeTokenCatalogTests(unittest.TestCase):
         self.assertEqual(synchronized, [])
 
 
+class PiModelCatalogTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.controller = load_controller()
+
+    def test_pi_uses_real_context_and_bounds_output_for_coding_tools(self):
+        for context, output in ((1024, 2048), (8192, 8192), (131072, 16384)):
+            with self.subTest(context=context):
+                result = self.controller["pi_model"]({"id": "local-coder", "contextWindow": context, "maxOutputTokens": output})
+                self.assertEqual(result["contextWindow"], context)
+                self.assertEqual(result["maxTokens"], min(output, 8192, context // 4))
+                self.assertFalse(result["reasoning"])
+                self.assertEqual(result["input"], ["text"])
+
+    def test_pi_unknown_limits_use_conservative_budgets(self):
+        result = self.controller["pi_model"]({"id": "unspecified"})
+        self.assertEqual((result["contextWindow"], result["maxTokens"]), (8192, 2048))
+
+    def test_generated_pi_config_contains_chat_models_and_an_environment_reference(self):
+        data, _ = self.controller["build_catalog"]([
+            {"model_name": "local-coder", "model_info": {"ai_appliance_type": "chat", "contextWindow": 4096, "maxOutputTokens": 2048}},
+            {"model_name": "embedding", "model_info": {"ai_appliance_type": "embedding"}},
+        ])
+        provider = json.loads(data["pi-models.json"])["providers"]["litellm"]
+        self.assertEqual([model["id"] for model in provider["models"]], ["local-coder"])
+        self.assertEqual(provider["api"], "openai-completions")
+        self.assertEqual(provider["apiKey"], "${LITELLM_API_KEY}")
+        self.assertEqual(provider["models"][0]["contextWindow"], 4096)
+        self.assertEqual(provider["models"][0]["maxTokens"], 1024)
+        data, _ = self.controller["build_catalog"]([])
+        self.assertEqual(json.loads(data["pi-models.json"])["providers"]["litellm"]["models"], [])
+
+
 class OpenCodeModelLimitTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -416,11 +449,11 @@ class OpenClawCatalogTests(unittest.TestCase):
         )
         self.assertEqual(
             config["agents"]["defaults"]["compaction"],
-            {"reserveTokens": 4096, "reserveTokensFloor": 0},
+            {"keepRecentTokens": 4096},
         )
         self.assertEqual(config["tools"]["profile"], "coding")
 
-    def test_catalog_keeps_openclaw_default_floor_for_large_context_models(self):
+    def test_catalog_keeps_openclaw_default_recent_history_for_large_context_models(self):
         data, _ = self.controller["build_catalog"](
             [
                 {
@@ -437,10 +470,10 @@ class OpenClawCatalogTests(unittest.TestCase):
         config = json.loads(data["openclaw.json"])
         self.assertEqual(
             config["agents"]["defaults"]["compaction"],
-            {"reserveTokensFloor": 20000},
+            {"keepRecentTokens": 20000},
         )
 
-    def test_small_openclaw_context_scales_the_reserve_below_four_thousand(self):
+    def test_small_openclaw_context_scales_recent_history_below_four_thousand(self):
         generated = self.controller["openclaw_compaction"](
             [{"id": "small", "contextWindow": 8192}],
             "small",
@@ -448,7 +481,7 @@ class OpenClawCatalogTests(unittest.TestCase):
 
         self.assertEqual(
             generated,
-            {"reserveTokens": 2048, "reserveTokensFloor": 0},
+            {"keepRecentTokens": 2048},
         )
 
 

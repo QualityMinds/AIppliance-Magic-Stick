@@ -5,6 +5,14 @@ It reads Kubernetes status and writes runtime intent resources. It does not
 directly install workloads, create Flux Kustomizations, or manage app resources
 itself.
 
+Model create/update payloads accept optional `local.capabilities` or
+`external.capabilities` objects containing `tools`, `vision` and `reasoning`
+booleans. Omitted fields remain unknown; string/numeric booleans and unsupported
+keys are rejected. Model edits retain the existing revision check and preserve
+unmodified capability settings; `capabilities: null` on an edit removes the
+declaration. Registered models return the effective optional `capabilities`
+object. See [Model capabilities](model-catalog.md#model-capabilities).
+
 For the step-by-step end-user workflow after first-run setup, see
 [installation/after-installation-dashboard.md](../get-started/first-model.md).
 

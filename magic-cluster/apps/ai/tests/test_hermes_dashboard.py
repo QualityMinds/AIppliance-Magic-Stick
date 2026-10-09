@@ -20,9 +20,8 @@ class HermesDashboardChartTests(unittest.TestCase):
 
         for variable, value in (
             ("HERMES_DASHBOARD", '"true"'),
-            ("HERMES_DASHBOARD_HOST", '"0.0.0.0"'),
-            ("HERMES_DASHBOARD_PORT", '"9119"'),
-            ("HERMES_DASHBOARD_INSECURE", '"true"'),
+            ("HERMES_DASHBOARD_HOST", '"127.0.0.1"'),
+            ("HERMES_DASHBOARD_PORT", '"9118"'),
         ):
             with self.subTest(variable=variable):
                 self.assertIn(f"- name: {variable}\n      value: {value}", template)
@@ -31,6 +30,20 @@ class HermesDashboardChartTests(unittest.TestCase):
         self.assertIn("- name: dashboard\n          port: 9119", template)
         self.assertIn("type: ClusterIP", template)
         self.assertIn("ingress:\n      enabled: false", template)
+        self.assertNotIn("HERMES_DASHBOARD_INSECURE", template)
+        self.assertIn("name: dashboard-proxy", template)
+
+    def test_native_provider_is_explicit_and_litellm_egress_is_allowed(self):
+        template = HERMES_TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn("provider: custom:litellm", template)
+        self.assertIn("transport: chat_completions", template)
+        self.assertIn("key_cmd: cat /var/run/secrets/magicstick-litellm/api-key", template)
+        self.assertIn('secretName: {{ $key.name | quote }}', template)
+        self.assertIn('key: {{ $key.key | quote }}', template)
+        self.assertIn("additionalEgress:", template)
+        self.assertIn("app: litellm", template)
+        self.assertIn("port: 4000", template)
+        self.assertIn("shareProcessNamespace: false", template)
 
 
 if __name__ == "__main__":

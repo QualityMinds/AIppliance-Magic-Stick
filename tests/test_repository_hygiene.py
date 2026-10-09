@@ -2,8 +2,12 @@
 """Keep cleanup boundaries, branch defaults and build filters explicit."""
 import fnmatch
 import json
+import os
 from pathlib import Path
+import shutil
 import subprocess
+import tempfile
+import textwrap
 import unittest
 
 import yaml
@@ -24,6 +28,74 @@ def selected(path, patterns):
         if fnmatch.fnmatchcase(path, glob) or ('**/' in glob and fnmatch.fnmatchcase(path, glob.replace('**/', ''))):
             include = not negative
     return include
+
+
+@unittest.skipUnless(os.name != 'nt' and shutil.which('bash'), 'Unix dependency step requires Bash')
+class CompanionRustDownloadTests(unittest.TestCase):
+    def run_dependency_step(self, failures):
+        definition = workflow('build-mesh-companion')
+        step = next(step for step in definition['jobs']['build']['steps']
+                    if step.get('name') == 'Build dependencies')
+        with tempfile.TemporaryDirectory() as directory:
+            temporary = Path(directory)
+            commands = temporary / 'bin'
+            commands.mkdir()
+            stub = textwrap.dedent('''\
+                #!/bin/sh
+                case "$(basename "$0")" in
+                  uname) printf '%s\\n' "$EXPECTED_MACHINE" ;;
+                  curl|shasum|unzip) exit 0 ;;
+                  sleep) printf 'sleep %s\\n' "$*" >> "$RUST_TEST_LOG" ;;
+                  rustup)
+                    count=0
+                    if [ -f "$RUST_TEST_STATE" ]; then read -r count < "$RUST_TEST_STATE"; fi
+                    count=$((count + 1))
+                    printf '%s\\n' "$count" > "$RUST_TEST_STATE"
+                    printf 'rustup %s\\n' "$*" >> "$RUST_TEST_LOG"
+                    if [ "$count" -le "$RUST_TEST_FAILURES" ]; then exit 1; fi
+                    ;;
+                  python) printf 'pip static=%s %s\\n' "$OPENSSL_STATIC" "$*" >> "$RUST_TEST_LOG" ;;
+                esac
+                ''')
+            for name in ('uname', 'curl', 'shasum', 'unzip', 'sleep', 'rustup', 'python'):
+                executable = commands / name
+                executable.write_text(stub)
+                executable.chmod(0o755)
+            log = temporary / 'calls.log'
+            environment = os.environ | definition['env'] | {
+                'PATH': str(commands) + os.pathsep + os.environ['PATH'],
+                'RUNNER_OS': 'macOS', 'EXPECTED_MACHINE': 'x86_64',
+                'PROTOC_PLATFORM': 'osx-x86_64', 'PROTOC_SHA256': 'synthetic-checksum',
+                'RUNNER_TEMP': str(temporary), 'GITHUB_PATH': str(temporary / 'paths'),
+                'RUST_TEST_LOG': str(log), 'RUST_TEST_STATE': str(temporary / 'attempts'),
+                'RUST_TEST_FAILURES': str(failures),
+            }
+            result = subprocess.run(['bash', '--noprofile', '--norc', '-e', '-o', 'pipefail', '-c', step['run']],
+                                    cwd=ROOT, env=environment, capture_output=True, text=True, timeout=10)
+            calls = log.read_text().splitlines()
+        return result, calls, definition['env']['RUST_VERSION']
+
+    def assert_install_calls(self, calls, version, attempts, pip):
+        self.assertEqual([call for call in calls if call.startswith('rustup ')],
+                         [f'rustup toolchain install {version} --profile minimal'] * attempts)
+        self.assertEqual(len([call for call in calls if call.startswith('sleep ')]), attempts - 1)
+        self.assertEqual(len([call for call in calls if call.startswith('pip static=1 ')]), pip)
+
+    def test_success_installs_pinned_toolchain_once(self):
+        result, calls, version = self.run_dependency_step(failures=0)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_install_calls(calls, version, attempts=1, pip=1)
+
+    def test_transient_failures_retry_before_installing_python_dependencies(self):
+        result, calls, version = self.run_dependency_step(failures=2)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_install_calls(calls, version, attempts=3, pip=1)
+
+    def test_exhausted_retries_stop_before_installing_python_dependencies(self):
+        result, calls, version = self.run_dependency_step(failures=10)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('failed after 3 attempts', result.stderr)
+        self.assert_install_calls(calls, version, attempts=3, pip=0)
 
 
 class RepositoryHygieneTests(unittest.TestCase):
@@ -88,7 +160,7 @@ class RepositoryHygieneTests(unittest.TestCase):
     def test_development_builds_do_not_publish_production_aliases(self):
         for name in ('build-dashboard-image', 'build-mesh-image', 'build-amd-dra-image',
                      'build-freetoken-image', 'build-omni-rocm-image', 'build-kdns-image',
-                     'build-paperclip-operator-image', 'build-mesh-companion'):
+                     'build-mesh-companion'):
             self.assertEqual(workflow(name)['on']['push']['branches'], ['main', 'develop'], name)
         for name in ('build-dashboard-image', 'build-freetoken-image', 'build-kdns-image'):
             value = (ROOT / '.github/workflows' / (name + '.yml')).read_text()

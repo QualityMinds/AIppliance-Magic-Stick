@@ -25,6 +25,75 @@ Use **Credentials** only when the application exposes a credential panel and you
 role permits access. A URL being present does not bypass SSO or instance access rules.
 See [sharing](sharing.md) to grant selected users or groups access.
 
+## OpenClaw, KubeOpenCode and AnythingLLM
+
+Choose a chat model when creating an OpenClaw or KubeOpenCode instance. Each
+instance keeps its selection when the shared catalog or global default changes.
+If that model becomes unavailable, select a replacement explicitly. OpenClaw's
+compaction budget follows the chosen model's context limit.
+
+AnythingLLM starts a fresh installation with the catalog's default chat model.
+When an embedding model is available, it also initializes document-indexing
+preferences. You can change these settings in AnythingLLM; they survive restarts
+and later catalog updates. Keep an existing index's embedding model unless you
+plan to reindex the documents. Before upgrading an older installation, an
+administrator must complete the
+[settings migration](../administration/updates-rollback.md#anythingllm-persistent-settings-migration).
+
+## Hermes
+
+Choose a ready chat model when creating a Hermes instance in **Services**.
+The current Hermes release requires at least 64,000 context tokens; use a model
+with that actual configured capacity. A smaller or unknown context appears as
+an instance status error.
+Its browser link opens the Hermes dashboard through the existing SSO access
+controls. Change the managed model in the instance settings; the operator owns
+that configuration, so editing Hermes' native configuration file is not a
+supported way to change it. Workspaces and sessions remain on the instance's
+persistent volume. See the [configuration reference](../reference/application-controls.md).
+
+## Paperclip
+
+Create a Paperclip instance in **Services**, choose the default chat model and
+review storage and the concurrent-agent limit. Open its browser link once it
+is ready, then create companies, tasks and agents in Paperclip. OpenCode agents
+use isolated Kubernetes sandboxes and keep their own explicit model choices.
+The instance upgrades its Kubernetes plugin before its browser link becomes
+ready; the first installation and a plugin upgrade require npm access. Ordinary
+restarts reuse the installed plugin.
+
+The current OpenCode sandbox image supports AMD64 only. Gateway selections in
+the instance form are stored preferences; configuring gateway agents and their
+credentials in Paperclip remains manual. See the
+[Paperclip execution guide](../reference/paperclip-agents.md) for compatibility,
+workspace persistence and upgrade limits.
+
+## Pi Coding Agent
+
+Pi is a coding agent for the terminal. Magic Stick provides its Pi 1.0.0 interface
+in your browser, with the same SSO and instance-sharing controls as other applications.
+
+1. In **Services**, enable **Pi Coding Agent** and wait for its required services
+   to be ready. Deploy a chat model first if none is available.
+2. Choose **New Instance**, set a name and model, and review access and exposure.
+   **Configure** lets you change the default 5 GiB storage allocation.
+3. Wait for **Ready**, then open the instance URL. The first start downloads the
+   pinned Pi and browser-terminal releases, so GitHub access is required.
+4. Ask Pi to work on a project, or use its `!` shell commands to clone a repository
+   into the workspace. `/new` starts a new conversation; `/resume` selects a saved one.
+
+The workspace, Pi settings, provider sign-ins and sessions survive Pod restarts.
+Reopening the terminal continues the latest conversation. Each instance accepts
+one browser connection at a time; users with access share its files, sessions and
+runtime credentials. Give access to trusted users, and create separate instances
+for separate workspaces. Pi's tools can execute commands inside its container;
+they do not receive host mounts or a Kubernetes API credential.
+
+Removing a Pi instance keeps its data volume. Recreating the same instance name
+reuses it; an administrator must explicitly remove the retained volume to erase it.
+See [Pi configuration](../reference/application-controls.md#pi-coding-instances)
+for runtime requirements and model behavior.
+
 ## Stop or remove components safely
 
 Review instance dependencies and persistent-data retention before removing a

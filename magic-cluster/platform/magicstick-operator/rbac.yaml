@@ -13,6 +13,12 @@ metadata:
   labels:
     app.kubernetes.io/name: magicstick-operator
 rules:
+  # Instance target namespaces are configurable. The controller checks immutable
+  # owner UIDs before modifying service credentials, alongside its existing
+  # cluster-wide workload-management permissions.
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, create, update, delete]
   - apiGroups: [appliance.magicstick.dev]
     resources: [hostoperations]
     verbs: [get, list]
@@ -179,6 +185,7 @@ rules:
       - get
       - list
       - watch
+      - create
   - apiGroups:
       - ""
     resources:

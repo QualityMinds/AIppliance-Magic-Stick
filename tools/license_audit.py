@@ -153,7 +153,7 @@ def deployment_references(root=ROOT):
         if path.suffix not in {".yaml", ".yml", ".sh", ".py", ".toml"} and not path.name.startswith("Dockerfile"):
             continue
         for number, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
-            if re.search(r"(?:^FROM |\bimage:|\brepository:|\bchart:|\bversion:|\btag:|https://github.com/|ansible-galaxy|pip install|apt-get install)", line):
+            if re.search(r"(?:^FROM |\b(?:image|agentImage|executorImage|attachImage|digest):|\brepository:|\bchart:|\bversion:|\btag:|https://github.com/|ansible-galaxy|pip install|apt-get install)", line):
                 refs.append({"file": name, "line": number, "reference": line.strip()})
     return refs
 

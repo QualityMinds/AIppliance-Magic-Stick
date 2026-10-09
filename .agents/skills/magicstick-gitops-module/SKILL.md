@@ -11,7 +11,7 @@ Read [project instructions](../../../AGENTS.md), then the relevant contract:
   and [controllers](../../../docs/concepts/controllers.md).
 - CRDs/status/finalizers: [Kubernetes resources](../../../docs/reference/kubernetes-resources.md).
 - Application instances: [application controls](../../../docs/reference/application-controls.md)
-  and [extension development](../../../docs/development/extensions.md).
+  and [Adding a Dashboard service](../../../docs/development/extensions.md#adding-a-dashboard-service).
 - Composition/overlays: [architecture](../../../docs/concepts/architecture.md) and
   [GitOps overlays](../../../docs/development/gitops-overlays.md).
 

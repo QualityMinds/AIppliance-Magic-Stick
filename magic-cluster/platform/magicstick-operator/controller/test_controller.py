@@ -1,4 +1,5 @@
 import pathlib
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -6,6 +7,7 @@ import yaml
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 CLUSTER_ROOT = ROOT.parents[1]
 
 
@@ -88,6 +90,7 @@ class HelmAppInstanceTests(unittest.TestCase):
                 "paperclip": "0s",
                 "kubeopencode": "0s",
                 "odysseus": "0s",
+                "pi-coding": "0s",
             },
         )
 
@@ -356,7 +359,7 @@ class HelmAppInstanceTests(unittest.TestCase):
         pod_rule = next(
             rule for rule in rules if rule["apiGroups"] == [""] and rule["resources"] == ["pods"]
         )
-        self.assertEqual(namespace_rule["verbs"], ["get", "list", "watch"])
+        self.assertEqual(namespace_rule["verbs"], ["get", "list", "watch", "create"])
         self.assertEqual(quota_rule["verbs"], ["get", "create", "update", "patch"])
         self.assertEqual(policy_rule["verbs"], ["get", "create", "update", "patch", "delete"])
         self.assertEqual(pod_rule["verbs"], ["get", "list", "watch", "delete"])

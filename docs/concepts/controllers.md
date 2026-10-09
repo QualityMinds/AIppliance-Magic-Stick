@@ -152,6 +152,7 @@ serialized while remaining upgrade-compatible with Flux server-side apply.
 | `paperclip` | `paperclip-operator`, `agent-sandbox` | `instances.paperclip.inc`, `sandboxes.agents.x-k8s.io` | `Instance` `paperclip.inc/v1alpha1` and per-run `Sandbox` resources |
 | `kubeopencode` | `kubeopencode` | `agenttemplates.kubeopencode.io` | `AgentTemplate` and related `kubeopencode.io/v1alpha1` resources |
 | `odysseus` | `odysseus` | none | `Deployment` `apps/v1` plus supporting Services, PVCs, and ConfigMaps |
+| `pi-coding` | `pi-coding` | none | Pi terminal `Deployment` `apps/v1`, ClusterIP Service, bootstrap ConfigMap and retained workspace PVC |
 
 All enabled AI app instances also require `litellm` and `model-catalog`.
 Paperclip uses the Agent Sandbox CR backend for CLI runtimes; OpenClaw and

@@ -122,8 +122,8 @@ remain authoritative during upgrades and temporary hardware-label loss.
 The Magic Stick Operator is a meta-operator. It enables modules by generating
 Flux `Kustomization` resources and creates one Flux `HelmRelease` per instance
 after required modules and CRDs exist. Charts for OpenClaw, Hermes, Paperclip,
-and KubeOpenCode create their specialized CRs. The Odysseus chart owns its
-workloads directly because there is no upstream Odysseus operator.
+and KubeOpenCode create their specialized CRs. The Odysseus and Pi Coding Agent
+charts own their workloads directly because they need no application-specific operator.
 
 The dashboard is the user-facing client for this model. It runs in the cluster,
 reads the Appliance, module catalog, Flux, Pod, Service, Ingress, and Event

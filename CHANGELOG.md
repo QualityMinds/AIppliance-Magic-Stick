@@ -8,15 +8,17 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
-### Changed
-
-- The English legal notice is now `imprint.html` with the heading "Imprint",
-  matching the landing page footer; the former `legal-notice.html` address is gone.
-  The handbook footer links only the English imprint and privacy policy, since
-  the handbook is English only; both pages keep their EN/DE switch.
-
 ### Added
 
+- Initialize new AnythingLLM installations with catalogued chat/context and
+  embedding defaults, and persist native preferences across Pod restarts.
+  Older installations require the documented
+  [one-time settings migration](docs/administration/updates-rollback.md#anythingllm-persistent-settings-migration).
+- Create Pi Coding Agent 1.0.0 instances from **Services**, with a browser
+  terminal, model selection, SSO, and persistent workspaces and sessions.
+  The service is optional and disabled by default. Pod initialization downloads
+  checksum-verified Pi and ttyd releases and requires GitHub access. See the
+  [Pi Coding Agent guide](docs/user-guide/applications.md#pi-coding-agent).
 - German legal pages: `impressum.html` and `datenschutz.html` are full
   translations of the legal notice and privacy policy with the same section
   anchors. All four legal pages carry canonical and `hreflang` metadata and an
@@ -28,6 +30,28 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
   statistics, US transfer safeguards and the providers' privacy policies.
 
 ### Changed
+
+- Replace shared LiteLLM administrator credentials in application instances and
+  AnythingLLM with owner-scoped inference-only virtual keys. Provision keys
+  durably, block suspended instances, roll workloads on rotation with a 15-minute
+  grace period, and revoke keys before lifecycle cleanup completes. Remove old
+  persisted AnythingLLM LiteLLM credentials at startup.
+
+- Update Paperclip to 2026.1001.0, its Kubernetes plugin to the matching release,
+  and its upstream operator to 0.19.1. Pin the application and OpenCode 1.18.21
+  sandbox images by digest and replace the custom operator build with native
+  loopback settings and CRD upgrade handling.
+- Update Hermes operator to 0.2.0 and pin the native NousResearch runtime to
+  `v2026.9.24` (agent 0.21.5) by its multi-platform image digest.
+- Update OpenClaw operator to 0.40.0 and app to 2026.9.8, KubeOpenCode to 0.1.9,
+  and AnythingLLM to 1.17.0. Pin application and KubeOpenCode worker images by
+  digest, and update KubeOpenCode CRDs during Flux upgrades.
+- Use conservative OpenCode fallback budgets of 8,192 context and 2,048 output
+  tokens when model metadata is missing, including the shared Paperclip export.
+- The English legal notice is now `imprint.html` with the heading "Imprint",
+  matching the landing page footer; the former `legal-notice.html` address is gone.
+  The handbook footer links only the English imprint and privacy policy, since
+  the handbook is English only; both pages keep their EN/DE switch.
 
 - The privacy policy, the handbook `site_url` and the landing pages' canonical,
   language-alternate and social-preview addresses name the Azure Static Web
@@ -45,6 +69,35 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 - A daily Container Apps job deletes Umami visitor records after the 25 months
   stated in the privacy policy. The Umami image is pinned to 3.4.0 by digest and
   the tag no longer records URL fragments.
+
+### Fixed
+
+- Retry transient Rust toolchain download failures in the Linux/macOS Mesh
+  companion builds, retaining the pinned version and failing after three attempts.
+- Preserve explicit tool, vision and reasoning metadata in the canonical model
+  catalog and native OpenClaw, Hermes, OpenCode and Pi configurations. Keep
+  unknown capabilities distinct from false, handle fallback routes conservatively,
+  and disable Pi tools on launch when the selected model explicitly rejects them.
+  Use LiteLLM's current model PATCH API and mask removed declarations so cached
+  metadata cannot restore them.
+
+- Upgrade Paperclip's Kubernetes plugin on existing volumes before readiness,
+  verify its compatibility patches against exact upstream hashes, preserve
+  explicit internal callback URLs through the native API setting, and apply
+  sandbox working directories consistently. Correct documentation that claimed
+  automatic gateway bindings not implemented by the current chart.
+- Configure Hermes' LiteLLM provider and Secret credential reference explicitly,
+  permit its targeted LiteLLM network connection, and retain SSO access to the
+  current loopback dashboard through an HTTP/WebSocket proxy. Remove the obsolete
+  dashboard `INSECURE` setting and correct the documented catalog consumption.
+  Forward the selected model's actual context and report Hermes 0.21.5's
+  64,000-token minimum without increasing the configured model capacity.
+- Apply the selected OpenClaw instance model and its compaction budget through
+  an owned per-instance catalog, with native operator configuration rollouts.
+  Use the new `keepRecentTokens` setting and remove reserve overrides rejected
+  by OpenClaw 2026.9.8.
+- Preserve KubeOpenCode instance model choices during catalog synchronization,
+  remove withdrawn provider routes and roll updated configuration automatically.
 
 ## v0.1.2 - 2026-09-25
 

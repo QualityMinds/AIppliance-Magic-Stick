@@ -47,6 +47,13 @@ rules:
       - get
       - list
       - update
+  - apiGroups:
+      - openclaw.rocks
+    resources:
+      - openclawinstances
+    verbs:
+      - get
+      - list
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

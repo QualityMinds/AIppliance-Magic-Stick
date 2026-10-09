@@ -20,3 +20,11 @@ resources:
   - controller-configmap.yaml
   - deployment.yaml
   - default-appliance.yaml
+configMapGenerator:
+  - name: magicstick-operator-controller
+    namespace: ai-system
+    behavior: merge
+    files:
+      - service_keys.py
+generatorOptions:
+  disableNameSuffixHash: true

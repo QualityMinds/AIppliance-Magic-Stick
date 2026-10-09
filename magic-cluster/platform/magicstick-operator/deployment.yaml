@@ -84,8 +84,7 @@ spec:
             runAsGroup: 65532
           volumeMounts:
             - name: controller
-              mountPath: /app/controller.py
-              subPath: controller.py
+              mountPath: /app
               readOnly: true
             - name: tmp
               mountPath: /tmp

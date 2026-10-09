@@ -24,11 +24,11 @@ allows each runtime image to have its own release and security policy.
 
 | Component | Pinned version |
 |---|---|
-| Paperclip application | `v2026.707.0` (`sha-df0e5bd` container build) |
-| Paperclip Operator chart | `0.18.0` |
+| Paperclip application | `2026.1001.0`, multi-platform digest `sha256:08dbadebd4d40550eb336c25c3691f582322a88bae3f1cca101c5dd096bdc9d3` |
+| Paperclip Operator chart/image | `0.19.1` / upstream `v0.19.1` |
 | Kubernetes Agent Sandbox | `v0.5.1` |
-| Paperclip Kubernetes plugin | `2026.707.0` |
-| OpenCode sandbox runtime | Official Paperclip image pinned by digest (`4f539625f7b63541d1beae1341220702638b7677`) |
+| Paperclip Kubernetes plugin | `2026.1001.0`, with its matching plugin SDK |
+| OpenCode sandbox runtime | OpenCode `1.18.21`; official Paperclip build `38d8f371722b315d2fb3bbaa512518742e33ce2f`, pinned by digest |
 
 The Paperclip Operator requires Kubernetes 1.28 or newer. A Paperclip
 `AppInstance` automatically requests these runtime modules:
@@ -45,10 +45,17 @@ from a Flux `GitRepository` pinned to tag `v0.5.1` and provides the
 The Paperclip application image contains the Kubernetes provider source but not
 its compiled plugin artifact. On every Pod start, the authenticated loopback
 gateway checks Paperclip's plugin registry. It installs the exact pinned npm
-package through Paperclip's local API only when the provider is missing, waits
-for plugin state `ready`, and only then exposes the application Service. The
+package through Paperclip's local API when the provider is missing, has a different
+version or is incompatible/errored. It waits for the pinned version and state
+`ready`, and only then exposes the application Service. The
 installed package and plugin record persist with Paperclip, so ordinary offline
 restarts do not contact npm again.
+
+The upstream operator remains unmodified. Native `PAPERCLIP_BIND=loopback` and
+`HOST=127.0.0.1` instance overrides are appended after its defaults; the existing
+Pod-IP TCP proxy makes that private listener reachable through the SSO route.
+Flux replaces the operator's CRDs during install and upgrade. Managed databases
+remain on PostgreSQL 17; this change does not introduce a database major upgrade.
 
 Pinned Paperclip built-in agents currently select the first adapter in their
 own allowed list, even when that adapter is disabled. The same loopback helper
@@ -118,7 +125,7 @@ spec:
         backend: sandbox-cr
     registry:
       - adapterType: opencode_local
-        runtimeImage: ghcr.io/paperclipai/agent-runtime-opencode@sha256:1511797b21856fb3ce4b6b1ce5b0209a0a1c55ef227a21d4024bf4681a0fa49d
+        runtimeImage: ghcr.io/paperclipai/agent-runtime-opencode@sha256:06b207047eb2efcede3f5c85d493fbe976ad653a7fafe41cf6df76dd02e12ae6
 ```
 
 The `sandbox-cr` backend supports multiple commands in one isolated run
@@ -132,34 +139,34 @@ and uploads it into the next Sandbox, so workspace files persist across runs
 even though the Sandbox Pod itself does not. The simpler Kubernetes Job backend
 is not used.
 
-Paperclip's authenticated public mode derives its browser-facing auth URL from
-`spec.deployment.publicURL`. That hostname is not necessarily resolvable from
-inside the cluster. Paperclip `v2026.707.0` also overwrites a preconfigured
-`PAPERCLIP_RUNTIME_API_URL` with that public URL during startup, which breaks the
-sandbox callback bridge. The generated Instance therefore sets the internal
-Service URL and installs a guarded server compatibility patch that preserves
-the configured value. A small ConfigMap-backed Node preloader applies the patch
-inside each container before the server bundle is imported. The preloader fails
-when the pinned upstream bundle no longer matches, so a future Paperclip upgrade
-cannot silently restore the external callback route.
+The generated Instance sets the native `PAPERCLIP_API_URL` to its internal
+Service URL. Paperclip 2026.1001.0 preserves this explicit value when generating
+agent environments; its sandbox callback bridge separately uses the local
+listener, avoiding the browser SSO route. A server-bundle patch is unnecessary.
 
-Paperclip `v2026.707.0` can request `/tmp` as the remote sandbox working
+Paperclip `2026.1001.0` can request `/tmp` as the remote sandbox working
 directory. The matching Kubernetes plugin also forwards `params.cwd` but does
 not apply it to the Kubernetes exec process. The generated Paperclip `Instance`
 therefore installs the pinned plugin with a guarded compatibility patch that
 normalizes the `/tmp` fallback to `/workspace` and changes into the requested
 working directory before each exec. Paperclip runtime state is kept separately
 under `/tmp/.paperclip-runtime`; only `/workspace` is synchronized back to the
-agent workspace. The init container fails if the pinned upstream bundle no
-longer matches.
+agent workspace. A ConfigMap-backed Node preloader checks the exact plugin
+package version and SHA-256 of its compiled manifest and execution module before
+applying these patches. It runs in the server and only the Kubernetes plugin's
+isolated worker, preserving the worker's restricted environment. The npm release
+reports an unchanged alpha manifest version; the preloader reports its verified
+package version so a persisted older installation cannot bypass the upgrade.
+Changed compatibility files fail startup/activation and require review. Updating
+the preloader changes an instance environment revision and rolls the Pod.
 
 ## Runtime Types
 
 ### OpenCode And CLI Agents
 
 OpenCode uses the immutable official Paperclip runtime
-`ghcr.io/paperclipai/agent-runtime-opencode@sha256:1511797b21856fb3ce4b6b1ce5b0209a0a1c55ef227a21d4024bf4681a0fa49d`.
-It is built from Paperclip commit `4f539625f7b63541d1beae1341220702638b7677`,
+`ghcr.io/paperclipai/agent-runtime-opencode@sha256:06b207047eb2efcede3f5c85d493fbe976ad653a7fafe41cf6df76dd02e12ae6`.
+It is built from Paperclip commit `38d8f371722b315d2fb3bbaa512518742e33ce2f`,
 which puts `ripgrep` on `PATH` for OpenCode's skill-discovery tool. Magic Stick
 does not build or maintain a derived agent image. This upstream build is
 currently published for `linux/amd64`; Paperclip instances are unsupported on
@@ -190,73 +197,24 @@ and other runtime state, and must never print `PAPERCLIP_API_KEY`.
 
 ### OpenClaw And Hermes
 
-OpenClaw and Hermes remain independent `AppInstance` resources. Selecting one
-in Appliance Control enables its Paperclip adapter and allows only the selected
-gateway port from the Paperclip Pod. Hermes exposes its authenticated API from
-the generated `hermes-api` sidecar on port 8642. All Hermes containers use UID
-and GID `1000` so the dashboard, catalog init, and API gateway can share the
-same persistent home directory. OpenClaw uses its gateway on
-Service port 18789; policies also admit its operator-managed Pod target port
-18790 so the route works regardless of where the CNI enforces egress relative
-to Service DNAT. Both gateway NetworkPolicies permit outbound Paperclip
-callbacks only to Pods labeled `app.kubernetes.io/name=paperclip` on TCP 3100.
+OpenClaw and Hermes remain independent `AppInstance` resources. The Paperclip
+form stores the chosen instance references; the current chart registers the
+OpenCode Kubernetes adapter only. It does not automatically configure gateway
+adapters, copy gateway credentials, create callback credentials, add a separate
+Hermes API sidecar or widen gateway NetworkPolicies.
 
-Paperclip companies and employee agents are intentionally not created by the
-Appliance dashboard. After the first-admin onboarding, create the company and
-agent in Paperclip, then store the selected gateway URL and token as Paperclip
-Company Secrets. The dashboard selection does not copy gateway credentials into
-the Paperclip Pod. Use `apiKey` for Hermes and `authToken` for OpenClaw; both
-fields are normalized to encrypted Company Secret references before Paperclip
-persists the agent configuration.
+Configure a gateway agent manually in Paperclip using the upstream adapter and
+its reachable service endpoint. Store gateway credentials as encrypted Company
+Secrets (`apiKey` for Hermes or `authToken` for OpenClaw). Separately arrange a
+Paperclip agent API key and permitted callback path for that runtime. The current
+Hermes agent gateway listens on port 8443; OpenClaw uses Service port 18789.
+These manual bindings require their own acceptance test. Selecting an instance
+in the dashboard does not establish them.
 
-An OpenClaw gateway also needs its own Paperclip agent API key for callbacks.
-The recommended onboarding path is Paperclip's OpenClaw invite prompt: OpenClaw
-submits the join request, the board approves it, and OpenClaw claims and saves
-the one-time key at
-`~/.openclaw/workspace/paperclip-claimed-api-key.json`. Merely creating an
-`openclaw_gateway` agent in the Paperclip form does not perform this claim.
-
-For an agent that was created manually, create a standard key once with
-`POST /api/agents/{agentId}/keys`, store the complete one-time JSON response in
-a Kubernetes Secret, and reference it from the OpenClaw `AppInstance`:
-
-```yaml
-spec:
-  values:
-    paperclipAgentSecretRef:
-      name: openclaw-default-paperclip-agent
-      key: paperclip-claimed-api-key.json
-```
-
-The generated OpenClaw init container installs that Secret at the upstream
-adapter's required path with mode `0600`. Never put the response or token in an
-`AppInstance`, ConfigMap, Git manifest, shell history, or log. Restart the
-OpenClaw instance after rotating the Secret so the init container copies the
-new value.
-
-Paperclip authenticates to the Hermes gateway with `API_SERVER_KEY`, but this
-gateway credential is not the Paperclip agent credential. For callbacks, store
-the `token` from `POST /api/agents/{agentId}/keys` in a Kubernetes Secret and
-bind it to the Hermes `AppInstance` together with the reachable Paperclip URL:
-
-```yaml
-spec:
-  values:
-    paperclipApiUrl: http://paperclip-default.ai.svc.cluster.local:3100
-    paperclipAgentSecretRef:
-      name: hermes-default-paperclip-agent
-      key: PAPERCLIP_API_KEY
-```
-
-Only the automated `hermes-api` sidecar receives `PAPERCLIP_API_KEY` and
-`PAPERCLIP_API_URL`; the interactive dashboard does not. The API sidecar also
-disables Tirith and starts with
-`HERMES_YOLO_MODE=1` because there is no interactive terminal attached to
-answer command approval prompts; otherwise an internal Paperclip callback can
-remain pending until the run times out. This exception applies only to that API
-sidecar. Its Kubernetes NetworkPolicy still limits reachable services, while
-the interactive Hermes dashboard and CLI keep their normal approval and
-Tirith protection.
+For OpenClaw, the upstream invite/claim procedure provisions the callback key;
+merely creating an `openclaw_gateway` agent does not perform that claim. Preserve
+its claimed-key file on the OpenClaw persistent workspace. Never put credentials
+in `AppInstance` values, ConfigMaps, Git manifests or logs.
 
 ## Model Catalog
 
@@ -272,8 +230,8 @@ Tirith protection.
 The generated OpenCode provider uses
 `http://litellm.ai.svc.cluster.local:4000/v1`. Every chat model is exported as
 `litellm/<model-id>` with explicit context and output limits required by the
-OpenCode provider schema. Missing limits default to 131072 context tokens and
-8192 output tokens before the Paperclip-specific limits are applied. The
+OpenCode provider schema. Missing limits default to 8192 context tokens and
+2048 output tokens before the Paperclip-specific limits are applied. The
 runtime requests at most 4096 output tokens and no more than one quarter of its
 advertised context. It also advertises up to 4096 fewer context tokens than the
 model physically accepts, so compaction happens before the LiteLLM/vLLM hard
@@ -281,10 +239,10 @@ boundary. `OPENAI_API_KEY` is injected into Paperclip from
 `Secret/ai/litellm-masterkey-secret`; no key value is stored in an
 `AppInstance`, ConfigMap, or public manifest.
 
-Paperclip `v2026.707.0` imposes a hard 15-minute ceiling on every plugin RPC.
+Paperclip `2026.1001.0` imposes a hard 15-minute ceiling on every plugin RPC.
 Magic Stick retains that ceiling so an agent cannot hide a broken search loop
 behind a longer transport timeout. A fail-closed, exact-source adapter patch
-changes only the remote-agent instruction note so the model does not try to
+corrects the remote-agent instruction note so the model does not try to
 read a control-plane-only `AGENTS.md` path from inside its sandbox. Pod startup
 aborts if the pinned upstream source no longer matches. The same guarded patch
 normalizes the Kubernetes execution target to `/workspace`: this Paperclip
@@ -347,7 +305,7 @@ Credential ownership is split by purpose:
 | Paperclip auth secret | Generated `<appinstance>-auth` Kubernetes Secret with key `BETTER_AUTH_SECRET`; an existing Instance keeps its current reference during upgrades. |
 | LiteLLM API key | Kubernetes Secret reference injected into the approved runtime environment. |
 | OpenClaw gateway token | Paperclip Company Secret or a dedicated Kubernetes Secret reference. |
-| Hermes API key | Generated Kubernetes Secret, then bound as a Paperclip Company Secret or Secret reference. |
+| Hermes API key | Explicitly configured gateway credential, then stored as a Paperclip Company Secret for a manual binding. |
 | Git provider token or SSH key | Paperclip Company Secret or a dedicated per-agent Kubernetes Secret reference. |
 | Paperclip first-admin password | Generated Kubernetes Secret exposed through the existing credentials endpoint. |
 
