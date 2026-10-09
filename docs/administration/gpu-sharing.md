@@ -43,12 +43,29 @@ guarantee that four arbitrary models fit. No sharing transition was requested.*
 
 ## Model-slot accounting
 
+### Choose a GPU deployment
+
+For ordinary vLLM and Ollama on NVIDIA DRA, **Models → Create / Edit → GPU
+deployment** separates three uses of the selected cards:
+
+| Mode | What runs | Use it when |
+| --- | --- | --- |
+| Single GPU | One model on one card | One card meets your needs. |
+| Split one model | One model distributed across the selected cards | The model needs more GPU memory, or you want to try model parallelism. |
+| Replicate model copies | A complete independent copy on each selected card | The model fits on one card and you want to serve more concurrent requests. |
+
+Replication does not make a large model fit on smaller cards and does not
+guarantee faster individual responses or linear throughput gains. Both multi-card
+modes require matching GPUs on the same node. They are separate from **Shared**
+allocation, which lets different deployments share each physical card.
+
 ### One model across several NVIDIA GPUs
 
 Enable **NVIDIA DRA** first. In **Models → Create → NVIDIA card**, choose the
 first card and add matching cards, or enter an **Automatic GPU count** and
 choose **Select matching GPUs**. Automatic selection resolves and saves exact
 identities now; it does not silently move a running model later.
+Choose **Split one model** to distribute model weights rather than create copies.
 
 - Ordinary vLLM and Ollama support same-node groups of matching GPU models and
   physical capacities (up to the catalog limit of 16). Two- and four-card
@@ -84,6 +101,42 @@ The runtime mappings are verified against
 DRA group before loading. Its model probe does not enable `trust_remote_code`.
 Hardware performance and successful multi-GPU inference require a live run;
 local contract/browser tests alone are not hardware acceptance.
+
+### Independent copies on several NVIDIA GPUs
+
+Choose **Replicate model copies**, then select at least two matching cards.
+The number of selected cards is the number of copies; no second replica count
+needs configuring. Each copy receives one exact GPU and serves independent
+requests under the **same public model name** through LiteLLM. Applications do
+not need to choose a copy or change their API configuration.
+
+- The VRAM estimate and budget apply to **each complete copy**. Weights and
+  KV-cache estimates are not divided by the number of GPUs.
+- **Advanced → System RAM per copy (MiB)** and CPU requests/limits apply to
+  every copy. For example, four copies with 16 GiB each reserve 64 GiB host RAM.
+  The API checks the combined RAM budget against the selected node, including
+  when CPU offloading is enabled. A memory-risk acknowledgement cannot bypass
+  physical GPU capacity or this verified RAM ceiling.
+- Each copy consumes one slot on its selected GPU. Unselected cards are not
+  charged. A starting or failed copy keeps its reservation for retries; a
+  terminating Pod keeps its slot until it disappears.
+- Installed Models shows the ready/desired count and expandable **Model
+  copies** with individual status. **Logs → Model copy** selects one copy;
+  the default view shows the bounded set of newest Pods, not unlimited output.
+- Healthy copies remain eligible for routing when another fails. The parent
+  is Ready only when all copies are ready; it can be Starting or Degraded while
+  healthy copies still serve requests. Status and routing updates reconcile
+  asynchronously; in-flight requests are not transparently migrated.
+- Edit drains the previous copies before recreating them with changed settings
+  or placement. This is not a zero-downtime rolling update. Stop and Remove
+  apply to all copies, while Start reuses the saved card identities. Cached
+  model downloads remain available.
+
+This implementation uses existing KubeAI runtimes and LiteLLM routing, not a new
+inference engine. It does not combine splitting and replication, autoscale copies,
+span nodes, or enable this mode for AMD, FreeToken, or Realtime. Two/four-card,
+both-engine regression workflows are defined for Exclusive and Shared allocation;
+physical inference acceptance still requires running them on suitable hardware.
 
 ### Accounting rules
 
@@ -122,15 +175,16 @@ authoritative if concurrent clients race for the last slot.
   one physical GPU; NVIDIA manages one or more whole physical GPUs on its node.
   Multiple NVIDIA nodes, MIG and existing external/custom allocator configurations
   are not silently adopted or overwritten.
-- Model namespace `ai`, one replica per model, and 2–16 shared model slots.
+- Model namespace `ai`, one Pod per single/split runtime or per replicated copy,
+  and 2–16 shared model slots.
   NVIDIA's limit is **per physical GPU**, including one slot per card in Exclusive
   mode. Additional models wait, ordered by
   creation time and name; disabling/removing a model releases its admission slot.
 - AMD DRA requires Kubernetes 1.36 or newer, native mutating admission policies
   and CDI. Existing Strix Halo host/profile checks remain required.
 - NVIDIA DRA also requires Kubernetes 1.36+, native mutating admission policies
-  and CDI. It supports ordinary vLLM/Ollama models with one replica in `ai`, not
-  tensor-parallel multi-card models. FreeToken and vLLM-Omni Realtime currently
+  and CDI. It supports ordinary vLLM/Ollama single-card, split-model and
+  replicated-copy deployments in `ai`. FreeToken and vLLM-Omni Realtime currently
   retain their NVIDIA device-plugin contract; stop those models before opting
   into DRA, or keep Device plugin selected.
 - AMD DRA uses `ghcr.io/qualityminds/magicstick-amd-dra:v1.0.1-cdi-recovery.2`,

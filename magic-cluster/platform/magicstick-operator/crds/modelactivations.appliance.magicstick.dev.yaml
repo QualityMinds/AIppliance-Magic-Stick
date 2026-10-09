@@ -147,6 +147,10 @@ spec:
                           pattern: '^GPU-[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$'
                     resourceProfile:
                       type: string
+                    gpuDeployment:
+                      type: string
+                      enum: [single, split, replicated]
+                      description: Omission preserves legacy single/split behavior. Replicated creates one complete model copy per selected GPU behind one public model name; it cannot be combined with splitting.
                     gpuDevices:
                       type: array
                       minItems: 1
@@ -176,7 +180,7 @@ spec:
                     memoryRequiredMi:
                       type: integer
                       minimum: 16
-                      description: Total host RAM request in MiB for CPU models, multi-GPU Pods or GPU models with CPU offloading. Includes runtime and offloaded memory; not multiplied by GPU count.
+                      description: Host RAM request per runtime Pod in MiB. Split groups use one Pod; replicated mode reserves this amount independently for every selected GPU.
                     cpuOffloading:
                       type: boolean
                       description: Explicit GPU weight/layer offloading policy. Ollama true always uses GPU-first auto-fit. Omission preserves legacy engine behavior; no default is injected.
@@ -453,6 +457,11 @@ spec:
                 runtimeEndpoint:
                   type: string
                   description: Internal OpenAI-compatible endpoint published only after the local runtime is ready.
+                replication:
+                  type: object
+                  nullable: true
+                  x-kubernetes-preserve-unknown-fields: true
+                  description: Observed per-card model copies, readiness and bounded per-instance startup/recovery state. Internal model names are not separate public models.
                 gpuSharing:
                   type: object
                   nullable: true

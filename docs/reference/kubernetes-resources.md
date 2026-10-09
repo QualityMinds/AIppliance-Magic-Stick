@@ -103,7 +103,11 @@ field explicitly clears a DRA selection when returning to automatic
 device-plugin placement. CPU, AMD, FreeToken and Realtime do not accept this
 NVIDIA exact-card contract. Existing settings without it remain compatible.
 
-For one model distributed over multiple matching cards, use `local.gpuDevices`
+`local.gpuDeployment` selects `single`, `split` or `replicated`. If omitted,
+one selected card means single and multiple selected cards mean split, preserving
+existing configurations. Explicit modes require exact NVIDIA DRA selection.
+
+For one model distributed over multiple matching cards (`split`), use `local.gpuDevices`
 instead of `gpuDevice`. Both representations are mutually exclusive. The list
 contains 1–16 distinct `{nodeName, nodeUid, uuid}` objects on one node; every
 card must have a verified matching product and physical capacity. There is one
@@ -124,6 +128,7 @@ fields remain for older consumers. Editing a group to one card clears
 local:
   engine: VLLM
   computeTarget: nvidia-gpu
+  gpuDeployment: split
   gpuDevices:
     - {nodeName: ai, nodeUid: "<current-node-uid>", uuid: "<first-GPU-uuid>"}
     - {nodeName: ai, nodeUid: "<current-node-uid>", uuid: "<second-GPU-uuid>"}
@@ -135,6 +140,29 @@ local:
 
 Use verified inventory values for the placeholders and a supported model URL or
 preset. See [multi-GPU operation](../administration/gpu-sharing.md#one-model-across-several-nvidia-gpus).
+
+For `gpuDeployment: replicated`, select 2–16 matching cards and omit
+`vllm.parallelism`. Every card runs a complete independent copy. VRAM, RAM and
+CPU settings apply **per copy**, so total host RAM/CPU scale with selected-card
+count. `minReplicas`/`maxReplicas` must remain 1; they apply to each internal
+KubeAI Model, not to the parent count. The parent is still one ModelActivation
+and one public LiteLLM model alias.
+
+The operator owns one internal `msr-<hash>` KubeAI Model per parent UID/GPU UUID.
+Labels bind it to the parent name and UID (`appliance.magicstick.dev/modelactivation`,
+`activation-uid`, `model-replica` under the same prefix); annotations bind the
+parent generation and GPU UUID. Cross-namespace owner references are not used.
+The activation finalizer deletes only owned children, using UID/resource-version
+preconditions, and waits for their Pods before completing removal. Changes drain
+old copies before creating replacements; foreign children are not adopted.
+
+`status.replication` contains `desired`, `ready`, and `instances`, with each
+instance's name, GPU/node identity, Model UID, phase, reason and message. Recovery
+attempts and Pod-creation observations remain scoped to individual copies.
+Ready counters alone do not prove readiness: the controller also requires a
+non-terminating Ready Pod owned by that exact child. The catalog publishes only
+currently ready copies of the current parent generation; a failed copy does not
+hide healthy copies. See [replica routing](model-catalog.md#replicated-local-models).
 
 `Appliance.status.hardwareOperators.amd-gpu.compatibility` contains the selected
 profile, catalog profiles and per-node evidence including `profileId`,

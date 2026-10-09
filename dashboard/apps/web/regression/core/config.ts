@@ -28,6 +28,7 @@ export interface GpuModelFixture {
   realtime?: RealtimeConfiguration;
   /** Derived from current DRA inventory by the registered-lab multi-GPU case. */
   gpuDevices?: NvidiaGpuSelection[];
+  gpuDeployment?: 'split' | 'replicated';
   systemMemoryMi?: number;
   vllm?: VllmConfiguration;
 }

@@ -45,6 +45,62 @@ beforeEach(() => {
 });
 
 describe('NVIDIA physical card selection', () => {
+  it.each(['VLLM', 'OLlama'])('creates independent %s copies with per-copy RAM and no split settings', async (engine) => {
+    mount(fourNvidiaCards()); await create();
+    if (engine === 'OLlama') {
+      await userEvent.selectOptions(screen.getByLabelText('Inference Engine'), engine);
+      await userEvent.selectOptions(screen.getByLabelText('Hardware'), 'nvidia-gpu');
+      await userEvent.selectOptions(screen.getByLabelText('Model source'), 'direct');
+      fireEvent.change(screen.getByLabelText('Ollama model reference'), {target: {value: 'ollama://fixture:small'}});
+    }
+    await userEvent.selectOptions(screen.getByLabelText('GPU deployment'), 'replicated');
+    expect(screen.getByRole('button', {name: 'Add Local Model'})).toBeDisabled();
+    await userEvent.click(screen.getByRole('checkbox', {name: /0000:02:00.0/}));
+    expect(screen.getByText(/One complete model copy and one Pod per card/)).toBeInTheDocument();
+    expect(screen.queryByText(/One model, one Pod/)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByText('Advanced', {exact: true}));
+    expect(screen.queryByLabelText('GPU parallelism')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('System RAM per copy (MiB)')).toHaveValue(16400);
+    await waitFor(() => expect(api.estimateMemory).toHaveBeenLastCalledWith(expect.objectContaining({gpuDeployment: 'replicated', gpuDevices: [nvidiaSelection(0), nvidiaSelection(1)]})));
+    expect(vi.mocked(api.estimateMemory).mock.lastCall![0]).not.toHaveProperty('vllm');
+    const add = screen.getByRole('button', {name: 'Add Local Model'});
+    fireEvent.change(screen.getByLabelText('System RAM per copy (MiB)'), {target: {value: '32100'}});
+    expect(add).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('System RAM per copy (MiB)'), {target: {value: '16400'}});
+    await waitFor(() => expect(add).toBeEnabled()); await userEvent.click(add);
+    const local = (vi.mocked(api.createLocalModel).mock.calls[0]![0] as {local: Record<string, unknown>}).local;
+    expect(local).toMatchObject({gpuDeployment: 'replicated', engine, memoryRequiredMi: 16400, vram: '6000Mi'});
+    expect(local).not.toHaveProperty('vllm');
+  });
+
+  it('edits a replicated group, clears split settings and disables reverted changes', async () => {
+    const data = deployed();
+    Object.assign(data.activations[0]!.spec!.local!, {gpuDevices: [nvidiaSelection(0), nvidiaSelection(1)], gpuDevice: undefined,
+      gpuDeployment: 'replicated', memoryRequiredMi: 16400});
+    data.activations[0]!.status!.replication = {desired: 2, ready: 1, instances: [{name: 'copy-a', uuid: nvidiaSelection(0).uuid, nodeName: 'fixture-node', phase: 'Ready'}]};
+    mount(data);
+    expect(await screen.findByText('2 model copies · one API name · 1/2 ready')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', {name: 'Edit fixture-model'}));
+    const save = screen.getByRole('button', {name: 'Save changes'});
+    await waitFor(() => expect(api.estimateModelUpdate).toHaveBeenCalled()); expect(save).toBeDisabled();
+    await userEvent.selectOptions(screen.getByLabelText('GPU deployment'), 'split');
+    await waitFor(() => expect(save).toBeEnabled());
+    await userEvent.selectOptions(screen.getByLabelText('GPU deployment'), 'replicated');
+    await waitFor(() => expect(save).toBeDisabled());
+    await userEvent.selectOptions(screen.getByLabelText('GPU deployment'), 'single');
+    await waitFor(() => expect(save).toBeEnabled()); await userEvent.click(save);
+    expect(api.updateModel).toHaveBeenCalledWith('fixture-model', expect.objectContaining({local: expect.objectContaining({gpuDeployment: 'single', gpuDevices: null, vllm: null})}));
+  });
+
+  it('keeps a legacy one-entry GPU list in single mode without requiring an edit', async () => {
+    const data = deployed();
+    Object.assign(data.activations[0]!.spec!.local!, {gpuDevice: undefined, gpuDevices: [nvidiaSelection(2)]});
+    mount(data); await userEvent.click(await screen.findByRole('button', {name: 'Edit fixture-model'}));
+    expect(screen.getByLabelText('GPU deployment')).toHaveValue('single');
+    await waitFor(() => expect(api.estimateModelUpdate).toHaveBeenCalled());
+    expect(screen.getByRole('button', {name: 'Save changes'})).toBeDisabled();
+  });
+
   it('rejects group budgets above physical VRAM or verified host RAM in the form', async () => {
     mount(fourNvidiaCards()); const submit = await create();
     await userEvent.click(screen.getByRole('checkbox', {name: /0000:02:00.0/}));
@@ -186,7 +242,7 @@ describe('NVIDIA physical card selection', () => {
     await userEvent.selectOptions(dialog.getByLabelText('NVIDIA card'), key(3));
     await waitFor(() => expect(dialog.getByRole('button', {name: 'Save changes'})).toBeEnabled());
     await userEvent.click(dialog.getByRole('button', {name: 'Save changes'}));
-    await waitFor(() => expect(api.updateModel).toHaveBeenCalledWith('fixture-model', {expectedRevision: '9', local: {gpuDevice: nvidiaSelection(3)}}));
+    await waitFor(() => expect(api.updateModel).toHaveBeenCalledWith('fixture-model', {expectedRevision: '9', local: {gpuDevice: nvidiaSelection(3), gpuDeployment: 'single'}}));
   });
 
   it('explicitly clears a saved binding after returning to legacy allocation', async () => {
@@ -198,6 +254,6 @@ describe('NVIDIA physical card selection', () => {
     await waitFor(() => expect(api.estimateModelUpdate).toHaveBeenLastCalledWith('fixture-model', expect.objectContaining({gpuDevice: null})));
     await waitFor(() => expect(dialog.getByRole('button', {name: 'Save changes'})).toBeEnabled());
     await userEvent.click(dialog.getByRole('button', {name: 'Save changes'}));
-    await waitFor(() => expect(api.updateModel).toHaveBeenCalledWith('fixture-model', {expectedRevision: '9', local: {gpuDevice: null}}));
+    await waitFor(() => expect(api.updateModel).toHaveBeenCalledWith('fixture-model', {expectedRevision: '9', local: {gpuDevice: null, gpuDeployment: null}}));
   });
 });

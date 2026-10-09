@@ -17,6 +17,7 @@ data:
             "computeTargets": ["nvidia-gpu"], "allocationBackend": "dra",
             "sameNodeOnly": true, "matchingCardsOnly": true, "maxDevices": 16,
             "runtimeVersion": "0.23.0", "defaultStrategy": "auto",
+            "deploymentModes": ["single", "split", "replicated"],
             "strategies": ["auto", "tensor", "pipeline"],
             "supportsShared": true, "memoryBudgetScope": "per-device"
           },
@@ -125,6 +126,7 @@ data:
             "computeTargets": ["nvidia-gpu"], "allocationBackend": "dra",
             "sameNodeOnly": true, "matchingCardsOnly": true, "maxDevices": 16,
             "runtimeVersion": "0.33.2", "defaultStrategy": "spread",
+            "deploymentModes": ["single", "split", "replicated"],
             "strategies": ["spread"], "supportsShared": true, "memoryBudgetScope": "per-device"
           },
           "cpuDefaults": {"cpu": {"requestMillicores": 2000, "limitMillicores": 8000}, "gpu": {"requestMillicores": 500, "limitMillicores": 0}},

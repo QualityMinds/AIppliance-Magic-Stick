@@ -9,6 +9,45 @@ UUIDS = ["GPU-00000000-0000-0000-0000-" + str(i).zfill(12) for i in range(4)]
 
 
 class NvidiaCardApiTests(unittest.TestCase):
+    def test_replication_keeps_full_weights_and_charges_host_ram_per_copy(self):
+        capability = {"computeTargets": ["nvidia-gpu"], "maxDevices": 16, "deploymentModes": ["single", "split", "replicated"]}
+        for engine in ("VLLM", "OLlama"):
+            model = self.group(range(4))
+            model["spec"]["local"].update(gpuDeployment="replicated", engine=engine)
+            with patch.dict(self.api, {"compute_target_catalog": lambda: {"engines": {engine: {"multiGpu": capability}}}}):
+                result = self.api["multi_gpu_estimate"](model["spec"]["local"], {"weightsMi": 10000, "kvCacheMi": 1000, "reserveMi": 512})
+            self.assertEqual((result["weightsMi"], result["kvCacheMi"], result["reserveMi"]), (10000, 1000, 512))
+            self.assertEqual((result["replicaCount"], result["totalWeightsMi"]), (4, 40000))
+            reservations = self.api["active_model_memory_reservations"]([model])
+            self.assertEqual(reservations["cpu"][0]["reservedMi"], 4 * 16400)
+
+    def test_partial_replica_start_charges_each_selected_card_once(self):
+        model = self.group(range(4)); model["spec"]["local"]["gpuDeployment"] = "replicated"
+        self.models = [model]; self.pods = [self.pod()]  # card 2 running, others still starting
+        self.assertEqual([d["used"] for d in self.summary()["devices"]], [1, 1, 1, 1])
+        self.assertEqual([d["used"] for d in self.summary("fixture-model")["devices"]], [0, 0, 0, 0])
+        model["spec"]["enabled"] = False
+        self.assertEqual([d["used"] for d in self.summary()["devices"]], [0, 0, 1, 0])
+
+    def test_replication_validates_mode_and_total_ram_and_roundtrips_edit(self):
+        capability = {"computeTargets": ["nvidia-gpu"], "maxDevices": 16, "deploymentModes": ["single", "split", "replicated"]}
+        catalog = {"targets": {"nvidia-gpu": {"kind": "gpu"}}, "engines": {e: {"multiGpu": capability} for e in ("VLLM", "OLlama")}}
+        estimate = {"minimumMi": 9000, "maximumMi": 40000, "devices": [{"totalMi": 49152}]*2}
+        with patch.dict(self.api, {"gpu_sharing_status": lambda _: self.state, "compute_target_catalog": lambda: catalog,
+                "estimate_model_memory": lambda *_: estimate, "offloading_host_memory_available": lambda *_: 40000}):
+            for engine in ("VLLM", "OLlama"):
+                local = {**self.group()["spec"]["local"], "engine": engine, "gpuDeployment": "replicated",
+                         "url": "hf://fixture/small" if engine == "VLLM" else "ollama://fixture:small"}
+                resource = self.api["model_activation_payload"]("local", {"name": "fixture-model", "local": local})
+                self.assertEqual(resource["spec"]["local"]["gpuDeployment"], "replicated")
+                for bad in ({"gpuDeployment": "unknown"}, {"gpuDeployment": "single"}, {"gpuDevices": local["gpuDevices"][:1]},
+                            {"memoryRequiredMi": 20100, "allowMemoryRisk": True}, {"vramMi": 49200, "allowMemoryRisk": True},
+                            {"vllm": {"parallelism": "tensor"}}):
+                    with self.subTest(engine=engine, bad=bad), self.assertRaises(ValueError):
+                        self.api["model_activation_payload"]("local", {"name": "fixture-model", "local": {**local, **bad}})
+                _, saved = self.api["merged_local_model_settings"](resource, {"gpuDeployment": "split"})
+                self.assertEqual(saved["gpuDeployment"], "split")
+
     def group(self, cards=(0, 1), enabled=True):
         model = self.model(enabled=enabled)
         local = model["spec"]["local"]

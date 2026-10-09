@@ -42,5 +42,12 @@ another node or an implicit disk-swap pool. FreeToken maps its own memory settin
 to runtime parameters and Kubernetes Pod resources. GPU budgets are not universal
 hardware-enforced VRAM partitions.
 
+Splitting one model across several GPUs and replicating it are different budgets.
+Splitting estimates a portion of the weights on each card and reserves one host
+Pod's RAM/CPU. Replication keeps a full model copy on every selected card and
+reserves RAM/CPU separately for each copy. Adding copies increases concurrent
+serving capacity; it does not lower the VRAM needed by a copy. Both modes consume
+one slot on each selected card, not on unselected GPUs.
+
 For actions, see [GPU memory](../administration/gpu-memory.md),
 [GPU sharing](../administration/gpu-sharing.md) and [engine selection](../user-guide/models/choose-engine.md).

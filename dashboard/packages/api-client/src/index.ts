@@ -163,8 +163,9 @@ export class MagicStickApi {
     );
   }
   models() { return this.request<ModelsPayload>('/api/models'); }
-  modelLogs(name: string, tailLines = 300) {
+  modelLogs(name: string, tailLines = 300, replica = '') {
     const query = new URLSearchParams({tailLines: String(tailLines)});
+    if (replica) query.set('replica', replica);
     return this.request<ModelLogsPayload>(`/api/models/${encodeURIComponent(name)}/logs?${query}`);
   }
   status() { return this.request<SystemStatusPayload>('/api/status'); }

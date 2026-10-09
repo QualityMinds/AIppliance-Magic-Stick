@@ -48,6 +48,14 @@ describe('model runtime logs', () => {
     expect(screen.getByRole('button', {name: 'Copy all'})).toBeInTheDocument();
   });
 
+  it('selects bounded logs for one model copy without changing the public model name', async () => {
+    vi.mocked(api.modelLogs).mockResolvedValue({model: 'qwen-local', namespace: 'ai', generatedAt: '2026-10-09T00:00:00Z', tailLines: 300,
+      replicas: [{name: 'copy-a', uuid: 'GPU-fixture-a'}, {name: 'copy-b', uuid: 'GPU-fixture-b'}], pods: []});
+    renderModels(admin); await userEvent.click(await screen.findByRole('button', {name: 'View logs for qwen-local'}));
+    await userEvent.selectOptions(await screen.findByLabelText('Model copy'), 'copy-b');
+    expect(api.modelLogs).toHaveBeenLastCalledWith('qwen-local', 300, 'copy-b');
+  });
+
   it('does not expose runtime logs to operators or for external models', async () => {
     renderModels(operator);
     await screen.findByText('qwen-local');

@@ -334,7 +334,10 @@ its node UID. Its reservation is charged only to that card, never a sibling or
 a replacement node. The actually-free inner ring always comes from DCGM.
 `local.gpuDevices` extends this to a same-node, matching-card group: one slot and
 the per-card VRAM reservation are charged to each selected UUID, not every GPU on
-the node. System RAM/CPU are reserved once for the Pod. **Additional GPUs for this
+the node. In **Split one model**, system RAM/CPU are reserved once for the Pod.
+In **Replicate model copies**, the full model runs on each selected GPU and
+system RAM/CPU are reserved per copy. The UI shows the combined host-RAM budget
+and the per-copy ready state; Logs can select an individual copy. **Additional GPUs for this
 model** supports explicit selection or **Select matching GPUs**, which resolves
 and saves exact identities rather than a floating GPU count. Polling never
 silently substitutes a missing or full card. Multi-GPU settings and vLLM

@@ -138,6 +138,7 @@ export interface KubernetesObjectMeta {
 }
 
 export interface StatusValue {
+  replication?: {desired: number; ready: number; instances: Array<{name: string; uuid: string; nodeName: string; phase: string; reason?: string; message?: string; modelUid?: string}>} | null;
   gpuSharing?: {mode: 'dra-shared' | 'time-slicing' | 'exclusive'; backend?: 'dra' | 'device-plugin'; claimName?: string; node: string; nodeUid?: string; device?: string; devices?: NvidiaGpuSelection[]; gpuCount?: number; claimNames?: string[]; slotCount?: number; memoryIsolation?: boolean} | null;
   /** Optional normalized observations from a FreeToken local runtime. */
   freeTokenStats?: FreeTokenRuntimeStats | null;
@@ -396,6 +397,7 @@ export interface VllmConfiguration {
 }
 
 export interface MultiGpuCapability {
+  deploymentModes?: Array<'single' | 'split' | 'replicated'>;
   computeTargets: string[];
   maxDevices: number;
   strategies: string[];
@@ -618,6 +620,7 @@ export interface ModelLogContainer {
 
 export interface ModelLogPod {
   name: string;
+  replica?: string;
   phase: string;
   node?: string;
   createdAt?: string;
@@ -633,6 +636,7 @@ export interface ModelLogsPayload {
   tailLines: number;
   omittedPods?: number;
   pods: ModelLogPod[];
+  replicas?: Array<{name: string; uuid: string}>;
 }
 
 export interface Quantization {
@@ -700,9 +704,10 @@ export interface MemoryEstimate {
   recommendedMi: number;
   maximumMi?: number | null;
   gpuCount?: number;
-  gpuParallelism?: 'tensor' | 'pipeline' | 'spread';
+  gpuParallelism?: 'tensor' | 'pipeline' | 'spread' | 'replicated';
   memoryBudgetScope?: 'per-device';
   systemMemoryMaximumMi?: number | null;
+  replicaCount?: number;
   weightsMi?: number;
   downloadBytes?: number;
   quantization?: Quantization | null;

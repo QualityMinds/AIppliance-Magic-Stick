@@ -23,9 +23,9 @@ export const NvidiaGpuSelect = ({cards, value, onChange, ownKey, ownActive = fal
   })}
 </select></Field><p id="nvidia-card-help" className="muted">{allowAutomatic ? 'Device-plugin allocation cannot bind individual cards. Choose automatic assignment to clear the saved DRA selection.' : 'DRA assigns this exact physical GPU. Slots and memory reservations apply only to the selected card. Shared slots do not isolate VRAM.'}</p></>;
 
-export const NvidiaGpuGroupSelect = ({cards, values, onChange, ownKeys = [], ownActive = false, allowAutomatic = false, maximum = 1}: {
+export const NvidiaGpuGroupSelect = ({cards, values, onChange, ownKeys = [], ownActive = false, allowAutomatic = false, maximum = 1, replicated = false}: {
   cards: ComputeMemoryDevice[]; values: string[]; onChange: (values: string[]) => void;
-  ownKeys?: string[]; ownActive?: boolean; allowAutomatic?: boolean; maximum?: number;
+  ownKeys?: string[]; ownActive?: boolean; allowAutomatic?: boolean; maximum?: number; replicated?: boolean;
 }) => {
   const primary = cards.find((card) => nvidiaCardKey(card.gpuDevice!) === values[0]);
   const [autoCount, setAutoCount] = useState(Math.max(2, values.length));
@@ -50,7 +50,7 @@ export const NvidiaGpuGroupSelect = ({cards, values, onChange, ownKeys = [], own
         <p role="alert" key={key}>Selected GPU {key} is no longer available. <Button type="button" onClick={() => onChange(values.filter((value) => value !== key))}>Remove missing GPU</Button></p>)}
       <div className="form-grid"><Field label="Automatic GPU count"><input type="number" value={autoCount} onChange={(event) => setAutoCount(Number(event.target.value))} /></Field>
         <Button type="button" onClick={automatic} disabled={!Number.isInteger(autoCount) || autoCount < 1 || autoCount > maximum || autoCount > compatible.length}>Select matching GPUs</Button></div>
-      <p className="muted">{values.length} GPU{values.length === 1 ? '' : 's'} selected. One model, one Pod, one slot per card. The entire group must be available. VRAM is budgeted per card; shared slots do not isolate memory.</p>
+      <p className="muted">{values.length} GPU{values.length === 1 ? '' : 's'} selected. {replicated ? 'One complete model copy and one Pod per card, behind one API name.' : 'One model, one Pod.'} One slot per card; the entire group must be available. VRAM is budgeted per card; shared slots do not isolate memory.</p>
     </fieldset>}
   </section>;
 };

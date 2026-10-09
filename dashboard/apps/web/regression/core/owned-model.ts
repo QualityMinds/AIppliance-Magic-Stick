@@ -126,6 +126,7 @@ export class OwnedModelClient {
         ...(this.fixture.kvCacheType ? {kvCacheType: this.fixture.kvCacheType} : {})}),
       ...(this.allowMemoryRisk ? {allowMemoryRisk: true} : {}),
       ...('gpuDevices' in this.fixture && this.fixture.gpuDevices ? {gpuDevices:this.fixture.gpuDevices,
+        ...(this.fixture.gpuDeployment ? {gpuDeployment:this.fixture.gpuDeployment} : {}),
         memoryRequiredMi:this.fixture.systemMemoryMi, ...(this.fixture.vllm ? {vllm:this.fixture.vllm} : {})} : {}),
     }};
   }
@@ -214,13 +215,18 @@ export class OwnedModelClient {
 }
 
 export function ownedRuntimePods(pods: KubeObject[], name: string) {
-  return pods.filter(pod => pod.metadata.namespace === 'ai' && pod.metadata.labels?.app === 'model' &&
+  const replicas = pods.filter(pod => pod.metadata.namespace === 'ai' && pod.metadata.labels?.app === 'model' &&
+    pod.metadata.labels['appliance.magicstick.dev/modelactivation'] === name &&
+    pod.metadata.labels['appliance.magicstick.dev/model-replica'] === 'true' &&
+    !!pod.metadata.labels['appliance.magicstick.dev/activation-uid'] &&
+    pod.metadata.ownerReferences?.some(owner => owner.kind === 'Model' && owner.name === pod.metadata.labels?.model && owner.controller === true));
+  return [...replicas, ...pods.filter(pod => !replicas.includes(pod) && pod.metadata.namespace === 'ai' && pod.metadata.labels?.app === 'model' &&
     pod.metadata.labels.model === name &&
     (pod.metadata.ownerReferences?.some(owner => owner.kind === 'Model' && owner.name === name && owner.controller === true) ||
       pod.metadata.labels['appliance.magicstick.dev/modelactivation'] === name &&
       pod.metadata.labels['app.kubernetes.io/managed-by'] === 'magicstick-operator' &&
       ['freetoken','realtime'].includes(pod.metadata.labels['appliance.magicstick.dev/runtime-backend'] ?? '') &&
-      pod.metadata.ownerReferences?.some(owner => owner.kind === 'ReplicaSet' && owner.controller === true)));
+      pod.metadata.ownerReferences?.some(owner => owner.kind === 'ReplicaSet' && owner.controller === true)))];
 }
 
 /** Independent Pod evidence for the controller's repeated-runtime-failure

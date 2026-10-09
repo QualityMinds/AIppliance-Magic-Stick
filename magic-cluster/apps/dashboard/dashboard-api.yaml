@@ -85,7 +85,7 @@ data:
     LOCAL_MODEL_EDIT_FIELDS = {
         "modelType", "contextWindow", "maxOutputTokens", "maxNumSeqs", "kvCacheType",
         "vram", "vramMi", "memoryRequiredMi", "cpuOffloading", "allowMemoryRisk",
-        "minReplicas", "maxReplicas", "freetoken", "cpuResources", "vllm", "realtime", "capabilities", "gpuDevice", "gpuDevices",
+        "minReplicas", "maxReplicas", "freetoken", "cpuResources", "vllm", "realtime", "capabilities", "gpuDevice", "gpuDevices", "gpuDeployment",
     }
     EXTERNAL_MODEL_EDIT_FIELDS = {
         "model", "apiBase", "modelType", "apiVersion", "customLlmProvider",
@@ -2041,9 +2041,39 @@ data:
         except (TypeError, ValueError):
             raise RequestError(400, "tailLines must be an integer.")
         tail_lines = max(1, min(tail_lines, MODEL_LOG_MAX_TAIL_LINES))
-        selector = urllib.parse.urlencode({"labelSelector": "app=model,model=" + name})
+        replica = str(((query or {}).get("replica") or [""])[0])
+        replicas = {}
+        if (spec.get("local") or {}).get("gpuDeployment") == "replicated" or activation.get("status", {}).get("replication"):
+            selector = urllib.parse.urlencode({"labelSelector": "appliance.magicstick.dev/modelactivation=" + name + ",appliance.magicstick.dev/model-replica=true"})
+            for model in list_resource("/apis/kubeai.org/v1/namespaces/" + namespace + "/models?" + selector):
+                meta = model.get("metadata") or {}
+                labels = meta.get("labels") or {}
+                if (meta.get("namespace") == namespace and meta.get("uid") and activation.get("metadata", {}).get("uid")
+                        and labels.get("appliance.magicstick.dev/activation-uid") == activation["metadata"]["uid"]
+                        and labels.get("appliance.magicstick.dev/modelactivation") == name
+                        and labels.get("appliance.magicstick.dev/model-replica") == "true"
+                        and labels.get("app.kubernetes.io/managed-by") == "magicstick-operator"):
+                    replicas[meta["name"]] = model
+            if replica and replica not in replicas:
+                raise RequestError(404, "The selected model copy does not exist or is no longer owned by this model.")
+            selector = urllib.parse.urlencode({"labelSelector": "app=model,appliance.magicstick.dev/modelactivation=" + name})
+        else:
+            if replica:
+                raise RequestError(400, "This model does not have separate GPU copies.")
+            selector = urllib.parse.urlencode({"labelSelector": "app=model,model=" + name})
         path = "/api/v1/namespaces/" + urllib.parse.quote(namespace, safe="") + "/pods?" + selector
-        candidates = [pod for pod in list_resource(path) if owned_model_runtime_pod(pod, name)]
+        def owned_pod(pod):
+            if not replicas:
+                return not ((spec.get("local") or {}).get("gpuDeployment") == "replicated") and owned_model_runtime_pod(pod, name)
+            meta = pod.get("metadata") or {}
+            child = (meta.get("labels") or {}).get("model")
+            if child not in replicas or replica and child != replica or meta.get("namespace") != namespace:
+                return False
+            return owned_model_runtime_pod(pod, child) and any(
+                o.get("kind") == "Model" and o.get("apiVersion") == "kubeai.org/v1" and o.get("controller") is True
+                and o.get("name") == child and o.get("uid") == replicas[child]["metadata"]["uid"]
+                for o in meta.get("ownerReferences", []))
+        candidates = [pod for pod in list_resource(path) if owned_pod(pod)]
         candidates.sort(key=lambda pod: (
             str((pod.get("metadata") or {}).get("creationTimestamp") or ""),
             str((pod.get("metadata") or {}).get("name") or ""),
@@ -2081,6 +2111,7 @@ data:
                 })
             pods.append({
                 "name": metadata.get("name") or "unknown",
+                "replica": metadata.get("labels", {}).get("model") if replicas else "",
                 "phase": status.get("phase") or "Unknown",
                 "node": pod_spec.get("nodeName") or "",
                 "createdAt": metadata.get("creationTimestamp") or "",
@@ -2093,6 +2124,8 @@ data:
             "namespace": namespace,
             "generatedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "tailLines": tail_lines,
+            "replicas": [{"name": child, "uuid": model.get("metadata", {}).get("annotations", {}).get("appliance.magicstick.dev/replica-gpu", "")}
+                         for child, model in sorted(replicas.items())],
             "omittedPods": max(0, len(candidates) - MODEL_LOG_MAX_PODS),
             "pods": pods,
         }
@@ -6126,7 +6159,7 @@ data:
         if payload.get("cpuOffloading") is not True:
             raise RequestError(400, "cpuOffloading must be a boolean")
         engine = normalize_local_engine(payload.get("engine"))
-        gpu_count = max(1, len(payload.get("gpuDevices") or []))
+        gpu_count = 1 if payload.get("gpuDeployment") == "replicated" else max(1, len(payload.get("gpuDevices") or []))
         if payload.get("computeTarget", "nvidia-gpu") != "nvidia-gpu":
             raise RequestError(400, "CPU offloading currently supports NVIDIA GPU models only.")
         budget = positive_int(payload.get("vramMi")) or parse_mib(payload.get("vram"))
@@ -6328,6 +6361,13 @@ data:
         capability = compute_target_catalog().get("engines", {}).get(engine, {}).get("multiGpu") or {}
         if payload.get("computeTarget") not in capability.get("computeTargets", []) or count > capability.get("maxDevices", 1):
             raise ValueError("This engine does not offer the requested multi-GPU configuration")
+        if payload.get("gpuDeployment") == "replicated":
+            if "replicated" not in capability.get("deploymentModes", []):
+                raise ValueError("This engine does not offer GPU replication")
+            return {**estimate, "gpuCount": count, "replicaCount": count, "gpuParallelism": "replicated",
+                "totalWeightsMi": int(estimate.get("weightsMi") or 0) * count,
+                "warnings": [*(estimate.get("warnings") or []),
+                    "Each GPU loads the complete model and its own cache. VRAM and system RAM budgets are per replica, not divided across GPUs."]}
         strategy = "spread"
         fraction = 1 / count
         if engine == "VLLM":
@@ -6475,8 +6515,11 @@ data:
             "warnings": warnings,
         }
         if len(selections) > 1:
+            replica_count = len(selections) if payload.get("gpuDeployment") == "replicated" else 1
+            host_maximum = offloading_host_memory_available(compute_target, exclude_model, selections[0]["nodeName"])
             result.update(gpuCount=len(selections), gpuParallelism=estimate.get("gpuParallelism"), memoryBudgetScope="per-device",
-                systemMemoryMaximumMi=offloading_host_memory_available(compute_target, exclude_model, selections[0]["nodeName"]),
+                replicaCount=replica_count,
+                systemMemoryMaximumMi=host_maximum // replica_count if host_maximum is not None else None,
                 totalWeightsMi=estimate.get("totalWeightsMi"), devices=[{
                     "gpuDevice": s, "totalMi": d.get("totalMi"), "freeMi": d.get("freeMi"), "unreservedMi": d.get("unreservedMi")
                 } for s, d in zip(selections, selected_memory)])
@@ -6486,6 +6529,8 @@ data:
             host_available = (offloading_host_memory_available(compute_target, exclude_model, selections[0]["nodeName"]) if selections else
                               offloading_host_memory_available(compute_target, exclude_model)
                               if exclude_model else offloading_host_memory_available(compute_target))
+            if payload.get("gpuDeployment") == "replicated" and host_available is not None:
+                host_available //= max(1, len(selections))
             plan = offloading_plan({**payload, "engine": engine, "computeTarget": compute_target}, estimate, reserve_mi, host_available)
             result["offloading"] = plan
             result["minimumMi"] = plan["gpuMinimumMi"]
@@ -7064,7 +7109,7 @@ data:
             allowed = {
                 "preset", "artifact", "url", "modelType", "engine", "computeTarget", "vram", "vramMi",
                 "memoryRequiredMi", "cpuOffloading", "allowMemoryRisk", "cpuResources",
-                "contextWindow", "maxOutputTokens", "maxNumSeqs", "kvCacheType", "minReplicas", "maxReplicas", "freetoken", "vllm", "realtime", "capabilities", "gpuDevice", "gpuDevices",
+                "contextWindow", "maxOutputTokens", "maxNumSeqs", "kvCacheType", "minReplicas", "maxReplicas", "freetoken", "vllm", "realtime", "capabilities", "gpuDevice", "gpuDevices", "gpuDeployment",
             }
             for key in allowed:
                 if key in supplied_local:
@@ -7078,7 +7123,7 @@ data:
             engine = normalize_local_engine(local.get("engine"))
             local["computeTarget"] = compute_target
             local["engine"] = engine
-            if "gpuDevice" in local or "gpuDevices" in local:
+            if "gpuDevice" in local or "gpuDevices" in local or "gpuDeployment" in local:
                 validate_nvidia_gpu_selection(local, exclude_model)
             if "vllm" in local:
                 local["vllm"] = model_vllm_configuration(local, engine, compute_target, compute_target_catalog())
@@ -7167,6 +7212,8 @@ data:
                     if not allow_memory_risk and (estimate.get("maximumMi") is None or budget > estimate["maximumMi"]):
                         raise ValueError("The per-GPU budget exceeds unreserved memory on a selected card")
                     if not local.get("cpuOffloading") and budget < round_up_mib(estimate.get("minimumMi")) and not allow_memory_risk:
+                        if local.get("gpuDeployment") == "replicated":
+                            raise ValueError("Each model copy needs more memory on its GPU. Increase the per-copy budget, choose a smaller model, reduce context, or explicitly accept the memory risk. More copies do not reduce memory per GPU.")
                         raise ValueError("The model needs more memory per GPU. Increase the budget, use more GPUs, reduce context, or explicitly accept the memory risk.")
                     local["vramMi"] = budget
                     local.pop("vram", None)
@@ -7175,7 +7222,8 @@ data:
                         raise ValueError("Multi-GPU system RAM must be an integer of at least 1024 MiB")
                     selected_node = local["gpuDevices"][0]["nodeName"]
                     host_maximum = offloading_host_memory_available(compute_target, exclude_model, selected_node)
-                    if host_maximum is None or memory > host_maximum:
+                    replicas = gpu_count if local.get("gpuDeployment") == "replicated" else 1
+                    if host_maximum is None or memory * replicas > host_maximum:
                         raise ValueError("System RAM exceeds verifiable unreserved RAM on the selected GPU node")
                     local["memoryRequiredMi"] = memory
                 if local.get("cpuOffloading"):
@@ -7703,7 +7751,7 @@ data:
                 if host_ram:
                     reservations.setdefault("cpu", []).append({
                         "model": str(metadata.get("name") or "local-model") + (" (Realtime runtime)" if realtime else " (FreeToken runtime)" if engine == "FREETOKEN" else " (GPU runtime)" if local.get("gpuDevices") else " (offloading)"),
-                        "reservedMi": host_ram,
+                        "reservedMi": host_ram * (max(1, len(local.get("gpuDevices") or [])) if local.get("gpuDeployment") == "replicated" else 1),
                         **({"node": realtime["gpuNode"]} if realtime.get("gpuNode") else
                            {"node": local["gpuDevices"][0]["nodeName"]} if local.get("gpuDevices") else {}),
                     })
@@ -8362,7 +8410,7 @@ data:
             if valid:
                 uuids = {s["uuid"] for s in requested}
                 pending = uuids - live.get(key, set())
-                if len(uuids) > 1 and (live.get(key) and live[key] != uuids or any(by_uuid[u]["demand"] >= limit for u in pending)):
+                if len(uuids) > 1 and ((live.get(key) and (not live[key].issubset(uuids) if local.get("gpuDeployment") == "replicated" else live[key] != uuids)) or any(by_uuid[u]["demand"] >= limit for u in pending)):
                     invalid_bindings += 1  # Whole group queued, no partial slot reservation.
                     continue
                 for uuid in pending:
@@ -8408,6 +8456,15 @@ data:
 
     def validate_nvidia_gpu_selection(local, exclude_model=""):
         selections = nvidia_model_devices(local)
+        mode = local.get("gpuDeployment", "split" if len(selections) > 1 else "single")
+        if mode not in ("single", "split", "replicated") or mode == "single" and len(selections) != 1:
+            raise ValueError("Choose Single GPU, Split across GPUs or Replicate across GPUs with a valid card selection")
+        if mode == "replicated":
+            capability = compute_target_catalog().get("engines", {}).get(normalize_local_engine(local.get("engine")), {}).get("multiGpu") or {}
+            if "replicated" not in capability.get("deploymentModes", []) or len(selections) < 2:
+                raise ValueError("GPU replication requires an advertised runtime and at least two selected cards")
+            if (local.get("vllm") or {}).get("parallelism") is not None:
+                raise ValueError("GPU replication cannot also split a model; remove vLLM parallelism settings")
         if local.get("computeTarget", "nvidia-gpu") != "nvidia-gpu" or normalize_local_engine(local.get("engine")) not in ("VLLM", "OLlama") or "realtime" in local:
             raise ValueError("Individual NVIDIA card selection supports ordinary vLLM and Ollama models")
         state = gpu_sharing_status("nvidia")

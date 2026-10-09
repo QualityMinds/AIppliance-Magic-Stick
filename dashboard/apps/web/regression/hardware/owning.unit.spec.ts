@@ -13,6 +13,19 @@ function proof(keys:string[],layer:'U'|'C') {
 function title(keys:string[],description:string) {return [...new Set(keys.map(key => definitions[key]!.id))].join(' ')+' '+description;}
 const api = '../../../magic-cluster/apps/dashboard';
 const operator = '../../../magic-cluster/platform/magicstick-operator/controller';
+test('MGPU-02 owning replicated create/edit separates budgets and split strategy',proof([`p${phase}-replicated-config`],'U'), async () => {
+  await componentSuite('src/NvidiaCards.test.tsx',[
+    'creates independent VLLM copies with per-copy RAM and no split settings',
+    'creates independent OLlama copies with per-copy RAM and no split settings',
+    'edits a replicated group, clears split settings and disables reverted changes',
+  ]);
+  await componentSuite('src/ModelLogs.test.tsx',['selects bounded logs for one model copy without changing the public model name']);
+});
+test('MGPU-02 owning admission, lifecycle, per-card runtime, routing and logs preserve replica identity',proof([`p${phase}-replicated-config`],'C'), () => {
+  pythonSuite(api,['test_nvidia_card_api.NvidiaCardApiTests','test_model_logs.ModelLogsTests']);
+  pythonSuite(operator,['test_model_replication.ModelReplicationTests']);
+  pythonSuite('../../../magic-cluster/apps/ai/model-catalog',['test_replication.ReplicatedRoutingTests']);
+});
 test('MGPU-01 owning group selection persists identity, per-card memory and edit credits',proof([`p${phase}-multigpu-config`],'U'), () =>
   componentSuite('src/NvidiaCards.test.tsx',[
     'rejects group budgets above physical VRAM or verified host RAM in the form',
