@@ -11,7 +11,7 @@ import {ModelsPage} from './pages/ModelsPage';
 vi.mock('./api', () => ({api: {models: vi.fn(), popularModels: vi.fn(), estimateMemory: vi.fn(),
   createLocalModel: vi.fn(), estimateModelUpdate: vi.fn(), updateModel: vi.fn()}}));
 const session = {subject: 'fixture-admin', username: 'fixture-admin', roles: ['magicstick-admin'], identityManagementAvailable: true, identityManagementMode: 'keycloak'};
-const estimate = {minimumMi: 5000, recommendedMi: 6000, maximumMi: 49152, weightsMi: 4000, kvCacheMi: 500, reserveMi: 500, confidence: 'high' as const};
+const estimate = {minimumMi: 5000, recommendedMi: 6000, maximumMi: 49152, systemMemoryMaximumMi: 32000, weightsMi: 4000, kvCacheMi: 500, reserveMi: 500, confidence: 'high' as const};
 const key = (index: number) => nvidiaCardKey(nvidiaSelection(index));
 function mount(data: ModelsPayload) {
   vi.mocked(api.models).mockResolvedValue(data);
@@ -45,6 +45,69 @@ beforeEach(() => {
 });
 
 describe('NVIDIA physical card selection', () => {
+  it('rejects group budgets above physical VRAM or verified host RAM in the form', async () => {
+    mount(fourNvidiaCards()); const submit = await create();
+    await userEvent.click(screen.getByRole('checkbox', {name: /0000:02:00.0/}));
+    await userEvent.click(screen.getByText('Advanced', {exact: true}));
+    await waitFor(() => expect(screen.getByLabelText('Multi-GPU system RAM (MiB)')).toHaveAttribute('max', '32000'));
+    fireEvent.change(screen.getByLabelText('Multi-GPU system RAM (MiB)'), {target: {value: '32100'}});
+    expect(submit).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Multi-GPU system RAM (MiB)'), {target: {value: '16400'}});
+    await waitFor(() => expect(submit).toBeEnabled());
+    fireEvent.change(screen.getByLabelText('VRAM budget (MiB)'), {target: {value: '49200'}});
+    expect(submit).toBeDisabled(); expect(api.createLocalModel).not.toHaveBeenCalled();
+  });
+  it('persists a two-card group and per-device budget without multiplying CPU or RAM', async () => {
+    mount(fourNvidiaCards());
+    const submit = await create();
+    await userEvent.click(screen.getByRole('checkbox', {name: /0000:02:00.0/}));
+    await waitFor(() => expect(api.estimateMemory).toHaveBeenLastCalledWith(expect.objectContaining({gpuDevices: [nvidiaSelection(0), nvidiaSelection(1)], vllm: {parallelism: 'auto'}})));
+    expect(screen.getByText(/2 GPUs · .* planned total/)).toBeInTheDocument();
+    await userEvent.click(screen.getByText('Advanced', {exact: true}));
+    await userEvent.selectOptions(screen.getByLabelText('GPU parallelism'), 'pipeline');
+    await waitFor(() => expect(submit).toBeEnabled());
+    await userEvent.click(submit);
+    await waitFor(() => expect(api.createLocalModel).toHaveBeenCalledWith(expect.objectContaining({local: expect.objectContaining({
+      gpuDevices: [nvidiaSelection(0), nvidiaSelection(1)], vllm: {parallelism: 'pipeline'}, memoryRequiredMi: 16400, vram: '6000Mi',
+    })})));
+    expect(vi.mocked(api.createLocalModel).mock.calls[0]![0]).not.toHaveProperty('local.gpuDevice');
+  });
+
+  it('automatically chooses four matching cards and preserves a blocked group during polling', async () => {
+    const client = mount(fourNvidiaCards()); const submit = await create();
+    fireEvent.change(screen.getByLabelText('Automatic GPU count'), {target: {value: '4'}});
+    await userEvent.click(screen.getByRole('button', {name: 'Select matching GPUs'}));
+    await waitFor(() => expect(api.estimateMemory).toHaveBeenLastCalledWith(expect.objectContaining({gpuDevices: [0,1,2,3].map(i=>nvidiaSelection(i))})));
+    await act(async () => {client.setQueryData(['models'], fourNvidiaCards([4,4,0,4]));});
+    await waitFor(() => expect(submit).toBeDisabled());
+    expect(screen.getByRole('checkbox', {name: /0000:03:00.0/})).toBeChecked();
+    await act(async () => {client.setQueryData(['models'], fourNvidiaCards());});
+    await waitFor(() => expect(submit).toBeEnabled());
+  });
+
+  it('disables other nodes and nonmatching cards instead of silently mixing a group', async () => {
+    const data = fourNvidiaCards(); data.computeMemory!.devices![1]!.productName = 'Other GPU';
+    data.computeMemory!.devices![2]!.gpuDevice!.nodeUid = 'different-node';
+    mount(data); await create();
+    expect(screen.getByRole('checkbox', {name: /0000:02:00.0/})).toBeDisabled();
+    expect(screen.getByRole('checkbox', {name: /0000:03:00.0/})).toBeDisabled();
+    expect(screen.getByRole('checkbox', {name: /0000:04:00.0/})).toBeEnabled();
+  });
+
+  it('edits a full active group using only its own credits and can shrink to one GPU', async () => {
+    const data = deployed();
+    Object.assign(data.activations[0]!.spec!.local!, {gpuDevices: [nvidiaSelection(0), nvidiaSelection(1)], gpuDevice: undefined, memoryRequiredMi: 16400, vllm: {parallelism: 'tensor'}});
+    mount(data); await userEvent.click(await screen.findByRole('button', {name: 'Edit fixture-model'}));
+    const save = screen.getByRole('button', {name: 'Save changes'});
+    await waitFor(() => expect(api.estimateModelUpdate).toHaveBeenCalled());
+    expect(save).toBeDisabled();
+    expect(screen.getByRole('checkbox', {name: /0000:02:00.0/})).toBeChecked();
+    expect(screen.getByRole('checkbox', {name: /0000:03:00.0/})).toBeDisabled();
+    await userEvent.click(screen.getByRole('checkbox', {name: /0000:02:00.0/}));
+    await waitFor(() => expect(save).toBeEnabled()); await userEvent.click(save);
+    await waitFor(() => expect(api.updateModel).toHaveBeenCalledWith('fixture-model', expect.objectContaining({local: expect.objectContaining({gpuDevices: null, gpuDevice: nvidiaSelection(0), memoryRequiredMi: null, vllm: null})})));
+  });
+
   it('offers four identical cards with distinct identities and persists only the chosen binding', async () => {
     mount(fourNvidiaCards([4, 0, 3, 4]));
     const submit = await create();

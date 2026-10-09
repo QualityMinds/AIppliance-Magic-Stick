@@ -147,22 +147,25 @@ export class GpuScenario {
     const states = (await this.live.api.gpuSharing()).providers.filter(item=>item.provider === provider);
     requireSafe(states.length === 1 && states[0]!.nodeUid === this.config.gpu!.nodeUid,'IDENTITY'); return states[0]!;
   }
-  async transition(provider:Provider,mode:GpuSharingState['mode'],count=2) {
+  async transition(provider:Provider,mode:GpuSharingState['mode'],count=2,allocationBackend:'dra'|'device-plugin'='device-plugin') {
     await this.inventory();
     for (let attempt=0;attempt<3;attempt++) {
-      try {await this.sharing.change(provider,mode,count); break;}
+      try {await this.sharing.change(provider,mode,count,allocationBackend); break;}
       catch (error) {if (!(error instanceof SharingWriteRejected) || error.httpStatus !== 409 || attempt === 2) throw error;}
     }
-    return this.waitBackend(provider,mode,count);
+    return this.waitBackend(provider,mode,count,allocationBackend);
   }
-  async waitBackend(provider:Provider,mode:GpuSharingState['mode'],count=2) {
+  async waitBackend(provider:Provider,mode:GpuSharingState['mode'],count=2,allocationBackend:'dra'|'device-plugin'='device-plugin') {
     const state = await poll(async () => {
       await this.live.guard(); const current = await this.state(provider);
       const node = await this.live.observer.get('nodes',undefined,this.config.gpu!.nodeName);
       requireSafe(node.metadata.uid === this.config.gpu!.nodeUid && node.status?.nodeInfo?.bootID === this.config.gpu!.bootId,'IDENTITY');
       const expected = mode === 'exclusive' ? 1 : count;
       let backend = false;
-      if (provider === 'nvidia') backend = Number(node.status?.allocatable?.['nvidia.com/gpu']) === expected &&
+      const physicalCount = provider === 'nvidia' ? Number(node.metadata.labels?.['nvidia.com/gpu.count'] ?? 1) : 1;
+      if (provider === 'nvidia' && allocationBackend === 'dra') backend = current.backend === 'dra' &&
+        node.metadata.labels?.['appliance.magicstick.dev/nvidia-dra-ready'] === 'true' && !Number(node.status?.allocatable?.['nvidia.com/gpu']);
+      else if (provider === 'nvidia') backend = Number(node.status?.allocatable?.['nvidia.com/gpu']) === expected * physicalCount &&
         node.metadata.labels?.['nvidia.com/device-plugin.config'] === (mode === 'exclusive' ? 'magicstick-exclusive' : `magicstick-shared-${count}`) &&
         Number(node.metadata.labels?.['nvidia.com/gpu.replicas'] ?? 1) === expected;
       else if (mode === 'exclusive') backend = Number(node.status?.allocatable?.['amd.com/gpu']) === 1;
@@ -180,9 +183,9 @@ export class GpuScenario {
       }
       const models = await this.live.api.models();
       const target = models.computeTargets.targets.find(item=>item.id === `${provider}-gpu`);
-      return {current,backend,slots:target?.slots};
+      return {current,backend,slots:target?.slots,physicalCount};
     },value => value.current.phase === 'Ready' && value.current.mode === mode && value.current.maxModels === count &&
-      value.backend && value.slots?.total === (mode === 'exclusive' ? 1 : count),
+      value.backend && value.slots?.total === (mode === 'exclusive' ? 1 : count) * value.physicalCount,
     {timeoutMs:600_000,intervalMs:1000,stage:'gpu-backend'});
     return state.current;
   }
@@ -255,6 +258,23 @@ export class GpuScenario {
       const results = (claim.status?.allocation?.devices as {results?:Array<{driver:string;pool:string;device:string}>})?.results;
       requireSafe(results?.length === 1 && results[0]!.driver === 'gpu.amd.com' && results[0]!.pool === this.config.gpu!.nodeName &&
         results[0]!.device === sharing.device?.name,'CAPABILITY');
+    } else if (provider === 'nvidia' && sharing.backend === 'dra') {
+      const selected = (model.fixture as GpuModelFixture).gpuDevices;
+      requireSafe(selected?.length && spec.resourceClaims?.length === selected.length && limits.every(value=>!value['nvidia.com/gpu'] && !value['appliance.magicstick.dev/nvidia-dra']),'CAPABILITY');
+      const slices = await this.live.observer.list('resourceslices.resource.k8s.io');
+      const actual:string[] = [];
+      for (const reference of spec.resourceClaims) {
+        requireSafe(reference.resourceClaimName && spec.containers.some(c=>c.resources?.claims?.some(r=>r.name === reference.name)),'CAPABILITY');
+        const claim = await this.live.observer.get('resourceclaims.resource.k8s.io','ai',reference.resourceClaimName);
+        const results = (claim.status?.allocation?.devices as {results?:Array<{driver:string;pool:string;device:string}>})?.results;
+        requireSafe(results?.length === 1 && results[0]!.driver === 'gpu.nvidia.com' && results[0]!.pool === this.config.gpu!.nodeName,'CAPABILITY');
+        const match=slices.flatMap(slice=>{
+          const data=slice.spec as {driver?:string;nodeName?:string;devices?:Array<{name:string;attributes?:Record<string,{string?:string}>}>};
+          return data.driver === 'gpu.nvidia.com' && data.nodeName === this.config.gpu!.nodeName ? data.devices ?? [] : [];
+        }).find(d=>d.name === results[0]!.device);
+        requireSafe(match?.attributes?.uuid?.string,'CAPABILITY'); actual.push(match.attributes.uuid.string);
+      }
+      requireSafe(canonical(actual.sort()) === canonical(selected.map(d=>d.uuid).sort()),'CAPABILITY');
     } else requireSafe(limits.some(value=>Number(value[`${provider}.com/gpu`]) === 1) && !spec.resourceClaims?.length,'CAPABILITY');
     const item = activation(await model.client.models(),model.client.name);
     requireSafe(item?.metadata?.uid === model.uid && item.spec?.local?.computeTarget === model.fixture.computeTarget &&
@@ -315,7 +335,7 @@ export class GpuScenario {
     const jobs=[...await this.live.observer.list('jobs','ai'),...await this.live.observer.list('jobs',this.config.expected.applianceNamespace)];
     requireSafe(!jobs.some(unfinishedJob),'BUSY');
     await this.sharing.restore();
-    for (const entry of this.sharing.entries) await this.waitBackend(entry.provider,entry.originalMode,entry.originalCount);
+    for (const entry of this.sharing.entries) await this.waitBackend(entry.provider,entry.originalMode,entry.originalCount,entry.originalBackend ?? 'device-plugin');
     const current = await this.live.api.models();
     for (const original of this.originalModels) {
       const item = activation(current,original.name);

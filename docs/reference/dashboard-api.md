@@ -70,6 +70,29 @@ Paperclip, KubeOpenCode, KubeAI, LiteLLM, or direct app instance reconcilers.
 
 ## Backend API
 
+### NVIDIA multi-GPU models
+
+The existing local-model create, estimate, edit, start and stop endpoints remain
+the only control path. A local model may supply `gpuDevices` instead of
+`gpuDevice`; both contain exact node-UID/GPU-UUID identities from `/api/models`.
+The API validates the entire same-node matching-card group, its live DRA state,
+every slot, per-card physical/unreserved VRAM and one host RAM budget. A memory
+risk acknowledgement cannot bypass slot admission, hardware identity, physical
+VRAM capacity or the group's verifiable host RAM ceiling.
+
+`/api/models/estimate-memory` returns `gpuCount`, `gpuParallelism`,
+`memoryBudgetScope: per-device`, `devices` and `systemMemoryMaximumMi` for a
+group. Weight estimates account for sharding with headroom; KV cache/runtime
+remain conservative per-card estimates. vLLM model dimensions are checked during
+estimation and the pinned runtime rechecks model support before loading. A
+successful estimate is not proof of successful inference.
+
+Edit preserves the same activation and uses the existing optimistic revision
+check. Setting one selection representation replaces the other. Stop retains the
+configuration; a terminating Pod keeps its slots until allocation release.
+See the [resource contract](kubernetes-resources.md) and
+[administrator workflow](../administration/gpu-sharing.md#one-model-across-several-nvidia-gpus).
+
 ### Module parameters and local identities
 
 Module enable/disable requests accept only a `parameters` object with fields

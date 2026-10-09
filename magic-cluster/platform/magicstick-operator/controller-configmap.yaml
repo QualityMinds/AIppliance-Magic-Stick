@@ -1588,6 +1588,29 @@ data:
                 "selectors": [{"cel": {"expression": "device.attributes['gpu.nvidia.com'].uuid == " + json.dumps(device["uuid"])}}]}}]}}}
 
 
+    def nvidia_model_devices(local):
+        """Normalize legacy one-card intent without changing its identity."""
+        if "gpuDevice" in local and "gpuDevices" in local:
+            raise ValueError("Use gpuDevices or the legacy gpuDevice, not both")
+        selections = local.get("gpuDevices", [local["gpuDevice"]] if local.get("gpuDevice") else [])
+        if not isinstance(selections, list) or ("gpuDevices" in local and not 1 <= len(selections) <= 16):
+            raise ValueError("gpuDevices must contain between 1 and 16 distinct NVIDIA cards")
+        for selection in selections:
+            if not isinstance(selection, dict) or set(selection) != {"nodeName", "nodeUid", "uuid"} or any(
+                    not isinstance(v, str) or not v for v in selection.values()) or not re.fullmatch(
+                    r"GPU-[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}", selection["uuid"]):
+                raise ValueError("Choose valid NVIDIA GPU UUIDs and current node identities")
+        if len({s["uuid"] for s in selections}) != len(selections):
+            raise ValueError("Choose each physical GPU only once")
+        if len({(s["nodeName"], s["nodeUid"]) for s in selections}) > 1:
+            raise ValueError("All GPUs for one model must be on the same node")
+        return sorted(selections, key=lambda s: s["uuid"])
+
+
+    def nvidia_assignment_devices(assignment):
+        return assignment.get("devices") or [assignment]
+
+
     def nvidia_dra_assignments(models, devices, pods, limit):
         """Reserve enabled intents once; terminating/foreign Pods retain their slots."""
         by_uuid = {d["uuid"]: d for d in devices}
@@ -1625,28 +1648,42 @@ data:
             if max(int(local.get("minReplicas", 1)), int(local.get("maxReplicas", 1))) != 1:
                 errors[name] = "NVIDIA DRA card selection requires one replica per model."
                 continue
-            selection = local.get("gpuDevice")
+            try:
+                selections = nvidia_model_devices(local)
+            except ValueError as error:
+                errors[name] = str(error)
+                continue
             previous = (model.get("status") or {}).get("gpuSharing") or {}
-            uuid = (selection or {}).get("uuid") or previous.get("device")
-            if selection and not any(d["uuid"] == uuid and d["nodeUid"] == selection.get("nodeUid")
-                                     and d["node"] == selection.get("nodeName") for d in devices):
+            uuids = [s["uuid"] for s in selections]
+            if selections and any(not any(d["uuid"] == selection["uuid"] and d["nodeUid"] == selection["nodeUid"]
+                                     and d["node"] == selection["nodeName"] for d in devices) for selection in selections):
                 errors[name] = "The selected NVIDIA GPU identity changed. Refresh Models and choose the card again."
                 continue
+            if len(uuids) > 1 and (any(not by_uuid[u].get("productName") or by_uuid[u].get("productName") == "NVIDIA GPU" or not by_uuid[u].get("totalMi") for u in uuids)
+                                  or len({(by_uuid[u].get("productName"), by_uuid[u].get("totalMi")) for u in uuids}) != 1):
+                errors[name] = "Multi-GPU models currently require matching NVIDIA cards with equal physical memory."
+                continue
             live = placements.get(name, set())
-            if live and (len(live) > 1 or uuid and uuid not in live):
+            if live and (uuids and set(uuids) != live or not uuids and len(live) > 1):
                 errors[name] = "Waiting for the previous NVIDIA GPU Pod to stop before changing cards."
                 continue
             if live:
-                uuid = next(iter(live))
-                assigned[name] = by_uuid[uuid]
+                selected = [by_uuid[u] for u in sorted(live)]
+                assigned[name] = {**selected[0], "devices": selected} if len(selected) > 1 else selected[0]
                 continue
-            if uuid not in by_uuid:
-                uuid = next((u for u in used if used[u] < limit), None)
-            if not uuid or used[uuid] >= limit:
+            if not uuids:
+                previous_uuid = previous.get("device")
+                uuid = previous_uuid if previous_uuid in by_uuid else next((u for u in used if used[u] < limit), None)
+                uuids = [uuid] if uuid else []
+            if not uuids or any(used[u] >= limit for u in uuids):
                 errors[name] = "Waiting for a free slot on the selected NVIDIA GPU."
                 continue
-            used[uuid] += 1
-            assigned[name] = by_uuid[uuid]
+            # Reserve the complete group or nothing. Never hold one card while
+            # waiting for another; the single controller serializes admission.
+            for uuid in uuids:
+                used[uuid] += 1
+            selected = [by_uuid[u] for u in uuids]
+            assigned[name] = {**selected[0], "devices": selected} if len(selected) > 1 else selected[0]
         return assigned, errors
 
 
@@ -1665,9 +1702,10 @@ data:
                     used[uuid] += 1
                     if model and managed_gpu_sharing_pod(pod):
                         live.add((model, uuid))
-        for name, device in assignments.items():
-            if (name, device["uuid"]) not in live:
-                used[device["uuid"]] += 1
+        for name, assignment in assignments.items():
+            for device in nvidia_assignment_devices(assignment):
+                if (name, device["uuid"]) not in live:
+                    used[device["uuid"]] += 1
         return used
 
 
@@ -1678,7 +1716,18 @@ data:
         serialized = json.dumps([policy, binding]).replace("magicstick-amd-dra", "magicstick-nvidia-dra")
         serialized = serialized.replace("amd-gpu", "nvidia-gpu").replace("appliance.magicstick.dev/amd-dra", "appliance.magicstick.dev/nvidia-dra")
         serialized = serialized.replace("~1amd-dra", "~1nvidia-dra").replace("magicstick-amd-shared-", "magicstick-nvidia-")
-        return json.loads(serialized)
+        policy, binding = json.loads(serialized)
+        policy["spec"]["variables"] = [{"name": "claims", "expression":
+            "object.spec.containers[0].env.exists(e, e.name == 'MAGICSTICK_DRA_CLAIMS') ? "
+            "object.spec.containers[0].env.filter(e, e.name == 'MAGICSTICK_DRA_CLAIMS' && has(e.value) && e.value.matches('^magicstick-nvidia-[a-f0-9]{20}(,magicstick-nvidia-[a-f0-9]{20}){0,15}$'))[0].value.split(',') : "
+            "[object.spec.containers[0].env.filter(e, e.name == 'MAGICSTICK_DRA_CLAIM' && has(e.value) && e.value.matches('^magicstick-nvidia-[a-f0-9]{20}$'))[0].value]"}]
+        policy["spec"]["mutations"][0]["jsonPatch"]["expression"] = """[
+            JSONPatch{op: 'add', path: '/spec/resourceClaims', value: variables.claims.map(c, {'name': string(c), 'resourceClaimName': string(c)})},
+            JSONPatch{op: 'add', path: '/spec/containers/0/resources/claims', value: variables.claims.map(c, {'name': string(c)})},
+            JSONPatch{op: 'remove', path: '/spec/containers/0/resources/requests/appliance.magicstick.dev~1nvidia-dra'},
+            JSONPatch{op: 'remove', path: '/spec/containers/0/resources/limits/appliance.magicstick.dev~1nvidia-dra'}
+        ]"""
+        return policy, binding
 
 
     def reconcile_nvidia_dra(nodes, activation, config, state):
@@ -1853,6 +1902,10 @@ data:
         if state.get("phase") != "Ready" or name not in state.get("assignments", {}):
             raise ValueError(state.get("assignmentErrors", {}).get(name) or state.get("message") or "Waiting for NVIDIA GPU allocation")
         device = state["assignments"][name]
+        devices = nvidia_assignment_devices(device)
+        count = len(devices)
+        if count > 1 and any(not d.get("totalMi") or runtime["vramMi"] > d["totalMi"] for d in devices):
+            raise ValueError("The per-GPU budget exceeds the physical memory of a selected NVIDIA card")
         release = get_resource("helm.toolkit.fluxcd.io", "v2", "helmreleases", FLUX_NAMESPACE, "kubeai") or {}
         base_name = runtime["baseResourceProfile"].rsplit(":", 1)[0]
         base = release.get("spec", {}).get("values", {}).get("resourceProfiles", {}).get(base_name)
@@ -1866,7 +1919,7 @@ data:
         # DRA injects CDI devices into ordinary containers; the NVIDIA legacy
         # runtime must not additionally inject an arbitrary device-plugin GPU.
         profile.pop("runtimeClassName", None)
-        if (runtime.get("offloading") or {}).get("enabled"):
+        if (runtime.get("offloading") or {}).get("enabled") or count > 1:
             profile["requests"]["memory"] = profile["limits"]["memory"] = str(runtime["memoryMi"]) + "Mi"
         key = base_name + "-dra-" + hashlib.sha256(json.dumps(profile, sort_keys=True).encode()).hexdigest()[:16]
         store = get_core_resource("v1", "configmaps", FLUX_NAMESPACE, "magicstick-offloading-profiles") or {}
@@ -1878,9 +1931,14 @@ data:
                 raise ValueError("Runtime resource-profile storage is full")
             patch_json("/api/v1/namespaces/" + FLUX_NAMESPACE + "/configmaps/magicstick-offloading-profiles", {"data": {"values.json": encoded}})
         resource["spec"]["resourceProfile"] = runtime["resourceProfile"] = key + ":1"
-        resource["spec"].setdefault("env", {}).update({"MAGICSTICK_DRA_CLAIM": device["claimName"], "NVIDIA_VISIBLE_DEVICES": "void"})
+        resource["spec"].setdefault("env", {}).update({"MAGICSTICK_DRA_CLAIM": device["claimName"],
+            "MAGICSTICK_DRA_CLAIMS": ",".join(d["claimName"] for d in devices), "NVIDIA_VISIBLE_DEVICES": "void"})
+        if count > 1:
+            resource["spec"]["env"]["MAGICSTICK_GPU_UUIDS"] = ",".join(d["uuid"] for d in devices)
         runtime["gpuSharing"] = {"mode": state["mode"], "backend": "dra", "claimName": device["claimName"],
-                                "node": device["node"], "nodeUid": device["nodeUid"], "device": device["uuid"]}
+            "node": device["node"], "nodeUid": device["nodeUid"], "device": device["uuid"], "gpuCount": count,
+            "devices": [{"uuid": d["uuid"], "nodeName": d["node"], "nodeUid": d["nodeUid"]} for d in devices],
+            "claimNames": [d["claimName"] for d in devices], "slotCount": count, "memoryIsolation": False}
         resource["metadata"].setdefault("annotations", {}).update({
             "appliance.magicstick.dev/gpu-sharing-mode": state["mode"],
             "appliance.magicstick.dev/gpu-claim": device["claimName"], "appliance.magicstick.dev/gpu-device": device["uuid"]})
@@ -3271,6 +3329,9 @@ data:
         if not artifact_controls_url:
             local_override_fields = ("url",) + local_override_fields
         merged.update({key: local[key] for key in local_override_fields if key in local})
+        for key in ("gpuDevice", "gpuDevices"):
+            if key in local:
+                merged[key] = local[key]
         if local.get("preset"):
             merged["preset"] = local.get("preset")
         merged["computeTarget"] = compute_target
@@ -3406,11 +3467,19 @@ data:
         if "vllm" not in local:
             return None
         raw = local["vllm"]
-        if not isinstance(raw, dict) or set(raw) - {"visionAttention"}:
-            raise ValueError("local.vllm must contain only visionAttention")
+        if not isinstance(raw, dict) or set(raw) - {"visionAttention", "parallelism"}:
+            raise ValueError("local.vllm must contain only visionAttention and parallelism")
         if engine != "VLLM":
             raise ValueError("local.vllm settings are available only for vLLM")
         engine_catalog = (((catalog or {}).get("engines") or {}).get("VLLM") or {})
+        normalized = {}
+        if "parallelism" in raw:
+            capability = engine_catalog.get("multiGpu") or {}
+            if compute_target not in capability.get("computeTargets", []) or raw["parallelism"] not in capability.get("strategies", []):
+                raise ValueError("Select a multi-GPU strategy offered by the vLLM runtime catalog")
+            normalized["parallelism"] = raw["parallelism"]
+            if "visionAttention" not in raw:
+                return normalized
         deployment_settings = engine_catalog.get("deploymentSettings") or {}
         definition = deployment_settings.get("visionAttention") or {}
         if compute_target not in (definition.get("computeTargets") or []):
@@ -3418,7 +3487,7 @@ data:
         value = raw.get("visionAttention", definition.get("default", "auto"))
         if not isinstance(value, str) or value not in {item.get("value") for item in definition.get("options") or []}:
             raise ValueError("Select a vLLM vision attention backend offered by the runtime catalog")
-        return {"visionAttention": value}
+        return {**normalized, "visionAttention": value}
 
 
     def local_model_vram_mi(local):
@@ -3531,12 +3600,13 @@ data:
         raw_offload = local.get("cpuOffloadMi", 0)
         if isinstance(raw_offload, bool) or not isinstance(raw_offload, int) or raw_offload < 0:
             raise ValueError("local.cpuOffloadMi must be a non-negative integer")
-        host_base = 6144 if engine == "VLLM" else 4096
+        gpu_count = len(nvidia_model_devices(local)) or 1
+        host_base = (6144 if engine == "VLLM" else 4096) + (gpu_count - 1) * 2048
         if "allowMemoryRisk" in local and not isinstance(local["allowMemoryRisk"], bool):
             raise ValueError("local.allowMemoryRisk must be a boolean")
         if memory < 16:
             raise ValueError("Host RAM must be an integer of at least 16 MiB")
-        if memory < host_base + raw_offload and local.get("allowMemoryRisk") is not True:
+        if memory < host_base + raw_offload * gpu_count and local.get("allowMemoryRisk") is not True:
             raise ValueError("Host RAM must cover offloaded weights and engine runtime")
         if positive_int(local.get("maxReplicas", 1)) != 1 or positive_int(local.get("minReplicas", 1)) not in (None, 1):
             raise ValueError("CPU offloading currently supports one model replica")
@@ -3672,7 +3742,7 @@ data:
 
 
     def apply_vllm_deployment_settings(args, env, configuration, compute_catalog):
-        if configuration is None:
+        if configuration is None or "visionAttention" not in configuration:
             return args, env
         definition = compute_catalog["engines"]["VLLM"]["deploymentSettings"]["visionAttention"]
         option = next(item for item in definition["options"] if item["value"] == configuration["visionAttention"])
@@ -5150,6 +5220,14 @@ data:
         local = merged_local_model(activation, presets, compute_catalog)
         compute_target = local.get("computeTarget") or "nvidia-gpu"
         engine = local.get("engine") or "VLLM"
+        selections = nvidia_model_devices(local)
+        gpu_count = len(selections) or 1
+        if selections and (compute_target != "nvidia-gpu" or engine not in ("VLLM", "OLlama") or "realtime" in local):
+            raise ValueError("NVIDIA GPU groups support ordinary vLLM and Ollama only")
+        if gpu_count > 1:
+            capability = (compute_catalog or {}).get("engines", {}).get(engine, {}).get("multiGpu") or {}
+            if compute_target not in capability.get("computeTargets", []) or gpu_count > capability.get("maxDevices", 1):
+                raise ValueError("Multi-GPU allocation is not offered by this engine catalog")
         cpu_resources = model_cpu_resources(local, engine, compute_target, compute_catalog)
         vllm_configuration = model_vllm_configuration(local, engine, compute_target, compute_catalog)
         kv_cache_type = normalize_kv_cache_type(engine, local.get("kvCacheType"))
@@ -5188,7 +5266,7 @@ data:
             if not isinstance(declared, dict) or any(key not in ("tools", "vision", "reasoning") or type(value) is not bool for key, value in declared.items()):
                 raise ValueError("local.capabilities accepts tools, vision and reasoning booleans only")
             annotations["ai-appliance.io/capabilities"] = json.dumps(declared, sort_keys=True)
-        if vllm_configuration is not None:
+        if vllm_configuration is not None and "visionAttention" in vllm_configuration:
             annotations["appliance.magicstick.dev/vllm-vision-attention"] = vllm_configuration["visionAttention"]
         context_window = positive_int(local.get("contextWindow") or local.get("context_window"))
         max_output_tokens = positive_int(local.get("maxOutputTokens") or local.get("max_output_tokens"))
@@ -5198,6 +5276,17 @@ data:
         if max_output_tokens:
             annotations["ai-appliance.io/max-output-tokens"] = str(max_output_tokens)
         env = dict(local.get("env") or {})
+        for key in ("MAGICSTICK_GPU_COUNT", "MAGICSTICK_GPU_UUIDS", "MAGICSTICK_VLLM_PARALLELISM", "MAGICSTICK_DRA_CLAIMS", "MAGICSTICK_DRA_CLAIM"):
+            env.pop(key, None)
+        if gpu_count > 1:
+            memory_mi = memory_mi or 16384
+            if not local.get("cpuOffloading") and memory_mi < 1024:
+                raise ValueError("Multi-GPU host RAM must be at least 1024 MiB")
+            # The runtime wrapper checks the actual CUDA-visible group before
+            # loading. Users cannot escape the DRA group with visibility envs.
+            for key in ("CUDA_VISIBLE_DEVICES", "CUDA_DEVICE_ORDER", "MAGICSTICK_GPU_DEVICE"):
+                env.pop(key, None)
+            env["MAGICSTICK_GPU_COUNT"] = str(gpu_count)
         env["MAGICSTICK_COMPUTE_TARGET"] = compute_target
         env["MAGICSTICK_ENGINE"] = engine
         for legacy_key in (
@@ -5222,6 +5311,8 @@ data:
             args = model_args_with_runtime_limits(local.get("args") or [], context_window, max_num_seqs)
             args = model_args_with_kv_cache(args, kv_cache_type)
             args, env = apply_vllm_deployment_settings(args, env, vllm_configuration, compute_catalog)
+            if gpu_count > 1:
+                env["MAGICSTICK_VLLM_PARALLELISM"] = (vllm_configuration or {}).get("parallelism", "auto")
             if compute_target == "cpu":
                 kv_cache_memory_bytes = positive_int(local.get("kvCacheMemoryBytes")) or 536870912
                 args = model_args_with_cpu_cache(args, kv_cache_memory_bytes)
@@ -5237,7 +5328,7 @@ data:
             ):
                 env.pop(key, None)
             env["OLLAMA_MAX_LOADED_MODELS"] = "1"
-            env["OLLAMA_SCHED_SPREAD"] = "false"
+            env["OLLAMA_SCHED_SPREAD"] = "true" if gpu_count > 1 else "false"
             env["OLLAMA_KV_CACHE_TYPE"] = kv_cache_type
             env["OLLAMA_FLASH_ATTENTION"] = "1"
             if context_window:
@@ -5442,7 +5533,7 @@ data:
             patch_status(phase, "GpuSharingBlocked" if phase == "Degraded" else "WaitingForGpuSharing", message, name)
             return phase, status_payload(phase, message, name)
 
-        if model_type == "local" and (spec.get("local") or {}).get("gpuDevice") and (
+        if model_type == "local" and ((spec.get("local") or {}).get("gpuDevice") or (spec.get("local") or {}).get("gpuDevices")) and (
                 runtime["computeTarget"] != "nvidia-gpu" or NVIDIA_SHARING_STATE.get("allocationBackend") != "dra"):
             message = "The selected NVIDIA card requires DRA allocation. Refresh Hardware and choose a supported allocation backend; no automatic card substitution is made."
             cleanup_runtime()

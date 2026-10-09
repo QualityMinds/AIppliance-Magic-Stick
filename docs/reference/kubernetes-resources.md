@@ -103,6 +103,39 @@ field explicitly clears a DRA selection when returning to automatic
 device-plugin placement. CPU, AMD, FreeToken and Realtime do not accept this
 NVIDIA exact-card contract. Existing settings without it remain compatible.
 
+For one model distributed over multiple matching cards, use `local.gpuDevices`
+instead of `gpuDevice`. Both representations are mutually exclusive. The list
+contains 1–16 distinct `{nodeName, nodeUid, uuid}` objects on one node; every
+card must have a verified matching product and physical capacity. There is one
+model replica and one Pod. A group is admitted only when every selected card
+has a free slot. `vramMi` is the budget **per card**; `memoryRequiredMi` and
+`cpuResources` apply once to the whole Pod. This is not cross-node placement or
+a hard GPU-memory isolation boundary.
+
+For NVIDIA vLLM groups, `local.vllm.parallelism` accepts `auto`, `tensor` or
+`pipeline`. The pinned runtime checks model dimensions, pipeline support and
+all CUDA UUIDs before launching workers. Ollama groups use the existing runtime
+with `OLLAMA_SCHED_SPREAD=true`, not vLLM parameters. `status.gpuSharing` includes
+`gpuCount`, `devices`, `claimNames` and `slotCount`; the original single-card
+fields remain for older consumers. Editing a group to one card clears
+`gpuDevices` and group-only parallelism while retaining the model identity.
+
+```yaml
+local:
+  engine: VLLM
+  computeTarget: nvidia-gpu
+  gpuDevices:
+    - {nodeName: ai, nodeUid: "<current-node-uid>", uuid: "<first-GPU-uuid>"}
+    - {nodeName: ai, nodeUid: "<current-node-uid>", uuid: "<second-GPU-uuid>"}
+  vramMi: 12000
+  memoryRequiredMi: 16400
+  vllm:
+    parallelism: auto
+```
+
+Use verified inventory values for the placeholders and a supported model URL or
+preset. See [multi-GPU operation](../administration/gpu-sharing.md#one-model-across-several-nvidia-gpus).
+
 `Appliance.status.hardwareOperators.amd-gpu.compatibility` contains the selected
 profile, catalog profiles and per-node evidence including `profileId`,
 `profileVersion`, `upstreamSupported`, `optedIn`, `eligible`, `pciDevices`,

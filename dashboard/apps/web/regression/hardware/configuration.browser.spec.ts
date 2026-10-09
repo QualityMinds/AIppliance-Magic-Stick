@@ -9,6 +9,33 @@ import type {GpuModelFixture} from '../core/config.ts';
 import {fourNvidiaCards,nvidiaSelection} from '../fixtures/nvidia-cards.ts';
 
 const phase = process.env.REGRESSION_MODE === 'phase4-fixtures' ? 4 : 3;
+for (const viewport of ['desktop','mobile'] as const) for (const engine of ['VLLM','OLlama'] as const)
+test(`MGPU-01 ${engine} ${viewport} browser selects an exact group and per-card budget`, evidenceAnnotations(
+  {id:'MGPU-01',variant:`p${phase}-multigpu-config`,layer:'B'}), async ({page}, info) => {
+  await page.setViewportSize(viewport === 'mobile' ? {width:390,height:844} : {width:1440,height:1000});
+  const writes: Array<{local:Record<string,unknown>}> = [];
+  await fixturePage(page,{'/api/models':fourNvidiaCards(), '/api/models/local':(request:Request)=>{writes.push(request.postDataJSON());return {};},
+    '/api/model-discovery/popular':{results:[]}, '/api/models/estimate-memory':{minimumMi:2000,recommendedMi:6000,maximumMi:40960,systemMemoryMaximumMi:32000,confidence:'high'}});
+  await page.goto(origin+'/#/models'); await page.getByRole('button',{name:'Create',exact:true}).click();
+  const dialog=page.getByRole('dialog'); await dialog.getByLabel('Inference Engine').selectOption(engine);
+  await dialog.getByRole('combobox',{name:'Hardware',exact:true}).selectOption('nvidia-gpu'); await dialog.getByLabel('Model source').selectOption('direct');
+  await dialog.getByLabel(engine === 'VLLM' ? 'Hugging Face URL' : 'Ollama model reference').fill(engine === 'VLLM' ? 'hf://fixture/small' : 'ollama://fixture:small');
+  await dialog.getByLabel('Automatic GPU count').fill('4'); await dialog.getByRole('button',{name:'Select matching GPUs'}).click();
+  await expect(dialog.getByText('4 GPUs selected.',{exact:false})).toBeVisible();
+  await dialog.getByText('Advanced',{exact:true}).click();
+  if(engine === 'VLLM') await dialog.getByLabel('GPU parallelism').selectOption('pipeline');
+  else await expect(dialog.getByText('Ollama spreads the model', {exact:false})).toBeVisible();
+  await expect(dialog.getByLabel('Multi-GPU system RAM (MiB)')).toHaveValue('16400');
+  await expect(dialog.getByRole('slider',{name:'Memory reservation'})).toHaveValue('6000');
+  await page.screenshot({path:info.outputPath(`multi-gpu-${engine}-${viewport}.png`),fullPage:true});
+  await dialog.getByRole('button',{name:'Add Local Model'}).click();
+  expect(writes).toHaveLength(1); expect(writes[0]!.local.gpuDevices).toEqual([0,1,2,3].map(i=>nvidiaSelection(i)));
+  expect(writes[0]!.local.vram).toBe('6000Mi');
+  expect(writes[0]!.local.memoryRequiredMi).toBe(16400); expect(writes[0]!.local).not.toHaveProperty('gpuDevice');
+  if(engine === 'VLLM') expect(writes[0]!.local.vllm).toEqual({parallelism:'pipeline'});
+  else expect(writes[0]!.local).not.toHaveProperty('vllm');
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
 const host = {name:'fixture-node',nodeUid:'fixture-node-uid',bootId:'fixture-boot',kernel:'7.0-fixture',available:true,message:'Fixture host available.'};
 const providers = ():GpuSharingState[] => ['amd','nvidia'].map(provider => ({provider:provider as 'amd'|'nvidia',
   backend:provider === 'amd' ? 'dra' : 'time-slicing',mode:'exclusive',managed:true,experimental:provider === 'amd',

@@ -332,6 +332,14 @@ deterministically across detected devices. That packing is not a binding.
 With opt-in NVIDIA DRA, `local.gpuDevice` binds the model to a verified card and
 its node UID. Its reservation is charged only to that card, never a sibling or
 a replacement node. The actually-free inner ring always comes from DCGM.
+`local.gpuDevices` extends this to a same-node, matching-card group: one slot and
+the per-card VRAM reservation are charged to each selected UUID, not every GPU on
+the node. System RAM/CPU are reserved once for the Pod. **Additional GPUs for this
+model** supports explicit selection or **Select matching GPUs**, which resolves
+and saves exact identities rather than a floating GPU count. Polling never
+silently substitutes a missing or full card. Multi-GPU settings and vLLM
+parallelism appear under **Advanced**. See [GPU sharing](../administration/gpu-sharing.md#one-model-across-several-nvidia-gpus)
+for supported combinations, memory semantics and current acceptance limits.
 ResourceSlice capacity without DCGM yields a known total but unknown free
 memory. AMD and Intel device-plugin resources are also listed individually. Until their installed
 operator supplies a compatible memory exporter, unavailable readings use a

@@ -31,7 +31,7 @@ export const VllmDeploymentSettings = ({settings}: {settings: VllmDeploymentSett
   const selected = definition.options.find((option) => option.value === value);
   return <section className="stack compact">
     <header><strong>Deployment</strong> <span tabIndex={0} aria-label="Deployment information" title="vLLM vision encoder attention for multimodal models. This is separate from the text decoder and KV-cache precision. Manual backends depend on the GPU, model and runtime image; selecting one is not a successful compatibility test. Saving a change may restart the model.">ⓘ</span></header>
-    <Field label="Vision attention backend"><select value={value} onChange={(event) => setValue(event.target.value as VllmConfiguration['visionAttention'])}>
+    <Field label="Vision attention backend"><select value={value} onChange={(event) => setValue(event.target.value as NonNullable<VllmConfiguration['visionAttention']>)}>
       {invalid && <option value={value} disabled>Current setting unavailable: {value}</option>}
       {definition.options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
     </select></Field>

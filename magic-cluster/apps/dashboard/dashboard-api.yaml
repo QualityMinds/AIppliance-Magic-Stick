@@ -85,7 +85,7 @@ data:
     LOCAL_MODEL_EDIT_FIELDS = {
         "modelType", "contextWindow", "maxOutputTokens", "maxNumSeqs", "kvCacheType",
         "vram", "vramMi", "memoryRequiredMi", "cpuOffloading", "allowMemoryRisk",
-        "minReplicas", "maxReplicas", "freetoken", "cpuResources", "vllm", "realtime", "capabilities", "gpuDevice",
+        "minReplicas", "maxReplicas", "freetoken", "cpuResources", "vllm", "realtime", "capabilities", "gpuDevice", "gpuDevices",
     }
     EXTERNAL_MODEL_EDIT_FIELDS = {
         "model", "apiBase", "modelType", "apiVersion", "customLlmProvider",
@@ -6082,11 +6082,13 @@ data:
         }
 
 
-    def offloading_host_memory_available(compute_target, exclude_model=""):
+    def offloading_host_memory_available(compute_target, exclude_model="", node_name=""):
         """Largest schedulable host budget, never the sum of several nodes."""
         resource = {"nvidia-gpu": "nvidia.com/gpu"}.get(compute_target)
         nodes = [node for node in ready_schedulable_nodes() if
-                 positive_int(((node.get("status") or {}).get("allocatable") or {}).get(resource))]
+                 (not node_name or node.get("metadata", {}).get("name") == node_name) and (
+                 positive_int(((node.get("status") or {}).get("allocatable") or {}).get(resource)) or
+                 node.get("metadata", {}).get("labels", {}).get("appliance.magicstick.dev/nvidia-dra-ready") == "true")]
         if not nodes:
             return None
         used = {}
@@ -6124,6 +6126,7 @@ data:
         if payload.get("cpuOffloading") is not True:
             raise RequestError(400, "cpuOffloading must be a boolean")
         engine = normalize_local_engine(payload.get("engine"))
+        gpu_count = max(1, len(payload.get("gpuDevices") or []))
         if payload.get("computeTarget", "nvidia-gpu") != "nvidia-gpu":
             raise RequestError(400, "CPU offloading currently supports NVIDIA GPU models only.")
         budget = positive_int(payload.get("vramMi")) or parse_mib(payload.get("vram"))
@@ -6152,9 +6155,9 @@ data:
             gpu_kv = min(kv, gpu_payload - gpu_weights)
             cpu_weights = weights - gpu_weights
             cpu_kv = kv - gpu_kv
-        host_runtime = 6144 if engine == "VLLM" else 4096
-        ram_minimum = round_up_mib(cpu_weights + cpu_kv + host_runtime)
-        ram_recommended = round_up_mib(ram_minimum + max(2048, int(weights * 0.15)))
+        host_runtime = (6144 if engine == "VLLM" else 4096) + (gpu_count - 1) * 2048
+        ram_minimum = round_up_mib((cpu_weights + cpu_kv) * gpu_count + host_runtime)
+        ram_recommended = round_up_mib(ram_minimum + max(2048, int(weights * gpu_count * 0.15)))
         gpu_minimum = gpu_weights + gpu_kv + runtime
         return {
             "enabled": True, "mode": mode,
@@ -6316,6 +6319,50 @@ data:
         }
 
 
+    def multi_gpu_estimate(payload, estimate):
+        """Per-device conservative plan, not an aggregate VRAM fit promise."""
+        count = len(payload.get("gpuDevices") or [])
+        if count < 2:
+            return estimate
+        engine = normalize_local_engine(payload.get("engine"))
+        capability = compute_target_catalog().get("engines", {}).get(engine, {}).get("multiGpu") or {}
+        if payload.get("computeTarget") not in capability.get("computeTargets", []) or count > capability.get("maxDevices", 1):
+            raise ValueError("This engine does not offer the requested multi-GPU configuration")
+        strategy = "spread"
+        fraction = 1 / count
+        if engine == "VLLM":
+            strategy = (payload.get("vllm") or {}).get("parallelism", "auto")
+            if strategy not in capability.get("strategies", []):
+                raise ValueError("Choose an advertised vLLM parallelism strategy")
+            config = model_dimension_config(hf_metadata(hf_repo_id(payload.get("url"))).get("config") or {})
+            heads = config_int(config, "num_attention_heads", "n_head")
+            hidden = config_int(config, "hidden_size", "n_embd", "d_model")
+            layers = config_int(config, "num_hidden_layers", "n_layer", "num_layers")
+            if not heads or not hidden or not layers:
+                raise ValueError("Multi-GPU preflight needs public model dimensions. Choose a model with attention-head, hidden-size and layer metadata.")
+            tensor_valid = heads % count == 0 and hidden % count == 0
+            if strategy == "auto":
+                strategy = "tensor" if tensor_valid else "pipeline"
+            if strategy == "tensor" and not tensor_valid:
+                raise ValueError("This model's attention heads or hidden size cannot be divided across the selected GPUs. Choose Pipeline or a different GPU count.")
+            if strategy == "pipeline":
+                if layers < count:
+                    raise ValueError("Pipeline parallelism requires at least one model layer per GPU")
+                fraction = ((layers + count - 1) // count) / layers
+        original_weights = int(estimate.get("weightsMi") or 0)
+        # Retain full cache/runtime per card rather than assuming KV heads,
+        # recurrent state and vision components are all perfectly partitioned.
+        weights = int(original_weights * fraction * 1.1 + 0.999999)
+        calculations = dict(estimate.get("calculations") or {})
+        calculations["weightsMi"] = memory_calculation("ceil(total weights × largest planned shard fraction × 1.10)",
+            f"ceil({original_weights} × {fraction:.6f} × 1.10) = {weights} MiB per GPU",
+            "10% uneven/replicated-weight allowance. Complete cache and runtime allowances are retained on every GPU. Actual partitioning is model-dependent.")
+        return {**estimate, "weightsMi": weights, "gpuCount": count, "gpuParallelism": strategy,
+            "totalWeightsMi": original_weights, "calculations": calculations,
+            "warnings": [*(estimate.get("warnings") or []),
+                "Multi-GPU figures are per card; weights are estimated as shards with 10% headroom, while cache/runtime are conservatively repeated. Runtime model/quantization support is checked again when loading."]}
+
+
     def estimate_model_memory(payload, exclude_model=""):
         payload = payload or {}
         engine = normalize_local_engine(payload.get("engine"))
@@ -6336,6 +6383,7 @@ data:
             estimate = estimate_vllm_memory(payload, compute_target)
         else:
             estimate = estimate_ollama_memory(payload, compute_target)
+        estimate = multi_gpu_estimate(payload, estimate)
         warnings = list(estimate.get("warnings") or [])
         context_window = int(estimate.get("contextWindow") or 4096)
         max_num_seqs = int(estimate.get("maxNumSeqs") or 1)
@@ -6355,11 +6403,14 @@ data:
             ]
         vram = vram_summary(activations) if compute_target == "nvidia-gpu" else {"available": False}
         maximum_mi = vram.get("plannedRemainingMi") if vram.get("available") else None
-        if payload.get("gpuDevice"):
-            selection = validate_nvidia_gpu_selection(payload, exclude_model)
+        selections = []
+        selected_memory = []
+        if payload.get("gpuDevice") or payload.get("gpuDevices"):
+            validate_nvidia_gpu_selection(payload, exclude_model)
+            selections = nvidia_model_devices(payload)
             memory = compute_memory_summary(activations, vram)
-            card = next((d for d in memory.get("devices", []) if d.get("gpuDevice") == selection), {})
-            maximum_mi = card.get("unreservedMi")
+            selected_memory = [next((d for d in memory.get("devices", []) if d.get("gpuDevice") == selection), {}) for selection in selections]
+            maximum_mi = min(d["unreservedMi"] for d in selected_memory) if all(d.get("unreservedMi") is not None for d in selected_memory) else None
         shared_pools = []
         if compute_target == "amd-gpu":
             definition = (compute_target_catalog().get("targets") or {}).get(compute_target) or {}
@@ -6423,10 +6474,17 @@ data:
             "gpuAvailable": bool(vram.get("available")),
             "warnings": warnings,
         }
+        if len(selections) > 1:
+            result.update(gpuCount=len(selections), gpuParallelism=estimate.get("gpuParallelism"), memoryBudgetScope="per-device",
+                systemMemoryMaximumMi=offloading_host_memory_available(compute_target, exclude_model, selections[0]["nodeName"]),
+                totalWeightsMi=estimate.get("totalWeightsMi"), devices=[{
+                    "gpuDevice": s, "totalMi": d.get("totalMi"), "freeMi": d.get("freeMi"), "unreservedMi": d.get("unreservedMi")
+                } for s, d in zip(selections, selected_memory)])
         if "cpuOffloading" in payload and not isinstance(payload["cpuOffloading"], bool):
             raise RequestError(400, "cpuOffloading must be a boolean")
         if payload.get("cpuOffloading"):
-            host_available = (offloading_host_memory_available(compute_target, exclude_model)
+            host_available = (offloading_host_memory_available(compute_target, exclude_model, selections[0]["nodeName"]) if selections else
+                              offloading_host_memory_available(compute_target, exclude_model)
                               if exclude_model else offloading_host_memory_available(compute_target))
             plan = offloading_plan({**payload, "engine": engine, "computeTarget": compute_target}, estimate, reserve_mi, host_available)
             result["offloading"] = plan
@@ -6952,11 +7010,19 @@ data:
         if "vllm" not in local:
             return None
         raw = local["vllm"]
-        if not isinstance(raw, dict) or set(raw) - {"visionAttention"}:
-            raise ValueError("local.vllm must contain only visionAttention")
+        if not isinstance(raw, dict) or set(raw) - {"visionAttention", "parallelism"}:
+            raise ValueError("local.vllm must contain only visionAttention and parallelism")
         if engine != "VLLM":
             raise ValueError("local.vllm settings are available only for vLLM")
         engine_catalog = (((catalog or {}).get("engines") or {}).get("VLLM") or {})
+        normalized = {}
+        if "parallelism" in raw:
+            capability = engine_catalog.get("multiGpu") or {}
+            if compute_target not in capability.get("computeTargets", []) or raw["parallelism"] not in capability.get("strategies", []):
+                raise ValueError("Select a multi-GPU strategy offered by the vLLM runtime catalog")
+            normalized["parallelism"] = raw["parallelism"]
+            if "visionAttention" not in raw:
+                return normalized
         deployment_settings = engine_catalog.get("deploymentSettings") or {}
         definition = deployment_settings.get("visionAttention") or {}
         if compute_target not in (definition.get("computeTargets") or []):
@@ -6964,7 +7030,7 @@ data:
         value = raw.get("visionAttention", definition.get("default", "auto"))
         if not isinstance(value, str) or value not in {item.get("value") for item in definition.get("options") or []}:
             raise ValueError("Select a vLLM vision attention backend offered by the runtime catalog")
-        return {"visionAttention": value}
+        return {**normalized, "visionAttention": value}
 
 
     def model_capabilities(value):
@@ -6998,7 +7064,7 @@ data:
             allowed = {
                 "preset", "artifact", "url", "modelType", "engine", "computeTarget", "vram", "vramMi",
                 "memoryRequiredMi", "cpuOffloading", "allowMemoryRisk", "cpuResources",
-                "contextWindow", "maxOutputTokens", "maxNumSeqs", "kvCacheType", "minReplicas", "maxReplicas", "freetoken", "vllm", "realtime", "capabilities", "gpuDevice",
+                "contextWindow", "maxOutputTokens", "maxNumSeqs", "kvCacheType", "minReplicas", "maxReplicas", "freetoken", "vllm", "realtime", "capabilities", "gpuDevice", "gpuDevices",
             }
             for key in allowed:
                 if key in supplied_local:
@@ -7012,7 +7078,7 @@ data:
             engine = normalize_local_engine(local.get("engine"))
             local["computeTarget"] = compute_target
             local["engine"] = engine
-            if "gpuDevice" in local:
+            if "gpuDevice" in local or "gpuDevices" in local:
                 validate_nvidia_gpu_selection(local, exclude_model)
             if "vllm" in local:
                 local["vllm"] = model_vllm_configuration(local, engine, compute_target, compute_target_catalog())
@@ -7090,6 +7156,28 @@ data:
                             + " runtime. Set local.allowMemoryRisk=true only if you explicitly accept the memory risk."
                         )
             else:
+                gpu_count = len(local.get("gpuDevices") or [])
+                if gpu_count > 1:
+                    estimate = estimate_model_memory({**local, "url": resolved_model_url}, exclude_model)
+                    budget = positive_int(local.get("vramMi")) or parse_mib(local.get("vram")) or parse_mib((selected_artifact or {}).get("vram"))
+                    if not budget:
+                        raise ValueError("Choose a positive VRAM budget per GPU")
+                    if len(estimate.get("devices", [])) != gpu_count or any(not d.get("totalMi") or budget > d["totalMi"] for d in estimate.get("devices", [])):
+                        raise ValueError("The per-GPU budget exceeds physical memory on a selected card")
+                    if not allow_memory_risk and (estimate.get("maximumMi") is None or budget > estimate["maximumMi"]):
+                        raise ValueError("The per-GPU budget exceeds unreserved memory on a selected card")
+                    if not local.get("cpuOffloading") and budget < round_up_mib(estimate.get("minimumMi")) and not allow_memory_risk:
+                        raise ValueError("The model needs more memory per GPU. Increase the budget, use more GPUs, reduce context, or explicitly accept the memory risk.")
+                    local["vramMi"] = budget
+                    local.pop("vram", None)
+                    memory = local.get("memoryRequiredMi", 16384)
+                    if type(memory) is not int or memory < 1024:
+                        raise ValueError("Multi-GPU system RAM must be an integer of at least 1024 MiB")
+                    selected_node = local["gpuDevices"][0]["nodeName"]
+                    host_maximum = offloading_host_memory_available(compute_target, exclude_model, selected_node)
+                    if host_maximum is None or memory > host_maximum:
+                        raise ValueError("System RAM exceeds verifiable unreserved RAM on the selected GPU node")
+                    local["memoryRequiredMi"] = memory
                 if local.get("cpuOffloading"):
                     if not resolved_model_url:
                         raise ValueError("A resolved model URL is required for CPU offloading")
@@ -7110,7 +7198,7 @@ data:
                         raise ValueError("VRAM budget is too small for remaining GPU weights, KV cache and runtime; increase VRAM or reduce context")
                     local["memoryRequiredMi"] = memory
                     local["cpuOffloadMi"] = plan["cpuOffloadMi"]
-                else:
+                elif gpu_count < 2:
                     local.pop("memoryRequiredMi", None)
             labels["appliance.magicstick.dev/compute-target"] = compute_target
             labels["appliance.magicstick.dev/engine"] = engine.lower()
@@ -7199,6 +7287,10 @@ data:
             merged.pop("vram", None)
         if "vram" in changes:
             merged.pop("vramMi", None)
+        if changes.get("gpuDevices") is not None:
+            merged.pop("gpuDevice", None)
+        if changes.get("gpuDevice") is not None:
+            merged.pop("gpuDevices", None)
         return current, merged
 
 
@@ -7524,7 +7616,7 @@ data:
             freetoken = local.get("freetoken") or {}
             planned += (status_vram or parse_mib(local.get("vram")) or positive_int(local.get("vramMi"))
                         or (positive_int(freetoken.get("gpuMemoryMi")) if str(local.get("engine") or "").upper() == "FREETOKEN" and isinstance(freetoken, dict) else 0)
-                        or 0)
+                        or 0) * max(1, len(local.get("gpuDevices") or []))
         try:
             metrics = request_text("GET", f"/api/v1/namespaces/{DCGM_NAMESPACE}/services/{DCGM_SERVICE}:{DCGM_PORT}/proxy/metrics")
             gpus = parse_dcgm_metrics(metrics)
@@ -7604,15 +7696,16 @@ data:
             unified_realtime = bool(realtime) and compute_target == "amd-gpu"
             # The ROCm Realtime profile uses one UMA host request. It is charged
             # through the GPU entry below, including before status is available.
-            if (local.get("cpuOffloading") or engine == "FREETOKEN" or realtime) and not unified_realtime:
+            if (local.get("cpuOffloading") or len(local.get("gpuDevices") or []) > 1 or engine == "FREETOKEN" or realtime) and not unified_realtime:
                 configured_freetoken_ram = positive_int(freetoken.get("systemMemoryMi")) if engine == "FREETOKEN" else 0
                 host_ram = positive_int(status.get("memoryRequiredMi")) or positive_int(local.get("memoryRequiredMi")) or 0
                 host_ram = host_ram or configured_freetoken_ram or positive_int(realtime.get("systemMemoryMi"))
                 if host_ram:
                     reservations.setdefault("cpu", []).append({
-                        "model": str(metadata.get("name") or "local-model") + (" (Realtime runtime)" if realtime else " (FreeToken runtime)" if engine == "FREETOKEN" else " (offloading)"),
+                        "model": str(metadata.get("name") or "local-model") + (" (Realtime runtime)" if realtime else " (FreeToken runtime)" if engine == "FREETOKEN" else " (GPU runtime)" if local.get("gpuDevices") else " (offloading)"),
                         "reservedMi": host_ram,
-                        **({"node": realtime["gpuNode"]} if realtime.get("gpuNode") else {}),
+                        **({"node": realtime["gpuNode"]} if realtime.get("gpuNode") else
+                           {"node": local["gpuDevices"][0]["nodeName"]} if local.get("gpuDevices") else {}),
                     })
             compute_target = str(
                 local.get("computeTarget")
@@ -7639,8 +7732,10 @@ data:
             reservations.setdefault(compute_target, []).append({
                 "model": str(metadata.get("name") or "local-model"),
                 "reservedMi": int(reserved_mi),
-                **({"gpuDevice": local["gpuDevice"], "node": local["gpuDevice"]["nodeName"]}
+                **({"gpuDevices": local["gpuDevices"]} if local.get("gpuDevices") else
+                   {"gpuDevice": local["gpuDevice"], "node": local["gpuDevice"]["nodeName"]}
                    if isinstance(local.get("gpuDevice"), dict) else
+                   {"gpuDevices": status["gpuSharing"]["devices"]} if (status.get("gpuSharing") or {}).get("devices") else
                    {"gpuDevice": {"uuid": status["gpuSharing"]["device"], "nodeName": status["gpuSharing"]["node"], "nodeUid": status["gpuSharing"].get("nodeUid", "")},
                     "node": status["gpuSharing"]["node"]}
                    if (status.get("gpuSharing") or {}).get("backend") == "dra" else {}),
@@ -7663,6 +7758,14 @@ data:
                     (positive_int(freetoken.get("systemMemoryMi")) or 0) if engine == "FREETOKEN" else 0,
                     4096 if engine == "OLLAMA" else 8192),
             })
+        # VRAM budgets are per card. Expand exact groups before any fallback
+        # packing so every selected card is charged once and siblings never are.
+        for target, items in list(reservations.items()):
+            reservations[target] = [
+                {**item, "gpuDevice": selection, "node": selection["nodeName"]}
+                for item in items for selection in item.get("gpuDevices", [None])
+                if selection is not None
+            ] + [item for item in items if not item.get("gpuDevices")]
         for items in reservations.values():
             items.sort(key=lambda item: item["model"])
         return reservations
@@ -8243,7 +8346,7 @@ data:
                         live.setdefault(key, set()).add(uuid)
         unassigned = 0
         invalid_bindings = 0
-        for activation in activations:
+        for activation in sorted(activations, key=lambda a: (a.get("metadata", {}).get("creationTimestamp", ""), a.get("metadata", {}).get("name", ""))):
             metadata, spec = activation.get("metadata") or {}, activation.get("spec") or {}
             local = spec.get("local") or {}
             if spec.get("type", "local") != "local" or local.get("computeTarget", "nvidia-gpu") != "nvidia-gpu" or spec.get("enabled", True) is False or metadata.get("deletionTimestamp"):
@@ -8251,16 +8354,21 @@ data:
             key = (spec.get("targetNamespace", "ai"), metadata.get("name"))
             if key == exclude_model:
                 continue
-            selection = local.get("gpuDevice") or {}
             runtime = activation.get("status", {}).get("gpuSharing") or {}
-            uuid = selection.get("uuid") or runtime.get("device")
-            bound_node = selection.get("nodeName") if selection else runtime.get("node")
-            bound_uid = selection.get("nodeUid") if selection else runtime.get("nodeUid")
-            if key[0] == "ai" and uuid in by_uuid and bound_node == state.get("nodeName") and bound_uid == state.get("nodeUid"):
-                if uuid not in live.get(key, set()):
+            requested = local.get("gpuDevices") or ([local["gpuDevice"]] if local.get("gpuDevice") else runtime.get("devices") or
+                ([{"uuid": runtime["device"], "nodeName": runtime.get("node"), "nodeUid": runtime.get("nodeUid")}] if runtime.get("device") else []))
+            valid = key[0] == "ai" and requested and all(isinstance(s, dict) and s.get("uuid") in by_uuid
+                and s.get("nodeName") == state.get("nodeName") and s.get("nodeUid") == state.get("nodeUid") for s in requested)
+            if valid:
+                uuids = {s["uuid"] for s in requested}
+                pending = uuids - live.get(key, set())
+                if len(uuids) > 1 and (live.get(key) and live[key] != uuids or any(by_uuid[u]["demand"] >= limit for u in pending)):
+                    invalid_bindings += 1  # Whole group queued, no partial slot reservation.
+                    continue
+                for uuid in pending:
                     by_uuid[uuid]["demand"] += 1
             elif not live.get(key):
-                if uuid or key[0] != "ai":
+                if requested or key[0] != "ai":
                     # An invalid exact binding cannot fall back to this node's
                     # pool or occupy a free sibling. The controller rejects it.
                     invalid_bindings += 1
@@ -8280,22 +8388,40 @@ data:
                 "engines": {engine: {**counts, "scope": "target"} for engine in ("VLLM", "OLlama")}}
 
 
+    def nvidia_model_devices(local):
+        if "gpuDevice" in local and "gpuDevices" in local:
+            raise ValueError("Use gpuDevices or the legacy gpuDevice, not both")
+        selections = local.get("gpuDevices", [local["gpuDevice"]] if local.get("gpuDevice") else [])
+        if not isinstance(selections, list) or not 1 <= len(selections) <= 16:
+            raise ValueError("gpuDevices requires between 1 and 16 distinct NVIDIA cards")
+        for selection in selections:
+            if not isinstance(selection, dict) or set(selection) != {"nodeName", "nodeUid", "uuid"} or any(
+                    not isinstance(v, str) or not v for v in selection.values()) or not re.fullmatch(
+                    r"GPU-[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}", selection["uuid"]):
+                raise ValueError("Choose valid NVIDIA GPU UUIDs and current node identities")
+        if len({s["uuid"] for s in selections}) != len(selections):
+            raise ValueError("Choose each physical GPU only once")
+        if len({(s["nodeName"], s["nodeUid"]) for s in selections}) != 1:
+            raise ValueError("All GPUs for one model must be on the same node")
+        return sorted(selections, key=lambda s: s["uuid"])
+
+
     def validate_nvidia_gpu_selection(local, exclude_model=""):
-        selection = local.get("gpuDevice")
-        if not isinstance(selection, dict) or set(selection) != {"nodeName", "nodeUid", "uuid"}:
-            raise ValueError("gpuDevice requires the NVIDIA GPU UUID and current node name/UID")
+        selections = nvidia_model_devices(local)
         if local.get("computeTarget", "nvidia-gpu") != "nvidia-gpu" or normalize_local_engine(local.get("engine")) not in ("VLLM", "OLlama") or "realtime" in local:
             raise ValueError("Individual NVIDIA card selection supports ordinary vLLM and Ollama models")
-        if any(type(selection[k]) is not str or not selection[k] for k in selection) or not re.fullmatch(r"GPU-[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}", selection["uuid"]):
-            raise ValueError("Choose a valid NVIDIA GPU identity")
         state = gpu_sharing_status("nvidia")
-        if state["backend"] != "dra" or state["phase"] != "Ready" or not any(
+        if state["backend"] != "dra" or state["phase"] != "Ready" or any(not any(
                 d.get("uuid") == selection["uuid"] and d.get("nodeUid") == selection["nodeUid"] and d.get("node") == selection["nodeName"]
-                for d in state.get("devices", [])):
+                for d in state.get("devices", [])) for selection in selections):
             raise RequestError(409, "The selected NVIDIA GPU is no longer available through DRA. Refresh Models or enable DRA in System > Hardware.")
+        cards = [d for d in state.get("devices", []) if d.get("uuid") in {s["uuid"] for s in selections}]
+        if len(cards) > 1 and (any(not d.get("productName") or d.get("productName") == "NVIDIA GPU" or not d.get("totalMi") for d in cards)
+                              or len({(d.get("productName"), d.get("totalMi")) for d in cards}) != 1):
+            raise ValueError("Multi-GPU models currently require matching NVIDIA cards with equal physical memory")
         if any((positive_int(local.get(key)) or 1) != 1 for key in ("minReplicas", "maxReplicas")):
             raise ValueError("NVIDIA card selection supports exactly one model replica")
-        return selection
+        return selections[0] if "gpuDevice" in local else selections
 
 
     def attach_nvidia_dra_memory(devices, nodes):
@@ -8311,7 +8437,7 @@ data:
                             "nodes": [card["node"]], "totalMi": card.get("totalMi", 0), "freeMi": None,
                             "metricsAvailable": False, "metricsSource": "dra-inventory", "reservedMi": 0, "reservations": []}
                 devices.append(measured)
-            measured.update(name=card.get("productName", "NVIDIA GPU") + " · " + (card.get("pciAddress") or card["name"]),
+            measured.update(productName=card.get("productName"), name=card.get("productName", "NVIDIA GPU") + " · " + (card.get("pciAddress") or card["name"]),
                             gpuDevice={"uuid": card["uuid"], "nodeName": card["node"], "nodeUid": card["nodeUid"]})
         return devices
 
@@ -8513,15 +8639,19 @@ data:
         target = local.get("computeTarget", "nvidia-gpu")
         if target == "cpu":
             return
-        if local.get("gpuDevice"):
+        if local.get("gpuDevice") or local.get("gpuDevices"):
             if spec.get("targetNamespace", "ai") != "ai":
                 raise ValueError("NVIDIA DRA card selection currently uses the ai model namespace")
-            selection = validate_nvidia_gpu_selection(local)
+            validate_nvidia_gpu_selection(local)
+            selections = nvidia_model_devices(local)
             own = (spec.get("targetNamespace", "ai"), (resource.get("metadata") or {}).get("name"))
             summary = gpu_slot_summary(model_activations(), exclude_model=own).get("nvidia-gpu") or {}
-            card = next((s for s in summary.get("devices", []) if s.get("uuid") == selection["uuid"] and s.get("node") == selection["nodeName"]), {})
-            if not card.get("free") or not summary.get("free"):
-                raise RequestError(409, "No free model slot on the selected NVIDIA card. Stop a model or choose another card.")
+            for selection in selections:
+                card = next((s for s in summary.get("devices", []) if s.get("uuid") == selection["uuid"] and s.get("node") == selection["nodeName"]), {})
+                if not card.get("free"):
+                    raise RequestError(409, "No free model slot on selected NVIDIA card " + selection["uuid"] + ". Stop a model or choose another card.")
+            if summary.get("free", 0) < len(selections):
+                raise RequestError(409, "Not enough free NVIDIA slots for the complete GPU group.")
         key = (spec.get("targetNamespace") or MODEL_TARGET_NAMESPACE, resource["metadata"]["name"])
         realtime = isinstance(local.get("realtime"), dict)
         slots = gpu_slot_summary(model_activations(), exclude_model=key, experimental=realtime).get(target)

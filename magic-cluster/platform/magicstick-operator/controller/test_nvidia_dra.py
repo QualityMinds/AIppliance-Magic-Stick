@@ -10,6 +10,83 @@ UUIDS = ["GPU-00000000-0000-0000-0000-" + str(i).zfill(12) for i in range(4)]
 
 
 class NvidiaDraTests(unittest.TestCase):
+    def group(self, cards=(0, 1), name="fixture-model", engine="VLLM"):
+        model = self.model(name=name)
+        local = model["spec"]["local"]
+        local.pop("gpuDevice")
+        local.update(engine=engine, gpuDevices=[{"uuid": UUIDS[i], "nodeName": "fixture-node", "nodeUid": "fixture-uid"} for i in cards])
+        return model
+
+    def test_group_reservation_is_atomic_and_charges_only_selected_cards(self):
+        for count in (2, 4):
+            with self.subTest(count=count):
+                group = self.group(range(count))
+                assigned, errors = self.c["nvidia_dra_assignments"]([group], self.devices, [], 4)
+                self.assertFalse(errors)
+                self.assertEqual(len(assigned["fixture-model"]["devices"]), count)
+                used = self.c["nvidia_dra_slot_usage"](assigned, self.devices, [])
+                self.assertEqual([used[u] for u in UUIDS], [1] * count + [0] * (4-count))
+        busy = self.pod(card=1, name="other")
+        group = self.group()
+        assigned, errors = self.c["nvidia_dra_assignments"]([group], self.devices, [busy], 1)
+        self.assertFalse(assigned)
+        self.assertIn("fixture-model", errors)
+        used = self.c["nvidia_dra_slot_usage"](assigned, self.devices, [busy])
+        self.assertEqual([used[u] for u in UUIDS], [0, 1, 0, 0])
+
+    def test_groups_compete_without_partial_reservations_or_live_double_counting(self):
+        groups = [self.group(name="a"), self.group(name="b"), self.group((2, 3), name="c")]
+        assigned, errors = self.c["nvidia_dra_assignments"](groups, self.devices, [], 1)
+        self.assertEqual(set(assigned), {"a", "c"}); self.assertEqual(set(errors), {"b"})
+        pod = self.pod(0, "a")
+        pod["spec"]["resourceClaims"].append({"name": "second", "resourceClaimName": self.devices[1]["claimName"]})
+        assigned, errors = self.c["nvidia_dra_assignments"](groups, self.devices, [pod], 1)
+        self.assertEqual(set(assigned), {"a", "c"})
+        self.assertEqual(list(self.c["nvidia_dra_slot_usage"](assigned, self.devices, [pod]).values()), [1, 1, 1, 1])
+        groups[0] = self.group((2, 3), name="a")
+        assigned, errors = self.c["nvidia_dra_assignments"](groups, self.devices, [pod], 1)
+        self.assertNotIn("a", assigned); self.assertIn("previous NVIDIA GPU Pod", errors["a"])
+
+    def test_group_rejects_duplicate_replaced_mixed_or_missing_cards(self):
+        for change in ("duplicate", "node", "missing", "heterogeneous", "unknown-product", "unknown-memory"):
+            group = self.group(); devices = copy.deepcopy(self.devices)
+            if change == "duplicate": group["spec"]["local"]["gpuDevices"][1] = group["spec"]["local"]["gpuDevices"][0]
+            if change == "node": group["spec"]["local"]["gpuDevices"][1]["nodeUid"] = "replaced"
+            if change == "missing": devices.pop(1)
+            if change == "heterogeneous": devices[1]["productName"] = "Other GPU"
+            if change == "unknown-product":
+                for device in devices: device["productName"] = "NVIDIA GPU"
+            if change == "unknown-memory":
+                for device in devices: device["totalMi"] = None
+            assigned, errors = self.c["nvidia_dra_assignments"]([group], devices, [], 4)
+            self.assertFalse(assigned, change); self.assertIn("fixture-model", errors)
+
+    def test_group_runtime_keeps_one_profile_replica_and_one_host_ram_budget(self):
+        import pathlib
+        import yaml
+        catalog = json.loads(yaml.safe_load((pathlib.Path(__file__).parents[1] / "compute-target-catalog.yaml").read_text())["data"]["targets.json"])
+        for engine in ("VLLM", "OLlama"):
+            group = self.group(range(4), engine=engine)
+            group["spec"]["local"].update(url="hf://fixture/small" if engine == "VLLM" else "ollama://fixture:small",
+                vramMi=12000, memoryRequiredMi=16400, cpuOffloading=False,
+                cpuResources={"requestMillicores": 700, "limitMillicores": 0})
+            if engine == "VLLM": group["spec"]["local"]["vllm"] = {"parallelism": "pipeline"}
+            self.models = [group]; self.c["NVIDIA_SHARING_STATE"] = self.reconcile()
+            resource, runtime = self.c["kubeai_model_resource"](group, {}, catalog)
+            base_name = runtime["baseResourceProfile"].split(":")[0]
+            base = {"requests": {"nvidia.com/gpu": "1", "cpu": "1"}, "limits": {"nvidia.com/gpu": "1"}}
+            with patch.dict(self.c, {"get_resource": lambda *_: {"spec": {"values": {"resourceProfiles": {base_name: base}}}},
+                    "get_core_resource": lambda *_: {"data": {"values.json": "{}"}}, "patch_json": lambda *a: self.patches.append(a)}):
+                self.c["apply_nvidia_sharing_profile"](resource, runtime)
+            profile = next(iter(json.loads(self.patches[-1][1]["data"]["values.json"])["resourceProfiles"].values()))
+            self.assertEqual(profile["requests"]["memory"], "16400Mi")
+            self.assertTrue(resource["spec"]["resourceProfile"].endswith(":1"))
+            self.assertEqual(resource["spec"]["env"]["MAGICSTICK_GPU_COUNT"], "4")
+            self.assertEqual(len(resource["spec"]["env"]["MAGICSTICK_DRA_CLAIMS"].split(",")), 4)
+            self.assertEqual(runtime["gpuSharing"]["slotCount"], 4)
+            if engine == "VLLM": self.assertEqual(resource["spec"]["env"]["MAGICSTICK_VLLM_PARALLELISM"], "pipeline")
+            else: self.assertEqual(resource["spec"]["env"]["OLLAMA_SCHED_SPREAD"], "true")
+
     def setUp(self):
         self.c = load_controller()
         self.config = {"allocationBackend": "dra", "mode": "dra-shared", "nodeName": "fixture-node",

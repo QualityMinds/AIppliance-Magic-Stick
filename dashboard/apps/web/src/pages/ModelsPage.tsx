@@ -6,20 +6,38 @@ import {
 } from '@magicstick/dashboard-core';
 import type {
   DiscoveryItem, MemoryCalculation, MemoryEstimate, ModelArtifact, ModelVariant,
-  ModelActivation, ModelsPayload, Session,
+  ModelActivation, ModelsPayload, NvidiaGpuSelection, Session, VllmConfiguration,
 } from '@magicstick/dashboard-contracts';
 import {api} from '../api';
 import {Button, ConfirmDialog, CopyButton, Dialog, Empty, ErrorNotice, Field, Loading, Panel, ProgressBar, StatusBadge} from '../components';
 import {MemoryInfo, unreservedCalculation} from '../MemoryInfo';
 import {ComputeMemory} from '../ComputeMemory';
 import {sharedSlotPools, slotsFull, targetSlots} from '../GpuSlots';
-import {NvidiaGpuSelect, nvidiaCardKey} from '../NvidiaGpuSelect';
+import {NvidiaGpuGroupSelect, matchingNvidiaCards, nvidiaCardKey} from '../NvidiaGpuSelect';
 import {useCpuSettings} from '../CpuSettings';
 import {useVllmDeploymentSettings} from '../VllmDeploymentSettings';
 import {AdvancedModelSettings} from '../AdvancedModelSettings';
 import {RealtimeModelForm} from '../RealtimeModelForm';
 
 const roundMemory = (value: number) => Math.max(100, Math.ceil(value / 100) * 100);
+const groupSettings = (devices: NvidiaGpuSelection[]) => devices.length > 1 ? {gpuDevices: devices} : devices.length ? {gpuDevice: devices[0]} : {};
+const savedGpuKeys = (local: Record<string, unknown>, status: Record<string, unknown>) => {
+  const sharing = asRecord(status.gpuSharing);
+  const devices = local.gpuDevices ?? (local.gpuDevice ? [local.gpuDevice] : sharing.devices ?? (sharing.device && sharing.nodeUid ? [{uuid: sharing.device, nodeUid: sharing.nodeUid, nodeName: sharing.node}] : []));
+  return (devices as NvidiaGpuSelection[]).map(nvidiaCardKey).join(',');
+};
+const MultiGpuSettings = ({count, engine, strategy, onStrategy, ramMi, onRam, offloading, ramMaximumMi}: {
+  count: number; engine: string; strategy: NonNullable<VllmConfiguration['parallelism']>; onStrategy: (value: NonNullable<VllmConfiguration['parallelism']>) => void;
+  ramMi: number; onRam: (value: number) => void; offloading: boolean; ramMaximumMi?: number | null;
+}) => count > 1 ? <section className="stack compact"><strong>Multi-GPU runtime</strong>
+  {engine === 'VLLM' ? <Field label="GPU parallelism"><select value={strategy} onChange={(event) => onStrategy(event.target.value as typeof strategy)}>
+    <option value="auto">Auto · compatible model split</option><option value="tensor">Tensor · split layers across GPUs</option><option value="pipeline">Pipeline · consecutive layers per GPU</option>
+  </select></Field> : <p>Ollama spreads the model across all selected GPUs. Its layer split is not a hard VRAM limit.</p>}
+  {engine === 'VLLM' && <p className="muted">Auto uses tensor parallelism when model dimensions divide evenly, otherwise supported pipeline parallelism. Pipeline may be preferable without fast GPU interconnects; performance depends on the model and topology.</p>}
+  {!offloading && <Field label="Multi-GPU system RAM (MiB)"><input type="number" min="1100" step="100" max={typeof ramMaximumMi === 'number' ? Math.floor(ramMaximumMi / 100) * 100 : undefined} value={ramMi} onChange={(event) => onRam(Number(event.target.value))} /></Field>}
+  <p className="muted">Unreserved system RAM on the selected node: {typeof ramMaximumMi === 'number' ? formatMi(ramMaximumMi) : 'not yet verified'}. The API rechecks this limit when saving.</p>
+  <p className="muted">System RAM and CPU reservations apply once to the whole model Pod, not once per GPU.</p>
+</section> : null;
 const modelEditRevision = (activation: ModelActivation) => {
   const {uid, generation, resourceVersion} = activation.metadata ?? {};
   return uid && Number.isInteger(generation) && Number(generation) > 0
@@ -483,9 +501,15 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
   const deploymentSettings = useVllmDeploymentSettings(undefined, models, engine, computeTarget);
   const nvidiaCards = (models.computeMemory?.devices ?? []).filter((d) => d.computeTarget === 'nvidia-gpu' && d.gpuDevice && d.slots?.scope === 'device');
   const [gpuKey, setGpuKey] = useState(() => {const card = nvidiaCards.find((d) => (d.slots?.free ?? 0) > 0); return card?.gpuDevice ? nvidiaCardKey(card.gpuDevice) : '';});
-  const selectedCard = computeTarget === 'nvidia-gpu' ? nvidiaCards.find((d) => nvidiaCardKey(d.gpuDevice!) === gpuKey) : undefined;
+  const gpuKeys = gpuKey ? gpuKey.split(',') : [];
+  const selectedCards = computeTarget === 'nvidia-gpu' ? gpuKeys.flatMap((key) => nvidiaCards.filter((d) => nvidiaCardKey(d.gpuDevice!) === key)) : [];
+  const selectedCard = selectedCards[0];
+  const gpuCount = Math.max(1, selectedCards.length);
+  const multiGpu = models.computeTargets.engineCatalog?.[engine]?.multiGpu;
+  const [parallelism, setParallelism] = useState<NonNullable<VllmConfiguration['parallelism']>>('auto');
+  const gpuPayload = groupSettings(selectedCards.map((card) => card.gpuDevice!));
   const cardRequired = computeTarget === 'nvidia-gpu' && (nvidiaCards.length > 0 || !!gpuKey) && engine !== 'FreeToken';
-  const noSlots = slotsFull(selectedTarget, engine) || cardRequired && (!selectedCard || !selectedCard.slots?.free);
+  const noSlots = slotsFull(selectedTarget, engine) || cardRequired && (!selectedCard || selectedCards.length !== gpuKeys.length || selectedCards.some((card) => !card.slots?.free || card !== selectedCard && !matchingNvidiaCards(selectedCard, card)));
   const automaticGpuPool = computeTarget === 'nvidia-gpu' && sharedSlotPools(models.computeMemory?.devices ?? []).some((pool) =>
     pool.deviceIds.some((id) => models.computeMemory?.devices?.some((device) => device.id === id && device.computeTarget === computeTarget)));
   const engineUnavailable = !targetEngineAvailable(selectedTarget, engine);
@@ -508,7 +532,7 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
   const [estimate, setEstimate] = useState<MemoryEstimate>(); const [selectedMi, setSelectedMi] = useState(100);
   const [cpuOffloading, setCpuOffloading] = useState(false);
   const [offloadEstimate, setOffloadEstimate] = useState<MemoryEstimate>();
-  const [hostMemoryMi, setHostMemoryMi] = useState(100);
+  const [hostMemoryMi, setHostMemoryMi] = useState(16400);
   const [hostMemoryEdited, setHostMemoryEdited] = useState(false);
   const [offloadError, setOffloadError] = useState<unknown>(null);
   const [formError, setFormError] = useState<unknown>(null); const [searching, setSearching] = useState(false); const [loadingArtifacts, setLoadingArtifacts] = useState(false);
@@ -539,10 +563,10 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
   const selectedPreset = presets.find((item) => item.id === presetId);
   const selectedPresetArtifact = selectedArtifact(selectedPreset?.variant, artifactId);
   const selectedSearchModel = searchResults.find((item) => item.repo === searchModel);
-  const targetDevices = selectedCard ? [selectedCard] : models.computeMemory?.devices?.filter((device) => device.computeTarget === computeTarget || device.id === computeTarget) ?? [];
+  const targetDevices = selectedCard ? selectedCards : models.computeMemory?.devices?.filter((device) => device.computeTarget === computeTarget || device.id === computeTarget) ?? [];
   const capacities = [...targetDevices.map((device) => device.unreservedMi), ...(cardRequired ? [] : [estimate?.maximumMi])].filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0);
-  const capacityKnown = capacities.length > 0;
-  const availableMi = capacityKnown ? Math.max(...capacities) : 0;
+  const capacityKnown = capacities.length > 0 && (!cardRequired || capacities.length === selectedCards.length);
+  const availableMi = capacityKnown ? (cardRequired ? Math.min(...capacities) : Math.max(...capacities)) : 0;
   const selectedDiscoveryArtifact = artifacts.find((item) => item.id === selectedSearchArtifact);
   const supportsOffloading = !isFreeToken && computeTarget === 'nvidia-gpu';
   const offload = supportsOffloading && cpuOffloading ? offloadEstimate?.offloading : undefined;
@@ -581,7 +605,9 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
     || (freeToken.advanced.moeCacheSize !== null && (!Number.isInteger(freeToken.advanced.moeCacheSize) || freeToken.advanced.moeCacheSize < 0))
     || (freeToken.advanced.maxPrefillLength !== null && (!Number.isInteger(freeToken.advanced.maxPrefillLength) || freeToken.advanced.maxPrefillLength < 1));
   const invalidBudget = isFreeToken ? invalidFreeToken : !Number.isInteger(selectedMi) || selectedMi < 100 || selectedMi % 100 !== 0
-    || (cpuOffloading && (!Number.isInteger(hostMemoryMi) || hostMemoryMi < 100 || hostMemoryMi % 100 !== 0));
+    || ((cpuOffloading || gpuCount > 1) && (!Number.isInteger(hostMemoryMi) || hostMemoryMi < (gpuCount > 1 ? 1100 : 100) || hostMemoryMi % 100 !== 0))
+    || (gpuCount > 1 && (selectedCards.some((device) => selectedMi > Number(device.totalMi ?? 0))
+      || (typeof activeEstimate?.systemMemoryMaximumMi === 'number' && hostMemoryMi > activeEstimate.systemMemoryMaximumMi)));
 
   useEffect(() => { setCpuOffloading(false); setOffloadEstimate(undefined); setHostMemoryEdited(false); }, [engine, computeTarget]);
   useEffect(() => { setHostMemoryEdited(false); }, [url]);
@@ -594,12 +620,12 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
     let cancelled = false;
     const timer = window.setTimeout(async () => {
       try {
-        const result = await api.estimateMemory({engine, computeTarget, url, contextWindow, maxNumSeqs, modelType, kvCacheType, cpuOffloading: true, vramMi: selectedMi, ...(selectedCard ? {gpuDevice: selectedCard.gpuDevice} : {})});
+        const result = await api.estimateMemory({engine, computeTarget, url, contextWindow, maxNumSeqs, modelType, kvCacheType, cpuOffloading: true, vramMi: selectedMi, ...gpuPayload, ...(gpuCount > 1 && engine === 'VLLM' ? {vllm: {parallelism}} : {})});
         if (!cancelled) setOffloadEstimate(result);
       } catch (reason) { if (!cancelled) setOffloadError(reason); }
     }, 350);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [cpuOffloading, supportsOffloading, engine, computeTarget, url, contextWindow, maxNumSeqs, modelType, kvCacheType, selectedMi, gpuKey]);
+  }, [cpuOffloading, supportsOffloading, engine, computeTarget, url, contextWindow, maxNumSeqs, modelType, kvCacheType, selectedMi, gpuKey, parallelism]);
 
   const applyModel = (nextUrl: string, artifact?: ModelArtifact, variant?: ModelVariant, baseModel?: DiscoveryItem) => {
     setUrl(nextUrl); setName((current) => current || safeModelName(nextUrl));
@@ -626,7 +652,7 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
     let cancelled = false;
     const timer = window.setTimeout(async () => {
       try {
-        const result = await api.estimateMemory({engine, computeTarget, url, contextWindow, maxNumSeqs, modelType, kvCacheType, ...(selectedCard ? {gpuDevice: selectedCard.gpuDevice} : {})});
+        const result = await api.estimateMemory({engine, computeTarget, url, contextWindow, maxNumSeqs, modelType, kvCacheType, ...gpuPayload, ...(gpuCount > 1 && engine === 'VLLM' ? {vllm: {parallelism}} : {})});
         if (!cancelled) {
           setEstimate(result);
           const maximum = capacityKnown ? Math.max(100, Math.floor(availableMi / 100) * 100) : roundMemory(result.recommendedMi);
@@ -636,7 +662,7 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
       } catch (reason) { if (!cancelled) setFormError(reason); }
     }, 350);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [computeTarget, contextWindow, engine, isFreeToken, kvCacheType, maxNumSeqs, modelType, url, cpuOffloading, gpuKey]);
+  }, [computeTarget, contextWindow, engine, isFreeToken, kvCacheType, maxNumSeqs, modelType, url, cpuOffloading, gpuKey, parallelism]);
 
   const searchParams = (query: string, cursor?: string | null) => {
     const params = new URLSearchParams({provider, q: query, engine, computeTarget, modelType, limit: '20'});
@@ -684,9 +710,13 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
       const target = availableTargets.find((item) => item.id === computeTarget);
       if (!target?.available || !targetSupportsEngine(target, engine)) throw new Error('The selected engine and hardware combination is not available.');
       const local: Record<string, unknown> = {modelType, computeTarget, engine};
-      if (cardRequired && selectedCard) local.gpuDevice = selectedCard.gpuDevice;
+      if (cardRequired && selectedCard) Object.assign(local, gpuPayload);
       if (cpuSettings.payload) local.cpuResources = cpuSettings.payload;
       if (deploymentSettings.payload) local.vllm = deploymentSettings.payload;
+      if (gpuCount > 1) {
+        local.memoryRequiredMi = hostMemoryMi;
+        if (engine === 'VLLM') local.vllm = {parallelism};
+      }
       if (isFreeToken) {
         local.contextWindow = freeToken.advanced.contextWindow;
         local.maxNumSeqs = freeToken.advanced.maxNumSeqs;
@@ -720,7 +750,7 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
       <Field label="Model source"><select value={source} onChange={(event) => setSource(event.target.value as typeof source)}><option value="search">{provider === 'ollama' ? 'Ollama Library' : 'Hugging Face search'}</option><option value="preset">Tested preset</option><option value="direct">Direct reference</option></select></Field>
     </div>
 
-    {cardRequired && <NvidiaGpuSelect cards={nvidiaCards} value={gpuKey} onChange={setGpuKey} />}
+    {cardRequired && <NvidiaGpuGroupSelect cards={nvidiaCards} values={gpuKeys} onChange={(keys) => setGpuKey(keys.join(','))} maximum={multiGpu?.computeTargets.includes(computeTarget) ? multiGpu.maxDevices : 1} />}
     {noSlots && <p id="model-slots-full" className="notice notice-warn" role="status">No free GPU model slots. Remove a model or change GPU sharing in System &gt; Hardware.</p>}
     {automaticGpuPool && <p id="model-automatic-gpu" className="notice" role="status">Automatic GPU assignment: this hardware choice selects a node scheduling pool, not an individual card. Enable NVIDIA DRA card selection in System &gt; Hardware to choose a specific card.</p>}
     {engineUnavailable && <p className="notice notice-warn" role="status">{selectedTarget?.engineAvailability?.[engine]?.message ?? `${engine} is not available on the selected hardware.`}</p>}
@@ -746,6 +776,7 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
     <div className="form-grid three"><Field label="Name"><input value={name} onChange={(event) => setName(event.target.value)} required /></Field><Field label="Type"><select value={modelType} onChange={(event) => setModelType(event.target.value)}><option value="chat">Chat</option><option value="embedding">Embedding</option></select></Field><Field label="Selected URL"><input value={url} readOnly /></Field>{!isFreeToken && <><Field label="Max Num Seqs"><input type="number" min="1" value={maxNumSeqs} onChange={(event) => setMaxNumSeqs(Number(event.target.value))} /></Field><Field label="Context Size"><input type="number" min="1" value={contextWindow} onChange={(event) => setContextWindow(Number(event.target.value))} /></Field><Field label="KV Cache"><select value={kvCacheType} onChange={(event) => setKvCacheType(event.target.value)}>{kvCacheOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field></>}</div>
     {isFreeToken ? <FreeTokenSettingsPanel models={models} computeTarget={computeTarget} value={freeToken} onChange={setFreeToken} /> : <>
       <p className="muted">{kvCacheOptions.find((option) => option.value === kvCacheType)?.description} Attention-cache values are recalculated immediately; recurrent state and runtime reserve remain separate.</p>
+      {gpuCount > 1 && <p role="status">VRAM per GPU: {formatMi(selectedMi)} · {gpuCount} GPUs · {formatMi(selectedMi * gpuCount)} planned total. The smallest selected card limits this control.</p>}
       <EstimatePanel estimate={cpuOffloading ? offloadEstimate ?? estimate : estimate} availableMi={availableMi} capacityKnown={capacityKnown} selectedMi={selectedMi} onSelected={setSelectedMi} hideBreakdown={cpuOffloading} />
     </>}
     {supportsOffloading && <Panel title="CPU offloading" className="nested-panel">
@@ -766,7 +797,7 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
       </>}
       <ErrorNotice error={offloadError} />
     </Panel>}
-    <AdvancedModelSettings cpuSettings={cpuSettings} deploymentSettings={deploymentSettings} />
+    <AdvancedModelSettings cpuSettings={cpuSettings} deploymentSettings={deploymentSettings}><MultiGpuSettings count={gpuCount} engine={engine} strategy={parallelism} onStrategy={setParallelism} ramMi={hostMemoryMi} onRam={setHostMemoryMi} offloading={cpuOffloading} ramMaximumMi={activeEstimate?.systemMemoryMaximumMi} /></AdvancedModelSettings>
     <ErrorNotice error={source === 'search' ? createMutation.error : formError ?? createMutation.error} />
     {hasMemoryRisk && <div id="model-memory-risk" className="notice notice-warn" role="note"><strong>Memory warning — you can still try to start this model.</strong><ul>{memoryRisks.map((risk) => <li key={risk}>{risk}</li>)}</ul><p>Adding it accepts this risk. The pod may remain Pending, fail with out-of-memory errors or restart. Requests and limits stay at your selected budgets; a successful start is not guaranteed.</p></div>}
     <div className="form-actions"><Button type="button" variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" className={hasMemoryRisk ? 'memory-risk-button' : undefined} aria-describedby={[noSlots ? 'model-slots-full' : '', hasMemoryRisk ? 'model-memory-risk' : ''].filter(Boolean).join(' ') || undefined} disabled={createMutation.isPending || !url || invalidBudget || cpuSettings.invalid || deploymentSettings.invalid || !selectedTarget || noSlots || engineUnavailable}>{hasMemoryRisk && <span aria-hidden="true">⚠ </span>}Add Local Model</Button></div>
@@ -863,13 +894,10 @@ const StandardLocalModelEditForm = ({activation, models, onClose, onUpdated}: {a
       maxOutputTokens: local.maxOutputTokens ? String(local.maxOutputTokens) : '', maxNumSeqs: Number(local.maxNumSeqs ?? 1),
       kvCacheType: String(local.kvCacheType ?? (engine === 'OLlama' ? 'f16' : 'auto')),
       selectedMi: Math.max(100, budget || 100), cpuOffloading: local.cpuOffloading === true,
-      hostMemoryMi: Math.max(100, parseMemoryMi(local.memoryRequiredMi ?? status.memoryRequiredMi) || 100),
+      hostMemoryMi: Math.max(100, parseMemoryMi(local.memoryRequiredMi ?? status.memoryRequiredMi) || 16400),
       allowMemoryRisk: local.allowMemoryRisk === true,
-      gpuKey: computeTarget === 'nvidia-gpu' && (asRecord(local.gpuDevice).uuid ?? asRecord(status.gpuSharing).device) ? nvidiaCardKey({
-        uuid: String(asRecord(local.gpuDevice).uuid ?? asRecord(status.gpuSharing).device),
-        nodeUid: String(asRecord(local.gpuDevice).nodeUid ?? asRecord(status.gpuSharing).nodeUid ?? ''),
-        nodeName: String(asRecord(local.gpuDevice).nodeName ?? asRecord(status.gpuSharing).node ?? ''),
-      }) : '',
+      gpuKey: computeTarget === 'nvidia-gpu' ? savedGpuKeys(local, status) : '',
+      parallelism: (asRecord(local.vllm).parallelism ?? 'auto') as NonNullable<VllmConfiguration['parallelism']>,
       ownActive: activation.spec?.enabled !== false,
     };
   });
@@ -882,10 +910,17 @@ const StandardLocalModelEditForm = ({activation, models, onClose, onUpdated}: {a
   const [cpuOffloading, setCpuOffloading] = useState(initial.cpuOffloading);
   const [hostMemoryMi, setHostMemoryMi] = useState(initial.hostMemoryMi);
   const [gpuKey, setGpuKey] = useState(initial.gpuKey);
+  const gpuKeys = gpuKey ? gpuKey.split(',') : [];
+  const ownKeys = initial.gpuKey ? initial.gpuKey.split(',') : [];
+  const [parallelism, setParallelism] = useState(initial.parallelism);
   const cards = (models.computeMemory?.devices ?? []).filter((d) => initial.computeTarget === 'nvidia-gpu' && d.gpuDevice && d.slots?.scope === 'device');
-  const card = cards.find((d) => nvidiaCardKey(d.gpuDevice!) === gpuKey);
-  const ownCard = gpuKey === initial.gpuKey && initial.ownActive;
-  const noCardSlot = (cards.length > 0 || !!gpuKey) && (!card || (card.slots?.free ?? 0) + (ownCard ? 1 : 0) <= 0);
+  const selectedCards = gpuKeys.flatMap((key) => cards.filter((d) => nvidiaCardKey(d.gpuDevice!) === key));
+  const card = selectedCards[0];
+  const gpuCount = Math.max(1, selectedCards.length);
+  const multiGpu = models.computeTargets.engineCatalog?.[initial.engine]?.multiGpu;
+  const gpuPayload = groupSettings(selectedCards.map((item) => item.gpuDevice!));
+  const noCardSlot = (cards.length > 0 || !!gpuKey) && (!card || selectedCards.length !== gpuKeys.length || selectedCards.some((item) =>
+    (item.slots?.free ?? 0) + (initial.ownActive && ownKeys.includes(nvidiaCardKey(item.gpuDevice!)) ? 1 : 0) <= 0 || item !== card && !matchingNvidiaCards(card, item)));
   const cpuSettings = useCpuSettings(local.cpuResources, models, initial.engine, initial.computeTarget);
   const deploymentSettings = useVllmDeploymentSettings(local.vllm, models, initial.engine, initial.computeTarget);
   const target = models.computeTargets.targets.find((item) => item.id === initial.computeTarget);
@@ -895,16 +930,17 @@ const StandardLocalModelEditForm = ({activation, models, onClose, onUpdated}: {a
     ? advertisedKvCacheOptions
     : [{value: initial.kvCacheType, label: `Current - ${initial.kvCacheType}`, description: 'Currently stored value.'}, ...advertisedKvCacheOptions];
   const supportsOffloading = initial.computeTarget === 'nvidia-gpu';
-  const userChanged = gpuKey !== initial.gpuKey || cpuSettings.changed || deploymentSettings.changed || modelType !== initial.modelType || contextWindow !== initial.contextWindow
+  const userChanged = gpuKey !== initial.gpuKey || parallelism !== initial.parallelism || cpuSettings.changed || deploymentSettings.changed || modelType !== initial.modelType || contextWindow !== initial.contextWindow
     || maxOutputTokens !== initial.maxOutputTokens || maxNumSeqs !== initial.maxNumSeqs
     || kvCacheType !== initial.kvCacheType || selectedMi !== initial.selectedMi
-    || cpuOffloading !== initial.cpuOffloading || (cpuOffloading && hostMemoryMi !== initial.hostMemoryMi);
+    || cpuOffloading !== initial.cpuOffloading || ((cpuOffloading || gpuCount > 1) && hostMemoryMi !== initial.hostMemoryMi);
   const estimateQuery = useQuery({
-    queryKey: ['model-edit-estimate', name, modelType, contextWindow, maxOutputTokens, maxNumSeqs, kvCacheType, selectedMi, cpuOffloading, gpuKey],
+    queryKey: ['model-edit-estimate', name, modelType, contextWindow, maxOutputTokens, maxNumSeqs, kvCacheType, selectedMi, cpuOffloading, gpuKey, parallelism],
     queryFn: () => api.estimateModelUpdate(name, {
       modelType, contextWindow, maxOutputTokens: maxOutputTokens ? Number(maxOutputTokens) : null,
       maxNumSeqs, kvCacheType, cpuOffloading, ...(initial.computeTarget === 'cpu' ? {memoryRequiredMi: selectedMi} : {vramMi: selectedMi}),
-      ...(card ? {gpuDevice: card.gpuDevice} : gpuKey !== initial.gpuKey ? {gpuDevice: null} : {}),
+      ...(card ? {gpuDevice: null, gpuDevices: null, ...gpuPayload} : gpuKey !== initial.gpuKey ? {gpuDevice: null, gpuDevices: null} : {}),
+      ...(initial.engine === 'VLLM' && (gpuCount > 1 || ownKeys.length > 1) ? {vllm: gpuCount > 1 ? {parallelism} : null} : {}),
     }),
     enabled: Boolean(name), retry: false,
     // Keep the range input mounted while a changed budget is re-estimated. If
@@ -913,8 +949,9 @@ const StandardLocalModelEditForm = ({activation, models, onClose, onUpdated}: {a
     placeholderData: (previousData) => previousData,
   });
   const estimate = estimateQuery.data;
-  const targetDevices = card ? [card] : models.computeMemory?.devices?.filter((device) => device.computeTarget === initial.computeTarget || device.id === initial.computeTarget) ?? [];
-  const fallbackAvailable = targetDevices.reduce((maximum, device) => Math.max(maximum, Number(device.unreservedMi ?? 0)), 0) + (cards.length ? ownCard ? initial.selectedMi : 0 : initial.selectedMi);
+  const targetDevices = card ? selectedCards : models.computeMemory?.devices?.filter((device) => device.computeTarget === initial.computeTarget || device.id === initial.computeTarget) ?? [];
+  const fallbackAvailable = card ? Math.min(...targetDevices.map((device) => Number(device.unreservedMi ?? 0) + (initial.ownActive && ownKeys.includes(nvidiaCardKey(device.gpuDevice!)) ? initial.selectedMi : 0)))
+    : targetDevices.reduce((maximum, device) => Math.max(maximum, Number(device.unreservedMi ?? 0)), 0) + initial.selectedMi;
   const capacityKnown = typeof estimate?.maximumMi === 'number' || fallbackAvailable > initial.selectedMi;
   const availableMi = typeof estimate?.maximumMi === 'number' ? estimate.maximumMi : fallbackAvailable;
   const offload = cpuOffloading ? estimate?.offloading : undefined;
@@ -932,7 +969,11 @@ const StandardLocalModelEditForm = ({activation, models, onClose, onUpdated}: {a
   const hasMemoryRisk = memoryRisks.length > 0;
   const changes = useMemo(() => {
     const next: Record<string, unknown> = {};
-    if (gpuKey !== initial.gpuKey) next.gpuDevice = card?.gpuDevice ?? null;
+    if (gpuKey !== initial.gpuKey) {
+      Object.assign(next, gpuPayload);
+      if (gpuCount > 1 && local.gpuDevice || !gpuKey && !local.gpuDevices) next.gpuDevice = null;
+      if (local.gpuDevices && gpuCount < 2) next.gpuDevices = null;
+    }
     if (modelType !== initial.modelType) next.modelType = modelType;
     if (contextWindow !== initial.contextWindow) next.contextWindow = contextWindow;
     if (maxOutputTokens !== initial.maxOutputTokens) next.maxOutputTokens = maxOutputTokens ? Number(maxOutputTokens) : null;
@@ -940,32 +981,36 @@ const StandardLocalModelEditForm = ({activation, models, onClose, onUpdated}: {a
     if (kvCacheType !== initial.kvCacheType) next.kvCacheType = kvCacheType;
     if (selectedMi !== initial.selectedMi) next[initial.computeTarget === 'cpu' ? 'memoryRequiredMi' : 'vramMi'] = selectedMi;
     if (cpuOffloading !== initial.cpuOffloading) next.cpuOffloading = cpuOffloading;
-    if (cpuOffloading && (hostMemoryMi !== initial.hostMemoryMi || !initial.cpuOffloading)) next.memoryRequiredMi = hostMemoryMi;
-    if (!cpuOffloading && initial.cpuOffloading) next.memoryRequiredMi = null;
+    if ((cpuOffloading || gpuCount > 1) && (hostMemoryMi !== initial.hostMemoryMi || !initial.cpuOffloading || gpuKey !== initial.gpuKey)) next.memoryRequiredMi = hostMemoryMi;
+    if (!cpuOffloading && gpuCount < 2 && (initial.cpuOffloading || ownKeys.length > 1)) next.memoryRequiredMi = null;
     if (userChanged && hasMemoryRisk !== initial.allowMemoryRisk) next.allowMemoryRisk = hasMemoryRisk;
     if (cpuSettings.changed) next.cpuResources = cpuSettings.payload;
     if (deploymentSettings.changed) next.vllm = deploymentSettings.payload;
+    if (initial.engine === 'VLLM' && (gpuKey !== initial.gpuKey || parallelism !== initial.parallelism) && (gpuCount > 1 || ownKeys.length > 1)) next.vllm = gpuCount > 1 ? {parallelism} : null;
     return next;
-  }, [gpuKey, card, cpuOffloading, contextWindow, hasMemoryRisk, hostMemoryMi, initial, kvCacheType, maxNumSeqs, maxOutputTokens, modelType, selectedMi, userChanged, cpuSettings.changed, cpuSettings.payload, deploymentSettings.changed, deploymentSettings.payload]);
+  }, [gpuKey, card, parallelism, cpuOffloading, contextWindow, hasMemoryRisk, hostMemoryMi, initial, kvCacheType, maxNumSeqs, maxOutputTokens, modelType, selectedMi, userChanged, cpuSettings.changed, cpuSettings.payload, deploymentSettings.changed, deploymentSettings.payload]);
   const invalid = noCardSlot || cpuSettings.invalid || deploymentSettings.invalid || !initial.revision || !Number.isInteger(contextWindow) || contextWindow < 1
     || !Number.isInteger(maxNumSeqs) || maxNumSeqs < 1
     || (maxOutputTokens !== '' && (!Number.isInteger(Number(maxOutputTokens)) || Number(maxOutputTokens) < 1))
     || !Number.isInteger(selectedMi) || selectedMi < 100 || (selectedMi !== initial.selectedMi && selectedMi % 100 !== 0)
-    || (cpuOffloading && (!Number.isInteger(hostMemoryMi) || hostMemoryMi < 100 || (hostMemoryMi !== initial.hostMemoryMi && hostMemoryMi % 100 !== 0)));
+    || ((cpuOffloading || gpuCount > 1) && (!Number.isInteger(hostMemoryMi) || hostMemoryMi < (gpuCount > 1 ? 1100 : 100) || (hostMemoryMi !== initial.hostMemoryMi && hostMemoryMi % 100 !== 0)))
+    || (gpuCount > 1 && (selectedCards.some((device) => selectedMi > Number(device.totalMi ?? 0))
+      || (typeof estimate?.systemMemoryMaximumMi === 'number' && hostMemoryMi > estimate.systemMemoryMaximumMi)));
   const mutation = useMutation({
     mutationFn: () => {if (noCardSlot) throw new Error('No free slot on the selected NVIDIA card.'); return api.updateModel(name, {expectedRevision: initial.revision, local: changes});},
     onSuccess: async () => { await onUpdated(); onClose(); },
   });
   return <form className="stack" onSubmit={(event) => { event.preventDefault(); mutation.mutate(); }}>
     <div className="tag-list"><span className="tag">Model: {name}</span><span className="tag">Engine: {initial.engine}</span><span className="tag">Compute: {initial.computeTarget}</span><span className="tag">Source unchanged</span></div>
-    {(!!cards.length || !!initial.gpuKey) && <NvidiaGpuSelect cards={cards} value={gpuKey} onChange={setGpuKey} ownKey={initial.gpuKey} ownActive={initial.ownActive} allowAutomatic={legacyAllocation} />}
+    {(!!cards.length || !!initial.gpuKey) && <NvidiaGpuGroupSelect cards={cards} values={gpuKeys} onChange={(keys) => setGpuKey(keys.join(','))} ownKeys={ownKeys} ownActive={initial.ownActive} allowAutomatic={legacyAllocation} maximum={multiGpu?.computeTargets.includes(initial.computeTarget) ? multiGpu.maxDevices : 1} />}
     <div className="form-grid"><Field label="Type"><select value={modelType} onChange={(event) => setModelType(event.target.value)}><option value="chat">Chat</option><option value="embedding">Embedding</option></select></Field><Field label="Context Size"><input type="number" min="1" value={contextWindow} onChange={(event) => setContextWindow(Number(event.target.value))} /></Field><Field label="Max Output Tokens"><input type="number" min="1" value={maxOutputTokens} placeholder="Runtime default" onChange={(event) => setMaxOutputTokens(event.target.value)} /></Field><Field label="Max Num Seqs"><input type="number" min="1" value={maxNumSeqs} onChange={(event) => setMaxNumSeqs(Number(event.target.value))} /></Field><Field label="KV Cache"><select value={kvCacheType} onChange={(event) => setKvCacheType(event.target.value)}>{kvCacheOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field></div>
     <p className="muted">{kvCacheOptions.find((option) => option.value === kvCacheType)?.description}</p>
     {estimateQuery.isPending && <p role="status">Recalculating memory…</p>}
+    {gpuCount > 1 && <p role="status">VRAM per GPU: {formatMi(selectedMi)} · {gpuCount} GPUs · {formatMi(selectedMi * gpuCount)} planned total.</p>}
     <EstimatePanel estimate={estimate} availableMi={availableMi} capacityKnown={capacityKnown} selectedMi={selectedMi} onSelected={setSelectedMi} hideBreakdown={cpuOffloading} preserveSelectedMi={initial.selectedMi} />
     {supportsOffloading && <Panel title="CPU offloading" className="nested-panel"><label className="check-field"><input type="checkbox" checked={cpuOffloading} onChange={(event) => setCpuOffloading(event.target.checked)} />Use additional system RAM</label>{cpuOffloading && offload && <div className="stack compact"><div className="estimate-metrics"><div><span>Minimum</span><strong>{formatMi(offload.ramMinimumMi)}</strong></div><div><span>Recommended</span><strong>{formatMi(offload.ramRecommendedMi)}</strong></div><div><span>Unreserved</span><strong>{offload.ramMaximumMi === null ? 'Unknown' : formatMi(hostMaximum)}</strong></div></div><Field label="Host RAM budget (MiB)"><input type="number" min="100" step={hostMemoryMi === initial.hostMemoryMi ? 1 : 100} value={hostMemoryMi} onChange={(event) => setHostMemoryMi(Number(event.target.value))} /></Field><Button type="button" onClick={() => setHostMemoryMi(roundMemory(offload.ramRecommendedMi))}>Use recommended RAM allocation</Button></div>}</Panel>}
     {hasMemoryRisk && <div className="notice notice-warn" role="note"><strong>Memory warning — this change can still be applied.</strong><ul>{memoryRisks.map((risk) => <li key={risk}>{risk}</li>)}</ul></div>}
-    <AdvancedModelSettings cpuSettings={cpuSettings} deploymentSettings={deploymentSettings} />
+    <AdvancedModelSettings cpuSettings={cpuSettings} deploymentSettings={deploymentSettings}><MultiGpuSettings count={gpuCount} engine={initial.engine} strategy={parallelism} onStrategy={setParallelism} ramMi={hostMemoryMi} onRam={setHostMemoryMi} offloading={cpuOffloading} ramMaximumMi={estimate?.systemMemoryMaximumMi} /></AdvancedModelSettings>
     <p className="muted">Saving reconciles the model runtime. The Pod may restart while the new parameters are applied.</p>
     <ErrorNotice error={estimateQuery.error ?? mutation.error} />
     <div className="form-actions"><Button type="button" variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" className={hasMemoryRisk ? 'memory-risk-button' : undefined} disabled={!userChanged || invalid || estimateQuery.isFetching || estimateQuery.isError || mutation.isPending}>{mutation.isPending ? 'Saving…' : 'Save changes'}</Button></div>
@@ -1163,7 +1208,12 @@ export const ModelsPage = ({session}: {session: Session}) => {
       const freeTokenContext = local?.contextWindow ?? freeTokenAdvanced.contextWindow;
       const freeTokenMaxRequests = local?.maxNumSeqs ?? freeTokenAdvanced.maxNumSeqs;
       const freeTokenGpuCount = boundedInteger(freeToken.gpuCount, 1);
+      const group = (local?.gpuDevices ?? activation.status?.gpuSharing?.devices ?? []) as NvidiaGpuSelection[];
       return <Panel key={activation.metadata?.name} title={activation.metadata?.name ?? 'unnamed'} meta={`${activation.spec?.type ?? (local ? 'local' : 'external')} · ${String(local?.modelType ?? external?.modelType ?? 'chat')}`} actions={<StatusBadge phase={phase} />}>
+        {group.length > 1 && <div className="stack compact"><strong>{group.length} GPUs · one model</strong>
+          <span>VRAM per GPU: {formatMi(parseMemoryMi(local?.vramMi ?? local?.vram ?? activation.status?.vramRequiredMi))} · System RAM: {formatMi(parseMemoryMi(local?.memoryRequiredMi))} · {engine === 'VLLM' ? `Parallelism: ${String(asRecord(local?.vllm).parallelism ?? 'auto')}` : 'Ollama spread'}</span>
+          <details><summary>Selected GPU identities</summary><ul>{group.map(device => <li key={nvidiaCardKey(device)}>{device.nodeName} · {device.uuid}</li>)}</ul></details>
+        </div>}
         <div className="tag-list">{local && <><span className="tag">Compute: {target}</span><span className="tag">Engine: {engine}</span>{(activation.status?.artifact || local.artifact) && <span className="tag">Artifact: {String(activation.status?.artifact ?? local.artifact)}</span>}{(activation.status?.format || local.format) && <span className="tag">Format: {String(activation.status?.format ?? local.format)}</span>}{(activation.status?.quantization || local.quantization) && <span className="tag">Quantization: {quantizationText(activation.status?.quantization ?? local.quantization)}</span>}{isFreeTokenEngine(engine) ? <><span className="tag">GPU node: {freeTokenNodeName(freeToken.gpuDevice) || 'pending'}</span><span className="tag">GPUs: {freeTokenGpuCount}</span><span className="tag">GPU memory: {freeToken.gpuMemoryMi ? `${formatMi(parseMemoryMi(freeToken.gpuMemoryMi))} total` : 'default'}</span><span className="tag">System RAM: {freeToken.systemMemoryMi ? formatMi(parseMemoryMi(freeToken.systemMemoryMi)) : 'default'}</span><span className="tag">Strategy: {freeTokenStrategyLabels[String(freeToken.memoryStrategy) as FreeTokenMemoryStrategy] ?? String(freeToken.memoryStrategy ?? 'auto')}</span><span className="tag">Context: {String(freeTokenContext ?? 'default')}</span><span className="tag">Max requests: {String(freeTokenMaxRequests ?? 'default')}</span></> : local.realtime ? <><span className="tag">Profile: vLLM-Omni Realtime</span><span className="tag">Compute node: {String(asRecord(local.realtime).gpuNode ?? 'pending')}</span>{!isCpu && <span className="tag">GPUs: {String(asRecord(local.realtime).gpuCount ?? 1)}</span>}<span className="tag">Context: {String(local.contextWindow ?? 8192)}</span><span className="tag">System RAM: {formatMi(Number(asRecord(local.realtime).systemMemoryMi ?? 16384))}</span></> : <><span className="tag">KV requested: {String(activation.status?.requestedKvCacheType ?? local.kvCacheType ?? (String(local.engine ?? 'VLLM') === 'OLlama' ? 'f16' : 'auto'))}</span><span className="tag">KV active: {String(activation.status?.effectiveKvCacheType || 'pending confirmation')}</span><span className="tag">{isCpu ? 'RAM' : 'VRAM'}: {isCpu ? formatMi(Number(activation.status?.memoryRequiredMi ?? local.memoryRequiredMi)) : activation.status?.vramRequiredMi ? formatMi(Number(activation.status.vramRequiredMi)) : String(local.vram ?? 'default')}</span><span className="tag">Context: {String(local.contextWindow ?? 'default')}</span><span className="tag">Max seqs: {String(local.maxNumSeqs ?? 'default')}</span></>}<span className="tag">Target: {String(activation.spec?.targetNamespace ?? 'ai')}</span></>}{external && <><span className="tag">Provider: {String(external.model ?? 'external')}</span><span className="tag">Context: {String(external.contextWindow ?? 'default')}</span></>}</div>
         <ProgressBar phase={phase} enabled={activation.spec?.enabled !== false} message={activation.status?.message} />
         {activation.status?.gpuSharing && <div className="tag-list"><span className="tag" title={activation.status.gpuSharing.mode === 'exclusive' ? 'Exclusive GPU allocation.' : `Shared GPU access; no isolated GPU memory limit.${activation.status.gpuSharing.claimName ? ` Claim: ${activation.status.gpuSharing.claimName}` : ''}`}>GPU allocation: {activation.status.gpuSharing.mode === 'dra-shared' ? 'Shared · DRA' : activation.status.gpuSharing.mode === 'time-slicing' ? 'Shared · Time-slicing' : 'Exclusive'}</span><span className="tag">GPU node: {activation.status.gpuSharing.node}{activation.status.gpuSharing.device ? ` · ${activation.status.gpuSharing.device}` : ''}</span></div>}
