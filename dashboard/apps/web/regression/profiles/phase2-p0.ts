@@ -11,6 +11,8 @@ type VariantDefinition = {id: string; layers: readonly TestLayer[]};
  * by the repository's ordinary test suites.
  */
 export const phase2FastVariants = {
+  'model-task-component': {id: 'DISC-01', layers: ['U']},
+  'model-task-contract': {id: 'DISC-01', layers: ['C']},
   'create-choice-component': {id: 'DISC-01', layers: ['U']},
   'create-choice-contract': {id: 'DISC-01', layers: ['C']},
   'hf-search-component': {id: 'DISC-03', layers: ['U']},
@@ -45,6 +47,12 @@ export const phase2FastVariants = {
 } as const satisfies Record<string, VariantDefinition>;
 
 export const phase2FixtureVariants = {
+  'task-chat-desktop-browser': {id: 'DISC-01', layers: ['B']},
+  'task-chat-mobile-browser': {id: 'DISC-01', layers: ['B']},
+  'task-embedding-desktop-browser': {id: 'DISC-01', layers: ['B']},
+  'task-embedding-mobile-browser': {id: 'DISC-01', layers: ['B']},
+  'task-unknown-desktop-browser': {id: 'DISC-01', layers: ['B']},
+  'task-unknown-mobile-browser': {id: 'DISC-01', layers: ['B']},
   'create-choice-browser': {id: 'DISC-01', layers: ['B']},
   'hf-search-browser': {id: 'DISC-03', layers: ['B']},
   'hf-policy-browser': {id: 'DISC-04', layers: ['B']},

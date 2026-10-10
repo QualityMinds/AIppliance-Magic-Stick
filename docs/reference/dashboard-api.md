@@ -70,6 +70,33 @@ Paperclip, KubeOpenCode, KubeAI, LiteLLM, or direct app instance reconcilers.
 
 ## Backend API
 
+### Automatic model task detection
+
+Local creation accepts `local.modelType: "auto"`. The API resolves the task
+before saving a `ModelActivation`; its stored value is always `chat` or
+`embedding`. A tested preset's task is authoritative. For dynamic models, Hugging
+Face pipeline metadata identifies the task, with a generation architecture as
+a fallback when no pipeline tag exists. Ollama follows its runtime's complete
+GGUF metadata: an architecture-specific `pooling_type` key identifies embedding;
+without it the model supports completion. Missing/incomplete metadata stays
+unknown. Repository names and GPU selection are not task evidence.
+
+`POST /api/models/estimate-memory` accepts `modelType: "auto"` and returns
+`detectedModelType: "chat" | "embedding" | null`. Unknown metadata uses a
+conservative Chat estimate but does not choose a task for creation. The caller
+must then submit an explicit `chat` or `embedding`; unresolved automatic creation
+returns HTTP 400. Explicit types and older callers that omit the field remain
+supported. Discovery accepts an empty `modelType` to list both tasks.
+
+### Application model parameters
+
+Catalog-owned module parameters of `type: "model"` declare a `modelType` of
+`chat` or `embedding`. A nonempty value must match an available model ID of that
+type in the generated catalog, otherwise enabling returns HTTP 409. Empty values
+use the application's catalog default. AnythingLLM's `chatModel` and
+`embeddingModel` parameters seed missing native preferences; they do not change
+global model defaults or overwrite saved application settings and indexes.
+
 ### NVIDIA multi-GPU models
 
 The existing local-model create, estimate, edit, start and stop endpoints remain

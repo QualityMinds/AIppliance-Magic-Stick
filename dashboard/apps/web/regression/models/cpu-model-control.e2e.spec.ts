@@ -31,9 +31,9 @@ function estimatorBody(fixture: LocalModelFixture, contextWindow = fixture.conte
     ...(memoryRequiredMi === undefined ? {} : {memoryRequiredMi})};
 }
 
-function creationEstimateBody(fixture: LocalModelFixture) {
+function creationEstimateBody(fixture: LocalModelFixture, modelType = 'auto') {
   return {engine: fixture.engine, computeTarget: 'cpu', url: fixture.url, contextWindow: fixture.contextWindow,
-    maxNumSeqs: 1, modelType: 'chat', kvCacheType: fixture.kvCacheType};
+    maxNumSeqs: 1, modelType, kvCacheType: fixture.kvCacheType};
 }
 
 function alternateContext(current: number) { return current === 1024 ? 2048 : Math.max(256, Math.min(4096, Math.floor(current / 2))); }
@@ -107,6 +107,14 @@ test.describe.serial('Phase 2 installed CPU model control', () => {
       creationEstimateBody(fixture),()=>dialog.getByLabel(fixture.engine==='OLlama'?'Ollama model reference':'Hugging Face URL').fill(fixture.url),'model-estimate'));
     requireSafe(estimateHttp.status() === 200, 'API');
     const estimate = await estimateHttp.json() as MemoryEstimate;
+    requireSafe(!estimate.detectedModelType || estimate.detectedModelType === 'chat', 'CAPABILITY');
+    if (!estimate.detectedModelType) {
+      const manual = creationEstimateBody(fixture, 'chat');
+      allowed.push({method:'POST',path:'/api/models/estimate-memory',body:manual,mutating:false});
+      const response = await browserRequest(page,'POST','/api/models/estimate-memory',manual,
+        ()=>dialog.getByRole('combobox',{name:'Model task',exact:true}).selectOption('chat').then(()=>{}),'model-estimate');
+      requireSafe(response.status() === 200, 'API');
+    }
     const currentModels = await client.models();
     const capacities = [...(currentModels.computeMemory?.devices ?? [])
       .filter(device => device.computeTarget === 'cpu' || device.id === 'cpu').map(device => device.unreservedMi),
@@ -119,7 +127,8 @@ test.describe.serial('Phase 2 installed CPU model control', () => {
       fixture, item.prefix, live!.guard, estimate.confidence !== 'high');
     await dialog.getByLabel('Name').fill(name);
     await dialog.getByLabel('RAM budget (MiB)').fill(String(fixture.memoryRequiredMi));
-    const payload = client.payload();
+    const basePayload = client.payload();
+    const payload = {...basePayload, local: {...basePayload.local, modelType: estimate.detectedModelType ? 'auto' : 'chat'}};
     allowed = [{method: 'POST', path: '/api/models/local', body: payload}];
     await item.requested('model', name);
     let response:JsonHttpResponse;

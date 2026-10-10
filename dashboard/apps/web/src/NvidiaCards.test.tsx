@@ -11,7 +11,7 @@ import {ModelsPage} from './pages/ModelsPage';
 vi.mock('./api', () => ({api: {models: vi.fn(), popularModels: vi.fn(), estimateMemory: vi.fn(),
   createLocalModel: vi.fn(), estimateModelUpdate: vi.fn(), updateModel: vi.fn()}}));
 const session = {subject: 'fixture-admin', username: 'fixture-admin', roles: ['magicstick-admin'], identityManagementAvailable: true, identityManagementMode: 'keycloak'};
-const estimate = {minimumMi: 5000, recommendedMi: 6000, maximumMi: 49152, systemMemoryMaximumMi: 32000, weightsMi: 4000, kvCacheMi: 500, reserveMi: 500, confidence: 'high' as const};
+const estimate = {detectedModelType: 'chat' as const, minimumMi: 5000, recommendedMi: 6000, maximumMi: 49152, systemMemoryMaximumMi: 32000, weightsMi: 4000, kvCacheMi: 500, reserveMi: 500, confidence: 'high' as const};
 const key = (index: number) => nvidiaCardKey(nvidiaSelection(index));
 function mount(data: ModelsPayload) {
   vi.mocked(api.models).mockResolvedValue(data);

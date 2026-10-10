@@ -14,10 +14,10 @@ function modelDefaults(chat, embedding, saved, env) {
   };
   const provider = saved.LLM_PROVIDER || defaults.LLM_PROVIDER;
   if (provider === 'litellm') {
-    const modelId = saved.LITE_LLM_MODEL_PREF || chat.defaultModel;
+    const modelId = saved.LITE_LLM_MODEL_PREF || env.MAGICSTICK_INITIAL_CHAT_MODEL || chat.defaultModel;
     const selected = (chat.models || []).find((model) => model.id === modelId);
     if (!saved.LITE_LLM_MODEL_PREF && !selected) {
-      throw new BootstrapError('A catalogued default chat model is required for a new LiteLLM configuration');
+      throw new BootstrapError('A catalogued default chat model or an available selected chat model is required for a new LiteLLM configuration');
     }
     defaults.LITE_LLM_MODEL_PREF = modelId;
     defaults.LITE_LLM_MODEL_TOKEN_LIMIT = String(
@@ -25,9 +25,13 @@ function modelDefaults(chat, embedding, saved, env) {
         ? selected.contextWindow : 4096
     );
   }
-  if ((saved.EMBEDDING_ENGINE || defaults.EMBEDDING_ENGINE) === 'litellm'
-      && (embedding.models || []).some((model) => model.id === embedding.defaultModel)) {
-    defaults.EMBEDDING_MODEL_PREF = embedding.defaultModel;
+  if ((saved.EMBEDDING_ENGINE || defaults.EMBEDDING_ENGINE) === 'litellm' && !saved.EMBEDDING_MODEL_PREF) {
+    const modelId = env.MAGICSTICK_INITIAL_EMBEDDING_MODEL || embedding.defaultModel;
+    const selected = (embedding.models || []).some((model) => model.id === modelId);
+    if (env.MAGICSTICK_INITIAL_EMBEDDING_MODEL && !selected) {
+      throw new BootstrapError('The selected embedding model is not available in the embedding catalog');
+    }
+    if (selected) defaults.EMBEDDING_MODEL_PREF = modelId;
   }
   // Existing preferences, including an unavailable selected model, remain
   // explicit user intent. In particular, never switch an embedding index.

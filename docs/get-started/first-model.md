@@ -26,6 +26,9 @@ action are not available. The fields change with the selected engine.*
 ## 2. Configure and create
 
 For a local model, choose a compatible registry result/tag or a direct reference.
+The form detects **Chat** or **Embedding** from model metadata. If it asks for
+**Model task**, choose the task the model actually supports. Use a Chat model
+for this first-response guide; Embedding models turn text into vectors for search.
 Review the selected artifact, context length, concurrency and memory budget.
 For the first test, keep concurrency at one and choose a modest context rather
 than the model's largest advertised window.

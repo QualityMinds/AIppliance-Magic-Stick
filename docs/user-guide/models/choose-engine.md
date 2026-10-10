@@ -43,6 +43,16 @@ That validation is a small smoke test, not certification that your full model fi
 
 ## Review memory
 
+The local Create form detects the model's **Chat** or **Embedding** task from
+its registry metadata or tested preset. A detected task is shown as information;
+**Model task** appears as a required choice only when detection is inconclusive.
+Changing the selected model clears a manual choice. External models still ask
+for their type because their provider metadata may not be available.
+
+This task describes what the deployed model serves. Choose which of the ready
+models an application uses in that application's configuration; see
+[AnythingLLM model selection](../applications.md#openclaw-kubeopencode-and-anythingllm).
+
 Choose a model artifact that fits the selected engine, then review context length
 and concurrency. Long contexts and simultaneous requests increase runtime memory.
 Use the information icons to distinguish physical capacity, live free memory and

@@ -116,7 +116,9 @@ data:
           "postBuildSubstitution": true,
           "parameters": [
             {"name": "storage", "label": "Storage", "placeholder": "1Gi", "substitution": "AI_APPLIANCE_ANYTHING_LLM_STORAGE"},
-            {"name": "qdrantStorage", "label": "Qdrant Storage", "placeholder": "1Gi", "substitution": "AI_APPLIANCE_QDRANT_STORAGE"}
+            {"name": "qdrantStorage", "label": "Qdrant Storage", "placeholder": "1Gi", "substitution": "AI_APPLIANCE_QDRANT_STORAGE"},
+            {"name": "chatModel", "label": "Chat model", "type": "model", "modelType": "chat", "substitution": "AI_APPLIANCE_ANYTHING_LLM_CHAT_MODEL", "description": "Initial chat model. Saved choices in AnythingLLM are preserved."},
+            {"name": "embeddingModel", "label": "Embedding model", "type": "model", "modelType": "embedding", "substitution": "AI_APPLIANCE_ANYTHING_LLM_EMBEDDING_MODEL", "description": "Initial model for document search. Existing indexes keep their saved embedding model."}
           ]
         },
         "gpu": {

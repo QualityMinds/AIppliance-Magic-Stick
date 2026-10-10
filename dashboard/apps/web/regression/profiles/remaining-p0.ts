@@ -11,7 +11,7 @@ const row = (phase:RemainingPhase,id:string,layers:string,group:string,gate?:Liv
  * remains separate from isolated API/worker/component tests. */
 const definitions:P0Definition[] = [
   row(5,'MOD-03','AE','modules','applications'), row(5,'MOD-04','AE','modules','applications'),
-  row(5,'MOD-06','UCAE','modules','applications'), row(5,'MOD-09','UCB','modules'), row(5,'MOD-10','UCAE','credentials','identity'),
+  row(5,'MOD-06','UCBAE','modules','applications'), row(5,'MOD-09','UCB','modules'), row(5,'MOD-10','UCAE','credentials','identity'),
   row(5,'APP-02','AE','apps','applications'), row(5,'APP-05','CAE','apps','applications'),
   row(5,'APP-06','AE','apps','applications'), row(5,'APP-07','UCAE','credentials','applications'),
   row(5,'APP-09','UCA','apps','applications'), row(5,'APP-10','UAE','apps','applications'),

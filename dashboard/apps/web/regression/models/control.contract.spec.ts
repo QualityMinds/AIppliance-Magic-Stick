@@ -109,3 +109,7 @@ test('LOG-01 LOG-04 backend resolves bounded current, previous and init output f
   'test_model_logs.ModelLogsTests.test_logs_are_resolved_from_the_local_activation_and_owned_pods',
   'test_model_logs.ModelLogsTests.test_tail_is_bounded_and_missing_output_does_not_fail_the_dialog',
 ]));
+
+
+test('DISC-01 server resolves automatic model tasks and rejects unknown tasks before saving', evidenceAnnotations(
+  {id: 'DISC-01', variant: 'model-task-contract', layer: 'C'}), () => pythonSuite(dashboard, ['test_model_tasks.ModelTaskTests']));

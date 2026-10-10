@@ -1,4 +1,5 @@
 import pathlib
+import subprocess
 import unittest
 
 import yaml
@@ -14,6 +15,11 @@ class AnythingLLMLiteLLMDeploymentTests(unittest.TestCase):
         self.runtime = self.pod['containers'][0]
         self.bootstrap = next(container for container in self.pod['initContainers']
                               if container['name'] == 'initialize-model-settings')
+
+    def test_native_bootstrap_preserves_saved_choices_and_applies_initial_selections(self):
+        result = subprocess.run(['node', '--test', str(BASE.parents[1] / 'tests/anythingllm_model_defaults.test.cjs')],
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_native_settings_and_storage_share_the_persistent_volume(self):
         mounts = {mount['mountPath']: mount for mount in self.runtime['volumeMounts']}

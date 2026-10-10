@@ -3091,6 +3091,13 @@ data:
         if any(not isinstance(value, str) or len(value) > 4096 or "\x00" in value
                for value in result.values()):
             raise ValueError("module parameters must be strings of at most 4096 characters")
+        selectors = [item for item in definition.get("parameters", []) if item.get("type") == "model"]
+        if any(result.get(item["name"]) for item in selectors):
+            models = generated_model_catalog().get("models") or []
+            for item in selectors:
+                value = result.get(item["name"], "")
+                if value and not any(model.get("id") == value and model.get("type") == item.get("modelType") for model in models):
+                    raise RequestError(409, "Select an available " + str(item.get("modelType")) + " model for " + item["name"])
         return result
 
 
@@ -4018,6 +4025,50 @@ data:
         return "unverified"
 
 
+    def inferred_hf_model_type(model, config=None):
+        pipeline = str((model or {}).get("pipeline_tag") or (model or {}).get("pipelineTag") or "").lower()
+        if pipeline in {"feature-extraction", "sentence-similarity"}:
+            return "embedding"
+        if pipeline in {"text-generation", "text2text-generation", "image-text-to-text", "conversational"}:
+            return "chat"
+        # Architecture is evidence only for a generation head. A repository name
+        # or a base transformer's family does not identify its inference task.
+        if not pipeline and any(str(item).endswith("ForCausalLM") for item in (config or {}).get("architectures", [])):
+            return "chat"
+        return None
+
+
+    def inferred_ollama_model_type(metadata):
+        gguf = (metadata or {}).get("ggufMetadata") or {}
+        architecture = gguf.get("general.architecture")
+        if not architecture or (metadata or {}).get("ggufMetadataError"):
+            return None
+        # Ollama 0.33.2 server/images.go derives embedding vs completion from
+        # the presence of the architecture's pooling_type in a complete GGUF.
+        return "embedding" if str(architecture) + ".pooling_type" in gguf else "chat"
+
+
+    def resolve_automatic_model_type(local, resolved_url=""):
+        if local.get("preset"):
+            preset = model_presets().get(local["preset"]) or {}
+            variants = [v for v in preset.get("variants", []) if
+                        v.get("engine") == local.get("engine") and v.get("computeTarget") == local.get("computeTarget")]
+            variant = variants[0] if len(variants) == 1 else {}
+            task = variant.get("modelType") or preset.get("modelType") or preset.get("type")
+            if task in {"chat", "embedding"}:
+                return task
+            resolved_url = resolved_url or variant.get("url") or preset.get("url")
+        url = resolved_url or local.get("url") or ""
+        if local.get("engine") == "OLlama":
+            task = inferred_ollama_model_type(ollama_metadata(ollama_model_reference(url)))
+        else:
+            metadata = hf_metadata(hf_repo_id(url))
+            task = inferred_hf_model_type(metadata.get("modelApi"), metadata.get("config"))
+        if not task:
+            raise RequestError(400, "The model task could not be detected. Choose Chat or Embedding explicitly.")
+        return task
+
+
     def hf_compatibility(
         formats,
         quantization,
@@ -4508,7 +4559,7 @@ data:
         if compute_target and compute_target not in {"cpu", "nvidia-gpu", "amd-gpu"}:
             raise RequestError(400, "computeTarget is unsupported for OLlama")
         model_type = hf_discovery_query_value(query, "modelType", "chat").lower()
-        if model_type not in {"chat", "embedding"}:
+        if model_type not in {"", "chat", "embedding"}:
             raise RequestError(400, "modelType must be chat or embedding")
         return {
             "provider": provider,
@@ -5469,7 +5520,9 @@ data:
         config = metadata.get("config") or {}
         dimensions = model_dimension_config(config)
         warnings = []
-        model_type = str(payload.get("modelType") or dimensions.get("model_type") or config.get("model_type") or "chat").lower()
+        detected_type = inferred_hf_model_type(metadata.get("modelApi"), config)
+        requested_type = str(payload.get("modelType") or "auto").lower()
+        model_type = (detected_type or "chat") if requested_type == "auto" else requested_type
         requested_context = positive_int(payload.get("contextWindow"))
         model_max_context = config_int(dimensions, "max_position_embeddings", "model_max_length")
         context_window = requested_context or model_max_context or 4096
@@ -5602,6 +5655,7 @@ data:
         return {
             "repo": repo,
             "sourceUrl": "https://huggingface.co/" + repo,
+            "detectedModelType": detected_type,
             "weightsMi": int(weights_mi),
             "downloadBytes": int(download_bytes),
             "downloadSizeSource": download_size_source,
@@ -5770,7 +5824,9 @@ data:
         reference = ollama_model_reference(payload.get("url"))
         kv_cache_type = normalize_kv_cache_type("OLlama", payload.get("kvCacheType"))
         metadata = ollama_metadata(reference)
-        model_type = str(payload.get("modelType") or "chat").lower()
+        detected_type = inferred_ollama_model_type(metadata)
+        requested_type = str(payload.get("modelType") or "auto").lower()
+        model_type = (detected_type or "chat") if requested_type == "auto" else requested_type
         gguf_metadata = metadata.get("ggufMetadata") or {}
         model_max_context = positive_int(ollama_gguf_value(gguf_metadata, "context_length")) or 0
         requested_context = positive_int(payload.get("contextWindow"))
@@ -5849,6 +5905,7 @@ data:
         return {
             "repo": reference["reference"],
             "sourceUrl": "https://ollama.com/" + source_path,
+            "detectedModelType": detected_type,
             "weightsMi": int(weights_mi),
             "downloadBytes": int(metadata.get("modelBytes") or 0),
             "downloadSizeSource": "ollama-manifest",
@@ -6100,6 +6157,8 @@ data:
         }
         if compute_target not in supported_targets.get(engine, set()):
             raise RequestError(400, engine + " memory estimation is not supported for " + compute_target)
+        if payload.get("modelType") not in (None, "", "auto", "chat", "embedding"):
+            raise RequestError(400, "modelType must be auto, chat or embedding")
         kv_cache_type = normalize_kv_cache_type(engine, payload.get("kvCacheType"))
         if engine == "VLLM" and kv_cache_type == "fp8" and compute_target not in ("nvidia-gpu", "amd-gpu"):
             raise RequestError(409, "vLLM FP8 KV cache is available only on CUDA and ROCm targets.")
@@ -6198,6 +6257,7 @@ data:
             "maxNumSeqs": int(max_num_seqs),
             "confidence": estimate.get("confidence") or "estimated",
             "calculationSource": estimate.get("calculationSource"),
+            "detectedModelType": estimate.get("detectedModelType"),
             "gpuAvailable": bool(vram.get("available")),
             "warnings": warnings,
         }
@@ -6596,6 +6656,10 @@ data:
                 raise ValueError("CPU offloading currently supports NVIDIA GPU models only")
             selected_artifact = resolve_local_preset_artifact(local)
             resolved_model_url = str((selected_artifact or {}).get("url") or local.get("url") or "").strip()
+            if local.get("modelType") == "auto":
+                local["modelType"] = resolve_automatic_model_type(local, resolved_model_url)
+            elif local.get("modelType") not in (None, "chat", "embedding"):
+                raise ValueError("local.modelType must be auto, chat or embedding")
             target_definition = ((compute_target_catalog().get("targets") or {}).get(compute_target) or {})
             if target_definition.get("kind") == "cpu" or compute_target == "cpu":
                 local.pop("vram", None)

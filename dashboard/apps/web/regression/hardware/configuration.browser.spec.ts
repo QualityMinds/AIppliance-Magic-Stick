@@ -37,10 +37,10 @@ test(`MGPU-02 ${engine} ${different?'different':'identical'} cards ${viewport} b
   {id:'MGPU-02',variant:`p${phase}-replicated-config`,layer:'B'}), async ({page}, info) => {
   await page.setViewportSize(viewport === 'mobile' ? {width:390,height:844} : {width:1440,height:1000});
   const data=different?heterogeneousNvidiaCards():fourNvidiaCardsWithMixedTelemetry(),writes:Array<{local:Record<string,unknown>}> = [],logQueries:string[]=[];
-  const estimate={minimumMi:2000,recommendedMi:6000,maximumMi:different?12288:40960,systemMemoryMaximumMi:32000,confidence:'high'};
+  const estimate={detectedModelType:'chat',minimumMi:2000,recommendedMi:6000,maximumMi:different?12288:40960,systemMemoryMaximumMi:32000,confidence:'high'};
   await fixturePage(page,{'/api/models':()=>data, '/api/models/local':(request:Request)=>{
     const payload=request.postDataJSON();writes.push(payload);
-    data.activations=[{metadata:{name:payload.name,uid:'parent-fixture',generation:1,resourceVersion:'1'},spec:{...payload,type:'local'},
+    data.activations=[{metadata:{name:payload.name,uid:'parent-fixture',generation:1,resourceVersion:'1'},spec:{...payload,type:'local',local:{...payload.local,modelType:'chat'}},
       status:{phase:'Degraded',replication:{desired:2,ready:1,instances:[{name:'copy-a',uuid:nvidiaSelection(0).uuid,nodeName:'fixture-node',phase:'Ready'},
         {name:'copy-b',uuid:nvidiaSelection(3).uuid,nodeName:'fixture-node',phase:'Degraded',message:'Copy failed; inspect Logs.'}]}}}];return {};},
     '/api/model-discovery/popular':{results:[]},
@@ -93,11 +93,11 @@ test(`MGPU-01 ${engine} ${count} ${different?'different':'identical'} GPUs ${vie
   const perCardMaximum=different?(count===4?12200:20400):(count===4?40900:49100);
   const savedPerCard=different?10000:40000,editedPerCard=different?8000:38000;
   const oversizedPerCard=different?(count===4?16400:24600):49200;
-  const estimate={minimumMi:2000,recommendedMi:6000,maximumMi:different?(count===4?12288:20480):(count===4?40960:49152),systemMemoryMaximumMi:32000,confidence:'high'};
+  const estimate={detectedModelType:'chat',minimumMi:2000,recommendedMi:6000,maximumMi:different?(count===4?12288:20480):(count===4?40960:49152),systemMemoryMaximumMi:32000,confidence:'high'};
   await fixturePage(page,{'/api/models':()=>data, '/api/models/local':(request:Request)=>{
     const payload=request.postDataJSON();writes.push(payload);
     data.activations=[{metadata:{name:'split-fixture',uid:'split-fixture-uid',generation:1,resourceVersion:'1'},
-      spec:{...payload,type:'local'},status:{phase:'Disabled'}}];return {};},
+      spec:{...payload,type:'local',local:{...payload.local,modelType:'chat'}},status:{phase:'Disabled'}}];return {};},
     '/api/models/split-fixture':(request:Request)=>{updates.push(request.postDataJSON());return {};},
     '/api/models/split-fixture/estimate-memory':estimate,
     '/api/model-discovery/popular':{results:[]}, '/api/models/estimate-memory':estimate});
@@ -107,11 +107,17 @@ test(`MGPU-01 ${engine} ${count} ${different?'different':'identical'} GPUs ${vie
   await dialog.getByLabel(engine === 'VLLM' ? 'Hugging Face URL' : 'Ollama model reference').fill(engine === 'VLLM' ? 'hf://fixture/small' : 'ollama://fixture:small');
   await dialog.getByLabel('Name',{exact:true}).fill('split-fixture');
   await expect(dialog.getByRole('checkbox',{name:/0000:04:00.0/})).toBeEnabled();
+  const settledEstimate=page.waitForResponse(response=>{
+    if(new URL(response.url()).pathname!=='/api/models/estimate-memory')return false;
+    const payload=response.request().postDataJSON();
+    return payload.gpuDevices?.length===count && (engine!=='VLLM'||payload.vllm?.parallelism==='pipeline');
+  });
   await dialog.getByLabel('Automatic GPU count').fill(String(count)); await dialog.getByRole('button',{name:'Select GPUs'}).click();
   await expect(dialog.getByText(`${count} GPUs selected.`,{exact:false})).toBeVisible();
   await dialog.getByText('Advanced',{exact:true}).click();
   if(engine === 'VLLM') await dialog.getByLabel('GPU parallelism').selectOption('pipeline');
   else await expect(dialog.getByText('Ollama spreads the model', {exact:false})).toBeVisible();
+  expect((await settledEstimate).status()).toBe(200);
   await expect(dialog.getByLabel('Multi-GPU system RAM (MiB)')).toHaveValue('16400');
   const slider=dialog.getByRole('slider',{name:'Memory reservation'}),budget=dialog.getByLabel('Total VRAM budget (MiB)');
   await expect(slider).toHaveAttribute('max',String(perCardMaximum*count));
@@ -259,7 +265,7 @@ if (phase === 3) {
     await page.clock.install();let free=1;const writes:unknown[]=[];
     await fixturePage(page,{'/api/models':()=>fourNvidiaCards([4,0,free,4]),
       '/api/model-discovery/popular':{provider:'huggingface',results:[],total:0},
-      '/api/models/estimate-memory':{minimumMi:1024,recommendedMi:2000,maximumMi:49152,confidence:'high'},
+      '/api/models/estimate-memory':{detectedModelType:'chat',minimumMi:1024,recommendedMi:2000,maximumMi:49152,confidence:'high'},
       '/api/models/local':(request:Request)=>{writes.push(request.postDataJSON());return {};}});
     await page.goto(origin+'/#/models');await page.getByRole('button',{name:'Create',exact:true}).click();
     const dialog=page.getByRole('dialog',{name:'Create Model'});
@@ -342,7 +348,7 @@ if (phase === 3) {
     {id:'SLOT-05',variant:'p4-draft-refresh',layer:'B'}),async ({page}) => {
     await page.clock.install(); let free = 1; const writes:unknown[] = [];
     await fixturePage(page,{'/api/models':() => models(free),'/api/model-discovery/popular':{provider:'huggingface',results:[],total:0},
-      '/api/models/estimate-memory':{minimumMi:1024,recommendedMi:2000,maximumMi:110000,confidence:'high'},
+      '/api/models/estimate-memory':{detectedModelType:'chat',minimumMi:1024,recommendedMi:2000,maximumMi:110000,confidence:'high'},
       '/api/models/local':(request:Request) => {writes.push(request.postDataJSON()); return {};}});
     await page.goto(origin+'/#/models'); await page.getByRole('button',{name:'Create',exact:true}).click();
     const dialog = page.getByRole('dialog',{name:'Create Model'});

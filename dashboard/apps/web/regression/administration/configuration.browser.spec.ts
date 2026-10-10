@@ -1,4 +1,4 @@
-import {test,expect,type Page} from '@playwright/test';
+import {test,expect,type Page,type Request} from '@playwright/test';
 import {fixturePage,origin} from '../fixtures/dashboard.ts';
 import {evidenceAnnotations} from '../core/evidence.ts';
 import {remainingPhase,remainingVariants} from '../profiles/remaining-p0.ts';
@@ -127,6 +127,37 @@ async function browserProof(page:Page,group:string,id:string) {
     await expect(page.getByRole('dialog').getByText(/unrestricted|cluster-admin/i).first()).toBeVisible();
     await page.getByRole('dialog').getByRole('button',{name:'Cancel',exact:true}).click();
     expect(writes).toEqual([]); return;
+  }
+  if(group === 'modules' && id === 'MOD-06') {
+    for (const width of [1440, 390]) {
+      await page.goto('about:blank');
+      await page.setViewportSize({width,height:900});
+      let saved:unknown;
+      await mount(page,'services',{
+        '/api/modules':{modules:{'anything-llm':{enabled:false,activationMode:'moduleactivation',parameters:{chatModel:'removed-chat'}}},
+          catalogJson:{modules:{'anything-llm':{displayName:'AnythingLLM',group:'apps',activationMode:'moduleactivation',parameters:[
+            {name:'chatModel',label:'Chat model',type:'model',modelType:'chat',description:'Initial chat model. Saved choices in AnythingLLM are preserved.'},
+            {name:'embeddingModel',label:'Embedding model',type:'model',modelType:'embedding',description:'Initial model for document search. Existing indexes keep their saved embedding model.'},
+          ]}}}},
+        '/api/models':{models:[{id:'chat-a',type:'chat'},{id:'chat-b',type:'chat'},{id:'embedding-a',type:'embedding'},{id:'embedding-b',type:'embedding'}]},
+        '/api/modules/anything-llm/enable':(request:Request)=>{saved=request.postDataJSON();return {};},
+      });
+      await page.getByText('Configure',{exact:true}).click();
+      const chat=page.getByLabel('Chat model'),embedding=page.getByLabel('Embedding model');
+      await expect(chat).toHaveValue('removed-chat');
+      await expect(page.getByRole('button',{name:'Enable',exact:true})).toBeDisabled();
+      await expect(chat.locator('option')).toHaveText(['Use catalog default','removed-chat · unavailable','chat-a','chat-b']);
+      await expect(embedding.locator('option')).toHaveText(['Use catalog default','embedding-a','embedding-b']);
+      await chat.focus();await chat.press('End');await expect(chat).toHaveValue('chat-b');
+      await embedding.focus();await embedding.press('End');await expect(embedding).toHaveValue('embedding-b');
+      await expect(page.getByRole('button',{name:'Enable',exact:true})).toBeEnabled();
+      expect(saved).toBeUndefined();
+      expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+      await page.screenshot({path:test.info().outputPath(`anythingllm-models-${width}.png`)});
+      await page.getByRole('button',{name:'Enable',exact:true}).click();
+      await expect.poll(()=>saved).toEqual({parameters:{chatModel:'chat-b',embeddingModel:'embedding-b'}});
+    }
+    return;
   }
   if(group === 'modules') {
     const writes=await mount(page,'services',{'/api/modules':{modules:{litellm:{enabled:true,displayName:'Fixture runtime',status:{phase:'Degraded',message:'Controlled dependency failure.'}}},catalogJson:{modules:{litellm:{displayName:'Fixture runtime',group:'runtime',activationMode:'moduleactivation'}}}}});

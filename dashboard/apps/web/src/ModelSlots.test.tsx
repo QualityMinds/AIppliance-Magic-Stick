@@ -25,7 +25,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(api.popularModels).mockResolvedValue({provider: 'huggingface', results: [], total: 0});
   vi.mocked(api.estimateMemory).mockResolvedValue({minimumMi: 5000, recommendedMi: 6000, maximumMi: 100000,
-    weightsMi: 4000, kvCacheMi: 500, reserveMi: 500, confidence: 'estimated'});
+    weightsMi: 4000, kvCacheMi: 500, reserveMi: 500, confidence: 'estimated', detectedModelType: 'chat'});
 });
 
 describe('model slot selection', () => {

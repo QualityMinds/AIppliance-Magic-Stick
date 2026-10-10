@@ -98,3 +98,65 @@ describe('Pi Coding instances', () => {
     expect(dialog.getByLabelText('Name')).toHaveValue('default');
   });
 });
+
+describe('AnythingLLM initial model choices', () => {
+  beforeEach(() => {
+    writes.length = 0;
+    models = {models: [{id: 'chat-one', type: 'chat'}, {id: 'chat-two', type: 'chat'},
+      {id: 'embed-one', type: 'embedding'}, {id: 'embed-two', type: 'embedding'}]};
+    modules = {modules: {'anything-llm': {enabled: false, activationMode: 'moduleactivation', status: {phase: 'Disabled'}}},
+      catalogJson: {modules: {'anything-llm': {displayName: 'AnythingLLM', group: 'apps', activationMode: 'moduleactivation', parameters: [
+        {name: 'storage', label: 'Storage'},
+        {name: 'chatModel', label: 'Chat model', type: 'model', modelType: 'chat'},
+        {name: 'embeddingModel', label: 'Embedding model', type: 'model', modelType: 'embedding'},
+      ]}}, applications: {}}};
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input), window.location.origin).pathname;
+      let result: unknown = {};
+      if ((init?.method ?? 'GET') !== 'GET') writes.push({path, body: JSON.parse(String(init?.body ?? '{}'))});
+      else if (path === '/api/modules') result = modules;
+      else if (path === '/api/models') result = models;
+      else if (path === '/api/instances') result = {instances: {}};
+      return new Response(JSON.stringify(result), {headers: {'content-type': 'application/json'}});
+    }));
+  });
+
+  it('offers separate typed model lists and persists both selections through Enable', async () => {
+    renderServices();
+    await userEvent.click(await screen.findByText('Configure'));
+    const chat = screen.getByLabelText('Chat model'), embedding = screen.getByLabelText('Embedding model');
+    expect(within(chat).getAllByRole('option').map(option => option.textContent)).toEqual(['Use catalog default', 'chat-one', 'chat-two']);
+    expect(within(embedding).getAllByRole('option').map(option => option.textContent)).toEqual(['Use catalog default', 'embed-one', 'embed-two']);
+    expect(writes).toEqual([]);
+    await userEvent.selectOptions(chat, 'chat-two');
+    await userEvent.selectOptions(embedding, 'embed-two');
+    await userEvent.click(screen.getByRole('button', {name: 'Enable'}));
+    await waitFor(() => expect(writes).toEqual([{path: '/api/modules/anything-llm/enable',
+      body: {parameters: {chatModel: 'chat-two', embeddingModel: 'embed-two'}}}]));
+  });
+
+  it('preserves saved parameters on re-enable without editing the controls', async () => {
+    modules.modules['anything-llm']!.parameters = {storage: '3Gi', chatModel: 'chat-two', embeddingModel: 'embed-one'};
+    renderServices();
+    await userEvent.click(await screen.findByRole('button', {name: 'Enable'}));
+    await waitFor(() => expect(writes[0]?.body).toEqual({parameters: {storage: '3Gi', chatModel: 'chat-two', embeddingModel: 'embed-one'}}));
+  });
+
+  it('retains an unavailable selection visibly and blocks Enable until corrected', async () => {
+    modules.modules['anything-llm']!.parameters = {chatModel: 'retired-chat'};
+    renderServices();
+    await userEvent.click(await screen.findByText('Configure'));
+    expect(screen.getByLabelText('Chat model')).toHaveValue('retired-chat');
+    expect(screen.getByRole('button', {name: 'Enable'})).toBeDisabled();
+    await userEvent.selectOptions(screen.getByLabelText('Chat model'), '');
+    expect(screen.getByRole('button', {name: 'Enable'})).toBeEnabled();
+    expect(writes).toEqual([]);
+  });
+
+  it('does not expose activation actions to a viewer', async () => {
+    renderServices(['magicstick-viewer']);
+    await screen.findByText('AnythingLLM');
+    expect(screen.queryByRole('button', {name: 'Enable'})).not.toBeInTheDocument();
+    expect(writes).toEqual([]);
+  });
+});

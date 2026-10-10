@@ -77,7 +77,7 @@ const payload = (path: string, method: string) => {
   if (path === '/api/api-access' && method === 'POST') return {item: {id: 'new', name: 'Demo'}, key: 'sk-secret-once', apiBases: [{scope: 'local', url: 'https://litellm.magicstick.local/v1'}]};
   if (path === '/api/kubernetes-access') return {users: [{id: 'local', username: 'local-user', displayName: 'Local User', email: 'local@example.com', enabled: true, source: 'Local', accessLevel: 'viewer'}], total: 1, first: 0, max: 100, configuration: {configured: true, apiServer: 'https://192.0.2.44:6443', issuerUrl: 'https://id.magicstick.local/realms/magicstick', credentialPlugin: 'kubectl oidc-login'}};
   if (path === '/api/model-discovery/popular') return {provider: 'huggingface', results: [{id: 'Qwen/Qwen3.5-9B', repo: 'Qwen/Qwen3.5-9B', name: 'Qwen3.5-9B'}], total: 1};
-  if (path === '/api/models/estimate-memory') return {
+  if (path === '/api/models/estimate-memory') return {detectedModelType: 'chat',
     minimumMi: 5500,
     recommendedMi: 6700,
     maximumMi: 59136,

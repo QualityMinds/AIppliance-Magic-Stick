@@ -102,3 +102,33 @@ test('startup removes every saved managed credential while preserving model pref
     assert(text.includes('AUTH_TOKEN="synthetic-unrelated"'));
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
+
+test('service selections seed their own chat, context and embedding defaults', () => {
+  const embeddings = {...embedding, models: [...embedding.models, {id: 'selected-embedding'}]};
+  const result = modelDefaults(chat, embeddings, {}, {
+    MAGICSTICK_INITIAL_CHAT_MODEL: 'selected-chat', MAGICSTICK_INITIAL_EMBEDDING_MODEL: 'selected-embedding',
+  });
+  assert.equal(result.LITE_LLM_MODEL_PREF, 'selected-chat');
+  assert.equal(result.LITE_LLM_MODEL_TOKEN_LIMIT, '32768');
+  assert.equal(result.EMBEDDING_MODEL_PREF, 'selected-embedding');
+});
+
+test('stale or wrong-task service choices reject initialization instead of silently falling back', () => {
+  for (const env of [
+    {MAGICSTICK_INITIAL_CHAT_MODEL: 'removed'},
+    {MAGICSTICK_INITIAL_CHAT_MODEL: 'default-embedding'},
+    {MAGICSTICK_INITIAL_EMBEDDING_MODEL: 'removed'},
+    {MAGICSTICK_INITIAL_EMBEDDING_MODEL: 'default-chat'},
+  ]) assert.throws(() => modelDefaults(chat, embedding, {}, env), /catalog/);
+});
+
+test('changed service defaults never replace saved choices or an existing embedding index', () => {
+  const saved = {LITE_LLM_MODEL_PREF: 'removed-chat', EMBEDDING_MODEL_PREF: 'indexed-embedding',
+    LITE_LLM_MODEL_TOKEN_LIMIT: '12000'};
+  const result = modelDefaults(chat, embedding, saved, {
+    MAGICSTICK_INITIAL_CHAT_MODEL: 'different-unavailable-chat', MAGICSTICK_INITIAL_EMBEDDING_MODEL: 'different-unavailable-embedding',
+  });
+  assert.equal(result.LITE_LLM_MODEL_PREF, undefined);
+  assert.equal(result.EMBEDDING_MODEL_PREF, undefined);
+  assert.equal(result.LITE_LLM_MODEL_TOKEN_LIMIT, undefined);
+});

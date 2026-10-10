@@ -10,6 +10,12 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ### Added
 
+- Detect Chat/Embedding tasks when creating local Ollama/vLLM models from
+  registry metadata or tested presets. Ask for a task only when it cannot be
+  detected; keep model capabilities separate from application preferences.
+- Select separate initial chat and embedding models for AnythingLLM under
+  **Services → Configure**. Each list shows the matching catalog models;
+  saved AnythingLLM preferences and existing document indexes are preserved.
 - Place ordinary vLLM/Ollama models on multiple NVIDIA GPUs on one node
   through DRA: split one runtime across the selected cards or run a full copy on
   each card behind one LiteLLM model name. Preserve per-card slots, memory budgets,

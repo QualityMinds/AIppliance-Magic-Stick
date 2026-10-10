@@ -173,6 +173,8 @@ export interface ModuleCatalogEntry {
     label?: string;
     placeholder?: string;
     type?: string;
+    modelType?: 'chat' | 'embedding';
+    description?: string;
   }>;
   [key: string]: unknown;
 }
@@ -586,6 +588,8 @@ export interface MemoryCalculation {
 }
 
 export interface MemoryEstimate {
+  /** Null/absent means task metadata is inconclusive, never an inferred Chat default. */
+  detectedModelType?: 'chat' | 'embedding' | null;
   minimumMi: number;
   recommendedMi: number;
   maximumMi?: number | null;

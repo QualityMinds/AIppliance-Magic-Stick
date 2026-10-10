@@ -42,3 +42,9 @@ test('MEM-01 owning model UI renders the estimator breakdown independently of do
   'src/FeatureParity.test.tsx',
   ['Models restores model-source controls, memory planning and registered models'],
 ));
+
+
+test('DISC-01 owning automatic task detection preserves unknown and per-reference manual choices', evidenceAnnotations(
+  {id: 'DISC-01', variant: 'model-task-component', layer: 'U'}), () => componentSuite('src/ModelDiscovery.test.tsx', [
+    'requires an explicit task when metadata is unknown and discards it for a different model',
+]));

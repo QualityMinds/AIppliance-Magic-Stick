@@ -157,8 +157,12 @@ Current consumers include:
 - AnythingLLM waits for `defaults.env` to contain
   `AI_APPLIANCE_MODEL_CATALOG_READY=true`. Its init container seeds missing chat,
   context and embedding preferences from the JSON catalogs into the native
-  settings file on its PVC. A fresh LiteLLM configuration requires a catalogued
-  chat default. Embedding defaults are seeded only when available; document
+  settings file on its PVC. The module's optional `chatModel` and `embeddingModel`
+  parameters choose initial defaults independently. Selection priority is saved
+  native preference, explicit initial choice, then catalog default. A fresh
+  LiteLLM configuration requires a catalogued chat model. An explicit initial
+  choice missing from its typed catalog fails initialization instead of silently
+  choosing another model. Embedding defaults are seeded only when available; document
   indexing requires an embedding model. Unknown chat context uses 4,096 tokens.
   Existing model, context, embedding and provider choices are preserved, including
   a model removed from the catalog. Catalog updates rerun initialization without

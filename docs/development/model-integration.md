@@ -61,6 +61,16 @@ initialization. Catalog defaults must not replace explicit instance preferences
 or an existing embedding index. Unknown context/output metadata uses conservative
 planning limits; successful rendering does not establish physical capacity.
 
+Keep task detection separate from application model selection. Local creation
+resolves `modelType: auto` in the dashboard API, persists only the concrete task,
+and asks for a manual task when metadata is inconclusive. Extend
+`test_model_tasks.py`, `ModelDiscovery.test.tsx` and DISC-01 browser/live coverage
+when changing this contract. Application model selectors use catalog parameters
+with `type: model` and `modelType: chat|embedding`; UI filtering and API validation
+must agree. AnythingLLM's initial selectors must preserve saved preferences and
+embedding indexes; cover changes with `anythingllm_model_defaults.test.cjs`,
+`ServicesPage.test.tsx` and MOD-06 regression checks.
+
 Run the catalog and deployment regression suites from the repository root:
 
 ```sh

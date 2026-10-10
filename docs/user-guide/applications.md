@@ -32,11 +32,19 @@ instance keeps its selection when the shared catalog or global default changes.
 If that model becomes unavailable, select a replacement explicitly. OpenClaw's
 compaction budget follows the chosen model's context limit.
 
-AnythingLLM starts a fresh installation with the catalog's default chat model.
-When an embedding model is available, it also initializes document-indexing
-preferences. You can change these settings in AnythingLLM; they survive restarts
-and later catalog updates. Keep an existing index's embedding model unless you
-plan to reindex the documents. Before upgrading an older installation, an
+AnythingLLM is enabled directly from its service card. Before enabling it, open
+**Services → AnythingLLM → Configure** and choose **Chat model** and
+**Embedding model**. Each list offers the available models for that task. You
+can register several models and choose one initial default for each purpose.
+Leave a list on **Use catalog default** to follow the catalog's initial choice.
+A missing saved selection must be replaced or reset before enabling the service.
+
+The choices initialize a fresh installation: Chat answers questions; Embedding
+prepares documents for search. Chat requires an available model; document
+indexing also needs an embedding model. After setup, change preferences in
+AnythingLLM itself. Its saved choices survive restarts and catalog updates and
+take precedence over these initial defaults. Keep an existing index's embedding
+model unless you plan to reindex the documents. Before upgrading an older installation, an
 administrator must complete the
 [settings migration](../administration/updates-rollback.md#anythingllm-persistent-settings-migration).
 

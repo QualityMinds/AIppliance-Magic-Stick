@@ -3,6 +3,8 @@
 ## What you can do
 
 - Run local models with Ollama or vLLM on eligible CPU/GPU targets.
+- Detect whether a local model provides Chat or Embedding from its metadata;
+  choose its task manually only when it is unknown.
 - Use NVIDIA GPUs on one node, including different GPU models and capacities, to
   [split one model or run independent copies](../administration/gpu-sharing.md#one-model-across-several-nvidia-gpus)
   behind one LiteLLM model name, with explicit per-card allocation through NVIDIA DRA.
@@ -17,7 +19,8 @@
 - Create applications from the service catalog and grant access to specific users or groups.
 - Keep separate OpenClaw and KubeOpenCode model choices while sharing the common
   model catalog. Catalog updates preserve each instance's selection.
-- Start AnythingLLM with model defaults from the catalog and retain its own model
+- Choose separate initial chat and embedding models for AnythingLLM in
+  **Services → Configure**, or use the catalog defaults. Retain its own model
   preferences across restarts. Existing installations need the
   [one-time settings migration](../administration/updates-rollback.md#anythingllm-persistent-settings-migration).
 - Create Hermes instances with an explicit LiteLLM model and open the current

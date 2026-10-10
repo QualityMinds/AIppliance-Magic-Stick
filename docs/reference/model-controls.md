@@ -64,6 +64,14 @@ The engine dropdown sorts regular engines alphabetically first (**Ollama**,
 default for a new form. These are display labels only; catalog availability and
 persisted engine identifiers are unchanged.
 
+The ordinary local Create form detects the **Chat** or **Embedding** task from
+the selected preset or registry metadata. It shows the result without a Type
+dropdown. If metadata is insufficient, **Model task** becomes a required manual
+choice; changing the model clears that choice. External creation and existing
+model editing retain their explicit type controls. Realtime uses its separate
+catalog profile. Detection does not certify that an engine can load the model.
+See the [API task contract](dashboard-api.md#automatic-model-task-detection).
+
 For vLLM, **Model source** offers three persistent choices:
 
 - **Hugging Face search** accepts a model name or prefix and provides normal

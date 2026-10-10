@@ -13,8 +13,10 @@ type Proof={python?:Array<[string,string[]]>; components?:Array<[string,string[]
 /** Owning suites run once; each case retains separate catalogue/layer evidence. */
 const proofs:Record<string,Proof>={
   modules:{python:[[operator,['test_controller.HelmAppInstanceTests.test_waiting_module_suspends_kustomization_without_deleting_resources',
+    'test_controller.HelmAppInstanceTests.test_anythingllm_initial_model_parameters_reach_only_its_generated_substitutions',
     'test_controller.HelmAppInstanceTests.test_model_module_dependencies_separate_local_and_external_models']],
-    [api,['test_module_parameters.ModuleParameterTests','test_gpu_sharing_api.GpuSharingApiTests']]],components:[['src/FeatureParity.test.tsx',['Services restores grouping, nested instances, credentials and every Paperclip field']]]},
+    [api,['test_module_parameters.ModuleParameterTests','test_gpu_sharing_api.GpuSharingApiTests']],
+    ['../../../magic-cluster/apps/ai/tests',['test_anythingllm_litellm.AnythingLLMLiteLLMDeploymentTests']]],components:[['src/pages/ServicesPage.test.tsx',[]],['src/FeatureParity.test.tsx',['Services restores grouping, nested instances, credentials and every Paperclip field']]]},
   apps:{python:[[operator,['test_controller.HelmAppInstanceTests.test_generates_helmrelease_from_app_definition',
     'test_controller.HelmAppInstanceTests.test_generates_sso_protected_local_and_public_routes_by_default',
     'test_controller.HelmAppInstanceTests.test_paperclip_tenant_runtime_resources_are_instance_scoped',

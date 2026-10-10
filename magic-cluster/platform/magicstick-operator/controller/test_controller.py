@@ -68,6 +68,19 @@ class HelmAppInstanceTests(unittest.TestCase):
         self.assertFalse(release["spec"]["values"]["instance"]["values"]["ingress"]["enabled"])
         self.assertEqual(url, "https://demo.kubeopencode.magicstick.local/")
 
+    def test_anythingllm_initial_model_parameters_reach_only_its_generated_substitutions(self):
+        catalog = yaml.safe_load(yaml.safe_load((ROOT / "module-catalog.yaml").read_text())["data"]["modules.json"])
+        definition = catalog["modules"]["anything-llm"]
+        selections = {"chatModel": "selected-chat", "embeddingModel": "selected-embedding", "storage": "3Gi"}
+        resource = self.controller["generated_kustomization"]("anything-llm", definition, catalog, True,
+            {"kind": "GitRepository", "name": "flux-system"}, selections)
+        self.assertEqual(resource["spec"]["path"], "./magic-cluster/apps/ai/anything-llm/base")
+        values = resource["spec"]["postBuild"]["substitute"]
+        self.assertEqual(values["AI_APPLIANCE_ANYTHING_LLM_CHAT_MODEL"], "selected-chat")
+        self.assertEqual(values["AI_APPLIANCE_ANYTHING_LLM_EMBEDDING_MODEL"], "selected-embedding")
+        self.assertNotIn("AI_APPLIANCE_DEFAULT_CHAT_MODEL", values)
+        self.assertNotIn("AI_APPLIANCE_DEFAULT_EMBEDDING_MODEL", values)
+
     def test_catalog_routes_hermes_to_its_dashboard_port(self):
         manifest = yaml.safe_load((ROOT / "app-catalog.yaml").read_text(encoding="utf-8"))
         catalog = yaml.safe_load(manifest["data"]["applications.json"])

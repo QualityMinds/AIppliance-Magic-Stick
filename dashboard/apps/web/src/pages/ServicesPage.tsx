@@ -162,9 +162,28 @@ const CreateInstanceDialog = ({open, initialType, applications, models, instance
   </Dialog>;
 };
 
-const ModuleParameters = ({catalog, values, onChange}: {catalog?: ModuleCatalogEntry; values: Record<string, string>; onChange: (values: Record<string, string>) => void}) => {
+const savedParameters = (state?: ModuleState) => Object.fromEntries(Object.entries((state?.parameters ?? {}) as Record<string, unknown>)
+  .map(([key, value]) => [key, typeof value === 'object' && value ? String((value as Record<string, unknown>).size ?? (value as Record<string, unknown>).storageSize ?? '') : String(value ?? '')]));
+const modelChoices = (models: ModelsPayload['models'], type?: string) => [...new Set((models ?? [])
+  .filter((model) => model.type === type).map((model) => model.id ?? model.name ?? '').filter(Boolean))].sort();
+const invalidModelParameter = (catalog: ModuleCatalogEntry | undefined, values: Record<string, string>, models: ModelsPayload['models']) =>
+  catalog?.parameters?.some((parameter) => parameter.type === 'model' && values[parameter.name]
+    && !modelChoices(models, parameter.modelType).includes(values[parameter.name]!)) ?? false;
+
+const ModuleParameters = ({catalog, values, models, onChange}: {catalog?: ModuleCatalogEntry; values: Record<string, string>; models: ModelsPayload['models']; onChange: (values: Record<string, string>) => void}) => {
   if (!catalog?.parameters?.length) return null;
-  return <details className="module-parameters"><summary>Configure</summary><div className="form-grid">{catalog.parameters.map((parameter) => <Field key={parameter.name} label={parameter.label ?? titleFromKey(parameter.name)}><input type={parameter.type ?? 'text'} placeholder={parameter.placeholder} value={values[parameter.name] ?? ''} onChange={(event) => onChange({...values, [parameter.name]: event.target.value})} /></Field>)}</div></details>;
+  return <details className="module-parameters"><summary>Configure</summary><div className="form-grid">{catalog.parameters.map((parameter) => {
+    const choices = modelChoices(models, parameter.modelType), value = values[parameter.name] ?? '';
+    return <div key={parameter.name}><Field label={parameter.label ?? titleFromKey(parameter.name)}>{parameter.type === 'model'
+      ? <select value={value} onChange={(event) => onChange({...values, [parameter.name]: event.target.value})}>
+        <option value="">Use catalog default{!choices.length ? ' · no model available' : ''}</option>
+        {value && !choices.includes(value) && <option value={value} disabled>{value} · unavailable</option>}
+        {choices.map((model) => <option key={model} value={model}>{model}</option>)}
+      </select>
+      : <input type={parameter.type ?? 'text'} placeholder={parameter.placeholder} value={value} onChange={(event) => onChange({...values, [parameter.name]: event.target.value})} />}
+    </Field>{parameter.description && <small className="muted">{parameter.description}</small>}
+    {parameter.type === 'model' && value && !choices.includes(value) && <p role="alert">Choose an available {parameter.modelType} model or use the catalog default.</p>}</div>;
+  })}</div></details>;
 };
 
 export const ServicesPage = ({session}: {session: Session}) => {
@@ -191,7 +210,7 @@ export const ServicesPage = ({session}: {session: Session}) => {
     queryClient.invalidateQueries({queryKey: ['instance-access']}),
   ]); };
   const moduleMutation = useMutation({
-    mutationFn: ({name, enabled}: {name: string; enabled: boolean}) => enabled ? api.enableModule(name, parameters[name] ?? {}) : api.disableModule(name),
+    mutationFn: ({name, enabled}: {name: string; enabled: boolean}) => enabled ? api.enableModule(name, parameters[name] ?? savedParameters(moduleQuery.data?.modules?.[name])) : api.disableModule(name),
     onSuccess: refresh, onError: setOperationError,
   });
   const removeMutation = useMutation({mutationFn: (name: string) => api.removeInstance(name), onSuccess: async () => { setRemoveTarget(''); await refresh(); }, onError: setOperationError});
@@ -227,7 +246,7 @@ export const ServicesPage = ({session}: {session: Session}) => {
     const canToggle = mutable && (state.activationMode ?? spec?.activationMode) === 'moduleactivation';
     return <div className="actions">{withStatus && <StatusBadge phase={phase} />}
       {supportsCredentials && state.enabled && mutable && String(phase).toLowerCase() !== 'removing' && <Button variant="ghost" onClick={async () => { try { const result = await api.moduleCredentials(id); setCredentials({title: result.title ?? spec?.displayName ?? id, entries: result.credentials ?? []}); } catch (reason) { setOperationError(reason); } }}>Credentials</Button>}
-      {canToggle && <Button variant={state.enabled ? 'danger' : 'primary'} disabled={moduleMutation.isPending || phaseInProgress(phase)} onClick={() => moduleMutation.mutate({name: id, enabled: !state.enabled})}>{state.enabled ? 'Disable' : 'Enable'}</Button>}
+      {canToggle && <Button variant={state.enabled ? 'danger' : 'primary'} disabled={moduleMutation.isPending || phaseInProgress(phase) || !state.enabled && invalidModelParameter(spec, parameters[id] ?? savedParameters(state), modelPayload.models)} onClick={() => moduleMutation.mutate({name: id, enabled: !state.enabled})}>{state.enabled ? 'Disable' : 'Enable'}</Button>}
     </div>;
   };
 
@@ -235,13 +254,13 @@ export const ServicesPage = ({session}: {session: Session}) => {
     const spec = catalog[id]; const status = hardwareState(id, state);
     const phase = status.phase ?? (spec?.activationMode === 'static' && state.enabled ? 'Ready' : state.enabled ? 'Requested' : 'Disabled');
     const links = moduleResourceLinks(id, spec, statusQuery.data as SystemStatusPayload);
-    const saved = Object.fromEntries(Object.entries((state.parameters ?? {}) as Record<string, unknown>).map(([key, value]) => [key, typeof value === 'object' && value ? String((value as Record<string, unknown>).size ?? (value as Record<string, unknown>).storageSize ?? '') : String(value ?? '')]));
+    const saved = savedParameters(state);
     const parameterValues = parameters[id] ?? saved;
     return <Panel key={id} title={state.displayName ?? spec?.displayName ?? titleFromKey(id)} meta={id} actions={moduleControls(id, state, spec)}>
       {(status.message || spec?.description) && <p className="muted">{String(status.message || spec?.description)}</p>}
       {(phaseInProgress(phase) || phaseNeedsAttention(phase)) && <ProgressBar phase={phase} enabled={state.enabled} message={status.message} />}
       <ResourceLinks links={links} />
-      {!state.enabled && <ModuleParameters catalog={spec} values={parameterValues} onChange={(value) => setParameters((current) => ({...current, [id]: value}))} />}
+      {!state.enabled && <ModuleParameters catalog={spec} models={modelPayload.models} values={parameterValues} onChange={(value) => setParameters((current) => ({...current, [id]: value}))} />}
     </Panel>;
   };
 
@@ -279,7 +298,7 @@ export const ServicesPage = ({session}: {session: Session}) => {
       {application.missing.length > 0 && <p className="muted">Required services are not ready: {application.missing.map((id) => catalog[id]?.displayName ?? titleFromKey(id)).join(', ')}.</p>}
       {(phaseInProgress(phase) || phaseNeedsAttention(phase)) && <ProgressBar phase={phase} enabled={primary?.enabled} message={stateStatus.message} />}
       <ResourceLinks links={links} />
-      {primary && !primary.enabled && <ModuleParameters catalog={spec} values={parameters[primaryId] ?? {}} onChange={(value) => setParameters((current) => ({...current, [primaryId]: value}))} />}
+      {primary && !primary.enabled && <ModuleParameters catalog={spec} models={modelPayload.models} values={parameters[primaryId] ?? savedParameters(primary)} onChange={(value) => setParameters((current) => ({...current, [primaryId]: value}))} />}
       {isExpanded && <div className="service-instance-list">{items.map(instanceCard)}</div>}
     </Panel>;
   });

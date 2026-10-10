@@ -235,7 +235,8 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
   const [kvCacheType, setKvCacheType] = useState(kvCacheOptions[0]?.value ?? (engine === 'OLlama' ? 'f16' : 'auto'));
   const provider = engine === 'OLlama' ? 'ollama' : 'huggingface';
   const [source, setSource] = useState<'search' | 'preset' | 'direct'>('search');
-  const [name, setName] = useState(''); const [modelType, setModelType] = useState('chat');
+  const [name, setName] = useState(''); const [manualTask, setManualTask] = useState({url: '', value: ''});
+  const [taskDetection, setTaskDetection] = useState<{url: string; value?: 'chat' | 'embedding' | null}>({url: ''});
   const [contextWindow, setContextWindow] = useState(4096); const [maxNumSeqs, setMaxNumSeqs] = useState(1);
   const [url, setUrl] = useState(''); const [presetId, setPresetId] = useState(''); const [artifactId, setArtifactId] = useState('');
   const [search, setSearch] = useState('Qwen'); const [popular, setPopular] = useState<DiscoveryItem[]>([]);
@@ -267,13 +268,18 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
 
   useEffect(() => {
     let cancelled = false;
-    const params = new URLSearchParams({provider, engine, computeTarget, modelType, limit: '8'});
+    const params = new URLSearchParams({provider, engine, computeTarget, modelType: '', limit: '8'});
     api.popularModels(params).then((result) => { if (!cancelled) setPopular(result.results); }).catch(() => { if (!cancelled) setPopular([]); });
     return () => { cancelled = true; };
-  }, [provider, engine, computeTarget, modelType]);
+  }, [provider, engine, computeTarget]);
 
-  const presets = useMemo(() => Object.entries(models.presets).flatMap(([id, preset]) => matchingVariants(preset.variants, engine, computeTarget).map((variant) => ({id, label: preset.displayName ?? id, variant}))), [computeTarget, engine, models.presets]);
+  const presets = useMemo(() => Object.entries(models.presets).flatMap(([id, preset]) => matchingVariants(preset.variants, engine, computeTarget).map((variant) => ({id, label: preset.displayName ?? id, variant, modelType: String(variant.modelType ?? preset.type ?? '')}))), [computeTarget, engine, models.presets]);
   const selectedPreset = presets.find((item) => item.id === presetId);
+  const presetTask = source === 'preset' && ['chat', 'embedding'].includes(selectedPreset?.modelType ?? '') ? selectedPreset!.modelType : '';
+  const detectedTask = presetTask || (taskDetection.url === url ? taskDetection.value : '') || '';
+  const manualModelType = manualTask.url === url ? manualTask.value : '';
+  const modelType = detectedTask || manualModelType;
+  const requestedModelType = presetTask || (detectedTask ? 'auto' : manualModelType || 'auto');
   const selectedPresetArtifact = selectedArtifact(selectedPreset?.variant, artifactId);
   const selectedSearchModel = searchResults.find((item) => item.repo === searchModel);
   const targetDevices = selectedCard ? selectedCards : models.computeMemory?.devices?.filter((device) => device.computeTarget === computeTarget || device.id === computeTarget) ?? [];
@@ -314,12 +320,12 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
     let cancelled = false;
     const timer = window.setTimeout(async () => {
       try {
-        const result = await api.estimateMemory({engine, computeTarget, url, contextWindow, maxNumSeqs, modelType, kvCacheType, cpuOffloading: true, vramMi: selectedMi, ...gpuPayload, ...(gpuCount > 1 && !replicated && engine === 'VLLM' ? {vllm: {parallelism}} : {})});
-        if (!cancelled) setOffloadEstimate(result);
+        const result = await api.estimateMemory({engine, computeTarget, url, contextWindow, maxNumSeqs, modelType: requestedModelType, kvCacheType, cpuOffloading: true, vramMi: selectedMi, ...gpuPayload, ...(gpuCount > 1 && !replicated && engine === 'VLLM' ? {vllm: {parallelism}} : {})});
+        if (!cancelled) { setOffloadEstimate(result); setTaskDetection({url, value: result.detectedModelType}); }
       } catch (reason) { if (!cancelled) setOffloadError(reason); }
     }, 350);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [cpuOffloading, supportsOffloading, engine, computeTarget, url, contextWindow, maxNumSeqs, modelType, kvCacheType, selectedMi, gpuKey, parallelism, gpuDeployment]);
+  }, [cpuOffloading, supportsOffloading, engine, computeTarget, url, contextWindow, maxNumSeqs, requestedModelType, kvCacheType, selectedMi, gpuKey, parallelism, gpuDeployment]);
 
   const applyModel = (nextUrl: string, artifact?: ModelArtifact, variant?: ModelVariant, baseModel?: DiscoveryItem) => {
     setUrl(nextUrl); setName((current) => current || safeModelName(nextUrl));
@@ -344,9 +350,10 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
     let cancelled = false;
     const timer = window.setTimeout(async () => {
       try {
-        const result = await api.estimateMemory({engine, computeTarget, url, contextWindow, maxNumSeqs, modelType, kvCacheType, ...gpuPayload, ...(gpuCount > 1 && !replicated && engine === 'VLLM' ? {vllm: {parallelism}} : {})});
+        const result = await api.estimateMemory({engine, computeTarget, url, contextWindow, maxNumSeqs, modelType: requestedModelType, kvCacheType, ...gpuPayload, ...(gpuCount > 1 && !replicated && engine === 'VLLM' ? {vllm: {parallelism}} : {})});
         if (!cancelled) {
           setEstimate(result);
+          setTaskDetection({url, value: result.detectedModelType});
           const maximum = capacityKnown ? Math.max(100, Math.floor(availableMi / 100) * 100) : roundMemory(result.recommendedMi);
           setSelectedMi((current) => Math.min(maximum, cpuOffloading ? current : roundMemory(result.recommendedMi)));
           setFormError(null);
@@ -354,15 +361,15 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
       } catch (reason) { if (!cancelled) setFormError(reason); }
     }, 350);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [computeTarget, contextWindow, engine,  kvCacheType, maxNumSeqs, modelType, url, cpuOffloading, gpuKey, parallelism, gpuDeployment]);
+  }, [computeTarget, contextWindow, engine,  kvCacheType, maxNumSeqs, requestedModelType, url, cpuOffloading, gpuKey, parallelism, gpuDeployment]);
 
   const searchParams = (query: string, cursor?: string | null) => {
-    const params = new URLSearchParams({provider, q: query, engine, computeTarget, modelType, limit: '20'});
+    const params = new URLSearchParams({provider, q: query, engine, computeTarget, modelType: '', limit: '20'});
     if (cursor) params.set('cursor', cursor);
     return params;
   };
   const artifactParams = (repo: string, cursor?: string | null) => {
-    const params = new URLSearchParams({provider, repo, engine, computeTarget, modelType, limit: '20'});
+    const params = new URLSearchParams({provider, repo, engine, computeTarget, modelType: '', limit: '20'});
     if (cursor) params.set('cursor', cursor);
     return params;
   };
@@ -392,6 +399,7 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
   const createMutation = useMutation({
     mutationFn: async () => {
       if (!url) throw new Error('Select or enter a model reference.');
+      if (!modelType) throw new Error('Choose a model task when it cannot be detected.');
       if (cpuSettings.invalid) throw new Error('Enter a valid CPU reservation and optional limit.');
       if (deploymentSettings.invalid) throw new Error('Select a vision attention backend offered by the runtime catalog.');
       if (noSlots) throw new Error('No free GPU model slots. Remove a model or change GPU sharing in System > Hardware.');
@@ -399,7 +407,7 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
       if (invalidBudget) throw new Error('Enter positive memory budgets in steps of 100 MiB.');
       const target = availableTargets.find((item) => item.id === computeTarget);
       if (!target?.available || !targetSupportsEngine(target, engine)) throw new Error('The selected engine and hardware combination is not available.');
-      const local: Record<string, unknown> = {modelType, computeTarget, engine};
+      const local: Record<string, unknown> = {modelType: detectedTask ? 'auto' : modelType, computeTarget, engine};
       if (cardRequired && selectedCard) Object.assign(local, gpuPayload);
       if (cpuSettings.payload) local.cpuResources = cpuSettings.payload;
       if (deploymentSettings.payload) local.vllm = deploymentSettings.payload;
@@ -459,7 +467,17 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
     {source === 'preset' && <div className="stack compact discovery-selects"><Field label="Preset"><select value={presetId} onChange={(event) => { setPresetId(event.target.value); setArtifactId(''); }}><option value="">Select a tested preset</option>{presets.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></Field><Field label="Precision / Quantization"><select value={artifactId} onChange={(event) => setArtifactId(event.target.value)} disabled={!selectedPreset}><option value="">Default artifact</option>{selectedPreset?.variant.artifacts?.map((item) => <option key={item.id} value={item.id}>{item.title ?? item.id}</option>)}</select></Field></div>}
     {source === 'direct' && <Field label={engine === 'OLlama' ? 'Ollama model reference' : 'Hugging Face URL'}><input value={url} onChange={(event) => { const nextUrl = event.target.value; setUrl(nextUrl); if (nextUrl) setName((current) => current || safeModelName(nextUrl)); }} placeholder={engine === 'OLlama' ? 'ollama://qwen3.5:9b' : 'hf://Qwen/Qwen3.6-27B'} required /></Field>}
 
-    <div className="form-grid three"><Field label="Name"><input value={name} onChange={(event) => setName(event.target.value)} required /></Field><Field label="Type"><select value={modelType} onChange={(event) => setModelType(event.target.value)}><option value="chat">Chat</option><option value="embedding">Embedding</option></select></Field><Field label="Selected URL"><input value={url} readOnly /></Field><><Field label="Max Num Seqs"><input type="number" min="1" value={maxNumSeqs} onChange={(event) => setMaxNumSeqs(Number(event.target.value))} /></Field><Field label="Context Size"><input type="number" min="1" value={contextWindow} onChange={(event) => setContextWindow(Number(event.target.value))} /></Field><Field label="KV Cache"><select value={kvCacheType} onChange={(event) => setKvCacheType(event.target.value)}>{kvCacheOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field></></div>
+    {url && <section className="stack compact" aria-label="Model task detection">
+      {detectedTask ? <p role="status">Model task: <strong>{detectedTask === 'chat' ? 'Chat' : 'Embedding'}</strong> · detected automatically</p>
+        : taskDetection.url === url || formError ? <>
+          <Field label="Model task"><select value={manualModelType} onChange={(event) => setManualTask({url, value: event.target.value})} required>
+            <option value="">Select the model task</option><option value="chat">Chat</option><option value="embedding">Embedding</option>
+          </select></Field>
+          <p className="muted">The model metadata does not identify its task. Choose Chat for text generation or Embedding for document search.</p>
+        </> : <p role="status">Detecting model task…</p>}
+    </section>}
+
+    <div className="form-grid three"><Field label="Name"><input value={name} onChange={(event) => setName(event.target.value)} required /></Field><Field label="Selected URL"><input value={url} readOnly /></Field><><Field label="Max Num Seqs"><input type="number" min="1" value={maxNumSeqs} onChange={(event) => setMaxNumSeqs(Number(event.target.value))} /></Field><Field label="Context Size"><input type="number" min="1" value={contextWindow} onChange={(event) => setContextWindow(Number(event.target.value))} /></Field><Field label="KV Cache"><select value={kvCacheType} onChange={(event) => setKvCacheType(event.target.value)}>{kvCacheOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field></></div>
     <>
       <p className="muted">{kvCacheOptions.find((option) => option.value === kvCacheType)?.description} Attention-cache values are recalculated immediately; recurrent state and runtime reserve remain separate.</p>
       {gpuCount > 1 && <p role="status">VRAM per GPU: {formatMi(selectedMi)} · {gpuCount} GPUs · {formatMi(selectedMi * gpuCount)} planned total. The smallest selected card limits this control.</p>}
@@ -486,7 +504,7 @@ const StandardLocalModelForm = ({models, engine, onClose, onCreated}: {models: M
     <AdvancedModelSettings cpuSettings={cpuSettings} deploymentSettings={deploymentSettings}><MultiGpuSettings count={gpuCount} engine={engine} strategy={parallelism} onStrategy={setParallelism} ramMi={hostMemoryMi} onRam={setHostMemoryMi} offloading={cpuOffloading} ramMaximumMi={activeEstimate?.systemMemoryMaximumMi} replicated={replicated} /></AdvancedModelSettings>
     <ErrorNotice error={source === 'search' ? createMutation.error : formError ?? createMutation.error} />
     {hasMemoryRisk && <div id="model-memory-risk" className="notice notice-warn" role="note"><strong>Memory warning — you can still try to start this model.</strong><ul>{memoryRisks.map((risk) => <li key={risk}>{risk}</li>)}</ul><p>Adding it accepts this risk. The pod may remain Pending, fail with out-of-memory errors or restart. Requests and limits stay at your selected budgets; a successful start is not guaranteed.</p></div>}
-    <div className="form-actions"><Button type="button" variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" className={hasMemoryRisk ? 'memory-risk-button' : undefined} aria-describedby={[noSlots ? 'model-slots-full' : '', hasMemoryRisk ? 'model-memory-risk' : ''].filter(Boolean).join(' ') || undefined} disabled={createMutation.isPending || !url || invalidBudget || cpuSettings.invalid || deploymentSettings.invalid || !selectedTarget || noSlots || engineUnavailable}>{hasMemoryRisk && <span aria-hidden="true">⚠ </span>}Add Local Model</Button></div>
+    <div className="form-actions"><Button type="button" variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" className={hasMemoryRisk ? 'memory-risk-button' : undefined} aria-describedby={[noSlots ? 'model-slots-full' : '', hasMemoryRisk ? 'model-memory-risk' : ''].filter(Boolean).join(' ') || undefined} disabled={createMutation.isPending || !url || !modelType || invalidBudget || cpuSettings.invalid || deploymentSettings.invalid || !selectedTarget || noSlots || engineUnavailable}>{hasMemoryRisk && <span aria-hidden="true">⚠ </span>}Add Local Model</Button></div>
   </form>;
 };
 
