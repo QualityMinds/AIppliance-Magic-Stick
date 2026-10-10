@@ -52,6 +52,9 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
   headless shell and a smaller native Go builder. Combine source/runtime
   installation into one layer while retaining the native AMD recovery tests.
   See the [runner guide](docs/development/regression-remaining-p0.md#once).
+- Build and exercise the regression-runner image in GitHub CI, including native
+  recovery tests and Chromium fixtures. Use this gate for development Docker
+  build verification instead of repeating builds in the agent workspace.
 - Allow different NVIDIA GPU models and memory capacities in same-node DRA
   groups. Bound the evenly divided split-model budget by the smallest selected
   card's unreserved and physical capacity; preserve a full budget per copy for

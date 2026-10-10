@@ -136,6 +136,12 @@ environment/locked dependencies; a missing tool is a reported gap, not a pass.
   any item that does not apply. Review coverage separately from link/build checks.
 - Run `git diff --check`; scan public changes with
   `gitleaks detect --source . --config .gitleaks.toml --no-git --redact` before publishing.
+- Use the `regression-image` job in
+  [.github/workflows/regression-runner.yml](.github/workflows/regression-runner.yml)
+  to verify Docker regression-runner builds and isolated container checks.
+  Do not repeat image builds in the local agent workspace unless requested.
+  After an authorized push, check the CI result for that exact commit; a started
+  job or an unrelated image build is not a passing runner-build result.
 - Select applicable sections of the [release checklist](docs/development/release-checklist.md).
   Full distribution acceptance is not required for an unrelated documentation edit.
   Keep normal license review advisory; strict distribution review is explicit.

@@ -1,0 +1,69 @@
+name: Regression runner
+
+on:
+  push:
+    branches: [main, develop]
+    paths: &runner-inputs
+      - .dockerignore
+      - .github/**
+      - dashboard/**
+      - core/**
+      - tools/**
+      - tests/**
+      - magic-cluster/**
+      - magic-host/**
+      - magic-installer/**
+      - licenses/**
+      - LICENSE
+      - LICENSING.md
+      - LICENSE-RELEASE.json
+      - THIRD_PARTY_NOTICES.md
+      - CHANGELOG.md
+      - README.md
+      - .gitleaks.toml
+      - install-from-linux.sh
+      - docs/development/regression-test-catalog.md
+  pull_request:
+    paths: *runner-inputs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: regression-runner-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regression-image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      DOCKER_BUILDKIT: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build regression runner from current source
+        run: bash tools/regression.sh build
+      - name: Record built runner size and filesystem layers
+        run: docker image inspect magicstick-regression:local --format 'Size={{.Size}} bytes; filesystem layers={{len .RootFS.Layers}}'
+      - name: Verify isolated contracts and native recovery tests in the built image
+        run: |
+          bash tools/regression.sh typecheck
+          bash tools/regression.sh selftest
+          bash tools/regression.sh phase4-fast
+          bash tools/regression.sh phase8-fast
+      - name: Exercise locked Chromium headless shell in the built image
+        run: |
+          bash tools/regression.sh phase2-fixtures
+          bash tools/regression.sh phase7-fixtures
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: regression-runner-isolated-reports
+          # Only the harness's allowlisted archives; no private inputs or journals.
+          path: .regression/private/runs/*/report-artifacts.tar.gz
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7

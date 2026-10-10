@@ -20,6 +20,11 @@ AMD recovery tests still compile from the same pinned source and patch in a
 separate, smaller Go builder. See the
 [runner image reference](regression-runner-reference.md#runner-image).
 
+For development changes, GitHub CI's `regression-image` job builds this image and
+runs its isolated checks. Check that job for the exact pushed commit; a dashboard
+image build does not also build the regression runner. Local builds remain the
+one-time setup command for running a lab, rather than a required agent check.
+
 Enter the dashboard URL and test administrator credentials. Supply the trusted
 Appliance CA PEM only if needed. Setup discovers endpoints and creates scoped
 Kubernetes access. Registration binds tests to this Appliance and its Node IDs;

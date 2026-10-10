@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "6dda8724e63f83d4608f703a3357dc0d2544ff5501e9a32df66a9a90f8d6909e",
-  "deploymentReferencesSha256": "c930ef217b89a659c07eb9783fea1e0daaf4de405430269a01369514e0e7b495",
+  "deploymentReferencesSha256": "f89de0216d5fde0d03b8782fa28b92cc6a1de193585e5e443e7e9fe2d92d536f",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -2272,6 +2272,11 @@
       "file": ".github/workflows/public-release-checks.yml",
       "line": 101,
       "reference": "python3 -m pip install -r dashboard/apps/api/requirements.txt pyyaml"
+    },
+    {
+      "file": ".github/workflows/regression-runner.yml",
+      "line": 38,
+      "reference": "regression-image:"
     },
     {
       "file": ".github/workflows/release-draft.yml",

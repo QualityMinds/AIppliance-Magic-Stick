@@ -128,6 +128,20 @@ instructions become no `COPY` and one `RUN`; fewer committed filesystem layers
 reduce the full-layer copies made by `vfs`. Actual build failures still come
 directly from Docker; the launcher imposes no guessed disk-capacity threshold.
 
+The `regression-image` job in
+[Regression runner](../../.github/workflows/regression-runner.yml)
+builds the actual runner on GitHub's `ubuntu-24.04` runner for relevant pushes
+and pull requests. It then runs typecheck, harness selftests, Phase 4/8 fast
+contracts (including native AMD recovery tests), and Phase 2/7 Chromium fixtures
+inside the newly built, non-root, read-only Compose container. No lab setup or
+appliance credentials are supplied. Only allowlisted report archives are uploaded.
+The job also records actual image size and filesystem-layer count.
+
+Use this CI job to verify a development image build instead of repeating the
+Docker build in the agent workspace. The local `build` command remains available
+for one-time lab setup. Verify the CI result against the exact source commit;
+ordinary dashboard/CLI/API image builds do not validate the runner Dockerfile.
+
 ### 1. One-time setup
 
 From the repository root:
