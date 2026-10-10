@@ -60,6 +60,13 @@ Choose **Edit**, adjust the supported fields, and review the memory budget befor
 selecting **Save changes**. The model source, engine and hardware target remain
 unchanged in this dialog. Saving runtime-affecting settings can restart the model.
 
+Create and Edit share the local configuration form for Ollama, vLLM and Omni.
+The runtime and memory sections show that engine's settings. **Advanced** starts
+collapsed and includes CPU reservation/limit for all three; use **Use automatic
+CPU settings** to remove an override. Unchanged or reverted settings disable
+Save, and background status refreshes preserve your draft. Omni retains its
+profile, custom model source and stage settings when you edit another field.
+
 [![Model editing dialog with type, context size, output limit, concurrency and KV-cache settings.](../../assets/screenshots/model-edit.webp)](../../assets/screenshots/model-edit.webp)
 
 *Unchanged editing form for the stopped test model, 24 September 2026. This crop

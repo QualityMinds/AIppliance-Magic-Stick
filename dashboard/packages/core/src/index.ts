@@ -15,6 +15,8 @@ import type {
   GpuEngineValidation,
 } from '@magicstick/dashboard-contracts';
 
+export * from './local-model-configuration';
+
 export type DashboardRole = 'viewer' | 'operator' | 'admin';
 
 export const dashboardRole = (session?: Session): DashboardRole => {

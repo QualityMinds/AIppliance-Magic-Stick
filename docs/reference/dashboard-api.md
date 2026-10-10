@@ -70,6 +70,23 @@ Paperclip, KubeOpenCode, KubeAI, LiteLLM, or direct app instance reconcilers.
 
 ## Backend API
 
+### Local configuration policy
+
+`/api/models` exposes the existing compute-target catalog as
+`computeTargets.engineCatalog`. Engines and Realtime profiles can advertise
+`configuration: {sources, discovery, memory, task, maxOutputTokens}` for the
+shared Create/Edit form. Source choices are `search|preset|direct`; discovery
+uses artifacts or whole repositories; memory uses ordinary estimates or staged
+planning. This presentation metadata adds no engine or mutation endpoint.
+Existing KV choices, target availability, GPU strategies and CPU defaults remain
+authoritative. The create/update API still validates the selected runtime intent.
+
+Omni accepts the existing `local.cpuResources` alongside `local.realtime`.
+Partial edits preserve omitted fields; `cpuResources: null` removes the override.
+The same immutable engine/source/target and expected-revision protections apply.
+Ordinary KV, parallelism, vision overrides and MiB budgets remain rejected for
+the current Omni adapter. See [model controls](model-controls.md).
+
 ### Automatic model task detection
 
 Local creation accepts `local.modelType: "auto"`. The API resolves the task

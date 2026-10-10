@@ -10,6 +10,11 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ### Added
 
+- Configure and edit Ollama, vLLM and experimental vLLM-Omni through one local
+  model form with catalog-driven source choices and engine-specific settings.
+  Share CPU controls with Omni and expose optional output limits when creating
+  ordinary models. Preserve saved definitions, revision-safe edits, per-card
+  multi-GPU budgets and Omni stage-memory planning.
 - Detect Chat/Embedding tasks when creating local Ollama/vLLM models from
   registry metadata or tested presets. Ask for a task only when it cannot be
   detected; keep model capabilities separate from application preferences.
@@ -95,6 +100,11 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ### Fixed
 
+- Discard outdated discovery responses after an engine or hardware change and
+  preserve the original edit revision during polling, including Omni. Save only
+  changed fields and retain custom Omni sources, images and restart state.
+- Keep Omni editing and lifecycle controls available by checking the stored vLLM
+  engine identifier instead of its display label.
 - Verify NVIDIA multi-GPU selections using node identity and physical capacity
   from DRA inventory. Cards remain selectable when live memory totals differ or
   one card has no DCGM sample; missing capacity and wrong-node selections retain

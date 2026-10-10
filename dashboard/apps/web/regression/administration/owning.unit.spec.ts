@@ -61,7 +61,7 @@ const proofs:Record<string,Proof>={
     'test_desktop.NativeEnvironmentTests','test_desktop.FrozenLaunchCheckTests','test_build_companion.CompanionPackagingTests',
     'test_archive_companion.CompanionArchiveTests']]]},
   realtime:{python:[[api,['test_realtime_api.RealtimeApiTests']],[operator,['test_realtime_runtime.RealtimeRuntimeTests']]],
-    components:[['src/RealtimeModelForm.test.tsx',[]]]},
+    components:[['src/RealtimeModelForm.test.tsx',[]],['src/LocalModelConfigurationCore.test.ts',[]]]},
   security:{python:[[api,['test_dashboard_api.UserAdministrationTests','test_model_logs.ModelLogsTests',
     'test_dashboard_api.HuggingFaceDiscoveryTests.test_fetcher_allows_only_bounded_huggingface_model_api_responses',
     'test_dashboard_api.OllamaDiscoveryTests.test_ollama_fetcher_is_host_pinned_redirect_safe_and_bounded']],

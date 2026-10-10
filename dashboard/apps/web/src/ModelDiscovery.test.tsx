@@ -1,5 +1,5 @@
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
-import {render, screen, waitFor} from '@testing-library/react';
+import {act, render, screen, waitFor} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {ModelsPage} from './pages/ModelsPage';
@@ -55,6 +55,42 @@ beforeEach(() => {
 });
 
 describe('Hugging Face model selection', () => {
+  it('discards a late search result after switching engine and retains the common name', async () => {
+    const data = structuredClone(models); data.computeTargets.targets[0]!.engines.push('OLlama');
+    vi.mocked(api.models).mockResolvedValue(data);
+    let finish: ((response: Awaited<ReturnType<typeof api.searchModels>>) => void) | undefined;
+    vi.mocked(api.searchModels).mockImplementation(() => new Promise((resolve) => {finish = resolve;}));
+    render(<QueryClientProvider client={new QueryClient({defaultOptions: {queries: {retry: false}}})}><ModelsPage session={session} /></QueryClientProvider>);
+    await userEvent.click(await screen.findByRole('button', {name: 'Create'}));
+    await userEvent.selectOptions(screen.getByLabelText('Inference Engine'), 'VLLM');
+    await userEvent.type(screen.getByLabelText('Name'), 'my-model');
+    await userEvent.click(screen.getByRole('button', {name: 'Search'}));
+    await userEvent.selectOptions(screen.getByLabelText('Inference Engine'), 'OLlama');
+    await act(async () => finish!({provider: 'huggingface', total: 1, results: [{id: 'example/late', repo: 'example/late', url: 'hf://example/late'}]}));
+    expect(screen.getByLabelText('Name')).toHaveValue('my-model');
+    expect(screen.getByLabelText('Selected URL')).toHaveValue('');
+    expect(screen.queryByLabelText('Matching model')).not.toBeInTheDocument();
+    expect(api.modelArtifacts).not.toHaveBeenCalled();
+    expect(api.createLocalModel).not.toHaveBeenCalled();
+  });
+
+  it('discards a late artifact response after changing hardware', async () => {
+    const data = structuredClone(models); data.computeTargets.targets.push({...data.computeTargets.targets[0]!, id: 'amd-gpu', kind: 'gpu'});
+    vi.mocked(api.models).mockResolvedValue(data);
+    let finish: ((response: Awaited<ReturnType<typeof api.modelArtifacts>>) => void) | undefined;
+    vi.mocked(api.modelArtifacts).mockImplementation(() => new Promise((resolve) => {finish = resolve;}));
+    render(<QueryClientProvider client={new QueryClient({defaultOptions: {queries: {retry: false}}})}><ModelsPage session={session} /></QueryClientProvider>);
+    await userEvent.click(await screen.findByRole('button', {name: 'Create'}));
+    await userEvent.click(screen.getByRole('button', {name: 'Search'}));
+    await waitFor(() => expect(api.modelArtifacts).toHaveBeenCalled());
+    await userEvent.selectOptions(screen.getByLabelText('Hardware'), 'amd-gpu');
+    await act(async () => finish!({provider: 'huggingface', total: 1, artifacts: [{id: 'late', repo: 'example/late', url: 'hf://example/late', modelMaxContext: 32768}]}));
+    expect(screen.getByLabelText('Selected URL')).toHaveValue('');
+    expect(screen.getByLabelText('Context Size')).toHaveValue(4096);
+    expect(screen.queryByLabelText('Quantization / artifact')).not.toBeInTheDocument();
+    expect(api.estimateMemory).not.toHaveBeenCalled();
+  });
+
   it('shows the full revision of the selected artifact and updates it with the selection', async () => {
     const user = userEvent.setup();
     render(<QueryClientProvider client={new QueryClient({defaultOptions: {queries: {retry: false}}})}>

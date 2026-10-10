@@ -13,6 +13,13 @@ The HF repository selected through search or direct input is persisted in
 no model/config compatibility allowlist. Quantized and unknown architectures can
 be tried; the runtime decides whether it can load them. Experimental compute
 selection includes NVIDIA, AMD, Intel and CPU, with matching runtime images.
+Create/Edit use the shared local-model form. Context and concurrent sessions are
+in its runtime section; RAM and GPU fraction are in memory; the collapsed
+**Advanced** section contains CPU reservation/limit, image and thinker offload.
+`local.cpuResources` uses the existing VLLM catalog defaults and Pod scheduling
+policy, independently of stage memory. Resetting CPU overrides preserves the
+Realtime configuration. Ordinary KV-cache, parallelism and MiB-budget fields
+are not accepted by the current duplex adapter.
 Omni can consume one NVIDIA time-slicing or AMD DRA slot alongside ordinary
 models. Slot intent is counted before a Pod exists and matched runtime Pods are
 not charged twice; a slot is not an isolated GPU-memory quota. Only exclusive

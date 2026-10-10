@@ -2,7 +2,8 @@ import {test,expect,type Page,type Request} from '@playwright/test';
 import {fixturePage,origin} from '../fixtures/dashboard.ts';
 import {evidenceAnnotations} from '../core/evidence.ts';
 import {remainingPhase,remainingVariants} from '../profiles/remaining-p0.ts';
-import {gpuMemoryDraft,settingsDrafts} from './form-checks.ts';
+import {gpuMemoryDraft,settingsDrafts,selectRange} from './form-checks.ts';
+import type {ModelActivation,ModelsPayload} from '@magicstick/dashboard-contracts';
 
 const host=()=>({name:'fixture-node',nodeUid:'fixture-node-uid',bootId:'fixture-boot',kernel:'7.0-fixture',available:true,message:'Fixture worker ready.',
   plan:{id:'f'.repeat(64),state:'ready',profileId:'strix-halo-ubuntu-26.04',profileVersion:'1',gpuProfile:'strix-halo',experimental:true,packages:{},rebootRequired:false,message:'Driver is ready.',displayGpus:['1002:1586']},
@@ -185,22 +186,80 @@ async function browserProof(page:Page,group:string,id:string) {
     expect(writes).toEqual([]); return;
   }
   if(group === 'realtime') {
-    const writes=await mount(page,'models',{'/api/models':{activations:[],models:[],presets:{},computeTargets:{targets:[
-      {id:'nvidia-gpu',kind:'gpu',available:true,engines:['VLLM']}],engineCatalog:{VLLM:{realtimeProfiles:{'fixture-omni':{
-        displayName:'Fixture Omni',model:'fixture/omni',description:'Explicit isolated fixture',gpuCounts:[1,2],defaultContextWindow:8192,
-        defaultSystemMemoryMi:16384,sourceRevision:'fixture'}}}},realtimeDevices:[{profile:'fixture-omni',node:'fixture-node',name:'Fixture CUDA GPU',
-          supported:true,reason:'',gpuCount:2,freeGpuCount:2,gpuMemoryMi:81920,systemMemoryMi:131072},
-          {profile:'fixture-omni',node:'unsupported-node',name:'Unsupported GPU fixture',supported:false,reason:'No compatible runtime.',gpuCount:1,freeGpuCount:1}]}}});
-    await page.getByRole('button',{name:'Create',exact:true}).click();
-    await page.getByRole('combobox',{name:'Inference Engine',exact:true}).selectOption('VLLM-Omni');
-    await expect(page.getByRole('combobox',{name:'Realtime profile',exact:true})).toHaveValue('fixture-omni');
-    await expect(page.getByRole('option',{name:/unsupported-node/})).toHaveAttribute('disabled','');
-    const compute=page.getByRole('combobox',{name:'Compute node',exact:true});
-    await compute.press('End');await expect(compute).toHaveValue('fixture-node');
-    await expect(page.getByLabel('KV Cache')).toHaveCount(0);
-    await expect(page.getByText('Advanced Settings',{exact:true}).locator('..')).not.toHaveAttribute('open');
-    await page.getByRole('button',{name:'Cancel',exact:true}).click();
-    expect(writes).toEqual([]); return;
+    for(const viewport of [{width:1440,height:1000},{width:390,height:844}]) {
+      await page.setViewportSize(viewport);
+      const models:ModelsPayload={activations:[],models:[],presets:{},computeTargets:{targets:[
+        {id:'nvidia-gpu',kind:'gpu',available:true,engines:['VLLM']}],engineCatalog:{VLLM:{realtimeProfiles:{'fixture-omni':{
+          displayName:'Fixture Omni',model:'fixture/omni',description:'Explicit isolated fixture',gpuCounts:[1,2],defaultContextWindow:8192,
+          defaultSystemMemoryMi:16384,sourceRevision:'fixture'}}}},realtimeDevices:[{profile:'fixture-omni',node:'fixture-node',name:'Fixture CUDA GPU',
+            supported:true,reason:'',gpuCount:2,freeGpuCount:2,gpuMemoryMi:81920,systemMemoryMi:131072},
+            {profile:'fixture-omni',node:'unsupported-node',name:'Unsupported GPU fixture',supported:false,reason:'No compatible runtime.',
+              gpuCount:1,freeGpuCount:1,gpuMemoryMi:0,systemMemoryMi:0}]}};
+      let createdBody:unknown,updatedBody:unknown;
+      const writes=await mount(page,'models',{'/api/models':()=>models,
+        '/api/model-discovery/popular':{provider:'huggingface',results:[],total:0},
+        '/api/models/local':(request:Request)=>{
+          createdBody=request.postDataJSON();
+          const body=createdBody as {name:string;local:NonNullable<ModelActivation['spec']>['local']};
+          const saved:ModelActivation={metadata:{name:body.name,uid:'fixture-omni-uid',generation:1},
+            spec:{type:'local',enabled:true,targetNamespace:'ai',local:body.local},status:{phase:'Ready'}};
+          models.activations=[saved];return saved;
+        },
+        '/api/models/fixture-omni':(request:Request)=>{
+          updatedBody=request.postDataJSON();
+          const body=updatedBody as {local:Record<string,unknown>},saved=models.activations[0]!;
+          saved.metadata!.generation=2;
+          saved.spec!.local={...saved.spec!.local,...body.local};
+          if(body.local.cpuResources === null)delete saved.spec!.local.cpuResources;
+          return saved;
+        }});
+      await page.getByRole('button',{name:'Create',exact:true}).click();
+      const dialog=page.getByRole('dialog',{name:'Create Model'});
+      await dialog.getByLabel('Inference Engine').selectOption('VLLM-Omni');
+      await expect(dialog.getByRole('form',{name:'Local model configuration'})).toHaveCount(1);
+      await expect(dialog.getByRole('combobox',{name:'Realtime profile',exact:true})).toHaveValue('fixture-omni');
+      await expect(dialog.getByRole('option',{name:/unsupported-node/})).toHaveAttribute('disabled','');
+      const compute=dialog.getByRole('combobox',{name:'Compute node',exact:true});
+      await compute.press('End');await expect(compute).toHaveValue('fixture-node');
+      await expect(dialog.getByLabel('KV Cache')).toHaveCount(0);
+      await expect(dialog.getByText('Advanced',{exact:true}).locator('..')).not.toHaveAttribute('open');
+      await dialog.getByLabel('Name',{exact:true}).fill('fixture-omni');
+      await dialog.getByLabel('Model source').selectOption('direct');
+      await dialog.getByLabel('Hugging Face URL').fill('fixture/custom-omni');
+      await dialog.getByLabel('Context Size',{exact:true}).fill('16384');
+      await dialog.getByLabel('Concurrent sessions').fill('2');
+      await selectRange(dialog.getByLabel('GPU memory budget'),.83);
+      await dialog.getByText('Advanced',{exact:true}).click();
+      await dialog.getByLabel('CPU reservation (cores)').fill('1.5');
+      await dialog.getByLabel('CPU limit (cores, 0 = unlimited)').fill('0');
+      expect(await dialog.evaluate(element=>element.scrollWidth <= element.clientWidth+1)).toBe(true);
+      expect(writes).toEqual([]);
+      await dialog.getByRole('button',{name:'Add Realtime Model',exact:true}).click();
+      await expect(dialog).toHaveCount(0);
+      expect(createdBody).toEqual({name:'fixture-omni',enabled:true,targetNamespace:'ai',local:{engine:'VLLM',computeTarget:'nvidia-gpu',
+        modelType:'chat',url:'hf://fixture/custom-omni',contextWindow:16384,maxNumSeqs:2,
+        cpuResources:{requestMillicores:1500,limitMillicores:0},realtime:{profile:'fixture-omni',gpuNode:'fixture-node',gpuCount:1,
+          systemMemoryMi:16384,gpuMemoryFraction:.83,thinkerCpuOffloadGiB:0}}});
+      await page.getByRole('button',{name:'Edit fixture-omni',exact:true}).click();
+      const edit=page.getByRole('dialog',{name:'Edit Model · fixture-omni'}),save=edit.getByRole('button',{name:'Save changes',exact:true});
+      await expect(save).toBeDisabled();
+      await expect(edit.getByLabel('Selected URL')).toHaveValue('hf://fixture/custom-omni');
+      await edit.getByLabel('Context Size').fill('4096');await expect(save).toBeEnabled();
+      await edit.getByLabel('Context Size').fill('16384');await expect(save).toBeDisabled();
+      await edit.getByLabel('Context Size').fill('4096');
+      await edit.getByText('Advanced',{exact:true}).click();
+      await expect(edit.getByLabel('CPU reservation (cores)')).toHaveValue('1.5');
+      await edit.getByRole('button',{name:'Use automatic CPU settings',exact:true}).click();
+      await save.click();await expect(edit).toHaveCount(0);
+      expect(updatedBody).toEqual({expectedRevision:'generation:fixture-omni-uid:1',local:{contextWindow:4096,cpuResources:null}});
+      expect(models.activations[0]!.spec!.local!.realtime).toEqual((createdBody as {local:{realtime:unknown}}).local.realtime);
+      await page.reload();await page.getByRole('button',{name:'Edit fixture-omni',exact:true}).click();
+      await expect(page.getByLabel('Context Size')).toHaveValue('4096');
+      await expect(page.getByRole('button',{name:'Save changes',exact:true})).toBeDisabled();
+      await page.getByRole('button',{name:'Cancel',exact:true}).click();
+      expect(writes).toEqual(['/api/models/local','/api/models/fixture-omni']);
+    }
+    return;
   }
   throw new Error(`No browser oracle for ${id}`);
 }

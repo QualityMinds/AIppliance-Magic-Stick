@@ -3,6 +3,8 @@
 ## Use from the dashboard
 
 1. Open **Models → Create → Location: Local → Inference Engine: vLLM-Omni**.
+   Ollama, vLLM and Omni use the same configuration form, with settings matched
+   to the selected engine.
 2. Select NVIDIA CUDA, AMD ROCm, Intel XPU or CPU and a compute node.
    GPU selection uses actual Kubernetes resources or the configured AMD DRA
    claim, not a chip/driver/Strix-Halo whitelist. A free slot is not proof of
@@ -12,8 +14,11 @@
    Any syntactically valid repository can be tried, including AWQ/FP8, other
    architectures and partial checkpoints. Search results are not disabled by
    Magic Stick's model compatibility guesses.
-4. **Advanced Settings** provides context, concurrency, memory and an optional
-   **Runtime image** override. CPU and XPU require a user-supplied compatible
+4. Set **Context Size**, **Concurrent sessions**, **System RAM (MiB)** and the
+   **GPU memory budget** in the runtime and memory sections. Open **Advanced**
+   for CPU reservation/limit, thinker offloading and the optional
+   **Runtime image** override. Blank CPU fields use catalog defaults; CPU limit
+   `0` removes the quota. CPU and XPU require a user-supplied compatible
    vLLM-Omni image; they are experimental targets, not validated audio backends.
    The image must implement the existing Omni CLI and Qwen duplex deploy config.
    A CUDA image cannot run AMD/Intel/CPU merely because its name is editable.

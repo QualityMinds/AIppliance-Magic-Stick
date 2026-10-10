@@ -349,7 +349,50 @@ export interface RealtimeConfiguration {
   restartNonce?: string;
 }
 
+/** Presentation policy from the existing runtime catalog, not a second engine registry. */
+export interface LocalModelConfigurationPolicy {
+  sources: Array<'search' | 'preset' | 'direct'>;
+  discovery: 'artifacts' | 'repository';
+  memory: 'estimate' | 'staged';
+  task: 'detect' | 'realtime';
+  maxOutputTokens: boolean;
+}
+
+export type LocalModelEngine = 'VLLM' | 'OLlama';
+export type LocalModelSource = 'search' | 'preset' | 'direct';
+export type GpuDeployment = 'single' | 'split' | 'replicated';
+
+interface LocalModelDraftBase {
+  name: string;
+  engine: LocalModelEngine;
+  computeTarget: string;
+  url: string;
+  source: LocalModelSource;
+  presetId: string;
+  artifactId: string;
+  modelType: string;
+  contextWindow: number;
+  maxNumSeqs: number;
+  maxOutputTokens: string;
+}
+
+export type LocalModelDraft = LocalModelDraftBase & ({
+  kind: 'standard';
+  kvCacheType: string;
+  selectedMi: number;
+  hostMemoryMi: number;
+  cpuOffloading: boolean;
+  gpuDevices: NvidiaGpuSelection[];
+  gpuDeployment: GpuDeployment;
+  parallelism: NonNullable<VllmConfiguration['parallelism']>;
+} | {
+  kind: 'omni';
+  engine: 'VLLM';
+  realtime: RealtimeConfiguration;
+});
+
 export interface RealtimeProfile {
+  configuration?: LocalModelConfigurationPolicy;
   displayName: string;
   model: string;
   description: string;
@@ -394,7 +437,7 @@ export interface VisionAttentionSettings {
 export interface ComputeTargetsPayload {
   default?: string;
   defaultEngine?: string;
-  engineCatalog?: Record<string, {displayName?: string; available?: boolean; message?: string; cpuDefaults?: Partial<Record<'cpu' | 'gpu', CpuResources>>; deploymentSettings?: {visionAttention?: VisionAttentionSettings}; multiGpu?: MultiGpuCapability; realtimeProfiles?: Record<string, RealtimeProfile>}>;
+  engineCatalog?: Record<string, {displayName?: string; available?: boolean; message?: string; urlScheme?: string; supportsVramEstimate?: boolean; configuration?: LocalModelConfigurationPolicy; cpuDefaults?: Partial<Record<'cpu' | 'gpu', CpuResources>>; deploymentSettings?: {visionAttention?: VisionAttentionSettings}; multiGpu?: MultiGpuCapability; realtimeProfiles?: Record<string, RealtimeProfile>}>;
   realtimeDevices?: RealtimeDevice[];
   targets: ComputeTarget[];
 }

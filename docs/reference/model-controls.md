@@ -2,14 +2,24 @@
 
 ## Model Controls
 
-**Create → Location: Local → Inference Engine: (Experimental) vLLM-Omni** opens a separate form for
+Ollama, vLLM and vLLM-Omni share one local-model form for both **Create** and
+**Edit**. Model source, hardware, runtime and memory sections expose the selected
+engine's supported controls; one collapsed **Advanced** section contains shared
+CPU controls and engine-specific options. External providers keep their provider
+form. Existing activations retain their saved engine, source and hardware target
+when edited; only changed fields are submitted with the original revision fence.
+Polling updates availability without replacing unsaved input.
+
+**Create → Location: Local → Inference Engine: (Experimental) vLLM-Omni** selects
 the catalog's experimental Omni profiles for NVIDIA CUDA, AMD ROCm, Intel XPU
 and CPU. GPU choices use schedulable Kubernetes resources, not chip/driver or
 Strix-Halo allowlists. Shared mode uses one slot; exclusive mode offers the
 one-/two-GPU stage plans. CPU does not request a GPU. A matching runtime image
-is still required; CPU/XPU need an explicit image in **Advanced Settings**.
-The same section contains context, concurrency, memory and optional image
-overrides. RAM estimates are advisory; actual node capacity and slot checks stay.
+is still required; CPU/XPU need an explicit image in **Advanced**.
+Context and concurrent sessions use the common runtime section. The memory
+section contains system RAM and the GPU fraction; **Advanced** contains the
+optional image and thinker offloading as well as CPU reservation/limit.
+RAM estimates are advisory; actual node capacity and slot checks stay.
 **Model source** offers HF search and direct repository paths. Quantization,
 architecture, stage completeness and `config.json` are not pre-approved.
 Any valid HF reference can be tried without an online configuration check;
@@ -19,8 +29,10 @@ hardware/model support guarantee. The selected repository is saved in
 Location distinguishes only Local and External; vLLM-Omni is offered
 alongside the other local engines when the catalog advertises a Realtime profile.
 It still persists as `engine: VLLM` with `local.realtime`, not a new backend engine
-type. It does not inherit the normal model form's vLLM/Ollama
-knobs. Installed Realtime models reuse Edit, Logs, Start/Stop, Restart and
+type. Ordinary KV precision, tensor/pipeline parallelism, MiB VRAM controls and
+vision-attention overrides are not mapped into the shipped duplex stage plan;
+the API rejects these fields for Omni. The shared interface does not change that
+runtime contract. Installed Realtime models reuse Edit, Logs, Start/Stop, Restart and
 Remove. Speech testing uses LiteLLM's existing Realtime Playground, not a new
 dashboard conversation UI. See [Realtime](realtime.md), including the pinned
 development-runtime and hardware acceptance boundaries.
@@ -61,16 +73,21 @@ choices are filtered by current cluster capability. Unavailable CPU or
 accelerator targets are omitted instead of being presented as disabled choices.
 The engine dropdown sorts regular engines alphabetically first (**Ollama**,
 **vLLM**), followed by **(Experimental) vLLM-Omni**, also alphabetically. The first offered engine is the
-default for a new form. These are display labels only; catalog availability and
+default for a new form unless the API advertises an available default engine.
+These are display labels only; catalog availability and
 persisted engine identifiers are unchanged.
 
 The ordinary local Create form detects the **Chat** or **Embedding** task from
 the selected preset or registry metadata. It shows the result without a Type
 dropdown. If metadata is insufficient, **Model task** becomes a required manual
 choice; changing the model clears that choice. External creation and existing
-model editing retain their explicit type controls. Realtime uses its separate
+model editing retain their explicit type controls. Realtime uses its own
 catalog profile. Detection does not certify that an engine can load the model.
 See the [API task contract](dashboard-api.md#automatic-model-task-detection).
+
+Ordinary Create and Edit both offer optional **Max Output Tokens**; leaving it
+blank uses the runtime default. Clearing a stored limit sends an explicit reset.
+Omni does not expose this field because its current duplex adapter rejects it.
 
 For vLLM, **Model source** offers three persistent choices:
 

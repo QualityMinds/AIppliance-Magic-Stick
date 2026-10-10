@@ -143,6 +143,22 @@ class RealtimeRuntimeTests(unittest.TestCase):
                 self.assertLessEqual(amount, .900001)
             self.assertEqual(deployment["spec"]["template"]["spec"]["containers"][0]["resources"]["requests"]["nvidia.com/gpu"], str(count))
 
+    def test_common_cpu_controls_change_pod_resources_without_changing_stage_plan(self):
+        baseline, _, original = self.resource()
+        item = activation()
+        item["spec"]["local"]["cpuResources"] = {"requestMillicores": 1500, "limitMillicores": 2500}
+        deployment, _, runtime = self.resource(item)
+        container = deployment["spec"]["template"]["spec"]["containers"][0]
+        self.assertEqual(container["resources"]["requests"]["cpu"], "1500m")
+        self.assertEqual(container["resources"]["limits"]["cpu"], "2500m")
+        self.assertEqual(runtime["configuration"]["data"]["profile.json"], original["configuration"]["data"]["profile.json"])
+        item["spec"]["local"]["cpuResources"]["limitMillicores"] = 0
+        unlimited, _, _ = self.resource(item)
+        self.assertNotIn("cpu", unlimited["spec"]["template"]["spec"]["containers"][0]["resources"]["limits"])
+        del item["spec"]["local"]["cpuResources"]
+        reset, _, _ = self.resource(item)
+        self.assertEqual(reset["spec"]["template"]["spec"]["containers"][0]["resources"], baseline["spec"]["template"]["spec"]["containers"][0]["resources"])
+
     def test_arbitrary_checkpoint_reaches_runtime_without_model_policy(self):
         for repo in ("example/omni-AWQ-4bit", "example/text-only", "example/unknown-architecture"):
             item = activation()

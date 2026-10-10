@@ -10,11 +10,59 @@ import {realtimeSession} from '../core/realtime-probe.ts';
 import {openInferenceSession} from '../core/auth.ts';
 import {InferenceProbe} from '../core/inference.ts';
 import {poll} from '../core/poll.ts';
-import {activation,editRevision,modelContextUpdateReceipt} from '../core/owned-model.ts';
+import {activation,editRevision,modelContextUpdateReceipt,OwnedModelClient} from '../core/owned-model.ts';
+import {browserMutation,MutationNotSubmitted} from '../core/browser-action.ts';
+import {selectRange} from './form-checks.ts';
 import type {ModelActivation} from '@magicstick/dashboard-contracts';
 import {modelCard} from '../hardware/live-ui.ts';
 import {permittedUiAction} from './ui-actions.ts';
 import {AdministrationApi,AdministrationRejected} from '../core/administration-api.ts';
+
+/** Exercise Create in the actual shared form, retaining exact intent and UID-bound cleanup. */
+async function createRealtimeThroughForm(live:LiveFoundation,suffix:string,fixture:RuntimeModelFixture) {
+  requireSafe(fixture.realtime && !fixture.realtime.restartNonce,'CONFIG');
+  const name=live.journal.prefix+suffix;
+  const client=new OwnedModelClient(live.context.request,live.config.dashboardUrl,live.config.requestTimeoutMs,name,fixture,live.journal.prefix,live.guard);
+  await live.guard();requireSafe(!await live.cleaner.find(name) && !activation(await client.models(),name),'OWNERSHIP');
+  const page=await live.context.newPage();
+  try {
+    await page.goto(live.config.dashboardUrl+'/#/models');
+    await page.getByRole('button',{name:'Create',exact:true}).click();
+    const dialog=page.getByRole('dialog',{name:'Create Model'});
+    await dialog.getByLabel('Inference Engine').selectOption('VLLM-Omni');
+    await dialog.getByLabel('Realtime profile').selectOption(fixture.realtime.profile);
+    await dialog.getByLabel('Name',{exact:true}).fill(name);
+    await dialog.getByLabel('Model source').selectOption('direct');
+    await dialog.getByLabel('Hugging Face URL').fill(fixture.url);
+    await dialog.getByLabel('Compute node').selectOption(fixture.realtime.gpuNode);
+    await dialog.getByLabel('GPUs',{exact:true}).selectOption(String(fixture.realtime.gpuCount));
+    await dialog.getByLabel('Context Size',{exact:true}).fill(String(fixture.contextWindow));
+    await dialog.getByLabel('Concurrent sessions').fill('1');
+    await dialog.getByLabel('System RAM (MiB)').fill(String(fixture.realtime.systemMemoryMi));
+    await selectRange(dialog.getByLabel('GPU memory budget'),fixture.realtime.gpuMemoryFraction);
+    await dialog.getByText('Advanced',{exact:true}).click();
+    await dialog.getByLabel('Thinker CPU offload (GiB)').fill(String(fixture.realtime.thinkerCpuOffloadGiB));
+    if(fixture.realtime.runtimeImage)await dialog.getByLabel('Runtime image (optional)').fill(fixture.realtime.runtimeImage);
+    await expect(dialog.getByLabel('CPU reservation (cores)')).toHaveValue('');
+    await expect(dialog.getByLabel('CPU limit (cores, 0 = unlimited)')).toHaveValue('');
+    await live.journal.requested('model',name);
+    let accepted:ModelActivation;
+    try {
+      const response=await browserMutation(page,{url:live.config.dashboardUrl+'/api/models/local',method:'POST',body:client.payload(),
+        timeoutMs:live.config.requestTimeoutMs,guard:live.guard,stage:'model-create'},
+        ()=>dialog.getByRole('button',{name:'Add Realtime Model',exact:true}).click());
+      try {accepted=await response.json() as ModelActivation;}catch {accepted=await live.cleaner.find(name) as ModelActivation;}
+    }catch(error) {
+      if(error instanceof MutationNotSubmitted && !await live.cleaner.find(name))await live.journal.rejected('model',name);
+      throw error;
+    }
+    requireSafe(accepted?.metadata?.name === name && accepted.metadata.namespace === live.config.expected.applianceNamespace &&
+      accepted.metadata.uid && Number.isSafeInteger(accepted.metadata.generation) && Number(accepted.metadata.generation) > 0,'API');
+    const uid=accepted.metadata.uid,generation=Number(accepted.metadata.generation);
+    await live.journal.owned('model',name,uid,generation);client.adopt(uid);
+    return {client,uid,generation};
+  }finally{await page.close();}
+}
 
 export async function realtimeWorkflow(live:LiveFoundation) {
   requireSafe(process.env.REGRESSION_REMAINING_PROFILE && live.config.gpu && live.config.inferenceUrl,'PREREQUISITE');
@@ -43,7 +91,7 @@ export async function realtimeWorkflow(live:LiveFoundation) {
       {timeoutMs:300_000,intervalMs:1500,stage:'gpu-backend'});
       const capability=models.computeTargets.engineCatalog?.VLLM?.realtimeProfiles?.[row.fixture.realtime!.profile];
       requireSafe(capability?.gpuCounts.includes(row.fixture.realtime!.gpuCount) && (row.mode !== 'shared' || row.fixture.realtime!.gpuCount === 1),'CAPABILITY');
-      const created=await live.createModel('omni-'+index,live.journal,row.fixture);
+      const created=await createRealtimeThroughForm(live,'omni-'+index,row.fixture);
       let ready=await live.waitReady(created.client,created.uid,created.generation);
       requireSafe(ready.pods.length === 1 && podSpec(ready.pods[0]!).nodeName === row.fixture.realtime!.gpuNode &&
         ready.item?.spec?.local?.realtime?.profile === row.fixture.realtime!.profile && ready.item.spec.local.engine === 'VLLM' &&
@@ -56,17 +104,15 @@ export async function realtimeWorkflow(live:LiveFoundation) {
         await expect(page.getByLabel('Realtime profile')).toHaveValue(row.fixture.realtime!.profile);
         await expect(page.getByLabel('Compute node')).toHaveValue(row.fixture.realtime!.gpuNode);
         await expect(page.getByLabel('KV Cache')).toHaveCount(0);await expect(page.getByRole('button',{name:'Save changes',exact:true})).toBeDisabled();
-        await page.getByRole('dialog').getByText('Advanced Settings',{exact:true}).click();
         const context=row.fixture.contextWindow === 256 ? 512 : 256;
         await page.getByRole('dialog').getByLabel('Context Size',{exact:true}).fill(String(context));
-        const current=ready.item!,body={expectedRevision:editRevision(current),local:{realtime:current.spec!.local!.realtime!,contextWindow:context,maxNumSeqs:1}};
+        const current=ready.item!,body={expectedRevision:editRevision(current),local:{contextWindow:context}};
         const updated=await permittedUiAction<ModelActivation>(page,live.config.dashboardUrl,'/api/models/'+created.client.name,'PUT',body,live.guard,
           ()=>page.getByRole('button',{name:'Save changes',exact:true}).click());
         const receipt=modelContextUpdateReceipt(current,updated,context);
         await live.journal.modelGeneration(created.client.name,created.uid,created.generation,receipt.generation);created.generation=receipt.generation;
         ready=await live.waitReady(created.client,created.uid,created.generation);
         await page.reload();await modelCard(page,created.client.name).getByRole('button',{name:'Edit '+created.client.name,exact:true}).click();
-        await page.getByRole('dialog').getByText('Advanced Settings',{exact:true}).click();
         await expect(page.getByLabel('Context Size',{exact:true})).toHaveValue(String(context));
         await expect(page.getByRole('button',{name:'Save changes',exact:true})).toBeDisabled();
         await page.getByRole('button',{name:'Cancel',exact:true}).click();

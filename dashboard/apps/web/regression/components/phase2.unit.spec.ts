@@ -2,6 +2,19 @@ import {test} from '@playwright/test';
 import {evidenceAnnotations} from '../core/evidence.ts';
 import {componentSuite} from './owning.ts';
 
+test('ENG-09 shared configuration preserves saved intent and explicit resets', evidenceAnnotations(
+  {id: 'ENG-09', variant: 'local-configuration-component', layer: 'U'}), () => componentSuite('src/LocalModelConfigurationCore.test.ts', [
+    'preserves unchanged, changed and reverted legacy VLLM settings',
+    'preserves unchanged, changed and reverted legacy OLlama settings',
+    'keeps GPU identities stable despite reordered fields and changed display names',
+]));
+
+test('ENG-07 discovery discards asynchronous results from a previous engine or target', evidenceAnnotations(
+  {id: 'ENG-07', variant: 'late-discovery-component', layer: 'U'}), () => componentSuite('src/ModelDiscovery.test.tsx', [
+    'discards a late search result after switching engine and retains the common name',
+    'discards a late artifact response after changing hardware',
+]));
+
 test('DISC-01 ENG-07 owning create form keeps engine and provider drafts isolated', evidenceAnnotations(
   {id: 'DISC-01', variant: 'create-choice-component', layer: 'U'},
   {id: 'ENG-07', variant: 'engine-switch-component', layer: 'U'}), () => componentSuite(

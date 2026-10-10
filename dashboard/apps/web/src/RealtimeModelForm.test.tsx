@@ -3,7 +3,7 @@ import {fireEvent, render, screen, waitFor, within} from '@testing-library/react
 import userEvent from '@testing-library/user-event';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import type {ModelActivation, ModelsPayload} from '@magicstick/dashboard-contracts';
-import {RealtimeModelForm} from './RealtimeModelForm';
+import {LocalModelConfigurationForm} from './LocalModelConfigurationForm';
 import {ModelsPage} from './pages/ModelsPage';
 import {api} from './api';
 
@@ -22,7 +22,7 @@ const models = (): ModelsPayload => ({
     ]},
 });
 const wrapper = (component: React.ReactNode) => render(<QueryClientProvider client={new QueryClient({defaultOptions: {queries: {retry: false}, mutations: {retry: false}}})}>{component}</QueryClientProvider>);
-const mount = (data = models(), activation?: ModelActivation) => wrapper(<RealtimeModelForm models={data} activation={activation} onClose={vi.fn()} onSaved={vi.fn().mockResolvedValue(undefined)} />);
+const mount = (data = models(), activation?: ModelActivation) => wrapper(<LocalModelConfigurationForm models={{...data, computeTargets: {...data.computeTargets, defaultEngine: 'VLLM-Omni'}}} activation={activation} onClose={vi.fn()} onSaved={vi.fn().mockResolvedValue(undefined)} />);
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -132,7 +132,7 @@ describe('Realtime model profile', () => {
 
   it('creates a catalog-selected Qwen model with isolated defaults and collapsed advanced controls', async () => {
     mount();
-    expect(screen.getByText('Advanced Settings').closest('details')).not.toHaveAttribute('open');
+    expect(screen.getByText('Advanced').closest('details')).not.toHaveAttribute('open');
     expect(screen.getByLabelText('Selected URL')).toHaveValue('hf://Qwen/Qwen3-Omni-30B-A3B-Instruct');
     expect(screen.getByRole('option', {name: /unsupported/})).toBeDisabled();
     expect(screen.queryByLabelText('KV Cache')).not.toBeInTheDocument();
@@ -187,8 +187,50 @@ describe('Realtime model profile', () => {
     fireEvent.change(screen.getByLabelText('Context Size'), {target: {value: '4096'}});
     await userEvent.click(screen.getByRole('button', {name: 'Save changes'}));
     await waitFor(() => expect(api.updateModel).toHaveBeenCalledWith('saved-realtime', {
-      expectedRevision: '17', local: {realtime: activation.spec!.local!.realtime, contextWindow: 4096, maxNumSeqs: 1},
+      expectedRevision: '17', local: {contextWindow: 4096},
     }));
+  });
+
+  it('uses the common collapsed CPU controls when creating Omni without changing its memory plan', async () => {
+    mount();
+    expect(screen.getAllByRole('form', {name: 'Local model configuration'})).toHaveLength(1);
+    await userEvent.click(screen.getByText('Advanced', {exact: true}));
+    fireEvent.change(screen.getByLabelText('CPU reservation (cores)'), {target: {value: '1.5'}});
+    fireEvent.change(screen.getByLabelText('CPU limit (cores, 0 = unlimited)'), {target: {value: '0'}});
+    await userEvent.click(screen.getByRole('button', {name: 'Add Realtime Model'}));
+    await waitFor(() => expect(api.createLocalModel).toHaveBeenCalledWith(expect.objectContaining({local: expect.objectContaining({
+      cpuResources: {requestMillicores: 1500, limitMillicores: 0},
+      realtime: expect.objectContaining({systemMemoryMi: 16384, gpuMemoryFraction: .9, thinkerCpuOffloadGiB: 0}),
+    })})));
+  });
+
+  it('preserves the edit snapshot while polling, disables reverted CPU changes and saves explicit resets', async () => {
+    const activation: ModelActivation = {metadata: {name: 'saved', uid: 'saved-uid', generation: 2, resourceVersion: '17'},
+      spec: {type: 'local', local: {engine: 'VLLM', computeTarget: 'nvidia-gpu', url: checkpoint.url,
+        contextWindow: 8192, maxNumSeqs: 1, cpuResources: {requestMillicores: 1000, limitMillicores: 2000},
+        realtime: {profile: 'qwen3-omni', gpuNode: 'example-node', gpuCount: 1, systemMemoryMi: 16384,
+          gpuMemoryFraction: .9, thinkerCpuOffloadGiB: 0, runtimeImage: 'example.local/omni:test', restartNonce: 'keep'}}}};
+    const client = new QueryClient({defaultOptions: {queries: {retry: false}}});
+    const content = (value: ModelActivation) => <QueryClientProvider client={client}><LocalModelConfigurationForm models={models()}
+      activation={value} onClose={vi.fn()} onSaved={vi.fn().mockResolvedValue(undefined)} /></QueryClientProvider>;
+    const view = render(content(activation));
+    const save = screen.getByRole('button', {name: 'Save changes'});
+    await userEvent.click(screen.getByText('Advanced', {exact: true}));
+    expect(screen.getByLabelText('CPU reservation (cores)')).toHaveValue(1);
+    fireEvent.change(screen.getByLabelText('CPU reservation (cores)'), {target: {value: '1.5'}});
+    expect(save).toBeEnabled();
+    const polled = structuredClone(activation); polled.metadata!.generation = 3;
+    polled.spec!.local!.cpuResources = {requestMillicores: 3000, limitMillicores: 4000};
+    view.rerender(content(polled));
+    expect(screen.getByLabelText('CPU reservation (cores)')).toHaveValue(1.5);
+    fireEvent.change(screen.getByLabelText('CPU reservation (cores)'), {target: {value: '1'}});
+    expect(save).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('CPU limit (cores, 0 = unlimited)'), {target: {value: '.5'}});
+    expect(save).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', {name: 'Use automatic CPU settings'}));
+    expect(save).toBeEnabled();
+    await userEvent.click(save);
+    await waitFor(() => expect(api.updateModel).toHaveBeenCalledWith('saved', {expectedRevision: 'generation:saved-uid:2', local: {cpuResources: null}}));
   });
 
   it('is discoverable from the normal Models create dialog', async () => {

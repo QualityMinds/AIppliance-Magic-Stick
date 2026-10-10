@@ -1,5 +1,38 @@
 # Model catalog integration
 
+## Shared local-model configuration
+
+The web client uses `LocalModelConfigurationForm` for Create and Edit of Ollama,
+vLLM and Omni. `packages/contracts` defines a discriminated local-model draft;
+`packages/core/local-model-configuration` loads saved intent and serializes
+engine-specific create/update payloads. Shared source and memory components
+contain no independent submit paths. Engine changes remount the draft while
+preserving the name; asynchronous discovery and estimates discard outdated
+responses. Editing retains the opening snapshot and revision across polling.
+
+The existing compute-target catalog's `configuration` metadata declares source,
+discovery, memory and task modes plus output-limit availability. Realtime
+profiles override this policy; older installed catalogs retain the established
+behavior through the shared compatibility resolver. KV options, GPU strategies,
+CPU defaults and target availability continue to use their existing
+catalog/API contracts.
+
+Omni persists `engine: VLLM` plus `local.realtime` and retains its direct runtime
+adapter. Common context/concurrency and CPU scheduling settings already reach
+the stage plan/Pod. Ordinary KV cache, vision overrides, tensor/pipeline knobs
+and MiB budgets remain rejected: enabling them requires a separately verified
+stage mapping against the pinned Omni revision, not copying a UI field.
+Memory estimates and exact NVIDIA-card DRA remain ordinary-model paths; Omni
+uses its existing node/count placement and advisory stage-fraction/RAM plan.
+
+Cover changes with `LocalModelConfigurationCore.test.ts`, existing model
+discovery/edit/GPU/offload suites and `RealtimeModelForm.test.tsx`. The Phase 2
+browser profile covers ordinary Create/Edit and engine changes; RT-01 covers
+Omni Create/Edit, CPU resets and reload at desktop/mobile widths. Its installed
+workflow creates Omni through the actual form with an exact request fence,
+records acknowledged ownership, then checks independent Pod/catalog/inference
+evidence. Fixture success is not physical acceptance.
+
 ## GitOps Patterns
 
 Render the base:

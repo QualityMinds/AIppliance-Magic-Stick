@@ -32,6 +32,8 @@ export const phase2FastVariants = {
   'kv-contract': {id: 'ENG-03', layers: ['C']},
   'engine-switch-component': {id: 'ENG-07', layers: ['U']},
   'legacy-default-contract': {id: 'ENG-09', layers: ['C']},
+  'local-configuration-component': {id: 'ENG-09', layers: ['U']},
+  'late-discovery-component': {id: 'ENG-07', layers: ['U']},
   'injection-contract': {id: 'ENG-10', layers: ['C']},
   'memory-component': {id: 'MEM-01', layers: ['U']},
   'memory-contract': {id: 'MEM-01', layers: ['C']},

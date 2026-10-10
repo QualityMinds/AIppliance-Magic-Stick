@@ -6,9 +6,10 @@ import {requireSafe} from '../core/errors.ts';
 export async function selectRange(slider:Locator,value:number) {
   const min=Number(await slider.getAttribute('min')),max=Number(await slider.getAttribute('max'));
   const step=Number(await slider.getAttribute('step'));
-  const low=(value-min)/step,high=(max-value)/step;
+  const lowRaw=(value-min)/step,highRaw=(max-value)/step;
+  const low=Math.round(lowRaw),high=Math.round(highRaw);
   requireSafe([min,max,step,value].every(Number.isFinite) && step > 0 && value >= min && value <= max &&
-    Number.isInteger(low) && Number.isInteger(high) && Math.min(low,high) <= 256,'CONFIG');
+    Math.abs(low-lowRaw) < 1e-7 && Math.abs(high-highRaw) < 1e-7 && Math.min(low,high) <= 256,'CONFIG');
   const fromLow=low <= high;
   await slider.press(fromLow ? 'Home' : 'End');
   for(let index=0;index<(fromLow ? low : high);index++)await slider.press(fromLow ? 'ArrowRight' : 'ArrowLeft');

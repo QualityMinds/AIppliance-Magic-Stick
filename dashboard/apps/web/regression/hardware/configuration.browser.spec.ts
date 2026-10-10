@@ -147,7 +147,7 @@ test(`MGPU-01 ${engine} ${count} ${different?'different':'identical'} GPUs ${vie
   await savedBudget.fill(String(savedPerCard*count));await expect(save).toBeDisabled();
   await savedBudget.fill(String(editedPerCard*count));await expect(save).toBeEnabled();
   await savedBudget.scrollIntoViewIfNeeded();await page.screenshot({path:info.outputPath(`multi-gpu-edit-${engine}-${count}-${viewport}.png`)});
-  await save.click();await expect.poll(()=>updates.length).toBe(1);expect(updates[0]!.local).toMatchObject({vramMi:editedPerCard,memoryRequiredMi:16400});
+  await save.click();await expect.poll(()=>updates.length).toBe(1);expect(updates[0]!.local).toEqual({vramMi:editedPerCard});
   expect(updates[0]!.local).not.toHaveProperty('gpuDevices');
   expect(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });

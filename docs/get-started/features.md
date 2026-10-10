@@ -3,12 +3,15 @@
 ## What you can do
 
 - Run local models with Ollama or vLLM on eligible CPU/GPU targets.
+- Create and edit Ollama, vLLM and experimental vLLM-Omni in one local-model
+  configuration form, with shared runtime/CPU controls and engine-specific
+  source, hardware and memory options.
 - Detect whether a local model provides Chat or Embedding from its metadata;
   choose its task manually only when it is unknown.
 - Use NVIDIA GPUs on one node, including different GPU models and capacities, to
   [split one model or run independent copies](../administration/gpu-sharing.md#one-model-across-several-nvidia-gpus)
   behind one LiteLLM model name, with explicit per-card allocation through NVIDIA DRA.
-- Experiment with Realtime through the separate vLLM-Omni profile.
+- Experiment with Realtime by selecting the vLLM-Omni profile in that form.
 - Connect external model providers and use a common LiteLLM API.
 - Give every application instance its own LiteLLM inference key, with automatic
   creation, suspension, rotation and cleanup; application workloads receive no

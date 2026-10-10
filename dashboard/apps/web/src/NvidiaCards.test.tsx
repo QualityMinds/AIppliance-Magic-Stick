@@ -158,7 +158,7 @@ describe('NVIDIA physical card selection', () => {
     fireEvent.change(budget, {target: {value: '16384'}}); await waitFor(() => expect(save).toBeDisabled());
     fireEvent.change(screen.getByRole('slider', {name: 'Memory reservation'}), {target: {value: '80000'}});
     await waitFor(() => expect(save).toBeEnabled()); await userEvent.click(save);
-    expect(api.updateModel).toHaveBeenCalledWith('fixture-model', {expectedRevision: '9', local: {vramMi: 40000, memoryRequiredMi: 16400}});
+    expect(api.updateModel).toHaveBeenCalledWith('fixture-model', {expectedRevision: '9', local: {vramMi: 40000}});
   });
 
   it.each(['VLLM', 'OLlama'])('creates independent %s copies with per-copy RAM and no split settings', async (engine) => {
