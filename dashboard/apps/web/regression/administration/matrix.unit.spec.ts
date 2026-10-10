@@ -28,6 +28,7 @@ test('HAR-10 every remaining variant retains its stable P0 catalogue ID and exac
   const catalog=await readFile('../../../docs/development/regression-test-catalog.md','utf8');
   const rows=Object.fromEntries([...catalog.matchAll(/^\| ([A-Z0-9]+-\d{2}) \| .*? \| ([UCBAEON+]+) \| P0[^\n]*$/gm)]
     .map(match=>[match[1],match[2]!.split('+').sort().join('')]));
-  expect(Object.keys(remainingVariants)).toHaveLength(99);
+  // CACHE-07 was retired with FreeToken; keep the remaining finite matrix intact.
+  expect(Object.keys(remainingVariants)).toHaveLength(98);
   for(const item of Object.values(remainingVariants))expect(rows[item.id],item.id).toBe([...item.layers].sort().join(''));
 });

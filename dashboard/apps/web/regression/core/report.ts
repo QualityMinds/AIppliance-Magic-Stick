@@ -137,6 +137,7 @@ export function liveReportScope(mode?: string) {
 export async function saveReport(directory: string, runId: string, cases: CaseResult[], required: string[], sourceRevision = 'unknown', mode = process.env.REGRESSION_MODE,
   preparation?: PreparationDiagnostic,lifecycle?:{recoveryFenceActive:boolean;recoveryAttempts:RecoveryAttempt[]}) {
   requireSafe(/^reg-[0-9a-f-]{36}$/.test(runId), 'CONFIG');
+  const portableArchive=mode==='all'||mode==='selftest'||/^phase[0-8](?:-(?:fast|fixtures))?$/.test(mode??'');
   const prepared = preparation ? parsePreparationDiagnostic(preparation) : await preparationDiagnostic();
   const safe = completeCases(mode,cases,required).map(item => {
     requireSafe(/^[A-Z][A-Z0-9]+-\d{2}$/.test(item.id), 'CONFIG');
@@ -217,7 +218,7 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
       `<td class="${item.outcome}">${item.outcome}</td><td>${xml(item.description)}`+
       (item.reason ? `<br>${xml(reasons[item.reason])}` : '')+(item.outcome === 'Blocked' ? `<br>Next: ${xml(blockedAction(item.reason))}` : '')+'</td></tr>').join('')+'</table>'+
     '<h2>Execution steps and diagnostics</h2><p>Filtered call traces omit credentials, selectors, URLs and raw responses.</p>'+
-    (mode==='all'||/^phase[0-8]$/.test(mode??'')?'<p><a href="report-artifacts.tar.gz">Download sanitized report archive</a></p>':'')+
+    (portableArchive?'<p><a href="report-artifacts.tar.gz">Download sanitized report archive</a></p>':'')+
     artifacts.map(({trace,path,componentPath})=>`<details><summary>${xml(trace.scenario??trace.executionId)} — ${trace.outcome}</summary>`+
       `<p><a href="${path}">Filtered trace JSON</a>${componentPath?` · <a href="${componentPath}">Component diagnostic</a>`:''}</p><ol>`+
       trace.steps.map(step=>`<li class="${step.outcome}">${xml(step.title)} — ${step.outcome} · ${durationDescription(step.durationMs)}`+
@@ -243,7 +244,7 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     recoveryAttempts.map(item=>`Automatic recovery ${item.runId}: ${item.state}${item.reason?` (${item.reason})`:''}.\n`).join('')+
     safe.map(item => `${item.id}${item.variant ? ` / ${item.variant}` : ''} [${item.layer} — ${layerDescriptions[item.layer]}; ${item.environment}]: ${item.outcome} — ${durationDescription(item.durationMs)}${item.reason ? ` (${item.reason})` : ''}${item.stage ? ` [${item.stage}]` : ''}\n` +
       `  Catalogue goal: ${item.description}${item.reason ? `\n  Reason: ${reasons[item.reason]}` : ''}${item.outcome === 'Blocked' ? `\n  Next: ${blockedAction(item.reason)}` : ''}`).join('\n') + '\n');
-  await archiveReport(directory,runId,artifacts,mode==='all'||/^phase[0-8]$/.test(mode??''));
+  await archiveReport(directory,runId,artifacts,portableArchive);
   return {...summary, executionCounts,recoveryFenceActive,recoveryAttempts, fullPhase0Accepted, fullPhase1Accepted, fullPhase2Accepted,fullPhase3Accepted,fullPhase4Accepted,installedPhase4Accepted,
     ...Object.fromEntries([5,6,7,8].map(phase=>[`fullPhase${phase}Accepted`,mode === `phase${phase}` && summary.acceptable && laterCoverage?.complete === true]))};
 }

@@ -70,7 +70,7 @@ const proofs:Record<string,Proof>={
   'supply-chain':{python:[['../../../tests',['test_release.ReleaseTests','test_runtime_image_updates.RuntimeImageTests','test_license_release.ReleaseMetadataTests','test_license_ci','test_regression_security','test_regression_launcher','test_regression_inputs']]],components:[['src/CoreSafety.test.ts',[]]]},
   forms:{components:[['src/pages/GpuSharingControls.test.tsx',[]],['src/pages/SoftwareChannelEditor.test.tsx',[]],
     ['src/pages/HostGpuMemory.test.tsx',[]],['src/pages/NetworkPage.test.tsx',[]],['src/pages/UpdatesPage.test.tsx',[]],
-    ['src/pages/SettingsPage.test.tsx',[]],['src/pages/MeshPage.test.tsx',[]],['src/RealtimeModelForm.test.tsx',[]]]},
+    ['src/FeatureParity.test.tsx',['Settings retains both editable domains']],['src/pages/MeshPage.test.tsx',[]],['src/RealtimeModelForm.test.tsx',[]]]},
   repeat:{python:[[operator,['test_model_lifecycle.ModelLifecycleTests',
     'test_realtime_runtime.RealtimeRuntimeTests']], [api,['test_model_update.ModelUpdateTests']]]},
 };

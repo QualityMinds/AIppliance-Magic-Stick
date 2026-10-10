@@ -55,6 +55,9 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 - Build and exercise the regression-runner image in GitHub CI, including native
   recovery tests and Chromium fixtures. Use this gate for development Docker
   build verification instead of repeating builds in the agent workspace.
+- Correct the regression matrix count after FreeToken removal and select the
+  existing domain-settings component contract. Retain sanitized report archives
+  for isolated checks so CI failures include portable diagnostics.
 - Allow different NVIDIA GPU models and memory capacities in same-node DRA
   groups. Bound the evenly divided split-model budget by the smallest selected
   card's unreserved and physical capacity; preserve a full budget per copy for

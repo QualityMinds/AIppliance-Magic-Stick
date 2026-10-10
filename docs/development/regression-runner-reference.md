@@ -71,7 +71,8 @@ has no universal attachment format, so unsupported CI viewers can use the
 property/path or open `summary.html`. Step counts are diagnostics, not additional
 catalogue acceptance or a replacement for the scenario/evidence counts.
 
-Each canonical phase and `all` produces `report-artifacts.tar.gz`. It includes
+Each canonical phase, `all`, `selftest` and `phaseN-fast` / `phaseN-fixtures`
+produces `report-artifacts.tar.gz`, including after a failed isolated check. It includes
 only summaries, JUnit, its manifest and re-validated trace/component attachments.
 The aggregate copies child attachments into its own archive, so extracting one
 archive is sufficient; sibling private run directories are not required.

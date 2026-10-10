@@ -45,6 +45,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Build regression runner from current source
+        id: build
         run: bash tools/regression.sh build
       - name: Record built runner size and filesystem layers
         run: docker image inspect magicstick-regression:local --format 'Size={{.Size}} bytes; filesystem layers={{len .RootFS.Layers}}'
@@ -54,10 +55,12 @@ jobs:
           bash tools/regression.sh selftest
           bash tools/regression.sh phase4-fast
           bash tools/regression.sh phase8-fast
-      - name: Exercise locked Chromium headless shell in the built image
-        run: |
-          bash tools/regression.sh phase2-fixtures
-          bash tools/regression.sh phase7-fixtures
+      - name: Exercise model Chromium fixtures in the built image
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: bash tools/regression.sh phase2-fixtures
+      - name: Exercise Realtime Chromium fixtures in the built image
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: bash tools/regression.sh phase7-fixtures
       - uses: actions/upload-artifact@v4
         if: always()
         with:
