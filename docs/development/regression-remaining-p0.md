@@ -13,6 +13,13 @@ bash tools/regression.sh build
 bash tools/regression.sh setup
 ```
 
+The BuildKit runner uses a pinned slim Node base and the workspace-locked
+Chromium headless shell. Source/dependency installation is combined into one
+runtime layer; Firefox, WebKit and headed Chromium are not installed. The native
+AMD recovery tests still compile from the same pinned source and patch in a
+separate, smaller Go builder. See the
+[runner image reference](regression-runner-reference.md#runner-image).
+
 Enter the dashboard URL and test administrator credentials. Supply the trusted
 Appliance CA PEM only if needed. Setup discovers endpoints and creates scoped
 Kubernetes access. Registration binds tests to this Appliance and its Node IDs;

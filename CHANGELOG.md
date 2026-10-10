@@ -48,6 +48,10 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ### Changed
 
+- Reduce the local Docker regression runner to slim Node, locked Chromium
+  headless shell and a smaller native Go builder. Combine source/runtime
+  installation into one layer while retaining the native AMD recovery tests.
+  See the [runner guide](docs/development/regression-remaining-p0.md#once).
 - Allow different NVIDIA GPU models and memory capacities in same-node DRA
   groups. Bound the evenly divided split-model budget by the smallest selected
   card's unreserved and physical capacity; preserve a full budget per copy for

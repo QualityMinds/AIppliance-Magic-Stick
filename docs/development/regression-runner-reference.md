@@ -98,6 +98,36 @@ reuses accepted credentials, model fixtures, application adapters and budgets.
 Only external prerequisites that cannot safely be discovered need one-time
 provisioning. Preparation is not a test run and never records `Passed` evidence.
 
+### Runner image
+
+The local runner uses digest-pinned, multi-platform `node:24-bookworm-slim` and
+`golang:1.26.5-alpine3.24` bases. Playwright installs only the exact Chromium
+headless shell and FFmpeg versions resolved by the frozen workspace lockfile.
+The registered workflows launch headless Chromium; a future headed or other
+browser workflow must explicitly extend the image installation.
+
+BuildKit bind mounts provide the `.dockerignore`-filtered source, the existing AMD
+patch and the compiled native recovery test. All selected source directories,
+runtime dependencies, browser and built web bundle enter one runtime `RUN`
+layer. Download/install caches are removed before that layer is committed.
+The native binary remains built for `TARGETARCH` with `CGO_ENABLED=0`, the same
+upstream revision and the existing patch; no native test is replaced by a mock.
+The non-root, read-only Compose runner and its private mounts are unchanged.
+
+Registry measurements on **2026-10-10**, for the pinned `linux/amd64` manifests:
+
+| Base download | Previous base | Current base |
+|---|---|---|
+| Runner | Playwright Resolute: 956.11 MiB | Node Bookworm Slim: 77.08 MiB |
+| Native-test builder | Go Bookworm: 283.03 MiB | Go Alpine: 68.07 MiB |
+
+These are compressed base-layer download totals, not final runner sizes or peak
+disk-space requirements. The current runner adds its selected browser and
+dependencies. The previous runtime's 20 `COPY` instructions and three `RUN`
+instructions become no `COPY` and one `RUN`; fewer committed filesystem layers
+reduce the full-layer copies made by `vfs`. Actual build failures still come
+directly from Docker; the launcher imposes no guessed disk-capacity threshold.
+
 ### 1. One-time setup
 
 From the repository root:

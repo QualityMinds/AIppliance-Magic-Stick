@@ -266,9 +266,10 @@ can be used only for fixtures whose output is demonstrably stable.
 
 ### Linux container on the Mac first
 
-The local harness uses the workspace's locked Node/pnpm/Playwright dependencies
-and the digest-pinned Playwright Ubuntu 26.04 image. Run natively as Linux ARM64
-on Apple Silicon; the pinned image also declares Linux AMD64 support. No AMD64
+The local harness uses the workspace's locked Node/pnpm/Playwright dependencies,
+a digest-pinned slim Node image and only Chromium's headless shell. The pinned
+Node and separate Go builder indexes declare Linux ARM64 and AMD64 support.
+Run natively as Linux ARM64 on Apple Silicon. No AMD64
 run or appliance-kernel equivalence is implied by an ARM64 browser test.
 Use a fresh automated browser context, not the developer's personal Chrome
 session. Initial execution is headless. Later derive a GitHub Runner variant
