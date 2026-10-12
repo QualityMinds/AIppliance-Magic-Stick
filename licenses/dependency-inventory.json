@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "6dda8724e63f83d4608f703a3357dc0d2544ff5501e9a32df66a9a90f8d6909e",
-  "deploymentReferencesSha256": "945e6449f5e6adda02eba48c0211126bf9665bdbae363fe5489c77cd5f4fdfbd",
+  "deploymentReferencesSha256": "10f3d89ada8a31402e756a0cc08c299a4456489b757a2a5a97791f76c7898ce1",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -2571,7 +2571,7 @@
     {
       "file": "magic-cluster/apps/instances/odysseus/files/runtime-images.json",
       "line": 1,
-      "reference": "image: docker.io/binwiederhier/ntfy@sha256:6ef4b819f722fccdc036af611c4774cfdc2de821ab74fdd48bbf4c9d6f8973da"
+      "reference": "image: docker.io/binwiederhier/ntfy@sha256:4c599cf0818965782f93f652bd843e92714992e84d6b88ad17713dc0951cda1f"
     },
     {
       "file": "magic-cluster/apps/instances/odysseus/files/runtime-images.json",

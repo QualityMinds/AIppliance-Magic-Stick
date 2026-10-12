@@ -9,7 +9,7 @@
     "ntfy": {
       "repository": "docker.io/binwiederhier/ntfy",
       "trackTag": "latest",
-      "digest": "sha256:6ef4b819f722fccdc036af611c4774cfdc2de821ab74fdd48bbf4c9d6f8973da"
+      "digest": "sha256:4c599cf0818965782f93f652bd843e92714992e84d6b88ad17713dc0951cda1f"
     },
     "odysseus": {
       "repository": "ghcr.io/pewdiepie-archdaemon/odysseus",
