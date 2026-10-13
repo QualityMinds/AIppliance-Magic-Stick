@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "6dda8724e63f83d4608f703a3357dc0d2544ff5501e9a32df66a9a90f8d6909e",
-  "deploymentReferencesSha256": "62107b30b154260f75903ea5572e24e3b271c83748a5566b201b02ec5ce343c2",
+  "deploymentReferencesSha256": "67614143e0da3796d87bdef24dc992c190260476c4977381ea1f8e7ce0f6f1b6",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -2280,7 +2280,7 @@
     },
     {
       "file": ".github/workflows/regression-runner.yml",
-      "line": 91,
+      "line": 92,
       "reference": "export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader"
     },
     {
@@ -2501,7 +2501,7 @@
     {
       "file": "magic-cluster/apps/dashboard/api-deployment.yaml",
       "line": 34,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-df9d890b6e742414a6723c8e97583d77b5dc991f@sha256:c7fdf1130d7c222c3165d5e1d7031a8a6f211bde4cad1849202963674d7a5112"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-2b9e802b540de482ad1e8388b806200aaa9b647d@sha256:7d677e8a35541d0f15a94d9b11f58c897418358fe3e6fbe4f52e9d413b5db297"
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
@@ -2521,11 +2521,11 @@
     {
       "file": "magic-cluster/apps/dashboard/deployment.yaml",
       "line": 32,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-df9d890b6e742414a6723c8e97583d77b5dc991f@sha256:13d35177c263fcfa525c46a8e06a43543db6b2481abfca71ac2a39512d3d7588"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-2b9e802b540de482ad1e8388b806200aaa9b647d@sha256:22c7d91feb65a02f885bfef9d827247280c9bc4122b0b8a89773bd3797bc0f9e"
     },
     {
       "file": "magic-cluster/apps/dashboard/test_regression_api.py",
-      "line": 191,
+      "line": 285,
       "reference": "self.objects[CORE + \"/configmaps/magicstick-regression-runtime\"][\"data\"][\"image\"] = \"image:latest\""
     },
     {
@@ -3140,7 +3140,7 @@
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/crds/regressionruns.appliance.magicstick.dev.yaml",
-      "line": 55,
+      "line": 59,
       "reference": "image:"
     },
     {
