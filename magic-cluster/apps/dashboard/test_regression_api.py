@@ -215,6 +215,26 @@ class RegressionApiTests(unittest.TestCase):
         self.assertEqual(self.users, {})
         self.assertTrue(self.objects[RUNS + "/" + run["id"]]["status"]["credentialsCleaned"])
 
+    def test_cleanup_recovers_only_an_empty_persisted_identity_id(self):
+        run = self.start()
+        self.objects[RUNS + "/" + run["id"]]["status"] = {"phase": "Cancelled"}
+        secret = self.objects[CORE + "/secrets/" + run["id"]]
+        account = json.loads(base64.b64decode(secret["data"]["account.json"]))
+        account["userId"] = ""
+        secret["data"]["account.json"] = base64.b64encode(json.dumps(account).encode()).decode()
+        self.service.cleanup(self.objects[RUNS + "/" + run["id"]])
+        self.assertEqual(self.users, {})
+        self.assertTrue(self.objects[RUNS + "/" + run["id"]]["status"]["credentialsCleaned"])
+
+        replacement = self.start("2" * 32)
+        secret = self.objects[CORE + "/secrets/" + replacement["id"]]
+        account = json.loads(base64.b64decode(secret["data"]["account.json"]))
+        account["userId"] = "foreign-user-id"
+        secret["data"]["account.json"] = base64.b64encode(json.dumps(account).encode()).decode()
+        with self.assertRaisesRegex(RequestError, "identity was replaced"):
+            self.service.cleanup(self.objects[RUNS + "/" + replacement["id"]])
+        self.assertIn("fixture-user", self.users)
+
     def test_non_admin_writes_are_denied_before_any_provisioning(self):
         self.functions["live_admin_actor"] = lambda _: (_ for _ in ()).throw(RequestError(403, "Administrator required"))
         with self.assertRaises(RequestError):
