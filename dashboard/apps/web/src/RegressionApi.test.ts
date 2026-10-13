@@ -2,6 +2,16 @@ import {describe,expect,it,vi} from 'vitest';
 import {MagicStickApi,ApiError} from '@magicstick/dashboard-api-client';
 
 describe('Shared regression API contract',()=>{
+  it('requests only exact revision-bound cleanup over the normal authenticated CSRF transport',async()=>{
+    const fetch=vi.fn().mockResolvedValue(new Response('{}',{headers:{'content-type':'application/json'}}));
+    const client=new MagicStickApi({baseUrl:'https://dashboard.example.local',fetch,getAccessToken:async()=>'synthetic-test-token'});
+    await client.recoverRegressionLock('a'.repeat(32),'11111111-2222-3333-4444-555555555555:42');
+    const [url,options]=fetch.mock.calls[0]!;
+    expect(url).toBe('https://dashboard.example.local/api/regression/recover-lock');expect(options.method).toBe('POST');
+    expect(options.headers.get('Authorization')).toBe('Bearer synthetic-test-token');
+    expect(options.headers.get('X-MagicStick-CSRF')).toBe('dashboard');
+    expect(JSON.parse(options.body)).toEqual({requestId:'a'.repeat(32),expectedLockRevision:'11111111-2222-3333-4444-555555555555:42',acknowledgeCleanup:true});
+  });
   it('uses the regular authenticated and CSRF-protected intent path without client Job writes',async()=>{
     const fetch=vi.fn().mockResolvedValue(new Response('{}',{headers:{'content-type':'application/json'}}));
     const client=new MagicStickApi({baseUrl:'https://dashboard.example.local',fetch,getAccessToken:async()=>'synthetic-test-token'});

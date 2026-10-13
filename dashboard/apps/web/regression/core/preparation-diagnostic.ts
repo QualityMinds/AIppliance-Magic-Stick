@@ -48,7 +48,7 @@ export async function preparationDiagnostic(): Promise<PreparationDiagnostic | u
  * checks that could not start. Its dependent live cases remain Blocked. */
 export async function requirePreparation() {
   const diagnostic = await preparationDiagnostic();
-  if (diagnostic&&diagnostic.outcome!=='Passed') throw new HarnessError(diagnostic.outcome === 'Failed' ? 'DEPENDENCY' : diagnostic.reason ?? 'PREREQUISITE', 'Blocked');
+  if (diagnostic&&diagnostic.outcome!=='Passed') throw new HarnessError(diagnostic.outcome === 'Failed' ? 'PREPARATION_FAILED' : diagnostic.reason ?? 'PREREQUISITE', 'Blocked');
 }
 
 export function preparationDescription(diagnostic: PreparationDiagnostic) {

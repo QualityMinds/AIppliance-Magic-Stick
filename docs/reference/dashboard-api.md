@@ -81,9 +81,10 @@ No request accepts a runner image, URL, script, command, manifest or credential.
 
 | Route | Contract |
 | --- | --- |
-| `GET /api/regression` | Registration/runtime readiness, latest 30 runs, progress/results and external-runner limitations. Read-only. |
+| `GET /api/regression` | Registration/runtime readiness, latest 30 runs, progress/results, lock state and external-runner limitations. Read-only. |
 | `POST /api/regression/register` | Exact `confirmation: "DISPOSABLE TEST SERVER"`, `acknowledgeDisruption: true`; immutable Appliance/Node-bound test marker, no production fallback. |
 | `POST /api/regression/runs` | 32-lowercase-hex `requestId`, `acknowledgeDisruption: true`; idempotent `RegressionRun` intent and generated private test account. All P0 phases; no UI Job writes. |
+| `POST /api/regression/recover-lock` | 32-lowercase-hex `requestId`, reviewed `expectedLockRevision: "<Lease UID>:<resource version>"`, `acknowledgeCleanup: true`; idempotent recovery-only intent. No test phases or forced Lease deletion. |
 | `GET /api/regression/runs/<id>` | Durable run status. |
 | `POST /api/regression/runs/<id>/cancel` | `acknowledgeDisruption: true`; cancellation intent, bounded teardown, retained recovery evidence. |
 | `GET /api/regression/runs/<id>/archive`, `/html`, `/junit` | Allowlisted completed report attachment, at most 64 MiB; never private input/journal/log download. |
@@ -101,6 +102,32 @@ identity needed by its private restoration receipt. `recoveryAvailable` allows
 the next run to reuse that exact original account after Pod termination and
 Lease drain, before ordinary tests. It never substitutes the human's account or
 clears a lock. Successful recovery cleans the whole credential lineage.
+
+`lock` contains `state: free|active|stale|blocked`, `canRecover`, a fixed public
+`message`, and an optional opaque `revision`. Only a terminated, installation-
+bound Kubernetes run with a known journal owner can offer recovery; external
+journals are unavailable to the Dashboard. Actual journal and resource-UID
+verification occurs in the runner, not in status polling. Confirmation binds
+the reviewed Lease UID/resource version and original journal run ID; changed
+locks are refused before cleanup. Recovery runs expose `operation: recover-lock`
+and `phases: []`; ordinary and older runs use `operation: tests`. Recovery uses
+the same retained storage, generated-identity restoration and scoped adapters,
+does not prepare fixtures or launch tests, and publishes a sanitized report.
+
+Outcomes remain `Passed`, `Failed`, or `Blocked`. New reports add optional
+`blockedBy` to blocked cases: `kind` is `prerequisite`, `failure`, `cancelled`, or
+`unknown`; recorded `caseId`, `reason`, `stage`, `executionId`, and `traceRunId`
+identify the blocking check. Only catalogue IDs, known reason/stage values and
+validated trace identities are exposed. A dependency inherits its own recorded
+scenario cause, never an unrelated failed test.
+`result.blockedCounts` counts case/variant/layer evidence by those four kinds;
+`result.executionBlockedCounts` and `progress.executionBlockedCounts` count
+blocked executable scenarios separately. Phase result rows carry both breakdowns.
+A scenario that failed remains one Failed execution even if some of its evidence
+rows were blocked. Older responses remain compatible; absent cause evidence is
+shown as unavailable/unknown. JUnit keeps blocked rows as `<skipped>` and adds
+`blockedKind` and recorded `blockedByCase`, `blockedByReason`, `blockedByStage`,
+`blockedByExecution`, and `blockedByRun` properties.
 
 `ModuleActivation/regression` installs the optional report service, scoped RBAC
 and retained storage; it is disabled by default. Runner image and SHA are

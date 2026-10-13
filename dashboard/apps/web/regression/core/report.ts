@@ -14,11 +14,15 @@ import {preparationDiagnostic, preparationDescription, parsePreparationDiagnosti
 import {collectReportArtifacts,archiveReport} from './report-artifacts.ts';
 import {junitReport} from './junit.ts';
 import {blockerDescription} from './blocker-description.ts';
+import type {RegressionBlocker, RegressionBlockedKind} from '@magicstick/dashboard-contracts';
+import {regressionBlockedKind,regressionBlockedLabel, regressionBlockedSummary} from '../../../../packages/core/src/regression-blocking.ts';
+import {blockedCounts,blockerFrom,checkedBlocker,withBlockedCauses} from './blocking.ts';
 
 export type Outcome = 'Passed' | 'Failed' | 'Blocked' | 'Skipped' | 'Not run' | 'Flaky';
 export interface CaseResult {id: string; outcome: Outcome; layer: TestLayer; environment?: TestEnvironment; durationMs: number; reason?: ReasonCode;
   executionId?:string; executionOutcome?:'Passed'|'Failed'|'Blocked';
   traceRunId?:string;recoveryRequired?:true;
+  blockedBy?:RegressionBlocker;
   stage?: Stage; variant?: Phase0Variant | Phase1Variant | Phase2Variant | GpuVariant | `p${5|6|7|8}-${string}`}
 export interface RecoveryAttempt {runId:string;state:'restored'|'blocked';reason?:ReasonCode}
 export function needsRecovery(cases:CaseResult[]) {
@@ -49,21 +53,25 @@ export function summarizeExecutions(cases:Array<{executionId?:string;executionOu
  * prerequisite or interrupted serial group must remain visible in JSON/JUnit. */
 export function completeCases(mode:string|undefined,cases:CaseResult[],required:string[],reason:ReasonCode='PREREQUISITE'):CaseResult[] {
   const result=cases.map(item=>({...item,outcome:terminalOutcome(item.outcome)}));
+  const missingCause=(id:string,variant?:string):RegressionBlocker=>{
+    const root=cases.find(item=>(variant?item.variant===variant:item.id===id)&&['Failed','Flaky'].includes(item.outcome));
+    return reason==='PREREQUISITE' ? root ? blockerFrom(root) : {kind:'unknown'} : {kind:regressionBlockedKind(reason),reason};
+  };
   const matrix=mode === 'phase1' ? phase1Requirements : mode === 'phase2' ? phase2Requirements :
     mode === 'phase3' || mode === 'phase4' ? gpuRequirements(Number(mode[5]) as 3|4) :
     mode && remainingPhase(mode) ? remainingRequirements(mode) ?? [] : [];
   for(const item of matrix)if(!result.some(proof=>proof.id === item.id && proof.variant === item.variant &&
     proof.layer === item.layer && (proof.environment ?? environmentFor(proof.layer)) === item.environment))
     result.push({id:item.id,variant:item.variant as CaseResult['variant'],layer:item.layer,environment:item.environment,
-      outcome:'Blocked',durationMs:0,reason});
+      outcome:'Blocked',durationMs:0,reason,blockedBy:missingCause(item.id,item.variant)});
   if(mode === 'phase0') {
     for(const id of phase0IdsForReport)if(!result.some(item=>item.id === id && (item.environment ?? environmentFor(item.layer)) === 'fixture'))
-      result.push({id,layer:'U',environment:'fixture',outcome:'Blocked',durationMs:0,reason});
+      result.push({id,layer:'U',environment:'fixture',outcome:'Blocked',durationMs:0,reason,blockedBy:missingCause(id)});
     for(const [variant,id] of Object.entries(phase0Variants))if(!result.some(item=>item.id === id && item.variant === variant &&
       (item.environment ?? environmentFor(item.layer)) === 'live'))result.push({id,variant:variant as Phase0Variant,
-        layer:'A',environment:'live',outcome:'Blocked',durationMs:0,reason});
+        layer:'A',environment:'live',outcome:'Blocked',durationMs:0,reason,blockedBy:missingCause(id,variant)});
   }
-  for(const id of required)if(!result.some(item=>item.id === id))result.push({id,layer:'A',environment:'live',outcome:'Blocked',durationMs:0,reason});
+  for(const id of required)if(!result.some(item=>item.id === id))result.push({id,layer:'A',environment:'live',outcome:'Blocked',durationMs:0,reason,blockedBy:missingCause(id)});
   return result;
 }
 const phase0IdsForReport=Array.from({length:11},(_,index)=>`HAR-${String(index+1).padStart(2,'0')}`);
@@ -71,7 +79,8 @@ export function reportExitCode(cases:Array<{outcome:Outcome}>) {
   return cases.some(item=>terminalOutcome(item.outcome) === 'Failed') ? 1 :
     !cases.length || cases.some(item=>terminalOutcome(item.outcome) === 'Blocked') ? 2 : 0;
 }
-export function blockedAction(reason:ReasonCode='PREREQUISITE') {
+export function blockedAction(reason:ReasonCode='PREREQUISITE',kind?:RegressionBlockedKind) {
+  if(kind==='unknown'&&reason==='PREREQUISITE')return 'Inspect the missing evidence and preceding runner steps; no causal prerequisite or failure was recorded.';
   if(reason === 'UNEXPECTED')return 'Inspect the filtered scenario/step trace and runner status, correct the failing assertion or harness error, then repeat the suite.';
   if(reason === 'COMPONENT')return 'Inspect the archived owning component diagnostic and its source test, then repeat the isolated component check.';
   if(reason === 'CONFIG' || reason === 'PRIVATE_FILE')return 'Repeat automatic setup with the same retained storage; verify runner version, file permissions and available storage. Do not manually delete recovery receipts.';
@@ -79,7 +88,11 @@ export function blockedAction(reason:ReasonCode='PREREQUISITE') {
   if(reason === 'DEADLINE')return 'Inspect the stalled stage and model/service status, correct the failure, then repeat; an older Ready state is not sufficient.';
   if(['OWNERSHIP','CLEANUP','CONFLICT'].includes(reason))return 'Keep the private journal and inspect the exact resource UID/revision and restoration result. Never delete a foreign or replaced resource to clear the test.';
   if(reason === 'EXTERNAL_RUNNER')return 'Run the same suite from the external Docker runner to independently observe host restart, disconnection and recovery. No in-Appliance override can certify this test.';
-  if(reason === 'DEPENDENCY')return 'Fix the earlier failed step in this scenario, then repeat it. This check needs no additional setup.';
+  if(reason === 'PREPARATION_FAILED')return 'Fix the original HAR-02 automatic preparation failure, then repeat the suite; this check did not execute.';
+  if(reason === 'DEPENDENCY')return kind==='prerequisite' ? 'Provide the missing prerequisite from the earlier blocked step, then repeat the scenario.' :
+    kind==='cancelled' ? 'Repeat the cancelled scenario when ready, after verified restoration.' :
+    kind==='failure' ? 'Fix the earlier failed step in this scenario, then repeat it. This check needs no additional setup.' :
+    'Inspect the earlier blocked step or scenario trace, resolve its recorded cause, then repeat the scenario.';
   if(reason === 'CANCELLED')return 'Repeat all when ready. Interrupted live mutations must prove restoration before further writes.';
   if(reason === 'LAB' || reason === 'IDENTITY')return 'Use the registered test appliance; setup is needed only when intentionally replacing that installation.';
   if(reason === 'TLS')return 'Restore connectivity or the trusted appliance certificate; the runner never disables TLS validation.';
@@ -145,9 +158,9 @@ export function liveReportScope(mode?: string) {
 export async function saveReport(directory: string, runId: string, cases: CaseResult[], required: string[], sourceRevision = 'unknown', mode = process.env.REGRESSION_MODE,
   preparation?: PreparationDiagnostic,lifecycle?:{recoveryFenceActive:boolean;recoveryAttempts:RecoveryAttempt[]}) {
   requireSafe(/^reg-[0-9a-f-]{36}$/.test(runId), 'CONFIG');
-  const portableArchive=mode==='all'||mode==='selftest'||/^phase[0-8](?:-(?:fast|fixtures))?$/.test(mode??'');
+  const portableArchive=mode==='all'||mode==='selftest'||mode==='recover'||/^phase[0-8](?:-(?:fast|fixtures))?$/.test(mode??'');
   const prepared = preparation ? parsePreparationDiagnostic(preparation) : await preparationDiagnostic();
-  const safe = completeCases(mode,cases,required).map(item => {
+  const safe = withBlockedCauses(completeCases(mode,cases,required).map(item => {
     requireSafe(/^[A-Z][A-Z0-9]+-\d{2}$/.test(item.id), 'CONFIG');
     requireSafe(['Passed', 'Failed', 'Blocked', 'Skipped', 'Not run', 'Flaky'].includes(item.outcome) &&
       testLayers.includes(item.layer) && Number.isFinite(item.durationMs) && item.durationMs >= 0, 'CONFIG');
@@ -162,9 +175,15 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     return {id: item.id, description: caseDescription(item.id), outcome: item.outcome, layer: item.layer, environment, durationMs: Math.max(0, Math.round(item.durationMs)),
       ...(reason ? {reason} : {}), ...(stage ? {stage} : {}), ...(variant ? {variant} : {}),...(executionId ? {executionId} : {}),
       ...(executionOutcome ? {executionOutcome} : {}),
+      ...(item.outcome==='Blocked' && environment==='live' && prepared?.outcome==='Failed' && ['PREPARATION_FAILED','PREREQUISITE'].includes(reason ?? '') ?
+        {blockedBy:checkedBlocker({kind:'failure',caseId:'HAR-02',reason:prepared.reason ?? 'PREPARATION_FAILED'})} :
+        item.outcome==='Blocked' && environment==='live' && prepared?.outcome==='Blocked' && reason==='PREREQUISITE' ?
+        {blockedBy:checkedBlocker({kind:regressionBlockedKind(prepared.reason ?? 'PREREQUISITE'),reason:prepared.reason ?? 'PREREQUISITE'})} :
+        item.outcome==='Blocked' && checkedBlocker(item.blockedBy) ? {blockedBy:checkedBlocker(item.blockedBy)} :
+        item.outcome==='Blocked'&&reason==='PREREQUISITE'?{blockedBy:{kind:'prerequisite' as const,reason}}:{}),
       ...(executionId&&item.traceRunId&&/^reg-[0-9a-f-]{36}$/.test(item.traceRunId)?{traceRunId:item.traceRunId}:{}),
       ...(item.recoveryRequired===true?{recoveryRequired:true as const}:{})};
-  });
+  }));
   const artifacts=await collectReportArtifacts(directory,runId,safe);
   const recoveryFenceActive=lifecycle?.recoveryFenceActive??needsRecovery(safe);
   const recoveryAttempts=(lifecycle?.recoveryAttempts??[]).map(item=>{
@@ -172,6 +191,7 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     return {runId:item.runId,state:item.state,...(item.reason&&Object.hasOwn(reasons,item.reason)?{reason:item.reason}:{})};
   });
   const executionCounts=summarizeExecutions(safe);
+  const evidenceBlockedCounts=blockedCounts(safe),executionBlockedCounts=blockedCounts(safe,true);
   const selectedSummary = summarize(required, safe);
   const coverage = phase0Coverage(safe);
   const smokeCoverage = phase1Coverage(safe);
@@ -209,7 +229,7 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     ...(mode === 'phase1' ? {phase1Coverage: smokeCoverage} : {}),
     ...(mode === 'phase2' ? {phase2Coverage: controlCoverage} : {}),
     ...(mode === 'phase3' ? {phase3Coverage} : {}), ...(mode === 'phase4' ? {phase4Coverage} : {}),
-    ...summary,executionCounts,recoveryFenceActive,recoveryAttempts,excludedEngineTests:disabledExperimentalEngines, cases: safe});
+    ...summary,executionCounts,blockedCounts:evidenceBlockedCounts,executionBlockedCounts,recoveryFenceActive,recoveryAttempts,excludedEngineTests:disabledExperimentalEngines, cases: safe});
   await writePrivate(join(directory, 'junit.xml'),junitReport(safe,artifacts));
   await writePrivate(join(directory,'summary.html'),'<!doctype html><html lang="en"><meta charset="utf-8">'+
     '<title>Magic Stick regression results</title><style>body{font:16px system-ui;max-width:1100px;margin:2rem auto;padding:1rem}'+
@@ -218,13 +238,17 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     (prepared ? `<p>${xml(preparationDescription(prepared))}${prepared.outcome==='Passed'?'':' '+xml(reasons[prepared.reason ?? 'PREREQUISITE'])}</p>` : '')+
     `<p>Excluded experimental engine tests: ${xml(disabledExperimentalEngines.join(', '))}. Product engines are unchanged.</p>`+
     `<p>Recorded executable scenarios: ${executionCounts.Passed} passed · ${executionCounts.Failed} failed · ${executionCounts.Blocked} blocked. ${safe.filter(item=>!item.executionId).length} evidence rows have no executable scenario ID (missing or legacy evidence).</p>`+
+    `<p>Blocked executable scenarios: ${regressionBlockedSummary(executionBlockedCounts)}.</p>`+
     `<p>Evidence rows (case × variant × layer): ${summary.counts.Passed} passed · ${summary.counts.Failed} failed · ${summary.counts.Blocked} blocked.</p>`+
+    `<p>Blocked evidence: ${regressionBlockedSummary(evidenceBlockedCounts)}.</p>`+
     `<p>Live restoration fence: ${recoveryFenceActive?'active':'clear'}. Historical failed outcomes are retained.</p>`+
     recoveryAttempts.map(item=>`<p>Automatic recovery ${item.runId}: ${item.state}${item.reason?` (${item.reason})`:''}.</p>`).join('')+
     '<table><tr><th>Case / variant</th><th>Layer</th><th>Result</th><th>Goal / reason</th></tr>'+
     safe.map(item=>`<tr><td>${xml(item.id+(item.variant ? '/'+item.variant : ''))}</td><td>${item.layer} / ${item.environment}</td>`+
-      `<td class="${item.outcome}">${item.outcome}</td><td>${xml(item.description)}`+
-      (item.reason ? `<br>${item.reason}: ${xml(blockerDescription(item.reason,item.id,item.variant,item.layer))}` : '')+(item.outcome === 'Blocked' ? `<br>Next: ${xml(blockedAction(item.reason))}` : '')+'</td></tr>').join('')+'</table>'+
+      `<td class="${item.blockedBy?.kind==='failure'?'Failed':item.outcome}">${item.blockedBy ? regressionBlockedLabel(item.blockedBy.kind) : item.outcome}</td><td>${xml(item.description)}`+
+      (item.reason ? `<br>${item.reason}: ${xml(blockerDescription(item.reason,item.id,item.variant,item.layer))}` : '')+
+      (item.blockedBy?.caseId ? `<br>Blocking check: ${xml(item.blockedBy.caseId)}${item.blockedBy.reason ? ` (${xml(item.blockedBy.reason)})` : ''}${item.blockedBy.stage ? ` · Stage: ${xml(item.blockedBy.stage)}` : ''}` : '')+
+      (item.outcome === 'Blocked' ? `<br>Next: ${xml(blockedAction(item.reason,item.blockedBy?.kind))}` : '')+'</td></tr>').join('')+'</table>'+
     '<h2>Execution steps and diagnostics</h2><p>Filtered call traces omit credentials, selectors, URLs and raw responses.</p>'+
     (portableArchive?'<p><a href="report-artifacts.tar.gz">Download sanitized report archive</a></p>':'')+
     artifacts.map(({trace,path,componentPath})=>`<details><summary>${xml(trace.scenario??trace.executionId)} — ${trace.outcome}</summary>`+
@@ -246,14 +270,18 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     'Catalogue goals describe case families; Passed applies only to the recorded variant, layer and environment.\n' +
     `Excluded experimental engine tests: ${disabledExperimentalEngines.join(', ')}. Product engines are unchanged.\n`+
     `Recorded executable scenarios: ${executionCounts.Passed} passed; ${executionCounts.Failed} failed; ${executionCounts.Blocked} blocked.\n`+
+    `Blocked executable scenarios: ${regressionBlockedSummary(executionBlockedCounts)}\n`+
     `Evidence rows without executable scenario ID (missing or legacy evidence): ${safe.filter(item=>!item.executionId).length}\n`+
     `Passed: ${summary.counts.Passed}; Failed: ${summary.counts.Failed}; Blocked: ${summary.counts.Blocked}\n` +
+    `Blocked evidence: ${regressionBlockedSummary(evidenceBlockedCounts)}\n`+
     `Live restoration fence: ${recoveryFenceActive?'active':'clear'}. Historical failed outcomes are retained.\n`+
     recoveryAttempts.map(item=>`Automatic recovery ${item.runId}: ${item.state}${item.reason?` (${item.reason})`:''}.\n`).join('')+
-    safe.map(item => `${item.id}${item.variant ? ` / ${item.variant}` : ''} [${item.layer} — ${layerDescriptions[item.layer]}; ${item.environment}]: ${item.outcome} — ${durationDescription(item.durationMs)}${item.reason ? ` (${item.reason})` : ''}${item.stage ? ` [${item.stage}]` : ''}\n` +
-      `  Catalogue goal: ${item.description}${item.reason ? `\n  Reason: ${blockerDescription(item.reason,item.id,item.variant,item.layer)}` : ''}${item.outcome === 'Blocked' ? `\n  Next: ${blockedAction(item.reason)}` : ''}`).join('\n') + '\n');
+    safe.map(item => `${item.id}${item.variant ? ` / ${item.variant}` : ''} [${item.layer} — ${layerDescriptions[item.layer]}; ${item.environment}]: ${item.blockedBy ? regressionBlockedLabel(item.blockedBy.kind) : item.outcome} — ${durationDescription(item.durationMs)}${item.reason ? ` (${item.reason})` : ''}${item.stage ? ` [${item.stage}]` : ''}\n` +
+      `  Catalogue goal: ${item.description}${item.reason ? `\n  Reason: ${blockerDescription(item.reason,item.id,item.variant,item.layer)}` : ''}`+
+      (item.blockedBy?.caseId ? `\n  Blocking check: ${item.blockedBy.caseId}${item.blockedBy.reason ? ` (${item.blockedBy.reason})` : ''}${item.blockedBy.stage ? ` [${item.blockedBy.stage}]` : ''}` : '')+
+      (item.outcome === 'Blocked' ? `\n  Next: ${blockedAction(item.reason,item.blockedBy?.kind)}` : '')).join('\n') + '\n');
   await archiveReport(directory,runId,artifacts,portableArchive);
-  return {...summary, executionCounts,recoveryFenceActive,recoveryAttempts, fullPhase0Accepted, fullPhase1Accepted, fullPhase2Accepted,fullPhase3Accepted,fullPhase4Accepted,installedPhase4Accepted,
+  return {...summary, executionCounts,blockedCounts:evidenceBlockedCounts,executionBlockedCounts,recoveryFenceActive,recoveryAttempts, fullPhase0Accepted, fullPhase1Accepted, fullPhase2Accepted,fullPhase3Accepted,fullPhase4Accepted,installedPhase4Accepted,
     ...Object.fromEntries([5,6,7,8].map(phase=>[`fullPhase${phase}Accepted`,mode === `phase${phase}` && summary.acceptable && laterCoverage?.complete === true]))};
 }
 

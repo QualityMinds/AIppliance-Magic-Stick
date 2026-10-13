@@ -14,25 +14,35 @@ export type Session = z.infer<typeof sessionSchema>;
 
 export type RegressionOutcome = 'Passed' | 'Failed' | 'Blocked';
 export interface RegressionCounts {Passed: number; Failed: number; Blocked: number}
+export type RegressionBlockedKind = 'prerequisite' | 'failure' | 'cancelled' | 'unknown';
+export interface RegressionBlockedCounts {prerequisite: number; failure: number; cancelled: number; unknown: number}
+export interface RegressionBlocker {
+  kind: RegressionBlockedKind; reason?: string; caseId?: string; stage?: string; executionId?: string; traceRunId?: string;
+}
 export interface RegressionProgress {
   percent?: number; completedPhases?: number; totalPhases?: number; currentPhase?: number;
   step?: string; currentTest?: string; testIndex?: number; testTotal?: number; executionCounts?: RegressionCounts;
+  executionBlockedCounts?: RegressionBlockedCounts;
 }
 export interface RegressionResult {
   counts: RegressionCounts; executionCounts: RegressionCounts; recoveryRequired: boolean; omittedCases: number;
-  phases: Array<{phase: number; outcome: RegressionOutcome; counts: RegressionCounts; executionCounts: RegressionCounts}>;
+  blockedCounts?: RegressionBlockedCounts; executionBlockedCounts?: RegressionBlockedCounts;
+  phases: Array<{phase: number; outcome: RegressionOutcome; counts: RegressionCounts; executionCounts: RegressionCounts;
+    blockedCounts?: RegressionBlockedCounts; executionBlockedCounts?: RegressionBlockedCounts}>;
   cases: Array<{id: string; description?: string; outcome: RegressionOutcome; layer: string; variant: string; reason: string; message: string; action: string; durationMs: number;
-    phase?: number; stage?: string; traceRunId?: string; executionId?: string; tracePath?: string}>;
+    phase?: number; stage?: string; traceRunId?: string; executionId?: string; tracePath?: string; blockedBy?: RegressionBlocker}>;
 }
 export interface RegressionRun {
   id: string; uid: string; createdAt: string; phases: number[]; sourceRevision: string;
   phase: RegressionOutcome | 'Queued' | 'Preparing' | 'Starting' | 'Running' | 'Recovering' | 'Cancelling' | 'Cancelled';
   message: string; progress: RegressionProgress; result?: RegressionResult | null; reportAvailable: boolean;
   credentialsCleaned: boolean; startedAt?: string; finishedAt?: string;
+  operation?: 'tests' | 'recover-lock';
 }
 export interface RegressionStatus {
   registered: boolean; applianceUid: string; runtimeAvailable: boolean; sourceRevision: string; message: string;
   recoveryAvailable?: boolean;
+  lock?: {state: 'free' | 'active' | 'stale' | 'blocked'; canRecover: boolean; message: string; revision?: string; runId?: string};
   runs: RegressionRun[]; executionLocation: 'appliance-kubernetes'; externalRunnerRequired: string[];
 }
 

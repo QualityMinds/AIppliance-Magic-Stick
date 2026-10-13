@@ -23,6 +23,7 @@ MUTATION_LOCK = threading.RLock()
 ARTIFACTS = {"archive": ("report-artifacts.tar.gz", "application/gzip"),
              "html": ("summary.html", "text/html; charset=utf-8"),
              "junit": ("junit.xml", "application/xml")}
+LEASE = "/apis/coordination.k8s.io/v1/namespaces/" + NAMESPACE + "/leases/lab-lock"
 
 
 def credential_owner(run):
@@ -97,6 +98,7 @@ class RegressionApi:
     def view(self, run):
         meta, spec, status = run.get("metadata", {}), run.get("spec", {}), run.get("status", {})
         result = {"id": meta.get("name"), "uid": meta.get("uid"), "createdAt": meta.get("creationTimestamp"),
+                  "operation": spec.get("operation", "tests"),
                   "phases": spec.get("phases", list(range(9))), "phase": status.get("phase", "Queued"),
                   "message": status.get("message", "Waiting for the operator."),
                   "sourceRevision": spec.get("sourceRevision", ""), "progress": status.get("progress", {}),
@@ -136,7 +138,53 @@ class RegressionApi:
                 "message": "" if available else "Enable the regression runner and wait for a CI-published, digest-pinned image.",
                 "runs": [self.view(r) for r in runs[:30]],
                 "recoveryAvailable": self.recovery_candidate(runs) is not None,
+                "lock": self.lock_status(runs, registration),
                 "executionLocation": "appliance-kubernetes", "externalRunnerRequired": ["reboot", "power-off", "network-loss"]}
+
+    def lock_status(self, runs, registration, lease=None):
+        lease = self.get(LEASE) if lease is None else lease
+        if not lease or not lease.get("spec", {}).get("holderIdentity"):
+            return {"state": "free", "canRecover": False, "message": "No regression lock is held."}
+        meta, spec = lease.get("metadata", {}), lease.get("spec", {})
+        blocked = {"state": "blocked", "canRecover": False}
+        if (not registration or meta.get("labels", {}).get("regression.magicstick.dev/appliance-uid") != registration["applianceUid"]
+                or not re.fullmatch(r"[a-f0-9-]{36}", str(meta.get("uid", "")))
+                or not re.fullmatch(r"\d{1,32}", str(meta.get("resourceVersion", "")))):
+            return {**blocked, "message": "Lock identity or test registration could not be verified; recovery was refused."}
+        revision = meta["uid"] + ":" + meta["resourceVersion"]
+        try:
+            renewed = datetime.fromisoformat(spec["renewTime"].replace("Z", "+00:00"))
+            duration = spec["leaseDurationSeconds"]
+            if renewed.tzinfo is None or type(duration) is not int or not 1 <= duration <= 86400:
+                raise ValueError("Invalid lease time")
+            expires = renewed.timestamp() + duration + 60
+        except (KeyError, ValueError, TypeError, OverflowError):
+            return {**blocked, "revision": revision, "message": "Lock expiry is unknown; it was not cleared."}
+        if expires > datetime.now(timezone.utc).timestamp():
+            return {"state": "active", "canRecover": False, "revision": revision,
+                    "message": "The lock is still active or its recovery drain has not finished. Wait or cancel its active run."}
+        annotations = meta.get("annotations", {})
+        owner = annotations.get("regression.magicstick.dev/run-id", spec["holderIdentity"])
+        job_uid = annotations.get("regression.magicstick.dev/kubernetes-run-uid")
+        known = [r for r in runs if job_uid and r.get("metadata", {}).get("uid") == job_uid
+                 or owner in r.get("status", {}).get("progress", {}).get("ownedRunIds", [])]
+        if not re.fullmatch(r"reg-[a-f0-9-]{36}", str(owner)) or not known:
+            return {"state": "stale", "canRecover": False, "revision": revision,
+                    "message": "This stale lock belongs to an external runner. Recover it from that runner's exact private journal; the Dashboard cannot access that journal."}
+        if any(r.get("status", {}).get("phase") not in TERMINAL for r in runs):
+            return {**blocked, "revision": revision, "message": "A regression run is still active; cancel it and wait for its Pods to terminate before recovery."}
+        if any(not r.get("status", {}).get("credentialsCleaned", False) for r in runs) and not self.recovery_candidate(runs):
+            return {**blocked, "revision": revision, "message": "The previous test account is still being cleaned up or its exact recovery identity is unavailable. Wait for account cleanup before recovery."}
+        for run in known:
+            if (run.get("spec", {}).get("applianceUid") != registration["applianceUid"]
+                    or sorted(run.get("spec", {}).get("nodeUids", [])) != registration["nodeUids"]):
+                return {**blocked, "revision": revision, "message": "The old run belongs to a different installation; recovery was refused."}
+            try:
+                self.pods_terminated(run)
+            except self.f["RequestError"]:
+                return {**blocked, "revision": revision, "message": "The old run still has active Pods. Recovery will not steal their lock."}
+        return {"state": "stale", "canRecover": True, "revision": revision,
+                "runId": owner, "message": "The old run has terminated. Recover its exact private journal and verify cleanup before releasing this lock; no test suite will start."}
 
     def register(self, principal, payload):
         self.f["live_admin_actor"](principal)
@@ -166,6 +214,18 @@ class RegressionApi:
         self.f["live_admin_actor"](principal)
         if set(payload) != {"requestId", "acknowledgeDisruption"} or payload.get("acknowledgeDisruption") is not True or not re.fullmatch(r"[a-f0-9]{32}", str(payload.get("requestId", ""))):
             self.error(400, "A unique request and disruption confirmation are required.")
+        return self.enqueue(principal, payload, "tests")
+
+    def recover_lock(self, principal, payload):
+        self.f["live_admin_actor"](principal)
+        if (set(payload) != {"requestId", "expectedLockRevision", "acknowledgeCleanup"}
+                or payload.get("acknowledgeCleanup") is not True
+                or not re.fullmatch(r"[a-f0-9]{32}", str(payload.get("requestId", "")))
+                or not re.fullmatch(r"[a-f0-9-]{36}:\d{1,32}", str(payload.get("expectedLockRevision", "")))):
+            self.error(400, "Confirm cleanup of the reviewed stale lock with a unique request and its exact revision.")
+        return self.enqueue(principal, payload, "recover-lock")
+
+    def enqueue(self, principal, payload, operation):
         registration = self.registration()
         available, image, revision = self.runtime()
         if not registration or not available:
@@ -174,7 +234,9 @@ class RegressionApi:
         with MUTATION_LOCK:
             existing = self.get(RUNS + "/" + name)
             if existing:
-                if existing.get("spec", {}).get("requestedBy") != principal.get("subject"):
+                if (existing.get("spec", {}).get("requestedBy") != principal.get("subject")
+                        or existing.get("spec", {}).get("operation", "tests") != operation
+                        or operation == "recover-lock" and existing["spec"]["lockRecovery"]["uid"] + ":" + existing["spec"]["lockRecovery"]["resourceVersion"] != payload["expectedLockRevision"]):
                     self.error(409, "This request ID is already owned by another administrator.")
                 return self.view(existing)
             runs = self.f["list_resource"](RUNS)
@@ -182,6 +244,13 @@ class RegressionApi:
             if any(r.get("status", {}).get("phase") not in TERMINAL or not r.get("status", {}).get("credentialsCleaned", False) for r in runs) and not recovery:
                 self.error(409, "Another regression run is still queued, running or cleaning up.")
             recovery_spec = {}
+            if operation == "recover-lock":
+                lock = self.lock_status(runs, registration)
+                if not lock["canRecover"] or lock.get("revision") != payload["expectedLockRevision"]:
+                    self.error(409, lock["message"] if not lock["canRecover"] else "The lock changed after review. Refresh before requesting recovery.")
+                lock_uid, version = lock["revision"].split(":")
+                recovery_spec = {"operation": operation, "lockRecovery": {
+                    "uid": lock_uid, "resourceVersion": version, "runId": lock["runId"]}}
             if recovery:
                 if recovery.get("spec", {}).get("applianceUid") != registration["applianceUid"] or sorted(recovery.get("spec", {}).get("nodeUids", [])) != registration["nodeUids"]:
                     self.error(409, "Retained setup credentials belong to a different installation.")
@@ -189,8 +258,11 @@ class RegressionApi:
                     if credential_owner(previous) == credential_owner(recovery):
                         self.pods_terminated(previous)
                 name_ref, uid_ref = credential_owner(recovery)
-                recovery_spec = {"accountRunName": name_ref, "accountRunUid": uid_ref}
-            lease = self.get("/apis/coordination.k8s.io/v1/namespaces/" + NAMESPACE + "/leases/lab-lock")
+                recovery_spec.update(accountRunName=name_ref, accountRunUid=uid_ref)
+            lease = self.get(LEASE)
+            if operation == "recover-lock" and (not lease or lease.get("metadata", {}).get("uid") != recovery_spec["lockRecovery"]["uid"]
+                    or lease.get("metadata", {}).get("resourceVersion") != recovery_spec["lockRecovery"]["resourceVersion"]):
+                self.error(409, "The lock changed while preparing recovery. Refresh before trying again.")
             if lease and lease.get("spec", {}).get("holderIdentity"):
                 spec = lease.get("spec", {})
                 owner = lease.get("metadata", {}).get("annotations", {}).get("regression.magicstick.dev/run-id", spec["holderIdentity"])
@@ -208,7 +280,7 @@ class RegressionApi:
             run = self.write("POST", RUNS, {"apiVersion": "appliance.magicstick.dev/v1alpha1", "kind": "RegressionRun",
                 "metadata": {"name": name, "namespace": "ai-system"},
                 "spec": {"applianceUid": registration["applianceUid"], "nodeUids": registration["nodeUids"],
-                    "phases": list(range(9)), "requestedBy": principal["subject"], "image": image,
+                    "phases": [] if operation == "recover-lock" else list(range(9)), "requestedBy": principal["subject"], "image": image,
                     "sourceRevision": revision, "cancelRequested": False, **recovery_spec}})
             try:
                 if recovery:
@@ -216,7 +288,11 @@ class RegressionApi:
                     self.f["patch_json"](RUNS + "/" + original_name, {"metadata": {"annotations": {
                         "regression.magicstick.dev/credential-consumer": run["metadata"]["uid"]}}})
                 self.provision(run, registration)
-                self.f["patch_json"](RUNS + "/" + name, {"metadata": {"annotations": {"regression.magicstick.dev/credentials-ready": run["metadata"]["uid"]}}})
+                # Old operators must not interpret recovery intent as a test
+                # suite during a rolling upgrade: only the new reconciler
+                # understands this distinct readiness key/entrypoint.
+                ready = "recovery-credentials-ready" if operation == "recover-lock" else "credentials-ready"
+                self.f["patch_json"](RUNS + "/" + name, {"metadata": {"annotations": {"regression.magicstick.dev/" + ready: run["metadata"]["uid"]}}})
             except Exception:
                 self.f["patch_json"](RUNS + "/" + name + "/status", {"status": {"phase": "Failed", "message": "Automatic test-account provisioning failed; no tests were started."}})
                 self.cleanup(run)

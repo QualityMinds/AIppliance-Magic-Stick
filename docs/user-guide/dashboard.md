@@ -36,9 +36,18 @@ register a production Appliance.
 This test-server registration is not license activation. License/SSO cases use
 test fixtures; missing prerequisites block those checks, not the whole suite.
 
+If an old Kubernetes run leaves a stale lock, choose **Recover stale lock** and
+confirm. This restores its recorded test changes, verifies cleanup and releases
+only that expired lock; it does not start tests or change the old report.
+An active run or unavailable journal disables the button and explains why.
+External runs must be recovered from their original runner's private journal.
+
 The page shows current phase/check, progress and separate executable-scenario
 and case/layer counts. Expand **Failures and blocked checks** for the reason,
 phase, variant, check layer, stage, next action and available filtered trace
-location. **Download report** saves the full sanitized archive; **HTML summary**
+location. **Blocked by prerequisite** means required hardware, access or fixtures
+are unavailable. **Blocked by failure** means an earlier test, preparation or
+cleanup failed; its recorded blocking check and trace are shown. Cancelled and
+unrecorded causes remain separate. **Download report** saves the full sanitized archive; **HTML summary**
 and **JUnit XML** are also available. Cancel requests bounded teardown, not a
 claim of successful restoration. See the [short runner guide](../development/regression-remaining-p0.md).

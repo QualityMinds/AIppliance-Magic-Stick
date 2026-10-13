@@ -1,6 +1,66 @@
 import {test,expect,type Request} from '@playwright/test';
 import {fixturePage,origin} from '../fixtures/dashboard.ts';
 
+for(const viewport of ['desktop','mobile'] as const)test(`HAR-04 HAR-07 HAR-10 UX-02 ${viewport} stale-lock recovery is confirmed, bounded and never starts a suite`,async({page},info)=>{
+  await page.setViewportSize(viewport==='mobile'?{width:390,height:844}:{width:1440,height:1000});
+  const revision='11111111-2222-3333-4444-555555555555:42';let requested=false,external=false;
+  const writes:string[]=[];
+  const payload=()=>({registered:true,applianceUid:'fixture-appliance',runtimeAvailable:true,sourceRevision:'b'.repeat(40),message:'',
+    executionLocation:'appliance-kubernetes',externalRunnerRequired:['reboot'],
+    lock:{state:requested?'free':'stale',canRecover:!external&&!requested,revision,
+      message:external?'The old lock needs its external runner journal.':'Only the exact old journal will be recovered.'},
+    runs:requested?[{id:'regression-'+'a'.repeat(32),uid:'fixture-run-uid',createdAt:'2026-10-13T12:00:00Z',
+      sourceRevision:'b'.repeat(40),operation:'recover-lock',phases:[],phase:'Passed',message:'Recovery verified. No tests were started.',
+      credentialsCleaned:true,reportAvailable:true,progress:{percent:100,totalPhases:0}}]:[]});
+  await fixturePage(page,{'/api/regression':payload,
+    '/api/regression/recover-lock':(request:Request)=>{
+      expect(request.method()).toBe('POST');expect(request.postDataJSON()).toEqual({
+        requestId:expect.stringMatching(/^[a-f0-9]{32}$/),expectedLockRevision:revision,acknowledgeCleanup:true});
+      writes.push('recovery');requested=true;return {};
+    },'/api/regression/runs':()=>{writes.push('unexpected-suite');return {};}});
+  await page.goto(origin+'/#/system/regression');
+  const recover=page.getByRole('button',{name:'Recover stale lock',exact:true});
+  await expect(recover).toBeEnabled();await page.reload();expect(writes).toEqual([]);
+  await recover.focus();await page.keyboard.press('Enter');
+  const dialog=page.getByRole('dialog',{name:'Recover stale regression lock'});
+  await expect(dialog.getByText(/No new regression tests will start/)).toBeVisible();expect(writes).toEqual([]);
+  await dialog.getByRole('button',{name:'Recover lock',exact:true}).click();
+  await expect(page.getByText('Lock recovery',{exact:true})).toBeVisible();
+  await expect(page.getByText(/No test phases are selected/)).toBeVisible();expect(writes).toEqual(['recovery']);
+  requested=false;external=true;await page.getByRole('button',{name:'Refresh tests',exact:true}).click();
+  await expect(recover).toBeDisabled();await expect(page.getByText('The old lock needs its external runner journal.')).toBeVisible();
+  await expect(page.getByRole('button',{name:'Start regression tests',exact:true})).toBeDisabled();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:info.outputPath(`regression-lock-recovery-${viewport}.png`),fullPage:true});
+});
+
+for(const viewport of ['desktop','mobile'] as const)test(`HAR-10 UX-02 ${viewport} regression results distinguish prerequisites from failure dependencies`,async({page},info)=>{
+  await page.setViewportSize(viewport==='mobile'?{width:390,height:844}:{width:1440,height:1000});
+  const counts={Passed:10,Failed:1,Blocked:2},executionCounts={Passed:5,Failed:1,Blocked:1},blockedCounts={prerequisite:1,failure:1,cancelled:0,unknown:0};
+  const payload={registered:true,applianceUid:'fixture-appliance',runtimeAvailable:true,sourceRevision:'b'.repeat(40),message:'',
+    executionLocation:'appliance-kubernetes',externalRunnerRequired:['reboot'],runs:[{
+      id:'regression-'+'a'.repeat(32),uid:'fixture-run-uid',createdAt:'2026-10-13T12:00:00Z',sourceRevision:'b'.repeat(40),
+      phase:'Failed',phases:[0,1,2,3,4,5,6,7,8],message:'The model-stop check failed; dependent start was not reached.',credentialsCleaned:true,reportAvailable:true,
+      progress:{percent:100,completedPhases:9,totalPhases:9},result:{counts,executionCounts,blockedCounts,
+        executionBlockedCounts:{prerequisite:1,failure:0,cancelled:0,unknown:0},recoveryRequired:false,omittedCases:0,
+        phases:[{phase:3,outcome:'Failed',counts,executionCounts,blockedCounts}],
+        cases:[{id:'LIFE-03',outcome:'Failed',layer:'E',variant:'p3-runtime-stop',reason:'DEADLINE',stage:'model-stopped',message:'Model stop timed out.',action:'Inspect the stop operation.',durationMs:1},
+          {id:'HW-01',outcome:'Blocked',layer:'A',variant:'p3-inventory',reason:'CAPABILITY',message:'Required GPU hardware is missing.',action:'Provide GPU hardware.',durationMs:0,blockedBy:{kind:'prerequisite',reason:'CAPABILITY'}},
+          {id:'LIFE-04',outcome:'Blocked',layer:'E',variant:'p3-runtime-start',reason:'DEPENDENCY',message:'Model stop failed earlier.',action:'Fix the earlier model-stop failure.',durationMs:0,
+            blockedBy:{kind:'failure',caseId:'LIFE-03',reason:'DEADLINE',stage:'model-stopped',executionId:'a'.repeat(24),traceRunId:'reg-11111111-2222-3333-4444-555555555555'}}]}
+    }]};
+  await fixturePage(page,{'/api/regression':payload});await page.goto(origin+'/#/system/regression');
+  await page.getByText('Failures and blocked checks (3)',{exact:true}).click();
+  await expect(page.getByText('Blocked by prerequisite',{exact:true})).toBeVisible();
+  await expect(page.getByText('Blocked by failure',{exact:true})).toBeVisible();
+  await expect(page.locator('p').filter({hasText:'Blocking check:'})).toContainText('LIFE-03 · DEADLINE · Stage: model-stopped');
+  await page.getByText('Blocking scenario trace',{exact:true}).click();
+  await expect(page.getByText('report-artifacts/reg-11111111-2222-3333-4444-555555555555/traces/'+'a'.repeat(24)+'.json',{exact:true})).toBeVisible();
+  await expect(page.locator('p').filter({hasText:'Blocked evidence (case / variant / layer):'})).toContainText('1 by prerequisite · 1 by failure');
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:info.outputPath(`regression-blocked-${viewport}.png`),fullPage:true});
+});
+
 for(const viewport of ['desktop','mobile'] as const)test(`HAR-10 UX-02 ${viewport} regression refresh stays stable during automatic polling`,async({page},info)=>{
   await page.setViewportSize(viewport==='mobile'?{width:390,height:844}:{width:1440,height:1000});
   let reads=0,writes=0,hold=false,percent=34,release:(()=>void)|undefined;

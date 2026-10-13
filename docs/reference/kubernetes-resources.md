@@ -258,6 +258,10 @@ network, model, and credential contracts.
 `RegressionRun` is namespaced in `ai-system`. Its immutable spec binds the
 Appliance UID, Node UIDs, Phase 0–8 selection, requesting administrator and
 tested runner image/source. Only `cancelRequested` can change after creation.
+`operation` defaults to `tests`, with a nonempty phase selection. Recovery-only
+intent uses `operation: recover-lock`, `phases: []` and an immutable
+`lockRecovery` snapshot of the Lease UID/resource version and original journal
+run ID. It cannot select test phases or bypass journal verification.
 The existing Magic Stick Operator creates one non-retrying, deadline-bound Job
 in `magicstick-regression`, with UID labels (no cross-namespace owner reference),
 read-only container root, no GPU/host/Docker mounts, and affinity to the retained
@@ -271,6 +275,10 @@ immutable `accountRunName` / `accountRunUid` pair. The operator verifies that
 Secret's owner UID; only verified setup recovery releases the identity. Private
 directories retain mode `0700`; `fsGroupChangePolicy: OnRootMismatch` avoids
 recursively broadening their permissions when the retained PVC is remounted.
+Recovery uses a distinct credential-ready annotation and runner entrypoint:
+older operators cannot mistake it for a full-suite request, and older images
+without the recovery entrypoint fail closed. Zero-phase recovery progress and
+reports describe cleanup, not test-suite acceptance.
 
 `HostOperation` is a separate namespaced runtime request for node-local
 `prepare-gpu`, `configure-gpu-memory`, `configure-network`, `scan-wifi`, `reboot`

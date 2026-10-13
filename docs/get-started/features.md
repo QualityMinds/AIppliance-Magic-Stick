@@ -46,6 +46,10 @@
 - Run the existing P0 suite from **System → Regression tests** on a dedicated,
   registered test Appliance **without a license**; see progress, Passed/Failed/Blocked results and
   [download sanitized reports](../development/regression-remaining-p0.md#in-the-dashboard).
+  Distinguish missing prerequisites from checks blocked by an earlier failure,
+  with the original blocking check and trace when recorded.
+  Recover a terminated run's stale lock without starting another suite;
+  recovery verifies the exact retained journal rather than forcing an unlock.
   Host-disconnecting drills still require an external runner.
 - Use the browser dashboard or authenticated CLI/TUI; advanced users can manage runtime resources.
 

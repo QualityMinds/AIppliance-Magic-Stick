@@ -23,7 +23,9 @@ try {
   await live.context.close(); await browser.close(); browser = undefined;
   barrier = true;
   process.send({event: 'journaled'});
-  const heartbeat = setInterval(() => { void live.guard().catch(() => { process.exitCode = 2; clearInterval(heartbeat); }); }, 10_000);
+  // The deliberate crash barrier closes the browser. Only independent Lease
+  // renewal remains; it must not attempt authenticated product operations.
+  const heartbeat = setInterval(() => { void live.lease.backgroundHeartbeat().catch(() => { process.exitCode = 2; clearInterval(heartbeat); }); }, 10_000);
   await new Promise(() => {});
 } catch {
   if (process.send) process.send({event: 'blocked'});

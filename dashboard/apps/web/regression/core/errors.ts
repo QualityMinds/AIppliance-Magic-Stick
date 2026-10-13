@@ -1,6 +1,7 @@
 export const reasons = {
   CONFIG: 'The private lab configuration is missing or invalid.',
   PREREQUISITE: 'This required live case needs a separately prepared identity, application, peer, runtime or maintenance fixture; it was not substituted by a mock or a read-only check.',
+  PREPARATION_FAILED: 'Automatic preparation failed. This dependent live check could not start; inspect the original HAR-02 preparation failure.',
   DEPENDENCY: 'An earlier step in this scenario failed or was blocked. This dependent check was not reached.',
   PRIVATE_FILE: 'A private input or output is missing, unsafe, unreadable or a symbolic link.',
   TLS: 'A configured endpoint failed verified HTTPS/DNS connectivity.',
@@ -31,7 +32,7 @@ export const reasons = {
 export type ReasonCode = keyof typeof reasons;
 /** Absence of a lab prerequisite is not a product failure. API/authentication,
  * invalid generated configuration, timeouts and assertions are failures. */
-export const blockedReasons: readonly ReasonCode[] = ['PREREQUISITE', 'DEPENDENCY', 'PRIVATE_FILE', 'TLS', 'IDENTITY', 'CAPABILITY',
+export const blockedReasons: readonly ReasonCode[] = ['PREREQUISITE', 'PREPARATION_FAILED', 'DEPENDENCY', 'PRIVATE_FILE', 'TLS', 'IDENTITY', 'CAPABILITY',
   'HOST', 'BUSY', 'OBSERVER', 'LOCK_BUSY', 'LOCK_STALE', 'LOCK_LOST', 'LAB', 'RECOVERY', 'CANCELLED', 'EXTERNAL_RUNNER'];
 export const stages = ['preflight', 'host-boot', 'host-readiness', 'login-form', 'login-return', 'login-session',
   'model-estimate', 'model-create', 'model-ready', 'model-stopped', 'model-failure', 'external-ready', 'external-stopped',

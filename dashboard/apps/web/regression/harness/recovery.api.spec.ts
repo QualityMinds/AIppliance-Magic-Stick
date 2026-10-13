@@ -1,6 +1,6 @@
 import {test, expect, type BrowserContext} from '@playwright/test';
 import {loadLabConfig} from '../core/config.ts';
-import {realLogin} from '../core/auth.ts';
+import {ensureDashboardSession, realLogin} from '../core/auth.ts';
 import {readOnlyApi} from '../core/transport.ts';
 import {KubectlObserver, KubernetesLeaseStore} from '../core/observer.ts';
 import {KubernetesModelCleaner} from '../core/model-cleanup.ts';
@@ -37,7 +37,10 @@ test('HAR-07 explicit recovery resumes one journal and removes only unchanged UI
       ownedNames.has(item.metadata?.name ?? '')), 'BUSY');
     requireSafe(hosts.nodes.every(host => !host.updates?.busy && !host.software?.busy &&
       (!host.operation || ['Succeeded', 'Failed', 'Cancelled'].includes(host.operation.phase))), 'BUSY');
-    const guard = async () => { requireSafe(lock, 'LOCK_LOST'); await lock.assertHeld(); };
+    const guard = async () => {
+      requireSafe(lock && context, 'LOCK_LOST'); await lock.assertHeld();
+      await ensureDashboardSession(context); await lock.assertHeld();
+    };
     const keys = new OwnedKeyClient(context.request, config.dashboardUrl, config.requestTimeoutMs, journal.prefix, journal.entries, guard);
     const modelEntry = journal.entries.find(entry => entry.kind === 'model');
     const model = modelEntry ? new OwnedModelClient(context.request, config.dashboardUrl, config.requestTimeoutMs,
@@ -51,6 +54,7 @@ test('HAR-07 explicit recovery resumes one journal and removes only unchanged UI
       requireSafe(lock, 'LOCK_LOST');
       if (Date.now() - beatAt > 15_000) { await lock.heartbeat(); beatAt = Date.now(); }
       else await lock.assertHeld();
+      await guard();
     };
     const keyAdapter = keys.adapter();
     const modelAdapter = model ? cleaner.adapter(journal.prefix, name => remainingModelResources(observer, model, name), heartbeat) : keyAdapter;

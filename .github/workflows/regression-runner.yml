@@ -58,6 +58,7 @@ jobs:
           bash tools/regression.sh typecheck
           bash tools/regression.sh selftest
           bash tools/regression.sh phase4-fast
+          bash tools/regression.sh phase6-fast
           bash tools/regression.sh phase8-fast
       - name: Exercise model Chromium fixtures in the built image
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}

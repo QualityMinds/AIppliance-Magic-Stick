@@ -16,6 +16,7 @@ import type {
 } from '@magicstick/dashboard-contracts';
 
 export * from './local-model-configuration';
+export * from './regression-blocking';
 
 export type DashboardRole = 'viewer' | 'operator' | 'admin';
 

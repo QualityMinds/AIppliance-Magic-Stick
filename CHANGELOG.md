@@ -18,6 +18,16 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ### Added
 
+- Add **Recover stale lock** to System regression tests. A confirmed,
+  UID/resource-version-bound recovery restores only the old run's recorded
+  resources and unchanged borrowed settings, verifies cleanup, and releases its
+  expired lock without starting test phases. Active owners, missing external
+  journals and changed identities remain protected with an explanation.
+- Distinguish regression checks **Blocked by prerequisite** from **Blocked by
+  failure**, with separate live/result counts and the original blocking check,
+  reason, stage and filtered trace when recorded. Preserve the distinction in
+  HTML, text, JSON and JUnit reports; cancellation and unrecorded causes
+  remain separate, and unexecuted dependent checks retain the Blocked outcome.
 - Add administrator-only **System → Regression tests**: run the existing
   Phase 0–8 P0 suite as one Kubernetes Job on a registered disposable test
   Appliance, show durable progress and outcomes, cancel with bounded cleanup,
@@ -157,6 +167,13 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ### Fixed
 
+- Keep isolated regression suites independent of live Kubernetes execution,
+  credentials and preparation diagnostics. Include Git in the runner runtime
+  and exercise Phase 6 channel contracts before publishing its image.
+- Complete the SSO callback before checking the regression user's session;
+  renew an expired session through normal sign-in before guarded operations,
+  retaining exact user/role and Lease checks without replaying writes. Preserve
+  the original foundation-test failure alongside a separate cleanup fence.
 - Keep **Refresh tests** stable while regression progress updates automatically;
   disable it only during initial loading or a manually requested refresh.
 - Discard outdated discovery responses after an engine or hardware change and

@@ -36,6 +36,8 @@ class RegressionRuns:
     def job(self, run, account):
         name, uid = run["metadata"]["name"], run["metadata"]["uid"]
         spec = run["spec"]
+        recovery = spec.get("operation", "tests") == "recover-lock"
+        recovery_env = [{"name": "REGRESSION_RECOVERY_LOCK", "value": json.dumps(spec["lockRecovery"])}] if recovery else []
         domain = account["registration"]["dashboardUrl"].split("//")[1]
         return {"apiVersion": "batch/v1", "kind": "Job", "metadata": {"name": name, "namespace": NS,
             "labels": {OWNER: uid, "app.kubernetes.io/name": "magicstick-regression"}}, "spec": {
@@ -51,12 +53,12 @@ class RegressionRuns:
                         "fsGroupChangePolicy": "OnRootMismatch", "seccompProfile": {"type": "RuntimeDefault"}},
                     "hostAliases": [{"ip": account["gatewayIp"], "hostnames": [domain, "id." + domain, "api." + domain, "litellm." + domain, "kubernetes." + domain]}],
                     "containers": [{"name": "runner", "image": spec["image"], "imagePullPolicy": "IfNotPresent",
-                        "command": ["node", "regression/kubernetes.mjs"],
+                        "command": ["node", "regression/kubernetes-recovery.mjs" if recovery else "regression/kubernetes.mjs"],
                         "env": [{"name": "REGRESSION_RUN_UID", "value": uid},
                                 {"name": "REGRESSION_ACCOUNT_RUN_UID", "value": spec.get("accountRunUid", uid)},
                                 {"name": "REGRESSION_APPLIANCE_UID", "value": spec["applianceUid"]},
                                 {"name": "REGRESSION_SOURCE_REVISION", "value": spec["sourceRevision"]},
-                                {"name": "REGRESSION_PHASES", "value": ",".join(map(str, spec["phases"]))}],
+                                {"name": "REGRESSION_PHASES", "value": ",".join(map(str, spec["phases"]))}, *recovery_env],
                         "resources": {"requests": {"cpu": "500m", "memory": "2Gi"}, "limits": {"cpu": "4", "memory": "6Gi"}},
                         "securityContext": {"allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True, "capabilities": {"drop": ["ALL"]}},
                         "volumeMounts": [{"name": "state", "mountPath": "/state"}, {"name": "account", "mountPath": "/account", "readOnly": True},
@@ -70,13 +72,25 @@ class RegressionRuns:
     def reconcile(self, run, busy=False):
         metadata, spec, status = run["metadata"], run.get("spec", {}), run.get("status", {})
         name, uid = metadata["name"], metadata["uid"]
+        recovery = spec.get("operation", "tests") == "recover-lock"
+        ready_key = "regression.magicstick.dev/" + ("recovery-credentials-ready" if recovery else "credentials-ready")
+        lock = spec.get("lockRecovery", {})
+        if (spec.get("operation", "tests") not in {"tests", "recover-lock"}
+                or recovery and (spec.get("phases") != [] or not isinstance(lock, dict) or set(lock) != {"uid", "resourceVersion", "runId"}
+                    or not all(isinstance(value, str) for value in lock.values())
+                    or not re.fullmatch(r"[a-f0-9-]{36}", str(lock.get("uid", "")))
+                    or not re.fullmatch(r"\d{1,32}", str(lock.get("resourceVersion", "")))
+                    or not re.fullmatch(r"reg-[a-f0-9-]{36}", str(lock.get("runId", ""))))
+                or not recovery and (not spec.get("phases") or "lockRecovery" in spec)):
+            self.status(run, phase="Blocked", message="The regression operation and selection are invalid; no Job was started.")
+            return False
         job = self.get(JOBS + "/" + name)
         if job and job.get("metadata", {}).get("labels", {}).get(OWNER) != uid:
             self.status(run, phase="Failed", message="A foreign Job has this name; it was not adopted or deleted.")
             return False
         if status.get("phase") in TERMINAL:
             return False
-        if not job and metadata.get("annotations", {}).get("regression.magicstick.dev/credentials-ready") != uid:
+        if not job and metadata.get("annotations", {}).get(ready_key) != uid:
             try:
                 age = (datetime.fromisoformat(self.f["now"]().replace("Z", "+00:00"))
                        - datetime.fromisoformat(metadata["creationTimestamp"].replace("Z", "+00:00"))).total_seconds()
@@ -88,7 +102,7 @@ class RegressionRuns:
                     message="Automatic credential provisioning did not finish within 10 minutes. No Job was started; owned credential cleanup/recovery is required before retrying.")
                 return False
         if spec.get("cancelRequested"):
-            if not job and metadata.get("annotations", {}).get("regression.magicstick.dev/credentials-ready") != uid:
+            if not job and metadata.get("annotations", {}).get(ready_key) != uid:
                 self.status(run, phase="Cancelling", message="Waiting for automatic credential provisioning to finish before cancelling.")
                 return True
             if job:
@@ -129,7 +143,7 @@ class RegressionRuns:
                 self.status(run, phase="Failed", credentialRecoveryRequired=True, finishedAt=self.f["now"](),
                     message="The run-owned Job disappeared or its creation could not be verified. It was not retried; start a new recovery-capable run.")
                 return False
-            if metadata.get("annotations", {}).get("regression.magicstick.dev/credentials-ready") != uid:
+            if metadata.get("annotations", {}).get(ready_key) != uid:
                 self.status(run, phase="Preparing", message="Automatically provisioning test credentials.")
                 return True
             if not re.fullmatch(r"ghcr.io/qualityminds/magicstick-regression:[a-z0-9-]+@sha256:[a-f0-9]{64}", spec.get("image", "")):
@@ -148,7 +162,7 @@ class RegressionRuns:
             self.f["patch_json"](RUNS + "/" + name, {"metadata": {"annotations": {"regression.magicstick.dev/credentials-used": uid}}})
             self.f["request_json"]("POST", JOBS, self.job(run, account))
             self.status(run, phase="Starting", credentialRecoveryRequired=True,
-                message="Scheduling the existing regression suite on this Appliance.", startedAt=self.f["now"]())
+                message="Scheduling exact stale-lock recovery; no test suite will start." if recovery else "Scheduling the existing regression suite on this Appliance.", startedAt=self.f["now"]())
             return True
         progress = None
         try:

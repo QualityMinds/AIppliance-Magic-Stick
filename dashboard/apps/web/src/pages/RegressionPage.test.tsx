@@ -8,7 +8,7 @@ import {allowedSystemSections, isSystemSection} from './SystemAreaPage';
 import {api} from '../api';
 
 vi.mock('../api', () => ({api: {regression: vi.fn(), enableModule: vi.fn(), registerRegression: vi.fn(),
-  startRegression: vi.fn(), cancelRegression: vi.fn(), downloadRegression: vi.fn()}}));
+  startRegression: vi.fn(), recoverRegressionLock: vi.fn(), cancelRegression: vi.fn(), downloadRegression: vi.fn()}}));
 const run = (): RegressionRun => ({id: 'regression-' + 'a'.repeat(32), uid: 'fixture-uid', createdAt: '2026-10-13T12:00:00Z', phases: [0,1,2,3,4,5,6,7,8],
   sourceRevision: 'b'.repeat(40), phase: 'Running', message: 'Running the existing regression suite.', reportAvailable: false, credentialsCleaned: false,
   progress: {percent: 34, completedPhases: 3, totalPhases: 9, currentPhase: 3, step: 'phase3-gpu', currentTest: 'MGPU-01: verify every selected physical GPU', testIndex: 2, testTotal: 8,
@@ -32,6 +32,50 @@ describe('In-Appliance regression tests', () => {
     mount(); expect(await screen.findByRole('button', {name: 'Start regression tests'})).toBeEnabled();
     await userEvent.click(screen.getByRole('button', {name: 'Refresh tests'}));
     expect(api.startRegression).not.toHaveBeenCalled(); expect(api.enableModule).not.toHaveBeenCalled(); expect(api.registerRegression).not.toHaveBeenCalled();
+    expect(api.recoverRegressionLock).not.toHaveBeenCalled();
+  });
+  it('recovers only the reviewed stale lock after confirmation and leaves starting tests separate', async () => {
+    data.lock = {state: 'stale', canRecover: true, revision: '11111111-2222-3333-4444-555555555555:42',
+      message: 'The old run has terminated; cleanup will be verified.'};
+    vi.mocked(api.recoverRegressionLock).mockResolvedValue({...run(), operation: 'recover-lock', phases: []});
+    mount(); await userEvent.click(await screen.findByRole('button', {name: 'Recover stale lock'}));
+    expect(api.recoverRegressionLock).not.toHaveBeenCalled();
+    const dialog = screen.getByRole('dialog', {name: 'Recover stale regression lock'});
+    expect(within(dialog).getByText(/No new regression tests will start/)).toBeVisible();
+    await userEvent.click(within(dialog).getByRole('button', {name: 'Recover lock'}));
+    await waitFor(() => expect(api.recoverRegressionLock).toHaveBeenCalledWith(expect.stringMatching(/^[a-f0-9]{32}$/), data.lock!.revision));
+    expect(api.startRegression).not.toHaveBeenCalled();
+  });
+  it('explains external, active and ambiguous locks without allowing unsafe release', async () => {
+    data.lock = {state: 'stale', canRecover: false, revision: 'fixture:42', message: 'The exact private journal is on the external runner.'};
+    const client = mount();
+    expect(await screen.findByRole('button', {name: 'Recover stale lock'})).toBeDisabled();
+    expect(screen.getByText(/exact private journal is on the external runner/)).toBeVisible();
+    expect(screen.getByRole('button', {name: 'Start regression tests'})).toBeDisabled();
+    for (const state of ['active', 'blocked'] as const) {
+      data = {...data, lock: {...data.lock!, state, message: 'This lock cannot be recovered yet.'}};
+      await act(async () => {await client.refetchQueries({queryKey: ['regression']});});
+      expect(screen.getByRole('button', {name: 'Recover stale lock'})).toBeDisabled();
+    }
+    expect(api.recoverRegressionLock).not.toHaveBeenCalled();
+  });
+  it('refuses a lock that changes after opening its recovery dialog', async () => {
+    data.lock = {state: 'stale', canRecover: true, revision: 'fixture:42', message: 'Ready for recovery.'};
+    const client = mount();
+    await userEvent.click(await screen.findByRole('button', {name: 'Recover stale lock'}));
+    data = {...data, lock: {...data.lock, revision: 'fixture:43'}};
+    await act(async () => {await client.refetchQueries({queryKey: ['regression']});});
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', {name: 'Recover lock'}));
+    expect(await screen.findAllByRole('alert')).not.toHaveLength(0);
+    expect(api.recoverRegressionLock).not.toHaveBeenCalled();
+  });
+  it('shows recovery as zero-phase work and keeps failure reports accessible', async () => {
+    data.runs = [{...run(), operation: 'recover-lock', phases: [], phase: 'Failed',
+      message: 'Cleanup could not be verified; the lock was retained.', progress: {percent: 100, totalPhases: 0}, reportAvailable: true}];
+    mount(); expect(await screen.findByText('Lock recovery')).toBeVisible();
+    expect(screen.getByText(/No test phases are selected/)).toBeVisible();
+    expect(screen.getByRole('button', {name: 'Download report'})).toBeEnabled();
+    expect(api.startRegression).not.toHaveBeenCalled();
   });
   it('keeps refresh enabled during background polling and updates progress when the request finishes', async () => {
     data.runs = [run()]; const client = mount();
@@ -131,6 +175,43 @@ describe('In-Appliance regression tests', () => {
     data.runs = [{...run(), phase: 'Passed', credentialsCleaned: false}]; mount();
     expect(await screen.findByRole('button', {name: 'Start regression tests'})).toBeDisabled();
     expect(screen.getByText(/Removing the completed run/)).toBeVisible();
+  });
+  it('shows live blocked counts by prerequisite and failure without changing the total', async () => {
+    data.runs=[{...run(),progress:{...run().progress,
+      executionBlockedCounts:{prerequisite:1,failure:1,cancelled:0,unknown:0}}}];
+    mount();const metrics=await screen.findByRole('generic',{name:'Executable scenario results'});
+    expect(within(metrics).getByText('1 by prerequisite · 1 by failure')).toBeVisible();
+    expect(within(metrics).getByText('2',{selector:'strong'})).toBeVisible();
+  });
+  it('distinguishes prerequisite and failure blocks, retaining the failed original check and its trace',async()=>{
+    data.runs=[{...run(),phase:'Failed',reportAvailable:true,credentialsCleaned:true,result:{
+      counts:{Passed:20,Failed:1,Blocked:2},executionCounts:{Passed:10,Failed:1,Blocked:1},
+      blockedCounts:{prerequisite:1,failure:1,cancelled:0,unknown:0},executionBlockedCounts:{prerequisite:1,failure:0,cancelled:0,unknown:0},
+      recoveryRequired:false,omittedCases:0,phases:[{phase:3,outcome:'Failed',counts:{Passed:20,Failed:1,Blocked:2},
+        executionCounts:{Passed:10,Failed:1,Blocked:1},blockedCounts:{prerequisite:1,failure:1,cancelled:0,unknown:0}}],
+      cases:[{id:'HW-01',outcome:'Blocked',layer:'A',variant:'p3-inventory',reason:'CAPABILITY',message:'Missing GPU.',action:'Provide real GPU hardware.',durationMs:0,blockedBy:{kind:'prerequisite',reason:'CAPABILITY'}},
+        {id:'LIFE-04',outcome:'Blocked',layer:'E',variant:'p3-runtime-start',reason:'DEPENDENCY',message:'An earlier model stop failed.',action:'Fix the earlier failed step.',durationMs:0,
+          blockedBy:{kind:'failure',caseId:'LIFE-03',reason:'DEADLINE',stage:'model-stopped',executionId:'a'.repeat(24),traceRunId:'reg-11111111-2222-3333-4444-555555555555'}}]
+    }}];
+    mount();await screen.findByText('Failures and blocked checks (2)');
+    await userEvent.click(screen.getByText('Failures and blocked checks (2)'));
+    expect(screen.getByText('Blocked by prerequisite')).toBeVisible();expect(screen.getByText('Blocked by failure')).toBeVisible();
+    expect(screen.getByText('LIFE-03',{exact:true}).closest('p')).toHaveTextContent('LIFE-03 · DEADLINE · Stage: model-stopped');
+    await userEvent.click(screen.getByText('Blocking scenario trace'));
+    expect(screen.getByText(/report-artifacts\/reg-11111111/)).toHaveTextContent('a'.repeat(24)+'.json');
+    expect(screen.getByText(/Blocked evidence \(case \/ variant \/ layer\): 1 by prerequisite · 1 by failure/)).toBeVisible();
+    expect(api.startRegression).not.toHaveBeenCalled();
+  });
+  it('keeps unclassified legacy dependencies and cancellation distinct from missing prerequisites',async()=>{
+    data.runs=[{...run(),phase:'Blocked',reportAvailable:true,credentialsCleaned:true,result:{
+      counts:{Passed:0,Failed:0,Blocked:3},executionCounts:{Passed:0,Failed:0,Blocked:3},recoveryRequired:false,omittedCases:0,phases:[],
+      cases:[{id:'LIFE-04',outcome:'Blocked',layer:'E',variant:'',reason:'DEPENDENCY',message:'Earlier step was not recorded.',action:'Inspect the earlier trace.',durationMs:0},
+        {id:'HW-01',outcome:'Blocked',layer:'A',variant:'',reason:'PREREQUISITE',message:'Older missing evidence has no recorded cause.',action:'Inspect missing evidence.',durationMs:0},
+        {id:'HAR-10',outcome:'Blocked',layer:'U',variant:'',reason:'CANCELLED',message:'Run cancelled.',action:'Repeat when ready.',durationMs:0}]
+    }}];
+    mount();await screen.findByText('Failures and blocked checks (3)');await userEvent.click(screen.getByText('Failures and blocked checks (3)'));
+    expect(screen.getAllByText('Blocked — cause unknown')).toHaveLength(2);expect(screen.getByText('Blocked by cancellation')).toBeVisible();
+    expect(screen.getByText('Cause breakdown unavailable for this older run.')).toBeVisible();
   });
   it('can start verified recovery without asking for the original credentials or clearing a lock', async () => {
     data.runs = [{...run(), phase: 'Cancelled', credentialsCleaned: false}]; data.recoveryAvailable = true;

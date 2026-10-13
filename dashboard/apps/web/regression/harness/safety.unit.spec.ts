@@ -30,10 +30,47 @@ import {phase1Ids, phase1Variants, phase1Requirements, phase1Coverage} from '../
 import {phase2Coverage, phase2Ids, phase2ModelCases, phase2ModelIds, phase2Requirements, phase2Variants, requirePhase2Profile} from '../profiles/phase2-p0.ts';
 import {fileLayer} from '../core/evidence.ts';
 import {typeScriptWorkerArgs} from '../core/node-worker.ts';
+import {owningEnvironment, pythonSuite} from '../components/owning.ts';
 
 let directory: string;
 test.beforeEach(async () => { directory = await mkdtemp(join(tmpdir(), 'magicstick-harness-')); });
 test.afterEach(async () => { await rm(directory, {recursive: true, force: true}); });
+
+test('HAR-10 HAR-11 all owning subprocesses exclude campaign credentials, authority and diagnostics', () => {
+  expect(owningEnvironment({PATH: '/synthetic/bin', SYSTEMROOT: 'synthetic', REGRESSION_EXECUTION: 'kubernetes',
+    REGRESSION_CONFIG: '/private/input', REGRESSION_RUN_DIR: '/private/live', REGRESSION_RUN_ID: 'private-owner',
+    REGRESSION_PASSWORD: 'synthetic-secret', REGRESSION_FUTURE_AUTHORITY: 'must-not-inherit'}))
+    .toEqual({PATH: '/synthetic/bin', SYSTEMROOT: 'synthetic'});
+});
+
+test('HAR-10 HAR-11 owning fixtures cannot overwrite the live preparation diagnostic', async () => {
+  const diagnostic = join(directory, '.preparation-ABC123');
+  await writePrivate(diagnostic, {version: 1, outcome: 'Passed'});
+  const variables = {REGRESSION_EXECUTION: 'kubernetes', REGRESSION_PRIVATE_DIR: directory,
+    REGRESSION_PREPARATION_STATUS_FILE: diagnostic, REGRESSION_PREPARATION_DIAGNOSTIC: diagnostic};
+  const previous = Object.fromEntries(Object.keys(variables).map(key => [key, process.env[key]]));
+  try {
+    Object.assign(process.env, variables);
+    pythonSuite('../../../tests', ['test_regression_inputs.RegressionInputTests.test_generic_failure_output_never_contains_source_exceptions_or_tokens']);
+    expect(JSON.parse(await readPrivate(diagnostic))).toEqual({version: 1, outcome: 'Passed'});
+  } finally {
+    for (const [key, value] of Object.entries(previous)) if (value === undefined) delete process.env[key]; else process.env[key] = value;
+  }
+});
+
+test('HAR-10 HAR-11 owning setup contracts keep their isolated execution mode inside Kubernetes', () => {
+  const previous = process.env.REGRESSION_EXECUTION;
+  try {
+    process.env.REGRESSION_EXECUTION = 'kubernetes';
+    pythonSuite('../../../tests', [
+      'test_regression_inputs.RegressionInputTests.test_api_discovery_transfers_only_private_paths_never_password_arguments_and_cleans_temporary_files',
+      'test_regression_inputs.RegressionInputTests.test_worker_rejections_use_only_fixed_public_reasons_not_arbitrary_private_stderr',
+      'test_regression_inputs.RegressionInputTests.test_worker_stage_diagnostic_reports_only_known_steps_and_error_types',
+    ]);
+  } finally {
+    if (previous === undefined) delete process.env.REGRESSION_EXECUTION; else process.env.REGRESSION_EXECUTION = previous;
+  }
+});
 
 function config(): LabConfig {
   return {version: 1, profile: 'preflight', dashboardUrl: 'https://dashboard.example.local', identityUrl: 'https://id.example.local',

@@ -27,6 +27,16 @@ after submission remain ambiguous. Normal interruption forwards the signal and
 allows two minutes for teardown; cleanup itself has a ten-minute ceiling and
 attempts independently owned resources even if a borrowed-setting restore fails.
 
+Guarded foundation and recovery operations verify the bound Dashboard user.
+Only an unauthenticated `/api/session` GET triggers one serialized renewal
+through the normal gateway/IdP login flow; the callback must finish first.
+The verified subject, username and required role must remain unchanged, and
+the Lease is rechecked before submitting intent. Changed identity or failed
+renewal fences the browser session. Forbidden/unavailable reads stay Failed;
+model, key and settings writes are never retried by authentication renewal.
+Foundation teardown is recorded separately: its failure retains the recovery
+fence without replacing the original scenario error.
+
 The next `all` refresh uses the same persistent private run directory. It checks
 the server marker, expired Lease plus a 60-second drain, parent liveness or a
 completed legacy report, exact root/worker journals and every UID/generation.
@@ -114,6 +124,11 @@ layer. Download/install caches are removed before that layer is committed.
 The native binary remains built for `TARGETARCH` with `CGO_ENABLED=0`, the same
 upstream revision and the existing patch; no native test is replaced by a mock.
 The non-root, read-only Compose runner and its private mounts are unchanged.
+Git is installed in the final runtime, not just the builder: channel contracts
+create real local Git repositories. Owning Python/Vitest subprocesses exclude
+all `REGRESSION_*` campaign variables, including execution mode, credentials and
+preparation-diagnostic paths. Explicit Kubernetes fixtures set their own mode;
+an inert fixture cannot overwrite a real preparation receipt.
 
 Registry measurements on **2026-10-10**, for the pinned `linux/amd64` manifests:
 
@@ -132,7 +147,7 @@ directly from Docker; the launcher imposes no guessed disk-capacity threshold.
 The `regression-image` job in
 [Regression runner](../../.github/workflows/regression-runner.yml)
 builds the actual runner on GitHub's `ubuntu-24.04` runner for relevant pushes
-and pull requests. It then runs typecheck, harness selftests, Phase 4/8 fast
+and pull requests. It then runs typecheck, harness selftests, Phase 4/6/8 fast
 contracts (including native AMD recovery tests), and Phase 2/7 Chromium fixtures
 inside the newly built, non-root, read-only Compose container. No lab setup or
 appliance credentials are supplied. Only allowlisted report archives are uploaded.

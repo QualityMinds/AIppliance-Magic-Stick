@@ -23,6 +23,8 @@ import {verifyHostContinuation} from './core/setup-suite.ts';
 import {preparationDiagnostic, requirePreparation, preparationDescription} from './core/preparation-diagnostic.ts';
 import {runnerSession} from './core/runner-session.ts';
 import {progressEvent} from './core/progress.ts';
+import {blockedCounts} from './core/blocking.ts';
+import {regressionBlockedSummary} from '../../../packages/core/src/regression-blocking.ts';
 
 process.umask(0o077);
 process.chdir(fileURLToPath(new URL('..', import.meta.url)));
@@ -183,7 +185,7 @@ try {
       }
       const outcome=reportExitCode(cases);
       phases.push({phase,runId:result.runId,state:outcome === 0 ? 'Passed' : outcome === 1 ? 'Failed' : 'Blocked',counts:summarize(ids ?? [],cases).counts,
-        executionCounts:summarizeExecutions(cases)});
+        executionCounts:summarizeExecutions(cases),blockedCounts:blockedCounts(cases),executionBlockedCounts:blockedCounts(cases,true)});
       progressEvent({event:'phase-end',phase,outcome:phases.at(-1).state});
       collected.push(...cases);
       await writePrivate(join(directory,'all-summary.json'),{version:1,phases,selectedPhases:selected,
@@ -191,7 +193,8 @@ try {
     }
     if(interruptedSignal)for(const phase of selected.filter(value=>!phases.some(item=>item.phase === value))) {
       const cases=completeCases(`phase${phase}`,[],phaseIds(phase),'CANCELLED');
-      collected.push(...cases);phases.push({phase,state:'Blocked',counts:summarize(phaseIds(phase),cases).counts});
+      collected.push(...cases);phases.push({phase,state:'Blocked',counts:summarize(phaseIds(phase),cases).counts,
+        executionCounts:summarizeExecutions(cases),blockedCounts:blockedCounts(cases),executionBlockedCounts:blockedCounts(cases,true)});
     }
     const passed=phases.length === selected.length && phases.every(item=>item.state === 'Passed');
     await writePrivate(join(directory,'all-summary.json'),{version:1,phases,selectedPhases:selected,allSelectedPhasesPassed:passed});
@@ -202,6 +205,8 @@ try {
       (preparation ? preparationDescription(preparation)+'\n' : '')+
       `Evidence rows (case × variant × layer): Passed: ${counts.Passed}; Failed: ${counts.Failed}; Blocked: ${counts.Blocked}\n`+
       `Recorded executable scenarios: ${JSON.stringify(summarizeExecutions(collected))}\n`+
+      `Blocked evidence: ${regressionBlockedSummary(blockedCounts(collected))}\n`+
+      `Blocked executable scenarios: ${regressionBlockedSummary(blockedCounts(collected,true))}\n`+
       phases.map(item=>`Phase ${item.phase}: ${item.state} (${item.runId ?? 'not executed: run cancelled'})`).join('\n')+'\nDetailed cases: summary.html; machine results: summary.json and junit.xml\n');
     console.log('Private campaign report: '+join(directory,'all-summary.txt'));
     progressEvent({event:'campaign-end',runId});

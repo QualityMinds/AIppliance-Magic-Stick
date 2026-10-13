@@ -41,6 +41,20 @@ test('HAR-10 blocked results retain source phase, stage, variant and filtered tr
   expect(value.cases[0]!.tracePath).toContain('/traces/'+'a'.repeat(24));expect(JSON.stringify(value)).not.toContain('synthetic-secret');
   expect(blockedAction('EXTERNAL_RUNNER')).toContain('external Docker runner');
 });
+test('HAR-10 Kubernetes progress and sanitized results expose blocked causes without private metadata',()=>{
+  const progress=new KubernetesProgress([0]);
+  for(const [reason,kind] of [['CAPABILITY','prerequisite'],['RECOVERY','failure'],['CANCELLED','cancelled'],['DEPENDENCY','unknown']])
+    progress.consume({version:1,event:'test-end',position:1,total:4,ids:['HAR-10'],outcome:'Blocked',reason,blockedBy:{kind,message:'synthetic-secret'}});
+  expect(progress.snapshot().executionBlockedCounts).toEqual({prerequisite:1,failure:1,cancelled:1,unknown:1});
+  const value=publicResult({counts:{Blocked:1},executionCounts:{Blocked:1},cases:[{
+    id:'LIFE-04',layer:'E',variant:'p3-runtime-start',outcome:'Blocked',reason:'DEPENDENCY',durationMs:0,executionId:'a'.repeat(24),executionOutcome:'Blocked',
+    blockedBy:{kind:'failure',caseId:'LIFE-03',reason:'DEADLINE',stage:'model-stopped',message:'synthetic-secret'}
+  }]},{phases:[{phase:3,state:'Blocked',counts:{Blocked:1},executionCounts:{Blocked:1},
+    blockedCounts:{prerequisite:0,failure:1,cancelled:0,unknown:0},executionBlockedCounts:{prerequisite:0,failure:1,cancelled:0,unknown:0}}]});
+  expect(value.cases[0]!.blockedBy).toEqual({kind:'failure',caseId:'LIFE-03',reason:'DEADLINE',stage:'model-stopped'});
+  expect(value.blockedCounts.failure).toBe(1);expect(value.executionBlockedCounts.failure).toBe(1);
+  expect(value.phases[0]!.blockedCounts?.failure).toBe(1);expect(JSON.stringify(value)).not.toContain('synthetic-secret');
+});
 test('HAR-02 Kubernetes host-disconnect drills block before any host mutation',async()=>{
   const previous=process.env.REGRESSION_EXECUTION;process.env.REGRESSION_EXECUTION='kubernetes';
   try{await expect(runHostDrill(null as never,'BOOT-02')).rejects.toThrow('[EXTERNAL_RUNNER]');

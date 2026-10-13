@@ -15,6 +15,7 @@ import {KubernetesLeaseStore} from '../core/observer.ts';
 import {LabLease} from '../core/lease.ts';
 import {realLogin} from '../core/auth.ts';
 import {typeScriptWorkerArgs} from '../core/node-worker.ts';
+import {withCleanup} from '../core/run-lifecycle.ts';
 
 let config: LabConfig;
 let journal: ResourceJournal;
@@ -27,7 +28,11 @@ test.beforeAll(async () => {
 
 async function withLive(browser: Browser, action: (live: LiveFoundation) => Promise<void>) {
   const live = await LiveFoundation.open(browser, config, journal);
-  try { await action(live); } finally { await live.close(); }
+  await withCleanup(() => test.step('Run owned foundation scenario', () => action(live)),
+    () => test.step('Verify owned foundation cleanup', async () => {
+      try { await live.close(); }
+      catch { throw new HarnessError('CLEANUP', 'Failed', 'cleanup'); }
+    }));
 }
 
 test('HAR-02 [p0:negative-preflight] wrong appliance, node, boot, capabilities, source and image pins abort on actual evidence', async ({browser}) => {

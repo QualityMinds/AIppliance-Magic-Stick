@@ -7,6 +7,7 @@ import {labPolicy,parseRegistration,type LabRegistration} from './lab-policy.ts'
 import {createTestLicenseSigner,validateTestLicenseSigner,testLicenseDocument} from './test-license-fixtures.ts';
 import {leaseHolderReason} from './lease.ts';
 import type {Lease} from './lease.ts';
+import {exactRecoveryLock, type RecoveryLock} from './lock-recovery.ts';
 
 /** Used only while the bootstrap worker holds a transient administrator
  * credential. Arguments are repository-owned; stderr/tokens never escape. */
@@ -27,7 +28,7 @@ export function bootstrapCommand(kubeconfig:string,args:string[],data?:unknown):
 }
 async function present(filename:string) {try{await lstat(filename);return true;}catch(error){if((error as NodeJS.ErrnoException).code === 'ENOENT')return false;throw error;}}
 export async function bootstrapRegisteredLab(directory:string,value:unknown,register:boolean,
-  prepareRecovery?:(lease:Lease)=>Promise<()=>Promise<string>>) {
+  prepareRecovery?:(lease:Lease)=>Promise<()=>Promise<string>>, expectedRecovery?:RecoveryLock) {
   const registration=parseRegistration(value),file=join(directory,'.setup-bootstrap.kubeconfig');
   await readPrivate(file);
   const command=(args:string[],data?:unknown)=>bootstrapCommand(file,args,data);
@@ -50,6 +51,7 @@ export async function bootstrapRegisteredLab(directory:string,value:unknown,regi
   else requireSafe(register,'LAB'); // all/CI must never register a new target.
   const leases=(await command(['get','leases.coordination.k8s.io','-A','-o','json'])).items;
   const lease=leases.find((m:any)=>m.metadata.namespace === labPolicy.namespace && m.metadata.name === 'lab-lock');
+  if(expectedRecovery)exactRecoveryLock(lease,expectedRecovery);
   let recover:(()=>Promise<string>)|undefined;
   if(lease) {
     requireSafe(lease.metadata.labels?.['regression.magicstick.dev/appliance-uid'] === registration.applianceUid,'LAB');

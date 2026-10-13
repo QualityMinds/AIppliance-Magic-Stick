@@ -12,6 +12,8 @@ import {caseDescription, durationDescription, layerDescriptions, publicScenarioT
 import {disabledExperimentalEngines} from './core/engine-policy.ts';
 import {progressEvent} from './core/progress.ts';
 import {safeStepTitle,safeTraceSource,saveExecutionTrace,traceCategories,type ExecutionTrace,type TraceStep} from './core/execution-trace.ts';
+import {checkedBlocker} from './core/blocking.ts';
+import {regressionBlockedKind} from '../../../packages/core/src/regression-blocking.ts';
 
 /** Playwright serializes Errors without our custom outcome property. Only a
  * fixed allowlisted marker can carry an explicit failure into safe reports. */
@@ -95,12 +97,17 @@ export default class SafeReporter implements Reporter {
   onTestEnd(test: TestCase, result: TestResult) {
     const {ids, evidence} = this.mapping(test);
     const failures=result.errors.map(error=>harnessFailure(error.message));
-    const failure=failures.find(value=>value?.outcome === 'Failed') ?? failures.find(Boolean);
+    const recorded=this.steps.get(test)??new Map<TestStep,{index:number;finished:boolean}>();
     // A primary assertion/timeout must not hide a secondary teardown fence.
-    const recoveryRequired=failures.some(value=>value&&['CLEANUP','OWNERSHIP','CONFLICT','LOCK_LOST','LOCK_STALE','RECOVERY'].includes(value.code));
+    const recoveryReasons=['CLEANUP','OWNERSHIP','CONFLICT','LOCK_LOST','LOCK_STALE','RECOVERY'];
+    const cleanupFailures=result.status === 'passed' ? [] : [...recorded.keys()].filter(step=>step.category === 'test.step')
+      .map(step=>harnessFailure(step.error?.message)).filter(value=>value&&recoveryReasons.includes(value.code));
+    const failure=failures.find(value=>value?.outcome === 'Failed') ?? cleanupFailures.find(value=>value?.outcome === 'Failed') ?? failures.find(Boolean);
+    const recoveryRequired=[...failures,...cleanupFailures].some(value=>value&&recoveryReasons.includes(value.code));
     const code=failures.some(value=>!value) ? 'UNEXPECTED' : failure?.code;
     const outcome = result.status === 'passed' ? (result.retry > 0 ? 'Failed' : 'Passed') : result.status === 'skipped' ? 'Blocked' :
-      failureOutcome(code,result.errors.map(error=>error.message));
+      failureOutcome(code,[...result.errors.map(error=>error.message),...cleanupFailures.map(value=>
+        new HarnessError(value!.code,value!.outcome,value!.stage).message)]);
     const stage=failure?.stage;
     const key=(item:Evidence)=>`${item.id}/${item.variant ?? ''}/${item.layer}`;
     const progressed=new Map<string,{state:string;durationMs:number}>();
@@ -117,7 +124,6 @@ export default class SafeReporter implements Reporter {
       .update(String(test.id ?? test.title)).digest('hex').slice(0,24);
     const runId=process.env.REGRESSION_RUN_ID,traceRunId=this.positions.has(test)?runId:undefined,
       source=safeTraceSource(test.location),scenario=publicScenarioTitle(test.title,test.location.file);
-    const recorded=this.steps.get(test)??new Map<TestStep,{index:number;finished:boolean}>();
     const steps:TraceStep[]=[...recorded].map(([step,entry])=>{
       const at=safeTraceSource(step.location),category=traceCategories.includes(step.category as TraceStep['category'])?
         step.category as TraceStep['category']:'test.step';
@@ -135,18 +141,24 @@ export default class SafeReporter implements Reporter {
       ...(omittedSteps?{omittedSteps}:{}),...(source?{source}:{}),...(scenario?{scenario}:{}),
       ...(recoveryRequired?{recoveryRequired:true}:{} )});
     this.steps.delete(test);this.omittedSteps.delete(test);
+    const root=evidence.find(item=>progressed.get(key(item))?.state==='failed');
+    const blockedBy=checkedBlocker({kind:outcome==='Failed'?'failure':regressionBlockedKind(code),
+      reason:code,stage,executionId,traceRunId,
+      caseId:code==='PREPARATION_FAILED'?'HAR-02':root?.id});
     for (const item of evidence) {
       const step=progressed.get(key(item)),passed=step?.state === 'passed' && result.retry === 0;
       const dependent=stepAnnotations.length > 0 && !step;
       const itemOutcome=passed ? 'Passed' : dependent ? 'Blocked' : outcome;
       this.cases.push({id:item.id,outcome:itemOutcome,layer:item.layer,environment:environmentFor(item.layer),executionId,executionOutcome:outcome,
         ...(traceRunId?{traceRunId}:{}),...(recoveryRequired?{recoveryRequired:true}:{}),
+        ...(itemOutcome==='Blocked'?{blockedBy}:{}),
         durationMs:step?.durationMs ?? (dependent ? 0 : result.duration),
         ...(passed ? {} : dependent ? {reason:'DEPENDENCY' as const} : code ? {reason:code} : itemOutcome === 'Failed' ? {reason:'UNEXPECTED' as const} : {}),
         ...(item.variant ? {variant:item.variant as CaseResult['variant']} : {}),...(!passed && !dependent && stage ? {stage} : {})});
     }
     const position = this.positions.get(test);
     progressEvent({event:'test-end',position,total:this.total,ids,outcome,durationMs:result.duration,
+      ...(outcome==='Blocked'?{blockedBy}:{}),
       ...(code?{reason:code}:outcome==='Blocked'?{reason:'PREREQUISITE'}:{}),...(stage?{stage}:{} )});
     const reason = code ?? (outcome === 'Failed' ? 'UNEXPECTED' : undefined);
     process.stdout.write(`${position ? `[${position}/${this.total}] ` : ''}${ids.join(', ') || 'Unmapped test'}: ${outcome} — ${durationDescription(result.duration)}\n`);

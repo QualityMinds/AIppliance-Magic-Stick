@@ -34,7 +34,7 @@ ENV REGRESSION_SOURCE_REVISION=${SOURCE_REVISION} \
 # compatibility before the image can be published.
 RUN --mount=type=bind,source=.,target=/source \
     --mount=type=bind,from=amd-recovery-tests,source=/amd-recovery.test,target=/tmp/amd-recovery.test \
-    apt-get update && apt-get install -y --no-install-recommends ca-certificates curl libnss3-tools python3 python3-yaml python3-venv \
+    apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git libnss3-tools python3 python3-yaml python3-venv \
     && npm install --global pnpm@11.19.0 \
     && curl --fail --location --retry 3 "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl" -o /usr/local/bin/kubectl \
     && curl --fail --location --retry 3 "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl.sha256" -o /tmp/kubectl.sha256 \
@@ -65,6 +65,7 @@ RUN --mount=type=bind,source=.,target=/source \
     && pnpm --filter @magicstick/dashboard-web build \
     && node --input-type=module -e "await import('./apps/web/regression/core/kubernetes-progress.ts')" \
     && node -e "if (Number(process.versions.node.split('.')[0]) < 24) process.exit(1)" \
+    && git --version \
     && chmod -R a+rX /ms-playwright /opt/magicstick \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* /root/.npm /root/.cache /root/.local/share/pnpm/store
 WORKDIR /opt/magicstick/dashboard/apps/web

@@ -70,6 +70,37 @@ class RegressionRunsTests(unittest.TestCase):
         self.assertIn("requiredDuringSchedulingIgnoredDuringExecution", pod["affinity"]["podAffinity"])
         self.assertEqual(job["metadata"]["labels"][OWNER], UID)
 
+    def recovery(self):
+        self.run["spec"].update(operation="recover-lock", phases=[], lockRecovery={
+            "uid": UID, "resourceVersion": "42", "runId": "reg-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"})
+        self.run["metadata"]["annotations"] = {"regression.magicstick.dev/recovery-credentials-ready": UID}
+
+    def test_recovery_uses_distinct_entrypoint_and_exact_snapshot_without_test_phases(self):
+        self.recovery()
+        self.assertTrue(self.controller.reconcile(self.run))
+        pod = self.writes[0][2]["spec"]["template"]["spec"]
+        self.assertEqual(pod["containers"][0]["command"], ["node", "regression/kubernetes-recovery.mjs"])
+        env = {item["name"]: item["value"] for item in pod["containers"][0]["env"]}
+        self.assertEqual(json.loads(env["REGRESSION_RECOVERY_LOCK"]), self.run["spec"]["lockRecovery"])
+        self.assertEqual(env["REGRESSION_PHASES"], "")
+        self.assertFalse(pod["automountServiceAccountToken"])
+        self.assertFalse(any("hostPath" in volume for volume in pod["volumes"]))
+        self.assertFalse(any(path.startswith("/apis/coordination.k8s.io") for _, path, _ in self.writes))
+
+    def test_recovery_never_uses_legacy_readiness_or_falls_back_to_a_suite(self):
+        self.recovery()
+        self.run["metadata"]["annotations"] = {"regression.magicstick.dev/credentials-ready": UID}
+        self.assertTrue(self.controller.reconcile(self.run))
+        self.assertEqual(self.writes, [])
+        self.assertEqual(self.run["status"]["phase"], "Preparing")
+        for changes in ({"phases": [0]}, {"operation": "unknown"}, {"lockRecovery": {"uid": UID}}, {"lockRecovery": None}):
+            self.recovery()
+            self.run["status"] = {}
+            self.run["spec"].update(changes)
+            self.assertFalse(self.controller.reconcile(self.run))
+            self.assertEqual(self.writes, [])
+            self.assertEqual(self.run["status"]["phase"], "Blocked")
+
     def test_repeated_reconciliation_never_restarts_a_destructive_job(self):
         self.controller.reconcile(self.run)
         with patch.object(self.controller, "report", return_value=None):

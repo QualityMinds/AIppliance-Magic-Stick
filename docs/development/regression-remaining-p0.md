@@ -24,9 +24,23 @@ an installation safety check, not Free Registered or Commercial activation.
 Each blocked check includes its reason, phase/variant/layer, stage when available,
 next action and filtered trace location in the archive. The full report retains
 all checks; the Dashboard limits its expanded failure list to 200 rows.
+**Blocked by prerequisite** means required hardware, access or fixtures are
+missing. **Blocked by failure** means an earlier test, preparation or cleanup
+failed; the blocking check and scenario trace are shown when recorded. The
+original failure remains Failed, while its unexecuted dependent checks remain
+Blocked. Cancellation and unrecorded causes are listed separately. The
+distinction and counts are also included in downloaded HTML, JSON, text and
+JUnit; JUnit retains blocked checks as skipped entries with cause properties.
 Progress measures finished steps, not elapsed-time prediction.
 The page updates automatically every two seconds. **Refresh tests** also requests
 a current status update; it remains available during automatic updates.
+
+**Recover stale lock** restores an old, terminated Kubernetes run without
+starting another suite. Confirm once; recovery checks its exact retained journal
+and releases only the reviewed expired lock after cleanup. Active owners or
+missing/changed journals are never bypassed. A disabled button explains the
+reason. External-run journals stay on the original runner and must be recovered
+there. Old failed reports remain failed.
 
 Signed license and Federated SSO tests use automatically generated,
 installation-bound **test fixtures**, not a purchased or registered product
@@ -129,6 +143,8 @@ Blocked; the report gives the reason. Original failed results are never changed.
 - **Passed:** the selected scenario was executed and verified.
 - **Failed:** a product assertion, API, timeout or harness error failed.
 - **Blocked:** a real prerequisite is absent, or execution cannot safely proceed.
+  Its cause distinguishes prerequisites from earlier failures; cancellation or
+  an unrecorded older cause is never guessed to be a prerequisite.
 
 Missing GPUs/runtimes, a real Mesh peer, test IdP, power controller or current CI
 evidence blocks dependent cases only. The report states the reason and next action.

@@ -108,6 +108,10 @@ export class MagicStickApi {
     body: JSON.stringify({confirmation: 'DISPOSABLE TEST SERVER', acknowledgeDisruption: true})}); }
   startRegression(requestId: string) { return this.request<RegressionRun>('/api/regression/runs', {method: 'POST',
     body: JSON.stringify({requestId, acknowledgeDisruption: true})}); }
+  recoverRegressionLock(requestId: string, expectedLockRevision: string) {
+    return this.request<RegressionRun>('/api/regression/recover-lock', {method: 'POST',
+      body: JSON.stringify({requestId, expectedLockRevision, acknowledgeCleanup: true})});
+  }
   cancelRegression(id: string) { return this.request<RegressionRun>(`/api/regression/runs/${encodeURIComponent(id)}/cancel`, {
     method: 'POST', body: JSON.stringify({acknowledgeDisruption: true})}); }
   async downloadRegression(id: string, kind: 'archive' | 'html' | 'junit' = 'archive') {

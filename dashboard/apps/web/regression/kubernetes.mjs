@@ -7,12 +7,19 @@ import {privateDirectory,writePrivate,readPrivate} from './core/private-files.ts
 import {newRunId} from './core/journal.ts';
 import {saveReport} from './core/report.ts';
 import {KubernetesProgress,publicResult} from './core/kubernetes-progress.ts';
+import {recoverLockWithSetup} from './core/lock-recovery-workflow.ts';
+import {parseRecoveryLock} from './core/lock-recovery.ts';
+import {HarnessError} from './core/errors.ts';
+import {harnessFailure} from './reporter.ts';
 
 process.umask(0o077);
 const uid=process.env.REGRESSION_RUN_UID;
 if(!/^[a-f0-9-]{36}$/.test(uid??''))throw new Error('Invalid run identity.');
-const phases=(process.env.REGRESSION_PHASES??'0,1,2,3,4,5,6,7,8').split(',').map(Number);
-if(!phases.length||new Set(phases).size!==phases.length||phases.some(n=>!Number.isInteger(n)||n<0||n>8))throw new Error('Invalid phase selection.');
+const operation=process.env.REGRESSION_OPERATION??'tests';
+if(!['tests','recover-lock'].includes(operation))throw new Error('Invalid run operation.');
+const recovery=operation==='recover-lock';
+const phases=recovery?[]:(process.env.REGRESSION_PHASES??'0,1,2,3,4,5,6,7,8').split(',').map(Number);
+if((!recovery&&!phases.length)||new Set(phases).size!==phases.length||phases.some(n=>!Number.isInteger(n)||n<0||n>8))throw new Error('Invalid phase selection.');
 const input='/inputs',output='/private/runs',published=join('/state/reports',uid),progress=new KubernetesProgress(phases,process.env.REGRESSION_APPLIANCE_UID);
 const environment={...process.env,REGRESSION_EXECUTION:'kubernetes',REGRESSION_INPUT_DIR:input,REGRESSION_CONFIG:input+'/lab.json',
   REGRESSION_REMAINING_PROFILE:input+'/remaining-p0.json',REGRESSION_OUTPUT_DIR:output,REGRESSION_PRIVATE_DIR:'/private',
@@ -22,16 +29,52 @@ let current,interrupted=false,force,saveChain=Promise.resolve();
 const snapshot={version:1,runUid:uid,message:'Preparing automatic test credentials and fixtures.',reportAvailable:false,credentialRecoveryRequired:true};
 const save=()=>{saveChain=saveChain.then(async()=>{await writePrivate(join(published,'.status.json'),{...snapshot,progress:progress.snapshot(Boolean(snapshot.outcome))});
   await rename(join(published,'.status.json'),join(published,'status.json'));});return saveChain;};
-async function execute(command,args,env=environment) {
-  current=spawn(command,args,{env,stdio:['ignore','pipe','pipe']});let buffer='';
+async function execute(command,args,env=environment,onFailure) {
+  current=spawn(command,args,{env,stdio:['ignore','pipe','pipe']});let buffer='',diagnostic='';
   current.stdout.on('data',chunk=>{
     buffer+=chunk.toString();if(buffer.length>256*1024)buffer='';
     let at;while((at=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,at);buffer=buffer.slice(at+1);
       if(line.startsWith('REGRESSION_EVENT '))try{progress.consume(JSON.parse(line.slice(17)));snapshot.message='Running the existing regression suite.';void save();}catch{/* Not a structured event. */}}
   });
-  // Drain both streams. Never scrape/publish logs, credentials or upstream errors.
-  current.stderr.on('data',()=>{});
+  // Only exact repository-owned error messages can become diagnostic metadata.
+  // Discard upstream text; never publish raw logs, credentials or error bodies.
+  current.stderr.on('data',chunk=>{
+    if(!onFailure)return;
+    diagnostic+=chunk.toString();if(diagnostic.length>64*1024)diagnostic='';
+    let at;while((at=diagnostic.indexOf('\n'))>=0){const line=diagnostic.slice(0,at);diagnostic=diagnostic.slice(at+1);
+      const failure=harnessFailure(line);if(failure)onFailure(failure);}
+  });
   return await new Promise(resolve=>{current.once('error',()=>resolve(1));current.once('close',(code,signal)=>resolve(signal?2:code??1));});
+}
+async function publish(directory) {
+  for(const filename of ['summary.html','junit.xml','report-artifacts.tar.gz']) {
+    const source=join(directory,filename),stat=await lstat(source);
+    if(!stat.isFile()||stat.isSymbolicLink()||stat.size>64*1024*1024)throw new Error('Invalid report artifact.');
+    await copyFile(source,join(published,'.'+filename));await rename(join(published,'.'+filename),join(published,filename));
+  }
+  snapshot.reportAvailable=true;
+}
+async function recoverOnly() {
+  const expected=parseRecoveryLock(JSON.parse(process.env.REGRESSION_RECOVERY_LOCK??'null'));
+  const started=Date.now();
+  await recoverLockWithSetup(input,process.env.REGRESSION_APPLIANCE_UID,expected,async()=>{
+    let failure;
+    const exit=await execute(process.execPath,[fileURLToPath(new URL('./setup.mjs',import.meta.url))],environment,value=>{failure??=value;});
+    if(interrupted)throw new HarnessError('CANCELLED','Blocked','cleanup');
+    if(exit)throw failure?new HarnessError(failure.code,failure.outcome,failure.stage):new HarnessError('CLEANUP','Failed','cleanup');
+  },async(step,index)=>{
+    progress.consume({version:1,event:'step-start',step,index,total:3});
+    snapshot.message=step==='recovery-access'?'Verifying the retained recovery identity.':step==='recovery-journal'?
+      'Restoring the exact old journal; no tests will start.':'The old journal and released lock were verified.';await save();
+  });
+  snapshot.credentialRecoveryRequired=false;
+  const runId=newRunId(),directory=join(output,runId);await privateDirectory(directory);
+  await saveReport(directory,runId,[{id:'HAR-07',outcome:'Passed',layer:'A',environment:'live',durationMs:Date.now()-started,
+    executionId:runId.slice(4).replaceAll('-','').slice(0,24),executionOutcome:'Passed'}],
+    ['HAR-07'],process.env.REGRESSION_SOURCE_REVISION,'recover');
+  snapshot.result=publicResult(JSON.parse(await readPrivate(join(directory,'summary.json'),8*1024*1024)),{phases:[]});
+  snapshot.outcome='Passed';await publish(directory);
+  snapshot.message='The old lock was released after verified recovery. No regression tests were started; original results were retained.';
 }
 for(const signal of ['SIGINT','SIGTERM'])process.on(signal,()=>{
   interrupted=true;if(current)current.kill(signal);
@@ -50,6 +93,9 @@ try {
   await writePrivate(join(input,'username.txt'),account.username+'\n');
   await writePrivate(join(input,'password.txt'),account.password+'\n');
   await writePrivate(join(input,'appliance-ca.pem'),account.caPem);
+  if(recovery) {
+    await recoverOnly();
+  } else {
   const diagnostic='/private/.preparation-'+uid.replaceAll('-','').slice(0,6);
   await writePrivate(diagnostic,{});
   environment.REGRESSION_PREPARATION_STATUS_FILE=diagnostic;environment.REGRESSION_PREPARATION_DIAGNOSTIC=diagnostic;
@@ -76,19 +122,18 @@ try {
     campaign=JSON.parse(await readPrivate(join(directory,'all-summary.json'),8*1024*1024));
   snapshot.result=publicResult(summary,campaign);snapshot.outcome=interrupted?'Blocked':exit===0?'Passed':exit===1?'Failed':'Blocked';
   if(snapshot.result.recoveryRequired)snapshot.credentialRecoveryRequired=true;
-  for(const filename of ['summary.html','junit.xml','report-artifacts.tar.gz']) {
-    const source=join(directory,filename),stat=await lstat(source);
-    if(!stat.isFile()||stat.isSymbolicLink()||stat.size>64*1024*1024)throw new Error('Invalid report artifact.');
-    await copyFile(source,join(published,'.'+filename));await rename(join(published,'.'+filename),join(published,filename));
+  await publish(directory);snapshot.message=interrupted?'Cancelled; unexecuted tests remain Blocked.':'Execution finished. Missing external prerequisites are not successful tests.';
   }
-  snapshot.reportAvailable=true;snapshot.message=interrupted?'Cancelled; unexecuted tests remain Blocked.':'Execution finished. Missing external prerequisites are not successful tests.';
-} catch {
+} catch(error) {
   snapshot.credentialRecoveryRequired=true;
-  snapshot.outcome=interrupted?'Blocked':'Failed';snapshot.message=interrupted?'Cancelled during preparation or execution. Recovery journals were retained.':'The Kubernetes runner could not complete its setup or report export.';
+  snapshot.outcome=interrupted?'Blocked':recovery&&error instanceof HarnessError?error.outcome:'Failed';snapshot.message=interrupted?'Cancelled during preparation or execution. Recovery journals were retained.':recovery?'Lock recovery was not verified. The lock and private restoration receipts were retained; inspect its recovery report.':'The Kubernetes runner could not complete its setup or report export.';
   try {
     const runId=newRunId(),directory=join(output,runId);await privateDirectory(directory);
-    await saveReport(directory,runId,[{id:'HAR-02',outcome:snapshot.outcome,layer:'A',environment:'live',durationMs:0,
-      reason:interrupted?'CANCELLED':'UNEXPECTED'}],['HAR-02'],process.env.REGRESSION_SOURCE_REVISION,'all');
+    const id=recovery?'HAR-07':'HAR-02';
+    await saveReport(directory,runId,[{id,outcome:snapshot.outcome,layer:'A',environment:'live',durationMs:0,
+      reason:interrupted?'CANCELLED':recovery&&error instanceof HarnessError?error.code:'UNEXPECTED',
+      ...(recovery?{executionId:runId.slice(4).replaceAll('-','').slice(0,24),executionOutcome:snapshot.outcome}:{})}],[id],process.env.REGRESSION_SOURCE_REVISION,recovery?'recover':'all',
+      undefined,recovery?{recoveryFenceActive:true,recoveryAttempts:[]}:undefined);
     // The displayed result must match the exported infrastructure/cancellation
     // report, not retain an earlier green campaign after export failed.
     snapshot.result=publicResult(JSON.parse(await readPrivate(join(directory,'summary.json'),8*1024*1024)),{phases:[]});

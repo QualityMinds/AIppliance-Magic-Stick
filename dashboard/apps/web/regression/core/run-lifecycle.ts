@@ -1,5 +1,17 @@
 import {HarnessError, type Stage} from './errors.ts';
 
+/** Teardown always runs, but cannot replace the first scenario failure. The
+ * caller records cleanup as a separate step so its recovery fence survives. */
+export async function withCleanup<T>(action: () => Promise<T>, cleanup: () => Promise<void>): Promise<T> {
+  let failed = false;
+  try { return await action(); }
+  catch (error) { failed = true; throw error; }
+  finally {
+    try { await cleanup(); }
+    catch (error) { if (!failed) throw error; }
+  }
+}
+
 /** One serialized heartbeat, independent of browser/polling progress. Failure
  * is sticky: a later successful read must not revive a fenced runner. */
 export class HeartbeatLoop {

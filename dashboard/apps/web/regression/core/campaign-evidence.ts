@@ -4,6 +4,7 @@ import {newRunId} from './journal.ts';
 import {reasons,stages,requireSafe} from './errors.ts';
 import {testLayers,environmentFor} from './evidence.ts';
 import {saveReport,summarize,needsRecovery,type CaseResult,type RecoveryAttempt} from './report.ts';
+import {checkedBlocker} from './blocking.ts';
 
 /** A crashed child is a harness failure, not permission to abandon the other
  * phases or silently report its missing scenarios as successful. */
@@ -28,6 +29,7 @@ export async function childEvidence(options:{output:string;receipt:string;mode:s
         ...(item.executionId && /^[a-f0-9]{24}$/.test(item.executionId) ? {executionId:item.executionId} : {}),
         ...(item.executionId&&typeof item.traceRunId==='string'&&/^reg-[0-9a-f-]{36}$/.test(item.traceRunId)?{traceRunId:item.traceRunId}:{}),
         ...(item.recoveryRequired===true?{recoveryRequired:true}:{}),
+        ...(item.outcome==='Blocked'&&checkedBlocker(item.blockedBy)?{blockedBy:checkedBlocker(item.blockedBy)}:{}),
         ...(item.executionId && /^[a-f0-9]{24}$/.test(item.executionId) &&
           ['Passed','Failed','Blocked'].includes(item.executionOutcome ?? '') ? {executionOutcome:item.executionOutcome} : {}),
         ...(typeof item.variant === 'string' ? {variant:item.variant} : {})};

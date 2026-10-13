@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch, Mock
 
 sys.path.insert(0, str(Path(__file__).parent))
-from regression_api import RegressionApi, RUNS, CORE, OWNER
+from regression_api import RegressionApi, RUNS, CORE, OWNER, LEASE
 from test_dashboard_api import load_server
 
 UID = "11111111-2222-3333-4444-555555555555"
@@ -100,6 +100,100 @@ class RegressionApiTests(unittest.TestCase):
 
     def start(self, request="1"*32):
         return self.service.start(ACTOR, {"requestId": request, "acknowledgeDisruption": True})
+
+    def stale_run(self):
+        run = self.start()
+        self.objects[RUNS + "/" + run["id"]]["status"] = {"phase": "Failed", "credentialRecoveryRequired": True,
+            "progress": {"ownedRunIds": ["reg-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"]}}
+        self.objects[LEASE] = {"metadata": {"uid": UID, "resourceVersion": "42",
+            "labels": {"regression.magicstick.dev/appliance-uid": UID},
+            "annotations": {"regression.magicstick.dev/kubernetes-run-uid": UID,
+                "regression.magicstick.dev/run-id": "reg-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}},
+            "spec": {"holderIdentity": "reg-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "renewTime": "2026-10-08T00:00:00Z", "leaseDurationSeconds": 120}}
+        self.writes.clear()
+        return run
+
+    def recover(self, revision=None, request="2"*32):
+        return self.service.recover_lock(ACTOR, {"requestId": request, "expectedLockRevision": revision or UID + ":42", "acknowledgeCleanup": True})
+
+    def test_stale_lock_status_is_read_only_and_external_journals_are_not_guessed(self):
+        self.stale_run()
+        self.assertTrue(self.service.list()["lock"]["canRecover"])
+        self.assertEqual(self.writes, [])
+        del self.objects[LEASE]["metadata"]["annotations"]
+        self.objects[LEASE]["spec"]["holderIdentity"] = "reg-12345678-1234-1234-1234-123456789abc"
+        status = self.service.list()["lock"]
+        self.assertEqual(status["state"], "stale")
+        self.assertFalse(status["canRecover"])
+        self.assertIn("external runner", status["message"])
+        with self.assertRaisesRegex(RequestError, "external runner"):
+            self.recover()
+        self.assertEqual(self.writes, [])
+
+    def test_recovery_creates_only_zero_phase_intent_reuses_identity_and_is_idempotent(self):
+        original = self.stale_run()
+        lock_before = copy.deepcopy(self.objects[LEASE])
+        recovered = self.recover()
+        self.assertEqual(recovered, self.recover())
+        self.assertEqual(recovered["operation"], "recover-lock")
+        self.assertEqual(recovered["phases"], [])
+        saved = self.objects[RUNS + "/" + recovered["id"]]
+        self.assertEqual(saved["spec"]["lockRecovery"], {"uid": UID, "resourceVersion": "42", "runId": "reg-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"})
+        self.assertEqual(saved["spec"]["accountRunName"], original["id"])
+        self.assertEqual(saved["metadata"]["annotations"]["regression.magicstick.dev/recovery-credentials-ready"], saved["metadata"]["uid"])
+        self.assertNotIn("regression.magicstick.dev/credentials-ready", saved["metadata"]["annotations"])
+        self.assertEqual(len(self.users), 1)
+        self.assertEqual(self.objects[LEASE], lock_before)
+        self.assertFalse(any("/jobs" in path or path == LEASE for _, path, _ in self.writes))
+        with self.assertRaises(RequestError):
+            self.start("2"*32)
+
+    def test_recovery_refuses_changed_snapshot_missing_confirmation_and_browser_commands(self):
+        self.stale_run()
+        with self.assertRaisesRegex(RequestError, "changed after review"):
+            self.recover(UID + ":41")
+        for extra in ({"command": "arbitrary"}, {"acknowledgeCleanup": False}, {"expectedLockRevision": ""}):
+            payload = {"requestId": "2"*32, "expectedLockRevision": UID + ":42", "acknowledgeCleanup": True, **extra}
+            with self.assertRaises(RequestError):
+                self.service.recover_lock(ACTOR, payload)
+        self.assertEqual(self.writes, [])
+
+    def test_active_owner_active_pods_foreign_identity_and_unknown_expiry_are_not_recovered(self):
+        self.stale_run()
+        original = copy.deepcopy(self.objects[LEASE])
+        for replacement in ({"spec": {"renewTime": "2999-01-01T00:00:00Z"}}, {"spec": {"leaseDurationSeconds": True}},
+                            {"metadata": {"labels": {"regression.magicstick.dev/appliance-uid": "foreign"}}}):
+            with self.subTest(replacement=replacement):
+                self.objects[LEASE] = copy.deepcopy(original)
+                for key, value in replacement.items():
+                    self.objects[LEASE][key].update(value)
+                self.assertFalse(self.service.list()["lock"]["canRecover"])
+                with self.assertRaises(RequestError):
+                    self.recover()
+        self.objects[LEASE] = original
+        self.pods = [{"metadata": {"labels": {OWNER: UID}}, "status": {"phase": "Running"}}]
+        self.assertFalse(self.service.list()["lock"]["canRecover"])
+        with self.assertRaisesRegex(RequestError, "active Pods"):
+            self.recover()
+        self.assertEqual(self.writes, [])
+
+    def test_recovery_is_admin_only_even_without_a_license(self):
+        self.stale_run()
+        self.functions["live_admin_actor"] = Mock(side_effect=RequestError(403, "Administrator required"))
+        self.functions["license_service"] = Mock(side_effect=AssertionError("Recovery must not consult licensing"))
+        with self.assertRaises(RequestError) as error:
+            self.recover()
+        self.assertEqual(error.exception.status, 403)
+        self.functions["license_service"].assert_not_called()
+        self.assertEqual(self.writes, [])
+
+    def test_free_lock_disables_recovery_and_start_remains_a_separate_action(self):
+        self.stale_run()
+        self.objects[LEASE]["spec"]["holderIdentity"] = ""
+        self.assertEqual(self.service.list()["lock"]["state"], "free")
+        with self.assertRaisesRegex(RequestError, "No regression lock"):
+            self.recover()
+        self.assertEqual(self.writes, [])
 
     def test_read_and_reload_never_start_jobs_or_create_credentials(self):
         for _ in range(3):

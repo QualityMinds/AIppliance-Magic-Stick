@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {AutomaticRecovery,campaignRecoveryLease,type RecoveryAdapters} from '../core/automatic-recovery.ts';
 import {LabLease,type Lease,type LeaseStore} from '../core/lease.ts';
-import {HeartbeatLoop,bounded} from '../core/run-lifecycle.ts';
+import {HeartbeatLoop,bounded,withCleanup} from '../core/run-lifecycle.ts';
 import {runnerSession,recordedLeaseSession} from '../core/runner-session.ts';
 import {ResourceJournal,newRunId,type CleanupAdapter,type ResourceKind} from '../core/journal.ts';
 import {readPrivate,writePrivate} from '../core/private-files.ts';
@@ -12,6 +12,19 @@ import {BorrowedModule} from '../core/borrowed-module.ts';
 import {MutationNotSubmitted} from '../core/browser-action.ts';
 import type {LabRegistration} from '../core/lab-policy.ts';
 import type {KubeObject} from '../core/observer.ts';
+import {HarnessError} from '../core/errors.ts';
+
+test('HAR-06 HAR-09 cleanup always runs without replacing the original scenario error', async () => {
+  const primary = new HarnessError('DEADLINE', 'Failed', 'model-ready');
+  const cleanup = new HarnessError('CLEANUP', 'Failed', 'cleanup');
+  let calls = 0;
+  const close = async () => { calls++; throw cleanup; };
+  await expect(withCleanup(async () => { throw primary; }, close)).rejects.toBe(primary);
+  await expect(withCleanup(async () => 42, close)).rejects.toBe(cleanup);
+  expect(calls).toBe(2);
+  await expect(withCleanup(async () => 42, async () => { calls++; })).resolves.toBe(42);
+  expect(calls).toBe(3);
+});
 
 const registration:LabRegistration={version:1,kind:'disposable-regression-lab',policyVersion:1,
   id:'11111111-1111-4111-8111-111111111111',applianceUid:'fixture-appliance',nodeUids:['fixture-node'],

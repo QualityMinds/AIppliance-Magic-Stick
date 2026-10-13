@@ -4,7 +4,7 @@ import {readFile} from 'node:fs/promises';
 import type {LabConfig} from '../core/config.ts';
 import type {ModelActivation} from '@magicstick/dashboard-contracts';
 import {loadLabConfig} from '../core/config.ts';
-import {realLogin} from '../core/auth.ts';
+import {ensureDashboardSession, realLogin} from '../core/auth.ts';
 import {readOnlyApi} from '../core/transport.ts';
 import {KubectlObserver, KubernetesLeaseStore} from '../core/observer.ts';
 import {KubernetesModelCleaner} from '../core/model-cleanup.ts';
@@ -65,6 +65,13 @@ test.describe.serial('installed CPU model smoke', () => {
   }
 
   async function heartbeat() {
+    await leaseHeartbeat();
+    requireSafe(context, 'AUTH');
+    await ensureDashboardSession(context);
+    await leaseHeartbeat();
+  }
+
+  async function leaseHeartbeat() {
     requireSafe(!leaseFailed, 'LOCK_LOST');
     if (heartbeatInFlight) return heartbeatInFlight;
     heartbeatInFlight = checkHeartbeat().finally(() => { heartbeatInFlight = undefined; });
@@ -168,7 +175,7 @@ test.describe.serial('installed CPU model smoke', () => {
     lock = new LabLease(new KubernetesLeaseStore(config.lock.kubeconfig, config.lock.namespace, config.lock.name),
       process.env.REGRESSION_RUN_ID, config.expected.applianceUid, Date.now, 120);
     await lock.acquire(process.env.REGRESSION_RUN_ID); lockAcquired = true; beatAt = Date.now();
-    heartbeatTimer = setInterval(() => { void heartbeat().catch(() => { leaseFailed = true; }); }, 10_000);
+    heartbeatTimer = setInterval(() => { void leaseHeartbeat().catch(() => { leaseFailed = true; }); }, 10_000);
   });
 
   test.afterAll(async () => {

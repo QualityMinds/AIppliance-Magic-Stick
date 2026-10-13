@@ -9268,6 +9268,8 @@ data:
                         self.send_json(service.register(principal, payload))
                     elif parts == ["api", "regression", "runs"]:
                         self.send_json(service.start(principal, payload), 202)
+                    elif parts == ["api", "regression", "recover-lock"]:
+                        self.send_json(service.recover_lock(principal, payload), 202)
                     elif len(parts) == 5 and parts[:3] == ["api", "regression", "runs"] and parts[4] == "cancel":
                         self.send_json(service.cancel(principal, parts[3], payload), 202)
                     else:

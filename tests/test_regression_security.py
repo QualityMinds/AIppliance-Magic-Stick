@@ -104,6 +104,18 @@ class RegressionSecurityTests(unittest.TestCase):
             self.assertTrue(unsafe_tls(source))
         self.assertFalse(unsafe_tls("create_default_context(cafile=path); new Agent({ca: certificate})"))
 
+    def test_runner_runtime_has_git_and_ci_executes_the_channel_contracts(self):
+        runtime = (ROOT / 'dashboard/apps/web/regression/Dockerfile').read_text().rsplit('\nFROM ', 1)[1]
+        install = re.search(r'apt-get install -y --no-install-recommends ([^\n]+)', runtime)
+        self.assertIsNotNone(install)
+        self.assertIn('git', install.group(1).split())
+        workflow = yaml.safe_load((ROOT / '.github/workflows/regression-runner.yml').read_text())
+        steps = workflow['jobs']['regression-image']['steps']
+        check = next(index for index, step in enumerate(steps)
+                     if 'bash tools/regression.sh phase6-fast' in step.get('run', ''))
+        publish = next(index for index, step in enumerate(steps) if step.get('name', '').startswith('Publish tested'))
+        self.assertLess(check, publish)
+
     def test_shipped_runtime_keeps_certificate_verification(self):
         paths = list((ROOT / 'core').rglob('*.py')) + list((ROOT / 'dashboard/packages').rglob('*.ts')) + list((ROOT / 'dashboard/apps/cli/src').rglob('*.ts'))
         checked = 0

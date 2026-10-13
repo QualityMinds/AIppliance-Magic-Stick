@@ -3,6 +3,7 @@ import {reasons} from './errors.ts';
 import type {CaseResult} from './report.ts';
 import type {TraceArtifact} from './report-artifacts.ts';
 import {blockerDescription} from './blocker-description.ts';
+import {regressionBlockedLabel} from '../../../../packages/core/src/regression-blocking.ts';
 
 const xml=(value:string)=>value.replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[char]!));
 type Entry={name:string;classname:string;outcome:string;durationMs:number;detail:string;properties:Record<string,string>;
@@ -22,10 +23,17 @@ export function junitReport(cases:CaseResult[],artifacts:TraceArtifact[]) {
   const evidence:Entry[]=cases.map(item=>{
     const artifact=item.executionId?lookup.get(item.executionId):undefined;
     return {name:item.id+(item.variant?'/'+item.variant:''),classname:`${item.environment}.${item.layer}`,outcome:item.outcome,
-      durationMs:item.durationMs,detail:item.reason?blockerDescription(item.reason,item.id,item.variant,item.layer):item.outcome,
+      durationMs:item.durationMs,detail:(item.blockedBy?regressionBlockedLabel(item.blockedBy.kind)+': ':'')+
+        (item.reason?blockerDescription(item.reason,item.id,item.variant,item.layer):item.outcome),
       properties:{catalogueGoal:caseDescription(item.id),outcome:item.outcome,
         ...(item.executionId?{executionId:item.executionId}:{}),...(item.executionOutcome?{executionOutcome:item.executionOutcome}:{}),
         ...(item.reason?{reason:item.reason}:{}),...(item.stage?{stage:item.stage}:{}),
+        ...(item.blockedBy?{blockedKind:item.blockedBy.kind,
+          ...(item.blockedBy.caseId?{blockedByCase:item.blockedBy.caseId}:{}),
+          ...(item.blockedBy.reason?{blockedByReason:item.blockedBy.reason}:{}),
+          ...(item.blockedBy.stage?{blockedByStage:item.blockedBy.stage}:{}),
+          ...(item.blockedBy.executionId?{blockedByExecution:item.blockedBy.executionId}:{}),
+          ...(item.blockedBy.traceRunId?{blockedByRun:item.blockedBy.traceRunId}:{})}:{}),
         ...(item.recoveryRequired?{recoveryRequired:'true'}:{}),...(artifact?{trace:artifact.path}:{} )}};
   });
   const scenarios:Entry[]=artifacts.map(artifact=>{

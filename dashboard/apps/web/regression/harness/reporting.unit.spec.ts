@@ -1,5 +1,5 @@
 import {test, expect} from '@playwright/test';
-import type {FullConfig, Suite, TestCase, TestResult} from '@playwright/test/reporter';
+import type {FullConfig, Suite, TestCase, TestResult, TestStep} from '@playwright/test/reporter';
 import {mkdtemp, readFile, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -16,7 +16,10 @@ import {completeCases,reportExitCode,reportVariants, saveReport, type CaseResult
 import {newRunId} from '../core/journal.ts';
 import {childEvidence} from '../core/campaign-evidence.ts';
 import {writePrivate} from '../core/private-files.ts';
-import {parsePreparationDiagnostic, preparationDescription} from '../core/preparation-diagnostic.ts';
+import {parsePreparationDiagnostic, preparationDescription,requirePreparation} from '../core/preparation-diagnostic.ts';
+import {blockedCounts,checkedBlocker,withBlockedCauses} from '../core/blocking.ts';
+import {regressionBlockedKind} from '../../../../packages/core/src/regression-blocking.ts';
+import {saveExecutionTrace} from '../core/execution-trace.ts';
 
 function capture(action: () => void): string {
   const chunks: string[] = [], original = process.stdout.write;
@@ -30,6 +33,141 @@ function specimen(title: string, annotations: TestCase['annotations'] = []): Tes
 function result(status: TestResult['status'] = 'passed', message?: string): TestResult {
   return {status, duration: 1250, retry: 0, errors: message ? [{message}] : []} as TestResult;
 }
+
+test('HAR-06 HAR-09 HAR-10 primary scenario failure retains the separately recorded cleanup fence', () => {
+  const selected = specimen('HAR-09'), primary = result('failed', new HarnessError('DEADLINE', 'Failed', 'model-ready').message);
+  const step = {title: 'Verify owned foundation cleanup', category: 'test.step', duration: 1,
+    error: {message: new HarnessError('CLEANUP', 'Failed', 'cleanup').message}} as TestStep;
+  const reporter = new SafeReporter();
+  reporter.onStepBegin(selected, primary, step); reporter.onStepEnd(selected, primary, step);
+  capture(() => reporter.onTestEnd(selected, primary));
+  const cases = (reporter as unknown as {cases: CaseResult[]}).cases;
+  expect(cases[0]).toMatchObject({id: 'HAR-09', outcome: 'Failed', reason: 'DEADLINE', stage: 'model-ready', recoveryRequired: true});
+  const blocked = new SafeReporter(), prerequisite = result('failed', new HarnessError('PREREQUISITE').message);
+  blocked.onStepBegin(selected, prerequisite, step); blocked.onStepEnd(selected, prerequisite, step);
+  capture(() => blocked.onTestEnd(selected, prerequisite));
+  expect((blocked as unknown as {cases: CaseResult[]}).cases[0])
+    .toMatchObject({outcome: 'Failed', reason: 'CLEANUP', stage: 'cleanup', recoveryRequired: true});
+  const handled = new SafeReporter();
+  handled.onStepBegin(selected, primary, step); handled.onStepEnd(selected, primary, step);
+  capture(() => handled.onTestEnd(selected, result()));
+  expect((handled as unknown as {cases: CaseResult[]}).cases[0]).not.toHaveProperty('recoveryRequired');
+});
+
+test('HAR-10 blocked dependencies inherit only their own scenario cause, preserving unknown and cancellation',()=>{
+  const executionId='a'.repeat(24),other='b'.repeat(24),traceRunId=newRunId();
+  const cases:CaseResult[]=[
+    {id:'LIFE-03',layer:'E',outcome:'Failed',durationMs:1,reason:'DEADLINE',stage:'model-stopped',executionId,traceRunId},
+    {id:'LIFE-04',layer:'E',outcome:'Blocked',durationMs:0,reason:'DEPENDENCY',executionId,traceRunId},
+    {id:'HW-01',layer:'A',outcome:'Blocked',durationMs:0,reason:'CAPABILITY',executionId:other,traceRunId},
+    {id:'ENG-01',layer:'E',outcome:'Blocked',durationMs:0,reason:'DEPENDENCY',executionId:other,traceRunId},
+    {id:'HAR-10',layer:'U',outcome:'Blocked',durationMs:0,reason:'DEPENDENCY'},
+    {id:'HAR-11',layer:'U',outcome:'Blocked',durationMs:0,reason:'CANCELLED'},
+    {id:'LIFE-04',layer:'E',outcome:'Blocked',durationMs:0,reason:'DEPENDENCY',executionId,traceRunId:newRunId()},
+  ];
+  const rows=withBlockedCauses(cases);
+  expect(rows[1]!.blockedBy).toMatchObject({kind:'failure',caseId:'LIFE-03',reason:'DEADLINE',stage:'model-stopped',executionId,traceRunId});
+  expect(rows[3]!.blockedBy).toMatchObject({kind:'prerequisite',caseId:'HW-01',reason:'CAPABILITY'});
+  expect(rows[4]!.blockedBy?.kind).toBe('unknown');expect(rows[5]!.blockedBy?.kind).toBe('cancelled');
+  expect(rows[6]!.blockedBy?.kind).toBe('unknown');
+  expect(blockedCounts(cases)).toEqual({prerequisite:2,failure:1,cancelled:1,unknown:2});
+  expect(blockedCounts(cases,true)).toEqual({prerequisite:1,failure:0,cancelled:0,unknown:1});
+  expect(regressionBlockedKind('EXTERNAL_RUNNER')).toBe('prerequisite');
+  expect(regressionBlockedKind('RECOVERY')).toBe('failure');
+  expect(withBlockedCauses([{id:'HAR-10',outcome:'Blocked',reason:'PREREQUISITE'}])[0]?.blockedBy?.kind).toBe('unknown');
+});
+
+test('HAR-10 blocker metadata discards private text and non-catalogue causal identifiers',()=>{
+  const secret='synthetic-secret-never-export';
+  expect(checkedBlocker({kind:'failure',caseId:secret,reason:secret,stage:secret,traceRunId:secret,executionId:secret,message:secret}))
+    .toEqual({kind:'failure'});
+  expect(checkedBlocker({kind:secret})).toBeUndefined();
+  expect(checkedBlocker({kind:'failure',reason:['API'],executionId:12345})).toEqual({kind:'failure'});
+});
+
+for(const reason of ['PREREQUISITE','DEADLINE'] as const)test(`HAR-10 dependent evidence retains the original ${reason} step cause`,async()=>{
+  const root={id:'LIFE-03',variant:'p3-runtime-stop',layer:'E' as const},dependent={id:'LIFE-04',variant:'p3-runtime-start',layer:'E' as const};
+  const selected=specimen('LIFE-03 LIFE-04',evidenceAnnotations(root,dependent).annotation),error=new HarnessError(reason,reason==='PREREQUISITE'?'Blocked':'Failed','model-stopped');
+  await expect(evidenceStep(selected,[root],async()=>{throw error;})).rejects.toThrow(error.message);
+  const reporter=new SafeReporter();capture(()=>reporter.onTestEnd(selected,result('failed',error.message)));
+  const cases=(reporter as unknown as {cases:CaseResult[]}).cases;
+  expect(cases[0]!.outcome).toBe(reason==='PREREQUISITE'?'Blocked':'Failed');
+  expect(cases[1]).toMatchObject({outcome:'Blocked',reason:'DEPENDENCY',blockedBy:{kind:reason==='PREREQUISITE'?'prerequisite':'failure',caseId:'LIFE-03',reason,stage:'model-stopped'}});
+});
+
+test('HAR-10 JSON HTML text and JUnit distinguish prerequisites, failure dependencies and cancellation',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'magicstick-blocked-cause-')),runId=newRunId(),executionId='a'.repeat(24);
+  try{
+    await saveExecutionTrace(directory,{version:1,runId,executionId,outcome:'Failed',durationMs:1,steps:[]});
+    const cases:CaseResult[]=[
+      {id:'LIFE-03',layer:'E',outcome:'Failed',durationMs:1,reason:'DEADLINE',stage:'model-stopped',executionId,traceRunId:runId},
+      {id:'LIFE-04',layer:'E',outcome:'Blocked',durationMs:0,reason:'DEPENDENCY',executionId,traceRunId:runId},
+      {id:'HW-01',layer:'A',outcome:'Blocked',durationMs:0,reason:'CAPABILITY',executionId:'b'.repeat(24)},
+      {id:'HAR-10',layer:'U',outcome:'Blocked',durationMs:0,reason:'RECOVERY',executionId:'c'.repeat(24)},
+      {id:'HAR-11',layer:'U',outcome:'Blocked',durationMs:0,reason:'CANCELLED'},
+    ];
+    await saveReport(directory,runId,cases,cases.map(row=>row.id),'unknown','all');
+    const json=JSON.parse(await readFile(join(directory,'summary.json'),'utf8'));
+    expect(json.counts).toMatchObject({Failed:1,Blocked:4});
+    expect(json.blockedCounts).toEqual({prerequisite:1,failure:2,cancelled:1,unknown:0});
+    expect(json.executionCounts).toEqual({Passed:0,Failed:1,Blocked:2});
+    expect(json.executionBlockedCounts).toEqual({prerequisite:1,failure:1,cancelled:0,unknown:0});
+    expect(json.cases[1].blockedBy).toMatchObject({kind:'failure',caseId:'LIFE-03',stage:'model-stopped'});
+    for(const name of ['summary.html','summary.txt','junit.xml']){
+      const value=await readFile(join(directory,name),'utf8');
+      expect(value).toContain('Blocked by prerequisite');expect(value).toContain('Blocked by failure');
+      expect(value).toContain('Blocked by cancellation');expect(value).toContain('LIFE-03');
+    }
+    const junit=await readFile(join(directory,'junit.xml'),'utf8');
+    expect(junit).toContain('failures="1" skipped="4"');
+    expect(junit).toContain('name="blockedKind" value="failure"');
+    expect(junit).toContain('name="blockedByCase" value="LIFE-03"');
+  }finally{await rm(directory,{recursive:true,force:true});}
+});
+
+test('HAR-02 HAR-10 a preparation failure blocks dependent live checks as failure causes without failing every check',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'magicstick-prepare-cause-')),previous=process.env.REGRESSION_PREPARATION_FAILED;
+  try{
+    process.env.REGRESSION_PREPARATION_FAILED='Failed';
+    await expect(requirePreparation()).rejects.toThrow('[PREPARATION_FAILED]');
+    const diagnostic=parsePreparationDiagnostic({version:1,outcome:'Failed',reason:'AUTH',setupStage:'login'});
+    await saveReport(directory,newRunId(),[
+      {id:'HAR-02',layer:'A',outcome:'Failed',durationMs:0,reason:'AUTH'},
+      {id:'LIFE-01',layer:'E',outcome:'Blocked',durationMs:0,reason:'PREPARATION_FAILED'},
+    ],['HAR-02','LIFE-01'],'unknown','all',diagnostic);
+    const json=JSON.parse(await readFile(join(directory,'summary.json'),'utf8'));
+    expect(json.counts).toMatchObject({Failed:1,Blocked:1});
+    expect(json.cases[1].blockedBy).toEqual({kind:'failure',caseId:'HAR-02',reason:'AUTH'});
+  }finally{
+    if(previous===undefined)delete process.env.REGRESSION_PREPARATION_FAILED;else process.env.REGRESSION_PREPARATION_FAILED=previous;
+    await rm(directory,{recursive:true,force:true});
+  }
+});
+
+test('HAR-10 aggregate child imports preserve causal evidence while discarding private blocker fields',async()=>{
+  const output=await mkdtemp(join(tmpdir(),'magicstick-blocked-child-')),runId=newRunId(),directory=join(output,runId),receipt=join(output,'phase-result.json');
+  try{
+    await saveReport(directory,runId,[{id:'HAR-10',outcome:'Blocked',layer:'U',environment:'fixture',durationMs:0,reason:'DEPENDENCY',
+      blockedBy:{kind:'failure',caseId:'LIFE-03',reason:'DEADLINE',stage:'model-stopped'}}],['HAR-10'],'unknown','selftest');
+    const summary=JSON.parse(await readFile(join(directory,'summary.json'),'utf8'));
+    summary.cases[0].blockedBy.message='synthetic-secret';await writePrivate(join(directory,'summary.json'),summary);
+    await writePrivate(receipt,{version:1,mode:'selftest',runId,directory,exitCode:2});
+    const child=await childEvidence({output,receipt,mode:'selftest',required:['HAR-10'],fixture:true,sourceRevision:'unknown'});
+    expect(child.report.cases[0]!.blockedBy).toEqual({kind:'failure',caseId:'LIFE-03',reason:'DEADLINE',stage:'model-stopped'});
+    expect(JSON.stringify(child)).not.toContain('synthetic-secret');
+  }finally{await rm(output,{recursive:true,force:true});}
+});
+
+test('HAR-10 fresh explicit prerequisites remain distinct from synthesized missing coverage',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'magicstick-missing-cause-'));
+  try{
+    await saveReport(directory,newRunId(),[{id:'HW-01',outcome:'Blocked',layer:'A',environment:'live',durationMs:0,reason:'PREREQUISITE'}],
+      ['HW-01','HAR-10'],'unknown','all');
+    const json=JSON.parse(await readFile(join(directory,'summary.json'),'utf8'));
+    expect(json.cases[0].blockedBy.kind).toBe('prerequisite');expect(json.cases[1].blockedBy.kind).toBe('unknown');
+    expect(json.blockedCounts).toEqual({prerequisite:1,failure:0,cancelled:0,unknown:1});
+  }finally{await rm(directory,{recursive:true,force:true});}
+});
 
 test('HAR-02 HAR-10 HAR-11 failed refresh reason and setup stage survive aggregate reports without raw logs', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'magicstick-preparation-report-'));
