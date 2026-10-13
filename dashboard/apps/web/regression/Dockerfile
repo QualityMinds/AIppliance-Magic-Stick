@@ -21,6 +21,7 @@ ARG KUBECTL_VERSION=v1.36.4
 ARG HELM_VERSION=v4.3.0
 ARG SOURCE_REVISION=unknown
 LABEL org.opencontainers.image.title="Magic Stick local regression harness" \
+      org.opencontainers.image.source="https://github.com/QualityMinds/AIppliance-Magic-Stick" \
       org.opencontainers.image.licenses="BUSL-1.1" \
       org.opencontainers.image.revision="${SOURCE_REVISION}"
 ENV REGRESSION_SOURCE_REVISION=${SOURCE_REVISION} \
@@ -50,7 +51,7 @@ RUN --mount=type=bind,source=.,target=/source \
     && mkdir -p /opt/magicstick/regression-runtime /opt/magicstick/docs/development \
     && cd /source && cp -a --parents dashboard LICENSE LICENSING.md THIRD_PARTY_NOTICES.md LICENSE-RELEASE.json \
       CHANGELOG.md README.md .gitleaks.toml install-from-linux.sh licenses magic-installer core tools tests .github magic-host \
-      docs/development/regression-test-catalog.md magic-cluster/apps/ai magic-cluster/apps/dashboard magic-cluster/apps/instances \
+      docs/development/regression-test-catalog.md magic-cluster/apps/ai magic-cluster/apps/dashboard magic-cluster/apps/instances magic-cluster/apps/regression \
       magic-cluster/platform/magicstick-operator magic-cluster/platform/ai magic-cluster/platform/gpu magic-cluster/platform/identity \
       magic-cluster/flux /opt/magicstick/ \
     && cp /tmp/amd-recovery.test /opt/magicstick/regression-runtime/amd-recovery.test \

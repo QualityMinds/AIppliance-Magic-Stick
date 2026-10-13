@@ -45,7 +45,7 @@ test('HAR-10 suite discovery allowlists actual optional modules and never export
     spec:{type:'local',enabled:true,apiKey:'DO-NOT-EXPORT'}}],computeTargets:{targets:[]}} as unknown as ModelsPayload;
   const modules={modules:{optional:{enabled:false,parameters:{version:'current'}}},catalogJson:{modules:{
     optional:{activationMode:'moduleactivation',parameters:[{name:'version',label:'Version'}]},
-    'nvidia-gpu':{activationMode:'moduleactivation'},identity:{activationMode:'moduleactivation'},
+    'nvidia-gpu':{activationMode:'moduleactivation'},identity:{activationMode:'moduleactivation'},regression:{activationMode:'moduleactivation'},
     unrelated:{activationMode:'appinstance'}},applications:{openclaw:{},unknown:{}}}} as unknown as ModulesPayload;
   const result=suiteInventory(models,modules,{} as SystemStatusPayload,[]);
   expect(result.optionalModules.map(item=>item.id)).toEqual(['optional']);expect(result.applications).toEqual(['openclaw']);

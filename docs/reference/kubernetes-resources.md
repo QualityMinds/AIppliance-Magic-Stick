@@ -255,6 +255,23 @@ network, model, and credential contracts.
 
 ## Runtime CRs
 
+`RegressionRun` is namespaced in `ai-system`. Its immutable spec binds the
+Appliance UID, Node UIDs, Phase 0–8 selection, requesting administrator and
+tested runner image/source. Only `cancelRequested` can change after creation.
+The existing Magic Stick Operator creates one non-retrying, deadline-bound Job
+in `magicstick-regression`, with UID labels (no cross-namespace owner reference),
+read-only container root, no GPU/host/Docker mounts, and affinity to the retained
+report store's node. Status records progress, real test outcomes, report
+availability and generated-account cleanup. Reports and private journals are
+separate PVC directories; the report server mounts only the sanitized directory.
+See [the API](dashboard-api.md#regression-runs) and [runner guide](../development/regression-remaining-p0.md#in-the-dashboard).
+
+An interrupted run may reference its original generated account through the
+immutable `accountRunName` / `accountRunUid` pair. The operator verifies that
+Secret's owner UID; only verified setup recovery releases the identity. Private
+directories retain mode `0700`; `fsGroupChangePolicy: OnRootMismatch` avoids
+recursively broadening their permissions when the retained PVC is remounted.
+
 `HostOperation` is a separate namespaced runtime request for node-local
 `prepare-gpu`, `configure-gpu-memory`, `configure-network`, `scan-wifi`, `reboot`
 or `poweroff`. Its spec is immutable and bound to a Node

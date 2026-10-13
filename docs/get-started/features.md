@@ -43,6 +43,10 @@
   and persistent workspaces and sessions.
 - Share running local chat models through the opt-in Private Mesh module.
 - Manage local users, GPU allocation, host networking, model cache and Ubuntu updates.
+- Run the existing P0 suite from **System → Regression tests** on a dedicated,
+  registered test Appliance; see progress, Passed/Failed/Blocked results and
+  [download sanitized reports](../development/regression-remaining-p0.md#in-the-dashboard).
+  Host-disconnecting drills still require an external runner.
 - Use the browser dashboard or authenticated CLI/TUI; advanced users can manage runtime resources.
 
 ## What is not automatic

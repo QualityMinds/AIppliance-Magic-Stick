@@ -1,0 +1,14 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: magicstick-regression-intent, namespace: ai-system}
+rules:
+  - apiGroups: [appliance.magicstick.dev]
+    resources: [regressionruns, regressionruns/status]
+    verbs: [get, list, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: magicstick-regression-intent, namespace: ai-system}
+subjects:
+  - {kind: ServiceAccount, name: magicstick-operator, namespace: ai-system}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: magicstick-regression-intent}

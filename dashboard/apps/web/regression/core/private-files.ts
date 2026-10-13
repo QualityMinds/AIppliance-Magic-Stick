@@ -11,12 +11,13 @@ export async function privateDirectory(path: string) {
   requireSafe(stat.isDirectory() && !stat.isSymbolicLink() && (stat.mode & 0o077) === 0, 'PRIVATE_FILE');
 }
 
-export async function readPrivate(path: string): Promise<string> {
+export async function readPrivate(path: string, maxBytes = 1024 * 1024): Promise<string> {
+  requireSafe(Number.isSafeInteger(maxBytes) && maxBytes > 0 && maxBytes <= 8 * 1024 * 1024, 'PRIVATE_FILE');
   let handle;
   try {
     handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
     const stat = await handle.stat();
-    requireSafe(stat.isFile() && (stat.mode & 0o077) === 0 && stat.size <= 1024 * 1024, 'PRIVATE_FILE');
+    requireSafe(stat.isFile() && (stat.mode & 0o077) === 0 && stat.size <= maxBytes, 'PRIVATE_FILE');
     return await handle.readFile({encoding: 'utf8'});
   } catch (error) {
     if (error instanceof HarnessError) throw error;

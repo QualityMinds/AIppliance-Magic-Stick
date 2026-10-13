@@ -70,6 +70,40 @@ Paperclip, KubeOpenCode, KubeAI, LiteLLM, or direct app instance reconcilers.
 
 ## Backend API
 
+### Regression runs
+
+All `/api/regression` routes require a Dashboard administrator; mutations use
+the existing same-origin/CSRF protection and verify the live administrator.
+No request accepts a runner image, URL, script, command, manifest or credential.
+
+| Route | Contract |
+| --- | --- |
+| `GET /api/regression` | Registration/runtime readiness, latest 30 runs, progress/results and external-runner limitations. Read-only. |
+| `POST /api/regression/register` | Exact `confirmation: "DISPOSABLE TEST SERVER"`, `acknowledgeDisruption: true`; immutable Appliance/Node-bound test marker, no production fallback. |
+| `POST /api/regression/runs` | 32-lowercase-hex `requestId`, `acknowledgeDisruption: true`; idempotent `RegressionRun` intent and generated private test account. All P0 phases; no UI Job writes. |
+| `GET /api/regression/runs/<id>` | Durable run status. |
+| `POST /api/regression/runs/<id>/cancel` | `acknowledgeDisruption: true`; cancellation intent, bounded teardown, retained recovery evidence. |
+| `GET /api/regression/runs/<id>/archive`, `/html`, `/junit` | Allowlisted completed report attachment, at most 64 MiB; never private input/journal/log download. |
+
+Run IDs are `regression-<32 hex characters>`. The operator, not the browser/API,
+creates Jobs in `magicstick-regression`. Phases are `Queued`, `Preparing`,
+`Starting`, `Running`, `Recovering`, `Cancelling`, and terminal `Passed`,
+`Failed`, `Blocked`, `Cancelled`. Kubernetes Job completion means execution
+finished, not that the suite passed. Blocked rows expose fixed reason/action,
+phase/variant/layer and available stage/trace identity. Credentials are deleted
+by a restart-safe API cleanup worker only after the exact run-owned Pod has
+terminated and setup/recovery completed, using exact user attributes and Secret
+UID/resource-version checks. A killed/interrupted setup retains the generated
+identity needed by its private restoration receipt. `recoveryAvailable` allows
+the next run to reuse that exact original account after Pod termination and
+Lease drain, before ordinary tests. It never substitutes the human's account or
+clears a lock. Successful recovery cleans the whole credential lineage.
+
+`ModuleActivation/regression` installs the optional report service, scoped RBAC
+and retained storage; it is disabled by default. Runner image and SHA are
+CI-owned, never selected by a dashboard request. Registering a new installation
+does not silently adopt an older test marker.
+
 ### Local configuration policy
 
 `/api/models` exposes the existing compute-target catalog as

@@ -50,6 +50,16 @@ authorized user explicitly opens the panel.
 
 ## Runtime Activation
 
+`regression` is an optional, administrator-only module for a registered disposable
+test Appliance. It depends on `basis` and `dashboard` and is disabled by default.
+Its base installs the report store, retained 10 GiB state PVC and scoped RBAC;
+starting tests creates `RegressionRun` intent, then the operator owns one tested,
+digest-pinned runner Job. The Services toggle or merely opening its System page
+never starts tests. Disabling is refused while a run or credential recovery is
+pending. State/receipts remain on disable; ordinary module test fixtures exclude
+the regression runner so the suite cannot uninstall itself. See
+[the short guide](../development/regression-remaining-p0.md#in-the-dashboard).
+
 `private-mesh` is an opt-in core runtime module, not a static Flux component.
 Dashboard activation and runtime use require administrator authorization, not a license file. Its
 catalog dependencies are `litellm`, `model-catalog` and `dashboard`; it retains

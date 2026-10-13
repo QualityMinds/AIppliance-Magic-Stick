@@ -543,6 +543,31 @@ class RegressionInputTests(unittest.TestCase):
         self.assertNotIn('Private upstream', str(rejection.exception))
         self.assertFalse((self.root / '.setup-api-request.json').exists())
 
+    def test_kubernetes_setup_reuses_the_worker_without_docker_or_secret_arguments(self):
+        facts, _ = self.auto_inputs()
+        seed = {**facts, 'usernameFile': 'username.txt', 'passwordFile': 'password.txt', 'caFile': 'appliance-ca.pem'}
+        calls = []
+        def command(arguments, **options):
+            calls.append(arguments)
+            self.assertEqual(arguments, ['node', str(setup.EXAMPLES / 'setup.mjs')])
+            self.assertNotIn('synthetic-password', json.dumps(arguments) + json.dumps(options.get('env', {})))
+            self.write('.setup-api-result.json', facts)
+            return argparse.Namespace(returncode=0, stdout='', stderr='')
+        with patch.dict(os.environ, {'REGRESSION_EXECUTION': 'kubernetes'}), patch.object(setup.subprocess, 'run', side_effect=command):
+            result = setup.setup_api(self.root, seed, 'inspect')
+        self.assertEqual(result['subject'], facts['subject'])
+        self.assertEqual(len(calls), 1)
+        self.assertFalse((self.root / '.setup-api-request.json').exists())
+
+    def test_kubernetes_preparation_uses_the_same_preparer_not_a_compose_adapter(self):
+        calls = []
+        def command(arguments, **options):
+            calls.append(arguments)
+            return argparse.Namespace(returncode=0)
+        with patch.dict(os.environ, {'REGRESSION_EXECUTION': 'kubernetes'}), patch.object(setup.subprocess, 'run', side_effect=command):
+            setup.run_preparation(self.root, ['--automatic'])
+        self.assertEqual(calls, [['node', str(setup.EXAMPLES / 'prepare.mjs'), '--automatic']])
+
     def test_worker_rejections_survive_compose_stream_multiplexing_without_private_output(self):
         facts, _ = self.auto_inputs()
         seed = {**facts, 'usernameFile': 'username.txt', 'passwordFile': 'password.txt', 'caFile': 'appliance-ca.pem'}

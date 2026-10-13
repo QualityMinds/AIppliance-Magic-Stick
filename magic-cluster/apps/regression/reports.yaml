@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: regression-reports, namespace: magicstick-regression}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: magicstick-regression-reports}
+  template:
+    metadata:
+      labels: {app: magicstick-regression-reports}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile: {type: RuntimeDefault}
+      initContainers:
+        - name: storage
+          image: python:3.13-alpine@sha256:79e7a9b9ff1cbceff819f856fb374477792a5967759d94df266de7b7b4120e6f
+          command: [python, -c, "import os; os.makedirs('/state/reports',mode=0o700,exist_ok=True); os.makedirs('/state/inputs',mode=0o700,exist_ok=True); os.makedirs('/state/private',mode=0o700,exist_ok=True)"]
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          volumeMounts: [{name: state, mountPath: /state}]
+      containers:
+        - name: reports
+          image: python:3.13-alpine@sha256:79e7a9b9ff1cbceff819f856fb374477792a5967759d94df266de7b7b4120e6f
+          command: [python, /app/report_server.py]
+          env: [{name: PYTHONDONTWRITEBYTECODE, value: "1"}]
+          ports: [{name: reports, containerPort: 8080}]
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {cpu: 250m, memory: 128Mi}}
+          readinessProbe: {httpGet: {path: /healthz, port: reports}}
+          volumeMounts:
+            - {name: state, mountPath: /reports, subPath: reports, readOnly: true}
+            - {name: code, mountPath: /app, readOnly: true}
+      volumes:
+        - {name: state, persistentVolumeClaim: {claimName: magicstick-regression-state}}
+        - {name: code, configMap: {name: magicstick-regression-reports}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: regression-reports, namespace: magicstick-regression}
+spec:
+  selector: {app: magicstick-regression-reports}
+  ports: [{name: reports, port: 8080, targetPort: reports}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: regression-reports, namespace: magicstick-regression}
+spec:
+  podSelector:
+    matchLabels: {app: magicstick-regression-reports}
+  policyTypes: [Ingress]
+  ingress:
+    # Kubernetes service proxy originates at the API server/node. There is no
+    # external HTTPRoute; the Dashboard authenticates every download.
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: identity-system}}
+          podSelector: {matchLabels: {app: ai-appliance-dashboard-api}}
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: ai-system}}
+          podSelector: {matchLabels: {app.kubernetes.io/name: magicstick-operator}}
+      ports: [{protocol: TCP, port: 8080}]

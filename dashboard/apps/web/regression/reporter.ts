@@ -10,6 +10,7 @@ import {reportVariants, saveReport, type CaseResult} from './core/report.ts';
 import {environmentFor, fileLayer, testLayers, type Evidence} from './core/evidence.ts';
 import {caseDescription, durationDescription, layerDescriptions, publicScenarioTitle} from './core/case-descriptions.ts';
 import {disabledExperimentalEngines} from './core/engine-policy.ts';
+import {progressEvent} from './core/progress.ts';
 import {safeStepTitle,safeTraceSource,saveExecutionTrace,traceCategories,type ExecutionTrace,type TraceStep} from './core/execution-trace.ts';
 
 /** Playwright serializes Errors without our custom outcome property. Only a
@@ -81,6 +82,7 @@ export default class SafeReporter implements Reporter {
     const {ids, evidence} = this.mapping(test);
     process.stdout.write(`[${position}/${this.total}] START ${ids.join(', ') || 'Unmapped test'}\n`);
     const scenario = publicScenarioTitle(test.title, test.location.file);
+    progressEvent({event:'test-start',position,total:this.total,ids,description:scenario ?? ids.map(caseDescription).join(' ')});
     if (scenario) process.stdout.write(`  Scenario: ${scenario}\n`);
     for (const id of [...new Set(evidence.map(item => item.id))]) {
       const selected = evidence.filter(item => item.id === id);
@@ -144,6 +146,8 @@ export default class SafeReporter implements Reporter {
         ...(item.variant ? {variant:item.variant as CaseResult['variant']} : {}),...(!passed && !dependent && stage ? {stage} : {})});
     }
     const position = this.positions.get(test);
+    progressEvent({event:'test-end',position,total:this.total,ids,outcome,durationMs:result.duration,
+      ...(code?{reason:code}:outcome==='Blocked'?{reason:'PREREQUISITE'}:{}),...(stage?{stage}:{} )});
     const reason = code ?? (outcome === 'Failed' ? 'UNEXPECTED' : undefined);
     process.stdout.write(`${position ? `[${position}/${this.total}] ` : ''}${ids.join(', ') || 'Unmapped test'}: ${outcome} — ${durationDescription(result.duration)}\n`);
     if (reason) process.stdout.write(`  Reason (${reason}): ${reasons[reason]}${stage ? ` Stage: ${stage}.` : ''}\n`);

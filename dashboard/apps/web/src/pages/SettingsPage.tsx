@@ -1,4 +1,4 @@
-import {useEffect, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query';
 import {canAdminister} from '@magicstick/dashboard-core';
 import type {Session} from '@magicstick/dashboard-contracts';
@@ -64,17 +64,18 @@ export const SettingsPage = ({session, section, onSectionChange}: {
 const DomainSettings = () => {
   const queryClient = useQueryClient();
   const query = useQuery({queryKey: ['settings'], queryFn: () => api.settings()});
-  const [publicDomain, setPublicDomain] = useState('');
-  const [mdnsDomain, setMdnsDomain] = useState('');
+  const [draft, setDraft] = useState({publicDomain: '', mdnsDomain: ''});
+  const baseline = useRef<typeof draft | null>(null);
   const [message, setMessage] = useState('');
   useEffect(() => {
     if (query.data) {
-      setPublicDomain(query.data.publicDomain);
-      setMdnsDomain(query.data.mdnsDomain);
+      const previous = baseline.current, next = {publicDomain: query.data.publicDomain, mdnsDomain: query.data.mdnsDomain};
+      setDraft(current => !previous || current.publicDomain === previous.publicDomain && current.mdnsDomain === previous.mdnsDomain ? next : current);
+      baseline.current = next;
     }
   }, [query.data]);
   const mutation = useMutation({
-    mutationFn: () => api.updateSettings({publicDomain, mdnsDomain}),
+    mutationFn: () => api.updateSettings(draft),
     onSuccess: async () => {
       setMessage('Domain settings saved.');
       await queryClient.invalidateQueries({queryKey: ['settings']});
@@ -82,14 +83,22 @@ const DomainSettings = () => {
   });
   if (query.error) return <ErrorNotice error={query.error} />;
   if (query.isPending) return <Loading />;
+  const normalized = (value: string) => value.trim().toLowerCase().replace(/^\.+|\.+$/g, '');
+  const valid = (value: string) => {
+    const labels = normalized(value).split('.');
+    return labels.length >= 2 && labels.every(label => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label));
+  };
+  const changed = normalized(draft.publicDomain) !== normalized(query.data.publicDomain)
+    || normalized(draft.mdnsDomain) !== normalized(query.data.mdnsDomain);
+  const saveable = changed && valid(draft.publicDomain) && valid(draft.mdnsDomain) && !mutation.isPending;
 
   return (
     <div className="stack">
       <Panel title="Domains">
-        <form className="form-grid" onSubmit={(event) => { event.preventDefault(); mutation.mutate(); }}>
-          <Field label="Public Domain"><input value={publicDomain} onChange={(event) => setPublicDomain(event.target.value)} placeholder="magicstick.example.com" /></Field>
-          <Field label="mDNS Domain"><input value={mdnsDomain} onChange={(event) => setMdnsDomain(event.target.value)} placeholder="magicstick.local" required /></Field>
-          <div className="form-actions full"><Button variant="primary" disabled={mutation.isPending}>Save Domains</Button></div>
+        <form className="form-grid" onSubmit={(event) => { event.preventDefault(); if (saveable) mutation.mutate(); }}>
+          <Field label="Public Domain"><input value={draft.publicDomain} onChange={(event) => setDraft(current => ({...current, publicDomain: event.target.value}))} placeholder="magicstick.example.com" /></Field>
+          <Field label="mDNS Domain"><input value={draft.mdnsDomain} onChange={(event) => setDraft(current => ({...current, mdnsDomain: event.target.value}))} placeholder="magicstick.local" required /></Field>
+          <div className="form-actions full"><Button variant="primary" disabled={!saveable}>Save Domains</Button></div>
         </form>
         <ErrorNotice error={mutation.error} />
         {message && <div className="notice notice-good">{message}</div>}

@@ -2,9 +2,57 @@
 
 Use a **dedicated, disposable test Magic Stick**. Full runs may stop models,
 change settings, replace test licenses, clear model caches and reboot the server.
-Run Docker on your Mac or a separate runner, not on the appliance it reboots.
+The Dashboard can run ordinary tests inside the Appliance. Use Docker on your
+Mac or another external runner for host restart/disconnection/replacement drills.
 
-## Once
+## In the Dashboard
+
+1. Open **System → Regression tests** as an administrator.
+2. Once: **Enable regression runner**, wait for its tested image/storage, then
+   **Register test Appliance** and confirm `DISPOSABLE TEST SERVER`.
+3. Choose **Start regression tests**. No passwords, kubeconfigs, per-test
+   approvals or fixture files are requested. A generated test account and the
+   existing automatic preparation supply them.
+4. Watch phase/check progress and Passed/Failed/Blocked outcomes. Reloading the
+   page does not stop the Job. **Cancel tests** requests bounded cleanup.
+5. Choose **Download report**, **HTML summary** or **JUnit XML** after completion.
+
+Each blocked check includes its reason, phase/variant/layer, stage when available,
+next action and filtered trace location in the archive. The full report retains
+all checks; the Dashboard limits its expanded failure list to 200 rows.
+Progress measures finished steps, not elapsed-time prediction.
+
+The Kubernetes runner is a non-root Linux/AMD64 Job, with no GPU, Docker socket,
+host mount or mounted Kubernetes admin token. Reports and recovery journals live
+on a retained 10 GiB PVC. Runs are serialized and also use the existing lab Lease;
+an externally held or unresolved stale Lease is not bypassed. Generated accounts
+are removed only after the exact run's Pod terminates and setup recovery is
+verified. Interrupted setup keeps the same generated identity for the next run;
+**Start regression tests** then restores its private receipt before live writes.
+Do not manually remove
+its recovery journals or disable the module while a run is active.
+
+Reboot, GPU-firmware/kernel preparation, network-disconnection and channel/update
+replacement drills show **Blocked / EXTERNAL_RUNNER** before any host mutation:
+the same-node Job cannot independently certify its own outage/recovery. Run the
+external workflow below for those checks. Missing GPUs, peers, IdP or CI evidence
+still block dependent cases only. Free space and resource exhaustion are genuine
+runner failures, not passing tests.
+
+Trusted `main`/`develop` runner CI publishes a SHA/digest-bound image only after
+its isolated checks and Chromium fixtures passed, then advances the module's
+image pin on that channel. Before first publication the image fields are empty
+and start is disabled. An implementation or source push is not installed
+acceptance. See [implementation evidence](regression-test-catalog.md#implementation-ledger).
+
+The runner package must be publicly pullable by an Appliance without publisher
+credentials. CI checks an anonymous pull before promotion. If GHCR creates the
+first package as private, its owner must set package visibility to public and
+rerun that trusted CI publication; no unavailable image is promoted.
+
+<a id="once"></a>
+
+## External runner: once
 
 From the repository root, with Docker running:
 
@@ -33,7 +81,9 @@ Kubernetes access. Registration binds tests to this Appliance and its Node IDs;
 Interrupted setup resumes for that same registered server; no new questionnaire
 or manual kubeconfig is needed.
 
-## Every run
+<a id="every-run"></a>
+
+## External runner: every run
 
 ```bash
 bash tools/regression.sh all
@@ -71,6 +121,12 @@ Blocked; the report gives the reason. Original failed results are never changed.
 Missing GPUs/runtimes, a real Mesh peer, test IdP, power controller or current CI
 evidence blocks dependent cases only. The report states the reason and next action.
 Current prerequisites and actions: `.regression/inputs/automatic-preparation.txt`.
+
+Every blocked evidence row retains its reason code and case-specific prerequisite,
+phase/variant/layer, available failing stage and relative filtered-trace location.
+The Dashboard and HTML/text/JUnit report use the same descriptions. For a check
+never reached, there is no invented execution trace: the earlier failed step or
+missing evidence stays visible.
 
 If automatic preparation fails, reports show the reason and setup stage from
 that attempt. Dependent live checks are Blocked; independent tests still run.

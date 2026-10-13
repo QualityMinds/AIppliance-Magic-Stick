@@ -1,0 +1,65 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: regressionruns.appliance.magicstick.dev
+spec:
+  group: appliance.magicstick.dev
+  scope: Namespaced
+  names:
+    plural: regressionruns
+    singular: regressionrun
+    kind: RegressionRun
+    shortNames: [msreg]
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [applianceUid, nodeUids, phases, requestedBy, image, sourceRevision]
+              x-kubernetes-validations:
+                - rule: 'self.applianceUid == oldSelf.applianceUid && self.nodeUids == oldSelf.nodeUids && self.phases == oldSelf.phases && self.requestedBy == oldSelf.requestedBy && self.image == oldSelf.image && self.sourceRevision == oldSelf.sourceRevision'
+                  message: 'Run identity, image and selection are immutable. Create a new run instead.'
+                - rule: 'has(self.accountRunName) == has(self.accountRunUid)'
+                  message: 'A recovery account reference needs both its original run name and UID.'
+                - rule: 'has(self.accountRunName) == has(oldSelf.accountRunName) && (!has(self.accountRunName) || (self.accountRunName == oldSelf.accountRunName && self.accountRunUid == oldSelf.accountRunUid))'
+                  message: 'The recovery credential reference is immutable.'
+              properties:
+                applianceUid: {type: string, maxLength: 64}
+                nodeUids:
+                  type: array
+                  minItems: 1
+                  maxItems: 64
+                  x-kubernetes-list-type: set
+                  items: {type: string, maxLength: 64}
+                requestedBy: {type: string, minLength: 1, maxLength: 128}
+                phases:
+                  type: array
+                  minItems: 1
+                  maxItems: 9
+                  x-kubernetes-list-type: set
+                  items: {type: integer, minimum: 0, maximum: 8}
+                image:
+                  type: string
+                  maxLength: 240
+                  pattern: '^ghcr[.]io/qualityminds/magicstick-regression:[a-z0-9-]+@sha256:[a-f0-9]{64}$'
+                sourceRevision: {type: string, pattern: '^[a-f0-9]{40}$'}
+                accountRunName: {type: string, pattern: '^regression-[a-f0-9]{32}$'}
+                accountRunUid: {type: string, pattern: '^[a-f0-9-]{36}$'}
+                cancelRequested: {type: boolean, default: false}
+            status:
+              type: object
+              x-kubernetes-preserve-unknown-fields: true

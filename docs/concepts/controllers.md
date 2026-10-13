@@ -33,6 +33,14 @@ The dashboard is also not an operator. It reads status and creates or patches
 
 ## Reconcile Flow
 
+The optional regression module uses the same operator for `RegressionRun`
+intent. It verifies immutable test registration and hardware identity, serializes
+one non-retrying Job, observes sanitized progress/results, and honors UID-bound
+cancellation. Private recovery journals persist across runs; a finished Job is
+not a passing suite. The Dashboard API cleans the generated test account after
+the owned Pod terminates. [Host-disconnecting drills](../development/regression-remaining-p0.md#in-the-dashboard)
+remain an external-runner prerequisite, not in-cluster acceptance.
+
 The optional `ModelActivation.spec.local.realtime` profile uses a direct
 vLLM-Omni Deployment, Service and stage ConfigMap. Module dependencies are the
 selected GPU provider (none for CPU), LiteLLM and model catalog, not KubeAI. Recreate, typed resource

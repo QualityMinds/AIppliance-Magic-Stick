@@ -23,6 +23,7 @@ data:
     from datetime import datetime, timezone
     from decimal import Decimal
     from service_keys import ServiceKeys, KeyError as ServiceKeyError
+    from regression_runs import RegressionRuns
 
     APPLIANCE_GROUP = "appliance.magicstick.dev"
     APPLIANCE_VERSION = "v1alpha1"
@@ -5822,6 +5823,7 @@ data:
 
 
     def reconcile_once():
+        RegressionRuns(globals()).reconcile_all()
         catalog = load_catalog()
         app_catalog = load_app_catalog()
         compute_catalog = load_compute_target_catalog()

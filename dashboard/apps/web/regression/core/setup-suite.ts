@@ -47,7 +47,7 @@ export function verifyHostContinuation(before:LabConfig,next:LabConfig) {
  * settings Secrets, environment variables, API keys or arbitrary model specs. */
 export function suiteInventory(models:ModelsPayload,modules:ModulesPayload,status:SystemStatusPayload,hosts:ManagedHost[]) {
   const optionalModules=Object.entries(modules.catalogJson?.modules ?? {}).filter(([id,item])=>item.activationMode === 'moduleactivation' &&
-    !/identity|dashboard|basis|kubeai|gpu|amd|nvidia|intel|litellm|private-mesh|model-catalog|magicstick-operator/.test(id))
+    !/identity|dashboard|basis|kubeai|gpu|amd|nvidia|intel|litellm|private-mesh|model-catalog|magicstick-operator|regression/.test(id))
     .map(([id,item])=>({id,disabled:modules.modules[id]?.enabled !== true,
       parameters:modules.modules[id]?.parameters ?? {},fields:(item.parameters ?? []).map(field=>({name:field.name,label:field.label ?? field.name}))}));
   const amd=status.hardwareOperators?.['amd-gpu']?.compatibility;

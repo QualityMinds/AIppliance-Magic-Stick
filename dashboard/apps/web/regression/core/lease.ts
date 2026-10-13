@@ -62,6 +62,7 @@ export class LabLease {
       'regression.magicstick.dev/recovering':'false','regression.magicstick.dev/recovery-original-owner':'',
       'regression.magicstick.dev/run-id':recoveryRunId??this.owner}},spec: {...lease.spec, holderIdentity: this.owner,
       renewTime: leaseTime(this.now()), leaseDurationSeconds: this.durationSeconds}};
+    if(/^[a-f0-9-]{36}$/.test(process.env.REGRESSION_RUN_UID??''))changed.metadata.annotations!['regression.magicstick.dev/kubernetes-run-uid']=process.env.REGRESSION_RUN_UID!;
     try { await this.store.replace(changed); } catch { throw new HarnessError('LOCK_BUSY'); }
     this.held = true; this.lastHeartbeat = this.now();
     await this.assertHeldInternal();

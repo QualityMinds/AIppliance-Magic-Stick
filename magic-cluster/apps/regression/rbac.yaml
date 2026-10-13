@@ -1,0 +1,45 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: magicstick-regression-controller, namespace: magicstick-regression}
+rules:
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [get, list, create, delete]
+  - apiGroups: [""]
+    resources: [pods, secrets, configmaps]
+    verbs: [get, list]
+  - apiGroups: [""]
+    resources: [services/proxy]
+    resourceNames: ["regression-reports:8080"]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: magicstick-regression-controller, namespace: magicstick-regression}
+subjects: [{kind: ServiceAccount, name: magicstick-operator, namespace: ai-system}]
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: magicstick-regression-controller}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: dashboard-regression-credentials, namespace: magicstick-regression}
+rules:
+  - apiGroups: [apps]
+    resources: [deployments]
+    resourceNames: [regression-reports]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, create, patch, delete]
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, create]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    resourceNames: [lab-lock]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: dashboard-regression-credentials, namespace: magicstick-regression}
+subjects: [{kind: ServiceAccount, name: ai-appliance-dashboard-api, namespace: identity-system}]
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: dashboard-regression-credentials}

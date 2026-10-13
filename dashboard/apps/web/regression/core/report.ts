@@ -13,6 +13,7 @@ import {disabledExperimentalEngines} from './engine-policy.ts';
 import {preparationDiagnostic, preparationDescription, parsePreparationDiagnostic, type PreparationDiagnostic} from './preparation-diagnostic.ts';
 import {collectReportArtifacts,archiveReport} from './report-artifacts.ts';
 import {junitReport} from './junit.ts';
+import {blockerDescription} from './blocker-description.ts';
 
 export type Outcome = 'Passed' | 'Failed' | 'Blocked' | 'Skipped' | 'Not run' | 'Flaky';
 export interface CaseResult {id: string; outcome: Outcome; layer: TestLayer; environment?: TestEnvironment; durationMs: number; reason?: ReasonCode;
@@ -71,6 +72,13 @@ export function reportExitCode(cases:Array<{outcome:Outcome}>) {
     !cases.length || cases.some(item=>terminalOutcome(item.outcome) === 'Blocked') ? 2 : 0;
 }
 export function blockedAction(reason:ReasonCode='PREREQUISITE') {
+  if(reason === 'UNEXPECTED')return 'Inspect the filtered scenario/step trace and runner status, correct the failing assertion or harness error, then repeat the suite.';
+  if(reason === 'COMPONENT')return 'Inspect the archived owning component diagnostic and its source test, then repeat the isolated component check.';
+  if(reason === 'CONFIG' || reason === 'PRIVATE_FILE')return 'Repeat automatic setup with the same retained storage; verify runner version, file permissions and available storage. Do not manually delete recovery receipts.';
+  if(reason === 'API' || reason === 'AUTH')return 'Restore the required authenticated Dashboard/API contract or test identity. Inspect the failed stage; do not bypass authorization.';
+  if(reason === 'DEADLINE')return 'Inspect the stalled stage and model/service status, correct the failure, then repeat; an older Ready state is not sufficient.';
+  if(['OWNERSHIP','CLEANUP','CONFLICT'].includes(reason))return 'Keep the private journal and inspect the exact resource UID/revision and restoration result. Never delete a foreign or replaced resource to clear the test.';
+  if(reason === 'EXTERNAL_RUNNER')return 'Run the same suite from the external Docker runner to independently observe host restart, disconnection and recovery. No in-Appliance override can certify this test.';
   if(reason === 'DEPENDENCY')return 'Fix the earlier failed step in this scenario, then repeat it. This check needs no additional setup.';
   if(reason === 'CANCELLED')return 'Repeat all when ready. Interrupted live mutations must prove restoration before further writes.';
   if(reason === 'LAB' || reason === 'IDENTITY')return 'Use the registered test appliance; setup is needed only when intentionally replacing that installation.';
@@ -146,7 +154,7 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     const environment = item.environment ?? environmentFor(item.layer);
     requireSafe(['fixture', 'live'].includes(environment) && (!['U', 'C', 'B', 'A', 'E'].includes(item.layer) ||
       environment === environmentFor(item.layer)), 'CONFIG');
-    const reason = item.reason && Object.hasOwn(reasons, item.reason) ? item.reason : undefined;
+    const reason = item.reason && Object.hasOwn(reasons, item.reason) ? item.reason : item.outcome === 'Blocked' ? 'PREREQUISITE' as const : undefined;
     const stage = item.stage && stages.includes(item.stage) ? item.stage : undefined;
     const variant = item.variant && Object.hasOwn(reportVariants, item.variant) && reportVariants[item.variant] === item.id ? item.variant : undefined;
     const executionId=item.executionId && /^[a-f0-9]{24}$/.test(item.executionId) ? item.executionId : undefined;
@@ -216,7 +224,7 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     '<table><tr><th>Case / variant</th><th>Layer</th><th>Result</th><th>Goal / reason</th></tr>'+
     safe.map(item=>`<tr><td>${xml(item.id+(item.variant ? '/'+item.variant : ''))}</td><td>${item.layer} / ${item.environment}</td>`+
       `<td class="${item.outcome}">${item.outcome}</td><td>${xml(item.description)}`+
-      (item.reason ? `<br>${xml(reasons[item.reason])}` : '')+(item.outcome === 'Blocked' ? `<br>Next: ${xml(blockedAction(item.reason))}` : '')+'</td></tr>').join('')+'</table>'+
+      (item.reason ? `<br>${item.reason}: ${xml(blockerDescription(item.reason,item.id,item.variant,item.layer))}` : '')+(item.outcome === 'Blocked' ? `<br>Next: ${xml(blockedAction(item.reason))}` : '')+'</td></tr>').join('')+'</table>'+
     '<h2>Execution steps and diagnostics</h2><p>Filtered call traces omit credentials, selectors, URLs and raw responses.</p>'+
     (portableArchive?'<p><a href="report-artifacts.tar.gz">Download sanitized report archive</a></p>':'')+
     artifacts.map(({trace,path,componentPath})=>`<details><summary>${xml(trace.scenario??trace.executionId)} — ${trace.outcome}</summary>`+
@@ -243,7 +251,7 @@ export async function saveReport(directory: string, runId: string, cases: CaseRe
     `Live restoration fence: ${recoveryFenceActive?'active':'clear'}. Historical failed outcomes are retained.\n`+
     recoveryAttempts.map(item=>`Automatic recovery ${item.runId}: ${item.state}${item.reason?` (${item.reason})`:''}.\n`).join('')+
     safe.map(item => `${item.id}${item.variant ? ` / ${item.variant}` : ''} [${item.layer} — ${layerDescriptions[item.layer]}; ${item.environment}]: ${item.outcome} — ${durationDescription(item.durationMs)}${item.reason ? ` (${item.reason})` : ''}${item.stage ? ` [${item.stage}]` : ''}\n` +
-      `  Catalogue goal: ${item.description}${item.reason ? `\n  Reason: ${reasons[item.reason]}` : ''}${item.outcome === 'Blocked' ? `\n  Next: ${blockedAction(item.reason)}` : ''}`).join('\n') + '\n');
+      `  Catalogue goal: ${item.description}${item.reason ? `\n  Reason: ${blockerDescription(item.reason,item.id,item.variant,item.layer)}` : ''}${item.outcome === 'Blocked' ? `\n  Next: ${blockedAction(item.reason)}` : ''}`).join('\n') + '\n');
   await archiveReport(directory,runId,artifacts,portableArchive);
   return {...summary, executionCounts,recoveryFenceActive,recoveryAttempts, fullPhase0Accepted, fullPhase1Accepted, fullPhase2Accepted,fullPhase3Accepted,fullPhase4Accepted,installedPhase4Accepted,
     ...Object.fromEntries([5,6,7,8].map(phase=>[`fullPhase${phase}Accepted`,mode === `phase${phase}` && summary.acceptable && laterCoverage?.complete === true]))};

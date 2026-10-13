@@ -37,12 +37,16 @@ concurrency:
 jobs:
   regression-image:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 50
+    permissions:
+      contents: write
+      packages: write
     env:
       DOCKER_BUILDKIT: '1'
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           persist-credentials: false
       - name: Build regression runner from current source
         id: build
@@ -61,6 +65,32 @@ jobs:
       - name: Exercise Realtime Chromium fixtures in the built image
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: bash tools/regression.sh phase7-fixtures
+      - name: Exercise administration and regression-dashboard Chromium fixtures
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: bash tools/regression.sh phase8-fixtures
+      - name: Publish tested Linux AMD64 runner and promote only its original channel
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_REVISION: ${{ github.sha }}
+          CHANNEL: ${{ github.ref_name }}
+        run: |
+          image="ghcr.io/qualityminds/magicstick-regression:sha-$SOURCE_REVISION"
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker tag magicstick-regression:local "$image"
+          docker push "$image"
+          reference="$(docker image inspect "$image" --format '{{index .RepoDigests 0}}')"
+          digest="${reference##*@}"
+          # Appliances have no publisher token; never promote a private image
+          # which only this authenticated CI runner can download.
+          docker logout ghcr.io
+          docker pull "ghcr.io/qualityminds/magicstick-regression@$digest"
+          test "$(docker image inspect "ghcr.io/qualityminds/magicstick-regression@$digest" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$SOURCE_REVISION"
+          test "$(docker image inspect "ghcr.io/qualityminds/magicstick-regression@$digest" --format '{{.Os}}/{{.Architecture}}')" = 'linux/amd64'
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          python3 tools/promote_regression_image.py --source "$SOURCE_REVISION" --digest "$digest" --branch "$CHANNEL" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

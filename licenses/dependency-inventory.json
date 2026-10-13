@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "6dda8724e63f83d4608f703a3357dc0d2544ff5501e9a32df66a9a90f8d6909e",
-  "deploymentReferencesSha256": "52a9420a00632437fe6f46b04ed813fe58b829305c093594ab8504e6ed3f0593",
+  "deploymentReferencesSha256": "72c7c58eaa1b90d0eb5700ca4ff4aae6a1de05b64f08dd20aec3a322ddf1b3ea",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -2005,32 +2005,32 @@
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 65,
+      "line": 66,
       "reference": "node-version: \"24\""
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 69,
+      "line": 70,
       "reference": "python3 -m pip install pyyaml"
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 116,
+      "line": 117,
       "reference": "python3 -m pip install -r dashboard/apps/api/requirements.txt pyyaml"
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 148,
+      "line": 149,
       "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 164,
+      "line": 165,
       "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
     },
     {
       "file": ".github/workflows/build-dashboard-image.yml",
-      "line": 180,
+      "line": 181,
       "reference": "org.opencontainers.image.source=https://github.com/QualityMinds/AIppliance-Magic-Stick"
     },
     {
@@ -2150,7 +2150,7 @@
     },
     {
       "file": ".github/workflows/dashboard-browser-smoke.yml",
-      "line": 61,
+      "line": 63,
       "reference": "node-version: '24'"
     },
     {
@@ -2277,6 +2277,11 @@
       "file": ".github/workflows/regression-runner.yml",
       "line": 38,
       "reference": "regression-image:"
+    },
+    {
+      "file": ".github/workflows/regression-runner.yml",
+      "line": 91,
+      "reference": "export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader"
     },
     {
       "file": ".github/workflows/release-draft.yml",
@@ -2505,18 +2510,23 @@
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
-      "line": 6691,
+      "line": 6698,
       "reference": "raise ValueError(\"Realtime requires a Hugging Face repository: hf://organization/model\")"
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
-      "line": 6728,
+      "line": 6735,
       "reference": "if image:"
     },
     {
       "file": "magic-cluster/apps/dashboard/deployment.yaml",
       "line": 32,
       "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-f03e60071a4cda277c2f6fbd074e5669ba5b67da@sha256:8a5d4789d9e2497bb4b9970b9040e1dda1de54c95bc13ef9eb265990cafdc573"
+    },
+    {
+      "file": "magic-cluster/apps/dashboard/test_regression_api.py",
+      "line": 155,
+      "reference": "self.objects[CORE + \"/configmaps/magicstick-regression-runtime\"][\"data\"][\"image\"] = \"image:latest\""
     },
     {
       "file": "magic-cluster/apps/instances/hermes/Chart.yaml",
@@ -2692,6 +2702,21 @@
       "file": "magic-cluster/apps/instances/pi-coding/templates/resources.yaml",
       "line": 123,
       "reference": "image: {{ $image | quote }}"
+    },
+    {
+      "file": "magic-cluster/apps/regression/reports.yaml",
+      "line": 23,
+      "reference": "image: python:3.13-alpine@sha256:79e7a9b9ff1cbceff819f856fb374477792a5967759d94df266de7b7b4120e6f"
+    },
+    {
+      "file": "magic-cluster/apps/regression/reports.yaml",
+      "line": 29,
+      "reference": "image: python:3.13-alpine@sha256:79e7a9b9ff1cbceff819f856fb374477792a5967759d94df266de7b7b4120e6f"
+    },
+    {
+      "file": "magic-cluster/apps/regression/runtime.yaml",
+      "line": 9,
+      "reference": "image: \"\""
     },
     {
       "file": "magic-cluster/platform/ai/agent-sandbox/gitrepository.yaml",
@@ -3100,18 +3125,23 @@
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 3356,
+      "line": 3357,
       "reference": "raise ValueError(\"Realtime requires a Hugging Face repository: hf://organization/model\")"
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 3393,
+      "line": 3394,
       "reference": "if image:"
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 4263,
+      "line": 4264,
       "reference": "if not image:"
+    },
+    {
+      "file": "magic-cluster/platform/magicstick-operator/crds/regressionruns.appliance.magicstick.dev.yaml",
+      "line": 55,
+      "reference": "image:"
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/deployment.yaml",

@@ -22,6 +22,7 @@ import {preparationArguments} from './core/input-preparation.ts';
 import {verifyHostContinuation} from './core/setup-suite.ts';
 import {preparationDiagnostic, requirePreparation, preparationDescription} from './core/preparation-diagnostic.ts';
 import {runnerSession} from './core/runner-session.ts';
+import {progressEvent} from './core/progress.ts';
 
 process.umask(0o077);
 process.chdir(fileURLToPath(new URL('..', import.meta.url)));
@@ -161,6 +162,7 @@ try {
       if(interruptedSignal)break;
       const receipt=join(directory,'phase-result.json');await rm(receipt,{force:true});
       console.log(`Regression campaign: Phase ${phase} P0 (isolated + installed layers).`);
+      progressEvent({event:'phase-start',phase,selected});
       child=spawn(process.execPath,[fileURLToPath(import.meta.url),`phase${phase}`],{stdio:'inherit',
         env:{...environment,REGRESSION_CAMPAIGN_RESULT:receipt}});
       const code=await waitChild(child),ids=phaseIds(phase);
@@ -182,6 +184,7 @@ try {
       const outcome=reportExitCode(cases);
       phases.push({phase,runId:result.runId,state:outcome === 0 ? 'Passed' : outcome === 1 ? 'Failed' : 'Blocked',counts:summarize(ids ?? [],cases).counts,
         executionCounts:summarizeExecutions(cases)});
+      progressEvent({event:'phase-end',phase,outcome:phases.at(-1).state});
       collected.push(...cases);
       await writePrivate(join(directory,'all-summary.json'),{version:1,phases,selectedPhases:selected,
         allSelectedPhasesPassed:phases.length === selected.length && phases.every(item=>item.state === 'Passed')});
@@ -201,6 +204,7 @@ try {
       `Recorded executable scenarios: ${JSON.stringify(summarizeExecutions(collected))}\n`+
       phases.map(item=>`Phase ${item.phase}: ${item.state} (${item.runId ?? 'not executed: run cancelled'})`).join('\n')+'\nDetailed cases: summary.html; machine results: summary.json and junit.xml\n');
     console.log('Private campaign report: '+join(directory,'all-summary.txt'));
+    progressEvent({event:'campaign-end',runId});
     process.exitCode=passed ? 0 : reportExitCode(collected);
   } else if (Object.hasOwn(phaseSteps,mode)) {
     const collected = [], steps = [],recoveryAttempts=[];
@@ -211,6 +215,7 @@ try {
       const priorFence=Boolean(environment.REGRESSION_RECOVERY_FENCE);
       const receipt=join(directory,'phase-result.json');await rm(receipt,{force:true});
       console.log(`Phase ${mode.slice(-1)} P0 step ${index + 1}/${stepsToRun.length}: ${step}`);
+      progressEvent({event:'step-start',step,index:index+1,total:stepsToRun.length});
       console.log(`  ${modeDescription(step)}`);
       child = spawn(process.execPath, [fileURLToPath(import.meta.url),step], {
         env: {...environment,REGRESSION_CAMPAIGN_RESULT:receipt}, stdio: 'inherit',

@@ -17,6 +17,19 @@ data:
         "other": {"displayName": "Other", "order": 1000}
       },
       "modules": {
+        "regression": {
+          "displayName": "Regression runner",
+          "description": "Runs the existing P0 suite inside a registered disposable test Appliance; reports survive dashboard reloads.",
+          "group": "other",
+          "activationMode": "moduleactivation",
+          "order": 900,
+          "path": "magic-cluster/apps/regression",
+          "kustomizationName": "app-regression",
+          "requires": ["basis", "dashboard"],
+          "requiredCrds": ["regressionruns.appliance.magicstick.dev"],
+          "default": false,
+          "uninstallPolicy": "keep-data"
+        },
         "basis": {
           "displayName": "Basis",
           "group": "core",

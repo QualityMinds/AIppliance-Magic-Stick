@@ -88,6 +88,18 @@ test('HAR-10 automatic base identity tests remain selectable when no inference r
   expect(recipes.cases['NET-07']).toBeUndefined();
 });
 
+test('HAR-10 automatic discovery prepares NVIDIA fixtures for four identical physical cards',()=>{
+  const observed=snapshot(),host=observed.hosts[0]!;
+  observed.status.hardwareOperators={gpu:{devices:Array.from({length:4},(_,index)=>({id:`node-uid/0000:0${index+1}:00.0`,vendor:'nvidia',
+    node:host.name,nodeUid:host.nodeUid,pciAddress:`0000:0${index+1}:00.0`,name:'NVIDIA RTX A6000'}))}} as any;
+  observed.models.computeTargets.targets.push({id:'nvidia-gpu',available:true,engines:['OLlama','VLLM'],
+    kvCacheTypes:{OLlama:[{value:'q8_0',label:'Q8'}],VLLM:[{value:'auto',label:'Auto'}]}});
+  const gpu=automaticGpuProfile(observed,{});
+  expect(gpu?.devices.nvidia?.id).toBe('node-uid/0000:01:00.0');
+  expect(gpu?.models.nvidiaOllama?.url).toBe('ollama://small:latest');expect(gpu?.models.nvidiaVllm?.url).toBe('hf://example/small');
+  expect(gpu?.models.nvidiaVllm?.gpuDevices).toBeUndefined();
+});
+
 test('HAR-10 automatic memory drills use advertised firmware options and preserve the OS safety reserve',()=>{
   const observed=snapshot(),lab=prepareInputs(source(),observed,options,{}).parsed,host=observed.hosts[0]!;
   host.gpuMemory={id:'c'.repeat(64),supported:true,message:'Synthetic',systemMemoryMi:120_000,

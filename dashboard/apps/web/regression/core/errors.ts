@@ -25,13 +25,14 @@ export const reasons = {
   LAB: 'This target is not the registered disposable regression appliance. Live writes were refused.',
   RECOVERY: 'A previous test did not prove restoration. Dependent live writes are fenced; independent tests continue.',
   CANCELLED: 'The run was stopped by the operator. Remaining tests were not executed.',
+  EXTERNAL_RUNNER: 'This test can restart, disconnect or replace the Appliance hosting this runner. Run it from the external Docker runner; it cannot be independently verified by an in-Appliance Job.',
 } as const;
 
 export type ReasonCode = keyof typeof reasons;
 /** Absence of a lab prerequisite is not a product failure. API/authentication,
  * invalid generated configuration, timeouts and assertions are failures. */
 export const blockedReasons: readonly ReasonCode[] = ['PREREQUISITE', 'DEPENDENCY', 'PRIVATE_FILE', 'TLS', 'IDENTITY', 'CAPABILITY',
-  'HOST', 'BUSY', 'OBSERVER', 'LOCK_BUSY', 'LOCK_STALE', 'LOCK_LOST', 'LAB', 'RECOVERY', 'CANCELLED'];
+  'HOST', 'BUSY', 'OBSERVER', 'LOCK_BUSY', 'LOCK_STALE', 'LOCK_LOST', 'LAB', 'RECOVERY', 'CANCELLED', 'EXTERNAL_RUNNER'];
 export const stages = ['preflight', 'host-boot', 'host-readiness', 'login-form', 'login-return', 'login-session',
   'model-estimate', 'model-create', 'model-ready', 'model-stopped', 'model-failure', 'external-ready', 'external-stopped',
   'cleanup', 'recovery-barrier', 'flux-ready', 'gpu-backend', 'gpu-binding', 'gpu-validation', 'gpu-slots', 'model-inference', 'model-update'] as const;

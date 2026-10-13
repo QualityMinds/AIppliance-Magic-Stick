@@ -12,6 +12,30 @@ export const sessionSchema = z.object({
 
 export type Session = z.infer<typeof sessionSchema>;
 
+export type RegressionOutcome = 'Passed' | 'Failed' | 'Blocked';
+export interface RegressionCounts {Passed: number; Failed: number; Blocked: number}
+export interface RegressionProgress {
+  percent?: number; completedPhases?: number; totalPhases?: number; currentPhase?: number;
+  step?: string; currentTest?: string; testIndex?: number; testTotal?: number; executionCounts?: RegressionCounts;
+}
+export interface RegressionResult {
+  counts: RegressionCounts; executionCounts: RegressionCounts; recoveryRequired: boolean; omittedCases: number;
+  phases: Array<{phase: number; outcome: RegressionOutcome; counts: RegressionCounts; executionCounts: RegressionCounts}>;
+  cases: Array<{id: string; description?: string; outcome: RegressionOutcome; layer: string; variant: string; reason: string; message: string; action: string; durationMs: number;
+    phase?: number; stage?: string; traceRunId?: string; executionId?: string; tracePath?: string}>;
+}
+export interface RegressionRun {
+  id: string; uid: string; createdAt: string; phases: number[]; sourceRevision: string;
+  phase: RegressionOutcome | 'Queued' | 'Preparing' | 'Starting' | 'Running' | 'Recovering' | 'Cancelling' | 'Cancelled';
+  message: string; progress: RegressionProgress; result?: RegressionResult | null; reportAvailable: boolean;
+  credentialsCleaned: boolean; startedAt?: string; finishedAt?: string;
+}
+export interface RegressionStatus {
+  registered: boolean; applianceUid: string; runtimeAvailable: boolean; sourceRevision: string; message: string;
+  recoveryAvailable?: boolean;
+  runs: RegressionRun[]; executionLocation: 'appliance-kubernetes'; externalRunnerRequired: string[];
+}
+
 export interface LicenseClaims {
   edition: 'free-registered' | 'commercial';
   version: 1;

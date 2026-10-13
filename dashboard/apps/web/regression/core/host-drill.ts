@@ -70,6 +70,7 @@ export function parseHostDrill(value:unknown,id:string,host:ManagedHost):HostDri
 }
 
 export async function runHostDrill(live:LiveFoundation,id:string) {
+  if(process.env.REGRESSION_EXECUTION === 'kubernetes' && !id.startsWith('CACHE-')) throw new HarnessError('EXTERNAL_RUNNER');
   // No environment variable alone can approve a reboot. A reviewed one-boot
   // plan or installation-bound typed recipe/recovery bundle is also required.
   requireSafe(['phase6-drill','phase6-live'].includes(process.env.REGRESSION_MODE ?? '') && process.env.REGRESSION_HOST_DRILLS === 'approved' && process.env.REGRESSION_HOST_DRILLS_FILE,'PREREQUISITE');

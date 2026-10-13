@@ -8,8 +8,9 @@ import {UsersPage} from './UsersPage';
 import {HardwarePage} from './HardwarePage';
 import {HostPowerPanel} from './HostManagement';
 import {ModelCachePage} from './ModelCachePage';
+import {RegressionPage} from './RegressionPage';
 
-export type SystemSectionId = 'settings' | 'license' | 'users' | 'hardware' | 'status' | 'power' | 'model-cache';
+export type SystemSectionId = 'settings' | 'license' | 'users' | 'hardware' | 'status' | 'power' | 'model-cache' | 'regression';
 
 const sections: Array<{id: SystemSectionId; label: string; admin?: boolean; identity?: boolean}> = [
   {id: 'settings', label: 'Settings', admin: true},
@@ -17,6 +18,7 @@ const sections: Array<{id: SystemSectionId; label: string; admin?: boolean; iden
   {id: 'users', label: 'Users', admin: true, identity: true},
   {id: 'hardware', label: 'Hardware'},
   {id: 'model-cache', label: 'Model cache', admin: true},
+  {id: 'regression', label: 'Regression tests', admin: true},
   {id: 'status', label: 'System Status'},
   {id: 'power', label: 'Computer power', admin: true},
 ];
@@ -58,6 +60,7 @@ export const SystemAreaPage = ({session, section, settingsSection, onSectionChan
       {active === 'status' && <SystemPage />}
       {active === 'power' && canAdminister(session) && <HostPowerPanel />}
       {active === 'model-cache' && canAdminister(session) && <ModelCachePage />}
+      {active === 'regression' && canAdminister(session) && <RegressionPage />}
     </div>
   </div>;
 };

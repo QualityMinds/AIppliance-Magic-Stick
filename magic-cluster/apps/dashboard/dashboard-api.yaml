@@ -3102,6 +3102,11 @@ data:
 
 
     def module_activation_payload(module, enabled, payload=None, catalog_spec=None):
+        if module == "regression" and not enabled:
+            runs = list_resource(f"/apis/{APPLIANCE_GROUP}/{APPLIANCE_VERSION}/namespaces/{APPLIANCE_NAMESPACE}/regressionruns")
+            if any(run.get("status", {}).get("phase") not in {"Passed", "Failed", "Blocked", "Cancelled"}
+                   or run.get("status", {}).get("credentialsCleaned") is not True for run in runs):
+                raise RequestError(409, "Cancel the active regression run and wait for test-account cleanup before disabling its runner.")
         name = module
         payload = {} if payload is None else payload
         if not isinstance(payload, dict) or set(payload) - {"parameters"}:
@@ -3420,6 +3425,8 @@ data:
 
 
     def module_mutation_access(module, payload):
+        if module == "regression":
+            return "admin"
         # GPU validation starts privileged device access in fixed, catalogue-
         # owned images. Ordinary model operators cannot select these profiles.
         return "admin" if module == "amd-gpu" and "parameters" in payload else "operator"
@@ -8970,6 +8977,8 @@ data:
 
 
     def required_get_access(parts):
+        if len(parts) >= 2 and parts[:2] == ["api", "regression"]:
+            return "admin"
         if parts in (["api", "session"], ["api", "my-instances"]):
             return "user"
         if len(parts) == 4 and parts[:2] == ["api", "models"] and parts[3] == "logs":
@@ -9236,7 +9245,51 @@ data:
             except Exception:
                 self.send_error_json(503, "Private Mesh is unavailable; no action was confirmed.")
 
+        def handle_regression(self, mutate=False):
+            try:
+                principal = self.require_access("admin")
+                from regression_api import RegressionApi
+                service = RegressionApi(globals())
+                parts = self.route().strip("/").split("/")
+                if mutate:
+                    validate_dashboard_mutation_request(self)
+                    payload = read_body(self, max_bytes=4096)
+                    if parts == ["api", "regression", "register"]:
+                        self.send_json(service.register(principal, payload))
+                    elif parts == ["api", "regression", "runs"]:
+                        self.send_json(service.start(principal, payload), 202)
+                    elif len(parts) == 5 and parts[:3] == ["api", "regression", "runs"] and parts[4] == "cancel":
+                        self.send_json(service.cancel(principal, parts[3], payload), 202)
+                    else:
+                        self.send_error_json(404, "not found")
+                elif parts == ["api", "regression"]:
+                    self.send_json(service.list())
+                elif len(parts) == 4 and parts[:3] == ["api", "regression", "runs"]:
+                    self.send_json(service.view(service.run(parts[3])))
+                elif len(parts) == 5 and parts[:3] == ["api", "regression", "runs"]:
+                    data, filename, content_type = service.artifact(parts[3], parts[4])
+                    self.send_response(200)
+                    self.send_header("Content-Type", content_type)
+                    self.send_header("Content-Disposition", 'attachment; filename="' + filename + '"')
+                    self.send_header("Content-Length", str(len(data)))
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("X-Content-Type-Options", "nosniff")
+                    self.send_header("Content-Security-Policy", "sandbox; default-src 'none'; style-src 'unsafe-inline'")
+                    self.end_headers()
+                    self.wfile.write(data)
+                else:
+                    self.send_error_json(404, "not found")
+            except AuthError as error:
+                self.send_auth_error(error)
+            except RequestError as error:
+                self.send_error_json(error.status, str(error))
+            except Exception:
+                self.send_error_json(503, "Regression status or setup is unavailable. No private logs or credentials were exposed.")
+
         def do_GET(self):
+            if self.route().startswith("/api/regression"):
+                self.handle_regression()
+                return
             if self.route() == "/api/mesh":
                 self.handle_mesh()
                 return
@@ -9439,6 +9492,9 @@ data:
             self.send_error_json(404, "not found")
 
         def do_POST(self):
+            if self.route().startswith("/api/regression"):
+                self.handle_regression(mutate=True)
+                return
             if self.route().startswith("/api/mesh/"):
                 self.handle_mesh(mutate=True)
                 return
@@ -9773,7 +9829,28 @@ data:
             time.sleep(30)
 
 
+    def regression_report_bytes(uid, filename):
+        if not re.fullmatch(r"[a-f0-9-]{36}", uid) or filename not in {"report-artifacts.tar.gz", "summary.html", "junit.xml"}:
+            raise RequestError(400, "Invalid report.")
+        with urllib.request.urlopen("http://regression-reports.magicstick-regression.svc:8080/" + uid + "/" + filename, timeout=20) as response:
+            data = response.read(64 * 1024 * 1024 + 1)
+        if len(data) > 64 * 1024 * 1024:
+            raise RequestError(413, "Report exceeds the download limit.")
+        return data
+
+
+    def regression_cleanup_loop():
+        from regression_api import RegressionApi
+        while True:
+            try:
+                RegressionApi(globals()).cleanup_finished()
+            except Exception:
+                pass  # Durable intent is retried; never log credentials or revoke a live run.
+            time.sleep(30)
+
+
     if __name__ == "__main__":
         port = int(os.environ.get("PORT", "8080"))
         threading.Thread(target=federation_entitlement_loop, daemon=True, name="federation-entitlement").start()
+        threading.Thread(target=regression_cleanup_loop, daemon=True, name="regression-cleanup").start()
         ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()

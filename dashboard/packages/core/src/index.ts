@@ -44,9 +44,9 @@ export const gpuCompatibilityParameters = (profileId: string, profiles: GpuCompa
 
 export const phaseTone = (phase?: string) => {
   const normalized = String(phase ?? '').toLowerCase();
-  if (['ready', 'active', 'enabled', 'completed', 'succeeded', 'registered', 'accepted', 'configured'].includes(normalized)) return 'good';
+  if (['ready', 'active', 'enabled', 'completed', 'succeeded', 'passed', 'registered', 'accepted', 'configured'].includes(normalized)) return 'good';
   if (['failed', 'error', 'degraded'].includes(normalized)) return 'bad';
-  if (['installing', 'starting', 'waitingforpod', 'reconciling', 'pending', 'progressing'].includes(normalized)) return 'warn';
+  if (['installing', 'starting', 'waitingforpod', 'reconciling', 'pending', 'progressing', 'blocked', 'recovering', 'cancelling'].includes(normalized)) return 'warn';
   return 'neutral';
 };
 

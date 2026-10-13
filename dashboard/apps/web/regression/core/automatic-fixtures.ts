@@ -16,9 +16,9 @@ export function automaticGpuProfile(snapshot:PreparationSnapshot,_defaults:Recor
     nodeName:host.name,nodeUid:host.nodeUid,bootId:host.bootId,sharedSlots:2,devices:{},models:{}};
   for(const provider of ['amd','nvidia'] as const) {
     const selected=devices.filter(d=>d.nodeUid === host.nodeUid && d.vendor === provider);
-    // Current sharing contract manages exactly one physical device/provider.
-    // A multi-device topology is not silently rewritten or represented as one.
-    if(selected.length !== 1)continue;
+    // AMD currently requires one physical device; NVIDIA sharing is node-wide
+    // and the MGPU workflow independently chooses every exact DRA card.
+    if(!selected.length || provider === 'amd' && selected.length !== 1)continue;
     profile.devices[provider]={id:selected[0]!.id,pciAddress:selected[0]!.pciAddress};
     const target=`${provider}-gpu` as const,capability=snapshot.models.computeTargets.targets.find(t=>t.id === target);
     for(const engine of ['OLlama','VLLM'] as const) {
@@ -40,7 +40,7 @@ export function automaticProfile(snapshot:PreparationSnapshot,previous:Record<st
   const profile=preparedProfile({},snapshot,options);
   profile.unmanagedKey={approveDisposableProbe:true,createDisposableFixture:true};
   const optional=Object.entries(snapshot.modules.catalogJson?.modules ?? {}).filter(([id,item])=>item.activationMode === 'moduleactivation' &&
-    snapshot.modules.modules[id]?.enabled !== true && !/identity|dashboard|basis|kubeai|gpu|amd|nvidia|intel|litellm|private-mesh|model-catalog|magicstick-operator/.test(id))
+    snapshot.modules.modules[id]?.enabled !== true && !/identity|dashboard|basis|kubeai|gpu|amd|nvidia|intel|litellm|private-mesh|model-catalog|magicstick-operator|regression/.test(id))
     .sort(([a],[b])=>a.localeCompare(b))[0];
   if(optional)profile.modules={approveOptionalModule:true,id:optional[0],parameters:{}};
   const compatibility=snapshot.status.hardwareOperators?.['amd-gpu']?.compatibility;

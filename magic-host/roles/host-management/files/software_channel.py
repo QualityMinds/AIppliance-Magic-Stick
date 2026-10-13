@@ -278,6 +278,7 @@ def image_source_path(path):
     if path.endswith(".md") or re.search(r"(^|/)(?:test_[^/]+|(?:tests|test|e2e)/)|\.test\.[^/]+$", path):
         return False
     return (path.startswith(("dashboard/", "core/magicstick_core/"))
+            or path == "magic-cluster/apps/dashboard/regression_api.py"
             or path.startswith("licenses/")
             or path in {"magic-host/roles/host-management/files/" + name for name in
                         ("network_contract.py", "updates_contract.py", "software_contract.py", "model_cache.py")})

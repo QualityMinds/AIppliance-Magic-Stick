@@ -53,7 +53,7 @@ The React implementation retains the established tab-by-tab feature contract:
 | Mesh | Administrator-only top-level page immediately after API Access; optional module activation, membership, invitations, local-model sharing, relay configuration, and status. Former Settings Mesh links redirect here. |
 | Kubernetes Access | OIDC readiness, role explanations and warnings, user search/pagination, access assignment/removal, and readiness-guarded kubeconfig download/copy. |
 | Federated SSO | Entitlement status, stable issuer and per-provider callback, OIDC/SAML metadata validation, redacted provider state, exact role mappings, guarded save/delete, and local-recovery guidance. |
-| System | Category tabs for public/mDNS settings; offline license administration and software notices; server-side user administration; federated SSO; Hardware profiles and validation; administrator-only Model cache cleanup at `#/system/model-cache`; hardware, Flux, Pod, Service, Ingress, and route status; and administrator-only Computer power controls at `#/system/power`. Legacy `#/settings`, `#/license`, and `#/users` hashes resolve to their new nested System routes. |
+| System | Category tabs for public/mDNS settings; offline license administration and software notices; server-side user administration; federated SSO; Hardware profiles and validation; administrator-only Model cache cleanup at `#/system/model-cache`; administrator-only Kubernetes regression execution, progress and report downloads at `#/system/regression`; hardware, Flux, Pod, Service, Ingress, and route status; and administrator-only Computer power controls at `#/system/power`. Legacy `#/settings`, `#/license`, and `#/users` hashes resolve to their new nested System routes. |
 
 `dashboard/apps/web/src/FeatureParity.test.tsx` protects these user-visible
 contracts independently of the smaller application-shell tests. Catalog and
@@ -65,6 +65,12 @@ The dashboard may read Kubernetes status and create or patch
 `ModuleActivation`, `ModelActivation`, and `AppInstance` resources. It must not
 directly create workloads, Flux Kustomizations, HelmReleases, or specialized
 operator CRs.
+The administrator regression page also creates `RegressionRun` runtime intent;
+the same operator owns its Job. The API provisions only its private generated
+test identity, exposes sanitized artifacts and reclaims the identity after exact
+Pod termination and verified setup recovery. Interrupted runs retain their exact
+generated identity and private restoration receipt for the next run. It never
+receives a user-supplied test script or image.
 Provider Secrets created from user-entered model credentials must stay scoped to
 that dashboard workflow. Keep dashboard examples limited to `example.local`,
 `example.com`, `CHANGEME`, or documented variables.

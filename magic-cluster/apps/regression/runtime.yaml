@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: magicstick-regression-runtime
+  namespace: magicstick-regression
+data:
+  # CI fills immutable image and source revision after the actual image's
+  # isolated suites passed. An unpublished source change is not a usable image.
+  image: ""
+  sourceRevision: ""

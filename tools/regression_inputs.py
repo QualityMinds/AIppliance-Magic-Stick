@@ -541,8 +541,8 @@ def setup_api(directory, seed, mode, reviewed=None, approve_admin=False):
                    'REGRESSION_RUNNER_IMAGE': image,
                    'REGRESSION_RUNNER_UID': str(os.getuid()), 'REGRESSION_RUNNER_GID': str(os.getgid())}
     try:
-        for arguments, message in [(['info'], 'Start Docker/Rancher Desktop before automatic setup.'),
-                                   (['image', 'inspect', image], 'Build the updated runner first: bash tools/regression.sh build')]:
+        for arguments, message in ([] if os.environ.get('REGRESSION_EXECUTION') == 'kubernetes' else [(['info'], 'Start Docker/Rancher Desktop before automatic setup.'),
+                                   (['image', 'inspect', image], 'Build the updated runner first: bash tools/regression.sh build')]):
             result = subprocess.run([docker, *arguments], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20)
             if result.returncode:
                 raise SetupError(message)
@@ -572,8 +572,22 @@ def setup_api(directory, seed, mode, reviewed=None, approve_admin=False):
             command.extend(['-f', override or str(directory / 'compose.override.yaml')])
         # Worker only emits fixed messages. Do not forward Docker/plugin errors:
         # users receive a deterministic setup reason, not arbitrary private data.
-        result = subprocess.run([*command, 'run', '--rm', '--no-deps', '-T', 'setup-api'], env=environment,
+        worker_command = (['node', str(EXAMPLES / 'setup.mjs')] if os.environ.get('REGRESSION_EXECUTION') == 'kubernetes'
+                          else [*command, 'run', '--rm', '--no-deps', '-T', 'setup-api'])
+        result = subprocess.run(worker_command, env=environment,
                                 capture_output=True, text=True, timeout=900 if mode in ['stop-models', 'register', 'refresh'] else 240)
+        if os.environ.get('REGRESSION_EXECUTION') == 'kubernetes':
+            # Forward only validated ownership receipts, not worker logs. This
+            # binds stale-Lease recovery to this Job's persistent journals.
+            for line in (getattr(result, 'stdout', '') or '').splitlines():
+                if not line.startswith('REGRESSION_EVENT '):
+                    continue
+                try:
+                    event = json.loads(line[len('REGRESSION_EVENT '):])
+                    if event.get('version') == 1 and event.get('event') == 'owner-start' and re.fullmatch(r'reg-[a-f0-9-]{36}', event.get('runId', '')) and event.get('targetUid') == environment.get('REGRESSION_APPLIANCE_UID'):
+                        print('REGRESSION_EVENT ' + json.dumps({'version': 1, 'event': 'owner-start', 'runId': event['runId'], 'targetUid': event['targetUid']}), flush=True)
+                except (ValueError, TypeError, AttributeError):
+                    pass
         if result.returncode:
             if (directory / '.setup-access-restore.json').exists():
                 raise SetupError('Kubernetes access restoration needs review. Run: bash tools/regression.sh setup --restore-kubernetes-access')
@@ -1042,7 +1056,9 @@ def run_preparation(directory, arguments):
     if (directory / 'compose.override.yaml').exists():
         command += ['-f', str(directory / 'compose.override.yaml')]
     # Preparation's public messages are static/allowlisted. No raw subprocess stderr is forwarded.
-    result = subprocess.run([*command, 'run', '--rm', '--no-deps', '-T', 'prepare', *arguments], env=environment,
+    worker_command = (['node', str(EXAMPLES / 'prepare.mjs'), *arguments] if os.environ.get('REGRESSION_EXECUTION') == 'kubernetes'
+                      else [*command, 'run', '--rm', '--no-deps', '-T', 'prepare', *arguments])
+    result = subprocess.run(worker_command, env=environment,
                             capture_output=True, text=True, timeout=600)
     if result.returncode:
         raise SetupError('Verified input preparation failed. Check trusted connectivity, current telemetry and private pending receipts; accepted inputs were not bypassed.',

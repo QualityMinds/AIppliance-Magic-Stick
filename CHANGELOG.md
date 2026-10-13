@@ -8,8 +8,19 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Disable saving unchanged, reverted or invalid domain settings and retain
+  unsaved edits across refetches; the full browser regression caught the old
+  always-enabled Save action.
+
 ### Added
 
+- Add administrator-only **System → Regression tests**: run the existing
+  Phase 0–8 P0 suite as one Kubernetes Job on a registered disposable test
+  Appliance, show durable progress and outcomes, cancel with bounded cleanup,
+  and download sanitized HTML, JUnit and filtered-trace archives. Generate test
+  credentials automatically. Blocked checks retain reason, next action,
+  phase/variant/layer and trace identity. Host-disconnecting maintenance drills
+  require the external runner and remain explicitly Blocked internally.
 - Show separate GPU-model System RAM estimates for serving, startup transfer
   buffers and reclaimable file cache. Recommend a conservative host budget for
   new multi-GPU/offloading models while preserving saved and manually edited budgets.
