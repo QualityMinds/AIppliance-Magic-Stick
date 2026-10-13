@@ -25,6 +25,8 @@ Each blocked check includes its reason, phase/variant/layer, stage when availabl
 next action and filtered trace location in the archive. The full report retains
 all checks; the Dashboard limits its expanded failure list to 200 rows.
 Progress measures finished steps, not elapsed-time prediction.
+The page updates automatically every two seconds. **Refresh tests** also requests
+a current status update; it remains available during automatic updates.
 
 Signed license and Federated SSO tests use automatically generated,
 installation-bound **test fixtures**, not a purchased or registered product

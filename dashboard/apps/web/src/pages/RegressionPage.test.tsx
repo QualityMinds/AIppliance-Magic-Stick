@@ -33,6 +33,49 @@ describe('In-Appliance regression tests', () => {
     await userEvent.click(screen.getByRole('button', {name: 'Refresh tests'}));
     expect(api.startRegression).not.toHaveBeenCalled(); expect(api.enableModule).not.toHaveBeenCalled(); expect(api.registerRegression).not.toHaveBeenCalled();
   });
+  it('keeps refresh enabled during background polling and updates progress when the request finishes', async () => {
+    data.runs = [run()]; const client = mount();
+    expect(await screen.findByRole('progressbar')).toHaveAttribute('aria-valuenow', '34');
+    let finish!: (value: RegressionStatus) => void;
+    vi.mocked(api.regression).mockImplementationOnce(() => new Promise(resolve => {finish = resolve;}));
+    let pending!: Promise<void>;
+    await act(async () => {pending = client.refetchQueries({queryKey: ['regression']});});
+    await waitFor(() => expect(client.isFetching({queryKey: ['regression']})).toBe(1));
+    expect(screen.getByRole('button', {name: 'Refresh tests'})).toBeEnabled();
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '34');
+    await act(async () => {
+      finish({...data, runs: [{...run(), progress: {...run().progress, percent: 61}}]}); await pending;
+    });
+    await waitFor(() => expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '61'));
+    expect(screen.getByRole('button', {name: 'Refresh tests'})).toBeEnabled();
+    expect(api.startRegression).not.toHaveBeenCalled();
+  });
+  it('disables only a manual refresh and shares an already pending background request', async () => {
+    const client = mount(); await screen.findByText('No regression runs yet.');
+    let finish!: (value: RegressionStatus) => void;
+    vi.mocked(api.regression).mockImplementationOnce(() => new Promise(resolve => {finish = resolve;}));
+    let pending!: Promise<void>;
+    await act(async () => {pending = client.refetchQueries({queryKey: ['regression']});});
+    await waitFor(() => expect(client.isFetching({queryKey: ['regression']})).toBe(1));
+    expect(screen.getByRole('button', {name: 'Refresh tests'})).toBeEnabled();
+    await userEvent.click(screen.getByRole('button', {name: 'Refresh tests'}));
+    expect(screen.getByRole('button', {name: 'Refresh tests'})).toBeDisabled();
+    expect(api.regression).toHaveBeenCalledTimes(2);
+    await act(async () => {finish(data); await pending;});
+    await waitFor(() => expect(screen.getByRole('button', {name: 'Refresh tests'})).toBeEnabled());
+    expect(api.regression).toHaveBeenCalledTimes(2);
+  });
+  it('reenables refresh after a failed manual request and displays the error', async () => {
+    mount(); await screen.findByText('No regression runs yet.');
+    let fail!: (reason: Error) => void;
+    vi.mocked(api.regression).mockImplementationOnce(() => new Promise((_resolve, reject) => {fail = reject;}));
+    await userEvent.click(screen.getByRole('button', {name: 'Refresh tests'}));
+    expect(screen.getByRole('button', {name: 'Refresh tests'})).toBeDisabled();
+    await act(async () => {fail(new Error('Synthetic status request failure'));});
+    expect(await screen.findByRole('alert')).toHaveTextContent('Synthetic status request failure');
+    await waitFor(() => expect(screen.getByRole('button', {name: 'Refresh tests'})).toBeEnabled());
+    expect(api.startRegression).not.toHaveBeenCalled();
+  });
   it('registers the system tab and direct route only for administrators', () => {
     expect(isSystemSection('regression')).toBe(true);
     for (const role of ['magicstick-user', 'magicstick-viewer', 'magicstick-operator', 'magicstick-admin'])

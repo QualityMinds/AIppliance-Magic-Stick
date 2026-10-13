@@ -56,7 +56,12 @@ const Result = ({run}: {run: RegressionRun}) => {
 
 export const RegressionPage = () => {
   const client = useQueryClient(), [confirm, setConfirm] = useState<'register' | 'start' | 'cancel' | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const query = useQuery({queryKey: ['regression'], queryFn: () => api.regression(), refetchInterval: 2000});
+  const refresh = async () => {
+    setRefreshing(true);
+    try {await query.refetch({cancelRefetch: false});} finally {setRefreshing(false);}
+  };
   const data = query.data, active = data?.runs.find(run => !terminal.has(run.phase));
   const cleanupPending = data?.runs.some(run => terminal.has(run.phase) && !run.credentialsCleaned);
   const mutation = useMutation({mutationFn: async (action: 'enable' | 'register' | 'start' | 'cancel') => {
@@ -69,7 +74,7 @@ export const RegressionPage = () => {
   const disabled = query.isPending || Boolean(query.error) || mutation.isPending;
   const open = (value: 'register' | 'start' | 'cancel') => {mutation.reset(); setConfirm(value);};
   return <div className="stack">
-    <div className="section-title"><div><h2>Regression tests</h2><p>Run all Phase 0–8 P0 tests inside this Magic Stick's Kubernetes cluster.</p></div><Button variant="ghost" onClick={() => void query.refetch()} disabled={query.isFetching}>Refresh tests</Button></div>
+    <div className="section-title"><div><h2>Regression tests</h2><p>Run all Phase 0–8 P0 tests inside this Magic Stick's Kubernetes cluster.</p></div><Button variant="ghost" onClick={() => void refresh()} disabled={query.isPending || refreshing}>Refresh tests</Button></div>
     <ErrorNotice error={query.error ?? mutation.error} />{query.isPending && <Loading />}
     {data && <Panel title="Run the suite">
       <p>No license is required to run regression tests or download reports. Sign in as an administrator and register this disposable test server once; this is not license registration.</p>

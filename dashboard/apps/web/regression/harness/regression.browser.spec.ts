@@ -1,6 +1,37 @@
 import {test,expect,type Request} from '@playwright/test';
 import {fixturePage,origin} from '../fixtures/dashboard.ts';
 
+for(const viewport of ['desktop','mobile'] as const)test(`HAR-10 UX-02 ${viewport} regression refresh stays stable during automatic polling`,async({page},info)=>{
+  await page.setViewportSize(viewport==='mobile'?{width:390,height:844}:{width:1440,height:1000});
+  let reads=0,writes=0,hold=false,percent=34,release:(()=>void)|undefined;
+  const payload=()=>({registered:true,applianceUid:'fixture-appliance',runtimeAvailable:true,sourceRevision:'b'.repeat(40),message:'',
+    executionLocation:'appliance-kubernetes',externalRunnerRequired:['reboot'],runs:[{
+      id:'regression-'+'a'.repeat(32),uid:'fixture-run-uid',createdAt:'2026-10-13T12:00:00Z',sourceRevision:'b'.repeat(40),
+      phase:'Running',phases:[0,1,2,3,4,5,6,7,8],message:'Fixture execution.',credentialsCleaned:false,reportAvailable:false,
+      progress:{percent,completedPhases:3,totalPhases:9,currentPhase:3,executionCounts:{Passed:20,Failed:0,Blocked:0}}}]});
+  await fixturePage(page,{'/api/regression':async(request:Request)=>{
+    if(request.method()!=='GET')writes++;
+    reads++;if(hold)await new Promise<void>(resolve=>{release=resolve;});
+    return payload();
+  }});
+  try{
+    await page.goto(origin+'/#/system/regression');
+    await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow','34');
+    const refresh=page.getByRole('button',{name:'Refresh tests',exact:true});
+    await expect(refresh).toBeEnabled();hold=true;
+    await page.waitForRequest(request=>new URL(request.url()).pathname==='/api/regression'&&request.method()==='GET');
+    await expect.poll(()=>Boolean(release)).toBe(true);
+    await expect(refresh).toBeEnabled();
+    const pendingReads=reads;
+    await refresh.click();await expect(refresh).toBeDisabled();expect(reads).toBe(pendingReads);
+    hold=false;percent=61;release!();
+    await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow','61');
+    await expect(refresh).toBeEnabled();expect(writes).toBe(0);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    await page.screenshot({path:info.outputPath(`regression-refresh-${viewport}.png`),fullPage:true});
+  }finally{hold=false;release?.();}
+});
+
 for(const viewport of ['desktop','mobile'] as const)test(`HAR-10 SEC-01 UX-02 ${viewport} administrators enable, register, start, cancel and download without a license`,async({page})=>{
   await page.setViewportSize(viewport==='mobile'?{width:390,height:844}:{width:1440,height:1000});
   let enabled=false,registered=false,id='',cancelled=false,licenseReads=0;

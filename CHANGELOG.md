@@ -157,6 +157,8 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ### Fixed
 
+- Keep **Refresh tests** stable while regression progress updates automatically;
+  disable it only during initial loading or a manually requested refresh.
 - Discard outdated discovery responses after an engine or hardware change and
   preserve the original edit revision during polling, including Omni. Save only
   changed fields and retain custom Omni sources, images and restart state.
