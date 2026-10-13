@@ -1638,6 +1638,16 @@ data:
             raise
 
 
+    def patch_json(path, body):
+        """Apply a Kubernetes JSON merge patch through the dashboard service account.
+
+        Shared API modules use this narrow helper for owned status and Secret
+        updates. Keeping it with the resource readers gives production the
+        same authenticated in-cluster transport as contract tests.
+        """
+        return request_json("PATCH", path, body, "application/merge-patch+json")
+
+
     def create_or_patch(collection_path, item_path, resource, patch):
         if get_resource(item_path):
             return request_json("PATCH", item_path, patch, "application/merge-patch+json")

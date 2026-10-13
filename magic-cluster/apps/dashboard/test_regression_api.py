@@ -255,6 +255,7 @@ class RegressionApiTests(unittest.TestCase):
         self.assertEqual(server["required_get_access"](["api", "regression", "runs", "id", "archive"]), "admin")
         self.assertIn("handle_regression", server["Handler"].do_GET.__code__.co_names)
         self.assertIn("handle_regression", server["Handler"].do_POST.__code__.co_names)
+        self.assertTrue(callable(server.get("patch_json")), "RegressionApi must receive its status-patch transport in production")
 
     def test_active_module_cannot_be_disabled_and_requires_admin(self):
         server = load_server()
