@@ -12,7 +12,8 @@ export class KubernetesProgress {
   private ended=new Set<number>();
   private owners=new Set<string>();
   campaignRunId:string|undefined;
-  constructor(phases:number[],private targetUid?:string) {this.phases=phases;}
+  private targetUid?:string;
+  constructor(phases:number[],targetUid?:string) {this.phases=phases;this.targetUid=targetUid;}
   consume(value:unknown) {
     const e=value as Record<string,any>;
     if(e?.version!==1)return;

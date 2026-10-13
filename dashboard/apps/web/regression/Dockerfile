@@ -30,6 +30,8 @@ ENV REGRESSION_SOURCE_REVISION=${SOURCE_REVISION} \
 
 # Read the .dockerignore-filtered context and native binary without a COPY layer
 # per directory. Keep only the selected source tree, dependencies and runtime.
+# The Kubernetes progress import below also verifies Node 24 type-stripping
+# compatibility before the image can be published.
 RUN --mount=type=bind,source=.,target=/source \
     --mount=type=bind,from=amd-recovery-tests,source=/amd-recovery.test,target=/tmp/amd-recovery.test \
     apt-get update && apt-get install -y --no-install-recommends ca-certificates curl libnss3-tools python3 python3-yaml python3-venv \
@@ -61,6 +63,7 @@ RUN --mount=type=bind,source=.,target=/source \
     && pnpm install --frozen-lockfile --filter @magicstick/dashboard-web... \
     && pnpm --filter @magicstick/dashboard-web exec playwright install --with-deps --only-shell chromium \
     && pnpm --filter @magicstick/dashboard-web build \
+    && node --input-type=module -e "await import('./apps/web/regression/core/kubernetes-progress.ts')" \
     && node -e "if (Number(process.versions.node.split('.')[0]) < 24) process.exit(1)" \
     && chmod -R a+rX /ms-playwright /opt/magicstick \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* /root/.npm /root/.cache /root/.local/share/pnpm/store

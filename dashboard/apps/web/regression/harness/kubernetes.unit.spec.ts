@@ -7,6 +7,7 @@ import {privateDirectory,writePrivate,readPrivate} from '../core/private-files.t
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {execFileSync} from 'node:child_process';
 import {componentSuite,pythonSuite} from '../components/owning.ts';
 
 test('HAR-10 Kubernetes progress comes from structured events, not private console output',()=>{
@@ -18,6 +19,19 @@ test('HAR-10 Kubernetes progress comes from structured events, not private conso
   expect(JSON.stringify(value)).not.toContain('synthetic-secret');expect(progress.snapshot(true).percent).toBeLessThan(100);
   for(const phase of [0,1,2])progress.consume({version:1,event:'phase-end',phase,outcome:'Blocked'});
   expect(progress.snapshot(true).percent).toBe(100);
+});
+test('HAR-10 Kubernetes progress loads in Node strip-only mode and binds the run owner',()=>{
+  const moduleUrl=new URL('../core/kubernetes-progress.ts',import.meta.url).href;
+  execFileSync(process.execPath,['--experimental-strip-types','--input-type=module','-e',
+    `import assert from 'node:assert/strict';
+     const {KubernetesProgress}=await import(${JSON.stringify(moduleUrl)});
+     const progress=new KubernetesProgress([0],'appliance-fixture');
+     const runId='reg-11111111-2222-3333-4444-555555555555';
+     progress.consume({version:1,event:'owner-start',targetUid:'foreign',runId});
+     assert.deepEqual(progress.snapshot().ownedRunIds,[]);
+     progress.consume({version:1,event:'owner-start',targetUid:'appliance-fixture',runId});
+     assert.deepEqual(progress.snapshot().ownedRunIds,[runId]);`],
+    {stdio:'pipe',timeout:10_000,env:{...process.env,NODE_OPTIONS:''}});
 });
 test('HAR-10 blocked results retain source phase, stage, variant and filtered trace location',()=>{
   const value=publicResult({counts:{Blocked:1},executionCounts:{Blocked:1},cases:[{id:'BOOT-02',layer:'O',variant:'p6-boot',outcome:'Blocked',reason:'EXTERNAL_RUNNER',
