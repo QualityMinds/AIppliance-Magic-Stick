@@ -126,6 +126,7 @@ class RepositoryHygieneTests(unittest.TestCase):
         self.assertEqual(push['branches'], ['main', 'develop'])
         for path in ('dashboard/apps/web/src/App.tsx', 'dashboard/apps/api/server.py',
                      'dashboard/pnpm-lock.yaml', 'core/magicstick_core/license.py',
+                     'magic-cluster/apps/dashboard/dashboard-api.yaml',
                      'magic-host/roles/host-management/files/network_contract.py', '.dockerignore'):
             self.assertTrue(selected(path, push['paths']), path)
         for path in ('dashboard/README.md', 'dashboard/apps/web/README.md',
