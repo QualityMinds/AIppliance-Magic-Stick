@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "6dda8724e63f83d4608f703a3357dc0d2544ff5501e9a32df66a9a90f8d6909e",
-  "deploymentReferencesSha256": "945e6449f5e6adda02eba48c0211126bf9665bdbae363fe5489c77cd5f4fdfbd",
+  "deploymentReferencesSha256": "e0e93b054f38209d7eae522126eb8b13469a0bb7614b4cefeff4009ded14ee28",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -2294,6 +2294,16 @@
       "reference": "python-version: '3.13'"
     },
     {
+      "file": ".github/workflows/vllm-runtime-contracts.yml",
+      "line": 36,
+      "reference": "python-version: '3.12'"
+    },
+    {
+      "file": ".github/workflows/vllm-runtime-contracts.yml",
+      "line": 39,
+      "reference": "python3 -m pip install pyyaml==6.0.3"
+    },
+    {
       "file": "magic-cluster/apps/ai/anything-llm/base/deployment.yaml",
       "line": 30,
       "reference": "image: busybox:1.36"
@@ -2441,7 +2451,7 @@
     {
       "file": "magic-cluster/apps/ai/private-mesh/e2e-job.yaml",
       "line": 19,
-      "reference": "image: vllm/vllm-openai-cpu:v0.23.0"
+      "reference": "image: vllm/vllm-openai-cpu:v0.31.0@sha256:495c84fe30f3572b83a78100a1e8ba423dbb77fc532ecefebe114e6b77327bd9"
     },
     {
       "file": "magic-cluster/apps/ai/private-mesh/e2e-job.yaml",
@@ -2466,7 +2476,7 @@
     {
       "file": "magic-cluster/apps/ai/private-mesh/e2e-job.yaml",
       "line": 66,
-      "reference": "image: vllm/vllm-openai-cpu:v0.23.0"
+      "reference": "image: vllm/vllm-openai-cpu:v0.31.0@sha256:495c84fe30f3572b83a78100a1e8ba423dbb77fc532ecefebe114e6b77327bd9"
     },
     {
       "file": "magic-cluster/apps/ai/private-mesh/e2e-job.yaml",
@@ -2495,12 +2505,12 @@
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
-      "line": 6457,
+      "line": 6691,
       "reference": "raise ValueError(\"Realtime requires a Hugging Face repository: hf://organization/model\")"
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
-      "line": 6494,
+      "line": 6728,
       "reference": "if image:"
     },
     {
@@ -2752,6 +2762,21 @@
       "file": "magic-cluster/platform/ai/kubeai/base/helmrelease.yaml",
       "line": 33,
       "reference": "version: \"0.23.2\""
+    },
+    {
+      "file": "magic-cluster/platform/ai/kubeai/base/test_vllm_wrapper.py",
+      "line": 103,
+      "reference": "backport[\"distribution\"] = lambda name, version=version: types.SimpleNamespace(version=version)"
+    },
+    {
+      "file": "magic-cluster/platform/ai/kubeai/base/test_vllm_wrapper.py",
+      "line": 393,
+      "reference": "self.wrapper[\"runtime_version\"] = lambda package, version=version: version"
+    },
+    {
+      "file": "magic-cluster/platform/ai/kubeai/base/vllm-wrapper-configmap.yaml",
+      "line": 316,
+      "reference": "die(f\"Cannot interpret the installed vLLM runtime version: {version!r}\")"
     },
     {
       "file": "magic-cluster/platform/ai/openclaw-operator/helmrelease.yaml",

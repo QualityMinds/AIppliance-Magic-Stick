@@ -7,6 +7,23 @@ data:
   sitecustomize.py: |-
     import os
 
+    # Explicit, version/checksum-bound qualification only. Ordinary runtimes
+    # never alter native vLLM files. Run before importing the argument wrapper
+    # or launching Python workers; children see the same container-local fix.
+    if os.environ.get("MAGICSTICK_VLLM_PLE_BACKPORT"):
+        try:
+            import ple_backport
+
+            ple_backport.apply()
+        except Exception as exc:
+            import sys
+
+            print(f"[magicstick-vllm-wrapper] ERROR: PLE backport rejected: {exc}",
+                  file=sys.stderr, flush=True)
+            # Python otherwise ignores failures in sitecustomize and continues
+            # with an unqualified native kernel.
+            os._exit(2)
+
     if (
         os.environ.get("MAGICSTICK_VLLM_WRAPPER_ENABLED", "").strip().lower() == "true"
         and os.environ.get("MAGICSTICK_VLLM_WRAPPER_APPLIED", "").strip().lower() != "true"
@@ -18,7 +35,126 @@ data:
         import wrapper
 
         wrapper.configure_argv()
+  ple_backport.py: |-
+    """Opt-in backport of vLLM #60142, never a quantization conversion.
+
+    Upstream b0b23a48d466712d18d390e73b62b169842f65e2 (Apache-2.0),
+    applied only to the reviewed 0.31.0 NVIDIA image's exact native files.
+    Container-local writes disappear when the model Pod is removed.
+    """
+    import fcntl
+    import hashlib
+    import os
+    from importlib.metadata import distribution
+    from pathlib import Path
+    import tempfile
+
+
+    FIX = "b0b23a48d466712d18d390e73b62b169842f65e2"
+    ORIGINAL = {
+        "models/qwen4_exp/common/ngram_embedding.py": "1392f51ccf0b610542bf05c3021271bf6754221d9616ff92831b94f79fc3a892",
+        "triton_utils/importing.py": "e7f665c17fc51366e633dc88b1c6b50f5b4ed4516d1b6d8828c68ef9902fc814",
+    }
+    # Populated from the exact checked native sources, not from upstream main.
+    PATCHED = {
+        "models/qwen4_exp/common/ngram_embedding.py": "414c18488d3ea94c18b4c2e0f8dec7a1cf251d2efefd621dca64850088bd0b14",
+        "triton_utils/importing.py": "609e659a995d7f5b3e56c6c1bda120a39d19db8adb63f330ac0961a415a57604",
+    }
+
+
+    def replace_once(source, before, after):
+        if source.count(before) != 1:
+            raise ValueError("Native PLE backport anchor is missing or ambiguous")
+        return source.replace(before, after, 1)
+
+
+    def transform(name, source):
+        if name == "triton_utils/importing.py":
+            return replace_once(source, "        self.int32 = None\n        self.tensor = None",
+                "        self.int32 = None\n        self.uint8 = None\n"
+                "        self.pointer_type = lambda element_ty: None\n        self.tensor = None")
+        if name != "models/qwen4_exp/common/ngram_embedding.py":
+            raise ValueError("Unknown native backport target")
+        start = source.index("@triton.jit\ndef _lookup_ple_embedding_from_pinned_kernel(")
+        end = source.index("\n\nclass Qwen4ExpPLEPinnedHostEmbedding", start)
+        original = source[start:end]
+        kernel = original
+        for before, after in (
+            ("    weight_ptr,", "    weight_ptr: tl.pointer_type(tl.uint8),  # type: ignore[valid-type]"),
+            ("    output_ptr,", "    output_ptr: tl.pointer_type(tl.uint8),  # type: ignore[valid-type]"),
+            ("    embedding_dim,", "    row_bytes,"),
+            ('    """Look up TP-owned PLE rows through a CUDA view of pinned host memory."""',
+             '    """Copy TP-owned PLE rows as raw bytes from a CUDA view of pinned host memory.\n\n'
+             '    Byte pointers keep the storage dtype out of the kernel signature, so\n'
+             '    dtypes Triton cannot lower on the GPU (FP8 E4M3FN before SM89) still work.\n    """'),
+            ("    row_id = tl.program_id(0)", "    row_id = tl.program_id(0).to(tl.int64)"),
+            ("    store_mask = offsets < embedding_dim", "    store_mask = offsets < row_bytes"),
+            ("        weight_ptr + local_idx * embedding_dim + offsets,", "        weight_ptr + local_idx * row_bytes + offsets,"),
+            ("        other=0.0,", "        other=0,"),
+            ("        output_ptr + row_id * embedding_dim + offsets,", "        output_ptr + row_id * row_bytes + offsets,"),
+        ):
+            kernel = replace_once(kernel, before, after)
+        source = replace_once(source, original, kernel)
+        source = replace_once(source,
+            "        self._block_d = triton.next_power_of_2(self.embedding_dim)",
+            "        self._row_bytes = self.embedding_dim * self.weight.element_size()\n"
+            "        self._block_d = triton.next_power_of_2(self._row_bytes)")
+        return replace_once(source, "                output,\n                self.embedding_dim,",
+                            "                output,\n                self._row_bytes,")
+
+
+    def sha(data):
+        return hashlib.sha256(data).hexdigest()
+
+
+    def apply():
+        if os.environ.get("MAGICSTICK_VLLM_PLE_BACKPORT") != FIX:
+            raise ValueError("Unreviewed PLE backport requested")
+        if os.environ.get("MAGICSTICK_COMPUTE_TARGET") != "nvidia-gpu":
+            raise ValueError("PLE backport qualification is NVIDIA-only")
+        runtime = distribution("vllm")
+        if runtime.version != "0.31.0":
+            raise ValueError("PLE backport requires the exact reviewed vLLM 0.31.0 runtime")
+        lock_fd = os.open("/tmp/magicstick-ple-backport.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(lock_fd, "r+") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            pending, hashes = [], {}
+            # Validate both files before any write. Accept only the original or
+            # our exact patched bytes; a future version/foreign edit fails closed.
+            for name, expected in ORIGINAL.items():
+                path = Path(runtime.locate_file("vllm/" + name))
+                if path.is_symlink() or not path.is_file():
+                    raise ValueError("Native PLE target must be a regular file")
+                data = path.read_bytes()
+                if sha(data) == PATCHED[name]:
+                    hashes[name] = PATCHED[name]
+                    continue
+                if sha(data) != expected:
+                    raise ValueError("Native PLE source checksum differs from the reviewed image")
+                patched = transform(name, data.decode()).encode()
+                if sha(patched) != PATCHED[name]:
+                    raise ValueError("PLE backport result checksum differs from the reviewed patch")
+                compile(patched, str(path), "exec")
+                pending.append((path, patched))
+                hashes[name] = sha(patched)
+            for path, data in pending:
+                fd, temporary = tempfile.mkstemp(prefix=".magicstick-ple-", dir=path.parent)
+                try:
+                    with os.fdopen(fd, "wb") as output:
+                        output.write(data)
+                        output.flush()
+                        os.fsync(output.fileno())
+                    os.chmod(temporary, path.stat().st_mode & 0o777)
+                    os.replace(temporary, path)
+                finally:
+                    if os.path.exists(temporary):
+                        os.unlink(temporary)
+            if pending:
+                print(f"[magicstick-vllm-wrapper] PLE byte-copy backport {FIX} applied to vLLM 0.31.0",
+                      flush=True)
+            return hashes
   wrapper.py: |-
+    from importlib.metadata import PackageNotFoundError, version as runtime_version
     import json
     import os
     import re
@@ -164,9 +300,29 @@ data:
         return filtered
 
 
+    def normalize_legacy_cache_flags(args):
+        legacy = {"--calculate-kv-scales", "--no-calculate-kv-scales"}
+        if not any(arg.replace("_", "-") in legacy for arg in args):
+            return args
+        # Upstream 0.28 removed runtime KV calibration, not FP8 cache support.
+        # Inspect package metadata without importing torch or initializing CUDA;
+        # older installed images must retain their existing calibration behavior.
+        try:
+            version = runtime_version("vllm")
+        except PackageNotFoundError:
+            die("Cannot identify the installed vLLM runtime for FP8 cache compatibility")
+        match = re.match(r"^(\d+)\.(\d+)(?:[.+-]|$)", version)
+        if not match:
+            die(f"Cannot interpret the installed vLLM runtime version: {version!r}")
+        if tuple(map(int, match.groups())) >= (0, 28):
+            log(f"vllm={version}: removed legacy KV calibration flag; FP8 uses checkpoint scales or upstream defaults")
+            return [arg for arg in args if arg.replace("_", "-") not in legacy]
+        return args
+
+
     def configure_argv():
         compute_target = os.environ.get("MAGICSTICK_COMPUTE_TARGET", "nvidia-gpu").strip().lower()
-        args = strip_gpu_memory_utilization(sys.argv[1:])
+        args = normalize_legacy_cache_flags(strip_gpu_memory_utilization(sys.argv[1:]))
         # All supported vLLM pins implement this scheduler. Lower values win
         # among queued requests; this does not promise preemption of active work.
         filtered = []
@@ -352,7 +508,7 @@ data:
 
 
     class BudgetWorker(Worker):
-        """vLLM 0.23.0 native worker with equal MiB budgets on unequal GPUs."""
+        """vLLM 0.31.0 native worker with equal MiB budgets on unequal GPUs."""
 
         def init_device(self):
             if self.parallel_config.data_parallel_size != 1:

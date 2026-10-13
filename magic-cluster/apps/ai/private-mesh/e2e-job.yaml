@@ -16,7 +16,7 @@ spec:
       automountServiceAccountToken: false
       initContainers:
         - name: prepare-model
-          image: vllm/vllm-openai-cpu:v0.23.0
+          image: vllm/vllm-openai-cpu:v0.31.0@sha256:495c84fe30f3572b83a78100a1e8ba423dbb77fc532ecefebe114e6b77327bd9
           command: [python, /input/create_test_model.py]
           resources:
             requests: {cpu: 100m, memory: 512Mi}
@@ -63,7 +63,7 @@ spec:
             - {name: input, mountPath: /input, readOnly: true}
             - {name: state, mountPath: /test}
         - name: vllm
-          image: vllm/vllm-openai-cpu:v0.23.0
+          image: vllm/vllm-openai-cpu:v0.31.0@sha256:495c84fe30f3572b83a78100a1e8ba423dbb77fc532ecefebe114e6b77327bd9
           restartPolicy: Always
           args: [--host, '127.0.0.1', --port, '8000', --model, /test/vllm-model, --served-model-name, qwen, --max-model-len, '2048', --max-num-seqs, '4', --enforce-eager, --scheduling-policy, priority]
           env:

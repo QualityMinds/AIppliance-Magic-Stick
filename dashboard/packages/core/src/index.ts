@@ -271,12 +271,22 @@ export const selectedArtifact = (variant?: ModelVariant, id?: string): ModelArti
     ?? artifacts[0];
 };
 
+export const modelNameError = (value: string, existingNames: readonly string[] = []): string | undefined => {
+  const name = value.trim();
+  if (!name) return 'Enter a model name.';
+  if (name.length > 63) return 'Use at most 63 characters for the model name.';
+  if (!/^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$/.test(name))
+    return 'Use lowercase letters, numbers and hyphens. Start and end with a letter or number.';
+  if (existingNames.includes(name)) return 'A model with this name already exists. Choose another name.';
+};
+
 export const safeModelName = (reference: string) => {
   const tail = reference.replace(/^[a-z]+:\/\//i, '').split('/').pop() ?? 'model';
   const normalized = tail.toLowerCase().replace(/[^a-z0-9-]+/g, '-');
   let start = 0;
   let end = normalized.length;
   while (start < end && normalized[start] === '-') start += 1;
+  end = Math.min(end, start + 48);
   while (end > start && normalized[end - 1] === '-') end -= 1;
-  return normalized.slice(start, Math.min(end, start + 48)) || 'model';
+  return normalized.slice(start, end) || 'model';
 };

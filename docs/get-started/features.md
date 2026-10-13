@@ -11,6 +11,12 @@
 - Use NVIDIA GPUs on one node, including different GPU models and capacities, to
   [split one model or run independent copies](../administration/gpu-sharing.md#one-model-across-several-nvidia-gpus)
   behind one LiteLLM model name, with explicit per-card allocation through NVIDIA DRA.
+- Select physical NVIDIA cards from one checkbox list and see consistent total
+  VRAM estimates and breakdowns for a split model. Validate model names before
+  creating local or external models.
+- Review separate GPU-model estimates for serving RAM, startup range and a
+  conservative host budget. New multi-GPU/offloading defaults are model-dependent;
+  saved and manually edited budgets remain unchanged. Estimates are not fit guarantees.
 - Experiment with Realtime by selecting the vLLM-Omni profile in that form.
 - Connect external model providers and use a common LiteLLM API.
 - Give every application instance its own LiteLLM inference key, with automatic
@@ -44,6 +50,15 @@
 A detected GPU is not proof that every engine or model will run. The dashboard
 checks engine capabilities, driver readiness, allocation slots and memory data.
 See the [compatibility matrix](../reference/compatibility.md).
+
+Ordinary vLLM runtimes use upstream 0.31.0, pinned separately for CPU, NVIDIA,
+AMD ROCm and Intel XPU. A supported architecture does not guarantee a specific
+quantization or community checkpoint works on your GPU. Experimental vLLM-Omni
+retains its separate version and acceptance boundaries.
+
+Ollama uses digest-pinned 0.40.3 standard and AMD ROCm images. Saved registry
+references and model controls are retained; upgrading an image does not certify
+every model or GPU. See [runtime upgrade checks](../development/model-integration.md#ollama-runtime-upgrades).
 
 GPU sharing permits more workloads to use a device; it does not multiply its
 physical memory or provide isolated VRAM limits. Memory estimates do not prove

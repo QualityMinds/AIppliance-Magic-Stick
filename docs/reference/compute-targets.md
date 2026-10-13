@@ -210,8 +210,11 @@ architecture-specific. CPU users who need a smaller quantized artifact can
 choose the Ollama engine and its pinned GGUF Q4_K_M or Q8_0 artifact. A future
 vLLM CPU quantized variant must be split and accepted per architecture rather
 than advertised as portable.
-The bundled Ollama runtime is pinned to `0.33.2` (and `0.33.2-rocm`) so it can
-parse the Qwen3.5, Qwen3.6, and Qwen3.8 model formats. The native Qwen context
+The bundled Ollama runtime is pinned by immutable digest to `0.40.3` for CPU
+and NVIDIA, and `0.40.3-rocm` for AMD. Image availability is not model/GPU
+acceptance; qualify the chosen registry tag on its target after an upgrade.
+See [Ollama upgrade checks](../development/model-integration.md#ollama-runtime-upgrades)
+for the retained registry/cache contract and rollback boundaries. The native Qwen context
 windows are larger than the safe defaults above; users can raise context after
 the dashboard recalculates weights, KV cache, runtime reserve, and available
 memory for the selected target.
@@ -293,8 +296,10 @@ in particular the AOTriton switch enables PyTorch ROCm SDPA kernels process-wide
 For text-only models without a vision encoder, the vision backend override has
 no vision workload to affect.
 
-These mappings were checked against the [vLLM 0.26.0 CLI](https://docs.vllm.ai/en/v0.26.0/cli/serve/#--mm-encoder-attn-backend)
-and [ROCm vision backend selector](https://docs.vllm.ai/en/v0.26.0/api/vllm/platforms/rocm/).
+These mappings were checked against the [vLLM 0.31.0 CLI](https://docs.vllm.ai/en/v0.31.0/cli/serve/#--mm-encoder-attn-backend)
+and [ROCm vision backend selector](https://github.com/vllm-project/vllm/blob/v0.31.0/vllm/platforms/rocm.py).
+The offline native runtime contract also parses each backend choice; this does
+not certify the ROCm kernels on a physical GPU.
 The AOTriton opt-in is present in [PyTorch's ROCm attention checks](https://github.com/pytorch/pytorch/blob/main/torch/testing/_internal/common_cuda.py).
 The FlashAttention route requires the [AMD Triton implementation and its dependencies](https://github.com/Dao-AILab/flash-attention#amd-rocm-support)
 inside the runtime image. No packages are installed by selecting an option.

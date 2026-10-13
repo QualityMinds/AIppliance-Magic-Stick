@@ -9,11 +9,11 @@ metadata:
     app.kubernetes.io/name: magicstick-operator
     reconcile.fluxcd.io/watch: Enabled
 data:
-  runtime-config-checksum: 8fbf71866448205a07db32ee1dc212442ad60db14829fb2576f2d92736f1a999
-  vllm-amd: vllm/vllm-openai-rocm:v0.26.0
-  ollama-amd: ollama/ollama:0.33.2-rocm
-  vllm-amd-source: vllm/vllm-openai-rocm:v0.26.0
-  ollama-amd-source: ollama/ollama:0.33.2-rocm
+  runtime-config-checksum: 59da74353d8146196e720f336fbe37569235c66aafcf4076c987ea66b2636751
+  vllm-amd: vllm/vllm-openai-rocm:v0.31.0@sha256:749f6f3f944f12af49966ac523c1f8573e4b229594b541954bd5f879b4496b1f
+  ollama-amd: ollama/ollama:0.40.3-rocm@sha256:8cd88596698ab3283fd2f11727f1ffeb1519508d83f3ec1d137a4979e7bb9b6d
+  vllm-amd-source: vllm/vllm-openai-rocm:v0.31.0@sha256:749f6f3f944f12af49966ac523c1f8573e4b229594b541954bd5f879b4496b1f
+  ollama-amd-source: ollama/ollama:0.40.3-rocm@sha256:8cd88596698ab3283fd2f11727f1ffeb1519508d83f3ec1d137a4979e7bb9b6d
 # Flux bootstraps valid valuesKeys, then the operator owns updates. Successful
 # optional validation pins the actual image digest; catalog changes reset that
 # pin to the configured image. Neither selection nor runtime adoption requires

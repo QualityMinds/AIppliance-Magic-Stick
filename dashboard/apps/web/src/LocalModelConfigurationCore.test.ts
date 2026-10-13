@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {initialLocalModelDraft, localModelChanges, localModelConfigurationPolicy, localModelCreatePayload, modelEditRevision} from '@magicstick/dashboard-core';
+import {initialLocalModelDraft, localModelChanges, localModelConfigurationPolicy, localModelCreatePayload, modelEditRevision, modelNameError, safeModelName} from '@magicstick/dashboard-core';
 import type {ModelActivation, ModelsPayload} from '@magicstick/dashboard-contracts';
 
 const models: ModelsPayload = {activations: [], models: [], presets: {}, computeTargets: {
@@ -14,6 +14,18 @@ const saved = (local: Record<string, unknown>): ModelActivation => ({metadata: {
     contextWindow: 4096, maxNumSeqs: 1, modelType: 'chat', vram: '8Gi', ...local}}});
 
 describe('shared local model intent', () => {
+  it('validates names before creation and preserves valid 63-character labels', () => {
+    for (const name of ['', '   ', 'Uppercase', 'two words', 'under_score', 'a.b', '-start', 'end-', 'ä', 'a'.repeat(64)])
+      expect(modelNameError(name)).toBeTruthy();
+    for (const name of ['a', '9', 'qwen-3-8', 'a'.repeat(63), ' qwen-chat ']) expect(modelNameError(name)).toBeUndefined();
+    expect(modelNameError(' qwen-chat ', ['qwen-chat'])).toContain('already exists');
+    const draft = {...initialLocalModelDraft(models, 'VLLM'), name: ' qwen-chat '};
+    expect(localModelCreatePayload(draft).name).toBe('qwen-chat');
+  });
+  it('keeps automatically suggested names valid when truncation falls on a hyphen', () => {
+    const name = safeModelName('hf://example/' + 'a'.repeat(47) + '-long-model');
+    expect(name).toBe('a'.repeat(47)); expect(modelNameError(name)).toBeUndefined();
+  });
   it.each(['VLLM', 'OLlama'])('preserves unchanged, changed and reverted legacy %s settings', (engine) => {
     const initial = initialLocalModelDraft(models, engine, saved({engine}));
     expect(initial.kind).toBe('standard');

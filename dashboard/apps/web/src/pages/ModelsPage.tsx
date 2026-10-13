@@ -1,7 +1,7 @@
 import {useEffect, useState} from 'react';
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query';
 import {
-  canAdminister, canMutateRuntime, formatMi, modelEditRevision, parseMemoryMi,
+  canAdminister, canMutateRuntime, formatMi, modelEditRevision, modelNameError, parseMemoryMi,
 } from '@magicstick/dashboard-core';
 import type {
   ModelActivation, ModelsPayload, NvidiaGpuSelection, Session,
@@ -12,15 +12,20 @@ import {ComputeMemory} from '../ComputeMemory';
 import {LocalModelConfigurationForm} from '../LocalModelConfigurationForm';
 import {nvidiaCardKey} from '../NvidiaGpuSelect';
 import {quantizationText} from '../ModelMemorySettings';
+import {ModelNameField} from '../ModelNameField';
 
 type ModelLifecycleAction = 'start' | 'stop' | 'restart';
 
 const asRecord = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value)
   ? value as Record<string, unknown> : {};
-const ExternalModelForm = ({onClose, onCreated}: {onClose: () => void; onCreated: () => Promise<void>}) => {
+const ExternalModelForm = ({onClose, onCreated, models}: {onClose: () => void; onCreated: () => Promise<void>; models: ModelsPayload}) => {
   const [name, setName] = useState(''); const [model, setModel] = useState('openai/gpt-4o-mini'); const [apiBase, setApiBase] = useState('https://api.openai.com/v1'); const [apiKey, setApiKey] = useState(''); const [modelType, setModelType] = useState('chat'); const [contextWindow, setContextWindow] = useState(128000);
-  const mutation = useMutation({mutationFn: () => api.createExternalModel({name, enabled: true, targetNamespace: 'ai', external: {model, apiBase, modelType, contextWindow}, ...(apiKey ? {apiKey} : {})}), onSuccess: async () => { await onCreated(); onClose(); }});
-  return <form className="stack" onSubmit={(event) => { event.preventDefault(); mutation.mutate(); }}><div className="form-grid"><Field label="Name"><input value={name} onChange={(event) => setName(event.target.value)} required /></Field><Field label="Provider Model"><input value={model} onChange={(event) => setModel(event.target.value)} required /></Field><Field label="API Base"><input value={apiBase} onChange={(event) => setApiBase(event.target.value)} type="url" required /></Field><Field label="Type"><select value={modelType} onChange={(event) => setModelType(event.target.value)}><option value="chat">Chat</option><option value="embedding">Embedding</option></select></Field><Field label="Context Size"><input type="number" min="1" value={contextWindow} onChange={(event) => setContextWindow(Number(event.target.value))} /></Field><Field label="API Key"><input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} autoComplete="new-password" placeholder="Optional when supplied elsewhere" /></Field></div><ErrorNotice error={mutation.error} /><div className="form-actions"><Button type="button" variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" disabled={mutation.isPending}>Add External Model</Button></div></form>;
+  const nameError = modelNameError(name, models.activations.map((item) => item.metadata?.name ?? ''));
+  const mutation = useMutation({mutationFn: () => {
+    if (nameError) throw new Error(nameError);
+    return api.createExternalModel({name: name.trim(), enabled: true, targetNamespace: 'ai', external: {model, apiBase, modelType, contextWindow}, ...(apiKey ? {apiKey} : {})});
+  }, onSuccess: async () => { await onCreated(); onClose(); }});
+  return <form className="stack" onSubmit={(event) => { event.preventDefault(); if (!nameError && !mutation.isPending) mutation.mutate(); }}><div className="form-grid"><ModelNameField value={name} onChange={setName} error={nameError} /><Field label="Provider Model"><input value={model} onChange={(event) => setModel(event.target.value)} required /></Field><Field label="API Base"><input value={apiBase} onChange={(event) => setApiBase(event.target.value)} type="url" required /></Field><Field label="Type"><select value={modelType} onChange={(event) => setModelType(event.target.value)}><option value="chat">Chat</option><option value="embedding">Embedding</option></select></Field><Field label="Context Size"><input type="number" min="1" value={contextWindow} onChange={(event) => setContextWindow(Number(event.target.value))} /></Field><Field label="API Key"><input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} autoComplete="new-password" placeholder="Optional when supplied elsewhere" /></Field></div><ErrorNotice error={mutation.error} /><div className="form-actions"><Button type="button" variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" disabled={Boolean(nameError) || mutation.isPending}>Add External Model</Button></div></form>;
 };
 
 const optionalPositive = (value: string) => value ? Number(value) : null;
@@ -216,7 +221,7 @@ export const ModelsPage = ({session}: {session: Session}) => {
     {!activations.length && !registered.length && <Empty>No models registered yet.</Empty>}</div>
     {showRuntimeRemoval && <Button variant="danger" disabled={lifecycleMutation.isPending || runtimeMutation.isPending} onClick={() => setRuntimeConfirm(true)}>Remove Local Inference Runtime</Button>}
     <ErrorNotice error={removeMutation.error ?? lifecycleMutation.error ?? runtimeMutation.error} />
-    <Dialog open={createOpen} title="Create Model" description="Choose local inference or an external model provider." onClose={() => setCreateOpen(false)}><div className="stack"><Field label="Location"><select value={location} onChange={(event) => setLocation(event.target.value as typeof location)}><option value="local">Local</option><option value="external">External</option></select></Field>{location === 'local' ? <LocalModelConfigurationForm models={query.data} onClose={() => setCreateOpen(false)} onSaved={refresh} /> : <ExternalModelForm onClose={() => setCreateOpen(false)} onCreated={refresh} />}</div></Dialog>
+    <Dialog open={createOpen} title="Create Model" description="Choose local inference or an external model provider." onClose={() => setCreateOpen(false)}><div className="stack"><Field label="Location"><select value={location} onChange={(event) => setLocation(event.target.value as typeof location)}><option value="local">Local</option><option value="external">External</option></select></Field>{location === 'local' ? <LocalModelConfigurationForm models={query.data} onClose={() => setCreateOpen(false)} onSaved={refresh} /> : <ExternalModelForm models={query.data} onClose={() => setCreateOpen(false)} onCreated={refresh} />}</div></Dialog>
     <EditModelDialog key={editTarget} activation={editActivation} models={query.data} onClose={() => setEditTarget('')} onUpdated={refresh} />
     <ModelLogsDialog name={logsTarget} onClose={() => setLogsTarget('')} />
     <ConfirmDialog key={removeTarget} open={Boolean(removeTarget)} title="Remove model" description={`Remove ${removeTarget}? The model runtime and generated catalog entry will be reconciled away.`} confirmLabel="Remove" busy={removeMutation.isPending} error={removeMutation.error} onClose={() => setRemoveTarget('')} onConfirm={() => removeMutation.mutate(removeTarget)} />

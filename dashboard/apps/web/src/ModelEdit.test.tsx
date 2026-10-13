@@ -159,7 +159,7 @@ describe('model parameter editing', () => {
     renderModels();
     await user.click(await screen.findByRole('button', {name: 'Edit qwen-local'}));
     const dialog = within(screen.getByRole('dialog', {name: 'Edit Model · qwen-local'}));
-    expect(dialog.queryByLabelText('NVIDIA card')).not.toBeInTheDocument();
+    expect(dialog.queryByRole('group', {name: 'NVIDIA GPUs'})).not.toBeInTheDocument();
     await user.clear(dialog.getByLabelText('Context Size'));
     await user.type(dialog.getByLabelText('Context Size'), '8192');
     await waitFor(() => expect(dialog.getByRole('button', {name: 'Save changes'})).toBeEnabled());

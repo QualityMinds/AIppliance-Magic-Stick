@@ -630,6 +630,31 @@ export interface MemoryCalculation {
   notes?: string[];
 }
 
+export interface SystemMemoryEstimate {
+  scope: 'per-pod' | 'per-copy';
+  replicaCount: number;
+  workerCount: number;
+  minimumMi: number | null;
+  recommendedMi: number | null;
+  runningMinimumMi: number | null;
+  runningRecommendedMi: number | null;
+  startupMinimumMi: number | null;
+  startupUpperMi: number | null;
+  maximumMi: number | null;
+  totalRecommendedMi: number | null;
+  weightsOnCpuMi: number;
+  cacheOnCpuMi: number;
+  hostRuntimeMi: number;
+  multimodalCacheMi: number;
+  promptBuffersMi: number;
+  loadingBuffersMi: number;
+  fileCacheUpperMi: number;
+  largeLookupParameters?: number;
+  confidence: 'estimated' | 'unknown';
+  warnings?: string[];
+  calculations?: Record<string, MemoryCalculation>;
+}
+
 export interface MemoryEstimate {
   /** Null/absent means task metadata is inconclusive, never an inferred Chat default. */
   detectedModelType?: 'chat' | 'embedding' | null;
@@ -641,6 +666,7 @@ export interface MemoryEstimate {
   memoryBudgetScope?: 'per-device';
   devices?: Array<GpuAllocationEvidence & {gpuDevice: NvidiaGpuSelection; totalMi?: number | null; freeMi?: number | null; unreservedMi?: number | null}>;
   systemMemoryMaximumMi?: number | null;
+  systemMemory?: SystemMemoryEstimate;
   replicaCount?: number;
   weightsMi?: number;
   downloadBytes?: number;
@@ -662,6 +688,8 @@ export interface MemoryEstimate {
     engineRuntimeReserveMi?: number;
     attentionKvCacheMi?: number;
     recurrentStateMi?: number;
+    auxiliaryCacheMi?: number;
+    partitionReserveMi?: number;
     fullAttentionLayers?: number;
     recurrentLayers?: number;
   };

@@ -1,0 +1,53 @@
+name: vLLM runtime contracts
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/vllm-runtime-contracts.yml'
+      - 'magic-cluster/platform/ai/kubeai/base/**'
+      - 'magic-cluster/platform/magicstick-operator/gpu-runtime-images.yaml'
+      - 'magic-cluster/platform/magicstick-operator/gpu-compatibility-catalog.yaml'
+      - 'magic-cluster/platform/magicstick-operator/controller-configmap.yaml'
+      - 'magic-cluster/apps/ai/private-mesh/e2e-job.yaml'
+  push:
+    branches: [main, develop]
+    paths:
+      - '.github/workflows/vllm-runtime-contracts.yml'
+      - 'magic-cluster/platform/ai/kubeai/base/**'
+      - 'magic-cluster/platform/magicstick-operator/gpu-runtime-images.yaml'
+      - 'magic-cluster/platform/magicstick-operator/gpu-compatibility-catalog.yaml'
+      - 'magic-cluster/platform/magicstick-operator/controller-configmap.yaml'
+      - 'magic-cluster/apps/ai/private-mesh/e2e-job.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check wrapper, image pins and diagnostic consistency
+        run: |
+          python3 -m pip install pyyaml==6.0.3
+          python3 -m unittest discover -s magic-cluster/platform/ai/kubeai/base -p 'test_*.py'
+      - name: Exercise the published native CPU runtime without network or weights
+        run: |
+          base=magic-cluster/platform/ai/kubeai/base
+          image=$(python3 -c 'import yaml; print(yaml.safe_load(open("magic-cluster/platform/ai/kubeai/base/helmrelease.yaml"))["spec"]["values"]["modelServers"]["VLLM"]["images"]["magicstick-vllm-cpu"])')
+          docker pull "$image"
+          docker run --rm --network none --read-only --memory 2g --cpus 2 --pids-limit 256 \
+            --tmpfs /tmp:rw,exec,size=256m \
+            --env HF_HUB_OFFLINE=1 --env TRANSFORMERS_OFFLINE=1 \
+            --env PYTHONDONTWRITEBYTECODE=1 --env VLLM_CACHE_ROOT=/tmp/vllm \
+            --env OMP_NUM_THREADS=2 \
+            --mount "type=bind,source=$PWD/$base,target=/validation,readonly" \
+            --mount "type=bind,source=$PWD/magic-cluster/platform/magicstick-operator/controller-configmap.yaml,target=/controller.yaml,readonly" \
+            --entrypoint python3 "$image" /validation/verify_vllm_runtime.py --controller-manifest /controller.yaml

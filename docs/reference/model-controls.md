@@ -10,6 +10,12 @@ form. Existing activations retain their saved engine, source and hardware target
 when edited; only changed fields are submitted with the original revision fence.
 Polling updates availability without replacing unsaved input.
 
+The **Name** field validates local and external models before submission:
+1–63 lowercase letters, numbers or hyphens, starting and ending with a letter
+or number. Inline feedback explains an invalid or already-used name and blocks
+creation. Surrounding whitespace is removed before saving; names remain fixed
+when editing. The API also validates the name when creating a resource.
+
 **Create → Location: Local → Inference Engine: (Experimental) vLLM-Omni** selects
 the catalog's experimental Omni profiles for NVIDIA CUDA, AMD ROCm, Intel XPU
 and CPU. GPU choices use schedulable Kubernetes resources, not chip/driver or
@@ -148,6 +154,13 @@ and cannot import an arbitrary Hugging Face GGUF repository automatically.
 
 vLLM accepts `hf://` model references; Ollama uses `ollama://`
 references.
+Ordinary vLLM uses upstream 0.31.0 for all four target images, pinned by digest;
+vLLM-Omni is versioned separately. Ollama uses immutable 0.40.3 images for CPU,
+NVIDIA and AMD ROCm, retaining the same registry tags and saved model controls.
+See [Ollama upgrades](../development/model-integration.md#ollama-runtime-upgrades)
+before changing an installed runtime. Registry search and memory estimates are not
+a runtime compatibility certification. Check model architecture, quantization
+and target hardware against the selected runtime when startup fails.
 `cpu` is available on a compatible Ready Linux node. `nvidia-gpu`, `amd-gpu`,
 and `intel-gpu` are shown only when the matching provider is `Ready` and
 Kubernetes reports its allocatable resource. Intel automatically resolves
@@ -199,7 +212,11 @@ must still fit its physical GPU. **Replicate model copies** retains a budget
 for each full copy, and a single GPU retains its individual budget.
 The React dashboard's collapsible **Breakdown** separates model weights, the base KV-cache
 estimate, recurrent state where applicable, hybrid-allocator safety, engine
-runtime components, recommendation headroom, and download size. For vLLM hybrid models, the UI labels the
+runtime components, recommendation headroom, and download size. Split-model
+GPU components are totals across the selected cards, matching the calculator;
+their explanations show the per-card formula and group multiplier. Host runtime
+for a split Pod and download bytes are counted once. Replication keeps full
+per-copy estimates. For vLLM hybrid models, the UI labels the
 architecture-derived KV value as **Theoretical KV cache** and shows the extra
 compatibility budget independently instead of presenting their sum as physical
 cache use. Ollama hybrid models show attention KV and their context-independent
@@ -236,6 +253,26 @@ parallel sequences. The browser cannot supply an arbitrary runtime value. The
 operator passes that value to vLLM as `--kv-cache-memory-bytes`; 512 MiB remains
 only as a compatibility fallback for older or directly created resources that
 do not contain the derived field.
+
+GPU models also show **System RAM estimate / reservation** with serving RAM,
+an estimated startup range and a conservative recommended budget. Startup
+includes transfer buffers and a reclaimable file-cache envelope; these are not
+additional permanent model weights or measured RSS. One split Pod has one RAM
+budget, while replication shows per-copy and combined recommendations.
+New multi-GPU/offloading configurations use this recommendation when available;
+saved or manually edited RAM is preserved. The recommendation button is explicit,
+and a value below the provisional startup minimum needs memory-risk acceptance.
+Single-GPU models without CPU offloading retain their existing resource profile
+and show advisory RAM figures rather than claiming that a new limit was applied.
+Unverified capacity or missing weight metadata stays Unknown.
+
+vLLM GPU cache estimates use local tensor-rank heads (including GQA/MLA
+replication) or pipeline-local layers. Recurrent state and QSA side caches are
+itemized. Ollama uses an estimated whole-layer placement envelope. Per-worker
+runtime reserve follows local shards, with uneven placement separated from
+weights; the total estimate is labelled Estimated even when checkpoint byte
+metadata is exact. Special N-gram/PLE host placement requires runtime-specific
+verification and is not automatically enabled by this calculator.
 
 The installed-model card distinguishes **KV requested** from **KV active**.
 The second value remains pending until the operator observes a Ready replica
@@ -335,9 +372,9 @@ Existing saved per-card budgets need no migration. System RAM/CPU are reserved
 once for the Pod.
 In **Replicate model copies**, the full model runs on each selected GPU and
 system RAM/CPU are reserved per copy. The UI shows the combined host-RAM budget
-and the per-copy ready state; Logs can select an individual copy. **Additional GPUs for this
-model** supports explicit selection or **Select GPUs**, which resolves
-and saves exact identities rather than a floating GPU count. Polling never
+and the per-copy ready state; Logs can select an individual copy. **NVIDIA GPUs**
+shows all physical cards as checkboxes. Checked cards determine the selected
+count and saved identities. Polling never
 silently substitutes a missing or full card. Multi-GPU settings and vLLM
 parallelism appear under **Advanced**. See [GPU sharing](../administration/gpu-sharing.md#one-model-across-several-nvidia-gpus)
 for supported combinations, memory semantics and current acceptance limits.
@@ -361,7 +398,7 @@ and exact free/total counts, independently of memory. Fully occupied GPUs remain
 visible but disabled in the Hardware selector, with a `no free slots` hint.
 For multiple NVIDIA device-plugin cards, an aggregate **Node slots** ring is
 shown once above their memory gauges; the runtime chooses the physical card.
-NVIDIA DRA instead gives each card its own ring and a **NVIDIA card** selector in
+NVIDIA DRA instead gives each card its own ring and a **NVIDIA GPUs** checkbox list in
 Create / Edit with name, PCI address, VRAM and free slots. Editing an active model
 may reuse its own card's slot. Stopped models have no such credit. A lost card or
 changed node UID remains visibly blocked rather than selecting another card.

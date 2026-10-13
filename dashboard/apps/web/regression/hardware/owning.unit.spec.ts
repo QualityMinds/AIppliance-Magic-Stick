@@ -54,7 +54,8 @@ test('MGPU-01 owning group selection persists identity, per-card memory and edit
     'edits saved per-card budgets as totals without changing an untouched or reverted definition',
     'rejects group budgets above physical VRAM or verified host RAM in the form',
     'persists a two-card group and per-device budget without multiplying CPU or RAM',
-    'automatically chooses four matching cards and preserves a blocked group during polling',
+    'selects four cards by checkbox and preserves a blocked group during polling',
+    'retains a missing GPU until that exact checkbox is explicitly cleared',
     'disables other nodes and allows different card models on the selected node',
     'edits a full active group using only its own credits and can shrink to one GPU',
   ]));

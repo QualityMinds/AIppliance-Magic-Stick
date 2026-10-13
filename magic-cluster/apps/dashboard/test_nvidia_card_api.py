@@ -98,21 +98,34 @@ class NvidiaCardApiTests(unittest.TestCase):
         _, reverted = self.api["merged_local_model_settings"](original, {"gpuDevice": local["gpuDevices"][0]})
         self.assertNotIn("gpuDevices", reverted)
 
-    def test_multi_gpu_estimator_preserves_full_kv_cache_per_card_and_checks_dimensions(self):
+    def test_multi_gpu_estimator_shards_cache_and_checks_dimensions(self):
         capability = {"computeTargets": ["nvidia-gpu"], "maxDevices": 16, "strategies": ["auto", "tensor", "pipeline"]}
         local = {**self.group()["spec"]["local"], "url": "hf://fixture/small"}
         config = {"num_attention_heads": 8, "hidden_size": 1024, "num_hidden_layers": 9}
         with patch.dict(self.api, {"compute_target_catalog": lambda: {"engines": {"VLLM": {"multiGpu": capability}}},
                 "hf_metadata": lambda *_: {"config": config}}):
             estimate = self.api["multi_gpu_estimate"](local, {"weightsMi": 10000, "kvCacheMi": 1000, "runtimeReserveMi": 512})
-            self.assertEqual(estimate["weightsMi"], 5500)
-            self.assertEqual(estimate["kvCacheMi"], 1000)
+            self.assertEqual(estimate["weightsMi"], 5000)
+            self.assertEqual(estimate["runtimeDetails"]["partitionReserveMi"], 500)
+            self.assertLess(estimate["kvCacheMi"], 1000)
             self.assertEqual(estimate["gpuParallelism"], "tensor")
             config["num_attention_heads"] = 7
             estimate = self.api["multi_gpu_estimate"](local, {"weightsMi": 10000})
             self.assertEqual(estimate["gpuParallelism"], "pipeline")
-            self.assertGreater(estimate["weightsMi"], 5500)
+            self.assertGreater(estimate["weightsMi"], 5000)
             with self.assertRaises(ValueError): self.api["multi_gpu_estimate"]({**local, "vllm": {"parallelism": "tensor"}}, {})
+
+    def test_group_startup_ram_underbudget_needs_explicit_risk_without_changing_budget(self):
+        catalog = {"targets": {"nvidia-gpu": {"kind": "gpu"}}}
+        estimate = {"minimumMi": 2000, "maximumMi": 20000, "devices": [{"totalMi": 49152}] * 2,
+                    "systemMemory": {"minimumMi": 20000}}
+        with patch.dict(self.api, {"gpu_sharing_status": lambda _: self.state, "compute_target_catalog": lambda: catalog,
+                "estimate_model_memory": lambda *_: estimate, "offloading_host_memory_available": lambda *_: 24000}):
+            local = {**self.group()["spec"]["local"], "url": "hf://fixture/small"}
+            with self.assertRaisesRegex(ValueError, "estimated startup minimum"):
+                self.api["model_activation_payload"]("local", {"name": "fixture-model", "local": local})
+            accepted = self.api["model_activation_payload"]("local", {"name": "fixture-model", "local": {**local, "allowMemoryRisk": True}})
+            self.assertEqual(accepted["spec"]["local"]["memoryRequiredMi"], 16400)
 
     def test_group_creation_persists_budgets_and_never_overrides_physical_limits(self):
         catalog = {"targets": {"nvidia-gpu": {"kind": "gpu"}}}

@@ -1914,8 +1914,8 @@ data:
 
     def require_name(payload):
         name = str(payload.get("name", "")).strip()
-        if not name or not DNS_LABEL.match(name):
-            raise ValueError("name must be a DNS-1123 label")
+        if not name or len(name) > 63 or not DNS_LABEL.fullmatch(name):
+            raise ValueError("name must be a DNS-1123 label of 1–63 lowercase letters, numbers or hyphens")
         return name
 
 
@@ -5345,6 +5345,8 @@ data:
         explicit = config_int(config, "num_parameters", "n_params", "parameter_count")
         if explicit:
             return explicit
+        if config_int(config, "num_experts", "num_local_experts"):
+            return None  # A dense MLP heuristic cannot count a MoE or its lookup tables.
         layers = config_int(config, "num_hidden_layers", "n_layer", "num_layers")
         hidden = config_int(config, "hidden_size", "n_embd", "d_model")
         heads = config_int(config, "num_attention_heads", "n_head")
@@ -5513,6 +5515,73 @@ data:
         }
 
 
+    def vllm_device_cache(config, context_window, sequences, cache_type, tensor_size=1, layer_start=0, layer_end=None):
+        """Logical per-rank cache; allocator pages/graphs still need runtime profiling."""
+        dimensions = kv_cache_dimensions(config)
+        if not dimensions:
+            return None
+        _attention_layers, heads, head_dim = dimensions
+        total_layers = config_int(config, "num_hidden_layers", "n_layer", "num_layers") or 0
+        types = config.get("layer_types")
+        if not isinstance(types, list) or len(types) != total_layers:
+            interval = config_int(config, "full_attention_interval")
+            types = [("full_attention" if not interval or (i + 1) % interval == 0 else "linear_attention")
+                     for i in range(total_layers)]
+        selected = types[layer_start:layer_end]
+        full = sum(str(value).lower() not in {"linear_attention", "mamba", "mamba2"} for value in selected)
+        recurrent = sum(str(value).lower() in {"linear_attention", "mamba", "mamba2"} for value in selected)
+        # vLLM replicates a KV head when TP has more ranks than KV heads.
+        rank_heads = max(1, heads // tensor_size)
+        mla_rank = config_int(config, "kv_lora_rank")
+        if mla_rank:
+            rank_heads = 1  # MLA latent cache is replicated across TP, not divided into ordinary KV heads.
+            groups = {(1, mla_rank + (config_int(config, "qk_rope_head_dim") or 0), 0): full}
+        else:
+            groups = {(rank_heads, head_dim, head_dim): full}
+        storage = kv_cache_storage(groups, cache_type, context_window, sequences)
+        state_bytes = 0
+        state_known = not recurrent
+        state_dimensions = [config_int(config, key) for key in (
+            "linear_conv_kernel_dim", "linear_num_key_heads", "linear_key_head_dim",
+            "linear_num_value_heads", "linear_value_head_dim")]
+        if recurrent and all(state_dimensions):
+            conv, key_heads, key_dim, value_heads, value_dim = state_dimensions
+            rank_key_heads, rank_value_heads = max(1, key_heads // tensor_size), max(1, value_heads // tensor_size)
+            rolling = (conv - 1) * (2 * rank_key_heads * key_dim + rank_value_heads * value_dim)
+            state_bytes = recurrent * (rolling + rank_value_heads * key_dim * value_dim) * sequences * 4
+            state_known = True
+        # QSA has out-of-band compressed key/indexer caches. Budget their logical
+        # dimensions separately instead of pretending ordinary attention is all.
+        auxiliary_bytes = 0
+        if full and config_int(config, "indexer_compress_ratio"):
+            ratio = config_int(config, "indexer_compress_ratio")
+            index_dim = config_int(config, "indexer_head_dim")
+            index_heads = config_int(config, "indexer_kv_heads")
+            if index_dim and index_heads:
+                compressed_tokens = (context_window + ratio - 1) // ratio
+                auxiliary_bytes = full * compressed_tokens * (head_dim + index_heads * index_dim) * sequences * 2
+        attention = ceil_mib(storage["totalBytes"])
+        state, auxiliary = ceil_mib(state_bytes), ceil_mib(auxiliary_bytes)
+        return {
+            "attentionKvCacheMi": attention, "recurrentStateMi": state, "auxiliaryCacheMi": auxiliary,
+            "totalMi": attention + state + auxiliary,
+            "baselineMi": ceil_mib(storage["baselineBytes"]) + state + auxiliary,
+            "fullAttentionLayers": full, "recurrentLayers": recurrent, "recurrentStateKnown": state_known,
+            "kvHeadsPerGpu": rank_heads,
+            "calculations": {
+                "attentionKvCacheMi": attention_cache_calculation(groups, context_window, sequences, cache_type),
+                "recurrentStateMi": memory_calculation(
+                    "ceil(local recurrent layers × [rolling convolution + FP32 recurrent state] × sequences ÷ 1,048,576)",
+                    f"{recurrent:,} local layer(s), TP {tensor_size}: {state:,} MiB",
+                    "Context-independent logical state. Hybrid allocator grouping/padding is not measured."
+                    if state_known else "Recurrent dimensions are unavailable; zero here means unquantified, not no state."),
+                "auxiliaryCacheMi": memory_calculation(
+                    "ceil(local QSA layers × ceil(context ÷ compression) × (key dimension + indexer heads × indexer dimension) × sequences × 2 ÷ 1,048,576)",
+                    f"{auxiliary:,} MiB", "Conservative 16-bit logical side-cache envelope; actual QSA page/ring allocation is runtime-dependent."),
+            },
+        }
+
+
     def estimate_vllm_memory(payload, compute_target):
         repo = hf_repo_id(payload.get("url"))
         kv_cache_type = normalize_kv_cache_type("VLLM", payload.get("kvCacheType"))
@@ -5580,9 +5649,22 @@ data:
                         "CPU vLLM hybrid-cache allocation is budgeted with a conservative "
                         + str(kv_compatibility_factor) + "x compatibility factor."
                     )
+        cache_parts = None
         runtime_mi, runtime_details = vllm_runtime_reserve_mi(
             dimensions, metadata.get("modelApi") or {}, weights_mi, compute_target
         )
+        if compute_target != "cpu":
+            cache_parts = vllm_device_cache(dimensions, context_window, max_num_seqs, kv_cache_type)
+            if cache_parts:
+                kv_mi = cache_parts["totalMi"]
+                theoretical_kv_mi = kv_mi
+                runtime_details.update({key: cache_parts[key] for key in (
+                    "attentionKvCacheMi", "recurrentStateMi", "auxiliaryCacheMi",
+                    "fullAttentionLayers", "recurrentLayers")})
+                if not cache_parts["recurrentStateKnown"]:
+                    warnings.append("Recurrent-state dimensions are unavailable; the cache estimate is incomplete.")
+        largest_file_mi = max((ceil_mib(entry.get("size")) for entry in metadata.get("modelTree", [])
+                              if entry.get("type") == "file" and str(entry.get("path") or "").endswith(".safetensors")), default=0)
         model_api = metadata.get("modelApi") or {}
         repository_bytes = positive_int(model_api.get("usedStorage") or model_api.get("used_storage")) or 0
         download_bytes = repository_bytes
@@ -5652,6 +5734,14 @@ data:
                 f"max(2,048, floor({weights_mi:,} × 0.08)) = {runtime_mi:,} MiB",
                 "Heuristic GPU runtime allowance, not measured usage. floor rounds down.")
             calculations["reserveMi"] = calculations["engineRuntimeReserveMi"]
+        if compute_target != "cpu" and cache_parts:
+            calculations.update(cache_parts["calculations"])
+            calculations["theoreticalKvCacheMi"] = memory_calculation(
+                "attention KV + recurrent state + auxiliary caches",
+                f"{cache_parts['attentionKvCacheMi']:,} + {cache_parts['recurrentStateMi']:,} + {cache_parts['auxiliaryCacheMi']:,} = {kv_mi:,} MiB")
+            if not cache_parts["recurrentStateMi"] and not cache_parts["auxiliaryCacheMi"]:
+                calculations["theoreticalKvCacheMi"] = cache_parts["calculations"]["attentionKvCacheMi"]
+            calculations["kvCacheMi"] = calculations["theoreticalKvCacheMi"]
         return {
             "repo": repo,
             "sourceUrl": "https://huggingface.co/" + repo,
@@ -5661,7 +5751,7 @@ data:
             "downloadSizeSource": download_size_source,
             "kvCacheMi": int(kv_mi),
             "kvCacheType": kv_cache_type,
-            "kvCacheBaselineMi": int(kv_cache_mi(dimensions, context_window, max_num_seqs, "auto") or 0),
+            "kvCacheBaselineMi": int(cache_parts["baselineMi"] if compute_target != "cpu" and cache_parts else kv_cache_mi(dimensions, context_window, max_num_seqs, "auto") or 0),
             "theoreticalKvCacheMi": int(theoretical_kv_mi or 0),
             "hybridAllocatorSafetyMi": max(0, int(kv_mi) - int(theoretical_kv_mi or 0)),
             "runtimeReserveMi": int(runtime_mi),
@@ -5670,11 +5760,15 @@ data:
             "modelMaxContext": int(model_max_context or 0),
             "contextWindow": int(context_window),
             "maxNumSeqs": int(max_num_seqs),
-            "confidence": confidence,
+            "confidence": "fallback" if confidence == "fallback" else "estimated",
+            "weightsConfidence": confidence,
             "warnings": warnings,
             "calculationSource": "huggingface-model-metadata",
             "calculations": calculations,
             "modelLayers": config_int(dimensions, "num_hidden_layers", "n_layer", "num_layers") or 0,
+            "_dimensions": dimensions,
+            "_largestWeightFileMi": largest_file_mi,
+            "_multimodal": is_multimodal_config(config),
         }
 
 
@@ -5927,6 +6021,7 @@ data:
             "calculationSource": calculation_source,
             "calculations": calculations,
             "modelLayers": positive_int(ollama_gguf_value(gguf_metadata, "block_count")) or 0,
+            "_hasLargeLookup": str(gguf_metadata.get("general.architecture") or "") == "qwen4exp",
         }
 
 
@@ -6003,7 +6098,7 @@ data:
             gpu_kv = min(kv, gpu_payload - gpu_weights)
             cpu_weights = weights - gpu_weights
             cpu_kv = kv - gpu_kv
-        host_runtime = (6144 if engine == "VLLM" else 4096) + (gpu_count - 1) * 2048
+        host_runtime = (6144 + (gpu_count - 1) * 2048) if engine == "VLLM" else (4096 + (gpu_count - 1) * 256)
         ram_minimum = round_up_mib((cpu_weights + cpu_kv) * gpu_count + host_runtime)
         ram_recommended = round_up_mib(ram_minimum + max(2048, int(weights * gpu_count * 0.15)))
         gpu_minimum = gpu_weights + gpu_kv + runtime
@@ -6050,6 +6145,7 @@ data:
             "Source: " + str(result.get("downloadSizeSource") or "unavailable") + ". Disk/network size is not added to memory. Hugging Face repository storage can include extra artifacts; reused blobs may reduce downloads.")
         plan = result.get("offloading")
         if plan:
+            host_gpu_count = 1 if result.get("replicaCount", 1) > 1 else max(1, int(result.get("gpuCount") or 1))
             gpu, cpu = plan["weightsOnGpuMi"], plan["weightsOnCpuMi"]
             room = max(0, plan["vramBudgetMi"] - kv - runtime - headroom)
             if plan["mode"] == "gpu-first":
@@ -6079,13 +6175,15 @@ data:
                     "vLLM weight offloading does not offload KV cache",
                     f"{plan['kvOnCpuMi']:,} MiB")
             calculations["hostRuntimeMi"] = memory_calculation(
-                "6,144 MiB for vLLM; 4,096 MiB for Ollama", f"{plan['hostRuntimeMi']:,} MiB", "Fixed host-runtime planning allowance.")
+                "vLLM: 6,144 + (GPU count − 1) × 2,048; Ollama: 4,096 + (GPU count − 1) × 256",
+                f"{plan['hostRuntimeMi']:,} MiB", "Host-runtime planning allowance; Ollama uses one runner, not one worker per GPU.")
             calculations["ramMinimumMi"] = memory_calculation(
-                "ceil((offloaded weights + estimated host KV + host runtime) ÷ 100) × 100",
-                f"ceil(({cpu:,} + {plan['kvOnCpuMi']:,} + {plan['hostRuntimeMi']:,}) ÷ 100) × 100 = {plan['ramMinimumMi']:,} MiB")
+                "ceil(((offloaded weights + estimated host KV) × GPU count + host runtime) ÷ 100) × 100",
+                f"ceil((({cpu:,} + {plan['kvOnCpuMi']:,}) × {host_gpu_count} + {plan['hostRuntimeMi']:,}) ÷ 100) × 100 = {plan['ramMinimumMi']:,} MiB",
+                "Serving/offload envelope only. The separate System RAM plan also accounts for startup transfer buffers and file cache.")
             calculations["ramRecommendedMi"] = memory_calculation(
-                "ceil((RAM minimum + max(2,048, floor(total weights × 0.15))) ÷ 100) × 100",
-                f"ceil(({plan['ramMinimumMi']:,} + max(2,048, floor({weights:,} × 0.15))) ÷ 100) × 100 = {plan['ramRecommendedMi']:,} MiB")
+                "ceil((RAM minimum + max(2,048, floor(local weights × GPU count × 0.15))) ÷ 100) × 100",
+                f"ceil(({plan['ramMinimumMi']:,} + max(2,048, floor({weights:,} × {host_gpu_count} × 0.15))) ÷ 100) × 100 = {plan['ramRecommendedMi']:,} MiB")
             calculations["ramHeadroomMi"] = memory_calculation(
                 "RAM recommended − RAM minimum", f"{plan['ramRecommendedMi']:,} − {plan['ramMinimumMi']:,} = {plan['ramRecommendedMi'] - plan['ramMinimumMi']:,} MiB",
                 "Includes the final 100 MiB rounding of the recommended host budget.")
@@ -6134,17 +6232,75 @@ data:
                     raise ValueError("Pipeline parallelism requires at least one model layer per GPU")
                 fraction = ((layers + count - 1) // count) / layers
         original_weights = int(estimate.get("weightsMi") or 0)
-        # Retain full cache/runtime per card rather than assuming KV heads,
-        # recurrent state and vision components are all perfectly partitioned.
-        weights = int(original_weights * fraction * 1.1 + 0.999999)
+        weights = int(original_weights * fraction + 0.999999)
         calculations = dict(estimate.get("calculations") or {})
-        calculations["weightsMi"] = memory_calculation("ceil(total weights × largest planned shard fraction × 1.10)",
-            f"ceil({original_weights} × {fraction:.6f} × 1.10) = {weights} MiB per GPU",
-            "10% uneven/replicated-weight allowance. Complete cache and runtime allowances are retained on every GPU. Actual partitioning is model-dependent.")
+        calculations["weightsMi"] = memory_calculation("ceil(total weights × largest planned shard fraction)",
+            f"ceil({original_weights:,} × {fraction:.6f}) = {weights:,} MiB per GPU",
+            "Checkpoint bytes are a planning proxy, not measured resident weights. Uneven/replicated-tensor headroom is itemized separately.")
+        details = dict(estimate.get("runtimeDetails") or {})
+        kv, baseline = int(estimate.get("kvCacheMi") or 0), int(estimate.get("kvCacheBaselineMi") or estimate.get("kvCacheMi") or 0)
+        cache_known = False
+        if engine == "VLLM":
+            plans = []
+            for rank in range(count):
+                start, end = (rank * layers // count, (rank + 1) * layers // count) if strategy == "pipeline" else (0, layers)
+                plan = vllm_device_cache(config, estimate.get("contextWindow", 4096), estimate.get("maxNumSeqs", 1),
+                                        estimate.get("kvCacheType", "auto"), count if strategy == "tensor" else 1, start, end)
+                if plan:
+                    plans.append(plan)
+            if len(plans) == count:
+                plan = max(plans, key=lambda item: item["totalMi"])
+                kv, baseline = plan["totalMi"], plan["baselineMi"]
+                cache_known = all(item["recurrentStateKnown"] for item in plans)
+                details.update({key: plan[key] for key in ("attentionKvCacheMi", "recurrentStateMi", "auxiliaryCacheMi",
+                                                         "fullAttentionLayers", "recurrentLayers")})
+                calculations.update(plan["calculations"])
+                calculations["kvCacheMi"] = memory_calculation(
+                    "largest rank's attention KV + recurrent state + auxiliary cache",
+                    f"{plan['attentionKvCacheMi']:,} + {plan['recurrentStateMi']:,} + {plan['auxiliaryCacheMi']:,} = {kv:,} MiB per GPU",
+                    f"{strategy} parallelism across {count} ranks; KV heads per rank: {plan['kvHeadsPerGpu']}. Equal reservations use the largest rank, not the sum of unequal stages.")
+        else:
+            # Ollama places whole layers at load time, not tensor-parallel heads.
+            # One extra layer over the average is an explicit uneven-placement envelope.
+            def layer_share(value, layer_count):
+                if not layer_count:
+                    return value
+                return min(value, (value + count - 1) // count + (value + layer_count - 1) // layer_count)
+            if details.get("attentionKvCacheMi") is not None:
+                attention = layer_share(int(details["attentionKvCacheMi"]), int(details.get("fullAttentionLayers") or 0))
+                recurrent = layer_share(int(details.get("recurrentStateMi") or 0), int(details.get("recurrentLayers") or 0))
+                baseline_attention = max(0, baseline - int(details.get("recurrentStateMi") or 0))
+                baseline = layer_share(baseline_attention, int(details.get("fullAttentionLayers") or 0)) + recurrent
+                kv = attention + recurrent
+                details.update(attentionKvCacheMi=attention, recurrentStateMi=recurrent)
+                cache_known = True
+                for key, value in (("attentionKvCacheMi", attention), ("recurrentStateMi", recurrent)):
+                    calculations[key] = memory_calculation(
+                        "min(full cache, ceil(full cache ÷ GPU count) + one layer's cache)",
+                        f"{value:,} MiB per GPU", "Layer-placement envelope, not an Ollama byte-exact cap. The runtime chooses the actual layer split.")
+                calculations["kvCacheMi"] = memory_calculation("local attention KV + local recurrent state",
+                    f"{attention:,} + {recurrent:,} = {kv:,} MiB per GPU")
+        # A worker's runtime reserve is sized from its shard, not the whole
+        # checkpoint repeated N times. Keep the unavoidable per-device floor.
+        runtime = max(2048, int(weights * .08)) if engine == "VLLM" else max(512, int((weights + kv) * .10))
+        uneven = int(weights * .10 + .999999)
+        details.update(engineRuntimeReserveMi=runtime, partitionReserveMi=uneven)
+        calculations["engineRuntimeReserveMi"] = memory_calculation(
+            "max(engine per-device floor, local payload × engine runtime ratio)",
+            f"{runtime:,} MiB per GPU", "Heuristic CUDA/graph/compute-buffer allowance. vLLM: max(2,048, local weights × 0.08); Ollama: max(512, (local weights + cache) × 0.10).")
+        calculations["partitionReserveMi"] = memory_calculation("ceil(local weights × 0.10)",
+            f"ceil({weights:,} × 0.10) = {uneven:,} MiB per GPU", "Separate uneven/replicated-weight placement allowance, not extra model parameters.")
+        calculations["reserveMi"] = memory_calculation("local engine runtime + uneven-placement allowance",
+            f"{runtime:,} + {uneven:,} = {runtime + uneven:,} MiB per GPU")
+        calculations["theoreticalKvCacheMi"] = calculations.get("kvCacheMi")
         return {**estimate, "weightsMi": weights, "gpuCount": count, "gpuParallelism": strategy,
+            "kvCacheMi": kv, "kvCacheBaselineMi": baseline, "theoreticalKvCacheMi": kv,
+            "runtimeReserveMi": runtime + uneven, "runtimeDetails": details, "hybridAllocatorSafetyMi": 0,
+            "confidence": "fallback" if estimate.get("confidence") == "fallback" else "estimated",
             "totalWeightsMi": original_weights, "calculations": calculations,
             "warnings": [*(estimate.get("warnings") or []),
-                "Multi-GPU figures are per card; weights are estimated as shards with 10% headroom, while cache/runtime are conservatively repeated. Runtime model/quantization support is checked again when loading."]}
+                "Multi-GPU figures are per card; cache follows rank/layer placement and runtime follows each shard. Uneven placement and recommendation headroom are separate estimates, not measured allocations.",
+                *([] if cache_known else ["Cache placement is incomplete; unquantified recurrent/unsupported caches still require runtime validation."])]}
 
 
     def estimate_model_memory(payload, exclude_model=""):
@@ -6290,7 +6446,85 @@ data:
             if engine == "OLlama":
                 warnings.append("Ollama uses GPU-first auto-fit at load time. The displayed RAM/VRAM split is a proportional planning estimate; actual layers and hybrid cache placement can differ.")
         result["calculations"] = memory_summary_calculations(result, estimate, engine)
+        if compute_target != "cpu":
+            host_available = None if compute_target != "nvidia-gpu" else (result.get("systemMemoryMaximumMi") if len(selections) > 1 else
+                              offloading_host_memory_available(compute_target, exclude_model, selections[0]["nodeName"]) if selections else
+                              offloading_host_memory_available(compute_target, exclude_model) if exclude_model else
+                              offloading_host_memory_available(compute_target))
+            # Non-NVIDIA hosts keep unknown host capacity until the existing
+            # target/node inventory can corroborate it. Never use cluster RAM.
+            result["systemMemoryMaximumMi"] = host_available
+            result["systemMemory"] = model_system_memory_plan(payload, estimate, result, host_available)
         return result
+
+
+    def model_system_memory_plan(payload, base, result, available):
+        """Per-Pod/per-copy host envelope, separate from VRAM and measured RSS."""
+        engine = normalize_local_engine(payload.get("engine"))
+        count = 1 if payload.get("gpuDeployment") == "replicated" else max(1, len(payload.get("gpuDevices") or []))
+        copies = max(1, int(result.get("replicaCount") or 1))
+        workers = count if engine == "VLLM" else 1  # Ollama is one runner, not N vLLM workers.
+        full_weights = int(base.get("totalWeightsMi") or base.get("weightsMi") or 0)
+        offload = result.get("offloading") or {}
+        host_weights = int(offload.get("weightsOnCpuMi") or 0) * count
+        host_cache = int(offload.get("kvOnCpuMi") or 0) * count
+        runtime = (6144 + (workers - 1) * 2048) if engine == "VLLM" else (4096 + (count - 1) * 256)
+        multimodal = 8192 if engine == "VLLM" and base.get("_multimodal") else 0
+        # Prompt/token work scales with the configured context/concurrency,
+        # separately from GPU KV. It is a labelled frontend-buffer allowance.
+        prompt = ceil_mib(int(result.get("contextWindow") or 4096) * int(result.get("maxNumSeqs") or 1) * 32)
+        running = round_up_mib(host_weights + host_cache + runtime + multimodal + prompt)
+        running_recommended = round_up_mib(running + max(1024, int(running * .15)))
+        largest_file = int(base.get("_largestWeightFileMi") or 0)
+        if engine == "VLLM":
+            loading = min(full_weights, largest_file * workers) if largest_file else min(full_weights, 2048 * workers)
+        else:
+            # mmap/streaming need not retain the whole GGUF in RAM; nevertheless
+            # its file-backed pages can be charged to the Pod's cgroup at startup.
+            loading = min(full_weights, 1024)
+        loading = max(0, loading)
+        startup = round_up_mib(running + loading)
+        file_cache = max(0, full_weights - host_weights)
+        startup_upper = round_up_mib(running + max(loading, file_cache))
+        recommended = round_up_mib(startup_upper + max(2048, int(startup_upper * .15)))
+        dimensions = base.get("_dimensions") or {}
+        lookup_parameters = (config_int(dimensions, "ngram_vocab_size_base") or 0) * (config_int(dimensions, "ple_embed_dim") or 0)
+        warnings = [
+            "RAM figures are planning envelopes, not measured process RSS or a guarantee that the model loads.",
+            "The startup range separates worker transfer buffers from a conservative whole-checkpoint file-cache envelope. mmap pages are reclaimable but may count toward a container memory limit.",
+        ]
+        if engine == "VLLM" and not largest_file:
+            warnings.append("Checkpoint shard sizes are unavailable; the lower startup figure uses a provisional 2 GiB transfer buffer per worker.")
+        if lookup_parameters or base.get("_hasLargeLookup"):
+            warnings.append("Large N-gram/PLE lookup tables detected. Their GPU/host placement and pinned-host storage must be verified in the selected runtime; generic CPU offloading is not proof that special-table offload is enabled.")
+        if result.get("memoryArchitecture") == "unified":
+            warnings.append("GPU allocations share Linux system RAM on this host. These host-runtime figures must not be added as another independent GPU memory pool.")
+        known = full_weights > 0 and base.get("confidence") != "fallback"
+        return {
+            "scope": "per-copy" if copies > 1 else "per-pod", "replicaCount": copies, "workerCount": workers,
+            "minimumMi": startup if known else None, "recommendedMi": recommended if known else None,
+            "runningMinimumMi": running if known else None, "runningRecommendedMi": running_recommended if known else None,
+            "startupMinimumMi": startup if known else None, "startupUpperMi": startup_upper if known else None,
+            "maximumMi": available, "totalRecommendedMi": recommended * copies if known else None,
+            "weightsOnCpuMi": host_weights, "cacheOnCpuMi": host_cache, "hostRuntimeMi": runtime,
+            "multimodalCacheMi": multimodal, "promptBuffersMi": prompt, "loadingBuffersMi": loading,
+            "fileCacheUpperMi": file_cache, "largeLookupParameters": lookup_parameters,
+            "confidence": "estimated" if known else "unknown", "warnings": warnings,
+            "calculations": {
+                "runningMinimumMi": memory_calculation(
+                    "round_up_100(CPU weights + CPU cache + host runtime + multimodal caches + prompt buffers)",
+                    f"{host_weights:,} + {host_cache:,} + {runtime:,} + {multimodal:,} + {prompt:,} → {running:,} MiB",
+                    f"{workers} worker(s) in one Pod; Ollama uses one runner. Multimodal vLLM reserves two 4 GiB processor-cache allowances when applicable."),
+                "startupMinimumMi": memory_calculation("round_up_100(running RAM + transfer-buffer allowance)",
+                    f"{running:,} + {loading:,} → {startup:,} MiB", "A provisional lower planning figure, not a proven hard minimum."),
+                "startupUpperMi": memory_calculation("round_up_100(running RAM + max(transfer buffers, non-offloaded checkpoint file cache))",
+                    f"{running:,} + max({loading:,}, {file_cache:,}) → {startup_upper:,} MiB",
+                    "Reclaimable file cache, not an extra permanent model copy. Do not add the lower and upper bounds."),
+                "recommendedMi": memory_calculation("round_up_100(startup upper envelope + max(2,048, startup upper × 0.15))",
+                    f"{startup_upper:,} + max(2,048, floor({startup_upper:,} × 0.15)) → {recommended:,} MiB",
+                    "Conservative Pod budget; actual peak requires cgroup/RSS measurements during loading. Existing saved budgets are never automatically raised."),
+            },
+        }
 
 
     def estimate_model_vram(payload):
@@ -6714,6 +6948,10 @@ data:
                     replicas = gpu_count if local.get("gpuDeployment") == "replicated" else 1
                     if host_maximum is None or memory * replicas > host_maximum:
                         raise ValueError("System RAM exceeds verifiable unreserved RAM on the selected GPU node")
+                    startup_minimum = (estimate.get("systemMemory") or {}).get("minimumMi")
+                    if startup_minimum is not None and memory < startup_minimum and not allow_memory_risk:
+                        raise ValueError("System RAM is below the estimated startup minimum of " + str(startup_minimum)
+                                         + " MiB. Increase RAM or explicitly accept the memory risk.")
                     local["memoryRequiredMi"] = memory
                 if local.get("cpuOffloading"):
                     if not resolved_model_url:
@@ -6727,6 +6965,10 @@ data:
                         raise ValueError("local.memoryRequiredMi must be an integer of at least 16 MiB")
                     if memory < plan["ramMinimumMi"] and not allow_memory_risk:
                         raise ValueError("RAM reservation must be at least " + str(plan["ramMinimumMi"]) + " MiB, including offloading and host runtime")
+                    startup_minimum = (estimate.get("systemMemory") or {}).get("minimumMi")
+                    if startup_minimum is not None and memory < startup_minimum and not allow_memory_risk:
+                        raise ValueError("Host RAM is below the estimated startup minimum of " + str(startup_minimum)
+                                         + " MiB. Increase RAM or explicitly accept the memory risk.")
                     if not allow_memory_risk and (plan["ramMaximumMi"] is None or memory > plan["ramMaximumMi"]):
                         raise ValueError("RAM reservation exceeds verifiable unreserved RAM on a compatible GPU node")
                     if not allow_memory_risk and (estimate["maximumMi"] is None or plan["vramBudgetMi"] > estimate["maximumMi"]):

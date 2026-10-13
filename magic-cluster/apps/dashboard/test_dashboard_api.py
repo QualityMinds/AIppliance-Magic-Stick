@@ -60,6 +60,15 @@ class LocalRuntimeTests(unittest.TestCase):
     def setUpClass(cls):
         cls.server = load_server()
 
+    def test_creation_names_have_bounded_dns_label_validation(self):
+        for value in ("", "  ", "Uppercase", "two words", "under_score", "a.b", "-start", "end-", "ä", "a" * 64):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                self.server["require_name"]({"name": value})
+        for value in ("a", "9", "qwen-3-8", "a" * 63):
+            with self.subTest(value=value):
+                self.assertEqual(self.server["require_name"]({"name": value}), value)
+        self.assertEqual(self.server["require_name"]({"name": " qwen-chat "}), "qwen-chat")
+
     def setUp(self):
         self.originals = {
             "model_activations": self.server["model_activations"],

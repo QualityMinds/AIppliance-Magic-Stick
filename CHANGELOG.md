@@ -10,6 +10,9 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ### Added
 
+- Show separate GPU-model System RAM estimates for serving, startup transfer
+  buffers and reclaimable file cache. Recommend a conservative host budget for
+  new multi-GPU/offloading models while preserving saved and manually edited budgets.
 - Configure and edit Ollama, vLLM and experimental vLLM-Omni through one local
   model form with catalog-driven source choices and engine-specific settings.
   Share CPU controls with Omni and expose optional output limits when creating
@@ -48,6 +51,35 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ### Changed
 
+- Add a disabled-by-default, exact-version/source-checksum-bound backport of
+  upstream vLLM #60142 for FP8 PLE pinned-host lookup on pre-SM89 NVIDIA GPUs.
+  Preserve weight storage bytes and fail startup on a foreign runtime/source.
+  The four-A6000 Flash-Next trial required standard KV cache; this repair does
+  not qualify the separate FP8 QSA cache path or every model/hardware combination.
+- Estimate vLLM KV cache per tensor rank or pipeline stage, including replicated
+  GQA/MLA heads, recurrent state and auxiliary QSA caches. Estimate Ollama's
+  layer-distributed cache separately. Size runtime reserve from local shards
+  and itemize uneven placement instead of repeating full-model reserves on every
+  GPU. These are planning envelopes, not measured fit guarantees.
+- Update Ollama CPU/NVIDIA and AMD ROCm runtimes from 0.33.2 to 0.40.3 with
+  verified immutable image digests. Align diagnostic images and AMD runtime
+  adoption checksums; retain saved model settings, registry references and the
+  persistent model-cache mount. GPU inference and cache/rollback acceptance
+  remain separate upgrade checks.
+- Update ordinary vLLM NVIDIA, CPU, AMD ROCm and Intel XPU runtimes to upstream
+  0.31.0 with verified immutable image digests. Keep diagnostic and Mesh CPU
+  fixtures aligned, and add a native offline CLI/model-config contract in CI.
+  Adapt the removed FP8 calibration flag using the actual runtime version,
+  retaining FP8 precision and compatibility with older installed images.
+  Retain the separately pinned experimental vLLM-Omni runtime. Architecture
+  support does not certify every quantized checkpoint or GPU combination.
+- Choose physical NVIDIA GPUs in one checkbox list for Create/Edit, with the
+  selected count derived from checked cards. Remove the primary-card dropdown
+  and automatic-count control; retain unavailable-card reasons and exact identities.
+- Show split-model GPU breakdowns in the same total scope as the VRAM calculator.
+  Keep per-copy estimates, host runtime and download size in their own scopes.
+- Validate local/external model names and duplicates before submission, with
+  inline feedback. Enforce the 63-character label limit in the creation API.
 - Reduce the local Docker regression runner to slim Node, locked Chromium
   headless shell and a smaller native Go builder. Combine source/runtime
   installation into one layer while retaining the native AMD recovery tests.

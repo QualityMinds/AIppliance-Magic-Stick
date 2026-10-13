@@ -219,6 +219,11 @@ select option:disabled { color: var(--muted); }
 .pagination .field { min-width: 90px; }
 .check-field { display: flex; align-items: center; gap: .55rem; min-height: 42px; color: #c7d4e6; }
 .check-field input { width: 18px; height: 18px; accent-color: var(--cyan); }
+.gpu-card-selection { min-width: 0; margin: 0; padding: 1rem; border: 1px solid var(--line); border-radius: 14px; }
+.gpu-card-selection legend { padding: 0 .35rem; font-weight: 600; }
+.gpu-card-selection .check-field input { flex-shrink: 0; }
+.gpu-card-selection .check-field span { min-width: 0; overflow-wrap: anywhere; }
+.gpu-card-selection .check-field:has(input:disabled) { opacity: .6; }
 .runtime-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; margin: 0; padding: 1rem; border: 1px solid var(--line); border-radius: 14px; }
 .runtime-options legend { padding: 0 .4rem; color: var(--text); font-weight: 800; }
 .sharing-fields { min-width: 0; display: grid; gap: 1rem; margin: 0; padding: 1rem; border: 1px solid var(--line); border-radius: 14px; }

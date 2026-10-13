@@ -61,10 +61,11 @@ allocation, which lets different deployments share each physical card.
 
 ### One model across several NVIDIA GPUs
 
-Enable **NVIDIA DRA** first. In **Models → Create → NVIDIA card**, choose the
-first card and add cards on that node, or enter an **Automatic GPU count** and
-choose **Select GPUs**. Automatic selection resolves and saves exact
-identities now; it does not silently move a running model later.
+Enable **NVIDIA DRA** first. In **Models → Create → NVIDIA GPUs**, check the
+cards to use. All cards appear in one list, including the first selected card.
+The selected count comes from the checked cards; there is no separate count
+field. Create and Edit save their exact identities. Uncheck a card to remove it
+from the group; a missing saved card stays visible until explicitly unchecked.
 Choose **Split one model** to distribute model weights rather than create copies.
 
 - Ordinary vLLM and Ollama support same-node groups with different GPU models
@@ -90,10 +91,14 @@ Choose **Split one model** to distribute model weights rather than create copies
   For different-sized cards, spare memory on a larger card does not increase
   this evenly divided budget. For example, 20 GiB and 12 GiB unreserved on two
   cards provide about 24 GiB on the total scale, rather than 32 GiB.
-  Minimum and Recommended also show group totals; **Breakdown** shows GPU
-  estimates per card and keeps host RAM and download size separate.
-  Estimates shard weights with 10% headroom and conservatively retain the full
-  cache/runtime allowance per card. These are estimates, not proof a model fits.
+  Minimum, Recommended and **Breakdown** all show group totals for GPU
+  components. Formula explanations show the per-card calculation and its
+  multiplication by the selected count. Host RAM and download size stay separate;
+  one split Pod's host runtime reserve and download are not multiplied.
+  Estimates follow local cache/rank or layer placement and size runtime reserve
+  from local shards. Uneven-weight placement receives a separate 10% allowance;
+  full-model cache/runtime is not blindly repeated on every card. These remain
+  estimates, not proof a model fits.
   Shared DRA does not isolate GPU memory. Ollama's layer placement remains
   runtime-managed, not a byte-exact VRAM cap.
 - **Advanced → Multi-GPU runtime** offers vLLM Auto, Tensor, or Pipeline.
@@ -104,18 +109,20 @@ Choose **Split one model** to distribute model weights rather than create copies
   vLLM converts the per-card MiB budget separately for differently sized GPUs;
   model loading still needs runtime memory headroom. Ollama manages its own
   layer placement and does not enforce a byte-exact per-card cap.
-- System RAM is one Pod reservation/limit (default 16 GiB, rounded to the UI's
-  100 MiB step), independent of GPU count and the CPU reservation. With CPU
-  offloading enabled, its host-RAM estimate includes every GPU worker.
+- System RAM is one Pod reservation/limit, not one per GPU. New forms propose
+  the model-dependent startup recommendation; older APIs retain the former
+  16 GiB fallback. Serving, startup range and file cache are shown separately.
+  vLLM includes its GPU workers; Ollama has one runner. Existing budgets stay
+  unchanged unless explicitly edited. Independent copies retain per-copy RAM.
 - Edit can change the group or strategy. The old Pod stops before the new
   placement; Stop releases all group slots after termination. Start reuses the
   saved group and waits if it is unavailable. A removed card or replaced node
   requires a new explicit selection. Logs and the routed API remain the same.
 
 The runtime mappings are verified against
-[vLLM 0.23.0 parallelism](https://docs.vllm.ai/en/v0.23.0/serving/parallelism_scaling/)
+[vLLM 0.31.0 parallelism](https://docs.vllm.ai/en/v0.31.0/serving/parallelism_scaling/)
 (`--tensor-parallel-size`, `--pipeline-parallel-size`, local `mp` executor) and
-[Ollama 0.33.2 settings](https://github.com/ollama/ollama/blob/v0.33.2/envconfig/config.go)
+[Ollama 0.40.3 settings](https://github.com/ollama/ollama/blob/v0.40.3/envconfig/config.go)
 (`OLLAMA_SCHED_SPREAD=true`). vLLM checks CUDA-visible UUIDs against the complete
 DRA group before loading. Its model probe does not enable `trust_remote_code`.
 Hardware performance and successful multi-GPU inference require a live run;

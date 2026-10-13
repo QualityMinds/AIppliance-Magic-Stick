@@ -2,6 +2,13 @@ import {test} from '@playwright/test';
 import {evidenceAnnotations} from '../core/evidence.ts';
 import {componentSuite} from './owning.ts';
 
+test('DISC-01 model names are validated before local or external creation', evidenceAnnotations(
+  {id: 'DISC-01', variant: 'model-name-component', layer: 'U'}), () => componentSuite('src/NvidiaCards.test.tsx', [
+    'validates VLLM model names and prevents duplicate or invalid writes',
+    'validates OLlama model names and prevents duplicate or invalid writes',
+    'uses the same name validation for external providers',
+]));
+
 test('ENG-09 shared configuration preserves saved intent and explicit resets', evidenceAnnotations(
   {id: 'ENG-09', variant: 'local-configuration-component', layer: 'U'}), () => componentSuite('src/LocalModelConfigurationCore.test.ts', [
     'preserves unchanged, changed and reverted legacy VLLM settings',
@@ -50,11 +57,25 @@ test('ENG-03 MEM-05 owning controls expose supported KV choices and explicit ris
     'warns but permits explicit risk acceptance when host RAM cannot be verified'],
 ));
 
-test('MEM-01 owning model UI renders the estimator breakdown independently of download size', evidenceAnnotations(
-  {id: 'MEM-01', variant: 'memory-component', layer: 'U'}), () => componentSuite(
-  'src/FeatureParity.test.tsx',
-  ['Models restores model-source controls, memory planning and registered models'],
-));
+test('MEM-01 owning model UI renders matching group totals independently of host RAM and download size', evidenceAnnotations(
+  {id: 'MEM-01', variant: 'memory-component', layer: 'U'}), async () => {
+  await componentSuite('src/FeatureParity.test.tsx', ['Models restores model-source controls, memory planning and registered models']);
+  await componentSuite('src/ModelMemorySettings.test.tsx', [
+    'shows every vLLM GPU component for the same 2-GPU group as the calculator',
+    'shows every vLLM GPU component for the same 4-GPU group as the calculator',
+    'keeps Ollama single-device cache components and runtime reserve unchanged',
+    'keeps a replicated copy at its full per-copy budget instead of multiplying it twice',
+    'sums offloaded shares but reserves host runtime and download only once for a split Pod',
+    'separates serving RAM and startup range without multiplying a split Pod by GPUs',
+    'preserves saved host RAM and clamps only an explicit recommendation to capacity',
+    'shows unknown RAM without offering a fabricated recommendation',
+    'shows per-copy host RAM and one explicit combined recommendation for replication',
+  ]);
+  await componentSuite('src/NvidiaCards.test.tsx', [
+    'uses startup RAM defaults for VLLM groups and preserves a manual host budget',
+    'uses startup RAM defaults for OLlama groups and preserves a manual host budget',
+  ]);
+});
 
 
 test('DISC-01 owning automatic task detection preserves unknown and per-reference manual choices', evidenceAnnotations(

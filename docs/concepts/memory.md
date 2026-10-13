@@ -55,5 +55,45 @@ is the GPU count times the least unreserved card's budget, rounded down to
 cover another card's missing capacity. Replicated copies retain a full budget
 per copy. Saved settings and capacity checks remain per GPU in both modes.
 
+The split-model calculator and its Breakdown use the same group totals for
+weights, cache, runtime reserve and headroom. Explanations retain the per-card
+formula and show how the total is derived. Download bytes stay a storage/network
+quantity; one split Pod's host runtime reserve is counted once. Compact GiB
+labels are rounded for display; the explanations show exact MiB values.
+
+vLLM cache planning follows tensor ranks or pipeline-local layers. A KV head
+may be replicated when there are more tensor ranks than KV heads; MLA latent
+cache is also replicated rather than divided as ordinary heads. Recurrent
+state and auxiliary QSA caches are separate components. Ollama places whole
+layers at load time, so its per-card cache uses an explicitly estimated
+uneven-layer envelope, not vLLM's tensor formula. Runtime reserve follows
+local shards; uneven placement and recommendation headroom remain separate.
+Unknown or unsupported architecture details require runtime validation.
+
+## System RAM for GPU models
+
+GPU inference still needs host RAM. The model form separates **While serving**,
+**At startup · estimated range** and a **Conservative recommended budget**.
+Serving includes CPU-resident weights/cache, host processes, prompt buffers and
+multimodal processor-cache allowances when relevant. Loading adds worker
+transfer buffers; the upper envelope also considers checkpoint-backed file
+cache that may be charged to the Pod's memory limit. Reclaimable file cache is
+not another permanent model copy. Do not add both startup bounds or treat
+Ollama's reported model buffers as complete process RSS.
+
+The values are estimates, not measured minimums. A split model has one Pod
+budget; replicated copies each need their own host budget. The selected node's
+unreserved RAM is not the cluster-wide CPU gauge. Unverified host capacity
+stays unknown. Large N-gram/PLE tables are flagged for placement verification:
+generic CPU offloading does not establish that a model-specific pinned-host
+backend is active.
+
+New multi-GPU/offloading forms propose the conservative RAM recommendation,
+bounded by verified node capacity. Saved and manually changed budgets remain
+untouched by recalculation. A budget below the provisional startup minimum
+requires explicit memory-risk acceptance; verified physical limits still apply.
+Single-GPU models without an offloading budget show advisory host estimates and
+retain their existing runtime resource profile.
+
 For actions, see [GPU memory](../administration/gpu-memory.md),
 [GPU sharing](../administration/gpu-sharing.md) and [engine selection](../user-guide/models/choose-engine.md).

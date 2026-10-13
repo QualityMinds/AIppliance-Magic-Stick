@@ -2,7 +2,7 @@ import {useEffect, useState} from 'react';
 import {useMutation, useQuery} from '@tanstack/react-query';
 import {
   initialLocalModelDraft, localModelChanges, localModelConfigurationPolicy, localModelCreatePayload,
-  modelEditRevision, normalizeHuggingFaceReference, realtimeDefaultRam, formatMi,
+  modelEditRevision, modelNameError, normalizeHuggingFaceReference, realtimeDefaultRam, formatMi,
 } from '@magicstick/dashboard-core';
 import type {LocalModelDraft, LocalModelSource, MemoryEstimate, ModelActivation, ModelsPayload, RealtimeConfiguration, RealtimeDevice} from '@magicstick/dashboard-contracts';
 import {api} from './api';
@@ -11,11 +11,12 @@ import {useCpuSettings} from './CpuSettings';
 import {useVllmDeploymentSettings} from './VllmDeploymentSettings';
 import {AdvancedModelSettings} from './AdvancedModelSettings';
 import {ModelSourceSettings, useModelDiscovery} from './ModelSourceSettings';
-import {EstimatePanel, EstimateBreakdown, GpuDeploymentSelect, MultiGpuSettings, roundMemory} from './ModelMemorySettings';
+import {EstimatePanel, EstimateBreakdown, GpuDeploymentSelect, MultiGpuSettings, SystemMemoryPanel, roundMemory} from './ModelMemorySettings';
 import {sharedSlotPools, slotsFull, targetSlots} from './GpuSlots';
 import {NvidiaGpuGroupSelect, matchingNvidiaCards, nvidiaCardKey} from './NvidiaGpuSelect';
 import {nvidiaPhysicalCapacityMi} from './NvidiaGpuSelection';
 import {MemoryInfo, unreservedCalculation} from './MemoryInfo';
+import {ModelNameField} from './ModelNameField';
 
 type StandardDraft = Extract<LocalModelDraft, {kind: 'standard'}>;
 const fallbackKvCacheOptions = (engine: string) => engine === 'OLlama'
@@ -192,8 +193,17 @@ const LocalModelConfigurationEditor = ({models, activation, engine, name, source
   }, [editing, omni, cpuOffloading, supportsOffloading, draft.engine, computeTarget, draft.url, draft.contextWindow, draft.maxNumSeqs, requestedModelType, standard?.kvCacheType, selectedMi, gpuKey, parallelism, gpuDeployment]);
   const activeEstimate = cpuOffloading ? editing ? estimate : offloadEstimate : estimate;
   const offload = cpuOffloading ? activeEstimate?.offloading : undefined;
+  const systemMemory = activeEstimate?.systemMemory;
+  const hasHostBudget = cpuOffloading || gpuCount > 1;
   const hostMaximum = Math.max(0, Math.floor((offload?.ramMaximumMi ?? 0) / 100) * 100);
-  useEffect(() => {if (!editing && !hostMemoryEdited && offload) updateStandard({hostMemoryMi: roundMemory(offload.ramRecommendedMi)});}, [editing, offload, hostMemoryEdited]);
+  useEffect(() => {
+    const recommendation = systemMemory?.recommendedMi ?? offload?.ramRecommendedMi;
+    if (!editing && !hostMemoryEdited && hasHostBudget && typeof recommendation === 'number') {
+      const limit = systemMemory?.maximumMi;
+      const safeLimit = typeof limit === 'number' ? Math.floor(limit / 100) * 100 : null;
+      updateStandard({hostMemoryMi: roundMemory(safeLimit !== null && safeLimit >= 100 ? Math.min(safeLimit, recommendation) : recommendation)});
+    }
+  }, [editing, offload, systemMemory, hasHostBudget, hostMemoryEdited]);
   const memoryRisks = activeEstimate ? [
     ...(activeEstimate.confidence !== 'high' ? ['Memory requirements are estimated and may differ at runtime.'] : []),
     ...(selectedMi < roundMemory(activeEstimate.minimumMi) ? ['The selected memory is below the estimated minimum.'] : []),
@@ -203,6 +213,7 @@ const LocalModelConfigurationEditor = ({models, activation, engine, name, source
     ...(offload?.ramMaximumMi === null ? ['Unreserved host RAM could not be verified.'] : []),
     ...(offload && hostMemoryMi < offload.ramMinimumMi ? ['Host RAM is below the estimated offloading minimum.'] : []),
     ...(offload && offload.ramMaximumMi !== null && hostMemoryMi > hostMaximum ? ['Host RAM exceeds currently unreserved capacity.'] : []),
+    ...(hasHostBudget && typeof systemMemory?.minimumMi === 'number' && hostMemoryMi < systemMemory.minimumMi ? ['Host RAM is below the estimated startup minimum.'] : []),
   ] : [];
   const hasMemoryRisk = !omni && memoryRisks.length > 0;
   const invalidBudget = !omni && ((!editing && !selectedTarget) || noSlots || engineUnavailable || (cardRequired && gpuDeployment !== 'single' && gpuCount < 2)
@@ -227,7 +238,8 @@ const LocalModelConfigurationEditor = ({models, activation, engine, name, source
   const recommendedRam = config ? Math.max((config.thinkerCpuOffloadGiB + 4) * 1024,
     device?.gpuAllocationMode === 'shared-gtt' ? Math.floor(device.gpuMemoryMi * config.gpuMemoryFraction) * config.gpuCount + (profile?.hostRuntimeHeadroomMi ?? 8192) : 0) : 0;
   const modelError = omni && !canonicalUrl ? new Error('Enter hf://organization/model, organization/model, or a Hugging Face repository URL.') : null;
-  const invalid = invalidBudget || invalidRealtime || imageMissing || cpuSettings.invalid || deploymentSettings.invalid || !canonicalUrl || !modelType
+  const nameError = !editing ? modelNameError(draft.name, models.activations.map((item) => item.metadata?.name ?? '')) : undefined;
+  const invalid = invalidBudget || invalidRealtime || imageMissing || cpuSettings.invalid || deploymentSettings.invalid || !canonicalUrl || !modelType || Boolean(nameError)
     || !integer(draft.contextWindow, 1) || !integer(draft.maxNumSeqs, 1)
     || (!omni && draft.maxOutputTokens !== '' && !integer(Number(draft.maxOutputTokens), 1))
     || (editing && !modelEditRevision(initialActivation!)) || !draft.name.trim();
@@ -250,7 +262,11 @@ const LocalModelConfigurationEditor = ({models, activation, engine, name, source
       url: current.url === `hf://${profile?.model}` ? `hf://${nextProfile?.model ?? ''}` : current.url,
       realtime: {profile: id, gpuNode: nextDevice?.node ?? '', gpuCount: 1, systemMemoryMi: realtimeDefaultRam(nextProfile, nextDevice), gpuMemoryFraction: .9, thinkerCpuOffloadGiB: 0}} : current);
   };
-  const selectGpuKeys = (keys: string[]) => updateStandard({gpuDevices: keys.flatMap((key) => cards.filter((item) => nvidiaCardKey(item.gpuDevice!) === key).map((item) => item.gpuDevice!)),
+  const selectGpuKeys = (keys: string[]) => updateStandard({gpuDevices: keys.flatMap((key) => {
+    const selection = cards.find((item) => nvidiaCardKey(item.gpuDevice!) === key)?.gpuDevice
+      ?? standard?.gpuDevices.find((item) => nvidiaCardKey(item) === key);
+    return selection ? [selection] : [];
+  }),
     gpuDeployment: keys.length > 1 && gpuDeployment === 'single' ? 'split' : keys.length === 1 && gpuDeployment === 'split' ? 'single' : gpuDeployment});
   const selectHardware = (target: string) => {
     const first = models.computeMemory?.devices?.find((item) => target === 'nvidia-gpu' && item.gpuDevice && item.slots?.scope === 'device' && (item.slots.free ?? 0) > 0);
@@ -260,7 +276,7 @@ const LocalModelConfigurationEditor = ({models, activation, engine, name, source
   return <form className="stack" aria-label="Local model configuration" onSubmit={(event) => {event.preventDefault(); if (!invalid && changed && !busy && !mutation.isPending) mutation.mutate();}}>
     {editing && <div className="tag-list"><span className="tag">Model: {initial.name}</span><span className="tag">Engine: {omni ? 'vLLM-Omni' : draft.engine}</span><span className="tag">Compute: {computeTarget}</span><span className="tag">Source unchanged</span></div>}
     <div className="form-grid">
-      <Field label="Name"><input value={draft.name} disabled={editing} required onChange={(event) => {update({name: event.target.value}); onName(event.target.value);}} /></Field>
+      <ModelNameField value={draft.name} disabled={editing} error={nameError} onChange={(value) => {update({name: value}); onName(value);}} />
       {omni && <Field label="Realtime profile"><select value={profileId} disabled={editing} onChange={(event) => selectProfile(event.target.value)}>{Object.entries(profiles).map(([id, item]) => <option key={id} value={id}>{item.displayName}</option>)}</select></Field>}
     </div>
     {omni && <div className="tag-list"><span className="tag">Engine: vLLM-Omni</span><span className="tag">WebSocket /v1/realtime</span><span className="tag" title={profile?.description} tabIndex={0}>Experimental runtime ⓘ</span></div>}
@@ -309,12 +325,15 @@ const LocalModelConfigurationEditor = ({models, activation, engine, name, source
       {gpuCount > 1 && <p role="status">VRAM per GPU: {formatMi(selectedMi)} · {gpuCount} GPUs · {formatMi(selectedMi * gpuCount)} planned total. The smallest selected card limits this control.</p>}
       <EstimatePanel estimate={activeEstimate ?? estimate} availableMi={availableMi} capacityKnown={capacityKnown} selectedMi={selectedMi} onSelected={(value) => updateStandard({selectedMi: value})}
         hideBreakdown={cpuOffloading} preserveSelectedMi={editing ? initialStandard?.selectedMi : undefined} budgetDevices={replicated ? 1 : gpuCount} />
+      {computeTarget !== 'cpu' && <SystemMemoryPanel estimate={activeEstimate ?? estimate} selectedMi={hostMemoryMi}
+        onSelected={hasHostBudget ? (value) => {setHostMemoryEdited(true); updateStandard({hostMemoryMi: value});} : undefined}
+        preserveSelectedMi={editing ? initialStandard?.hostMemoryMi : undefined} />}
       {supportsOffloading && <Panel title="CPU offloading" className="nested-panel">
         <label className="check-field"><input type="checkbox" checked={cpuOffloading} onChange={(event) => updateStandard({cpuOffloading: event.target.checked})} />Use additional system RAM</label>
         <p className="muted">Stores part of the model in this GPU node's RAM. This can run larger models, but may substantially reduce response speed. No disk swap or RAM from another node is used.</p>
         {cpuOffloading && <>
           {!offload && !offloadError && <p role="status">Calculating the RAM / VRAM allocation…</p>}
-          {offload && <section className="estimate stack compact">
+          {offload && !systemMemory && <section className="estimate stack compact">
             <header><strong>Host RAM reservation</strong><p className="muted">Includes offloading and runtime</p></header>
             <div className="estimate-metrics"><div><span>Minimum</span><strong><MemoryInfo label="Host RAM minimum" value={formatMi(offload.ramMinimumMi)} calculation={activeEstimate?.calculations?.ramMinimumMi} /></strong></div><div><span>Recommended</span><strong><MemoryInfo label="Host RAM recommended" value={formatMi(offload.ramRecommendedMi)} calculation={activeEstimate?.calculations?.ramRecommendedMi} /></strong></div><div><span>100% unreserved on an eligible GPU node</span><strong><MemoryInfo label="Unreserved host RAM" value={offload.ramMaximumMi === null ? 'Unknown' : formatMi(hostMaximum)} calculation={unreservedCalculation(offload.ramMaximumMi)} /></strong></div></div>
             <input aria-label="Host RAM reservation" type="range" min="100" step="100" max={Math.max(100, hostMaximum)} value={Math.min(Math.max(100, hostMaximum), hostMemoryMi)} disabled={!hostMaximum} onChange={(event) => {setHostMemoryEdited(true); updateStandard({hostMemoryMi: Number(event.target.value)});}} />
@@ -335,8 +354,8 @@ const LocalModelConfigurationEditor = ({models, activation, engine, name, source
       {!invalidRealtime && config.systemMemoryMi < recommendedRam && <span className="tag" tabIndex={0} title={`Estimated RAM including offloading and shared GPU memory: ${formatMi(recommendedRam)}. This estimate does not block experimental deployment; insufficient RAM can cause OOM.`}>RAM below planning estimate ⓘ</span>}
     </section>}
     <AdvancedModelSettings cpuSettings={cpuSettings} deploymentSettings={omni ? undefined : deploymentSettings}>
-      {standard && <MultiGpuSettings count={gpuCount} engine={draft.engine} strategy={parallelism} onStrategy={(value) => updateStandard({parallelism: value})} ramMi={hostMemoryMi} onRam={(value) => updateStandard({hostMemoryMi: value})}
-        offloading={cpuOffloading} ramMaximumMi={activeEstimate?.systemMemoryMaximumMi} replicated={replicated} />}
+      {standard && <MultiGpuSettings count={gpuCount} engine={draft.engine} strategy={parallelism} onStrategy={(value) => updateStandard({parallelism: value})} ramMi={hostMemoryMi} onRam={(value) => {setHostMemoryEdited(true); updateStandard({hostMemoryMi: value});}}
+        offloading={cpuOffloading || Boolean(systemMemory)} ramMaximumMi={activeEstimate?.systemMemoryMaximumMi} replicated={replicated} />}
       {omni && config && <>
         <Field label="Runtime image (optional)"><input value={config.runtimeImage ?? ''} placeholder={profile?.image || 'registry/image:tag'} onChange={(event) => updateRealtime({runtimeImage: event.target.value.trim() || undefined})} /></Field>
         {!cpu && <Field label="Thinker CPU offload (GiB)"><input type="number" min="0" max="2147483647" value={config.thinkerCpuOffloadGiB} onChange={(event) => updateRealtime({thinkerCpuOffloadGiB: Number(event.target.value)})} /></Field>}

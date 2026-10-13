@@ -4,15 +4,26 @@ import userEvent from '@testing-library/user-event';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import type {ModelsPayload} from '@magicstick/dashboard-contracts';
 import {fourNvidiaCards, fourNvidiaCardsWithMixedTelemetry, heterogeneousNvidiaCards, nvidiaSelection} from '../regression/fixtures/nvidia-cards';
+import {systemMemoryFixture} from '../regression/fixtures/system-memory';
 import {api} from './api';
-import {nvidiaCardKey} from './NvidiaGpuSelect';
 import {ModelsPage} from './pages/ModelsPage';
 
 vi.mock('./api', () => ({api: {models: vi.fn(), popularModels: vi.fn(), estimateMemory: vi.fn(),
-  createLocalModel: vi.fn(), estimateModelUpdate: vi.fn(), updateModel: vi.fn()}}));
+  createLocalModel: vi.fn(), createExternalModel: vi.fn(), estimateModelUpdate: vi.fn(), updateModel: vi.fn()}}));
 const session = {subject: 'fixture-admin', username: 'fixture-admin', roles: ['magicstick-admin'], identityManagementAvailable: true, identityManagementMode: 'keycloak'};
 const estimate = {detectedModelType: 'chat' as const, minimumMi: 5000, recommendedMi: 6000, maximumMi: 49152, systemMemoryMaximumMi: 32000, weightsMi: 4000, kvCacheMi: 500, reserveMi: 500, confidence: 'high' as const};
-const key = (index: number) => nvidiaCardKey(nvidiaSelection(index));
+async function selectCards(...indices: number[]) {
+  const group = within(screen.getByRole('group', {name: 'NVIDIA GPUs'}));
+  const wanted = indices.map((index) => new RegExp(`0000:0${index + 1}:00.0`));
+  for (const checkbox of group.getAllByRole('checkbox')) {
+    if ((checkbox as HTMLInputElement).checked && !wanted.some((pattern) => pattern.test(checkbox.closest('label')!.textContent!)))
+      await userEvent.click(checkbox);
+  }
+  for (const name of wanted) {
+    const checkbox = group.getByRole('checkbox', {name});
+    if (!(checkbox as HTMLInputElement).checked) await userEvent.click(checkbox);
+  }
+}
 function mount(data: ModelsPayload) {
   vi.mocked(api.models).mockResolvedValue(data);
   const client = new QueryClient({defaultOptions: {queries: {retry: false}, mutations: {retry: false}}});
@@ -42,17 +53,76 @@ beforeEach(() => {
   vi.mocked(api.estimateMemory).mockResolvedValue(estimate);
   vi.mocked(api.estimateModelUpdate).mockResolvedValue(estimate);
   vi.mocked(api.createLocalModel).mockResolvedValue({});
+  vi.mocked(api.createExternalModel).mockResolvedValue({});
   vi.mocked(api.updateModel).mockResolvedValue({});
 });
 
 describe('NVIDIA physical card selection', () => {
+  it.each(['VLLM', 'OLlama'])('uses startup RAM defaults for %s groups and preserves a manual host budget', async (engine) => {
+    vi.mocked(api.estimateMemory).mockResolvedValue({...estimate, systemMemory: systemMemoryFixture()});
+    mount(fourNvidiaCards()); const submit = await create(engine);
+    await selectCards(0, 1);
+    await waitFor(() => expect(screen.getByLabelText('Host RAM budget (MiB)')).toHaveValue(18000));
+    fireEvent.change(screen.getByLabelText('Host RAM budget (MiB)'), {target: {value: '20000'}});
+    vi.mocked(api.estimateMemory).mockResolvedValue({...estimate, systemMemory: systemMemoryFixture({recommendedMi: 22000})});
+    fireEvent.change(screen.getByLabelText('Context Size'), {target: {value: '8192'}});
+    await waitFor(() => expect(api.estimateMemory).toHaveBeenLastCalledWith(expect.objectContaining({contextWindow: 8192})));
+    await waitFor(() => expect(screen.getByText('Conservative recommended budget').parentElement).toHaveTextContent('21 GiB'));
+    expect(screen.getByLabelText('Host RAM budget (MiB)')).toHaveValue(20000);
+    await userEvent.click(submit);
+    expect(api.createLocalModel).toHaveBeenCalledWith(expect.objectContaining({local: expect.objectContaining({memoryRequiredMi: 20000})}));
+  });
+
+  it.each(['VLLM', 'OLlama'])('validates %s model names and prevents duplicate or invalid writes', async (engine) => {
+    const data = fourNvidiaCards();
+    data.activations = [{metadata: {name: 'existing-model'}, spec: {type: 'external', external: {model: 'openai/fixture'}}}];
+    mount(data); const submit = await create(engine);
+    await waitFor(() => expect(submit).toBeEnabled());
+    const input = screen.getByLabelText('Name');
+    for (const value of ['Uppercase', 'two words', 'under_score', 'name.', '-start', 'end-', 'a'.repeat(64), 'existing-model', '']) {
+      fireEvent.change(input, {target: {value}}); fireEvent.blur(input);
+      expect(input).toHaveAttribute('aria-invalid', 'true'); expect(submit).toBeDisabled();
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+      fireEvent.submit(submit.closest('form')!); expect(api.createLocalModel).not.toHaveBeenCalled();
+    }
+    fireEvent.change(input, {target: {value: ' fresh-model '}});
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await waitFor(() => expect(submit).toBeEnabled()); await userEvent.click(submit);
+    expect(api.createLocalModel).toHaveBeenCalledWith(expect.objectContaining({name: 'fresh-model'}));
+  });
+  it('uses the same name validation for external providers', async () => {
+    const data = fourNvidiaCards(); data.activations = [{metadata: {name: 'existing-model'}, spec: {type: 'external'}}];
+    mount(data); await userEvent.click(await screen.findByRole('button', {name: 'Create'}));
+    await userEvent.selectOptions(screen.getByLabelText('Location'), 'external');
+    const input = screen.getByLabelText('Name'), submit = screen.getByRole('button', {name: 'Add External Model'});
+    for (const value of ['UPPER', 'a'.repeat(64), 'existing-model']) {
+      fireEvent.change(input, {target: {value}}); expect(submit).toBeDisabled();
+      fireEvent.submit(submit.closest('form')!); expect(api.createExternalModel).not.toHaveBeenCalled();
+    }
+    fireEvent.change(input, {target: {value: ' external-chat '}});
+    await userEvent.click(submit);
+    expect(api.createExternalModel).toHaveBeenCalledWith(expect.objectContaining({name: 'external-chat'}));
+  });
+  it('retains a missing GPU until that exact checkbox is explicitly cleared', async () => {
+    const client = mount(fourNvidiaCards()); const submit = await create();
+    await selectCards(0, 1, 2);
+    const missing = fourNvidiaCards(); missing.computeMemory!.devices!.splice(1, 1);
+    await act(async () => {client.setQueryData(['models'], missing);});
+    const unavailable = await screen.findByRole('checkbox', {name: /Selected GPU .* is no longer available/});
+    expect(unavailable).toBeChecked(); expect(submit).toBeDisabled();
+    await userEvent.click(screen.getByRole('checkbox', {name: /0000:03:00.0/}));
+    expect(unavailable).toBeChecked(); expect(submit).toBeDisabled();
+    await userEvent.click(unavailable);
+    await waitFor(() => expect(submit).toBeEnabled());
+    await userEvent.click(submit);
+    expect(api.createLocalModel).toHaveBeenCalledWith(expect.objectContaining({local: expect.objectContaining({gpuDevice: nvidiaSelection(0)})}));
+  });
   it.each(['split', 'replicated'])('selects all four identical inventory cards in %s mode despite different telemetry totals', async (mode) => {
     const data = fourNvidiaCardsWithMixedTelemetry();
     mount(data); const submit = await create();
     await userEvent.selectOptions(screen.getByLabelText('GPU deployment'), mode);
     expect(screen.getByRole('checkbox', {name: /0000:04:00.0/})).toBeEnabled();
-    fireEvent.change(screen.getByLabelText('Automatic GPU count'), {target: {value: '4'}});
-    await userEvent.click(screen.getByRole('button', {name: 'Select GPUs'}));
+    await selectCards(0, 1, 2, 3);
     await waitFor(() => expect(api.estimateMemory).toHaveBeenLastCalledWith(expect.objectContaining({gpuDeployment: mode,
       gpuDevices: [0, 1, 2, 3].map(i => nvidiaSelection(i))})));
     await waitFor(() => expect(submit).toBeEnabled()); await userEvent.click(submit);
@@ -72,8 +142,7 @@ describe('NVIDIA physical card selection', () => {
 
   it.each(['VLLM', 'OLlama'])('groups different NVIDIA models and capacities for %s using the smallest unreserved budget', async (engine) => {
     mount(heterogeneousNvidiaCards()); const submit = await create(engine);
-    fireEvent.change(screen.getByLabelText('Automatic GPU count'), {target: {value: '4'}});
-    await userEvent.click(screen.getByRole('button', {name: 'Select GPUs'}));
+    await selectCards(0, 1, 2, 3);
     await waitFor(() => expect(api.estimateMemory).toHaveBeenLastCalledWith(expect.objectContaining({gpuDevices: [0, 1, 2, 3].map(i => nvidiaSelection(i))})));
     const budget = screen.getByLabelText('Total VRAM budget (MiB)');
     expect(screen.getByRole('slider', {name: 'Memory reservation'})).toHaveAttribute('max', '48800');
@@ -88,8 +157,7 @@ describe('NVIDIA physical card selection', () => {
     const data = heterogeneousNvidiaCards();
     Object.assign(data.computeMemory!.devices![3]!, {totalMi: 49152, unreservedMi: 32768});
     mount(data); const submit = await create();
-    fireEvent.change(screen.getByLabelText('Automatic GPU count'), {target: {value: '4'}});
-    await userEvent.click(screen.getByRole('button', {name: 'Select GPUs'}));
+    await selectCards(0, 1, 2, 3);
     await waitFor(() => expect(screen.getByRole('slider', {name: 'Memory reservation'})).toHaveAttribute('max', '65200'));
     fireEvent.change(screen.getByLabelText('Total VRAM budget (MiB)'), {target: {value: '68000'}});
     expect(submit).toBeDisabled();
@@ -111,8 +179,7 @@ describe('NVIDIA physical card selection', () => {
   it.each([['VLLM', 2], ['VLLM', 4], ['OLlama', 2], ['OLlama', 4]] as const)(
     'uses combined capacity for a %s model split across %i GPUs and saves per-card reservations', async (engine, count) => {
       mount(fourNvidiaCards()); const submit = await create(engine);
-      fireEvent.change(screen.getByLabelText('Automatic GPU count'), {target: {value: String(count)}});
-      await userEvent.click(screen.getByRole('button', {name: 'Select GPUs'}));
+      await selectCards(...Array.from({length: count}, (_, index) => index));
       await waitFor(() => expect(api.estimateMemory).toHaveBeenLastCalledWith(expect.objectContaining({gpuDevices: Array.from({length: count}, (_, i) => nvidiaSelection(i))})));
       const slider = screen.getByRole('slider', {name: 'Memory reservation'});
       const perCardMaximum = count === 4 ? 40900 : 49100;
@@ -241,10 +308,9 @@ describe('NVIDIA physical card selection', () => {
     expect(vi.mocked(api.createLocalModel).mock.calls[0]![0]).not.toHaveProperty('local.gpuDevice');
   });
 
-  it('automatically chooses four matching cards and preserves a blocked group during polling', async () => {
+  it('selects four cards by checkbox and preserves a blocked group during polling', async () => {
     const client = mount(fourNvidiaCards()); const submit = await create();
-    fireEvent.change(screen.getByLabelText('Automatic GPU count'), {target: {value: '4'}});
-    await userEvent.click(screen.getByRole('button', {name: 'Select GPUs'}));
+    await selectCards(0, 1, 2, 3);
     await waitFor(() => expect(api.estimateMemory).toHaveBeenLastCalledWith(expect.objectContaining({gpuDevices: [0,1,2,3].map(i=>nvidiaSelection(i))})));
     await act(async () => {client.setQueryData(['models'], fourNvidiaCards([4,4,0,4]));});
     await waitFor(() => expect(submit).toBeDisabled());
@@ -279,10 +345,13 @@ describe('NVIDIA physical card selection', () => {
   it('offers four identical cards with distinct identities and persists only the chosen binding', async () => {
     mount(fourNvidiaCards([4, 0, 3, 4]));
     const submit = await create();
-    const select = screen.getByLabelText('NVIDIA card');
-    expect(within(select).getAllByRole('option')).toHaveLength(4);
-    expect(within(select).getByRole('option', {name: /0000:02:00.0.*no free slots/})).toBeDisabled();
-    await userEvent.selectOptions(select, key(3));
+    const cards = within(screen.getByRole('group', {name: 'NVIDIA GPUs'}));
+    expect(cards.getAllByRole('checkbox')).toHaveLength(4);
+    expect(cards.getByRole('checkbox', {name: /0000:02:00.0.*No free slots/})).toBeDisabled();
+    expect(screen.queryByLabelText('Automatic GPU count')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'Select GPUs'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', {name: 'NVIDIA card'})).not.toBeInTheDocument();
+    await selectCards(3);
     await waitFor(() => expect(api.estimateMemory).toHaveBeenLastCalledWith(expect.objectContaining({gpuDevice: nvidiaSelection(3)})));
     await waitFor(() => expect(submit).toBeEnabled());
     await userEvent.click(submit);
@@ -293,11 +362,11 @@ describe('NVIDIA physical card selection', () => {
   it('keeps the selected card and draft when it fills despite free siblings, then releases it', async () => {
     const client = mount(fourNvidiaCards());
     const submit = await create();
-    await userEvent.selectOptions(screen.getByLabelText('NVIDIA card'), key(2));
+    await selectCards(2);
     await waitFor(() => expect(submit).toBeEnabled());
     await act(async () => {client.setQueryData(['models'], fourNvidiaCards([4, 4, 0, 4]));});
     await waitFor(() => expect(submit).toBeDisabled());
-    expect(screen.getByLabelText('NVIDIA card')).toHaveValue(key(2));
+    expect(screen.getByRole('checkbox', {name: /0000:03:00.0/})).toBeChecked();
     expect(screen.getByLabelText('Hugging Face URL')).toHaveValue('hf://fixture/small-model');
     expect(submit).toBeDisabled();
     fireEvent.submit(submit.closest('form')!);
@@ -309,25 +378,25 @@ describe('NVIDIA physical card selection', () => {
   it('requires a new choice after node replacement and never drops a disappeared binding', async () => {
     const client = mount(fourNvidiaCards());
     const submit = await create();
-    await userEvent.selectOptions(screen.getByLabelText('NVIDIA card'), key(2));
+    await selectCards(2);
     const replaced = fourNvidiaCards();
     for (const card of replaced.computeMemory!.devices!) card.gpuDevice!.nodeUid = 'replacement-uid';
     await act(async () => {client.setQueryData(['models'], replaced);});
-    expect(await screen.findByRole('option', {name: 'Selected card is no longer available'})).toBeDisabled();
+    expect(await screen.findByRole('checkbox', {name: /Selected GPU .* is no longer available/})).toBeChecked();
     expect(submit).toBeDisabled();
-    await userEvent.selectOptions(screen.getByLabelText('NVIDIA card'), nvidiaCardKey(nvidiaSelection(2, 'replacement-uid')));
+    await selectCards(2);
     await waitFor(() => expect(submit).toBeEnabled());
     const missing = fourNvidiaCards(); missing.computeMemory!.devices = []; missing.computeTargets.targets[1]!.available = false;
     await act(async () => {client.setQueryData(['models'], missing);});
     await waitFor(() => expect(submit).toBeDisabled());
-    expect(screen.getByLabelText('NVIDIA card')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', {name: /Selected GPU .* is no longer available/})).toBeChecked();
     expect(submit).toBeDisabled(); expect(api.createLocalModel).not.toHaveBeenCalled();
   });
 
   it('shows one automatic node pool without pretending the device plugin can select cards', async () => {
     mount(fourNvidiaCards(undefined, false));
     await create();
-    expect(screen.queryByLabelText('NVIDIA card')).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', {name: 'NVIDIA GPUs'})).not.toBeInTheDocument();
     expect(screen.getByText(/Automatic GPU assignment:/)).toBeInTheDocument();
     expect(screen.getAllByRole('article', {name: 'NVIDIA GPU pool · fixture-node'})).toHaveLength(1);
   });
@@ -336,9 +405,8 @@ describe('NVIDIA physical card selection', () => {
     mount(deployed());
     await userEvent.click(await screen.findByRole('button', {name: 'Edit fixture-model'}));
     const dialog = within(screen.getByRole('dialog', {name: 'Edit Model · fixture-model'}));
-    const select = dialog.getByLabelText('NVIDIA card');
-    expect(within(select).getByRole('option', {name: /0000:03:00.0.*1\/4 slots free/})).toBeEnabled();
-    expect(within(select).getByRole('option', {name: /0000:04:00.0.*no free slots/})).toBeDisabled();
+    expect(dialog.getByRole('checkbox', {name: /0000:03:00.0.*1\/4 slots free/})).toBeEnabled();
+    expect(dialog.getByRole('checkbox', {name: /0000:04:00.0.*No free slots/})).toBeDisabled();
     await userEvent.clear(dialog.getByLabelText('Context Size')); await userEvent.type(dialog.getByLabelText('Context Size'), '8192');
     await waitFor(() => expect(dialog.getByRole('button', {name: 'Save changes'})).toBeEnabled());
     await userEvent.click(dialog.getByRole('button', {name: 'Save changes'}));
@@ -350,8 +418,10 @@ describe('NVIDIA physical card selection', () => {
     mount(data);
     await userEvent.click(await screen.findByRole('button', {name: 'Edit fixture-model'}));
     const dialog = within(screen.getByRole('dialog', {name: 'Edit Model · fixture-model'}));
-    expect(dialog.getByRole('option', {name: /0000:03:00.0.*no free slots/})).toBeDisabled();
-    await userEvent.selectOptions(dialog.getByLabelText('NVIDIA card'), key(3));
+    expect(dialog.getByRole('checkbox', {name: /0000:03:00.0.*No free slots/})).toBeChecked();
+    expect(dialog.getByRole('checkbox', {name: /0000:03:00.0.*No free slots/})).toBeEnabled();
+    expect(dialog.getByRole('button', {name: 'Save changes'})).toBeDisabled();
+    await selectCards(3);
     await waitFor(() => expect(dialog.getByRole('button', {name: 'Save changes'})).toBeEnabled());
     await userEvent.click(dialog.getByRole('button', {name: 'Save changes'}));
     await waitFor(() => expect(api.updateModel).toHaveBeenCalledWith('fixture-model', {expectedRevision: '9', local: {gpuDevice: nvidiaSelection(3), gpuDeployment: 'single'}}));
@@ -362,7 +432,7 @@ describe('NVIDIA physical card selection', () => {
     mount(data);
     await userEvent.click(await screen.findByRole('button', {name: 'Edit fixture-model'}));
     const dialog = within(screen.getByRole('dialog', {name: 'Edit Model · fixture-model'}));
-    await userEvent.selectOptions(dialog.getByLabelText('NVIDIA card'), '');
+    await userEvent.click(dialog.getByRole('button', {name: 'Use device-plugin assignment'}));
     await waitFor(() => expect(api.estimateModelUpdate).toHaveBeenLastCalledWith('fixture-model', expect.objectContaining({gpuDevice: null})));
     await waitFor(() => expect(dialog.getByRole('button', {name: 'Save changes'})).toBeEnabled());
     await userEvent.click(dialog.getByRole('button', {name: 'Save changes'}));

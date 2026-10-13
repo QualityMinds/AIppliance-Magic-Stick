@@ -13,8 +13,8 @@ data:
       "diagnostics": {
         "nvidia": {
           "engines": {
-            "OLlama": {"image": "ollama/ollama:0.33.2", "testModel": "qwen3:0.6b"},
-            "VLLM": {"image": "vllm/vllm-openai:v0.23.0", "testModel": "Qwen/Qwen3-0.6B"}
+            "OLlama": {"image": "ollama/ollama:0.40.3@sha256:adca95a12c2b386a8f9a995e7fa0600e187e3323b5e5522f5a6c3b1ec73eff99", "testModel": "qwen3:0.6b"},
+            "VLLM": {"image": "vllm/vllm-openai:v0.31.0@sha256:c1c9f6fd5c109ba7f0546a59f5b2f15fb87f64c77782e90a27b648b42a8e67c3", "testModel": "Qwen/Qwen3-0.6B"}
           }
         }
       },
@@ -31,8 +31,8 @@ data:
           "experimental": true,
           "description": "Explicit opt-in for one Strix Halo GPU per node. A fresh host preflight and registered GPU enable model use; engine validation is an optional manual diagnostic. Unified memory is one physical pool, not extra VRAM.",
           "engines": {
-            "OLlama": {"image": "ollama/ollama:0.33.2-rocm", "testModel": "qwen3:0.6b"},
-            "VLLM": {"image": "vllm/vllm-openai-rocm:v0.26.0", "testModel": "Qwen/Qwen3-0.6B"}
+            "OLlama": {"image": "ollama/ollama:0.40.3-rocm@sha256:8cd88596698ab3283fd2f11727f1ffeb1519508d83f3ec1d137a4979e7bb9b6d", "testModel": "qwen3:0.6b"},
+            "VLLM": {"image": "vllm/vllm-openai-rocm:v0.31.0@sha256:749f6f3f944f12af49966ac523c1f8573e4b229594b541954bd5f879b4496b1f", "testModel": "Qwen/Qwen3-0.6B"}
           }
         }
       ]

@@ -41,29 +41,37 @@ export const EstimateBreakdown = ({estimate, budgetDevices = 1}: {estimate: Memo
   const hybridSafetyMi = Number(estimate.hybridAllocatorSafetyMi ?? Math.max(0, kvBudgetMi - baseKvMi));
   const attentionKvMi = Number(runtime.attentionKvCacheMi ?? 0);
   const recurrentStateMi = Number(runtime.recurrentStateMi ?? 0);
+  const auxiliaryCacheMi = Number(runtime.auxiliaryCacheMi ?? 0);
   const kvSavingsMi = Number(estimate.kvCacheSavingsMi ?? 0);
-  const hasDetailedOllamaCache = attentionKvMi > 0 || recurrentStateMi > 0;
+  const hasDetailedOllamaCache = attentionKvMi > 0 || recurrentStateMi > 0 || auxiliaryCacheMi > 0;
   const runtimeParts = [
     {label: 'Compile / warm-up', key: 'compileReserveMi', value: Number(runtime.compileReserveMi ?? 0)},
     {label: 'Multimodal processor cache', key: 'multimodalReserveMi', value: Number(runtime.multimodalReserveMi ?? 0)},
     {label: 'Quantization working copy', key: 'unpackReserveMi', value: Number(runtime.unpackReserveMi ?? 0)},
     {label: 'Engine runtime reserve', key: 'engineRuntimeReserveMi', value: Number(runtime.engineRuntimeReserveMi ?? 0)},
+    {label: 'Uneven GPU placement allowance', key: 'partitionReserveMi', value: Number(runtime.partitionReserveMi ?? 0)},
   ].filter((item) => item.value > 0);
   const explainedRuntimeMi = runtimeParts.reduce((total, item) => total + item.value, 0);
   const otherRuntimeMi = Math.max(0, Number(estimate.reserveMi ?? 0) - explainedRuntimeMi);
+  type Metric = {label: string; key: string; mi?: number; multiplier?: number; value?: string};
+  const gpuMetric = (label: string, key: string, mi?: number | null): Metric => ({label, key,
+    mi: typeof mi === 'number' && Number.isFinite(mi) ? mi : undefined, value: formatMi(mi), multiplier: budgetDevices});
+  const hostMetric = (label: string, key: string, mi?: number | null): Metric => ({label, key,
+    mi: typeof mi === 'number' && Number.isFinite(mi) ? mi : undefined, value: formatMi(mi), multiplier: 1});
   const cards = [
-    {label: 'Weights', key: 'weightsMi', value: formatMi(estimate.weightsMi)},
+    gpuMetric('Weights', 'weightsMi', estimate.weightsMi),
     ...(hasDetailedOllamaCache
       ? [
-          {label: 'Attention KV cache', key: 'attentionKvCacheMi', value: formatMi(attentionKvMi)},
-          ...(recurrentStateMi > 0 ? [{label: 'Recurrent state cache', key: 'recurrentStateMi', value: formatMi(recurrentStateMi)}] : []),
+          gpuMetric('Attention KV cache', 'attentionKvCacheMi', attentionKvMi),
+          ...(recurrentStateMi > 0 ? [gpuMetric('Recurrent state cache', 'recurrentStateMi', recurrentStateMi)] : []),
+          ...(auxiliaryCacheMi > 0 ? [gpuMetric('Auxiliary attention caches', 'auxiliaryCacheMi', auxiliaryCacheMi)] : []),
         ]
-      : [{label: hasTheoreticalKv ? 'Theoretical KV cache' : 'Estimated KV cache', key: hasTheoreticalKv ? 'theoreticalKvCacheMi' : 'kvCacheMi', value: formatMi(baseKvMi)}]),
-    ...(hybridSafetyMi > 0 ? [{label: 'Hybrid allocator safety', key: 'hybridAllocatorSafetyMi', value: formatMi(hybridSafetyMi)}] : []),
-    ...(kvSavingsMi > 0 ? [{label: 'KV cache saving vs F16', key: 'kvCacheSavingsMi', value: formatMi(kvSavingsMi)}] : []),
-    ...runtimeParts.map((item) => ({...item, value: formatMi(item.value)})),
-    ...(otherRuntimeMi > 0 ? [{label: 'Other runtime reserve', key: 'otherRuntimeMi', value: formatMi(otherRuntimeMi)}] : []),
-    ...(Number(estimate.recommendedReserveMi ?? 0) > 0 ? [{label: 'Recommended headroom', key: 'recommendedReserveMi', value: formatMi(estimate.recommendedReserveMi)}] : []),
+      : [gpuMetric(hasTheoreticalKv ? 'Theoretical KV cache' : 'Estimated KV cache', hasTheoreticalKv ? 'theoreticalKvCacheMi' : 'kvCacheMi', baseKvMi)]),
+    ...(hybridSafetyMi > 0 ? [gpuMetric('Hybrid allocator safety', 'hybridAllocatorSafetyMi', hybridSafetyMi)] : []),
+    ...(kvSavingsMi > 0 ? [gpuMetric('KV cache saving vs F16', 'kvCacheSavingsMi', kvSavingsMi)] : []),
+    ...runtimeParts.map((item) => gpuMetric(item.label, item.key, item.value)),
+    ...(otherRuntimeMi > 0 ? [gpuMetric('Other runtime reserve', 'otherRuntimeMi', otherRuntimeMi)] : []),
+    ...(Number(estimate.recommendedReserveMi ?? 0) > 0 ? [gpuMetric('Recommended headroom', 'recommendedReserveMi', estimate.recommendedReserveMi)] : []),
     {label: 'Download (disk / network)', key: 'downloadBytes', value: formatBytes(estimate.downloadBytes)},
   ];
   const calculations: Record<string, MemoryCalculation> = {...estimate.calculations, otherRuntimeMi: {
@@ -72,25 +80,69 @@ export const EstimateBreakdown = ({estimate, budgetDevices = 1}: {estimate: Memo
     notes: ['This is the unitemized remainder, not another reserve added to the total.'],
   }};
   const offloadCards = offloading ? [
-    {label: 'Weights · GPU', key: 'weightsOnGpuMi', value: formatMi(offloading.weightsOnGpuMi)},
-    {label: 'Weights · RAM', key: 'weightsOnCpuMi', value: formatMi(offloading.weightsOnCpuMi)},
-    {label: 'KV budget · GPU', key: 'kvOnGpuMi', value: formatMi(offloading.kvOnGpuMi)},
-    {label: 'KV upper bound · RAM', key: 'kvOnCpuMi', value: formatMi(offloading.kvOnCpuMi)},
-    {label: 'GPU runtime reserve', key: 'reserveMi', value: formatMi(estimate.reserveMi)},
-    {label: 'GPU recommended headroom', key: 'recommendedReserveMi', value: formatMi(estimate.recommendedReserveMi)},
-    {label: 'Host runtime reserve', key: 'hostRuntimeMi', value: formatMi(offloading.hostRuntimeMi)},
-    {label: 'RAM startup headroom', key: 'ramHeadroomMi', value: formatMi(offloading.ramRecommendedMi - offloading.ramMinimumMi)},
+    gpuMetric('Weights · GPU', 'weightsOnGpuMi', offloading.weightsOnGpuMi),
+    gpuMetric('Weights · RAM', 'weightsOnCpuMi', offloading.weightsOnCpuMi),
+    gpuMetric('KV budget · GPU', 'kvOnGpuMi', offloading.kvOnGpuMi),
+    gpuMetric('KV upper bound · RAM', 'kvOnCpuMi', offloading.kvOnCpuMi),
+    gpuMetric('GPU runtime reserve', 'reserveMi', estimate.reserveMi),
+    gpuMetric('GPU recommended headroom', 'recommendedReserveMi', estimate.recommendedReserveMi),
+    ...(!estimate.systemMemory ? [
+      hostMetric('Host runtime reserve', 'hostRuntimeMi', offloading.hostRuntimeMi),
+      hostMetric('RAM startup headroom', 'ramHeadroomMi', offloading.ramRecommendedMi - offloading.ramMinimumMi),
+    ] : []),
     {label: 'Download (disk / network)', key: 'downloadBytes', value: formatBytes(estimate.downloadBytes)},
   ] : [];
   return <details>
     <summary>Breakdown</summary>
-    {budgetDevices > 1 && <p className="muted">GPU estimates below are per GPU. The total VRAM budget covers {budgetDevices} GPUs; host RAM and download size remain separate.</p>}
-    <dl className="facts">{(offloading ? offloadCards : cards).map((item) => <div key={item.key}><dt>{item.label}</dt><dd><MemoryInfo label={item.label} value={item.value} calculation={calculations[item.key]} /></dd></div>)}</dl>
+    {budgetDevices > 1 && <p className="muted">Breakdown totals cover all {budgetDevices} selected GPUs, matching the total VRAM reservation above. Host RAM and download size remain separate.</p>}
+    <dl className="facts">{(offloading ? offloadCards : cards).map((item: Metric) => <div key={item.key}><dt>{item.label}</dt><dd><MemoryInfo label={item.label}
+      value={item.mi !== undefined ? formatMi(item.mi * (item.multiplier ?? 1)) : item.value} calculation={calculations[item.key]}
+      perDeviceMi={item.mi} budgetDevices={item.multiplier ?? 1} /></dd></div>)}</dl>
     {offloading && <p className="muted">Planning estimates, not measured usage. Host RAM includes offloaded weights and runtime. Ollama uses GPU-first auto-fit; its displayed weight/cache split is proportional and the exact placement is confirmed only after loading. vLLM weight offloading does not offload KV cache.</p>}
-    {hybridSafetyMi > 0 && <p className="muted">Configured KV budget: {formatMi(kvBudgetMi)} = {formatMi(baseKvMi)} theoretical cache + {formatMi(hybridSafetyMi)} compatibility safety for the hybrid vLLM allocator.</p>}
+    {hybridSafetyMi > 0 && <p className="muted">Configured KV budget: {formatMi(kvBudgetMi * budgetDevices)} = {formatMi(baseKvMi * budgetDevices)} theoretical cache + {formatMi(hybridSafetyMi * budgetDevices)} compatibility safety for the hybrid vLLM allocator.</p>}
     {!offloading && <p className="muted">Minimum includes weights, the complete KV budget, and runtime components. Recommended adds the separate headroom shown above. Download size is not added to memory.</p>}
-    {estimate.warnings?.map((warning) => <p className="muted" key={warning}>{warning}</p>)}
+    {estimate.warnings?.map((warning) => <p className="muted" key={warning}>{budgetDevices > 1 && warning.startsWith('Multi-GPU figures are per card;')
+      ? warning.replace('Multi-GPU figures are per card;', 'The displayed totals combine per-GPU estimates;') : warning}</p>)}
   </details>;
+};
+
+export const SystemMemoryPanel = ({estimate, selectedMi, onSelected, preserveSelectedMi}: {
+  estimate?: MemoryEstimate; selectedMi: number; onSelected?: (mi: number) => void; preserveSelectedMi?: number;
+}) => {
+  const memory = estimate?.systemMemory;
+  if (!memory) return null;
+  const display = (mi?: number | null) => typeof mi === 'number' ? formatMi(mi) : 'Unknown';
+  const maximum = typeof memory.maximumMi === 'number' ? Math.floor(memory.maximumMi / 100) * 100 : null;
+  const recommended = memory.recommendedMi;
+  const rows = [
+    ['CPU-resident weights', memory.weightsOnCpuMi], ['CPU-resident cache', memory.cacheOnCpuMi],
+    ['Host runtime', memory.hostRuntimeMi], ['Multimodal processor caches', memory.multimodalCacheMi],
+    ['Prompt / token buffers', memory.promptBuffersMi], ['Startup transfer buffers', memory.loadingBuffersMi],
+    ['Reclaimable file-cache upper bound', memory.fileCacheUpperMi],
+  ] as const;
+  return <section className="estimate stack compact" aria-label="System RAM planning">
+    <header><div><strong>{onSelected ? 'System RAM reservation' : 'System RAM estimate'}</strong><span className="muted">Estimated · {memory.scope === 'per-copy' ? 'per model copy' : 'one model Pod'}</span></div></header>
+    <div className="estimate-metrics">
+      <div><span>While serving</span><strong><MemoryInfo label="Serving RAM" value={display(memory.runningMinimumMi)} calculation={memory.calculations?.runningMinimumMi} /></strong></div>
+      <div><span>At startup · estimated range</span><strong><MemoryInfo label="Startup RAM range" value={memory.startupMinimumMi === null || memory.startupUpperMi === null ? 'Unknown' : `${display(memory.startupMinimumMi)} – ${display(memory.startupUpperMi)}`} calculation={memory.calculations?.startupUpperMi} /></strong></div>
+      <div><span>Conservative recommended budget</span><strong><MemoryInfo label="Recommended system RAM" value={display(recommended)} calculation={memory.calculations?.recommendedMi} /></strong></div>
+    </div>
+    <p className="muted">Loading can use more RAM than serving. The upper range includes reclaimable file cache; it is not another permanent model copy or measured memory use.</p>
+    {memory.replicaCount > 1 && <p>{memory.replicaCount} independent copies · recommended total host RAM: {display(memory.totalRecommendedMi)}. VRAM remains separate.</p>}
+    {onSelected && <>
+      <p className="muted">Unreserved RAM on the selected GPU node: {display(maximum)}. Saved budgets are retained until you change them.</p>
+      <input aria-label="Host RAM reservation" type="range" min="100" step="100" max={Math.max(100, maximum ?? 100)} value={Math.min(Math.max(100, maximum ?? 100), selectedMi)} disabled={maximum === null || maximum < 100} onChange={(event) => onSelected(Number(event.target.value))} />
+      <Field label="Host RAM budget (MiB)"><input type="number" min="100" step={selectedMi === preserveSelectedMi ? 1 : 100} value={selectedMi} onChange={(event) => onSelected(Number(event.target.value))} /></Field>
+      <Button type="button" disabled={recommended === null} onClick={() => recommended !== null && onSelected(roundMemory(maximum !== null && maximum >= 100 ? Math.min(maximum, recommended) : recommended))}>Use recommended RAM allocation</Button>
+      {memory.minimumMi !== null && selectedMi < memory.minimumMi && <div className="notice notice-warn">The selected RAM is below the estimated startup minimum. The runtime may fail or restart.</div>}
+      {recommended !== null && maximum !== null && recommended > maximum && <div className="notice notice-warn">The conservative RAM recommendation exceeds this node's unreserved capacity. A smaller budget does not prove that the model will load.</div>}
+    </>}
+    {!onSelected && <p className="muted">Advisory host estimate; the current single-GPU resource profile determines its RAM budget. This is separate from CPU-offloading and GPU memory.</p>}
+    <details><summary>RAM breakdown</summary><dl className="facts">{rows.map(([label, mi]) => <div key={label}><dt>{label}</dt><dd>{display(mi)}</dd></div>)}</dl>
+      <p className="muted">Do not sum both startup bounds. Lower-bound transfer buffers and upper-bound file cache are alternative loading envelopes.</p>
+      {memory.warnings?.map((warning) => <p className="muted" key={warning}>{warning}</p>)}
+    </details>
+  </section>;
 };
 
 export const EstimatePanel = ({estimate, availableMi, capacityKnown = true, selectedMi, onSelected, hideBreakdown = false, preserveSelectedMi, budgetDevices = 1}: {estimate?: MemoryEstimate; availableMi: number; capacityKnown?: boolean; selectedMi: number; onSelected: (value: number) => void; hideBreakdown?: boolean; preserveSelectedMi?: number; budgetDevices?: number}) => {

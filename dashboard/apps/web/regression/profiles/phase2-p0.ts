@@ -13,6 +13,8 @@ type VariantDefinition = {id: string; layers: readonly TestLayer[]};
 export const phase2FastVariants = {
   'model-task-component': {id: 'DISC-01', layers: ['U']},
   'model-task-contract': {id: 'DISC-01', layers: ['C']},
+  'model-name-component': {id: 'DISC-01', layers: ['U']},
+  'model-name-contract': {id: 'DISC-01', layers: ['C']},
   'create-choice-component': {id: 'DISC-01', layers: ['U']},
   'create-choice-contract': {id: 'DISC-01', layers: ['C']},
   'hf-search-component': {id: 'DISC-03', layers: ['U']},
@@ -49,6 +51,12 @@ export const phase2FastVariants = {
 } as const satisfies Record<string, VariantDefinition>;
 
 export const phase2FixtureVariants = {
+  'model-name-local-ollama-desktop-browser': {id: 'DISC-01', layers: ['B']},
+  'model-name-local-ollama-mobile-browser': {id: 'DISC-01', layers: ['B']},
+  'model-name-local-vllm-desktop-browser': {id: 'DISC-01', layers: ['B']},
+  'model-name-local-vllm-mobile-browser': {id: 'DISC-01', layers: ['B']},
+  'model-name-external-desktop-browser': {id: 'DISC-01', layers: ['B']},
+  'model-name-external-mobile-browser': {id: 'DISC-01', layers: ['B']},
   'task-chat-desktop-browser': {id: 'DISC-01', layers: ['B']},
   'task-chat-mobile-browser': {id: 'DISC-01', layers: ['B']},
   'task-embedding-desktop-browser': {id: 'DISC-01', layers: ['B']},

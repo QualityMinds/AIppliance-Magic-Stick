@@ -1,4 +1,5 @@
 import {test,expect,type Page,type Request} from '@playwright/test';
+import {formatMi} from '@magicstick/dashboard-core';
 import type {ModelsPayload,GpuSharingState,HardwareGpuDevice} from '@magicstick/dashboard-contracts';
 import {fixturePage,origin} from '../fixtures/dashboard.ts';
 import {evidenceAnnotations} from '../core/evidence.ts';
@@ -93,7 +94,9 @@ test(`MGPU-01 ${engine} ${count} ${different?'different':'identical'} GPUs ${vie
   const perCardMaximum=different?(count===4?12200:20400):(count===4?40900:49100);
   const savedPerCard=different?10000:40000,editedPerCard=different?8000:38000;
   const oversizedPerCard=different?(count===4?16400:24600):49200;
-  const estimate={detectedModelType:'chat',minimumMi:2000,recommendedMi:6000,maximumMi:different?(count===4?12288:20480):(count===4?40960:49152),systemMemoryMaximumMi:32000,confidence:'high'};
+  const estimate={detectedModelType:'chat',minimumMi:2000,recommendedMi:6000,maximumMi:different?(count===4?12288:20480):(count===4?40960:49152),systemMemoryMaximumMi:32000,confidence:'high',
+    weightsMi:1000,kvCacheMi:500,theoreticalKvCacheMi:500,reserveMi:500,recommendedReserveMi:4000,
+    runtimeDetails:{engineRuntimeReserveMi:500},downloadBytes:4_000_000_000};
   await fixturePage(page,{'/api/models':()=>data, '/api/models/local':(request:Request)=>{
     const payload=request.postDataJSON();writes.push(payload);
     data.activations=[{metadata:{name:'split-fixture',uid:'split-fixture-uid',generation:1,resourceVersion:'1'},
@@ -112,8 +115,19 @@ test(`MGPU-01 ${engine} ${count} ${different?'different':'identical'} GPUs ${vie
     const payload=response.request().postDataJSON();
     return payload.gpuDevices?.length===count && (engine!=='VLLM'||payload.vllm?.parallelism==='pipeline');
   });
-  await dialog.getByLabel('Automatic GPU count').fill(String(count)); await dialog.getByRole('button',{name:'Select GPUs'}).click();
+  const cards=dialog.getByRole('group',{name:'NVIDIA GPUs'});
+  await expect(cards.getByRole('checkbox')).toHaveCount(4);
+  await expect(dialog.getByLabel('Automatic GPU count')).toHaveCount(0);
+  await expect(dialog.getByRole('combobox',{name:'NVIDIA card'})).toHaveCount(0);
+  for(let index=1;index<count;index++)await cards.getByRole('checkbox',{name:new RegExp(`0000:0${index+1}:00.0`)}).check();
+  const lastCard=cards.getByRole('checkbox',{name:new RegExp(`0000:0${count}:00.0`)});
+  await lastCard.focus();await page.keyboard.press('Space');await expect(lastCard).not.toBeChecked();
+  await page.keyboard.press('Space');await expect(lastCard).toBeChecked();
   await expect(dialog.getByText(`${count} GPUs selected.`,{exact:false})).toBeVisible();
+  if(engine==='VLLM' && count===4 && !different) {
+    await cards.scrollIntoViewIfNeeded();
+    await page.screenshot({path:info.outputPath(`gpu-checkboxes-${viewport}.png`),fullPage:true});
+  }
   await dialog.getByText('Advanced',{exact:true}).click();
   if(engine === 'VLLM') await dialog.getByLabel('GPU parallelism').selectOption('pipeline');
   else await expect(dialog.getByText('Ollama spreads the model', {exact:false})).toBeVisible();
@@ -123,6 +137,10 @@ test(`MGPU-01 ${engine} ${count} ${different?'different':'identical'} GPUs ${vie
   await expect(slider).toHaveAttribute('max',String(perCardMaximum*count));
   await expect(slider).toHaveAttribute('step',String(100*count));
   await expect(budget).toHaveValue(String(6000*count));
+  await dialog.getByText('Breakdown',{exact:true}).click();
+  for(const [label,amount] of [['Weights',1000],['Theoretical KV cache',500],['Engine runtime reserve',500],['Recommended headroom',4000]] as const)
+    await expect(dialog.getByText(label,{exact:true}).locator('..').locator('dd')).toContainText(formatMi(amount*count));
+  await expect(dialog.getByText('Download (disk / network)',{exact:true}).locator('..').locator('dd')).toContainText('4.00 GB');
   await dialog.getByRole('button',{name:'100%',exact:true}).click();await expect(budget).toHaveValue(String(perCardMaximum*count));
   await dialog.getByRole('button',{name:'Explain 100% unreserved',exact:true}).focus();await page.keyboard.press('Enter');
   const calculation=page.getByRole('dialog',{name:'100% unreserved calculation'});
@@ -270,15 +288,15 @@ if (phase === 3) {
     await page.goto(origin+'/#/models');await page.getByRole('button',{name:'Create',exact:true}).click();
     const dialog=page.getByRole('dialog',{name:'Create Model'});
     await dialog.getByLabel('Inference Engine').selectOption('VLLM');await dialog.getByLabel('Hardware').selectOption('nvidia-gpu');
-    const cards=dialog.getByLabel('NVIDIA card');await expect(cards.locator('option')).toHaveCount(4);
+    const cards=dialog.getByRole('group',{name:'NVIDIA GPUs'});await expect(cards.getByRole('checkbox')).toHaveCount(4);
     expect(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    await expect(cards.getByRole('option',{name:/0000:02:00.0.*no free slots/})).toHaveAttribute('disabled','');
-    const selectedKey=(await cards.getByRole('option',{name:/0000:03:00.0/}).getAttribute('value'))!;
-    await cards.selectOption(selectedKey);
+    await expect(cards.getByRole('checkbox',{name:/0000:02:00.0.*No free slots/})).toBeDisabled();
+    await cards.getByRole('checkbox',{name:/0000:01:00.0/}).uncheck();
+    const selected=cards.getByRole('checkbox',{name:/0000:03:00.0/});await selected.check();
     await dialog.getByLabel('Model source').selectOption('direct');await dialog.getByLabel('Hugging Face URL').fill('hf://fixture/model');
     const add=dialog.getByRole('button',{name:'Add Local Model'});await expect(add).toBeEnabled();
     free=0;await page.clock.fastForward(16_000);await expect(add).toBeDisabled();
-    await expect(cards).toHaveValue(selectedKey);
+    await expect(selected).toBeChecked();
     await expect(dialog.getByLabel('Hugging Face URL')).toHaveValue('hf://fixture/model');expect(writes).toEqual([]);
     free=1;await page.clock.fastForward(16_000);await expect(add).toBeEnabled();await add.click();
     await expect(dialog).not.toBeVisible();
@@ -294,9 +312,10 @@ if (phase === 3) {
       '/api/models/fixture-model/estimate-memory':{minimumMi:1024,recommendedMi:2000,maximumMi:49152,confidence:'high'},
       '/api/models/fixture-model':(request:Request)=>{writes.push(request.postDataJSON());return {};}});
     await page.goto(origin+'/#/models');await page.getByRole('button',{name:'Edit fixture-model'}).click();
-    const dialog=page.getByRole('dialog',{name:'Edit Model · fixture-model'}),cards=dialog.getByLabel('NVIDIA card');
-    await expect(cards.getByRole('option',{name:/0000:03:00.0.*1\/4 slots free/})).not.toHaveAttribute('disabled');
-    await expect(cards.getByRole('option',{name:/0000:04:00.0.*no free slots/})).toHaveAttribute('disabled','');
+    const dialog=page.getByRole('dialog',{name:'Edit Model · fixture-model'}),cards=dialog.getByRole('group',{name:'NVIDIA GPUs'});
+    await expect(cards.getByRole('checkbox',{name:/0000:03:00.0.*1\/4 slots free/})).toBeEnabled();
+    await expect(cards.getByRole('checkbox',{name:/0000:03:00.0.*1\/4 slots free/})).toBeChecked();
+    await expect(cards.getByRole('checkbox',{name:/0000:04:00.0.*No free slots/})).toBeDisabled();
     await dialog.getByLabel('Context Size').fill('8192');await dialog.getByRole('button',{name:'Save changes'}).click();
     await expect(dialog).not.toBeVisible();expect(writes).toEqual([{expectedRevision:'9',local:{contextWindow:8192}}]);
   });

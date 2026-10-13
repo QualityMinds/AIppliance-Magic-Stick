@@ -121,7 +121,7 @@ export const localModelCreatePayload = (draft: LocalModelDraft, options: LocalMo
     if (draft.source === 'preset' && draft.presetId) Object.assign(local, {preset: draft.presetId, ...(draft.artifactId ? {artifact: draft.artifactId} : {})});
     else local.url = draft.url;
   }
-  return {name: draft.name || safeModelName(draft.url), enabled: true, targetNamespace: 'ai', local};
+  return {name: draft.name.trim() || safeModelName(draft.url), enabled: true, targetNamespace: 'ai', local};
 };
 
 /** Explicit null clears optional settings; omitted keys preserve saved intent. */

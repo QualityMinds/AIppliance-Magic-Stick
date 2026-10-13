@@ -1,6 +1,9 @@
 import {test, expect, type Request} from '@playwright/test';
 import {evidenceAnnotations} from '../core/evidence.ts';
 import {fixturePage, origin} from '../fixtures/dashboard.ts';
+import {fourNvidiaCards} from '../fixtures/nvidia-cards.ts';
+import {systemMemoryFixture} from '../fixtures/system-memory.ts';
+import {formatMi} from '@magicstick/dashboard-core';
 
 const cpuModels = {
   activations: [], models: [], presets: {},
@@ -21,6 +24,77 @@ const common = (extra: Record<string, unknown> = {}) => ({
   '/api/model-discovery/popular': {provider: 'huggingface', results: [], total: 0},
   '/api/models/estimate-memory': estimate,
   ...extra,
+});
+
+for (const viewport of ['desktop', 'mobile'] as const) for (const engine of ['VLLM', 'OLlama'] as const)
+test(`MEM-01 MEM-06 ${engine} ${viewport} separates startup RAM and preserves manual budgets through recalculation`, evidenceAnnotations(
+  {id: 'MEM-01', variant: 'memory-breakdown-browser', layer: 'B'},
+  {id: 'MEM-06', variant: 'slider-browser', layer: 'B'}), async ({page}, info) => {
+  await page.setViewportSize(viewport === 'mobile' ? {width: 390, height: 844} : {width: 1440, height: 1000});
+  let recommendation = 18000;
+  const writes: Array<{local: Record<string, unknown>}> = [];
+  await fixturePage(page, common({
+    '/api/models': fourNvidiaCards(),
+    '/api/models/estimate-memory': () => ({...estimate, computeTarget: 'nvidia-gpu', maximumMi: 49152,
+      systemMemoryMaximumMi: 32000, confidence: 'estimated',
+      systemMemory: systemMemoryFixture({recommendedMi: recommendation, workerCount: engine === 'VLLM' ? 2 : 1})}),
+    '/api/models/local': (request: Request) => {writes.push(request.postDataJSON()); return {};},
+  }));
+  await page.goto(origin + '/#/models'); await page.getByRole('button', {name: 'Create', exact: true}).click();
+  const dialog = page.getByRole('dialog', {name: 'Create Model'});
+  await dialog.getByLabel('Inference Engine').selectOption(engine);
+  await dialog.getByRole('combobox', {name: 'Hardware', exact: true}).selectOption('nvidia-gpu');
+  await dialog.getByLabel('Model source').selectOption('direct');
+  await dialog.getByLabel(engine === 'VLLM' ? 'Hugging Face URL' : 'Ollama model reference').fill(engine === 'VLLM' ? 'hf://example/fixture' : 'ollama://fixture:small');
+  await dialog.getByLabel('Name', {exact: true}).fill('memory-fixture');
+  await dialog.getByRole('checkbox', {name: /0000:02:00.0/}).check();
+  const ram = dialog.getByLabel('Host RAM budget (MiB)');
+  await expect(ram).toHaveValue('18000');
+  const panel = dialog.getByRole('region', {name: 'System RAM planning'});
+  await expect(panel.getByText(formatMi(5000), {exact: true})).toBeVisible();
+  await expect(panel.getByText(`${formatMi(6000)} – ${formatMi(16000)}`, {exact: true})).toBeVisible();
+  await ram.fill('20000');
+  recommendation = 22000;
+  await dialog.getByLabel('Context Size').fill('8192');
+  await expect(panel.getByText(formatMi(22000), {exact: true})).toBeVisible();
+  await expect(ram).toHaveValue('20000');
+  await panel.getByText('RAM breakdown', {exact: true}).click();
+  await expect(panel).toContainText('Do not sum both startup bounds');
+  await panel.scrollIntoViewIfNeeded();
+  await page.screenshot({path: info.outputPath(`system-ram-${engine}-${viewport}.png`), fullPage: true});
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await dialog.getByRole('button', {name: 'Add Local Model'}).click();
+  await expect.poll(() => writes.length).toBe(1);
+  expect(writes[0]!.local).toMatchObject({engine, memoryRequiredMi: 20000});
+});
+
+for (const viewport of ['desktop','mobile'] as const) for (const provider of ['local-ollama','local-vllm','external'] as const)
+test(`DISC-01 ${provider} ${viewport} validates model names before any create request`, evidenceAnnotations(
+  {id:'DISC-01',variant:`model-name-${provider}-${viewport}-browser`,layer:'B'}), async ({page}, info) => {
+  await page.setViewportSize(viewport === 'mobile' ? {width:390,height:844} : {width:1440,height:1000});
+  const writes:Array<Record<string,unknown>>=[];
+  const save=(request:Request)=>{writes.push(request.postDataJSON());return {};};
+  await fixturePage(page,common({'/api/models':{...cpuModels,activations:[{metadata:{name:'existing-model'},spec:{type:'external'}}]},
+    '/api/models/local':save,'/api/models/external':save}));
+  await page.goto(origin+'/#/models');await page.getByRole('button',{name:'Create',exact:true}).click();
+  const dialog=page.getByRole('dialog',{name:'Create Model'});
+  if(provider === 'external')await dialog.getByLabel('Location').selectOption('external');
+  else {
+    const engine=provider === 'local-ollama'?'OLlama':'VLLM';
+    await dialog.getByLabel('Inference Engine').selectOption(engine);await dialog.getByLabel('Model source').selectOption('direct');
+    await dialog.getByLabel(engine==='OLlama'?'Ollama model reference':'Hugging Face URL').fill(engine==='OLlama'?'ollama://fixture:latest':'hf://example/fixture');
+  }
+  const name=dialog.getByLabel('Name',{exact:true}),add=dialog.getByRole('button',{name:provider==='external'?'Add External Model':'Add Local Model'});
+  for(const value of ['Uppercase','two words','under_score','name.','-start','end-','a'.repeat(64),'existing-model']) {
+    await name.fill(value);await expect(name).toHaveAttribute('aria-invalid','true');
+    await expect(dialog.getByRole('alert')).toBeVisible();await expect(add).toBeDisabled();
+    await name.press('Enter');expect(writes).toEqual([]);
+  }
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({path:info.outputPath(`model-name-${provider}-${viewport}.png`),fullPage:true});
+  await name.fill(' valid-model ');await expect(dialog.getByRole('alert')).toHaveCount(0);await expect(add).toBeEnabled();
+  await add.click();await expect(dialog).not.toBeVisible();
+  expect(writes).toHaveLength(1);expect(writes[0]!.name).toBe('valid-model');
 });
 
 test('DISC-01 ENG-07 create dialog switches location and engine without leaking incompatible fields', evidenceAnnotations(
@@ -191,7 +265,8 @@ for (const viewport of ['desktop', 'mobile'] as const) {
     const choice = dialog.getByRole('combobox', {name: 'Model task'});
     await expect(choice).toBeVisible();
     await expect(dialog.getByRole('button', {name: /Add Local Model/})).toBeDisabled();
-    await choice.focus(); await page.keyboard.press('ArrowDown'); await page.keyboard.press('Enter');
+    // Native type-ahead works across headless platforms with different popup navigation.
+    await choice.focus(); await page.keyboard.press('c');
     await expect(choice).toHaveValue('chat');
     await expect(dialog.getByRole('button', {name: /Add Local Model/})).toBeEnabled();
     await dialog.getByLabel('Hugging Face URL').fill('hf://example/another');

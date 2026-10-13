@@ -1,3 +1,6 @@
+import contextlib
+import hashlib
+import io
 import json
 import os
 import pathlib
@@ -22,6 +25,242 @@ def load_wrapper():
 
 
 class VllmWrapperTests(unittest.TestCase):
+    def ple_backport(self):
+        manifest = yaml.safe_load((ROOT / "vllm-wrapper-configmap.yaml").read_text())
+        namespace = {"__name__": "magicstick_ple_backport_test"}
+        exec(compile(manifest["data"]["ple_backport.py"], "ple_backport.py", "exec"), namespace)
+        return namespace
+
+    def test_ple_backport_copies_storage_bytes_and_passes_row_bytes_to_the_caller(self):
+        source = '''@triton.jit
+def _lookup_ple_embedding_from_pinned_kernel(
+    weight_ptr,
+    ids_ptr,
+    output_ptr,
+    embedding_dim,
+    tp_vocab_start,
+    tp_vocab_end,
+    BLOCK_D: tl.constexpr,
+):
+    """Look up TP-owned PLE rows through a CUDA view of pinned host memory."""
+    row_id = tl.program_id(0)
+    global_idx = tl.load(ids_ptr + row_id)
+    in_range = (global_idx >= tp_vocab_start) & (global_idx < tp_vocab_end)
+    local_idx = tl.where(in_range, global_idx - tp_vocab_start, 0)
+    offsets = tl.arange(0, BLOCK_D)
+    store_mask = offsets < embedding_dim
+    load_mask = store_mask & in_range
+    values = tl.load(
+        weight_ptr + local_idx * embedding_dim + offsets,
+        mask=load_mask,
+        other=0.0,
+    )
+    tl.store(
+        output_ptr + row_id * embedding_dim + offsets,
+        values,
+        mask=store_mask,
+    )
+
+
+class Qwen4ExpPLEPinnedHostEmbedding:
+    def prepare(self):
+        self._block_d = triton.next_power_of_2(self.embedding_dim)
+    def call(self, output):
+        return launch(
+                output,
+                self.embedding_dim,
+        )
+'''
+        backport = self.ple_backport()
+        result = backport["transform"]("models/qwen4_exp/common/ngram_embedding.py", source)
+        # Execute the actual transformed caller, checking dtype element widths
+        # instead of merely asserting that the new setting's name exists.
+        import ast
+        definition = next(node for node in ast.parse(result).body if isinstance(node, ast.ClassDef))
+        calls = []
+        namespace = {"triton": types.SimpleNamespace(next_power_of_2=lambda size: 1 << (size - 1).bit_length()),
+                     "launch": lambda output, row_bytes: calls.append(row_bytes)}
+        exec(compile(ast.Module(body=[definition], type_ignores=[]), "native-caller.py", "exec"), namespace)
+        for element_size in (1, 2, 4):
+            embedding = namespace["Qwen4ExpPLEPinnedHostEmbedding"]()
+            embedding.embedding_dim = 257
+            embedding.weight = types.SimpleNamespace(element_size=lambda: element_size)
+            embedding.prepare()
+            embedding.call(None)
+            self.assertEqual(calls[-1], 257 * element_size)
+            self.assertGreaterEqual(embedding._block_d, calls[-1])
+        kernel = next(node for node in ast.parse(result).body if isinstance(node, ast.FunctionDef))
+        pointers = [arg for arg in kernel.args.args if arg.arg in ("weight_ptr", "output_ptr")]
+        self.assertTrue(all(ast.unparse(arg.annotation) == "tl.pointer_type(tl.uint8)" for arg in pointers))
+        self.assertNotIn("embedding_dim", ast.unparse(kernel))
+        self.assertIn("tl.program_id(0).to(tl.int64)", ast.unparse(kernel))
+
+    def test_ple_backport_refuses_wrong_version_vendor_opt_in_and_foreign_files(self):
+        backport = self.ple_backport()
+        with patch.dict(os.environ, {"MAGICSTICK_VLLM_PLE_BACKPORT": backport["FIX"],
+                                     "MAGICSTICK_COMPUTE_TARGET": "nvidia-gpu"}):
+            for version in ("0.30.0", "0.31.1", "0.32.0"):
+                backport["distribution"] = lambda name, version=version: types.SimpleNamespace(version=version)
+                with self.assertRaisesRegex(ValueError, "exact reviewed"):
+                    backport["apply"]()
+            os.environ["MAGICSTICK_COMPUTE_TARGET"] = "cpu"
+            with self.assertRaisesRegex(ValueError, "NVIDIA-only"):
+                backport["apply"]()
+            os.environ["MAGICSTICK_COMPUTE_TARGET"] = "nvidia-gpu"
+            os.environ["MAGICSTICK_VLLM_PLE_BACKPORT"] = "latest"
+            with self.assertRaisesRegex(ValueError, "Unreviewed"):
+                backport["apply"]()
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            files = {}
+            for name in backport["ORIGINAL"]:
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("foreign source\n")
+                files[name] = path
+            backport["distribution"] = lambda name: types.SimpleNamespace(version="0.31.0",
+                locate_file=lambda path: files[path.removeprefix("vllm/")])
+            with patch.dict(os.environ, {"MAGICSTICK_VLLM_PLE_BACKPORT": backport["FIX"],
+                                         "MAGICSTICK_COMPUTE_TARGET": "nvidia-gpu"}):
+                with self.assertRaisesRegex(ValueError, "checksum differs"):
+                    backport["apply"]()
+            self.assertTrue(all(path.read_text() == "foreign source\n" for path in files.values()))
+
+    def test_ple_backport_is_atomic_idempotent_and_validates_every_file_before_writing(self):
+        backport = self.ple_backport()
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            originals, expected = {}, {}
+            for name in ("first.py", "second.py"):
+                (root / name).write_text("original = 1\n")
+                originals[name] = hashlib.sha256((root / name).read_bytes()).hexdigest()
+                expected[name] = hashlib.sha256(b"original = 2\n").hexdigest()
+            backport.update(ORIGINAL=originals, PATCHED=expected,
+                transform=lambda name, source: source.replace("= 1", "= 2"),
+                distribution=lambda name: types.SimpleNamespace(version="0.31.0",
+                    locate_file=lambda name: root / name.removeprefix("vllm/")))
+            with patch.dict(os.environ, {"MAGICSTICK_VLLM_PLE_BACKPORT": backport["FIX"],
+                                         "MAGICSTICK_COMPUTE_TARGET": "nvidia-gpu"}):
+                (root / "second.py").write_text("foreign = 3\n")
+                with self.assertRaisesRegex(ValueError, "checksum differs"):
+                    backport["apply"]()
+                self.assertEqual((root / "first.py").read_text(), "original = 1\n")
+                (root / "second.py").write_text("original = 1\n")
+                self.assertEqual(backport["apply"](), expected)
+                self.assertEqual(backport["apply"](), expected)
+                self.assertEqual((root / "first.py").read_text(), "original = 2\n")
+                self.assertEqual(list(root.glob(".magicstick-ple-*")), [])
+
+    def test_ple_backport_missing_or_ambiguous_anchor_is_rejected(self):
+        backport = self.ple_backport()
+        for source in ("", "        self.int32 = None\n        self.tensor = None\n" * 2):
+            with self.assertRaisesRegex(ValueError, "missing or ambiguous"):
+                backport["transform"]("triton_utils/importing.py", source)
+
+    def test_sitecustomize_backport_failure_terminates_instead_of_silently_continuing(self):
+        manifest = yaml.safe_load((ROOT / "vllm-wrapper-configmap.yaml").read_text())
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "sitecustomize.py").write_text(manifest["data"]["sitecustomize.py"])
+            (root / "ple_backport.py").write_text("def apply():\n    raise ValueError('wrong native checksum')\n")
+            environment = {**os.environ, "PYTHONPATH": directory,
+                           "MAGICSTICK_VLLM_PLE_BACKPORT": "reviewed-opt-in",
+                           "MAGICSTICK_VLLM_WRAPPER_ENABLED": "false"}
+            result = subprocess.run([sys.executable, "-c", "print('unqualified server started')"],
+                                    env=environment, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("PLE backport rejected", result.stderr)
+        self.assertNotIn("unqualified server started", result.stdout)
+
+    def test_ollama_pins_diagnostics_and_amd_adoption_use_one_immutable_release(self):
+        release = yaml.safe_load((ROOT / "helmrelease.yaml").read_text())
+        images = release["spec"]["values"]["modelServers"]["OLlama"]["images"]
+        operator = ROOT.parents[2] / "magicstick-operator"
+        amd = yaml.safe_load((operator / "gpu-runtime-images.yaml").read_text())["data"]
+        catalog = json.loads(yaml.safe_load((operator / "gpu-compatibility-catalog.yaml").read_text())["data"]["profiles.json"])
+        standard = "ollama/ollama:0.40.3@sha256:adca95a12c2b386a8f9a995e7fa0600e187e3323b5e5522f5a6c3b1ec73eff99"
+        rocm = "ollama/ollama:0.40.3-rocm@sha256:8cd88596698ab3283fd2f11727f1ffeb1519508d83f3ec1d137a4979e7bb9b6d"
+        self.assertEqual(images, {"magicstick-ollama-cpu": standard, "magicstick-ollama-nvidia": standard})
+        self.assertEqual(amd["ollama-amd"], rocm)
+        self.assertEqual(amd["ollama-amd-source"], rocm)
+        self.assertEqual(catalog["diagnostics"]["nvidia"]["engines"]["OLlama"]["image"], standard)
+        self.assertEqual(catalog["profiles"][0]["engines"]["OLlama"]["image"], rocm)
+        checksum = hashlib.sha256(json.dumps({key: amd[key] for key in ("vllm-amd", "ollama-amd")}, sort_keys=True).encode()).hexdigest()
+        self.assertEqual(amd["runtime-config-checksum"], checksum)
+        self.assertTrue(any(item.get("valuesKey") == "ollama-amd" and
+                            item.get("targetPath") == "modelServers.OLlama.images.magicstick-ollama-amd"
+                            for item in release["spec"]["valuesFrom"]))
+
+    def test_runtime_pins_and_diagnostics_use_the_same_immutable_release(self):
+        release = yaml.safe_load((ROOT / "helmrelease.yaml").read_text())
+        images = release["spec"]["values"]["modelServers"]["VLLM"]["images"]
+        operator = ROOT.parents[2] / "magicstick-operator"
+        amd = yaml.safe_load((operator / "gpu-runtime-images.yaml").read_text())["data"]
+        catalog = json.loads(yaml.safe_load((operator / "gpu-compatibility-catalog.yaml").read_text())["data"]["profiles.json"])
+        for image in [*images.values(), amd["vllm-amd"]]:
+            self.assertRegex(image, r"^vllm/vllm-openai(?:-cpu|-rocm|-xpu)?:v0\.31\.0@sha256:[a-f0-9]{64}$")
+        self.assertEqual(amd["vllm-amd"], amd["vllm-amd-source"])
+        self.assertEqual(catalog["diagnostics"]["nvidia"]["engines"]["VLLM"]["image"], images["magicstick-vllm-nvidia"])
+        self.assertEqual(catalog["profiles"][0]["engines"]["VLLM"]["image"], amd["vllm-amd"])
+        job = yaml.safe_load((ROOT.parents[3] / "apps/ai/private-mesh/e2e-job.yaml").read_text())
+        pod = job["spec"]["template"]["spec"]
+        fixture_images = [c["image"] for c in [*pod.get("initContainers", []), *pod["containers"]]
+                          if c["image"].startswith("vllm/")]
+        self.assertEqual(fixture_images, [images["magicstick-vllm-cpu"]] * 2)
+
+    def test_embedded_probe_uses_native_model_config_registry_and_a_guarded_child(self):
+        config_calls, registry_calls = [], []
+        class ModelConfig:
+            def __init__(self, **kwargs):
+                config_calls.append(kwargs)
+                self.architectures = ["FixtureForCausalLM"]
+                self.hf_text_config = types.SimpleNamespace(num_attention_heads=8, hidden_size=1024, num_hidden_layers=32)
+        registry = types.SimpleNamespace(is_pp_supported_model=lambda architectures, config:
+            registry_calls.append((architectures, config.architectures)) or True)
+        torch = types.ModuleType("torch")
+        torch.cuda = types.SimpleNamespace(device_count=lambda: 2, get_device_properties=lambda i:
+            types.SimpleNamespace(uuid=f"GPU-{i}", total_memory=24576 * 1048576))
+        config_module = types.ModuleType("vllm.config"); config_module.ModelConfig = ModelConfig
+        registry_module = types.ModuleType("vllm.model_executor.models"); registry_module.ModelRegistry = registry
+        modules = {"torch": torch, "vllm": types.ModuleType("vllm"), "vllm.config": config_module,
+                   "vllm.model_executor": types.ModuleType("vllm.model_executor"),
+                   "vllm.model_executor.models": registry_module}
+        def child(command, **options):
+            self.assertEqual(command[:2], [sys.executable, "-c"])
+            self.assertEqual(options["env"]["MAGICSTICK_VLLM_WRAPPER_ENABLED"], "false")
+            self.assertEqual(options["timeout"], 180)
+            self.assertTrue(options["check"])
+            output = io.StringIO()
+            with patch.dict(sys.modules, modules), patch.object(sys, "argv", ["-c", *command[3:]]), contextlib.redirect_stdout(output):
+                exec(compile(command[2], "probe.py", "exec"), {})
+            return subprocess.CompletedProcess(command, 0, output.getvalue(), "")
+        with patch.object(self.wrapper["subprocess"], "run", side_effect=child):
+            probe = self.wrapper["parallelism_probe"](["--model=fixture/small", "--revision", "pinned-revision"])
+        self.assertEqual(config_calls, [{"model": "fixture/small", "revision": "pinned-revision", "trust_remote_code": False}])
+        self.assertEqual(registry_calls, [(["FixtureForCausalLM"], ["FixtureForCausalLM"])])
+        self.assertEqual(probe["devices"], [{"uuid": f"GPU-{i}", "totalMi": 24576} for i in range(2)])
+        self.assertEqual((probe["heads"], probe["hidden"], probe["layers"], probe["pipeline"]), (8, 1024, 32, True))
+
+    def test_probe_import_and_model_errors_fail_closed_without_gpu_fallback(self):
+        for details in ("Transformers does not recognize model type qwen4_exp", "ImportError: incompatible runtime module"):
+            output = io.StringIO()
+            failure = subprocess.CalledProcessError(1, [sys.executable], stderr=details)
+            with self.subTest(details=details), patch.object(self.wrapper["subprocess"], "run", side_effect=failure), contextlib.redirect_stderr(output):
+                with self.assertRaises(SystemExit) as raised:
+                    self.wrapper["parallelism_probe"](["--model=fixture/small"])
+                self.assertEqual(raised.exception.code, 2)
+                self.assertIn("Could not validate the multi-GPU runtime/model", output.getvalue())
+                self.assertIn(details, output.getvalue())
+
+    def test_probe_timeout_and_malformed_output_are_errors_not_missing_capacity(self):
+        for result in (subprocess.TimeoutExpired([sys.executable], 180), subprocess.CompletedProcess([], 0, "runtime output without a probe record", "")):
+            with self.subTest(result=type(result).__name__), patch.object(self.wrapper["subprocess"], "run") as run, contextlib.redirect_stderr(io.StringIO()):
+                if isinstance(result, Exception): run.side_effect = result
+                else: run.return_value = result
+                with self.assertRaises(SystemExit) as raised:
+                    self.wrapper["parallelism_probe"](["--model=fixture/small"])
+                self.assertEqual(raised.exception.code, 2)
+
     def test_unequal_card_capacities_use_a_native_worker_and_the_smallest_physical_ceiling(self):
         group = ["GPU-0", "GPU-1"]
         self.wrapper["parallelism_probe"] = lambda _: {"devices": [{"uuid": group[i], "totalMi": capacity} for i, capacity in enumerate((24576, 49152))],
@@ -146,6 +385,27 @@ class VllmWrapperTests(unittest.TestCase):
             ["wrapper.py", "--max-model-len=2048", "--scheduling-policy", "priority"],
         )
 
+    def test_fp8_calibration_flags_follow_the_actual_runtime_without_changing_precision(self):
+        self.wrapper["os"].environ["MAGICSTICK_COMPUTE_TARGET"] = "cpu"
+        for version in ("0.23.0", "0.26.0", "0.28.0", "0.31.0", "0.31.0+cpu"):
+            for flag in ("--calculate-kv-scales", "--no-calculate-kv-scales"):
+                with self.subTest(version=version, flag=flag):
+                    self.wrapper["runtime_version"] = lambda package, version=version: version
+                    self.wrapper["sys"].argv[:] = ["wrapper.py", "--kv-cache-dtype=fp8", flag]
+                    self.wrapper["configure_argv"]()
+                    self.assertIn("--kv-cache-dtype=fp8", self.wrapper["sys"].argv)
+                    self.assertEqual(flag in self.wrapper["sys"].argv, version in ("0.23.0", "0.26.0"))
+
+    def test_unknown_runtime_does_not_silently_change_fp8_calibration(self):
+        for failure in (self.wrapper["PackageNotFoundError"]("vllm"), "unknown"):
+            def version(_):
+                if isinstance(failure, Exception): raise failure
+                return failure
+            self.wrapper["runtime_version"] = version
+            with self.subTest(failure=str(failure)), contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    self.wrapper["normalize_legacy_cache_flags"](["--kv-cache-dtype=fp8", "--calculate-kv-scales"])
+
     def test_nvidia_target_adds_memory_utilization_from_physical_capacity(self):
         self.wrapper["os"].environ.update({
             "MAGICSTICK_COMPUTE_TARGET": "nvidia-gpu",
@@ -223,19 +483,19 @@ class VllmWrapperTests(unittest.TestCase):
         amd_images = yaml.safe_load((ROOT.parents[2] / "magicstick-operator/gpu-runtime-images.yaml").read_text(encoding="utf-8"))["data"]
         profiles = values["resourceProfiles"]
 
-        self.assertEqual(images["magicstick-vllm-cpu"], "vllm/vllm-openai-cpu:v0.23.0")
-        self.assertEqual(images["magicstick-vllm-nvidia"], "vllm/vllm-openai:v0.23.0")
+        self.assertEqual(images["magicstick-vllm-cpu"], "vllm/vllm-openai-cpu:v0.31.0@sha256:495c84fe30f3572b83a78100a1e8ba423dbb77fc532ecefebe114e6b77327bd9")
+        self.assertEqual(images["magicstick-vllm-nvidia"], "vllm/vllm-openai:v0.31.0@sha256:c1c9f6fd5c109ba7f0546a59f5b2f15fb87f64c77782e90a27b648b42a8e67c3")
         catalog = json.loads(yaml.safe_load((ROOT.parents[2] / "magicstick-operator" / "compute-target-catalog.yaml").read_text())["data"]["targets.json"])
         for engine in ("VLLM", "OLlama"):
             self.assertFalse(catalog["engines"][engine]["multiGpu"]["matchingCardsOnly"])
             self.assertTrue(catalog["engines"][engine]["multiGpu"]["sameNodeOnly"])
         self.assertNotIn("magicstick-vllm-amd", images)
-        self.assertEqual(amd_images["vllm-amd"], "vllm/vllm-openai-rocm:v0.26.0")
-        self.assertEqual(images["magicstick-vllm-intel"], "vllm/vllm-openai-xpu:v0.26.0")
-        self.assertEqual(ollama_images["magicstick-ollama-cpu"], "ollama/ollama:0.33.2")
-        self.assertEqual(ollama_images["magicstick-ollama-nvidia"], "ollama/ollama:0.33.2")
+        self.assertEqual(amd_images["vllm-amd"], "vllm/vllm-openai-rocm:v0.31.0@sha256:749f6f3f944f12af49966ac523c1f8573e4b229594b541954bd5f879b4496b1f")
+        self.assertEqual(images["magicstick-vllm-intel"], "vllm/vllm-openai-xpu:v0.31.0@sha256:95ac815038c4b3537b173798bfe3b89bdf525a52bd653cd14d4deb01f1062be7")
+        self.assertEqual(ollama_images["magicstick-ollama-cpu"], "ollama/ollama:0.40.3@sha256:adca95a12c2b386a8f9a995e7fa0600e187e3323b5e5522f5a6c3b1ec73eff99")
+        self.assertEqual(ollama_images["magicstick-ollama-nvidia"], ollama_images["magicstick-ollama-cpu"])
         self.assertNotIn("magicstick-ollama-amd", ollama_images)
-        self.assertEqual(amd_images["ollama-amd"], "ollama/ollama:0.33.2-rocm")
+        self.assertEqual(amd_images["ollama-amd"], "ollama/ollama:0.40.3-rocm@sha256:8cd88596698ab3283fd2f11727f1ffeb1519508d83f3ec1d137a4979e7bb9b6d")
         self.assertNotIn("nvidia.com/gpu", profiles["magicstick-vllm-cpu"]["requests"])
         self.assertNotIn("nvidia.com/gpu", profiles["magicstick-vllm-cpu"]["limits"])
         self.assertEqual(profiles["magicstick-vllm-cpu-memory"]["requests"]["memory"], "16Mi")
@@ -261,6 +521,12 @@ class VllmWrapperTests(unittest.TestCase):
             for patch in patches
             if isinstance(patch.get("value"), dict)
         ))
+        cache_mounts = [patch["value"] for patch in patches
+                        if patch["path"] == "/spec/containers/0/volumeMounts/-"
+                        and patch.get("value", {}).get("name") == "ollama-model-cache"]
+        self.assertEqual(len(cache_mounts), 1)
+        self.assertEqual(cache_mounts[0]["mountPath"], "/root/.ollama")
+        self.assertFalse(cache_mounts[0].get("readOnly", False))
 
     def test_sitecustomize_only_activates_the_vllm_argument_wrapper_explicitly(self):
         manifest = yaml.safe_load((ROOT / "vllm-wrapper-configmap.yaml").read_text(encoding="utf-8"))

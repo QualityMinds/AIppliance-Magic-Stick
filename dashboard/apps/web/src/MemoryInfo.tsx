@@ -3,8 +3,8 @@ import type {MemoryCalculation} from '@magicstick/dashboard-contracts';
 import {InfoPopover} from './InfoPopover';
 
 /** Non-modal explanation, portalled so a scrolling model dialog cannot clip it. */
-export function MemoryInfo({label, value, calculation, roundedMi, budgetDevices = 1}: {
-  label: string; value: ReactNode; calculation?: MemoryCalculation; roundedMi?: number; budgetDevices?: number;
+export function MemoryInfo({label, value, calculation, roundedMi, perDeviceMi, budgetDevices = 1}: {
+  label: string; value: ReactNode; calculation?: MemoryCalculation; roundedMi?: number; perDeviceMi?: number; budgetDevices?: number;
 }) {
   const explanation = calculation ?? {formula: 'Calculation details are unavailable from this API response.', notes: ['This value is an estimate, not measured memory usage.']};
   return <span className="memory-value">{value}
@@ -12,6 +12,7 @@ export function MemoryInfo({label, value, calculation, roundedMi, budgetDevices 
       <p className="memory-info-caption">{budgetDevices > 1 ? 'Formula per GPU' : 'Formula'}</p><p className="memory-info-formula">{explanation.formula}</p>
       {explanation.substitution && <><p className="memory-info-caption">With your values</p><p className="memory-info-formula memory-info-result">{explanation.substitution}</p></>}
       {explanation.notes?.map((note, index) => <p className="memory-info-note" key={index}>{note}</p>)}
+      {budgetDevices > 1 && perDeviceMi !== undefined && <p className="memory-info-note">Total for {budgetDevices} GPUs: {budgetDevices} × {perDeviceMi.toLocaleString('en-US')} MiB = {(budgetDevices * perDeviceMi).toLocaleString('en-US')} MiB.</p>}
       {roundedMi !== undefined && <p className="memory-info-note">{budgetDevices > 1 ? 'Total UI budget' : 'UI budget'}: {budgetDevices > 1 && `${budgetDevices} × `}max(100, ceil({roundedMi.toLocaleString('en-US')} ÷ 100) × 100) = {(budgetDevices * Math.max(100, Math.ceil(roundedMi / 100) * 100)).toLocaleString('en-US')} MiB. Reservation budgets round up to 100 MiB per device; compact GiB labels are display rounding only.</p>}
       <p className="memory-info-note">1 MiB = 1,048,576 bytes · 1 GiB = 1,024 MiB.</p>
     </InfoPopover>
