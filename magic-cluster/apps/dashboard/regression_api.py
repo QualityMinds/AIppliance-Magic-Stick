@@ -248,7 +248,22 @@ class RegressionApi:
             "credentials": [{"type": "password", "value": password, "temporary": False}]})
         user_id = str(headers.get("Location", "")).rstrip("/").split("/")[-1]
         if not user_id:
-            self.error(503, "Test identity could not be resolved.")
+            # Keycloak normally returns Location for a created user.  Treat a
+            # missing header as a recoverable lost-create response instead of
+            # leaving a generated identity without its durable receipt.  The
+            # exact generated username and ownership attribute bind the lookup
+            # to this run; an existing or replaced identity is never adopted.
+            matches = self.f["_exact_user_matches"]("username", username)
+            if len(matches) != 1:
+                self.error(503, "Test identity could not be resolved.")
+            candidate = matches[0]
+            attributes = candidate.get("attributes") or {}
+            if (candidate.get("username") != username
+                    or attributes.get("magicstickRegressionRun") != [uid]):
+                self.error(409, "The generated test identity could not be verified.")
+            user_id = str(candidate.get("id") or "")
+            if not user_id:
+                self.error(503, "Test identity could not be resolved.")
         account["userId"] = user_id
         self.f["patch_json"](CORE + "/secrets/" + name, {"stringData": {"account.json": json.dumps(account)}})
         self.f["_replace_managed_roles"](user_id, self.f["ACCESS_LEVEL_ROLES"]["admin"])

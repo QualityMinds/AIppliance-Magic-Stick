@@ -30,6 +30,7 @@ class RegressionApiTests(unittest.TestCase):
                 "spec": {"replicas": 1}, "status": {"observedGeneration": 1, "availableReplicas": 1, "updatedReplicas": 1}},
             CORE + "/configmaps/magicstick-regression-runtime": {"data": {"image": "ghcr.io/qualityminds/magicstick-regression:sha-" + "b"*40 + "@sha256:" + "a"*64, "sourceRevision": "b"*40}}}
         self.users, self.writes = {}, []
+        self.identity_without_location = False
         self.functions = {"RequestError": RequestError, "get_resource": lambda path: copy.deepcopy(self.objects.get(path)),
             "list_resource": self.list, "request_json": self.write, "patch_json": self.patch,
             "settings_response": lambda: {"mdnsDomain": "example.local"}, "live_admin_actor": lambda _: None,
@@ -87,7 +88,7 @@ class RegressionApiTests(unittest.TestCase):
     def identity(self, method, path, data=None):
         if method == "POST":
             self.users["fixture-user"] = {**copy.deepcopy(data), "id": "fixture-user"}
-            return {}, {"Location": "/user/fixture-user"}
+            return {}, ({} if self.identity_without_location else {"Location": "/user/fixture-user"})
         if method == "DELETE":
             del self.users[path.split("/")[-1]]
             return {}, {}
@@ -158,6 +159,16 @@ class RegressionApiTests(unittest.TestCase):
         self.assertEqual(account["registration"]["applianceUid"], UID)
         self.assertEqual(account["caPem"], "PUBLIC-CA-NOT-A-KEY")
         self.assertEqual(account["gatewayIp"], "192.0.2.10")
+
+    def test_start_recovers_created_identity_when_keycloak_omits_location_header(self):
+        self.identity_without_location = True
+        run = self.start()
+        secret = self.objects[CORE + "/secrets/" + run["id"]]
+        account = json.loads(base64.b64decode(secret["data"]["account.json"]))
+        self.assertEqual(account["userId"], "fixture-user")
+        self.assertEqual(self.users["fixture-user"]["attributes"]["magicstickRegressionRun"], [UID])
+        saved = self.objects[RUNS + "/" + run["id"]]
+        self.assertEqual(saved["metadata"]["annotations"]["regression.magicstick.dev/credentials-ready"], UID)
 
     def test_no_parallel_ui_or_external_lease_owner_or_unknown_image(self):
         self.start()
