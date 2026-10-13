@@ -72,6 +72,7 @@ export const RegressionPage = () => {
     <div className="section-title"><div><h2>Regression tests</h2><p>Run all Phase 0–8 P0 tests inside this Magic Stick's Kubernetes cluster.</p></div><Button variant="ghost" onClick={() => void query.refetch()} disabled={query.isFetching}>Refresh tests</Button></div>
     <ErrorNotice error={query.error ?? mutation.error} />{query.isPending && <Loading />}
     {data && <Panel title="Run the suite">
+      <p>No license is required to run regression tests or download reports. Sign in as an administrator and register this disposable test server once; this is not license registration.</p>
       <p>For dedicated disposable test servers only. Tests may stop models, alter settings, deploy small models and services, replace test licenses and clear model caches.</p>
       <p className="muted">Host restart, power-loss, network-disconnection and software-replacement drills require the external Docker runner and are reported as Blocked here. Missing GPUs, Mesh peers or test identity providers block only their dependent cases.</p>
       {!data.runtimeAvailable && <><p role="status">{data.message}</p><Button disabled={disabled} onClick={() => mutation.mutate('enable')}>Enable regression runner</Button></>}

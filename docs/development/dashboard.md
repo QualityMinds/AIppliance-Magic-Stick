@@ -71,6 +71,10 @@ test identity, exposes sanitized artifacts and reclaims the identity after exact
 Pod termination and verified setup recovery. Interrupted runs retain their exact
 generated identity and private restoration receipt for the next run. It never
 receives a user-supplied test script or image.
+Enabling, registering, starting, cancelling and downloading reports are core
+functions with no license prerequisite. Test registration binds a disposable
+installation, not a licensing edition; keep license queries out of that control
+path. License/SSO scenarios retain their own signed-fixture/entitlement checks.
 Provider Secrets created from user-entered model credentials must stay scoped to
 that dashboard workflow. Keep dashboard examples limited to `example.local`,
 `example.com`, `CHANGEME`, or documented variables.

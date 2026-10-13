@@ -74,6 +74,9 @@ Paperclip, KubeOpenCode, KubeAI, LiteLLM, or direct app instance reconcilers.
 
 All `/api/regression` routes require a Dashboard administrator; mutations use
 the existing same-origin/CSRF protection and verify the live administrator.
+They do not require, consult or activate a product license. Missing, expired,
+invalid or unavailable license status must not gate the runner lifecycle or
+report downloads; this does not bypass entitlement checks in individual tests.
 No request accepts a runner image, URL, script, command, manifest or credential.
 
 | Route | Contract |

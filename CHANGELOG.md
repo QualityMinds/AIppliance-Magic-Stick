@@ -8,6 +8,10 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Explicitly document license-free regression execution and report downloads;
+  cover missing, expired, invalid and unavailable license states at the API and
+  Dashboard, retaining administrator, disposable-lab and individual test gates.
+
 - Disable saving unchanged, reverted or invalid domain settings and retain
   unsaved edits across refetches; the full browser regression caught the old
   always-enabled Save action.

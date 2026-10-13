@@ -31,7 +31,9 @@ rights are not restricted by the grant; resale alone is not a licensing trigger.
 
 Only **Federated SSO** is feature-gated by a signed file. Local Keycloak, local
 users/groups/roles/login, component OIDC, Resource Sharing, Private Mesh,
-multi-GPU management, model engines and Realtime work without a license file.
+multi-GPU management, model engines, Realtime and regression-test execution/report
+downloads work without a license file. Disposable test-server registration is
+not license activation.
 Normal authentication, authorization, isolation and membership checks apply
 in every edition.
 

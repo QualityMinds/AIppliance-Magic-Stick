@@ -29,6 +29,8 @@ describe('default React dashboard', () => {
   beforeEach(() => {
     payloads['/api/session'] = {subject: '1', username: 'tova', roles: ['magicstick-admin'], identityManagementAvailable: true, identityManagementMode: 'keycloak'};
     payloads['/api/license'] = {state: 'valid', message: 'License valid.', valid: true, installationId: 'example-installation', revision: 'revision-1', checkedAt: 1, trustedKeyIds: ['example-key'], hasDocument: true, features: [{id: 'federated-sso', name: 'Dashboard-managed federated SSO', licensed: true, implemented: true, available: true, reason: 'available'}]};
+    payloads['/api/regression'] = {registered: true, applianceUid: 'fixture-appliance', runtimeAvailable: true,
+      sourceRevision: 'b'.repeat(40), message: '', runs: [], executionLocation: 'appliance-kubernetes', externalRunnerRequired: ['reboot']};
     window.history.replaceState(null, '', '#/overview');
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input), window.location.origin);
@@ -212,11 +214,22 @@ describe('default React dashboard', () => {
     expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).startsWith('/api/federated-sso'))).toBe(false);
   });
 
+  it.each(['missing', 'expired', 'invalid', 'storage_unavailable'])('keeps Regression accessible to administrators with %s license status', async (state) => {
+    payloads['/api/license'] = {...payloads['/api/license'] as object, state, valid: false, hasDocument: state !== 'missing', features: []};
+    window.history.replaceState(null, '', '#/system/regression');
+    renderApp();
+    expect(await screen.findByRole('button', {name: 'Start regression tests'})).toBeEnabled();
+    expect(screen.getByRole('tab', {name: 'Regression tests'})).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText(/No license is required to run regression tests or download reports/)).toBeVisible();
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => /^\/api\/(license|federated-sso)/.test(String(input)))).toBe(false);
+    expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+  });
+
   it.each(['magicstick-viewer', 'magicstick-operator'])('blocks all nested settings deep links for %s', async (role) => {
     payloads['/api/session'] = {subject: 'example', username: 'example', roles: [role]};
     renderApp();
     await screen.findByRole('heading', {name: 'Overview'});
-    for (const path of ['#/system/model-cache', '#/system/settings', '#/system/settings/federated-sso', '#/system/settings/network', '#/system/settings/updates', '#/system/network', '#/system/updates', '#/system/federated-sso']) {
+    for (const path of ['#/system/model-cache', '#/system/regression', '#/system/settings', '#/system/settings/federated-sso', '#/system/settings/network', '#/system/settings/updates', '#/system/network', '#/system/updates', '#/system/federated-sso']) {
       window.location.hash = path;
       window.dispatchEvent(new HashChangeEvent('hashchange'));
       await waitFor(() => expect(window.location.hash).toBe('#/system/status'));
@@ -228,7 +241,7 @@ describe('default React dashboard', () => {
       await waitFor(() => expect(window.location.hash).toBe('#/overview'));
       expect(screen.queryByRole('button', {name: 'Mesh'})).not.toBeInTheDocument();
     }
-    expect(vi.mocked(fetch).mock.calls.some(([input]) => /^\/api\/(settings|license|federated-sso|mesh|host-management)/.test(String(input)))).toBe(false);
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => /^\/api\/(settings|license|federated-sso|mesh|host-management|regression)/.test(String(input)))).toBe(false);
   });
 
   it('keeps identity-dependent Settings hidden on direct federation links without local identity management', async () => {

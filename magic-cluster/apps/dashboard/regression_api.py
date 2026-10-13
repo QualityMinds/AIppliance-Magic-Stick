@@ -2,6 +2,8 @@
 
 Workloads belong to the operator. No user-supplied image, command, URL, Secret
 name or Kubernetes manifest crosses this API. Private inputs never leave it.
+The runner lifecycle is a core function: never gate it on license status or
+activate a license here. Individual suite cases verify their own prerequisites.
 """
 import base64
 import ipaddress

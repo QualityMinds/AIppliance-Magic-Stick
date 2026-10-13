@@ -27,11 +27,14 @@ network, update, domain, or identity configuration changes.
 
 ## Regression tests
 
-On a dedicated disposable test server, open **System → Regression tests**.
+On a dedicated disposable test server, open **System → Regression tests** as an
+administrator. **No license is required**, including report downloads.
 Enable the optional runner and register the Appliance once, then choose
 **Start regression tests**. The suite runs in Kubernetes and survives leaving or
 reloading the page. It can stop models and change test-server state; never
 register a production Appliance.
+This test-server registration is not license activation. License/SSO cases use
+test fixtures; missing prerequisites block those checks, not the whole suite.
 
 The page shows current phase/check, progress and separate executable-scenario
 and case/layer counts. Expand **Failures and blocked checks** for the reason,

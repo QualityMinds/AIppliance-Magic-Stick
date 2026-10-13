@@ -104,6 +104,26 @@ class RegressionApiTests(unittest.TestCase):
         self.assertEqual(self.writes, [])
         self.assertEqual(self.users, {})
 
+    def test_runner_lifecycle_and_all_reports_do_not_require_or_activate_a_license(self):
+        for index, state in enumerate(("missing", "expired", "invalid", "storage_unavailable"), 1):
+            with self.subTest(state=state):
+                license_service = Mock()
+                license_service.status.return_value = {"state": state, "valid": False, "features": []}
+                license_service.require_capability.side_effect = AssertionError("Regression is not license-gated")
+                self.functions["license_service"] = Mock(return_value=license_service)
+                self.service.register(ACTOR, {"confirmation": "DISPOSABLE TEST SERVER", "acknowledgeDisruption": True})
+                self.assertTrue(self.service.list()["runtimeAvailable"])
+                run = self.start(f"{index:032x}")
+                self.service.cancel(ACTOR, run["id"], {"acknowledgeDisruption": True})
+                saved = self.objects[RUNS + "/" + run["id"]]
+                saved["status"] = {"phase": "Cancelled", "reportAvailable": True}
+                for kind in ("archive", "html", "junit"):
+                    self.assertEqual(self.service.artifact(run["id"], kind)[0], b"sanitized-report")
+                self.service.cleanup(saved)
+                self.functions["license_service"].assert_not_called()
+                self.assertEqual(self.users, {})
+        self.assertFalse(any("license" in path for _, path, _ in self.writes))
+
     def test_start_waits_for_report_store_readiness_and_enabled_module(self):
         self.objects["/apis/apps/v1/namespaces/magicstick-regression/deployments/regression-reports"]["status"]["updatedReplicas"] = 0
         self.assertFalse(self.service.list()["runtimeAvailable"])

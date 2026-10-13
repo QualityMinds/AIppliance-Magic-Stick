@@ -7,6 +7,10 @@ Mac or another external runner for host restart/disconnection/replacement drills
 
 ## In the Dashboard
 
+**No license is required** to enable the runner, register the test server, start
+or cancel tests, view progress or download reports. Test-server registration is
+an installation safety check, not Free Registered or Commercial activation.
+
 1. Open **System → Regression tests** as an administrator.
 2. Once: **Enable regression runner**, wait for its tested image/storage, then
    **Register test Appliance** and confirm `DISPOSABLE TEST SERVER`.
@@ -21,6 +25,12 @@ Each blocked check includes its reason, phase/variant/layer, stage when availabl
 next action and filtered trace location in the archive. The full report retains
 all checks; the Dashboard limits its expanded failure list to 200 rows.
 Progress measures finished steps, not elapsed-time prediction.
+
+Signed license and Federated SSO tests use automatically generated,
+installation-bound **test fixtures**, not a purchased or registered product
+license. Setup does not activate a license. If a fixture or external identity
+provider is unavailable, only its dependent checks are Blocked with a reason;
+the other tests still run. Federated SSO's actual entitlement checks stay intact.
 
 The Kubernetes runner is a non-root Linux/AMD64 Job, with no GPU, Docker socket,
 host mount or mounted Kubernetes admin token. Reports and recovery journals live
