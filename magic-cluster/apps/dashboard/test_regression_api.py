@@ -31,6 +31,7 @@ class RegressionApiTests(unittest.TestCase):
             CORE + "/configmaps/magicstick-regression-runtime": {"data": {"image": "ghcr.io/qualityminds/magicstick-regression:sha-" + "b"*40 + "@sha256:" + "a"*64, "sourceRevision": "b"*40}}}
         self.users, self.writes = {}, []
         self.identity_without_location = False
+        self.identity_without_attribute = False
         self.functions = {"RequestError": RequestError, "get_resource": lambda path: copy.deepcopy(self.objects.get(path)),
             "list_resource": self.list, "request_json": self.write, "patch_json": self.patch,
             "settings_response": lambda: {"mdnsDomain": "example.local"}, "live_admin_actor": lambda _: None,
@@ -87,7 +88,10 @@ class RegressionApiTests(unittest.TestCase):
 
     def identity(self, method, path, data=None):
         if method == "POST":
-            self.users["fixture-user"] = {**copy.deepcopy(data), "id": "fixture-user"}
+            created = copy.deepcopy(data)
+            if self.identity_without_attribute:
+                created.pop("attributes", None)
+            self.users["fixture-user"] = {**created, "id": "fixture-user"}
             return {}, ({} if self.identity_without_location else {"Location": "/user/fixture-user"})
         if method == "DELETE":
             del self.users[path.split("/")[-1]]
@@ -160,13 +164,14 @@ class RegressionApiTests(unittest.TestCase):
         self.assertEqual(account["caPem"], "PUBLIC-CA-NOT-A-KEY")
         self.assertEqual(account["gatewayIp"], "192.0.2.10")
 
-    def test_start_recovers_created_identity_when_keycloak_omits_location_header(self):
+    def test_start_recovers_created_identity_when_keycloak_omits_location_or_custom_attributes(self):
         self.identity_without_location = True
+        self.identity_without_attribute = True
         run = self.start()
         secret = self.objects[CORE + "/secrets/" + run["id"]]
         account = json.loads(base64.b64decode(secret["data"]["account.json"]))
         self.assertEqual(account["userId"], "fixture-user")
-        self.assertEqual(self.users["fixture-user"]["attributes"]["magicstickRegressionRun"], [UID])
+        self.assertEqual(self.users["fixture-user"]["username"], "regression-" + UID.replace("-", ""))
         saved = self.objects[RUNS + "/" + run["id"]]
         self.assertEqual(saved["metadata"]["annotations"]["regression.magicstick.dev/credentials-ready"], UID)
 
@@ -207,10 +212,14 @@ class RegressionApiTests(unittest.TestCase):
             self.service.cleanup(self.objects[RUNS + "/" + run["id"]])
         self.assertEqual(len(self.users), 1)
         self.pods = []
-        self.users["fixture-user"]["attributes"] = {"magicstickRegressionRun": ["foreign"]}
+        secret = self.objects[CORE + "/secrets/" + run["id"]]
+        account = json.loads(base64.b64decode(secret["data"]["account.json"]))
+        account["userId"] = "foreign-user-id"
+        secret["data"]["account.json"] = base64.b64encode(json.dumps(account).encode()).decode()
         with self.assertRaises(RequestError):
             self.service.cleanup(self.objects[RUNS + "/" + run["id"]])
-        self.users["fixture-user"]["attributes"] = {"magicstickRegressionRun": [UID]}
+        account["userId"] = "fixture-user"
+        secret["data"]["account.json"] = base64.b64encode(json.dumps(account).encode()).decode()
         self.service.cleanup(self.objects[RUNS + "/" + run["id"]])
         self.assertEqual(self.users, {})
         self.assertTrue(self.objects[RUNS + "/" + run["id"]]["status"]["credentialsCleaned"])
@@ -297,7 +306,10 @@ class RegressionApiTests(unittest.TestCase):
         with self.assertRaisesRegex(RequestError, "not terminated"):
             self.start("2"*32)
         self.pods = []
-        self.users["fixture-user"]["attributes"] = {"magicstickRegressionRun": ["foreign"]}
+        secret = self.objects[CORE + "/secrets/" + original["id"]]
+        account = json.loads(base64.b64decode(secret["data"]["account.json"]))
+        account["userId"] = "foreign-user-id"
+        secret["data"]["account.json"] = base64.b64encode(json.dumps(account).encode()).decode()
         with self.assertRaisesRegex(RequestError, "identity was replaced"):
             self.start("2"*32)
         self.assertEqual(len(self.users), 1)

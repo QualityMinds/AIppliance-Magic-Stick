@@ -251,15 +251,16 @@ class RegressionApi:
             # Keycloak normally returns Location for a created user.  Treat a
             # missing header as a recoverable lost-create response instead of
             # leaving a generated identity without its durable receipt.  The
-            # exact generated username and ownership attribute bind the lookup
-            # to this run; an existing or replaced identity is never adopted.
+            # exact generated username binds the lookup to this run.  Keycloak
+            # installations can reject arbitrary profile attributes, so the
+            # durable binding is the UUID-derived username persisted in the
+            # run-owned Secret before the create request.  The resolved ID is
+            # stored immediately and all later cleanup requires that exact ID.
             matches = self.f["_exact_user_matches"]("username", username)
             if len(matches) != 1:
                 self.error(503, "Test identity could not be resolved.")
             candidate = matches[0]
-            attributes = candidate.get("attributes") or {}
-            if (candidate.get("username") != username
-                    or attributes.get("magicstickRegressionRun") != [uid]):
+            if candidate.get("username") != username:
                 self.error(409, "The generated test identity could not be verified.")
             user_id = str(candidate.get("id") or "")
             if not user_id:
@@ -331,12 +332,13 @@ class RegressionApi:
             self.error(409, "The test identity is missing or ambiguous; automatic recovery was refused.")
         user = users[0] if users else None
         # A create response can be lost after Keycloak has created the bound
-        # identity but before its ID is persisted.  Treat only a missing or
-        # empty recorded ID as recoverable: the exact generated username and
-        # run attribute still bind it to this run.  A different non-empty ID
-        # remains a hard ownership failure.
+        # identity but before its ID is persisted.  Keycloak may discard
+        # arbitrary profile attributes, therefore the UUID-derived username
+        # in the pre-existing run-owned Secret is the recovery binding. Treat
+        # only a missing or empty recorded ID as recoverable. A different
+        # non-empty ID remains a hard ownership failure.
         recorded_id = account.get("userId")
-        if user and (user.get("attributes", {}).get("magicstickRegressionRun") != [uid]
+        if user and (user.get("username") != account["username"]
                      or (recorded_id and recorded_id != user["id"])):
             self.error(409, "The test identity was replaced; cleanup was refused.")
         return user
