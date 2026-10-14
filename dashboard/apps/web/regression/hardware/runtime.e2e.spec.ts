@@ -4,7 +4,8 @@ import {GpuScenario,physicalDevice} from '../core/gpu-scenario.ts';
 import {requireSafe} from '../core/errors.ts';
 import {evidenceAnnotations,evidenceStep,type TestLayer} from '../core/evidence.ts';
 import {phase3Variants,type GpuVariant} from '../profiles/gpu-p0.ts';
-import {installedReadyUi,lifecycleUi,logsUi,modelCard} from './live-ui.ts';
+import {installedReadyUi,lifecycleUi,logsUi,modelCard,gpuConfigurationUi} from './live-ui.ts';
+import {withCleanup} from '../core/run-lifecycle.ts';
 
 function proof(keys:GpuVariant[],layers:TestLayer[]=['A','E']) {
   return evidenceAnnotations(...keys.flatMap(variant=>layers.filter(layer=>(phase3Variants[variant as keyof typeof phase3Variants].layers as readonly TestLayer[]).includes(layer))
@@ -51,8 +52,7 @@ test.describe('Installed exclusive physical GPU runtimes',()=>{
     const node=page.getByRole('article',{name:`GPU node ${s.config.gpu!.nodeName}`});
     await expect(node.getByText(`Node: ${s.config.gpu!.nodeName}`,{exact:true})).toBeVisible();
     for (const d of devices) {
-      await node.getByText(`GPU Configuration ${d.vendor === 'amd' ? 'AMD' : 'NVIDIA'}`,{exact:true}).click();
-      await expect(node.getByRole('region',{name:`GPU ${d.name} · ${d.pciAddress}`})).toBeVisible();
+      await gpuConfigurationUi(page,d);
     }
   });
 
@@ -82,13 +82,14 @@ test.describe('Installed exclusive physical GPU runtimes',()=>{
       'p3-runtime-stop','p3-runtime-start']),async ({},info)=>{
       const s=scenario!,fixture=s.config.gpu!.models[key];
       requireSafe(fixture,'PREREQUISITE');
+      const total=await s.slotCapacity(fixture.computeTarget==='nvidia-gpu'?'nvidia':'amd');
       const model=await s.create(nvidiaDiagnostic ? `${label}-cycle-${cycle}` : label,fixture,true);
-      try {
+      await withCleanup(async()=>{
       // Enabled intent reserves immediately and must not be counted again
       // once the actual allocation is observed. The deterministic before-Pod
       // timing is covered separately in U/C; live scheduling can be faster.
       await step(info,['p3-pending-slot'],async()=>{
-        await s.slots(fixture.computeTarget,1,1);
+        await s.slots(fixture.computeTarget,1,total);
         const pending=await s.live.modelState(model.client,model.uid);
         requireSafe(pending.item?.spec?.enabled === true && pending.item.spec.local?.kvCacheType === fixture.kvCacheType,'API');
       });
@@ -97,7 +98,7 @@ test.describe('Installed exclusive physical GPU runtimes',()=>{
       const status=ready.item?.status;
       requireSafe(status && status.requestedKvCacheType === fixture.kvCacheType &&
         typeof status.effectiveKvCacheType === 'string' && status.effectiveKvCacheType.length > 0,'API');
-      await s.slots(fixture.computeTarget,1,1); await s.openModels(page);
+      await s.slots(fixture.computeTarget,1,total); await s.openModels(page);
       const card=modelCard(page,model.client.name);
       // ModelsPage polls every 15 seconds. A just-observed API Ready state can
       // legitimately follow an older browser query; wait for real UI convergence
@@ -109,13 +110,13 @@ test.describe('Installed exclusive physical GPU runtimes',()=>{
       });
       await step(info,['p3-gpu-logs'],()=>logsUi(s,page,model));
       await step(info,['p3-runtime-stop'],async()=>{
-        await lifecycleUi(s,page,model,'stop'); await s.slots(fixture.computeTarget,0,1);
+        await lifecycleUi(s,page,model,'stop'); await s.slots(fixture.computeTarget,0,total);
       });
       await step(info,['p3-runtime-start'],async()=>{
-        await lifecycleUi(s,page,model,'start'); await s.slots(fixture.computeTarget,1,1);
+        await lifecycleUi(s,page,model,'start'); await s.slots(fixture.computeTarget,1,total);
       });
-      } finally {await s.remove(model);}
-      await s.slots(fixture.computeTarget,0,1);
+      },()=>test.step('Verify owned model cleanup',()=>s.remove(model)));
+      await s.slots(fixture.computeTarget,0,total);
     });
 
 

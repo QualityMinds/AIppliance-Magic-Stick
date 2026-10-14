@@ -1,4 +1,4 @@
-import type {Browser,Page} from '@playwright/test';
+import {test,type Browser,type Page} from '@playwright/test';
 import type {GpuSharingRequest,GpuSharingState,HardwareGpuDevice,ModelsPayload,ModelActivation} from '@magicstick/dashboard-contracts';
 import {MagicStickApi} from '@magicstick/dashboard-api-client';
 import {join,dirname} from 'node:path';
@@ -15,6 +15,8 @@ import type {KubeObject} from './observer.ts';
 import {openInferenceSession,type ExactDashboardRequest} from './auth.ts';
 import {privateDirectory,readPrivate,writePrivate} from './private-files.ts';
 import {waitModelStopped} from './model-stop.ts';
+import {gpuSlotCapacity} from './model-ui.ts';
+import {runtimeDiagnostic} from './runtime-diagnostic.ts';
 
 export interface GpuCreated {client:OwnedModelClient;fixture:RuntimeModelFixture;uid:string;generation:number}
 type Container = {name:string;image:string;args?:string[];env?:Array<{name:string;value?:string}>;
@@ -161,16 +163,16 @@ export class GpuScenario {
     return this.waitBackend(provider,mode,count,allocationBackend);
   }
   async waitBackend(provider:Provider,mode:GpuSharingState['mode'],count=2,allocationBackend:'dra'|'device-plugin'='device-plugin') {
+    const physicalCount=await this.physicalCount(provider);
     const state = await poll(async () => {
       await this.live.guard(); const current = await this.state(provider);
       const node = await this.live.observer.get('nodes',undefined,this.config.gpu!.nodeName);
       requireSafe(node.metadata.uid === this.config.gpu!.nodeUid && node.status?.nodeInfo?.bootID === this.config.gpu!.bootId,'IDENTITY');
       const expected = mode === 'exclusive' ? 1 : count;
       let backend = false;
-      const physicalCount = provider === 'nvidia' ? Number(node.metadata.labels?.['nvidia.com/gpu.count'] ?? 1) : 1;
       if (provider === 'nvidia' && allocationBackend === 'dra') backend = current.backend === 'dra' &&
         node.metadata.labels?.['appliance.magicstick.dev/nvidia-dra-ready'] === 'true' && !Number(node.status?.allocatable?.['nvidia.com/gpu']);
-      else if (provider === 'nvidia') backend = Number(node.status?.allocatable?.['nvidia.com/gpu']) === expected * physicalCount &&
+      else if (provider === 'nvidia') backend = Number(node.status?.allocatable?.['nvidia.com/gpu']) === gpuSlotCapacity(physicalCount,mode,count) &&
         node.metadata.labels?.['nvidia.com/device-plugin.config'] === (mode === 'exclusive' ? 'magicstick-exclusive' : `magicstick-shared-${count}`) &&
         Number(node.metadata.labels?.['nvidia.com/gpu.replicas'] ?? 1) === expected;
       else if (mode === 'exclusive') backend = Number(node.status?.allocatable?.['amd.com/gpu']) === 1;
@@ -193,6 +195,22 @@ export class GpuScenario {
       value.backend && value.slots?.total === (mode === 'exclusive' ? 1 : count) * value.physicalCount,
     {timeoutMs:600_000,intervalMs:1000,stage:'gpu-backend'});
     return state.current;
+  }
+  async physicalCount(provider:Provider) {
+    const {devices,node}=await this.inventory();
+    const cards=devices.filter(device=>device.vendor===provider && device.nodeUid===this.config.gpu!.nodeUid),count=cards.length;
+    requireSafe(count>0,'CAPABILITY');
+    requireSafe(cards.every(card=>typeof card.id==='string' && card.id.length>0) && new Set(cards.map(card=>card.id)).size===count,'IDENTITY');
+    const advertised=node!.metadata.labels?.['nvidia.com/gpu.count'];
+    if(provider==='nvidia' && advertised!==undefined)requireSafe(Number(advertised)===count,'IDENTITY');
+    // The current AMD lab adapter borrows one physical shared claim. Multiple
+    // AMD cards need their own profile; never invent a one-card NVIDIA node.
+    if(provider==='amd')requireSafe(count===1,'PREREQUISITE');
+    return count;
+  }
+  async slotCapacity(provider:Provider) {
+    const state=await this.state(provider);
+    return gpuSlotCapacity(await this.physicalCount(provider),state.mode,state.maxModels);
   }
   async create(label:string,fixture:RuntimeModelFixture,allowMemoryRisk=false) {
     await this.inventory(); fixtureIsAdvertised(await this.live.api.models(),fixture);
@@ -239,7 +257,12 @@ export class GpuScenario {
   private async runtimeFailure(model:GpuCreated,stage:'model-ready'|'gpu-binding'|'model-inference',error:unknown,recordStage=true) {
     if(recordStage) await writePrivate(join(this.directory,`runtime-${model.client.name}.json`),{
       version:1,runId:this.live.journal.runId,engine:model.fixture.engine,target:model.fixture.computeTarget,
-      generation:model.generation,stage,reason:error instanceof HarnessError ? error.code : 'UNEXPECTED'});
+      generation:model.generation,stage,reason:error instanceof HarnessError ? error.code : 'UNEXPECTED'}).catch(()=>{});
+    try {
+      const state=await this.live.modelState(model.client,model.uid);
+      if(state.item)await test.info().attach('magicstick-runtime-diagnostic',{contentType:'application/json',
+        body:Buffer.from(JSON.stringify(runtimeDiagnostic(state.item,state.pods,model.uid,model.generation)))});
+    }catch{/* Diagnostic collection must never replace the primary failure. */}
     // Logs use the bounded authenticated product API, never Pod exec or broad
     // cluster log permission. Preserve them before failure-safe owned cleanup.
     try {await writePrivate(join(this.directory,`logs-${model.client.name}.json`),await model.client.logs());}catch{}

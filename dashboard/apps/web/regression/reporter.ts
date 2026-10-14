@@ -14,6 +14,7 @@ import {progressEvent} from './core/progress.ts';
 import {safeStepTitle,safeTraceSource,saveExecutionTrace,traceCategories,type ExecutionTrace,type TraceStep} from './core/execution-trace.ts';
 import {checkedBlocker} from './core/blocking.ts';
 import {regressionBlockedKind} from '../../../packages/core/src/regression-blocking.ts';
+import {parseRuntimeDiagnostic,type RuntimeDiagnostic} from './core/runtime-diagnostic.ts';
 
 /** Playwright serializes Errors without our custom outcome property. Only a
  * fixed allowlisted marker can carry an explicit failure into safe reports. */
@@ -137,9 +138,17 @@ export default class SafeReporter implements Reporter {
           step.error&&outcome!=='Passed'?{reason:'UNEXPECTED' as const}:{} )};
     });
     const omittedSteps=this.omittedSteps.get(test);
+    const runtimeDiagnostics:RuntimeDiagnostic[]=[];
+    for(const attachment of result.attachments??[]) {
+      if(runtimeDiagnostics.length>=4)break;
+      if(attachment.name==='magicstick-runtime-diagnostic' && attachment.contentType==='application/json' &&
+        attachment.body && attachment.body.length<=32*1024)try {
+        runtimeDiagnostics.push(parseRuntimeDiagnostic(JSON.parse(attachment.body.toString('utf8'))));
+      }catch{/* No arbitrary/malformed attachment is exported. */}
+    }
     if(traceRunId)this.traces.push({version:1,runId:traceRunId,executionId,outcome,durationMs:Math.max(0,result.duration),steps,
       ...(omittedSteps?{omittedSteps}:{}),...(source?{source}:{}),...(scenario?{scenario}:{}),
-      ...(recoveryRequired?{recoveryRequired:true}:{} )});
+      ...(recoveryRequired?{recoveryRequired:true}:{} ),...(runtimeDiagnostics.length?{runtimeDiagnostics}:{} )});
     this.steps.delete(test);this.omittedSteps.delete(test);
     const root=evidence.find(item=>progressed.get(key(item))?.state==='failed');
     const blockedBy=checkedBlocker({kind:outcome==='Failed'?'failure':regressionBlockedKind(code),

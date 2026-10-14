@@ -5,8 +5,9 @@ import type {Lease, LeaseStore} from './lease.ts';
 
 interface ContainerStatus {
   name: string; image?: string; imageID?: string; containerID?: string; ready?: boolean; restartCount?: number;
-  state?: {waiting?: {reason?: string}; terminated?: {exitCode?: number; startedAt?: string; finishedAt?: string}};
-  lastState?: {terminated?: {exitCode?: number}};
+  state?: {running?: {startedAt?:string};waiting?: {reason?: string;message?:string};
+    terminated?: {reason?:string;message?:string;exitCode?: number; startedAt?: string; finishedAt?: string}};
+  lastState?: {terminated?: {reason?:string;message?:string;exitCode?: number}};
 }
 
 export interface KubeObject {

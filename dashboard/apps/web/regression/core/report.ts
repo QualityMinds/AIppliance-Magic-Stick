@@ -51,11 +51,24 @@ export function summarizeExecutions(cases:Array<{executionId?:string;executionOu
 }
 /** Fill the finite matrix, not just one row per catalogue family. A missing
  * prerequisite or interrupted serial group must remain visible in JSON/JUnit. */
-export function completeCases(mode:string|undefined,cases:CaseResult[],required:string[],reason:ReasonCode='PREREQUISITE'):CaseResult[] {
+export function completeCases(mode:string|undefined,cases:CaseResult[],required:string[],reason:ReasonCode='PREREQUISITE',
+  recoveryFenceAtStart=false):CaseResult[] {
   const result=cases.map(item=>({...item,outcome:terminalOutcome(item.outcome)}));
   const missingCause=(id:string,variant?:string):RegressionBlocker=>{
-    const root=cases.find(item=>(variant?item.variant===variant:item.id===id)&&['Failed','Flaky'].includes(item.outcome));
-    return reason==='PREREQUISITE' ? root ? blockerFrom(root) : {kind:'unknown'} : {kind:regressionBlockedKind(reason),reason};
+    const peers=cases.filter(item=>variant?item.variant===variant:item.id===id);
+    const root=peers.find(item=>['Failed','Flaky'].includes(item.outcome)) ?? peers.find(item=>item.outcome==='Blocked');
+    return reason==='PREREQUISITE' ? root ? checkedBlocker(root.blockedBy) ?? blockerFrom(root) : {kind:'unknown'} : {kind:regressionBlockedKind(reason),reason};
+  };
+  const absent=(id:string,variant:string|undefined,environment:TestEnvironment)=>{
+    const cause=missingCause(id,variant);
+    // This phase entered with a recorded recovery fence, so its live steps
+    // were refused before mutation. Do not infer this from a fence introduced
+    // later in the phase, or attribute absent fixture layers to that fence.
+    const guard=cases.find(item=>item.outcome==='Blocked' && item.reason==='RECOVERY');
+    if(environment==='live' && recoveryFenceAtStart && reason==='PREREQUISITE' && cause.kind==='unknown' && guard) {
+      return {reason:'RECOVERY' as const,blockedBy:blockerFrom(guard)};
+    }
+    return {reason,blockedBy:cause};
   };
   const matrix=mode === 'phase1' ? phase1Requirements : mode === 'phase2' ? phase2Requirements :
     mode === 'phase3' || mode === 'phase4' ? gpuRequirements(Number(mode[5]) as 3|4) :
@@ -63,15 +76,15 @@ export function completeCases(mode:string|undefined,cases:CaseResult[],required:
   for(const item of matrix)if(!result.some(proof=>proof.id === item.id && proof.variant === item.variant &&
     proof.layer === item.layer && (proof.environment ?? environmentFor(proof.layer)) === item.environment))
     result.push({id:item.id,variant:item.variant as CaseResult['variant'],layer:item.layer,environment:item.environment,
-      outcome:'Blocked',durationMs:0,reason,blockedBy:missingCause(item.id,item.variant)});
+      outcome:'Blocked',durationMs:0,...absent(item.id,item.variant,item.environment)});
   if(mode === 'phase0') {
     for(const id of phase0IdsForReport)if(!result.some(item=>item.id === id && (item.environment ?? environmentFor(item.layer)) === 'fixture'))
-      result.push({id,layer:'U',environment:'fixture',outcome:'Blocked',durationMs:0,reason,blockedBy:missingCause(id)});
+      result.push({id,layer:'U',environment:'fixture',outcome:'Blocked',durationMs:0,...absent(id,undefined,'fixture')});
     for(const [variant,id] of Object.entries(phase0Variants))if(!result.some(item=>item.id === id && item.variant === variant &&
       (item.environment ?? environmentFor(item.layer)) === 'live'))result.push({id,variant:variant as Phase0Variant,
-        layer:'A',environment:'live',outcome:'Blocked',durationMs:0,reason,blockedBy:missingCause(id,variant)});
+        layer:'A',environment:'live',outcome:'Blocked',durationMs:0,...absent(id,variant,'live')});
   }
-  for(const id of required)if(!result.some(item=>item.id === id))result.push({id,layer:'A',environment:'live',outcome:'Blocked',durationMs:0,reason,blockedBy:missingCause(id)});
+  for(const id of required)if(!result.some(item=>item.id === id))result.push({id,layer:'A',environment:'live',outcome:'Blocked',durationMs:0,...absent(id,undefined,'live')});
   return result;
 }
 const phase0IdsForReport=Array.from({length:11},(_,index)=>`HAR-${String(index+1).padStart(2,'0')}`);
@@ -156,11 +169,11 @@ export function liveReportScope(mode?: string) {
 
 /** Allowlisted output only. Never serialize a Playwright response, error or attachment. */
 export async function saveReport(directory: string, runId: string, cases: CaseResult[], required: string[], sourceRevision = 'unknown', mode = process.env.REGRESSION_MODE,
-  preparation?: PreparationDiagnostic,lifecycle?:{recoveryFenceActive:boolean;recoveryAttempts:RecoveryAttempt[]}) {
+  preparation?: PreparationDiagnostic,lifecycle?:{recoveryFenceActive:boolean;recoveryAttempts:RecoveryAttempt[];recoveryFenceAtStart?:boolean}) {
   requireSafe(/^reg-[0-9a-f-]{36}$/.test(runId), 'CONFIG');
   const portableArchive=mode==='all'||mode==='selftest'||mode==='recover'||/^phase[0-8](?:-(?:fast|fixtures))?$/.test(mode??'');
   const prepared = preparation ? parsePreparationDiagnostic(preparation) : await preparationDiagnostic();
-  const safe = withBlockedCauses(completeCases(mode,cases,required).map(item => {
+  const safe = withBlockedCauses(completeCases(mode,cases,required,'PREREQUISITE',lifecycle?.recoveryFenceAtStart===true).map(item => {
     requireSafe(/^[A-Z][A-Z0-9]+-\d{2}$/.test(item.id), 'CONFIG');
     requireSafe(['Passed', 'Failed', 'Blocked', 'Skipped', 'Not run', 'Flaky'].includes(item.outcome) &&
       testLayers.includes(item.layer) && Number.isFinite(item.durationMs) && item.durationMs >= 0, 'CONFIG');

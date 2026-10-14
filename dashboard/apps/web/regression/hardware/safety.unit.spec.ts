@@ -13,6 +13,7 @@ import type {ModelsPayload,ModelActivation} from '@magicstick/dashboard-contract
 import {OwnedModelClient,modelContextUpdateReceipt} from '../core/owned-model.ts';
 import {LiveFoundation} from '../core/live-foundation.ts';
 import {modelStopped,stopDiagnostic,waitModelStopped,type ModelStopState} from '../core/model-stop.ts';
+import {writePrivate} from '../core/private-files.ts';
 
 let directory:string;
 test.beforeEach(async()=>{directory=await mkdtemp(join(tmpdir(),'gpu-safety-'));});
@@ -58,6 +59,17 @@ test('HAR-08 a failed attempt is still an active diagnostic until its Job has a 
     expect(unfinishedJob({metadata:{},status:{conditions:[{type,status:'False'}]}})).toBe(true);
     expect(unfinishedJob({metadata:{},status:{conditions:[{type,status:'True'}]}})).toBe(false);
   }
+});
+test('SLOT-02 current node inventory supplies one, two and four NVIDIA pool capacities and refuses conflicting or duplicate cards',async()=>{
+  const scenario=Object.create(GpuScenario.prototype) as GpuScenario,lab=config();
+  Object.defineProperty(scenario,'config',{value:lab});let size=1,advertised:string|undefined='1',duplicate=false;
+  Object.defineProperty(scenario,'inventory',{value:async()=>({devices:Array.from({length:size},(_,index)=>({
+    id:`card-${duplicate?0:index}`,vendor:'nvidia',nodeUid:lab.gpu!.nodeUid})),node:{metadata:{labels:advertised===undefined?{}:{'nvidia.com/gpu.count':advertised}}}})});
+  Object.defineProperty(scenario,'state',{value:async()=>({mode:'shared',maxModels:2})});
+  for(const cards of [1,2,4]){size=cards;advertised=String(cards);expect(await scenario.physicalCount('nvidia')).toBe(cards);expect(await scenario.slotCapacity('nvidia')).toBe(cards*2);}
+  advertised=undefined;expect(await scenario.physicalCount('nvidia')).toBe(4);
+  advertised='1';await expect(scenario.physicalCount('nvidia')).rejects.toThrow('[IDENTITY]');
+  advertised='4';duplicate=true;await expect(scenario.physicalCount('nvidia')).rejects.toThrow('[IDENTITY]');
 });
 test('HAR-10 Stop acceptance retains configuration and separately verifies runtime and catalog withdrawal',()=>{
   const stopped={item:{metadata:{generation:2},spec:{type:'local',enabled:false}},pods:[],models:{models:[]}} as unknown as ModelStopState;
@@ -218,19 +230,35 @@ test('HAR-07 worker replacement cannot overwrite or adopt earlier ownership and 
     'worker-1/../journal.json','worker-1/worker-2/journal.json','journal.json/extra'])
     expect(recoveryJournalPath(root+path,true)).toBe(false);
 });
-test('HAR-10 a Degraded positive runtime fails early and retains bounded private logs before cleanup',async()=>{
+test('HAR-10 a Degraded positive runtime fails early and retains bounded private logs before cleanup',async({},info)=>{
     const scenario=Object.create(GpuScenario.prototype) as GpuScenario;
     Object.defineProperty(scenario,'directory',{value:directory});let reads=0;
     Object.defineProperty(scenario,'live',{value:{journal:{runId:newRunId()},modelState:async()=>{
-      reads++;return {item:{metadata:{generation:2},status:{phase:'Degraded',observedGeneration:reads === 1 ? 1 : 2}}};
+      reads++;return {item:{metadata:{uid:'fixture-model',generation:2},spec:{local:{engine:'VLLM',computeTarget:'amd-gpu'}},
+        status:{phase:'Degraded',observedGeneration:reads === 1 ? 1 : 2}},pods:[]};
     }}});
     const model={client:{name:'reg-fixture-model',logs:async()=>({pods:[],tailLines:300})},
       fixture:config().gpu!.models.amdVllm!,uid:'fixture-model',generation:2} as unknown as GpuCreated;
     await expect(scenario.ready(model)).rejects.toMatchObject({code:'CAPABILITY',outcome:'Failed',stage:'model-ready'});
-    expect(reads).toBe(2);
+    // Two readiness reads reject the stale observation and fail promptly; a
+    // third read captures only structural diagnostics before cleanup.
+    expect(reads).toBe(3);
+    const attachment=info.attachments.find(item=>item.name==='magicstick-runtime-diagnostic');
+    expect(JSON.parse(attachment!.body!.toString())).toMatchObject({engine:'VLLM',target:'amd-gpu',phase:'Degraded',currentStatus:true,pods:[]});
     expect(JSON.parse(await readFile(join(directory,'runtime-reg-fixture-model.json'),'utf8')))
       .toMatchObject({engine:'VLLM',target:'amd-gpu',stage:'model-ready',reason:'CAPABILITY'});
     expect(JSON.parse(await readFile(join(directory,'logs-reg-fixture-model.json'),'utf8'))).toEqual({pods:[],tailLines:300});
+});
+test('HAR-06 HAR-10 optional runtime diagnostic IO never replaces the original model failure',async()=>{
+  const file=join(directory,'not-a-directory');await writePrivate(file,{});
+  const scenario=Object.create(GpuScenario.prototype) as GpuScenario;
+  Object.defineProperty(scenario,'directory',{value:file});
+  Object.defineProperty(scenario,'live',{value:{journal:{runId:newRunId()},modelState:async()=>({
+    item:{metadata:{uid:'fixture-model',generation:2},spec:{local:{engine:'VLLM',computeTarget:'amd-gpu'}},
+      status:{phase:'Degraded',observedGeneration:2}},pods:[]})}});
+  const model={client:{name:'reg-fixture-model',logs:async()=>({pods:[],tailLines:300})},
+    fixture:config().gpu!.models.amdVllm!,uid:'fixture-model',generation:2} as unknown as GpuCreated;
+  await expect(scenario.ready(model)).rejects.toMatchObject({code:'CAPABILITY',stage:'model-ready',outcome:'Failed'});
 });
 test('HAR-10 GPU acceptance needs every variant-layer tuple and keeps maintenance gates open',async()=>{
   for(const phase of [3,4] as const) {

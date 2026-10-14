@@ -3,10 +3,33 @@ import {formatMi} from '@magicstick/dashboard-core';
 import type {ModelsPayload,GpuSharingState,HardwareGpuDevice} from '@magicstick/dashboard-contracts';
 import {fixturePage,origin} from '../fixtures/dashboard.ts';
 import {evidenceAnnotations} from '../core/evidence.ts';
-import {installedReadyUi} from './live-ui.ts';
+import {installedReadyUi,gpuConfigurationUi} from './live-ui.ts';
 import {fourNvidiaCards,fourNvidiaCardsWithMixedTelemetry,heterogeneousNvidiaCards,nvidiaSelection} from '../fixtures/nvidia-cards.ts';
+import {savedGpuBudget,gpuBudgetInput} from '../core/model-ui.ts';
 
 const phase = process.env.REGRESSION_MODE === 'phase4-fixtures' ? 4 : 3;
+
+for(const engine of ['VLLM','OLlama'] as const)for(const deployment of ['split','replicated'] as const)
+test(`MGPU-01 MGPU-02 ${engine} ${deployment} Edit waits for its estimate and retains exact saved MiB`,evidenceAnnotations(
+  {id:deployment==='split'?'MGPU-01':'MGPU-02',variant:`p${phase}-${deployment==='split'?'multigpu':'replicated'}-config`,layer:'B'}),async({page})=>{
+  const data=fourNvidiaCards(),name='saved-budget-fixture',devices=[0,1,2,3].map(i=>nvidiaSelection(i));
+  data.activations=[{metadata:{name,namespace:'ai-system',uid:'saved-uid',generation:2},
+    spec:{type:'local',enabled:false,targetNamespace:'ai',local:{engine,computeTarget:'nvidia-gpu',modelType:'chat',
+      url:engine==='VLLM'?'hf://fixture/small':'ollama://fixture:small',gpuDeployment:deployment,gpuDevices:devices,
+      vram:'1234Mi',contextWindow:1024,maxNumSeqs:1,kvCacheType:engine==='VLLM'?'auto':'f16'}},status:{phase:'Disabled'}}];
+  let resolveEstimate:()=>void=()=>{};
+  const estimateReady=new Promise<void>(resolve=>{resolveEstimate=resolve;});
+  await fixturePage(page,{'/api/models':data,'/api/model-discovery/popular':{results:[]},
+    [`/api/models/${name}/estimate-memory`]:async()=>{await estimateReady;return {detectedModelType:'chat',minimumMi:1000,recommendedMi:2000,
+      maximumMi:40960,systemMemoryMaximumMi:32000,confidence:'high'};}});
+  await page.goto(origin+'/#/models');await page.getByRole('button',{name:`Edit ${name}`}).click();
+  const dialog=page.getByRole('dialog',{name:`Edit Model · ${name}`}),budget=savedGpuBudget(data.activations[0]!,'saved-uid',2);
+  await expect(dialog.getByLabel(budget.label,{exact:true})).toHaveCount(0);
+  const ready=gpuBudgetInput(dialog,budget,10_000);resolveEstimate();await ready;
+  await expect(dialog.getByRole('button',{name:'Save changes'})).toBeDisabled();
+  expect(budget.displayedMi).toBe(1234*(deployment==='split'?4:1));
+});
+
 if (phase === 3) for (const viewport of ['desktop', 'mobile'] as const)
 test(`ENG-01 ${viewport} offers supported engines and retains cleanup for a retired model`, evidenceAnnotations(
   {id: 'ENG-01', variant: 'p3-engine-selection', layer: 'B'}), async ({page}, info) => {
@@ -186,6 +209,16 @@ async function hardware(page:Page,states=providers(),gpuDevices=devices) {
   await page.goto(origin+'/#/system/hardware');
   await expect(page.getByText('Node: fixture-node',{exact:true})).toBeVisible(); return writes;
 }
+test('SLOT-01 SHR-03 four same-name NVIDIA accordions open by PCI identity and expose one node sharing control',async({page})=>{
+  const cards=Array.from({length:4},(_,index)=>({...devices[1]!,id:`fixture-node-uid/0000:0${index+1}:00.0`,
+    pciAddress:`0000:0${index+1}:00.0`}));
+  await hardware(page,providers(),cards);
+  await expect(page.getByRole('heading',{name:'GPU Configuration NVIDIA',exact:true})).toHaveCount(4);
+  for(const [index,card] of cards.entries()) {
+    const region=await gpuConfigurationUi(page,card);
+    await expect(region.locator('details.gpu-sharing[aria-label="NVIDIA GPU sharing"]')).toHaveCount(index===0?1:0);
+  }
+});
 function models(free=2):ModelsPayload {
   const slots = {total:2,used:2-free,free,scope:'node' as const};
   return {activations:[],models:[],presets:{},computeTargets:{default:'cpu',targets:[

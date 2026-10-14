@@ -167,6 +167,14 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ### Fixed
 
+- Wait for polled model lifecycle controls before regression writes and retain
+  validated generation receipts even when the browser action fails. Keep
+  primary failures separate from cleanup fences and completed CPU checks.
+- Derive regression slot expectations from physical GPU inventory, including
+  full-pool and final-slot scenarios on multi-card NVIDIA nodes. Scope Hardware
+  accordions by PCI identity and wait for Edit estimates before checking saved
+  split/per-copy budgets. Include filtered Pod/runtime diagnostics in trace and
+  JUnit reports without exporting logs or credentials.
 - Keep isolated regression suites independent of live Kubernetes execution,
   credentials and preparation diagnostics. Include Git in the runner runtime
   and exercise Phase 6 channel contracts before publishing its image.

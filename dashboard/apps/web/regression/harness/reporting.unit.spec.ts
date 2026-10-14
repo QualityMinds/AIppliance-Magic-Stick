@@ -20,6 +20,7 @@ import {parsePreparationDiagnostic, preparationDescription,requirePreparation} f
 import {blockedCounts,checkedBlocker,withBlockedCauses} from '../core/blocking.ts';
 import {regressionBlockedKind} from '../../../../packages/core/src/regression-blocking.ts';
 import {saveExecutionTrace} from '../core/execution-trace.ts';
+import type {ExecutionTrace} from '../core/execution-trace.ts';
 
 function capture(action: () => void): string {
   const chunks: string[] = [], original = process.stdout.write;
@@ -167,6 +168,69 @@ test('HAR-10 fresh explicit prerequisites remain distinct from synthesized missi
     expect(json.cases[0].blockedBy.kind).toBe('prerequisite');expect(json.cases[1].blockedBy.kind).toBe('unknown');
     expect(json.blockedCounts).toEqual({prerequisite:1,failure:0,cancelled:0,unknown:1});
   }finally{await rm(directory,{recursive:true,force:true});}
+});
+
+test('HAR-10 missing live tuples inherit a recovery fence present before the phase, not a later failure or a fixture gap',()=>{
+  const guard:CaseResult={id:'HAR-10',layer:'A',environment:'live',outcome:'Blocked',durationMs:0,reason:'RECOVERY'};
+  const before=completeCases('phase4',[guard],[],'PREREQUISITE',true);
+  expect(before.filter(row=>row.environment==='live' && row.id!=='HAR-10').every(row=>
+    row.reason==='RECOVERY' && row.blockedBy?.kind==='failure' && row.blockedBy.reason==='RECOVERY')).toBe(true);
+  expect(before.filter(row=>row.environment==='fixture').every(row=>row.blockedBy?.kind==='unknown')).toBe(true);
+  const later=completeCases('phase4',[guard],[]);
+  expect(later.filter(row=>row.id!=='HAR-10').every(row=>row.reason==='PREREQUISITE' && row.blockedBy?.kind==='unknown')).toBe(true);
+  const cancelled=completeCases('phase4',[guard],[],'CANCELLED',true);
+  expect(cancelled.filter(row=>row.id!=='HAR-10').every(row=>row.reason==='CANCELLED' && row.blockedBy?.kind==='cancelled')).toBe(true);
+  const unobserved=completeCases('phase4',[],[],'PREREQUISITE',true);
+  expect(unobserved.every(row=>row.blockedBy?.kind==='unknown')).toBe(true);
+});
+
+test('HAR-10 exact blocked variants retain a known missing prerequisite instead of an invented failure',()=>{
+  const source:CaseResult={id:'MGPU-01',variant:'p3-multigpu-vllm-4',layer:'A',environment:'live',durationMs:0,
+    outcome:'Blocked',reason:'CAPABILITY',blockedBy:{kind:'prerequisite',reason:'CAPABILITY'}};
+  const rows=completeCases('phase3',[source],[],'PREREQUISITE',true);
+  expect(rows.find(row=>row.variant===source.variant && row.layer==='E')?.blockedBy).toEqual({kind:'prerequisite',reason:'CAPABILITY'});
+});
+
+test('HAR-10 late CPU Start failure does not rewrite completed creation, edit or log evidence',async()=>{
+  const create={id:'LIFE-02',variant:'local-create-ollama',layer:'A' as const},edit={id:'LIFE-07',variant:'edit-ollama',layer:'E' as const},
+    persistence={id:'LIFE-13',variant:'persistence-ollama',layer:'E' as const};
+  const selected=specimen('LIFE-02 LIFE-07 LIFE-13',evidenceAnnotations(create,edit,persistence).annotation);
+  await evidenceStep(selected,[create],async()=>{});await evidenceStep(selected,[edit],async()=>{});
+  const error=new HarnessError('DEADLINE','Failed','model-ready');
+  await expect(evidenceStep(selected,[persistence],async()=>{throw error;})).rejects.toThrow(error.message);
+  const reporter=new SafeReporter();capture(()=>reporter.onTestEnd(selected,result('failed',error.message)));
+  const rows=(reporter as unknown as {cases:CaseResult[]}).cases;
+  expect(rows.map(row=>row.outcome)).toEqual(['Passed','Passed','Failed']);
+  expect(rows.every(row=>row.executionOutcome==='Failed')).toBe(true);
+});
+
+test('HAR-10 HAR-11 sanitized runtime diagnostics survive trace archives and JUnit without exporting attachment secrets',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'magicstick-runtime-report-')),runId=newRunId(),executionId='f'.repeat(24);
+  const previousRunId=process.env.REGRESSION_RUN_ID;
+  const diagnostic={version:1 as const,engine:'VLLM' as const,target:'nvidia-gpu' as const,deployment:'split' as const,
+    gpuCount:4,generation:2,currentStatus:true,phase:'Degraded',credentials:'synthetic-secret',
+    pods:[{phase:'Running',ready:false,scheduled:true,containers:[{ready:false,restarts:3,state:'waiting' as const,
+      cause:'CrashLoopBackOff',lastCause:'OOMKilled',exitCode:137,message:'synthetic-secret'}]}]};
+  try {
+    await saveExecutionTrace(directory,{version:1,runId,executionId,outcome:'Failed',durationMs:1,steps:[],runtimeDiagnostics:[diagnostic]});
+    await saveReport(directory,runId,[{id:'LIFE-12',layer:'E',outcome:'Failed',durationMs:1,reason:'DEADLINE',
+      stage:'model-ready',executionId,traceRunId:runId}],['LIFE-12'],'unknown','selftest');
+    const trace=await readFile(join(directory,'report-artifacts',runId,'traces',executionId+'.json'),'utf8');
+    const junit=await readFile(join(directory,'junit.xml'),'utf8');
+    for(const text of [trace,junit]){expect(text).toContain('OOMKilled');expect(text).toContain('137');expect(text).not.toContain('synthetic-secret');}
+    expect(junit).toContain('name="runtimeDiagnosticCount" value="1"');
+    const selected=specimen('LIFE-12'),failure=result('failed',new HarnessError('DEADLINE','Failed','model-ready').message);
+    failure.attachments=[{name:'magicstick-runtime-diagnostic',contentType:'application/json',body:Buffer.from(JSON.stringify(diagnostic))},
+      {name:'unapproved-diagnostic',contentType:'application/json',body:Buffer.from('synthetic-secret')},
+      {name:'magicstick-runtime-diagnostic',contentType:'application/json',body:Buffer.from('{"version":99,"secret":"synthetic-secret"}')}];
+    process.env.REGRESSION_RUN_ID=runId;
+    const reporter=new SafeReporter();capture(()=>{reporter.onTestBegin(selected);reporter.onTestEnd(selected,failure);});
+    const traces=(reporter as unknown as {traces:ExecutionTrace[]}).traces;
+    expect(traces[0]?.runtimeDiagnostics).toHaveLength(1);expect(JSON.stringify(traces)).not.toContain('synthetic-secret');
+  }finally{
+    if(previousRunId===undefined)delete process.env.REGRESSION_RUN_ID;else process.env.REGRESSION_RUN_ID=previousRunId;
+    await rm(directory,{recursive:true,force:true});
+  }
 });
 
 test('HAR-02 HAR-10 HAR-11 failed refresh reason and setup stage survive aggregate reports without raw logs', async () => {

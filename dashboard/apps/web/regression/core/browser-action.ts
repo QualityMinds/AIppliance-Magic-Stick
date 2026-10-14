@@ -11,7 +11,7 @@ export class MutationNotSubmitted extends HarnessError {
 }
 
 export async function browserMutation(page:Page,options:{url:string;body:unknown;timeoutMs:number;guard:()=>Promise<void>;
-  method?:'POST'|'PUT'|'PATCH'|'DELETE';stage?:Stage},
+  method?:'POST'|'PUT'|'PATCH'|'DELETE';stage?:Stage;acknowledge?:(response:Response)=>Promise<void>},
   action:()=>Promise<void>) {
   const method=options.method??'POST',stage=options.stage??'model-update';
   let forwarded=false,routeError:unknown,deny:(error:unknown)=>void=()=>{};
@@ -25,8 +25,21 @@ export async function browserMutation(page:Page,options:{url:string;body:unknown
   await page.route(options.url,handler);
   try {
     return await bounded(async():Promise<Response>=>{
-      const [response]=await Promise.race([Promise.all([page.waitForResponse(value=>value.url()===options.url&&value.request().method()===method,
-        {timeout:options.timeoutMs}),action()]),denied]);
+      const receipt=page.waitForResponse(value=>value.url()===options.url&&value.request().method()===method,
+        {timeout:options.timeoutMs}).then(async response=>{
+        // An acknowledged write belongs in the durable journal even when the
+        // click later fails (for example while the UI is rerendering). Do not
+        // wait for action completion before retaining the validated receipt.
+        requireSafe(response.ok(),'API');await options.acknowledge?.(response);return response;
+      });
+      const actionResult=action().catch(async error=>{
+        // Once forwarded, preserve a possible receipt within the original
+        // request deadline before closing the page. A lost response remains
+        // ambiguous; this never infers ownership from a later generation.
+        if(forwarded)await receipt.catch(()=>{});
+        throw error;
+      });
+      const [response]=await Promise.race([Promise.all([receipt,actionResult]),denied]);
       await response.finished();requireSafe(response.ok(),'API');
       if(routeError)throw routeError;
       return response;

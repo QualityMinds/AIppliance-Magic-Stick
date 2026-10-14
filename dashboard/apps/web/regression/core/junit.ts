@@ -44,8 +44,10 @@ export function junitReport(cases:CaseResult[],artifacts:TraceArtifact[]) {
       source:trace.source,properties:{executionId:trace.executionId,outcome:trace.outcome,
         cases:[...new Set(rows.map(item=>item.id))].join(', '),traceFormat:'filtered-call-trace',trace:artifact.path,
         traceComplete:String(!trace.omittedSteps),...(trace.omittedSteps?{omittedSteps:String(trace.omittedSteps)}:{}),
+        ...(trace.runtimeDiagnostics?.length?{runtimeDiagnosticCount:String(trace.runtimeDiagnostics.length)}:{}),
         ...(artifact.componentPath?{componentDiagnostic:artifact.componentPath}:{}),...(trace.recoveryRequired?{recoveryRequired:'true'}:{} )},
-      output:JSON.stringify({outcome:trace.outcome,steps:trace.steps.length,omittedSteps:trace.omittedSteps??0,trace:artifact.path})+'\n'+
+      output:JSON.stringify({outcome:trace.outcome,steps:trace.steps.length,omittedSteps:trace.omittedSteps??0,trace:artifact.path,
+        ...(trace.runtimeDiagnostics?.length?{runtimeDiagnostics:trace.runtimeDiagnostics}:{} )})+'\n'+
         attachments.map(path=>`[[ATTACHMENT|${path}]]`).join('\n')};
   });
   const steps:Entry[]=artifacts.flatMap(({trace,path})=>trace.steps.map(step=>({name:`${step.index}: ${step.title}`,

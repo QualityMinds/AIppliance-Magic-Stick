@@ -6,7 +6,7 @@ export const selections: Record<string, string[]> = {
     [`phase${phase}-live`,['administration/installed.e2e.spec.ts']],
   ])),
   'phase6-drill':['administration/installed.e2e.spec.ts'],
-  selftest: ['auth/runner-session.browser.spec.ts','harness/lock-recovery.unit.spec.ts','harness/recovery.unit.spec.ts','harness/safety.unit.spec.ts','harness/input-preparation.unit.spec.ts','harness/reporting.unit.spec.ts','harness/artifacts.unit.spec.ts','harness/setup-bootstrap.unit.spec.ts','harness/setup-suite.unit.spec.ts','harness/kubernetes.unit.spec.ts','administration/cleanup.unit.spec.ts'],
+  selftest: ['auth/runner-session.browser.spec.ts','harness/model-ui.unit.spec.ts','harness/actions.browser.spec.ts','harness/lock-recovery.unit.spec.ts','harness/recovery.unit.spec.ts','harness/safety.unit.spec.ts','harness/input-preparation.unit.spec.ts','harness/reporting.unit.spec.ts','harness/artifacts.unit.spec.ts','harness/setup-bootstrap.unit.spec.ts','harness/setup-suite.unit.spec.ts','harness/kubernetes.unit.spec.ts','administration/cleanup.unit.spec.ts'],
   'smoke-fast': ['auth/session.contract.spec.ts', 'api-access/keys.contract.spec.ts',
     'models/lifecycle.contract.spec.ts', 'navigation/status.unit.spec.ts', 'navigation/status.contract.spec.ts',
     'observability/logs.contract.spec.ts', 'components/installed.unit.spec.ts'],

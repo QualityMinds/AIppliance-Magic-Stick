@@ -3,6 +3,7 @@ import {relative,resolve,sep,join} from 'node:path';
 import {publicDiagnosticTitle,publicScenarioTitle,webSource} from './case-descriptions.ts';
 import {reasons,stages,type ReasonCode,type Stage,requireSafe} from './errors.ts';
 import {readPrivate,writePrivate} from './private-files.ts';
+import {parseRuntimeDiagnostic,type RuntimeDiagnostic} from './runtime-diagnostic.ts';
 
 export const traceCategories=['test.step','expect','pw:api','fixture','hook','test.attach','test.skip'] as const;
 const operations=['click','fill','check','uncheck','selectOption','press','goto','reload','waitForResponse','waitForURL',
@@ -12,7 +13,7 @@ export interface TraceSource {file:string;line:number;column?:number}
 export interface TraceStep {index:number;parentIndex?:number;category:typeof traceCategories[number];title:string;
   durationMs:number;outcome:TraceOutcome;handledError?:true;reason?:ReasonCode;stage?:Stage;source?:TraceSource}
 export interface ExecutionTrace {version:1;runId:string;executionId:string;outcome:TraceOutcome;scenario?:string;
-  durationMs:number;source?:TraceSource;steps:TraceStep[];omittedSteps?:number;recoveryRequired?:true}
+  durationMs:number;source?:TraceSource;steps:TraceStep[];omittedSteps?:number;recoveryRequired?:true;runtimeDiagnostics?:RuntimeDiagnostic[]}
 export function safeTraceSource(location:{file:string;line:number;column?:number}|undefined):TraceSource|undefined {
   try {
     if(!location||!Number.isInteger(location.line)||location.line<1||location.line>100_000)return;
@@ -37,6 +38,7 @@ export function parseExecutionTrace(value:unknown):ExecutionTrace {
   requireSafe(trace?.version===1&&/^reg-[0-9a-f-]{36}$/.test(trace.runId)&&/^[a-f0-9]{24}$/.test(trace.executionId)&&
     ['Passed','Failed','Blocked'].includes(trace.outcome)&&Number.isFinite(trace.durationMs)&&trace.durationMs>=0&&
     Array.isArray(trace.steps)&&trace.steps.length<=2000&&
+    (trace.runtimeDiagnostics===undefined||Array.isArray(trace.runtimeDiagnostics)&&trace.runtimeDiagnostics.length<=4)&&
     (trace.omittedSteps===undefined||Number.isSafeInteger(trace.omittedSteps)&&trace.omittedSteps>0),'CONFIG');
   const source=trace.source?safeTraceSource({...trace.source,file:resolve(webSource,trace.source.file)}):undefined;
   const scenario=source&&typeof trace.scenario==='string'?publicScenarioTitle(trace.scenario,resolve(webSource,source.file)):undefined;
@@ -59,7 +61,8 @@ export function parseExecutionTrace(value:unknown):ExecutionTrace {
   });
   return {version:1,runId:trace.runId,executionId:trace.executionId,outcome:trace.outcome,durationMs:Math.round(trace.durationMs),steps,
     ...(trace.omittedSteps?{omittedSteps:trace.omittedSteps}:{}),...(source?{source}:{}),
-    ...(scenario?{scenario}:{}),...(trace.recoveryRequired===true?{recoveryRequired:true as const}:{})};
+    ...(scenario?{scenario}:{}),...(trace.recoveryRequired===true?{recoveryRequired:true as const}:{}),
+    ...(trace.runtimeDiagnostics?.length?{runtimeDiagnostics:trace.runtimeDiagnostics.map(parseRuntimeDiagnostic)}:{})};
 }
 export async function saveExecutionTrace(directory:string,trace:ExecutionTrace) {
   await writePrivate(join(directory,'traces',trace.executionId+'.json'),parseExecutionTrace(trace));

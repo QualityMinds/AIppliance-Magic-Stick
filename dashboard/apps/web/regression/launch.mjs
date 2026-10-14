@@ -213,6 +213,7 @@ try {
     process.exitCode=passed ? 0 : reportExitCode(collected);
   } else if (Object.hasOwn(phaseSteps,mode)) {
     const collected = [], steps = [],recoveryAttempts=[];
+    const recoveryFenceAtStart=Boolean(environment.REGRESSION_RECOVERY_FENCE);
     const stepsToRun = phaseSteps[mode];
     for (const [index, step] of stepsToRun.entries()) {
       if(interruptedSignal)break;
@@ -264,7 +265,7 @@ try {
     }
     const report = await saveReport(directory, runId, interruptedSignal ? completeCases(mode,collected,required,'CANCELLED') : collected,
       required, process.env.REGRESSION_SOURCE_REVISION, mode,undefined,
-      {recoveryFenceActive:Boolean(environment.REGRESSION_RECOVERY_FENCE),recoveryAttempts});
+      {recoveryFenceActive:Boolean(environment.REGRESSION_RECOVERY_FENCE),recoveryAttempts,recoveryFenceAtStart});
     console.log(`Private Phase ${mode.slice(-1)} P0 report: ${join(directory, 'summary.txt')}`);
     const summary=JSON.parse(await readPrivate(join(directory,'summary.json')));
     process.exitCode = (mode === 'phase4' ? report.installedPhase4Accepted : report[`fullPhase${mode.slice(-1)}Accepted`]) ? 0 : reportExitCode(summary.cases);

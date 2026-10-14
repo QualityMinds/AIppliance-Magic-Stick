@@ -6,6 +6,9 @@ import {evidenceAnnotations} from '../core/evidence.ts';
 import {installedReadyUi, logsUi} from './live-ui.ts';
 import {matchingNvidiaCards} from '../../src/NvidiaGpuSelection.ts';
 import type {GpuModelFixture} from '../core/config.ts';
+import {activation} from '../core/owned-model.ts';
+import {savedGpuBudget,gpuBudgetInput} from '../core/model-ui.ts';
+import {withCleanup} from '../core/run-lifecycle.ts';
 
 const phase = process.env.REGRESSION_MODE === 'phase4-sharing' ? 4 : 3;
 const mode = phase === 4 ? 'shared' : 'exclusive';
@@ -17,7 +20,7 @@ for (const deployment of ['split', 'replicated'] as const) for (const engine of 
   test(`${id} ${engine} ${count} GPUs ${deployment} ${mode}: placement, inference, memory, stop/start and restore`, evidenceAnnotations(
     ...(['A', 'E', 'O'] as const).map(layer => ({id, variant, layer}))), async ({browser}, info) => {
     let scenario: GpuScenario | undefined;
-    try {
+    await withCleanup(async()=>{
       scenario = await GpuScenario.open(browser, info.workerIndex);
       const s = scenario, fixture = s.config.gpu!.models[engine === 'VLLM' ? 'nvidiaVllm' : 'nvidiaOllama'];
       requireSafe(fixture && (await s.state('nvidia')).draAvailable, 'PREREQUISITE');
@@ -33,10 +36,17 @@ for (const deployment of ['split', 'replicated'] as const) for (const engine of 
       const first = await s.create(`mg${count}-${engine === 'VLLM' ? 'v' : 'o'}`, runtime, true);
       await s.ready(first); // independently resolves every ResourceClaim against current ResourceSlices, then routes inference
       const page = await s.live.context.newPage(); await s.openModels(page); await installedReadyUi(page, first.client.name);
+      const intent=activation(await first.client.models(),first.client.name);
+      requireSafe(intent,'OWNERSHIP');
+      const budget=savedGpuBudget(intent,first.uid,first.generation);
+      // First prove that admission retained the requested per-card budget; a
+      // wrong stored value must not be hidden by comparing the UI only to it.
+      expect(budget.perCardMi).toBe(runtime.memoryRequiredMi);
       await page.getByRole('button',{name:`Edit ${first.client.name}`}).click();
       const dialog=page.getByRole('dialog',{name:`Edit Model · ${first.client.name}`});
-      await expect(dialog.getByLabel(replicated ? 'VRAM budget (MiB)' : 'Total VRAM budget (MiB)',{exact:true}))
-        .toHaveValue(String(runtime.memoryRequiredMi*(replicated ? 1 : count)));
+      // Edit mounts this input only after its asynchronous memory estimate.
+      // Keep the exact arithmetic assertion, but give loading its own stage.
+      await gpuBudgetInput(dialog,budget);
       await expect(dialog.getByRole('button',{name:'Save changes'})).toBeDisabled();
       await dialog.getByRole('button',{name:'Cancel',exact:true}).click();
       await logsUi(s, page, first);
@@ -67,6 +77,6 @@ for (const deployment of ['split', 'replicated'] as const) for (const engine of 
       const saved = (await first.client.models()).activations.find(item => item.metadata?.uid === first.uid);
       expect(saved?.spec?.local?.gpuDevices).toEqual(expect.arrayContaining(runtime.gpuDevices!));
       await s.remove(first); await assertSlots(0);
-    } finally {if (scenario) await scenario.close();}
+    },async()=>{if(scenario)await test.step('Verify owned GPU scenario cleanup',()=>scenario!.close());});
   });
 }

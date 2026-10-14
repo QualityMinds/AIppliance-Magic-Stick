@@ -31,6 +31,9 @@ original failure remains Failed, while its unexecuted dependent checks remain
 Blocked. Cancellation and unrecorded causes are listed separately. The
 distinction and counts are also included in downloaded HTML, JSON, text and
 JUnit; JUnit retains blocked checks as skipped entries with cause properties.
+GPU-start failures retain filtered Pod status, restart counts, exit codes and
+OOM/CrashLoop causes in their trace and JUnit output. Model names, credentials
+and raw runtime logs are not included in those diagnostics.
 Progress measures finished steps, not elapsed-time prediction.
 The page updates automatically every two seconds. **Refresh tests** also requests
 a current status update; it remains available during automatic updates.

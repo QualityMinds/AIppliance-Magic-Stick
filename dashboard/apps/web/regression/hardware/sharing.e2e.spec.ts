@@ -8,7 +8,8 @@ import {poll} from '../core/poll.ts';
 import {evidenceAnnotations,type TestLayer} from '../core/evidence.ts';
 import {phase4Variants,type GpuVariant} from '../profiles/gpu-p0.ts';
 import {requestValidationUi,completedValidation} from './validation-workflow.ts';
-import {lifecycleUi} from './live-ui.ts';
+import {lifecycleUi,gpuConfigurationUi} from './live-ui.ts';
+import {slotFillCount} from '../core/model-ui.ts';
 
 function proof(keys:GpuVariant[],layers:TestLayer[]=['A','E','O']) {
   return evidenceAnnotations(...keys.flatMap(variant=>layers.filter(layer=>(phase4Variants[variant as keyof typeof phase4Variants].layers as readonly TestLayer[]).includes(layer))
@@ -37,14 +38,31 @@ test.describe('Installed AMD DRA and NVIDIA time-slicing',()=>{
     requireSafe(s!.config.gpu!.devices[provider] && pair[0] && pair[1],'PREREQUISITE');
     return pair as [NonNullable<typeof models.amdOllama>,NonNullable<typeof models.amdVllm>];
   }
+  async function fillIntents(provider:Provider,label:'full'|'race',total:number) {
+    const [fixture]=fixtures(provider),models:GpuCreated[]=[];
+    for(let index=0;index<slotFillCount(total);index++)models.push(await s!.create(`${provider}-${label}-fill-${index}`,fixture,true));
+    await s!.slots(`${provider}-gpu`,models.length,total);
+    return models;
+  }
+  async function sharingSection(provider:Provider) {
+    const device=(await s!.inventory()).devices.find(d=>d.vendor===provider && d.nodeUid===s!.config.gpu!.nodeUid);
+    requireSafe(device,'PREREQUISITE');
+    const region=await gpuConfigurationUi(page,device),vendor=provider==='amd'?'AMD':'NVIDIA';
+    // The info-popover button shares the accessible label. Select the actual
+    // native details control, not both elements returned by getByLabel().
+    const section=region.locator(`details.gpu-sharing[aria-label="${vendor} GPU sharing"]`);
+    if(await section.getAttribute('open')===null)await section.locator(':scope > summary').click();
+    return section;
+  }
   async function pair(provider:Provider,sameEngine=false) {
     const [ollama,vllm]=fixtures(provider),target=`${provider}-gpu` as const;
     await s!.transition(provider,'shared',2);
+    const total=await s!.slotCapacity(provider);
     const first=await s!.create(`${provider}-${sameEngine ? 'same' : 'pair'}-one`,ollama!,true);await s!.ready(first);
     const second=await s!.create(`${provider}-${sameEngine ? 'same' : 'pair'}-two`,sameEngine ? ollama! : vllm!,true);await s!.ready(second);
-    await s!.slots(target,2,2);requireSafe((await s!.state(provider)).memoryIsolation === false,'API');
+    await s!.slots(target,2,total);requireSafe((await s!.state(provider)).memoryIsolation === false,'API');
     await Promise.all([s!.inference.chat(first.client.name),s!.inference.chat(second.client.name)]);
-    for (const model of [first,second]) await s!.remove(model);await s!.slots(target,0,2);
+    for (const model of [first,second]) await s!.remove(model);await s!.slots(target,0,total);
   }
 
   test('SHR-08 stale revision, node UID, invalid counts and missing confirmation cannot mutate intent',proof(['p4-invalid-intent']),async ()=>{
@@ -57,10 +75,9 @@ test.describe('Installed AMD DRA and NVIDIA time-slicing',()=>{
   for (const provider of ['amd','nvidia'] as const) test(`SHR-02 SHR-${provider === 'amd' ? '04' : '03'} ${provider} transitions match actual backend and live form`,
     proof(['p4-dirty-confirmation',provider === 'amd' ? 'p4-amd-transition' : 'p4-nvidia-transition']),async ()=>{
       const scenario=s!,vendor=provider === 'amd' ? 'AMD' : 'NVIDIA';
-      await scenario.transition(provider,'exclusive');await scenario.slots(`${provider}-gpu`,0,1);
+      await scenario.transition(provider,'exclusive');await scenario.slots(`${provider}-gpu`,0,await scenario.slotCapacity(provider));
       await page.goto(scenario.config.dashboardUrl+'/#/system/hardware');
-      await page.getByText(`GPU Configuration ${vendor}`,{exact:true}).click();
-      const section=page.getByLabel(`${vendor} GPU sharing`);await section.locator('summary').click();
+      const section=await sharingSection(provider);
       const mode=section.getByLabel(`${vendor} allocation mode`),apply=section.getByRole('button',{name:`Apply ${vendor} sharing`});
       await expect(mode).toHaveValue('exclusive');await expect(apply).toBeDisabled();
       await mode.selectOption('shared');await expect(apply).toBeEnabled();
@@ -69,11 +86,10 @@ test.describe('Installed AMD DRA and NVIDIA time-slicing',()=>{
       const dialog=page.getByRole('dialog');await expect(dialog).toContainText(/restart|interrupt/);
       const before=await module(provider);await dialog.getByRole('button',{name:'Cancel'}).click();
       const after=await module(provider);requireSafe(after.metadata.generation === before.metadata.generation && canonical(after.spec) === canonical(before.spec),'CONFLICT');
-      await scenario.transition(provider,'shared',2);await scenario.slots(`${provider}-gpu`,0,2);
-      await page.reload();await page.getByText(`GPU Configuration ${vendor}`,{exact:true}).click();
-      await page.getByLabel(`${vendor} GPU sharing`).locator('summary').click();
-      await expect(page.getByLabel(`${vendor} allocation mode`)).toHaveValue('shared');
-      await expect(page.getByLabel(`${vendor} maximum simultaneous models`)).toHaveValue('2');
+      await scenario.transition(provider,'shared',2);await scenario.slots(`${provider}-gpu`,0,await scenario.slotCapacity(provider));
+      await page.reload();const persisted=await sharingSection(provider);
+      await expect(persisted.getByLabel(`${vendor} allocation mode`)).toHaveValue('shared');
+      await expect(persisted.getByLabel(`${vendor} maximum simultaneous models`)).toHaveValue('2');
     });
   for (const provider of ['amd','nvidia'] as const) {
     test(`SHR-05 SHR-06 ${provider} Ollama plus vLLM both infer with real admission`,proof([`p4-${provider}-pair` as GpuVariant,'p4-rbac-admission']),async ()=>pair(provider));
@@ -85,14 +101,15 @@ test.describe('Installed AMD DRA and NVIDIA time-slicing',()=>{
     proof(['p4-full','p4-draft-refresh','p4-release','p4-edit-own-slot']),async ()=>{
       const scenario=s!,target=`${provider}-gpu` as const,[ollama,vllm]=fixtures(provider);
       await scenario.transition(provider,'shared',2);
-      const first=await scenario.create(`${provider}-full-one`,ollama!,true);await scenario.ready(first);await scenario.slots(target,1,2);
+      const total=await scenario.slotCapacity(provider),fillers=await fillIntents(provider,'full',total);
+      const first=await scenario.create(`${provider}-full-one`,ollama!,true);await scenario.ready(first);await scenario.slots(target,total-1,total);
       await scenario.openModels(page);await page.getByRole('button',{name:'Create',exact:true}).click();
       const dialog=page.getByRole('dialog',{name:'Create Model'});
       await dialog.getByLabel('Inference Engine').selectOption('VLLM');await dialog.getByLabel('Hardware').selectOption(target);
       await dialog.getByLabel('Model source').selectOption('direct');
       // The draft has no source yet, so no estimator or runtime mutation occurs.
       await dialog.getByLabel('Name').fill('regression-retained-draft');
-      const second=await scenario.create(`${provider}-full-two`,vllm!,true);await scenario.ready(second);await scenario.slots(target,2,2);
+      const second=await scenario.create(`${provider}-full-two`,vllm!,true);await scenario.ready(second);await scenario.slots(target,total,total);
       await expect(dialog.getByLabel('Hardware')).toHaveValue(target);
       await expect(dialog.getByLabel('Name')).toHaveValue('regression-retained-draft');
       await expect(dialog.getByRole('button',{name:'Add Local Model'})).toBeDisabled();
@@ -100,29 +117,33 @@ test.describe('Installed AMD DRA and NVIDIA time-slicing',()=>{
       await dialog.getByRole('button',{name:'Cancel'}).click();
       const data=await scenario.live.api.models(),memory=data.computeMemory?.devices?.find(d=>d.computeTarget === target);
       requireSafe(memory?.slots?.free === 0,'CAPABILITY');
-      const gauge=page.getByRole('article',{name:`${memory.name} memory`});
+      const gauge=provider==='nvidia' && await scenario.physicalCount(provider)>1 ?
+        page.getByRole('article',{name:`NVIDIA GPU pool · ${scenario.config.gpu!.nodeName}`}):
+        page.getByRole('article',{name:`${memory.name} memory`});
+      await expect(gauge).toBeVisible();
       expect(await gauge.locator('[data-slot="free"]').count()).toBe(0);
       let rejected=false;
       try {await scenario.create(`${provider}-full-reject`,ollama!,true);}
       catch(error) {requireSafe(error instanceof ModelCreateRejected && error.httpStatus === 409,'API');rejected=true;}
       requireSafe(rejected,'API');
       const secondBefore=activation(await second.client.models(),second.client.name)!;
-      await scenario.lifecycle(first,'edit');await scenario.slots(target,2,2);
+      await scenario.lifecycle(first,'edit');await scenario.slots(target,total,total);
       const secondAfter=activation(await second.client.models(),second.client.name)!;
       requireSafe(secondAfter.metadata?.uid === second.uid && canonical(secondAfter.spec) === canonical(secondBefore.spec),'CONFLICT');
       await scenario.inference.chat(second.client.name);
-      await lifecycleUi(scenario,page,first,'stop');await scenario.slots(target,1,2);
-      await lifecycleUi(scenario,page,first,'start');await scenario.slots(target,2,2);
-      for(const model of [first,second]) await scenario.remove(model);await scenario.slots(target,0,2);
+      await lifecycleUi(scenario,page,first,'stop');await scenario.slots(target,total-1,total);
+      await lifecycleUi(scenario,page,first,'start');await scenario.slots(target,total,total);
+      for(const model of [first,second,...fillers]) await scenario.remove(model);await scenario.slots(target,0,total);
     });
   }
 
   test('SLOT-03 an actual optional validation consumer occupies a slot and completion releases it',proof(['p4-other-consumers']),async ()=>{
     const scenario=s!,[fixture]=fixtures('nvidia');await scenario.transition('nvidia','shared',2);
+    const total=await scenario.slotCapacity('nvidia');
     const model=await scenario.create('validation-anchor',fixture,true);await scenario.ready(model);
     const request=await requestValidationUi(scenario,page,'OLlama','nvidia',10);
-    await scenario.slots('nvidia-gpu',2,2);await completedValidation(scenario,request);
-    await scenario.slots('nvidia-gpu',1,2);await scenario.inference.chat(model.client.name);await scenario.remove(model);
+    await scenario.slots('nvidia-gpu',2,total);await completedValidation(scenario,request);
+    await scenario.slots('nvidia-gpu',1,total);await scenario.inference.chat(model.client.name);await scenario.remove(model);
   });
 
   test('SHR-07 provider transition restarts only its owned runtimes while other GPU and CPU inference survive',proof(['p4-provider-independence']),async ()=>{
@@ -155,6 +176,7 @@ test.describe('Installed AMD DRA and NVIDIA time-slicing',()=>{
     proof(['p4-last-slot-race']),async ()=>{
       const scenario=s!,target=`${provider}-gpu` as const,[ollama,vllm]=fixtures(provider);
       await scenario.transition(provider,'shared',2);
+      const total=await scenario.slotCapacity(provider),fillers=await fillIntents(provider,'race',total);
       const anchor=await scenario.create(`${provider}-race-anchor`,ollama!,true);await scenario.ready(anchor);
       const attempts=await Promise.allSettled([scenario.create(`${provider}-race-one`,vllm!,true),scenario.create(`${provider}-race-two`,vllm!,true)]);
       const accepted=attempts.filter((r):r is PromiseFulfilledResult<GpuCreated>=>r.status === 'fulfilled').map(r=>r.value);
@@ -178,11 +200,11 @@ test.describe('Installed AMD DRA and NVIDIA time-slicing',()=>{
         requireSafe(active.filter(state=>state.item?.status?.phase === 'Ready').length <= 2 && active.flatMap(state=>state.pods)
           .filter(p=>p.status?.conditions?.some(c=>c.type === 'Ready' && c.status === 'True')).length <= 2,'CAPABILITY');
         const slots=(await scenario.live.api.models()).computeTargets.targets.find(t=>t.id === target)?.slots;
-        requireSafe(slots?.total === 2 && slots.used <= 2 && slots.free >= 0,'CAPABILITY');
+        requireSafe(slots?.total === total && slots.used <= total && slots.free >= 0,'CAPABILITY');
         return Date.now() >= until;
       },done=>done,{timeoutMs:60_000,intervalMs:1000,stage:'gpu-slots'});
       await scenario.inference.chat(anchor.client.name);
-      for(const model of [anchor,...accepted]) await scenario.remove(model);await scenario.slots(target,0,2);
+      for(const model of [anchor,...accepted,...fillers]) await scenario.remove(model);await scenario.slots(target,0,total);
     });
 
   test('SHR-12 reload shows the persisted backend counts in Hardware and Models',proof(['p4-reload']),async ()=>{
@@ -191,12 +213,11 @@ test.describe('Installed AMD DRA and NVIDIA time-slicing',()=>{
       if(!scenario.config.gpu!.devices[provider])continue;
       await scenario.transition(provider,'shared',2);
       await scenario.waitBackend(provider,'shared',2);const vendor=provider === 'amd' ? 'AMD' : 'NVIDIA';
-      await page.getByText(`GPU Configuration ${vendor}`,{exact:true}).click();
-      const section=page.getByLabel(`${vendor} GPU sharing`);await section.locator('summary').click();
+      const section=await sharingSection(provider);
       await expect(section.getByLabel(`${vendor} allocation mode`)).toHaveValue('shared');
       await expect(section.getByLabel(`${vendor} maximum simultaneous models`)).toHaveValue('2');
     }
-    await scenario.openModels(page);for(const provider of ['amd','nvidia'] as const)if(scenario.config.gpu!.devices[provider])await scenario.slots(`${provider}-gpu`,0,2);
+    await scenario.openModels(page);for(const provider of ['amd','nvidia'] as const)if(scenario.config.gpu!.devices[provider])await scenario.slots(`${provider}-gpu`,0,await scenario.slotCapacity(provider));
   });
   test('HAR-08 restores exact borrowed settings, all run-owned resources and unaffected model definitions',proof(['p4-restoration']),async ()=>{
     await s!.close();s=undefined;
