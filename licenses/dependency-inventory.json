@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "6dda8724e63f83d4608f703a3357dc0d2544ff5501e9a32df66a9a90f8d6909e",
-  "deploymentReferencesSha256": "04b2be5f602705684abd393057afc49e2e9ea734a9ae7ea82bef452dd5153b69",
+  "deploymentReferencesSha256": "cde6cd1cd5ba50964044dd8cfbee32c55e9bf53bf0a4470ffa84919dab761a5f",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -2716,7 +2716,7 @@
     {
       "file": "magic-cluster/apps/regression/runtime.yaml",
       "line": 9,
-      "reference": "image: \"ghcr.io/qualityminds/magicstick-regression:sha-e112362aedbcc969b2a1ad5315b74a6530b0a91a@sha256:29f7dacacadddde29a910fd8e385b16ae619ccfd9136a7586a7751d3fd599805\""
+      "reference": "image: \"ghcr.io/qualityminds/magicstick-regression:sha-16eb85573599b198f3023787665a2509f2c14aeb@sha256:d25173c84771227714fd97c095f33ede7c5492e1b8266cd9550f60e69bd11bf6\""
     },
     {
       "file": "magic-cluster/platform/ai/agent-sandbox/gitrepository.yaml",
