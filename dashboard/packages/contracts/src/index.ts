@@ -27,6 +27,9 @@ export interface RegressionProgress {
 export interface RegressionResult {
   counts: RegressionCounts; executionCounts: RegressionCounts; recoveryRequired: boolean; omittedCases: number;
   blockedCounts?: RegressionBlockedCounts; executionBlockedCounts?: RegressionBlockedCounts;
+  evidenceCounts?: {fixture: RegressionCounts; live: RegressionCounts};
+  preparation?: {version: 1; outcome: RegressionOutcome; reason?: string; setupStage?: string; detail?: string;
+    message: string; action?: string; recoveredRunIds?: string[]};
   phases: Array<{phase: number; outcome: RegressionOutcome; counts: RegressionCounts; executionCounts: RegressionCounts;
     blockedCounts?: RegressionBlockedCounts; executionBlockedCounts?: RegressionBlockedCounts}>;
   cases: Array<{id: string; description?: string; outcome: RegressionOutcome; layer: string; variant: string; reason: string; message: string; action: string; durationMs: number;

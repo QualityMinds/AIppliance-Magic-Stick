@@ -97,6 +97,8 @@ export function blockedAction(reason:ReasonCode='PREREQUISITE',kind?:RegressionB
   if(reason === 'UNEXPECTED')return 'Inspect the filtered scenario/step trace and runner status, correct the failing assertion or harness error, then repeat the suite.';
   if(reason === 'COMPONENT')return 'Inspect the archived owning component diagnostic and its source test, then repeat the isolated component check.';
   if(reason === 'CONFIG' || reason === 'PRIVATE_FILE')return 'Repeat automatic setup with the same retained storage; verify runner version, file permissions and available storage. Do not manually delete recovery receipts.';
+  if(reason === 'REVISION')return 'Verify the selected source revision, image promotion and healthy Flux/Deployment convergence, then repeat automatic preparation. Do not accept stale images or bypass revision checks.';
+  if(reason === 'OBSERVER')return 'Restore the generated read-only Kubernetes observer and its scoped permissions through automatic setup; never substitute an administrator kubeconfig.';
   if(reason === 'API' || reason === 'AUTH')return 'Restore the required authenticated Dashboard/API contract or test identity. Inspect the failed stage; do not bypass authorization.';
   if(reason === 'DEADLINE')return 'Inspect the stalled stage and model/service status, correct the failure, then repeat; an older Ready state is not sufficient.';
   if(['OWNERSHIP','CLEANUP','CONFLICT'].includes(reason))return 'Keep the private journal and inspect the exact resource UID/revision and restoration result. Never delete a foreign or replaced resource to clear the test.';

@@ -31,6 +31,10 @@ original failure remains Failed, while its unexecuted dependent checks remain
 Blocked. Cancellation and unrecorded causes are listed separately. The
 distinction and counts are also included in downloaded HTML, JSON, text and
 JUnit; JUnit retains blocked checks as skipped entries with cause properties.
+When automatic preparation fails, the Dashboard shows its bounded reason,
+setup stage and next action. It also separates passed fixture evidence from
+passed live evidence: green isolated checks do not prove that model or GPU
+checks ran on the Appliance. Keep the failed report for comparison.
 GPU-start failures retain filtered Pod status, restart counts, exit codes and
 OOM/CrashLoop causes in their trace and JUnit output. Model names, credentials
 and raw runtime logs are not included in those diagnostics.
@@ -44,6 +48,9 @@ and releases only the reviewed expired lock after cleanup. Active owners or
 missing/changed journals are never bypassed. A disabled button explains the
 reason. External-run journals stay on the original runner and must be recovered
 there. Old failed reports remain failed.
+If recovery fails during access setup, its new result records the fixed setup
+stage, reason and available detail; keep the old lock and receipts intact while
+correcting that cause. A recovery Job finishing does not mean the lock was freed.
 
 Signed license and Federated SSO tests use automatically generated,
 installation-bound **test fixtures**, not a purchased or registered product
@@ -161,6 +168,17 @@ missing evidence stays visible.
 
 If automatic preparation fails, reports show the reason and setup stage from
 that attempt. Dependent live checks are Blocked; independent tests still run.
+An unknown worker exception is a Failed setup at its last known stage, not a
+missing prerequisite. Only fixed reason and detail codes are published; private
+URLs, credentials and raw errors stay in the retained preparation files.
+
+For a staged repeat after a failed campaign, first use **Recover stale lock**
+if the Dashboard offers it. Wait until the recovery run has passed and the lock
+is free. Then run the source profiles `phase0`, `phase1` and `phase2`; proceed
+to `phase3` and `phase4` only after the earlier live checks and cleanup pass.
+Each result needs the matching installed runner revision and a separate live
+evidence count. The Dashboard's ordinary **Start regression tests** command
+still starts all P0 phases; it is not a phase selector.
 
 Open `summary.html` under `.regression/private/runs/reg-…/`; the console prints
 the path. `all-summary.txt` gives the overview. `junit.xml` includes separate

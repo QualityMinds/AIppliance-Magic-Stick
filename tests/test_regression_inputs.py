@@ -568,6 +568,51 @@ class RegressionInputTests(unittest.TestCase):
             setup.run_preparation(self.root, ['--automatic'])
         self.assertEqual(calls, [['node', str(setup.EXAMPLES / 'prepare.mjs'), '--automatic']])
 
+    def test_input_preparation_preserves_fixed_worker_reason_stage_and_outcome_without_raw_output(self):
+        for execution in ['kubernetes', 'docker']:
+            for code, returncode, outcome in [('REVISION', 1, 'Failed'), ('CONFIG', 1, 'Failed'),
+                                              ('OBSERVER', 2, 'Blocked'), ('LOCK_BUSY', 2, 'Blocked')]:
+                with self.subTest(execution=execution, code=code):
+                    result = argparse.Namespace(returncode=returncode,
+                        stderr='[' + code + '] synthetic-private-token\n',
+                        stdout='Container created\n[SETUP_STAGE:input-validation] [detail:ENOENT]\n')
+                    with patch.dict(os.environ, {'REGRESSION_EXECUTION': execution}), \
+                            patch.object(setup.subprocess, 'run', return_value=result), self.assertRaises(setup.SetupError) as rejection:
+                        setup.run_preparation(self.root, ['--automatic'])
+                    error = rejection.exception
+                    self.assertEqual((error.code, error.outcome, error.stage, error.detail),
+                                     (code, outcome, 'input-validation', 'ENOENT'))
+                    self.assertNotIn('synthetic-private', str(error))
+                    self.assertNotIn('Container created', str(error))
+
+    def test_input_preparation_unknown_and_import_failures_have_only_bounded_diagnostics(self):
+        cases = [
+            ('synthetic-private-error\n[SETUP_STAGE:synthetic-secret] [detail:synthetic-secret]\n', 1, 'UNEXPECTED', None),
+            ("Cannot find /synthetic-private-path; code: 'ERR_MODULE_NOT_FOUND'\n", 1, 'UNEXPECTED', 'ERR_MODULE_NOT_FOUND'),
+            ('synthetic-private-error\n', 2, 'PREREQUISITE', None),
+        ]
+        for output, returncode, code, detail in cases:
+            with self.subTest(code=code, detail=detail), patch.object(setup.subprocess, 'run',
+                    return_value=argparse.Namespace(returncode=returncode, stderr=output, stdout='')), \
+                    self.assertRaises(setup.SetupError) as rejection:
+                setup.run_preparation(self.root, ['--automatic'])
+            self.assertEqual((rejection.exception.code, rejection.exception.stage, rejection.exception.detail),
+                             (code, 'input-discovery', detail))
+            self.assertNotIn('synthetic-private', str(rejection.exception))
+            self.assertNotIn('synthetic-secret', str(rejection.exception))
+
+    def test_input_preparation_worker_failure_reaches_the_attempt_status_file(self):
+        output = self.root / '.preparation-ABC123'
+        environment = {'REGRESSION_PRIVATE_DIR': str(self.root), 'REGRESSION_PREPARATION_STATUS_FILE': str(output)}
+        result = argparse.Namespace(returncode=1, stderr='[REVISION] synthetic-private-token\n[SETUP_STAGE:input-validation]\n', stdout='')
+        with patch.dict(os.environ, environment), patch.object(setup.subprocess, 'run', return_value=result), \
+                patch.object(setup, 'registered_setup', side_effect=lambda directory, args: setup.run_preparation(directory, ['--automatic'])), \
+                patch('sys.stderr', io.StringIO()) as error_output:
+            self.assertEqual(setup.main(['--refresh']), 1)
+        self.assertEqual(json.loads(setup.private_read(output)),
+                         {'version': 1, 'outcome': 'Failed', 'reason': 'REVISION', 'setupStage': 'input-validation'})
+        self.assertNotIn('synthetic-private', error_output.getvalue() + setup.private_read(output))
+
     def test_worker_rejections_survive_compose_stream_multiplexing_without_private_output(self):
         facts, _ = self.auto_inputs()
         seed = {**facts, 'usernameFile': 'username.txt', 'passwordFile': 'password.txt', 'caFile': 'appliance-ca.pem'}

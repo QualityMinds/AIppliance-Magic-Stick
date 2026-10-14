@@ -20,6 +20,7 @@ const Result = ({run}: {run: RegressionRun}) => {
   const percent = Math.max(0, Math.min(100, run.progress.percent ?? 0));
   const counts = run.result?.executionCounts ?? run.progress.executionCounts;
   const executionBlockedCounts=run.result ? run.result.executionBlockedCounts : run.progress.executionBlockedCounts;
+  const preparation=run.result?.preparation;
   const download = async (kind: 'archive' | 'html' | 'junit') => {
     setDownloading(true); setDownloadError(undefined);
     try {
@@ -30,6 +31,12 @@ const Result = ({run}: {run: RegressionRun}) => {
   };
   return <Panel title={run.operation === 'recover-lock' ? 'Lock recovery' : timestamp(run.createdAt)} meta={`${run.operation === 'recover-lock' ? timestamp(run.createdAt) + ' · ' : ''}Runner revision ${run.sourceRevision.slice(0, 12)}`} actions={<StatusBadge phase={run.phase} />}>
     <p role="status">{run.message}</p>
+    {preparation&&preparation.outcome!=='Passed'&&<div className="notice notice-error" role={preparation.outcome==='Failed'?'alert':'status'} aria-label="Automatic preparation result">
+      <strong>Automatic preparation {preparation.outcome.toLowerCase()}</strong>
+      <p>{preparation.message}</p>
+      {preparation.action&&<p>Next action: {preparation.action}</p>}
+      <p>Dependent live checks could not start. Passed isolated checks are not live acceptance.</p>
+    </div>}
     <div className="progress" role="progressbar" aria-label="Regression progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
       <div className="progress-label"><span>{run.progress.currentPhase !== undefined ? `Phase ${run.progress.currentPhase} P0` : run.phase}</span><span>{percent}%</span></div>
       <div className="progress-track"><span style={{width: `${percent}%`}} /></div>
@@ -42,6 +49,7 @@ const Result = ({run}: {run: RegressionRun}) => {
         {outcome==='Blocked'&&<BlockedBreakdown counts={executionBlockedCounts} total={counts.Blocked}/>}</article>)}
     </div>}
     {run.result?.recoveryRequired && <div role="alert" className="notice notice-error">Cleanup could not be verified. The next run must recover the retained journal before further live changes.</div>}
+    {run.result?.evidenceCounts&&<p className="muted" aria-label="Live evidence results">Live evidence: {run.result.evidenceCounts.live.Passed} passed · {run.result.evidenceCounts.live.Failed} failed · {run.result.evidenceCounts.live.Blocked} blocked. Case / variant / layer evidence, separate from isolated checks and scenario counts.</p>}
     {!!run.result?.phases.length && <div className="table-wrap"><table><caption>Phase results · case / variant / layer evidence</caption><thead><tr><th>Phase</th><th>Outcome</th><th>Passed</th><th>Failed</th><th>Blocked</th></tr></thead><tbody>
       {run.result.phases.map(row => <tr key={row.phase}><td>{row.phase}</td><td><StatusBadge phase={row.outcome} /></td><td>{row.counts.Passed}</td><td>{row.counts.Failed}</td><td>{row.counts.Blocked}<div><BlockedBreakdown counts={row.blockedCounts} total={row.counts.Blocked}/></div></td></tr>)}
     </tbody></table></div>}

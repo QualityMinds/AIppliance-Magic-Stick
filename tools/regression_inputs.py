@@ -33,13 +33,15 @@ from urllib.request import Request, HTTPSHandler, HTTPRedirectHandler, build_ope
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLES = ROOT / 'dashboard/apps/web/regression'
 PREPARATION_REASONS = {'TLS', 'AUTH', 'PREREQUISITE', 'IDENTITY', 'API', 'CONFIG', 'PRIVATE_FILE',
-                       'CONFLICT', 'LAB', 'LOCK_BUSY', 'LOCK_STALE', 'RECOVERY', 'OWNERSHIP', 'CLEANUP', 'LOCK_LOST', 'DEADLINE', 'UNEXPECTED'}
+                       'CONFLICT', 'LAB', 'LOCK_BUSY', 'LOCK_STALE', 'RECOVERY', 'OWNERSHIP', 'CLEANUP', 'LOCK_LOST', 'DEADLINE', 'UNEXPECTED',
+                       'REVISION', 'CAPABILITY', 'OBSERVER', 'HOST', 'BUSY', 'MUTATION'}
 PREPARATION_STAGES = {'request', 'tls', 'login', 'discovery', 'kubernetes-access', 'oidc-session',
-                      'bootstrap-file', 'lab-bootstrap', 'run-recovery', 'license-fixtures', 'license-validation'}
+                      'bootstrap-file', 'lab-bootstrap', 'run-recovery', 'license-fixtures', 'license-validation',
+                      'input-discovery', 'input-validation', 'input-acceptance'}
 RECOVERED_RUN_IDS = []
 PREPARATION_DETAILS = {'ENOENT', 'EACCES', 'ENOSPC', 'TYPE_ERROR', 'SYNTAX_ERROR', 'ERR_FAILED',
                        'ERR_BLOCKED_BY_CLIENT', 'ERR_CONNECTION_REFUSED', 'ERR_NAME_NOT_RESOLVED',
-                       'ERR_CERT_AUTHORITY_INVALID', 'ERR_HTTP2_PROTOCOL_ERROR'}
+                       'ERR_CERT_AUTHORITY_INVALID', 'ERR_HTTP2_PROTOCOL_ERROR', 'ERR_MODULE_NOT_FOUND', 'MODULE_NOT_FOUND'}
 
 
 class SetupError(Exception):
@@ -1061,8 +1063,26 @@ def run_preparation(directory, arguments):
     result = subprocess.run(worker_command, env=environment,
                             capture_output=True, text=True, timeout=600)
     if result.returncode:
-        raise SetupError('Verified input preparation failed. Check trusted connectivity, current telemetry and private pending receipts; accepted inputs were not bypassed.',
-                         'Failed' if result.returncode == 1 else 'Blocked')
+        # Retain only repository-owned codes/stages. Worker output may contain
+        # private paths, tokens and upstream bodies; never forward any of it.
+        worker_output = (getattr(result, 'stderr', '') or '') + '\n' + (getattr(result, 'stdout', '') or '')
+        codes = re.findall(r'^\[(' + '|'.join(sorted(PREPARATION_REASONS)) + r')\]', worker_output, re.M)
+        stages = re.findall(r'^\[SETUP_STAGE:(' + '|'.join(sorted(PREPARATION_STAGES)) +
+                            r')\](?: \[detail:(' + '|'.join(sorted(PREPARATION_DETAILS)) + r')\])?$', worker_output, re.M)
+        outcome = 'Failed' if result.returncode == 1 else 'Blocked'
+        code = codes[-1] if codes else 'UNEXPECTED' if outcome == 'Failed' else 'PREREQUISITE'
+        stage = stages[-1][0] if stages else 'input-discovery'
+        detail = stages[-1][1] if stages and stages[-1][1] else None
+        # ESM import failures happen before the worker's own catch block. Name
+        # the fixed error type only, never its module name or filesystem path.
+        if not codes:
+            imports = re.findall(r"\bcode:\s*['\"](ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND)['\"]", worker_output)
+            if imports:
+                detail = imports[-1]
+        raise SetupError('Verified input preparation failed (' + code + ') at ' + stage +
+                         ('. Detail: ' + detail if detail else '') +
+                         '. Check the reported prerequisite or failed step; accepted inputs and recovery receipts were not bypassed.',
+                         outcome, code=code, stage=stage, detail=detail)
 
 
 def finish_complete_setup(directory, seed):

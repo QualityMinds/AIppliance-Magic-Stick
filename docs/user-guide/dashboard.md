@@ -51,3 +51,6 @@ cleanup failed; its recorded blocking check and trace are shown. Cancelled and
 unrecorded causes remain separate. **Download report** saves the full sanitized archive; **HTML summary**
 and **JUnit XML** are also available. Cancel requests bounded teardown, not a
 claim of successful restoration. See the [short runner guide](../development/regression-remaining-p0.md).
+For a failed automatic preparation, the result shows its reason, setup stage
+and suggested next action. Separate fixture and live counts make it clear
+whether any checks actually ran against this Appliance.

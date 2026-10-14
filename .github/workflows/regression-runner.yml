@@ -53,6 +53,23 @@ jobs:
         run: bash tools/regression.sh build
       - name: Record built runner size and filesystem layers
         run: docker image inspect magicstick-regression:local --format 'Size={{.Size}} bytes; filesystem layers={{len .RootFS.Layers}}'
+      - name: Verify the packaged setup entrypoint imports before reading private inputs
+        run: |
+          set +e
+          result=$(docker run --rm --network none --entrypoint node \
+            magicstick-regression:local regression/setup.mjs 2>&1)
+          status=$?
+          set -e
+          test "$status" -eq 2
+          printf '%s\n' "$result" | grep -Fq '[PRIVATE_FILE]'
+      - name: Verify fixture reporting with a failed live preparation context
+        run: |
+          docker run --rm --network none --entrypoint node \
+            -e REGRESSION_MODE=selftest -e REGRESSION_PREPARATION_FAILED=Failed \
+            -e REGRESSION_RUN_DIR=/tmp/inherited-preparation \
+            magicstick-regression:local node_modules/@playwright/test/cli.js test \
+            --config regression/playwright.config.ts --reporter=line \
+            --grep 'fresh explicit prerequisites remain distinct|synthetic prerequisite reports are isolated'
       - name: Verify isolated contracts and native recovery tests in the built image
         run: |
           bash tools/regression.sh typecheck

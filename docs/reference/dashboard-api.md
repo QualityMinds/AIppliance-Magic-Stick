@@ -129,6 +129,17 @@ shown as unavailable/unknown. JUnit keeps blocked rows as `<skipped>` and adds
 `blockedKind` and recorded `blockedByCase`, `blockedByReason`, `blockedByStage`,
 `blockedByExecution`, and `blockedByRun` properties.
 
+`result.preparation` is optional. When present, it exposes the sanitized
+automatic preparation outcome, fixed reason/stage/detail, a public explanation
+and next action. `result.evidenceCounts` optionally separates `fixture` and
+`live` Passed/Failed/Blocked evidence; it is omitted for older reports without
+complete environment labels. A Failed preparation can coexist with Passed
+fixture checks and zero Passed live checks. Neither a missing field nor a green
+fixture count is evidence of live acceptance. These fields never include raw
+worker output or private paths. Failed lock recovery also exposes its bounded
+setup diagnostic in the recovery result and status message; it does not release
+the Lease or mark a historical run Passed.
+
 `ModuleActivation/regression` installs the optional report service, scoped RBAC
 and retained storage; it is disabled by default. Runner image and SHA are
 CI-owned, never selected by a dashboard request. Registering a new installation

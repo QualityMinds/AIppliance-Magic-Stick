@@ -48,6 +48,8 @@
   [download sanitized reports](../development/regression-remaining-p0.md#in-the-dashboard).
   Distinguish missing prerequisites from checks blocked by an earlier failure,
   with the original blocking check and trace when recorded.
+  Automatic preparation failures show their setup stage and next action; fixture
+  and live evidence counts are displayed separately.
   Recover a terminated run's stale lock without starting another suite;
   recovery verifies the exact retained journal rather than forcing an unlock.
   Host-disconnecting drills still require an external runner.

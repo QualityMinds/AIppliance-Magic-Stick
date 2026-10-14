@@ -163,11 +163,35 @@ test('HAR-10 fresh explicit prerequisites remain distinct from synthesized missi
   const directory=await mkdtemp(join(tmpdir(),'magicstick-missing-cause-'));
   try{
     await saveReport(directory,newRunId(),[{id:'HW-01',outcome:'Blocked',layer:'A',environment:'live',durationMs:0,reason:'PREREQUISITE'}],
-      ['HW-01','HAR-10'],'unknown','all');
+      ['HW-01','HAR-10'],'unknown','all',{version:1,outcome:'Passed'});
     const json=JSON.parse(await readFile(join(directory,'summary.json'),'utf8'));
     expect(json.cases[0].blockedBy.kind).toBe('prerequisite');expect(json.cases[1].blockedBy.kind).toBe('unknown');
     expect(json.blockedCounts).toEqual({prerequisite:1,failure:0,cancelled:0,unknown:1});
   }finally{await rm(directory,{recursive:true,force:true});}
+});
+
+test('HAR-10 synthetic prerequisite reports are isolated from inherited live preparation status',async()=>{
+  const previousFailed=process.env.REGRESSION_PREPARATION_FAILED,previousDiagnostic=process.env.REGRESSION_PREPARATION_DIAGNOSTIC;
+  try {
+    for(const inherited of ['Passed','Blocked','Failed']) {
+      const directory=await mkdtemp(join(tmpdir(),'magicstick-isolated-report-'));
+      process.env.REGRESSION_PREPARATION_FAILED=inherited;
+      process.env.REGRESSION_PREPARATION_DIAGNOSTIC='synthetic-private-diagnostic-must-not-be-read';
+      try {
+        await saveReport(directory,newRunId(),[{id:'HW-01',outcome:'Blocked',layer:'A',environment:'live',durationMs:0,reason:'PREREQUISITE'}],
+          ['HW-01','HAR-10'],'unknown','all',{version:1,outcome:'Passed'});
+        const json=JSON.parse(await readFile(join(directory,'summary.json'),'utf8'));
+        expect(json.automaticPreparation).toEqual({version:1,outcome:'Passed'});
+        expect(json.blockedCounts).toEqual({prerequisite:1,failure:0,cancelled:0,unknown:1});
+        expect(json.cases[0].blockedBy.kind).toBe('prerequisite');expect(json.cases[1].blockedBy.kind).toBe('unknown');
+        expect(process.env.REGRESSION_PREPARATION_FAILED).toBe(inherited);
+        expect(process.env.REGRESSION_PREPARATION_DIAGNOSTIC).toBe('synthetic-private-diagnostic-must-not-be-read');
+      } finally {await rm(directory,{recursive:true,force:true});}
+    }
+  } finally {
+    if(previousFailed===undefined)delete process.env.REGRESSION_PREPARATION_FAILED;else process.env.REGRESSION_PREPARATION_FAILED=previousFailed;
+    if(previousDiagnostic===undefined)delete process.env.REGRESSION_PREPARATION_DIAGNOSTIC;else process.env.REGRESSION_PREPARATION_DIAGNOSTIC=previousDiagnostic;
+  }
 });
 
 test('HAR-10 missing live tuples inherit a recovery fence present before the phase, not a later failure or a fixture gap',()=>{

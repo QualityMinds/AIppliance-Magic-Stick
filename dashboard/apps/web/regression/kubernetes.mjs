@@ -11,6 +11,7 @@ import {recoverLockWithSetup} from './core/lock-recovery-workflow.ts';
 import {parseRecoveryLock} from './core/lock-recovery.ts';
 import {HarnessError} from './core/errors.ts';
 import {harnessFailure} from './reporter.ts';
+import {setupWorkerMarker} from './core/preparation-diagnostic.ts';
 
 process.umask(0o077);
 const uid=process.env.REGRESSION_RUN_UID;
@@ -26,10 +27,11 @@ const environment={...process.env,REGRESSION_EXECUTION:'kubernetes',REGRESSION_I
   REGRESSION_HOST_DRILLS_FILE:input+'/host-drills.json',REGRESSION_HOST_DRILLS:'disabled',REGRESSION_PROGRESS_EVENTS:'1',
   PYTHONDONTWRITEBYTECODE:'1',NODE_EXTRA_CA_CERTS:input+'/appliance-ca.pem'};
 let current,interrupted=false,force,saveChain=Promise.resolve();
+let recoveryDiagnostic;
 const snapshot={version:1,runUid:uid,message:'Preparing automatic test credentials and fixtures.',reportAvailable:false,credentialRecoveryRequired:true};
 const save=()=>{saveChain=saveChain.then(async()=>{await writePrivate(join(published,'.status.json'),{...snapshot,progress:progress.snapshot(Boolean(snapshot.outcome))});
   await rename(join(published,'.status.json'),join(published,'status.json'));});return saveChain;};
-async function execute(command,args,env=environment,onFailure) {
+async function execute(command,args,env=environment,onFailure,onSetupMarker) {
   current=spawn(command,args,{env,stdio:['ignore','pipe','pipe']});let buffer='',diagnostic='';
   current.stdout.on('data',chunk=>{
     buffer+=chunk.toString();if(buffer.length>256*1024)buffer='';
@@ -42,7 +44,9 @@ async function execute(command,args,env=environment,onFailure) {
     if(!onFailure)return;
     diagnostic+=chunk.toString();if(diagnostic.length>64*1024)diagnostic='';
     let at;while((at=diagnostic.indexOf('\n'))>=0){const line=diagnostic.slice(0,at);diagnostic=diagnostic.slice(at+1);
-      const failure=harnessFailure(line);if(failure)onFailure(failure);}
+      const failure=harnessFailure(line);if(failure)onFailure(failure);
+      const marker=setupWorkerMarker(line);if(marker)onSetupMarker?.(marker);
+      if(/^Error \[ERR_MODULE_NOT_FOUND\]:/.test(line))onSetupMarker?.({setupStage:'request',detail:'ERR_MODULE_NOT_FOUND'});}
   });
   return await new Promise(resolve=>{current.once('error',()=>resolve(1));current.once('close',(code,signal)=>resolve(signal?2:code??1));});
 }
@@ -58,10 +62,16 @@ async function recoverOnly() {
   const expected=parseRecoveryLock(JSON.parse(process.env.REGRESSION_RECOVERY_LOCK??'null'));
   const started=Date.now();
   await recoverLockWithSetup(input,process.env.REGRESSION_APPLIANCE_UID,expected,async()=>{
-    let failure;
-    const exit=await execute(process.execPath,[fileURLToPath(new URL('./setup.mjs',import.meta.url))],environment,value=>{failure??=value;});
+    let failure,marker;
+    const exit=await execute(process.execPath,[fileURLToPath(new URL('./setup.mjs',import.meta.url))],environment,
+      value=>{failure??=value;},value=>{marker=value;});
     if(interrupted)throw new HarnessError('CANCELLED','Blocked','cleanup');
-    if(exit)throw failure?new HarnessError(failure.code,failure.outcome,failure.stage):new HarnessError('CLEANUP','Failed','cleanup');
+    if(exit) {
+      recoveryDiagnostic={version:1,outcome:'Failed',reason:failure?.code??(marker?.detail==='ERR_MODULE_NOT_FOUND'?'CONFIG':'UNEXPECTED'),
+        setupStage:marker?.setupStage??'request',...(marker?.detail?{detail:marker.detail}:{})};
+      throw failure?new HarnessError(failure.code,failure.outcome,failure.stage):
+        new HarnessError(recoveryDiagnostic.reason,'Failed','cleanup');
+    }
   },async(step,index)=>{
     progress.consume({version:1,event:'step-start',step,index,total:3});
     snapshot.message=step==='recovery-access'?'Verifying the retained recovery identity.':step==='recovery-journal'?
@@ -127,13 +137,14 @@ try {
 } catch(error) {
   snapshot.credentialRecoveryRequired=true;
   snapshot.outcome=interrupted?'Blocked':recovery&&error instanceof HarnessError?error.outcome:'Failed';snapshot.message=interrupted?'Cancelled during preparation or execution. Recovery journals were retained.':recovery?'Lock recovery was not verified. The lock and private restoration receipts were retained; inspect its recovery report.':'The Kubernetes runner could not complete its setup or report export.';
+  if(recoveryDiagnostic&&!interrupted)snapshot.message=`Lock recovery setup failed at ${recoveryDiagnostic.setupStage} (${recoveryDiagnostic.reason}${recoveryDiagnostic.detail?`; ${recoveryDiagnostic.detail}`:''}). The old lock and receipts are retained.`;
   try {
     const runId=newRunId(),directory=join(output,runId);await privateDirectory(directory);
     const id=recovery?'HAR-07':'HAR-02';
     await saveReport(directory,runId,[{id,outcome:snapshot.outcome,layer:'A',environment:'live',durationMs:0,
       reason:interrupted?'CANCELLED':recovery&&error instanceof HarnessError?error.code:'UNEXPECTED',
       ...(recovery?{executionId:runId.slice(4).replaceAll('-','').slice(0,24),executionOutcome:snapshot.outcome}:{})}],[id],process.env.REGRESSION_SOURCE_REVISION,recovery?'recover':'all',
-      undefined,recovery?{recoveryFenceActive:true,recoveryAttempts:[]}:undefined);
+      recovery?recoveryDiagnostic:undefined,recovery?{recoveryFenceActive:true,recoveryAttempts:[]}:undefined);
     // The displayed result must match the exported infrastructure/cancellation
     // report, not retain an earlier green campaign after export failed.
     snapshot.result=publicResult(JSON.parse(await readPrivate(join(directory,'summary.json'),8*1024*1024)),{phases:[]});

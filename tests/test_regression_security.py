@@ -116,6 +116,26 @@ class RegressionSecurityTests(unittest.TestCase):
         publish = next(index for index, step in enumerate(steps) if step.get('name', '').startswith('Publish tested'))
         self.assertLess(check, publish)
 
+    def test_ci_checks_reporting_isolation_with_failed_live_preparation_before_publication(self):
+        workflow = yaml.safe_load((ROOT / '.github/workflows/regression-runner.yml').read_text())
+        steps = workflow['jobs']['regression-image']['steps']
+        import_check = next(index for index, step in enumerate(steps)
+                            if step.get('name') == 'Verify the packaged setup entrypoint imports before reading private inputs')
+        self.assertIn('--network none', steps[import_check]['run'])
+        self.assertIn('regression/setup.mjs', steps[import_check]['run'])
+        self.assertIn('[PRIVATE_FILE]', steps[import_check]['run'])
+        check = next(index for index, step in enumerate(steps)
+                     if step.get('name') == 'Verify fixture reporting with a failed live preparation context')
+        command = steps[check]['run']
+        self.assertIn('--network none', command)
+        self.assertIn('REGRESSION_PREPARATION_FAILED=Failed', command)
+        self.assertIn('REGRESSION_MODE=selftest', command)
+        self.assertIn('fresh explicit prerequisites remain distinct', command)
+        self.assertIn('synthetic prerequisite reports are isolated', command)
+        publish = next(index for index, step in enumerate(steps) if step.get('name', '').startswith('Publish tested'))
+        self.assertLess(import_check, publish)
+        self.assertLess(check, publish)
+
     def test_shipped_runtime_keeps_certificate_verification(self):
         paths = list((ROOT / 'core').rglob('*.py')) + list((ROOT / 'dashboard/packages').rglob('*.ts')) + list((ROOT / 'dashboard/apps/cli/src').rglob('*.ts'))
         checked = 0

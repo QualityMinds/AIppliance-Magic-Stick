@@ -176,6 +176,20 @@ describe('In-Appliance regression tests', () => {
     expect(await screen.findByRole('button', {name: 'Start regression tests'})).toBeDisabled();
     expect(screen.getByText(/Removing the completed run/)).toBeVisible();
   });
+  it('shows the failed preparation stage and zero passed live evidence despite successful isolated scenarios',async()=>{
+    data.runs=[{...run(),phase:'Failed',reportAvailable:true,credentialsCleaned:true,progress:{percent:100,completedPhases:9,totalPhases:9},
+      result:{counts:{Passed:100,Failed:1,Blocked:30},executionCounts:{Passed:80,Failed:0,Blocked:0},recoveryRequired:false,omittedCases:0,
+        phases:[],cases:[],evidenceCounts:{fixture:{Passed:100,Failed:0,Blocked:0},live:{Passed:0,Failed:1,Blocked:30}},
+        preparation:{version:1,outcome:'Failed',reason:'REVISION',setupStage:'input-validation',
+          message:'Automatic preparation: Failed (REVISION); setup stage: input-validation.',action:'Check the installed image and source revisions.'}}}];
+    mount();const preparation=await screen.findByRole('alert',{name:'Automatic preparation result'});
+    expect(preparation).toHaveTextContent('input-validation');expect(preparation).toHaveTextContent('REVISION');
+    expect(preparation).toHaveTextContent('Check the installed image and source revisions');
+    expect(preparation).toHaveTextContent('Passed isolated checks are not live acceptance');
+    expect(screen.getByLabelText('Live evidence results')).toHaveTextContent('0 passed · 1 failed · 30 blocked');
+    expect(screen.getByRole('button',{name:'Download report'})).toBeEnabled();
+    expect(api.startRegression).not.toHaveBeenCalled();expect(api.recoverRegressionLock).not.toHaveBeenCalled();
+  });
   it('shows live blocked counts by prerequisite and failure without changing the total', async () => {
     data.runs=[{...run(),progress:{...run().progress,
       executionBlockedCounts:{prerequisite:1,failure:1,cancelled:0,unknown:0}}}];

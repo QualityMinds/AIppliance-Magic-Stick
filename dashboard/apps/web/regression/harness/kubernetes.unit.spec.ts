@@ -1,5 +1,6 @@
 import {test,expect} from '@playwright/test';
 import {KubernetesProgress,publicResult} from '../core/kubernetes-progress.ts';
+import {setupWorkerMarker} from '../core/preparation-diagnostic.ts';
 import {runHostDrill} from '../core/host-drill.ts';
 import {blockedAction} from '../core/report.ts';
 import {blockerDescription} from '../core/blocker-description.ts';
@@ -9,6 +10,15 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {componentSuite,pythonSuite} from '../components/owning.ts';
+
+test('HAR-07 recovery accepts only fixed setup stage/detail markers',()=>{
+  expect(setupWorkerMarker('[SETUP_STAGE:kubernetes-access] [detail:ERR_MODULE_NOT_FOUND]')).toEqual(
+    {setupStage:'kubernetes-access',detail:'ERR_MODULE_NOT_FOUND'});
+  expect(setupWorkerMarker('[SETUP_STAGE:run-recovery]')).toEqual({setupStage:'run-recovery'});
+  expect(setupWorkerMarker('[SETUP_STAGE:run-recovery] private-token')).toBeUndefined();
+  expect(setupWorkerMarker('[SETUP_STAGE:foreign]')).toBeUndefined();
+  expect(setupWorkerMarker('[SETUP_STAGE:login] [detail:SECRET]')).toBeUndefined();
+});
 
 test('HAR-10 Kubernetes progress comes from structured events, not private console output',()=>{
   const progress=new KubernetesProgress([0,1,2]);
@@ -54,6 +64,23 @@ test('HAR-10 Kubernetes progress and sanitized results expose blocked causes wit
   expect(value.cases[0]!.blockedBy).toEqual({kind:'failure',caseId:'LIFE-03',reason:'DEADLINE',stage:'model-stopped'});
   expect(value.blockedCounts.failure).toBe(1);expect(value.executionBlockedCounts.failure).toBe(1);
   expect(value.phases[0]!.blockedCounts?.failure).toBe(1);expect(JSON.stringify(value)).not.toContain('synthetic-secret');
+});
+test('HAR-02 HAR-10 preparation diagnostics and live evidence remain separate from passed isolated checks',()=>{
+  const value=publicResult({automaticPreparation:{version:1,outcome:'Failed',reason:'REVISION',setupStage:'input-validation',
+    stderr:'synthetic-secret',message:'synthetic-secret'},counts:{Passed:1,Failed:1,Blocked:1},executionCounts:{Passed:1,Failed:0,Blocked:0},
+    cases:[{id:'HAR-10',layer:'U',environment:'fixture',outcome:'Passed',durationMs:1},
+      {id:'HAR-02',layer:'A',environment:'live',outcome:'Failed',reason:'REVISION',durationMs:0},
+      {id:'LIFE-01',layer:'E',environment:'live',outcome:'Blocked',reason:'PREPARATION_FAILED',durationMs:0,
+        blockedBy:{kind:'failure',caseId:'HAR-02',reason:'REVISION'}}]}, {phases:[]});
+  expect(value.preparation).toMatchObject({outcome:'Failed',reason:'REVISION',setupStage:'input-validation'});
+  expect(value.preparation?.message).toContain('input-validation');expect(value.preparation?.action).toBeTruthy();
+  expect(value.evidenceCounts).toEqual({fixture:{Passed:1,Failed:0,Blocked:0},live:{Passed:0,Failed:1,Blocked:1}});
+  expect(JSON.stringify(value)).not.toContain('synthetic-secret');
+  const legacy=publicResult({cases:[{id:'HAR-10',layer:'U',outcome:'Passed',durationMs:1}]},{phases:[]});
+  expect(legacy).not.toHaveProperty('evidenceCounts');expect(legacy).not.toHaveProperty('preparation');
+  const invalid=publicResult({automaticPreparation:{version:1,outcome:'synthetic-secret',reason:'synthetic-secret'}},{phases:[]});
+  expect(invalid.preparation).toMatchObject({outcome:'Failed',reason:'CONFIG'});
+  expect(JSON.stringify(invalid)).not.toContain('synthetic-secret');
 });
 test('HAR-02 Kubernetes host-disconnect drills block before any host mutation',async()=>{
   const previous=process.env.REGRESSION_EXECUTION;process.env.REGRESSION_EXECUTION='kubernetes';

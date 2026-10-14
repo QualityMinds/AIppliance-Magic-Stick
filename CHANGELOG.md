@@ -167,6 +167,11 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ### Fixed
 
+- Keep regression reporting fixtures independent from an inherited failed live
+  preparation. Preserve the actual preparation reason and setup stage in
+  sanitized reports and the Dashboard, with separate fixture/live evidence
+  counts and focused CI coverage of the failed-preparation context. A failed
+  stale-lock recovery now retains and displays its fixed setup failure stage.
 - Wait for polled model lifecycle controls before regression writes and retain
   validated generation receipts even when the browser action fails. Keep
   primary failures separate from cleanup fences and completed CPU checks.

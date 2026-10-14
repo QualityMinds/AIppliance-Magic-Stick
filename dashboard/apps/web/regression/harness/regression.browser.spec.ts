@@ -1,6 +1,30 @@
 import {test,expect,type Request} from '@playwright/test';
 import {fixturePage,origin} from '../fixtures/dashboard.ts';
 
+for(const viewport of ['desktop','mobile'] as const)test(`HAR-02 HAR-10 UX-02 ${viewport} failed preparation explains why passed isolated checks are not live acceptance`,async({page},info)=>{
+  await page.setViewportSize(viewport==='mobile'?{width:390,height:844}:{width:1440,height:1000});
+  let writes=0;
+  const payload={registered:true,applianceUid:'fixture-appliance',runtimeAvailable:true,sourceRevision:'b'.repeat(40),message:'',
+    executionLocation:'appliance-kubernetes',externalRunnerRequired:['reboot'],runs:[{
+      id:'regression-'+'a'.repeat(32),uid:'fixture-run-uid',createdAt:'2026-10-14T12:00:00Z',sourceRevision:'b'.repeat(40),
+      phase:'Failed',phases:[0,1,2,3,4,5,6,7,8],message:'Regression execution finished.',credentialsCleaned:true,reportAvailable:true,
+      progress:{percent:100,completedPhases:9,totalPhases:9},result:{counts:{Passed:100,Failed:1,Blocked:30},
+        executionCounts:{Passed:80,Failed:0,Blocked:0},omittedCases:0,recoveryRequired:false,phases:[],cases:[],
+        evidenceCounts:{fixture:{Passed:100,Failed:0,Blocked:0},live:{Passed:0,Failed:1,Blocked:30}},
+        preparation:{version:1,outcome:'Failed',reason:'REVISION',setupStage:'input-validation',
+          message:'Automatic preparation: Failed (REVISION); setup stage: input-validation.',action:'Check the installed image and source revisions.'}}}]};
+  await fixturePage(page,{'/api/regression':(request:Request)=>{if(request.method()!=='GET')writes++;return payload;}});
+  await page.goto(origin+'/#/system/regression');
+  const preparation=page.getByRole('alert',{name:'Automatic preparation result'});
+  await expect(preparation).toContainText('input-validation');await expect(preparation).toContainText('REVISION');
+  await expect(preparation).toContainText('Passed isolated checks are not live acceptance');
+  await expect(page.getByLabel('Live evidence results')).toContainText('0 passed · 1 failed · 30 blocked');
+  await page.reload();await expect(preparation).toBeVisible();expect(writes).toBe(0);
+  await expect(page.getByRole('button',{name:'Download report',exact:true})).toBeEnabled();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:info.outputPath(`regression-preparation-${viewport}.png`),fullPage:true});
+});
+
 for(const viewport of ['desktop','mobile'] as const)test(`HAR-04 HAR-07 HAR-10 UX-02 ${viewport} stale-lock recovery is confirmed, bounded and never starts a suite`,async({page},info)=>{
   await page.setViewportSize(viewport==='mobile'?{width:390,height:844}:{width:1440,height:1000});
   const revision='11111111-2222-3333-4444-555555555555:42';let requested=false,external=false;
