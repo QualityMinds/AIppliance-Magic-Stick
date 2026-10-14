@@ -61,7 +61,11 @@ jobs:
           status=$?
           set -e
           safe_code=$(printf '%s\n' "$result" | grep -oE '\[(PRIVATE_FILE|CONFIG|UNEXPECTED|TLS|AUTH|API)\]|ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND|SyntaxError|TypeError' | head -1 || true)
-          printf 'Packaged setup probe: exit=%s, code=%s\n' "$status" "${safe_code:-unclassified}"
+          safe_target=$(printf '%s\n' "$result" | sed -nE "s/.*Cannot find (package|module) '([^']+)'.*/\2/p" | head -1)
+          case "$safe_target" in
+            *[!a-zA-Z0-9_@./-]*|'') safe_target=unclassified ;;
+          esac
+          printf 'Packaged setup probe: exit=%s, code=%s, target=%s\n' "$status" "${safe_code:-unclassified}" "$safe_target"
           test "$status" -eq 2
           printf '%s\n' "$result" | grep -Fq '[PRIVATE_FILE]'
       - name: Verify fixture reporting with a failed live preparation context
