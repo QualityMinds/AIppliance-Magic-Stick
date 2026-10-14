@@ -60,6 +60,8 @@ jobs:
             magicstick-regression:local regression/setup.mjs 2>&1)
           status=$?
           set -e
+          safe_code=$(printf '%s\n' "$result" | grep -oE '\[(PRIVATE_FILE|CONFIG|UNEXPECTED|TLS|AUTH|API)\]|ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND|SyntaxError|TypeError' | head -1 || true)
+          printf 'Packaged setup probe: exit=%s, code=%s\n' "$status" "${safe_code:-unclassified}"
           test "$status" -eq 2
           printf '%s\n' "$result" | grep -Fq '[PRIVATE_FILE]'
       - name: Verify fixture reporting with a failed live preparation context
