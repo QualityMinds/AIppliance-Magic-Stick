@@ -2,7 +2,7 @@ import type {
   CpuResources, LocalModelConfigurationPolicy, LocalModelDraft, ModelActivation,
   ModelsPayload, NvidiaGpuSelection, RealtimeDevice, RealtimeProfile, VllmConfiguration,
 } from '@magicstick/dashboard-contracts';
-import {safeModelName} from './index';
+import {safeModelName} from './index.ts';
 
 const record = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value)
   ? value as Record<string, unknown> : {};

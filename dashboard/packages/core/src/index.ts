@@ -15,8 +15,8 @@ import type {
   GpuEngineValidation,
 } from '@magicstick/dashboard-contracts';
 
-export * from './local-model-configuration';
-export * from './regression-blocking';
+export * from './local-model-configuration.ts';
+export * from './regression-blocking.ts';
 
 export type DashboardRole = 'viewer' | 'operator' | 'admin';
 
