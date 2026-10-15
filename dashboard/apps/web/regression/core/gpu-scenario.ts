@@ -290,14 +290,16 @@ export class GpuScenario {
     if(recordStage) await writePrivate(join(this.directory,`runtime-${model.client.name}.json`),{
       version:1,runId:this.live.journal.runId,engine:model.fixture.engine,target:model.fixture.computeTarget,
       generation:model.generation,stage,reason:error instanceof HarnessError ? error.code : 'UNEXPECTED'}).catch(()=>{});
+    // Snapshot current/previous output before cleanup, using only the bounded
+    // authenticated product API. Keep native logs private; extract fixed wrapper
+    // reason fields into the independently identity-checked structural evidence.
+    let logs:Awaited<ReturnType<OwnedModelClient['logs']>>|undefined;
+    try {logs=await model.client.logs();await writePrivate(join(this.directory,`logs-${model.client.name}.json`),logs);}catch{}
     try {
       const state=await this.live.modelState(model.client,model.uid);
       if(state.item)await test.info().attach('magicstick-runtime-diagnostic',{contentType:'application/json',
-        body:Buffer.from(JSON.stringify(runtimeDiagnostic(state.item,state.pods,model.uid,model.generation)))});
+        body:Buffer.from(JSON.stringify(runtimeDiagnostic(state.item,state.pods,model.uid,model.generation,logs)))});
     }catch{/* Diagnostic collection must never replace the primary failure. */}
-    // Logs use the bounded authenticated product API, never Pod exec or broad
-    // cluster log permission. Preserve them before failure-safe owned cleanup.
-    try {await writePrivate(join(this.directory,`logs-${model.client.name}.json`),await model.client.logs());}catch{}
   }
   async binding(model:GpuCreated,pods:KubeObject[]) {
     const ready = pods.filter(pod=>!pod.metadata.deletionTimestamp && pod.status?.phase === 'Running' &&

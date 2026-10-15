@@ -52,7 +52,12 @@ export function automaticProfile(snapshot:PreparationSnapshot,previous:Record<st
   if(optional)profile.modules={approveOptionalModule:true,id:optional[0],parameters:snapshot.modules.modules[optional[0]]?.parameters ?? {}};
   const compatibility=snapshot.status.hardwareOperators?.['amd-gpu']?.compatibility;
   const alternate=compatibility?.profiles?.filter(p=>p.id !== compatibility.selectedProfile).sort((a,b)=>a.id.localeCompare(b.id))[0];
-  if(alternate)profile.moduleProfile={approveTemporaryProfile:true,profileId:alternate.id,allowExperimental:alternate.experimental === true};
+  const amdPin=lab.gpu?.devices.amd;
+  const eligibleAmd=amdPin && Object.values(snapshot.status.hardwareOperators ?? {}).flatMap(item=>item.devices ?? []).some(device=>
+    device.vendor==='amd' && device.id===amdPin.id && device.pciAddress===amdPin.pciAddress && device.nodeUid===lab.gpu!.nodeUid &&
+    device.node===lab.gpu!.nodeName && device.eligible===true);
+  if(alternate && eligibleAmd)profile.moduleProfile={approveTemporaryProfile:true,profileId:alternate.id,allowExperimental:alternate.experimental === true};
+  else delete profile.moduleProfile;
   // Repository-owned semantic adapter. It inspects actual app controls and
   // does not ask the operator to invent CSS selectors for every run.
   const suffix=new URL(lab.dashboardUrl).hostname;

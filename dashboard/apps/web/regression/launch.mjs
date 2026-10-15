@@ -8,7 +8,7 @@ import {loadLabConfig} from './core/config.ts';
 import {HarnessError, requireSafe} from './core/errors.ts';
 import {ResourceJournal, newRunId, recoveryJournalPath} from './core/journal.ts';
 import {privateDirectory, writePrivate, readPrivate} from './core/private-files.ts';
-import {completeCases,saveReport, stepCases,reportExitCode,summarize,summarizeExecutions} from './core/report.ts';
+import {completeCases,guardedLiveCases,saveReport, stepCases,reportExitCode,summarize,summarizeExecutions} from './core/report.ts';
 import {childEvidence} from './core/campaign-evidence.ts';
 import {modeDescription} from './core/case-descriptions.ts';
 import {phase0Ids, requirePhase0Profile} from './profiles/phase0-p0.ts';
@@ -23,7 +23,7 @@ import {verifyHostContinuation} from './core/setup-suite.ts';
 import {preparationDiagnostic, requirePreparation, preparationDescription} from './core/preparation-diagnostic.ts';
 import {runnerSession} from './core/runner-session.ts';
 import {progressEvent} from './core/progress.ts';
-import {blockedCounts,inheritRecoveryCause} from './core/blocking.ts';
+import {blockedCounts,inheritRecoveryCause,recoveryCause} from './core/blocking.ts';
 import {regressionBlockedSummary} from '../../../packages/core/src/regression-blocking.ts';
 
 process.umask(0o077);
@@ -87,6 +87,9 @@ try {
   const environment = {...process.env, REGRESSION_MODE: mode, REGRESSION_RUN_ID: runId, REGRESSION_RUN_DIR: directory,
     REGRESSION_MODEL_CASE: selectedModelCase ? modelCase : '', REGRESSION_GPU_CASE: selectedGpuCase ? gpuCase : '',
     REGRESSION_REMAINING_CASE:hostCase ?? ''};
+  const dnsPreload=new URL('./core/lab-dns.mjs',import.meta.url).href;
+  if(!(environment.NODE_OPTIONS??'').includes(dnsPreload))
+    environment.NODE_OPTIONS=((environment.NODE_OPTIONS??'')+' --import='+dnsPreload).trim();
   if(recoveryRunId)environment.REGRESSION_RECOVERY_RUN_ID=recoveryRunId;
   home = await mkdtemp(join(tmpdir(), 'magicstick-browser-'));
   if (process.platform === 'linux') environment.HOME = home;
@@ -230,7 +233,8 @@ try {
       const {result,report,recoveryFence}=await childEvidence({output,receipt,mode:step,required:[],fixture,
         sourceRevision:process.env.REGRESSION_SOURCE_REVISION,cancelled:Boolean(interruptedSignal)});
       if(recoveryFence)inheritRecoveryCause(environment,report.cases,true);
-      collected.push(...stepCases(report.cases.map(item => index === stepsToRun.length - 1 && item.variant === 'idle-baseline' ?
+      collected.push(...stepCases(report.cases.map(item => index === stepsToRun.length - 1 && (item.variant === 'idle-baseline' ||
+        step === 'preflight' && item.id === 'HAR-03' && item.reason === 'RECOVERY' && !item.executionId && !item.variant) ?
         {...item, variant: 'final-idle'} : item), exit, report.acceptable === true,
       fixture));
       let continued=true;
@@ -286,7 +290,11 @@ try {
   const outcome=error instanceof HarnessError ? error.outcome : 'Failed';
   console.error(new HarnessError(reason,outcome).message);
   try {
-    await saveReport(directory, runId, required.map(id => ({id, outcome, layer: 'A', environment: 'live', durationMs: 0, reason})), required,
+    const entryGuard=reason==='RECOVERY' && process.env.REGRESSION_RECOVERY_FENCE &&
+      mode!=='all' && !Object.hasOwn(phaseSteps,mode);
+    const rows=entryGuard?guardedLiveCases(mode,required,recoveryCause(process.env.REGRESSION_RECOVERY_CAUSE)):
+      required.map(id => ({id, outcome, layer: 'A', environment: 'live', durationMs: 0, reason}));
+    await saveReport(directory, runId, rows, required,
       process.env.REGRESSION_SOURCE_REVISION, mode);
     console.log(`Private report: ${join(directory, 'summary.txt')}`);
   } catch { console.error('A safe report could not be written; check private-directory permissions.'); }

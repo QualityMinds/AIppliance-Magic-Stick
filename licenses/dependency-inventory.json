@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "6dda8724e63f83d4608f703a3357dc0d2544ff5501e9a32df66a9a90f8d6909e",
-  "deploymentReferencesSha256": "1996d9771e8b57e4234af5373630ba7d0c355504e251a749d53b0c6f10614c6f",
+  "deploymentReferencesSha256": "292bea45f2758735168e54517f46792513f0e26fcf2400f2004faec7374d2f86",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -2795,7 +2795,7 @@
     },
     {
       "file": "magic-cluster/platform/ai/kubeai/base/test_vllm_wrapper.py",
-      "line": 489,
+      "line": 628,
       "reference": "self.wrapper[\"runtime_version\"] = lambda package, version=version: version"
     },
     {
@@ -2984,9 +2984,14 @@
       "reference": "tag: \"3.4.1\""
     },
     {
+      "file": "magic-cluster/platform/gateway/envoy-gateway/helmrelease.yaml",
+      "line": 23,
+      "reference": "image: docker.io/envoyproxy/envoy:distroless-v1.38.6"
+    },
+    {
       "file": "magic-cluster/platform/gateway/envoy-gateway/oci-repository.yaml",
       "line": 12,
-      "reference": "tag: v1.8.2"
+      "reference": "tag: v1.8.5"
     },
     {
       "file": "magic-cluster/platform/gpu/amd-gpu-operator/helmrelease.yaml",
@@ -3102,6 +3107,11 @@
       "file": "magic-cluster/platform/hardware-discovery/helmrelease.yaml",
       "line": 12,
       "reference": "version: 0.18.3"
+    },
+    {
+      "file": "magic-cluster/platform/identity/gateway.yaml",
+      "line": 18,
+      "reference": "image: docker.io/envoyproxy/envoy:distroless-v1.38.6"
     },
     {
       "file": "magic-cluster/platform/identity/keycloak.yaml",

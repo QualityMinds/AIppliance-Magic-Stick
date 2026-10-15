@@ -1,4 +1,4 @@
-import {expect,type Browser,type BrowserContext,type Page} from '@playwright/test';
+import {expect,test,type Browser,type BrowserContext,type Page} from '@playwright/test';
 import {instanceResourceLinks} from '@magicstick/dashboard-core';
 import type {LiveFoundation} from '../core/live-foundation.ts';
 import {AppCleaner,OwnedAppClient,appTypes,type AppFixture,ownedChild} from '../core/owned-app.ts';
@@ -11,6 +11,9 @@ import {BorrowedModule} from '../core/borrowed-module.ts';
 import {applicationModuleIds,protectedModule} from '../core/application-modules.ts';
 import {poll} from '../core/poll.ts';
 import {requireProof as requireSafe} from '../core/errors.ts';
+import {gatewaySnapshot,assertGatewayStable} from '../core/gateway-stability.ts';
+import {withCleanup} from '../core/run-lifecycle.ts';
+import {registerRuntimeDnsOrigins} from '../core/browser-dns.ts';
 
 /** Dependencies are prepared before opening Create. Borrow only a disabled
  * baseline seeded by setup; never adopt an enable that lost its acknowledgement. */
@@ -96,22 +99,25 @@ export async function applicationsWorkflow(live:LiveFoundation,browser:Browser) 
   requireSafe(profile.identity?.approveDisposableUsers === true && profile.applications?.cleanerKubeconfig,'PREREQUISITE');
   const fixtures=validateAppFixtures(profile.applications.fixtures),cleaner=new AppCleaner(profile.applications.cleanerKubeconfig,live.config.requestTimeoutMs);
   await cleaner.verifyConfiguration();const apps=new OwnedAppClient(live,cleaner),users=new OwnedIdentityClient(live);
-  await prepareApplications(live,apps.api,fixtures);
-  const before=(await apps.api.api.instances()).instances;
-  const baseline=Object.values(before).flat().map(item=>`${item.metadata?.uid}:${item.metadata?.generation}`).sort().join(',');
-  const model=await live.createModel('app-model');await live.waitReady(model.client,model.uid,model.generation);
-  const allowed=await users.create('app-allowed','user'),denied=await users.create('app-denied','user');
-  const actors:BrowserContext[]=[];
-  try {
+  const gateway=await gatewaySnapshot(live.observer),actors:BrowserContext[]=[];
+  const checkGateway=()=>test.step('Verify gateway process stability',async()=>assertGatewayStable(gateway,await gatewaySnapshot(live.observer)));
+  return withCleanup(async()=>{
+    await prepareApplications(live,apps.api,fixtures);
+    await checkGateway();
+    const before=(await apps.api.api.instances()).instances;
+    const baseline=Object.values(before).flat().map(item=>`${item.metadata?.uid}:${item.metadata?.generation}`).sort().join(',');
+    const model=await live.createModel('app-model');await live.waitReady(model.client,model.uid,model.generation);
+    const allowed=await users.create('app-allowed','user'),denied=await users.create('app-denied','user');
     for(const actor of [allowed,denied]) actors.push(await realLogin(browser,live.config,{actor:{username:actor.user.username,password:actor.password,
       initialPassword:actor.initialPassword,subject:actor.user.id,role:'magicstick-user'}}));
     for(const fixture of fixtures) {
       const page=await live.context.newPage();let name:string|undefined;
       try {
         name=await apps.createInUi(page,fixture.type,'app-'+fixture.type,model.client.name);
-        const ready=await apps.ready(name),links=instanceResourceLinks(ready.item,await live.api.status());
+        const ready=await apps.ready(name),links=instanceResourceLinks(ready.item,await live.api.status());await checkGateway();
         const origin=new URL(fixture.originTemplate.replace('{name}',name.slice(fixture.type.length+1))).origin;
         requireSafe(links.some(link=>new URL(link.url).origin === origin) && ready.item.spec?.access?.exposure === 'local' && !ready.item.status?.publicURL,'API');
+        await registerRuntimeDnsOrigins([origin],live.config.dashboardUrl);
         const routes=(await live.observer.list('httproutes.gateway.networking.k8s.io','identity-system')).filter(item=>ownedChild(item,name!,ready.item.metadata!.uid!));
         requireSafe(routes.length > 0 && routes.every(item=>!JSON.stringify(item.spec).includes('NodePort')),'API');
         const anonymous=await browser.newContext({serviceWorkers:'block'});
@@ -182,11 +188,14 @@ export async function applicationsWorkflow(live:LiveFoundation,browser:Browser) 
           await live.guard();const map=await live.observer.get('configmaps','ai','ai-model-catalog') as unknown as {data?:Record<string,string>};
           return map.data && catalogContext(map.data,model.client.name,context);
         },Boolean,{timeoutMs:180_000,intervalMs:1000,stage:'model-update'});
-        const releases=(await live.observer.list('helmreleases.helm.toolkit.fluxcd.io','ai')).filter(item=>ownedChild(item,name!,ready.item.metadata!.uid!));
+        const releases=(await live.observer.list('helmreleases.helm.toolkit.fluxcd.io',ready.target.namespace)).filter(item=>
+          item.metadata.name===ready.target.name && item.metadata.labels?.['app.kubernetes.io/managed-by']==='magicstick-operator' &&
+          ownedChild(item,name!,ready.item.metadata!.uid!));
         requireSafe(releases.some(item=>JSON.stringify(item.spec?.values ?? {}).includes(model.client.name)),'API');
         await page.goto(live.config.dashboardUrl+'/#/services');
         const expand=panel.getByRole('button',{name:'▸ Show',exact:true});if(await expand.count())await expand.click();
         await apps.removeInUi(page,name);name=undefined;
+        await checkGateway();
       }finally{await page.close();if(name)await apps.remove(name);}
     }
     // Explicit public instance, isolated from the SSO instances above. Canceling
@@ -198,8 +207,10 @@ export async function applicationsWorkflow(live:LiveFoundation,browser:Browser) 
       await page.getByRole('dialog').getByRole('combobox',{name:'Access',exact:true}).selectOption('none');
       await expect(page.getByRole('dialog').getByText(/public|without login/i).first()).toBeVisible();
       await page.getByRole('dialog').getByRole('button',{name:'Cancel',exact:true}).click();
-      const name=await apps.createInUi(page,type,'public',model.client.name,true);await apps.ready(name);
+      const name=await apps.createInUi(page,type,'public',model.client.name,true),ready=await apps.ready(name);
       const fixture=fixtures.find(item=>item.type === type)!,origin=new URL(fixture.originTemplate.replace('{name}',name.slice(type.length+1))).origin;
+      requireSafe(instanceResourceLinks(ready.item,await live.api.status()).some(link=>new URL(link.url).origin===origin),'API');
+      await registerRuntimeDnsOrigins([origin],live.config.dashboardUrl);
       const anonymous=await browser.newContext({serviceWorkers:'block'});
       try{requireSafe((await anonymous.request.get(origin,{timeout:live.config.requestTimeoutMs,maxRedirects:0})).status() === 200,'API');}
       finally{await anonymous.close();await apps.remove(name);}
@@ -210,5 +221,8 @@ export async function applicationsWorkflow(live:LiveFoundation,browser:Browser) 
     const remaining=Object.values((await apps.api.api.instances()).instances).flat().map(item=>`${item.metadata?.uid}:${item.metadata?.generation}`).sort().join(',');
     requireSafe(remaining === baseline,'CLEANUP');
     return new Set(['APP-02','APP-05','APP-06','APP-07','APP-09','APP-10','ACL-01','ACL-02','ACL-04','ACL-06']);
-  }finally{for(const context of actors)await context.close();await live.cleanup();}
+  },()=>withCleanup(()=>withCleanup(async()=>{
+    const closed=await Promise.allSettled(actors.map(context=>context.close()));
+    requireSafe(closed.every(result=>result.status==='fulfilled'),'CLEANUP');
+  },()=>live.cleanup()),checkGateway));
 }

@@ -226,7 +226,8 @@ export class LiveFoundation {
           for(const restore of [...this.restorations].reverse())try{await restore();}catch(error){record(error);}
           if(!failures.length)this.restorations=[];
           if(failures.length) {
-            await writePrivate(join(dirname(this.journal.filename),'cleanup-failure.json'),{version:1,runId:this.journal.runId,failures}).catch(()=>{});
+            await writePrivate(join(dirname(this.journal.filename),'cleanup-failure.json'),{version:1,runId:this.journal.runId,failures,
+              cleanupFailures:this.journals.flatMap(journal=>journal.cleanupFailures)}).catch(()=>{});
             throw new HarnessError('CLEANUP','Failed',failures[0]!.stage as import('./errors.ts').Stage);
           }
           await this.guard();

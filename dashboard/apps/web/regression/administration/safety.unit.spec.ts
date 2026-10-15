@@ -8,7 +8,11 @@ import {AdministrationApi} from '../core/administration-api.ts';
 import type {APIRequestContext} from '@playwright/test';
 import {atStage} from '../core/errors.ts';
 import {inspectOidcConfig} from '../core/oidc-exec.ts';
-import {verifyAppCleanerRules} from '../core/owned-app.ts';
+import {verifyAppCleanerRules,OwnedAppClient,appReleaseTarget,appReleaseReady} from '../core/owned-app.ts';
+import type {AppInstance} from '@magicstick/dashboard-contracts';
+import type {KubeObject} from '../core/observer.ts';
+import {moduleProfileWorkflow} from './modules-live.ts';
+import type {LiveFoundation} from '../core/live-foundation.ts';
 import {validateAppFixtures,catalogContext} from './apps-live.ts';
 import {websocketFrame,websocketEvent} from '../core/realtime-probe.ts';
 import {evidenceAnnotations} from '../core/evidence.ts';
@@ -18,6 +22,43 @@ import {resolve} from 'node:path';
 import {execFileSync} from 'node:child_process';
 
 const annotation=evidenceAnnotations({id:'HAR-10',layer:'U'});
+test('APP-02 observes the current controller-owned HelmRelease in the Appliance namespace, never its workload namespace',annotation,async()=>{
+  const item:AppInstance={metadata:{name:'hermes-fixture',uid:'instance-uid',generation:3},
+    spec:{application:'hermes',enabled:true,targetNamespace:'ai'},status:{phase:'Ready',observedGeneration:3,
+      kind:'HelmRelease',name:'hermes-fixture',namespace:'ai-system'}};
+  const observed=item as KubeObject,owned={uid:'instance-uid',generation:3};
+  const child:KubeObject={metadata:{name:'hermes-fixture',namespace:'ai-system',uid:'release-uid',generation:7,
+    labels:{'app.kubernetes.io/managed-by':'magicstick-operator','appliance.magicstick.dev/appinstance':'hermes-fixture',
+      'appliance.magicstick.dev/application':'hermes'}},spec:{targetNamespace:'ai',suspend:false},
+    status:{observedGeneration:7,conditions:[{type:'Ready',status:'True',observedGeneration:7}]}};
+  const namespaces:string[]=[],apps=Object.create(OwnedAppClient.prototype) as OwnedAppClient;
+  Object.defineProperties(apps,{owned:{value:new Map([['hermes-fixture',owned]])},read:{value:async()=>item},
+    cleaner:{value:{find:async()=>observed}},live:{value:{guard:async()=>{},config:{expected:{applianceNamespace:'ai-system'}},
+      observer:{list:async(_resource:string,namespace:string)=>{namespaces.push(namespace);return namespace==='ai-system'?[child]:[];}}}}});
+  const ready=await apps.ready('hermes-fixture');
+  expect(namespaces).toEqual(['ai-system']);expect(ready.target).toEqual({name:'hermes-fixture',namespace:'ai-system'});
+  expect(appReleaseReady(item,observed,[child],owned,'ai-system')).toBe(true);
+  for(const patch of [{namespace:'ai'},{name:'another-release'},{kind:'Deployment'}])
+    expect(()=>appReleaseTarget({...item,status:{...item.status,...patch}},'hermes-fixture','ai-system')).toThrow('[OWNERSHIP]');
+  expect(appReleaseTarget({...item,status:undefined},'hermes-fixture','ai-system').namespace).toBe('ai-system');
+  for(const invalid of [{...item,metadata:{...item.metadata,uid:'foreign'}},{...item,metadata:{...item.metadata,generation:4}}])
+    expect(()=>appReleaseReady(invalid,observed,[child],owned,'ai-system')).toThrow('[OWNERSHIP]');
+  expect(appReleaseReady({...item,status:{...item.status,observedGeneration:2}},observed,[child],owned,'ai-system')).toBe(false);
+  for(const change of [
+    {...child,metadata:{...child.metadata,namespace:'ai'}},
+    {...child,metadata:{...child.metadata,labels:{...child.metadata.labels,'app.kubernetes.io/managed-by':'foreign'}}},
+    {...child,metadata:{...child.metadata,labels:{...child.metadata.labels,'appliance.magicstick.dev/application':'openclaw'}}},
+    {...child,status:{...child.status,observedGeneration:6,conditions:[{type:'Ready',status:'True',observedGeneration:6}]}},
+    {...child,spec:{...child.spec,suspend:true}},
+  ])expect(appReleaseReady(item,observed,[change],owned,'ai-system')).toBe(false);
+  expect(()=>appReleaseReady({...item,status:{...item.status,phase:'Degraded'}},observed,[child],owned,'ai-system'))
+    .toThrow('[stage:app-ready]');
+});
+
+test('MOD-06 absent AMD hardware blocks profile mutation before reading its module or a stale preparation file',annotation,async()=>{
+  await expect(moduleProfileWorkflow({config:{gpu:{devices:{nvidia:{id:'node/pci'}}}}} as unknown as LiveFoundation))
+    .rejects.toMatchObject({code:'GPU_PROVIDER',outcome:'Blocked',stage:'gpu-backend'});
+});
 test('HAR-10 license UI protection allows bodyless polling but rejects unrelated and stale writes',annotation,()=>{
   const document='synthetic-license',revision='synthetic-revision';
   expect(licenseUiRequestAllowed('GET','/api/license',null,document,revision)).toBe(true);

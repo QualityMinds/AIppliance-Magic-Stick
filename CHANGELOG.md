@@ -8,6 +8,21 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Repair ready-service DNS for both browser and API regression probes without
+  changing HTTPS origins or certificate verification. Observe application
+  HelmReleases in their control-plane namespace and detect gateway process
+  restarts during module/application route churn.
+- Use Envoy Gateway 1.8.5 with explicit Envoy 1.38.6 proxy overrides, including
+  setup; a source upgrade is not itself proof of installed gateway stability.
+- Supervise every vLLM collective-probe rank with bounded cleanup, retain fixed
+  startup diagnostics before model removal, and refuse fallback after
+  unconfirmed cleanup. Preserve explicit runtime transport/thread policies.
+- Classify missing GPU providers and unavailable exact-card validation as
+  concrete prerequisites. Prepare NVIDIA DRA before validation, release idle
+  browser pages during native GPU checks, and retain precise cleanup operations.
+  Explicit recovery guards keep their originating failure across phase reports;
+  genuine missing execution evidence still fails HAR-10.
+
 - Group Model cache and Regression tests under System Status, with a second tab
   bar for Overview, GPU Operators, Flux, Network & routes and maintenance tools.
   Preserve old bookmarks, administrator restrictions and license-free regression

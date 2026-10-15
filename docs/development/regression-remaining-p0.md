@@ -112,9 +112,19 @@ cause properties. The archive retains every row, even when the Dashboard limits
 its expanded list. Raw credentials, journals and runtime logs stay private.
 Tests skipped after a failed serial sibling link to that sibling's failure;
 they are not reported as newly missing prerequisites.
+Missing AMD/NVIDIA hardware uses `GPU_PROVIDER`; unavailable current-boot
+exact-card verification uses `GPU_VALIDATION`. Independent providers still run.
+Service API probes share the prepared local DNS mappings without disabling TLS;
+new exact service names are retained only in the current private run directory.
+Module/application route changes also check gateway process stability. GPU
+verification closes the request page during the native Job and uses a fresh
+page for the terminal result, without retries or weaker GPU checks.
 GPU startup and first CPU inference retain structured Pod/routing/response
 diagnostics; Realtime readiness also retains bounded private runtime logs before
-cleanup. Repeated-cycle checks separate model-cache growth from other disk
+cleanup. vLLM collective preflight exports only fixed reason/transport/cleanup
+fields; raw startup output stays private. A failed cleanup journal retains its
+operation and fixed reason/stage for exact-resource diagnosis and safe retry.
+Repeated-cycle checks separate model-cache growth from other disk
 growth and verify model, Pod, claim, route and key cleanup. Expected service
 rollouts compare stable workload UIDs and replica counts, not replaceable Pod
 UIDs; extra replicas, replaced workloads and leftover test Pods still fail.

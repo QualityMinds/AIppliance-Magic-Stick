@@ -7,9 +7,10 @@ import {requireSafe} from '../core/errors.ts';
 import {poll} from '../core/poll.ts';
 import {evidenceAnnotations,type TestLayer} from '../core/evidence.ts';
 import {phase4Variants,type GpuVariant} from '../profiles/gpu-p0.ts';
-import {requestValidationUi,completedValidation} from './validation-workflow.ts';
+import {requestValidationUi,completedValidation,prepareValidation} from './validation-workflow.ts';
 import {lifecycleUi,gpuConfigurationUi} from './live-ui.ts';
 import {slotFillCount} from '../core/model-ui.ts';
+import {requireGpuProvider} from './prerequisites.ts';
 
 function proof(keys:GpuVariant[],layers:TestLayer[]=['A','E','O']) {
   return evidenceAnnotations(...keys.flatMap(variant=>layers.filter(layer=>(phase4Variants[variant as keyof typeof phase4Variants].layers as readonly TestLayer[]).includes(layer))
@@ -24,7 +25,7 @@ test.describe('Installed AMD DRA and NVIDIA time-slicing',()=>{
     }
   });
   test.afterAll(async ()=>{if(s) await s.close();});
-  async function module(provider:Provider) {return s!.live.observer.get('moduleactivations.appliance.magicstick.dev',s!.config.expected.applianceNamespace,provider === 'amd' ? 'amd-gpu' : 'gpu');}
+  async function module(provider:Provider) {requireGpuProvider(s!.config,provider);return s!.live.observer.get('moduleactivations.appliance.magicstick.dev',s!.config.expected.applianceNamespace,provider === 'amd' ? 'amd-gpu' : 'gpu');}
   async function rejectedSharing(body:GpuSharingRequest) {
     const before=await module(body.provider);await s!.live.guard();
     const response=await s!.live.context.request.post(s!.config.dashboardUrl+'/api/hardware/gpu-sharing',{data:body,
@@ -34,6 +35,7 @@ test.describe('Installed AMD DRA and NVIDIA time-slicing',()=>{
     requireSafe(after.metadata.uid === before.metadata.uid && after.metadata.generation === before.metadata.generation && canonical(after.spec) === canonical(before.spec),'CONFLICT');
   }
   function fixtures(provider:Provider) {
+    requireGpuProvider(s!.config,provider);
     const models=s!.config.gpu!.models,pair=provider === 'amd' ? [models.amdOllama,models.amdVllm] : [models.nvidiaOllama,models.nvidiaVllm];
     requireSafe(s!.config.gpu!.devices[provider] && pair[0] && pair[1],'PREREQUISITE');
     return pair as [NonNullable<typeof models.amdOllama>,NonNullable<typeof models.amdVllm>];
@@ -75,6 +77,7 @@ test.describe('Installed AMD DRA and NVIDIA time-slicing',()=>{
   for (const provider of ['amd','nvidia'] as const) test(`SHR-02 SHR-${provider === 'amd' ? '04' : '03'} ${provider} transitions match actual backend and live form`,
     proof(['p4-dirty-confirmation',provider === 'amd' ? 'p4-amd-transition' : 'p4-nvidia-transition']),async ()=>{
       const scenario=s!,vendor=provider === 'amd' ? 'AMD' : 'NVIDIA';
+      requireGpuProvider(scenario.config,provider);
       await scenario.transition(provider,'exclusive');await scenario.slots(`${provider}-gpu`,0,await scenario.slotCapacity(provider));
       await page.goto(scenario.config.dashboardUrl+'/#/system/hardware');
       const section=await sharingSection(provider);
@@ -139,8 +142,15 @@ test.describe('Installed AMD DRA and NVIDIA time-slicing',()=>{
 
   test('SLOT-03 an actual optional validation consumer occupies a slot and completion releases it',proof(['p4-other-consumers']),async ()=>{
     const scenario=s!,[fixture]=fixtures('nvidia');await scenario.transition('nvidia','shared',2);
+    // Exact-card validation needs DRA on a multi-card host. Do the owned
+    // backend handoff before creating the anchor, not while it serves traffic.
+    await prepareValidation(scenario,'OLlama','nvidia');
     const total=await scenario.slotCapacity('nvidia');
-    const model=await scenario.create('validation-anchor',fixture,true);await scenario.ready(model);
+    const state=await scenario.state('nvidia'),card=state.devices?.find(device=>device.nodeUid===scenario.config.gpu!.nodeUid &&
+      device.pciAddress===scenario.config.gpu!.devices.nvidia!.pciAddress);
+    requireSafe(state.backend!=='dra' || card,'CAPABILITY');
+    const anchor=state.backend==='dra' ? {...fixture,gpuDevices:[{uuid:card!.uuid,nodeUid:card!.nodeUid,nodeName:card!.node}]} : fixture;
+    const model=await scenario.create('validation-anchor',anchor,true);await scenario.ready(model);
     const request=await requestValidationUi(scenario,page,'OLlama','nvidia',10);
     await scenario.slots('nvidia-gpu',2,total);await completedValidation(scenario,request);
     await scenario.slots('nvidia-gpu',1,total);await scenario.inference.chat(model.client.name);await scenario.remove(model);

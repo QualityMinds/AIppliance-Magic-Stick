@@ -546,9 +546,12 @@ data:
         resources.append((f"/apis/gateway.envoyproxy.io/v1alpha1/namespaces/{ns}/envoyproxies", f"/apis/gateway.envoyproxy.io/v1alpha1/namespaces/{ns}/envoyproxies/magicstick-setup", {
             "apiVersion": "gateway.envoyproxy.io/v1alpha1", "kind": "EnvoyProxy",
             "metadata": {"name": "magicstick-setup", "namespace": ns, "labels": labels},
-            "spec": {"provider": {"type": "Kubernetes", "kubernetes": {"envoyService": {
-                "type": "LoadBalancer", "externalTrafficPolicy": "Local", "loadBalancerSourceRanges": PRIVATE_CIDRS,
-            }}}},
+            "spec": {"provider": {"type": "Kubernetes", "kubernetes": {
+                "envoyDeployment": {"container": {"image": "docker.io/envoyproxy/envoy:distroless-v1.38.6"}},
+                "envoyService": {
+                    "type": "LoadBalancer", "externalTrafficPolicy": "Local", "loadBalancerSourceRanges": PRIVATE_CIDRS,
+                },
+            }}},
         }))
         resources.append((f"/apis/gateway.networking.k8s.io/v1/namespaces/{ns}/gateways", f"/apis/gateway.networking.k8s.io/v1/namespaces/{ns}/gateways/magicstick-setup", {
             "apiVersion": "gateway.networking.k8s.io/v1", "kind": "Gateway",

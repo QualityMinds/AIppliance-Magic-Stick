@@ -10,6 +10,8 @@ export const reasons = {
   COMPONENT: 'An owning UI component suite failed or timed out. A bounded component-failure.json diagnostic is retained when available.',
   IDENTITY: 'The appliance or node does not match the pinned lab identity.',
   CAPABILITY: 'An expected compute target or engine is unavailable.',
+  GPU_PROVIDER: 'This appliance has no physical GPU for the provider required by this scenario. Independent provider scenarios still run.',
+  GPU_VALIDATION: 'The selected physical GPU and engine have not passed the required current-boot validation. Run Hardware verification for this exact GPU and engine.',
   REVISION: 'The requested deployed revision or image digest was not observed.',
   HOST: 'The host worker or node is unavailable, stale or has changed boot identity.',
   BUSY: 'A host operation, update or unrelated workload makes the selected lab busy.',
@@ -33,10 +35,10 @@ export const reasons = {
 export type ReasonCode = keyof typeof reasons;
 /** Absence of a lab prerequisite is not a product failure. API/authentication,
  * invalid generated configuration, timeouts and assertions are failures. */
-export const blockedReasons: readonly ReasonCode[] = ['PREREQUISITE', 'PREPARATION_FAILED', 'DEPENDENCY', 'PRIVATE_FILE', 'TLS', 'IDENTITY', 'CAPABILITY',
+export const blockedReasons: readonly ReasonCode[] = ['PREREQUISITE', 'PREPARATION_FAILED', 'DEPENDENCY', 'PRIVATE_FILE', 'TLS', 'IDENTITY', 'CAPABILITY', 'GPU_PROVIDER', 'GPU_VALIDATION',
   'HOST', 'BUSY', 'OBSERVER', 'LOCK_BUSY', 'LOCK_STALE', 'LOCK_LOST', 'LAB', 'RECOVERY', 'CANCELLED', 'EXTERNAL_RUNNER'];
 export const stages = ['preflight', 'host-boot', 'host-readiness', 'login-form', 'login-return', 'login-session',
-  'model-estimate', 'model-create', 'model-ready', 'module-ready', 'model-stopped', 'model-failure', 'external-ready', 'external-stopped',
+  'model-estimate', 'model-create', 'model-ready', 'module-ready', 'app-ready', 'gateway-ready', 'model-stopped', 'model-failure', 'external-ready', 'external-stopped',
   'cleanup', 'recovery-barrier', 'recovery-journal', 'recovery-resource', 'recovery-module', 'recovery-sharing', 'report-evidence',
   'baseline-models', 'baseline-pods', 'baseline-intents', 'baseline-claims', 'baseline-routes', 'baseline-host', 'baseline-keys',
   'flux-ready', 'gpu-backend', 'gpu-binding', 'gpu-validation', 'gpu-slots', 'model-route', 'model-inference', 'model-update'] as const;

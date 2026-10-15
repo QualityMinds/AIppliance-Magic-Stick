@@ -544,6 +544,19 @@ as unmeasured product performance. Existing security/release CI remains required
 
 ## Implementation ledger
 
+15 October 2026 runner follow-up: HAR-02/06/07/10, MOD-03/04, APP-02,
+HW-06, SHR-02/04, SLOT-03 and MGPU-01 have targeted counterproofs for shared
+browser/API local DNS with verified TLS, fixed cleanup-operation diagnostics,
+causal recovery guards, control-plane AppInstance HelmRelease readiness,
+gateway restart detection, missing-provider gates, exact-card DRA preparation
+and bounded vLLM collective-rank cleanup. GPU validation uses fresh request and
+terminal pages around an independently observed native Job. New harness files
+are selected by `selftest`; validation-session checks are in Phase 3/4 fast.
+Wrapper/identity owning tests validate their ConfigMaps and version overrides.
+These isolated checks do not certify installed CPU/multi-GPU inference or
+gateway stability; those still require the targeted live acceptance and a fresh
+campaign. Historical reports are not rewritten.
+
 15 October 2026 navigation follow-up: NAV-01/02/03/06/08, SEC-01 and UX-02 have
 owning App/feature-parity/cache checks for nested System Status tabs, role-filtered
 maintenance tools, legacy hashes, lazy requests, keyboard selection, status-error

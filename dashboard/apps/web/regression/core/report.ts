@@ -96,6 +96,22 @@ export function completeCases(mode:string|undefined,cases:CaseResult[],required:
   return result;
 }
 const phase0IdsForReport=Array.from({length:11},(_,index)=>`HAR-${String(index+1).padStart(2,'0')}`);
+
+/** The launcher calls this only when its explicit inherited recovery fence
+ * refuses a live child before execution. Preserve those selected tuples at
+ * their source, rather than guessing a cause for missing results afterwards. */
+export function guardedLiveCases(mode:string,required:string[],cause?:RegressionBlocker):CaseResult[] {
+  requireSafe(!['all','selftest'].includes(mode) && !/(?:-fast|-fixtures)$/.test(mode) && !/^phase[0-8]$/.test(mode),'CONFIG');
+  const inherited=checkedBlocker(cause);
+  const blockedBy=inherited?.kind==='failure'?inherited:{kind:'failure' as const,reason:'RECOVERY'};
+  const matrix=(remainingRequirements(mode)??[]).filter(item=>item.environment==='live'&&required.includes(item.id));
+  const rows:CaseResult[]=matrix.map(item=>({id:item.id,variant:item.variant as CaseResult['variant'],layer:item.layer,
+    environment:'live',outcome:'Blocked',durationMs:0,reason:'RECOVERY',stage:'recovery-barrier',blockedBy}));
+  for(const id of required)if(!rows.some(item=>item.id===id))
+    rows.push({id,layer:'A',environment:'live',outcome:'Blocked',durationMs:0,reason:'RECOVERY',stage:'recovery-barrier',blockedBy});
+  return rows;
+}
+
 export function reportExitCode(cases:Array<{outcome:Outcome}>) {
   return cases.some(item=>terminalOutcome(item.outcome) === 'Failed') ? 1 :
     !cases.length || cases.some(item=>terminalOutcome(item.outcome) === 'Blocked') ? 2 : 0;
@@ -123,6 +139,8 @@ export function blockedAction(reason:ReasonCode='PREREQUISITE',kind?:RegressionB
   if(reason === 'RECOVERY' || reason === 'LOCK_LOST' || reason === 'LOCK_STALE')return 'Repeat all with the same persistent private run directory. Automatic recovery inspects the exact previous run; missing journals or changed resources still require review. Do not delete the Lease.';
   if(reason === 'LOCK_BUSY' || reason === 'BUSY')return 'Wait for the other run or host operation to finish; then repeat all.';
   if(reason === 'CAPABILITY')return 'Supply the missing real hardware/runtime; available providers are tested independently.';
+  if(reason === 'GPU_PROVIDER')return 'Use an appliance with physical GPUs from this provider. No provider setting or approval can substitute absent hardware; independent provider cases continue.';
+  if(reason === 'GPU_VALIDATION')return 'Open System → Hardware and verify this exact physical GPU and engine for the current boot. Inspect a failed verification; do not reuse another device or engine result.';
   return 'See the automatic preparation report for the missing external prerequisite; no approval form or manual test JSON is required.';
 }
 

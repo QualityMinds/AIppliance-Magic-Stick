@@ -4,16 +4,39 @@ import type {LiveFoundation} from './live-foundation.ts';
 import type {ExactDashboardRequest} from './auth.ts';
 import {AdministrationApi} from './administration-api.ts';
 import {KubectlObserver,verifyObserverRules,type KubeObject} from './observer.ts';
-import {HarnessError,requireSafe} from './errors.ts';
+import {HarnessError,requireSafe,atStage} from './errors.ts';
 import {bounded} from './run-lifecycle.ts';
 import {readPrivate} from './private-files.ts';
 import {ownedJournalName,type JournalEntry} from './journal.ts';
-import {poll} from './poll.ts';
+import {poll,currentReady} from './poll.ts';
 
 export const appTypes=['openclaw','hermes','paperclip','kubeopencode','odysseus'] as const;
 export type AppType=typeof appTypes[number];
 export interface AppFixture {type:AppType; originTemplate:string; adapter?:'semantic-chat-v1'; promptLabel?:string; sendButton?:string; responseSelector?:string; responseMarker:string}
 const resource='appinstances.appliance.magicstick.dev';
+
+/** The HelmRelease is a control-plane object. Its targetNamespace describes
+ * chart workloads, not the namespace in which Flux stores the release. */
+export function appReleaseTarget(item:AppInstance,name:string,applianceNamespace:string) {
+  const status=item.status,hasTarget=Boolean(status?.kind || status?.name || status?.namespace);
+  requireSafe(!hasTarget || status?.kind==='HelmRelease' && status.name===name && status.namespace===applianceNamespace,'OWNERSHIP');
+  return {name,namespace:hasTarget ? String(status!.namespace) : applianceNamespace};
+}
+
+export function appReleaseReady(item:AppInstance,observed:KubeObject,children:KubeObject[],owned:{uid:string;generation:number},namespace:string) {
+  requireSafe(item.metadata?.uid===owned.uid && item.metadata.generation===owned.generation &&
+    observed.metadata.uid===owned.uid && observed.metadata.generation===owned.generation,'OWNERSHIP');
+  const current=item.status?.observedGeneration===owned.generation && observed.status?.observedGeneration===owned.generation;
+  if(current && ['Degraded','Failed'].includes(String(item.status?.phase)))throw new HarnessError('API','Failed','app-ready');
+  return current && item.status?.phase==='Ready' && observed.status?.phase==='Ready' && children.length===1 && children.every(child=>
+    child.metadata.namespace===namespace && child.metadata.name===item.metadata!.name &&
+    child.metadata.labels?.['app.kubernetes.io/managed-by']==='magicstick-operator' &&
+    child.metadata.labels?.['appliance.magicstick.dev/appinstance']===item.metadata!.name &&
+    child.metadata.labels?.['appliance.magicstick.dev/application']===item.spec?.application &&
+    !child.metadata.deletionTimestamp && child.spec?.suspend!==true && child.spec?.targetNamespace===item.spec?.targetNamespace &&
+    typeof child.metadata.uid==='string' && Number.isSafeInteger(child.metadata.generation) &&
+    currentReady(child,child.metadata.uid,Number(child.metadata.generation)));
+}
 
 export function verifyAppCleanerRules(review:{status?:{incomplete?:boolean;resourceRules?:Array<{apiGroups:string[];resources:string[];verbs:string[]}>}}) {
   requireSafe(review.status?.incomplete === false && Array.isArray(review.status.resourceRules),'OBSERVER');
@@ -149,13 +172,13 @@ export class OwnedAppClient {
   }
   async ready(name:string) {
     const owned=this.owned.get(name);requireSafe(owned,'OWNERSHIP');
-    return poll(async()=>{await this.live.guard();const item=await this.read(name);const observed=await this.cleaner.find(name);
-      requireSafe(item?.metadata?.uid === owned.uid && observed?.metadata.uid === owned.uid,'OWNERSHIP');
-      const children=await this.live.observer.list('helmreleases.helm.toolkit.fluxcd.io','ai');
-      return {item,observed,children:children.filter(child=>child.metadata.ownerReferences?.some(owner=>owner.uid === owned.uid) ||
-        child.metadata.labels?.['appliance.magicstick.dev/appinstance'] === name)};
-    },value=>value.item.status?.phase === 'Ready' && value.children.length > 0 && value.children.every(child=>child.status?.conditions?.some(c=>c.type === 'Ready' && c.status === 'True')),
-    {timeoutMs:900_000,intervalMs:1500,stage:'model-ready'});
+    return atStage('app-ready',()=>poll(async()=>{await this.live.guard();const item=await this.read(name);const observed=await this.cleaner.find(name);
+      requireSafe(item && observed,'OWNERSHIP');
+      const target=appReleaseTarget(item,name,this.live.config.expected.applianceNamespace);
+      const children=await this.live.observer.list('helmreleases.helm.toolkit.fluxcd.io',target.namespace);
+      return {item,observed,target,children:children.filter(child=>child.metadata.name===target.name)};
+    },value=>appReleaseReady(value.item,value.observed,value.children,owned,value.target.namespace),
+    {timeoutMs:900_000,intervalMs:1500,stage:'app-ready'}));
   }
   async remove(name:string) {await this.live.cleanup(this.live.journal,{kind:'app',name});}
   async removeInUi(page:Page,name:string) {

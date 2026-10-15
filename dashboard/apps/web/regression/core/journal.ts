@@ -1,10 +1,25 @@
 import {randomUUID} from 'node:crypto';
-import {HarnessError, requireSafe} from './errors.ts';
+import {HarnessError, requireSafe,reasons,stages,type ReasonCode,type Stage} from './errors.ts';
 import {readPrivate, writePrivate} from './private-files.ts';
 
 export type ResourceKind = 'model' | 'app' | 'key' | 'identity';
-export interface JournalEntry {kind: ResourceKind; name: string; uid: string | null; state: 'requested' | 'owned' | 'removed' | 'blocked'; generation?: number}
+const cleanupOperations=['guard','lookup','remove','verify','persist'] as const;
+export interface CleanupFailure {operation:typeof cleanupOperations[number];reason:ReasonCode;stage?:Stage}
+export interface JournalEntry {kind: ResourceKind; name: string; uid: string | null; state: 'requested' | 'owned' | 'removed' | 'blocked'; generation?: number;
+  cleanupFailure?:CleanupFailure}
 interface JournalData {version: 1; runId: string; targetUid: string; prefix: string; entries: JournalEntry[]}
+
+function cleanupFailure(operation:CleanupFailure['operation'],error:unknown):CleanupFailure {
+  const reason=error instanceof HarnessError && Object.hasOwn(reasons,error.code) ? error.code : 'UNEXPECTED';
+  const stage=error instanceof HarnessError && error.stage && stages.includes(error.stage) ? error.stage : undefined;
+  return {operation,reason,...(stage?{stage}:{})};
+}
+function validCleanupFailure(value:unknown):value is CleanupFailure {
+  if(!value || typeof value!=='object' || Array.isArray(value))return false;
+  const item=value as CleanupFailure;
+  return Object.keys(item).every(key=>['operation','reason','stage'].includes(key)) && cleanupOperations.includes(item.operation) &&
+    Object.hasOwn(reasons,item.reason) && (item.stage===undefined || stages.includes(item.stage));
+}
 export interface CleanupAdapter {
   lookup(entry: JournalEntry): Promise<{uid: string} | null>;
   /** Must reject UID replacement atomically, not GET-then-DELETE by name. */
@@ -35,7 +50,12 @@ export class ResourceJournal {
   private data: JournalData;
   private writes:Promise<void> = Promise.resolve();
   private constructor(filename: string, data: JournalData) { this.filename = filename; this.data = data; }
-  get entries(): ReadonlyArray<JournalEntry> { return this.data.entries.map(item => ({...item})); }
+  get entries(): ReadonlyArray<JournalEntry> { return this.data.entries.map(item => ({...item,
+    ...(item.cleanupFailure?{cleanupFailure:{...item.cleanupFailure}}:{})})); }
+  /** Fixed diagnostic vocabulary only; no resource names, IDs or upstream body. */
+  get cleanupFailures():ReadonlyArray<CleanupFailure&{kind:ResourceKind}> {
+    return this.data.entries.flatMap(item=>item.cleanupFailure?[{kind:item.kind,...item.cleanupFailure}]:[]);
+  }
   get runId() { return this.data.runId; }
   get prefix() { return this.data.prefix; }
 
@@ -60,6 +80,7 @@ export class ResourceJournal {
         // Such an entry is skipped, never adopted or deleted, during recovery.
         (item.state !== 'owned' || item.uid !== null) &&
         (item.generation === undefined || (['model','app'].includes(item.kind) && Number.isSafeInteger(item.generation) && item.generation > 0 && item.uid !== null)) &&
+        (item.cleanupFailure===undefined || item.state==='blocked' && validCleanupFailure(item.cleanupFailure)) &&
         !seen.has(`${item.kind}:${item.name}`), 'OWNERSHIP');
       seen.add(`${item.kind}:${item.name}`);
     }
@@ -68,7 +89,7 @@ export class ResourceJournal {
   private persist() {
     // Racing API clients share one journal. A slower old rename must never
     // replace a newer ownership snapshot after a successful concurrent create.
-    this.writes = this.writes.then(()=>writePrivate(this.filename,this.data));
+    this.writes = this.writes.catch(()=>{}).then(()=>writePrivate(this.filename,this.data));
     return this.writes;
   }
 
@@ -100,7 +121,7 @@ export class ResourceJournal {
   async recoveredAbsent(kind:ResourceKind,name:string) {
     const entry=this.data.entries.find(item=>item.kind===kind&&item.name===name);
     requireSafe(entry&&['requested','blocked'].includes(entry.state)&&entry.uid===null,'OWNERSHIP');
-    entry.state='removed';await this.persist();
+    entry.state='removed';delete entry.cleanupFailure;await this.persist();
   }
   /** A model spec change is journaled immediately after the API acknowledges it. */
   async modelGeneration(name: string, uid: string, previous: number, generation: number) {
@@ -121,28 +142,37 @@ export class ResourceJournal {
   async cleanup(adapters: Record<ResourceKind, CleanupAdapter>, assertHeld: () => Promise<void>,
     only?: {kind: ResourceKind; name: string}) {
     if (only) requireSafe(this.data.entries.some(entry => entry.kind === only.kind && entry.name === only.name), 'OWNERSHIP');
-    const failures: string[] = [];
+    const failures: CleanupFailure[] = [];
     for (const entry of [...this.data.entries].reverse()) {
       if (entry.state === 'removed') continue;
       if (only && (entry.kind !== only.kind || entry.name !== only.name)) continue;
+      let operation:CleanupFailure['operation']='guard';
       try {
         await assertHeld();
+        operation='lookup';
         requireSafe((entry.state === 'owned' || entry.state === 'blocked') && entry.uid, 'OWNERSHIP');
         const adapter = adapters[entry.kind];
         requireSafe(adapter, 'CLEANUP');
         const current = await adapter.lookup({...entry});
         if (current) {
           requireSafe(current.uid === entry.uid, 'OWNERSHIP');
+          operation='guard';
           await assertHeld();
+          operation='remove';
           await adapter.removeIfUid({...entry}, entry.uid);
         }
+        operation='verify';
         requireSafe(await adapter.verifyRemoved({...entry}), 'CLEANUP');
-        entry.state = 'removed'; await this.persist();
-      } catch {
-        entry.state = 'blocked'; await this.persist(); failures.push(entry.name);
+        entry.state = 'removed'; delete entry.cleanupFailure;operation='persist';await this.persist();
+      } catch(error) {
+        entry.state = 'blocked';entry.cleanupFailure=cleanupFailure(operation,error);
+        // Diagnostic storage can fail too. Keep the in-memory fence and the
+        // fixed persist reason; a later attempt still re-observes exact UID.
+        try{await this.persist();}catch(persistError){entry.cleanupFailure=cleanupFailure('persist',persistError);}
+        failures.push({...entry.cleanupFailure});
       }
     }
-    if (failures.length) throw new HarnessError('CLEANUP', 'Failed');
+    if (failures.length) throw new HarnessError('CLEANUP', 'Failed',failures[0]!.stage ?? 'cleanup');
   }
 }
 

@@ -14,7 +14,8 @@ import {OwnedModelClient,modelContextUpdateReceipt} from '../core/owned-model.ts
 import {LiveFoundation} from '../core/live-foundation.ts';
 import {modelStopped,stopDiagnostic,waitModelStopped,type ModelStopState} from '../core/model-stop.ts';
 import {writePrivate} from '../core/private-files.ts';
-import {nvidiaValidationBinding} from './validation-workflow.ts';
+import {nvidiaValidationBinding,prepareValidation,requestValidationUi,completedValidation} from './validation-workflow.ts';
+import {pinnedGpuModules,requireGpuProvider} from './prerequisites.ts';
 import type {GpuSharingState,HardwareGpuDevice} from '@magicstick/dashboard-contracts';
 import {gpuFixtureEstimateBody,sizedGpuFixture} from '../core/gpu-fixture.ts';
 import type {GpuModelFixture} from '../core/config.ts';
@@ -51,7 +52,46 @@ test('HW-06 validation accepts legacy or exact DRA binding and rejects another i
   expect(()=>nvidiaValidationBinding(pod,device,state,claim,[])).toThrow('[CAPABILITY]');
   const legacy:KubeObject={metadata:{},spec:{nodeName:device.node,initContainers:[{name:'engine',resources:{limits:{'nvidia.com/gpu':'1'}}}]}};
   nvidiaValidationBinding(legacy,device,{...state,backend:'time-slicing'});
+  expect(()=>nvidiaValidationBinding(legacy,device,{...state,backend:'time-slicing'},undefined,[],4)).toThrow('[CAPABILITY]');
   expect(()=>nvidiaValidationBinding(legacy,device,state,claim,slices)).toThrow('[CAPABILITY]');
+});
+test('HW-06 SLOT-03 prepare exact-card DRA through borrowed settings before attempting the Verify UI',async()=>{
+  const lab=config();delete lab.gpu!.devices.amd;
+  const devices=Array.from({length:4},(_,index)=>({id:index===0?lab.gpu!.devices.nvidia!.id:`card-${index}`,vendor:'nvidia',
+    node:lab.gpu!.nodeName,nodeUid:lab.gpu!.nodeUid,bootId:lab.gpu!.bootId,eligible:true,hostDriverReady:true,
+    pciAddress:index===0?lab.gpu!.devices.nvidia!.pciAddress:`0000:0${index+2}:00.0`,validationAvailable:false})) as HardwareGpuDevice[];
+  let backend='time-slicing',draAvailable=true,transitions:unknown[]=[];
+  const scenario={config:lab,inventory:async()=>({devices}),state:async()=>({backend,draAvailable,mode:'shared',maxModels:2}),
+    transition:async(...args:unknown[])=>{transitions.push(args);backend='dra';for(const device of devices)device.validationAvailable=true;}} as unknown as GpuScenario;
+  expect((await prepareValidation(scenario,'OLlama','nvidia')).map(device=>device.id)).toEqual([lab.gpu!.devices.nvidia!.id]);
+  expect(transitions).toEqual([['nvidia','shared',2,'dra']]);
+  expect(await prepareValidation(scenario,'VLLM','all')).toHaveLength(4);expect(transitions).toHaveLength(1);
+  backend='time-slicing';draAvailable=false;transitions=[];for(const device of devices)device.validationAvailable=false;
+  // The request cannot touch the browser, create a verification receipt or
+  // mutate the allocator when the exact-card prerequisite does not exist.
+  const untouchedPage=new Proxy({},{get:()=>{throw new Error('Browser should not be touched');}});
+  await expect(requestValidationUi(scenario,untouchedPage as never,'OLlama','nvidia',0))
+    .rejects.toMatchObject({code:'GPU_VALIDATION',outcome:'Blocked',stage:'gpu-validation'});
+  expect(transitions).toEqual([]);
+  devices.splice(1);backend='time-slicing';devices[0]!.validationAvailable=true;
+  expect(await prepareValidation(scenario,'OLlama','nvidia')).toHaveLength(1);expect(transitions).toEqual([]);
+  devices[0]!.validation={OLlama:{state:'running'}};
+  await expect(prepareValidation(scenario,'OLlama','nvidia')).rejects.toMatchObject({code:'BUSY',stage:'gpu-validation'});
+});
+
+test('HW-03 SHR-04 optional-vendor module reads use only registered physical providers',()=>{
+  const lab=config();expect(pinnedGpuModules(lab)).toEqual(['amd-gpu','gpu']);delete lab.gpu!.devices.amd;
+  expect(pinnedGpuModules(lab)).toEqual(['gpu']);expect(()=>requireGpuProvider(lab,'nvidia')).not.toThrow();
+  expect(()=>requireGpuProvider(lab,'amd')).toThrow('[GPU_PROVIDER]');
+});
+test('HW-06 terminal failed validation stops with a concrete stage before polling stale device success',async()=>{
+  const request={requestId:'diagnostic-fixture',deviceIds:['fixture-card'],engine:'OLlama' as const,startedAt:Date.now()};
+  const job:KubeObject={metadata:{uid:'validation-uid',annotations:{'appliance.magicstick.dev/validation-request':request.requestId,
+    'appliance.magicstick.dev/validation-device':'fixture-card','appliance.magicstick.dev/validation-engine':'OLlama'}},
+    status:{conditions:[{type:'Failed',status:'True'}]}};
+  const scenario={config:config(),live:{guard:async()=>{},observer:{list:async()=>[job]}},
+    inventory:async()=>{throw new Error('A terminal failed Job must not be polled until a deadline');}} as unknown as GpuScenario;
+  await expect(completedValidation(scenario,request)).rejects.toMatchObject({code:'CAPABILITY',outcome:'Failed',stage:'gpu-validation'});
 });
 test.beforeEach(async()=>{directory=await mkdtemp(join(tmpdir(),'gpu-safety-'));});
 test.afterEach(async()=>{await rm(directory,{recursive:true,force:true});});

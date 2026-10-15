@@ -362,18 +362,140 @@ class Qwen4ExpPLEPinnedHostEmbedding:
         self.assertNotIn("NCCL_P2P_DISABLE", os.environ)
         wrapper = load_wrapper()
         wrapper["__file__"] = "/fixture/wrapper.py"
+        wrapper["collective_rendezvous_port"] = lambda: "29500"
         diagnostics=[]
-        wrapper["collective_diagnostic"] = lambda output, code, environment: diagnostics.append((output, code))
+        wrapper["collective_diagnostic"] = lambda output, code, environment, **details: diagnostics.append((output, code, details))
         from unittest.mock import MagicMock
-        process = MagicMock(pid=12345)
-        process.communicate.side_effect = [subprocess.TimeoutExpired("probe", 75), ("", None)]
-        with patch.object(subprocess, "Popen", return_value=process) as launch, patch.object(os, "killpg") as kill:
+        import time
+        processes = [MagicMock(pid=12345 + rank) for rank in range(2)]
+        for process in processes:
+            process.poll.return_value = None
+        with patch.object(subprocess, "Popen", side_effect=processes) as launch, patch.object(os, "killpg") as kill, \
+                patch.object(time, "monotonic", side_effect=[0, 76, 76, 76, 76]):
             self.assertFalse(wrapper["collective_probe"](["GPU-0", "GPU-1"], {}))
             self.assertTrue(launch.call_args.kwargs["start_new_session"])
             self.assertEqual(launch.call_args.kwargs["env"]["MAGICSTICK_VLLM_WRAPPER_ENABLED"], "false")
-            kill.assert_called_once()
-            self.assertEqual(process.communicate.call_args_list[0].kwargs["timeout"], 75)
-            self.assertEqual(diagnostics, [("", "timeout")])
+            self.assertEqual([call.args[0] for call in kill.call_args_list], [12345, 12346])
+            self.assertTrue(all(process.wait.call_args.kwargs["timeout"] == 10 for process in processes))
+            self.assertTrue(all(not process.communicate.called for process in processes))
+            self.assertEqual(diagnostics, [("", None, {"reason": "COLLECTIVE_PROBE_TIMEOUT"})])
+
+    def test_collective_second_cleanup_timeout_is_recorded_and_never_starts_a_fallback(self):
+        from unittest.mock import MagicMock
+        import time
+        wrapper = load_wrapper()
+        wrapper["__file__"] = "/fixture/wrapper.py"
+        wrapper["collective_rendezvous_port"] = lambda: "29500"
+        diagnostics = []
+        wrapper["collective_diagnostic"] = lambda output, code, environment, **details: diagnostics.append(details)
+        processes = [MagicMock(pid=12345 + rank) for rank in range(2)]
+        for process in processes:
+            process.poll.return_value = None
+            process.wait.side_effect = subprocess.TimeoutExpired("rank", 10)
+        with patch.dict(os.environ, {}, clear=True), \
+                patch.object(subprocess, "Popen", side_effect=processes) as launch, patch.object(os, "killpg"), \
+                patch.object(time, "monotonic", side_effect=[0, 76, 76, 76, 76]):
+            with self.assertRaises(SystemExit) as stopped:
+                wrapper["qualify_collectives"]([], ["GPU-0", "GPU-1"])
+            self.assertEqual(stopped.exception.code, 2)
+            self.assertEqual(launch.call_count, 2)  # No second pair / unsafe retry.
+            self.assertNotIn("NCCL_P2P_DISABLE", os.environ)
+            self.assertEqual(diagnostics, [{"reason": "COLLECTIVE_PROBE_CLEANUP_UNCONFIRMED", "cleanup_confirmed": False}])
+
+    def test_collective_exit_races_partial_launch_and_missing_success_marker_fail_closed(self):
+        from unittest.mock import MagicMock
+        wrapper = load_wrapper()
+        wrapper["__file__"] = "/fixture/wrapper.py"
+        wrapper["collective_rendezvous_port"] = lambda: "29500"
+        diagnostics = []
+        wrapper["collective_diagnostic"] = lambda output, code, environment, **details: diagnostics.append(details)
+        for failure, marker, expected in ((False, True, True), (False, False, False), (True, False, False)):
+            launched = []
+            def launch(command, **options):
+                self.assertEqual(command[1], "/fixture/collective_probe.py")
+                self.assertNotIn("torch.distributed.run", command)
+                if failure and launched:
+                    raise OSError("synthetic-sensitive-native-path")
+                process = MagicMock(pid=12345 + len(launched))
+                process.poll.return_value = process.wait.return_value = 0
+                launched.append((process, options))
+                if marker and len(launched) == 1:
+                    os.write(options["stdout"], b"MAGICSTICK_COLLECTIVE_OK\n")
+                return process
+            with self.subTest(failure=failure, marker=marker), patch.object(subprocess, "Popen", launch), \
+                    patch.object(os, "killpg", side_effect=ProcessLookupError):
+                self.assertEqual(wrapper["collective_probe"](["GPU-0", "GPU-1"], {
+                    "OMP_NUM_THREADS": "3", "TORCH_NCCL_ASYNC_ERROR_HANDLING": "0",
+                    "TORCHELASTIC_USE_AGENT_STORE": "True", "TORCHELASTIC_RESTART_COUNT": "99"}), expected)
+                self.assertEqual([options["env"]["RANK"] for _, options in launched], [str(rank) for rank in range(len(launched))])
+                self.assertTrue(all(options["env"]["WORLD_SIZE"] == "2" for _, options in launched))
+                self.assertTrue(all(options["env"]["OMP_NUM_THREADS"] == "3" for _, options in launched))
+                self.assertTrue(all(options["env"]["TORCH_NCCL_ASYNC_ERROR_HANDLING"] == "0" for _, options in launched))
+                self.assertTrue(all(options["env"]["TORCHELASTIC_USE_AGENT_STORE"] == "False" for _, options in launched))
+                self.assertTrue(all(options["env"]["TORCHELASTIC_RESTART_COUNT"] == "0" for _, options in launched))
+        self.assertEqual(diagnostics[-1]["reason"], "COLLECTIVE_PROBE_LAUNCH_FAILED")
+
+    @unittest.skipUnless(os.name == "posix", "The shipped runtimes use POSIX process groups")
+    def test_collective_owns_rank_descendants_and_does_not_wait_for_inherited_pipe_eof(self):
+        import time
+        wrapper = load_wrapper()
+        diagnostics = []
+        wrapper["collective_rendezvous_port"] = lambda: "29500"
+        wrapper["collective_diagnostic"] = lambda output, code, environment, **details: diagnostics.append((output, details))
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            wrapper["__file__"] = str(root / "wrapper.py")
+            # Rank zero exits unsuccessfully while its descendant keeps stdout
+            # open. Rank one also remains alive. The parent must kill BOTH owned
+            # groups, reap their leaders and return without a communicate wait.
+            (root / "collective_probe.py").write_text(
+                "import os, subprocess, sys, time\n"
+                "if os.environ['LOCAL_RANK'] == '0':\n"
+                "    subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])\n"
+                "    print('synthetic-private-native-detail', flush=True)\n"
+                "    sys.exit(1)\n"
+                "time.sleep(30)\n"
+            )
+            launched, native_launch = [], subprocess.Popen
+            def launch(*args, **kwargs):
+                process = native_launch(*args, **kwargs)
+                launched.append(process)
+                return process
+            started = time.monotonic()
+            with patch.object(subprocess, "Popen", launch):
+                self.assertFalse(wrapper["collective_probe"](["GPU-0", "GPU-1"], dict(os.environ)))
+            self.assertLess(time.monotonic() - started, 5)
+            self.assertTrue(all(process.returncode is not None for process in launched))
+            self.assertIn("synthetic-private-native-detail", diagnostics[0][0])
+            self.assertEqual(diagnostics[0][1]["reason"], "COLLECTIVE_PROBE_FAILED")
+
+    @unittest.skipUnless(os.name == "posix", "The shipped runtimes use POSIX process groups")
+    def test_collective_direct_launch_preserves_native_rank_contract_and_bounded_output(self):
+        wrapper = load_wrapper()
+        wrapper["collective_rendezvous_port"] = lambda: "29500"
+        for count in (2, 4):
+            with self.subTest(count=count), tempfile.TemporaryDirectory() as directory:
+                root = pathlib.Path(directory)
+                wrapper["__file__"] = str(root / "wrapper.py")
+                # Counterexample: only rank zero printing OK is not enough;
+                # every rank must exit successfully under the exact same group.
+                (root / "collective_probe.py").write_text(
+                    "import os, sys\n"
+                    "assert os.environ['RANK'] == os.environ['LOCAL_RANK']\n"
+                    "assert os.environ['WORLD_SIZE'] == os.environ['LOCAL_WORLD_SIZE'] == str(len(sys.argv[1].split(',')))\n"
+                    "assert os.environ['MASTER_ADDR'] == '127.0.0.1'\n"
+                    "assert int(os.environ['MASTER_PORT']) > 0\n"
+                    "if os.environ['RANK'] == '0':\n"
+                    "    print('synthetic-private-noise' * 10000, flush=True)\n"
+                    "    print('MAGICSTICK_COLLECTIVE_OK', flush=True)\n"
+                    "sys.exit(1 if os.environ.get('FAIL_RANK') == os.environ['RANK'] else 0)\n"
+                )
+                group = [f"GPU-{rank}" for rank in range(count)]
+                self.assertTrue(wrapper["collective_probe"](group, dict(os.environ)))
+                captured = []
+                wrapper["collective_diagnostic"] = lambda output, code, environment, **details: captured.append((output, details))
+                self.assertFalse(wrapper["collective_probe"](group, {**os.environ, "FAIL_RANK": "1"}))
+                self.assertLessEqual(len(captured[0][0]), 65536)
 
     def test_replicated_single_gpu_rejects_wrong_visible_identity_and_count(self):
         self.wrapper["os"].environ.update(MAGICSTICK_GPU_UUIDS="GPU-0", MAGICSTICK_GPU_COUNT="1",
@@ -480,6 +602,23 @@ class Qwen4ExpPLEPinnedHostEmbedding:
             self.assertIn("exit=2", logged.getvalue())
             self.assertIn("transport=host-mediated", logged.getvalue())
             self.assertNotIn("synthetic-private-detail", logged.getvalue())
+            marker = next(line.split("MAGICSTICK_STARTUP_DIAGNOSTIC=", 1)[1]
+                for line in logged.getvalue().splitlines() if "MAGICSTICK_STARTUP_DIAGNOSTIC=" in line)
+            self.assertEqual(json.loads(marker), {"version": 1, "stage": "collective-preflight",
+                "reason": "COLLECTIVE_PROBE_FAILED", "transport": "host-mediated", "exitCode": 2,
+                "cleanupConfirmed": True})
+        with tempfile.TemporaryDirectory() as directory, contextlib.redirect_stdout(io.StringIO()):
+            self.wrapper["collective_diagnostic"]("\U0001f512" * 70000, -9, {}, directory,
+                reason="COLLECTIVE_PROBE_CLEANUP_UNCONFIRMED", cleanup_confirmed=False)
+            retained = next(pathlib.Path(directory).glob("magicstick-nccl-*/probe.log"))
+            self.assertLessEqual(retained.stat().st_size, 65536)
+            self.assertTrue(retained.read_text())
+        with patch.object(tempfile, "mkdtemp", side_effect=OSError("synthetic-private-path")), \
+                contextlib.redirect_stdout(io.StringIO()) as logged:
+            self.wrapper["collective_diagnostic"]("synthetic-sensitive-native-detail", None, {},
+                reason="COLLECTIVE_PROBE_TIMEOUT")
+            self.assertIn('"reason": "COLLECTIVE_PROBE_TIMEOUT"', logged.getvalue())
+            self.assertNotIn("synthetic-", logged.getvalue())
 
     def test_fp8_calibration_flags_follow_the_actual_runtime_without_changing_precision(self):
         self.wrapper["os"].environ["MAGICSTICK_COMPUTE_TARGET"] = "cpu"

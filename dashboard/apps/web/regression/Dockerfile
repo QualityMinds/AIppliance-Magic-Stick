@@ -62,6 +62,7 @@ RUN --mount=type=bind,source=.,target=/source \
     && pnpm --filter @magicstick/dashboard-web exec playwright install --with-deps --only-shell chromium \
     && pnpm --filter @magicstick/dashboard-web build \
     && node --input-type=module -e "await import('./apps/web/regression/core/kubernetes-progress.ts')" \
+    && node --input-type=module -e "await import('./apps/web/regression/core/lab-dns.mjs')" \
     && node -e "if (Number(process.versions.node.split('.')[0]) < 24) process.exit(1)" \
     && git --version \
     && chmod -R a+rX /ms-playwright /opt/magicstick \

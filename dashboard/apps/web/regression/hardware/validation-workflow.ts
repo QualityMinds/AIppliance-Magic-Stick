@@ -3,9 +3,10 @@ import type {GpuValidationRequest,GpuSharingState,HardwareGpuDevice} from '@magi
 import {GpuScenario,podSpec} from '../core/gpu-scenario.ts';
 import type {KubeObject} from '../core/observer.ts';
 import {writePrivate} from '../core/private-files.ts';
-import {requireSafe} from '../core/errors.ts';
+import {HarnessError,requireSafe,atStage} from '../core/errors.ts';
 import {poll} from '../core/poll.ts';
 import {join} from 'node:path';
+import {requireGpuProvider} from './prerequisites.ts';
 
 export async function validationJobs(s:GpuScenario) {
   return [...await s.live.observer.list('jobs','ai'),...await s.live.observer.list('jobs',s.config.expected.applianceNamespace)];
@@ -15,13 +16,13 @@ export async function validationJobs(s:GpuScenario) {
  * node-wide extended-resource token. Check both the Pod reference and the
  * independently observed allocation; sharing does not relax UUID identity. */
 export function nvidiaValidationBinding(pod:KubeObject,device:HardwareGpuDevice,sharing:GpuSharingState,
-  claim?:KubeObject,slices:KubeObject[]=[]) {
+  claim?:KubeObject,slices:KubeObject[]=[],physicalCount=1) {
   const spec=podSpec(pod) as ReturnType<typeof podSpec>&{initContainers?:Array<{name:string;resources?:{
     limits?:Record<string,string>;claims?:Array<{name:string}>}}>};
   const engine=spec.initContainers?.find(c=>c.name==='engine');
   requireSafe(engine && (!spec.nodeName||spec.nodeName===device.node),'CAPABILITY');
   if(sharing.backend!=='dra') {
-    requireSafe(Number(engine.resources?.limits?.['nvidia.com/gpu'])===1&&!spec.resourceClaims?.length,'CAPABILITY');return;
+    requireSafe(physicalCount===1 && Number(engine.resources?.limits?.['nvidia.com/gpu'])===1&&!spec.resourceClaims?.length,'CAPABILITY');return;
   }
   const card=sharing.devices?.find(d=>d.nodeUid===device.nodeUid&&d.node===device.node&&d.pciAddress===device.pciAddress);
   requireSafe(card&&spec.resourceClaims?.length===1&&spec.resourceClaims[0]?.resourceClaimName===card.claimName&&
@@ -35,14 +36,50 @@ export function nvidiaValidationBinding(pod:KubeObject,device:HardwareGpuDevice,
   });
   requireSafe(matches.length===1&&matches[0]?.attributes?.uuid?.string===card.uuid,'CAPABILITY');
 }
+
+function validationDevices(s:GpuScenario,devices:HardwareGpuDevice[],scope:'all'|'nvidia') {
+  const gpu=s.config.gpu!;
+  if(scope==='nvidia')requireGpuProvider(s.config,'nvidia');
+  const selected=devices.filter(device=>device.nodeUid===gpu.nodeUid && (scope==='all' || device.id===gpu.devices.nvidia?.id));
+  requireSafe(selected.length>0 && selected.every(device=>device.node===gpu.nodeName && device.bootId===gpu.bootId),'IDENTITY');
+  return selected;
+}
+
+/** Borrow the real allocator through the existing UID/revision-bound sharing
+ * journal. Legacy extended resources cannot select one of several same-node
+ * cards; never wait on a deliberately disabled Verify button or accept an
+ * arbitrary NVIDIA allocation as proof of exact-card verification. */
+export async function prepareValidation(s:GpuScenario,engine:'OLlama'|'VLLM',scope:'all'|'nvidia') {
+  return atStage('gpu-validation',async()=>{
+    let inventory=await s.inventory(),selected=validationDevices(s,inventory.devices,scope),changed=false;
+    if(selected.some(device=>!['amd','nvidia'].includes(device.vendor) || device.eligible===false || device.hostDriverReady===false))
+      throw new HarnessError('GPU_VALIDATION','Blocked','gpu-validation');
+    if(selected.some(device=>device.vendor==='nvidia')) {
+      const count=inventory.devices.filter(device=>device.vendor==='nvidia' && device.nodeUid===s.config.gpu!.nodeUid).length;
+      const state=await s.state('nvidia');
+      if(count>1 && state.backend!=='dra') {
+        if(!state.draAvailable)throw new HarnessError('GPU_VALIDATION','Blocked','gpu-validation');
+        await s.transition('nvidia',state.mode,state.maxModels,'dra');changed=true;
+      }
+    }
+    if(changed) {
+      inventory=await poll(()=>s.inventory(),value=>validationDevices(s,value.devices,scope).every(device=>device.validationAvailable===true),
+        {timeoutMs:60_000,intervalMs:1000,stage:'gpu-validation'});
+      selected=validationDevices(s,inventory.devices,scope);
+    }
+    if(selected.some(device=>device.validationAvailable!==true))throw new HarnessError('GPU_VALIDATION','Blocked','gpu-validation');
+    if(selected.some(device=>['queued','running'].includes(device.validation?.[engine]?.state ?? '')))
+      throw new HarnessError('BUSY','Blocked','gpu-validation');
+    return selected;
+  });
+}
 /** Deterministic *request identity only*: the browser still uses the real
  * confirmation, authenticated API, controller and GPU diagnostic. No result,
  * hardware fact, token, routing or health response is mocked. */
 export async function requestValidationUi(s:GpuScenario,page:Page,engine:'OLlama'|'VLLM',scope:'all'|'nvidia',index:number) {
+  const devices=await prepareValidation(s,engine,scope);
   const now=Date.now()+index,uuid=s.live.journal.runId.slice(4),requestId=`dashboard-${now}-${uuid}`;
-  const devices=(await s.inventory()).devices.filter(d=>d.nodeUid === s.config.gpu!.nodeUid);
-  requireSafe(scope === 'all' || s.config.gpu!.devices.nvidia,'PREREQUISITE');
-  const deviceIds=scope === 'all' ? devices.map(d=>d.id) : [s.config.gpu!.devices.nvidia!.id];
+  const deviceIds=devices.map(device=>device.id);
   const body:GpuValidationRequest={nodeName:s.config.gpu!.nodeName,nodeUid:s.config.gpu!.nodeUid,engine,deviceIds,requestId,acknowledgeResourceUse:true};
   const filename=join(s.directory,`verification-${index}.json`);
   await writePrivate(filename,{version:1,runId:s.live.journal.runId,request:body,requestedAt:new Date(now-index).toISOString()},true);
@@ -54,7 +91,8 @@ export async function requestValidationUi(s:GpuScenario,page:Page,engine:'OLlama
   await page.evaluate(id=>Object.defineProperty(window.crypto,'randomUUID',{configurable:true,value:()=>id}),uuid);
   const region=page.getByRole('region',{name:`Engine validation on ${s.config.gpu!.nodeName}`});
   await region.getByLabel('GPUs to verify').selectOption(scope === 'all' ? 'all' : deviceIds[0]!);
-  await region.getByRole('button',{name:engine === 'OLlama' ? 'Verify Ollama' : 'Verify vLLM'}).click();
+  const verify=region.getByRole('button',{name:engine === 'OLlama' ? 'Verify Ollama' : 'Verify vLLM'});
+  await expect(verify).toBeEnabled({timeout:15_000});await verify.click({timeout:15_000});
   const dialog=page.getByRole('dialog'); await expect(dialog).toContainText(/GPU|verification/);
   s.allowed.splice(0,s.allowed.length,{method:'POST',path:'/api/hardware/validation',body});
   const response=page.waitForResponse(r=>new URL(r.url()).pathname === '/api/hardware/validation' && r.request().method() === 'POST');
@@ -74,11 +112,14 @@ export async function completedValidation(s:GpuScenario,request:Awaited<ReturnTy
     for (const job of jobs.filter(j=>j.metadata.annotations?.['appliance.magicstick.dev/validation-request'] === request.requestId)) {
       requireSafe(job.metadata.uid && request.deviceIds.includes(job.metadata.annotations!['appliance.magicstick.dev/validation-device']!) &&
         job.metadata.annotations!['appliance.magicstick.dev/validation-engine'] === request.engine,'OWNERSHIP');captured.set(job.metadata.uid,job);
+      if(job.status?.conditions?.some(condition=>condition.type==='Failed' && condition.status==='True'))
+        throw new HarnessError('CAPABILITY','Failed','gpu-validation');
     }
     const inventory=await s.inventory();
     const pods=[...await s.live.observer.list('pods','ai'),...await s.live.observer.list('pods',s.config.expected.applianceNamespace)];
     for (const job of captured.values()) {
       const deviceId=job.metadata.annotations!['appliance.magicstick.dev/validation-device'],device=inventory.devices.find(d=>d.id === deviceId)!;
+      requireSafe(device && device.nodeUid===s.config.gpu!.nodeUid && device.bootId===s.config.gpu!.bootId,'IDENTITY');
       for (const pod of pods.filter(p=>p.metadata.ownerReferences?.some(o=>o.kind === 'Job' && o.uid === job.metadata.uid))) {
         const spec=podSpec(pod) as ReturnType<typeof podSpec>&{initContainers?:Array<{name:string;image:string;resources?:{limits?:Record<string,string>;claims?:Array<{name:string}>}}>};
         if (spec.nodeName) requireSafe(spec.nodeName === s.config.gpu!.nodeName,'CAPABILITY');
@@ -90,7 +131,8 @@ export async function completedValidation(s:GpuScenario,request:Awaited<ReturnTy
           if(sharing.backend==='dra'&&!spec.nodeName)continue;
           nvidiaValidationBinding(pod,device,sharing,sharing.backend==='dra'&&card?
             await s.live.observer.get('resourceclaims.resource.k8s.io','ai',card.claimName):undefined,
-            sharing.backend==='dra'?await s.live.observer.list('resourceslices.resource.k8s.io'):[]);
+            sharing.backend==='dra'?await s.live.observer.list('resourceslices.resource.k8s.io'):[],
+            inventory.devices.filter(candidate=>candidate.vendor==='nvidia' && candidate.nodeUid===device.nodeUid).length);
         }
         else {
           const sharing=await s.state('amd');

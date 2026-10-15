@@ -6,6 +6,7 @@ import {evidenceAnnotations,evidenceStep,type TestLayer} from '../core/evidence.
 import {phase3Variants,type GpuVariant} from '../profiles/gpu-p0.ts';
 import {installedReadyUi,lifecycleUi,logsUi,modelCard,gpuConfigurationUi} from './live-ui.ts';
 import {withCleanup} from '../core/run-lifecycle.ts';
+import {pinnedGpuModules,requireGpuProvider} from './prerequisites.ts';
 
 function proof(keys:GpuVariant[],layers:TestLayer[]=['A','E']) {
   return evidenceAnnotations(...keys.flatMap(variant=>layers.filter(layer=>(phase3Variants[variant as keyof typeof phase3Variants].layers as readonly TestLayer[]).includes(layer))
@@ -29,7 +30,7 @@ test.describe('Installed exclusive physical GPU runtimes',()=>{
   test('HW-01 HW-02 HW-08 MEM-04 MEM-08 MEM-09 SLOT-01 pinned physical inventory and non-additive memory',proof([
     'p3-inventory','p3-mixed-vendor','p3-memory-denominators','p3-unified-memory','p3-slot-ring']),async ()=>{
     const s=scenario!;
-    requireSafe(s.config.gpu!.devices.amd && s.config.gpu!.devices.nvidia,'PREREQUISITE');
+    requireGpuProvider(s.config,'amd');requireGpuProvider(s.config,'nvidia');
     const {devices}=await s.inventory(),models=await s.live.api.models();
     requireSafe(physicalDevice(devices,'amd').architecture === 'gfx1151' &&
       physicalDevice(devices,'nvidia').pciAddress !== physicalDevice(devices,'amd').pciAddress,'CAPABILITY');
@@ -57,7 +58,7 @@ test.describe('Installed exclusive physical GPU runtimes',()=>{
   });
 
   test('HW-03 HW-08 MEM-08 rejects stale identity without changing Modules',proof(['p3-readiness','p3-identity','p3-memory-unknown'],['A']),async ()=>{
-    const s=scenario!,before=await Promise.all(['amd-gpu','gpu'].map(name=>s.live.observer.get('moduleactivations.appliance.magicstick.dev',s.config.expected.applianceNamespace,name))),body={nodeName:s.config.gpu!.nodeName,nodeUid:'regression-stale-node',engine:'OLlama',
+    const s=scenario!,before=await Promise.all(pinnedGpuModules(s.config).map(name=>s.live.observer.get('moduleactivations.appliance.magicstick.dev',s.config.expected.applianceNamespace,name))),body={nodeName:s.config.gpu!.nodeName,nodeUid:'regression-stale-node',engine:'OLlama',
       deviceIds:[Object.values(s.config.gpu!.devices)[0]!.id],requestId:`dashboard-${s.live.journal.runId}-stale`,acknowledgeResourceUse:true};
     await s.live.guard();
     const response=await s.live.context.request.post(s.config.dashboardUrl+'/api/hardware/validation',{data:body,

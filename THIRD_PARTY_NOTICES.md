@@ -115,7 +115,7 @@ Review that image inventory when advancing the runtime tag.
 
 | Chart or source | Repository | Version | Usage |
 |---|---|---:|---|
-| `gateway-helm` | https://gateway.envoyproxy.io | `v1.8.2` | Envoy Gateway control plane, data plane, and Gateway API extensions |
+| `gateway-helm` | https://gateway.envoyproxy.io | `v1.8.5`; Envoy Proxy `v1.38.6` | Envoy Gateway control plane, data plane, and Gateway API extensions |
 | `cert-manager` | https://charts.jetstack.io | `v1.20.2` | Certificate management |
 | `kubernetes-secret-generator` | https://helm.mittwald.de | `3.4.1` | Generated Kubernetes secrets |
 | `reloader` | https://stakater.github.io/stakater-charts | Unpinned | Config and secret reloads |

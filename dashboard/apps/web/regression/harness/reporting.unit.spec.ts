@@ -12,7 +12,7 @@ import {evidenceAnnotations,evidenceStep} from '../core/evidence.ts';
 import {phase3Requirements,gpuModeIds} from '../profiles/gpu-p0.ts';
 import {remainingRequirements} from '../profiles/remaining-p0.ts';
 import {disabledExperimentalEngines} from '../core/engine-policy.ts';
-import {completeCases,reportExitCode,reportVariants, saveReport, type CaseResult} from '../core/report.ts';
+import {completeCases,guardedLiveCases,blockedAction,reportExitCode,reportVariants, saveReport, type CaseResult} from '../core/report.ts';
 import {newRunId} from '../core/journal.ts';
 import {childEvidence} from '../core/campaign-evidence.ts';
 import {writePrivate} from '../core/private-files.ts';
@@ -225,6 +225,73 @@ test('HAR-10 missing live tuples inherit a recovery fence present before the pha
   const unobserved=completeCases('phase4',[],[],'PREREQUISITE',true);
   expect(unobserved.filter(row=>row.outcome==='Blocked').every(row=>row.blockedBy?.reason==='MISSING_EVIDENCE')).toBe(true);
   expect(unobserved.some(row=>row.outcome==='Failed'&&row.reason==='MISSING_EVIDENCE')).toBe(true);
+});
+
+test('HAR-07 HAR-10 a refused live child records the selected variant layers before completion without inventing HAR-10 failure',()=>{
+  const cause={kind:'failure' as const,caseId:'MOD-03',reason:'API',stage:'gateway-ready',
+    executionId:'b'.repeat(24),traceRunId:newRunId()};
+  for(const phase of [6,7,8]) {
+    const mode=`phase${phase}-live`,matrix=remainingRequirements(mode)!;
+    const required=[...new Set(matrix.map(item=>item.id))];
+    // This is the historical launcher failure: unvarianted guard rows cannot
+    // explain selected variant/layer gaps and must not be silently accepted.
+    const oldRows:CaseResult[]=required.map(id=>({id,layer:'A',environment:'live',outcome:'Blocked',durationMs:0,reason:'RECOVERY'}));
+    expect(completeCases(mode,oldRows,required).some(item=>item.reason==='MISSING_EVIDENCE'&&item.outcome==='Failed')).toBe(true);
+    const guards=guardedLiveCases(mode,required,cause),completed=completeCases(mode,guards,required);
+    expect(completed).toHaveLength(matrix.length);
+    expect(completed.every(item=>item.outcome==='Blocked'&&item.reason==='RECOVERY'&&item.stage==='recovery-barrier'&&
+      item.blockedBy?.caseId==='MOD-03'&&item.blockedBy.executionId===cause.executionId&&
+      item.blockedBy.traceRunId===cause.traceRunId&&!item.executionId)).toBe(true);
+    expect(completed.some(item=>item.reason==='MISSING_EVIDENCE')).toBe(false);
+  }
+  expect(()=>guardedLiveCases('phase6-fixtures',['HOST-01'],cause)).toThrow('[CONFIG]');
+  expect(()=>guardedLiveCases('phase6-fast',['HOST-01'],cause)).toThrow('[CONFIG]');
+  const rejected=completeCases('phase6-live',[],['HOST-01']);
+  expect(rejected.some(item=>item.reason==='MISSING_EVIDENCE'&&item.outcome==='Failed')).toBe(true);
+});
+
+test('HAR-07 HAR-10 a final preflight guard needs its exact final-idle attribution even when the phase was not initially fenced',()=>{
+  const mode='phase5',matrix=remainingRequirements(mode)!;
+  const rows:CaseResult[]=matrix.filter(item=>item.variant!=='final-idle').map(item=>({
+    id:item.id,variant:item.variant as CaseResult['variant'],layer:item.layer,environment:item.environment,
+    outcome:'Passed',durationMs:1,
+  }));
+  const guard=guardedLiveCases('preflight',['HAR-03'])[0]!;
+  expect(completeCases(mode,[...rows,guard],[]).some(item=>item.reason==='MISSING_EVIDENCE')).toBe(true);
+  const completed=completeCases(mode,[...rows,{...guard,variant:'final-idle'}],[]);
+  expect(completed.some(item=>item.reason==='MISSING_EVIDENCE')).toBe(false);
+  expect(completed.find(item=>item.variant==='final-idle')).toMatchObject({outcome:'Blocked',reason:'RECOVERY',stage:'recovery-barrier'});
+  // The same live guard cannot explain missing owning-layer fixture results.
+  const fixturesMissing=completeCases(mode,[{...guard,variant:'final-idle'}],[]);
+  expect(fixturesMissing.some(item=>item.environment==='fixture'&&item.outcome==='Failed'&&item.reason==='MISSING_EVIDENCE')).toBe(true);
+});
+
+test('HAR-10 GPU prerequisite next actions distinguish missing physical hardware from current-boot validation',()=>{
+  expect(blockedAction('GPU_PROVIDER','prerequisite')).toContain('physical GPUs from this provider');
+  expect(blockedAction('GPU_PROVIDER','prerequisite')).not.toContain('approval form');
+  expect(blockedAction('GPU_VALIDATION','prerequisite')).toContain('this exact physical GPU and engine');
+  expect(blockedAction('GPU_VALIDATION','prerequisite')).toContain('current boot');
+});
+
+test('HAR-07 HAR-10 an explicitly guarded child retains its original failure through JSON JUnit and campaign import',async()=>{
+  const output=await mkdtemp(join(tmpdir(),'magicstick-guarded-child-')),runId=newRunId(),directory=join(output,runId),receipt=join(output,'phase-result.json');
+  const cause={kind:'failure' as const,caseId:'MOD-03',reason:'API',stage:'gateway-ready',executionId:'c'.repeat(24),traceRunId:newRunId()};
+  const required=[...new Set(remainingRequirements('phase6-live')!.map(item=>item.id))];
+  try {
+    await saveReport(directory,runId,guardedLiveCases('phase6-live',required,cause),required,'unknown','phase6-live',
+      {version:1,outcome:'Passed'});
+    await writePrivate(receipt,{version:1,mode:'phase6-live',runId,directory,exitCode:2});
+    const child=await childEvidence({output,receipt,mode:'phase6-live',required,fixture:false});
+    expect(child.recoveryFence).toBe(true);expect(child.report.acceptable).toBe(false);
+    expect(child.report.cases.every(item=>item.reason==='RECOVERY'&&item.blockedBy?.caseId==='MOD-03'&&
+      item.blockedBy.stage==='gateway-ready'&&item.blockedBy.executionId===cause.executionId&&item.blockedBy.traceRunId===cause.traceRunId)).toBe(true);
+    expect(child.report.cases.some(item=>item.reason==='MISSING_EVIDENCE')).toBe(false);
+    const junit=await readFile(join(directory,'junit.xml'),'utf8');
+    expect(junit).toContain('value="MOD-03"');expect(junit).toContain('value="gateway-ready"');
+    const json=JSON.parse(await readFile(join(directory,'summary.json'),'utf8'));
+    expect(json.counts.Failed).toBe(0);expect(json.executionCounts).toEqual({Passed:0,Failed:0,Blocked:0});
+    expect(json.blockedCounts.failure).toBe(child.report.cases.length);
+  } finally {await rm(output,{recursive:true,force:true});}
 });
 
 test('HAR-10 cleanup cause survives later phase guards and only verified restoration clears it',()=>{

@@ -556,43 +556,130 @@ data:
         return filtered, min(capacities)
 
 
-    def collective_diagnostic(output, returncode, environment, directory="/tmp"):
+    def collective_diagnostic(output, returncode, environment, directory="/tmp", *,
+                              reason="COLLECTIVE_PROBE_FAILED", cleanup_confirmed=True):
         """Keep native transport detail private and bounded, never in reports."""
         import tempfile
+        policy = "host-mediated" if environment.get("NCCL_P2P_DISABLE") == "1" else "configured"
+        # These fixed, non-secret fields survive container restarts through the
+        # ordinary current/previous Pod log API. Native output stays private.
+        log("MAGICSTICK_STARTUP_DIAGNOSTIC=" + json.dumps({
+            "version": 1, "stage": "collective-preflight", "reason": reason,
+            "transport": policy, "exitCode": returncode if isinstance(returncode, int) else None,
+            "cleanupConfirmed": cleanup_confirmed,
+        }, sort_keys=True))
         try:
             private = Path(tempfile.mkdtemp(prefix="magicstick-nccl-", dir=directory))
             filename = private / "probe.log"
             descriptor = os.open(filename, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             with os.fdopen(descriptor, "w") as stream:
-                stream.write(str(output)[-65536:])
-            policy = "host-mediated" if environment.get("NCCL_P2P_DISABLE") == "1" else "configured"
+                stream.write(str(output).encode("utf-8", errors="replace")[-65536:].decode("utf-8", errors="ignore"))
             log(f"NVIDIA collective probe failed: exit={returncode}; transport={policy}; private_diagnostic={filename}")
         except OSError:
             log(f"NVIDIA collective probe failed: exit={returncode}; private diagnostic could not be saved")
 
 
+    def collective_rendezvous_port():
+        import socket
+        with socket.socket() as address:
+            address.bind(("127.0.0.1", 0))
+            return str(address.getsockname()[1])
+
+
     def collective_probe(expected, environment):
-        # A separate process group owns every CUDA context. A hung transport
-        # cannot outlive the probe or leave GPU workers behind in the Pod.
+        # Own each rank directly. torchrun gives its workers new sessions, so
+        # killing only torchrun's process group can leave CUDA workers alive and
+        # communicate() waiting forever on their inherited output pipe.
+        import select
         import signal
+        import time
         from pathlib import Path
 
-        command = [sys.executable, "-m", "torch.distributed.run", "--standalone",
-                   "--nnodes=1", f"--nproc-per-node={len(expected)}",
-                   str(Path(__file__).with_name("collective_probe.py")), ",".join(expected)]
-        process = subprocess.Popen(command, env={**environment, "MAGICSTICK_VLLM_WRAPPER_ENABLED": "false"},
-                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True)
+        command = [sys.executable, str(Path(__file__).with_name("collective_probe.py")), ",".join(expected)]
+        processes, output, reason, returncode = [], bytearray(), None, None
+        read_fd, write_fd = os.pipe()
+        os.set_blocking(read_fd, False)
+
+        def read_output():
+            # Bounded tail and bounded work per poll: a noisy rank must not
+            # exhaust RAM or postpone the qualification/cleanup deadline.
+            try:
+                chunk = os.read(read_fd, 65536)
+            except BlockingIOError:
+                return False
+            output.extend(chunk)
+            del output[:-65536]
+            return bool(chunk)
+
+        cleanup_confirmed = True
         try:
-            output, _ = process.communicate(timeout=75)
-            success = process.returncode == 0 and "MAGICSTICK_COLLECTIVE_OK" in output.splitlines()
-            if not success:
-                collective_diagnostic(output, process.returncode, environment)
-            return success
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            output, _ = process.communicate(timeout=10)
-            collective_diagnostic(output, "timeout", environment)
-            return False
+            port = collective_rendezvous_port()
+            deadline = time.monotonic() + 75
+            for rank in range(len(expected)):
+                child_environment = {**environment, "MAGICSTICK_VLLM_WRAPPER_ENABLED": "false",
+                    "MASTER_ADDR": "127.0.0.1", "MASTER_PORT": port,
+                    "RANK": str(rank), "LOCAL_RANK": str(rank),
+                    "WORLD_SIZE": str(len(expected)), "LOCAL_WORLD_SIZE": str(len(expected)),
+                    "TORCHELASTIC_USE_AGENT_STORE": "False", "TORCHELASTIC_RESTART_COUNT": "0"}
+                child_environment.setdefault("OMP_NUM_THREADS", "1")
+                child_environment.setdefault("TORCH_NCCL_ASYNC_ERROR_HANDLING", "1")
+                processes.append(subprocess.Popen(command, env=child_environment, stdout=write_fd,
+                    stderr=subprocess.STDOUT, start_new_session=True))
+            os.close(write_fd)
+            write_fd = None
+            while True:
+                codes = [process.poll() for process in processes]
+                if any(code not in (None, 0) for code in codes):
+                    reason, returncode = "COLLECTIVE_PROBE_FAILED", next(code for code in codes if code not in (None, 0))
+                    break
+                if all(code == 0 for code in codes):
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    reason = "COLLECTIVE_PROBE_TIMEOUT"
+                    break
+                if select.select([read_fd], [], [], min(0.05, remaining))[0]:
+                    if not read_output():
+                        time.sleep(min(0.05, remaining))
+        except OSError:
+            # Never print command/environment or an exception that may contain
+            # private native paths. Partial launches still own cleanup below.
+            reason = "COLLECTIVE_PROBE_FAILED" if len(processes) == len(expected) else "COLLECTIVE_PROBE_LAUNCH_FAILED"
+        finally:
+            if write_fd is not None:
+                os.close(write_fd)
+            # Always clear every owned group, including descendants whose rank
+            # leader already exited. A missing group is a normal exit race.
+            for process in processes:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                except OSError:
+                    cleanup_confirmed = False
+            cleanup_deadline = time.monotonic() + 10
+            for process in processes:
+                try:
+                    process.wait(timeout=max(0, cleanup_deadline - time.monotonic()))
+                except (subprocess.TimeoutExpired, OSError):
+                    cleanup_confirmed = False
+            # Do not wait for EOF: an inherited pipe must not add an unbounded
+            # third wait. Drain at most one retained tail per assigned rank.
+            for _ in range(len(expected) + 1):
+                if not read_output():
+                    break
+            os.close(read_fd)
+        text = output.decode("utf-8", errors="replace")
+        if not cleanup_confirmed:
+            collective_diagnostic(text, returncode, environment,
+                reason="COLLECTIVE_PROBE_CLEANUP_UNCONFIRMED", cleanup_confirmed=False)
+            # No alternate transport may start alongside unconfirmed workers.
+            die("COLLECTIVE_PROBE_CLEANUP_UNCONFIRMED; refusing model startup and transport retry")
+        success = reason is None and "MAGICSTICK_COLLECTIVE_OK" in text.splitlines()
+        if not success:
+            collective_diagnostic(text, returncode, environment,
+                reason=reason or "COLLECTIVE_PROBE_FAILED")
+        return success
 
 
     def qualify_collectives(args, expected):

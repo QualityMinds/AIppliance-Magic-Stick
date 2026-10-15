@@ -80,12 +80,24 @@ test('HAR-10 automatic discovery keeps NVIDIA tests available without AMD teleme
     node:host.name,nodeUid:host.nodeUid,pciAddress:'0000:01:00.0',name:'Synthetic NVIDIA'}]}} as any;
   observed.models.computeTargets.targets.push({id:'nvidia-gpu',available:true,engines:['OLlama','VLLM'],
     kvCacheTypes:{OLlama:[{value:'q8_0',label:'Q8'}],VLLM:[{value:'fp8',label:'FP8'}]}});
+  // Compatibility profiles are catalog data; they are not proof that this
+  // installation contains a physical AMD card.
+  observed.status.hardwareOperators!['amd-gpu']={compatibility:{selectedProfile:'',profiles:[
+    {id:'strix-halo',displayName:'AMD',experimental:true,memoryArchitecture:'unified'}]}} as any;
   const gpu=automaticGpuProfile(observed,{});
   expect(gpu?.devices.nvidia?.id).toBe('node-uid/0000:01:00.0');expect(gpu?.devices.amd).toBeUndefined();
   expect(gpu?.models.nvidiaOllama?.url).toBe('ollama://small:latest');
   expect(gpu?.models.nvidiaVllm?.contextWindow).toBe(1024);
   const prepared=prepareInputs({...source(),registrationFile:'lab-registration.json',gpu},observed,{...options,automatic:true},{});
   const profile=automaticProfile(observed,{},prepared.parsed);
+  expect(profile.moduleProfile).toBeUndefined();
+  prepared.parsed.gpu!.devices.amd={id:'node-uid/0000:02:00.0',pciAddress:'0000:02:00.0'};
+  observed.status.hardwareOperators!['amd-gpu']!.devices=[{id:'node-uid/0000:02:00.0',vendor:'amd',node:host.name,nodeUid:host.nodeUid,
+    pciAddress:'0000:02:00.0',pciId:'1002:fixture',name:'Synthetic AMD',eligible:true,validationAvailable:true}];
+  expect(automaticProfile(observed,{},prepared.parsed).moduleProfile).toMatchObject({profileId:'strix-halo'});
+  observed.status.hardwareOperators!['amd-gpu']!.devices![0]!.eligible=false;
+  expect(automaticProfile(observed,{},prepared.parsed).moduleProfile).toBeUndefined();
+  delete prepared.parsed.gpu!.devices.amd;
   expect(profile.identity.approveDisposableUsers).toBe(true);expect(profile.license.approveLicenseReplacement).toBe(true);
   expect(profile.unmanagedKey.createDisposableFixture).toBe(true);
   const report=inputReadiness(prepared.parsed,profile,observed,{...options,automatic:true,approve:[...labPolicy.scopes] as any});
