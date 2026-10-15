@@ -43,7 +43,9 @@
   and persistent workspaces and sessions.
 - Share running local chat models through the opt-in Private Mesh module.
 - Manage local users, GPU allocation, host networking, model cache and Ubuntu updates.
-- Run the existing P0 suite from **System → Regression tests** on a dedicated,
+- Inspect **System → System Status** through separate Overview, GPU Operators,
+  Flux and Network & routes tabs; administrators also find Model cache and Regression tests there.
+- Run the existing P0 suite from **System → System Status → Regression tests** on a dedicated,
   registered test Appliance **without a license**; see progress, Passed/Failed/Blocked results and
   [download sanitized reports](../development/regression-remaining-p0.md#in-the-dashboard).
   Clean up the previous run separately, including retained setup access when its

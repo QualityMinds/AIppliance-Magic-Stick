@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import type {RegressionRun, RegressionStatus, Session} from '@magicstick/dashboard-contracts';
 import {RegressionPage} from './RegressionPage';
-import {allowedSystemSections, isSystemSection} from './SystemAreaPage';
+import {allowedStatusSections, isStatusSection} from './SystemPage';
 import {api} from '../api';
 
 vi.mock('../api', () => ({api: {regression: vi.fn(), enableModule: vi.fn(), registerRegression: vi.fn(),
@@ -154,10 +154,10 @@ describe('In-Appliance regression tests', () => {
     await waitFor(() => expect(screen.getByRole('button', {name: 'Refresh tests'})).toBeEnabled());
     expect(api.startRegression).not.toHaveBeenCalled();
   });
-  it('registers the system tab and direct route only for administrators', () => {
-    expect(isSystemSection('regression')).toBe(true);
+  it('registers the nested System Status tab and direct route only for administrators', () => {
+    expect(isStatusSection('regression')).toBe(true);
     for (const role of ['magicstick-user', 'magicstick-viewer', 'magicstick-operator', 'magicstick-admin'])
-      expect(allowedSystemSections({roles: [role]} as Session).some(s => s.id === 'regression')).toBe(role === 'magicstick-admin');
+      expect(allowedStatusSections({roles: [role]} as Session).some(s => s.id === 'regression')).toBe(role === 'magicstick-admin');
   });
   it('requires one-time exact disposable-server confirmation without requesting passwords', async () => {
     data.registered = false; mount();

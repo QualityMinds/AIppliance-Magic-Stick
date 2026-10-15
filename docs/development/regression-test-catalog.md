@@ -75,8 +75,8 @@ without dashboard-management grants. Follow the current shared role contract.
 
 | ID | Action and expected proof | Layers | Gate |
 |---|---|---|---|
-| NAV-01 | Visit every primary page and Settings/System subtab allowed to each role. Models precedes Services, Mesh is below API Access, and restricted direct hashes cannot mount privileged controls. | B+E | P1 · smoke |
-| NAV-02 | Reload/deep-link, use Back/Forward and test legacy Settings/Network/Updates/Mesh hashes. Resolve to the canonical page without losing the authorized session. | U+B+E | P1 · functional |
+| NAV-01 | Visit every primary page and Settings/System/System Status subtab allowed to each role. Models precedes Services, Mesh is below API Access, and Model cache/Regression tests appear only in the administrator's nested status bar. Restricted direct hashes cannot mount privileged controls. | B+E | P1 · smoke |
+| NAV-02 | Reload/deep-link, use Back/Forward and test legacy Settings/Network/Updates/Mesh/Model cache/Regression hashes. Resolve to the canonical page without losing the authorized session. System Status tabs use `#/system/status/<section>` with Overview as the default. | U+B+E | P1 · functional |
 | NAV-03 | Merely open pages, accordions, dialogs and help, then wait through refresh. No model, module, host operation, Wi-Fi scan or validation workload is started. | U+B+A+E | P0 · smoke |
 | NAV-04 | Create/stop/remove run-owned objects through API. Overview counts/attention items converge to actual intent and runtime state, including errors and removal in progress. | U+A+E | P1 · functional |
 | NAV-05 | Compare module/instance local, public and direct links with discovered route/status metadata. Open/copy uses the correct hostname and excludes private in-cluster-only endpoints. | C+A+E | P1 · functional |
@@ -543,6 +543,20 @@ as unmeasured product performance. Existing security/release CI remains required
 | PERF-04 | Disrupt only a run-owned backend/controlled fixture connection. Bounded retry/recovery and subsequent inference work without resource amplification or endless aggressive polling. | U+C+A+N | P1 · soak |
 
 ## Implementation ledger
+
+15 October 2026 navigation follow-up: NAV-01/02/03/06/08, SEC-01 and UX-02 have
+owning App/feature-parity/cache checks for nested System Status tabs, role-filtered
+maintenance tools, legacy hashes, lazy requests, keyboard selection, status-error
+navigation and inert opening. Desktop/mobile workflows in the existing
+`navigation/navigation.browser.spec.ts` remain selected by `smoke-fixtures` in
+Phase 1, including reload, Back/Forward, exact GPU/Flux failure details, no
+license prerequisite and no mutations. Existing Phase 8 regression-dashboard
+fixtures keep exercising the old bookmark as a compatibility path. These are
+isolated U/B checks, not a new installed-appliance or hardware acceptance claim.
+Local verification passed 391 Web, 96 CLI and 230 harness tests, all 15 smoke
+and 21 Phase 8 browser fixtures, client/regression typechecks, production builds
+and 44 documentation/website checks. No test-server run, publication or rollout
+was performed for this navigation change.
 
 15 October 2026 follow-up: HAR-04/07/10 and UX-02 now cover retained-access
 cleanup with a released Lease, exact-snapshot conflicts and disabled reasons in

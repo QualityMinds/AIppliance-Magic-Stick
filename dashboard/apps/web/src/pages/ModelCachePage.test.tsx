@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import type {ManagedHost, Session} from '@magicstick/dashboard-contracts';
 import {ModelCachePage} from './ModelCachePage';
-import {allowedSystemSections, isSystemSection} from './SystemAreaPage';
+import {allowedStatusSections, isStatusSection} from './SystemPage';
 
 let host: ManagedHost;
 const writes: Array<Record<string, unknown>> = [];
@@ -73,10 +73,10 @@ describe('Model cache management', () => {
   });
 
   it('registers the tab only for administrators, including direct route handling', () => {
-    expect(isSystemSection('model-cache')).toBe(true);
+    expect(isStatusSection('model-cache')).toBe(true);
     for (const role of ['magicstick-user', 'magicstick-operator', 'magicstick-viewer', 'magicstick-admin']) {
       const session = {subject: 'test-user', username: 'example', roles: [role]} as Session;
-      expect(allowedSystemSections(session).some((section) => section.id === 'model-cache')).toBe(role === 'magicstick-admin');
+      expect(allowedStatusSections(session).some((section) => section.id === 'model-cache')).toBe(role === 'magicstick-admin');
     }
   });
 });

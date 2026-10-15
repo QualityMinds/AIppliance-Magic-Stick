@@ -16,7 +16,7 @@ the cards is outside this crop. Select any screenshot to open it at full size.*
 | Mesh | Administrator-only page directly below API Access for Private Mesh setup, membership, invitations, local-model sharing, and relay settings. Existing Settings Mesh links open this page. |
 | Kubernetes Access | Lets administrators assign Viewer, Operator, or Cluster Administrator access to existing SSO identities and download or copy token-free OIDC kubeconfigs. |
 | System → Settings → Federated SSO | Free Registered or Commercial: validates OIDC discovery or SAML metadata, stores providers in Keycloak, and maps exact upstream claim/attribute values to fixed Magic Stick roles. |
-| System | Groups Settings, License, Users, Hardware, Model cache, Regression tests, System Status, and Computer power behind one primary navigation item. Settings contains the Domains, Federated SSO, Network, and Updates subtabs. Administration areas retain their role, identity, and entitlement restrictions; Hardware and System Status remain available to every dashboard role. Model cache and Regression tests are administrator-only; Computer power is an administrator-only tab immediately after System Status. |
+| System | Groups Settings, License, Users, Hardware, System Status, and Computer power behind one primary navigation item. Settings contains the Domains, Federated SSO, Network, and Updates subtabs. System Status contains Overview, GPU Operators, Flux, Network & routes, Model cache, and Regression tests. Administration areas retain their role, identity, and entitlement restrictions; Hardware and the read-only status tabs remain available to every dashboard role. Model cache and Regression tests are administrator-only; Computer power remains an administrator-only System tab immediately after System Status. |
 
 Mesh has a direct link at `#/mesh`. Settings subtabs have direct links at `#/system/settings/<section>`; Domains
 is the default at `#/system/settings`. Former `#/system/network` and
@@ -25,9 +25,26 @@ is the default at `#/system/settings`. Former `#/system/network` and
 Only the selected subtab mounts its page; opening Settings does not apply
 network, update, domain, or identity configuration changes.
 
+## System Status
+
+Open **System → System Status** for a second tab bar, like the one in Settings:
+
+- **Overview** shows resource counts and compact GPU-operator, Flux and route summaries.
+- **GPU Operators** shows each provider's driver mode, version, readiness and message.
+- **Flux** shows reconciliation state, reasons and messages.
+- **Network & routes** shows discovered Gateway routes, hostnames and acceptance.
+- **Model cache** and **Regression tests** provide administrator-only maintenance tools.
+
+Overview is the default at `#/system/status`; other tabs use
+`#/system/status/<section>`. Existing `#/system/model-cache` and
+`#/system/regression` bookmarks redirect to their matching status tab. Opening or
+switching tabs does not clear caches, start tests or change system configuration.
+Only the selected tool loads its data; status errors do not block access to the
+cache or regression page. Use arrow keys, Home and End within the status tab bar.
+
 ## Regression tests
 
-On a dedicated disposable test server, open **System → Regression tests** as an
+On a dedicated disposable test server, open **System → System Status → Regression tests** as an
 administrator. **No license is required**, including report downloads.
 Enable the optional runner and register the Appliance once, then choose
 **Start regression tests**. The suite runs in Kubernetes and survives leaving or

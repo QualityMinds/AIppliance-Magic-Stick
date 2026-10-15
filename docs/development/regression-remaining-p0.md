@@ -7,7 +7,7 @@ settings, deploy services, replace test licenses and clear model caches.
 
 **No license is required.** Test-server registration is separate from licensing.
 
-1. Open **System → Regression tests** as an administrator.
+1. Open **System → System Status → Regression tests** as an administrator.
 2. Once: **Enable regression runner**, wait for readiness, then **Register test
    Appliance** and confirm `DISPOSABLE TEST SERVER`.
 3. Choose **Start regression tests**. Credentials, scoped Kubernetes access and

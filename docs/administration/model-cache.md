@@ -2,11 +2,12 @@
 
 ## Model cache cleanup
 
-Use **System → Model cache** to inspect disk space and clear downloaded model
+Use **System → System Status → Model cache** to inspect disk space and clear downloaded model
 files after stopping local models. It preserves model definitions, credentials,
 container images and application data. See [Scope](#scope) for the cleanup boundaries.
 
-Administrators open **System → Model cache** (`#/system/model-cache`). Each
+Administrators open **System → System Status → Model cache**
+(`#/system/status/model-cache`; the former `#/system/model-cache` bookmark still works). Each
 managed computer reports system-disk capacity/free space and cached model sizes
 for Hugging Face/vLLM and Ollama. This is **disk space**, not RAM or
 VRAM. Help is behind information icons. Refresh reads the latest host report;

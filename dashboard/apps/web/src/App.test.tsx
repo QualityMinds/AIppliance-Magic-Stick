@@ -67,7 +67,10 @@ describe('default React dashboard', () => {
     expect(within(systemSections).queryByRole('tab', {name: /Federated SSO/})).not.toBeInTheDocument();
     expect(within(systemSections).getByRole('tab', {name: 'System Status'})).toBeInTheDocument();
     expect(within(systemSections).getByRole('tab', {name: 'Hardware'})).toBeInTheDocument();
-    expect(within(systemSections).getByRole('tab', {name: 'Model cache'})).toBeInTheDocument();
+    expect(within(systemSections).queryByRole('tab', {name: 'Model cache'})).not.toBeInTheDocument();
+    expect(within(systemSections).queryByRole('tab', {name: 'Regression tests'})).not.toBeInTheDocument();
+    const statusSections = screen.getByRole('tablist', {name: 'System Status sections'});
+    expect(within(statusSections).getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Overview', 'GPU Operators', 'Flux', 'Network & routes', 'Model cache', 'Regression tests']);
     expect(within(systemSections).queryByRole('tab', {name: 'Network'})).not.toBeInTheDocument();
     expect(within(systemSections).queryByRole('tab', {name: 'Updates'})).not.toBeInTheDocument();
     expect(within(systemSections).getByRole('tab', {name: 'System Status'}).nextElementSibling).toBe(within(systemSections).getByRole('tab', {name: 'Computer power'}));
@@ -151,6 +154,78 @@ describe('default React dashboard', () => {
     expect(window.location.hash).toBe('#/system/status');
   });
 
+  it.each(['model-cache', 'regression'] as const)('redirects old %s links to System Status without opening other tools', async (section) => {
+    window.history.replaceState(null, '', `#/system/${section}`);
+    renderApp();
+    const label = section === 'model-cache' ? 'Model cache' : 'Regression tests';
+    expect(await screen.findByRole('heading', {name: label})).toBeInTheDocument();
+    expect(screen.getByRole('tab', {name: 'System Status'})).toHaveAttribute('aria-selected', 'true');
+    expect(within(screen.getByRole('tablist', {name: 'System Status sections'})).getByRole('tab', {name: label})).toHaveAttribute('aria-selected', 'true');
+    await waitFor(() => expect(window.location.hash).toBe(`#/system/status/${section}`));
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input) === '/api/status')).toBe(false);
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).startsWith(section === 'model-cache' ? '/api/regression' : '/api/host-management'))).toBe(false);
+    expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+  });
+
+  it.each([
+    ['gpu-operators', 'GPU Operators'], ['flux', 'Flux'], ['network', 'Network & routes'],
+    ['model-cache', 'Model cache'], ['regression', 'Regression tests'],
+  ])('opens and preserves the System Status %s deep link', async (section, label) => {
+    window.history.replaceState(null, '', `#/system/status/${section}`);
+    renderApp();
+    const tabs = await screen.findByRole('tablist', {name: 'System Status sections'});
+    expect(within(tabs).getByRole('tab', {name: label})).toHaveAttribute('aria-selected', 'true');
+    expect(window.location.hash).toBe(`#/system/status/${section}`);
+    expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+  });
+
+  it('keeps nested status navigation keyboard accessible and separate from Settings', async () => {
+    window.history.replaceState(null, '', '#/system/status');
+    renderApp();
+    const tabs = await screen.findByRole('tablist', {name: 'System Status sections'});
+    const overview = within(tabs).getByRole('tab', {name: 'Overview'});
+    overview.focus();
+    await userEvent.keyboard('{ArrowRight}');
+    expect(within(tabs).getByRole('tab', {name: 'GPU Operators'})).toHaveFocus();
+    expect(window.location.hash).toBe('#/system/status/gpu-operators');
+    await userEvent.keyboard('{ArrowRight}');
+    expect(window.location.hash).toBe('#/system/status/flux');
+    await userEvent.click(screen.getByRole('tab', {name: 'Settings'}));
+    expect(screen.getByRole('tablist', {name: 'Settings sections'})).toBeInTheDocument();
+    expect(screen.queryByRole('tablist', {name: 'System Status sections'})).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('tab', {name: 'System Status'}));
+    expect(screen.getByRole('tab', {name: 'Flux'})).toHaveAttribute('aria-selected', 'true');
+    expect(window.location.hash).toBe('#/system/status/flux');
+    await userEvent.click(screen.getByRole('tab', {name: 'Overview'}));
+    expect(window.location.hash).toBe('#/system/status');
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => /^\/api\/(regression|host-management)/.test(String(input)))).toBe(false);
+    expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+  });
+
+  it('falls back to Overview for an unknown System Status subtab', async () => {
+    window.history.replaceState(null, '', '#/system/status/not-a-tab');
+    renderApp();
+    const tabs = await screen.findByRole('tablist', {name: 'System Status sections'});
+    expect(within(tabs).getByRole('tab', {name: 'Overview'})).toHaveAttribute('aria-selected', 'true');
+    expect(window.location.hash).toBe('#/system/status');
+  });
+
+  it('keeps maintenance navigation usable when resource status fails, with an explicit retry', async () => {
+    const normalFetch = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (input, init) => String(input) === '/api/status'
+      ? response({error: 'Fixture status unavailable'}, 503) : normalFetch(input, init));
+    window.history.replaceState(null, '', '#/system/status/flux');
+    renderApp();
+    expect(await screen.findByText('Fixture status unavailable')).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Retry status'})).toBeEnabled();
+    await userEvent.click(screen.getByRole('tab', {name: 'Regression tests'}));
+    expect(await screen.findByRole('button', {name: 'Start regression tests'})).toBeEnabled();
+    expect(screen.queryByText('Fixture status unavailable')).not.toBeInTheDocument();
+    expect(window.location.hash).toBe('#/system/status/regression');
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => /^\/api\/(license|host-management)/.test(String(input)))).toBe(false);
+    expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+  });
+
   it('redirects legacy settings links to the matching System section', async () => {
     window.history.replaceState(null, '', '#/settings');
     renderApp();
@@ -229,11 +304,14 @@ describe('default React dashboard', () => {
     payloads['/api/session'] = {subject: 'example', username: 'example', roles: [role]};
     renderApp();
     await screen.findByRole('heading', {name: 'Overview'});
-    for (const path of ['#/system/model-cache', '#/system/regression', '#/system/settings', '#/system/settings/federated-sso', '#/system/settings/network', '#/system/settings/updates', '#/system/network', '#/system/updates', '#/system/federated-sso']) {
+    for (const path of ['#/system/model-cache', '#/system/regression', '#/system/status/model-cache', '#/system/status/regression', '#/system/settings', '#/system/settings/federated-sso', '#/system/settings/network', '#/system/settings/updates', '#/system/network', '#/system/updates', '#/system/federated-sso']) {
       window.location.hash = path;
       window.dispatchEvent(new HashChangeEvent('hashchange'));
       await waitFor(() => expect(window.location.hash).toBe('#/system/status'));
       expect(screen.queryByRole('tablist', {name: 'Settings sections'})).not.toBeInTheDocument();
+      const statusTabs = screen.getByRole('tablist', {name: 'System Status sections'});
+      expect(within(statusTabs).queryByRole('tab', {name: 'Model cache'})).not.toBeInTheDocument();
+      expect(within(statusTabs).queryByRole('tab', {name: 'Regression tests'})).not.toBeInTheDocument();
     }
     for (const path of ['#/mesh', '#/settings/mesh', '#/system/mesh', '#/system/settings/mesh']) {
       window.location.hash = path;

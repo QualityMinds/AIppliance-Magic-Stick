@@ -26,7 +26,7 @@ maintenance window, optional automatic restarts and manual package maintenance.
 It shows held/kernel/GPU packages and reboot requirements without automatically
 updating the hardware stack or container images. See [Ubuntu updates](../administration/ubuntu-updates.md).
 
-**System → Model cache** (`#/system/model-cache`) is an administrator-only tab
+**System → System Status → Model cache** (`#/system/status/model-cache`) is an administrator-only tab
 showing disk free space and per-engine model-cache sizes. Explicit, exact-host
 confirmation clears unused Hugging Face/Ollama files through the host worker;
 active models and stale inventory block cleanup. See [model cache management](../administration/model-cache.md).

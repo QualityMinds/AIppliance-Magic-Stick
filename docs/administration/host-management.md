@@ -61,7 +61,7 @@ updates. A software update keeps its reservation until Flux observes the current
 source and ready workloads, not just until Ansible exits. Failed convergence
 remains fenced for inspection; it is not an old test lock to force-release.
 
-**System → Model cache** uses this same host-operation boundary for explicit
+**System → System Status → Model cache** uses this same host-operation boundary for explicit
 cleanup of downloaded models. It never removes credentials or container images,
 and refuses cleanup while local model deployments can use the cache. See
 [model cache management](model-cache.md) for scope and upgrade requirements.

@@ -227,11 +227,25 @@ describe('dashboard feature contracts', () => {
     expect(screen.getByText(/Viewer can inspect cluster resources/)).toBeInTheDocument();
   });
 
-  it('System Status restores GPU, Flux, pod and Gateway route details', async () => {
-    renderPage(<SystemPage />);
-    expect(await screen.findByText('NVIDIA GPU Operator')).toBeInTheDocument();
-    expect(screen.getByText('0 ready / 0 active / 1 known')).toBeInTheDocument();
-    expect(screen.getByText('1/1')).toBeInTheDocument();
-    expect(screen.getByText('default.paperclip.magicstick.local')).toBeInTheDocument();
+  it.each(['overview', 'gpu-operators', 'flux', 'network'] as const)('System Status retains the %s details in its own tab', async (section) => {
+    renderPage(<SystemPage session={session} section={section} onSectionChange={vi.fn()} />);
+    expect(await screen.findByRole('button', {name: 'Refresh status'})).toBeEnabled();
+    if (section === 'overview') {
+      expect(screen.getByText('1/1')).toBeInTheDocument();
+      expect(screen.getByText('0 ready / 0 active / 1 known')).toBeInTheDocument();
+      expect(screen.getByText('3 / 3 accepted')).toBeInTheDocument();
+      expect(screen.queryByText('NVIDIA GPU Operator')).not.toBeInTheDocument();
+    } else if (section === 'gpu-operators') {
+      expect(screen.getByText('NVIDIA GPU Operator')).toBeInTheDocument();
+      expect(screen.getByText('0 ready / 0 active / 1 known')).toBeInTheDocument();
+      expect(screen.getByText('No NVIDIA GPU detected.')).toBeInTheDocument();
+    } else if (section === 'flux') {
+      expect(screen.getByText('flux-system/apps')).toBeInTheDocument();
+      expect(screen.getByText('Ready')).toBeInTheDocument();
+    } else {
+      expect(screen.getByText('default.paperclip.magicstick.local')).toBeInTheDocument();
+      expect(screen.getByText('litellm.magicstick.local')).toBeInTheDocument();
+    }
+    expect(requestLog.every((request) => request.method === 'GET')).toBe(true);
   });
 });

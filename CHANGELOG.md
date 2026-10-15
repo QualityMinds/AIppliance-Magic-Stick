@@ -8,6 +8,11 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Group Model cache and Regression tests under System Status, with a second tab
+  bar for Overview, GPU Operators, Flux, Network & routes and maintenance tools.
+  Preserve old bookmarks, administrator restrictions and license-free regression
+  access; opening tabs never starts tests or cleanup.
+
 - Allow **Clean up previous test run** to restore retained setup access even
   after the test lock was released; explain disabled actions and retain exact
   journal/Lease ownership checks. Cleanup never starts test phases.
@@ -67,7 +72,7 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
   reason, stage and filtered trace when recorded. Preserve the distinction in
   HTML, text, JSON and JUnit reports; cancellation and unrecorded causes
   remain separate, and unexecuted dependent checks retain the Blocked outcome.
-- Add administrator-only **System → Regression tests**: run the existing
+- Add administrator-only **System → System Status → Regression tests**: run the existing
   Phase 0–8 P0 suite as one Kubernetes Job on a registered disposable test
   Appliance, show durable progress and outcomes, cancel with bounded cleanup,
   and download sanitized HTML, JUnit and filtered-trace archives. Generate test
