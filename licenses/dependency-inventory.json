@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "status": "inventory-not-legal-clearance",
   "pnpmLockSha256": "6dda8724e63f83d4608f703a3357dc0d2544ff5501e9a32df66a9a90f8d6909e",
-  "deploymentReferencesSha256": "8c6da0335305473d54b25c3e32d6bf79f635cf3045bef5247f4135da00b0d237",
+  "deploymentReferencesSha256": "c50d962be53ed44d0cd5fb1bc30bfd8cab414970ba85aa188c0ff7b7afc4f66b",
   "npm": [
     {
       "name": "@adobe/css-tools",
@@ -2501,7 +2501,7 @@
     {
       "file": "magic-cluster/apps/dashboard/api-deployment.yaml",
       "line": 34,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-05ad953bf577f4d35f45121db92107a056a9ed89@sha256:21764c8b0dc56866b3e7ae4993f6bb4c30f7998e6efcea6439d70ca1a5ea8c3b"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:api-sha-de6d9165a7d6fbc1164d963fb4895cfc5ad41627@sha256:4683ac005208cdf3a9aa92941e2aae40dc2a309588371da614ea8593157c8953"
     },
     {
       "file": "magic-cluster/apps/dashboard/dashboard-api.yaml",
@@ -2521,7 +2521,7 @@
     {
       "file": "magic-cluster/apps/dashboard/deployment.yaml",
       "line": 32,
-      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-05ad953bf577f4d35f45121db92107a056a9ed89@sha256:ec2341561035f754eb841fdb2ad5bb5618e28c86451ded2cfe4df9866d8a43f4"
+      "reference": "image: ghcr.io/qualityminds/magicstick-dashboard:sha-de6d9165a7d6fbc1164d963fb4895cfc5ad41627@sha256:48c0a721eb8b65e23481cce8aa5e80ab2e1858558d3675be9208b44c63138247"
     },
     {
       "file": "magic-cluster/apps/dashboard/test_regression_api.py",
@@ -2795,12 +2795,12 @@
     },
     {
       "file": "magic-cluster/platform/ai/kubeai/base/test_vllm_wrapper.py",
-      "line": 447,
+      "line": 489,
       "reference": "self.wrapper[\"runtime_version\"] = lambda package, version=version: version"
     },
     {
       "file": "magic-cluster/platform/ai/kubeai/base/vllm-wrapper-configmap.yaml",
-      "line": 316,
+      "line": 338,
       "reference": "die(f\"Cannot interpret the installed vLLM runtime version: {version!r}\")"
     },
     {
@@ -3135,7 +3135,7 @@
     },
     {
       "file": "magic-cluster/platform/magicstick-operator/controller-configmap.yaml",
-      "line": 4264,
+      "line": 4265,
       "reference": "if not image:"
     },
     {
