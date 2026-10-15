@@ -45,6 +45,7 @@ export interface RegressionRun {
 export interface RegressionStatus {
   registered: boolean; applianceUid: string; runtimeAvailable: boolean; sourceRevision: string; message: string;
   recoveryAvailable?: boolean;
+  cleanup?: {available: boolean; message: string; revision?: string; runId?: string; released?: boolean};
   lock?: {state: 'free' | 'active' | 'stale' | 'blocked'; canRecover: boolean; message: string; revision?: string; runId?: string};
   runs: RegressionRun[]; executionLocation: 'appliance-kubernetes'; externalRunnerRequired: string[];
 }

@@ -69,6 +69,7 @@ spec:
                     uid: {type: string, maxLength: 36, pattern: '^[a-f0-9-]{36}$'}
                     resourceVersion: {type: string, maxLength: 32, pattern: '^[0-9]{1,32}$'}
                     runId: {type: string, maxLength: 40, pattern: '^reg-[a-f0-9-]{36}$'}
+                    released: {type: boolean, enum: [true]}
                 accountRunName: {type: string, pattern: '^regression-[a-f0-9]{32}$'}
                 accountRunUid: {type: string, pattern: '^[a-f0-9-]{36}$'}
                 cancelRequested: {type: boolean, default: false}

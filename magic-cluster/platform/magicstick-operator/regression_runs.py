@@ -76,8 +76,9 @@ class RegressionRuns:
         ready_key = "regression.magicstick.dev/" + ("recovery-credentials-ready" if recovery else "credentials-ready")
         lock = spec.get("lockRecovery", {})
         if (spec.get("operation", "tests") not in {"tests", "recover-lock"}
-                or recovery and (spec.get("phases") != [] or not isinstance(lock, dict) or set(lock) != {"uid", "resourceVersion", "runId"}
-                    or not all(isinstance(value, str) for value in lock.values())
+                or recovery and (spec.get("phases") != [] or not isinstance(lock, dict) or set(lock) not in ({"uid", "resourceVersion", "runId"}, {"uid", "resourceVersion", "runId", "released"})
+                    or "released" in lock and lock["released"] is not True
+                    or not all(isinstance(lock.get(key), str) for key in ("uid", "resourceVersion", "runId"))
                     or not re.fullmatch(r"[a-f0-9-]{36}", str(lock.get("uid", "")))
                     or not re.fullmatch(r"\d{1,32}", str(lock.get("resourceVersion", "")))
                     or not re.fullmatch(r"reg-[a-f0-9-]{36}", str(lock.get("runId", ""))))

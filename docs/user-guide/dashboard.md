@@ -39,7 +39,9 @@ test fixtures; missing prerequisites block those checks, not the whole suite.
 Every start cleans up the previous run, checks the baseline, then creates a
 fresh test ID and executes the selected tests from the beginning. Earlier results
 are never reused. For diagnosis, **Clean up previous test run** performs only
-the recorded cleanup and verifies the expired lock can be released.
+the recorded cleanup, including retained setup access after a lock was released.
+Its adjacent status explains whether cleanup is needed, already complete or
+blocked by active work or unverifiable ownership.
 An active run or unavailable journal disables the button and explains why.
 External runs must be recovered from their original runner's private journal.
 

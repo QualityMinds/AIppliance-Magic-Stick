@@ -101,6 +101,18 @@ class RegressionRunsTests(unittest.TestCase):
             self.assertEqual(self.writes, [])
             self.assertEqual(self.run["status"]["phase"], "Blocked")
 
+    def test_released_lock_cleanup_preserves_exact_snapshot_and_rejects_coerced_flags(self):
+        self.recovery()
+        self.run["spec"]["lockRecovery"]["released"] = True
+        self.assertTrue(self.controller.reconcile(self.run))
+        env = {e["name"]: e["value"] for e in self.writes[0][2]["spec"]["template"]["spec"]["containers"][0]["env"]}
+        self.assertTrue(json.loads(env["REGRESSION_RECOVERY_LOCK"])["released"])
+        for flag in (False, "true", 1, None):
+            self.recovery(); self.writes.clear()
+            self.run["spec"]["lockRecovery"]["released"] = flag
+            self.assertFalse(self.controller.reconcile(self.run))
+            self.assertEqual(self.writes, [])
+
     def test_repeated_reconciliation_never_restarts_a_destructive_job(self):
         self.controller.reconcile(self.run)
         with patch.object(self.controller, "report", return_value=None):

@@ -386,6 +386,10 @@ def execute(request, lock, kube):
         (STATE / "software-preview.json").unlink(missing_ok=True)
         preview(selected)
         return "Channel and published dashboard images checked. Review and apply the preview."
+    # Reject before saving selection or backup/maintenance markers. The
+    # converge runner subsequently reserves the shared Lease through rollout.
+    import regression_guard
+    regression_guard.assert_idle(kube)
     reviewed = read_json(STATE / "software-preview.json")
     checked = preview(selected)
     if checked["commit"] != reviewed["commit"]:

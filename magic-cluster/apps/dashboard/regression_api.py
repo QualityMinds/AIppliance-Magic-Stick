@@ -133,13 +133,48 @@ class RegressionApi:
         available, _, revision = self.runtime()
         runs = self.f["list_resource"](RUNS)
         runs = sorted(runs, key=lambda r: r.get("metadata", {}).get("creationTimestamp", ""), reverse=True)
+        lock = self.lock_status(runs, registration)
         return {"registered": registration is not None, "applianceUid": self.target()[0],
                 "runtimeAvailable": available, "sourceRevision": revision,
                 "message": "" if available else "Enable the regression runner and wait for a CI-published, digest-pinned image.",
                 "runs": [self.view(r) for r in runs[:30]],
                 "recoveryAvailable": self.recovery_candidate(runs) is not None,
-                "lock": self.lock_status(runs, registration),
+                "lock": lock, "cleanup": self.cleanup_status(runs, registration, lock),
                 "executionLocation": "appliance-kubernetes", "externalRunnerRequired": ["reboot", "power-off", "network-loss"]}
+
+    def cleanup_status(self, runs, registration, lock):
+        """A released Lease is not proof that retained setup access was restored."""
+        if any(r.get("status", {}).get("phase") not in TERMINAL for r in runs):
+            return {"available": False, "message": "A test or cleanup run is active. Wait for it to finish."}
+        if lock["state"] != "free":
+            return {**lock, "available": lock["canRecover"]}
+        candidate = self.recovery_candidate(runs)
+        if not candidate:
+            pending = any(not r.get("status", {}).get("credentialsCleaned", False) for r in runs)
+            return {"available": False, "message": "The previous account cleanup or its ownership verification is still pending." if pending
+                    else "No previous test run needs cleanup. New tests will verify the starting state."}
+        lease = self.get(LEASE) or {}
+        if lease.get("spec", {}).get("holderIdentity"):
+            return {"available": False, "message": "The test reservation changed while checking cleanup. Refresh before trying again."}
+        meta = lease.get("metadata", {})
+        owner = meta.get("annotations", {}).get("regression.magicstick.dev/run-id")
+        family = [r for r in runs if credential_owner(r) == credential_owner(candidate)]
+        if (not registration or candidate.get("spec", {}).get("applianceUid") != registration["applianceUid"]
+                or sorted(candidate.get("spec", {}).get("nodeUids", [])) != registration["nodeUids"]
+                or meta.get("labels", {}).get("regression.magicstick.dev/appliance-uid") != registration["applianceUid"]
+                or not re.fullmatch(r"[a-f0-9-]{36}", str(meta.get("uid", "")))
+                or not re.fullmatch(r"\d{1,32}", str(meta.get("resourceVersion", "")))
+                or not re.fullmatch(r"reg-[a-f0-9-]{36}", str(owner or ""))
+                or not any(owner in r.get("status", {}).get("progress", {}).get("ownedRunIds", []) for r in family)):
+            return {"available": False, "message": "Retained setup access needs cleanup, but its exact journal and released lock could not be linked to this run. Inspect the private recovery receipt."}
+        try:
+            for previous in family:
+                self.pods_terminated(previous)
+        except self.f["RequestError"]:
+            return {"available": False, "message": "The previous run still has active Pods. Wait for their termination before cleanup."}
+        return {"available": True, "revision": meta["uid"] + ":" + meta["resourceVersion"],
+                "runId": owner, "released": True,
+                "message": "The test lock is free, but retained setup access still needs cleanup. Clean up the previous run without starting tests."}
 
     def lock_status(self, runs, registration, lease=None):
         lease = self.get(LEASE) if lease is None else lease
@@ -152,6 +187,9 @@ class RegressionApi:
                 or not re.fullmatch(r"\d{1,32}", str(meta.get("resourceVersion", "")))):
             return {**blocked, "message": "Lock identity or test registration could not be verified; recovery was refused."}
         revision = meta["uid"] + ":" + meta["resourceVersion"]
+        if meta.get("annotations", {}).get("regression.magicstick.dev/host-maintenance") == "true":
+            return {**blocked, "revision": revision,
+                    "message": "Host software convergence reserves this test lab through Flux readiness. Wait for the update; if it failed, inspect ansible-pull.service before recovering host maintenance. Test cleanup cannot clear this reservation."}
         try:
             renewed = datetime.fromisoformat(spec["renewTime"].replace("Z", "+00:00"))
             duration = spec["leaseDurationSeconds"]
@@ -245,12 +283,13 @@ class RegressionApi:
                 self.error(409, "Another regression run is still queued, running or cleaning up.")
             recovery_spec = {}
             if operation == "recover-lock":
-                lock = self.lock_status(runs, registration)
-                if not lock["canRecover"] or lock.get("revision") != payload["expectedLockRevision"]:
-                    self.error(409, lock["message"] if not lock["canRecover"] else "The lock changed after review. Refresh before requesting recovery.")
+                lock = self.cleanup_status(runs, registration, self.lock_status(runs, registration))
+                if not lock["available"] or lock.get("revision") != payload["expectedLockRevision"]:
+                    self.error(409, lock["message"] if not lock["available"] else "The lock changed after review. Refresh before requesting recovery.")
                 lock_uid, version = lock["revision"].split(":")
                 recovery_spec = {"operation": operation, "lockRecovery": {
-                    "uid": lock_uid, "resourceVersion": version, "runId": lock["runId"]}}
+                    "uid": lock_uid, "resourceVersion": version, "runId": lock["runId"],
+                    **({"released": True} if lock.get("released") else {})}}
             if recovery:
                 if recovery.get("spec", {}).get("applianceUid") != registration["applianceUid"] or sorted(recovery.get("spec", {}).get("nodeUids", [])) != registration["nodeUids"]:
                     self.error(409, "Retained setup credentials belong to a different installation.")

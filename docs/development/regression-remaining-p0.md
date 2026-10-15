@@ -29,6 +29,10 @@ It runs only the old-run cleanup, not any test phases. Normal Start still cleans
 up automatically when needed. If cleanup is blocked, inspect its reason and
 stage: `recovery-journal`, `recovery-resource`, `recovery-module`,
 `recovery-sharing`, or `gpu-validation` identifies the failed operation.
+Retained setup access can need cleanup even when the test lock is already free.
+The button handles that state too. Its adjacent explanation distinguishes
+already clean, active work and missing ownership evidence; disabled never
+means an unverified clean baseline.
 The cleanup button stays visible and is disabled with a ready-state explanation
 when no previous run needs cleanup.
 
@@ -131,6 +135,10 @@ checks before promoting its immutable digest on `main` or `develop`. A source
 push alone does not verify installation. Check both runner and Dashboard image
 revisions before live acceptance. Physical multi-GPU inference still needs real
 hardware; synthetic card fixtures only prove their recorded UI/contracts.
+
+On registered test Appliances, host software convergence defers while a test or
+cleanup run is active. Updates reserve the same lab Lease through Flux rollout;
+start tests only after both the Runner and Dashboard revisions have converged.
 
 See the [test catalog](regression-test-catalog.md),
 [technical reference](regression-runner-reference.md) and

@@ -49,7 +49,7 @@ const proofs:Record<string,Proof>={
   updates:{python:[[api,['test_updates_api.UpdatesApiTests']],
     [host,['test_updates.ContractTests','test_updates.ExecutionTests','test_updates.PackageTests','test_updates.WorkerTests']]],components:[['src/pages/UpdatesPage.test.tsx',[]]]},
   channel:{python:[[api,['test_software_channel_api.SoftwareChannelApiTests']],
-    [host,['test_software_channel.ContractTests','test_software_channel.HostTests']]],components:[['src/pages/SoftwareChannelEditor.test.tsx',[]]]},
+    [host,['test_software_channel.ContractTests','test_software_channel.HostTests','test_regression_guard.RegressionGuardTests']]],components:[['src/pages/SoftwareChannelEditor.test.tsx',[]]]},
   cache:{python:[[api,['test_model_cache_api.ModelCacheApiTests']],
     [host,['test_model_cache.ModelCacheTests']], [operator,['test_model_cache.ModelCacheGateTests']]],components:[['src/pages/ModelCachePage.test.tsx',[]]]},
   boot:{python:[[host,['test_host_management.WorkerTests','test_gpu_memory.MemoryWorkerTests']],

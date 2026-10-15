@@ -56,7 +56,7 @@ export async function bootstrapRegisteredLab(directory:string,value:unknown,regi
   if(lease) {
     requireSafe(lease.metadata.labels?.['regression.magicstick.dev/appliance-uid'] === registration.applianceUid,'LAB');
     const reason=leaseHolderReason(lease);
-    if(reason==='LOCK_STALE'&&marker&&prepareRecovery)recover=await prepareRecovery(lease);
+    if((reason==='LOCK_STALE'||expectedRecovery?.released)&&marker&&prepareRecovery)recover=await prepareRecovery(lease);
     else if(reason)throw new HarnessError(reason);
   }
   const documents:string[]=[];

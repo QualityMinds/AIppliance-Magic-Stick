@@ -16,6 +16,7 @@ import software_contract as contract
 import software_channel as channel
 import host_plan
 import host_worker
+import regression_guard
 from test_host_management import node, operation, report
 
 
@@ -45,6 +46,8 @@ class ContractTests(unittest.TestCase):
 
 class HostTests(unittest.TestCase):
     def setUp(self):
+        safety = patch.object(regression_guard, "assert_idle")
+        self.regression_idle = safety.start(); self.addCleanup(safety.stop)
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         for name, value in (("STATE", self.root), ("METADATA", self.root / "metadata.env")):
@@ -104,6 +107,17 @@ class HostTests(unittest.TestCase):
             self.assertIn("ready", result)
         self.assertEqual(channel.config()["channel"], selected)
         self.assertFalse((self.root / "software-blocked.json").exists())
+
+    def test_regression_blocks_software_apply_before_selection_or_recovery_markers_change(self):
+        with patch.object(channel, "git_commit", return_value="a"*40), patch.object(channel, "resolve", return_value="b"*40), patch.object(channel, "inspect", return_value=[]):
+            request = self.request({"kind": "branch", "value": "develop"})
+            before = channel.METADATA.read_bytes()
+            self.regression_idle.side_effect = RuntimeError("Regression is active")
+            with self.assertRaisesRegex(RuntimeError, "Regression is active"):
+                channel.execute(request, object(), object())
+            self.assertEqual(channel.METADATA.read_bytes(), before)
+            self.assertFalse((self.root / "software-blocked.json").exists())
+            self.assertFalse((self.root / "software-previous.json").exists())
 
     def test_branch_moved_after_review_does_not_change_host(self):
         with patch.object(channel, "git_commit", return_value="a" * 40), patch.object(channel, "resolve", side_effect=["b" * 40, "c" * 40]), patch.object(channel, "inspect", return_value=[]), patch.object(channel, "converge") as converge:

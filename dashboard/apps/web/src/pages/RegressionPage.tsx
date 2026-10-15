@@ -86,12 +86,15 @@ export const RegressionPage = () => {
   };
   const data = query.data, active = data?.runs.find(run => !terminal.has(run.phase));
   const cleanupPending = data?.runs.some(run => terminal.has(run.phase) && !run.credentialsCleaned);
+  const cleanup = data?.cleanup ?? {available: Boolean(data?.lock?.canRecover), revision: data?.lock?.revision,
+    message: data?.lock && data.lock.state !== 'free' ? data.lock.message : cleanupPending ?
+      'Previous run cleanup is pending; refresh to check its recovery status.' : 'No previous test run needs cleanup. New tests will verify the starting state.'};
   const mutation = useMutation({mutationFn: async (action: 'enable' | 'register' | 'start' | 'cancel' | 'recover') => {
     if (action === 'enable') return api.enableModule('regression');
     if (action === 'register') return api.registerRegression();
     if (action === 'start') return api.startRegression(crypto.randomUUID().replaceAll('-', ''));
     if (action === 'recover') {
-      if (!reviewedLock || data?.lock?.revision !== reviewedLock || !data.lock.canRecover) throw new Error('The lock changed after review. Refresh and review it again.');
+      if (!reviewedLock || cleanup.revision !== reviewedLock || !cleanup.available) throw new Error('The lock changed after review. Refresh and review it again.');
       return api.recoverRegressionLock(crypto.randomUUID().replaceAll('-', ''), reviewedLock);
     }
     if (!active) throw new Error('No active run to cancel.');
@@ -99,7 +102,7 @@ export const RegressionPage = () => {
   }, retry: false, onSuccess: async () => {setConfirm(null); await client.invalidateQueries({queryKey: ['regression']});}});
   const disabled = query.isPending || Boolean(query.error) || mutation.isPending;
   const open = (value: 'register' | 'start' | 'cancel' | 'recover') => {
-    mutation.reset(); setReviewedLock(value === 'recover' ? data?.lock?.revision : undefined); setConfirm(value);
+    mutation.reset(); setReviewedLock(value === 'recover' ? cleanup.revision : undefined); setConfirm(value);
   };
   return <div className="stack">
     <div className="section-title"><div><h2>Regression tests</h2><p>Run all Phase 0–8 P0 tests inside this Magic Stick's Kubernetes cluster.</p></div><Button variant="ghost" onClick={() => void refresh()} disabled={query.isPending || refreshing}>Refresh tests</Button></div>
@@ -112,10 +115,11 @@ export const RegressionPage = () => {
       {data.runtimeAvailable && !data.registered && <Button variant="danger" disabled={disabled} onClick={() => open('register')}>Register test Appliance</Button>}
       <div className="form-actions"><Button variant="primary" disabled={disabled || !data.registered || !data.runtimeAvailable || Boolean(active) || (cleanupPending && !data.recoveryAvailable) || (Boolean(data.lock) && data.lock?.state !== 'free' && !data.lock?.canRecover)} onClick={() => open('start')}>Start regression tests</Button>
         {active && <Button variant="danger" disabled={disabled || active.phase === 'Cancelling'} onClick={() => open('cancel')}>Cancel tests</Button>}
-        <Button variant="danger" disabled={disabled || !data.registered || !data.runtimeAvailable || Boolean(active) || !data.lock?.canRecover} onClick={() => open('recover')}>Clean up previous test run</Button>
+        <Button variant="danger" aria-describedby="regression-cleanup-status" disabled={disabled || !data.registered || !data.runtimeAvailable || Boolean(active) || !cleanup.available} onClick={() => open('recover')}>Clean up previous test run</Button>
       </div>
-      {data.lock && data.lock.state !== 'free' && <p role="status">{data.lock.message}</p>}
-      {data.registered && data.runtimeAvailable && !active && !cleanupPending && (data.lock?.state === 'free' || !data.runs.length) && <p role="status">No previous test run needs cleanup. New tests will verify the starting state.</p>}
+      <p id="regression-cleanup-status" role="status">{!data.registered ? 'Register this disposable test Appliance before cleanup.' : !data.runtimeAvailable ?
+        'Enable the regression runner and wait for readiness before cleanup.' : active ? 'A test or cleanup run is active. Wait for it to finish.' : cleanup.message}</p>
+      {data.lock && data.lock.state !== 'free' && data.lock.message !== cleanup.message && <p role="status">{data.lock.message}</p>}
       {cleanupPending && <p role="status">{data.recoveryAvailable ? 'Start a new run to automatically clean up the previous run first. Cleanup must succeed before a fresh test ID and new tests are started.' : "Removing the completed run's generated test account before another run can start."}</p>}
       <p className="muted">No recurring setup or manually prepared test files. Reloading or leaving this page does not stop the job.</p>
     </Panel>}
@@ -123,7 +127,7 @@ export const RegressionPage = () => {
     {data && !data.runs.length && <Empty>No regression runs yet.</Empty>}
     <ConfirmDialog open={Boolean(confirm)} title={confirm === 'register' ? 'Register disposable test Appliance' : confirm === 'cancel' ? 'Cancel regression tests' : confirm === 'recover' ? 'Clean up previous test run' : 'Start regression tests'}
       expectedValue={confirm === 'register' ? 'DISPOSABLE TEST SERVER' : undefined}
-      description={confirm === 'register' ? 'This permanently binds the destructive test policy to this Appliance and its Node identities. Do not register a production server.' : confirm === 'cancel' ? 'Stop further tests and allow bounded cleanup. Interrupted operations retain their recovery journal; cancellation does not mean restoration succeeded.' : confirm === 'recover' ? 'Restore only the old run’s recorded resources and unchanged borrowed settings, then release this exact expired lock after verification. Active owners and missing or changed journals are not bypassed. No new regression tests will start; historical results remain unchanged.' : 'Run every implemented P0 phase. Existing models may be stopped; settings, services, licenses and caches may be changed on this dedicated test Appliance. Failures and unavailable prerequisites remain visible.'}
+      description={confirm === 'register' ? 'This permanently binds the destructive test policy to this Appliance and its Node identities. Do not register a production server.' : confirm === 'cancel' ? 'Stop further tests and allow bounded cleanup. Interrupted operations retain their recovery journal; cancellation does not mean restoration succeeded.' : confirm === 'recover' ? 'Restore retained setup access and verify the old run’s exact resources and unchanged borrowed settings, even if its lock is already free. Active owners and missing or changed journals are not bypassed. No new regression tests will start; historical results remain unchanged.' : 'Run every implemented P0 phase. Existing models may be stopped; settings, services, licenses and caches may be changed on this dedicated test Appliance. Failures and unavailable prerequisites remain visible.'}
       confirmLabel={confirm === 'register' ? 'Register test Appliance' : confirm === 'cancel' ? 'Cancel tests' : confirm === 'recover' ? 'Clean up previous run' : 'Start tests'}
       busy={mutation.isPending} error={mutation.error} onClose={() => {if (!mutation.isPending) setConfirm(null);}}
       onConfirm={() => {if (confirm) mutation.mutate(confirm);}} />

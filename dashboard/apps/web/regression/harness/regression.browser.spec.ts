@@ -58,6 +58,28 @@ for(const viewport of ['desktop','mobile'] as const)test(`HAR-04 HAR-07 HAR-10 U
   await page.screenshot({path:info.outputPath(`regression-lock-recovery-${viewport}.png`),fullPage:true});
 });
 
+for(const viewport of ['desktop','mobile'] as const)test(`HAR-07 HAR-10 UX-02 ${viewport} retained setup access can be cleaned with a free lock`,async({page})=>{
+  await page.setViewportSize(viewport==='mobile'?{width:390,height:844}:{width:1440,height:1000});
+  let cleaned=false,writes=0;
+  const revision='11111111-2222-3333-4444-555555555555:42';
+  const payload=()=>({registered:true,applianceUid:'fixture-appliance',runtimeAvailable:true,sourceRevision:'b'.repeat(40),message:'',
+    executionLocation:'appliance-kubernetes',externalRunnerRequired:[],recoveryAvailable:!cleaned,
+    lock:{state:'free',canRecover:false,message:'No regression lock is held.'},
+    cleanup:{available:!cleaned,revision,released:true,message:cleaned?'No previous test run needs cleanup.':'Retained setup access needs cleanup.'},
+    runs:[{id:'regression-'+'a'.repeat(32),uid:'fixture-old',createdAt:'2026-10-15T12:00:00Z',sourceRevision:'b'.repeat(40),
+      phase:'Cancelled',phases:[0,1,2,3,4,5,6,7,8],message:'Original cancelled report',credentialsCleaned:cleaned,reportAvailable:false,progress:{}}]});
+  await fixturePage(page,{'/api/regression':payload,'/api/regression/recover-lock':(request:Request)=>{
+    expect(request.postDataJSON().expectedLockRevision).toBe(revision);cleaned=true;writes++;return {};
+  },'/api/regression/runs':()=>{throw new Error('Cleanup must never start a suite.');}});
+  await page.goto(origin+'/#/system/regression');
+  const button=page.getByRole('button',{name:'Clean up previous test run',exact:true});
+  await expect(button).toBeEnabled();await page.reload();expect(writes).toBe(0);
+  await button.click();await page.getByRole('dialog').getByRole('button',{name:'Clean up previous run',exact:true}).click();
+  await expect(button).toBeDisabled();await expect(button).toHaveAccessibleDescription('No previous test run needs cleanup.');
+  expect(writes).toBe(1);await expect(page.getByText('Original cancelled report')).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+});
+
 for(const viewport of ['desktop','mobile'] as const)test(`HAR-10 UX-02 ${viewport} regression results distinguish prerequisites from failure dependencies`,async({page},info)=>{
   await page.setViewportSize(viewport==='mobile'?{width:390,height:844}:{width:1440,height:1000});
   const counts={Passed:10,Failed:1,Blocked:2},executionCounts={Passed:5,Failed:1,Blocked:1},blockedCounts={prerequisite:1,failure:1,cancelled:0,unknown:0};

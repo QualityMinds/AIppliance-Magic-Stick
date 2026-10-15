@@ -189,10 +189,55 @@ class RegressionApiTests(unittest.TestCase):
 
     def test_free_lock_disables_recovery_and_start_remains_a_separate_action(self):
         self.stale_run()
+        self.objects[RUNS + "/regression-" + "1"*32]["status"].update(credentialsCleaned=True, credentialRecoveryRequired=False)
         self.objects[LEASE]["spec"]["holderIdentity"] = ""
         self.assertEqual(self.service.list()["lock"]["state"], "free")
-        with self.assertRaisesRegex(RequestError, "No regression lock"):
+        with self.assertRaisesRegex(RequestError, "No previous test run"):
             self.recover()
+        self.assertEqual(self.writes, [])
+
+    def test_free_lock_with_retained_access_offers_zero_phase_cleanup_not_a_new_suite(self):
+        original = self.stale_run()
+        self.objects[LEASE]["spec"]["holderIdentity"] = ""
+        before = copy.deepcopy(self.objects[LEASE])
+        status = self.service.list()
+        self.assertFalse(status["lock"]["canRecover"])
+        self.assertTrue(status["cleanup"]["available"])
+        self.assertTrue(status["cleanup"]["released"])
+        self.assertEqual(self.writes, [])
+        cleaned = self.recover()
+        spec = self.objects[RUNS + "/" + cleaned["id"]]["spec"]
+        self.assertEqual(spec["phases"], [])
+        self.assertTrue(spec["lockRecovery"]["released"])
+        self.assertEqual(spec["accountRunName"], original["id"])
+        self.assertEqual(len(self.users), 1)
+        self.assertEqual(self.objects[LEASE], before)
+        self.assertEqual(cleaned, self.recover())
+
+    def test_free_lock_cleanup_rejects_changed_revision_and_unlinked_journal(self):
+        self.stale_run()
+        self.objects[LEASE]["spec"]["holderIdentity"] = ""
+        with self.assertRaisesRegex(RequestError, "changed after review"):
+            self.recover(UID + ":41")
+        self.objects[LEASE]["metadata"]["annotations"]["regression.magicstick.dev/run-id"] = "reg-12345678-1234-1234-1234-123456789abc"
+        status = self.service.list()["cleanup"]
+        self.assertFalse(status["available"])
+        self.assertIn("exact journal", status["message"])
+        with self.assertRaises(RequestError):
+            self.recover()
+        self.assertEqual(self.writes, [])
+
+    def test_host_maintenance_and_a_new_owner_never_become_test_cleanup_targets(self):
+        self.stale_run()
+        self.objects[LEASE]["metadata"]["annotations"]["regression.magicstick.dev/host-maintenance"] = "true"
+        self.assertIn("Host software", self.service.list()["cleanup"]["message"])
+        self.assertFalse(self.service.list()["cleanup"]["available"])
+        with self.assertRaises(RequestError):
+            self.recover()
+        runs = self.list(RUNS)
+        status = self.service.cleanup_status(runs, self.service.registration(), {"state": "free"})
+        self.assertFalse(status["available"])
+        self.assertIn("reservation changed", status["message"])
         self.assertEqual(self.writes, [])
 
     def test_read_and_reload_never_start_jobs_or_create_credentials(self):

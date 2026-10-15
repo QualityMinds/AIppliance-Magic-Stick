@@ -16,6 +16,13 @@ if ! flock -n "$lock_fd"; then
   echo "Host maintenance is active; convergence will retry on the next timer run."
   exit 0
 fi
+# Keep the local maintenance lock across the guard and child. This also proves
+# that an expired reservation from this same host has no live applying child.
+regression_guard=/usr/local/lib/magicstick/host-management/regression_guard.py
+if [[ -z "${MAGICSTICK_REGRESSION_GUARDED:-}" && -f "$regression_guard" ]]; then
+  export MAGICSTICK_CONVERGE_LOCK_FD="$lock_fd"
+  exec python3 "$regression_guard" "$0" "$@"
+fi
 if [[ -f /var/lib/magicstick/host-management/software-blocked.json && "${MAGICSTICK_SOFTWARE_OPERATION:-}" != 1 ]]; then
   echo "Software update needs review; automatic convergence is paused. Use System / Updates or magicstick-software-recover."
   exit 1

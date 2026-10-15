@@ -8,6 +8,13 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Allow **Clean up previous test run** to restore retained setup access even
+  after the test lock was released; explain disabled actions and retain exact
+  journal/Lease ownership checks. Cleanup never starts test phases.
+- Package all catalogued module manifests in the regression runner for SEC-04.
+- Defer host software convergence during regression and reserve the lab through
+  actual Flux readiness, so automatic image rollouts cannot invalidate a run.
+
 - Preserve enabled idle-service baselines and absent optional module parameters
   during regression cleanup; exclude empty instance-provider modules from the
   standalone service fixture and retain serial-test failure dependencies.

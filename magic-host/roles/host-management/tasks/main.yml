@@ -34,6 +34,7 @@
     - model_cache.py
     - software_contract.py
     - software_channel.py
+    - regression_guard.py
     - gpu_memory.py
     - profiles.json
     - ansible.cfg

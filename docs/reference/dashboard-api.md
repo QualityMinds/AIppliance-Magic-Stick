@@ -118,6 +118,15 @@ and `phases: []`; ordinary and older runs use `operation: tests`. Recovery uses
 the same retained storage, generated-identity restoration and scoped adapters,
 does not prepare fixtures or launch tests, and publishes a sanitized report.
 
+`cleanup` separately exposes `available`, `message`, optional `revision` and
+`runId`. It can offer cleanup while `lock.state` is `free` when retained setup
+access belongs to that exact old journal. The reviewed `lockRecovery` then has
+`released: true`; its Lease UID/resource version, original journal, free state,
+resource absence and access restoration are all checked again by the runner.
+The request route and `expectedLockRevision` field remain compatible. A new or
+changed owner is never released, and a host software reservation is not a test
+cleanup target.
+
 Outcomes remain `Passed`, `Failed`, or `Blocked`. New reports add optional
 `blockedBy` to blocked cases: `kind` is `prerequisite`, `failure`, `cancelled`, or
 `unknown`; recorded `caseId`, `reason`, `stage`, `executionId`, and `traceRunId`

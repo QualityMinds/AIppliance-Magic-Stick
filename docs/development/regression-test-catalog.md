@@ -544,6 +544,16 @@ as unmeasured product performance. Existing security/release CI remains required
 
 ## Implementation ledger
 
+15 October 2026 follow-up: HAR-04/07/10 and UX-02 now cover retained-access
+cleanup with a released Lease, exact-snapshot conflicts and disabled reasons in
+API, controller, harness and desktop/mobile browser fixtures. CHANNEL-02 selects
+`RegressionGuardTests` alongside the existing software-channel contracts: queued
+and running tests fence updates, the host reserves the lab through observed Flux
+readiness, and no test/foreign-host Lease can be adopted or released. SEC-04's
+existing all-module permission test is retained and the Linux runner now packages
+the whole catalog source tree. Local checks are not new live or image-build
+acceptance; those gates remain separately reported.
+
 Supporting BOOT-02 startup/resource coverage runs
 [`NginxWorkerContractTests`](../../magic-cluster/platform/identity/tests/test_nginx_workers.py)
 through the existing boot owning-suite selection. Public CI also runs

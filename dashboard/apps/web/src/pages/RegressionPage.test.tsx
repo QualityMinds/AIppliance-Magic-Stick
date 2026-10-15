@@ -28,6 +28,24 @@ beforeEach(() => {
 });
 
 describe('In-Appliance regression tests', () => {
+  it('offers retained-access cleanup with a free lock and never starts a test suite', async () => {
+    data.lock={state:'free',canRecover:false,message:'No regression lock is held.'};
+    data.recoveryAvailable=true;
+    data.cleanup={available:true,revision:'fixture:42',released:true,message:'Retained setup access needs cleanup.'};
+    data.runs=[{...run(),phase:'Cancelled'}];
+    vi.mocked(api.recoverRegressionLock).mockResolvedValue({...run(),operation:'recover-lock',phases:[]});
+    mount();await userEvent.click(await screen.findByRole('button',{name:'Clean up previous test run'}));
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button',{name:'Clean up previous run'}));
+    await waitFor(()=>expect(api.recoverRegressionLock).toHaveBeenCalledWith(expect.any(String),'fixture:42'));
+    expect(api.startRegression).not.toHaveBeenCalled();
+  });
+  it('explains why cleanup is disabled instead of claiming an unverified clean baseline', async () => {
+    data.cleanup={available:false,message:'The exact previous journal could not be verified.'};
+    data.runs=[{...run(),phase:'Cancelled'}];
+    mount();const button=await screen.findByRole('button',{name:'Clean up previous test run'});
+    expect(button).toBeDisabled();expect(button).toHaveAccessibleDescription('The exact previous journal could not be verified.');
+    expect(screen.queryByText(/No previous test run needs cleanup/)).toBeNull();
+  });
   it('opens and refreshes without starting tests or changing the server', async () => {
     mount(); expect(await screen.findByRole('button', {name: 'Start regression tests'})).toBeEnabled();
     expect(screen.getByRole('button',{name:'Clean up previous test run'})).toBeDisabled();

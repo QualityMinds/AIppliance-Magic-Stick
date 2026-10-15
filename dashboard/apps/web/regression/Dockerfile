@@ -53,9 +53,7 @@ RUN --mount=type=bind,source=.,target=/source \
     && mkdir -p /opt/magicstick/regression-runtime /opt/magicstick/docs/development \
     && cd /source && cp -a --parents dashboard LICENSE LICENSING.md THIRD_PARTY_NOTICES.md LICENSE-RELEASE.json \
       CHANGELOG.md README.md .gitleaks.toml install-from-linux.sh licenses magic-installer core tools tests .github magic-host \
-      docs/development/regression-test-catalog.md magic-cluster/apps/ai magic-cluster/apps/dashboard magic-cluster/apps/instances magic-cluster/apps/regression \
-      magic-cluster/platform/magicstick-operator magic-cluster/platform/ai magic-cluster/platform/gpu magic-cluster/platform/identity \
-      magic-cluster/flux /opt/magicstick/ \
+      docs/development/regression-test-catalog.md magic-cluster /opt/magicstick/ \
     && cp /tmp/amd-recovery.test /opt/magicstick/regression-runtime/amd-recovery.test \
     && cd /opt/magicstick/dashboard \
     && python3 -m venv --system-site-packages /opt/magicstick/regression-runtime/python \

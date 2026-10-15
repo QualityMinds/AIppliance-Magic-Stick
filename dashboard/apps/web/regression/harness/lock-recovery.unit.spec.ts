@@ -48,6 +48,16 @@ test('HAR-04 HAR-11 recovery snapshots never accept paths commands coercions or 
     expect(() => parseRecoveryLock(value)).toThrow('[CONFIG]');
 });
 
+test('HAR-07 released-lock cleanup binds the same journal and rejects newly acquired or changed locks',()=>{
+  const free={...lease(Date.now()),spec:{holderIdentity:''}},reviewed={...expected,released:true as const};
+  expect(parseRecoveryLock(reviewed)).toEqual(reviewed);
+  expect(()=>exactRecoveryLock(free,reviewed)).not.toThrow();
+  expect(()=>exactRecoveryLock(lease(Date.now()),reviewed)).toThrow('[CONFLICT]');
+  expect(()=>exactRecoveryLock({...free,metadata:{...free.metadata,resourceVersion:'43'}},reviewed)).toThrow('[CONFLICT]');
+  expect(()=>exactRecoveryLock({...free,metadata:{...free.metadata,annotations:{}}},reviewed)).toThrow('[CONFLICT]');
+  for(const released of [false,'true',1,null])expect(()=>parseRecoveryLock({...expected,released})).toThrow('[CONFIG]');
+});
+
 test('HAR-07 HAR-10 recovery-only workflow discovers identity, restores one journal and never prepares tests', async () => fixture(async directory => {
   const modes: string[] = [], stages: string[] = [];
   const execute = async () => {

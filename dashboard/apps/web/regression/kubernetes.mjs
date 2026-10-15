@@ -84,7 +84,7 @@ async function recoverOnly() {
     ['HAR-07'],process.env.REGRESSION_SOURCE_REVISION,'recover');
   snapshot.result=publicResult(JSON.parse(await readPrivate(join(directory,'summary.json'),8*1024*1024)),{phases:[]});
   snapshot.outcome='Passed';await publish(directory);
-  snapshot.message='The old lock was released after verified recovery. No regression tests were started; original results were retained.';
+  snapshot.message='Previous-run resources and retained setup access were verified clean. No regression tests were started; original results were retained.';
 }
 for(const signal of ['SIGINT','SIGTERM'])process.on(signal,()=>{
   interrupted=true;if(current)current.kill(signal);
@@ -136,8 +136,8 @@ try {
   }
 } catch(error) {
   snapshot.credentialRecoveryRequired=true;
-  snapshot.outcome=interrupted?'Blocked':recovery&&error instanceof HarnessError?error.outcome:'Failed';snapshot.message=interrupted?'Cancelled during preparation or execution. Recovery journals were retained.':recovery?'Lock recovery was not verified. The lock and private restoration receipts were retained; inspect its recovery report.':'The Kubernetes runner could not complete its setup or report export.';
-  if(recoveryDiagnostic&&!interrupted)snapshot.message=`Lock recovery setup failed at ${recoveryDiagnostic.setupStage} (${recoveryDiagnostic.reason}${recoveryDiagnostic.detail?`; ${recoveryDiagnostic.detail}`:''}). The old lock and receipts are retained.`;
+  snapshot.outcome=interrupted?'Blocked':recovery&&error instanceof HarnessError?error.outcome:'Failed';snapshot.message=interrupted?'Cancelled during preparation or execution. Recovery journals were retained.':recovery?'Previous-run cleanup was not verified. The private restoration receipts were retained; inspect its cleanup report.':'The Kubernetes runner could not complete its setup or report export.';
+  if(recoveryDiagnostic&&!interrupted)snapshot.message=`Previous-run cleanup failed at ${recoveryDiagnostic.setupStage} (${recoveryDiagnostic.reason}${recoveryDiagnostic.detail?`; ${recoveryDiagnostic.detail}`:''}). The exact restoration receipts are retained.`;
   try {
     const runId=newRunId(),directory=join(output,runId);await privateDirectory(directory);
     const id=recovery?'HAR-07':'HAR-02';
