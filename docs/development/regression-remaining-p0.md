@@ -20,10 +20,13 @@ results are never reused. Reloading the page does not stop the Kubernetes Job.
 **Refresh tests** remains available during automatic updates. **Cancel tests**
 requests bounded cleanup.
 
-### If cleanup is blocked
+<a id="if-cleanup-is-blocked"></a>
 
-Start normally first; cleanup is automatic. **Clean up previous test run** runs
-only the old-run cleanup and is useful for diagnosis. Inspect its reason and
+### Clean up without starting tests
+
+Choose **Clean up previous test run** to prepare a clean baseline in advance.
+It runs only the old-run cleanup, not any test phases. Normal Start still cleans
+up automatically when needed. If cleanup is blocked, inspect its reason and
 stage: `recovery-journal`, `recovery-resource`, `recovery-module`,
 `recovery-sharing`, or `gpu-validation` identifies the failed operation.
 The cleanup button stays visible and is disabled with a ready-state explanation
