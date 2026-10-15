@@ -12,8 +12,22 @@ import {verifyAppCleanerRules} from '../core/owned-app.ts';
 import {validateAppFixtures,catalogContext} from './apps-live.ts';
 import {websocketFrame,websocketEvent} from '../core/realtime-probe.ts';
 import {evidenceAnnotations} from '../core/evidence.ts';
+import {licenseUiRequestAllowed} from './license-live.ts';
+import {readFile} from 'node:fs/promises';
+import {resolve} from 'node:path';
+import {execFileSync} from 'node:child_process';
 
 const annotation=evidenceAnnotations({id:'HAR-10',layer:'U'});
+test('HAR-10 license UI protection allows bodyless polling but rejects unrelated and stale writes',annotation,()=>{
+  const document='synthetic-license',revision='synthetic-revision';
+  expect(licenseUiRequestAllowed('GET','/api/license',null,document,revision)).toBe(true);
+  expect(licenseUiRequestAllowed('POST','/api/license/validate',{document},document,revision)).toBe(true);
+  expect(licenseUiRequestAllowed('PUT','/api/license',{document,expectedRevision:revision},document,revision)).toBe(true);
+  for(const [method,path,body] of [['PUT','/api/license',null],['POST','/api/license',{document}],
+    ['PUT','/api/license',{document:'other',expectedRevision:revision}],['PUT','/api/license',{document,expectedRevision:'old'}],
+    ['DELETE','/api/license',null],['POST','/api/license/validate',[]]] as const)
+    expect(licenseUiRequestAllowed(method,path,body,document,revision)).toBe(false);
+});
 test('HAR-10 administration reads ignore flattened session cookies and retain HTTP failures',annotation,async()=>{
   let status=200;
   const request={fetch:async()=>({status:()=>status,headers:()=>({'content-type':'application/json',
@@ -36,6 +50,20 @@ test('SEC-04 shipped permissions include recursively referenced regression and l
     item.rules?.some(r=>r.apiGroups?.includes('kubeai.org')&&r.resources?.includes('models')))).toBe(true);
   const expected=normalizeRules(roles[0]!.rules!);
   expect(normalizeRules([...roles[0]!.rules!,{apiGroups:[''],resources:['secrets'],verbs:['get']}])).not.toEqual(expected);
+  const enabled=await shippedDashboardRbac(undefined,{modules:{regression:{enabled:true}},catalogJson:{modules:{
+    regression:{path:'magic-cluster/apps/regression'}}}});
+  const disabled=await shippedDashboardRbac(undefined,{modules:{regression:{enabled:false}},catalogJson:{modules:{
+    regression:{path:'magic-cluster/apps/regression'}}}});
+  expect(enabled.filter(item=>item.kind==='RoleBinding').length).toBe(rbac.filter(item=>item.kind==='RoleBinding').length+1);
+  expect(enabled.some(item=>item.kind==='Role' && item.metadata.name==='dashboard-regression-credentials' &&
+    item.metadata.namespace==='magicstick-regression')).toBe(true);
+  expect(disabled).toEqual(rbac);
+  const source=await readFile(resolve('../../..','magic-cluster/platform/magicstick-operator/module-catalog.yaml'),'utf8');
+  const catalog=JSON.parse(execFileSync('python3',['-c',
+    'import sys,yaml; print(yaml.safe_load(sys.stdin.read())["data"]["modules.json"])'],{input:source,encoding:'utf8',timeout:5000}));
+  const every=await shippedDashboardRbac(undefined,{catalogJson:catalog,modules:Object.fromEntries(
+    Object.keys(catalog.modules).map(id=>[id,{enabled:true}]))});
+  expect(every.filter(item=>item.kind==='RoleBinding').length).toBeGreaterThanOrEqual(enabled.filter(item=>item.kind==='RoleBinding').length);
 });
 test('HAR-10 app context proof rejects partial/stale/malformed generated consumer configurations',annotation,()=>{
   const name='reg-fixture',context=512;

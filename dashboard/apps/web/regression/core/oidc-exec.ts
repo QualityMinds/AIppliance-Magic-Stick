@@ -7,6 +7,58 @@ import type {LabConfig} from './config.ts';
 import {HarnessError,requireSafe} from './errors.ts';
 
 interface OidcConfig {server:string;ca:Buffer;issuer:string;client:string;issuerCa:string}
+const loopback=/^http:\/\/(?:localhost|127\.0\.0\.1):(?:8000|18000)\/$/;
+
+/** Read only the completed instruction emitted by the pinned plugin, not an
+ * arbitrary URL in an error message or a partially received stderr chunk. */
+export function oidcBrowserStart(stderr:string) {
+  const lines=stderr.split(/\r?\n/);lines.pop();
+  for(const line of lines) {
+    const match=line.match(/^Please visit the following URL in your browser(?: manually)?: (https?:\/\/[^\s<>"']+)$/);
+    if(match)return match[1]!;
+  }
+}
+function authorizationUrl(value:string,identityOrigin:string,oidc:OidcConfig) {
+  const url=new URL(value),redirect=new URL(url.searchParams.get('redirect_uri') ?? '');
+  requireSafe(url.origin===identityOrigin && !url.username && !url.password && !url.hash &&
+    url.pathname.startsWith(new URL(oidc.issuer).pathname.replace(/\/$/,'')+'/') &&
+    ['client_id','response_type','code_challenge_method','code_challenge','state','redirect_uri'].every(key=>url.searchParams.getAll(key).length===1) &&
+    url.searchParams.get('client_id')===oidc.client && url.searchParams.get('response_type')==='code' &&
+    url.searchParams.get('code_challenge_method')==='S256' && /^[A-Za-z0-9_-]{43,128}$/.test(url.searchParams.get('code_challenge') ?? '') &&
+    Boolean(url.searchParams.get('state')) && loopback.test(redirect.href),'AUTH');
+  return {url,redirect};
+}
+
+/** kubelogin 1.36.4 prints its loopback index, not the remote IdP URL. Verify
+ * the index's redirect before opening the existing SSO browser context. Only
+ * this local OAuth callback uses HTTP; Appliance/IdP TLS remains mandatory. */
+export async function completeOidcBrowserLogin(context:BrowserContext,lab:LabConfig,oidc:OidcConfig,start:string) {
+  let target=start;
+  if(loopback.test(start)) {
+    const response=await context.request.get(start,{maxRedirects:0,timeout:lab.requestTimeoutMs});
+    requireSafe([302,303].includes(response.status()),'AUTH');target=response.headers().location ?? '';
+  }
+  const {url,redirect}=authorizationUrl(target,lab.identityUrl,oidc);
+  if(loopback.test(start))requireSafe(redirect.origin===new URL(start).origin,'AUTH');
+  const page=await context.newPage();
+  try {
+    await page.route(redirect.origin+'/**',async route=>{
+      const callback=new URL(route.request().url());
+      const valid=route.request().method()==='GET' && callback.origin===redirect.origin && callback.pathname===redirect.pathname &&
+        callback.searchParams.get('state')===url.searchParams.get('state') && Boolean(callback.searchParams.get('code')) &&
+        !callback.username && !callback.password && !callback.hash;
+      if(!valid){await route.abort('blockedbyclient');return;}
+      await route.continue();
+    });
+    await page.goto(url.href,{waitUntil:'domcontentloaded',timeout:lab.loginTimeoutMs});
+    // Playwright routes only the first URL in an HTTP redirect chain. Check
+    // the completed callback independently as well; the pinned plugin also
+    // verifies state, PKCE, nonce and the signed token before returning it.
+    const callback=new URL(page.url());
+    requireSafe(callback.origin===redirect.origin && callback.pathname===redirect.pathname &&
+      callback.searchParams.get('state')===url.searchParams.get('state') && Boolean(callback.searchParams.get('code')),'AUTH');
+  }catch{throw new HarnessError('AUTH');}finally{await page.close();}
+}
 export function inspectOidcConfig(value:unknown,identityOrigin:string):OidcConfig {
   requireSafe(value && typeof value === 'object','API');const config=value as Record<string,any>;
   requireSafe(config.apiVersion === 'v1' && config.kind === 'Config' && config.clusters?.length === 1 && config.users?.length === 1 && config.contexts?.length === 1,'API');
@@ -48,19 +100,9 @@ export async function executeOidc(context:BrowserContext,lab:LabConfig,oidc:Oidc
     child.stdout.on('data',(chunk:Buffer)=>{stdout+=chunk.toString();if(stdout.length > 64*1024)child.kill('SIGKILL');});
     child.stderr.on('data',(chunk:Buffer)=>{
       stderr+=chunk.toString();if(stderr.length > 32*1024){child.kill('SIGKILL');return;}
-      const candidate=stderr.match(/https:\/\/[^\s\x1b<>"']+/)?.[0];if(!candidate || authStarted)return;
+      const candidate=oidcBrowserStart(stderr);if(!candidate || authStarted)return;
       try {
-        const url=new URL(candidate),redirect=new URL(url.searchParams.get('redirect_uri') ?? '');
-        requireSafe(url.origin === lab.identityUrl && url.searchParams.get('client_id') === oidc.client && url.searchParams.get('response_type') === 'code' &&
-          url.searchParams.get('code_challenge_method') === 'S256' && ['http://localhost:8000','http://localhost:18000','http://127.0.0.1:8000','http://127.0.0.1:18000'].includes(redirect.origin),'AUTH');
-        authStarted=true;login=(async()=>{
-          const page=await context.newPage();
-          try {
-            await page.route(redirect.origin+'/**',async route=>{requireSafe(route.request().method() === 'GET' && new URL(route.request().url()).origin === redirect.origin,'AUTH');await route.continue();});
-            await page.goto(url.href,{waitUntil:'domcontentloaded',timeout:lab.loginTimeoutMs});
-            requireSafe(new URL(page.url()).origin === redirect.origin,'AUTH');
-          } finally {await page.close();}
-        })();login.catch(()=>child.kill('SIGKILL'));
+        authStarted=true;login=completeOidcBrowserLogin(context,lab,oidc,candidate);login.catch(()=>child.kill('SIGKILL'));
       } catch {child.kill('SIGKILL');}
     });
     child.on('error',()=>{clearTimeout(timer);reject(new HarnessError('PREREQUISITE'));});

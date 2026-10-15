@@ -167,6 +167,14 @@ quota. Omitted fields inherit the engine/target defaults. A positive limit
 must be at least the resolved request. `status.cpuResources` reports the
 resolved policy. Changing RAM alone does not change either CPU value.
 
+For quota-limited CPU vLLM, the startup wrapper bounds default OpenMP threads to
+the container's actual CFS quota, leaving one core-equivalent for serving when
+possible. It uses `VLLM_CPU_OMP_THREADS_BIND=nobind` with `OMP_NUM_THREADS`, not
+the host-wide automatic binding. Explicit thread/binding settings are preserved;
+unlimited containers retain upstream defaults. This follows the selected
+[vLLM CPU runtime's thread-control contract](https://docs.vllm.ai/en/v0.31.0/getting_started/installation/cpu/#related-runtime-environment-variables).
+It prevents quota oversubscription; actual inference still needs a live check.
+
 For KubeAI the final profile is derived after UMA, offloading and sharing
 placement, preserving all non-CPU resource quantities and DRA references.
 Existing activations without CPU overrides automatically adopt this policy;

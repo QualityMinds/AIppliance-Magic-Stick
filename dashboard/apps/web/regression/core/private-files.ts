@@ -5,6 +5,14 @@ import {tmpdir} from 'node:os';
 import {randomUUID} from 'node:crypto';
 import {HarnessError, requireSafe} from './errors.ts';
 
+/** Durable mutation receipts belong beside their exact worker's journal.
+ * A restarted Playwright worker must not overwrite or collide with an earlier
+ * worker's transaction merely because both execute the same case family. */
+export function journalFile(journal:{filename:string},name:string) {
+  requireSafe(/^[a-z0-9][a-z0-9.-]{0,127}$/.test(name) && !name.includes('..'),'PRIVATE_FILE');
+  return join(dirname(journal.filename),name);
+}
+
 export async function privateDirectory(path: string) {
   await mkdir(path, {recursive: true, mode: 0o700});
   const stat = await lstat(path);

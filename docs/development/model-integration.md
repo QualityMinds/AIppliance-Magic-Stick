@@ -1,5 +1,12 @@
 # Model catalog integration
 
+The ordinary vLLM startup wrapper fails closed if argument qualification raises
+an exception; Python's normal `sitecustomize` exception handling must never let
+the original unchecked invocation proceed. CPU defaults respect the actual
+container quota as described in [CPU scheduling](../reference/compute-targets.md#cpu-scheduling-policy).
+Bounded startup/NCCL diagnostics stay private to the model Pod; see
+[troubleshooting](../administration/troubleshooting/models.md#multi-gpu-communication-or-host-memory-failures).
+
 ## Shared local-model configuration
 
 The web client uses `LocalModelConfigurationForm` for Create and Edit of Ollama,
@@ -158,9 +165,10 @@ The native checker receives the operator manifest through `--controller-manifest
 and extracts its actual KV-cache argument producer, testing both Auto and FP8
 against the installed parser rather than a manually selected flag list.
 
-vLLM 0.28 removed `--calculate-kv-scales`. The controller keeps the legacy
-request for older installed runtimes; the wrapper checks package metadata
-without initializing CUDA and removes it on 0.28+. The requested FP8 cache type
+vLLM 0.28 removed `--calculate-kv-scales`. The controller no longer generates
+that switch for the current 0.31.0 pins. The wrapper still checks package
+metadata without initializing CUDA and removes legacy saved switches on 0.28+.
+The requested FP8 cache type
 is retained, with checkpoint scales or upstream defaults instead of runtime
 calibration. Unknown runtime versions fail explicitly rather than guessing.
 See [upstream removal](https://github.com/vllm-project/vllm/releases/tag/v0.28.0)

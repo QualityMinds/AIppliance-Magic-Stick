@@ -2,6 +2,7 @@ import {test,type Browser,type Page} from '@playwright/test';
 import type {GpuSharingRequest,GpuSharingState,HardwareGpuDevice,ModelsPayload,ModelActivation} from '@magicstick/dashboard-contracts';
 import {MagicStickApi} from '@magicstick/dashboard-api-client';
 import {join,dirname} from 'node:path';
+import {mkdir} from 'node:fs/promises';
 import {loadLabConfig,type GpuModelFixture,type RuntimeModelFixture} from './config.ts';
 import {LiveFoundation} from './live-foundation.ts';
 import {ResourceJournal,newRunId} from './journal.ts';
@@ -63,8 +64,21 @@ export function runtimePodConverged(pods:KubeObject[],item:ModelActivation|undef
 /** Playwright starts a new worker after a failed test, even with retries=0.
  * Never overwrite the previous worker's ownership or restore receipts. A new
  * worker gets a separate journal; a surviving Lease/resource still blocks it. */
-export async function gpuWorkerJournal(root:string,workerIndex:number,targetUid:string) {
+export async function gpuWorkerJournal(root:string,workerIndex:number,targetUid:string,freshScenario=false) {
   requireSafe(Number.isSafeInteger(workerIndex) && workerIndex >= 0 && workerIndex <= 64,'CONFIG');
+  if(freshScenario) {
+    // A successful test does not restart its Playwright worker. Reserve a new
+    // bounded recovery slot for every scenario, not only after worker failure.
+    // Keep the established flat worker paths readable by automatic recovery.
+    await privateDirectory(root);
+    for(let slot=1;slot<=64;slot++) {
+      const directory=join(root,`worker-${slot}`);
+      try{await mkdir(directory,{mode:0o700});}
+      catch(error){if((error as NodeJS.ErrnoException).code==='EEXIST'){await privateDirectory(directory);continue;}throw error;}
+      return {directory,journal:await ResourceJournal.create(join(directory,'journal.json'),newRunId(),targetUid)};
+    }
+    throw new HarnessError('CONFIG','Failed');
+  }
   const directory=workerIndex === 0 ? root : join(root,`worker-${workerIndex}`);
   await privateDirectory(directory);
   const journal=workerIndex === 0 ? await ResourceJournal.resume(join(directory,'journal.json'),targetUid) :
@@ -97,7 +111,7 @@ export class GpuScenario {
   static async open(browser:Browser,workerIndex=0) {
     requireSafe(process.env.REGRESSION_CONFIG && process.env.REGRESSION_RUN_DIR,'CONFIG');
     const config = await loadLabConfig(process.env.REGRESSION_CONFIG); requireGpuProfile(config);
-    const {directory,journal} = await gpuWorkerJournal(process.env.REGRESSION_RUN_DIR,workerIndex,config.expected.applianceUid);
+    const {directory,journal} = await gpuWorkerJournal(process.env.REGRESSION_RUN_DIR,workerIndex,config.expected.applianceUid,true);
     const allowed:ExactDashboardRequest[] = []; let live:LiveFoundation | undefined;
     live = await LiveFoundation.open(browser,config,journal,{inferenceOrigin:config.inferenceUrl,
       allowedDashboardRequests:()=>allowed,assertMutationAllowed:async () => {

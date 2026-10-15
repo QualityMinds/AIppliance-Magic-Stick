@@ -30,7 +30,7 @@ function snapshot():PreparationSnapshot {
     readableFiles:['/inputs/username.txt','/inputs/password.txt','/inputs/observer.yaml','/inputs/locker.yaml','/inputs/model-cleaner.yaml']};
 }
 
-test('MOD-03 automatic optional-module fixture is a disabled service, never an operator without a UI',()=>{
+test('MOD-03 automatic optional-module fixture is a real service, never an operator or empty instance-provider base',()=>{
   const observed=snapshot();
   observed.modules={modules:{'agent-sandbox':{enabled:false},service:{enabled:false}},catalogJson:{modules:{
     'agent-sandbox':{group:'operators',activationMode:'moduleactivation'},service:{group:'apps',activationMode:'moduleactivation'}}}};
@@ -38,6 +38,13 @@ test('MOD-03 automatic optional-module fixture is a disabled service, never an o
   expect(automaticProfile(observed,{},lab).modules?.id).toBe('service');
   observed.modules.modules.service!.enabled=true;
   expect(automaticProfile(observed,{},lab).modules?.id).toBeUndefined();
+  observed.modules.catalogJson!.modules!.provider={group:'apps',activationMode:'moduleactivation'};
+  observed.modules.modules.provider={enabled:false};
+  observed.modules.catalogJson!.applications={provider:{requiredModules:['provider']}};
+  expect(automaticProfile(observed,{},lab).modules?.id).toBeUndefined();
+  observed.status.httpRoutes=[{name:'service',accepted:true,hostnames:['service.example.local']}];
+  observed.modules.modules.service!.parameters={workspace:'existing-value'};
+  expect(automaticProfile(observed,{},lab).modules).toEqual({approveOptionalModule:true,id:'service',parameters:{workspace:'existing-value'}});
 });
 
 test('HAR-10 registered lab policy is fixed and rejects replacement targets or a mutable server marker',()=>{

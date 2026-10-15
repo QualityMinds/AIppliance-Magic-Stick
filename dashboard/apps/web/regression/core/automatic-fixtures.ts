@@ -4,6 +4,7 @@ import {catalogFixture,preparedProfile,type PreparationSnapshot,type Preparation
 import {labPolicy} from './lab-policy.ts';
 import type {HostDrillRecipes} from './host-drill-recipes.ts';
 import {requireSafe} from './errors.ts';
+import {moduleResourceLinks} from '@magicstick/dashboard-core';
 
 /** Choose test fixtures from the deployed product catalog, including its small
  * CPU text fixtures for compatible GPU runtimes. No user-maintained model list. */
@@ -39,12 +40,16 @@ export function automaticProfile(snapshot:PreparationSnapshot,previous:Record<st
   const options:PreparationOptions={phases:[...labPolicy.phases],approve:[...labPolicy.scopes] as PreparationOptions['approve'],independentRecovery:false};
   const profile=preparedProfile({},snapshot,options);
   profile.unmanagedKey={approveDisposableProbe:true,createDisposableFixture:true};
-  // MOD-03 proves a usable service URL; an operator-only module (for example
-  // Agent Sandbox) has no such UI and cannot be substituted for this fixture.
+  // Instance-provider bases can be intentionally empty (Odysseus/Pi); group
+  // "apps" alone does not promise a standalone service. Prefer a disabled
+  // standalone module, otherwise borrow an actual routed service. The workflow
+  // additionally refuses any module used by a saved application instance.
+  const instanceModules=new Set(Object.values(snapshot.modules.catalogJson?.applications ?? {}).flatMap(item=>item.requiredModules ?? []));
   const optional=Object.entries(snapshot.modules.catalogJson?.modules ?? {}).filter(([id,item])=>item.activationMode === 'moduleactivation' && item.group==='apps' &&
-    snapshot.modules.modules[id]?.enabled !== true && !/identity|dashboard|basis|kubeai|gpu|amd|nvidia|intel|litellm|private-mesh|model-catalog|magicstick-operator|regression/.test(id))
-    .sort(([a],[b])=>a.localeCompare(b))[0];
-  if(optional)profile.modules={approveOptionalModule:true,id:optional[0],parameters:{}};
+    snapshot.modules.modules[id] && !/identity|dashboard|basis|kubeai|gpu|amd|nvidia|intel|litellm|private-mesh|model-catalog|magicstick-operator|regression/.test(id) &&
+    (snapshot.modules.modules[id]?.enabled === true ? moduleResourceLinks(id,item,snapshot.status).length > 0 : !instanceModules.has(id)))
+    .sort(([a],[b])=>Number(snapshot.modules.modules[a]?.enabled)-Number(snapshot.modules.modules[b]?.enabled) || a.localeCompare(b))[0];
+  if(optional)profile.modules={approveOptionalModule:true,id:optional[0],parameters:snapshot.modules.modules[optional[0]]?.parameters ?? {}};
   const compatibility=snapshot.status.hardwareOperators?.['amd-gpu']?.compatibility;
   const alternate=compatibility?.profiles?.filter(p=>p.id !== compatibility.selectedProfile).sort((a,b)=>a.id.localeCompare(b.id))[0];
   if(alternate)profile.moduleProfile={approveTemporaryProfile:true,profileId:alternate.id,allowExperimental:alternate.experimental === true};

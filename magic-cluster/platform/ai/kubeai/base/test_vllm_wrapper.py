@@ -362,6 +362,8 @@ class Qwen4ExpPLEPinnedHostEmbedding:
         self.assertNotIn("NCCL_P2P_DISABLE", os.environ)
         wrapper = load_wrapper()
         wrapper["__file__"] = "/fixture/wrapper.py"
+        diagnostics=[]
+        wrapper["collective_diagnostic"] = lambda output, code, environment: diagnostics.append((output, code))
         from unittest.mock import MagicMock
         process = MagicMock(pid=12345)
         process.communicate.side_effect = [subprocess.TimeoutExpired("probe", 75), ("", None)]
@@ -371,6 +373,7 @@ class Qwen4ExpPLEPinnedHostEmbedding:
             self.assertEqual(launch.call_args.kwargs["env"]["MAGICSTICK_VLLM_WRAPPER_ENABLED"], "false")
             kill.assert_called_once()
             self.assertEqual(process.communicate.call_args_list[0].kwargs["timeout"], 75)
+            self.assertEqual(diagnostics, [("", "timeout")])
 
     def test_replicated_single_gpu_rejects_wrong_visible_identity_and_count(self):
         self.wrapper["os"].environ.update(MAGICSTICK_GPU_UUIDS="GPU-0", MAGICSTICK_GPU_COUNT="1",
@@ -438,6 +441,45 @@ class Qwen4ExpPLEPinnedHostEmbedding:
             self.wrapper["sys"].argv,
             ["wrapper.py", "--max-model-len=2048", "--scheduling-policy", "priority"],
         )
+
+    def test_cpu_threads_follow_the_real_container_quota_not_the_host_core_count(self):
+        cases = [({"/sys/fs/cgroup/cpu.max": "800000 100000"}, 128, "7"),
+                 ({"/sys/fs/cgroup/cpu.max": "150000 100000"}, 128, "1"),
+                 ({"/sys/fs/cgroup/cpu.max": "max 100000"}, 128, None),
+                 ({"/sys/fs/cgroup/cpu/cpu.cfs_quota_us": "400000",
+                   "/sys/fs/cgroup/cpu/cpu.cfs_period_us": "100000"}, 64, "3"),
+                 ({"/sys/fs/cgroup/cpu.max": "800000 100000"}, 4, None),
+                 ({"/sys/fs/cgroup/cpu.max": "800000 0"}, 128, None), ({}, 128, None)]
+        for files, cores, expected in cases:
+            def read(path, **_):
+                if str(path) not in files:
+                    raise FileNotFoundError()
+                return files[str(path)]
+            with self.subTest(files=files, cores=cores), patch.dict(os.environ, {}, clear=True), \
+                    patch.object(self.wrapper["Path"], "read_text", read), \
+                    patch.object(os, "sched_getaffinity", lambda _: set(range(cores)), create=True):
+                self.wrapper["configure_cpu_threads"]()
+                self.assertEqual(os.environ.get("OMP_NUM_THREADS"), expected)
+                self.assertEqual(os.environ.get("VLLM_CPU_OMP_THREADS_BIND"), "nobind" if expected else None)
+        for override in ({"OMP_NUM_THREADS": "3"}, {"VLLM_CPU_OMP_THREADS_BIND": "0-15"},
+                         {"VLLM_CPU_OMP_THREADS_BIND": "auto"}):
+            with self.subTest(override=override), patch.dict(os.environ, override, clear=True), \
+                    patch.object(self.wrapper["Path"], "read_text", side_effect=AssertionError("Explicit policy must not be replaced")):
+                self.wrapper["configure_cpu_threads"]()
+                self.assertEqual(dict(os.environ), override)
+
+    def test_native_collective_failures_retain_only_bounded_private_diagnostics(self):
+        output="synthetic-private-detail-" * 8000
+        with tempfile.TemporaryDirectory() as directory, contextlib.redirect_stdout(io.StringIO()) as logged:
+            self.wrapper["collective_diagnostic"](output, 2, {"NCCL_P2P_DISABLE":"1"}, directory)
+            files=list(pathlib.Path(directory).glob("magicstick-nccl-*/probe.log"))
+            self.assertEqual(len(files), 1)
+            self.assertEqual(files[0].read_text(), output[-65536:])
+            self.assertEqual(files[0].stat().st_mode & 0o777, 0o600)
+            self.assertEqual(files[0].parent.stat().st_mode & 0o777, 0o700)
+            self.assertIn("exit=2", logged.getvalue())
+            self.assertIn("transport=host-mediated", logged.getvalue())
+            self.assertNotIn("synthetic-private-detail", logged.getvalue())
 
     def test_fp8_calibration_flags_follow_the_actual_runtime_without_changing_precision(self):
         self.wrapper["os"].environ["MAGICSTICK_COMPUTE_TARGET"] = "cpu"
@@ -625,6 +667,28 @@ class Qwen4ExpPLEPinnedHostEmbedding:
             json.loads(result.stdout.strip().splitlines()[-1]),
             [str(module), "--max-model-len=2048", "--scheduling-policy", "priority"],
         )
+
+    def test_sitecustomize_never_continues_with_unqualified_arguments_after_wrapper_failure(self):
+        manifest = yaml.safe_load((ROOT / "vllm-wrapper-configmap.yaml").read_text())
+        for fault in ("raise ImportError('synthetic-sensitive-import')\n",
+                      "def configure_argv():\n    raise RuntimeError('synthetic-sensitive-runtime')\n"):
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as directory:
+                root=pathlib.Path(directory)
+                (root/"sitecustomize.py").write_text(manifest["data"]["sitecustomize.py"])
+                (root/"wrapper.py").write_text(fault)
+                environment={**os.environ,"PYTHONPATH":directory,"TMPDIR":directory,
+                             "MAGICSTICK_VLLM_WRAPPER_ENABLED":"true","MAGICSTICK_VLLM_WRAPPER_APPLIED":""}
+                result=subprocess.run([sys.executable,"-c","print('UNQUALIFIED_RUNTIME_STARTED')"],
+                                      capture_output=True,text=True,env=environment,timeout=10)
+                self.assertEqual(result.returncode,2)
+                self.assertNotIn("UNQUALIFIED_RUNTIME_STARTED",result.stdout)
+                self.assertIn("WRAPPER_STARTUP",result.stderr)
+                self.assertNotIn("synthetic-sensitive",result.stderr)
+                files=list(root.glob("magicstick-vllm-startup-*/startup.log"))
+                self.assertEqual(len(files),1)
+                self.assertIn("synthetic-sensitive",files[0].read_text())
+                self.assertEqual(files[0].stat().st_mode & 0o777,0o600)
+                self.assertEqual(files[0].parent.stat().st_mode & 0o777,0o700)
 
     def test_sitecustomize_does_not_change_unrelated_python_children(self):
         manifest = yaml.safe_load((ROOT / "vllm-wrapper-configmap.yaml").read_text(encoding="utf-8"))

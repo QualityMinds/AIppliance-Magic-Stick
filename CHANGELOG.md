@@ -8,6 +8,26 @@ limitations. Detailed pre-versioned notes are retained separately below. See the
 
 ## Unreleased
 
+- Preserve enabled idle-service baselines and absent optional module parameters
+  during regression cleanup; exclude empty instance-provider modules from the
+  standalone service fixture and retain serial-test failure dependencies.
+- Bound default CPU-vLLM OpenMP workers by the container's real CPU quota,
+  preserving explicit runtime tuning instead of increasing inference timeouts.
+- Follow the pinned Kubernetes-login plugin's actual local callback instruction,
+  validate its IdP/PKCE redirect and final callback state, and isolate mutation
+  receipts when a failed regression case restarts its browser worker.
+- Refuse unqualified vLLM startup after an adapter exception; retain bounded,
+  private startup and NCCL diagnostics instead of hiding the original cause
+  behind a later argument-parser error.
+- Include enabled modules' shipped API grants in SEC-04. PERF-02 distinguishes
+  expected consumer rollouts from leaked replicas and records which resource
+  inventory differs after cleanup.
+- Allocate separate bounded recovery journals for consecutive GPU scenarios,
+  allow bodyless license-status polling through the test write guard, and
+  capture Realtime readiness diagnostics before removing its owned runtime.
+- Restore the original no-license state after a first test activation using
+  document-only UID/revision checks; keep independent unlicensed-UI receipts.
+
 - Start every regression execution from the beginning after automatic,
   UID/revision-bound cleanup; rename the diagnostic action to **Clean up previous
   test run**. Preserve cleanup causes across phases and report missing execution

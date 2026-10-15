@@ -6,12 +6,26 @@ import type {KubeObject} from '../core/observer.ts';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {proveRoutedInference} from '../core/runtime-evidence.ts';
+import {proveRoutedInference,waitRuntimeReady} from '../core/runtime-evidence.ts';
 import {HarnessError} from '../core/errors.ts';
 import {readPrivate} from '../core/private-files.ts';
 import type {LiveFoundation} from '../core/live-foundation.ts';
 import type {InferenceProbe} from '../core/inference.ts';
 import type {OwnedModelClient} from '../core/owned-model.ts';
+
+test('RT-01 readiness failures retain runtime evidence before cleanup without changing the original deadline or cause',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'readiness-evidence-'));
+  try {
+    const error=new HarnessError('DEADLINE','Failed','model-ready');let logs=0;
+    const live={journal:{filename:join(directory,'journal.json'),runId:'fixture-run'},
+      waitReady:async()=>{throw error;},modelState:async()=>{throw new Error('synthetic-private-session');}} as unknown as LiveFoundation;
+    const model={uid:'fixture',generation:1,client:{name:'fixture-model',logs:async()=>{logs++;return {logs:[]};}} as unknown as OwnedModelClient};
+    await expect(waitRuntimeReady(live,model)).rejects.toBe(error);
+    expect(logs).toBe(1);
+    expect(JSON.parse(await readPrivate(join(directory,'runtime-failure-fixture-model.json')))).toMatchObject({stage:'model-ready',reason:'DEADLINE'});
+    expect(JSON.parse(await readPrivate(join(directory,'logs-fixture-model.json')))).toEqual({logs:[]});
+  }finally{await rm(directory,{recursive:true,force:true});}
+});
 
 test('LIFE-02 first inference preserves route versus response failure even if diagnostic reads fail',async()=>{
   const directory=await mkdtemp(join(tmpdir(),'inference-evidence-'));

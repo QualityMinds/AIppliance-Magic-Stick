@@ -1002,7 +1002,7 @@ class HelmAppInstanceTests(unittest.TestCase):
         fp8_resource, fp8_runtime = self.controller["kubeai_model_resource"](activation, presets)
         self.assertEqual(fp8_runtime["kvCacheType"], "fp8")
         self.assertIn("--kv-cache-dtype=fp8", fp8_resource["spec"]["args"])
-        self.assertIn("--calculate-kv-scales", fp8_resource["spec"]["args"])
+        self.assertNotIn("--calculate-kv-scales", fp8_resource["spec"]["args"])
         self.assertNotIn("--kv-cache-dtype=auto", fp8_resource["spec"]["args"])
 
     def test_cpu_preset_generates_cpu_runtime_without_gpu_requirements(self):

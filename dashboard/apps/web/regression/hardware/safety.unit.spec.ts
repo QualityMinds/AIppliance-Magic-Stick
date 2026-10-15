@@ -267,6 +267,25 @@ test('HAR-07 worker replacement cannot overwrite or adopt earlier ownership and 
     'worker-1/../journal.json','worker-1/worker-2/journal.json','journal.json/extra'])
     expect(recoveryJournalPath(root+path,true)).toBe(false);
 });
+test('MGPU-01 MGPU-02 consecutive successful scenarios in the same worker retain separate recoverable journals',async()=>{
+  const root=await ResourceJournal.create(join(directory,'journal.json'),newRunId(),'fixture-appliance');
+  const scenarios=[];
+  for(let caseIndex=0;caseIndex<3;caseIndex++) {
+    const next=await gpuWorkerJournal(directory,0,'fixture-appliance',true);
+    const name=next.journal.prefix+'model';await next.journal.requested('model',name);
+    await next.journal.owned('model',name,'uid-'+caseIndex,1);
+    await writePrivate(join(next.directory,'gpu-baseline.json'),{caseIndex},true);
+    scenarios.push(next);
+  }
+  expect(new Set(scenarios.map(item=>item.journal.runId)).size).toBe(3);
+  expect(scenarios.map(item=>item.directory)).toEqual([1,2,3].map(index=>join(directory,'worker-'+index)));
+  for(const [index,item] of scenarios.entries()) {
+    expect((await ResourceJournal.resume(item.journal.filename,'fixture-appliance')).entries[0]!.uid).toBe('uid-'+index);
+    expect(JSON.parse(await readFile(join(item.directory,'gpu-baseline.json'),'utf8'))).toEqual({caseIndex:index});
+    expect(recoveryJournalPath('/private/runs/'+root.runId+'/worker-'+(index+1)+'/journal.json',true)).toBe(true);
+  }
+  expect((await ResourceJournal.resume(root.filename,'fixture-appliance')).entries).toEqual([]);
+});
 test('HAR-10 a Degraded positive runtime fails early and retains bounded private logs before cleanup',async({},info)=>{
     const scenario=Object.create(GpuScenario.prototype) as GpuScenario;
     Object.defineProperty(scenario,'directory',{value:directory});let reads=0;

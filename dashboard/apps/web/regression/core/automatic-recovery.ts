@@ -106,8 +106,8 @@ export class AutomaticRecovery {
         } else if(/^borrowed-module(?:-[a-z0-9-]{1,63})?\.json$/.test(name)) {
           const value=JSON.parse(await readPrivate(filename));
           requireSafe(value.version===1&&value.original?.metadata?.namespace==='ai-system'&&
-            value.original.spec?.enabled===false&&typeof value.original.spec?.module==='string'&&
-            !/identity|dashboard|basis|kubeai|gpu|amd|nvidia|intel|litellm|private-mesh/.test(value.original.spec.module),'RECOVERY');
+            typeof value.original.spec?.enabled==='boolean'&&typeof value.original.spec?.module==='string'&&
+            !/identity|dashboard|basis|kubeai|gpu|amd|nvidia|intel|litellm|private-mesh|model-catalog|magicstick-operator|regression/.test(value.original.spec.module),'RECOVERY');
           // Fully restored receipts are historical evidence, not borrowed state.
           if(value.state!=='restored')modules.push({filename,original:value.original,applied:value.applied});
         } else if(/^(?:gpu|mesh|cache|realtime)-sharing\.json$/.test(name)) {
@@ -116,7 +116,7 @@ export class AutomaticRecovery {
             registration.nodeUids.includes(value.nodeUid)&&typeof value.nodeName==='string'&&Array.isArray(value.entries),'RECOVERY');
           if(value.entries.some((entry:{state:string})=>entry.state!=='restored'))sharing.push({filename,
             identity:{runId:value.runId,targetUid:value.targetUid,nodeName:value.nodeName,nodeUid:value.nodeUid}});
-        } else if(/^(?:borrowed-amd-profile|license-transaction|license-baseline|federation|mesh-membership|unmanaged-key-fixture|network-baseline-restore|host-drill-[a-z0-9-]+|kube-(?:configmaps|secrets))\.json$/.test(name)) {
+        } else if(/^(?:borrowed-amd-profile|license-transaction|license-baseline(?:-(?:lic-01|sso-01))?|federation|mesh-membership|unmanaged-key-fixture|network-baseline-restore|host-drill-[a-z0-9-]+|kube-(?:configmaps|secrets))\.json$/.test(name)) {
           const value=JSON.parse(await readPrivate(filename));
           requireSafe(value.version===1&&['restored','removed','verified'].includes(value.state),'RECOVERY');
         }

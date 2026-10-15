@@ -1,7 +1,7 @@
 import {test,expect} from '@playwright/test';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {join,dirname} from 'node:path';
 import type {User} from '@magicstick/dashboard-contracts';
 import {LiveFoundation} from '../core/live-foundation.ts';
 import type {CleanupAdapter,ResourceKind} from '../core/journal.ts';
@@ -13,9 +13,56 @@ import {evidenceAnnotations} from '../core/evidence.ts';
 import {AdministrationRejected} from '../core/administration-api.ts';
 import {MutationNotSubmitted} from '../core/browser-action.ts';
 import {HarnessError} from '../core/errors.ts';
-import {readPrivate} from '../core/private-files.ts';
+import {readPrivate,journalFile,privateDirectory,writePrivate} from '../core/private-files.ts';
+import {workloadPodInventory,repeatInventoryChanges} from '../core/repeat-inventory.ts';
+import {absentLicenseDocumentPatch} from '../core/license-baseline.ts';
 
 const annotation=evidenceAnnotations({id:'HAR-10',layer:'U'});
+test('LIC-02 LIC-04 first-activation cleanup removes only the exact test document and preserves the original installation',annotation,()=>{
+  const encode=(text:string)=>Buffer.from(text).toString('base64');
+  const original={metadata:{name:'magicstick-license',namespace:'identity-system',uid:'original-secret',resourceVersion:'1'},
+    data:{installationId:encode('fixture-installation'),preserve:encode('untouched-field')}};
+  const current={...original,metadata:{...original.metadata,resourceVersion:'2'},data:{...original.data,'license.json':encode('test-document')}};
+  expect(absentLicenseDocumentPatch(original,current,'fixture-installation','test-document')).toEqual([
+    {op:'test',path:'/metadata/uid',value:'original-secret'},
+    {op:'test',path:'/metadata/resourceVersion',value:'2'},
+    {op:'test',path:'/data',value:current.data},{op:'remove',path:'/data/license.json'},
+  ]);
+  for(const changed of [
+    {...current,metadata:{...current.metadata,uid:'foreign-secret'}},
+    {...current,data:{...current.data,installationId:encode('another-installation')}},
+    {...current,data:{...current.data,preserve:encode('changed-field')}},
+    {...current,data:{...current.data,'license.json':encode('human-document')}},
+  ])expect(()=>absentLicenseDocumentPatch(original,changed,'fixture-installation','test-document')).toThrow();
+  expect(()=>absentLicenseDocumentPatch(current,current,'fixture-installation','test-document')).toThrow();
+});
+test('PERF-02 catalog-driven Pod replacement is not a leak; extra replicas, replaced owners and bare Pods are',annotation,()=>{
+  const set=(uid:string,owner='stable-deployment')=>({metadata:{uid,ownerReferences:[{kind:'Deployment',uid:owner,controller:true}]}} as KubeObject);
+  const pod=(uid:string,owner?:string)=>({metadata:{uid,...(owner?{ownerReferences:[{kind:'ReplicaSet',uid:owner,controller:true}]}:{})}} as KubeObject);
+  const before=workloadPodInventory([pod('old-pod','old-rs'),pod('bare-pod')],[set('old-rs')]);
+  expect(workloadPodInventory([pod('new-pod','new-rs'),pod('bare-pod')],[set('new-rs')])).toBe(before);
+  for(const changed of [
+    workloadPodInventory([pod('new-pod','new-rs'),pod('extra-pod','new-rs'),pod('bare-pod')],[set('new-rs')]),
+    workloadPodInventory([pod('new-pod','new-rs'),pod('bare-pod')],[set('new-rs','recreated-deployment')]),
+    workloadPodInventory([pod('new-pod','new-rs'),pod('replaced-bare-pod')],[set('new-rs')]),
+    workloadPodInventory([pod('new-pod','unknown-rs'),pod('bare-pod')],[]),
+  ]) {
+    const baseline={podIds:before,modelIds:'',intentIds:'',claimIds:'',routeIds:'',keyIds:''};
+    expect(repeatInventoryChanges(baseline,{...baseline,podIds:changed})).toEqual(['podIds']);
+  }
+});
+test('HAR-07 transaction receipts from restarted workers cannot overwrite or collide with previous workers',annotation,async()=>{
+  const root=await mkdtemp(join(tmpdir(),'worker-receipts-'));
+  try {
+    const first={filename:join(root,'worker-1','journal.json')},second={filename:join(root,'worker-2','journal.json')};
+    for(const item of [first,second])await privateDirectory(dirname(item.filename));
+    await writePrivate(journalFile(first,'license-transaction.json'),{state:'applied'},true);
+    await writePrivate(journalFile(second,'license-transaction.json'),{state:'reviewed'},true);
+    expect(JSON.parse(await readPrivate(journalFile(first,'license-transaction.json'))).state).toBe('applied');
+    expect(JSON.parse(await readPrivate(journalFile(second,'license-transaction.json'))).state).toBe('reviewed');
+    for(const name of ['../journal.json','nested/receipt.json','..','/tmp/receipt.json'])expect(()=>journalFile(first,name)).toThrow('[PRIVATE_FILE]');
+  }finally{await rm(root,{recursive:true,force:true});}
+});
 test('HAR-07 GPU restoration failure still cleans independent journals, stops heartbeat and retains its precise stage',annotation,async()=>{
   const directory=await mkdtemp(join(tmpdir(),'restoration-fence-'));
   try {
@@ -60,6 +107,36 @@ test('HAR-10 module cleanup distinguishes unsent, acknowledged and lost response
       await expect(again.restore()).rejects.toThrow('[CONFLICT]');
     }
   } finally {await rm(directory,{recursive:true,force:true});}
+});
+test('MOD-03 MOD-04 optional maps and enabled service baselines are restored exactly and repeatedly',annotation,async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'module-baselines-'));
+  try {
+    for(const enabled of [false,true])for(const withParameters of [false,true]) {
+      const original:KubeObject={metadata:{name:'service',uid:'exact-service-uid',generation:5},
+        spec:{module:'service',enabled,...(withParameters?{parameters:{}}:{})}};
+      let current=structuredClone(original),writes=0;
+      const adapter={read:async()=>structuredClone(current),set:async(value:boolean,parameters:Record<string,string>)=>{
+        writes++;current={...current,metadata:{...current.metadata,generation:current.metadata.generation!+1},
+          spec:{...current.spec,enabled:value,...(withParameters||Object.keys(parameters).length?{parameters}:{})}};
+      }},receipt=join(directory,`${enabled}-${withParameters}.json`),guard=async()=>{};
+      const borrowed=new BorrowedModule(original,receipt,adapter,guard);
+      await borrowed.change(!enabled,{});
+      const recovered=await BorrowedModule.resume(receipt,adapter,guard);
+      await recovered.reconcileUnchanged();await recovered.restore();
+      expect(current.spec).toEqual(original.spec);expect(writes).toBe(2);
+      await recovered.restore();expect(writes).toBe(2);
+      current.metadata.generation!++;
+      await expect(recovered.restore()).rejects.toThrow('[CONFLICT]');
+    }
+    const original:KubeObject={metadata:{name:'service',uid:'uid',generation:1},spec:{module:'service',enabled:false,parameters:{}}};
+    let current=structuredClone(original),writes=0;
+    const adapter={read:async()=>structuredClone(current),set:async(enabled:boolean,parameters:Record<string,string>)=>{
+      writes++;current={...current,metadata:{...current.metadata,generation:current.metadata.generation!+1},spec:{...current.spec,enabled,parameters}};
+    }};
+    const borrowed=new BorrowedModule(original,join(directory,'already-reset.json'),adapter,async()=>{});
+    await borrowed.change(true,{});await borrowed.change(false,{});await borrowed.restore();await borrowed.restore();
+    expect(writes).toBe(2);expect(current.spec).toEqual(original.spec);
+  }finally{await rm(directory,{recursive:true,force:true});}
 });
 test('HAR-10 acknowledged local users are journaled before postconditions and cleaned by exact UID',annotation,async()=>{
   const directory=await mkdtemp(join(tmpdir(),'identity-cleanup-'));

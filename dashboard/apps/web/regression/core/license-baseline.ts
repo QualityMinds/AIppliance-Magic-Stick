@@ -1,8 +1,7 @@
 import {createHash} from 'node:crypto';
-import {join} from 'node:path';
 import type {LiveFoundation} from './live-foundation.ts';
 import {KubectlObserver,verifyObserverRules,type KubeObject} from './observer.ts';
-import {readPrivate,writePrivate,withPrivateCommandInput} from './private-files.ts';
+import {readPrivate,writePrivate,withPrivateCommandInput,journalFile} from './private-files.ts';
 import {requireSafe} from './errors.ts';
 import {AdministrationApi} from './administration-api.ts';
 import {poll} from './poll.ts';
@@ -10,6 +9,12 @@ import {canonicalInput} from './input-preparation.ts';
 
 type LicenseSecret=KubeObject & {data:Record<string,string>};
 const fingerprint=(value:string)=>createHash('sha256').update(value).digest('hex');
+export function absentLicenseDocumentPatch(original:LicenseSecret,current:LicenseSecret,installationId:string,document:string) {
+  requireSafe(!original.data['license.json'] && current.metadata.uid===original.metadata.uid &&
+    Buffer.from(current.data['license.json'] ?? '', 'base64').toString()===document &&
+    canonicalInput(Object.fromEntries(Object.entries(current.data).filter(([key])=>key!=='license.json')))===canonicalInput(original.data),'CONFLICT');
+  return licenseDocumentPatch(current,installationId,null);
+}
 /** Exact document-only CAS. Never delete/recreate the installation identity,
  * touch issuer trust, or replace unknown Secret fields. */
 export function licenseDocumentPatch(secret:LicenseSecret,installationId:string,document:string|null) {
@@ -61,10 +66,28 @@ class LicenseResetter extends KubectlObserver {
   }
 }
 
+/** First test activation must return to the original no-document state, not
+ * leave a test entitlement installed or an intentionally unfinished receipt. */
+export async function absentLicenseBaseline(live:LiveFoundation,fixture:{approveNoFileBaseline?:boolean;kubeconfig?:string}|undefined,installationId:string) {
+  requireSafe(fixture?.approveNoFileBaseline===true && fixture.kubeconfig &&
+    fixture.kubeconfig!==live.config.observerKubeconfig && fixture.kubeconfig!==live.config.lock?.kubeconfig,'PREREQUISITE');
+  const resetter=new LicenseResetter(fixture.kubeconfig,live.config.requestTimeoutMs);
+  await resetter.verifyScope((await live.observer.list('namespaces')).map(item=>String(item.metadata.name)));
+  const original=await resetter.state();
+  requireSafe(!original.data['license.json'] && original.metadata.uid &&
+    Buffer.from(original.data.installationId ?? '', 'base64').toString()===installationId,'CONFLICT');
+  return {secretUid:original.metadata.uid,restore:async(document:string)=>{
+    const current=await resetter.state();absentLicenseDocumentPatch(original,current,installationId,document);
+    await live.guard();await resetter.document(current,installationId,null);
+    const api=new AdministrationApi(live.context.request,live.config.dashboardUrl,live.config.requestTimeoutMs,live.guard);
+    await poll(()=>api.api.licenseStatus(),value=>!value.hasDocument,{timeoutMs:30_000,intervalMs:500,stage:'cleanup'});
+  }};
+}
+
 /** LIC-01/SSO-01 need a real no-document state even on repeated campaigns.
  * Scope is explicit; the original document is restored byte-for-byte before
  * any activation/federation workflow. No permanent downgrade in setup. */
-export async function withUnlicensedBaseline<T>(live:LiveFoundation,action:()=>Promise<T>):Promise<T> {
+export async function withUnlicensedBaseline<T>(live:LiveFoundation,action:()=>Promise<T>,caseId:'lic-01'|'sso-01'='lic-01'):Promise<T> {
   const api=new AdministrationApi(live.context.request,live.config.dashboardUrl,live.config.requestTimeoutMs,live.guard);
   const status=await api.api.licenseStatus();
   if(!status.hasDocument)return action();
@@ -76,8 +99,8 @@ export async function withUnlicensedBaseline<T>(live:LiveFoundation,action:()=>P
   await resetter.verifyScope((await live.observer.list('namespaces')).map(item=>String(item.metadata.name)));
   const original=await resetter.state(),document=(await api.api.exportLicense()).content;
   requireSafe(Buffer.from(original.data['license.json'] ?? '', 'base64').toString() === document,'CONFLICT');
-  const receipt=join(process.env.REGRESSION_RUN_DIR!,'license-baseline.json');
-  await writePrivate(join(process.env.REGRESSION_RUN_DIR!,'license-baseline-original.license'),document,true);
+  const receipt=journalFile(live.journal,`license-baseline-${caseId}.json`);
+  await writePrivate(journalFile(live.journal,`license-baseline-${caseId}-original.license`),document,true);
   await writePrivate(receipt,{version:1,installationId:status.installationId,secretUid:original.metadata.uid,
     originalHash:fingerprint(document),state:'requested'},true);
   let empty:LicenseSecret|undefined;

@@ -82,8 +82,8 @@ export async function recoveryAdapters(inputs:string,context:BrowserContext,regi
       requireSafe(original.metadata.namespace==='ai-system'&&original.metadata.name&&/^[a-z0-9-]{1,63}$/.test(id),'OWNERSHIP');
       return {read:()=>observer.get('moduleactivations.appliance.magicstick.dev','ai-system',original.metadata.name!),
         set:(enabled,parameters)=>{
-          const body=enabled&&!Object.keys(parameters).length?{}:{parameters},path=`/api/modules/${id}/${enabled?'enable':'disable'}`;
-          return api.write({method:'POST',path,body},()=>enabled?api.api.enableModule(id,parameters):api.api.disableModule(id,parameters));
+          const body=!Object.keys(parameters).length&&(enabled||original.spec?.parameters===undefined)?{}:{parameters},path=`/api/modules/${id}/${enabled?'enable':'disable'}`;
+          return api.write({method:'POST',path,body},()=>enabled?api.api.enableModule(id,parameters):api.api.disableModule(id,'parameters' in body?parameters:undefined));
         }};
     },
     sharing:(identity,guard)=>sharingAdapter({guard:authenticatedGuard(guard),observer,context,api:readonly.api,config:{dashboardUrl:registration.dashboardUrl,

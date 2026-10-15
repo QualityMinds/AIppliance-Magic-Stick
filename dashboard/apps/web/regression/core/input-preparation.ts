@@ -155,7 +155,7 @@ export function inputReadiness(lab:LabConfig,profile:Json,snapshot:PreparationSn
         ['originTemplate','promptLabel','sendButton','responseSelector','responseMarker']).every(key=>filled(fixture[key])),
         'The reviewed HTTPS template and actual prompt/send/response controls are incomplete.']]);
   }
-  add('applications','optional-module',[[filled(profile.modules?.id),'No reviewed disabled optional-module fixture was selected.'],
+  add('applications','optional-module',[[filled(profile.modules?.id),'No idle standalone optional-service fixture was selected.'],
     [approved(profile.modules,'approveOptionalModule'),'The optional-module enable/disable test has not been approved.']],!approved(profile.modules,'approveOptionalModule'));
   add('applications','amd-profile',[[filled(profile.moduleProfile?.profileId),'No advertised alternate AMD profile fixture was selected.'],
     [approved(profile.moduleProfile,'approveTemporaryProfile'),'The temporary AMD profile change has not been approved.']],!approved(profile.moduleProfile,'approveTemporaryProfile'));

@@ -8,6 +8,10 @@ import {writePrivate} from './private-files.ts';
 import {HarnessError,requireSafe,type Stage} from './errors.ts';
 
 export interface RuntimeSubject {client:OwnedModelClient;uid:string;generation:number}
+export async function waitRuntimeReady(live:LiveFoundation,model:RuntimeSubject) {
+  try{return await live.waitReady(model.client,model.uid,model.generation);}
+  catch(error){await preserveRuntimeFailure(live,model,'model-ready',error);throw error;}
+}
 export async function preserveRuntimeFailure(live:LiveFoundation,model:RuntimeSubject,stage:Stage,error:unknown) {
   try {
     const state=await live.modelState(model.client,model.uid);

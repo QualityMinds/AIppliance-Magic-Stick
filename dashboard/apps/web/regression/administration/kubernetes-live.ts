@@ -1,9 +1,8 @@
 import {expect,type Browser} from '@playwright/test';
-import {join} from 'node:path';
 import type {LiveFoundation} from '../core/live-foundation.ts';
 import {OwnedIdentityClient} from '../core/owned-identity.ts';
 import {realLogin} from '../core/auth.ts';
-import {readPrivate,writePrivate} from '../core/private-files.ts';
+import {readPrivate,writePrivate,journalFile} from '../core/private-files.ts';
 import {parseKubeconfig,executeOidc,identityKubeRequest} from '../core/oidc-exec.ts';
 import {HarnessError,requireProof as requireSafe} from '../core/errors.ts';
 import {poll} from '../core/poll.ts';
@@ -47,7 +46,7 @@ export async function kubernetesWorkflow(live:LiveFoundation,browser:Browser) {
         for(const [kind,plural,spec] of resources) {
           requireSafe(await access('appliance.magicstick.dev',plural,'create','ai-system') && await access('appliance.magicstick.dev',plural,'delete','ai-system'),'API');
           const name=live.journal.prefix+'kube-'+plural.slice(0,5),path='/apis/appliance.magicstick.dev/v1alpha1/namespaces/ai-system/'+plural;
-          const receipt=join(process.env.REGRESSION_RUN_DIR!,'kube-'+plural+'.json');
+          const receipt=journalFile(live.journal,'kube-'+plural+'.json');
           requireSafe((await identityKubeRequest(oidc,token,path+'/'+name)).status === 404,'OWNERSHIP');
           await writePrivate(receipt,{version:1,kind,namespace:'ai-system',name,state:'requested'},true);
           await live.guard();

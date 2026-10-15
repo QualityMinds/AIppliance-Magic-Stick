@@ -13,6 +13,7 @@ import {MutationNotSubmitted} from '../core/browser-action.ts';
 import type {LabRegistration} from '../core/lab-policy.ts';
 import type {KubeObject} from '../core/observer.ts';
 import {HarnessError} from '../core/errors.ts';
+import {gpuWorkerJournal} from '../core/gpu-scenario.ts';
 
 test('HAR-06 HAR-09 cleanup always runs without replacing the original scenario error', async () => {
   const primary = new HarnessError('DEADLINE', 'Failed', 'model-ready');
@@ -168,6 +169,30 @@ test('HAR-07 worker ownership is recovered through exact parent and child journa
   await (await AutomaticRecovery.prepare(f.root,await f.store.read(),registration)).execute(f.adapters);
   expect(f.deleted).toEqual([name]);expect(f.store.value.spec.holderIdentity).toBe('');
 }));
+test('HAR-07 consecutive GPU scenarios recover every exact journal without reusing earlier receipts',async()=>isolated(async directory=>{
+  const f=await fixture(directory),names=[];
+  for(let index=0;index<3;index++) {
+    const child=await gpuWorkerJournal(f.path,0,registration.applianceUid,true),name=child.journal.prefix+'model';
+    await child.journal.requested('model',name);await child.journal.owned('model',name,'uid-'+index,1);
+    f.resources.set(name,'uid-'+index);names.push(name);f.store.value.spec.holderIdentity=child.journal.runId;
+  }
+  const plan=await AutomaticRecovery.prepare(f.root,await f.store.read(),registration);
+  expect(plan.journals).toHaveLength(4);await plan.execute(f.adapters);
+  expect([...f.deleted].sort()).toEqual(names.sort());expect(f.store.value.spec.holderIdentity).toBe('');
+  await (await AutomaticRecovery.prepare(f.root,await f.store.read(),registration)).execute(f.adapters);
+  expect(f.deleted).toHaveLength(3);
+}));
+test('HAR-07 both no-license baseline receipts must be restored before automatic recovery can proceed',async()=>{
+  for(const caseId of ['lic-01','sso-01'])await isolated(async directory=>{
+    const f=await fixture(directory),filename=join(f.path,`license-baseline-${caseId}.json`);
+    await writePrivate(filename,{version:1,state:'requested'},true);
+    await expect(AutomaticRecovery.prepare(f.root,await f.store.read(),registration)).rejects.toMatchObject({code:'RECOVERY',stage:'recovery-journal'});
+    expect(f.store.replacements).toBe(0);
+    await writePrivate(filename,{version:1,state:'restored'});
+    await (await AutomaticRecovery.prepare(f.root,await f.store.read(),registration)).execute(f.adapters);
+    expect(f.store.value.spec.holderIdentity).toBe('');
+  });
+});
 test('HAR-08 ambiguous unchanged optional module is reconciled without rewriting historical failed evidence',async()=>isolated(async directory=>{
   const f=await fixture(directory),filename=join(f.path,'borrowed-module.json');await writePrivate(filename,{version:1,original:f.original,state:'ambiguous'});
   const history={version:2,runId:f.runId,cases:[{id:'MOD-03',outcome:'Failed'}]};await writePrivate(join(f.path,'summary.json'),history);

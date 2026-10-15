@@ -192,7 +192,7 @@ test.describe.serial('Phase 2 installed CPU model control', () => {
       await expect(card.getByText(`KV requested: ${fixture.kvCacheType}`,{exact:true})).toBeVisible({timeout:60_000});
       await expect(card.getByText(`KV active: ${readyItem.status.effectiveKvCacheType}`,{exact:true})).toBeVisible({timeout:60_000});
       });
-      await prove(label==='ollama'?['ENG-02','ROUTE-02']:[],()=>test.step('Verify routed CPU model inference',async()=>{
+      await prove(['LIFE-02','ENG-01',...(label==='ollama'?['ENG-02','ROUTE-02']:[])],()=>test.step('Verify routed CPU model inference',async()=>{
         await proveRoutedInference(live!,inference,model);
       }));
       await prove(['LOG-01'],async()=>{

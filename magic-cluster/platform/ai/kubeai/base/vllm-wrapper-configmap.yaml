@@ -32,9 +32,30 @@ data:
         # process. Mark the environment before importing the wrapper so every
         # multiprocessing child inherits the guard and keeps its own argv.
         os.environ["MAGICSTICK_VLLM_WRAPPER_APPLIED"] = "true"
-        import wrapper
+        try:
+            import wrapper
 
-        wrapper.configure_argv()
+            wrapper.configure_argv()
+        except Exception:
+            # Python ignores ordinary sitecustomize exceptions. Continuing
+            # would discard the checked VRAM/parallelism arguments and could
+            # then fail on an unrelated original flag, hiding the real cause.
+            import sys
+            import tempfile
+            import traceback
+
+            location = "unavailable"
+            try:
+                directory = tempfile.mkdtemp(prefix="magicstick-vllm-startup-")
+                location = os.path.join(directory, "startup.log")
+                descriptor = os.open(location, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(descriptor, "w") as stream:
+                    stream.write(traceback.format_exc()[-65536:])
+            except OSError:
+                pass
+            print(f"[magicstick-vllm-wrapper] ERROR: WRAPPER_STARTUP; refusing unqualified startup; private_diagnostic={location}",
+                  file=sys.stderr, flush=True)
+            os._exit(2)
   ple_backport.py: |-
     """Opt-in backport of vLLM #60142, never a quantization conversion.
 
@@ -157,6 +178,7 @@ data:
     from importlib.metadata import PackageNotFoundError, version as runtime_version
     import json
     import os
+    from pathlib import Path
     import re
     import subprocess
     import sys
@@ -320,6 +342,39 @@ data:
         return args
 
 
+    def configure_cpu_threads():
+        """Respect a container CPU quota instead of binding the entire host.
+
+        vLLM auto binding counts physical cores, not CFS quota. Under the
+        default eight-core quota a many-core host otherwise starts dozens of
+        spin-waiting workers. Explicit user thread/binding policies win.
+        """
+        if os.environ.get("OMP_NUM_THREADS") or os.environ.get("VLLM_CPU_OMP_THREADS_BIND"):
+            return
+        try:
+            affinity = len(os.sched_getaffinity(0))
+        except (AttributeError, OSError):
+            affinity = os.cpu_count() or 1
+        quota = None
+        try:
+            amount, period = Path("/sys/fs/cgroup/cpu.max").read_text().split()
+            if amount != "max" and int(period) > 0 and int(amount) > 0:
+                quota = max(1, int(amount) // int(period))
+        except (OSError, ValueError):
+            try:
+                amount = int(Path("/sys/fs/cgroup/cpu/cpu.cfs_quota_us").read_text())
+                period = int(Path("/sys/fs/cgroup/cpu/cpu.cfs_period_us").read_text())
+                if amount > 0 and period > 0:
+                    quota = max(1, amount // period)
+            except (OSError, ValueError):
+                pass
+        if quota is not None and quota < affinity:
+            threads = max(1, quota - 1)  # Leave bounded capacity for the frontend.
+            os.environ["VLLM_CPU_OMP_THREADS_BIND"] = "nobind"
+            os.environ["OMP_NUM_THREADS"] = str(threads)
+            log(f"CPU quota={quota} cores; inference_threads={threads}; binding=nobind")
+
+
     def configure_argv():
         compute_target = os.environ.get("MAGICSTICK_COMPUTE_TARGET", "nvidia-gpu").strip().lower()
         args = normalize_legacy_cache_flags(strip_gpu_memory_utilization(sys.argv[1:]))
@@ -339,6 +394,7 @@ data:
             filtered.append(arg)
         args = [*filtered, "--scheduling-policy", "priority"]
         if compute_target == "cpu":
+            configure_cpu_threads()
             sys.argv[:] = [sys.argv[0], *args]
             log(
                 "compute_target=cpu "
@@ -500,6 +556,21 @@ data:
         return filtered, min(capacities)
 
 
+    def collective_diagnostic(output, returncode, environment, directory="/tmp"):
+        """Keep native transport detail private and bounded, never in reports."""
+        import tempfile
+        try:
+            private = Path(tempfile.mkdtemp(prefix="magicstick-nccl-", dir=directory))
+            filename = private / "probe.log"
+            descriptor = os.open(filename, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(descriptor, "w") as stream:
+                stream.write(str(output)[-65536:])
+            policy = "host-mediated" if environment.get("NCCL_P2P_DISABLE") == "1" else "configured"
+            log(f"NVIDIA collective probe failed: exit={returncode}; transport={policy}; private_diagnostic={filename}")
+        except OSError:
+            log(f"NVIDIA collective probe failed: exit={returncode}; private diagnostic could not be saved")
+
+
     def collective_probe(expected, environment):
         # A separate process group owns every CUDA context. A hung transport
         # cannot outlive the probe or leave GPU workers behind in the Pod.
@@ -513,10 +584,14 @@ data:
                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True)
         try:
             output, _ = process.communicate(timeout=75)
-            return process.returncode == 0 and "MAGICSTICK_COLLECTIVE_OK" in output.splitlines()
+            success = process.returncode == 0 and "MAGICSTICK_COLLECTIVE_OK" in output.splitlines()
+            if not success:
+                collective_diagnostic(output, process.returncode, environment)
+            return success
         except subprocess.TimeoutExpired:
             os.killpg(process.pid, signal.SIGKILL)
-            process.communicate(timeout=10)
+            output, _ = process.communicate(timeout=10)
+            collective_diagnostic(output, "timeout", environment)
             return False
 
 

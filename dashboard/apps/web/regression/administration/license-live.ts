@@ -1,13 +1,22 @@
 import {expect} from '@playwright/test';
-import {join} from 'node:path';
 import {createHash} from 'node:crypto';
 import type {LiveFoundation} from '../core/live-foundation.ts';
 import {AdministrationApi,AdministrationRejected} from '../core/administration-api.ts';
-import {readPrivate,writePrivate} from '../core/private-files.ts';
+import {readPrivate,writePrivate,journalFile} from '../core/private-files.ts';
 import {requireProof as requireSafe} from '../core/errors.ts';
 import {restartDashboardApi} from '../core/service-restart.ts';
+import {absentLicenseBaseline} from '../core/license-baseline.ts';
 
 const fingerprint=(document:string)=>createHash('sha256').update(document).digest('hex');
+/** The same URL is polled with GET while validation/activation uses POST/PUT.
+ * A read has no JSON body; never treat it as an unapproved license write. */
+export function licenseUiRequestAllowed(method:string,path:string,body:unknown,document:string,revision:string) {
+  if(method==='GET' && path==='/api/license')return body===null;
+  if(!body || typeof body!=='object' || Array.isArray(body))return false;
+  const value=body as Record<string,unknown>;
+  return value.document===document && (method==='POST' && path==='/api/license/validate' ||
+    method==='PUT' && path==='/api/license' && value.expectedRevision===revision);
+}
 export async function licensingWorkflow(live:LiveFoundation) {
   const profile=JSON.parse(await readPrivate(process.env.REGRESSION_REMAINING_PROFILE!)),fixture=profile.license;
   requireSafe(fixture?.approveLicenseReplacement === true && typeof fixture.validFile === 'string' && Array.isArray(fixture.invalidFiles) && fixture.invalidFiles.length >= 3,'PREREQUISITE');
@@ -17,18 +26,19 @@ export async function licensingWorkflow(live:LiveFoundation) {
   const document=await readPrivate(fixture.validFile);requireSafe(document.length < 64*1024 && !document.includes('PRIVATE KEY'),'CONFIG');
   const inspected=await api.write({method:'POST',path:'/api/license/validate',body:{document}},()=>api.api.inspectLicense(document));
   requireSafe(inspected.candidate.valid && inspected.candidate.claims?.installationId === before.installationId && inspected.candidate.claims.features.includes('federated-sso'),'PREREQUISITE');
-  const receipt=join(process.env.REGRESSION_RUN_DIR!,'license-transaction.json');
+  const absent=original ? undefined : await absentLicenseBaseline(live,fixture.baseline,before.installationId);
+  const receipt=journalFile(live.journal,'license-transaction.json');
   await writePrivate(receipt,{version:1,installationId:before.installationId,beforeRevision:before.revision,originalHash:original ? fingerprint(original.content) : null,
     selectedHash:fingerprint(document),restoreAvailable:Boolean(original),state:'reviewed'},true);
-  if(original)await writePrivate(join(process.env.REGRESSION_RUN_DIR!,'original-license.license'),original.content,true);
+  if(original)await writePrivate(journalFile(live.journal,'original-license.license'),original.content,true);
   let changed=false,activationAttempted=false,revision=before.revision;
   try {
     const page=await live.context.newPage();
     try {
       await page.goto(live.config.dashboardUrl+'/#/system/license');await page.getByLabel('License file',{exact:true}).setInputFiles({name:'registered.license',mimeType:'application/json',buffer:Buffer.from(document)});
       const permit=async(route:import('@playwright/test').Route)=>{
-        const body=route.request().postDataJSON();requireSafe(body.document === document &&
-          (route.request().method() === 'POST' || route.request().method() === 'PUT' && body.expectedRevision === before.revision),'MUTATION');await live.guard();await route.continue();};
+        const request=route.request();requireSafe(licenseUiRequestAllowed(request.method(),new URL(request.url()).pathname,
+          request.postDataJSON(),document,before.revision),'MUTATION');await live.guard();await route.continue();};
       await page.route(live.config.dashboardUrl+'/api/license{,/validate}',permit);
       try {
         await page.getByRole('button',{name:'Validate license',exact:true}).click();await expect(page.getByRole('button',{name:'Activate license',exact:true})).toBeEnabled();
@@ -64,8 +74,10 @@ export async function licensingWorkflow(live:LiveFoundation) {
       const current=await api.api.licenseStatus();requireSafe(current.revision === revision,'CONFLICT');
       await api.write({method:'PUT',path:'/api/license',body:{document:original.content,expectedRevision:revision}},()=>api.api.importLicense(original.content,revision));
       requireSafe(fingerprint((await api.api.exportLicense()).content) === fingerprint(original.content),'CLEANUP');
+    }else if(changed) {
+      requireSafe(absent && observed.revision===revision,'CONFLICT');await absent.restore(document);
     }
     await writePrivate(receipt,{version:1,installationId:before.installationId,originalHash:original ? fingerprint(original.content) : null,
-      state:changed && !original ? 'first-activation-retained-by-approval' : 'restored'});
+      state:'restored'});
   }
 }

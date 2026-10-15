@@ -11,7 +11,7 @@ interface Adapter {
   set(enabled:boolean,parameters:Record<string,string>):Promise<unknown>;
 }
 
-/** One disabled, pre-created optional module; no deletion or prefix adoption.
+/** One pre-created optional module; no deletion or prefix adoption.
  * Observe and journal writes before asserting their success/rejection, so even
  * an unexpectedly accepted negative request is covered by final restoration. */
 export class BorrowedModule {
@@ -24,8 +24,9 @@ export class BorrowedModule {
   readonly guard:()=>Promise<void>;
   constructor(original:KubeObject,receipt:string,adapter:Adapter,guard:()=>Promise<void>) {
     this.original=original;this.receipt=receipt;this.adapter=adapter;this.guard=guard;
-    requireSafe(original.metadata.uid && original.metadata.generation && original.spec?.enabled === false &&
-      original.spec.parameters && typeof original.spec.parameters === 'object','PREREQUISITE');
+    requireSafe(original.metadata.uid && original.metadata.generation && typeof original.spec?.enabled === 'boolean' &&
+      (original.spec.parameters === undefined || original.spec.parameters && typeof original.spec.parameters === 'object' &&
+        !Array.isArray(original.spec.parameters)),'PREREQUISITE');
   }
   static async resume(receipt:string,adapter:Adapter,guard:()=>Promise<void>) {
     const value=JSON.parse(await readPrivate(receipt));
@@ -69,7 +70,9 @@ export class BorrowedModule {
     const acknowledge=async()=>{
       await this.guard();const current=await this.adapter.read();
       requireSafe(current.metadata.uid===before.metadata.uid,'CONFLICT');
-      const expected={...before.spec,enabled,parameters};
+      // Empty requests preserve an absent optional parameter map. Missing and
+      // empty are not interchangeable ownership/revision evidence.
+      const expected={...before.spec,enabled,...(before.spec?.parameters !== undefined || Object.keys(parameters).length ? {parameters} : {})};
       const merged={...expected,parameters:{...(before.spec?.parameters as Record<string,string>),...parameters}};
       if(canonical(current.spec)!==canonical(before.spec)) {
         requireSafe(current.metadata.generation===Number(before.metadata.generation)+1 &&
@@ -96,8 +99,14 @@ export class BorrowedModule {
   async restore() {
     requireSafe(!this.unresolved,'CLEANUP');
     if(!this.applied){await this.current();await writePrivate(this.receipt,{version:1,original:this.original,restored:this.restored,state:'restored'});return;}
-    const current=await this.current(),parameters=this.original.spec!.parameters as Record<string,string>;
-    await this.adapter.set(false,parameters);
+    const current=await this.current(),parameters=(this.original.spec!.parameters ?? {}) as Record<string,string>;
+    // A confirmed forward change may already have returned to the baseline.
+    // Do not demand a nonexistent generation increment from an idempotent API.
+    if(canonical(current.spec) === canonical(this.original.spec)) {
+      this.applied=undefined;this.restored=structuredClone(current);
+      await writePrivate(this.receipt,{version:1,original:this.original,restored:this.restored,state:'restored'});return;
+    }
+    await this.adapter.set(this.original.spec!.enabled as boolean,parameters);
     const restored=await poll(async()=>{await this.guard();return this.adapter.read();},item=>
       item.metadata.uid === current.metadata.uid && item.metadata.generation === Number(current.metadata.generation)+1 &&
       canonical(item.spec) === canonical(this.original.spec),{timeoutMs:30_000,intervalMs:500,stage:'cleanup'});

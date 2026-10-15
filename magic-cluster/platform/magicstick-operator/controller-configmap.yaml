@@ -3808,8 +3808,9 @@ data:
                 continue
             normalized.append(arg)
         normalized.append("--kv-cache-dtype=" + kv_cache_type)
-        if kv_cache_type == "fp8":
-            normalized.append("--calculate-kv-scales")
+        # All ordinary runtime pins use vLLM 0.31.0. That CLI removed the
+        # legacy calibration switch; FP8 still uses checkpoint/upstream scales.
+        # The wrapper only handles legacy saved arguments defensively.
         return normalized
 
 

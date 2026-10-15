@@ -49,8 +49,8 @@ const definitions={
     'Run bash tools/regression.sh setup to provision the separate namespaced app-intent cleaner. Use setup --manual only for externally provisioned scoped credentials.',
     'Verify applications.cleanerKubeconfig names its private readable file; an observer or administrator credential is not a substitute.',
   ]),
-  'optional-module':definition('Reviewed disabled optional module and approval',[
-    'Run bash tools/regression.sh setup and select an advertised non-critical disabled module. After approval setup creates/verifies its disabled fixture through the normal Dashboard API.',
+  'optional-module':definition('Idle standalone optional service and approval',[
+    'Automatic preparation selects a non-critical standalone service, not an empty instance-provider base. An already enabled idle service is restored to its original enabled state after the enable/disable checks.',
     'Do not use Dashboard, Identity, Inference, GPU or Mesh as the optional-module fixture.',
   ],'modules'),
   'amd-profile':definition('Alternate AMD profile and approval',[

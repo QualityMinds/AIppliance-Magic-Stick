@@ -85,6 +85,9 @@ def main():
         exec(compile(ast.Module(body=[definition], type_ignores=[]), "controller-kv-cache.py", "exec"), producer)
         for precision in ("auto", "fp8"):
             generated = producer["model_args_with_kv_cache"](["--model", str(model)], precision)
+            # Current controller output must itself fit the current pin; the
+            # compatibility wrapper cannot hide an obsolete producer contract.
+            assert parser.parse_args(generated).kv_cache_dtype == precision
             normalized = wrapper.normalize_legacy_cache_flags(generated)
             parsed = parser.parse_args(normalized)
             assert parsed.kv_cache_dtype == precision

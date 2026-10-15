@@ -86,6 +86,14 @@ PCIe/IOMMU topology and the retained Pod diagnostics. Operator-supplied transpor
 settings are preserved; host configuration is not modified by these probes.
 See [NVIDIA's GPU communication troubleshooting](https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/troubleshooting/gpu_troubleshooting.html).
 
+`WRAPPER_STARTUP` means the startup adapter itself failed. The server refuses to
+continue with unchecked/original arguments. Its log names a bounded private
+`startup.log`; failed native transport probes similarly retain a private
+`probe.log` inside the Pod. Inspect those files before changing driver or PCIe
+settings. They are not included in downloadable regression reports and must be
+reviewed before sharing. In older runs an ignored adapter exception could leave
+a secondary `unrecognized arguments` error that hid the original failure.
+
 `OOMKilled` is a different failure. Inspect the **actual Pod RAM limit**, not
 only available VRAM or the number of GPU claims. Architecture registration and
 valid FP8 arguments do not prove that model initialization, implicit CPU-resident

@@ -29,9 +29,9 @@ async function prepareApplications(live:LiveFoundation,api:AdministrationApi,fix
             const instances=Object.values((await api.api.instances()).instances).flat();
             requireSafe(!instances.some(item=>modules.catalogJson?.applications?.[String(item.spec?.application)]?.requiredModules?.includes(id)),'CONFLICT');
           }
-          const body=enabled&&!Object.keys(parameters).length?{}:{parameters};
+          const body=!Object.keys(parameters).length && (enabled || original.spec?.parameters === undefined) ? {} : {parameters};
           return api.write({method:'POST',path:`/api/modules/${id}/${enabled?'enable':'disable'}`,body},
-            ()=>enabled?api.api.enableModule(id,parameters):api.api.disableModule(id,parameters));
+            ()=>enabled?api.api.enableModule(id,parameters):api.api.disableModule(id,'parameters' in body ? parameters : undefined));
         },
       },live.guard);
       live.registerRestoration(()=>borrowed.restore());

@@ -45,6 +45,7 @@ export default class SafeReporter implements Reporter {
   private steps=new Map<TestCase,Map<TestStep,{index:number;finished:boolean}>>();
   private omittedSteps=new Map<TestCase,number>();
   private traces:ExecutionTrace[]=[];
+  private suiteFailures=new Map<Suite,NonNullable<ReturnType<typeof checkedBlocker>>>();
   onStepBegin(test:TestCase,_result:TestResult,step:TestStep) {
     let items=this.steps.get(test);if(!items){items=new Map();this.steps.set(test,items);}
     if(items.size<2000)items.set(step,{index:items.size+1,finished:false});
@@ -105,7 +106,15 @@ export default class SafeReporter implements Reporter {
       .map(step=>harnessFailure(step.error?.message)).filter(value=>value&&recoveryReasons.includes(value.code));
     const failure=failures.find(value=>value?.outcome === 'Failed') ?? cleanupFailures.find(value=>value?.outcome === 'Failed') ?? failures.find(Boolean);
     const recoveryRequired=[...failures,...cleanupFailures].some(value=>value&&recoveryReasons.includes(value.code));
-    const code=failures.some(value=>!value) ? 'UNEXPECTED' : failure?.code;
+    // Playwright's serial suites skip later tests after a failed sibling. This
+    // is a failure dependency, not a newly missing fixture. Explicit skips keep
+    // their own prerequisite/unknown meaning; unrelated suites are not adopted.
+    let predecessor:ReturnType<typeof checkedBlocker>;
+    if(result.status==='skipped' && !test.annotations.some(item=>['skip','fixme'].includes(item.type)))
+      for(let suite:Suite|undefined=test.parent;suite;suite=suite.parent) {
+        predecessor=this.suiteFailures.get(suite);if(predecessor)break;
+      }
+    const code=predecessor ? 'DEPENDENCY' : failures.some(value=>!value) ? 'UNEXPECTED' : failure?.code;
     const outcome = result.status === 'passed' ? (result.retry > 0 ? 'Failed' : 'Passed') : result.status === 'skipped' ? 'Blocked' :
       failureOutcome(code,[...result.errors.map(error=>error.message),...cleanupFailures.map(value=>
         new HarnessError(value!.code,value!.outcome,value!.stage).message)]);
@@ -151,9 +160,14 @@ export default class SafeReporter implements Reporter {
       ...(recoveryRequired?{recoveryRequired:true}:{} ),...(runtimeDiagnostics.length?{runtimeDiagnostics}:{} )});
     this.steps.delete(test);this.omittedSteps.delete(test);
     const root=evidence.find(item=>progressed.get(key(item))?.state==='failed');
-    const blockedBy=checkedBlocker({kind:outcome==='Failed'?'failure':regressionBlockedKind(code),
+    const untrackedFailure=outcome==='Failed' && stepAnnotations.length>0 && !root;
+    const blockedBy=predecessor ?? checkedBlocker({kind:outcome==='Failed'?'failure':regressionBlockedKind(code),
       reason:code,stage,executionId,traceRunId,
-      caseId:code==='PREPARATION_FAILED'?'HAR-02':root?.id});
+      caseId:code==='PREPARATION_FAILED'?'HAR-02':untrackedFailure?'HAR-10':root?.id ?? ids[0]});
+    // Retain the cause only in its owning suite. Propagating it to file/project
+    // ancestors would misattribute skips in independent sibling suites.
+    if(outcome==='Failed' && blockedBy && test.parent && !this.suiteFailures.has(test.parent))
+      this.suiteFailures.set(test.parent,blockedBy);
     for (const item of evidence) {
       const step=progressed.get(key(item)),passed=step?.state === 'passed' && result.retry === 0;
       const dependent=stepAnnotations.length > 0 && !step;
@@ -164,6 +178,15 @@ export default class SafeReporter implements Reporter {
         durationMs:step?.durationMs ?? (dependent ? 0 : result.duration),
         ...(passed ? {} : dependent ? {reason:'DEPENDENCY' as const} : code ? {reason:code} : itemOutcome === 'Failed' ? {reason:'UNEXPECTED' as const} : {}),
         ...(item.variant ? {variant:item.variant as CaseResult['variant']} : {}),...(!passed && !dependent && stage ? {stage} : {})});
+    }
+    // A failure between annotated assertions or in teardown must not disappear
+    // from the case counts merely because earlier steps already passed. Keep
+    // those passes and add an explicit, trace-linked harness failure instead.
+    if(untrackedFailure) {
+      const layer=fileLayer(test.location.file) ?? 'U';
+      this.cases.push({id:'HAR-10',layer,environment:environmentFor(layer),outcome:'Failed',executionOutcome:'Failed',
+        executionId,...(traceRunId?{traceRunId}:{}),durationMs:result.duration,reason:code ?? 'UNEXPECTED',
+        ...(stage?{stage}:{}),...(recoveryRequired?{recoveryRequired:true}:{})});
     }
     const position = this.positions.get(test);
     progressEvent({event:'test-end',position,total:this.total,ids,outcome,durationMs:result.duration,

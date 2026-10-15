@@ -1,9 +1,8 @@
 import {expect,test} from '@playwright/test';
 import {moduleResourceLinks,gpuCompatibilityParameters} from '@magicstick/dashboard-core';
-import {join} from 'node:path';
 import type {LiveFoundation} from '../core/live-foundation.ts';
 import {AdministrationApi,AdministrationRejected} from '../core/administration-api.ts';
-import {readPrivate,writePrivate} from '../core/private-files.ts';
+import {readPrivate,writePrivate,journalFile} from '../core/private-files.ts';
 import {requireProof as requireSafe} from '../core/errors.ts';
 import {poll} from '../core/poll.ts';
 import {canonical} from '../core/borrowed-sharing.ts';
@@ -14,14 +13,14 @@ const moduleSettings=(value:{enabled?:boolean;parameters?:unknown}|undefined)=>c
 const sharingSettings=(value:{providers:Array<{provider:string;mode:string;maxModels:number;backend:string;nodeUid:string}>})=>
   canonical(value.providers.map(({provider,mode,maxModels,backend,nodeUid})=>({provider,mode,maxModels,backend,nodeUid})).sort((a,b)=>a.provider.localeCompare(b.provider)));
 
-/** An optional catalog-owned module is borrowed only from a disabled baseline.
+/** An idle optional catalog-owned service is borrowed and restored exactly.
  * Never disable identity/dashboard/runtime/GPU or a module used by an app. */
 export async function modulesWorkflow(live:LiveFoundation) {
   const profile=JSON.parse(await readPrivate(process.env.REGRESSION_REMAINING_PROFILE!)),fixture=profile.modules;
   requireSafe(fixture?.approveOptionalModule === true && /^[a-z0-9-]{1,63}$/.test(fixture.id) && fixture.parameters && typeof fixture.parameters === 'object','PREREQUISITE');
   const api=new AdministrationApi(live.context.request,live.config.dashboardUrl,live.config.requestTimeoutMs,live.guard);
   const modules=await api.api.modules(),catalog=modules.catalogJson?.modules?.[fixture.id],baseline=modules.modules[fixture.id];
-  requireSafe(catalog && baseline && !baseline.enabled && catalog.activationMode === 'moduleactivation' &&
+  requireSafe(catalog && baseline && typeof baseline.enabled === 'boolean' && catalog.activationMode === 'moduleactivation' &&
     !/identity|dashboard|basis|kubeai|gpu|amd|nvidia|intel|litellm|private-mesh/.test(fixture.id),'PREREQUISITE');
   const instances=Object.values((await api.api.instances()).instances).flat();
   requireSafe(!instances.some(item=>modules.catalogJson?.applications?.[String(item.spec?.application)]?.requiredModules?.includes(fixture.id)) &&
@@ -29,22 +28,29 @@ export async function modulesWorkflow(live:LiveFoundation) {
     Object.values(fixture.parameters).every(value=>typeof value === 'string' && value.length < 128),'CONFIG');
   const intentResource='moduleactivations.appliance.magicstick.dev',ns=live.config.expected.applianceNamespace;
   const prior=(await live.observer.list(intentResource,ns)).find(item=>item.spec?.module === fixture.id);
-  // A disabled pre-created fixture is borrowed without changing its parameters.
+  // A pre-created fixture is borrowed without changing its parameters.
   // The module API cannot remove a newly created intent or faithfully restore an
   // arbitrary original spec. Do not leave such a mutation behind on cleanup.
-  requireSafe(prior?.spec?.enabled === false && JSON.stringify(prior.spec.parameters ?? {}) === JSON.stringify(fixture.parameters),'PREREQUISITE');
-  const receipt=join(process.env.REGRESSION_RUN_DIR!,'borrowed-module.json');
+  requireSafe(typeof prior?.spec?.enabled === 'boolean' && prior.spec.enabled === baseline.enabled &&
+    canonical(prior.spec.parameters ?? {}) === canonical(fixture.parameters),'PREREQUISITE');
+  const receipt=journalFile(live.journal,'borrowed-module.json');
   const sharing=sharingSettings(await api.api.gpuSharing());
   const borrowed=new BorrowedModule(prior,receipt,{read:async()=>{
     const current=(await live.observer.list(intentResource,ns)).find(item=>item.metadata.name === prior.metadata.name);
     requireSafe(current,'OWNERSHIP');return current;
   },set:async(enabled,parameters)=>{
-    const body=enabled&&!Object.keys(parameters).length?{}:{parameters};return api.write({method:'POST',path:`/api/modules/${fixture.id}/${enabled ? 'enable' : 'disable'}`,body},
-      ()=>enabled ? api.api.enableModule(fixture.id,parameters) : api.api.disableModule(fixture.id,parameters));
+    const body=!Object.keys(parameters).length && (enabled || prior.spec?.parameters === undefined) ? {} : {parameters};return api.write({method:'POST',path:`/api/modules/${fixture.id}/${enabled ? 'enable' : 'disable'}`,body},
+      ()=>enabled ? api.api.enableModule(fixture.id,parameters) : api.api.disableModule(fixture.id,'parameters' in body ? parameters : undefined));
   }},live.guard);
   const unregister=live.registerRestoration(()=>borrowed.restore());
   const page=await live.context.newPage();
   await withCleanup(async()=>{
+    if(prior.spec!.enabled === true) {
+      await borrowed.change(false,fixture.parameters);
+      await poll(()=>api.api.modules(),value=>value.modules[fixture.id]?.enabled === false &&
+        ['Disabled','Suspended'].includes(value.modules[fixture.id]?.status?.phase ?? ''),
+        {timeoutMs:300_000,intervalMs:1000,stage:'module-ready'});
+    }
     const beforeInvalid=moduleSettings((await api.api.modules()).modules[fixture.id]);
     const invalid={parameters:{unknownRegressionField:'invalid'}};
     let rejected=false;
@@ -68,18 +74,24 @@ export async function modulesWorkflow(live:LiveFoundation) {
       {timeoutMs:900_000,intervalMs:2000,stage:'module-ready'});
     const ready=(await api.api.modules()).modules[fixture.id]!,status=await live.api.status();
     requireSafe(canonical(ready.parameters ?? {}) === canonical(fixture.parameters) && sharingSettings(await api.api.gpuSharing()) === sharing,'API');
-    const links=moduleResourceLinks(fixture.id,catalog,status);requireSafe(links.length > 0,'PREREQUISITE');
+    const links=moduleResourceLinks(fixture.id,catalog,status);requireSafe(links.length > 0,'API');
     for(const link of links){const url=new URL(link.url);requireSafe(url.protocol === 'https:' && !url.username && !url.password,'CONFIG');
       const response=await live.context.request.get(url.href,{maxRedirects:0,timeout:live.config.requestTimeoutMs});requireSafe([200,302,303].includes(response.status()),'API');}
     await page.reload();await expect(card.getByRole('button',{name:'Disable',exact:true})).toBeVisible();
+    await borrowed.change(false,fixture.parameters);
+    await poll(()=>api.api.modules(),value=>value.modules[fixture.id]?.enabled === false &&
+      ['Disabled','Suspended'].includes(value.modules[fixture.id]?.status?.phase ?? ''),
+      {timeoutMs:300_000,intervalMs:1000,stage:'module-ready'});
+    await page.reload();await expect(card.getByRole('button',{name:'Enable',exact:true})).toBeVisible();
   },()=>test.step('Restore exact borrowed module settings',async()=>{
     await page.close().catch(()=>{});
     await borrowed.restore(); unregister();
-    await poll(async()=>{await live.guard();return api.api.modules();},value=>value.modules[fixture.id]?.enabled === false && ['Disabled','Suspended'].includes(value.modules[fixture.id]?.status?.phase ?? ''),
+    await poll(async()=>{await live.guard();return api.api.modules();},value=>value.modules[fixture.id]?.enabled === prior.spec!.enabled &&
+      (prior.spec!.enabled ? value.modules[fixture.id]?.status?.phase === 'Ready' : ['Disabled','Suspended'].includes(value.modules[fixture.id]?.status?.phase ?? '')),
       {timeoutMs:300_000,intervalMs:1000,stage:'cleanup'});
     requireSafe(sharingSettings(await api.api.gpuSharing()) === sharing,'CLEANUP');
   }));
-  const disabled=await live.context.newPage();try{await disabled.goto(live.config.dashboardUrl+'/#/services');await expect(disabled.locator('section.panel').filter({hasText:fixture.id}).getByRole('button',{name:'Enable',exact:true}).first()).toBeVisible();}finally{await disabled.close();}
+  const restored=await live.context.newPage();try{await restored.goto(live.config.dashboardUrl+'/#/services');await expect(restored.locator('section.panel').filter({hasText:fixture.id}).getByRole('button',{name:prior.spec!.enabled?'Disable':'Enable',exact:true}).first()).toBeVisible();}finally{await restored.close();}
   return new Set(['MOD-03','MOD-04']);
 }
 
@@ -102,7 +114,7 @@ export async function moduleProfileWorkflow(live:LiveFoundation) {
     !parameters.validationRequest,'PREREQUISITE');
   const payload=gpuCompatibilityParameters(plan.profileId,compatibility.profiles,plan.allowExperimental);
   const expected={...original.spec,parameters:{...parameters,...payload}};
-  const receipt=join(process.env.REGRESSION_RUN_DIR!,'borrowed-amd-profile.json');
+  const receipt=journalFile(live.journal,'borrowed-amd-profile.json');
   await writePrivate(receipt,{version:1,uid:original.metadata.uid,generation:original.metadata.generation,originalSpec:original.spec,state:'requested'},true);
   let applied:Awaited<ReturnType<typeof read>>|undefined;
   try {

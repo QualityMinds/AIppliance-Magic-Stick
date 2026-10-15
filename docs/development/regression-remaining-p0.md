@@ -35,6 +35,17 @@ or intervening revision requires inspection; the lock cannot be force-released.
 External-run journals must be cleaned up on their original runner. Historical
 failed reports remain unchanged.
 
+Service checks borrow an idle standalone service, test enable/disable and restore
+its original state. An empty instance-provider module is not a service fixture.
+Missing optional parameter maps are preserved, not treated as invalid setup.
+Mutation receipts are isolated per worker, including after a failed case restarts
+its browser worker. Each GPU scenario also reserves its own recovery journal,
+even when consecutive successful cases share a worker. Kubernetes-access tests
+use the pinned plugin's actual local
+OAuth callback flow with verified IdP, client, PKCE and callback state.
+License checks restore the original document or no-document baseline; a first
+test activation never leaves a test entitlement installed.
+
 The in-Appliance runner cannot independently verify its own reboot, power loss,
 network disconnection or software replacement. Those checks report
 **Blocked / EXTERNAL_RUNNER**; use the external runner below. Missing GPUs, Mesh
@@ -92,9 +103,14 @@ The Dashboard, HTML, JSON, text and JUnit use the same reasons. JUnit includes
 scenario/step outcomes and filtered traces; Blocked rows are skipped entries with
 cause properties. The archive retains every row, even when the Dashboard limits
 its expanded list. Raw credentials, journals and runtime logs stay private.
+Tests skipped after a failed serial sibling link to that sibling's failure;
+they are not reported as newly missing prerequisites.
 GPU startup and first CPU inference retain structured Pod/routing/response
-diagnostics. Repeated-cycle checks separate model-cache growth from other disk
-growth and verify model, Pod, claim, route and key cleanup.
+diagnostics; Realtime readiness also retains bounded private runtime logs before
+cleanup. Repeated-cycle checks separate model-cache growth from other disk
+growth and verify model, Pod, claim, route and key cleanup. Expected service
+rollouts compare stable workload UIDs and replica counts, not replaceable Pod
+UIDs; extra replicas, replaced workloads and leftover test Pods still fail.
 
 External reports are under `.regression/private/runs/reg-…/`; the console prints
 `all-summary.txt`. Open `summary.html` or extract `report-artifacts.tar.gz` before

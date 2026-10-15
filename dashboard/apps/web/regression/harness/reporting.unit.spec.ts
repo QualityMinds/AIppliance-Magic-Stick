@@ -86,6 +86,22 @@ test('HAR-10 blocker metadata discards private text and non-catalogue causal ide
   expect(checkedBlocker({kind:'failure',reason:['API'],executionId:12345})).toEqual({kind:'failure'});
 });
 
+test('HAR-10 serial sibling skips retain the original failure while explicit and unrelated skips stay independent',()=>{
+  const sharedRoot={} as Suite,parent={parent:sharedRoot} as Suite,other={parent:sharedRoot} as Suite,reporter=new SafeReporter();
+  const root=specimen('LIFE-02',evidenceAnnotations({id:'LIFE-02',layer:'E'}).annotation);root.parent=parent;
+  const dependent=specimen('MEM-05',evidenceAnnotations({id:'MEM-05',layer:'E'}).annotation);dependent.parent=parent;
+  const explicit=specimen('ENG-10',[...evidenceAnnotations({id:'ENG-10',layer:'E'}).annotation,{type:'skip',description:'Missing fixture'}]);explicit.parent=parent;
+  const independent=specimen('RT-01',evidenceAnnotations({id:'RT-01',layer:'E'}).annotation);independent.parent=other;
+  capture(()=>{
+    reporter.onTestBegin(root);reporter.onTestEnd(root,result('failed',new HarnessError('API','Failed','model-inference').message));
+    for(const selected of [dependent,explicit,independent]) {reporter.onTestBegin(selected);reporter.onTestEnd(selected,result('skipped'));}
+  });
+  const rows=(reporter as unknown as {cases:CaseResult[]}).cases;
+  expect(rows[1]).toMatchObject({outcome:'Blocked',reason:'DEPENDENCY',blockedBy:{kind:'failure',caseId:'LIFE-02',reason:'API',stage:'model-inference'}});
+  expect(rows[1]!.blockedBy?.executionId).toBe(rows[0]!.executionId);
+  expect(rows[2]!.blockedBy?.kind).toBe('unknown');expect(rows[3]!.blockedBy?.kind).toBe('unknown');
+});
+
 for(const reason of ['PREREQUISITE','DEADLINE'] as const)test(`HAR-10 dependent evidence retains the original ${reason} step cause`,async()=>{
   const root={id:'LIFE-03',variant:'p3-runtime-stop',layer:'E' as const},dependent={id:'LIFE-04',variant:'p3-runtime-start',layer:'E' as const};
   const selected=specimen('LIFE-03 LIFE-04',evidenceAnnotations(root,dependent).annotation),error=new HarnessError(reason,reason==='PREREQUISITE'?'Blocked':'Failed','model-stopped');
@@ -241,6 +257,18 @@ test('HAR-10 late CPU Start failure does not rewrite completed creation, edit or
   const rows=(reporter as unknown as {cases:CaseResult[]}).cases;
   expect(rows.map(row=>row.outcome)).toEqual(['Passed','Passed','Failed']);
   expect(rows.every(row=>row.executionOutcome==='Failed')).toBe(true);
+});
+
+test('HAR-10 an unannotated inference failure cannot become an overall Blocked report with no failed case',async()=>{
+  const create={id:'LIFE-02',layer:'E' as const},edit={id:'LIFE-07',layer:'E' as const};
+  const selected=specimen('LIFE-02 LIFE-07',evidenceAnnotations(create,edit).annotation);
+  await evidenceStep(selected,[create],async()=>{});
+  const reporter=new SafeReporter();capture(()=>reporter.onTestEnd(selected,result('failed',new HarnessError('API','Failed','model-inference').message)));
+  const rows=(reporter as unknown as {cases:CaseResult[]}).cases;
+  expect(rows[0]!.outcome).toBe('Passed');
+  expect(rows[1]).toMatchObject({outcome:'Blocked',blockedBy:{kind:'failure',caseId:'HAR-10',reason:'API',stage:'model-inference'}});
+  expect(rows[2]).toMatchObject({id:'HAR-10',outcome:'Failed',reason:'API',stage:'model-inference'});
+  expect(reportExitCode(rows)).toBe(1);
 });
 
 test('HAR-10 HAR-11 sanitized runtime diagnostics survive trace archives and JUnit without exporting attachment secrets',async()=>{
@@ -451,12 +479,14 @@ test('HAR-10 a cleanup failure cannot turn completed checks into a successful ex
   const reporter=new SafeReporter();
   capture(()=>reporter.onTestEnd(selected,result('failed',new HarnessError('CLEANUP','Failed','cleanup').message)));
   const cases=(reporter as unknown as {cases:CaseResult[]}).cases;
-  expect(cases).toHaveLength(1);
+  expect(cases).toHaveLength(2);
   expect(cases[0]).toMatchObject({outcome:'Passed',executionOutcome:'Failed'});
+  expect(cases[1]).toMatchObject({id:'HAR-10',outcome:'Failed',reason:'CLEANUP',stage:'cleanup'});
   const directory=await mkdtemp(join(tmpdir(),'magicstick-report-cleanup-'));
   try {
     const summary=await saveReport(directory,newRunId(),cases,['ENG-01'],'unknown','phase3-gpu');
     expect(summary.counts.Passed).toBe(1);
+    expect(summary.counts.Failed).toBe(1);
     expect(summary.executionCounts).toEqual({Passed:0,Failed:1,Blocked:0});
     expect(summary.acceptable).toBe(false);
   }finally{await rm(directory,{recursive:true,force:true});}

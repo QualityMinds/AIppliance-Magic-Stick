@@ -1,5 +1,4 @@
 import {test,expect,type Browser,type BrowserContext} from '@playwright/test';
-import {join} from 'node:path';
 import type {LabConfig} from '../core/config.ts';
 import {loadLabConfig} from '../core/config.ts';
 import {LiveFoundation} from '../core/live-foundation.ts';
@@ -7,7 +6,7 @@ import {gpuWorkerJournal} from '../core/gpu-scenario.ts';
 import {AdministrationApi} from '../core/administration-api.ts';
 import {OwnedIdentityClient} from '../core/owned-identity.ts';
 import {HarnessError,requireSafe,atStage} from '../core/errors.ts';
-import {readPrivate} from '../core/private-files.ts';
+import {readPrivate,writePrivate,journalFile} from '../core/private-files.ts';
 import {realLogin,openInferenceSession} from '../core/auth.ts';
 import {InferenceProbe} from '../core/inference.ts';
 import {poll} from '../core/poll.ts';
@@ -26,6 +25,7 @@ import {federationWorkflow} from './federation-live.ts';
 import {rbacWorkflow,unmanagedKeyWorkflow,securityCiWorkflow} from './security-live.ts';
 import {cacheProtection} from './cache-live.ts';
 import {companionWorkflow} from './companion-live.ts';
+import {workloadPodInventory,repeatInventoryChanges} from '../core/repeat-inventory.ts';
 
 type Profile={version:1;identity?:{approveDisposableUsers:true};repeat?:{cycles:number;maximumMemoryGrowthMi:number;maximumNonCacheDiskGrowthBytes:number}};
 let config:LabConfig,live:LiveFoundation|undefined,client:AdministrationApi;
@@ -132,7 +132,9 @@ async function repeatWorkflow() {
     Number.isSafeInteger(limits.maximumNonCacheDiskGrowthBytes) && limits.maximumNonCacheDiskGrowthBytes >= 0 &&
     limits.maximumNonCacheDiskGrowthBytes <= 10*1024**3 && config.smokeModel && config.inferenceUrl,'PREREQUISITE');
   await openInferenceSession(live!.context,config.inferenceUrl,config.loginTimeoutMs);
+  await live!.cleanup(); // Earlier cases' own resources are not the baseline.
   const baseline=await sample();
+  await writePrivate(journalFile(live!.journal,'repeat-baseline.json'),{version:1,...baseline},true);
   for(let cycle=0;cycle<limits.cycles;cycle++) {
     const created=await live!.createModel('repeat-'+cycle);
     const key=await live!.createKey('repeat-key-'+cycle);
@@ -151,22 +153,25 @@ async function repeatWorkflow() {
     await live!.journal.modelGeneration(created.client.name,created.uid,stopped.generation,started.generation);
     await live!.waitReady(created.client,created.uid,started.generation); await inference.chat(created.client.name,config.smokeModel.url.split('://')[1]);
     await live!.cleanup(); checked(live!.journal.recoveryPlan().length === 0);
-    const after=await sample();
-    const {writePrivate}=await import('../core/private-files.ts');
-    await writePrivate(join(process.env.REGRESSION_RUN_DIR!,`cycle-${cycle}.json`),{version:1,cycle,
+    // Consumer rollouts caused by the catalog may briefly overlap old/new
+    // Pods. Wait for the original workload counts, not original Pod UIDs.
+    let after=await sample();
+    try {after=await poll(async()=>{after=await sample();return after;},value=>repeatInventoryChanges(baseline,value).length===0,
+      {timeoutMs:120_000,intervalMs:1000,stage:'cleanup'});}
+    finally {await writePrivate(journalFile(live!.journal,`cycle-${cycle}.json`),{version:1,cycle,
       memoryGrowthMi:baseline.freeMi-after.freeMi,nonCacheDiskGrowthBytes:baseline.diskFree-after.diskFree-(after.cacheBytes-baseline.cacheBytes),
-      cacheGrowthBytes:after.cacheBytes-baseline.cacheBytes,objectCountsStable:after.modelIds === baseline.modelIds && after.podIds === baseline.podIds &&
-        after.intentIds === baseline.intentIds && after.claimIds === baseline.claimIds && after.routeIds === baseline.routeIds && after.keyIds === baseline.keyIds},true);
-    checked(after.modelIds === baseline.modelIds && after.podIds === baseline.podIds && after.intentIds === baseline.intentIds &&
-      after.claimIds === baseline.claimIds && after.routeIds === baseline.routeIds && after.keyIds === baseline.keyIds &&
+      cacheGrowthBytes:after.cacheBytes-baseline.cacheBytes,objectCountsStable:repeatInventoryChanges(baseline,after).length===0,
+      objectChanges:repeatInventoryChanges(baseline,after)},true);}
+    checked(repeatInventoryChanges(baseline,after).length===0 &&
       baseline.freeMi-after.freeMi <= limits.maximumMemoryGrowthMi &&
       baseline.diskFree-after.diskFree-(after.cacheBytes-baseline.cacheBytes) <= limits.maximumNonCacheDiskGrowthBytes);
   }
   return new Set(['PERF-02']);
 }
 async function sample() {
-  const [models,pods,intents,claims,routes,hosts,keys]=await Promise.all([
+  const [models,pods,replicaSets,intents,claims,routes,hosts,keys]=await Promise.all([
     atStage('baseline-models',()=>live!.api.models()),atStage('baseline-pods',()=>live!.observer.list('pods','ai')),
+    atStage('baseline-pods',()=>live!.observer.list('replicasets.apps','ai')),
     atStage('baseline-intents',()=>live!.observer.list('modelactivations.appliance.magicstick.dev','ai-system')),
     atStage('baseline-claims',()=>live!.observer.list('resourceclaims.resource.k8s.io','ai')),
     atStage('baseline-routes',()=>live!.observer.list('httproutes.gateway.networking.k8s.io','identity-system')),
@@ -175,7 +180,7 @@ async function sample() {
   const host=hosts.nodes.find(item=>config.expected.nodes.some(node=>node.uid === item.nodeUid));
   requireSafe(Number.isFinite(cpu?.freeMi) && Number.isFinite(host?.modelCache?.freeBytes) && Array.isArray(host?.modelCache?.caches),'PREREQUISITE');
   const ids=(items:Array<{metadata:{uid?:string}}>)=>items.map(item=>item.metadata.uid).sort().join(',');
-  return {modelIds:models.activations.map(item=>item.metadata?.uid).sort().join(','),podIds:ids(pods),intentIds:ids(intents),claimIds:ids(claims),routeIds:ids(routes),
+  return {modelIds:models.activations.map(item=>item.metadata?.uid).sort().join(','),podIds:workloadPodInventory(pods,replicaSets),intentIds:ids(intents),claimIds:ids(claims),routeIds:ids(routes),
     keyIds:keys.items.map(item=>item.id).sort().join(','),freeMi:cpu!.freeMi!,diskFree:host!.modelCache!.freeBytes!,
     cacheBytes:host!.modelCache!.caches.reduce((sum,item)=>sum+Number(item.usedBytes ?? 0),0)};
 }
@@ -296,7 +301,7 @@ async function runCase(definition:P0Definition,browser:Browser) {
         data:{protocol:'oidc',metadataUrl:'https://fixture.invalid/.well-known/openid-configuration'},headers:{Origin:config.dashboardUrl,'X-MagicStick-CSRF':'dashboard'},timeout:config.requestTimeoutMs,maxRedirects:0});
       checked(response.status() === 403);
     }
-    });
+    },id==='SSO-01'?'sso-01':'lic-01');
   }
   if(['AUTH-03','AUTH-05','SEC-01'].includes(id)) {
     const anonymous=await browser.newContext({serviceWorkers:'block',acceptDownloads:false});
