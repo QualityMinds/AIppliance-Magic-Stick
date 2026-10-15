@@ -6,5 +6,5 @@ metadata:
 data:
   # CI fills immutable image and source revision after the actual image's
   # isolated suites passed. An unpublished source change is not a usable image.
-  image: "ghcr.io/qualityminds/magicstick-regression:sha-5f8ece8a723d609f71190e84029bae796adbebbd@sha256:e422c04df0cf797a651b4b1f572a4d941a084ca81ee969ed3a5c7e3d48a0e87e"
-  sourceRevision: "5f8ece8a723d609f71190e84029bae796adbebbd"
+  image: "ghcr.io/qualityminds/magicstick-regression:sha-5583079c4596ca5035e6d1728ab7de8ac9882be7@sha256:5d397c060f4fcab5d3d104b9132fa5113e0c8dadbc86f413426a8b6762c3bf66"
+  sourceRevision: "5583079c4596ca5035e6d1728ab7de8ac9882be7"
